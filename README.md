@@ -1,38 +1,95 @@
-# sv
+# Slide - Interactive Presentation Platform
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A real-time presentation and voting platform built with SvelteKit, featuring live updates, audience participation, and seamless event management.
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+## 🚀 Quick Start - Development
 
 ```sh
-# create a new project in the current directory
-npx sv create
+# Install dependencies
+pnpm install
 
-# create a new project in my-app
-npx sv create my-app
+# Set up database
+pnpm prisma migrate dev
+
+# Start development server
+pnpm dev
 ```
 
-## Developing
+## 🐳 Production Deployment
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+This app is production-ready with Docker and Cloudflare Tunnel support.
+
+**→ See [QUICKSTART.md](./QUICKSTART.md) for fast deployment**
+
+**→ See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed documentation**
+
+**→ See [DOCKER-SETUP.md](./DOCKER-SETUP.md) for complete overview**
+
+### Quick Deploy
+```sh
+# On your production server
+./deploy.sh                      # Deploy with Docker
+./setup-cloudflare-tunnel.sh     # Set up Cloudflare Tunnel
+./backup.sh                      # Backup database
+```
+
+## 📚 Documentation
+
+- **[QUICKSTART.md](./QUICKSTART.md)** - Fast production deployment guide
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Comprehensive deployment docs
+- **[DOCKER-SETUP.md](./DOCKER-SETUP.md)** - Docker setup overview
+- **[TIMEZONE_GUIDE.md](./TIMEZONE_GUIDE.md)** - Timezone handling guide
+
+## 🔧 Development
 
 ```sh
-npm run dev
+# Start dev server
+pnpm dev
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+# Build for production
+pnpm build
+
+# Preview production build
+pnpm preview
+
+# Type checking
+pnpm check
 ```
 
-## Building
+## 🗄️ Database
 
-To create a production version of your app:
+Using SQLite with Prisma ORM:
 
 ```sh
-npm run build
+# Create migration
+pnpm prisma migrate dev
+
+# View database
+pnpm prisma studio
+
+# Reset database
+pnpm prisma migrate reset
 ```
 
-You can preview the production build with `npm run preview`.
+## 🏗️ Tech Stack
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+- **Framework**: SvelteKit 5
+- **Database**: SQLite + Prisma
+- **Styling**: TailwindCSS
+- **Real-time**: Server-Sent Events (SSE)
+- **Auth**: Custom session-based auth with bcrypt
+- **Deployment**: Docker + Cloudflare Tunnel
+
+## ✨ Features
+
+- 📊 Real-time presentation management
+- 🎯 Live audience voting
+- 🔐 Secure authentication
+- 🌐 Timezone-aware scheduling
+- 📱 Responsive design
+- 🚀 Production-ready Docker setup
+- 🔒 Cloudflare Tunnel integration
+
+## 📝 License
+
+MIT

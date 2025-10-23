@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  slide:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: slide-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3420:3420"  # Only expose to localhost for Cloudflare Tunnel
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/prod.db
+      - PORT=3420
+      # Set this to your actual Cloudflare Tunnel domain
+      - ORIGIN=${ORIGIN:-https://yourdomain.com}
+      # Set this to your admin email
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@yourdomain.com}
+    volumes:
+      # Persist SQLite database
+      - slide-data:/app/data
+    command: >
+      sh -c "pnpm prisma db push &&
+             node build"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3420/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  slide-data:
+    driver: local

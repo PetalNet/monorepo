@@ -17,11 +17,12 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test
-
-# Vite
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
+!.env.production.example
 
 /../generated/prisma
 
 *.db
+
+# Docker
+data/
+backups/
