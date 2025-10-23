@@ -1,6 +1,9 @@
 # Build stage
 FROM node:20-alpine AS builder
 
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
 # Install pnpm
 RUN npm install -g pnpm
 
@@ -23,6 +26,9 @@ RUN pnpm build
 
 # Production stage
 FROM node:20-alpine AS runner
+
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++
 
 # Install pnpm
 RUN npm install -g pnpm
