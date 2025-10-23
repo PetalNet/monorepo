@@ -14,6 +14,9 @@ const config = {
       precompress: true,
       envPrefix: "",
     }),
+    csrf: {
+      checkOrigin: true,
+    },
   },
 };
 

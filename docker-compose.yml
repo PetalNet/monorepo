@@ -7,13 +7,16 @@ services:
       dockerfile: Dockerfile
     container_name: slide-app
     restart: unless-stopped
+    env_file:
+      - .env.production
     ports:
       - "127.0.0.1:3420:3420" # Only expose to localhost for Cloudflare Tunnel
     environment:
       - NODE_ENV=production
       - DATABASE_URL=file:/app/data/prod.db
       - PORT=3420
-      # Set this to your actual Cloudflare Tunnel domain
+      # IMPORTANT: Set this to your actual domain (must match exactly for CSRF protection)
+      # Example: https://slidenight.petalcat.dev (no trailing slash)
       - ORIGIN=${ORIGIN:-https://yourdomain.com}
       # Set this to your admin email
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@yourdomain.com}
