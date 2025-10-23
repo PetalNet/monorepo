@@ -23,6 +23,7 @@ services:
       # Trust proxy headers from Cloudflare Tunnel
       - PROTOCOL_HEADER=x-forwarded-proto
       - HOST_HEADER=x-forwarded-host
+      - ADDRESS_HEADER=cf-connecting-ip
     volumes:
       # Persist SQLite database
       - slide-data:/app/data
