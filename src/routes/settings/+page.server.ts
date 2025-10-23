@@ -2,7 +2,7 @@ import { fail, redirect } from "@sveltejs/kit";
 import type { PageServerLoad, Actions } from "./$types";
 import { prisma } from "$lib/server/db";
 import { deleteSession } from "$lib/server/auth";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 export const load: PageServerLoad = async ({ locals }) => {
   if (!locals.user) {
