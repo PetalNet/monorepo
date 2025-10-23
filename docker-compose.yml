@@ -20,6 +20,9 @@ services:
       - ORIGIN=${ORIGIN:-https://yourdomain.com}
       # Set this to your admin email
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@yourdomain.com}
+      # Trust proxy headers from Cloudflare Tunnel
+      - PROTOCOL_HEADER=x-forwarded-proto
+      - HOST_HEADER=x-forwarded-host
     volumes:
       # Persist SQLite database
       - slide-data:/app/data

@@ -17,6 +17,10 @@ const config = {
     csrf: {
       checkOrigin: true,
     },
+    // Trust proxy headers (required for Cloudflare Tunnel)
+    env: {
+      publicPrefix: "PUBLIC_",
+    },
   },
 };
 
