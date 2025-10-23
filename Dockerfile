@@ -41,14 +41,11 @@ COPY package.json pnpm-lock.yaml ./
 # Copy prisma schema
 COPY prisma ./prisma
 
-# Install ALL dependencies (including prisma CLI)
-RUN pnpm install --frozen-lockfile
+# Install production dependencies (now includes prisma CLI)
+RUN pnpm install --prod --frozen-lockfile
 
 # Generate Prisma Client
 RUN pnpm prisma generate
-
-# Remove dev dependencies to reduce image size (keep prisma client)
-RUN pnpm prune --prod
 
 # Copy built application from builder
 COPY --from=builder /app/build ./build
