@@ -1,0 +1,177 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  passwordHash  String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  hostedEvents  Event[]   @relation("EventHost")
+  groupMembers  GroupMember[]
+  sessions      Session[]
+  votes         Vote[]
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(references: [id], fields: [userId], onDelete: Cascade)
+}
+
+model Event {
+  id                  String    @id @default(cuid())
+  name                String
+  theme               String?
+  description         String?
+  joinCode            String    @unique
+  hostId              String
+  submissionDeadline  DateTime?
+  maxPresentationTime Int?      // in minutes, null = unlimited
+  submissionsClosed   Boolean   @default(false)
+  orderMode           String    // "random", "alphabetical", "manual"
+  visibility          String    // "private" or "public"
+  allowLateSubmissions Boolean  @default(false)
+  status              String    @default("setup") // "setup", "live", "voting", "completed"
+  currentPresentationId String?
+  judgingOpen         Boolean   @default(false)
+  winnersRevealStep   Int       @default(0) // 0: none, 1: 3rd, 2: 2nd, 3: 1st, 4: confetti
+  confettiTriggeredAt DateTime? // Last time confetti was triggered
+  confettiCount       Int       @default(0) // Number of times confetti has been triggered
+  timerStartedAt      DateTime? // When timer was started (null if not running)
+  timerDuration       Int?      // Timer duration in seconds
+  timerPausedAt       DateTime? // When timer was paused (null if running)
+  timerPausedRemaining Int?     // Seconds remaining when paused
+  timezone            String    @default("America/New_York")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  
+  host                User      @relation("EventHost", fields: [hostId], references: [id])
+  groups              Group[]
+  categories          Category[]
+  votes               Vote[]
+  judges              Judge[]
+  votingSessions      VotingSession[]
+  presentationOrder   PresentationOrder[]
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  eventId     String
+  name        String
+  description String?
+  order       Int
+  createdAt   DateTime @default(now())
+  
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ratings     Rating[]
+}
+
+model Group {
+  id                String    @id @default(cuid())
+  eventId           String
+  inviteCode        String    @unique
+  name              String
+  emoji             String?
+  logo              String?
+  presentationType  String    // "slides", "video", "demo", "other"
+  submissionLink    String?
+  submissionFile    String?
+  status            String    @default("not_submitted") // "not_submitted", "submitted", "late"
+  submittedAt       DateTime?
+  presentationOrder Int?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  event             Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  members           GroupMember[]
+  votes             Vote[]
+  presentationOrders PresentationOrder[]
+}
+
+model GroupMember {
+  id          String   @id @default(cuid())
+  groupId     String
+  userId      String
+  isLeader    Boolean  @default(false)
+  joinedAt    DateTime @default(now())
+  
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Judge {
+  id          String   @id @default(cuid())
+  eventId     String
+  displayName String
+  joinedAt    DateTime @default(now())
+  
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  votes       Vote[]
+}
+
+model VotingSession {
+  id          String   @id @default(cuid())
+  eventId     String
+  displayName String
+  sessionCode String   @unique
+  createdAt   DateTime @default(now())
+  lastActive  DateTime @default(now())
+  
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  votes       Vote[]
+}
+
+model Vote {
+  id               String          @id @default(cuid())
+  eventId          String
+  groupId          String
+  judgeId          String?
+  votingSessionId  String?
+  userId           String?
+  createdAt        DateTime        @default(now())
+  
+  event            Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  group            Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  judge            Judge?          @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  votingSession    VotingSession?  @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  user             User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ratings          Rating[]
+}
+
+model Rating {
+  id          String   @id @default(cuid())
+  voteId      String
+  categoryId  String
+  stars       Int      // 1-5
+  
+  vote        Vote     @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  
+  @@unique([voteId, categoryId])
+}
+
+model PresentationOrder {
+  id          String   @id @default(cuid())
+  eventId     String
+  groupId     String
+  position    Int
+  
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  @@unique([eventId, groupId])
+  @@unique([eventId, position])
+}

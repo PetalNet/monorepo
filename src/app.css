@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-theater-dark: #0a0a0f;
+    --color-theater-darker: #050508;
+    --color-theater-purple: #8b5cf6;
+    --color-theater-gold: #fbbf24;
+    --color-theater-silver: #d1d5db;
+    --color-theater-bronze: #c87941;
+  }
+
+  body {
+    @apply bg-[#050508] text-white;
+  }
+
+  /* Ensure all inputs have proper styling */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="url"],
+  input[type="number"],
+  textarea {
+    @apply text-white;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-gray-500 opacity-100;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.6s ease-out;
+  }
+
+  .animate-confetti {
+    animation: confetti 3s ease-out forwards;
+  }
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  0% {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes confetti {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
