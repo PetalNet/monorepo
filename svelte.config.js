@@ -10,9 +10,9 @@ const config = {
   kit: {
     // Using adapter-node for production Docker deployment
     adapter: adapter({
-      out: 'build',
+      out: "build",
       precompress: true,
-      envPrefix: '',
+      envPrefix: "",
     }),
   },
 };

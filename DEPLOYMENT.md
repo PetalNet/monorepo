@@ -5,6 +5,7 @@ This guide explains how to deploy the Slide application using Docker on a remote
 ## Prerequisites
 
 On your remote machine, ensure you have:
+
 - Docker installed (version 20.10 or higher)
 - Docker Compose installed (version 2.0 or higher)
 - Git (to clone the repository)
@@ -44,6 +45,7 @@ docker-compose up -d
 ```
 
 The application will:
+
 1. Build the production image
 2. Run database migrations automatically
 3. Start the application on port 3000
@@ -133,6 +135,7 @@ curl https://yourdomain.com
 ## Cloudflare Tunnel Benefits
 
 Using Cloudflare Tunnel provides:
+
 - ✅ **Automatic SSL/TLS**: No need to manage certificates
 - ✅ **DDoS Protection**: Built-in Cloudflare security
 - ✅ **No Open Ports**: No need to expose ports 80/443 to the internet
@@ -333,6 +336,7 @@ You can add Cloudflare Access to require authentication:
 4. **Resource limits**: Set memory and CPU limits in docker-compose.yml if needed
 
 Example resource limits:
+
 ```yaml
 services:
   slide:
@@ -340,9 +344,9 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: "1"
           memory: 512M
         reservations:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 256M
 ```

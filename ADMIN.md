@@ -7,6 +7,7 @@ The admin panel is accessible at `/admin` and is restricted to a specific email 
 ### Development
 
 Add to your `.env` file:
+
 ```bash
 ADMIN_EMAIL=your-email@example.com
 ```
@@ -14,11 +15,13 @@ ADMIN_EMAIL=your-email@example.com
 ### Production
 
 Add to your `.env.production` file:
+
 ```bash
 ADMIN_EMAIL=admin@yourdomain.com
 ```
 
 Or set it in docker-compose.yml:
+
 ```yaml
 environment:
   - ADMIN_EMAIL=admin@yourdomain.com

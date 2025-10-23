@@ -5,6 +5,7 @@ Use this checklist when deploying Slide to production.
 ## Pre-Deployment
 
 ### Server Setup
+
 - [ ] Server provisioned (VPS/Cloud instance)
 - [ ] SSH access configured
 - [ ] Docker installed (`docker --version`)
@@ -13,6 +14,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Sufficient disk space (minimum 10GB recommended)
 
 ### Code Preparation
+
 - [ ] All code committed to git
 - [ ] Repository pushed to remote (GitHub, GitLab, etc.)
 - [ ] `.env.production` NOT committed to git
@@ -21,12 +23,14 @@ Use this checklist when deploying Slide to production.
 ## Deployment Steps
 
 ### 1. Server Preparation
+
 - [ ] SSH into server: `ssh user@your-server-ip`
 - [ ] Update system: `sudo apt-get update && sudo apt-get upgrade`
 - [ ] Install git if needed: `sudo apt-get install git`
 - [ ] Create application directory: `mkdir -p ~/apps && cd ~/apps`
 
 ### 2. Application Setup
+
 - [ ] Clone repository: `git clone <repo-url> slide`
 - [ ] Navigate to directory: `cd slide`
 - [ ] Copy environment template: `cp .env.production.example .env.production`
@@ -34,6 +38,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Set ORIGIN to your domain: `ORIGIN=https://yourdomain.com`
 
 ### 3. Docker Deployment
+
 - [ ] Run deployment script: `./deploy.sh`
 - [ ] Verify build completed successfully
 - [ ] Check container is running: `docker-compose ps`
@@ -41,6 +46,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Test local access: `curl http://localhost:3000/health`
 
 ### 4. Cloudflare Tunnel Setup
+
 - [ ] Run tunnel setup: `./setup-cloudflare-tunnel.sh`
 - [ ] Complete Cloudflare authentication in browser
 - [ ] Enter your domain when prompted
@@ -49,6 +55,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Verify DNS configured in Cloudflare dashboard
 
 ### 5. Verification
+
 - [ ] Test domain access: `curl https://yourdomain.com/health`
 - [ ] Test in browser: `https://yourdomain.com`
 - [ ] Create test user account
@@ -61,6 +68,7 @@ Use this checklist when deploying Slide to production.
 ## Post-Deployment
 
 ### Security
+
 - [ ] Change all default passwords
 - [ ] Verify HTTPS is working (Cloudflare SSL)
 - [ ] Review Cloudflare security settings
@@ -69,6 +77,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Review application logs for suspicious activity
 
 ### Backups
+
 - [ ] Test backup script: `./backup.sh`
 - [ ] Verify backup created in `./backups/` directory
 - [ ] Set up automated backups with cron:
@@ -80,6 +89,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Document backup location and schedule
 
 ### Monitoring
+
 - [ ] Set up uptime monitoring (UptimeRobot, Pingdom, etc.)
 - [ ] Configure email alerts for downtime
 - [ ] Set up log monitoring (optional)
@@ -87,6 +97,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Document monitoring dashboard locations
 
 ### Performance
+
 - [ ] Check application response time
 - [ ] Verify SSE connections work properly
 - [ ] Test with multiple concurrent users
@@ -94,6 +105,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Configure Cloudflare caching rules (if needed)
 
 ### Documentation
+
 - [ ] Document server access credentials (securely!)
 - [ ] Document Cloudflare account details
 - [ ] Document backup procedures
@@ -104,17 +116,20 @@ Use this checklist when deploying Slide to production.
 ## Maintenance Schedule
 
 ### Daily
+
 - [ ] Check application status: `docker-compose ps`
 - [ ] Review application logs for errors
 - [ ] Verify backups are running
 
 ### Weekly
+
 - [ ] Review Cloudflare analytics
 - [ ] Check disk space usage: `df -h`
 - [ ] Review security logs
 - [ ] Test backup restoration
 
 ### Monthly
+
 - [ ] Update system packages: `sudo apt-get update && sudo apt-get upgrade`
 - [ ] Review and rotate logs if needed
 - [ ] Audit user accounts
@@ -122,6 +137,7 @@ Use this checklist when deploying Slide to production.
 - [ ] Update Docker images if needed
 
 ### As Needed
+
 - [ ] Deploy application updates: `git pull && docker-compose build && docker-compose up -d`
 - [ ] Update Cloudflare Tunnel: `sudo cloudflared update`
 - [ ] Scale resources if needed
@@ -129,12 +145,14 @@ Use this checklist when deploying Slide to production.
 ## Troubleshooting Reference
 
 ### Application won't start
+
 ```bash
 docker-compose logs -f slide
 docker-compose restart
 ```
 
 ### Cloudflare Tunnel issues
+
 ```bash
 sudo systemctl status cloudflared
 sudo journalctl -u cloudflared -f
@@ -142,6 +160,7 @@ sudo systemctl restart cloudflared
 ```
 
 ### Database issues
+
 ```bash
 docker-compose exec slide sh
 ls -la /app/data/
@@ -149,6 +168,7 @@ pnpm prisma migrate status
 ```
 
 ### Out of disk space
+
 ```bash
 # Check usage
 df -h
@@ -164,17 +184,20 @@ find ./backups -type f -mtime +30 -delete
 If something goes wrong:
 
 1. Stop the application:
+
    ```bash
    docker-compose down
    ```
 
 2. Restore previous version:
+
    ```bash
    git checkout <previous-commit>
    docker-compose build
    ```
 
 3. Restore database if needed:
+
    ```bash
    docker cp ./backups/slide-backup-YYYYMMDD-HHMMSS.db slide-app:/app/data/prod.db
    ```
@@ -186,10 +209,10 @@ If something goes wrong:
 
 ## Emergency Contacts
 
-- [ ] Server provider support: _________________
-- [ ] Domain registrar support: _________________
+- [ ] Server provider support: ********\_********
+- [ ] Domain registrar support: ********\_********
 - [ ] Cloudflare support: https://support.cloudflare.com
-- [ ] Team lead/DevOps contact: _________________
+- [ ] Team lead/DevOps contact: ********\_********
 
 ## Notes
 
@@ -197,12 +220,12 @@ _Add any deployment-specific notes, gotchas, or customizations here:_
 
 ---
 
-**Deployment Date:** ___________________
+**Deployment Date:** ********\_\_\_********
 
-**Deployed By:** ___________________
+**Deployed By:** ********\_\_\_********
 
-**Production URL:** ___________________
+**Production URL:** ********\_\_\_********
 
-**Server IP:** ___________________
+**Server IP:** ********\_\_\_********
 
-**Cloudflare Tunnel ID:** ___________________
+**Cloudflare Tunnel ID:** ********\_\_\_********

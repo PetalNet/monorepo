@@ -26,6 +26,7 @@ This app is production-ready with Docker and Cloudflare Tunnel support.
 **→ See [DOCKER-SETUP.md](./DOCKER-SETUP.md) for complete overview**
 
 ### Quick Deploy
+
 ```sh
 # On your production server
 ./deploy.sh                      # Deploy with Docker

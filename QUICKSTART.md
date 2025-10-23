@@ -13,11 +13,13 @@ This is a streamlined guide to get your Slide app running in production using Do
 ### 1️⃣ On Your Remote Server
 
 SSH into your server:
+
 ```bash
 ssh user@your-server-ip
 ```
 
 Install Docker and Docker Compose:
+
 ```bash
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -34,18 +36,21 @@ sudo usermod -aG docker $USER
 ### 2️⃣ Clone and Configure
 
 Clone your repository:
+
 ```bash
 git clone <your-repo-url>
 cd slide
 ```
 
 Create production environment file:
+
 ```bash
 cp .env.production.example .env.production
 nano .env.production
 ```
 
 Set your domain (you'll configure this in Cloudflare):
+
 ```env
 ORIGIN=https://slide.yourdomain.com
 DATABASE_URL=file:/app/data/prod.db
@@ -55,11 +60,13 @@ NODE_ENV=production
 ### 3️⃣ Deploy the Application
 
 Run the deployment script:
+
 ```bash
 ./deploy.sh
 ```
 
 This will:
+
 - Build the Docker image
 - Start the application on `localhost:3000`
 - Run database migrations
@@ -68,11 +75,13 @@ This will:
 ### 4️⃣ Set Up Cloudflare Tunnel
 
 Run the automated setup script:
+
 ```bash
 ./setup-cloudflare-tunnel.sh
 ```
 
 This will:
+
 - Install cloudflared
 - Authenticate with Cloudflare
 - Create a tunnel
@@ -84,6 +93,7 @@ When prompted, enter your domain (e.g., `slide.yourdomain.com`)
 ### 5️⃣ Verify Deployment
 
 Check that everything is running:
+
 ```bash
 # Check Docker container
 docker-compose ps
@@ -119,6 +129,7 @@ docker-compose logs -f
 ## Troubleshooting
 
 ### Application won't start
+
 ```bash
 # Check logs
 docker-compose logs -f slide
@@ -128,6 +139,7 @@ docker-compose restart
 ```
 
 ### Cloudflare Tunnel issues
+
 ```bash
 # Check tunnel logs
 sudo journalctl -u cloudflared -f
@@ -140,6 +152,7 @@ cloudflared tunnel list
 ```
 
 ### Database issues
+
 ```bash
 # Access container
 docker-compose exec slide sh
@@ -154,6 +167,7 @@ pnpm prisma migrate deploy
 ## Backup Your Database
 
 Create a backup script:
+
 ```bash
 #!/bin/bash
 DATE=$(date +%Y%m%d-%H%M%S)
@@ -162,6 +176,7 @@ echo "Backup created: prod-$DATE.db"
 ```
 
 Run it regularly or set up a cron job:
+
 ```bash
 # Edit crontab
 crontab -e
@@ -173,6 +188,7 @@ crontab -e
 ## Need More Help?
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed documentation including:
+
 - Advanced Cloudflare configuration
 - Security best practices
 - Performance optimization
@@ -181,6 +197,7 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed documentation including:
 ## Support
 
 If you encounter issues:
+
 1. Check the logs: `docker-compose logs -f`
 2. Check tunnel logs: `sudo journalctl -u cloudflared -f`
 3. Verify your `.env.production` settings

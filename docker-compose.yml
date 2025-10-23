@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   slide:
@@ -8,7 +8,7 @@ services:
     container_name: slide-app
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3420:3420"  # Only expose to localhost for Cloudflare Tunnel
+      - "127.0.0.1:3420:3420" # Only expose to localhost for Cloudflare Tunnel
     environment:
       - NODE_ENV=production
       - DATABASE_URL=file:/app/data/prod.db
@@ -24,7 +24,15 @@ services:
       sh -c "pnpm prisma db push &&
              node build"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3420/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3420/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
