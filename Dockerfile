@@ -38,16 +38,17 @@ WORKDIR /app
 # Copy package files
 COPY package.json pnpm-lock.yaml ./
 
+# Copy prisma schema before installing dependencies
+COPY prisma ./prisma
+
 # Install production dependencies only
 RUN pnpm install --prod --frozen-lockfile
 
+# Generate Prisma Client in production
+RUN pnpm prisma generate
+
 # Copy built application from builder
 COPY --from=builder /app/build ./build
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-
-# Copy prisma schema for migrations
-COPY prisma ./prisma
 
 # Create directory for SQLite database
 RUN mkdir -p /app/data
