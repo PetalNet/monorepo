@@ -15,7 +15,7 @@ const config = {
       envPrefix: "",
     }),
     csrf: {
-      checkOrigin: false,  // Disable CSRF origin check (behind Cloudflare Tunnel)
+      checkOrigin: false, // Disable CSRF origin check (behind Cloudflare Tunnel)
     },
     // Trust proxy headers (required for Cloudflare Tunnel)
     env: {
