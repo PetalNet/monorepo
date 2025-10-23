@@ -15,11 +15,6 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=file:/app/data/prod.db
       - PORT=3420
-      # IMPORTANT: Set this to your actual domain (must match exactly for CSRF protection)
-      # Example: https://slidenight.petalcat.dev (no trailing slash)
-      - ORIGIN=${ORIGIN:-https://yourdomain.com}
-      # Set this to your admin email
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@yourdomain.com}
       # Trust proxy headers from Cloudflare Tunnel
       - PROTOCOL_HEADER=x-forwarded-proto
       - HOST_HEADER=x-forwarded-host
