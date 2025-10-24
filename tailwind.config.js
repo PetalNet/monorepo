@@ -6,7 +6,8 @@ export default {
       colors: {
         "theater-dark": "#1f1f2e", // Lighter background for better text contrast
         "theater-darker": "#16161f", // Lighter background for better text contrast
-        "theater-purple": "#7c3aed", // Darker, more saturated purple (violet-600) for better contrast with white
+        "theater-purple": "#7c3aed", // Darker purple for buttons with white text (violet-600)
+        "theater-purple-light": "#a78bfa", // Lighter purple for text on dark backgrounds (violet-400)
         "theater-gold": "#fbbf24",
         "theater-silver": "#e5e7eb",
         "theater-bronze": "#c87941",

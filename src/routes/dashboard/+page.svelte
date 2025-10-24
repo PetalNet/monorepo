@@ -143,12 +143,12 @@
 										</span>
 									</p>
 								{/if}
-								<div class="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-gray-400 text-xs sm:text-sm mb-1">
-									<p class="whitespace-nowrap">👥 {membership.group.members?.length || 0}</p>
-									{#if membership.isLeader}
-										<p class="text-theater-purple whitespace-nowrap">⭐ Leader</p>
-									{/if}
-								</div>
+							<div class="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-gray-400 text-xs sm:text-sm mb-1">
+								<p class="whitespace-nowrap">👥 {membership.group.members?.length || 0}</p>
+								{#if membership.isLeader}
+									<p class="text-theater-purple-light whitespace-nowrap">⭐ Leader</p>
+								{/if}
+							</div>
 								<div class="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-gray-500 text-xs">
 									{#if membership.group.event.submissionDeadline}
 										<p class="whitespace-nowrap">
@@ -212,10 +212,10 @@
 									<span class={`text-xs px-2 py-1 rounded font-semibold ${status.color} whitespace-nowrap flex-shrink-0`}>
 										{status.text}
 									</span>
-								</div>
-								{#if event.theme}
-									<p class="text-xs sm:text-sm text-theater-purple mb-1 truncate">Theme: {event.theme}</p>
-								{/if}
+							</div>
+							{#if event.theme}
+								<p class="text-xs sm:text-sm text-theater-purple-light mb-1 truncate">Theme: {event.theme}</p>
+							{/if}
 								<div class="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-gray-400 text-xs sm:text-sm mb-1">
 									<p class="whitespace-nowrap">🏷️ <span class="font-mono">{event.joinCode}</span></p>
 									<p class="whitespace-nowrap">📊 {event.groups?.length || 0}</p>
