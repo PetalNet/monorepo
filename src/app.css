@@ -4,16 +4,16 @@
 
 @layer base {
   :root {
-    --color-theater-dark: #0a0a0f;
-    --color-theater-darker: #050508;
-    --color-theater-purple: #8b5cf6;
+    --color-theater-dark: #1f1f2e;
+    --color-theater-darker: #16161f;
+    --color-theater-purple: #7c3aed;
     --color-theater-gold: #fbbf24;
-    --color-theater-silver: #d1d5db;
+    --color-theater-silver: #e5e7eb;
     --color-theater-bronze: #c87941;
   }
 
   body {
-    @apply bg-[#050508] text-white;
+    @apply bg-[#16161f] text-white;
   }
 
   /* Ensure all inputs have proper styling */
@@ -28,7 +28,7 @@
 
   input::placeholder,
   textarea::placeholder {
-    @apply text-gray-500 opacity-100;
+    @apply text-gray-400 opacity-100;
   }
 }
 

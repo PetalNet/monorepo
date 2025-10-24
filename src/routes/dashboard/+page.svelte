@@ -6,15 +6,15 @@
 	let { data } = $props();
 
 	function getEventStatus(event: any) {
-		if (event.status === 'completed') return { text: '✅ Completed', color: 'bg-green-700 text-green-200', showJoin: true };
-		if (event.currentPresentationId) return { text: '🎬 Presenting', color: 'bg-red-700 text-red-200 animate-pulse', showJoin: true };
-		return { text: '📝 Setup', color: 'bg-theater-purple text-purple-100', showJoin: false };
+		if (event.status === 'completed') return { text: '✅ Completed', color: 'bg-green-700 text-green-100', showJoin: true };
+		if (event.currentPresentationId) return { text: '🎬 Presenting', color: 'bg-red-700 text-red-100 animate-pulse', showJoin: true };
+		return { text: '📝 Setup', color: 'bg-theater-purple text-white', showJoin: false };
 	}
 
 	function getGroupStatus(group: any) {
-		if (group.status === 'submitted') return { text: '✅ Submitted', color: 'bg-green-700 text-green-200' };
-		if (group.status === 'late') return { text: '⏰ Late', color: 'bg-red-700 text-red-200' };
-		return { text: '⏳ Pending', color: 'bg-theater-purple text-purple-100' };
+		if (group.status === 'submitted') return { text: '✅ Submitted', color: 'bg-green-700 text-green-100' };
+		if (group.status === 'late') return { text: '⏰ Late', color: 'bg-red-700 text-red-100' };
+		return { text: '⏳ Pending', color: 'bg-theater-purple text-white' };
 	}
 
 	function nextDeadline(event: any) {
