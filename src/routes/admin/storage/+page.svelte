@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import PageContainer from '$lib/components/PageContainer.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	
 	export let data: PageData;
 	
@@ -16,8 +18,11 @@
 	<title>Storage - Admin Panel</title>
 </svelte:head>
 
-<div class="px-4 py-6">
-	<h1 class="text-3xl font-bold text-gray-900 mb-8">Storage Information</h1>
+<PageContainer>
+	<PageHeader 
+		title="Storage Information"
+		subtitle="Database and file storage details"
+	/>
 
 	<div class="grid grid-cols-1 gap-6 lg:grid-cols-2 mb-8">
 		<!-- Database Info -->
@@ -83,4 +88,4 @@
 			<li>SQLite performs best with databases under 1 GB</li>
 		</ul>
 	</div>
-</div>
+</PageContainer>

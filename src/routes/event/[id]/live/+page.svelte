@@ -4,6 +4,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
 	import QRCode from 'qrcode';
+	import ParticleBackground from '$lib/components/ParticleBackground.svelte';
 	
 	const { data } = $props();
 	const { event, orderedGroups, isHost, votingSession, currentUser } = data;
@@ -19,6 +20,45 @@
 	let hoveredStars = $state<Record<string, number>>({});
 	let hasVotedForCurrent = $state(false);
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
+	
+	// Simple background shapes for CSS animations
+	interface BackgroundShape {
+		id: number;
+		type: 'circle' | 'square' | 'triangle';
+		color: string;
+		size: number;
+		left: number;
+		top: number;
+		delay: number;
+		duration: number;
+	}
+	
+	let backgroundShapes = $state<BackgroundShape[]>([]);
+	
+	const TARGET_FPS = 30; // Target 30fps for better performance
+	const FRAME_TIME = 1000 / TARGET_FPS;
+	
+	function initBackgroundShapes() {
+		const shapes: BackgroundShape[] = [];
+		const colors = ['rgb(168 85 247 / 0.15)', 'rgb(236 72 153 / 0.15)', 'rgb(147 197 253 / 0.15)', 'rgb(129 140 248 / 0.15)'];
+		const types: ('circle' | 'square' | 'triangle')[] = ['circle', 'circle', 'square', 'square', 'triangle'];
+		const sizes = [60, 68, 56, 64, 60];
+		
+		for (let i = 0; i < 5; i++) {
+			shapes.push({
+				id: i,
+				type: types[i],
+				color: colors[i % colors.length],
+				size: sizes[i],
+				left: (i * 20) % 100,
+				top: (i * 25) % 100,
+				delay: i * 2,
+				duration: 18 + i * 3
+			});
+		}
+		
+		backgroundShapes = shapes;
+	}
 	
 	// Get voting URL
 	const votingUrl = $derived(() => {
@@ -64,10 +104,13 @@
 			}
 		}
 		
-		// Poll for updates every 3 seconds
+		// Initialize background shapes
+		initBackgroundShapes();
+		
+		// Poll for updates every 2 seconds
 		pollInterval = setInterval(() => {
 			invalidateAll();
-		}, 3000);
+		}, 2000);
 	});
 	
 	onDestroy(() => {
@@ -160,24 +203,86 @@
 	}
 </script>
 
-<div class="min-h-screen p-4 md:p-8 bg-theater-darker">
+<ParticleBackground />
+
+<div class="relative min-h-screen p-4 md:p-8 bg-gradient-to-br from-purple-400/50 via-pink-400/50 to-blue-400/50 animate-gradient overflow-hidden">
+	<!-- Background Shapes -->
+	<div class="fixed inset-0 pointer-events-none overflow-hidden z-0">
+		{#each backgroundShapes as shape (shape.id)}
+			{#if shape.type === 'circle'}
+				<div 
+					class="absolute rounded-full animate-float-random"
+					style="
+						width: {shape.size}px;
+						height: {shape.size}px;
+						left: {shape.left}%;
+						top: {shape.top}%;
+						background: {shape.color};
+						animation-delay: {shape.delay}s;
+						animation-duration: {shape.duration}s;
+					"
+				></div>
+			{:else if shape.type === 'square'}
+				<div 
+					class="absolute rounded-[2rem] animate-float-random"
+					style="
+						width: {shape.size}px;
+						height: {shape.size}px;
+						left: {shape.left}%;
+						top: {shape.top}%;
+						background: {shape.color};
+						animation-delay: {shape.delay}s;
+						animation-duration: {shape.duration}s;
+					"
+				></div>
+			{:else if shape.type === 'triangle'}
+				<svg 
+					class="absolute animate-float-random" 
+					viewBox="0 0 100 100"
+					style="
+						width: {shape.size}px;
+						height: {shape.size}px;
+						left: {shape.left}%;
+						top: {shape.top}%;
+						animation-delay: {shape.delay}s;
+						animation-duration: {shape.duration}s;
+					"
+				>
+					<path d="M 50 10 L 90 90 L 10 90 Z" fill={shape.color} rx="8"/>
+				</svg>
+			{/if}
+		{/each}
+	</div>
+	
+	<style>
+		@keyframes gradient {
+			0%, 100% { background-position: 0% 50%; }
+			50% { background-position: 100% 50%; }
+		}
+		.animate-gradient {
+			background-size: 200% 200%;
+			animation: gradient 8s ease infinite;
+		}
+	</style>
 	<div class="max-w-7xl mx-auto">
 		<!-- Header -->
-		<div class="mb-8 flex justify-between items-center">
+		<div class="mb-8 flex justify-between items-center glass-bright rounded-2xl p-6 border-2 border-purple-400/30">
 			<div>
-				<h1 class="text-4xl font-bold mb-2">🔴 {event.name} - LIVE</h1>
-				<p class="text-gray-400">Host Controls</p>
+				<h1 class="text-4xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400">
+					🔴 {event.name} - LIVE
+				</h1>
+				<p class="text-purple-200 font-semibold">Host Controls</p>
 			</div>
 			<button 
 				onclick={endEvent}
-				class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition"
+				class="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-lg font-semibold transition shadow-lg border border-red-400"
 			>
 				End Event
 			</button>
 		</div>
 
 		{#if groups.length === 0}
-			<div class="bg-theater-dark rounded-xl p-12 shadow-lg border border-gray-800 text-center">
+			<div class="glass-bright-strong rounded-xl p-12 shadow-2xl border-2 border-purple-400/40 text-center">
 				<p class="text-xl text-gray-400 mb-4">No groups have submitted presentations yet.</p>
 				<button 
 					onclick={() => goto(`/event/${event.id}`)}
@@ -191,7 +296,7 @@
 				<!-- Main Presentation Area -->
 				<div class="lg:col-span-2 space-y-6">
 					<!-- Current Presenter -->
-					<div class="bg-theater-dark rounded-xl p-8 shadow-lg border-2 border-theater-purple">
+					<div class="glass-bright-strong rounded-2xl p-8 shadow-2xl border-4 border-purple-400/50 ring-2 ring-purple-300/30">
 						<div class="text-center mb-6">
 							<p class="text-sm text-gray-400 mb-2 uppercase tracking-wide">Now Presenting</p>
 							<h2 class="text-4xl font-bold mb-4">
@@ -291,8 +396,8 @@
 				<!-- Sidebar -->
 				<div class="space-y-6">
 					<!-- Lineup -->
-					<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800">
-						<h3 class="text-xl font-semibold mb-4">Presentation Lineup</h3>
+					<div class="glass-bright rounded-2xl p-6 shadow-xl border-2 border-purple-400/30">
+						<h3 class="text-xl font-semibold mb-4 text-purple-100">Presentation Lineup</h3>
 						<div class="space-y-2 max-h-[600px] overflow-y-auto">
 							{#each groups as group, index}
 								<button
@@ -322,8 +427,8 @@
 					</div>
 
 					<!-- Event Status -->
-					<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800">
-						<h3 class="text-xl font-semibold mb-4">Event Status</h3>
+					<div class="glass-bright rounded-2xl p-6 shadow-xl border-2 border-purple-400/30">
+						<h3 class="text-xl font-semibold mb-4 text-purple-100">Event Status</h3>
 						<div class="space-y-3 text-sm">
 							<div class="flex justify-between">
 								<span class="text-gray-400">Status</span>
@@ -348,3 +453,25 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	@keyframes float-random {
+		0%, 100% {
+			transform: translate(0, 0) rotate(0deg);
+		}
+		25% {
+			transform: translate(40px, -30px) rotate(120deg);
+		}
+		50% {
+			transform: translate(-20px, 40px) rotate(240deg);
+		}
+		75% {
+			transform: translate(30px, 20px) rotate(180deg);
+		}
+	}
+	
+	.animate-float-random {
+		animation: float-random linear infinite;
+		will-change: transform;
+	}
+</style>

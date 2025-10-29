@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import PageContainer from '$lib/components/PageContainer.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	
 	export let data: PageData;
 	
@@ -30,8 +32,11 @@
 	<title>Admin Dashboard - Slide</title>
 </svelte:head>
 
-<div class="px-4 py-6">
-	<h1 class="text-3xl font-bold text-gray-900 mb-8">Dashboard</h1>
+<PageContainer>
+	<PageHeader 
+		title="Dashboard"
+		subtitle="Admin overview and system statistics"
+	/>
 
 	<!-- Stats Grid -->
 	<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
@@ -207,13 +212,13 @@
 							</div>
 						</div>
 					</li>
-				{/each}
-			</ul>
-			<div class="px-6 py-3 bg-gray-50 text-right">
-				<a href="/admin/events" class="text-sm font-medium text-blue-600 hover:text-blue-500">
-					View all events →
-				</a>
-			</div>
+			{/each}
+		</ul>
+		<div class="px-6 py-3 bg-gray-50 text-right">
+			<a href="/admin/events" class="text-sm font-medium text-blue-600 hover:text-blue-500">
+				View all events →
+			</a>
 		</div>
 	</div>
 </div>
+</PageContainer>

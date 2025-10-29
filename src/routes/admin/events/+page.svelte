@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import PageContainer from '$lib/components/PageContainer.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	
 	export let data: PageData;
 	
@@ -12,15 +14,11 @@
 	<title>Events - Admin Panel</title>
 </svelte:head>
 
-<div class="px-4 py-6">
-	<div class="sm:flex sm:items-center mb-6">
-		<div class="sm:flex-auto">
-			<h1 class="text-3xl font-bold text-gray-900">Events</h1>
-			<p class="mt-2 text-sm text-gray-700">
-				All events in the system. Total: {data.events.length}
-			</p>
-		</div>
-	</div>
+<PageContainer>
+	<PageHeader 
+		title="Events"
+		subtitle={`All events in the system. Total: ${data.events.length}`}
+	/>
 
 	<div class="bg-white shadow rounded-lg overflow-hidden">
 		<table class="min-w-full divide-y divide-gray-200">
@@ -86,9 +84,9 @@
 								View
 							</a>
 						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
 </div>
+</PageContainer>

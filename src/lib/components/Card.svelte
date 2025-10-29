@@ -8,6 +8,6 @@
 	} = $props();
 </script>
 
-<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800 {className}">
+<div class="glass rounded-xl p-6 {className}">
 	{@render children()}
 </div>

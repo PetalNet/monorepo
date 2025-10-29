@@ -1,20 +1,27 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { formatDistanceToNow, formatDistance } from 'date-fns';
-	import { formatRelativeWithTimezone, formatInTimezone, getTimezoneAbbr } from '$lib/utils/timezone';
-
+	import { formatDistanceToNow } from 'date-fns';
+	import { formatRelativeWithTimezone, getTimezoneAbbr } from '$lib/utils/timezone';
+	import { onMount } from 'svelte';
+	import ParticleBackground from '$lib/components/ParticleBackground.svelte';
+	
 	let { data } = $props();
+	let showContent = $state(false);
+
+	onMount(() => {
+		setTimeout(() => showContent = true, 100);
+	});
 
 	function getEventStatus(event: any) {
-		if (event.status === 'completed') return { text: '✅ Completed', color: 'bg-green-700 text-green-100', showJoin: true };
-		if (event.currentPresentationId) return { text: '🎬 Presenting', color: 'bg-red-700 text-red-100 animate-pulse', showJoin: true };
-		return { text: '📝 Setup', color: 'bg-theater-purple text-white', showJoin: false };
+		if (event.status === 'completed') return { text: '✅ Completed', color: 'bg-green-900/50 text-green-200 border border-green-700/50', urgency: 'completed', showJoin: true };
+		if (event.currentPresentationId) return { text: '🎬 Live Now', color: 'bg-red-900/50 text-red-200 border border-red-600/50 shadow-[0_0_20px_rgba(220,38,38,0.3)]', urgency: 'live', showJoin: true };
+		return { text: '📝 Setup', color: 'bg-theater-elevated text-purple-200 border border-purple-700/30', urgency: 'setup', showJoin: false };
 	}
 
 	function getGroupStatus(group: any) {
-		if (group.status === 'submitted') return { text: '✅ Submitted', color: 'bg-green-700 text-green-100' };
-		if (group.status === 'late') return { text: '⏰ Late', color: 'bg-red-700 text-red-100' };
-		return { text: '⏳ Pending', color: 'bg-theater-purple text-white' };
+		if (group.status === 'submitted') return { text: '✅ Submitted', color: 'bg-green-900/50 text-green-200 border border-green-700/50', urgency: 'done' };
+		if (group.status === 'late') return { text: '⏰ Late', color: 'bg-red-900/50 text-red-200 border border-red-700/50', urgency: 'urgent' };
+		return { text: '⏳ Pending', color: 'bg-amber-900/50 text-amber-200 border border-amber-700/50', urgency: 'warning' };
 	}
 
 	function nextDeadline(event: any) {
@@ -26,13 +33,27 @@
 	}
 </script>
 
-<div class="min-h-screen p-3 sm:p-4 md:p-8 bg-theater-darker">
-	<div class="max-w-7xl mx-auto">
-		<!-- Header & Create Event Button -->
-		<div class="flex flex-col gap-3 sm:gap-4 mb-6 sm:mb-8">
-			<div>
-				<h1 class="text-2xl sm:text-3xl md:text-4xl font-bold mb-1 text-white">Welcome, {data.user?.name || 'Presenter'}!</h1>
-				<p class="text-sm sm:text-base text-gray-400">Your dashboard overview</p>
+<div class="min-h-screen bg-theater-background relative overflow-hidden">
+	<ParticleBackground />
+	
+	<!-- Main content -->
+	<div class="relative z-10 w-full max-w-6xl mx-auto px-2 sm:px-4 md:px-8 py-6 sm:py-8 md:py-12">
+		<!-- Header & Quick Stats -->
+		<div class={`flex flex-col gap-2 sm:gap-3 mb-6 sm:mb-10 transition-all duration-700 items-center ${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} animate-fade-in animate-slide-up`}>
+			<h1 class="text-center text-3xl sm:text-4xl md:text-5xl font-extrabold mb-1
+				bg-gradient-to-r from-theater-purple via-theater-teal to-theater-gold bg-clip-text text-transparent drop-shadow-glow">
+				Welcome back, {data.user?.name || 'Presenter'}!
+			</h1>
+			<p class="text-base sm:text-lg md:text-xl text-gray-400 text-center">Your command center</p>
+			<div class="flex gap-3 mt-2">
+				<div class="bg-theater-elevated border border-theater-purple/30 rounded-xl px-4 py-2 text-center shadow-md">
+					<div class="text-xl font-bold text-theater-purple">{data.hostedEvents.length}</div>
+					<div class="text-xs text-gray-400">Events</div>
+				</div>
+				<div class="bg-theater-elevated border border-theater-teal/30 rounded-xl px-4 py-2 text-center shadow-md">
+					<div class="text-xl font-bold text-theater-teal">{data.groupMemberships.length}</div>
+					<div class="text-xs text-gray-400">Presentations</div>
+				</div>
 			</div>
 		</div>
 
@@ -77,173 +98,263 @@
 				});
 				return deadlines.sort((a: any, b: any) => a.deadline.getTime() - b.deadline.getTime());
 			})()}
-			<section class="mb-8 sm:mb-10">
-				<h2 class="text-xl sm:text-2xl font-semibold text-white mb-3">⏰ Upcoming Deadlines</h2>
-				<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-					{#each upcomingDeadlines as item}
-						<button
-							onclick={() => goto(item.link)}
-							class="bg-theater-dark rounded-xl p-3 sm:p-4 shadow-lg border border-gray-800 text-left hover:border-yellow-500 transition-all"
-						>
-							<div class="flex items-start justify-between gap-2 mb-2">
-								<div class="flex items-center gap-2 min-w-0 flex-1">
-									<span class="text-xl sm:text-2xl flex-shrink-0">{item.emoji || '📑'}</span>
-									<div class="min-w-0 flex-1">
-										<h3 class="text-base sm:text-lg font-semibold text-white break-words">{item.name}</h3>
-										<p class="text-xs text-gray-400 truncate">{item.eventName}</p>
+			<section class="mb-8 sm:mb-12">
+				<h2 class="text-center text-2xl sm:text-3xl font-bold text-white mb-5">
+					Upcoming Deadlines
+				</h2>
+				<div class="w-full flex justify-center px-4">
+					<div class="flex flex-wrap justify-center gap-6 max-w-7xl">
+						{#each upcomingDeadlines as item, i}
+							<button
+								onclick={() => goto(item.link)}
+								class={`glass rounded-2xl sm:rounded-3xl p-5 sm:p-6 w-full min-w-[280px] flex-1 basis-[400px] max-w-2xl
+									transition-all duration-500 flex items-center gap-4 sm:gap-5
+									hover:border-theater-gold/60 hover:shadow-2xl hover:shadow-theater-gold/20 hover:scale-[1.02]
+									hover:-translate-y-1 group
+									${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} animate-fade-in animate-slide-up`}
+								style="transition-delay: {i * 50}ms"
+							>
+								<!-- Emoji -->
+								<span class="text-5xl sm:text-6xl flex-shrink-0 group-hover:scale-110 transition-transform duration-300">{item.emoji || '📑'}</span>
+								
+								<!-- Main content -->
+								<div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+									<!-- Title section -->
+									<div class="flex-1 min-w-0">
+										<h3 class="text-lg sm:text-xl font-extrabold break-words leading-tight mb-1 relative">
+											<span class="text-white transition-opacity duration-300 group-hover:opacity-0">
+												{item.name}
+											</span>
+											<span class="absolute inset-0 bg-gradient-to-r from-theater-gold to-theater-teal bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+												{item.name}
+											</span>
+										</h3>
+										<p class="text-sm text-gray-400 truncate">{item.eventName}</p>
+									</div>
+									
+									<!-- Deadline -->
+									<div class="flex items-center gap-3 flex-shrink-0">
+										<div class="text-right">
+											<p class="text-base sm:text-lg text-theater-gold font-extrabold whitespace-nowrap">
+												{formatDistanceToNow(item.deadline, { addSuffix: true })}
+											</p>
+											<p class="text-xs text-gray-400">⏱️ Deadline</p>
+										</div>
+										{#if item.status === 'submitted'}
+											<span class="text-sm px-3 py-1.5 rounded-xl bg-green-900/60 text-green-200 border-2 border-green-600/50 font-bold shadow-md">✅</span>
+										{:else}
+											<span class="text-sm px-3 py-1.5 rounded-xl bg-amber-900/60 text-amber-200 border-2 border-amber-600/50 font-bold shadow-md animate-pulse">⏳</span>
+										{/if}
 									</div>
 								</div>
-								{#if item.status === 'submitted'}
-									<span class="text-xs px-2 py-1 rounded bg-green-700 text-green-200 whitespace-nowrap flex-shrink-0">✅</span>
-								{:else}
-									<span class="text-xs px-2 py-1 rounded bg-yellow-700 text-yellow-200 whitespace-nowrap flex-shrink-0">⏳</span>
-								{/if}
-							</div>
-							<p class="text-xs sm:text-sm text-yellow-400 font-semibold">
-								Due {formatDistanceToNow(item.deadline, { addSuffix: true })}
-							</p>
-						</button>
-					{/each}
+							</button>
+						{/each}
+					</div>
 				</div>
 			</section>
 		{/if}
 
 		<!-- Your Presentations Section -->
 		<section class="mb-10 sm:mb-14">
-			<h2 class="text-xl sm:text-2xl font-semibold text-white mb-3">Your Presentations</h2>
+			<h2 class="text-center text-2xl sm:text-3xl font-bold text-white mb-5">
+				Your Presentations
+			</h2>
 			{#if data.groupMemberships.length === 0}
-				<div class="bg-theater-dark rounded-xl p-6 sm:p-8 md:p-12 shadow-lg border border-gray-800 text-center">
-					<p class="text-sm sm:text-base text-gray-400">You're not part of any presentations yet.</p>
-				</div>
+				<section class="w-full flex items-center justify-center py-20 sm:py-28">
+					<div class="bg-theater-elevated border border-gray-800/50 rounded-2xl p-10 sm:p-16 shadow-xl text-center max-w-md mx-auto animate-fade-in animate-slide-up">
+						<div class="text-6xl sm:text-7xl mb-6">📭</div>
+						<p class="text-lg sm:text-xl text-gray-400">
+							You're not part of any presentations yet.
+						</p>
+					</div>
+				</section>
 			{:else}
-				<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6">
-					{#each data.groupMemberships as membership}
-						{@const eventStatus = getEventStatus(membership.group.event)}
-						<div class="bg-theater-dark rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg border border-gray-800 hover:border-theater-purple transition-all duration-200 group">
-							<button
-								onclick={() => goto(`/night/${membership.group.event.joinCode}`)}
-								class="text-left w-full"
-							>
-								<div class="flex justify-between items-start gap-2 mb-2">
-									<h3 class="text-base sm:text-lg font-semibold flex items-center gap-2 text-white min-w-0 flex-1 break-words">
-										<span class="flex-shrink-0">{membership.group.emoji || '📑'}</span>
-										<span class="break-words">{membership.group.name}</span>
-									</h3>
-									<span class={`text-xs px-2 py-1 rounded font-semibold ${getGroupStatus(membership.group).color} whitespace-nowrap flex-shrink-0`}>
-										{getGroupStatus(membership.group).text}
-									</span>
-								</div>
-								<p class="text-xs sm:text-sm text-gray-400 mb-1 truncate">
-									Event: <span class="font-semibold text-white">{membership.group.event.name}</span>
-								</p>
-								{#if eventStatus.showJoin}
-									<p class="text-xs sm:text-sm mb-2 flex items-center gap-1">
-										<span class={`px-2 py-0.5 rounded font-semibold ${eventStatus.color}`}>
-											{eventStatus.text}
-										</span>
-									</p>
-								{/if}
-							<div class="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-gray-400 text-xs sm:text-sm mb-1">
-								<p class="whitespace-nowrap">👥 {membership.group.members?.length || 0}</p>
-								{#if membership.isLeader}
-									<p class="text-theater-purple-light whitespace-nowrap">⭐ Leader</p>
+				<div class="w-full flex justify-center px-4">
+					<div class="flex flex-wrap justify-center gap-6 max-w-7xl">
+						{#each data.groupMemberships as membership, i}
+							{@const eventStatus = getEventStatus(membership.group.event)}
+							{@const groupStatus = getGroupStatus(membership.group)}
+							<div class={`glass rounded-2xl sm:rounded-3xl p-5 sm:p-6 w-full min-w-[280px] flex-1 basis-[400px] max-w-2xl
+								transition-all duration-500 flex flex-col gap-3
+								hover:border-theater-teal/60 hover:shadow-2xl hover:shadow-theater-teal/20 hover:scale-[1.02]
+								hover:-translate-y-1 group
+								${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} animate-fade-in animate-slide-up`}
+							     style="transition-delay: {i * 50}ms">
+								<button
+									onclick={() => goto(`/night/${membership.group.event.joinCode}`)}
+									class="text-left w-full flex items-center gap-4 sm:gap-5"
+								>
+									<!-- Emoji -->
+									<span class="text-5xl sm:text-6xl flex-shrink-0 group-hover:scale-110 transition-transform duration-300">{membership.group.emoji || '📑'}</span>
+									
+									<!-- Main content -->
+									<div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-3">
+										<!-- Title and event -->
+										<div class="flex-1 min-w-0">
+											<h3 class="text-lg sm:text-xl font-extrabold break-words leading-tight mb-1 relative">
+												<span class="text-white transition-opacity duration-300 group-hover:opacity-0">
+													{membership.group.name}
+												</span>
+												<span class="absolute inset-0 bg-gradient-to-r from-theater-teal to-theater-purple bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+													{membership.group.name}
+												</span>
+											</h3>
+											<p class="text-sm text-gray-400 truncate mb-2">
+												{membership.group.event.name}
+											</p>
+											<div class="flex flex-wrap gap-2 text-xs text-gray-400">
+												<span class="flex items-center gap-1">
+													<span>👥</span> {membership.group.members?.length || 0}
+												</span>
+												{#if membership.isLeader}
+													<span class="flex items-center gap-1 text-theater-gold font-bold">
+														<span>⭐</span> Leader
+													</span>
+												{/if}
+												{#if membership.group.event.submissionDeadline}
+													<span class="flex items-center gap-1">
+														<span>⏰</span> {formatRelativeWithTimezone(membership.group.event.submissionDeadline, membership.group.event.timezone)}
+													</span>
+												{/if}
+											</div>
+										</div>
+										
+										<!-- Status badges -->
+										<div class="flex flex-wrap gap-2 flex-shrink-0">
+											<span class={`text-sm px-3 py-1.5 rounded-xl font-bold ${groupStatus.color} whitespace-nowrap shadow-md`}>
+												{groupStatus.text}
+											</span>
+											{#if eventStatus.showJoin}
+												<span class={`text-sm px-3 py-1.5 rounded-xl font-bold ${eventStatus.color} whitespace-nowrap shadow-md`}>
+													{eventStatus.text}
+												</span>
+											{/if}
+										</div>
+									</div>
+								</button>
+								
+								{#if eventStatus.showJoin && eventStatus.urgency === 'live'}
+									<button
+										onclick={() => goto(`/night/${membership.group.event.joinCode}/live`)}
+										class="w-full px-4 py-2.5 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white rounded-xl font-extrabold text-sm transition-all shadow-xl shadow-red-900/50 flex items-center justify-center gap-2 hover:scale-105"
+									>
+										<span class="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+										Join Live Event
+									</button>
 								{/if}
 							</div>
-								<div class="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-gray-500 text-xs">
-									{#if membership.group.event.submissionDeadline}
-										<p class="whitespace-nowrap">
-											⏰ {formatRelativeWithTimezone(membership.group.event.submissionDeadline, membership.group.event.timezone)} ({getTimezoneAbbr(membership.group.event.timezone)})
-										</p>
-									{/if}
-									<p class="whitespace-nowrap">🕐 {formatDistanceToNow(new Date(membership.joinedAt))} ago</p>
-								</div>
-							</button>
-							{#if eventStatus.showJoin}
-								<button
-									onclick={() => goto(`/night/${membership.group.event.joinCode}/live`)}
-									class="w-full mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-sm transition-all shadow-lg flex items-center justify-center gap-2"
-								>
-									<span class="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-									Join Live Event
-								</button>
-							{/if}
-						</div>
-					{/each}
+						{/each}
+					</div>
 				</div>
 			{/if}
 		</section>
 
 		<!-- Your Events Section -->
 		<section class="mb-8 sm:mb-14">
-			<div class="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-3 mb-3">
-				<h2 class="text-xl sm:text-2xl font-semibold text-white">Your Events</h2>
+			<div class="flex flex-col sm:flex-row sm:items-center justify-center gap-4 mb-5 text-center">
+				<h2 class="text-center text-2xl sm:text-3xl font-bold text-white">
+					Your Events
+				</h2>
 				{#if data.hostedEvents.length > 0}
 					<button
 						onclick={() => goto('/event/create')}
-						class="px-4 py-2 rounded-lg text-sm sm:text-base bg-theater-purple text-white hover:bg-purple-600 transition self-start"
+						class="px-6 py-3 rounded-xl text-base font-bold bg-gradient-to-r from-theater-purple to-theater-gold text-white hover:from-theater-teal hover:to-theater-gold transition-all shadow-lg shadow-theater-purple/50 hover:scale-105 self-center"
 					>
 						+ Create Event
 					</button>
 				{/if}
 			</div>
 			{#if data.hostedEvents.length === 0}
-				<div class="bg-theater-dark rounded-xl p-6 sm:p-8 md:p-12 shadow-lg border border-gray-800 text-center">
-					<p class="text-sm sm:text-base text-gray-400 mb-4">You haven't created any events yet.</p>
-					<button
-						onclick={() => goto('/event/create')}
-						class="px-4 py-2.5 sm:px-5 sm:py-3 rounded-lg font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-theater-darker bg-theater-purple hover:bg-purple-600 focus:ring-theater-purple text-sm sm:text-base"
-					>
-						Create Your First Event
-					</button>
-				</div>
+				<section class="w-full flex items-center justify-center py-20 sm:py-28">
+					<div class="bg-theater-elevated border border-gray-800/50 rounded-2xl p-10 sm:p-16 shadow-xl text-center max-w-md mx-auto animate-fade-in animate-slide-up">
+						<div class="text-6xl sm:text-7xl mb-7">🎭</div>
+						<p class="text-lg sm:text-xl text-gray-400 mb-7">
+							You haven't created any events yet.
+						</p>
+						<button
+							onclick={() => goto('/event/create')}
+							class="px-8 py-4 rounded-2xl font-bold transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-theater-background bg-gradient-to-r from-theater-purple to-theater-gold hover:from-theater-teal hover:to-theater-gold focus:ring-theater-purple text-white shadow-lg shadow-theater-purple/50 hover:scale-105 text-lg"
+						>
+							Create Your First Event
+						</button>
+					</div>
+				</section>
 			{:else}
-				<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6">
-					{#each data.hostedEvents as event}
-						{@const status = getEventStatus(event)}
-						<div class="bg-theater-dark rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-lg border border-gray-800 hover:border-theater-purple transition-all duration-200 group">
-							<button
-								onclick={() => goto(`/night/${event.joinCode}`)}
-								class="text-left w-full"
-							>
-								<div class="flex justify-between items-start gap-2 mb-2">
-									<h3 class="text-base sm:text-lg md:text-xl font-semibold text-white min-w-0 flex-1 break-words">
-										{event.name}
-									</h3>
-									<span class={`text-xs px-2 py-1 rounded font-semibold ${status.color} whitespace-nowrap flex-shrink-0`}>
-										{status.text}
-									</span>
-							</div>
-							{#if event.theme}
-								<p class="text-xs sm:text-sm text-theater-purple-light mb-1 truncate">Theme: {event.theme}</p>
-							{/if}
-								<div class="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-gray-400 text-xs sm:text-sm mb-1">
-									<p class="whitespace-nowrap">🏷️ <span class="font-mono">{event.joinCode}</span></p>
-									<p class="whitespace-nowrap">📊 {event.groups?.length || 0}</p>
-								</div>
-								<div class="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-gray-500 text-xs">
-									<p class="whitespace-nowrap">🕐 {formatDistanceToNow(new Date(event.createdAt))} ago</p>
-									{#if nextDeadline(event)}
-										<p class="whitespace-nowrap">
-											⏰ {formatDistanceToNow(nextDeadline(event), { addSuffix: true })}
-										</p>
-									{/if}
-								</div>
-							</button>
-							{#if status.showJoin}
+				<div class="w-full flex justify-center px-4">
+					<div class="flex flex-wrap justify-center gap-6 max-w-7xl">
+						{#each data.hostedEvents as event, i}
+							{@const status = getEventStatus(event)}
+							<div class={`glass rounded-2xl sm:rounded-3xl p-5 sm:p-6 w-full min-w-[280px] flex-1 basis-[400px] max-w-2xl
+								transition-all duration-500 flex flex-col gap-3
+								hover:border-theater-purple/60 hover:shadow-2xl hover:shadow-theater-purple/20 hover:scale-[1.02]
+								hover:-translate-y-1 group
+								${showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'} animate-fade-in animate-slide-up`}
+							     style="transition-delay: {i * 50}ms">
 								<button
-									onclick={() => goto(`/night/${event.joinCode}/live`)}
-									class="w-full mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-sm transition-all shadow-lg flex items-center justify-center gap-2"
+									onclick={() => goto(`/night/${event.joinCode}`)}
+									class="text-left w-full flex items-center gap-4 sm:gap-5"
 								>
-									<span class="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-									Join Live Event
+									<!-- Emoji -->
+									<span class="text-5xl sm:text-6xl flex-shrink-0 group-hover:scale-110 transition-transform duration-300">🎭</span>
+									
+									<!-- Main content -->
+									<div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-3">
+										<!-- Title and info -->
+										<div class="flex-1 min-w-0">
+											<h3 class="text-lg sm:text-xl font-extrabold break-words leading-tight mb-1 relative">
+												<span class="text-white transition-opacity duration-300 group-hover:opacity-0">
+													{event.name}
+												</span>
+												<span class="absolute inset-0 bg-gradient-to-r from-theater-purple to-theater-gold bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+													{event.name}
+												</span>
+											</h3>
+											{#if event.theme}
+												<p class="text-sm text-theater-purple font-bold mb-2 truncate">
+													🎨 {event.theme}
+												</p>
+											{/if}
+											<div class="flex flex-wrap gap-3 text-xs text-gray-400">
+												<span class="flex items-center gap-1 text-theater-teal font-mono font-bold">
+													<span>🏷️</span> {event.joinCode}
+												</span>
+												<span class="flex items-center gap-1">
+													<span>📊</span> {event.groups?.length || 0} {event.groups?.length === 1 ? 'group' : 'groups'}
+												</span>
+												<span class="flex items-center gap-1">
+													<span>🕐</span> {formatDistanceToNow(new Date(event.createdAt))} ago
+												</span>
+												{#if nextDeadline(event)}
+													<span class="flex items-center gap-1">
+														<span>⏰</span> {formatDistanceToNow(nextDeadline(event), { addSuffix: true })}
+													</span>
+												{/if}
+											</div>
+										</div>
+										
+										<!-- Status badge -->
+										<div class="flex-shrink-0">
+											<span class={`text-sm px-3 py-1.5 rounded-xl font-bold ${status.color} whitespace-nowrap shadow-md`}>
+												{status.text}
+											</span>
+										</div>
+									</div>
 								</button>
-							{/if}
-						</div>
-					{/each}
+								
+								{#if status.showJoin && status.urgency === 'live'}
+									<button
+										onclick={() => goto(`/night/${event.joinCode}/live`)}
+										class="w-full px-4 py-2.5 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white rounded-xl font-extrabold text-sm transition-all shadow-xl shadow-red-900/50 flex items-center justify-center gap-2 hover:scale-105"
+									>
+										<span class="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+										Join Live Event
+									</button>
+								{/if}
+							</div>
+						{/each}
+					</div>
 				</div>
 			{/if}
 		</section>
-
-
 	</div>
 </div>

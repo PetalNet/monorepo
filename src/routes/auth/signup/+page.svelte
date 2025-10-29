@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import ParticleBackground from '$lib/components/ParticleBackground.svelte';
 	
 	let { form } = $props();
 </script>
 
+<ParticleBackground />
+
 <div class="min-h-screen flex items-center justify-center p-4">
-	<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800 max-w-md w-full">
+	<div class="glass rounded-xl p-6 max-w-md w-full">
 		<div class="text-center mb-8">
 			<h1 class="text-3xl font-bold mb-2">Create Account</h1>
 			<p class="text-gray-400">Join SlideNight to host or participate in presentation nights</p>

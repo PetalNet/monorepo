@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import PageContainer from '$lib/components/PageContainer.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	
 	export let data: PageData;
 	
@@ -32,8 +34,11 @@
 	<title>System - Admin Panel</title>
 </svelte:head>
 
-<div class="px-4 py-6">
-	<h1 class="text-3xl font-bold text-gray-900 mb-8">System Information</h1>
+<PageContainer>
+	<PageHeader 
+		title="System Information"
+		subtitle="Server process and memory details"
+	/>
 
 	<!-- Process Info -->
 	<div class="bg-white shadow rounded-lg p-6 mb-6">
@@ -152,14 +157,14 @@
 			</div>
 			<div class="flex justify-between">
 				<dt class="text-sm text-gray-500">Port</dt>
-				<dd class="text-sm font-medium text-gray-900">{data.environment.port}</dd>
-			</div>
-			<div class="flex justify-between">
-				<dt class="text-sm text-gray-500">Database URL</dt>
-				<dd class="text-xs font-medium text-gray-900 font-mono truncate ml-4">
-					{data.environment.databaseUrl}
-				</dd>
-			</div>
-		</dl>
+			<dd class="text-sm font-medium text-gray-900">{data.environment.port}</dd>
+		</div>
+		<div class="flex justify-between">
+			<dt class="text-sm text-gray-500">Database URL</dt>
+			<dd class="text-xs font-medium text-gray-900 font-mono truncate ml-4">
+				{data.environment.databaseUrl}
+			</dd>
+		</div>
+	</dl>
 	</div>
-</div>
+</PageContainer>

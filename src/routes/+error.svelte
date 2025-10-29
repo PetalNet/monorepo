@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import Button from '$lib/components/Button.svelte';
+	import ParticleBackground from '$lib/components/ParticleBackground.svelte';
 	
 	const errorMessages: Record<number, { emoji: string; title: string; message: string }> = {
 		404: {
@@ -31,6 +32,8 @@
 <svelte:head>
 	<title>{status} - {errorInfo.title} | SlideNight</title>
 </svelte:head>
+
+<ParticleBackground />
 
 <div class="min-h-screen flex flex-col items-center justify-center p-4 bg-theater-darker">
 	<div class="max-w-2xl w-full text-center space-y-6">

@@ -6,6 +6,8 @@
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { formatInTimezone, toDateTimeLocal, getTimezoneAbbr } from '$lib/utils/timezone';
+	import PageContainer from '$lib/components/PageContainer.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	
 	let { data } = $props();
 	let qrCodeUrl = $state('');
@@ -125,49 +127,21 @@
 	const statusBadge = $derived(getStatusBadge(event.status));
 </script>
 
-<div class="min-h-screen p-4 md:p-8">
-	<div class="max-w-7xl mx-auto">
-		<!-- Header -->
-		<div class="mb-8">
-			<button 
-				onclick={() => goto('/dashboard')}
-				class="text-gray-400 hover:text-white mb-4 flex items-center gap-2"
-			>
-				← Back to Dashboard
-			</button>
-			
-			<div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-				<div>
-					<div class="flex items-center gap-3 mb-2">
-						<h1 class="text-4xl font-bold">{event.name}</h1>
-						<span class="px-3 py-1 rounded-full border {statusBadge.color} text-sm font-semibold">
-							{statusBadge.emoji} {statusBadge.text}
-						</span>
-					</div>
-					{#if event.theme}
-						<p class="text-xl text-gray-400 mb-2">Theme: {event.theme}</p>
-					{/if}
-					{#if event.description}
-						<p class="text-gray-400">{event.description}</p>
-					{/if}
-				</div>
-				
-				{#if data.isHost && event.status === 'setup'}
-					<button 
-						onclick={() => goto(`/event/${event.id}/live`)}
-						class="px-6 py-3 rounded-lg font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-theater-darker bg-theater-purple hover:bg-purple-600 focus:ring-theater-purple whitespace-nowrap"
-					>
-						🎬 Start Event
-					</button>
-				{/if}
-			</div>
-		</div>
-		
-		<div class="grid lg:grid-cols-3 gap-6">
-			<!-- Main Content -->
-			<div class="lg:col-span-2 space-y-6">
+<PageContainer maxWidth="7xl">
+	<PageHeader 
+		title={event.name}
+		backLink="/dashboard"
+	>
+		<span class="px-3 py-1 rounded-full border {statusBadge.color} text-sm font-semibold">
+			{statusBadge.emoji} {statusBadge.text}
+		</span>
+	</PageHeader>
+	
+	<div class="grid lg:grid-cols-3 gap-6">
+		<!-- Main Content -->
+		<div class="lg:col-span-2 space-y-6">
 				<!-- Event Details / Settings -->
-				<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800">
+				<div class="glass rounded-xl p-6">
 					<div class="flex justify-between items-center mb-4">
 						<h2 class="text-2xl font-semibold">Event Settings</h2>
 						{#if data.isHost}
@@ -243,7 +217,7 @@
 				</div>
 				
 				<!-- Rating Categories -->
-				<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800">
+				<div class="glass rounded-xl p-6">
 					<div class="flex justify-between items-center mb-4">
 						<h2 class="text-2xl font-semibold">Rating Categories</h2>
 						{#if data.isHost && !editingCategories}
@@ -310,7 +284,7 @@
 				</div>
 				
 				<!-- Groups -->
-				<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800">
+				<div class="glass rounded-xl p-6">
 					<div class="flex justify-between items-center mb-4">
 						<h2 class="text-2xl font-semibold">Registered Groups ({event.groups.length})</h2>
 						<span class="text-sm text-gray-400">
@@ -391,7 +365,7 @@
 			<!-- Sidebar -->
 			<div class="space-y-6">
 				<!-- Join Information -->
-				<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800">
+				<div class="glass rounded-xl p-6">
 					<h2 class="text-xl font-semibold mb-4">Join Information</h2>
 					
 					<div class="space-y-4">
@@ -443,7 +417,7 @@
 				</div>
 				
 				<!-- Quick Stats -->
-				<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800">
+				<div class="glass rounded-xl p-6">
 					<h2 class="text-xl font-semibold mb-4">Stats</h2>
 					<div class="space-y-3">
 						<div class="flex justify-between">
@@ -480,8 +454,7 @@
 				</div>
 			</div>
 		</div>
-	</div>
-</div>
+</PageContainer>
 
 <!-- Edit Settings Modal -->
 {#if showEditModal}
@@ -489,7 +462,7 @@
 		class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50"
 		onclick={(e) => { if (e.target === e.currentTarget) showEditModal = false; }}
 	>
-		<div class="bg-theater-dark rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-800">
+		<div class="glass rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-800">
 			<h2 class="text-2xl font-semibold mb-6">Edit Event Settings</h2>
 			
 			<form 
@@ -571,7 +544,7 @@
 						<select 
 							id="modal-order" 
 							name="orderMode" 
-							defaultValue={event.orderMode}
+							value={event.orderMode}
 							class="w-full px-4 py-2 bg-theater-darker border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-theater-purple focus:border-transparent"
 						>
 							<option value="random">Random</option>
@@ -594,8 +567,8 @@
 							Cancel
 						</button>
 					</div>
-				</div>
-			</form>
-		</div>
+			</div>
+		</form>
 	</div>
+</div>
 {/if}

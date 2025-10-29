@@ -4,16 +4,22 @@
 
 @layer base {
   :root {
-    --color-theater-dark: #1f1f2e;
-    --color-theater-darker: #16161f;
+    --color-theater-background: #0b0b0f;
+    --color-theater-dark: #16161a;
+    --color-theater-darker: #0b0b0f;
+    --color-theater-elevated: #222226;
     --color-theater-purple: #7c3aed;
+    --color-theater-purple-light: #a78bfa;
+    --color-theater-purple-glow: #8b5cf6;
+    --color-theater-teal: #14b8a6;
+    --color-theater-amber: #f59e0b;
     --color-theater-gold: #fbbf24;
     --color-theater-silver: #e5e7eb;
     --color-theater-bronze: #c87941;
   }
 
   body {
-    @apply bg-[#16161f] text-white;
+    @apply bg-theater-background text-white antialiased;
   }
 
   /* Ensure all inputs have proper styling */
@@ -23,12 +29,21 @@
   input[type="url"],
   input[type="number"],
   textarea {
-    @apply text-white;
+    @apply text-white bg-theater-dark border-gray-700;
   }
 
   input::placeholder,
   textarea::placeholder {
     @apply text-gray-400 opacity-100;
+  }
+
+  /* Smooth transitions for all interactive elements */
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    @apply transition-all duration-200 ease-out;
   }
 }
 
@@ -43,6 +58,82 @@
 
   .animate-confetti {
     animation: confetti 3s ease-out forwards;
+  }
+
+  /* Glass morphism utilities */
+  .glass {
+    background: rgba(22, 22, 26, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(139, 92, 246, 0.1);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    transform: translateZ(0);
+    will-change: transform;
+  }
+
+  .glass-strong {
+    background: rgba(22, 22, 26, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+    transform: translateZ(0);
+    will-change: transform;
+  }
+
+  /* Bright glass for live pages */
+  .glass-bright {
+    background: linear-gradient(
+      135deg,
+      rgba(168, 85, 247, 0.3) 0%,
+      rgba(236, 72, 153, 0.25) 50%,
+      rgba(96, 165, 250, 0.3) 100%
+    );
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 8px 32px 0 rgba(168, 85, 247, 0.4),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.3);
+    transform: translateZ(0);
+    will-change: transform;
+  }
+
+  .glass-bright * {
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-bright-strong {
+    background: linear-gradient(
+      135deg,
+      rgba(168, 85, 247, 0.45) 0%,
+      rgba(236, 72, 153, 0.4) 50%,
+      rgba(96, 165, 250, 0.45) 100%
+    );
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 12px 48px 0 rgba(168, 85, 247, 0.5),
+      inset 0 2px 0 0 rgba(255, 255, 255, 0.4);
+    transform: translateZ(0);
+    will-change: transform;
+  }
+
+  .glass-bright-strong * {
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+
+  .glass-bright-strong * {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  }
+}
+
+@keyframes gradientShift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
   }
 }
 
@@ -74,5 +165,164 @@
   100% {
     transform: translateY(100vh) rotate(720deg);
     opacity: 0;
+  }
+}
+
+@keyframes spotlightRoam1 {
+  0% {
+    left: 25vw;
+    top: 30vh;
+  }
+  20% {
+    left: 75vw;
+    top: 15vh;
+  }
+  40% {
+    left: 60vw;
+    top: 50vh;
+  }
+  60% {
+    left: 20vw;
+    top: 75vh;
+  }
+  80% {
+    left: 45vw;
+    top: 45vh;
+  }
+  100% {
+    left: 25vw;
+    top: 30vh;
+  }
+}
+
+@keyframes spotlightBeam1 {
+  /* Line from (0,100vh) to spotlight position - MUST MATCH spotlightRoam1 */
+  0% {
+    /* To (25vw, 30vh): angle = atan(25/(100-30)) = atan(25/70) = 19.65deg, distance = sqrt(25^2+70^2) = 74.3vh */
+    height: 74.3vh;
+    transform: rotate(19.65deg);
+  }
+  20% {
+    /* To (75vw, 15vh): angle = atan(75/85) = 41.4deg, distance = 113.4vh */
+    height: 113.4vh;
+    transform: rotate(41.4deg);
+  }
+  40% {
+    /* To (60vw, 50vh): angle = atan(60/50) = 50.2deg, distance = 78.1vh */
+    height: 78.1vh;
+    transform: rotate(50.2deg);
+  }
+  60% {
+    /* To (20vw, 75vh): angle = atan(20/25) = 38.7deg, distance = 32.0vh */
+    height: 32vh;
+    transform: rotate(38.7deg);
+  }
+  80% {
+    /* To (45vw, 45vh): angle = atan(45/55) = 39.3deg, distance = 71.0vh */
+    height: 71vh;
+    transform: rotate(39.3deg);
+  }
+  100% {
+    height: 74.3vh;
+    transform: rotate(19.65deg);
+  }
+}
+
+@keyframes spotlightRoam2 {
+  0% {
+    left: 70vw;
+    top: 35vh;
+  }
+  25% {
+    left: 30vw;
+    top: 60vh;
+  }
+  50% {
+    left: 55vw;
+    top: 75vh;
+  }
+  75% {
+    left: 85vw;
+    top: 40vh;
+  }
+  100% {
+    left: 70vw;
+    top: 35vh;
+  }
+}
+
+@keyframes spotlightBeam2 {
+  /* Line from (100vw,100vh) to spotlight position - MUST MATCH spotlightRoam2 */
+  0% {
+    /* To (70vw, 35vh): angle = -atan((100-70)/(100-35)) = -atan(30/65) = -24.8deg, distance = 71.6vh */
+    height: 71.6vh;
+    transform: rotate(-24.8deg);
+  }
+  25% {
+    /* To (30vw, 60vh): angle = -atan(70/40) = -60.3deg, distance = 80.6vh */
+    height: 80.6vh;
+    transform: rotate(-60.3deg);
+  }
+  50% {
+    /* To (55vw, 75vh): angle = -atan(45/25) = -60.9deg, distance = 51.5vh */
+    height: 51.5vh;
+    transform: rotate(-60.9deg);
+  }
+  75% {
+    /* To (85vw, 40vh): angle = -atan(15/60) = -14.0deg, distance = 61.8vh */
+    height: 61.8vh;
+    transform: rotate(-14deg);
+  }
+  100% {
+    height: 71.6vh;
+    transform: rotate(-24.8deg);
+  }
+}
+
+@keyframes spotlightFloat1 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(20vw, -10vh);
+  }
+  50% {
+    transform: translate(-10vw, 15vh);
+  }
+  75% {
+    transform: translate(15vw, 5vh);
+  }
+}
+
+@keyframes spotlightFloat2 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(-15vw, 10vh);
+  }
+  66% {
+    transform: translate(10vw, -15vh);
+  }
+}
+
+@keyframes spotlightFloat3 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-20vw, -5vh);
+  }
+  40% {
+    transform: translate(5vw, 10vh);
+  }
+  60% {
+    transform: translate(15vw, -10vh);
+  }
+  80% {
+    transform: translate(-10vw, 5vh);
   }
 }

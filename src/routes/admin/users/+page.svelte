@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { enhance } from '$app/forms';
+	import PageContainer from '$lib/components/PageContainer.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	
 	export let data: PageData;
 	
@@ -23,15 +25,11 @@
 	<title>Users - Admin Panel</title>
 </svelte:head>
 
-<div class="px-4 py-6">
-	<div class="sm:flex sm:items-center mb-6">
-		<div class="sm:flex-auto">
-			<h1 class="text-3xl font-bold text-gray-900">Users</h1>
-			<p class="mt-2 text-sm text-gray-700">
-				Manage all users in the system. Total: {data.users.length}
-			</p>
-		</div>
-	</div>
+<PageContainer>
+	<PageHeader 
+		title="Users"
+		subtitle={`Manage all users in the system. Total: ${data.users.length}`}
+	/>
 
 	<div class="bg-white shadow rounded-lg overflow-hidden">
 		<table class="min-w-full divide-y divide-gray-200">
@@ -104,16 +102,16 @@
 								<button
 									on:click={() => confirmDelete(user.id)}
 									class="text-red-600 hover:text-red-900"
-								>
-									Delete
-								</button>
-							{:else}
-								<span class="text-gray-400">Protected</span>
-							{/if}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
+							>
+								Delete
+							</button>
+						{:else}
+							<span class="text-gray-400">Protected</span>
+						{/if}
+					</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
 </div>
+</PageContainer>

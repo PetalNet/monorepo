@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
+	import { invalidateAll } from '$app/navigation';
 	import { enhance } from '$app/forms';
+	import PageContainer from '$lib/components/PageContainer.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	
 	let { data, form } = $props();
 	
@@ -53,22 +55,15 @@
 	}
 </script>
 
-<div class="min-h-screen p-4 md:p-8">
-	<div class="max-w-4xl mx-auto">
-		<!-- Header -->
-		<div class="mb-8">
-			<button 
-				onclick={() => goto('/dashboard')}
-				class="text-gray-400 hover:text-white mb-4 flex items-center gap-2"
-			>
-				← Back to Dashboard
-			</button>
-			<h1 class="text-4xl font-bold mb-2">Account Settings</h1>
-			<p class="text-gray-400">Manage your account preferences</p>
-		</div>
+<PageContainer>
+	<PageHeader 
+		title="Account Settings"
+		subtitle="Manage your account preferences"
+		backLink="/dashboard"
+	/>
 
-		<!-- Account Information -->
-		<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800 mb-6">
+	<!-- Account Information -->
+	<div class="glass rounded-xl p-6 mb-6">
 			<h2 class="text-2xl font-semibold mb-6">Account Information</h2>
 			
 			<div class="space-y-6">
@@ -132,7 +127,7 @@
 		</div>
 
 		<!-- Preferences -->
-		<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800 mb-6">
+		<div class="glass rounded-xl p-6 mb-6">
 			<h2 class="text-2xl font-semibold mb-6">Preferences</h2>
 			
 			<div class="space-y-4">
@@ -177,13 +172,12 @@
 			</div>
 
 		</div>
-	</div>
-</div>
+</PageContainer>
 
 <!-- Delete Account Confirmation Modal -->
 {#if showDeleteConfirm}
 	<div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-		<div class="bg-theater-dark border border-red-900/50 rounded-xl p-8 max-w-md w-full shadow-2xl">
+		<div class="glass-strong rounded-xl p-8 border-red-900/50 max-w-md w-full shadow-2xl">
 			<h3 class="text-2xl font-bold text-red-400 mb-4">⚠️ Delete Account</h3>
 			
 			<p class="text-white mb-4">
@@ -226,7 +220,7 @@
 <!-- Edit Name Modal -->
 {#if editingName}
 	<div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onclick={(e) => e.target === e.currentTarget && closeModals()} role="button" tabindex="0" onkeydown={(e) => e.key === 'Escape' && closeModals()}>
-		<div class="bg-theater-dark border border-gray-800 rounded-xl p-8 max-w-md w-full shadow-2xl">
+		<div class="glass-strong rounded-xl p-8 max-w-md w-full shadow-2xl">
 			<h3 class="text-2xl font-bold text-white mb-4">Edit Name</h3>
 			
 			{#if form?.error && form?.error.includes('name')}
@@ -290,7 +284,7 @@
 <!-- Edit Email Modal -->
 {#if editingEmail}
 	<div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onclick={(e) => e.target === e.currentTarget && closeModals()} role="button" tabindex="0" onkeydown={(e) => e.key === 'Escape' && closeModals()}>
-		<div class="bg-theater-dark border border-gray-800 rounded-xl p-8 max-w-md w-full shadow-2xl">
+		<div class="glass-strong rounded-xl p-8 max-w-md w-full shadow-2xl">
 			<h3 class="text-2xl font-bold text-white mb-4">Edit Email</h3>
 			
 			{#if form?.error && (form?.error.includes('email') || form?.error.includes('Email') || form?.error.includes('password'))}
@@ -368,7 +362,7 @@
 <!-- Change Password Modal -->
 {#if editingPassword}
 	<div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onclick={(e) => e.target === e.currentTarget && closeModals()} role="button" tabindex="0" onkeydown={(e) => e.key === 'Escape' && closeModals()}>
-		<div class="bg-theater-dark border border-gray-800 rounded-xl p-8 max-w-md w-full shadow-2xl">
+		<div class="glass-strong rounded-xl p-8 max-w-md w-full shadow-2xl">
 			<h3 class="text-2xl font-bold text-white mb-4">Change Password</h3>
 			
 			{#if form?.error && form?.error.includes('password')}

@@ -149,6 +149,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   // Get existing votes for current user/session
   let existingVotes: Record<string, Record<string, number>> = {};
+  let userGroupIds: string[] = []; // Track which groups the current user is a member of
 
   for (const group of orderedGroups) {
     const vote = await prisma.vote.findFirst({
@@ -172,6 +173,22 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         existingVotes[group.id][rating.categoryId] = rating.stars;
       }
     }
+  }
+
+  // Get list of group IDs that the current user is a member of (for self-voting prevention)
+  if (locals.user) {
+    const userGroups = await prisma.groupMember.findMany({
+      where: {
+        userId: locals.user.id,
+        group: {
+          eventId: event.id,
+        },
+      },
+      select: {
+        groupId: true,
+      },
+    });
+    userGroupIds = userGroups.map((g) => g.groupId);
   }
 
   // Calculate winners (only if event status is completed or we have votes)
@@ -307,6 +324,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     currentPresentationVotes,
     totalPotentialVoters,
     existingVotes,
+    userGroupIds,
     topPresentations,
     categoryWinners,
     fullLeaderboard,
@@ -382,6 +400,20 @@ export const actions: Actions = {
       userId = locals.user.id;
     } else {
       return { error: "Not authenticated" };
+    }
+
+    // Check if user is a member of the group they're trying to vote on (prevent self-voting)
+    if (userId) {
+      const isMemberOfGroup = await prisma.groupMember.findFirst({
+        where: {
+          userId,
+          groupId,
+        },
+      });
+
+      if (isMemberOfGroup) {
+        return { error: "You cannot vote on your own presentation" };
+      }
     }
 
     // Check if already voted for this group
@@ -578,6 +610,20 @@ export const actions: Actions = {
       userId = locals.user.id;
     } else {
       return { error: "Not authenticated" };
+    }
+
+    // Check if user is a member of the group they're trying to vote on (prevent self-voting)
+    if (userId) {
+      const isMemberOfGroup = await prisma.groupMember.findFirst({
+        where: {
+          userId,
+          groupId,
+        },
+      });
+
+      if (isMemberOfGroup) {
+        return { error: "You cannot vote on your own presentation" };
+      }
     }
 
     // Find or create vote

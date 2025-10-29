@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { COMMON_TIMEZONES, getUserTimezone } from '$lib/utils/timezone';
+	import PageContainer from '$lib/components/PageContainer.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	
 	let loading = $state(false);
 	let error = $state('');
@@ -70,16 +72,15 @@
 	}
 </script>
 
-<div class="min-h-screen p-4 md:p-8">
-	<div class="max-w-3xl mx-auto">
-		<div class="mb-8">
-			<h1 class="text-4xl font-bold mb-2">Create New Event</h1>
-			<p class="text-gray-400">Set up your presentation night with all the details</p>
-		</div>
-		
-		<form onsubmit={handleSubmit} class="space-y-6">
-			<!-- Basic Info -->
-			<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800 space-y-4">
+<PageContainer maxWidth="3xl">
+	<PageHeader 
+		title="Create New Event"
+		subtitle="Set up your presentation night with all the details"
+	/>
+	
+	<form onsubmit={handleSubmit} class="space-y-6">
+		<!-- Basic Info -->
+		<div class="glass rounded-xl p-6 space-y-4">
 				<h2 class="text-2xl font-semibold mb-4">Basic Information</h2>
 				
 				<div>
@@ -118,7 +119,7 @@
 			</div>
 			
 			<!-- Timing & Settings -->
-			<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800 space-y-4">
+			<div class="glass rounded-xl p-6 space-y-4">
 				<h2 class="text-2xl font-semibold mb-4">Settings</h2>
 				
 				<div>
@@ -173,7 +174,7 @@
 			</div>
 			
 			<!-- Rating Categories -->
-			<div class="bg-theater-dark rounded-xl p-6 shadow-lg border border-gray-800 space-y-4">
+			<div class="glass rounded-xl p-6 space-y-4">
 				<div class="flex justify-between items-center mb-4">
 					<h2 class="text-2xl font-semibold">Rating Categories</h2>
 					<button 
@@ -244,10 +245,9 @@
 					type="submit" 
 					disabled={loading}
 					class="flex-1 px-6 py-3 rounded-lg font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-theater-darker bg-theater-purple hover:bg-purple-600 focus:ring-theater-purple disabled:opacity-50 disabled:cursor-not-allowed"
-				>
-					{loading ? 'Creating Event...' : 'Create Event'}
-				</button>
-			</div>
-		</form>
-	</div>
-</div>
+			>
+				{loading ? 'Creating Event...' : 'Create Event'}
+			</button>
+		</div>
+	</form>
+</PageContainer>

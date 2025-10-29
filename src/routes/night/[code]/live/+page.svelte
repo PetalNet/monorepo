@@ -4,9 +4,46 @@
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import QRCode from 'qrcode';
 	import Sortable from 'sortablejs';
+	import ParticleBackground from '$lib/components/ParticleBackground.svelte';
 	
 	const { data } = $props();
-	let { event, orderedGroups, isHost, votingSession, votingSessions, participants, currentUser, currentPresentationVotes, totalPotentialVoters, existingVotes, topPresentations, categoryWinners, fullLeaderboard } = $derived(data);
+	let { event, orderedGroups, isHost, votingSession, votingSessions, participants, currentUser, currentPresentationVotes, totalPotentialVoters, existingVotes, userGroupIds, topPresentations, categoryWinners, fullLeaderboard } = $derived(data);
+	
+	// Simple background shapes for CSS animations
+	interface BackgroundShape {
+		id: number;
+		type: 'circle' | 'square' | 'triangle';
+		color: string;
+		size: number;
+		left: number;
+		top: number;
+		delay: number;
+		duration: number;
+	}
+	
+	let backgroundShapes = $state<BackgroundShape[]>([]);
+	
+	function initBackgroundShapes() {
+		const shapes: BackgroundShape[] = [];
+		const colors = ['rgb(168 85 247 / 0.15)', 'rgb(236 72 153 / 0.15)', 'rgb(147 197 253 / 0.15)', 'rgb(129 140 248 / 0.15)', 'rgb(216 180 254 / 0.15)'];
+		const types: ('circle' | 'square' | 'triangle')[] = ['circle', 'circle', 'square', 'square', 'triangle', 'circle', 'square', 'triangle'];
+		const sizes = [60, 68, 56, 64, 60, 72, 58, 66];
+		
+		for (let i = 0; i < 8; i++) {
+			shapes.push({
+				id: i,
+				type: types[i],
+				color: colors[i % colors.length],
+				size: sizes[i],
+				left: (i * 15) % 100,
+				top: (i * 20) % 100,
+				delay: i * 1.5,
+				duration: 15 + i * 3
+			});
+		}
+		
+		backgroundShapes = shapes;
+	}
 	
 	// Sync local reveal step with server
 	let winnersRevealStep = $derived(event.winnersRevealStep || 0);
@@ -126,8 +163,15 @@
 		return localOrderedGroups.find((g: any) => g.id === event.currentPresentationId) || null;
 	});
 	
-	// Check if user can vote
+	// Check if user can vote (and is not voting on their own presentation)
 	const canVote = $derived(!!votingSession || !!currentUser);
+	
+	// Check if the current presentation is the user's own presentation
+	const isOwnPresentation = $derived(() => {
+		const pres = currentPresentation();
+		if (!pres || !userGroupIds) return false;
+		return userGroupIds.includes(pres.id);
+	});
 	
 	// Total participants count (logged in + temp voters)
 	const totalParticipants = $derived(() => {
@@ -146,6 +190,9 @@
 		if (orderedGroups && Array.isArray(orderedGroups)) {
 			localOrderedGroups = [...orderedGroups];
 		}
+		
+		// Initialize background shapes
+		initBackgroundShapes();
 		
 		// Generate QR code with custom styling
 		if (isHost) {
@@ -194,6 +241,11 @@
 				// Silently ignore errors (e.g., if page is navigating away)
 			});
 		}, 1000);
+	});
+	
+	onDestroy(() => {
+		if (pollInterval) clearInterval(pollInterval);
+		if (sortableInstance) sortableInstance.destroy();
 	});
 	
 	// Poll for confetti triggers - reactive to event.confettiCount changes
@@ -463,6 +515,12 @@
 	}
 	
 	async function setRating(categoryId: string, stars: number) {
+		// Prevent voting on own presentation
+		if (isOwnPresentation()) {
+			alert("You cannot vote on your own presentation!");
+			return;
+		}
+		
 		ratings = { ...ratings, [categoryId]: stars };
 		
 		// Auto-save the rating
@@ -476,10 +534,19 @@
 		formData.append('stars', stars.toString());
 		
 		try {
-			await fetch(`?/autoSaveRating${votingSession ? `&session=${votingSession.sessionCode}` : ''}`, {
+			const response = await fetch(`?/autoSaveRating${votingSession ? `&session=${votingSession.sessionCode}` : ''}`, {
 				method: 'POST',
 				body: formData,
 			});
+			
+			const result = await response.json();
+			if (result?.error) {
+				alert(result.error);
+				// Clear the rating on error
+				const { [categoryId]: _, ...rest } = ratings;
+				ratings = rest;
+				return;
+			}
 			
 			// Check if all categories are now rated
 			hasVotedForCurrent = event.categories.every((cat: any) => ratings[cat.id] > 0);
@@ -693,6 +760,8 @@
 
 <svelte:window onclick={handleClickOutside} />
 
+<ParticleBackground />
+
 <!-- Confetti Layer -->
 {#if confettiPieces.length > 0}
 	<div class="fixed inset-0 pointer-events-none z-50 overflow-hidden">
@@ -712,7 +781,57 @@
 	</div>
 {/if}
 
-<div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+<div class="relative min-h-screen bg-gradient-to-br from-purple-400/60 via-pink-400/55 to-blue-400/60 animate-gradient overflow-hidden">
+	<!-- Background Shapes -->
+	<div class="fixed inset-0 pointer-events-none overflow-hidden z-0">
+		{#each backgroundShapes as shape (shape.id)}
+			{#if shape.type === 'circle'}
+				<div 
+					class="absolute rounded-full animate-float-random"
+					style="
+						width: {shape.size}px;
+						height: {shape.size}px;
+						left: {shape.left}%;
+						top: {shape.top}%;
+						background: {shape.color};
+						animation-delay: {shape.delay}s;
+						animation-duration: {shape.duration}s;
+					"
+				></div>
+			{:else if shape.type === 'square'}
+				<div 
+					class="absolute rounded-[2rem] animate-float-random"
+					style="
+						width: {shape.size}px;
+						height: {shape.size}px;
+						left: {shape.left}%;
+						top: {shape.top}%;
+						background: {shape.color};
+						animation-delay: {shape.delay}s;
+						animation-duration: {shape.duration}s;
+					"
+				></div>
+			{:else if shape.type === 'triangle'}
+				<svg 
+					class="absolute animate-float-random" 
+					viewBox="0 0 100 100"
+					style="
+						width: {shape.size}px;
+						height: {shape.size}px;
+						left: {shape.left}%;
+						top: {shape.top}%;
+						animation-delay: {shape.delay}s;
+						animation-duration: {shape.duration}s;
+					"
+				>
+					<path d="M 50 10 L 90 90 L 10 90 Z" fill={shape.color} rx="8"/>
+				</svg>
+			{/if}
+		{/each}
+	</div>
+	
+	<!-- Star Particles (removed) -->
+	
 	{#if !isInitialized}
 		<!-- Loading Screen -->
 		<div class="min-h-screen flex items-center justify-center">
@@ -884,7 +1003,7 @@
 					<h2 class="text-3xl sm:text-4xl md:text-5xl font-black text-white text-center mb-8">🏅 Category Champions</h2>
 					<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
 						{#each categoryWinners as catWinner}
-							<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-4 sm:p-6 border-2 border-white/20 shadow-xl hover:scale-105 transition-all">
+							<div class="glass-bright rounded-2xl p-4 sm:p-6 border-2 border-purple-300/40 shadow-xl hover:scale-105 transition-all">
 								<h3 class="text-lg sm:text-xl font-bold text-yellow-400 mb-3">
 									{catWinner.category.name}
 									{#if catWinner.isTie}
@@ -916,7 +1035,7 @@
 				<div class="relative z-10 w-full max-w-4xl px-4 mb-12 animate-fade-in-down" style="animation-delay: 3s;">
 					<button
 						onclick={() => showLeaderboard = !showLeaderboard}
-						class="w-full bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-xl hover:bg-white/20 transition-all mb-4"
+						class="w-full glass-bright rounded-2xl p-6 border-2 border-white/20 shadow-xl hover:bg-white/20 transition-all mb-4"
 					>
 						<div class="flex items-center justify-between">
 							<h2 class="text-2xl sm:text-3xl font-black text-white">📊 Full Leaderboard</h2>
@@ -925,7 +1044,7 @@
 					</button>
 					
 					{#if showLeaderboard}
-						<div class="bg-white/10 backdrop-blur-xl rounded-2xl border-2 border-white/20 shadow-xl overflow-hidden animate-slide-up-bounce">
+						<div class="glass-bright rounded-2xl border-2 border-white/20 shadow-xl overflow-hidden animate-slide-up-bounce">
 							<div class="overflow-x-auto">
 								<table class="w-full">
 									<thead class="bg-white/20">
@@ -1032,7 +1151,7 @@
 				<!-- Header -->
 				<div class="text-center mb-8">
 					<h1 class="text-6xl font-bold text-white mb-4">{event.name}</h1>
-					<div class="inline-flex items-center gap-3 bg-white/10 backdrop-blur-xl rounded-full px-6 py-3 border border-white/20">
+					<div class="inline-flex items-center gap-3 glass-bright rounded-full px-6 py-3 border border-white/20">
 						<div class="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
 						<span class="text-white font-semibold">Live Lobby</span>
 					</div>
@@ -1043,7 +1162,7 @@
 					<div class="lg:col-span-1 space-y-6">
 						{#if isHost}
 							<!-- Host: QR Code & Link -->
-							<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20 shadow-xl">
+							<div class="glass-bright rounded-2xl p-6 border-2 border-purple-300/40 shadow-xl">
 								<h2 class="text-2xl font-bold text-white mb-4">📱 Join Link</h2>
 								
 								{#if qrCodeUrl}
@@ -1066,7 +1185,7 @@
 							</div>
 
 							<!-- Participants List -->
-							<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20 shadow-xl">
+							<div class="glass-bright rounded-2xl p-6 border-2 border-purple-300/40 shadow-xl">
 								<div class="flex justify-between items-center mb-4">
 									<h2 class="text-xl font-bold text-white">
 										👥 Participants ({totalParticipants()})
@@ -1120,7 +1239,7 @@
 							</div>
 
 							<!-- Reset Votes Button -->
-							<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20 shadow-xl">
+							<div class="glass-bright rounded-2xl p-6 border-2 border-purple-300/40 shadow-xl">
 								<h2 class="text-xl font-bold text-white mb-4">🔄 Vote Management</h2>
 								<button
 									onclick={resetAllVotes}
@@ -1134,7 +1253,7 @@
 							</div>
 						{:else if !votingSession && !currentUser}
 							<!-- Non-host: Join Button -->
-							<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border border-white/20 shadow-xl text-center">
+							<div class="glass-bright-strong rounded-2xl p-8 border-2 border-purple-300/40 shadow-xl text-center">
 								<div class="text-6xl mb-4">🎤</div>
 								<h2 class="text-2xl font-bold text-white mb-4">Join as Voter</h2>
 								<p class="text-white/70 mb-6">
@@ -1149,7 +1268,7 @@
 							</div>
 						{:else}
 							<!-- Joined: Waiting -->
-							<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border border-white/20 shadow-xl text-center">
+							<div class="glass-bright-strong rounded-2xl p-8 border-2 border-purple-300/40 shadow-xl text-center">
 								<div class="w-20 h-20 mx-auto mb-6 relative">
 									<div class="absolute inset-0 bg-green-500 rounded-full animate-ping opacity-20"></div>
 									<div class="absolute inset-0 bg-green-600 rounded-full flex items-center justify-center">
@@ -1175,7 +1294,7 @@
 
 					<!-- Right Column: Presentation Order -->
 					<div class="lg:col-span-2">
-						<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20 shadow-xl">
+						<div class="glass-bright rounded-2xl p-6 border-2 border-purple-300/40 shadow-xl">
 							<h2 class="text-2xl font-bold text-white mb-4">
 								📋 Presentation Order ({localOrderedGroups?.length || 0})
 							</h2>
@@ -1390,7 +1509,7 @@
 			<div class="max-w-6xl mx-auto pt-20">
 
 				<!-- Presentation Header -->
-				<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-6 mb-6 border border-white/20 shadow-xl">
+				<div class="glass-bright rounded-2xl p-6 mb-6 border border-white/20 shadow-xl">
 					<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
 						<div class="flex items-center gap-4">
 							<span class="text-5xl">{pres?.emoji || '📊'}</span>
@@ -1462,74 +1581,91 @@
 
 				<!-- Voting Section -->
 				{#if canVote}
-					<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-8 mb-6 border border-white/20 shadow-xl">
-						<div class="flex justify-between items-center mb-6">
-							<h3 class="text-2xl font-bold text-white">
-								⭐ Rate This Presentation
-							</h3>
-							{#if savingRating}
-								<div class="flex items-center gap-2 text-white/70 text-sm">
-									<div class="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-									<span>Saving...</span>
-								</div>
-							{/if}
-						</div>
-						
-						<div class="space-y-6">
-							{#each event.categories as category}
-								<div class="bg-white/5 rounded-xl p-6">
-									<h4 class="text-xl font-semibold text-white mb-4">
-										{category.name}
-										{#if ratings[category.id]}
-											<span class="text-yellow-400 ml-2">✓</span>
-										{/if}
-									</h4>
-									{#if category.description}
-										<p class="text-white/60 text-sm mb-4">{category.description}</p>
-									{/if}
-									
-									<div class="flex gap-2 justify-center">
-										{#each [1, 2, 3, 4, 5] as star}
-											<button
-												type="button"
-												onclick={() => setRating(category.id, star)}
-												onmouseenter={() => setHoveredStars(category.id, star)}
-												onmouseleave={() => clearHoveredStars(category.id)}
-												class="transition-all transform hover:scale-125"
-												aria-label="Rate {star} stars"
-											>
-												<svg
-													class="w-12 h-12 transition-all duration-200"
-													fill={(hoveredStars[category.id] || ratings[category.id] || 0) >= star ? '#FFD700' : 'none'}
-													stroke={(hoveredStars[category.id] || ratings[category.id] || 0) >= star ? '#FFD700' : '#FFFFFF'}
-													stroke-width="2"
-													viewBox="0 0 24 24"
-												>
-													<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-												</svg>
-											</button>
-										{/each}
-									</div>
-								</div>
-							{/each}
-						</div>
-						
-						{#if hasVotedForCurrent}
-							<div class="mt-6 bg-green-500/20 border border-green-500/50 rounded-xl p-4 text-center">
-								<p class="text-green-400 font-semibold flex items-center justify-center gap-2">
-									<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-										<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-									</svg>
-									All categories rated! Your vote is saved.
+					<div class="glass-bright rounded-2xl p-8 mb-6 border border-white/20 shadow-xl">
+						{#if isOwnPresentation()}
+							<!-- Show message when it's user's own presentation -->
+							<div class="text-center py-12">
+								<div class="text-6xl mb-4">🚫</div>
+								<h3 class="text-2xl font-bold text-white mb-4">
+									This is Your Presentation
+								</h3>
+								<p class="text-white/70 text-lg">
+									You cannot vote on your own presentation.
+								</p>
+								<p class="text-white/50 text-sm mt-2">
+									Please wait for other presentations to rate.
 								</p>
 							</div>
+						{:else}
+							<!-- Normal voting interface -->
+							<div class="flex justify-between items-center mb-6">
+								<h3 class="text-2xl font-bold text-white">
+									⭐ Rate This Presentation
+								</h3>
+								{#if savingRating}
+									<div class="flex items-center gap-2 text-white/70 text-sm">
+										<div class="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+										<span>Saving...</span>
+									</div>
+								{/if}
+							</div>
+							
+							<div class="space-y-6">
+								{#each event.categories as category}
+									<div class="bg-white/5 rounded-xl p-6">
+										<h4 class="text-xl font-semibold text-white mb-4">
+											{category.name}
+											{#if ratings[category.id]}
+												<span class="text-yellow-400 ml-2">✓</span>
+											{/if}
+										</h4>
+										{#if category.description}
+											<p class="text-white/60 text-sm mb-4">{category.description}</p>
+										{/if}
+										
+										<div class="flex gap-2 justify-center">
+											{#each [1, 2, 3, 4, 5] as star}
+												<button
+													type="button"
+													onclick={() => setRating(category.id, star)}
+													onmouseenter={() => setHoveredStars(category.id, star)}
+													onmouseleave={() => clearHoveredStars(category.id)}
+													class="transition-all transform hover:scale-125"
+													aria-label="Rate {star} stars"
+												>
+													<svg
+														class="w-12 h-12 transition-all duration-200"
+														fill={(hoveredStars[category.id] || ratings[category.id] || 0) >= star ? '#FFD700' : 'none'}
+														stroke={(hoveredStars[category.id] || ratings[category.id] || 0) >= star ? '#FFD700' : '#FFFFFF'}
+														stroke-width="2"
+														viewBox="0 0 24 24"
+													>
+														<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+													</svg>
+												</button>
+											{/each}
+										</div>
+									</div>
+								{/each}
+							</div>
+							
+							{#if hasVotedForCurrent}
+								<div class="mt-6 bg-green-500/20 border border-green-500/50 rounded-xl p-4 text-center">
+									<p class="text-green-400 font-semibold flex items-center justify-center gap-2">
+										<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+											<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+										</svg>
+										All categories rated! Your vote is saved.
+									</p>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				{/if}
 
 				<!-- Host Controls -->
 				{#if isHost}
-					<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20 shadow-xl">
+					<div class="glass-bright rounded-2xl p-6 border-2 border-purple-300/40 shadow-xl">
 						<h3 class="text-xl font-bold text-white mb-4">🎮 Host Controls</h3>
 						
 						<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -1564,7 +1700,7 @@
 
 					<!-- Presentation Order Management During Live -->
 					{@const currentPres = currentPresentation()}
-					<div class="bg-white/10 backdrop-blur-xl rounded-2xl p-6 mt-6 border border-white/20 shadow-xl">
+					<div class="glass-bright rounded-2xl p-6 mt-6 border border-white/20 shadow-xl">
 						<h3 class="text-xl font-bold text-white mb-4">📋 Presentation Order</h3>
 						<p class="text-white/70 text-sm mb-4">Drag to reorder upcoming presentations</p>
 						
@@ -1609,8 +1745,8 @@
 
 <!-- Timer Modal -->
 {#if showTimerModal}
-	<div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showTimerModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showTimerModal = false; }}>
-		<div class="bg-theater-dark rounded-xl p-8 max-w-md w-full border border-gray-700 shadow-2xl">
+	<div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showTimerModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showTimerModal = false; }}>
+		<div class="glass-bright-strong rounded-2xl p-8 max-w-md w-full border-2 border-purple-400/40 shadow-2xl">
 			<h2 class="text-2xl font-bold text-white mb-4">⏱️ Start Timer</h2>
 			<p class="text-white/70 mb-6">
 				Set a countdown timer for this presentation. Everyone will see the same timer.
@@ -1654,8 +1790,8 @@
 
 <!-- Join Modal -->
 {#if showJoinModal && !votingSession}
-	<div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-		<div class="bg-theater-dark rounded-xl p-8 max-w-md w-full border border-gray-700 shadow-2xl">
+	<div class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+		<div class="glass-bright-strong rounded-2xl p-8 max-w-md w-full border-2 border-purple-400/40 shadow-2xl">
 			<h3 class="text-2xl font-bold mb-6">Join as Voter</h3>
 			
 			<form
@@ -1705,6 +1841,72 @@
 {/if}
 
 <style>
+	@keyframes gradient {
+		0%, 100% { background-position: 0% 50%; }
+		50% { background-position: 100% 50%; }
+	}
+	
+	.animate-gradient {
+		background-size: 200% 200%;
+		animation: gradient 8s ease infinite;
+	}
+	
+	@keyframes float-random {
+		0%, 100% {
+			transform: translate(0, 0) rotate(0deg);
+		}
+		25% {
+			transform: translate(40px, -40px) rotate(90deg);
+		}
+		50% {
+			transform: translate(-30px, -70px) rotate(180deg);
+		}
+		75% {
+			transform: translate(-60px, -30px) rotate(270deg);
+		}
+	}
+	
+	.animate-float-random {
+		animation: float-random linear infinite;
+		will-change: transform;
+	}
+	
+	@keyframes float-slow {
+		0%, 100% {
+			transform: translate(0, 0) rotate(0deg);
+		}
+		25% {
+			transform: translate(30px, -30px) rotate(90deg);
+		}
+		50% {
+			transform: translate(60px, 0) rotate(180deg);
+		}
+		75% {
+			transform: translate(30px, 30px) rotate(270deg);
+		}
+	}
+	
+	@keyframes float-medium {
+		0%, 100% {
+			transform: translate(0, 0) rotate(0deg);
+		}
+		33% {
+			transform: translate(-40px, 40px) rotate(120deg);
+		}
+		66% {
+			transform: translate(40px, -20px) rotate(240deg);
+		}
+	}
+	
+	@keyframes float-fast {
+		0%, 100% {
+			transform: translate(0, 0) scale(1);
+		}
+		50% {
+			transform: translate(-50px, 50px) scale(1.2);
+		}
+	}
+	
 	@keyframes star-pulse {
 		0%, 100% {
 			transform: scale(1);

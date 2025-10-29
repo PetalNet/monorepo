@@ -6,6 +6,7 @@
 	import { onMount } from 'svelte';
 	import Sortable from 'sortablejs';
 	import { formatInTimezone, toDateTimeLocal, getTimezoneAbbr, COMMON_TIMEZONES } from '$lib/utils/timezone';
+	import PageContainer from '$lib/components/PageContainer.svelte';
 
 	let { data, form } = $props();
 
@@ -205,11 +206,9 @@
 	}
 </script>
 
-<div class="min-h-screen p-3 md:p-8">
-	<div class="max-w-6xl mx-auto space-y-6 md:space-y-8">
-		
-		<!-- === JOIN EVENT CALL-TO-ACTION (For non-participants) === -->
-		{#if !data.user}
+<PageContainer maxWidth="6xl">
+	<!-- === JOIN EVENT CALL-TO-ACTION (For non-participants) === -->
+	{#if !data.user}
 			<div class="bg-gradient-to-r from-purple-900/40 via-theater-dark to-purple-900/40 rounded-xl p-6 md:p-8 shadow-lg border-2 border-purple-700 ring-2 ring-purple-700/30">
 				<div class="text-center">
 					<h2 class="text-2xl sm:text-3xl font-bold mb-3">🎉 You're Invited to Join This Event!</h2>
@@ -278,7 +277,7 @@
 		{/if}
 
 		<!-- === 1. EVENT OVERVIEW (Always Visible) === -->
-		<div class="bg-theater-dark rounded-xl p-4 md:p-8 shadow-lg border border-gray-800">
+		<div class="glass rounded-xl p-4 md:p-8 shadow-lg border border-gray-800">
 			<div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4 mb-4">
 				<div class="flex-1 min-w-0">
 					<div class="flex items-center gap-2 mb-1 flex-wrap">
@@ -338,7 +337,7 @@
 
 		<!-- === 2. HOST MANAGEMENT (Host Only, Collapsible) === -->
 		{#if data.isHost}
-			<details class="bg-theater-dark rounded-xl p-4 md:p-8 shadow-lg border border-purple-700">
+			<details class="glass rounded-xl p-4 md:p-8 shadow-lg border border-purple-700">
 				<summary class="text-xl sm:text-2xl font-bold cursor-pointer flex items-center gap-2 hover:text-purple-300 transition">
 					⚙️ Event Management
 					<span class="text-xs text-purple-300 bg-purple-900/30 rounded-full px-2 py-0.5">Host Only</span>
@@ -429,7 +428,7 @@
 								<span class="text-gray-300 mb-1 block text-sm">Event Timezone</span>
 								<select
 									name="timezone" 
-									defaultValue={data.event.timezone || 'America/New_York'}
+									value={data.event.timezone || 'America/New_York'}
 									class="w-full bg-theater-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-theater-purple"
 								>
 									<option value="America/New_York">Eastern (EST/EDT)</option>
@@ -572,11 +571,11 @@
 								{@const participants = Array.from(participantMap.values()).sort((a, b) => a.name.localeCompare(b.name))}
 								
 								<div class="mb-4 grid grid-cols-2 gap-4">
-									<div class="bg-theater-dark rounded-lg p-3 border border-gray-800">
+									<div class="glass rounded-lg p-3 border border-gray-800">
 										<div class="text-sm text-gray-400">Total Participants</div>
 										<div class="text-2xl font-bold text-white">{participants.length}</div>
 									</div>
-									<div class="bg-theater-dark rounded-lg p-3 border border-gray-800">
+									<div class="glass rounded-lg p-3 border border-gray-800">
 										<div class="text-sm text-gray-400">Total Presentations</div>
 										<div class="text-2xl font-bold text-white">{data.event.groups.length}</div>
 									</div>
@@ -584,7 +583,7 @@
 								
 								<div class="space-y-2 max-h-96 overflow-y-auto">
 									{#each participants as participant}
-										<div class="bg-theater-dark rounded-lg p-3 border border-gray-800">
+										<div class="glass rounded-lg p-3 border border-gray-800">
 											<div class="flex items-start justify-between gap-3 mb-2">
 												<div class="flex-1 min-w-0">
 													<div class="flex items-center gap-2 mb-1">
@@ -628,7 +627,7 @@
 		{/if}
 
 		<!-- === 3. EVENT PRESENTATIONS (Combined - Your presentations first, then all others) === -->
-		<div class="bg-theater-dark rounded-xl p-4 md:p-8 shadow-lg border border-gray-800">
+		<div class="glass rounded-xl p-4 md:p-8 shadow-lg border border-gray-800">
 			<div class="flex items-center justify-between mb-6">
 				<h2 class="text-xl sm:text-2xl font-bold">📊 Event Presentations</h2>
 				{#if data.user && data.userGroups.length > 0}
@@ -993,7 +992,7 @@
 									<div class="space-y-2">
 										{#each managed.group.members as member}
 											{@const badge = getMemberBadge(member.isLeader, member.userId === data.user?.id)}
-											<div class="flex items-center justify-between bg-theater-dark rounded-lg px-4 py-3 border border-gray-800">
+											<div class="flex items-center justify-between glass rounded-lg px-4 py-3 border border-gray-800">
 												<div class="flex items-center gap-3">
 													<span class="text-lg">{member.isLeader ? '👑' : '🎤'}</span>
 													<span class="text-white font-semibold">{member.user.name}</span>
@@ -1111,5 +1110,4 @@
 				</div>
 			{/if}
 		{/if}
-	</div>
-</div>
+</PageContainer>
