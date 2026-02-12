@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result, anyhow};
 use clap::Parser;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
-    Client, SessionMeta,
+    Client, HttpError, SessionMeta,
     authentication::{SessionTokens, matrix::MatrixSession},
     config::SyncSettings,
     encryption::verification::{
@@ -140,84 +140,65 @@ async fn main() -> Result<()> {
     fs::create_dir_all(&args.store)
         .with_context(|| format!("creating store directory at {}", args.store.display()))?;
 
-    // Build client with SQLite store to persist E2EE state
-    let client = Client::builder()
-        .homeserver_url(&args.homeserver)
-        .handle_refresh_tokens()
-        .sqlite_store(&args.store, None)
-        .build()
-        .await
-        .context("building matrix client")?;
+    // Build client with SQLite store to persist E2EE state.
+    let mut client = build_client(&args).await?;
 
-    // Restore session if available; otherwise login
-    if let Some(session) = load_session(&args.session_file)? {
-        info!("Restoring session for {}", session.user_id);
-        let matrix_session = MatrixSession {
-            meta: SessionMeta {
-                user_id: session.user_id.parse().context("invalid stored user_id")?,
-                device_id: session.device_id.into(),
-            },
-            tokens: SessionTokens {
-                access_token: session.access_token,
-                refresh_token: session.refresh_token,
-            },
-        };
-        client
-            .restore_session(matrix_session)
-            .await
-            .context("restoring session")?;
-    } else {
-        // Treat empty env/arg as missing; avoid prompting in non-interactive (Docker) mode.
-        let password = if let Some(p) = args
-            .password
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            p.to_owned()
+    // Restore session if available; otherwise login.
+    let (restored_from_session, restored_device_id) =
+        if let Some(session) = load_session(&args.session_file)? {
+            info!("Restoring session for {}", session.user_id);
+            let session_device_id = session.device_id.clone();
+            let matrix_session = MatrixSession {
+                meta: SessionMeta {
+                    user_id: session.user_id.parse().context("invalid stored user_id")?,
+                    device_id: session.device_id.into(),
+                },
+                tokens: SessionTokens {
+                    access_token: session.access_token,
+                    refresh_token: session.refresh_token,
+                },
+            };
+            client
+                .restore_session(matrix_session)
+                .await
+                .context("restoring session")?;
+            (true, Some(session_device_id))
         } else {
-            if !std::io::stdin().is_terminal() {
-                return Err(anyhow!(
-                    "No MATRIX_PASSWORD provided and no stored session. In Docker/non-interactive mode, set MATRIX_PASSWORD env or mount an existing session at {}",
-                    args.session_file.display()
-                ));
-            }
-            warn!("No password provided via --password or MATRIX_PASSWORD. Prompting...");
-            #[cfg(feature = "rpassword")]
-            {
-                rpassword::prompt_password("Matrix password:")
-                    .map_err(|e| anyhow!("Failed to read password: {e}"))?
-            }
-            #[cfg(not(feature = "rpassword"))]
-            {
-                return Err(anyhow!(
-                    "rpassword feature is not enabled. Cannot prompt for password."
-                ));
-            }
+            let password = resolve_password(
+                args.password.as_deref(),
+                &args.session_file,
+                "No MATRIX_PASSWORD provided and no stored session",
+            )?;
+            login_with_store_recovery(&mut client, &args, &password, None).await?;
+            (false, None)
         };
 
-        info!("Logging in as {}", args.username);
-        let response = client
-            .matrix_auth()
-            .login_username(&args.username, &password)
-            .initial_device_display_name(&args.device_name)
-            .request_refresh_token()
-            .send()
-            .await
-            .context("login failed")?;
-
-        // Save session for future runs
-        let session = SavedSession {
-            access_token: response.access_token.clone(),
-            refresh_token: response.refresh_token.clone(),
-            user_id: response.user_id.to_string(),
-            device_id: response.device_id.to_string(),
-        };
-        save_session(&args.session_file, &session)?;
-        info!(
-            "Logged in: user={} device={}",
-            session.user_id, session.device_id
-        );
+    // Validate restored session before installing handlers/syncing.
+    if restored_from_session {
+        match client.whoami().await {
+            Ok(_) => {}
+            Err(error) if is_unknown_token_http_error(&error) => {
+                warn!(
+                    error = %error,
+                    "Stored session token is invalid; attempting fresh login"
+                );
+                let password = resolve_password(
+                    args.password.as_deref(),
+                    &args.session_file,
+                    "Stored session is invalid and re-login is required",
+                )?;
+                client = build_client(&args).await?;
+                login_with_store_recovery(
+                    &mut client,
+                    &args,
+                    &password,
+                    restored_device_id.as_deref(),
+                )
+                .await
+                .context("re-login failed after invalid stored session")?;
+            }
+            Err(error) => return Err(anyhow!("session validation failed: {error}")),
+        }
     }
 
     let config = load_config(&args.config)?;
@@ -520,23 +501,29 @@ async fn main() -> Result<()> {
     let auto_confirm = args.auto_verify;
     client.add_event_handler(async move |ev: ToDeviceKeyVerificationRequestEvent, client: Client| {
             info!(user = %ev.sender, flow = %ev.content.transaction_id, "Received verification request");
-            if let Some(req) = client.encryption().get_verification_request(&ev.sender, &ev.content.transaction_id).await {
-                tokio::spawn(handle_verification_request(req, auto_confirm));
-            } else {
-                warn!(user = %ev.sender, flow = %ev.content.transaction_id, "No verification request found");
-            }
+            let sender = ev.sender.clone();
+            let flow_id = ev.content.transaction_id.to_string();
+            tokio::spawn(async move {
+                if let Some(req) = get_verification_request_with_retry(&client, &sender, &flow_id).await {
+                    handle_verification_request(req, auto_confirm).await;
+                } else {
+                    warn!(user = %sender, flow = %flow_id, "No verification request found after retry");
+                }
+            });
     });
 
     client.add_event_handler(async move |ev: OriginalSyncRoomMessageEvent, client: Client| {
         if let MessageType::VerificationRequest(_) = &ev.content.msgtype {
             info!(user = %ev.sender, event = %ev.event_id, "Received in-room verification request");
-            if let Some(req) = client
-                .encryption()
-                .get_verification_request(&ev.sender, &ev.event_id)
-                .await
-            {
-                tokio::spawn(handle_verification_request(req, auto_confirm));
-            }
+            let sender = ev.sender.clone();
+            let flow_id = ev.event_id.to_string();
+            tokio::spawn(async move {
+                if let Some(req) = get_verification_request_with_retry(&client, &sender, &flow_id).await {
+                    handle_verification_request(req, auto_confirm).await;
+                } else {
+                    warn!(user = %sender, flow = %flow_id, "In-room verification request not found after retry");
+                }
+            });
         }
     });
 
@@ -648,6 +635,27 @@ async fn handle_verification_request(request: VerificationRequest, auto_confirm:
     }
 }
 
+async fn get_verification_request_with_retry(
+    client: &Client,
+    user_id: &matrix_sdk::ruma::OwnedUserId,
+    flow_id: &str,
+) -> Option<VerificationRequest> {
+    // The request can race event delivery; retry briefly before giving up.
+    const ATTEMPTS: usize = 25;
+    const SLEEP_MS: u64 = 200;
+    for _ in 0..ATTEMPTS {
+        if let Some(req) = client
+            .encryption()
+            .get_verification_request(user_id, flow_id)
+            .await
+        {
+            return Some(req);
+        }
+        tokio::time::sleep(Duration::from_millis(SLEEP_MS)).await;
+    }
+    None
+}
+
 async fn handle_sas(sas: SasVerification, auto_confirm: bool) {
     info!(user = %sas.other_device().user_id(), device = %sas.other_device().device_id(), "Starting SAS verification");
     if let Err(e) = sas.accept().await {
@@ -711,6 +719,126 @@ fn save_session(path: &PathBuf, session: &SavedSession) -> Result<()> {
     }
     let data = serde_json::to_string_pretty(session)?;
     fs::write(path, data).with_context(|| format!("writing session file at {}", path.display()))?;
+    Ok(())
+}
+
+fn resolve_password(
+    password_opt: Option<&str>,
+    session_file: &PathBuf,
+    missing_password_reason: &str,
+) -> Result<String> {
+    if let Some(password) = password_opt.map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(password.to_owned());
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow!(
+            "{missing_password_reason}. In Docker/non-interactive mode, set MATRIX_PASSWORD env (session file: {})",
+            session_file.display()
+        ));
+    }
+    warn!("No password provided via --password or MATRIX_PASSWORD. Prompting...");
+    #[cfg(feature = "rpassword")]
+    {
+        rpassword::prompt_password("Matrix password:")
+            .map_err(|e| anyhow!("Failed to read password: {e}"))
+    }
+    #[cfg(not(feature = "rpassword"))]
+    {
+        let _ = session_file;
+        return Err(anyhow!(
+            "rpassword feature is not enabled. Cannot prompt for password."
+        ));
+    }
+}
+
+async fn login_with_store_recovery(
+    client: &mut Client,
+    args: &Args,
+    password: &str,
+    preferred_device_id: Option<&str>,
+) -> Result<()> {
+    match login_and_store_session(client, args, password, preferred_device_id).await {
+        Ok(()) => Ok(()),
+        Err(error) if is_crypto_store_account_mismatch(&error) => {
+            warn!(
+                store = %args.store.display(),
+                "Crypto store account/device mismatch; clearing local store and retrying login"
+            );
+            clear_store_dir(&args.store)?;
+            *client = build_client(args).await?;
+            login_and_store_session(client, args, password, preferred_device_id)
+                .await
+                .context("login failed after resetting crypto store")
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn login_and_store_session(
+    client: &Client,
+    args: &Args,
+    password: &str,
+    preferred_device_id: Option<&str>,
+) -> Result<()> {
+    info!("Logging in as {}", args.username);
+    let mut login_builder = client
+        .matrix_auth()
+        .login_username(&args.username, password)
+        .initial_device_display_name(&args.device_name)
+        .request_refresh_token();
+    if let Some(device_id) = preferred_device_id {
+        login_builder = login_builder.device_id(device_id);
+    }
+    let response = login_builder.send().await.context("login failed")?;
+
+    let session = SavedSession {
+        access_token: response.access_token.clone(),
+        refresh_token: response.refresh_token.clone(),
+        user_id: response.user_id.to_string(),
+        device_id: response.device_id.to_string(),
+    };
+    save_session(&args.session_file, &session)?;
+    info!(
+        "Logged in: user={} device={}",
+        session.user_id, session.device_id
+    );
+    Ok(())
+}
+
+async fn build_client(args: &Args) -> Result<Client> {
+    Client::builder()
+        .homeserver_url(&args.homeserver)
+        .handle_refresh_tokens()
+        .sqlite_store(&args.store, None)
+        .build()
+        .await
+        .context("building matrix client")
+}
+
+fn is_unknown_token_http_error(error: &HttpError) -> bool {
+    use matrix_sdk::ruma::api::client::error::ErrorKind;
+
+    matches!(
+        error.client_api_error_kind(),
+        Some(ErrorKind::UnknownToken { .. })
+    )
+}
+
+fn is_crypto_store_account_mismatch(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .to_string()
+            .contains("account in the store doesn't match the account in the constructor")
+    })
+}
+
+fn clear_store_dir(store: &PathBuf) -> Result<()> {
+    if store.exists() {
+        fs::remove_dir_all(store)
+            .with_context(|| format!("clearing store directory at {}", store.display()))?;
+    }
+    fs::create_dir_all(store)
+        .with_context(|| format!("recreating store directory at {}", store.display()))?;
     Ok(())
 }
 

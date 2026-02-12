@@ -1,7 +1,10 @@
 use anyhow::Result;
 
 use async_trait::async_trait;
-use plugin_core::{Plugin, PluginContext, PluginSpec, PluginTriggers, send_text};
+use matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent;
+use plugin_core::{
+    Plugin, PluginContext, PluginSpec, PluginTriggers, RoomMessageMeta, send_text,
+};
 
 #[derive(Debug)]
 pub struct PingPlugin;
@@ -30,7 +33,31 @@ impl Plugin for Ping {
         }
     }
 
+    fn handles_room_messages(&self) -> bool {
+        true
+    }
+
+    fn wants_own_messages(&self) -> bool {
+        true
+    }
+
     async fn run(&self, ctx: &PluginContext, _args: &str, _spec: &PluginSpec) -> Result<()> {
-        send_text(ctx, "Pong! 🏓".to_owned()).await
+        send_text(ctx, "pong".to_owned()).await
+    }
+
+    async fn on_room_message(
+        &self,
+        ctx: &PluginContext,
+        _event: &OriginalSyncRoomMessageEvent,
+        _spec: &PluginSpec,
+        meta: &RoomMessageMeta<'_>,
+    ) -> Result<()> {
+        if meta.triggered_plugins.contains(self.id()) {
+            return Ok(());
+        }
+        if meta.body.is_some_and(|body| body.contains("!ping")) {
+            send_text(ctx, "pong".to_owned()).await?;
+        }
+        Ok(())
     }
 }

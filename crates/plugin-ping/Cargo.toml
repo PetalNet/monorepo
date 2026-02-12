@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+matrix-sdk.workspace = true
 serde_yaml.workspace = true
 
 plugin-core = { path = "../plugin-core" }
