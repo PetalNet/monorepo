@@ -344,7 +344,11 @@ const backgroundOverlayDark = event.backgroundImage
             if (isVisible) {
               observer?.disconnect();
               // Performance: Delay map loading slightly to prioritize LCP
-              requestIdleCallback(() => requestMapLoad(), { timeout: 1000 });
+              if ('requestIdleCallback' in window) {
+                requestIdleCallback(() => requestMapLoad(), { timeout: 1000 });
+              } else {
+                setTimeout(() => requestMapLoad(), 200);
+              }
             }
           },
           { rootMargin: '200px 0px' }
