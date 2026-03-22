@@ -65,6 +65,13 @@
   let questions = $state(data.event.questions);
   let rsvpsList = $state(data.rsvps);
 
+  const manageTotalGuests = $derived(rsvpsList.reduce((sum: number, r: typeof rsvpsList[number]) => sum + r.guestCount, 0));
+  const manageAttendingRsvps = $derived(rsvpsList.filter((r: typeof rsvpsList[number]) => r.status === 'attending'));
+  const manageMaybeRsvps = $derived(rsvpsList.filter((r: typeof rsvpsList[number]) => r.status === 'maybe'));
+  const manageNotAttendingRsvps = $derived(rsvpsList.filter((r: typeof rsvpsList[number]) => r.status === 'not_attending'));
+  const manageAttendingGuests = $derived(manageAttendingRsvps.reduce((sum: number, r: typeof rsvpsList[number]) => sum + r.guestCount, 0));
+  const manageMaybeGuests = $derived(manageMaybeRsvps.reduce((sum: number, r: typeof rsvpsList[number]) => sum + r.guestCount, 0));
+
   let locationValue = $state(event.location ?? '');
   let questionType = $state<string>('text');
   let optionsText = $state<string>('');
@@ -558,7 +565,7 @@
     <h2 class="text-2xl font-bold text-dark-800 flex items-center gap-2">
       <span class="text-3xl">✅</span>
       RSVPs
-      <span class="text-lg font-normal text-gray-500">({rsvpsList.length})</span>
+      <span class="text-lg font-normal text-gray-500">({rsvpsList.length} RSVPs, {manageTotalGuests} total guests)</span>
     </h2>
   </div>
 
@@ -575,8 +582,8 @@
         <div class="flex items-center gap-3">
           <span class="text-3xl">✓</span>
           <div>
-            <div class="text-2xl font-bold text-green-700">{rsvpsList.filter(r => r.status === 'attending').length}</div>
-            <div class="text-sm text-green-700/80 font-medium">Attending</div>
+            <div class="text-2xl font-bold text-green-700">{manageAttendingRsvps.length}</div>
+            <div class="text-sm text-green-700/80 font-medium">Attending{#if manageAttendingGuests > manageAttendingRsvps.length} ({manageAttendingGuests} guests){/if}</div>
           </div>
         </div>
       </div>
@@ -584,8 +591,8 @@
         <div class="flex items-center gap-3">
           <span class="text-3xl">?</span>
           <div>
-            <div class="text-2xl font-bold text-yellow-700">{rsvpsList.filter(r => r.status === 'maybe').length}</div>
-            <div class="text-sm text-yellow-700/80 font-medium">Maybe</div>
+            <div class="text-2xl font-bold text-yellow-700">{manageMaybeRsvps.length}</div>
+            <div class="text-sm text-yellow-700/80 font-medium">Maybe{#if manageMaybeGuests > manageMaybeRsvps.length} ({manageMaybeGuests} guests){/if}</div>
           </div>
         </div>
       </div>
@@ -593,7 +600,7 @@
         <div class="flex items-center gap-3">
           <span class="text-3xl">✗</span>
           <div>
-            <div class="text-2xl font-bold text-gray-700">{rsvpsList.filter(r => r.status === 'not_attending').length}</div>
+            <div class="text-2xl font-bold text-gray-700">{manageNotAttendingRsvps.length}</div>
             <div class="text-sm text-gray-700/80 font-medium">Not Attending</div>
           </div>
         </div>
@@ -610,7 +617,7 @@
               <div class="flex items-start gap-3 mb-3">
                 <div class="flex-1">
                   <h3 class="text-xl font-bold text-dark-800 mb-2 flex items-center gap-2">
-                    {rsvp.name}
+                    {rsvp.name}{#if rsvp.guestCount > 1} <span class="text-base font-normal text-gray-500">(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1 ? '' : 's'})</span>{/if}
                   </h3>
                   <div class="flex flex-wrap gap-3 items-center">
                     {#if rsvp.status === 'attending'}

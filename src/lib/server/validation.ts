@@ -121,6 +121,17 @@ export const rsvpSchema = z.object({
   email: optionalText(z.string().email("Enter a valid email").max(160)),
   pin: z.string().regex(/^[0-9]{4,6}$/, "PIN must be 4-6 digits"),
   status: z.enum(["attending", "maybe", "not_attending"]).default("attending"),
+  guestCount: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (!value) return 1;
+      const parsed = Number.parseInt(value, 10);
+      return Number.isNaN(parsed) ? 1 : parsed;
+    })
+    .refine((value) => value >= 1 && value <= 20, {
+      message: "Guest count must be between 1 and 20",
+    }),
   responses: z.record(z.string(), z.string()).optional().default({}),
 });
 

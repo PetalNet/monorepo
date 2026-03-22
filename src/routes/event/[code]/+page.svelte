@@ -257,6 +257,7 @@ const backgroundOverlayDark = event.backgroundImage
   // Make rsvps reactive so we can update without reload
   let rsvps = $state(data.rsvps);
   let rsvpCount = $state(data.event.rsvpCount);
+  let totalGuests = $state(data.event.totalGuests);
   let questionResponseCounts = $state<Record<string, number>>(
     Object.fromEntries(event.questions.map((q: any) => [q.id, q.responseCount]))
   );
@@ -280,7 +281,9 @@ const backgroundOverlayDark = event.backgroundImage
   let pinInput = $state<string>('');
   let pinError = $state<string>('');
   let editingStatus = $state<'attending' | 'maybe' | 'not_attending'>('attending');
+  let editingGuestCount = $state(1);
   let newRsvpStatus = $state<'attending' | 'maybe' | 'not_attending'>('attending');
+  let newGuestCount = $state(1);
   let showCancelConfirm = $state(false);
   
   // Collapsible sections state
@@ -519,6 +522,7 @@ const backgroundOverlayDark = event.backgroundImage
       editingRsvp = form.rsvp;
       responses = form.rsvp.responses || {};
       editingStatus = form.rsvp.status || 'attending';
+      editingGuestCount = form.rsvp.guestCount ?? 1;
       showEditModal = true;
       pinInput = '';
       pinError = '';
@@ -537,6 +541,7 @@ const backgroundOverlayDark = event.backgroundImage
       currentPin = '';
       responses = {};
       editingStatus = 'attending';
+      editingGuestCount = 1;
       editingRsvpId = '';
       pinInput = '';
       pinError = '';
@@ -546,22 +551,25 @@ const backgroundOverlayDark = event.backgroundImage
     if (form?.type === 'rsvp' && form.success) {
       showRsvpModal = false;
       newRsvpStatus = 'attending';
+      newGuestCount = 1;
       responses = {};
     }
   });
 
-  const rsvpAtLimit = $derived(event.rsvpLimit !== null && rsvpCount >= event.rsvpLimit);
+  const rsvpAtLimit = $derived(event.rsvpLimit !== null && totalGuests >= event.rsvpLimit);
 
   function openRsvpModal() {
     showRsvpModal = true;
     responses = {};
     newRsvpStatus = 'attending';
+    newGuestCount = 1;
   }
 
   function closeRsvpModal() {
     showRsvpModal = false;
     responses = {};
     newRsvpStatus = 'attending';
+    newGuestCount = 1;
   }
 
   function closeEditModal() {
@@ -570,6 +578,7 @@ const backgroundOverlayDark = event.backgroundImage
     currentPin = '';
     responses = {};
     editingStatus = 'attending';
+    editingGuestCount = 1;
     editingRsvpId = '';
     pinInput = '';
     pinError = '';
@@ -1014,7 +1023,7 @@ const backgroundOverlayDark = event.backgroundImage
                 ? 'background: rgba(254, 226, 226, 0.92); color: #991b1b; border: 1px solid rgba(185, 28, 28, 0.25);'
                 : `background-color: ${mixColors(primaryColors[100], secondaryColors[100], 0.55, 0.9)}; color: ${primaryColors[800]}; border: 1px solid ${withAlpha(primaryColors[600], 0.18)};`}
             >
-              {rsvpCount} / {event.rsvpLimit} RSVPs
+              {totalGuests} / {event.rsvpLimit} guests
             </span>
           {:else}
             <span
@@ -1022,7 +1031,7 @@ const backgroundOverlayDark = event.backgroundImage
               data-tone="theme"
               style={`background-color: ${mixColors(primaryColors[100], secondaryColors[100], 0.55, 0.9)}; color: ${primaryColors[800]}; border: 1px solid ${withAlpha(primaryColors[600], 0.18)};`}
             >
-              {rsvpCount} {rsvpCount === 1 ? 'RSVP' : 'RSVPs'}
+              {rsvpCount} {rsvpCount === 1 ? 'RSVP' : 'RSVPs'}{#if totalGuests > rsvpCount} ({totalGuests} guests){/if}
             </span>
           {/if}
         </div>
@@ -1106,14 +1115,14 @@ const backgroundOverlayDark = event.backgroundImage
                   class="panel-list-item border rounded-xl p-3 md:p-4 flex justify-between items-center gap-3 md:gap-4 transition-all hover:shadow-md"
                 >
                   <div class="flex flex-col gap-1 min-w-0 flex-1">
-                    <strong class="text-dark-900 text-sm md:text-base truncate">{rsvp.name}</strong>
+                    <strong class="text-dark-900 text-sm md:text-base truncate">{rsvp.name}{#if rsvp.guestCount > 1} <span class="text-dark-600 font-normal">(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1 ? '' : 's'})</span>{/if}</strong>
                     {#if rsvp.email && isOwner}
                       <span class="text-dark-700 text-xs md:text-sm truncate">{rsvp.email}</span>
                     {/if}
                     <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt, event.timezone)}</span>
                   </div>
-                  <button 
-                    class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0" 
+                  <button
+                    class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
                     title="Edit {rsvp.name}'s RSVP"
                     onclick={() => promptForPin(rsvp.id)}
                   >
@@ -1148,14 +1157,14 @@ const backgroundOverlayDark = event.backgroundImage
                   class="panel-list-item border rounded-xl p-3 md:p-4 flex justify-between items-center gap-3 md:gap-4 transition-all hover:shadow-md"
                 >
                   <div class="flex flex-col gap-1 min-w-0 flex-1">
-                    <strong class="text-dark-900 text-sm md:text-base truncate">{rsvp.name}</strong>
+                    <strong class="text-dark-900 text-sm md:text-base truncate">{rsvp.name}{#if rsvp.guestCount > 1} <span class="text-dark-600 font-normal">(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1 ? '' : 's'})</span>{/if}</strong>
                     {#if rsvp.email && isOwner}
                       <span class="text-dark-700 text-xs md:text-sm truncate">{rsvp.email}</span>
                     {/if}
                     <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt, event.timezone)}</span>
                   </div>
-                  <button 
-                    class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0" 
+                  <button
+                    class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
                     title="Edit {rsvp.name}'s RSVP"
                     onclick={() => promptForPin(rsvp.id)}
                   >
@@ -1190,14 +1199,14 @@ const backgroundOverlayDark = event.backgroundImage
                   class="panel-list-item border rounded-xl p-3 md:p-4 flex justify-between items-center gap-3 md:gap-4 transition-all hover:shadow-md"
                 >
                   <div class="flex flex-col gap-1 min-w-0 flex-1">
-                    <strong class="text-dark-900 text-sm md:text-base truncate">{rsvp.name}</strong>
+                    <strong class="text-dark-900 text-sm md:text-base truncate">{rsvp.name}{#if rsvp.guestCount > 1} <span class="text-dark-600 font-normal">(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1 ? '' : 's'})</span>{/if}</strong>
                     {#if rsvp.email && isOwner}
                       <span class="text-dark-700 text-xs md:text-sm truncate">{rsvp.email}</span>
                     {/if}
                     <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt, event.timezone)}</span>
                   </div>
-                  <button 
-                    class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0" 
+                  <button
+                    class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
                     title="Edit {rsvp.name}'s RSVP"
                     onclick={() => promptForPin(rsvp.id)}
                   >
@@ -1585,6 +1594,9 @@ const backgroundOverlayDark = event.backgroundImage
             if (result.data.rsvps) {
               rsvps = result.data.rsvps;
             }
+            if (result.data.totalGuests !== undefined) {
+              totalGuests = result.data.totalGuests;
+            }
             if (result.data.questionResponseCounts) {
               questionResponseCounts = result.data.questionResponseCounts as Record<string, number>;
             }
@@ -1612,6 +1624,20 @@ const backgroundOverlayDark = event.backgroundImage
             value={editingRsvp.email ?? ''}
             autocomplete="email"
           />
+        </label>
+
+        <label class="form-label">
+          <span>How many guests (including yourself)?</span>
+          <input
+            class="input-field"
+            name="guestCount"
+            type="number"
+            min="1"
+            max="20"
+            value={editingGuestCount}
+            oninput={(e) => editingGuestCount = Math.min(20, Math.max(1, Number(e.currentTarget.value) || 1))}
+          />
+          <small class="text-sm text-gray-600">Enter 1 if it's just you.</small>
         </label>
 
         <div class="status-section">
@@ -1777,6 +1803,7 @@ const backgroundOverlayDark = event.backgroundImage
           if (result.type === 'success' && result.data?.success) {
             // Update reactive state
             rsvpCount = result.data.rsvpCount ?? rsvpCount - 1;
+            totalGuests = result.data.totalGuests ?? totalGuests - 1;
             if (result.data.rsvps) {
               rsvps = result.data.rsvps;
             }
@@ -1841,6 +1868,7 @@ const backgroundOverlayDark = event.backgroundImage
           if (result.type === 'success' && result.data?.success) {
             // Update reactive state
             rsvpCount = result.data.rsvpCount ?? rsvpCount + 1;
+            totalGuests = result.data.totalGuests ?? totalGuests + 1;
             if (result.data.rsvps) {
               rsvps = result.data.rsvps;
             }
@@ -1850,6 +1878,7 @@ const backgroundOverlayDark = event.backgroundImage
             // Close modal
             showRsvpModal = false;
             responses = {};
+            newGuestCount = 1;
           }
           await update();
         };
@@ -1900,6 +1929,23 @@ const backgroundOverlayDark = event.backgroundImage
           <small class="text-sm text-gray-600">You'll need this PIN to manage your RSVP later.</small>
           {#if errors.pin}
             <small class="text-red-600 text-sm">{errors.pin[0]}</small>
+          {/if}
+        </label>
+
+        <label class="form-label">
+          <span>How many guests (including yourself)?</span>
+          <input
+            class="input-field"
+            name="guestCount"
+            type="number"
+            min="1"
+            max="20"
+            value={newGuestCount}
+            oninput={(e) => newGuestCount = Math.min(20, Math.max(1, Number(e.currentTarget.value) || 1))}
+          />
+          <small class="text-sm text-gray-600">Enter 1 if it's just you.</small>
+          {#if errors.guestCount}
+            <small class="text-red-600 text-sm">{errors.guestCount[0]}</small>
           {/if}
         </label>
 

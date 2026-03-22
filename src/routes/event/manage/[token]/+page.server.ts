@@ -66,6 +66,7 @@ export const load = async ({ params, locals }) => {
           name: true,
           email: true,
           status: true,
+          guestCount: true,
           createdAt: true,
           responses: {
             select: {
@@ -130,6 +131,7 @@ export const load = async ({ params, locals }) => {
       name: rsvp.name,
       email: rsvp.email,
       status: rsvp.status,
+      guestCount: rsvp.guestCount,
       createdAt: rsvp.createdAt,
       responses: rsvp.responses.map(
         (r: {

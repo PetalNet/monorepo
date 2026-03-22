@@ -81,6 +81,7 @@ model Rsvp {
   name        String
   email       String?
   status      String     @default("attending") // "attending", "maybe", "not_attending"
+  guestCount  Int        @default(1)
   pinHash     String
   eventId     String
   event       Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)

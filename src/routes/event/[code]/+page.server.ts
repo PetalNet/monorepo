@@ -31,7 +31,6 @@ export const load = async ({ params, locals }) => {
       secondaryColor: true,
       backgroundImage: true,
       emoji: true,
-      _count: { select: { rsvps: true } },
       questions: {
         orderBy: { order: "asc" },
         select: {
@@ -66,6 +65,7 @@ export const load = async ({ params, locals }) => {
           name: true,
           email: true,
           status: true,
+          guestCount: true,
           createdAt: true,
           responses: {
             select: {
@@ -86,6 +86,9 @@ export const load = async ({ params, locals }) => {
   // Check if current user is the event owner
   const isOwner = locals.user?.id === event.userId;
 
+  const rsvpCount = event.rsvps.length;
+  const totalGuests = event.rsvps.reduce((sum, r) => sum + r.guestCount, 0);
+
   return {
     event: {
       id: event.id,
@@ -97,7 +100,8 @@ export const load = async ({ params, locals }) => {
       location: event.location,
       publicCode: event.publicCode,
       rsvpLimit: event.rsvpLimit,
-      rsvpCount: event._count.rsvps,
+      rsvpCount,
+      totalGuests,
       theme: event.theme,
       primaryColor: event.primaryColor,
       secondaryColor: event.secondaryColor,
@@ -130,6 +134,7 @@ export const load = async ({ params, locals }) => {
       name: rsvp.name,
       email: isOwner ? rsvp.email : null, // Only show email to owner
       status: rsvp.status,
+      guestCount: rsvp.guestCount,
       createdAt: rsvp.createdAt,
       responses: rsvp.responses.map((r) => ({
         questionId: r.question.id,
@@ -362,15 +367,25 @@ export const actions = {
       });
     }
 
-    const { name, email, pin, status } = parsed.data;
+    const { name, email, pin, status, guestCount } = parsed.data;
 
-    // Check RSVP limit
-    if (event.rsvpLimit && event._count.rsvps >= event.rsvpLimit) {
-      return fail(400, {
-        success: false,
-        message: "Sorry, this event has reached its RSVP limit.",
-        values: raw,
+    // Check RSVP limit (using sum of guest counts)
+    if (event.rsvpLimit) {
+      const totalGuests = await prisma.rsvp.aggregate({
+        where: { eventId: event.id },
+        _sum: { guestCount: true },
       });
+      const currentTotal = totalGuests._sum.guestCount ?? 0;
+      if (currentTotal + guestCount > event.rsvpLimit) {
+        return fail(400, {
+          success: false,
+          message:
+            guestCount > 1
+              ? `Sorry, there are only ${event.rsvpLimit - currentTotal} spot(s) left, but you requested ${guestCount}.`
+              : "Sorry, this event has reached its RSVP limit.",
+          values: raw,
+        });
+      }
     }
 
     // Check capacity for questions with quantity limits FIRST
@@ -448,6 +463,7 @@ export const actions = {
         name,
         email: email ?? null,
         status,
+        guestCount,
         pinHash,
         eventId: event.id,
         responses: {
@@ -466,7 +482,6 @@ export const actions = {
     const updatedEvent = await prisma.event.findUnique({
       where: { id: event.id },
       select: {
-        _count: { select: { rsvps: true } },
         questions: {
           select: {
             id: true,
@@ -483,6 +498,7 @@ export const actions = {
             id: true,
             name: true,
             status: true,
+            guestCount: true,
             createdAt: true,
             responses: {
               select: {
@@ -495,6 +511,13 @@ export const actions = {
       },
     });
 
+    const updatedRsvps = updatedEvent?.rsvps ?? [];
+    const updatedRsvpCount = updatedRsvps.length;
+    const updatedTotalGuests = updatedRsvps.reduce(
+      (sum, r) => sum + r.guestCount,
+      0
+    );
+
     await syncSpotifyPlaylists(event.id).catch((error) => {
       console.error("Spotify sync failed after RSVP create", error);
     });
@@ -502,15 +525,17 @@ export const actions = {
     return {
       success: true,
       rsvpId: rsvp.id,
-      rsvpCount: updatedEvent?._count.rsvps ?? event._count.rsvps + 1,
+      rsvpCount: updatedRsvpCount,
+      totalGuests: updatedTotalGuests,
       questionResponseCounts: Object.fromEntries(
         (updatedEvent?.questions ?? []).map((q) => [q.id, q.responses.length])
       ),
-      rsvps: (updatedEvent?.rsvps ?? []).map((r) => ({
+      rsvps: updatedRsvps.map((r) => ({
         id: r.id,
         name: r.name,
         email: null, // Never expose emails in action response
         status: r.status,
+        guestCount: r.guestCount,
         createdAt: r.createdAt,
         responses: r.responses.map((resp) => ({
           questionId: resp.question.id,
@@ -545,6 +570,7 @@ export const actions = {
         name: true,
         email: true,
         status: true,
+        guestCount: true,
         pinHash: true,
         responses: {
           select: {
@@ -572,6 +598,7 @@ export const actions = {
         name: rsvp.name,
         email: rsvp.email,
         status: rsvp.status,
+        guestCount: rsvp.guestCount,
         responses: Object.fromEntries(
           rsvp.responses.map((r) => [r.questionId, r.value])
         ),
@@ -613,6 +640,11 @@ export const actions = {
     const name = formData.get("name") as string;
     const email = formData.get("email") as string;
     const status = (formData.get("status") as string) || "attending";
+    const rawGuestCount = formData.get("guestCount") as string;
+    const guestCount = Math.min(
+      20,
+      Math.max(1, Number.parseInt(rawGuestCount, 10) || 1)
+    );
 
     // Parse responses from form data
     const responses: Record<string, string> = {};
@@ -718,6 +750,7 @@ export const actions = {
         name: name || undefined,
         email: email || null,
         status,
+        guestCount,
         responses: {
           deleteMany: {},
           create: Object.entries(responses)
@@ -750,6 +783,7 @@ export const actions = {
             id: true,
             name: true,
             status: true,
+            guestCount: true,
             createdAt: true,
             responses: {
               select: {
@@ -762,6 +796,12 @@ export const actions = {
       },
     });
 
+    const updatedRsvpsForUpdate = updatedEvent?.rsvps ?? [];
+    const updatedTotalGuestsForUpdate = updatedRsvpsForUpdate.reduce(
+      (sum, r) => sum + r.guestCount,
+      0
+    );
+
     await syncSpotifyPlaylists(event.id).catch((error) => {
       console.error("Spotify sync failed after RSVP update", error);
     });
@@ -770,14 +810,16 @@ export const actions = {
       success: true,
       type: "updateRsvp",
       message: "Your RSVP has been updated!",
+      totalGuests: updatedTotalGuestsForUpdate,
       questionResponseCounts: Object.fromEntries(
         (updatedEvent?.questions ?? []).map((q) => [q.id, q.responses.length])
       ),
-      rsvps: (updatedEvent?.rsvps ?? []).map((r) => ({
+      rsvps: updatedRsvpsForUpdate.map((r) => ({
         id: r.id,
         name: r.name,
         email: null,
         status: r.status,
+        guestCount: r.guestCount,
         createdAt: r.createdAt,
         responses: r.responses.map((resp) => ({
           questionId: resp.question.id,
@@ -834,7 +876,6 @@ export const actions = {
     const updatedEvent = await prisma.event.findUnique({
       where: { id: rsvp.eventId },
       select: {
-        _count: { select: { rsvps: true } },
         questions: {
           select: {
             id: true,
@@ -851,6 +892,7 @@ export const actions = {
             id: true,
             name: true,
             status: true,
+            guestCount: true,
             createdAt: true,
             responses: {
               select: {
@@ -863,19 +905,28 @@ export const actions = {
       },
     });
 
+    const cancelledRsvps = updatedEvent?.rsvps ?? [];
+    const cancelledRsvpCount = cancelledRsvps.length;
+    const cancelledTotalGuests = cancelledRsvps.reduce(
+      (sum, r) => sum + r.guestCount,
+      0
+    );
+
     return {
       success: true,
       type: "cancelRsvp",
       message: "Your RSVP has been cancelled.",
-      rsvpCount: updatedEvent?._count.rsvps ?? 0,
+      rsvpCount: cancelledRsvpCount,
+      totalGuests: cancelledTotalGuests,
       questionResponseCounts: Object.fromEntries(
         (updatedEvent?.questions ?? []).map((q) => [q.id, q.responses.length])
       ),
-      rsvps: (updatedEvent?.rsvps ?? []).map((r) => ({
+      rsvps: cancelledRsvps.map((r) => ({
         id: r.id,
         name: r.name,
         email: null,
         status: r.status,
+        guestCount: r.guestCount,
         createdAt: r.createdAt,
         responses: r.responses.map((resp) => ({
           questionId: resp.question.id,
