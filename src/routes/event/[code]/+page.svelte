@@ -1106,7 +1106,7 @@ const backgroundOverlayDark = event.backgroundImage
                     {#if rsvp.email && isOwner}
                       <span class="text-dark-700 text-xs md:text-sm truncate">{rsvp.email}</span>
                     {/if}
-                    <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt)}</span>
+                    <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt, event.timezone)}</span>
                   </div>
                   <button 
                     class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0" 
@@ -1148,7 +1148,7 @@ const backgroundOverlayDark = event.backgroundImage
                     {#if rsvp.email && isOwner}
                       <span class="text-dark-700 text-xs md:text-sm truncate">{rsvp.email}</span>
                     {/if}
-                    <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt)}</span>
+                    <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt, event.timezone)}</span>
                   </div>
                   <button 
                     class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0" 
@@ -1190,7 +1190,7 @@ const backgroundOverlayDark = event.backgroundImage
                     {#if rsvp.email && isOwner}
                       <span class="text-dark-700 text-xs md:text-sm truncate">{rsvp.email}</span>
                     {/if}
-                    <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt)}</span>
+                    <span class="text-dark-600 text-xs">{formatShortDate(rsvp.createdAt, event.timezone)}</span>
                   </div>
                   <button 
                     class="bg-none border-none cursor-pointer p-2 text-xl opacity-60 hover:opacity-100 transition-opacity flex-shrink-0" 

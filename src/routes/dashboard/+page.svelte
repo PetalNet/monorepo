@@ -4,7 +4,7 @@
   const { data } = $props<{ data: PageData }>();
   const events = $derived(data.events);
 
-  function formatDate(dateString: string) {
+  function formatDate(dateString: string, timezone?: string) {
     const date = new Date(dateString);
     return new Intl.DateTimeFormat('en-US', {
       weekday: 'short',
@@ -13,7 +13,7 @@
       year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      timeZone: timezone || 'UTC'
     }).format(date);
   }
 
@@ -57,7 +57,7 @@
           <div class="flex flex-col gap-2 text-sm">
             <div class="flex items-center gap-2 text-dark-900/80">
               <span class="text-base">📅</span>
-              <span>{formatDate(event.date)}</span>
+              <span>{formatDate(event.date, event.timezone)}</span>
             </div>
             {#if event.location}
               <div class="flex items-center gap-2 text-dark-900/80">

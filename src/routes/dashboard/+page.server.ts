@@ -25,6 +25,7 @@ export const load = async ({ locals }) => {
       title: event.title,
       description: event.description,
       date: event.date.toISOString(),
+      timezone: event.timezone,
       location: event.location,
       publicCode: event.publicCode,
       manageToken: event.manageToken,
