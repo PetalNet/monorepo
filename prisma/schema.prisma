@@ -132,6 +132,8 @@ model VotingSession {
   
   event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   votes       Vote[]
+  
+  @@index([eventId, lastActive])
 }
 
 model Vote {
@@ -149,6 +151,10 @@ model Vote {
   votingSession    VotingSession?  @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
   user             User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   ratings          Rating[]
+  
+  @@index([eventId, groupId])
+  @@index([eventId, userId])
+  @@index([eventId, votingSessionId])
 }
 
 model Rating {
@@ -161,6 +167,8 @@ model Rating {
   category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   
   @@unique([voteId, categoryId])
+  @@index([voteId])
+  @@index([categoryId])
 }
 
 model PresentationOrder {

@@ -2,8 +2,6 @@
 	import { enhance } from '$app/forms';
 	import { invalidateAll, goto } from '$app/navigation';
 	import { onMount, onDestroy, untrack } from 'svelte';
-	import QRCode from 'qrcode';
-	import Sortable from 'sortablejs';
 	import ParticleBackground from '$lib/components/ParticleBackground.svelte';
 	
 	const { data } = $props();
@@ -194,9 +192,10 @@
 		// Initialize background shapes
 		initBackgroundShapes();
 		
-		// Generate QR code with custom styling
+		// Lazy load QR code library only for hosts (reduces initial bundle size)
 		if (isHost) {
 			try {
+				const QRCode = (await import('qrcode')).default;
 				const url = votingUrl();
 				if (url) {
 					qrCodeUrl = await QRCode.toDataURL(url, {
@@ -214,9 +213,10 @@
 			}
 		}
 		
-		// Initialize Sortable if needed
+		// Lazy load Sortable library only for hosts (reduces initial bundle size)
 		if (isHost && presentationListElement) {
 			try {
+				const Sortable = (await import('sortablejs')).default;
 				sortableInstance = new Sortable(presentationListElement, {
 					animation: 150,
 					handle: '.drag-handle',
@@ -235,12 +235,17 @@
 		
 		isInitialized = true;
 		
-		// Poll for updates every second to keep timer in tight sync
+		// Adaptive polling: Use longer intervals on mobile devices to save battery and reduce network load
+		// Detect mobile: check for touch support and smaller screen width
+		const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0) && window.innerWidth < 768;
+		const pollDelay = isMobile ? 3000 : 1000; // 3 seconds on mobile, 1 second on desktop
+		
+		// Poll for updates
 		pollInterval = setInterval(() => {
 			invalidateAll().catch(() => {
 				// Silently ignore errors (e.g., if page is navigating away)
 			});
-		}, 1000);
+		}, pollDelay);
 	});
 	
 	onDestroy(() => {

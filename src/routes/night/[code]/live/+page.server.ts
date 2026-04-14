@@ -4,6 +4,7 @@ import type { PageServerLoad, Actions } from "./$types";
 import { nanoid } from "nanoid";
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
+  // Optimize: Use select to fetch only necessary fields
   const event = await prisma.event.findUnique({
     where: { joinCode: params.code },
     include: {
@@ -28,7 +29,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
                 select: {
                   id: true,
                   name: true,
-                  email: true,
+                  // Removed email to reduce data transfer
                 },
               },
             },
@@ -101,19 +102,21 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     },
   });
 
-  // Get all participants (event members)
+  // Get all participants (event members) - optimized with select
   const participants = await prisma.groupMember.findMany({
     where: {
       group: {
         eventId: event.id,
       },
     },
-    include: {
+    select: {
+      id: true,
+      userId: true,
       user: {
         select: {
           id: true,
           name: true,
-          email: true,
+          // Removed email to reduce payload
         },
       },
     },
@@ -147,31 +150,33 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // Total potential voters = logged in users + temp voters
   totalPotentialVoters = participants.length + votingSessions.length;
 
-  // Get existing votes for current user/session
+  // Get existing votes for current user/session (optimized single query)
   let existingVotes: Record<string, Record<string, number>> = {};
   let userGroupIds: string[] = []; // Track which groups the current user is a member of
 
-  for (const group of orderedGroups) {
-    const vote = await prisma.vote.findFirst({
-      where: {
-        eventId: event.id,
-        groupId: group.id,
-        ...(votingSession
-          ? { votingSessionId: votingSession.id }
-          : locals.user
-          ? { userId: locals.user.id }
-          : {}),
+  // Batch query: fetch all votes for this user/session in one go
+  const userVotes = await prisma.vote.findMany({
+    where: {
+      eventId: event.id,
+      groupId: {
+        in: orderedGroups.map((g) => g.id),
       },
-      include: {
-        ratings: true,
-      },
-    });
+      ...(votingSession
+        ? { votingSessionId: votingSession.id }
+        : locals.user
+        ? { userId: locals.user.id }
+        : {}),
+    },
+    include: {
+      ratings: true,
+    },
+  });
 
-    if (vote) {
-      existingVotes[group.id] = {};
-      for (const rating of vote.ratings) {
-        existingVotes[group.id][rating.categoryId] = rating.stars;
-      }
+  // Process votes into the existingVotes structure
+  for (const vote of userVotes) {
+    existingVotes[vote.groupId] = {};
+    for (const rating of vote.ratings) {
+      existingVotes[vote.groupId][rating.categoryId] = rating.stars;
     }
   }
 
@@ -191,7 +196,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     userGroupIds = userGroups.map((g) => g.groupId);
   }
 
-  // Calculate winners (only if event status is completed or we have votes)
+  // Calculate winners (only if event status is completed - defer expensive calculation)
   let topPresentations: {
     first: any[];
     second: any[];
@@ -200,62 +205,77 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   let categoryWinners: any[] = [];
   let fullLeaderboard: any[] = [];
 
-  if (orderedGroups.length > 0) {
-    const groupScores = await Promise.all(
-      orderedGroups.map(async (group) => {
-        const votes = await prisma.vote.findMany({
-          where: {
-            eventId: event.id,
-            groupId: group.id,
-          },
-          include: {
-            ratings: true,
-          },
-        });
+  // Only calculate leaderboard when event is completed (winners screen)
+  // This saves significant processing time during live presentations
+  if (orderedGroups.length > 0 && event.status === "completed") {
+    // Optimized: Fetch all votes for all groups in a single query
+    const allVotes = await prisma.vote.findMany({
+      where: {
+        eventId: event.id,
+        groupId: {
+          in: orderedGroups.map((g) => g.id),
+        },
+      },
+      include: {
+        ratings: true,
+      },
+    });
 
-        // Only count complete votes
-        const completeVotes = votes.filter(
-          (vote) => vote.ratings.length === event.categories.length
+    // Group votes by groupId for fast lookup
+    const votesByGroup = new Map<string, any[]>();
+    for (const vote of allVotes) {
+      if (!votesByGroup.has(vote.groupId)) {
+        votesByGroup.set(vote.groupId, []);
+      }
+      votesByGroup.get(vote.groupId)!.push(vote);
+    }
+
+    // Calculate scores for each group (now using in-memory data)
+    const groupScores = orderedGroups.map((group) => {
+      const votes = votesByGroup.get(group.id) || [];
+
+      // Only count complete votes
+      const completeVotes = votes.filter(
+        (vote) => vote.ratings.length === event.categories.length
+      );
+
+      // Calculate total score (sum of all ratings)
+      const totalScore = completeVotes.reduce((sum, vote) => {
+        return (
+          sum +
+          vote.ratings.reduce(
+            (ratingSum: number, rating: any) => ratingSum + rating.stars,
+            0
+          )
         );
+      }, 0);
 
-        // Calculate total score (sum of all ratings)
-        const totalScore = completeVotes.reduce((sum, vote) => {
-          return (
-            sum +
-            vote.ratings.reduce(
-              (ratingSum, rating) => ratingSum + rating.stars,
-              0
-            )
-          );
-        }, 0);
+      // Calculate average score
+      const averageScore =
+        completeVotes.length > 0 ? totalScore / completeVotes.length : 0;
 
-        // Calculate average score
-        const averageScore =
-          completeVotes.length > 0 ? totalScore / completeVotes.length : 0;
+      // Calculate category scores
+      const categoryScores: Record<string, number> = {};
+      for (const category of event.categories) {
+        const categoryRatings = completeVotes.flatMap((vote) =>
+          vote.ratings.filter((r: any) => r.categoryId === category.id)
+        );
+        const categoryAvg =
+          categoryRatings.length > 0
+            ? categoryRatings.reduce((sum, r: any) => sum + r.stars, 0) /
+              categoryRatings.length
+            : 0;
+        categoryScores[category.id] = categoryAvg;
+      }
 
-        // Calculate category scores
-        const categoryScores: Record<string, number> = {};
-        for (const category of event.categories) {
-          const categoryRatings = completeVotes.flatMap((vote) =>
-            vote.ratings.filter((r) => r.categoryId === category.id)
-          );
-          const categoryAvg =
-            categoryRatings.length > 0
-              ? categoryRatings.reduce((sum, r) => sum + r.stars, 0) /
-                categoryRatings.length
-              : 0;
-          categoryScores[category.id] = categoryAvg;
-        }
-
-        return {
-          group,
-          totalScore,
-          averageScore,
-          voteCount: completeVotes.length,
-          categoryScores,
-        };
-      })
-    );
+      return {
+        group,
+        totalScore,
+        averageScore,
+        voteCount: completeVotes.length,
+        categoryScores,
+      };
+    });
 
     // Sort by total score descending (instead of average), then by vote count
     const sortedGroups = groupScores.sort((a, b) => {
