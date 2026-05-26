@@ -64,7 +64,10 @@ function ensureColumns() {
     result_summary: "TEXT DEFAULT ''",      // worker's concise result
     verification_status: "TEXT DEFAULT 'unverified'", // unverified|verified|rejected
     max_children: 'INTEGER DEFAULT 5',      // runaway-delegation guard
-    budget: "TEXT DEFAULT ''"
+    budget: "TEXT DEFAULT ''",
+    // Claude Corner merge: kind 'doc' (brief/ADR, body=writeup) and 'question' (async decision)
+    options: "TEXT DEFAULT ''",             // JSON [{value,label}] for kind='question'
+    answer: "TEXT DEFAULT ''"               // chosen value for kind='question'
   };
   for (const [name, def] of Object.entries(adds)) if (!have.has(name)) db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
 }
@@ -87,10 +90,23 @@ export function addComment(task_id, author, body) {
 export const listProjects = () => db.prepare('SELECT * FROM projects ORDER BY name').all();
 export const getProjectByName = (name) => db.prepare('SELECT * FROM projects WHERE name=?').get(name);
 
+const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of the task checklist
+
 // Top-level items per section (children render nested under their parent — work isn't flat, per Bob).
-export const upNext  = (p) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${ACTIVE} ${where(p)} ORDER BY rank, priority, updated_at DESC`).all(args(p)));
+export const upNext  = (p) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${ACTIVE} ${where(p)} ORDER BY rank, priority, updated_at DESC`).all(args(p)));
 export const inbox   = (p) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ORDER BY created_at DESC`).all(args(p));
-export const backlog = (p) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ORDER BY priority, rank, updated_at DESC`).all(args(p)));
+export const backlog = (p) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ORDER BY priority, rank, updated_at DESC`).all(args(p)));
+
+// --- Claude Corner merge: docs (briefs/ADRs) + questions (async decisions) ---
+export const listDocs = (p) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ORDER BY updated_at DESC`).all(args(p));
+export const openQuestions = (p) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ORDER BY priority, created_at`).all(args(p));
+export const answerQuestion = (id, value) => updateTask(id, { answer: value, status: 'done' });
+export const createDoc = (project_id, title, body, created_by = '') => createTask({ kind: 'doc', title, body, status: 'todo', project_id, created_by });
+export function createQuestion(project_id, title, context, options, created_by = '') {
+  const id = createTask({ kind: 'question', title, body: context, status: 'todo', project_id, created_by });
+  updateTask(id, { options: JSON.stringify(options || []) });
+  return id;
+}
 
 // sub-task hierarchy (beads-style breakdown)
 export const children = (pid) => withKids(db.prepare(`SELECT * FROM tasks WHERE parent_id=? AND ${ACTIVE} ORDER BY rank, priority`).all(pid));
@@ -132,7 +148,7 @@ export function createTask(t) {
 
 const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'parent_id', 'blocked_on', 'project_id', 'kind',
   'assignee', 'capability', 'type', 'handoff_context', 'acceptance_criteria', 'result_summary', 'verification_status',
-  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at'];
+  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer'];
 export function updateTask(id, patch) {
   const cols = Object.keys(patch).filter((k) => PATCHABLE.includes(k));
   if (!cols.length) return;

@@ -18,6 +18,23 @@
 <div class="wrap">
   <a class="back" href="/">← tasks</a>
 
+  {#if t.kind === 'question'}
+    <section class="qbox">
+      {#if data.bodyHtml}<div class="md">{@html data.bodyHtml}</div>{/if}
+      <div class="opts">
+        {#each data.opts as o}
+          <form method="POST" action="?/answer" use:enhance>
+            <input type="hidden" name="value" value={o.value} />
+            <button class="opt" class:chosen={t.answer === o.value}>{o.label}</button>
+          </form>
+        {/each}
+      </div>
+      {#if t.answer}<div class="answered">Answered: <b>{data.opts.find((o) => o.value === t.answer)?.label ?? t.answer}</b></div>{/if}
+    </section>
+  {:else if t.kind === 'doc' && data.bodyHtml}
+    <div class="md">{@html data.bodyHtml}</div>
+  {/if}
+
   <form method="POST" action="?/save" use:enhance>
     <input class="title" name="title" value={t.title} />
     <div class="row">
@@ -97,4 +114,17 @@
   .result{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.45;white-space:pre-wrap;}
   .vs{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;}
   .vs.verified{color:var(--green);}.vs.rejected{color:var(--red);}
+  .qbox{margin-bottom:18px;}
+  .opts{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;}
+  .opt{border:1px solid var(--border-strong);background:var(--elev);color:var(--text);border-radius:8px;padding:7px 13px;cursor:pointer;font:inherit;font-size:13px;}
+  .opt:hover{border-color:var(--blue);color:var(--blue);}
+  .opt.chosen{background:var(--green);color:var(--bg);border-color:var(--green);}
+  .answered{font-size:13px;color:var(--mute);}
+  .md{font-size:14.5px;line-height:1.6;}
+  .md :global(h1),.md :global(h2),.md :global(h3){line-height:1.25;}
+  .md :global(code){font-family:'Geist Mono',ui-monospace,monospace;font-size:.9em;background:var(--elev);border:1px solid var(--border);border-radius:4px;padding:1px 5px;}
+  .md :global(pre){background:var(--elev);border:1px solid var(--border);border-radius:9px;padding:12px;overflow:auto;}
+  .md :global(pre code){border:0;padding:0;background:none;}
+  .md :global(a){color:var(--blue);}
+  .md :global(ul),.md :global(ol){padding-left:22px;}
 </style>

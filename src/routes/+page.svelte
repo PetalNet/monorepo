@@ -91,6 +91,28 @@
     <kbd>↵</kbd>
   </form>
 
+  <!-- QUESTIONS — async decisions (merged from Claude Corner) -->
+  {#if data.questions.length}
+    <section class="sec">
+      <div class="sec-h"><h2>Questions</h2><span class="count">{data.questions.length}</span></div>
+      {#each data.questions as q (q.id)}
+        <div class="item q">
+          <div class="body">
+            <a class="ttl" href="/task/{q.id}">{q.title}</a>
+            <div class="opts">
+              {#each q.opts as o}
+                <form method="POST" action="?/answer" use:enhance>
+                  <input type="hidden" name="id" value={q.id} /><input type="hidden" name="value" value={o.value} />
+                  <button class="opt">{o.label}</button>
+                </form>
+              {/each}
+            </div>
+          </div>
+        </div>
+      {/each}
+    </section>
+  {/if}
+
   <!-- UP NEXT — manual rank order ("do this then that") -->
   <section class="sec">
     <div class="sec-h"><h2>Up Next</h2><span class="count">{data.upNext.length}</span></div>
@@ -124,7 +146,20 @@
     {#each data.backlog as t (t.id)}{@render row(t, 0)}{:else}<p class="empty">Backlog clear.</p>{/each}
   </section>
 
-  <div class="foot mono">SQLite-backed · local-private + github-public · MCP + hooks for agents</div>
+  <!-- DOCS — briefs / ADRs (merged from Claude Corner) -->
+  {#if data.docs.length}
+    <section class="sec">
+      <div class="sec-h"><h2>Docs</h2><span class="count">{data.docs.length}</span></div>
+      {#each data.docs as d (d.id)}
+        <a class="docrow" href="/task/{d.id}">
+          <span class="ttl">{d.title}</span>
+          {#if projName(d.project_id)}<span class="tag">{projName(d.project_id)}</span>{/if}
+        </a>
+      {/each}
+    </section>
+  {/if}
+
+  <div class="foot mono">SQLite-backed · tasks · docs · questions · agents</div>
 </div>
 
 <style>
@@ -155,6 +190,13 @@
   .sec-h h2{font-size:13px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--mute);margin:0;}
   .sec-h .count{font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;color:var(--soft);}
   .empty{color:var(--soft);font-size:13px;margin:2px;}
+  .item.q{border-color:var(--border-strong);}
+  .q .opts{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;}
+  .opt{font-size:13px;border:1px solid var(--border-strong);background:var(--elev);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit;font-size:13px;}
+  .opt:hover{border-color:var(--blue);color:var(--blue);}
+  .docrow{display:flex;align-items:center;gap:9px;padding:11px 13px;border:1px solid var(--border);border-radius:11px;background:var(--surface);margin-bottom:8px;text-decoration:none;}
+  .docrow:hover{border-color:var(--border-strong);}
+  .docrow .ttl{flex:1;}
 
   .item{display:flex;align-items:flex-start;gap:11px;padding:12px 13px;border-radius:11px;border:1px solid var(--border);background:var(--surface);margin-bottom:8px;}
   .item:hover{border-color:var(--border-strong);}

@@ -1,12 +1,17 @@
 import { error } from '@sveltejs/kit';
-import { getTask, listComments, children, listProjects, updateTask, addComment } from '$lib/server/db.js';
+import { marked } from 'marked';
+import { getTask, listComments, children, listProjects, updateTask, addComment, answerQuestion } from '$lib/server/db.js';
 
 export function load({ params, locals }) {
   const id = Number(params.id);
   const task = getTask(id);
   if (!task) throw error(404, 'No such task');
+  let opts = [];
+  try { opts = JSON.parse(task.options || '[]'); } catch { opts = []; }
   return {
     task,
+    bodyHtml: task.body ? marked.parse(task.body, { breaks: true }) : '',
+    opts,
     comments: listComments(id),
     kids: children(id),
     projects: listProjects(),
@@ -25,6 +30,12 @@ export const actions = {
     updateTask(Number(params.id), patch);
     return { ok: true };
   },
+  answer: async ({ request, params }) => {
+    const f = await request.formData();
+    answerQuestion(Number(params.id), String(f.get('value') || ''));
+    return { ok: true };
+  },
+
   // append to the coordination log (agents drop research/findings here)
   comment: async ({ request, params, locals }) => {
     const f = await request.formData();

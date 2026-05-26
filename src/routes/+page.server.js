@@ -1,6 +1,7 @@
 import {
   upNext, inbox, backlog, listProjects, getProjectByName,
-  createTask, updateTask, ensureProject, nextUpNextRank, getTask
+  createTask, updateTask, ensureProject, nextUpNextRank, getTask,
+  listDocs, openQuestions, answerQuestion
 } from '$lib/server/db.js';
 
 export function load({ url }) {
@@ -11,11 +12,15 @@ export function load({ url }) {
     projects: listProjects(),
     current: proj?.name ?? null,
     backend: proj?.backend ?? null,
+    questions: openQuestions(pid).map((q) => ({ ...q, opts: parseOpts(q.options) })),
     upNext: upNext(pid),
     inbox: inbox(pid),
-    backlog: backlog(pid)
+    backlog: backlog(pid),
+    docs: listDocs(pid)
   };
 }
+
+function parseOpts(s) { try { return JSON.parse(s || '[]'); } catch { return []; } }
 
 export const actions = {
   // 2-second async capture → idea in the inbox
@@ -63,6 +68,13 @@ export const actions = {
       const name = String(f.get('name') || '').trim();
       if (name) updateTask(id, { kind: 'task', status: 'todo', project_id: ensureProject(name) });
     }
+    return { ok: true };
+  },
+
+  // answer an async decision (Corner-style question)
+  answer: async ({ request }) => {
+    const f = await request.formData();
+    answerQuestion(Number(f.get('id')), String(f.get('value') || ''));
     return { ok: true };
   }
 };
