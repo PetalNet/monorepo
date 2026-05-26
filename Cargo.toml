@@ -16,7 +16,7 @@ rpassword = { version = "7" }
 serde = { version = "1" }
 serde_json = "1"
 serde_yaml = "0.9"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "process"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "process", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 time = { version = "0.3", features = ["formatting", "macros"] }

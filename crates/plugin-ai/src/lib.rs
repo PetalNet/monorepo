@@ -435,7 +435,14 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
                  let _ = send_text(ctx, format!("AI turn {turn} calling API...")).await;
             }
 
-            let client = reqwest::Client::new();
+            // No timeout on Client::new() means a stalled Gemini request hangs forever.
+            // Plugin handlers run inline on the matrix-sdk sync task, so that freezes the
+            // whole bot (0% CPU, sync stops). Bound every request instead.
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
             let started = std::time::Instant::now();
 
             let mut final_content: Option<String> = None;

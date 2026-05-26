@@ -191,7 +191,16 @@ impl McpClient {
             .await
             .context("Failed to send request to writer task")?;
 
-        rx.await.context("Failed to receive response")?
+        // Bound the wait: if the MCP subprocess never answers (hung npx child, lost
+        // stdio), this future would otherwise hang forever — and since plugin handlers
+        // run inline on the matrix-sdk sync task, that freezes the whole bot. Time it out.
+        match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
+            Ok(res) => res.context("Failed to receive response")?,
+            Err(_) => {
+                self.requests.lock().await.remove(&id);
+                anyhow::bail!("MCP request '{}' timed out after 60s", method);
+            }
+        }
     }
 
     async fn notify(&self, method: &str, params: Option<Value>) -> Result<()> {
