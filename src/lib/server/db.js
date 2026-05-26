@@ -49,6 +49,27 @@ db.exec(`
   );
 `);
 
+// Delegation columns (added incrementally — the live DB predates them). Idempotent.
+function ensureColumns() {
+  const have = new Set(db.prepare('PRAGMA table_info(tasks)').all().map((c) => c.name));
+  const adds = {
+    assignee: "TEXT DEFAULT ''",            // which agent/human owns it
+    capability: "TEXT DEFAULT ''",          // capability needed (build|research|web|...)
+    type: "TEXT DEFAULT 'task'",
+    claimed_by: "TEXT DEFAULT ''",          // agent that holds the active lease
+    claim_token: "TEXT DEFAULT ''",
+    lease_expires_at: 'TEXT',               // claim lease; Agent-a reaps when expired
+    handoff_context: "TEXT DEFAULT ''",     // just-enough context for the worker
+    acceptance_criteria: "TEXT DEFAULT ''", // what "done" means; Agent-a verifies against this
+    result_summary: "TEXT DEFAULT ''",      // worker's concise result
+    verification_status: "TEXT DEFAULT 'unverified'", // unverified|verified|rejected
+    max_children: 'INTEGER DEFAULT 5',      // runaway-delegation guard
+    budget: "TEXT DEFAULT ''"
+  };
+  for (const [name, def] of Object.entries(adds)) if (!have.has(name)) db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
+}
+ensureColumns();
+
 const log = (task_id, type, data) =>
   db.prepare('INSERT INTO events (task_id,type,data) VALUES (?,?,?)').run(task_id, type, data ? JSON.stringify(data) : null);
 
@@ -109,12 +130,69 @@ export function createTask(t) {
   return id;
 }
 
-const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'parent_id', 'blocked_on', 'project_id', 'kind'];
+const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'parent_id', 'blocked_on', 'project_id', 'kind',
+  'assignee', 'capability', 'type', 'handoff_context', 'acceptance_criteria', 'result_summary', 'verification_status',
+  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at'];
 export function updateTask(id, patch) {
   const cols = Object.keys(patch).filter((k) => PATCHABLE.includes(k));
   if (!cols.length) return;
   db.prepare(`UPDATE tasks SET ${cols.map((c) => `${c}=@${c}`).join(',')}, updated_at=datetime('now') WHERE id=@id`).run({ id, ...patch });
   log(id, 'update', patch);
 }
+
+// --- delegation: assignment, atomic claim/lease, report-back, verify, reap ---
+
+export function assignTask(id, assignee, capability) {
+  updateTask(id, { assignee, status: 'todo', ...(capability ? { capability } : {}) });
+}
+
+// Atomic claim: better-sqlite3 serializes writes, so this guarded UPDATE can't double-claim.
+// Returns true iff THIS worker won the claim.
+export function claimTask(id, worker, token) {
+  const r = db.prepare(
+    `UPDATE tasks SET status='doing', claimed_by=@worker, claim_token=@token,
+       lease_expires_at=datetime('now','+30 minutes'), updated_at=datetime('now')
+     WHERE id=@id AND assignee=@worker AND status='todo'
+       AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))`
+  ).run({ id, worker, token });
+  if (r.changes) log(id, 'claim', { worker });
+  return r.changes > 0;
+}
+
+// Worker reports back. Only the current lease holder may report.
+export function reportTask(id, worker, token, { status, result_summary, blocked_on } = {}) {
+  const t = getTask(id);
+  if (!t || t.claimed_by !== worker || (token && t.claim_token !== token)) return false;
+  const patch = {};
+  if (status) patch.status = status;                 // review | blocked | done
+  if (result_summary != null) patch.result_summary = result_summary;
+  if (blocked_on != null) patch.blocked_on = blocked_on;
+  updateTask(id, patch);
+  log(id, 'report', { worker, ...patch });
+  return true;
+}
+
+// Agent-a verifies a reviewed task against acceptance_criteria, then closes or bounces it back.
+export function verifyTask(id, ok) {
+  updateTask(id, ok
+    ? { verification_status: 'verified', status: 'done' }
+    : { verification_status: 'rejected', status: 'todo', claimed_by: '', claim_token: '', lease_expires_at: null });
+}
+
+// Release expired leases back to todo so the lead can reassign.
+export function reapLeases() {
+  return db.prepare(
+    `UPDATE tasks SET status='todo', claimed_by='', claim_token='', lease_expires_at=NULL, updated_at=datetime('now')
+     WHERE status='doing' AND lease_expires_at IS NOT NULL AND lease_expires_at < datetime('now')`
+  ).run().changes;
+}
+
+// An agent's own queue (for the SessionStart hook).
+export const agentQueue = (agent) => db.prepare(
+  `SELECT * FROM tasks WHERE assignee=? AND status IN ('todo','doing','blocked') ORDER BY status, priority, rank`
+).all(agent);
+
+// Tasks awaiting the lead's verification.
+export const needsReview = () => db.prepare("SELECT * FROM tasks WHERE status='review' ORDER BY updated_at DESC").all();
 
 export default db;
