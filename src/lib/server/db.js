@@ -8,6 +8,7 @@ try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch {}
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000'); // multi-writer safety (delegation + the Corner sync)
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS projects (
@@ -67,7 +68,8 @@ function ensureColumns() {
     budget: "TEXT DEFAULT ''",
     // Claude Corner merge: kind 'doc' (brief/ADR, body=writeup) and 'question' (async decision)
     options: "TEXT DEFAULT ''",             // JSON [{value,label}] for kind='question'
-    answer: "TEXT DEFAULT ''"               // chosen value for kind='question'
+    answer: "TEXT DEFAULT ''",              // chosen value for kind='question'
+    source: "TEXT DEFAULT ''"               // provenance for sync upserts, e.g. 'corner:post:42'
   };
   for (const [name, def] of Object.entries(adds)) if (!have.has(name)) db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
 }
@@ -148,7 +150,9 @@ export function createTask(t) {
 
 const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'parent_id', 'blocked_on', 'project_id', 'kind',
   'assignee', 'capability', 'type', 'handoff_context', 'acceptance_criteria', 'result_summary', 'verification_status',
-  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer'];
+  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer', 'source'];
+
+export const getTaskBySource = (source) => db.prepare('SELECT * FROM tasks WHERE source=?').get(source);
 export function updateTask(id, patch) {
   const cols = Object.keys(patch).filter((k) => PATCHABLE.includes(k));
   if (!cols.length) return;
