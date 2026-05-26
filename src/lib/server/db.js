@@ -56,13 +56,18 @@ const ACTIVE = "status NOT IN ('done','dropped')";
 const where = (p) => (p ? 'AND project_id=@p' : '');
 const args = (p) => (p ? { p } : {});
 
+export const getTask = (id) => db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
 export const listProjects = () => db.prepare('SELECT * FROM projects ORDER BY name').all();
 export const getProjectByName = (name) => db.prepare('SELECT * FROM projects WHERE name=?').get(name);
 
-// The three sections of the approved mock. Up Next is in manual rank order ("do this then that").
-export const upNext  = (p) => db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND ${ACTIVE} ${where(p)} ORDER BY rank, priority, updated_at DESC`).all(args(p));
-export const inbox   = (p) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' ${where(p)} ORDER BY created_at DESC`).all(args(p));
-export const backlog = (p) => db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ORDER BY priority, rank, updated_at DESC`).all(args(p));
+// Top-level items per section (children render nested under their parent — work isn't flat, per Bob).
+export const upNext  = (p) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${ACTIVE} ${where(p)} ORDER BY rank, priority, updated_at DESC`).all(args(p)));
+export const inbox   = (p) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ORDER BY created_at DESC`).all(args(p));
+export const backlog = (p) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ORDER BY priority, rank, updated_at DESC`).all(args(p)));
+
+// sub-task hierarchy (beads-style breakdown)
+export const children = (pid) => withKids(db.prepare(`SELECT * FROM tasks WHERE parent_id=? AND ${ACTIVE} ORDER BY rank, priority`).all(pid));
+const withKids = (rows) => rows.map((r) => ({ ...r, kids: children(r.id) }));
 
 // The agent query (MCP get_ready, phase 2): actionable, unblocked, up-next first then by manual rank.
 export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ORDER BY up_next DESC, rank, priority`).all(args(p));
@@ -79,8 +84,8 @@ export function ensureProject(name, backend = 'local_private') {
 export function createTask(t) {
   const kind = t.kind ?? 'task';
   const r = db.prepare(
-    `INSERT INTO tasks (project_id,kind,title,body,status,priority,up_next,created_by)
-     VALUES (@project_id,@kind,@title,@body,@status,@priority,@up_next,@created_by)`
+    `INSERT INTO tasks (project_id,kind,title,body,status,priority,up_next,rank,parent_id,created_by)
+     VALUES (@project_id,@kind,@title,@body,@status,@priority,@up_next,@rank,@parent_id,@created_by)`
   ).run({
     project_id: t.project_id ?? null,
     kind,
@@ -89,6 +94,8 @@ export function createTask(t) {
     status: t.status ?? (kind === 'idea' ? 'inbox' : 'todo'),
     priority: t.priority ?? 2,
     up_next: t.up_next ? 1 : 0,
+    rank: t.rank ?? 0,
+    parent_id: t.parent_id ?? null,
     created_by: t.created_by ?? ''
   });
   const id = Number(r.lastInsertRowid);

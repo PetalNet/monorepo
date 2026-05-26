@@ -1,6 +1,6 @@
 import {
   upNext, inbox, backlog, listProjects, getProjectByName,
-  createTask, updateTask, ensureProject, nextUpNextRank
+  createTask, updateTask, ensureProject, nextUpNextRank, getTask
 } from '$lib/server/db.js';
 
 export function load({ url }) {
@@ -26,6 +26,17 @@ export const actions = {
     const projName = String(f.get('project') || '').trim();
     const project_id = projName ? ensureProject(projName) : null;
     createTask({ title, kind: 'idea', project_id, created_by: 'web' });
+    return { ok: true };
+  },
+
+  // break a task down into a sub-task (beads-style; child inherits the parent's project)
+  subtask: async ({ request }) => {
+    const f = await request.formData();
+    const parent_id = Number(f.get('parent'));
+    const title = String(f.get('title') || '').trim();
+    if (!parent_id || !title) return { ok: false };
+    const parent = getTask(parent_id);
+    createTask({ title, kind: 'task', status: 'todo', parent_id, project_id: parent?.project_id ?? null, created_by: 'web' });
     return { ok: true };
   },
 

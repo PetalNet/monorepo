@@ -3,9 +3,9 @@
   import { goto } from '$app/navigation';
 
   let { data } = $props();
+  let openSub = $state({}); // which task ids have their "+ sub" input open
 
   const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
-  const projBackend = (id) => data.projects.find((p) => p.id === id)?.backend ?? 'local_private';
 
   function ago(ts) {
     const d = (Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 1000;
@@ -37,6 +37,39 @@
   <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></symbol>
 </defs></svg>
 
+<!-- one task + its sub-tasks, nested recursively (work isn't flat) -->
+{#snippet row(t, depth)}
+  <div class="item" class:sub={depth > 0}>
+    <form method="POST" action="?/update" use:enhance>
+      <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
+      <button class="box" title="Complete"><svg class="chk ic"><use href="#i-check"/></svg></button>
+    </form>
+    <div class="body">
+      <div class="ttl">{t.title}</div>
+      <div class="meta">
+        <span class="dot p{t.priority}"></span>P{t.priority}
+        {#if projName(t.project_id)}<span class="tag">{projName(t.project_id)}</span>{/if}
+        {#if t.blocked_on}<span class="blocked">· blocked: {t.blocked_on}</span>{/if}
+        <button type="button" class="link" onclick={() => (openSub[t.id] = !openSub[t.id])}>+ sub</button>
+      </div>
+      {#if openSub[t.id]}
+        <form class="subadd" method="POST" action="?/subtask"
+              use:enhance={() => async ({ update }) => { openSub[t.id] = false; await update({ reset: true }); }}>
+          <input type="hidden" name="parent" value={t.id} />
+          <input name="title" placeholder="Break it down…" autocomplete="off" />
+        </form>
+      {/if}
+    </div>
+    {#if !t.up_next}
+      <form method="POST" action="?/update" use:enhance class="bump">
+        <input type="hidden" name="id" value={t.id} /><input type="hidden" name="up_next" value="1" />
+        <button class="tg" title="Move to Up Next">↑</button>
+      </form>
+    {/if}
+  </div>
+  {#each t.kids ?? [] as k (k.id)}{@render row(k, depth + 1)}{/each}
+{/snippet}
+
 <div class="wrap">
   <header class="bar">
     <a class="logo" href="?"><svg class="mk ic"><use href="#i-mark"/></svg>tasks</a>
@@ -61,24 +94,7 @@
   <!-- UP NEXT — manual rank order ("do this then that") -->
   <section class="sec">
     <div class="sec-h"><h2>Up Next</h2><span class="count">{data.upNext.length}</span></div>
-    {#each data.upNext as t (t.id)}
-      <div class="item">
-        <form method="POST" action="?/update" use:enhance>
-          <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
-          <button class="box" title="Complete"><svg class="chk ic"><use href="#i-check"/></svg></button>
-        </form>
-        <div class="body">
-          <div class="ttl">{t.title}</div>
-          <div class="meta">
-            <span class="dot p{t.priority}"></span>P{t.priority}
-            {#if projName(t.project_id)}<span class="tag">{projName(t.project_id)}</span>{/if}
-            {#if t.blocked_on}<span class="blocked">· blocked: {t.blocked_on}</span>{/if}
-          </div>
-        </div>
-      </div>
-    {:else}
-      <p class="empty">Nothing queued. Triage an idea up here.</p>
-    {/each}
+    {#each data.upNext as t (t.id)}{@render row(t, 0)}{:else}<p class="empty">Nothing queued. Triage an idea up here.</p>{/each}
   </section>
 
   <!-- INBOX — raw idea capture awaiting triage -->
@@ -105,27 +121,7 @@
   <!-- BACKLOG -->
   <section class="sec">
     <div class="sec-h"><h2>Backlog</h2><span class="count">{data.backlog.length}</span></div>
-    {#each data.backlog as t (t.id)}
-      <div class="item">
-        <form method="POST" action="?/update" use:enhance>
-          <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
-          <button class="box" title="Complete"><svg class="chk ic"><use href="#i-check"/></svg></button>
-        </form>
-        <div class="body">
-          <div class="ttl">{t.title}</div>
-          <div class="meta">
-            <span class="dot p{t.priority}"></span>P{t.priority}
-            {#if projName(t.project_id)}<span class="tag">{projName(t.project_id)}</span>{/if}
-          </div>
-        </div>
-        <form method="POST" action="?/update" use:enhance class="bump">
-          <input type="hidden" name="id" value={t.id} /><input type="hidden" name="up_next" value="1" />
-          <button class="tg" title="Move to Up Next">↑</button>
-        </form>
-      </div>
-    {:else}
-      <p class="empty">Backlog clear.</p>
-    {/each}
+    {#each data.backlog as t (t.id)}{@render row(t, 0)}{:else}<p class="empty">Backlog clear.</p>{/each}
   </section>
 
   <div class="foot mono">SQLite-backed · local-private + github-public · MCP + hooks for agents</div>
@@ -178,6 +174,11 @@
   .tg:hover{color:var(--text);border-color:var(--border-strong);}
   .tg.up{color:var(--green);}
   .bump{align-self:center;}.bump .tg{padding:5px 8px;}
+  .item.sub{margin-left:26px;border-style:dashed;}
+  .link{background:none;border:0;color:var(--soft);font:inherit;font-size:11.5px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;}
+  .link:hover{color:var(--text);}
+  .subadd{margin-top:7px;}
+  .subadd input{width:100%;background:var(--elev);border:1px solid var(--border);border-radius:7px;color:var(--text);font:inherit;font-size:13px;padding:6px 9px;outline:0;}
 
   .foot{color:var(--soft);font-size:12px;text-align:center;margin-top:30px;}
   @media(max-width:540px){ .triage form:not(:first-child) .tg{display:none;} .item{padding:11px;} }
