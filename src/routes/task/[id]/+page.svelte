@@ -3,7 +3,7 @@
   let { data } = $props();
   const t = $derived(data.task);
   const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
-  const STATUSES = ['inbox', 'todo', 'doing', 'blocked', 'done', 'dropped'];
+  const STATUSES = ['inbox', 'todo', 'doing', 'blocked', 'review', 'done', 'dropped'];
   function ago(ts) {
     const d = (Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 1000;
     if (d < 60) return 'just now';
@@ -28,8 +28,16 @@
     </div>
     <label class="lbl">Plan / notes</label>
     <textarea name="body" rows="8" placeholder="The detailed plan. Drop research here before starting…">{t.body ?? ''}</textarea>
+    <label class="lbl">Assignee</label>
+    <input name="assignee" value={t.assignee ?? ''} placeholder="agent-a / claude / codex / alice / bob / ephemeral:…" />
+    <label class="lbl">Acceptance criteria</label>
+    <textarea name="acceptance_criteria" rows="2" placeholder="What 'done' means — the mayor verifies against this.">{t.acceptance_criteria ?? ''}</textarea>
     <label class="lbl">Blocked on</label>
     <input name="blocked_on" value={t.blocked_on ?? ''} placeholder="(nothing)" />
+    {#if t.result_summary}
+      <label class="lbl">Worker result{#if t.verification_status && t.verification_status !== 'unverified'} · <span class="vs {t.verification_status}">{t.verification_status}</span>{/if}</label>
+      <div class="result">{t.result_summary}</div>
+    {/if}
     <div><button class="save">Save</button></div>
   </form>
 
@@ -86,4 +94,7 @@
   .cmt{padding:10px 0;border-bottom:1px solid var(--border);}
   .cmt-h{font-size:11.5px;color:var(--soft);margin-bottom:4px;}
   .cmt-b{font-size:14px;line-height:1.45;white-space:pre-wrap;}
+  .result{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.45;white-space:pre-wrap;}
+  .vs{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;}
+  .vs.verified{color:var(--green);}.vs.rejected{color:var(--red);}
 </style>

@@ -19,7 +19,7 @@ export const actions = {
   save: async ({ request, params }) => {
     const f = await request.formData();
     const patch = {};
-    for (const k of ['title', 'body', 'status', 'priority', 'blocked_on']) {
+    for (const k of ['title', 'body', 'status', 'priority', 'blocked_on', 'assignee', 'capability', 'acceptance_criteria', 'handoff_context']) {
       if (f.has(k)) patch[k] = k === 'priority' ? Number(f.get(k)) : String(f.get(k));
     }
     updateTask(Number(params.id), patch);
