@@ -48,12 +48,16 @@ impl Plugin for Ping {
         ctx: &PluginContext,
         _event: &OriginalSyncRoomMessageEvent,
         _spec: &PluginSpec,
-        meta: &RoomMessageMeta<'_>,
+        meta: &RoomMessageMeta,
     ) -> Result<()> {
         if meta.triggered_plugins.contains(self.id()) {
             return Ok(());
         }
-        if meta.body.is_some_and(|body| body.contains("!ping")) {
+        if meta
+            .body
+            .as_deref()
+            .is_some_and(|body| body.contains("!ping"))
+        {
             send_text(ctx, "pong".to_owned()).await?;
         }
         Ok(())

@@ -26,10 +26,10 @@ pub struct PluginContext {
     pub history_dir: Arc<PathBuf>,
 }
 
-#[derive(Debug)]
-pub struct RoomMessageMeta<'a> {
-    pub body: Option<&'a str>,
-    pub triggered_plugins: &'a HashSet<String>,
+#[derive(Clone, Debug)]
+pub struct RoomMessageMeta {
+    pub body: Option<String>,
+    pub triggered_plugins: Arc<HashSet<String>>,
 }
 
 #[async_trait]
@@ -55,7 +55,7 @@ pub trait Plugin: Send + Sync + Debug {
         _ctx: &PluginContext,
         _event: &OriginalSyncRoomMessageEvent,
         _spec: &PluginSpec,
-        _meta: &RoomMessageMeta<'_>,
+        _meta: &RoomMessageMeta,
     ) -> Result<()> {
         Ok(())
     }

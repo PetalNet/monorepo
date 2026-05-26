@@ -345,11 +345,20 @@ async fn main() -> Result<()> {
                                 registry: Arc::clone(&registry),
                                 history_dir: Arc::clone(&history_dir),
                             };
-                            if let Err(e) = entry.plugin.run(&ctx, &args_clean, &entry.spec).await {
-                                warn!(error = %e, plugin = %plugin_id, "Plugin failed");
-                            } else {
-                                triggered_plugins.insert(plugin_id.clone());
-                            }
+                            let plugin = Arc::clone(&entry.plugin);
+                            let spec = entry.spec.clone();
+                            let pid = plugin_id.clone();
+                            tokio::spawn(async move {
+                                match tokio::time::timeout(
+                                    core::time::Duration::from_secs(60),
+                                    plugin.run(&ctx, &args_clean, &spec),
+                                ).await {
+                                    Ok(Ok(())) => {}
+                                    Ok(Err(e)) => warn!(error = %e, plugin = %pid, "Plugin failed"),
+                                    Err(_) => warn!(plugin = %pid, "Plugin command handler timed out after 60s"),
+                                }
+                            });
+                            triggered_plugins.insert(plugin_id.clone());
                         }
                     }
                 }
@@ -440,12 +449,22 @@ async fn main() -> Result<()> {
                             registry: Arc::clone(&registry),
                             history_dir: Arc::clone(&history_dir),
                         };
-                        if let Err(e) = entry.plugin.run(&ctx, args_source, &entry.spec).await {
-                            warn!(error = %e, plugin = %plugin_id, "Plugin failed");
-                        } else {
-                            triggered_plugins.insert(plugin_id.clone());
-                            executed_mention = true;
-                        }
+                        let plugin = Arc::clone(&entry.plugin);
+                        let spec = entry.spec.clone();
+                        let pid = plugin_id.clone();
+                        let args_owned = args_source.to_owned();
+                        tokio::spawn(async move {
+                            match tokio::time::timeout(
+                                core::time::Duration::from_secs(60),
+                                plugin.run(&ctx, &args_owned, &spec),
+                            ).await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(e)) => warn!(error = %e, plugin = %pid, "Plugin failed"),
+                                Err(_) => warn!(plugin = %pid, "Plugin mention handler timed out after 60s"),
+                            }
+                        });
+                        triggered_plugins.insert(plugin_id.clone());
+                        executed_mention = true;
                         // Handle only the first mention that actually targets this instance
                         break;
                     }
@@ -457,8 +476,8 @@ async fn main() -> Result<()> {
         }
 
         let meta = RoomMessageMeta {
-            body: body_opt,
-            triggered_plugins: &triggered_plugins,
+            body: body_opt.map(ToOwned::to_owned),
+            triggered_plugins: Arc::new(triggered_plugins),
         };
 
         // Passive plugins (e.g., relay)
@@ -491,13 +510,22 @@ async fn main() -> Result<()> {
                 if !registry.is_enabled(&plugin_id).await {
                     continue;
                 }
-                if let Err(e) = entry
-                    .plugin
-                    .on_room_message(&base_ctx, &ev, &entry.spec, &meta)
-                    .await
-                {
-                    warn!(error = %e, plugin = %plugin_id, "Plugin on_room_message failed");
-                }
+                let plugin = Arc::clone(&entry.plugin);
+                let spec = entry.spec.clone();
+                let pid = plugin_id.clone();
+                let ctx_p = base_ctx.clone();
+                let ev_p = ev.clone();
+                let meta_p = meta.clone();
+                tokio::spawn(async move {
+                    match tokio::time::timeout(
+                        core::time::Duration::from_secs(60),
+                        plugin.on_room_message(&ctx_p, &ev_p, &spec, &meta_p),
+                    ).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => warn!(error = %e, plugin = %pid, "Plugin on_room_message failed"),
+                        Err(_) => warn!(plugin = %pid, "Passive plugin handler timed out after 60s"),
+                    }
+                });
             }
         }
     });
