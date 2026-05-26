@@ -45,7 +45,7 @@
       <button class="box" title="Complete"><svg class="chk ic"><use href="#i-check"/></svg></button>
     </form>
     <div class="body">
-      <div class="ttl">{t.title}</div>
+      <a class="ttl" href="/task/{t.id}">{t.title}</a>
       <div class="meta">
         <span class="dot p{t.priority}"></span>P{t.priority}
         {#if projName(t.project_id)}<span class="tag">{projName(t.project_id)}</span>{/if}
@@ -103,7 +103,7 @@
     {#each data.inbox as t (t.id)}
       <div class="item idea">
         <div class="body">
-          <div class="ttl">{t.title}</div>
+          <a class="ttl" href="/task/{t.id}">{t.title}</a>
           <div class="meta mono">captured {ago(t.created_at)}{t.created_by ? ' · ' + t.created_by : ''}</div>
         </div>
         <div class="triage">
@@ -161,7 +161,8 @@
   .box{width:20px;height:20px;border-radius:6px;border:1.6px solid var(--border-strong);flex:none;margin-top:1px;cursor:pointer;background:none;color:transparent;padding:1px;}
   .box:hover{border-color:var(--green);color:var(--green);}
   .body{flex:1;min-width:0;}
-  .ttl{font-size:14.5px;line-height:1.35;}
+  .ttl{display:block;font-size:14.5px;line-height:1.35;color:var(--text);text-decoration:none;}
+  .ttl:hover{text-decoration:underline;text-underline-offset:2px;}
   .meta{display:flex;align-items:center;gap:7px;margin-top:5px;font-size:12px;color:var(--soft);}
   .dot{width:7px;height:7px;border-radius:50%;flex:none;}
   .p0{background:var(--red)}.p1{background:var(--amber)}.p2{background:var(--blue)}.p3{background:var(--soft)}

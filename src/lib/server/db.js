@@ -57,6 +57,12 @@ const where = (p) => (p ? 'AND project_id=@p' : '');
 const args = (p) => (p ? { p } : {});
 
 export const getTask = (id) => db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
+export const listComments = (tid) => db.prepare('SELECT * FROM comments WHERE task_id=? ORDER BY created_at').all(tid);
+export function addComment(task_id, author, body) {
+  const r = db.prepare('INSERT INTO comments (task_id,author,body) VALUES (?,?,?)').run(task_id, author || '', body);
+  log(task_id, 'comment', { author, body });
+  return Number(r.lastInsertRowid);
+}
 export const listProjects = () => db.prepare('SELECT * FROM projects ORDER BY name').all();
 export const getProjectByName = (name) => db.prepare('SELECT * FROM projects WHERE name=?').get(name);
 
