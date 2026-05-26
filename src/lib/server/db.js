@@ -132,7 +132,8 @@ export function createTask(t) {
     `INSERT INTO tasks (project_id,kind,title,body,status,priority,up_next,rank,parent_id,created_by)
      VALUES (@project_id,@kind,@title,@body,@status,@priority,@up_next,@rank,@parent_id,@created_by)`
   ).run({
-    project_id: t.project_id ?? null,
+    // tolerate a project row being passed instead of its id (caught via dogfood)
+    project_id: (t.project_id && typeof t.project_id === 'object') ? t.project_id.id : (t.project_id ?? null),
     kind,
     title: t.title,
     body: t.body ?? '',
