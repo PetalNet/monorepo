@@ -81,6 +81,7 @@
       </select>
     </div>
     <span class="spacer"></span>
+    <a class="new" href="/new">+ New</a>
     <button class="ico" onclick={toggleTheme} title="Theme"><svg class="ic"><use href="#i-moon"/></svg></button>
   </header>
 
@@ -179,6 +180,8 @@
   .proj select{border:0;background:none;color:var(--text);font:inherit;font-size:13.5px;padding:7px 4px;cursor:pointer;outline:0;}
   .spacer{flex:1}
   .ico{width:34px;height:34px;padding:7px;border-radius:8px;border:0;background:none;color:var(--mute);cursor:pointer;}.ico:hover{background:var(--surface);color:var(--text);}
+  .new{font-size:13px;font-weight:500;text-decoration:none;color:var(--text);border:1px solid var(--border-strong);border-radius:9px;padding:6px 12px;}
+  .new:hover{border-color:var(--blue);color:var(--blue);}
 
   .capture{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border-strong);border-radius:13px;padding:0 12px;height:50px;margin:6px 0 26px;}
   .capture svg{width:18px;height:18px;color:var(--soft);flex:none;}
