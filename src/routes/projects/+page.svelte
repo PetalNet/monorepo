@@ -19,6 +19,14 @@
         <input type="hidden" name="id" value={p.id} />
         <label class="chk"><input type="checkbox" name="private" checked={p.visibility === 'private'} onchange={(e) => e.target.form.requestSubmit()} /> private</label>
       </form>
+      <form method="POST" action="?/move" use:enhance class="mv">
+        <input type="hidden" name="id" value={p.id} />
+        <select name="dest" class="dest" aria-label="Move into project">
+          <option value="">move into…</option>
+          {#each data.projects.filter((o) => o.id !== p.id) as o}<option value={o.id}>{o.name}</option>{/each}
+        </select>
+        <button class="mvbtn" onclick={(e) => { const s = e.currentTarget.form.dest; if (!s.value) { e.preventDefault(); return; } if (!confirm(`Move all items from "${p.name}" into "${s.options[s.selectedIndex].text}", then delete "${p.name}"?`)) e.preventDefault(); }}>Move</button>
+      </form>
       <form method="POST" action="?/delete" use:enhance>
         <input type="hidden" name="id" value={p.id} />
         <button class="del" onclick={(e) => { if (!confirm(`Delete "${p.name}" and all its items?`)) e.preventDefault(); }}>Delete</button>
@@ -45,5 +53,9 @@
   .chk{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mute);}.chk input{width:auto;}
   .del{font:inherit;font-size:12px;color:var(--soft);background:none;border:1px solid var(--border);border-radius:7px;padding:5px 10px;cursor:pointer;}
   .del:hover{color:var(--red);border-color:var(--red);}
+  .mv{display:flex;gap:5px;align-items:center;}
+  .dest{font:inherit;font-size:12px;color:var(--mute);background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:4px 6px;max-width:140px;}
+  .mvbtn{font:inherit;font-size:12px;color:var(--soft);background:none;border:1px solid var(--border);border-radius:7px;padding:5px 10px;cursor:pointer;}
+  .mvbtn:hover{color:var(--blue);border-color:var(--blue);}
   .empty{color:var(--soft);font-size:13px;}
 </style>

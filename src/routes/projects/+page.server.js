@@ -1,4 +1,4 @@
-import db, { listProjects, getProject, renameProject, setProjectVisibility, deleteProject } from '$lib/server/db.js';
+import db, { listProjects, getProject, renameProject, setProjectVisibility, deleteProject, moveProject } from '$lib/server/db.js';
 
 export function load({ locals }) {
   const me = locals.user;
@@ -35,6 +35,14 @@ export const actions = {
     const f = await request.formData();
     const id = Number(f.get('id'));
     if (allowed(id, locals.user)) deleteProject(id);
+    return { ok: true };
+  },
+  move: async ({ request, locals }) => {
+    const f = await request.formData();
+    const id = Number(f.get('id'));
+    const dest = Number(f.get('dest'));
+    // move id's tasks into dest, then retire id; only projects the user can act on
+    if (id && dest && id !== dest && allowed(id, locals.user) && allowed(dest, locals.user)) moveProject(id, dest);
     return { ok: true };
   }
 };

@@ -108,6 +108,12 @@ export const listProjects = (me) => db.prepare(
 ).all(me ? { me } : {});
 export const getProject = (id) => db.prepare('SELECT * FROM projects WHERE id=?').get(id);
 export const renameProject = (id, name) => db.prepare('UPDATE projects SET name=? WHERE id=?').run(name, id);
+// merge a project into another: reassign its tasks to dest, then drop the now-empty source project.
+// (NOT deleteProject — that deletes the tasks; here we keep them by moving them first.)
+export const moveProject = db.transaction((srcId, destId) => {
+  db.prepare('UPDATE tasks SET project_id=? WHERE project_id=?').run(destId, srcId);
+  db.prepare('DELETE FROM projects WHERE id=?').run(srcId);
+});
 export const setProjectVisibility = (id, visibility, owner) => db.prepare('UPDATE projects SET visibility=?, owner=? WHERE id=?').run(visibility, owner || '', id);
 export function deleteProject(id) {
   db.prepare('DELETE FROM tasks WHERE project_id=?').run(id);

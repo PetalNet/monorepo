@@ -48,7 +48,8 @@
       <a class="ttl" href="/task/{t.id}">{t.title}</a>
       <div class="meta">
         <span class="dot p{t.priority}"></span>P{t.priority}
-        {#if projName(t.project_id)}<span class="tag">{projName(t.project_id)}</span>{/if}
+        {#if projName(t.project_id)}<a class="tag" href="?project={encodeURIComponent(projName(t.project_id))}">{projName(t.project_id)}</a>{/if}
+        <form method="POST" action="?/setproject" use:enhance class="pp"><input type="hidden" name="id" value={t.id} /><select name="project_id" aria-label="Set project" onchange={(e) => e.currentTarget.form.requestSubmit()}><option value="">{t.project_id ? '⋯' : '+ project'}</option>{#each data.projects as p}<option value={p.id} selected={p.id === t.project_id}>{p.name}</option>{/each}<option value="none">(no project)</option></select></form>
         {#if t.blocked_on}<span class="blocked">· blocked: {t.blocked_on}</span>{/if}
         <button type="button" class="link" onclick={() => (openSub[t.id] = !openSub[t.id])}>+ sub</button>
       </div>
@@ -155,7 +156,7 @@
       {#each data.docs as d (d.id)}
         <a class="docrow" href="/task/{d.id}">
           <span class="ttl">{d.title}</span>
-          {#if projName(d.project_id)}<span class="tag">{projName(d.project_id)}</span>{/if}
+          {#if projName(d.project_id)}<a class="tag" href="?project={encodeURIComponent(projName(d.project_id))}" onclick={(e) => e.stopPropagation()}>{projName(d.project_id)}</a>{/if}
         </a>
       {/each}
     </section>
@@ -213,7 +214,11 @@
   .meta{display:flex;align-items:center;gap:7px;margin-top:5px;font-size:12px;color:var(--soft);}
   .dot{width:7px;height:7px;border-radius:50%;flex:none;}
   .p0{background:var(--red)}.p1{background:var(--amber)}.p2{background:var(--blue)}.p3{background:var(--soft)}
-  .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:var(--mute);background:var(--elev);border:1px solid var(--border);border-radius:5px;padding:1px 6px;}
+  .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:var(--mute);background:var(--elev);border:1px solid var(--border);border-radius:5px;padding:1px 6px;text-decoration:none;cursor:pointer;}
+  a.tag:hover{color:var(--text);border-color:var(--border-strong);}
+  .pp{display:inline;margin:0;}
+  .pp select{font:inherit;font-size:11px;color:var(--soft);background:none;border:1px dashed var(--border);border-radius:5px;padding:1px 4px;cursor:pointer;max-width:120px;}
+  .pp select:hover{color:var(--text);border-color:var(--border-strong);}
   .blocked{color:var(--amber);}
 
   .idea{border-style:dashed;}

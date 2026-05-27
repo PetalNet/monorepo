@@ -78,5 +78,15 @@ export const actions = {
     const f = await request.formData();
     answerQuestion(Number(f.get('id')), String(f.get('value') || ''));
     return { ok: true };
+  },
+
+  // assign/change a task's project from the per-task picker ("none" clears it)
+  setproject: async ({ request }) => {
+    const f = await request.formData();
+    const id = Number(f.get('id'));
+    const v = String(f.get('project_id') || '');
+    if (!id || !v) return { ok: false };
+    updateTask(id, { project_id: v === 'none' ? null : Number(v) });
+    return { ok: true };
   }
 };
