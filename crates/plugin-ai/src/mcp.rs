@@ -14,8 +14,12 @@ use tracing::{debug, error, info, warn};
 
 #[derive(Debug)]
 pub struct McpClient {
-    #[allow(dead_code)]
+    /// The spawned server's command line, used as an identifier in diagnostics
+    /// (e.g. the request-timeout error below).
     name: String,
+    /// RAII guard: owns the spawned MCP subprocess `Child` so it lives as long
+    /// as the client. Intentionally never read — dropping this field would kill
+    /// the subprocess, so it must be held even though it looks unused.
     #[allow(dead_code)]
     process: Mutex<Option<Child>>,
     tx: mpsc::Sender<JsonRpcMessage>,
@@ -195,23 +199,9 @@ impl McpClient {
             result.context("Failed to receive response")?
         } else {
             self.requests.lock().await.remove(&id);
-            anyhow::bail!("MCP request '{}' timed out after 60s", method);
+            let server = &self.name;
+            anyhow::bail!("MCP request '{method}' to server '{server}' timed out after 60s");
         }
-    }
-
-    #[allow(dead_code)]
-    async fn notify(&self, method: &str, params: Option<Value>) -> Result<()> {
-        let notif = JsonRpcNotification {
-            jsonrpc: "2.0".to_owned(),
-            method: method.to_owned(),
-            params,
-        };
-
-        self.tx
-            .send(JsonRpcMessage::Notification(notif))
-            .await
-            .context("Failed to send notification to writer task")?;
-        Ok(())
     }
 
     async fn initialize(&self) -> Result<()> {

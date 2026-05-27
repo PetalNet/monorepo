@@ -139,7 +139,7 @@ mod tests {
         assert_eq!(query.get("type").unwrap(), &json!("STRING"));
 
         let limit = props.get("limit").unwrap().as_object().unwrap();
-        assert_eq!(limit.get("type").unwrap(), &json!("STRING")); // number -> STRING? no, number -> NUMBER?
-        // My code uppercases strings. "number" -> "NUMBER".
+        // sanitize_schema uppercases scalar types, so "number" -> Gemini's "NUMBER".
+        assert_eq!(limit.get("type").unwrap(), &json!("NUMBER"));
     }
 }

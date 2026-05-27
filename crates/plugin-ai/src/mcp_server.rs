@@ -5,6 +5,8 @@ use time::OffsetDateTime;
 
 #[derive(Deserialize, Debug)]
 struct JsonRpcRequest {
+    /// JSON-RPC version tag ("2.0"). Captured for wire-format fidelity when
+    /// deserializing incoming requests; we don't branch on it, so it's unread.
     #[allow(dead_code)]
     jsonrpc: String,
     method: String,
