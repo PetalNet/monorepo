@@ -4,7 +4,8 @@ import {
   listDocs, openQuestions, answerQuestion
 } from '$lib/server/db.js';
 
-export function load({ url }) {
+export function load({ url, locals }) {
+  const me = locals.user;                       // logged-in human; filters out others' private items
   const projName = url.searchParams.get('project') || null;
   const proj = projName ? getProjectByName(projName) : null;
   const pid = proj?.id ?? null;
@@ -12,11 +13,12 @@ export function load({ url }) {
     projects: listProjects(),
     current: proj?.name ?? null,
     backend: proj?.backend ?? null,
-    questions: openQuestions(pid).map((q) => ({ ...q, opts: parseOpts(q.options) })),
-    upNext: upNext(pid),
-    inbox: inbox(pid),
-    backlog: backlog(pid),
-    docs: listDocs(pid)
+    me,
+    questions: openQuestions(pid, me).map((q) => ({ ...q, opts: parseOpts(q.options) })),
+    upNext: upNext(pid, me),
+    inbox: inbox(pid, me),
+    backlog: backlog(pid, me),
+    docs: listDocs(pid, me)
   };
 }
 

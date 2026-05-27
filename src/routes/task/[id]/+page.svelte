@@ -55,6 +55,7 @@
       <label class="lbl">Worker result{#if t.verification_status && t.verification_status !== 'unverified'} · <span class="vs {t.verification_status}">{t.verification_status}</span>{/if}</label>
       <div class="result">{t.result_summary}</div>
     {/if}
+    <label class="chk"><input type="checkbox" name="private" checked={t.visibility === 'private'} /> Private — only you can see it</label>
     <div><button class="save">Save</button></div>
   </form>
 
@@ -100,6 +101,7 @@
   textarea,input[name=blocked_on]{width:100%;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;color:var(--text);font:inherit;font-size:14px;padding:10px 12px;outline:0;resize:vertical;}
   textarea:focus,input:focus{border-color:var(--blue);}
   .save{margin-top:10px;background:var(--text);color:var(--bg);border:0;border-radius:9px;font:inherit;font-size:13px;font-weight:500;padding:8px 16px;cursor:pointer;}
+  .chk{display:flex;align-items:center;gap:7px;margin-top:16px;font-size:13px;color:var(--mute);}.chk input{width:auto;}
   section{margin-top:30px;border-top:1px solid var(--border);padding-top:18px;}
   h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--mute);margin:0 0 12px;}
   .muted{color:var(--soft);font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;}

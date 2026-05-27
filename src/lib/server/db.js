@@ -69,7 +69,9 @@ function ensureColumns() {
     // Claude Corner merge: kind 'doc' (brief/ADR, body=writeup) and 'question' (async decision)
     options: "TEXT DEFAULT ''",             // JSON [{value,label}] for kind='question'
     answer: "TEXT DEFAULT ''",              // chosen value for kind='question'
-    source: "TEXT DEFAULT ''"               // provenance for sync upserts, e.g. 'corner:post:42'
+    source: "TEXT DEFAULT ''",              // provenance for sync upserts, e.g. 'corner:post:42'
+    owner: "TEXT DEFAULT ''",               // who created/owns it (authentik username)
+    visibility: "TEXT DEFAULT 'shared'"     // shared | private (private = owner-only for humans)
   };
   for (const [name, def] of Object.entries(adds)) if (!have.has(name)) db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
 }
@@ -80,6 +82,9 @@ const log = (task_id, type, data) =>
 
 const ACTIVE = "status NOT IN ('done','dropped')";
 const where = (p) => (p ? 'AND project_id=@p' : '');
+// visibility filter for HUMAN web views: pass the logged-in user; omit for agents (they see all).
+const vis = (me) => (me ? "AND (visibility='shared' OR owner=@me)" : '');
+const qargs = (p, me) => ({ ...(p ? { p } : {}), ...(me ? { me } : {}) });
 const args = (p) => (p ? { p } : {});
 
 export const getTask = (id) => db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
@@ -95,13 +100,13 @@ export const getProjectByName = (name) => db.prepare('SELECT * FROM projects WHE
 const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of the task checklist
 
 // Top-level items per section (children render nested under their parent — work isn't flat, per Bob).
-export const upNext  = (p) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${ACTIVE} ${where(p)} ORDER BY rank, priority, updated_at DESC`).all(args(p)));
-export const inbox   = (p) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ORDER BY created_at DESC`).all(args(p));
-export const backlog = (p) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ORDER BY priority, rank, updated_at DESC`).all(args(p)));
+export const upNext  = (p, me) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${ACTIVE} ${where(p)} ${vis(me)} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me)));
+export const inbox   = (p, me) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ${vis(me)} ORDER BY created_at DESC`).all(qargs(p, me));
+export const backlog = (p, me) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me)));
 
 // --- Claude Corner merge: docs (briefs/ADRs) + questions (async decisions) ---
-export const listDocs = (p) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ORDER BY updated_at DESC`).all(args(p));
-export const openQuestions = (p) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ORDER BY priority, created_at`).all(args(p));
+export const listDocs = (p, me) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ${vis(me)} ORDER BY updated_at DESC`).all(qargs(p, me));
+export const openQuestions = (p, me) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ${vis(me)} ORDER BY priority, created_at`).all(qargs(p, me));
 export const answerQuestion = (id, value) => updateTask(id, { answer: value, status: 'done' });
 export const createDoc = (project_id, title, body, created_by = '') => createTask({ kind: 'doc', title, body, status: 'todo', project_id, created_by });
 export function createQuestion(project_id, title, context, options, created_by = '') {
@@ -151,7 +156,8 @@ export function createTask(t) {
 
 const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'parent_id', 'blocked_on', 'project_id', 'kind',
   'assignee', 'capability', 'type', 'handoff_context', 'acceptance_criteria', 'result_summary', 'verification_status',
-  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer', 'source'];
+  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer', 'source',
+  'owner', 'visibility'];
 
 export const getTaskBySource = (source) => db.prepare('SELECT * FROM tasks WHERE source=?').get(source);
 export function updateTask(id, patch) {

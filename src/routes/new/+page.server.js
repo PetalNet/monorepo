@@ -1,10 +1,10 @@
 import { redirect } from '@sveltejs/kit';
-import { listProjects, ensureProject, createTask, createDoc, createQuestion, nextUpNextRank } from '$lib/server/db.js';
+import { listProjects, ensureProject, createTask, createDoc, createQuestion, updateTask, nextUpNextRank } from '$lib/server/db.js';
 
 export function load() { return { projects: listProjects() }; }
 
 export const actions = {
-  create: async ({ request }) => {
+  create: async ({ request, locals }) => {
     const f = await request.formData();
     const kind = String(f.get('kind') || 'task');
     const title = String(f.get('title') || '').trim();
@@ -31,6 +31,7 @@ export const actions = {
         project_id: pid, up_next: up, rank: up ? nextUpNextRank() : 0, created_by: 'web'
       });
     }
+    updateTask(id, { owner: locals.user, visibility: f.get('private') ? 'private' : 'shared' });
     throw redirect(303, `/task/${id}`);
   }
 };

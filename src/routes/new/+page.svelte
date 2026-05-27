@@ -23,6 +23,8 @@
     <input name="project" list="projs" placeholder="(none)" />
     <datalist id="projs">{#each data.projects as p}<option value={p.name}></option>{/each}</datalist>
 
+    <label class="chk priv"><input type="checkbox" name="private" /> Private — only you can see it</label>
+
     {#if kind === 'task'}
       <div class="row">
         <label>Priority
@@ -66,5 +68,6 @@
   .row label{font-size:13px;color:var(--mute);}
   .row select{width:auto;margin-left:6px;padding:6px 9px;}
   .chk{display:flex;align-items:center;gap:6px;}.chk input{width:auto;}
+  .priv{margin-top:14px;font-size:13px;color:var(--mute);}
   .save{margin-top:18px;background:var(--text);color:var(--bg);border:0;border-radius:9px;font:inherit;font-size:14px;font-weight:500;padding:10px 18px;cursor:pointer;text-transform:capitalize;}
 </style>
