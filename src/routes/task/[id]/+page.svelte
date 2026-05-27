@@ -45,8 +45,23 @@
     </div>
     <label class="lbl">Plan / notes</label>
     <textarea name="body" rows="8" placeholder="The detailed plan. Drop research here before starting…">{t.body ?? ''}</textarea>
-    <label class="lbl">Assignee</label>
-    <input name="assignee" value={t.assignee ?? ''} placeholder="agent-a / claude / codex / alice / bob / ephemeral:…" />
+    <div class="row two">
+      <label>Agent (works it next)
+        <select name="assignee" value={t.assignee ?? ''}>
+          <option value="">— none —</option>
+          <option value="agent-a">agent-a</option>
+          <option value="claude">claude</option>
+          <option value="codex">codex</option>
+        </select>
+      </label>
+      <label>Responsible (human)
+        <select name="responsible" value={t.responsible ?? ''}>
+          <option value="">— none —</option>
+          <option value="alice">alice</option>
+          <option value="bob">bob</option>
+        </select>
+      </label>
+    </div>
     <label class="lbl">Acceptance criteria</label>
     <textarea name="acceptance_criteria" rows="2" placeholder="What 'done' means — the mayor verifies against this.">{t.acceptance_criteria ?? ''}</textarea>
     <label class="lbl">Blocked on</label>
@@ -95,6 +110,9 @@
   .title:hover,.title:focus{border-bottom-color:var(--border);}
   .row{display:flex;align-items:center;gap:8px;margin:12px 0;flex-wrap:wrap;}
   .row select{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit;font-size:13px;padding:6px 9px;cursor:pointer;}
+  .row.two{align-items:flex-start;}
+  .row.two label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.03em;}
+  .row.two select{min-width:150px;}
   .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:var(--mute);background:var(--elev);border:1px solid var(--border);border-radius:5px;padding:3px 7px;}
   .tag.up{color:var(--green);}
   .lbl{display:block;font-size:12px;color:var(--mute);margin:14px 0 5px;text-transform:uppercase;letter-spacing:.03em;}

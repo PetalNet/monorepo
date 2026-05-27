@@ -70,12 +70,21 @@ function ensureColumns() {
     options: "TEXT DEFAULT ''",             // JSON [{value,label}] for kind='question'
     answer: "TEXT DEFAULT ''",              // chosen value for kind='question'
     source: "TEXT DEFAULT ''",              // provenance for sync upserts, e.g. 'corner:post:42'
-    owner: "TEXT DEFAULT ''",               // who created/owns it (authentik username)
-    visibility: "TEXT DEFAULT 'shared'"     // shared | private (private = owner-only for humans)
+    owner: "TEXT DEFAULT ''",               // who created/owns it (authentik username; privacy)
+    visibility: "TEXT DEFAULT 'shared'",    // shared | private (private = owner-only for humans)
+    responsible: "TEXT DEFAULT ''"          // human accountable for completion (alice|bob); != assignee(agent)
   };
   for (const [name, def] of Object.entries(adds)) if (!have.has(name)) db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
 }
 ensureColumns();
+
+// Projects also carry owner + visibility (the dropdown must not leak private project names).
+function ensureProjectColumns() {
+  const have = new Set(db.prepare('PRAGMA table_info(projects)').all().map((c) => c.name));
+  if (!have.has('owner')) db.exec("ALTER TABLE projects ADD COLUMN owner TEXT DEFAULT ''");
+  if (!have.has('visibility')) db.exec("ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'shared'");
+}
+ensureProjectColumns();
 
 const log = (task_id, type, data) =>
   db.prepare('INSERT INTO events (task_id,type,data) VALUES (?,?,?)').run(task_id, type, data ? JSON.stringify(data) : null);
@@ -94,7 +103,24 @@ export function addComment(task_id, author, body) {
   log(task_id, 'comment', { author, body });
   return Number(r.lastInsertRowid);
 }
-export const listProjects = () => db.prepare('SELECT * FROM projects ORDER BY name').all();
+export const listProjects = (me) => db.prepare(
+  `SELECT * FROM projects ${me ? "WHERE visibility='shared' OR owner=@me" : ''} ORDER BY name`
+).all(me ? { me } : {});
+export const getProject = (id) => db.prepare('SELECT * FROM projects WHERE id=?').get(id);
+export const renameProject = (id, name) => db.prepare('UPDATE projects SET name=? WHERE id=?').run(name, id);
+export const setProjectVisibility = (id, visibility, owner) => db.prepare('UPDATE projects SET visibility=?, owner=? WHERE id=?').run(visibility, owner || '', id);
+export function deleteProject(id) {
+  db.prepare('DELETE FROM tasks WHERE project_id=?').run(id);
+  db.prepare('DELETE FROM projects WHERE id=?').run(id);
+}
+// one-time classify: a project with NO shared items is Alice-private (covers the Corner mirror + empty leaks)
+export function classifyProjectPrivacy() {
+  return db.prepare(
+    `UPDATE projects SET owner='alice', visibility='private'
+     WHERE visibility!='private'
+       AND (SELECT count(*) FROM tasks WHERE tasks.project_id=projects.id AND tasks.visibility!='private')=0`
+  ).run().changes;
+}
 export const getProjectByName = (name) => db.prepare('SELECT * FROM projects WHERE name=?').get(name);
 
 const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of the task checklist
@@ -157,7 +183,7 @@ export function createTask(t) {
 const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'parent_id', 'blocked_on', 'project_id', 'kind',
   'assignee', 'capability', 'type', 'handoff_context', 'acceptance_criteria', 'result_summary', 'verification_status',
   'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer', 'source',
-  'owner', 'visibility'];
+  'owner', 'visibility', 'responsible'];
 
 export const getTaskBySource = (source) => db.prepare('SELECT * FROM tasks WHERE source=?').get(source);
 export function updateTask(id, patch) {

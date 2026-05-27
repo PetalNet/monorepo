@@ -10,7 +10,7 @@ export function load({ url, locals }) {
   const proj = projName ? getProjectByName(projName) : null;
   const pid = proj?.id ?? null;
   return {
-    projects: listProjects(),
+    projects: listProjects(me),
     current: proj?.name ?? null,
     backend: proj?.backend ?? null,
     me,
