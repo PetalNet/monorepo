@@ -1,25 +1,22 @@
-use std::{
-    collections::HashMap,
-    process::Stdio,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::{collections::HashMap, process::Stdio, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
+use core::sync::atomic::{AtomicU64, Ordering};
+
+use anyhow::{Context as _, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader},
     process::{Child, Command},
-    sync::{mpsc, Mutex},
+    sync::{Mutex, mpsc},
 };
 use tracing::{debug, error, info, warn};
 
 #[derive(Debug)]
 pub struct McpClient {
+    #[allow(dead_code)]
     name: String,
+    #[allow(dead_code)]
     process: Mutex<Option<Child>>,
     tx: mpsc::Sender<JsonRpcMessage>,
     requests: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value>>>>>,
@@ -81,27 +78,28 @@ impl McpClient {
         let stderr = child.stderr.take().context("Failed to open stderr")?;
 
         let (tx, mut rx) = mpsc::channel::<JsonRpcMessage>(32);
-        let requests = Arc::new(Mutex::new(
-            HashMap::<u64, tokio::sync::oneshot::Sender<Result<Value>>>::new(),
-        ));
-        let requests_clone = requests.clone();
+        let requests = Arc::new(Mutex::new(HashMap::<
+            u64,
+            tokio::sync::oneshot::Sender<Result<Value>>,
+        >::new()));
+        let requests_clone = Arc::clone(&requests);
 
         // Writer task
         tokio::spawn(async move {
             let mut writer = stdin;
             while let Some(msg) = rx.recv().await {
                 let json = serde_json::to_string(&msg).unwrap();
-                eprintln!("Sending to MCP stdin: {}", json);
+                eprintln!("Sending to MCP stdin: {json}");
                 if let Err(e) = writer.write_all(json.as_bytes()).await {
-                    error!("Failed to write to MCP stdin: {}", e);
+                    error!("Failed to write to MCP stdin: {e}");
                     break;
                 }
                 if let Err(e) = writer.write_all(b"\n").await {
-                    error!("Failed to write newline to MCP stdin: {}", e);
+                    error!("Failed to write newline to MCP stdin: {e}");
                     break;
                 }
                 if let Err(e) = writer.flush().await {
-                    error!("Failed to flush MCP stdin: {}", e);
+                    error!("Failed to flush MCP stdin: {e}");
                     break;
                 }
             }
@@ -112,7 +110,7 @@ impl McpClient {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                info!("MCP STDERR: {}", line);
+                info!("MCP STDERR: {line}");
             }
         });
 
@@ -121,7 +119,7 @@ impl McpClient {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                debug!("Received MCP line: {}", line);
+                debug!("Received MCP line: {line}");
                 if line.trim().is_empty() {
                     continue;
                 }
@@ -142,7 +140,6 @@ impl McpClient {
                             }
                         }
                         JsonRpcMessage::Request(req) => {
-                            // Handle server-initiated requests (sampling, etc.) - for now just log
                             warn!("Ignored server request: {}", req.method);
                         }
                         JsonRpcMessage::Notification(notif) => {
@@ -150,7 +147,7 @@ impl McpClient {
                         }
                     },
                     Err(e) => {
-                        error!("Failed to parse MCP message: {} | Line: {}", e, line);
+                        error!("Failed to parse MCP message: {e} | Line: {line}");
                     }
                 }
             }
@@ -158,7 +155,7 @@ impl McpClient {
         });
 
         let client = Arc::new(Self {
-            name: format!("{} {}", cmd, args.join(" ")),
+            name: format!("{cmd} {}", args.join(" ")),
             process: Mutex::new(Some(child)),
             tx,
             requests,
@@ -173,7 +170,7 @@ impl McpClient {
     async fn request(&self, method: &str, params: Option<Value>) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = tokio::sync::oneshot::channel();
-        
+
         {
             let mut map = self.requests.lock().await;
             map.insert(id, tx);
@@ -194,19 +191,19 @@ impl McpClient {
         // Bound the wait: if the MCP subprocess never answers (hung npx child, lost
         // stdio), this future would otherwise hang forever — and since plugin handlers
         // run inline on the matrix-sdk sync task, that freezes the whole bot. Time it out.
-        match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
-            Ok(res) => res.context("Failed to receive response")?,
-            Err(_) => {
-                self.requests.lock().await.remove(&id);
-                anyhow::bail!("MCP request '{}' timed out after 60s", method);
-            }
+        if let Ok(result) = tokio::time::timeout(core::time::Duration::from_secs(60), rx).await {
+            result.context("Failed to receive response")?
+        } else {
+            self.requests.lock().await.remove(&id);
+            anyhow::bail!("MCP request '{}' timed out after 60s", method);
         }
     }
 
+    #[allow(dead_code)]
     async fn notify(&self, method: &str, params: Option<Value>) -> Result<()> {
         let notif = JsonRpcNotification {
-            jsonrpc: "2.0".to_string(),
-            method: method.to_string(),
+            jsonrpc: "2.0".to_owned(),
+            method: method.to_owned(),
             params,
         };
 
@@ -234,7 +231,7 @@ impl McpClient {
 
         let res = self.request("initialize", Some(params)).await?;
         debug!("MCP Initialize response: {:?}", res);
-        
+
         // After initialize, we must send notification "notifications/initialized"
         let notif = JsonRpcNotification {
             jsonrpc: "2.0".into(),
@@ -248,7 +245,9 @@ impl McpClient {
 
     pub async fn list_tools(&self) -> Result<Vec<McpTool>> {
         let res = self.request("tools/list", None).await?;
-        let tools_val = res.get("tools").ok_or_else(|| anyhow!("No 'tools' in response"))?;
+        let tools_val = res
+            .get("tools")
+            .ok_or_else(|| anyhow!("No 'tools' in response"))?;
         let tools: Vec<McpTool> = serde_json::from_value(tools_val.clone())?;
         Ok(tools)
     }

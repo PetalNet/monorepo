@@ -22,19 +22,18 @@ use matrix_sdk::{
         serde::Raw,
     },
 };
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
-mod mcp;
 mod gemini;
-mod pii;
+mod mcp;
 pub mod mcp_server;
+mod pii;
 
 pub use mcp_server::run_mcp_server;
 
-
 use plugin_core::{
     Plugin, PluginContext, PluginSpec, PluginTriggers, RoomMessageMeta, sanitize_line, send_text,
-    str_config, truncate,
+    str_config,
 };
 
 #[derive(Debug)]
@@ -87,7 +86,6 @@ impl Plugin for AiTool {
     fn handles_room_messages(&self) -> bool {
         true
     }
-
 
     async fn on_room_message(
         &self,
@@ -197,18 +195,26 @@ impl Plugin for AiTool {
             return send_text(ctx, "Usage: !ai <prompt>").await;
         }
 
-        let pii_enabled = spec.config.get("pii_redaction").and_then(|v| v.as_bool()).unwrap_or(false);
+        let pii_enabled = spec
+            .config
+            .get("pii_redaction")
+            .and_then(serde_yaml::Value::as_bool)
+            .unwrap_or(false);
         // Start typing indicator
         let _ = ctx.room.typing_notice(true).await;
 
-        let ner_enabled = spec.config.get("pii_ner").and_then(|v| v.as_bool()).unwrap_or(false);
-        
+        let ner_enabled = spec
+            .config
+            .get("pii_ner")
+            .and_then(serde_yaml::Value::as_bool)
+            .unwrap_or(false);
+
         let mut redactor = if ner_enabled {
             pii::PiiRedactor::with_ner()
         } else {
             pii::PiiRedactor::new()
         };
-        
+
         let prompt = if pii_enabled {
             redactor.redact(prompt_raw)
         } else {
@@ -233,21 +239,26 @@ impl Plugin for AiTool {
                         }
                     } else {
                         // Fallback: split command string
-                        let parts: Vec<String> = cmd_str.split_whitespace().map(ToOwned::to_owned).collect();
+                        let parts: Vec<String> =
+                            cmd_str.split_whitespace().map(ToOwned::to_owned).collect();
                         if !parts.is_empty() {
-                            cmd = parts[0].clone();
+                            cmd.clone_from(&parts[0]);
                             args_vec = parts[1..].to_vec();
                         }
                     }
-                    
-                    info!("Connecting to MCP server: {} ({} {:?})", name, cmd, args_vec);
+
+                    info!(
+                        "Connecting to MCP server: {} ({} {:?})",
+                        name, cmd, args_vec
+                    );
                     match mcp::McpClient::new(&cmd, &args_vec).await {
                         Ok(client) => {
                             mcp_clients.push(client);
                         }
                         Err(e) => {
-                            warn!("Failed to connect to MCP server {}: {}", name, e);
-                            send_text(ctx, format!("MCP connection failed for {}: {}", name, e)).await?;
+                            warn!("Failed to connect to MCP server {name}: {e}");
+                            send_text(ctx, format!("MCP connection failed for {name}: {e}"))
+                                .await?;
                         }
                     }
                 }
@@ -279,12 +290,10 @@ impl Plugin for AiTool {
         }
 
         let provider = str_config(spec, "provider").unwrap_or_else(|| "openai".to_owned());
-        
-        let api_base = str_config(spec, "api_base")
-            .or_else(|| std::env::var("AI_API_BASE").ok());
-        
-        let api_path = str_config(spec, "api_path")
-            .or_else(|| std::env::var("AI_API_PATH").ok());
+
+        let api_base = str_config(spec, "api_base").or_else(|| std::env::var("AI_API_BASE").ok());
+
+        let api_path = str_config(spec, "api_path").or_else(|| std::env::var("AI_API_PATH").ok());
 
         let model = str_config(spec, "model")
             .or_else(|| std::env::var("AI_MODEL").ok())
@@ -309,8 +318,19 @@ impl Plugin for AiTool {
         } else if let Ok(k) = std::env::var("AI_API_KEY") {
             key_source = "env.AI_API_KEY".into();
             Some(k)
-        } else if let Ok(k) = std::env::var(if provider == "gemini" { "GOOGLE_API_KEY" } else { "OPENAI_API_KEY" }) {
-            key_source = format!("env.{}", if provider == "gemini" { "GOOGLE_API_KEY" } else { "OPENAI_API_KEY" });
+        } else if let Ok(k) = std::env::var(if provider == "gemini" {
+            "GOOGLE_API_KEY"
+        } else {
+            "OPENAI_API_KEY"
+        }) {
+            key_source = format!(
+                "env.{}",
+                if provider == "gemini" {
+                    "GOOGLE_API_KEY"
+                } else {
+                    "OPENAI_API_KEY"
+                }
+            );
             Some(k)
         } else {
             None
@@ -324,20 +344,32 @@ impl Plugin for AiTool {
             let openai_key = std::env::var("OPENAI_API_KEY").ok();
             warn!(
                 "AI request blocked: no API key set. Debug: provider={}, config.api_key={}, AI_API_KEY={:?}, GOOGLE_API_KEY={:?}, OPENAI_API_KEY={:?}",
-                provider, config_key, ai_api_key.as_ref().map(|_| "[SET]"), google_key.as_ref().map(|_| "[SET]"), openai_key.as_ref().map(|_| "[SET]")
+                provider,
+                config_key,
+                ai_api_key.as_ref().map(|_| "[SET]"),
+                google_key.as_ref().map(|_| "[SET]"),
+                openai_key.as_ref().map(|_| "[SET]")
             );
             return send_text(ctx, "AI key missing: set config.api_key etc").await;
         }
         let api_key = api_key.unwrap();
 
         let url = if let Some(base) = api_base {
-            format!("{}{}", base.trim_end_matches('/'), api_path.unwrap_or_else(|| "/v1/chat/completions".to_owned()))
+            format!(
+                "{}{}",
+                base.trim_end_matches('/'),
+                api_path.unwrap_or_else(|| "/v1/chat/completions".to_owned())
+            )
         } else if provider == "gemini" {
             let base = "https://generativelanguage.googleapis.com/v1beta/models";
-            format!("{}/{}:generateContent?key={}", base, model, api_key)
+            format!("{base}/{model}:generateContent?key={api_key}")
         } else {
             let base = "https://api.openai.com";
-            format!("{}{}", base, api_path.unwrap_or_else(|| "/v1/chat/completions".to_owned()))
+            format!(
+                "{}{}",
+                base,
+                api_path.unwrap_or_else(|| "/v1/chat/completions".to_owned())
+            )
         };
 
         let name = ai_name(spec);
@@ -355,24 +387,27 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
         );
         let ctx_lines = read_last_history(&ctx.history_dir, &ctx.room.room_id().to_owned(), 11);
         let context_lines = ctx_lines.join("\n");
-        
+
         let history_status = if context_lines.is_empty() {
-            let hist_path = history_path(ctx.history_dir.as_ref().as_path(), &ctx.room.room_id().to_owned());
+            let hist_path = history_path(
+                ctx.history_dir.as_ref().as_path(),
+                &ctx.room.room_id().to_owned(),
+            );
             format!("No history found at: {}", hist_path.display())
         } else {
             format!("Loaded {} messages", ctx_lines.len())
         };
-        
+
         if !context_lines.is_empty() {
             system_prompt = system_prompt
                 .replace("(handle)", format!("@{name}").as_str())
                 .replacen("(context grabbed from the chat)", &context_lines, 1);
         }
-        
+
         if pii_enabled {
             system_prompt = redactor.redact(&system_prompt);
         }
-        
+
         system_prompt.push_str("\n\nIMPORTANT: Do not use markdown formatting. Do not use bold (**text**), italics (*text*), or lists. Write in plain text paragraphs only. Keep your response very concise and short (under 100 words).");
 
         info!(
@@ -384,7 +419,6 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
             pii = %pii_enabled,
             "AI request prepared"
         );
-
 
         if log_to_room {
             let debug_info = format!(
@@ -400,11 +434,16 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
                 \n\
                 💬 USER PROMPT:\n\
                 {}",
-                provider, model, tools.len(), pii_enabled, history_status, system_prompt, prompt
+                provider,
+                model,
+                tools.len(),
+                pii_enabled,
+                history_status,
+                system_prompt,
+                prompt
             );
             let _ = send_text(ctx, debug_info).await;
         }
-
 
         let mut messages = vec![
             Msg {
@@ -432,26 +471,26 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
             }
 
             if log_to_room {
-                 let _ = send_text(ctx, format!("AI turn {turn} calling API...")).await;
+                let _ = send_text(ctx, format!("AI turn {turn} calling API...")).await;
             }
 
             // No timeout on Client::new() means a stalled Gemini request hangs forever.
             // Plugin handlers run inline on the matrix-sdk sync task, so that freezes the
             // whole bot (0% CPU, sync stops). Bound every request instead.
             let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(core::time::Duration::from_secs(30))
+                .connect_timeout(core::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new());
-            let started = std::time::Instant::now();
+            let _started = std::time::Instant::now();
 
             let mut final_content: Option<String> = None;
             let mut final_tool_calls: Vec<ToolCall> = Vec::new();
 
             if provider == "gemini" {
                 // Convert messages to Gemini format
-                use gemini::{GeminiBody, Content, Part, Tools, FunctionDeclaration};
-                
+                use gemini::{Content, FunctionDeclaration, GeminiBody, Part, Tools};
+
                 let mut gemini_contents = Vec::new();
                 let mut system_inst = None;
 
@@ -471,60 +510,62 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
                             });
                         }
                     } else if msg.role == "assistant" {
-                         let mut parts = Vec::new();
-                         if let Some(c) = &msg.content {
-                             parts.push(Part::Text { text: c.clone() });
-                         }
-                         if let Some(tcs) = &msg.tool_calls {
+                        let mut parts = Vec::new();
+                        if let Some(c) = &msg.content {
+                            parts.push(Part::Text { text: c.clone() });
+                        }
+                        if let Some(tcs) = &msg.tool_calls {
                             for tc_val in tcs {
-                                if let Ok(tc) = serde_json::from_value::<ToolCall>(tc_val.clone()) {
-                                    if let Ok(args_val) = serde_json::from_str::<Value>(&tc.function.arguments) {
-                                        parts.push(Part::FunctionCall {
-                                            function_call: gemini::FunctionCall {
-                                                name: tc.function.name,
-                                                args: args_val,
-                                            }
-                                        });
-                                    }
+                                if let Ok(tc) = serde_json::from_value::<ToolCall>(tc_val.clone())
+                                    && let Ok(args_val) =
+                                        serde_json::from_str::<Value>(&tc.function.arguments)
+                                {
+                                    parts.push(Part::FunctionCall {
+                                        function_call: gemini::FunctionCall {
+                                            name: tc.function.name,
+                                            args: args_val,
+                                        },
+                                    });
                                 }
                             }
-                         }
-                         if !parts.is_empty() {
-                             gemini_contents.push(Content {
-                                 role: "model".into(),
-                                 parts,
-                             });
-                         }
+                        }
+                        if !parts.is_empty() {
+                            gemini_contents.push(Content {
+                                role: "model".into(),
+                                parts,
+                            });
+                        }
                     } else if msg.role == "tool" {
                         // Tool response
                         let response_content = msg.content.clone().unwrap_or_default();
-                         
-                         // Reconstruct logic for finding function name
-                         let mut fn_name = "unknown".to_owned();
-                         'scan: for m in messages.iter().rev() {
-                             if m.role == "assistant" {
-                                 if let Some(tcs) = &m.tool_calls {
-                                     for tc_val in tcs {
-                                          if let Ok(tc) = serde_json::from_value::<ToolCall>(tc_val.clone()) {
-                                              if Some(&tc.id) == msg.tool_call_id.as_ref() {
-                                                  fn_name = tc.function.name.clone();
-                                                  break 'scan;
-                                              }
-                                          }
-                                     }
-                                 }
-                             }
-                         }
-                         
-                         gemini_contents.push(Content {
-                             role: "function".into(),
-                             parts: vec![Part::FunctionResponse {
-                                 function_response: gemini::FunctionResponse {
-                                     name: fn_name,
-                                     response: serde_json::json!({ "content": response_content }), 
-                                 }
-                             }],
-                         });
+
+                        // Reconstruct logic for finding function name
+                        let mut fn_name = "unknown".to_owned();
+                        'scan: for m in messages.iter().rev() {
+                            if m.role == "assistant"
+                                && let Some(tcs) = &m.tool_calls
+                            {
+                                for tc_val in tcs {
+                                    if let Ok(tc) =
+                                        serde_json::from_value::<ToolCall>(tc_val.clone())
+                                        && Some(&tc.id) == msg.tool_call_id.as_ref()
+                                    {
+                                        fn_name.clone_from(&tc.function.name);
+                                        break 'scan;
+                                    }
+                                }
+                            }
+                        }
+
+                        gemini_contents.push(Content {
+                            role: "function".into(),
+                            parts: vec![Part::FunctionResponse {
+                                function_response: gemini::FunctionResponse {
+                                    name: fn_name,
+                                    response: serde_json::json!({ "content": response_content }),
+                                },
+                            }],
+                        });
                     }
                 }
 
@@ -532,15 +573,22 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
                     None
                 } else {
                     Some(vec![Tools {
-                        function_declarations: tools.iter().map(|t| FunctionDeclaration {
-                            name: t.function.name.clone(),
-                            description: t.function.description.clone(),
-                            parameters: {
-                                let sanitized = gemini::sanitize_schema(t.function.parameters.clone());
-                                debug!("Sanitized schema for {}: {}", t.function.name, sanitized);
-                                sanitized
-                            },
-                        }).collect(),
+                        function_declarations: tools
+                            .iter()
+                            .map(|t| FunctionDeclaration {
+                                name: t.function.name.clone(),
+                                description: t.function.description.clone(),
+                                parameters: {
+                                    let sanitized =
+                                        gemini::sanitize_schema(t.function.parameters.clone());
+                                    debug!(
+                                        "Sanitized schema for {}: {}",
+                                        t.function.name, sanitized
+                                    );
+                                    sanitized
+                                },
+                            })
+                            .collect(),
                     }])
                 };
 
@@ -551,56 +599,61 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
                 };
 
                 let resp = client.post(&url).json(&body).send().await;
-                
+
                 match resp {
                     Ok(r) => {
                         let status = r.status();
                         if !status.is_success() {
-                             let text = r.text().await.unwrap_or_default();
-                             warn!("Gemini API error: {} {}", status, text);
-                             send_text(ctx, format!("Gemini error: {}", text)).await?;
-                             return Ok(());
+                            let text = r.text().await.unwrap_or_default();
+                            warn!("Gemini API error: {} {}", status, text);
+                            send_text(ctx, format!("Gemini error: {text}")).await?;
+                            return Ok(());
                         }
                         let text = r.text().await.unwrap_or_default();
                         error!("Gemini Raw Response: {}", text);
                         match serde_json::from_str::<gemini::GeminiResponse>(&text) {
                             Ok(g_resp) => {
-                                if let Some(candidates) = g_resp.candidates {
-                                    if let Some(cand) = candidates.first() {
-                                        let mut text_parts = Vec::new();
-                                        for part in &cand.content.parts {
-                                            match part {
-                                                Part::Text { text } => text_parts.push(text.clone()),
-                                                Part::FunctionCall { function_call } => {
-                                                     final_tool_calls.push(ToolCall {
-                                                         id: format!("call_{}", uuid::Uuid::new_v4()), 
-                                                         kind: "function".into(),
-                                                         function: ToolCallFunction {
-                                                             name: function_call.name.clone(),
-                                                             arguments: serde_json::to_string(&function_call.args).unwrap_or_default(),
-                                                         }
-                                                     });
-                                                }
-                                                _ => {}
+                                if let Some(candidates) = g_resp.candidates
+                                    && let Some(cand) = candidates.first()
+                                {
+                                    let mut text_parts = Vec::new();
+                                    for part in &cand.content.parts {
+                                        match part {
+                                            Part::Text { text } => {
+                                                text_parts.push(text.clone());
                                             }
+                                            Part::FunctionCall { function_call } => {
+                                                final_tool_calls.push(ToolCall {
+                                                    id: format!("call_{}", uuid::Uuid::new_v4()),
+                                                    kind: "function".into(),
+                                                    function: ToolCallFunction {
+                                                        name: function_call.name.clone(),
+                                                        arguments: serde_json::to_string(
+                                                            &function_call.args,
+                                                        )
+                                                        .unwrap_or_default(),
+                                                    },
+                                                });
+                                            }
+                                            Part::FunctionResponse { .. } => {}
                                         }
-                                        if !text_parts.is_empty() {
-                                            final_content = Some(text_parts.join("\n"));
-                                        }
+                                    }
+                                    if !text_parts.is_empty() {
+                                        final_content = Some(text_parts.join("\n"));
                                     }
                                 }
                             }
                             Err(e) => {
                                 warn!("Failed to parse Gemini JSON: {}", e);
-                                send_text(ctx, format!("Gemini JSON error: {}", e)).await?;
+                                send_text(ctx, format!("Gemini JSON error: {e}")).await?;
                                 break;
                             }
                         }
                     }
                     Err(e) => {
-                         warn!("HTTP error: {}", e);
-                         send_text(ctx, format!("HTTP error: {}", e)).await?;
-                         break;
+                        warn!("HTTP error: {e}");
+                        send_text(ctx, format!("HTTP error: {e}")).await?;
+                        break;
                     }
                 }
             } else {
@@ -612,82 +665,104 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
                     tools: tools.clone(),
                 };
 
-                let resp = client.post(&url).bearer_auth(&api_key).json(&body).send().await;
+                let resp = client
+                    .post(&url)
+                    .bearer_auth(&api_key)
+                    .json(&body)
+                    .send()
+                    .await;
 
-                 match resp {
+                match resp {
                     Ok(r) => {
                         let status = r.status();
                         if !status.is_success() {
-                             let text = r.text().await.unwrap_or_default();
-                             warn!("AI API error: {} {}", status, text);
-                             send_text(ctx, format!("AI error: {}", text)).await?;
-                             return Ok(());
+                            let text = r.text().await.unwrap_or_default();
+                            warn!("AI API error: {} {}", status, text);
+                            send_text(ctx, format!("AI error: {text}")).await?;
+                            return Ok(());
                         }
                         match r.json::<ChatResp>().await {
                             Ok(p) => {
                                 if let Some(choice) = p.choices.first() {
-                                    final_content = choice.message.content.clone();
+                                    final_content.clone_from(&choice.message.content);
                                     if let Some(tcs) = &choice.message.tool_calls {
-                                        final_tool_calls = tcs.clone();
+                                        final_tool_calls.clone_from(tcs);
                                     }
                                 }
                             }
                             Err(e) => {
                                 warn!("Failed to parse JSON: {}", e);
-                                send_text(ctx, format!("JSON parse error: {}", e)).await?;
+                                send_text(ctx, format!("JSON parse error: {e}")).await?;
                                 break;
                             }
                         }
                     }
                     Err(e) => {
-                        warn!("HTTP error: {}", e);
-                        send_text(ctx, format!("HTTP error: {}", e)).await?;
+                        warn!("HTTP error: {e}");
+                        send_text(ctx, format!("HTTP error: {e}")).await?;
                         break;
                     }
                 }
             }
-            
+
             // Handle results (common)
-            let tool_calls_json = if !final_tool_calls.is_empty() {
-                Some(serde_json::to_value(&final_tool_calls).unwrap().as_array().unwrap().clone())
-            } else {
+            let tool_calls_json = if final_tool_calls.is_empty() {
                 None
+            } else {
+                Some(
+                    serde_json::to_value(&final_tool_calls)
+                        .unwrap()
+                        .as_array()
+                        .unwrap()
+                        .clone(),
+                )
             };
-            
+
             if final_content.is_some() || tool_calls_json.is_some() {
-                 messages.push(Msg {
+                messages.push(Msg {
                     role: "assistant".into(),
                     content: final_content.clone(),
                     tool_calls: tool_calls_json,
                     tool_call_id: None,
-                 });
+                });
             }
 
-            if let Some(text) = &final_content {
-                if !text.trim().is_empty() {
-                    // Output to room - RESTORE PII
-                    let restored_text = if pii_enabled {
-                        redactor.restore(text)
-                    } else {
-                        text.clone()
-                    };
-                    
-                    let header = if ctx.dev_active { "=======DEV MODE=======\n" } else { "" };
-                    let prefix = format!("@{name}:");
-                    let bold_prefix = to_bold(&prefix);
-                    let out_text = format!("{header}{bold_prefix} {restored_text}");
-                    let content = RoomMessageEventContent::text_plain(out_text);
-                    ctx.room.send(content).await?;
-                }
+            if let Some(text) = &final_content
+                && !text.trim().is_empty()
+            {
+                // Output to room - RESTORE PII
+                let restored_text = if pii_enabled {
+                    redactor.restore(text)
+                } else {
+                    text.clone()
+                };
+
+                let header = if ctx.dev_active {
+                    "=======DEV MODE=======\n"
+                } else {
+                    ""
+                };
+                let prefix = format!("@{name}:");
+                let bold_prefix = to_bold(&prefix);
+                let out_text = format!("{header}{bold_prefix} {restored_text}");
+                let content = RoomMessageEventContent::text_plain(out_text);
+                ctx.room.send(content).await?;
             }
 
-            if !final_tool_calls.is_empty() {
-                if log_to_room {
-                    send_text(ctx, format!("Executing {} tool calls...", final_tool_calls.len())).await?;
-                }
-                
-                for call in final_tool_calls {
-                    let mut result_content = "Tool execution failed".to_owned();
+            if final_tool_calls.is_empty() {
+                // Done
+                break;
+            }
+            if log_to_room {
+                send_text(
+                    ctx,
+                    format!("Executing {} tool calls...", final_tool_calls.len()),
+                )
+                .await?;
+            }
+
+            for call in final_tool_calls {
+                let mut result_content =
                     if let Some(&client_idx) = tool_map.get(&call.function.name) {
                         // RESTORE PII in Args
                         let args_str = if pii_enabled {
@@ -698,36 +773,31 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
 
                         if let Ok(args) = serde_json::from_str::<Value>(&args_str) {
                             info!("Calling tool {} with {:?}", call.function.name, args);
-                            match mcp_clients[client_idx].call_tool(&call.function.name, args).await {
-                                Ok(res) => {
-                                    result_content = res.to_string();
-                                }
-                                Err(e) => {
-                                    result_content = format!("Error: {}", e);
-                                }
+                            match mcp_clients[client_idx]
+                                .call_tool(&call.function.name, args)
+                                .await
+                            {
+                                Ok(res) => res.to_string(),
+                                Err(e) => format!("Error: {e}"),
                             }
                         } else {
-                            result_content = "Invalid JSON arguments".to_owned();
+                            "Invalid JSON arguments".to_owned()
                         }
                     } else {
-                        result_content = format!("Unknown tool: {}", call.function.name);
-                    }
-                    
-                    // REDACT PII in Result
-                    if pii_enabled {
-                        result_content = redactor.redact(&result_content);
-                    }
-                    
-                    messages.push(Msg {
-                        role: "tool".into(),
-                        content: Some(result_content),
-                        tool_calls: None,
-                        tool_call_id: Some(call.id.clone()),
-                    });
+                        format!("Unknown tool: {}", call.function.name)
+                    };
+
+                // REDACT PII in Result
+                if pii_enabled {
+                    result_content = redactor.redact(&result_content);
                 }
-            } else {
-                // Done
-                break;
+
+                messages.push(Msg {
+                    role: "tool".into(),
+                    content: Some(result_content),
+                    tool_calls: None,
+                    tool_call_id: Some(call.id.clone()),
+                });
             }
         }
 

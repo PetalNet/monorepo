@@ -30,14 +30,14 @@ impl PiiRedactor {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     // NER disabled due to compilation issues
     pub fn with_ner() -> Self {
         Self::default()
     }
 
     pub fn redact(&mut self, text: &str) -> String {
-        let mut result = text.to_string();
+        let mut result = text.to_owned();
 
         result = self.redact_generic(&result, get_email_regex(), "EMAIL");
         result = self.redact_generic(&result, get_ipv4_regex(), "IP");
@@ -47,36 +47,33 @@ impl PiiRedactor {
     }
 
     fn redact_generic(&mut self, text: &str, regex: &Regex, kind: &str) -> String {
-        regex.replace_all(text, |caps: &regex::Captures| {
-            let original = caps[0].to_string();
-            // Avoid double redaction (redundant check if regex is good, but good for safety)
-            if original.starts_with("<PII:") {
-                return original;
-            }
-            
-            let count = self.counts.entry(kind.to_string()).or_insert(0);
-            *count += 1;
-            let placeholder = format!("<PII:{}:{}>", kind, count);
-            
-            self.replacements.insert(placeholder.clone(), original);
-            placeholder
-        }).to_string()
+        regex
+            .replace_all(text, |caps: &regex::Captures| {
+                let original = caps[0].to_owned();
+                if original.starts_with("<PII:") {
+                    return original;
+                }
+
+                let count = self.counts.entry(kind.to_owned()).or_insert(0);
+                *count += 1;
+                let placeholder = format!("<PII:{kind}:{count}>");
+
+                self.replacements.insert(placeholder.clone(), original);
+                placeholder
+            })
+            .into_owned()
     }
 
     pub fn restore(&self, text: &str) -> String {
-        let mut result = text.to_string();
-        
         let placeholder_regex = Regex::new(r"<PII:([A-Z]+):(\d+)>").unwrap();
-        
-        let restored = placeholder_regex.replace_all(&result, |caps: &regex::Captures| {
-           let full_match = &caps[0];
-           if let Some(original) = self.replacements.get(full_match) {
-               original.clone()
-           } else {
-               full_match.to_string()
-           }
-        });
-        
-        restored.into_owned()
+
+        placeholder_regex
+            .replace_all(text, |caps: &regex::Captures| {
+                let full_match = &caps[0];
+                self.replacements
+                    .get(full_match)
+                    .map_or_else(|| full_match.to_owned(), Clone::clone)
+            })
+            .into_owned()
     }
 }

@@ -63,7 +63,7 @@ impl Plugin for Relay {
         Ok(())
     }
 
-       fn spec(&self) -> PluginSpec {
+    fn spec(&self) -> PluginSpec {
         PluginSpec {
             id: "relay".to_owned(),
             enabled: true,
@@ -81,7 +81,7 @@ impl Plugin for Relay {
         _meta: &RoomMessageMeta<'_>,
     ) -> Result<()> {
         info!(room_id = %ctx.room.room_id(), sender = %event.sender, "Relay: on_room_message called");
-        
+
         if ctx.dev_active {
             info!(room_id = %ctx.room.room_id(), "Dev mode active: relay disabled");
             return Ok(());

@@ -2,9 +2,7 @@ use anyhow::Result;
 
 use async_trait::async_trait;
 use matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent;
-use plugin_core::{
-    Plugin, PluginContext, PluginSpec, PluginTriggers, RoomMessageMeta, send_text,
-};
+use plugin_core::{Plugin, PluginContext, PluginSpec, PluginTriggers, RoomMessageMeta, send_text};
 
 #[derive(Debug)]
 pub struct PingPlugin;

@@ -19,7 +19,9 @@ pub struct Content {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum Part {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     FunctionCall {
         #[serde(rename = "functionCall")]
         function_call: FunctionCall,
@@ -77,33 +79,26 @@ pub fn sanitize_schema(v: Value) -> Value {
             if let Some(t) = map.remove("type") {
                 let new_type = match t {
                     Value::String(s) => Value::String(s.to_uppercase()),
-                    Value::Array(arr) => {
-                        if let Some(first) = arr.first() {
-                            if let Some(s) = first.as_str() {
-                                Value::String(s.to_uppercase())
-                            } else {
-                                Value::String("STRING".to_string())
-                            }
-                        } else {
-                            Value::String("STRING".to_string())
-                        }
+                    Value::Array(arr) => arr.first().and_then(Value::as_str).map_or_else(
+                        || Value::String("STRING".to_owned()),
+                        |s| Value::String(s.to_uppercase()),
+                    ),
+                    Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => {
+                        Value::String("OBJECT".to_owned())
                     }
-                    _ => Value::String("OBJECT".to_string()),
                 };
-                map.insert("type".to_string(), new_type);
+                map.insert("type".to_owned(), new_type);
             }
-            
+
             // Recurse
-            for (_, v) in map.iter_mut() {
+            for (_, v) in &mut map {
                 *v = sanitize_schema(v.clone());
             }
 
             Value::Object(map)
         }
-        Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(sanitize_schema).collect())
-        }
-        _ => v,
+        Value::Array(arr) => Value::Array(arr.into_iter().map(sanitize_schema).collect()),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => v,
     }
 }
 
@@ -130,18 +125,21 @@ mod tests {
         });
 
         let sanitized = sanitize_schema(schema);
-        println!("Sanitized: {}", serde_json::to_string_pretty(&sanitized).unwrap());
+        println!(
+            "Sanitized: {}",
+            serde_json::to_string_pretty(&sanitized).unwrap()
+        );
 
         let obj = sanitized.as_object().unwrap();
         assert!(!obj.contains_key("$schema"));
         assert!(!obj.contains_key("additionalProperties"));
-        
+
         let props = obj.get("properties").unwrap().as_object().unwrap();
         let query = props.get("query").unwrap().as_object().unwrap();
         assert_eq!(query.get("type").unwrap(), &json!("STRING"));
-        
+
         let limit = props.get("limit").unwrap().as_object().unwrap();
-         assert_eq!(limit.get("type").unwrap(), &json!("STRING")); // number -> STRING? no, number -> NUMBER?
-         // My code uppercases strings. "number" -> "NUMBER".
+        assert_eq!(limit.get("type").unwrap(), &json!("STRING")); // number -> STRING? no, number -> NUMBER?
+        // My code uppercases strings. "number" -> "NUMBER".
     }
 }

@@ -30,7 +30,7 @@ impl LogFormat {
 }
 
 pub fn init_tracing() {
-    let log_mode = std::env::var("RUST_LOG_MODE").unwrap_or_else(|_ | "pretty".into());
+    let log_mode = std::env::var("RUST_LOG_MODE").unwrap_or_else(|_| "pretty".into());
 
     // Build filter with quieter matrix-sdk crates to reduce spam
     let filter = EnvFilter::builder()

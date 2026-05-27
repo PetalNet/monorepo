@@ -21,14 +21,20 @@ pub async fn build_registry(config: &BotConfig) -> Arc<PluginRegistry> {
     let mut specs = config.plugins.clone().unwrap_or_default();
 
     // Inject relay plugin configuration if clusters are defined and no explicit spec exists.
-    info!(clusters_count = config.clusters.len(), "Checking relay config");
+    info!(
+        clusters_count = config.clusters.len(),
+        "Checking relay config"
+    );
     if !specs.iter().any(|s| s.id == "relay") && !config.clusters.is_empty() {
         let relay_config = RelayConfig {
             clusters: config.clusters.iter().map(cluster_from_bot).collect(),
             reupload_media: config.reupload_media,
             caption_media: config.caption_media,
         };
-        info!(relay_clusters = relay_config.clusters.len(), "Creating relay spec");
+        info!(
+            relay_clusters = relay_config.clusters.len(),
+            "Creating relay spec"
+        );
         let config_value = serde_yaml::to_value(relay_config).unwrap_or_default();
         let mut relay_spec = PluginSpec {
             id: "relay".to_owned(),

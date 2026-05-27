@@ -2,7 +2,13 @@ mod logging;
 mod plugins;
 
 use core::time::Duration;
-use std::{collections::HashSet, fs, io::IsTerminal as _, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashSet,
+    fs,
+    io::IsTerminal as _,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Context as _, Result, anyhow};
 use clap::Parser;
@@ -724,7 +730,7 @@ fn save_session(path: &PathBuf, session: &SavedSession) -> Result<()> {
 
 fn resolve_password(
     password_opt: Option<&str>,
-    session_file: &PathBuf,
+    session_file: &Path,
     missing_password_reason: &str,
 ) -> Result<String> {
     if let Some(password) = password_opt.map(str::trim).filter(|s| !s.is_empty()) {

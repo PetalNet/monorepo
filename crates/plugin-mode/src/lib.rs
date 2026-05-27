@@ -17,7 +17,7 @@ impl Plugin for ModeTool {
     fn help(&self) -> &'static str {
         "Show current mode (dev/prod) and how to target it."
     }
-       fn spec(&self) -> PluginSpec {
+    fn spec(&self) -> PluginSpec {
         PluginSpec {
             id: "mode".into(),
             enabled: true,

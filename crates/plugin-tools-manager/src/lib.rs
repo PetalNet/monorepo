@@ -17,7 +17,7 @@ impl Plugin for ToolsManager {
     fn help(&self) -> &'static str {
         "Manage plugins: !tools list | enable <id> | disable <id>"
     }
-       fn spec(&self) -> PluginSpec {
+    fn spec(&self) -> PluginSpec {
         PluginSpec {
             id: "tools".to_owned(),
             enabled: true,
