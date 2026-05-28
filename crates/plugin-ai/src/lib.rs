@@ -92,7 +92,7 @@ impl Plugin for AiTool {
         ctx: &PluginContext,
         event: &OriginalSyncRoomMessageEvent,
         spec: &PluginSpec,
-        meta: &RoomMessageMeta<'_>,
+        meta: &RoomMessageMeta,
     ) -> Result<()> {
         trigger_backfill(ctx, spec);
 

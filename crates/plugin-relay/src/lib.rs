@@ -78,7 +78,7 @@ impl Plugin for Relay {
         ctx: &PluginContext,
         event: &OriginalSyncRoomMessageEvent,
         spec: &PluginSpec,
-        _meta: &RoomMessageMeta<'_>,
+        _meta: &RoomMessageMeta,
     ) -> Result<()> {
         info!(room_id = %ctx.room.room_id(), sender = %event.sender, "Relay: on_room_message called");
 
