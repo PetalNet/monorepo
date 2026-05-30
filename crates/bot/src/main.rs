@@ -207,6 +207,18 @@ async fn main() -> Result<()> {
         }
     }
 
+    // If MATRIX_RECOVERY_KEY is set, use it to recover encryption secrets and download room keys.
+    if let Ok(recovery_key) = std::env::var("MATRIX_RECOVERY_KEY") {
+        let recovery_key = recovery_key.trim().to_owned();
+        if !recovery_key.is_empty() {
+            info!("Recovery key provided; attempting to recover encryption secrets...");
+            match client.encryption().recovery().recover(&recovery_key).await {
+                Ok(()) => info!("Recovery successful — encryption secrets and room keys restored"),
+                Err(e) => warn!(error = %e, "Recovery failed; continuing without it"),
+            }
+        }
+    }
+
     let config = load_config(&args.config)?;
     let env_dev = matches!(args.mode.as_deref(), Some(m) if m.eq_ignore_ascii_case("dev"));
     let dev_active = (args.dev || env_dev) && config.dev_mode.unwrap_or(false);
@@ -344,6 +356,7 @@ async fn main() -> Result<()> {
                                 dev_id: dev_id.clone(),
                                 registry: Arc::clone(&registry),
                                 history_dir: Arc::clone(&history_dir),
+                                trigger_event: Some(Arc::new(ev.clone())),
                             };
                             let plugin = Arc::clone(&entry.plugin);
                             let spec = entry.spec.clone();
@@ -448,6 +461,7 @@ async fn main() -> Result<()> {
                             dev_id: dev_id.clone(),
                             registry: Arc::clone(&registry),
                             history_dir: Arc::clone(&history_dir),
+                            trigger_event: Some(Arc::new(ev.clone())),
                         };
                         let plugin = Arc::clone(&entry.plugin);
                         let spec = entry.spec.clone();
@@ -490,6 +504,7 @@ async fn main() -> Result<()> {
                 dev_id: dev_id.clone(),
                 registry: Arc::clone(&registry),
                 history_dir: Arc::clone(&history_dir),
+                trigger_event: Some(Arc::new(ev.clone())),
             };
 
             for (plugin_id, entry) in passive_entries {

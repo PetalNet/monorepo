@@ -24,6 +24,11 @@ pub struct PluginContext {
     pub dev_id: Option<Arc<str>>,
     pub registry: Arc<PluginRegistry>,
     pub history_dir: Arc<PathBuf>,
+    /// The event that triggered this plugin run, if any. When set, `send_text`
+    /// auto-threads its reply under this event (proper group-chat threading
+    /// instead of flat top-level messages). Plugins that don't want to thread
+    /// can call `send_text_flat` instead. None for background / non-triggered work.
+    pub trigger_event: Option<Arc<OriginalSyncRoomMessageEvent>>,
 }
 
 #[derive(Clone, Debug)]
@@ -242,6 +247,12 @@ fn decorate_dev(text: &str, dev_active: bool) -> String {
 
 /// Send a plain-text message to the current room.
 ///
+/// If `ctx.trigger_event` is set (the common case — a plugin responding to a
+/// command or mention), the message is threaded as a Matrix reply to that
+/// event. This makes multi-person group rooms readable when the bot and the
+/// humans are talking concurrently. To opt out and send a flat top-level
+/// message, use [`send_text_flat`].
+///
 /// The message text will be decorated with a development mode banner when
 /// `PluginContext.dev_active` is true.
 ///
@@ -250,6 +261,31 @@ fn decorate_dev(text: &str, dev_active: bool) -> String {
 /// Returns an error if sending the message fails. The underlying error is
 /// propagated from the matrix-sdk send operation.
 pub async fn send_text(ctx: &PluginContext, text: impl Into<String>) -> Result<()> {
+    let text = text.into();
+    let decorated = decorate_dev(&text, ctx.dev_active);
+    let content = if let Some(trigger) = ctx.trigger_event.as_ref() {
+        // Build a proper Matrix reply against the triggering event.
+        let full = trigger.as_ref().clone().into_full_event(ctx.room.room_id().to_owned());
+        RoomMessageEventContent::text_plain(decorated).make_reply_to(
+            &full,
+            matrix_sdk::ruma::events::room::message::ForwardThread::Yes,
+            matrix_sdk::ruma::events::room::message::AddMentions::Yes,
+        )
+    } else {
+        RoomMessageEventContent::text_plain(decorated)
+    };
+    ctx.room.send(content).await?;
+    Ok(())
+}
+
+/// Send a flat top-level message, ignoring any `trigger_event` thread. Use for
+/// proactive announcements that aren't replies to anyone (e.g. periodic status
+/// posts, scheduled jobs).
+///
+/// # Errors
+///
+/// Returns an error if sending the message fails.
+pub async fn send_text_flat(ctx: &PluginContext, text: impl Into<String>) -> Result<()> {
     let text = text.into();
     let content = RoomMessageEventContent::text_plain(decorate_dev(&text, ctx.dev_active));
     ctx.room.send(content).await?;
