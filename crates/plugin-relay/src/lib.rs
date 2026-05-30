@@ -2,7 +2,6 @@ mod relay_config;
 
 pub use relay_config::{RelayCluster, RelayConfig};
 
-use core::fmt::Write as _;
 use std::{borrow::ToOwned, collections::HashMap, sync::Arc};
 
 use anyhow::{Context as _, Result, anyhow};
@@ -12,18 +11,27 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     room::Room,
     ruma::{
-        OwnedRoomId, RoomAliasId, RoomId,
-        events::room::message::{
-            AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
-            MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
-            VideoMessageEventContent,
+        OwnedEventId, OwnedRoomId, RoomAliasId, RoomId,
+        events::{
+            AnySyncTimelineEvent,
+            relation::InReplyTo,
+            room::message::{
+                AddMentions, AudioMessageEventContent, FileMessageEventContent, ForwardThread,
+                ImageMessageEventContent, MessageType, OriginalSyncRoomMessageEvent, Relation,
+                ReplyMetadata, RoomMessageEventContent, VideoMessageEventContent,
+            },
         },
     },
 };
 use mime::Mime;
-use plugin_core::{Plugin, PluginContext, PluginSpec, PluginTriggers, RoomMessageMeta, truncate};
+use plugin_core::{Plugin, PluginContext, PluginSpec, PluginTriggers, RoomMessageMeta};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+
+/// Soft cap on the cross-room reply mapping; when exceeded the map is fully
+/// cleared. Old threading info loses fidelity (replies fall back to text-only),
+/// new conversations keep threading. Bounded memory > perfect history.
+const REPLY_MAP_CAP: usize = 50_000;
 
 #[derive(Debug)]
 pub struct RelayPlugin;
@@ -31,6 +39,15 @@ pub struct RelayPlugin;
 #[derive(Default, Debug)]
 pub struct Relay {
     plan: RwLock<Option<Arc<RelayPlan>>>,
+    /// Cross-room event mapping for native reply forwarding.
+    /// Key = (source_room_id, source_event_id).
+    /// Value = which target room got which event_id when we relayed that source event.
+    /// When a reply is forwarded, we look up the original event's twin in each target room
+    /// and emit a native `m.relates_to.m.in_reply_to` so the bridge (or Matrix client) can
+    /// render it as a native reply on the other side. In-memory only: bot restart loses
+    /// the map and in-flight conversations briefly fall back to text-only "Parker replied
+    /// to X" headers until the next round-trip re-seeds them.
+    reply_map: RwLock<HashMap<(OwnedRoomId, OwnedEventId), HashMap<OwnedRoomId, OwnedEventId>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -104,46 +121,171 @@ impl Plugin for Relay {
 
         let display_name = resolve_display_name(&ctx.room, &event.sender).await;
         let display_name_bold = to_bold(&display_name);
-        let formatted_text = format_text_message(&event.content.msgtype, &display_name_bold);
+
+        // If the inbound is a reply, figure out who it was a reply to so we can
+        // render "Parker replied to <Name>: ..." text AND look up the target-room
+        // twin event for a native Matrix reply.
+        let reply_context = extract_reply_context(&event.content, &ctx.room).await;
+
+        let formatted_text =
+            format_text_message(&event.content.msgtype, &display_name_bold, reply_context.as_ref());
+
+        let source_event_id = event.event_id.clone();
 
         for target_id in targets {
             if target_id == source_id {
                 continue;
             }
-            if let Some(room_handle) = ctx.client.get_room(&target_id) {
-                let send_res = if let Some(text) = formatted_text.as_ref() {
-                    let content = RoomMessageEventContent::text_plain(text.clone());
-                    room_handle.send(content).await
-                } else {
-                    forward_media(&ctx.client, &room_handle, event, opts.reupload_media).await
-                };
+            let Some(room_handle) = ctx.client.get_room(&target_id) else {
+                warn!(from = %source_id, to = %target_id, "No handle for target room; skipping relay");
+                continue;
+            };
 
-                match send_res {
-                    Ok(_) => {
-                        info!(from = %source_id, to = %target_id, sender = %event.sender, "Relayed message");
-                        if formatted_text.is_none()
-                            && opts.caption_media
-                            && let Some(kind) = media_kind(&event.content.msgtype)
-                        {
-                            let caption = format!("{display_name_bold}: sent a {kind}");
-                            let _ = room_handle
-                                .send(RoomMessageEventContent::text_plain(caption))
-                                .await;
-                        }
+            // If this is a reply AND we have a mapping for the original source event in
+            // this specific target room, build a native `m.relates_to.m.in_reply_to`.
+            // Falling back to plain content (no relates_to) when:
+            //   - the inbound isn't a reply,
+            //   - we never relayed the original (e.g. bot wasn't running yet, or the
+            //     original predates the in-memory map being seeded after restart).
+            let native_reply_target = if let Some(rctx) = reply_context.as_ref() {
+                let guard = self.reply_map.read().await;
+                guard
+                    .get(&(source_id.clone(), rctx.source_event_id.clone()))
+                    .and_then(|m| m.get(&target_id).cloned())
+            } else {
+                None
+            };
+
+            let send_res = if let Some(text) = formatted_text.as_ref() {
+                let mut content = RoomMessageEventContent::text_plain(text.clone());
+                if let Some(target_event_id) = native_reply_target.as_ref() {
+                    // ReplyMetadata only uses `sender` for AddMentions, which we suppress —
+                    // mentioning the bot (the actual sender of the target-room twin) would
+                    // be noise. So passing the bot's user id is fine and never read for
+                    // anything user-visible.
+                    if let Some(bot_user_id) = ctx.client.user_id() {
+                        let bot_uid = bot_user_id.to_owned();
+                        let meta = ReplyMetadata::new(target_event_id, &bot_uid, None);
+                        content = content.make_reply_to(meta, ForwardThread::No, AddMentions::No);
+                    } else {
+                        // Extremely unlikely (client without a logged-in user); fall back to
+                        // raw relates_to so we still emit the reply pointer.
+                        content.relates_to = Some(Relation::Reply {
+                            in_reply_to: InReplyTo::new(target_event_id.clone()),
+                        });
                     }
-                    Err(e) => warn!(
-                        error = %e,
+                }
+                room_handle.send(content).await
+            } else {
+                forward_media(&ctx.client, &room_handle, event, opts.reupload_media).await
+            };
+
+            match send_res {
+                Ok(resp) => {
+                    info!(
                         from = %source_id,
                         to = %target_id,
-                        "Failed to relay message"
-                    ),
+                        sender = %event.sender,
+                        threaded = native_reply_target.is_some(),
+                        "Relayed message"
+                    );
+                    // Record (source_event → target_event) so a future reply to this same
+                    // source event can be threaded in this target room.
+                    self.record_relay(
+                        source_id.clone(),
+                        source_event_id.clone(),
+                        target_id.clone(),
+                        resp.event_id.clone(),
+                    )
+                    .await;
+                    if formatted_text.is_none()
+                        && opts.caption_media
+                        && let Some(kind) = media_kind(&event.content.msgtype)
+                    {
+                        let caption = format!("{display_name_bold}: sent a {kind}");
+                        let _ = room_handle
+                            .send(RoomMessageEventContent::text_plain(caption))
+                            .await;
+                    }
                 }
-            } else {
-                warn!(from = %source_id, to = %target_id, "No handle for target room; skipping relay");
+                Err(e) => warn!(
+                    error = %e,
+                    from = %source_id,
+                    to = %target_id,
+                    "Failed to relay message"
+                ),
             }
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ReplyContext {
+    /// event_id of the original event being replied to (in the source room).
+    source_event_id: OwnedEventId,
+    /// Display name of the original sender, used for the "Parker replied to <X>: ..." header.
+    original_sender_display: String,
+}
+
+/// If `content` is a reply (or a reply-within-thread), pulls the in-reply-to event id and
+/// resolves the original sender's display name. Returns None for non-replies or when the
+/// original event can't be fetched / parsed.
+async fn extract_reply_context(
+    content: &RoomMessageEventContent,
+    source_room: &Room,
+) -> Option<ReplyContext> {
+    let in_reply_to_event_id = match content.relates_to.as_ref()? {
+        Relation::Reply { in_reply_to } => in_reply_to.event_id.clone(),
+        Relation::Thread(t) => t.in_reply_to.as_ref().map(|r| r.event_id.clone())?,
+        _ => return None,
+    };
+
+    // Need the original sender to format the header. Try the cache first, then fall back
+    // to a homeserver fetch. Any failure → graceful "someone" so we still ship a header.
+    let display = match source_room
+        .load_or_fetch_event(&in_reply_to_event_id, None)
+        .await
+    {
+        Ok(timeline_event) => {
+            // TimelineEvent::raw() returns Raw<AnySyncTimelineEvent>; .deserialize() on a
+            // Raw<T> yields T directly (no JsonCastable bound). Every variant exposes
+            // .sender() so we don't have to enumerate them.
+            match timeline_event.raw().deserialize() {
+                Ok(ev) => {
+                    let sender: AnySyncTimelineEvent = ev;
+                    resolve_display_name(source_room, &sender.sender().to_owned()).await
+                }
+                Err(_) => "someone".to_owned(),
+            }
+        }
+        Err(_) => "someone".to_owned(),
+    };
+
+    Some(ReplyContext {
+        source_event_id: in_reply_to_event_id,
+        original_sender_display: display,
+    })
+}
+
+impl Relay {
+    async fn record_relay(
+        &self,
+        source_room: OwnedRoomId,
+        source_event: OwnedEventId,
+        target_room: OwnedRoomId,
+        target_event: OwnedEventId,
+    ) {
+        let mut guard = self.reply_map.write().await;
+        if guard.len() >= REPLY_MAP_CAP {
+            warn!(cap = REPLY_MAP_CAP, "Reply map cap hit; clearing");
+            guard.clear();
+        }
+        guard
+            .entry((source_room, source_event))
+            .or_default()
+            .insert(target_room, target_event);
     }
 }
 
@@ -262,19 +404,23 @@ async fn resolve_display_name(room: &Room, sender: &matrix_sdk::ruma::OwnedUserI
     }
 }
 
-fn format_text_message(msg: &MessageType, display_name_bold: &str) -> Option<String> {
+fn format_text_message(
+    msg: &MessageType,
+    display_name_bold: &str,
+    reply: Option<&ReplyContext>,
+) -> Option<String> {
     match msg {
         MessageType::Text(t) => {
-            let (quoted, main) = split_reply_fallback(&t.body);
-            Some(format_output(quoted, display_name_bold, main.trim(), ""))
+            let (_quoted, main) = split_reply_fallback(&t.body);
+            Some(format_output(reply, display_name_bold, main.trim(), ""))
         }
         MessageType::Notice(n) => {
-            let (quoted, main) = split_reply_fallback(&n.body);
-            Some(format_output(quoted, display_name_bold, main.trim(), ""))
+            let (_quoted, main) = split_reply_fallback(&n.body);
+            Some(format_output(reply, display_name_bold, main.trim(), ""))
         }
         MessageType::Emote(e) => {
-            let (quoted, main) = split_reply_fallback(&e.body);
-            Some(format_output(quoted, display_name_bold, main.trim(), "* "))
+            let (_quoted, main) = split_reply_fallback(&e.body);
+            Some(format_output(reply, display_name_bold, main.trim(), "* "))
         }
         MessageType::Audio(_)
         | MessageType::File(_)
@@ -288,18 +434,27 @@ fn format_text_message(msg: &MessageType, display_name_bold: &str) -> Option<Str
 }
 
 fn format_output(
-    quoted: Option<String>,
+    reply: Option<&ReplyContext>,
     display_name_bold: &str,
     main: &str,
     prefix: &str,
 ) -> String {
     let mut out = String::new();
-    if let Some(q) = quoted {
-        let snippet = truncate(q.as_str(), 300);
-        _ = writeln!(&mut out, "↪ {snippet}");
+    if let Some(r) = reply {
+        // "<Parker> replied to <Friend>: <body>" — proper attribution beats the
+        // old `↪ <@mxid:server> ...` mxid-dump. When the receiving client supports
+        // m.relates_to (every Matrix client + Beeper bridges), this body is also
+        // hung under a native reply pointer; when it doesn't, the text alone is
+        // enough to know who Parker was replying to.
+        let other_bold = to_bold(&r.original_sender_display);
+        out.push_str(display_name_bold);
+        out.push_str(" replied to ");
+        out.push_str(&other_bold);
+        out.push_str(": ");
+    } else {
+        out.push_str(display_name_bold);
+        out.push_str(": ");
     }
-    out.push_str(display_name_bold);
-    out.push_str(": ");
     out.push_str(prefix);
     out.push_str(main);
     out
