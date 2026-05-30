@@ -745,7 +745,18 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
                 let prefix = format!("@{name}:");
                 let bold_prefix = to_bold(&prefix);
                 let out_text = format!("{header}{bold_prefix} {restored_text}");
-                let content = RoomMessageEventContent::text_plain(out_text);
+                // Auto-thread the AI reply under the triggering @mention so multi-person
+                // group rooms stay readable. Same pattern as plugin_core::send_text.
+                let content = if let Some(trigger) = ctx.trigger_event.as_ref() {
+                    let full = trigger.as_ref().clone().into_full_event(ctx.room.room_id().to_owned());
+                    RoomMessageEventContent::text_plain(out_text).make_reply_to(
+                        &full,
+                        matrix_sdk::ruma::events::room::message::ForwardThread::Yes,
+                        matrix_sdk::ruma::events::room::message::AddMentions::Yes,
+                    )
+                } else {
+                    RoomMessageEventContent::text_plain(out_text)
+                };
                 ctx.room.send(content).await?;
             }
 
