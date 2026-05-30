@@ -1,0 +1,34 @@
+{
+  "name": "@petalnet/tokens",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PetalNet design tokens — DTCG source, compiled to CSS vars + Tailwind preset + typed TS via style-dictionary.",
+  "license": "UNLICENSED",
+  "files": [
+    "dist/",
+    "src/"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./css": "./dist/tokens.css",
+    "./tailwind": {
+      "types": "./dist/tailwind.preset.d.ts",
+      "default": "./dist/tailwind.preset.js"
+    }
+  },
+  "scripts": {
+    "build": "node tools/build.mts",
+    "clean": "rimraf dist",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:types",
+    "rimraf": "catalog:dev",
+    "style-dictionary": "catalog:dev",
+    "typescript": "catalog:dev"
+  }
+}

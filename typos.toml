@@ -1,0 +1,12 @@
+[files]
+extend-exclude = [
+  "pnpm-lock.yaml",
+  "**/dist/**",
+  "**/build/**",
+  "**/.svelte-kit/**",
+]
+
+[default.extend-words]
+# Proper nouns + identifiers that look like typos but aren't.
+Hass = "Hass"
+hass = "hass"

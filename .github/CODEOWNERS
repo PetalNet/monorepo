@@ -1,0 +1,8 @@
+* @petalcat
+
+/packages/tokens/ @lishaduck @petalcat
+/eslint.config.ts @lishaduck
+/.oxlintrc.json @lishaduck
+/vite.config.ts @lishaduck @petalcat
+/renovate.json @lishaduck @petalcat
+/tools/ @petalcat

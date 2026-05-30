@@ -1,0 +1,9 @@
+^https?://(?:.*\.)?petalcat\.dev/
+^https?://(?:.*\.)?petalcat\.lan/
+^https?://127\.0\.0\.1
+^https?://localhost
+^https?://10\.[0-9.]+
+^https?://192\.168\.[0-9.]+
+^https?://(www\.)?example\.com
+^http://anisette
+^http://rustpush
