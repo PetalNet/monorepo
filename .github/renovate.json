@@ -9,7 +9,6 @@
 		":automergePatch",
 		":disableRateLimiting",
 		":pinAllExceptPeerDependencies",
-		":pinGitHubActionDigestsToSemver",
 		":preserveSemverRanges",
 		":semanticCommits"
 	],
