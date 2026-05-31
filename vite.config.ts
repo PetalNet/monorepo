@@ -5,7 +5,6 @@ export default defineConfig({
 		useTabs: true,
 		singleQuote: false,
 		semi: true,
-		printWidth: 80,
 		sortImports: true,
 		sortTailwindcss: true,
 		jsdoc: true,
