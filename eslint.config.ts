@@ -1,7 +1,7 @@
 import json from "@eslint/json";
 import markdown from "@eslint/markdown";
-import pluginOxlint from "eslint-plugin-oxlint";
-import { configs as packageJsonConfigs } from "eslint-plugin-package-json";
+import oxlint from "eslint-plugin-oxlint";
+import * as packageJson from "eslint-plugin-package-json";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 
@@ -58,7 +58,7 @@ export default defineConfig([
 			"json/no-duplicate-keys": "error",
 		},
 	},
-	packageJsonConfigs.recommended,
+	packageJson.configs.recommended,
 	{
 		// Why: these are private internal packages — no description/license required.
 		files: ["**/package.json"],
@@ -66,5 +66,5 @@ export default defineConfig([
 	},
 	// Why last: eslint-plugin-oxlint disables rules already covered by oxlint
 	// so the two linters don't double-report.
-	...pluginOxlint.buildFromOxlintConfigFile("./.oxlintrc.json"),
+	...oxlint.buildFromOxlintConfigFile("./.oxlintrc.json"),
 ]);
