@@ -1,0 +1,14 @@
+{
+	"js/ts.tsdk": "node_modules/typescript/lib",
+	"js/ts.preferences.importModuleSpecifier": "non-relative",
+	"editor.formatOnSave": true,
+	"editor.codeActionsOnSave": {
+		"source.fixAll.eslint": "explicit"
+	},
+	"files.associations": {
+		"*.css": "tailwindcss"
+	},
+	"[json][jsonc]": {
+		"editor.defaultFormatter": "vscode.json-language-features"
+	}
+}

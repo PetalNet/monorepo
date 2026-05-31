@@ -1,0 +1,47 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": [
+		"config:best-practices",
+		":dependencyDashboard",
+		":semanticCommits",
+		"group:monorepos",
+		"schedule:weekly"
+	],
+	"rangeStrategy": "bump",
+	"labels": ["dependencies"],
+	"platformAutomerge": true,
+	"packageRules": [
+		{
+			"description": "Auto-merge devDependencies (catalog + per-package). Tests still gate via CI; if they pass, no human touches the PR.",
+			"matchDepTypes": ["devDependencies"],
+			"matchUpdateTypes": ["patch", "minor", "pin", "digest"],
+			"automerge": true
+		},
+		{
+			"description": "Auto-merge any updates landing in the pnpm `catalogs.dev` block.",
+			"matchFileNames": ["pnpm-workspace.yaml"],
+			"matchUpdateTypes": ["patch", "minor", "pin", "digest"],
+			"automerge": true
+		},
+		{
+			"description": "Group all eslint-related deps so they bump together.",
+			"matchPackageNames": ["/^eslint/", "/^@eslint//", "/^@eslint-deputy//"],
+			"groupName": "eslint stack"
+		},
+		{
+			"description": "Group Vite+ + oxc tooling together — they coevolve.",
+			"matchPackageNames": ["vite-plus", "oxlint", "/^@oxc-/", "/^oxc-/"],
+			"groupName": "vite+/oxc stack"
+		},
+		{
+			"description": "Group Tailwind + DaisyUI together.",
+			"matchPackageNames": ["/^tailwindcss/", "/^@tailwindcss//", "daisyui"],
+			"groupName": "tailwind + daisyui"
+		},
+		{
+			"description": "Major bumps always gate on a human, even for devDeps.",
+			"matchUpdateTypes": ["major"],
+			"automerge": false
+		}
+	]
+}
