@@ -1,25 +1,24 @@
 {
-  "name": "@petalnet/utils",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Pure-function utilities shared across PetalNet apps. Things that aren't worth a full package but ARE worth not-copy-pasting.",
-  "license": "UNLICENSED",
-  "files": [
-    "dist/",
-    "src/"
-  ],
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -b"
-  },
-  "devDependencies": {
-    "typescript": "catalog:dev"
-  }
+	"name": "@petalnet/utils",
+	"version": "0.0.0",
+	"private": true,
+	"files": [
+		"dist/",
+		"src/"
+	],
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"typecheck": "tsc -b"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"typescript": "catalog:dev"
+	}
 }

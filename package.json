@@ -1,51 +1,49 @@
 {
-  "name": "@petalnet/workspace",
-  "version": "0.0.0",
-  "private": true,
-  "description": "PetalNet monorepo root. See task-178 + docs/PLAN.md.",
-  "license": "UNLICENSED",
-  "type": "module",
-  "scripts": {
-    "build": "vp run -r build",
-    "check": "vp run --cache -r --concurrency-limit 4 typecheck && pnpm lint && pnpm fmt:check",
-    "dev": "vp run -r dev --parallel",
-    "fmt": "vp fmt",
-    "fmt:check": "vp fmt --check",
-    "lint": "oxlint && eslint . --max-warnings=0",
-    "lint:eslint": "eslint .",
-    "lint:knip": "knip",
-    "manypkg": "manypkg check",
-    "test": "vp test -r",
-    "ts-references:check": "update-ts-references --check",
-    "ts-references:update": "update-ts-references",
-    "typecheck": "tsc -b",
-    "typesync:check": "typesync --dry=fail"
-  },
-  "devDependencies": {
-    "@eslint/json": "catalog:dev",
-    "@eslint/markdown": "catalog:dev",
-    "@manypkg/cli": "catalog:dev",
-    "@types/node": "catalog:types",
-    "eslint": "catalog:dev",
-    "eslint-plugin-oxlint": "catalog:dev",
-    "eslint-plugin-package-json": "catalog:dev",
-    "knip": "catalog:dev",
-    "oxlint": "catalog:dev",
-    "typescript": "catalog:dev",
-    "typescript-eslint": "catalog:dev",
-    "typesync": "catalog:dev",
-    "update-ts-references": "catalog:dev",
-    "vite-plus": "catalog:dev"
-  },
-  "devEngines": {
-    "runtime": {
-      "name": "node",
-      "onFail": "error",
-      "version": "^26.0.0"
-    }
-  },
-  "engines": {
-    "node": "^26.0.0"
-  },
-  "packageManager": "pnpm@11.5.0"
+	"name": "@petalnet/workspace",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "vp run -r build",
+		"check": "vp run --cache -r --concurrency-limit 4 typecheck && pnpm lint && pnpm fmt:check",
+		"dev": "vp run -r dev --parallel",
+		"fmt": "vp fmt",
+		"fmt:check": "vp fmt --check",
+		"lint": "oxlint && eslint . --max-warnings=0",
+		"lint:eslint": "eslint .",
+		"lint:knip": "knip",
+		"manypkg": "manypkg check",
+		"test": "vp test -r",
+		"ts-references:check": "update-ts-references --check",
+		"ts-references:update": "update-ts-references",
+		"typecheck": "tsc -b",
+		"typesync:check": "typesync --dry=fail"
+	},
+	"devDependencies": {
+		"@eslint/json": "catalog:dev",
+		"@eslint/markdown": "catalog:dev",
+		"@manypkg/cli": "catalog:dev",
+		"@types/node": "catalog:types",
+		"eslint": "catalog:dev",
+		"eslint-plugin-oxlint": "catalog:dev",
+		"eslint-plugin-package-json": "catalog:dev",
+		"knip": "catalog:dev",
+		"oxlint": "catalog:dev",
+		"typescript": "catalog:dev",
+		"typescript-eslint": "catalog:dev",
+		"typesync": "catalog:dev",
+		"update-ts-references": "catalog:dev",
+		"vite-plus": "catalog:dev"
+	},
+	"devEngines": {
+		"runtime": {
+			"name": "node",
+			"onFail": "error",
+			"version": "^26.0.0"
+		}
+	},
+	"engines": {
+		"node": "^26.0.0"
+	},
+	"packageManager": "pnpm@11.5.0"
 }
