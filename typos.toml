@@ -4,6 +4,9 @@ extend-exclude = [
 	"**/dist/**",
 	"**/build/**",
 	"**/.svelte-kit/**",
+	# University names/domains read as typos (DeVry, oru.edu, etc.).
+	"apps/collegemap/src/lib/college*.ts",
+	"apps/collegemap/src/lib/colleges.json",
 ]
 
 [default.extend-words]

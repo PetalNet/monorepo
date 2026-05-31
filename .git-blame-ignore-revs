@@ -2,3 +2,5 @@
 # Enable: git config blame.ignoreRevsFile .git-blame-ignore-revs
 # style: reformat under new oxfmt
 09baa56328ec112e9148c5f693c6a5ab568e8f8e
+# style(collegemap): reformat under monorepo oxfmt
+3f65373cf4b77423af7fccf8bea1b1297e4c4a90
