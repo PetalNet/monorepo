@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 /* Light mode (default) */
 :root {
@@ -35,9 +35,12 @@
 	--popup-student-color: #475569;
 }
 
-
 * {
-	font-family: 'Inter', system-ui, -apple-system, sans-serif;
+	font-family:
+		"Inter",
+		system-ui,
+		-apple-system,
+		sans-serif;
 }
 
 body {
@@ -48,13 +51,25 @@ body {
 
 /* Animations */
 @keyframes fade-in {
-	from { opacity: 0; transform: translateY(12px); }
-	to { opacity: 1; transform: translateY(0); }
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 @keyframes slide-up {
-	from { opacity: 0; transform: translateY(12px); }
-	to { opacity: 1; transform: translateY(0); }
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 /* Leaflet Popup Styles */
@@ -69,7 +84,7 @@ body {
 .leaflet-popup-content {
 	margin: 10px 14px !important;
 	line-height: 1.5 !important;
-	font-family: 'Inter', sans-serif !important;
+	font-family: "Inter", sans-serif !important;
 	font-size: 13px !important;
 }
 
@@ -86,7 +101,6 @@ body {
 .leaflet-popup-close-button:hover {
 	color: var(--text-primary) !important;
 }
-
 
 /* Popup metadata */
 .popup-meta {

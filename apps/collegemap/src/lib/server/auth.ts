@@ -1,20 +1,21 @@
-import { eq, and } from 'drizzle-orm';
-import { db } from './db';
-import { users } from './db/schema';
-import type { User } from './db/schema';
-import type { Cookies } from '@sveltejs/kit';
+import type { Cookies } from "@sveltejs/kit";
+import { eq, and } from "drizzle-orm";
 
-const SESSION_COOKIE = 'session';
-const SESSION_SECRET = 'college-map-secret-key-change-in-production';
+import { db } from "./db";
+import { users } from "./db/schema";
+import type { User } from "./db/schema";
+
+const SESSION_COOKIE = "session";
+const SESSION_SECRET = "college-map-secret-key-change-in-production";
 
 // Simple hash using Web Crypto API
 async function sha256(message: string): Promise<string> {
 	const encoder = new TextEncoder();
 	const data = encoder.encode(message);
-	const hash = await crypto.subtle.digest('SHA-256', data);
+	const hash = await crypto.subtle.digest("SHA-256", data);
 	return Array.from(new Uint8Array(hash))
-		.map((b) => b.toString(16).padStart(2, '0'))
-		.join('');
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -24,8 +25,11 @@ export async function hashPassword(password: string): Promise<string> {
 	return `${salt}:${hash}`;
 }
 
-export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
-	const [salt, hash] = storedHash.split(':');
+export async function verifyPassword(
+	password: string,
+	storedHash: string,
+): Promise<boolean> {
+	const [salt, hash] = storedHash.split(":");
 	if (!salt || !hash) return false;
 	const computedHash = await sha256(salt + password);
 	return computedHash === hash;
@@ -41,7 +45,7 @@ async function createSessionToken(userId: string): Promise<string> {
 async function verifySessionToken(token: string): Promise<string | null> {
 	try {
 		const payload = atob(token);
-		const [userId, signature] = payload.split(':');
+		const [userId, signature] = payload.split(":");
 		if (!userId || !signature) return null;
 
 		const expectedSignature = await sha256(userId + SESSION_SECRET);
@@ -53,14 +57,17 @@ async function verifySessionToken(token: string): Promise<string | null> {
 	}
 }
 
-export async function createSession(cookies: Cookies, userId: string): Promise<void> {
+export async function createSession(
+	cookies: Cookies,
+	userId: string,
+): Promise<void> {
 	const token = await createSessionToken(userId);
 	cookies.set(SESSION_COOKIE, token, {
-		path: '/',
+		path: "/",
 		httpOnly: true,
 		secure: false, // Set to true in production with HTTPS
-		sameSite: 'lax',
-		maxAge: 60 * 60 * 24 * 30 // 30 days
+		sameSite: "lax",
+		maxAge: 60 * 60 * 24 * 30, // 30 days
 	});
 }
 
@@ -76,12 +83,12 @@ export async function getSession(cookies: Cookies): Promise<User | null> {
 }
 
 export function clearSession(cookies: Cookies): void {
-	cookies.delete(SESSION_COOKIE, { path: '/' });
+	cookies.delete(SESSION_COOKIE, { path: "/" });
 }
 
 export async function findUserByName(
 	firstName: string,
-	lastName: string
+	lastName: string,
 ): Promise<User | null> {
 	const user = await db
 		.select()
@@ -94,7 +101,7 @@ export async function findUserByName(
 export async function createUser(
 	firstName: string,
 	lastName: string,
-	password: string
+	password: string,
 ): Promise<User> {
 	const passwordHash = await hashPassword(password);
 	const [user] = await db

@@ -1,7 +1,8 @@
-import type { PageServerLoad } from './$types';
-import { db } from '$lib/server/db';
-import { users, colleges, settings } from '$lib/server/db/schema';
-import { eq, isNotNull } from 'drizzle-orm';
+import { db } from "$lib/server/db";
+import { users, colleges, settings } from "$lib/server/db/schema";
+import { eq, isNotNull } from "drizzle-orm";
+
+import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
 	// Get all users with their colleges
@@ -15,8 +16,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 				id: colleges.id,
 				name: colleges.name,
 				latitude: colleges.latitude,
-				longitude: colleges.longitude
-			}
+				longitude: colleges.longitude,
+			},
 		})
 		.from(users)
 		.innerJoin(colleges, eq(users.collegeId, colleges.id))
@@ -24,7 +25,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const usersWithColleges = rawUsers.map((u) => ({
 		...u,
-		createdAt: u.createdAt.toISOString()
+		createdAt: u.createdAt.toISOString(),
 	}));
 
 	// Build college rankings (sorted by student count descending)
@@ -37,16 +38,21 @@ export const load: PageServerLoad = async ({ locals }) => {
 			collegeCountMap.set(u.college.id, { name: u.college.name, count: 1 });
 		}
 	}
-	const collegeRankings = Array.from(collegeCountMap.values())
-		.sort((a, b) => b.count - a.count);
+	const collegeRankings = Array.from(collegeCountMap.values()).sort(
+		(a, b) => b.count - a.count,
+	);
 
 	// Get settings (or use defaults)
-	let appSettings = await db.select().from(settings).where(eq(settings.id, 1)).get();
+	let appSettings = await db
+		.select()
+		.from(settings)
+		.where(eq(settings.id, 1))
+		.get();
 
 	if (!appSettings) {
 		[appSettings] = await db
 			.insert(settings)
-			.values({ id: 1, authMode: 'open', mapName: 'College Map' })
+			.values({ id: 1, authMode: "open", mapName: "College Map" })
 			.returning();
 	}
 
@@ -59,8 +65,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 					id: locals.user.id,
 					firstName: locals.user.firstName,
 					lastName: locals.user.lastName,
-					hasCollege: !!locals.user.collegeId
+					hasCollege: !!locals.user.collegeId,
 				}
-			: null
+			: null,
 	};
 };

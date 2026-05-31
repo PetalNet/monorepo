@@ -1,8 +1,9 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
+import { json } from "@sveltejs/kit";
+
+import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ url }) => {
-	const query = url.searchParams.get('q');
+	const query = url.searchParams.get("q");
 
 	if (!query) {
 		return json({ error: 'Query parameter "q" is required' }, { status: 400 });
@@ -14,13 +15,13 @@ export const GET: RequestHandler = async ({ url }) => {
 			`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=us`,
 			{
 				headers: {
-					'User-Agent': 'CollegeMapApp/1.0'
-				}
-			}
+					"User-Agent": "CollegeMapApp/1.0",
+				},
+			},
 		);
 
 		if (!response.ok) {
-			return json({ error: 'Geocoding service unavailable' }, { status: 502 });
+			return json({ error: "Geocoding service unavailable" }, { status: 502 });
 		}
 
 		const results = await response.json();
@@ -29,12 +30,12 @@ export const GET: RequestHandler = async ({ url }) => {
 			(r: { display_name: string; lat: string; lon: string }) => ({
 				name: r.display_name,
 				lat: parseFloat(r.lat),
-				lng: parseFloat(r.lon)
-			})
+				lng: parseFloat(r.lon),
+			}),
 		);
 
 		return json(formatted);
 	} catch {
-		return json({ error: 'Geocoding failed' }, { status: 500 });
+		return json({ error: "Geocoding failed" }, { status: 500 });
 	}
 };

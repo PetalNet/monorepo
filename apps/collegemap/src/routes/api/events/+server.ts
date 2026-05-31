@@ -1,5 +1,6 @@
-import { subscribe, unsubscribe } from '$lib/server/events';
-import type { RequestHandler } from './$types';
+import { subscribe, unsubscribe } from "$lib/server/events";
+
+import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = () => {
 	let controller: ReadableStreamDefaultController;
@@ -11,14 +12,14 @@ export const GET: RequestHandler = () => {
 		},
 		cancel() {
 			unsubscribe(controller);
-		}
+		},
 	});
 
 	return new Response(stream, {
 		headers: {
-			'Content-Type': 'text/event-stream',
-			'Cache-Control': 'no-cache',
-			Connection: 'keep-alive'
-		}
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-cache",
+			Connection: "keep-alive",
+		},
 	});
 };

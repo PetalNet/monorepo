@@ -1,15 +1,19 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { db } from '$lib/server/db';
-import { collegeMetadata } from '$lib/server/db/schema';
-import { eq } from 'drizzle-orm';
+import { db } from "$lib/server/db";
+import { collegeMetadata } from "$lib/server/db/schema";
+import { json } from "@sveltejs/kit";
+import { eq } from "drizzle-orm";
+
+import type { RequestHandler } from "./$types";
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export const GET: RequestHandler = async ({ url }) => {
-	const name = url.searchParams.get('name');
+	const name = url.searchParams.get("name");
 	if (!name) {
-		return json({ collegeName: '', description: null, thumbnailUrl: null }, { status: 400 });
+		return json(
+			{ collegeName: "", description: null, thumbnailUrl: null },
+			{ status: 400 },
+		);
 	}
 
 	// Check cache
@@ -23,12 +27,12 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({
 			collegeName: cached.collegeName,
 			description: cached.description,
-			thumbnailUrl: cached.thumbnailUrl
+			thumbnailUrl: cached.thumbnailUrl,
 		});
 	}
 
 	// Fetch from Wikipedia
-	const wikiTitle = name.replace(/ /g, '_');
+	const wikiTitle = name.replace(/ /g, "_");
 	let description: string | null = null;
 	let thumbnailUrl: string | null = null;
 
@@ -36,8 +40,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		const resp = await fetch(
 			`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTitle)}`,
 			{
-				headers: { 'User-Agent': 'CollegeMap/1.0 (college-map-app)' }
-			}
+				headers: { "User-Agent": "CollegeMap/1.0 (college-map-app)" },
+			},
 		);
 
 		if (resp.ok) {
