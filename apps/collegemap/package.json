@@ -1,21 +1,19 @@
 {
-	"name": "map",
+	"name": "@petalnet/collegemap",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
 		"build": "vite build",
-		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"lint": "prettier --check .",
-		"format": "prettier --write .",
-		"db:push": "drizzle-kit push",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
-		"db:studio": "drizzle-kit studio"
+		"db:push": "drizzle-kit push",
+		"db:studio": "drizzle-kit studio",
+		"dev": "vite dev",
+		"prepare": "svelte-kit sync || echo ''",
+		"preview": "vite preview"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.5.2",
@@ -25,9 +23,6 @@
 		"@types/leaflet.heat": "^0.2.5",
 		"@types/leaflet.markercluster": "^1.5.6",
 		"@types/node": "^24",
-		"prettier": "^3.8.1",
-		"prettier-plugin-svelte": "^3.4.1",
-		"prettier-plugin-tailwindcss": "^0.7.2",
 		"svelte": "^5.48.2",
 		"svelte-check": "^4.3.5",
 		"tailwindcss": "^4.1.18",

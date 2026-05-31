@@ -44,7 +44,7 @@
 		onMapReady?: (map: LeafletMap) => void;
 	} = $props();
 
-	let mapContainer: HTMLDivElement;
+	let mapContainer = $state<HTMLDivElement>();
 	let map: LeafletMap;
 	let markersByCollege = new Map<string, Marker>();
 	let tileLayer: TileLayer;
@@ -54,10 +54,10 @@
 	let collegeGroups: CollegeGroup[] = [];
 	const collegeInfoCache = new Map<string, { description: string | null; thumbnailUrl: string | null }>();
 
-	function groupUsersByCollege(users: UserWithCollege[]): CollegeGroup[] {
+	function groupUsersByCollege(sourceUsers: UserWithCollege[]): CollegeGroup[] {
 		const groups = new Map<string, CollegeGroup>();
 
-		for (const user of users) {
+		for (const user of sourceUsers) {
 			const existing = groups.get(user.college.id);
 			if (existing) {
 				existing.users.push({ firstName: user.firstName, lastName: user.lastName });
@@ -102,6 +102,8 @@
 			await import('leaflet.heat');
 
 			if (isDestroyed) return;
+
+			if (!mapContainer) return;
 
 			map = L.map(mapContainer, {
 				zoomControl: true

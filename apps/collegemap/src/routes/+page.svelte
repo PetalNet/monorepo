@@ -37,7 +37,7 @@
 				countMap.set(u.college.id, { name: u.college.name, count: 1 });
 			}
 		}
-		return Array.from(countMap.values()).sort((a, b) => b.count - a.count);
+		return Array.from(countMap.values()).toSorted((a, b) => b.count - a.count);
 	});
 
 	// Timeline state
@@ -70,7 +70,7 @@
 	// Search dropdown state
 	let searchFocused = $state(false);
 	let highlightedIndex = $state(-1);
-	let searchInputEl: HTMLInputElement;
+	let searchInputEl = $state<HTMLInputElement>();
 
 	let searchResults = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
@@ -134,13 +134,9 @@
 				const user = JSON.parse(e.data) as UserWithCollege;
 				// Replace if user already exists (college change), else append
 				const idx = liveUsers.findIndex((u) => u.id === user.id);
-				if (idx >= 0) {
-					liveUsers[idx] = user;
-				} else {
-					liveUsers.push(user);
-				}
-				// Trigger reactivity
-				liveUsers = liveUsers;
+				liveUsers = idx >= 0
+					? liveUsers.map((u, i) => i === idx ? user : u)
+					: [...liveUsers, user];
 			} catch {
 				// ignore parse errors
 			}

@@ -18,7 +18,7 @@ async function sha256(message: string): Promise<string> {
 		.join("");
 }
 
-export async function hashPassword(password: string): Promise<string> {
+async function hashPassword(password: string): Promise<string> {
 	// Add salt for better security
 	const salt = crypto.randomUUID();
 	const hash = await sha256(salt + password);

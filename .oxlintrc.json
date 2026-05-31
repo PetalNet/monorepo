@@ -8,6 +8,9 @@
 		"style": "off",
 		"pedantic": "off"
 	},
+	"rules": {
+		"import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }]
+	},
 	"ignorePatterns": [
 		"**/dist/**",
 		"**/build/**",

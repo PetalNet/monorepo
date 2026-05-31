@@ -38,7 +38,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			collegeCountMap.set(u.college.id, { name: u.college.name, count: 1 });
 		}
 	}
-	const collegeRankings = Array.from(collegeCountMap.values()).sort(
+	const collegeRankings = Array.from(collegeCountMap.values()).toSorted(
 		(a, b) => b.count - a.count,
 	);
 

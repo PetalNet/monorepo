@@ -27,7 +27,7 @@
 	let animFrame = 0;
 
 	let sortedUsers = $derived(
-		[...users].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+		users.toSorted((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 	);
 
 	let minTime = $derived(
