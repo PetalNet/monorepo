@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "vp run -r build",
-		"check": "vp run --cache -r --concurrency-limit 4 typecheck && pnpm lint && pnpm fmt:check",
+		"check": "vp run --cache -r --concurrency-limit 4 typecheck && vp run lint && vp run fmt:check",
 		"dev": "vp run -r dev --parallel",
 		"fmt": "vp fmt",
 		"fmt:check": "vp fmt --check",

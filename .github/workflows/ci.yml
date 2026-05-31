@@ -28,10 +28,10 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: true
-      - run: pnpm check
-      - run: pnpm manypkg
-      - run: pnpm typesync:check
-      - run: pnpm lint:knip
+      - run: vp run check
+      - run: vp run manypkg
+      - run: vp run typesync:check
+      - run: vp run lint:knip
 
   build:
     runs-on: ubuntu-latest
@@ -48,7 +48,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: true
-      - run: pnpm build
+      - run: vp run build
 
   typos:
     runs-on: ubuntu-latest
