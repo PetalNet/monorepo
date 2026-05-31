@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM node:22-alpine AS build
+FROM node:22-alpine@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920 AS build
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
@@ -12,7 +12,7 @@ COPY . .
 RUN DATABASE_URL=file:placeholder.db pnpm build
 
 # Stage 2: Runtime
-FROM node:22-alpine
+FROM node:22-alpine@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
