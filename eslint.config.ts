@@ -59,6 +59,11 @@ export default defineConfig([
 		},
 	},
 	pluginPackageJson.configs.recommended,
+	{
+		// Why: these are private internal packages — no description/license required.
+		files: ["**/package.json"],
+		rules: { "package-json/require-description": "off" },
+	},
 	// Why last: eslint-plugin-oxlint disables rules already covered by oxlint
 	// so the two linters don't double-report.
 	...pluginOxlint.buildFromOxlintConfigFile("./.oxlintrc.json"),
