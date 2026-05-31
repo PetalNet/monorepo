@@ -19,5 +19,4 @@ export const truncate = (s: string, max: number): string =>
 	s.length <= max ? s : s.slice(0, Math.max(0, max - 1)) + "…";
 
 /** Async sleep — usable inside `await`. */
-export const sleep = (ms: number): Promise<void> =>
-	new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

@@ -43,11 +43,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	);
 
 	// Get settings (or use defaults)
-	let appSettings = await db
-		.select()
-		.from(settings)
-		.where(eq(settings.id, 1))
-		.get();
+	let appSettings = await db.select().from(settings).where(eq(settings.id, 1)).get();
 
 	if (!appSettings) {
 		[appSettings] = await db
