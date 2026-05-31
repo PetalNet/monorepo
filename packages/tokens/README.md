@@ -40,9 +40,9 @@ export default { presets: [preset], content: [...] };
 @import "@petalnet/tokens/css";
 @import "tailwindcss";
 @plugin "daisyui" {
-  themes:
-    light --default,
-    dark --prefersdark;
+	themes:
+		light --default,
+		dark --prefersdark;
 }
 ```
 

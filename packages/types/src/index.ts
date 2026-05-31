@@ -3,9 +3,9 @@
 
 /** A non-null JSON-serializable value. Replace/extend as shared types land. */
 export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | Json[]
-  | { [key: string]: Json };
+	| string
+	| number
+	| boolean
+	| null
+	| Json[]
+	| { [key: string]: Json };

@@ -1,9 +1,9 @@
 [files]
 extend-exclude = [
-  "pnpm-lock.yaml",
-  "**/dist/**",
-  "**/build/**",
-  "**/.svelte-kit/**",
+	"pnpm-lock.yaml",
+	"**/dist/**",
+	"**/build/**",
+	"**/.svelte-kit/**",
 ]
 
 [default.extend-words]

@@ -1,18 +1,18 @@
 {
-  "$description": "Dark theme semantic tokens. Same key shape as light/*.",
-  "semantic": {
-    "color": {
-      "$type": "color",
-      "bg": { "$value": "{color.gray.950}" },
-      "surface": { "$value": "{color.gray.900}" },
-      "surface-2": { "$value": "{color.gray.800}" },
-      "fg": { "$value": "{color.gray.100}" },
-      "fg-dim": { "$value": "{color.gray.400}" },
-      "border": { "$value": "{color.gray.800}" },
-      "accent": { "$value": "{color.blue.500}" },
-      "ok": { "$value": "{color.green.500}" },
-      "warn": { "$value": "{color.amber.500}" },
-      "err": { "$value": "{color.red.500}" }
-    }
-  }
+	"$description": "Dark theme semantic tokens. Same key shape as light/*.",
+	"semantic": {
+		"color": {
+			"$type": "color",
+			"bg": { "$value": "{color.gray.950}" },
+			"surface": { "$value": "{color.gray.900}" },
+			"surface-2": { "$value": "{color.gray.800}" },
+			"fg": { "$value": "{color.gray.100}" },
+			"fg-dim": { "$value": "{color.gray.400}" },
+			"border": { "$value": "{color.gray.800}" },
+			"accent": { "$value": "{color.blue.500}" },
+			"ok": { "$value": "{color.green.500}" },
+			"warn": { "$value": "{color.amber.500}" },
+			"err": { "$value": "{color.red.500}" }
+		}
+	}
 }

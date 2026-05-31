@@ -1,9 +1,9 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./packages/tokens" },
-    { "path": "./packages/ui" },
-    { "path": "./packages/utils" },
-    { "path": "./packages/types" }
-  ]
+	"files": [],
+	"references": [
+		{ "path": "./packages/tokens" },
+		{ "path": "./packages/ui" },
+		{ "path": "./packages/utils" },
+		{ "path": "./packages/types" }
+	]
 }

@@ -11,7 +11,7 @@
     "dev": "vp run -r dev --parallel",
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
-    "lint": "oxlint && eslint .",
+    "lint": "oxlint && eslint . --max-warnings=0",
     "lint:eslint": "eslint .",
     "lint:knip": "knip",
     "manypkg": "manypkg check",
