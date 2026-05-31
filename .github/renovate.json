@@ -5,24 +5,22 @@
 		":dependencyDashboard",
 		":semanticCommits",
 		"group:monorepos",
-		"schedule:weekly"
+		"schedule:weekly",
+		":preserveSemverRanges",
+		":automergeDigest",
+		":automergeLinters",
+		":automerge",
+		":disableRateLimiting",
+		":pinAllExceptPeerDependencies",
+		":pinGitHubActionDigestsToSemver",
+		"preview:dockerCompose",
+		"preview:dockerVersions"
 	],
-	"rangeStrategy": "bump",
+	"postUpdateOptions": ["pnpmDedupe"],
+	"minimumReleaseAge": "7 days",
 	"labels": ["dependencies"],
 	"platformAutomerge": true,
 	"packageRules": [
-		{
-			"description": "Auto-merge devDependencies (catalog + per-package). Tests still gate via CI; if they pass, no human touches the PR.",
-			"matchDepTypes": ["devDependencies"],
-			"matchUpdateTypes": ["patch", "minor", "pin", "digest"],
-			"automerge": true
-		},
-		{
-			"description": "Auto-merge any updates landing in the pnpm `catalogs.dev` block.",
-			"matchFileNames": ["pnpm-workspace.yaml"],
-			"matchUpdateTypes": ["patch", "minor", "pin", "digest"],
-			"automerge": true
-		},
 		{
 			"description": "Group all eslint-related deps so they bump together.",
 			"matchPackageNames": ["/^eslint/", "/^@eslint//", "/^@eslint-deputy//"],
@@ -39,7 +37,7 @@
 			"groupName": "tailwind + daisyui"
 		},
 		{
-			"description": "Major bumps always gate on a human, even for devDeps.",
+			"description": "Major bumps always gate on a human, even when automerge is on.",
 			"matchUpdateTypes": ["major"],
 			"automerge": false
 		}
