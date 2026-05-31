@@ -1,7 +1,7 @@
 {
 	"compilerOptions": {
 		"target": "ESNext",
-		"moduleResolution": "Bundler",
+		"module": "NodeNext",
 		"allowArbitraryExtensions": true,
 		"allowImportingTsExtensions": true,
 		"rewriteRelativeImportExtensions": true,
@@ -18,8 +18,6 @@
 		"noFallthroughCasesInSwitch": true,
 		"noPropertyAccessFromIndexSignature": true,
 		"verbatimModuleSyntax": true,
-		"isolatedModules": true,
-		"moduleDetection": "force",
-		"skipLibCheck": true
+		"moduleDetection": "force"
 	}
 }
