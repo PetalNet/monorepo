@@ -1,7 +1,7 @@
 import json from "@eslint/json";
 import markdown from "@eslint/markdown";
 import pluginOxlint from "eslint-plugin-oxlint";
-import pluginPackageJson from "eslint-plugin-package-json";
+import { configs as packageJsonConfigs } from "eslint-plugin-package-json";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 
@@ -58,7 +58,7 @@ export default defineConfig([
 			"json/no-duplicate-keys": "error",
 		},
 	},
-	pluginPackageJson.configs.recommended,
+	packageJsonConfigs.recommended,
 	{
 		// Why: these are private internal packages — no description/license required.
 		files: ["**/package.json"],

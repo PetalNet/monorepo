@@ -6,4 +6,6 @@
 // Once `pnpm --filter @petalnet/tokens build` has run, dist/index.{js,d.ts}
 // override this for both runtime and types via package.json exports.
 
+// Intentional empty stub; generated dist/index.js supersedes this via exports.
+// oxlint-disable-next-line unicorn/require-module-specifiers
 export {};
