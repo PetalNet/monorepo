@@ -1,45 +1,33 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
 	"extends": [
+		"config:best-practices",
+		"preview:dockerCompose",
+		"preview:dockerVersions",
 		":automergeDigest",
 		":automergeLinters",
 		":automergePatch",
-		":dependencyDashboard",
 		":disableRateLimiting",
 		":pinAllExceptPeerDependencies",
 		":pinGitHubActionDigestsToSemver",
 		":preserveSemverRanges",
-		":semanticCommits",
-		"config:best-practices",
-		"group:monorepos",
-		"preview:dockerCompose",
-		"preview:dockerVersions",
-		"schedule:weekly"
+		":semanticCommits"
 	],
 	"postUpdateOptions": ["pnpmDedupe"],
 	"minimumReleaseAge": "7 days",
 	"labels": ["dependencies"],
-	"platformAutomerge": true,
 	"packageRules": [
 		{
-			"description": "Group all eslint-related deps so they bump together.",
-			"matchPackageNames": ["/^eslint/", "/^@eslint//", "/^@eslint-deputy//"],
-			"groupName": "eslint stack"
+			"matchPackageNames": ["/eslint/"],
+			"groupName": "eslint"
 		},
 		{
-			"description": "Group Vite+ + oxc tooling together — they coevolve.",
-			"matchPackageNames": ["vite-plus", "oxlint", "/^@oxc-/", "/^oxc-/"],
-			"groupName": "vite+/oxc stack"
+			"matchPackageNames": ["/^vite-plus/", "oxlint", "/^@oxc-/", "/^oxc-/"],
+			"groupName": "voidzero"
 		},
 		{
-			"description": "Group Tailwind + DaisyUI together.",
 			"matchPackageNames": ["/^tailwindcss/", "/^@tailwindcss//", "daisyui"],
-			"groupName": "tailwind + daisyui"
-		},
-		{
-			"description": "Major bumps always gate on a human, even when automerge is on.",
-			"matchUpdateTypes": ["major"],
-			"automerge": false
+			"groupName": "tailwind"
 		}
 	]
 }
