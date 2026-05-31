@@ -1,20 +1,20 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
 	"extends": [
-		"config:best-practices",
-		":dependencyDashboard",
-		":semanticCommits",
-		"group:monorepos",
-		"schedule:weekly",
-		":preserveSemverRanges",
 		":automergeDigest",
 		":automergeLinters",
-		":automerge",
+		":automergePatch",
+		":dependencyDashboard",
 		":disableRateLimiting",
 		":pinAllExceptPeerDependencies",
 		":pinGitHubActionDigestsToSemver",
+		":preserveSemverRanges",
+		":semanticCommits",
+		"config:best-practices",
+		"group:monorepos",
 		"preview:dockerCompose",
-		"preview:dockerVersions"
+		"preview:dockerVersions",
+		"schedule:weekly"
 	],
 	"postUpdateOptions": ["pnpmDedupe"],
 	"minimumReleaseAge": "7 days",
