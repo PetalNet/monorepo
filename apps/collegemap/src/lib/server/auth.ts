@@ -25,10 +25,7 @@ async function hashPassword(password: string): Promise<string> {
 	return `${salt}:${hash}`;
 }
 
-export async function verifyPassword(
-	password: string,
-	storedHash: string,
-): Promise<boolean> {
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
 	const [salt, hash] = storedHash.split(":");
 	if (!salt || !hash) return false;
 	const computedHash = await sha256(salt + password);
@@ -57,10 +54,7 @@ async function verifySessionToken(token: string): Promise<string | null> {
 	}
 }
 
-export async function createSession(
-	cookies: Cookies,
-	userId: string,
-): Promise<void> {
+export async function createSession(cookies: Cookies, userId: string): Promise<void> {
 	const token = await createSessionToken(userId);
 	cookies.set(SESSION_COOKIE, token, {
 		path: "/",
@@ -86,10 +80,7 @@ export function clearSession(cookies: Cookies): void {
 	cookies.delete(SESSION_COOKIE, { path: "/" });
 }
 
-export async function findUserByName(
-	firstName: string,
-	lastName: string,
-): Promise<User | null> {
+export async function findUserByName(firstName: string, lastName: string): Promise<User | null> {
 	const user = await db
 		.select()
 		.from(users)
@@ -104,9 +95,6 @@ export async function createUser(
 	password: string,
 ): Promise<User> {
 	const passwordHash = await hashPassword(password);
-	const [user] = await db
-		.insert(users)
-		.values({ firstName, lastName, passwordHash })
-		.returning();
+	const [user] = await db.insert(users).values({ firstName, lastName, passwordHash }).returning();
 	return user;
 }

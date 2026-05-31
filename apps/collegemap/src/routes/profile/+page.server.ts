@@ -48,11 +48,7 @@ export const actions: Actions = {
 		}
 
 		// Check if college already exists
-		let college = await db
-			.select()
-			.from(colleges)
-			.where(eq(colleges.name, collegeName))
-			.get();
+		let college = await db.select().from(colleges).where(eq(colleges.name, collegeName)).get();
 
 		// Create college if it doesn't exist
 		if (!college) {
@@ -68,10 +64,7 @@ export const actions: Actions = {
 		}
 
 		// Update user's college
-		await db
-			.update(users)
-			.set({ collegeId: college.id })
-			.where(eq(users.id, locals.user.id));
+		await db.update(users).set({ collegeId: college.id }).where(eq(users.id, locals.user.id));
 
 		// Fetch user's createdAt for the SSE event
 		const updatedUser = await db
@@ -84,8 +77,7 @@ export const actions: Actions = {
 			id: locals.user.id,
 			firstName: locals.user.firstName,
 			lastName: locals.user.lastName,
-			createdAt:
-				updatedUser?.createdAt?.toISOString() ?? new Date().toISOString(),
+			createdAt: updatedUser?.createdAt?.toISOString() ?? new Date().toISOString(),
 			college: {
 				id: college.id,
 				name: college.name,

@@ -26,13 +26,11 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		const results = await response.json();
 
-		const formatted = results.map(
-			(r: { display_name: string; lat: string; lon: string }) => ({
-				name: r.display_name,
-				lat: parseFloat(r.lat),
-				lng: parseFloat(r.lon),
-			}),
-		);
+		const formatted = results.map((r: { display_name: string; lat: string; lon: string }) => ({
+			name: r.display_name,
+			lat: parseFloat(r.lat),
+			lng: parseFloat(r.lon),
+		}));
 
 		return json(formatted);
 	} catch {

@@ -10,10 +10,7 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export const GET: RequestHandler = async ({ url }) => {
 	const name = url.searchParams.get("name");
 	if (!name) {
-		return json(
-			{ collegeName: "", description: null, thumbnailUrl: null },
-			{ status: 400 },
-		);
+		return json({ collegeName: "", description: null, thumbnailUrl: null }, { status: 400 });
 	}
 
 	// Check cache
@@ -60,9 +57,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			.set({ description, thumbnailUrl, fetchedAt: new Date() })
 			.where(eq(collegeMetadata.collegeName, name));
 	} else {
-		await db
-			.insert(collegeMetadata)
-			.values({ collegeName: name, description, thumbnailUrl });
+		await db.insert(collegeMetadata).values({ collegeName: name, description, thumbnailUrl });
 	}
 
 	return json({ collegeName: name, description, thumbnailUrl });

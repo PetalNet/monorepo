@@ -1079,8 +1079,7 @@ const domains: Record<string, string> = {
 	"culver-stockton college": "culver.edu",
 	"stephens college": "stephens.edu",
 	"william woods university": "williamwoods.edu",
-	"central methodist university-college of liberal arts and sciences":
-		"centralmethodist.edu",
+	"central methodist university-college of liberal arts and sciences": "centralmethodist.edu",
 	"harris-stowe state university": "hssu.edu",
 	"lincoln university": "lincolnu.edu",
 	"cameron university": "cameron.edu",

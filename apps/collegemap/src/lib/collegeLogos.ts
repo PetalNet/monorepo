@@ -1,9 +1,6 @@
 import { collegeDomains } from "./collegeDomains";
 
-/**
- * Normalize a college name for lookup: lowercase, strip "the", normalize
- * separators
- */
+/** Normalize a college name for lookup: lowercase, strip "the", normalize separators */
 function normalize(name: string): string {
 	return name
 		.toLowerCase()
