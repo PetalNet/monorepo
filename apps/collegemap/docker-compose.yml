@@ -1,0 +1,12 @@
+services:
+  map:
+    build: .
+    ports:
+      - "4718:3000"
+    volumes:
+      - map-data:/data
+    environment:
+      - DATABASE_URL=file:/data/local.db
+
+volumes:
+  map-data:
