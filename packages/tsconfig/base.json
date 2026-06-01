@@ -7,7 +7,7 @@
 		"rewriteRelativeImportExtensions": true,
 		"resolveJsonModule": true,
 		"composite": true,
-		"tsBuildInfoFile": "${configDir}/node_modules/.cache/tsc.tsbuildinfo",
+		"tsBuildInfoFile": "${configDir}/node_modules/.cache/tsbuild/info.json",
 		"declaration": true,
 		"declarationMap": true,
 		"exactOptionalPropertyTypes": true,
