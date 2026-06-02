@@ -1,7 +1,8 @@
 {
 	"files": ["eslint.config.ts"],
 	"compilerOptions": {
-		"types": ["node"]
+		"types": ["node"],
+		"skipLibCheck": true
 	},
 	"references": [
 		{ "path": "./packages/tokens" },
