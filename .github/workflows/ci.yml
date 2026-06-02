@@ -25,6 +25,9 @@ jobs:
           persist-credentials: false
       - uses: voidzero-dev/setup-vp@329490fff19dd4ecd8ff2a74d7c45bee0448f3a6 # v1.11.0
         with:
+          # Keep in lockstep with the vite-plus catalog pin (renovate-managed).
+          # renovate: datasource=npm depName=vite-plus
+          version: "0.1.23"
           cache: true
           node-version-file: package.json
           run-install: true
@@ -46,6 +49,9 @@ jobs:
           persist-credentials: false
       - uses: voidzero-dev/setup-vp@329490fff19dd4ecd8ff2a74d7c45bee0448f3a6 # v1.11.0
         with:
+          # Keep in lockstep with the vite-plus catalog pin (renovate-managed).
+          # renovate: datasource=npm depName=vite-plus
+          version: "0.1.23"
           cache: true
           node-version-file: package.json
           run-install: true
