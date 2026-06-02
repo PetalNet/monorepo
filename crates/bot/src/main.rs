@@ -114,6 +114,8 @@ pub(crate) struct BotConfig {
     #[serde(default)]
     pub(crate) caption_media: Option<bool>,
     #[serde(default)]
+    pub(crate) backfill_limit: Option<usize>,
+    #[serde(default)]
     pub(crate) dev_mode: Option<bool>,
     #[serde(default)]
     pub(crate) dev_id: Option<String>,
@@ -128,6 +130,8 @@ pub(crate) struct RoomCluster {
     pub(crate) reupload_media: Option<bool>,
     #[serde(default)]
     pub(crate) caption_media: Option<bool>,
+    #[serde(default)]
+    pub(crate) backfill_limit: Option<usize>,
 }
 
 #[tokio::main]
@@ -258,6 +262,27 @@ async fn main() -> Result<()> {
     let mention_keys: Vec<String> = mention_set.into_iter().collect();
     let command_keys: Vec<String> = command_set.into_iter().collect();
     info!(mentions = ?mention_keys, commands = ?command_keys, "Registered plugin triggers");
+
+    for (plugin_id, entry) in registry.entries().await {
+        if entry
+            .spec
+            .dev_only
+            .unwrap_or_else(|| entry.plugin.dev_only())
+            && !dev_active
+        {
+            continue;
+        }
+        if !registry.is_enabled(&plugin_id).await {
+            continue;
+        }
+        if let Err(e) = entry
+            .plugin
+            .on_startup(&client, &entry.spec, Arc::clone(&history_dir), dev_active)
+            .await
+        {
+            warn!(error = %e, plugin = %plugin_id, "Plugin startup hook failed");
+        }
+    }
 
     // Auto-join handler for invites
     if !args.no_autojoin {

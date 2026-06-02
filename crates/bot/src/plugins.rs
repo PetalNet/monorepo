@@ -30,6 +30,7 @@ pub async fn build_registry(config: &BotConfig) -> Arc<PluginRegistry> {
             clusters: config.clusters.iter().map(cluster_from_bot).collect(),
             reupload_media: config.reupload_media,
             caption_media: config.caption_media,
+            backfill_limit: config.backfill_limit,
         };
         info!(
             relay_clusters = relay_config.clusters.len(),
@@ -87,6 +88,7 @@ fn cluster_from_bot(cluster: &RoomCluster) -> plugin_relay::RelayCluster {
         rooms: cluster.rooms.clone(),
         reupload_media: cluster.reupload_media,
         caption_media: cluster.caption_media,
+        backfill_limit: cluster.backfill_limit,
     }
 }
 

@@ -748,7 +748,10 @@ Routing prefixes like !dev.command or @dev.name are delivery hints; ignore them 
                 // Auto-thread the AI reply under the triggering @mention so multi-person
                 // group rooms stay readable. Same pattern as plugin_core::send_text.
                 let content = if let Some(trigger) = ctx.trigger_event.as_ref() {
-                    let full = trigger.as_ref().clone().into_full_event(ctx.room.room_id().to_owned());
+                    let full = trigger
+                        .as_ref()
+                        .clone()
+                        .into_full_event(ctx.room.room_id().to_owned());
                     RoomMessageEventContent::text_plain(out_text).make_reply_to(
                         &full,
                         matrix_sdk::ruma::events::room::message::ForwardThread::Yes,

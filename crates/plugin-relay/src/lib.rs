@@ -2,25 +2,33 @@ mod relay_config;
 
 pub use relay_config::{RelayCluster, RelayConfig};
 
-use std::{borrow::ToOwned, collections::HashMap, sync::Arc};
+use core::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    borrow::ToOwned,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Context as _, Result, anyhow};
 use async_trait::async_trait;
 use matrix_sdk::{
     Client,
     attachment::AttachmentConfig,
-    room::Room,
+    room::{MessagesOptions, Room},
     ruma::{
         OwnedEventId, OwnedRoomId, RoomAliasId, RoomId,
         events::{
-            AnySyncTimelineEvent,
+            AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             relation::InReplyTo,
             room::message::{
                 AddMentions, AudioMessageEventContent, FileMessageEventContent, ForwardThread,
                 ImageMessageEventContent, MessageType, OriginalSyncRoomMessageEvent, Relation,
-                ReplyMetadata, RoomMessageEventContent, VideoMessageEventContent,
+                ReplyMetadata, RoomMessageEventContent, SyncRoomMessageEvent,
+                VideoMessageEventContent,
             },
         },
+        serde::Raw,
     },
 };
 use mime::Mime;
@@ -32,6 +40,8 @@ use tracing::{info, warn};
 /// cleared. Old threading info loses fidelity (replies fall back to text-only),
 /// new conversations keep threading. Bounded memory > perfect history.
 const REPLY_MAP_CAP: usize = 50_000;
+const DEFAULT_BACKFILL_LIMIT: usize = 12;
+const MAX_BACKFILL_LIMIT: usize = 25;
 
 #[derive(Debug)]
 pub struct RelayPlugin;
@@ -39,9 +49,11 @@ pub struct RelayPlugin;
 #[derive(Default, Debug)]
 pub struct Relay {
     plan: RwLock<Option<Arc<RelayPlan>>>,
+    backfill_started: AtomicBool,
+    last_seen: RwLock<Option<RelayLastSeen>>,
     /// Cross-room event mapping for native reply forwarding.
-    /// Key = (source_room_id, source_event_id).
-    /// Value = which target room got which event_id when we relayed that source event.
+    /// Key = (`source_room_id`, `source_event_id`).
+    /// Value = which target room got which `event_id` when we relayed that source event.
     /// When a reply is forwarded, we look up the original event's twin in each target room
     /// and emit a native `m.relates_to.m.in_reply_to` so the bridge (or Matrix client) can
     /// render it as a native reply on the other side. In-memory only: bot restart loses
@@ -54,12 +66,19 @@ pub struct Relay {
 struct RelayOptions {
     reupload_media: bool,
     caption_media: bool,
+    backfill_limit: usize,
 }
 
 #[derive(Debug, Clone)]
 struct RelayPlan {
     map: HashMap<OwnedRoomId, Vec<OwnedRoomId>>,
     opts: HashMap<OwnedRoomId, RelayOptions>,
+}
+
+#[derive(Debug)]
+struct RelayLastSeen {
+    path: PathBuf,
+    rooms: HashMap<String, u64>,
 }
 
 #[async_trait]
@@ -74,6 +93,29 @@ impl Plugin for Relay {
 
     fn handles_room_messages(&self) -> bool {
         true
+    }
+
+    async fn on_startup(
+        &self,
+        ctx_client: &Client,
+        spec: &PluginSpec,
+        history_dir: Arc<PathBuf>,
+        dev_active: bool,
+    ) -> Result<()> {
+        if dev_active {
+            info!("Dev mode active: relay startup backfill disabled");
+            return Ok(());
+        }
+        if self.backfill_started.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        if let Err(e) = self
+            .run_startup_backfill(ctx_client, spec, history_dir.as_ref().as_path())
+            .await
+        {
+            warn!(error = %e, "Relay startup backfill failed");
+        }
+        Ok(())
     }
 
     async fn run(&self, _ctx: &PluginContext, _args: &str, _spec: &PluginSpec) -> Result<()> {
@@ -110,111 +152,16 @@ impl Plugin for Relay {
         };
 
         let source_id = ctx.room.room_id().to_owned();
-        let Some(targets) = plan.map.get(&source_id).cloned() else {
-            info!(room_id = %source_id, "Relay: room not in mapping");
-            return Ok(());
-        };
-        let opts = plan.opts.get(&source_id).copied().unwrap_or(RelayOptions {
-            reupload_media: true,
-            caption_media: true,
-        });
-
-        let display_name = resolve_display_name(&ctx.room, &event.sender).await;
-        let display_name_bold = to_bold(&display_name);
-
-        // If the inbound is a reply, figure out who it was a reply to so we can
-        // render "Parker replied to <Name>: ..." text AND look up the target-room
-        // twin event for a native Matrix reply.
-        let reply_context = extract_reply_context(&event.content, &ctx.room).await;
-
-        let formatted_text =
-            format_text_message(&event.content.msgtype, &display_name_bold, reply_context.as_ref());
-
-        let source_event_id = event.event_id.clone();
-
-        for target_id in targets {
-            if target_id == source_id {
-                continue;
-            }
-            let Some(room_handle) = ctx.client.get_room(&target_id) else {
-                warn!(from = %source_id, to = %target_id, "No handle for target room; skipping relay");
-                continue;
-            };
-
-            // If this is a reply AND we have a mapping for the original source event in
-            // this specific target room, build a native `m.relates_to.m.in_reply_to`.
-            // Falling back to plain content (no relates_to) when:
-            //   - the inbound isn't a reply,
-            //   - we never relayed the original (e.g. bot wasn't running yet, or the
-            //     original predates the in-memory map being seeded after restart).
-            let native_reply_target = if let Some(rctx) = reply_context.as_ref() {
-                let guard = self.reply_map.read().await;
-                guard
-                    .get(&(source_id.clone(), rctx.source_event_id.clone()))
-                    .and_then(|m| m.get(&target_id).cloned())
-            } else {
-                None
-            };
-
-            let send_res = if let Some(text) = formatted_text.as_ref() {
-                let mut content = RoomMessageEventContent::text_plain(text.clone());
-                if let Some(target_event_id) = native_reply_target.as_ref() {
-                    // ReplyMetadata only uses `sender` for AddMentions, which we suppress —
-                    // mentioning the bot (the actual sender of the target-room twin) would
-                    // be noise. So passing the bot's user id is fine and never read for
-                    // anything user-visible.
-                    if let Some(bot_user_id) = ctx.client.user_id() {
-                        let bot_uid = bot_user_id.to_owned();
-                        let meta = ReplyMetadata::new(target_event_id, &bot_uid, None);
-                        content = content.make_reply_to(meta, ForwardThread::No, AddMentions::No);
-                    } else {
-                        // Extremely unlikely (client without a logged-in user); fall back to
-                        // raw relates_to so we still emit the reply pointer.
-                        content.relates_to = Some(Relation::Reply {
-                            in_reply_to: InReplyTo::new(target_event_id.clone()),
-                        });
-                    }
-                }
-                room_handle.send(content).await
-            } else {
-                forward_media(&ctx.client, &room_handle, event, opts.reupload_media).await
-            };
-
-            match send_res {
-                Ok(resp) => {
-                    info!(
-                        from = %source_id,
-                        to = %target_id,
-                        sender = %event.sender,
-                        threaded = native_reply_target.is_some(),
-                        "Relayed message"
-                    );
-                    // Record (source_event → target_event) so a future reply to this same
-                    // source event can be threaded in this target room.
-                    self.record_relay(
-                        source_id.clone(),
-                        source_event_id.clone(),
-                        target_id.clone(),
-                        resp.event_id.clone(),
-                    )
-                    .await;
-                    if formatted_text.is_none()
-                        && opts.caption_media
-                        && let Some(kind) = media_kind(&event.content.msgtype)
-                    {
-                        let caption = format!("{display_name_bold}: sent a {kind}");
-                        let _ = room_handle
-                            .send(RoomMessageEventContent::text_plain(caption))
-                            .await;
-                    }
-                }
-                Err(e) => warn!(
-                    error = %e,
-                    from = %source_id,
-                    to = %target_id,
-                    "Failed to relay message"
-                ),
-            }
+        if self
+            .relay_event(&ctx.client, &plan, &ctx.room, event)
+            .await?
+        {
+            self.mark_last_seen(
+                ctx.history_dir.as_ref().as_path(),
+                &source_id,
+                event.origin_server_ts.get().into(),
+            )
+            .await;
         }
 
         Ok(())
@@ -223,7 +170,7 @@ impl Plugin for Relay {
 
 #[derive(Debug, Clone)]
 struct ReplyContext {
-    /// event_id of the original event being replied to (in the source room).
+    /// `event_id` of the original event being replied to (in the source room).
     source_event_id: OwnedEventId,
     /// Display name of the original sender, used for the "Parker replied to <X>: ..." header.
     original_sender_display: String,
@@ -239,7 +186,7 @@ async fn extract_reply_context(
     let in_reply_to_event_id = match content.relates_to.as_ref()? {
         Relation::Reply { in_reply_to } => in_reply_to.event_id.clone(),
         Relation::Thread(t) => t.in_reply_to.as_ref().map(|r| r.event_id.clone())?,
-        _ => return None,
+        Relation::Replacement(_) | _ => return None,
     };
 
     // Need the original sender to format the header. Try the cache first, then fall back
@@ -270,6 +217,129 @@ async fn extract_reply_context(
 }
 
 impl Relay {
+    async fn relay_event(
+        &self,
+        client: &Client,
+        plan: &RelayPlan,
+        source_room: &Room,
+        event: &OriginalSyncRoomMessageEvent,
+    ) -> Result<bool> {
+        let source_id = source_room.room_id().to_owned();
+        let Some(targets) = plan.map.get(&source_id).cloned() else {
+            info!(room_id = %source_id, "Relay: room not in mapping");
+            return Ok(false);
+        };
+        let opts = plan.opts.get(&source_id).copied().unwrap_or(RelayOptions {
+            reupload_media: true,
+            caption_media: true,
+            backfill_limit: DEFAULT_BACKFILL_LIMIT,
+        });
+
+        let display_name = resolve_display_name(source_room, &event.sender).await;
+        let display_name_bold = to_bold(&display_name);
+
+        // If the inbound is a reply, figure out who it was a reply to so we can
+        // render "Parker replied to <Name>: ..." text AND look up the target-room
+        // twin event for a native Matrix reply.
+        let reply_context = extract_reply_context(&event.content, source_room).await;
+
+        let formatted_text = format_text_message(
+            &event.content.msgtype,
+            &display_name_bold,
+            reply_context.as_ref(),
+        );
+
+        let source_event_id = event.event_id.clone();
+        let mut relayed = false;
+
+        for target_id in targets {
+            if target_id == source_id {
+                continue;
+            }
+            let Some(room_handle) = client.get_room(&target_id) else {
+                warn!(from = %source_id, to = %target_id, "No handle for target room; skipping relay");
+                continue;
+            };
+
+            // If this is a reply AND we have a mapping for the original source event in
+            // this specific target room, build a native `m.relates_to.m.in_reply_to`.
+            // Falling back to plain content (no relates_to) when:
+            //   - the inbound isn't a reply,
+            //   - we never relayed the original (e.g. bot wasn't running yet, or the
+            //     original predates the in-memory map being seeded after restart).
+            let native_reply_target = if let Some(rctx) = reply_context.as_ref() {
+                let guard = self.reply_map.read().await;
+                guard
+                    .get(&(source_id.clone(), rctx.source_event_id.clone()))
+                    .and_then(|m| m.get(&target_id).cloned())
+            } else {
+                None
+            };
+
+            let send_res = if let Some(text) = formatted_text.as_ref() {
+                let mut content = RoomMessageEventContent::text_plain(text.clone());
+                if let Some(target_event_id) = native_reply_target.as_ref() {
+                    // ReplyMetadata only uses `sender` for AddMentions, which we suppress.
+                    // Mentioning the bot (the actual sender of the target-room twin) would
+                    // be noise, so passing the bot's user id is fine here.
+                    if let Some(bot_user_id) = client.user_id() {
+                        let bot_uid = bot_user_id.to_owned();
+                        let meta = ReplyMetadata::new(target_event_id, &bot_uid, None);
+                        content = content.make_reply_to(meta, ForwardThread::No, AddMentions::No);
+                    } else {
+                        // Extremely unlikely (client without a logged-in user); fall back to
+                        // raw relates_to so we still emit the reply pointer.
+                        content.relates_to = Some(Relation::Reply {
+                            in_reply_to: InReplyTo::new(target_event_id.clone()),
+                        });
+                    }
+                }
+                room_handle.send(content).await
+            } else {
+                forward_media(client, &room_handle, event, opts.reupload_media).await
+            };
+
+            match send_res {
+                Ok(resp) => {
+                    relayed = true;
+                    info!(
+                        from = %source_id,
+                        to = %target_id,
+                        sender = %event.sender,
+                        threaded = native_reply_target.is_some(),
+                        "Relayed message"
+                    );
+                    // Record (source_event -> target_event) so a future reply to this same
+                    // source event can be threaded in this target room.
+                    self.record_relay(
+                        source_id.clone(),
+                        source_event_id.clone(),
+                        target_id.clone(),
+                        resp.event_id.clone(),
+                    )
+                    .await;
+                    if formatted_text.is_none()
+                        && opts.caption_media
+                        && let Some(kind) = media_kind(&event.content.msgtype)
+                    {
+                        let caption = format!("{display_name_bold}: sent a {kind}");
+                        let _ = room_handle
+                            .send(RoomMessageEventContent::text_plain(caption))
+                            .await;
+                    }
+                }
+                Err(e) => warn!(
+                    error = %e,
+                    from = %source_id,
+                    to = %target_id,
+                    "Failed to relay message"
+                ),
+            }
+        }
+
+        Ok(relayed)
+    }
+
     async fn record_relay(
         &self,
         source_room: OwnedRoomId,
@@ -286,6 +356,146 @@ impl Relay {
             .entry((source_room, source_event))
             .or_default()
             .insert(target_room, target_event);
+    }
+
+    async fn run_startup_backfill(
+        &self,
+        client: &Client,
+        spec: &PluginSpec,
+        history_dir: &Path,
+    ) -> Result<()> {
+        let Some(plan) = self.ensure_plan(client, spec).await? else {
+            info!("Relay startup backfill skipped: no plan loaded");
+            return Ok(());
+        };
+        self.ensure_last_seen(history_dir).await;
+
+        let mut sources: Vec<OwnedRoomId> = plan.map.keys().cloned().collect();
+        sources.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+
+        info!(rooms = sources.len(), "Relay startup backfill start");
+        for source_id in sources {
+            let limit = plan
+                .opts
+                .get(&source_id)
+                .map_or(DEFAULT_BACKFILL_LIMIT, |opts| opts.backfill_limit);
+            if limit == 0 {
+                info!(room = %source_id, "Relay backfill skipped by config");
+                continue;
+            }
+            let Some(room) = client.get_room(&source_id) else {
+                warn!(room = %source_id, "Relay backfill: no source room handle");
+                continue;
+            };
+            if let Err(e) = self
+                .backfill_room(client, &plan, &room, limit, history_dir)
+                .await
+            {
+                warn!(room = %source_id, error = %e, "Relay backfill failed for room");
+            }
+        }
+        info!("Relay startup backfill complete");
+
+        Ok(())
+    }
+
+    async fn backfill_room(
+        &self,
+        client: &Client,
+        plan: &RelayPlan,
+        room: &Room,
+        limit: usize,
+        history_dir: &Path,
+    ) -> Result<()> {
+        let source_id = room.room_id().to_owned();
+        let marker = self.last_seen_for(history_dir, &source_id).await;
+        let mut options = MessagesOptions::backward();
+        options.limit = u32::try_from(limit).unwrap_or(u32::MAX).into();
+
+        let response = room
+            .messages(options)
+            .await
+            .with_context(|| format!("fetching recent messages for {source_id}"))?;
+
+        let bot_user_id = client.user_id().map(ToOwned::to_owned);
+        let mut events = Vec::new();
+        for timeline_event in response.chunk {
+            let Some(event) = room_message_from_raw(&timeline_event.into_raw()) else {
+                continue;
+            };
+            if bot_user_id.as_ref().is_some_and(|bot| &event.sender == bot) {
+                continue;
+            }
+            let ts: u64 = event.origin_server_ts.get().into();
+            if marker.is_some_and(|last_seen| ts <= last_seen) {
+                continue;
+            }
+            events.push(event);
+        }
+
+        events.reverse();
+        let mut relayed_count = 0usize;
+        for event in events {
+            if self.relay_event(client, plan, room, &event).await? {
+                relayed_count += 1;
+                self.mark_last_seen(history_dir, &source_id, event.origin_server_ts.get().into())
+                    .await;
+            }
+        }
+
+        info!(
+            room = %source_id,
+            relayed = relayed_count,
+            limit,
+            marker,
+            "Relay backfill room complete"
+        );
+
+        Ok(())
+    }
+
+    async fn ensure_last_seen(&self, history_dir: &Path) {
+        if self.last_seen.read().await.is_some() {
+            return;
+        }
+        let mut guard = self.last_seen.write().await;
+        if guard.is_some() {
+            return;
+        }
+        let path = relay_state_path(history_dir);
+        let rooms = read_last_seen_file(&path);
+        *guard = Some(RelayLastSeen { path, rooms });
+    }
+
+    async fn last_seen_for(&self, history_dir: &Path, room_id: &OwnedRoomId) -> Option<u64> {
+        self.ensure_last_seen(history_dir).await;
+        let guard = self.last_seen.read().await;
+        guard
+            .as_ref()
+            .and_then(|state| state.rooms.get(room_id.as_str()).copied())
+    }
+
+    async fn mark_last_seen(&self, history_dir: &Path, room_id: &OwnedRoomId, ts: u64) {
+        self.ensure_last_seen(history_dir).await;
+
+        let (path, snapshot) = {
+            let mut guard = self.last_seen.write().await;
+            let Some(state) = guard.as_mut() else {
+                return;
+            };
+            let entry = state.rooms.entry(room_id.to_string()).or_default();
+            if ts <= *entry {
+                return;
+            }
+            *entry = ts;
+            let snapshot = (state.path.clone(), state.rooms.clone());
+            drop(guard);
+            snapshot
+        };
+
+        if let Err(e) = write_last_seen_file(&path, &snapshot) {
+            warn!(path = %path.display(), error = %e, "Failed to write relay last-seen state");
+        }
     }
 }
 
@@ -356,6 +566,7 @@ async fn resolve_relay_map(client: &Client, cfg: &RelayConfig) -> Result<RelayPl
             .or(cfg.reupload_media)
             .unwrap_or(true);
         let caption = cluster.caption_media.or(cfg.caption_media).unwrap_or(true);
+        let backfill_limit = clamp_backfill_limit(cluster.backfill_limit.or(cfg.backfill_limit));
 
         for r in &resolved {
             let peers: Vec<OwnedRoomId> = resolved.iter().filter(|x| *x != r).cloned().collect();
@@ -373,6 +584,7 @@ async fn resolve_relay_map(client: &Client, cfg: &RelayConfig) -> Result<RelayPl
                 RelayOptions {
                     reupload_media: reupload,
                     caption_media: caption,
+                    backfill_limit,
                 },
             );
         }
@@ -393,6 +605,68 @@ async fn resolve_relay_map(client: &Client, cfg: &RelayConfig) -> Result<RelayPl
     }
 
     Ok(RelayPlan { map, opts })
+}
+
+fn clamp_backfill_limit(limit: Option<usize>) -> usize {
+    limit
+        .unwrap_or(DEFAULT_BACKFILL_LIMIT)
+        .min(MAX_BACKFILL_LIMIT)
+}
+
+fn room_message_from_raw(
+    raw_event: &Raw<AnySyncTimelineEvent>,
+) -> Option<OriginalSyncRoomMessageEvent> {
+    let event = raw_event.deserialize().ok()?;
+    let AnySyncTimelineEvent::MessageLike(message_like) = event else {
+        return None;
+    };
+    let AnySyncMessageLikeEvent::RoomMessage(msg) = message_like else {
+        return None;
+    };
+    let SyncRoomMessageEvent::Original(event) = msg else {
+        return None;
+    };
+    Some(event)
+}
+
+fn relay_state_path(history_dir: &Path) -> PathBuf {
+    history_dir.parent().map_or_else(
+        || PathBuf::from("./data/relay-last-seen.json"),
+        |parent| parent.join("relay-last-seen.json"),
+    )
+}
+
+fn read_last_seen_file(path: &Path) -> HashMap<String, u64> {
+    match std::fs::read_to_string(path) {
+        Ok(data) => match serde_json::from_str(&data) {
+            Ok(map) => map,
+            Err(e) => {
+                warn!(path = %path.display(), error = %e, "Relay last-seen state is corrupt; starting fresh");
+                HashMap::new()
+            }
+        },
+        Err(e) => {
+            if path.exists() {
+                warn!(path = %path.display(), error = %e, "Failed to read relay last-seen state; starting fresh");
+            }
+            HashMap::new()
+        }
+    }
+}
+
+fn write_last_seen_file(path: &Path, rooms: &HashMap<String, u64>) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating relay state directory {}", parent.display()))?;
+    }
+    let data = serde_json::to_string_pretty(rooms).context("serializing relay last-seen state")?;
+    // Atomic write: this file is rewritten on every relayed message, so a crash
+    // mid-write must not leave corrupt JSON that resets the marker on next boot.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, data).with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, path)
+        .with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()))?;
+    Ok(())
 }
 
 async fn resolve_display_name(room: &Room, sender: &matrix_sdk::ruma::OwnedUserId) -> String {
@@ -450,11 +724,10 @@ fn format_output(
         out.push_str(display_name_bold);
         out.push_str(" replied to ");
         out.push_str(&other_bold);
-        out.push_str(": ");
     } else {
         out.push_str(display_name_bold);
-        out.push_str(": ");
     }
+    out.push_str(": ");
     out.push_str(prefix);
     out.push_str(main);
     out

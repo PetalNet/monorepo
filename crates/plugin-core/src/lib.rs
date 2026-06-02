@@ -53,6 +53,17 @@ pub trait Plugin: Send + Sync + Debug {
     fn wants_own_messages(&self) -> bool {
         false
     }
+
+    async fn on_startup(
+        &self,
+        _client: &Client,
+        _spec: &PluginSpec,
+        _history_dir: Arc<PathBuf>,
+        _dev_active: bool,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn run(&self, ctx: &PluginContext, args: &str, spec: &PluginSpec) -> Result<()>;
 
     async fn on_room_message(
@@ -265,7 +276,10 @@ pub async fn send_text(ctx: &PluginContext, text: impl Into<String>) -> Result<(
     let decorated = decorate_dev(&text, ctx.dev_active);
     let content = if let Some(trigger) = ctx.trigger_event.as_ref() {
         // Build a proper Matrix reply against the triggering event.
-        let full = trigger.as_ref().clone().into_full_event(ctx.room.room_id().to_owned());
+        let full = trigger
+            .as_ref()
+            .clone()
+            .into_full_event(ctx.room.room_id().to_owned());
         RoomMessageEventContent::text_plain(decorated).make_reply_to(
             &full,
             matrix_sdk::ruma::events::room::message::ForwardThread::Yes,

@@ -2358,6 +2358,7 @@ dependencies = [
  "mime",
  "plugin-core",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tokio",
  "tracing",

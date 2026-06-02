@@ -7,6 +7,7 @@
 # dev_id: your-dev-id     # identifier used for !devid.command and @devid.mention
 # reupload_media: true    # download remote media and reupload before sending
 # caption_media:  true    # send a caption like "Name: sent an image"
+# backfill_limit: 12      # on startup, relay up to this many missed recent messages per source room (max 25)
 
 clusters:
   - name: sample-pair
@@ -16,6 +17,7 @@ clusters:
     # Optional overrides for this cluster
     # reupload_media: true
     # caption_media: true
+    # backfill_limit: 12
 
 plugins:
   - id: ai

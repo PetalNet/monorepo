@@ -8,6 +8,8 @@ pub struct RelayConfig {
     pub reupload_media: Option<bool>,
     #[serde(default)]
     pub caption_media: Option<bool>,
+    #[serde(default)]
+    pub backfill_limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -18,4 +20,6 @@ pub struct RelayCluster {
     pub reupload_media: Option<bool>,
     #[serde(default)]
     pub caption_media: Option<bool>,
+    #[serde(default)]
+    pub backfill_limit: Option<usize>,
 }
