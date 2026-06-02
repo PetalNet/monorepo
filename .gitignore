@@ -9,8 +9,3 @@
 !.env.example
 **/.cache/
 /.vscode/settings.json
-
-# tsc -b emits these next to eslint.config.ts (type-checked via root tsconfig)
-/eslint.config.js
-/eslint.config.d.ts
-/eslint.config.d.ts.map
