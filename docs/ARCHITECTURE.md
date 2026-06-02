@@ -14,6 +14,7 @@ flowchart TD
     apps -->|depends on| packages
     runner -.->|runs| apps
     runner -.->|runs| packages
+    packages -.->|depends on| tools
     runner -.->|runs| tools
 ```
 

@@ -25,6 +25,7 @@
 		"@eslint/json": "catalog:dev",
 		"@eslint/markdown": "catalog:dev",
 		"@manypkg/cli": "catalog:dev",
+		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
 		"eslint": "catalog:dev",
 		"eslint-plugin-oxlint": "catalog:dev",

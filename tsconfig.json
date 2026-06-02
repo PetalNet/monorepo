@@ -1,8 +1,8 @@
 {
+	"extends": "@petalnet/tsconfig/base.json",
 	"files": ["eslint.config.ts"],
 	"compilerOptions": {
-		"types": ["node"],
-		"skipLibCheck": true
+		"types": ["node"]
 	},
 	"references": [
 		{ "path": "./packages/tokens" },

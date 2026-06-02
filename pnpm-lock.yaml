@@ -127,6 +127,9 @@ importers:
       '@manypkg/cli':
         specifier: catalog:dev
         version: 0.25.1
+      '@petalnet/tsconfig':
+        specifier: workspace:*
+        version: link:packages/tsconfig
       '@types/node':
         specifier: catalog:types
         version: 25.9.1
