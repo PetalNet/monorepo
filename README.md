@@ -5,7 +5,7 @@ Full spec snapshot: [docs/PLAN.md](./docs/PLAN.md).
 
 ## Layout
 
-```
+```tree
 apps/         each ships independently
 packages/     shared libs (tokens, ui, utils, types)
 tools/        repo-internal scripts

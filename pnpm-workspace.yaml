@@ -30,6 +30,7 @@ allowBuilds:
 
 catalogs:
   dev:
+    "@eslint/js": ^10.0.1
     "@eslint/json": ^2.0.0
     "@eslint/markdown": ^8.0.2
     "@manypkg/cli": ^0.25.1

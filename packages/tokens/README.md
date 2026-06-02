@@ -4,7 +4,7 @@ DTCG design tokens for PetalNet. Compiled by [style-dictionary](https://styledic
 
 ## Sources
 
-```
+```tree
 src/
 ├── primitives/    raw values — color.amber.500 = #f59e0b, etc.
 │   ├── color.json
@@ -19,7 +19,7 @@ DaisyUI's `@plugin "daisyui/theme"` and Tailwind v4's `@theme` directive consume
 
 ## Outputs
 
-```
+```tree
 dist/
 ├── tokens.css           CSS custom properties (light + dark), scoped by [data-theme]
 ├── tailwind.preset.js   Tailwind preset — `import preset from '@petalnet/tokens/tailwind'`

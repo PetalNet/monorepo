@@ -21,6 +21,7 @@
 		"typesync:check": "typesync --dry=fail"
 	},
 	"devDependencies": {
+		"@eslint/js": "catalog:dev",
 		"@eslint/json": "catalog:dev",
 		"@eslint/markdown": "catalog:dev",
 		"@manypkg/cli": "catalog:dev",
@@ -36,15 +37,15 @@
 		"update-ts-references": "catalog:dev",
 		"vite-plus": "catalog:dev"
 	},
+	"packageManager": "pnpm@11.5.0",
+	"engines": {
+		"node": "^26.0.0"
+	},
 	"devEngines": {
 		"runtime": {
 			"name": "node",
 			"onFail": "error",
 			"version": "^26.0.0"
 		}
-	},
-	"engines": {
-		"node": "^26.0.0"
-	},
-	"packageManager": "pnpm@11.5.0"
+	}
 }
