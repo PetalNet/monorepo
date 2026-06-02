@@ -12,6 +12,7 @@
 		"lint": "oxlint --max-warnings=0 && eslint . --max-warnings=0",
 		"lint:eslint": "eslint .",
 		"lint:knip": "knip",
+		"lint:knip:prod": "knip --strict",
 		"manypkg": "manypkg check",
 		"test": "vp test -r",
 		"ts-references:check": "update-ts-references --check",

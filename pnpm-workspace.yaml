@@ -34,7 +34,6 @@ catalogs:
     "@eslint/markdown": ^8.0.2
     "@manypkg/cli": ^0.25.1
     "@sveltejs/adapter-node": ^5.5.2
-    "@sveltejs/kit": ^2.50.1
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.1.18
     drizzle-kit: ^0.31.8
@@ -44,9 +43,7 @@ catalogs:
     knip: ^6.14.2
     oxlint: ^1.67.0
     style-dictionary: ^5.4.2
-    svelte: ^5.48.2
     svelte-check: ^4.3.5
-    tailwindcss: ^4.1.18
     typescript: ^6.0.3
     typescript-eslint: ^8.60.0
     typesync: ^0.14.3
@@ -62,8 +59,11 @@ catalogs:
 
   prod:
     "@libsql/client": ^0.17.0
+    "@sveltejs/kit": ^2.50.1
     drizzle-orm: ^0.45.1
     leaflet: ^1.9.4
     leaflet-image: ^0.4.0
     leaflet.heat: ^0.2.0
     leaflet.markercluster: ^1.5.3
+    svelte: ^5.48.2
+    tailwindcss: ^4.1.18

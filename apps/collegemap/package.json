@@ -17,26 +17,26 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "catalog:dev",
-		"@sveltejs/kit": "catalog:dev",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",
 		"@types/leaflet.heat": "catalog:types",
 		"@types/leaflet.markercluster": "catalog:types",
 		"@types/node": "catalog:types",
-		"svelte": "catalog:dev",
+		"drizzle-kit": "catalog:dev",
 		"svelte-check": "catalog:dev",
-		"tailwindcss": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev"
 	},
 	"dependencies": {
 		"@libsql/client": "catalog:prod",
+		"@sveltejs/kit": "catalog:prod",
 		"@types/leaflet": "catalog:types",
-		"drizzle-kit": "catalog:dev",
 		"drizzle-orm": "catalog:prod",
 		"leaflet": "catalog:prod",
 		"leaflet-image": "catalog:prod",
 		"leaflet.heat": "catalog:prod",
-		"leaflet.markercluster": "catalog:prod"
+		"leaflet.markercluster": "catalog:prod",
+		"svelte": "catalog:prod",
+		"tailwindcss": "catalog:prod"
 	}
 }
