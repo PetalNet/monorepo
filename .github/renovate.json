@@ -15,6 +15,17 @@
 	"postUpdateOptions": ["pnpmDedupe"],
 	"minimumReleaseAge": "7 days",
 	"labels": ["dependencies"],
+	"automergeStrategy": "squash",
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Keep the CI-installed vp (setup-vp version) in sync with the vite-plus catalog pin",
+			"managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+			"matchStrings": [
+				"# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+version: \"(?<currentValue>[^\"]+)\""
+			]
+		}
+	],
 	"packageRules": [
 		{
 			"matchPackageNames": ["/eslint/"],
