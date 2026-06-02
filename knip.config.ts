@@ -5,13 +5,16 @@ export default {
 	treatConfigHintsAsErrors: true,
 	workspaces: {
 		".": {
-			entry: ["*.config.{js,ts}"],
+			entry: ["vite.config.ts"],
 		},
 		"packages/tokens": {
-			// tools/build.mts is a build-time script (style-dictionary), not part of
-			// production — keep it out of the production project so --strict doesn't
-			// flag it (or its build-only imports) as unused.
-			project: ["src/**/*.{ts,mts}!", "!tools/build.mts!"],
+			project: ["!tools/build.mts!"],
+		},
+		"apps/collegemap": {
+			drizzle: {
+				config: [],
+				entry: ["drizzle.config.ts"],
+			},
 		},
 	},
 } satisfies KnipConfig;
