@@ -37,6 +37,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "file:/tmp/build.db"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -49,7 +51,7 @@ jobs:
       # so write a gitignored .env (a tracked cache input) instead of exporting
       # the var. The value is a throwaway build placeholder, not a real secret.
       - name: Write app env
-        run: echo "DATABASE_URL=file:/tmp/build.db" > apps/collegemap/.env
+        run: echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
       - run: vp run build
 
   typos:
