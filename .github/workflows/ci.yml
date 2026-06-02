@@ -30,15 +30,13 @@ jobs:
           cache: true
       - run: vp run check
       - run: vp run manypkg
+      - run: vp dedupe --check -- --prefer-offline
       - run: vp run typesync:check
       - run: vp run lint:knip
       - run: vp run lint:knip:prod
 
   build:
     runs-on: ubuntu-latest
-    needs: check
-    # Why stubbed: apps read env at prerender; a placeholder DB URL lets the
-    # build prove it runs without provisioning real infra (per notes/ci.yaml).
     env:
       DATABASE_URL: "file:/tmp/build.db"
     steps:
@@ -49,6 +47,11 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: true
+      # Apps read env files at prerender; vp sandboxes task env under caching,
+      # so write a gitignored .env (a tracked cache input) instead of exporting
+      # the var. The value is a throwaway build placeholder, not a real secret.
+      - name: Write app env
+        run: echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
       - run: vp run build
 
   typos:
