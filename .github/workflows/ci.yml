@@ -23,11 +23,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          fetch-depth: 0
       - uses: voidzero-dev/setup-vp@329490fff19dd4ecd8ff2a74d7c45bee0448f3a6 # v1.11.0
         with:
-          node-version-file: .nvmrc
           cache: true
+          node-version-file: package.json
+          run-install: true
+          sfw: true
       - run: vp run check
       - run: vp run manypkg
       - run: vp dedupe --check -- --prefer-offline
@@ -45,11 +46,10 @@ jobs:
           persist-credentials: false
       - uses: voidzero-dev/setup-vp@329490fff19dd4ecd8ff2a74d7c45bee0448f3a6 # v1.11.0
         with:
-          node-version-file: .nvmrc
           cache: true
-      # Apps read env files at prerender; vp sandboxes task env under caching,
-      # so write a gitignored .env (a tracked cache input) instead of exporting
-      # the var. The value is a throwaway build placeholder, not a real secret.
+          node-version-file: package.json
+          run-install: true
+          sfw: true
       - name: Write app env
         run: echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
       - run: vp run build

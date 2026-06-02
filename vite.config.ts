@@ -17,6 +17,7 @@ export default defineConfig({
 		sortTailwindcss: true,
 		jsdoc: true,
 		// package.json sorting is owned by eslint-plugin-package-json.
-		ignorePatterns: ["**/package.json", "pnpm-lock.yaml"],
+		// eslint.config.js is tsc -b output (emitted from eslint.config.ts), not source.
+		ignorePatterns: ["**/package.json", "pnpm-lock.yaml", "eslint.config.js"],
 	},
 });

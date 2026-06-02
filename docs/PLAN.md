@@ -2,7 +2,7 @@
 
 ## Repo
 
-- Name: `PetalNet/Monorepo` (capital M).
+- Name: `PetalNet/monorepo` (lowercase m).
 - Migration per source repo:
   1. In a local clone, `git mv` contents into the target subdir (e.g. `apps/clarity/`) and commit.
   2. Add as a remote on Monorepo, `git merge --allow-unrelated-histories source/main`.
@@ -28,8 +28,8 @@ homelab-docs (public-facing content), shared FE packages, shared utils.
 
 ## Layout
 
-```
-PetalNet/Monorepo/
+```tree
+PetalNet/monorepo/
 ├── apps/           # each ships independently
 ├── packages/       # shared libs: tokens, ui, utils, types
 ├── tools/          # repo-internal scripts

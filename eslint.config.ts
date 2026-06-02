@@ -1,70 +1,52 @@
+import * as path from "node:path";
+
+import js from "@eslint/js";
 import json from "@eslint/json";
 import markdown from "@eslint/markdown";
 import oxlint from "eslint-plugin-oxlint";
-import * as packageJson from "eslint-plugin-package-json";
-import { defineConfig } from "eslint/config";
+import * as packageJson from "eslint-plugin-package-json/experimental";
+import { defineConfig, includeIgnoreFile } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
+	includeIgnoreFile(path.resolve(".gitignore"), {
+		gitignoreResolution: true,
+	}),
 	{
-		ignores: [
-			"**/dist/**",
-			"**/build/**",
-			"**/.svelte-kit/**",
-			"**/node_modules/**",
-			"**/coverage/**",
-			"apps/*/dist/**",
-			"pnpm-lock.yaml",
-		],
-	},
-	{
-		files: ["**/*.{js,mjs,cjs}"],
-		languageOptions: {
-			ecmaVersion: "latest",
-			sourceType: "module",
-		},
-	},
-	{
-		files: ["**/*.{ts,mts,cts}"],
-		languageOptions: {
-			parser: tseslint.parser,
-			ecmaVersion: "latest",
-			sourceType: "module",
-		},
+		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}"],
+		extends: [js.configs.recommended, tseslint.configs.recommended],
 	},
 	{
 		files: ["**/*.md"],
 		plugins: { markdown },
 		language: "markdown/gfm",
+		languageOptions: {
+			frontmatter: "yaml",
+		},
+		extends: [markdown.configs.recommended],
+	},
+	{
+		files: [".github/**/*.md"],
 		rules: {
-			"markdown/no-empty-links": "error",
-			"markdown/no-invalid-label-refs": "error",
+			"markdown/heading-increment": "off",
 		},
 	},
 	{
 		files: ["**/*.json"],
-		ignores: ["**/package.json", "**/tsconfig*.json"],
 		plugins: { json },
 		language: "json/json",
-		rules: {
-			"json/no-duplicate-keys": "error",
-		},
+		extends: [json.configs.recommended],
+	},
+	{
+		files: ["**/package.json"],
+		extends: [packageJson.configs.recommended, packageJson.configs.stylistic],
+		rules: { "package-json/require-description": "off" },
 	},
 	{
 		files: ["**/tsconfig*.json"],
 		plugins: { json },
 		language: "json/jsonc",
-		rules: {
-			"json/no-duplicate-keys": "error",
-		},
+		extends: [json.configs.recommended],
 	},
-	packageJson.configs.recommended,
-	{
-		// Why: these are private internal packages — no description/license required.
-		files: ["**/package.json"],
-		rules: { "package-json/require-description": "off" },
-	},
-	// Why last: eslint-plugin-oxlint disables rules already covered by oxlint
-	// so the two linters don't double-report.
 	...oxlint.buildFromOxlintConfigFile("./.oxlintrc.json"),
 ]);

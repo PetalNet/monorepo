@@ -1,5 +1,9 @@
 {
-	"files": [],
+	"extends": "@petalnet/tsconfig/base.json",
+	"files": ["eslint.config.ts"],
+	"compilerOptions": {
+		"types": ["node"]
+	},
 	"references": [
 		{ "path": "./packages/tokens" },
 		{ "path": "./packages/ui" },
