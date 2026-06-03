@@ -1,7 +1,7 @@
 import {
   upNext, inbox, backlog, listProjects, getProjectByName,
   createTask, updateTask, ensureProject, nextUpNextRank, getTask,
-  listDocs, openQuestions, answerQuestion
+  listDocs, openQuestions, answerQuestion, listAssignees
 } from '$lib/server/db.js';
 
 export function load({ url, locals }) {
@@ -9,16 +9,19 @@ export function load({ url, locals }) {
   const projName = url.searchParams.get('project') || null;
   const proj = projName ? getProjectByName(projName) : null;
   const pid = proj?.id ?? null;
+  const who = url.searchParams.get('assignee') || null;   // assignee filter (combinable with project)
   return {
     projects: listProjects(me),
     current: proj?.name ?? null,
     backend: proj?.backend ?? null,
     me,
-    questions: openQuestions(pid, me).map((q) => ({ ...q, opts: parseOpts(q.options) })),
-    upNext: upNext(pid, me),
-    inbox: inbox(pid, me),
-    backlog: backlog(pid, me),
-    docs: listDocs(pid, me)
+    assignees: listAssignees(me),
+    assignee: who,
+    questions: openQuestions(pid, me, who).map((q) => ({ ...q, opts: parseOpts(q.options) })),
+    upNext: upNext(pid, me, who),
+    inbox: inbox(pid, me, who),
+    backlog: backlog(pid, me, who),
+    docs: listDocs(pid, me, who)
   };
 }
 

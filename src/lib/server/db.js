@@ -91,9 +91,11 @@ const log = (task_id, type, data) =>
 
 const ACTIVE = "status NOT IN ('done','dropped')";
 const where = (p) => (p ? 'AND project_id=@p' : '');
+// assignee filter: mirrors the project filter; supplied → restrict to one agent/human.
+const whoFilter = (a) => (a ? 'AND assignee=@a' : '');
 // visibility filter for HUMAN web views: pass the logged-in user; omit for agents (they see all).
 const vis = (me) => (me ? "AND (visibility='shared' OR owner=@me)" : '');
-const qargs = (p, me) => ({ ...(p ? { p } : {}), ...(me ? { me } : {}) });
+const qargs = (p, me, a) => ({ ...(p ? { p } : {}), ...(me ? { me } : {}), ...(a ? { a } : {}) });
 const args = (p) => (p ? { p } : {});
 
 export const getTask = (id) => db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
@@ -129,16 +131,22 @@ export function classifyProjectPrivacy() {
 }
 export const getProjectByName = (name) => db.prepare('SELECT * FROM projects WHERE name=?').get(name);
 
+// Distinct assignees present (for the UI filter dropdown). Honors the same visibility
+// rule as the list views: a HUMAN only sees assignees on items they're allowed to see.
+export const listAssignees = (me) => db.prepare(
+  `SELECT DISTINCT assignee FROM tasks WHERE assignee IS NOT NULL AND assignee!='' ${vis(me)} ORDER BY assignee`
+).all(me ? { me } : {}).map((r) => r.assignee);
+
 const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of the task checklist
 
 // Top-level items per section (children render nested under their parent — work isn't flat, per Bob).
-export const upNext  = (p, me) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${ACTIVE} ${where(p)} ${vis(me)} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me)));
-export const inbox   = (p, me) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ${vis(me)} ORDER BY created_at DESC`).all(qargs(p, me));
-export const backlog = (p, me) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me)));
+export const upNext  = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me, a)));
+export const inbox   = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY created_at DESC`).all(qargs(p, me, a));
+export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a)));
 
 // --- Claude Corner merge: docs (briefs/ADRs) + questions (async decisions) ---
-export const listDocs = (p, me) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ${vis(me)} ORDER BY updated_at DESC`).all(qargs(p, me));
-export const openQuestions = (p, me) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ${vis(me)} ORDER BY priority, created_at`).all(qargs(p, me));
+export const listDocs = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY updated_at DESC`).all(qargs(p, me, a));
+export const openQuestions = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, created_at`).all(qargs(p, me, a));
 export const answerQuestion = (id, value) => updateTask(id, { answer: value, status: 'done' });
 export const createDoc = (project_id, title, body, created_by = '') => createTask({ kind: 'doc', title, body, status: 'todo', project_id, created_by });
 export function createQuestion(project_id, title, context, options, created_by = '') {

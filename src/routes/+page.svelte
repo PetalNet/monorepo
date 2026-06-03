@@ -21,9 +21,21 @@
     try { localStorage.setItem('tasks-theme', next); } catch {}
   }
 
+  // build a query string preserving whichever of project/assignee aren't being changed
+  function filterUrl({ project = data.current, assignee = data.assignee } = {}) {
+    const q = new URLSearchParams();
+    if (project) q.set('project', project);
+    if (assignee) q.set('assignee', assignee);
+    const s = q.toString();
+    return s ? `?${s}` : '?';
+  }
+
   function pickProject(e) {
-    const v = e.target.value;
-    goto(v ? `?project=${encodeURIComponent(v)}` : '?', { keepFocus: true, noScroll: true });
+    goto(filterUrl({ project: e.target.value || null }), { keepFocus: true, noScroll: true });
+  }
+
+  function pickAssignee(e) {
+    goto(filterUrl({ assignee: e.target.value || null }), { keepFocus: true, noScroll: true });
   }
 </script>
 
@@ -48,7 +60,8 @@
       <a class="ttl" href="/task/{t.id}">{t.title}</a>
       <div class="meta">
         <span class="dot p{t.priority}"></span>P{t.priority}
-        {#if projName(t.project_id)}<a class="tag" href="?project={encodeURIComponent(projName(t.project_id))}">{projName(t.project_id)}</a>{/if}
+        {#if projName(t.project_id)}<a class="tag" href={filterUrl({ project: projName(t.project_id) })}>{projName(t.project_id)}</a>{/if}
+        {#if t.assignee}<a class="tag who" href={filterUrl({ assignee: t.assignee })}>@{t.assignee}</a>{/if}
         <form method="POST" action="?/setproject" use:enhance class="pp"><input type="hidden" name="id" value={t.id} /><select name="project_id" aria-label="Set project" onchange={(e) => e.currentTarget.form.requestSubmit()}><option value="">{t.project_id ? '⋯' : '+ project'}</option>{#each data.projects as p}<option value={p.id} selected={p.id === t.project_id}>{p.name}</option>{/each}<option value="none">(no project)</option></select></form>
         {#if t.blocked_on}<span class="blocked">· blocked: {t.blocked_on}</span>{/if}
         <button type="button" class="link" onclick={() => (openSub[t.id] = !openSub[t.id])}>+ sub</button>
@@ -81,6 +94,14 @@
         {#each data.projects as p}<option value={p.name}>{p.name}</option>{/each}
       </select>
     </div>
+    {#if data.assignees.length}
+      <div class="proj" class:active={data.assignee}>
+        <select onchange={pickAssignee} value={data.assignee ?? ''} aria-label="Assignee">
+          <option value="">All assignees</option>
+          {#each data.assignees as a}<option value={a}>{a}</option>{/each}
+        </select>
+      </div>
+    {/if}
     <span class="spacer"></span>
     <a class="hlink" href="/projects">Projects</a>
     <a class="new" href="/new">+ New</a>
@@ -156,7 +177,7 @@
       {#each data.docs as d (d.id)}
         <a class="docrow" href="/task/{d.id}">
           <span class="ttl">{d.title}</span>
-          {#if projName(d.project_id)}<a class="tag" href="?project={encodeURIComponent(projName(d.project_id))}" onclick={(e) => e.stopPropagation()}>{projName(d.project_id)}</a>{/if}
+          {#if projName(d.project_id)}<a class="tag" href={filterUrl({ project: projName(d.project_id) })} onclick={(e) => e.stopPropagation()}>{projName(d.project_id)}</a>{/if}
         </a>
       {/each}
     </section>
@@ -180,6 +201,7 @@
   .proj{margin-left:4px;display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:0 4px 0 10px;}
   .proj .lock{color:var(--soft);width:13px;height:13px;flex:none;}
   .proj select{border:0;background:none;color:var(--text);font:inherit;font-size:13.5px;padding:7px 4px;cursor:pointer;outline:0;}
+  .proj.active{border-color:var(--blue);}.proj.active select{color:var(--blue);}
   .spacer{flex:1}
   .ico{width:34px;height:34px;padding:7px;border-radius:8px;border:0;background:none;color:var(--mute);cursor:pointer;}.ico:hover{background:var(--surface);color:var(--text);}
   .hlink{font-size:13px;text-decoration:none;color:var(--mute);padding:6px 4px;}.hlink:hover{color:var(--text);}
