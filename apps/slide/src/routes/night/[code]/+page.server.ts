@@ -1,5 +1,5 @@
 import { prisma } from "$lib/server/db";
-import { error, fail, redirect } from "@sveltejs/kit";
+import { error, fail } from "@sveltejs/kit";
 import { nanoid } from "nanoid";
 
 import type { PageServerLoad, Actions } from "./$types";
@@ -55,36 +55,33 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		event.submissionDeadline && new Date() > new Date(event.submissionDeadline);
 
 	// Check if user is already in a group
-	let userGroups: any[] = [];
-	if (locals.user) {
-		const memberships = await prisma.groupMember.findMany({
-			where: {
-				userId: locals.user.id,
-				group: {
-					eventId: event.id,
+	const userGroups = locals.user
+		? await prisma.groupMember.findMany({
+				where: {
+					userId: locals.user.id,
+					group: {
+						eventId: event.id,
+					},
 				},
-			},
-			include: {
-				group: {
-					include: {
-						members: {
-							include: {
-								user: {
-									select: {
-										id: true,
-										name: true,
-										email: true,
+				include: {
+					group: {
+						include: {
+							members: {
+								include: {
+									user: {
+										select: {
+											id: true,
+											name: true,
+											email: true,
+										},
 									},
 								},
 							},
 						},
 					},
 				},
-			},
-		});
-
-		userGroups = memberships;
-	}
+			})
+		: [];
 
 	return {
 		event,
@@ -109,7 +106,7 @@ export const actions: Actions = {
 			return fail(404, { error: "Event not found" });
 		}
 
-		if ((event as any).submissionsClosed) {
+		if (event.submissionsClosed) {
 			return fail(400, { error: "Submissions are closed for this event" });
 		}
 
@@ -162,7 +159,7 @@ export const actions: Actions = {
 			return fail(404, { error: "Event not found" });
 		}
 
-		if ((event as any).submissionsClosed) {
+		if (event.submissionsClosed) {
 			return fail(400, { error: "Submissions are closed for this event" });
 		}
 
@@ -180,7 +177,7 @@ export const actions: Actions = {
 
 		// Find group by invite code
 		const group = await prisma.group.findUnique({
-			where: { inviteCode } as any,
+			where: { inviteCode },
 		});
 
 		if (!group || group.eventId !== event.id) {
@@ -259,7 +256,7 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	removeMember: async ({ request, params, locals }) => {
+	removeMember: async ({ request, locals }) => {
 		if (!locals.user) {
 			return fail(401, { error: "You must be logged in" });
 		}
@@ -301,7 +298,7 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	updateGroup: async ({ request, params, locals }) => {
+	updateGroup: async ({ request, locals }) => {
 		if (!locals.user) {
 			return fail(401, { error: "You must be logged in" });
 		}
@@ -346,7 +343,7 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	deleteGroup: async ({ request, params, locals }) => {
+	deleteGroup: async ({ request, locals }) => {
 		if (!locals.user) {
 			return fail(401, { error: "You must be logged in" });
 		}
@@ -500,7 +497,10 @@ export const actions: Actions = {
 		}
 
 		const data = await request.formData();
-		const categories = JSON.parse(data.get("categories") as string);
+		const categories = JSON.parse(data.get("categories") as string) as {
+			name: string;
+			description?: string;
+		}[];
 
 		// Delete all existing categories for this event
 		await prisma.category.deleteMany({
@@ -509,7 +509,7 @@ export const actions: Actions = {
 
 		// Create new categories
 		await Promise.all(
-			categories.map((cat: any) =>
+			categories.map((cat) =>
 				prisma.category.create({
 					data: {
 						eventId: event.id,

@@ -4,7 +4,7 @@
 	import PageContainer from '$lib/components/PageContainer.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	
-	export let data: PageData;
+	let { data }: { data: PageData } = $props();
 	
 	function formatDate(date: string | Date): string {
 		return new Date(date).toLocaleString();

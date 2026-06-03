@@ -437,7 +437,7 @@
 				return invalidateAll();
 			}).then(() => {
 				// Wait a bit before fading in
-				setTimeout(() => {
+				return setTimeout(() => {
 					isTransitioning = false;
 				}, 100);
 			});
@@ -490,7 +490,7 @@
 				return invalidateAll();
 			}).then(() => {
 				// Wait a bit before fading in
-				setTimeout(() => {
+				return setTimeout(() => {
 					isTransitioning = false;
 				}, 100);
 			});
@@ -643,8 +643,8 @@
 	}
 	
 	// Close dropdown when clicking outside
-	function handleClickOutside(event: MouseEvent) {
-		const target = event.target as HTMLElement;
+	function handleClickOutside(e: MouseEvent) {
+		const target = e.target as HTMLElement;
 		if (!target.closest('.account-dropdown')) {
 			accountDropdownOpen = false;
 		}

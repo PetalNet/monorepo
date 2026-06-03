@@ -92,7 +92,7 @@ export const actions: Actions = {
 				if (isNaN(parsedDeadline.getTime())) {
 					return fail(400, { error: "Invalid submission deadline" });
 				}
-			} catch (e) {
+			} catch {
 				return fail(400, { error: "Invalid submission deadline format" });
 			}
 		}

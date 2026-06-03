@@ -1,4 +1,3 @@
-import { deleteSession } from "$lib/server/auth";
 import { prisma } from "$lib/server/db";
 import { fail, redirect } from "@sveltejs/kit";
 import bcrypt from "bcryptjs";

@@ -1,7 +1,5 @@
 import os from "os";
 
-import { prisma } from "$lib/server/db";
-
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async () => {
@@ -11,13 +9,6 @@ export const load: PageServerLoad = async () => {
 		total: os.totalmem(),
 		free: os.freemem(),
 	};
-
-	// Get database stats
-	const activeConnections = prisma
-		.$queryRawUnsafe<Array<{ connections: number }>>(
-			`SELECT COUNT(*) as connections FROM pragma_database_list`,
-		)
-		.catch(() => [{ connections: 1 }]);
 
 	return {
 		process: {

@@ -4,18 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
     "build": "vite build",
-    "preview": "vite preview",
-    "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "dev": "vite dev",
+    "prepare": "svelte-kit sync || echo ''",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@prisma/client": "catalog:prod",
     "@sveltejs/kit": "catalog:prod",
     "bcryptjs": "catalog:prod",
-    "better-sqlite3": "catalog:prod",
     "date-fns": "catalog:prod",
     "nanoid": "catalog:prod",
     "qrcode": "catalog:prod",
@@ -23,11 +22,9 @@
     "svelte": "catalog:prod"
   },
   "devDependencies": {
-    "@sveltejs/adapter-auto": "catalog:dev",
     "@sveltejs/adapter-node": "catalog:dev",
     "@sveltejs/vite-plugin-svelte": "catalog:dev",
     "@types/bcryptjs": "catalog:types",
-    "@types/better-sqlite3": "catalog:types",
     "@types/qrcode": "catalog:types",
     "@types/sortablejs": "catalog:types",
     "autoprefixer": "catalog:dev",

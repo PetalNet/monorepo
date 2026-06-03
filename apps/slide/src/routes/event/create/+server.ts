@@ -1,5 +1,5 @@
 import { prisma } from "$lib/server/db";
-import { json, redirect } from "@sveltejs/kit";
+import { json } from "@sveltejs/kit";
 import { nanoid } from "nanoid";
 
 import type { RequestHandler } from "./$types";
@@ -42,11 +42,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				visibility: "private", // Always private for now
 				status: "setup",
 				categories: {
-					create: data.categories.map((cat: any, index: number) => ({
-						name: cat.name,
-						description: cat.description,
-						order: index,
-					})),
+					create: data.categories.map(
+						(cat: { name: string; description?: string }, index: number) => ({
+							name: cat.name,
+							description: cat.description,
+							order: index,
+						}),
+					),
 				},
 			},
 		});

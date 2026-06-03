@@ -1,5 +1,5 @@
 import { prisma } from "$lib/server/db";
-import { error, redirect } from "@sveltejs/kit";
+import { error } from "@sveltejs/kit";
 import { nanoid } from "nanoid";
 
 import type { PageServerLoad, Actions } from "./$types";

@@ -42,7 +42,7 @@ export const actions: Actions = {
 			});
 
 			return { success: true };
-		} catch (error) {
+		} catch {
 			return fail(500, { error: "Failed to delete user" });
 		}
 	},

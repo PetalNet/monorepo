@@ -52,47 +52,6 @@ export function toDateTimeLocal(date: Date | string, timezone: string): string {
 	return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
-/**
- * Convert a datetime-local input value to UTC Date Interprets the input as being in the event's
- * timezone
- */
-export function fromDateTimeLocal(dateTimeLocal: string, timezone: string): Date {
-	// Parse the input as if it's in the event's timezone
-	// datetime-local format: YYYY-MM-DDTHH:mm
-	const dateStr = dateTimeLocal.replace("T", " ");
-
-	// Create a date string with timezone
-	const withTimezone = `${dateStr} ${getTimezoneOffset(timezone)}`;
-
-	return new Date(withTimezone);
-}
-
-/** Get timezone offset string (e.g., "-05:00") */
-function getTimezoneOffset(timezone: string): string {
-	const now = new Date();
-	const formatter = new Intl.DateTimeFormat("en-US", {
-		timeZone: timezone,
-		timeZoneName: "longOffset",
-	});
-
-	const parts = formatter.formatToParts(now);
-	const offsetPart = parts.find((part) => part.type === "timeZoneName");
-
-	if (offsetPart && offsetPart.value.startsWith("GMT")) {
-		return offsetPart.value.replace("GMT", "");
-	}
-
-	// Fallback: calculate offset manually
-	const tzDate = new Date(now.toLocaleString("en-US", { timeZone: timezone }));
-	const utcDate = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));
-	const offset = (tzDate.getTime() - utcDate.getTime()) / (1000 * 60);
-	const hours = Math.floor(Math.abs(offset) / 60);
-	const minutes = Math.abs(offset) % 60;
-	const sign = offset >= 0 ? "+" : "-";
-
-	return `${sign}${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
 /** Get short timezone abbreviation (e.g., "EST", "PST") */
 export function getTimezoneAbbr(timezone: string, date?: Date): string {
 	const dateObj = date || new Date();
@@ -130,14 +89,6 @@ export const COMMON_TIMEZONES = [
 /** Get user's browser timezone */
 export function getUserTimezone(): string {
 	return Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
-
-/** Check if a date is in the past (in a specific timezone) */
-export function isPast(date: Date | string, timezone: string): boolean {
-	const dateObj = typeof date === "string" ? new Date(date) : date;
-	const now = new Date();
-
-	return dateObj < now;
 }
 
 /** Format relative time with timezone context */

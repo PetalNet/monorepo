@@ -126,7 +126,6 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	// Get total votes for current presentation (only count complete votes with all categories)
 	let currentPresentationVotes = 0;
-	let totalPotentialVoters = 0;
 
 	if (event.currentPresentationId) {
 		const categoryCount = event.categories.length;
@@ -147,10 +146,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	}
 
 	// Total potential voters = logged in users + temp voters
-	totalPotentialVoters = participants.length + votingSessions.length;
+	const totalPotentialVoters = participants.length + votingSessions.length;
 
 	// Get existing votes for current user/session (optimized single query)
-	let existingVotes: Record<string, Record<string, number>> = {};
+	const existingVotes: Record<string, Record<string, number>> = {};
 	let userGroupIds: string[] = []; // Track which groups the current user is a member of
 
 	// Batch query: fetch all votes for this user/session in one go
@@ -196,13 +195,25 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	}
 
 	// Calculate winners (only if event status is completed - defer expensive calculation)
+	type ScoredGroup = {
+		group: (typeof orderedGroups)[number];
+		totalScore: number;
+		averageScore: number;
+		voteCount: number;
+		categoryScores: Record<string, number>;
+	};
+	type CategoryWinner = {
+		category: (typeof event.categories)[number];
+		winners: { group: (typeof orderedGroups)[number]; score: number }[];
+		isTie: boolean;
+	};
 	let topPresentations: {
-		first: any[];
-		second: any[];
-		third: any[];
+		first: ScoredGroup[];
+		second: ScoredGroup[];
+		third: ScoredGroup[];
 	} = { first: [], second: [], third: [] };
-	let categoryWinners: any[] = [];
-	let fullLeaderboard: any[] = [];
+	let categoryWinners: CategoryWinner[] = [];
+	let fullLeaderboard: ScoredGroup[] = [];
 
 	// Only calculate leaderboard when event is completed (winners screen)
 	// This saves significant processing time during live presentations
@@ -221,7 +232,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		});
 
 		// Group votes by groupId for fast lookup
-		const votesByGroup = new Map<string, any[]>();
+		const votesByGroup = new Map<string, (typeof allVotes)[number][]>();
 		for (const vote of allVotes) {
 			if (!votesByGroup.has(vote.groupId)) {
 				votesByGroup.set(vote.groupId, []);
@@ -238,9 +249,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 			// Calculate total score (sum of all ratings)
 			const totalScore = completeVotes.reduce((sum, vote) => {
-				return (
-					sum + vote.ratings.reduce((ratingSum: number, rating: any) => ratingSum + rating.stars, 0)
-				);
+				return sum + vote.ratings.reduce((ratingSum, rating) => ratingSum + rating.stars, 0);
 			}, 0);
 
 			// Calculate average score
@@ -250,11 +259,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			const categoryScores: Record<string, number> = {};
 			for (const category of event.categories) {
 				const categoryRatings = completeVotes.flatMap((vote) =>
-					vote.ratings.filter((r: any) => r.categoryId === category.id),
+					vote.ratings.filter((r) => r.categoryId === category.id),
 				);
 				const categoryAvg =
 					categoryRatings.length > 0
-						? categoryRatings.reduce((sum, r: any) => sum + r.stars, 0) / categoryRatings.length
+						? categoryRatings.reduce((sum, r) => sum + r.stars, 0) / categoryRatings.length
 						: 0;
 				categoryScores[category.id] = categoryAvg;
 			}
@@ -269,7 +278,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		});
 
 		// Sort by total score descending (instead of average), then by vote count
-		const sortedGroups = groupScores.sort((a, b) => {
+		const sortedGroups = groupScores.toSorted((a, b) => {
 			if (b.totalScore !== a.totalScore) {
 				return b.totalScore - a.totalScore;
 			}
@@ -281,7 +290,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		// Calculate podium positions with ties
 		// Get top 3 unique scores (based on total score)
 		const uniqueScores = [...new Set(sortedGroups.map((g) => g.totalScore))]
-			.sort((a, b) => b - a)
+			.toSorted((a, b) => b - a)
 			.slice(0, 3);
 
 		// Build podium with all teams at each position
@@ -608,7 +617,7 @@ export const actions: Actions = {
 		if (sessionCode) {
 			const session = (await prisma.$queryRaw`
         SELECT * FROM VotingSession WHERE sessionCode = ${sessionCode} LIMIT 1
-      `) as any[];
+      `) as { id: string; eventId: string }[];
 			if (!session[0] || session[0].eventId !== event.id) {
 				return { error: "Invalid session" };
 			}
@@ -649,7 +658,13 @@ export const actions: Actions = {
 			voteId = existingVote.id;
 		} else {
 			// Create new vote
-			const voteData: any = {
+			const voteData: {
+				eventId: string;
+				groupId: string;
+				judgeId: string | null;
+				votingSessionId?: string | null;
+				userId?: string | null;
+			} = {
 				eventId: event.id,
 				groupId,
 				judgeId: null,
@@ -695,7 +710,7 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	resetVotes: async ({ request, params, locals }) => {
+	resetVotes: async ({ params, locals }) => {
 		if (!locals.user) {
 			return { error: "Not authenticated" };
 		}
@@ -815,7 +830,7 @@ export const actions: Actions = {
 			where: { id: event.id },
 			data: {
 				confettiTriggeredAt: new Date(),
-				confettiCount: (event as any).confettiCount + 1,
+				confettiCount: event.confettiCount + 1,
 			},
 		});
 
@@ -850,7 +865,7 @@ export const actions: Actions = {
 				timerDuration: minutes * 60, // Convert minutes to seconds
 				timerPausedAt: null,
 				timerPausedRemaining: null,
-			} as any,
+			},
 		});
 
 		return { success: true };
@@ -869,22 +884,20 @@ export const actions: Actions = {
 			return { error: "Unauthorized" };
 		}
 
-		if (!(event as any).timerStartedAt || (event as any).timerPausedAt) {
+		if (!event.timerStartedAt || event.timerPausedAt) {
 			return { error: "Timer is not running" };
 		}
 
 		// Calculate remaining time
-		const elapsed = Math.floor(
-			(Date.now() - new Date((event as any).timerStartedAt).getTime()) / 1000,
-		);
-		const remaining = Math.max(0, ((event as any).timerDuration || 0) - elapsed);
+		const elapsed = Math.floor((Date.now() - new Date(event.timerStartedAt).getTime()) / 1000);
+		const remaining = Math.max(0, (event.timerDuration || 0) - elapsed);
 
 		await prisma.event.update({
 			where: { id: event.id },
 			data: {
 				timerPausedAt: new Date(),
 				timerPausedRemaining: remaining,
-			} as any,
+			},
 		});
 
 		return { success: true };
@@ -903,7 +916,7 @@ export const actions: Actions = {
 			return { error: "Unauthorized" };
 		}
 
-		if (!(event as any).timerPausedAt || (event as any).timerPausedRemaining === null) {
+		if (!event.timerPausedAt || event.timerPausedRemaining === null) {
 			return { error: "Timer is not paused" };
 		}
 
@@ -912,10 +925,10 @@ export const actions: Actions = {
 			where: { id: event.id },
 			data: {
 				timerStartedAt: new Date(),
-				timerDuration: (event as any).timerPausedRemaining,
+				timerDuration: event.timerPausedRemaining,
 				timerPausedAt: null,
 				timerPausedRemaining: null,
-			} as any,
+			},
 		});
 
 		return { success: true };
@@ -941,7 +954,7 @@ export const actions: Actions = {
 				timerDuration: null,
 				timerPausedAt: null,
 				timerPausedRemaining: null,
-			} as any,
+			},
 		});
 
 		return { success: true };
