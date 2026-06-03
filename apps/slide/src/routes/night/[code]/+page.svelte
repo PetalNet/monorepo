@@ -29,7 +29,9 @@
 
 	const emojiOptions = ['📊', '🎤', '🎬', '🎨', '🎯', '🚀', '💡', '⭐', '🔥', '✨', '🎪', '🎭', '🎸', '🎮', '💻', '📱'];
 
-	const joinUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/night/${data.event.joinCode}`;
+	const joinUrl = $derived(
+		`${typeof window !== 'undefined' ? window.location.origin : ''}/night/${data.event.joinCode}`,
+	);
 
 	onMount(async () => {
 		if (data.isHost) {
