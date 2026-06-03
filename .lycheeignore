@@ -7,3 +7,4 @@
 ^https?://(www\.)?example\.com
 ^http://anisette
 ^http://rustpush
+^https?://(www\.)?yourdomain\.com
