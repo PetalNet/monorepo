@@ -1,40 +1,41 @@
 {
-  "name": "slide",
+  "name": "@petalnet/slide",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
+    "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
   },
-  "devDependencies": {
-    "@sveltejs/adapter-auto": "^3.0.0",
-    "@sveltejs/adapter-node": "^5.4.0",
-    "@sveltejs/kit": "^2.0.0",
-    "@sveltejs/vite-plugin-svelte": "^4.0.0",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/qrcode": "^1.5.5",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
-    "svelte": "^5.0.0",
-    "svelte-check": "^4.0.0",
-    "tailwindcss": "^3.4.15",
-    "typescript": "^5.0.0",
-    "vite": "^5.0.3"
-  },
-  "type": "module",
   "dependencies": {
-    "@prisma/client": "^5.22.0",
-    "@types/better-sqlite3": "^7.6.12",
-    "@types/sortablejs": "^1.15.8",
-    "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.7.0",
-    "date-fns": "^4.1.0",
-    "nanoid": "^5.0.0",
-    "prisma": "^5.22.0",
-    "qrcode": "^1.5.4",
-    "sortablejs": "^1.15.6"
+    "@prisma/client": "catalog:prod",
+    "@sveltejs/kit": "catalog:prod",
+    "bcryptjs": "catalog:prod",
+    "better-sqlite3": "catalog:prod",
+    "date-fns": "catalog:prod",
+    "nanoid": "catalog:prod",
+    "qrcode": "catalog:prod",
+    "sortablejs": "catalog:prod",
+    "svelte": "catalog:prod"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-auto": "catalog:dev",
+    "@sveltejs/adapter-node": "catalog:dev",
+    "@sveltejs/vite-plugin-svelte": "catalog:dev",
+    "@types/bcryptjs": "catalog:types",
+    "@types/better-sqlite3": "catalog:types",
+    "@types/qrcode": "catalog:types",
+    "@types/sortablejs": "catalog:types",
+    "autoprefixer": "catalog:dev",
+    "postcss": "catalog:dev",
+    "prisma": "catalog:dev",
+    "svelte-check": "catalog:dev",
+    "tailwindcss": "catalog:legacy",
+    "typescript": "catalog:dev",
+    "vite": "catalog:dev"
   }
 }

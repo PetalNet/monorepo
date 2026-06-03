@@ -209,10 +209,10 @@ If something goes wrong:
 
 ## Emergency Contacts
 
-- [ ] Server provider support: ********\_********
-- [ ] Domain registrar support: ********\_********
+- [ ] Server provider support: **\*\*\*\***\_**\*\*\*\***
+- [ ] Domain registrar support: **\*\*\*\***\_**\*\*\*\***
 - [ ] Cloudflare support: https://support.cloudflare.com
-- [ ] Team lead/DevOps contact: ********\_********
+- [ ] Team lead/DevOps contact: **\*\*\*\***\_**\*\*\*\***
 
 ## Notes
 
@@ -220,12 +220,12 @@ _Add any deployment-specific notes, gotchas, or customizations here:_
 
 ---
 
-**Deployment Date:** ********\_\_\_********
+**Deployment Date:** **\*\*\*\***\_\_\_**\*\*\*\***
 
-**Deployed By:** ********\_\_\_********
+**Deployed By:** **\*\*\*\***\_\_\_**\*\*\*\***
 
-**Production URL:** ********\_\_\_********
+**Production URL:** **\*\*\*\***\_\_\_**\*\*\*\***
 
-**Server IP:** ********\_\_\_********
+**Server IP:** **\*\*\*\***\_\_\_**\*\*\*\***
 
-**Cloudflare Tunnel ID:** ********\_\_\_********
+**Cloudflare Tunnel ID:** **\*\*\*\***\_\_\_**\*\*\*\***

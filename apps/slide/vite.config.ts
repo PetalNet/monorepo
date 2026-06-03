@@ -1,5 +1,5 @@
-import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
 	plugins: [sveltekit()],
@@ -9,15 +9,15 @@ export default defineConfig({
 			output: {
 				manualChunks: {
 					// Separate vendor chunks for better caching
-					'vendor-ui': ['sortablejs', 'qrcode'],
-				}
-			}
+					"vendor-ui": ["sortablejs", "qrcode"],
+				},
+			},
 		},
 		// Reduce chunk size warnings threshold
-		chunkSizeWarningLimit: 600
+		chunkSizeWarningLimit: 600,
 	},
 	// Enable compression for dev server
 	server: {
-		compress: true
-	}
+		compress: true,
+	},
 });

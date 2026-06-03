@@ -32,10 +32,10 @@ Format a date in a specific timezone using Intl.DateTimeFormat.
 
 ```typescript
 formatInTimezone(event.submissionDeadline, event.timezone, {
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
+	month: "short",
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
 });
 // Returns: "Dec 25, 3:00 PM"
 ```
@@ -98,23 +98,19 @@ Visual badge component to show timezone:
 ## Where Timezone is Used
 
 1. **Event Creation** (`/event/create`)
-
    - Host selects event timezone from dropdown
    - Defaults to user's browser timezone
    - Deadline input is interpreted in selected timezone
 
 2. **Event Display** (`/night/[code]`)
-
    - Deadline shown in event timezone with abbreviation
    - Host settings show timezone context for inputs
 
 3. **Event Management** (`/event/[id]`)
-
    - All times displayed in event timezone
    - Edit form uses event timezone for inputs
 
 4. **Dashboard** (`/dashboard`)
-
    - Upcoming deadlines shown with timezone context
    - Relative times calculated in event timezone
 
