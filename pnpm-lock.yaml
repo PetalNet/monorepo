@@ -151,6 +151,9 @@ catalogs:
       specifier: ^1.15.8
       version: 1.15.9
 
+patchedDependencies:
+  knip: 33097004f1467d3dbda7aefc18cddbe18363610ace812597d90303aab2a426df
+
 importers:
 
   .:
@@ -184,7 +187,7 @@ importers:
         version: 1.2.0(@eslint/json@2.0.0)(@types/estree@1.0.9)(eslint@10.4.1(jiti@2.7.0))
       knip:
         specifier: catalog:dev
-        version: 6.14.2
+        version: 6.14.2(patch_hash=33097004f1467d3dbda7aefc18cddbe18363610ace812597d90303aab2a426df)
       oxlint:
         specifier: catalog:dev
         version: 1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.23(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(svelte@5.56.0(@typescript-eslint/types@8.60.0))(tsx@4.22.3)(typescript@6.0.3)(vite@8.0.14(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0))(yaml@2.9.0))
@@ -6890,7 +6893,7 @@ snapshots:
 
   kleur@4.1.5: {}
 
-  knip@6.14.2:
+  knip@6.14.2(patch_hash=33097004f1467d3dbda7aefc18cddbe18363610ace812597d90303aab2a426df):
     dependencies:
       fdir: 6.5.0(picomatch@4.0.4)
       formatly: 0.3.0

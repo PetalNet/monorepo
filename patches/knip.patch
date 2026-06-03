@@ -1,0 +1,28 @@
+diff --git a/dist/typescript/resolve-module-names.js b/dist/typescript/resolve-module-names.js
+index 59b5b2debf026bb4ac0ccb6ebd1ba26631663a25..26058e9a690bcadd3672eacfd15798aa847e4836 100644
+--- a/dist/typescript/resolve-module-names.js
++++ b/dist/typescript/resolve-module-names.js
+@@ -42,6 +42,13 @@ function compilePathMappings(paths) {
+     }
+     return mappings.length > 0 ? mappings : undefined;
+ }
++function commonPrefixLen(a, b) {
++    let i = 0;
++    const n = Math.min(a.length, b.length);
++    while (i < n && a[i] === b[i])
++        i++;
++    return i;
++}
+ export function createCustomModuleResolver(compilerOptions, customCompilerExtensions, toSourceFilePath, findWorkspaceManifestImports) {
+     const customCompilerExtensionsSet = new Set(customCompilerExtensions);
+     const hasCustomExts = customCompilerExtensionsSet.size > 0;
+@@ -90,7 +97,8 @@ export function createCustomModuleResolver(compilerOptions, customCompilerExtens
+             for (const { prefix, wildcard, values } of pathMappings) {
+                 if (wildcard ? specifier.startsWith(prefix) : specifier === prefix) {
+                     const captured = wildcard ? specifier.slice(prefix.length) : '';
+-                    for (const value of values) {
++                    const orderedValues = values.length > 1 ? [...values].sort((a, b) => commonPrefixLen(b, containingFile) - commonPrefixLen(a, containingFile)) : values;
++                    for (const value of orderedValues) {
+                         const starIdx = value.indexOf('*');
+                         const mapped = starIdx >= 0 ? value.slice(0, starIdx) + captured + value.slice(starIdx + 1) : value;
+                         const resolved = resolveSync(mapped, containingFile);
