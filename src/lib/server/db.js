@@ -9,6 +9,7 @@ try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch {}
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000'); // multi-writer safety (delegation + the Corner sync)
+db.pragma('foreign_keys = ON');   // so task_blockers edges cascade when a task is deleted
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS projects (
@@ -47,6 +48,14 @@ db.exec(`
     type    TEXT NOT NULL,
     data    TEXT,
     at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  -- task-to-task blocking: task_id is blocked BY blocker_id. blocked_on (text) stays as a human note.
+  CREATE TABLE IF NOT EXISTS task_blockers (
+    task_id    INTEGER NOT NULL,
+    blocker_id INTEGER NOT NULL,
+    PRIMARY KEY (task_id, blocker_id),
+    FOREIGN KEY (task_id)    REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (blocker_id) REFERENCES tasks(id) ON DELETE CASCADE
   );
 `);
 
@@ -90,6 +99,8 @@ const log = (task_id, type, data) =>
   db.prepare('INSERT INTO events (task_id,type,data) VALUES (?,?,?)').run(task_id, type, data ? JSON.stringify(data) : null);
 
 const ACTIVE = "status NOT IN ('done','dropped')";
+// actionable list filter: blocked tasks get their own muted section, so the working lists hide them.
+const UNBLOCKED = "status NOT IN ('done','dropped','blocked')";
 const where = (p) => (p ? 'AND project_id=@p' : '');
 // assignee filter: mirrors the project filter; supplied → restrict to one agent/human.
 const whoFilter = (a) => (a ? 'AND assignee=@a' : '');
@@ -99,6 +110,35 @@ const qargs = (p, me, a) => ({ ...(p ? { p } : {}), ...(me ? { me } : {}), ...(a
 const args = (p) => (p ? { p } : {});
 
 export const getTask = (id) => db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
+
+// --- task-to-task blocking ---
+// A task is "blocked" iff it has >=1 blocker whose status is NOT in (done,dropped).
+export const blockersOf = (task_id) => db.prepare(
+  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id WHERE b.task_id=? ORDER BY t.id`
+).all(task_id);
+export const unfinishedBlockers = (task_id) => db.prepare(
+  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id
+   WHERE b.task_id=? AND t.status NOT IN ('done','dropped') ORDER BY t.id`
+).all(task_id);
+export function addBlocker(task_id, blocker_id) {
+  task_id = Number(task_id); blocker_id = Number(blocker_id);
+  if (!task_id || !blocker_id || task_id === blocker_id) return false; // no self-block
+  db.prepare('INSERT OR IGNORE INTO task_blockers (task_id,blocker_id) VALUES (?,?)').run(task_id, blocker_id);
+  log(task_id, 'add_blocker', { blocker_id });
+  return true;
+}
+export function removeBlocker(task_id, blocker_id) {
+  task_id = Number(task_id); blocker_id = Number(blocker_id);
+  db.prepare('DELETE FROM task_blockers WHERE task_id=? AND blocker_id=?').run(task_id, blocker_id);
+  log(task_id, 'remove_blocker', { blocker_id });
+  // if it was set to 'blocked' but now has no live blockers, free it
+  const t = getTask(task_id);
+  if (t && t.status === 'blocked' && unfinishedBlockers(task_id).length === 0) {
+    db.prepare(`UPDATE tasks SET status='todo', updated_at=datetime('now') WHERE id=?`).run(task_id);
+    log(task_id, 'auto_unblock', { reason: 'blocker_removed' });
+  }
+  return true;
+}
 export const listComments = (tid) => db.prepare('SELECT * FROM comments WHERE task_id=? ORDER BY created_at').all(tid);
 export function addComment(task_id, author, body) {
   const r = db.prepare('INSERT INTO comments (task_id,author,body) VALUES (?,?,?)').run(task_id, author || '', body);
@@ -140,9 +180,16 @@ export const listAssignees = (me) => db.prepare(
 const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of the task checklist
 
 // Top-level items per section (children render nested under their parent — work isn't flat, per Bob).
-export const upNext  = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me, a)));
+export const upNext  = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${UNBLOCKED} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me, a)));
 export const inbox   = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY created_at DESC`).all(qargs(p, me, a));
-export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a)));
+export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${UNBLOCKED} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a)));
+// dedicated muted section for blocked tasks (top-level only; children render under their parent).
+export const blockedList = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a))
+  .map((r) => ({ ...r, blockers: blockersOf(r.id) }));
+// lightweight {id,title} list of open tasks for the blocker-picker dropdown (honors visibility).
+export const blockerCandidates = (me) => db.prepare(
+  `SELECT id, title FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)} ORDER BY updated_at DESC LIMIT 500`
+).all(me ? { me } : {});
 
 // --- Claude Corner merge: docs (briefs/ADRs) + questions (async decisions) ---
 export const listDocs = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY updated_at DESC`).all(qargs(p, me, a));
@@ -200,12 +247,32 @@ const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'pa
   'owner', 'visibility', 'responsible'];
 
 export const getTaskBySource = (source) => db.prepare('SELECT * FROM tasks WHERE source=?').get(source);
-export function updateTask(id, patch) {
+
+// When a task closes, free anything it was blocking that now has no live blockers (blocked -> todo).
+function cascadeUnblock(blockerId) {
+  const dependents = db.prepare('SELECT task_id FROM task_blockers WHERE blocker_id=?').all(blockerId);
+  for (const { task_id } of dependents) {
+    const dep = getTask(task_id);
+    if (dep && dep.status === 'blocked' && unfinishedBlockers(task_id).length === 0) {
+      db.prepare(`UPDATE tasks SET status='todo', updated_at=datetime('now') WHERE id=?`).run(task_id);
+      log(task_id, 'auto_unblock', { blocker_id: blockerId });
+    }
+  }
+}
+
+export const updateTask = db.transaction((id, patch) => {
   const cols = Object.keys(patch).filter((k) => PATCHABLE.includes(k));
   if (!cols.length) return;
+  // Guard: status='blocked' requires >=1 live blocker. No-op (with a clear return) otherwise.
+  if (patch.status === 'blocked' && unfinishedBlockers(id).length === 0) {
+    return { ok: false, reason: 'no_blockers', message: 'Cannot set blocked: add at least one unfinished blocker first.' };
+  }
   db.prepare(`UPDATE tasks SET ${cols.map((c) => `${c}=@${c}`).join(',')}, updated_at=datetime('now') WHERE id=@id`).run({ id, ...patch });
   log(id, 'update', patch);
-}
+  // Auto-unblock: closing this task frees its dependents.
+  if (patch.status === 'done' || patch.status === 'dropped') cascadeUnblock(id);
+  return { ok: true };
+});
 
 // --- delegation: assignment, atomic claim/lease, report-back, verify, reap ---
 

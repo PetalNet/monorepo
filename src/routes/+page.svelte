@@ -63,8 +63,15 @@
         {#if projName(t.project_id)}<a class="tag" href={filterUrl({ project: projName(t.project_id) })}>{projName(t.project_id)}</a>{/if}
         {#if t.assignee}<a class="tag who" href={filterUrl({ assignee: t.assignee })}>@{t.assignee}</a>{/if}
         <form method="POST" action="?/setproject" use:enhance class="pp"><input type="hidden" name="id" value={t.id} /><select name="project_id" aria-label="Set project" onchange={(e) => e.currentTarget.form.requestSubmit()}><option value="">{t.project_id ? '⋯' : '+ project'}</option>{#each data.projects as p}<option value={p.id} selected={p.id === t.project_id}>{p.name}</option>{/each}<option value="none">(no project)</option></select></form>
-        {#if t.blocked_on}<span class="blocked">· blocked: {t.blocked_on}</span>{/if}
+        {#if t.blocked_on}<span class="blocked">· note: {t.blocked_on}</span>{/if}
         <button type="button" class="link" onclick={() => (openSub[t.id] = !openSub[t.id])}>+ sub</button>
+        <form method="POST" action="?/blocker" use:enhance class="pp">
+          <input type="hidden" name="id" value={t.id} /><input type="hidden" name="op" value="add" />
+          <select name="blocker_id" aria-label="Blocked by" onchange={(e) => e.currentTarget.value && e.currentTarget.form.requestSubmit()}>
+            <option value="">⊘ block by…</option>
+            {#each data.candidates as c}{#if c.id !== t.id}<option value={c.id}>#{c.id} {c.title}</option>{/if}{/each}
+          </select>
+        </form>
       </div>
       {#if openSub[t.id]}
         <form class="subadd" method="POST" action="?/subtask"
@@ -170,6 +177,36 @@
     {#each data.backlog as t (t.id)}{@render row(t, 0)}{:else}<p class="empty">Backlog clear.</p>{/each}
   </section>
 
+  <!-- BLOCKED — waiting on another task; muted, auto-clears when its blockers close -->
+  {#if data.blocked.length}
+    <section class="sec">
+      <div class="sec-h"><h2>Blocked</h2><span class="count">{data.blocked.length}</span></div>
+      {#each data.blocked as t (t.id)}
+        <div class="item blk">
+          <form method="POST" action="?/update" use:enhance>
+            <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
+            <button class="box" title="Complete"><svg class="chk ic"><use href="#i-check"/></svg></button>
+          </form>
+          <div class="body">
+            <a class="ttl" href="/task/{t.id}">{t.title}</a>
+            <div class="meta">
+              <span class="dot p{t.priority}"></span>P{t.priority}
+              {#if projName(t.project_id)}<a class="tag" href={filterUrl({ project: projName(t.project_id) })}>{projName(t.project_id)}</a>{/if}
+              <span class="blocked">blocked by</span>
+              {#each t.blockers as b}
+                <a class="tag {b.status === 'done' || b.status === 'dropped' ? 'doneb' : 'liveb'}" href="/task/{b.id}">#{b.id}</a>
+                <form method="POST" action="?/blocker" use:enhance class="pp">
+                  <input type="hidden" name="id" value={t.id} /><input type="hidden" name="blocker_id" value={b.id} /><input type="hidden" name="op" value="remove" />
+                  <button class="link" title="Remove blocker">✕</button>
+                </form>
+              {/each}
+            </div>
+          </div>
+        </div>
+      {/each}
+    </section>
+  {/if}
+
   <!-- DOCS — briefs / ADRs (merged from Claude Corner) -->
   {#if data.docs.length}
     <section class="sec">
@@ -242,6 +279,10 @@
   .pp select{font:inherit;font-size:11px;color:var(--soft);background:none;border:1px dashed var(--border);border-radius:5px;padding:1px 4px;cursor:pointer;max-width:120px;}
   .pp select:hover{color:var(--text);border-color:var(--border-strong);}
   .blocked{color:var(--amber);}
+  .item.blk{opacity:.72;border-style:dashed;}
+  .item.blk:hover{opacity:1;}
+  .tag.liveb{color:var(--amber);border-color:var(--amber);}
+  .tag.doneb{color:var(--soft);text-decoration:line-through;}
 
   .idea{border-style:dashed;}
   .triage{display:flex;gap:6px;flex:none;align-self:center;}

@@ -1,7 +1,8 @@
 import {
   upNext, inbox, backlog, listProjects, getProjectByName,
   createTask, updateTask, ensureProject, nextUpNextRank, getTask,
-  listDocs, openQuestions, answerQuestion, listAssignees
+  listDocs, openQuestions, answerQuestion, listAssignees,
+  blockedList, addBlocker, removeBlocker, unfinishedBlockers, blockerCandidates
 } from '$lib/server/db.js';
 
 export function load({ url, locals }) {
@@ -21,6 +22,8 @@ export function load({ url, locals }) {
     upNext: upNext(pid, me, who),
     inbox: inbox(pid, me, who),
     backlog: backlog(pid, me, who),
+    blocked: blockedList(pid, me, who),
+    candidates: blockerCandidates(me),
     docs: listDocs(pid, me, who)
   };
 }
@@ -57,7 +60,26 @@ export const actions = {
     for (const k of ['status', 'priority', 'up_next', 'blocked_on', 'title']) {
       if (f.has(k)) patch[k] = (k === 'priority' || k === 'up_next') ? Number(f.get(k)) : String(f.get(k));
     }
-    updateTask(id, patch);
+    // a 'blocker' id may ride along when setting status=blocked, so the guard passes
+    if (patch.status === 'blocked' && f.get('blocker')) addBlocker(id, Number(f.get('blocker')));
+    const res = updateTask(id, patch);
+    if (res && res.ok === false) return { ok: false, error: res.message };
+    return { ok: true };
+  },
+
+  // add or remove a task-to-task blocker edge ("this is blocked BY that")
+  blocker: async ({ request }) => {
+    const f = await request.formData();
+    const id = Number(f.get('id'));
+    const blocker_id = Number(f.get('blocker_id'));
+    const op = String(f.get('op') || 'add');
+    if (!id || !blocker_id) return { ok: false };
+    if (op === 'remove') removeBlocker(id, blocker_id);
+    else {
+      addBlocker(id, blocker_id);
+      // adding a live blocker to an open task flips it to blocked
+      if (unfinishedBlockers(id).length) updateTask(id, { status: 'blocked' });
+    }
     return { ok: true };
   },
 
