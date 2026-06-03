@@ -71,7 +71,7 @@ catalogs:
     "@prisma/client": ^5.22.0
     "@sveltejs/kit": ^2.50.1
     bcryptjs: ^2.4.3
-    better-sqlite3: ^11.7.0
+    better-sqlite3: ^12.10.0
     date-fns: ^4.1.0
     drizzle-orm: ^0.45.1
     leaflet: ^1.9.4

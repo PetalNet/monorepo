@@ -8,3 +8,4 @@
 ^http://anisette
 ^http://rustpush
 ^https?://(www\.)?yourdomain\.com
+^https?://support\.cloudflare\.com
