@@ -137,6 +137,13 @@
                   <button class="opt">{o.label}</button>
                 </form>
               {/each}
+              {#if !q.opts.length}
+                <form method="POST" action="?/answer" use:enhance class="q-free">
+                  <input type="hidden" name="id" value={q.id} />
+                  <input name="value" placeholder="Type an answer…" required aria-label="Answer" />
+                  <button class="opt">Answer</button>
+                </form>
+              {/if}
             </div>
           </div>
         </div>
