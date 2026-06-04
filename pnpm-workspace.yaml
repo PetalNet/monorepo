@@ -52,7 +52,7 @@ catalogs:
     vite: ^8.0.0
     # Exact-pinned (not ^) so it stays in lockstep with the CI-installed vp
     # (.github/workflows/ci.yml setup-vp version). Renovate bumps both together.
-    vite-plus: 0.1.23
+    vite-plus: 0.1.24
 
   types:
     "@types/leaflet": ^1.9.21
