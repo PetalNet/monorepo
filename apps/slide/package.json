@@ -1,0 +1,38 @@
+{
+  "name": "@petalnet/slide",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "prisma generate && vite build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "dev": "vite dev",
+    "prepare": "prisma generate && svelte-kit sync || echo ''",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@prisma/client": "catalog:prod",
+    "@sveltejs/kit": "catalog:prod",
+    "bcryptjs": "catalog:prod",
+    "date-fns": "catalog:prod",
+    "nanoid": "catalog:prod",
+    "qrcode": "catalog:prod",
+    "sortablejs": "catalog:prod",
+    "svelte": "catalog:prod"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-node": "catalog:dev",
+    "@sveltejs/vite-plugin-svelte": "catalog:dev",
+    "@types/bcryptjs": "catalog:types",
+    "@types/qrcode": "catalog:types",
+    "@types/sortablejs": "catalog:types",
+    "autoprefixer": "catalog:dev",
+    "postcss": "catalog:dev",
+    "prisma": "catalog:dev",
+    "svelte-check": "catalog:dev",
+    "tailwindcss": "catalog:legacy",
+    "typescript": "catalog:dev",
+    "vite": "catalog:dev"
+  }
+}

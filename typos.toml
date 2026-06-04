@@ -1,6 +1,8 @@
 [files]
 extend-exclude = [
 	"pnpm-lock.yaml",
+	# Generated dependency patches: hunk headers truncate identifiers mid-word.
+	"patches/**",
 	"**/dist/**",
 	"**/build/**",
 	"**/.svelte-kit/**",

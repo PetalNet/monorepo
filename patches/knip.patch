@@ -1,0 +1,143 @@
+diff --git a/dist/ProjectPrincipal.js b/dist/ProjectPrincipal.js
+index 8e9bd049df7b5e587b7b47d4f04473ee9995232e..ff8484fa7bc64abdf874e19d8bf38585b157b192 100644
+--- a/dist/ProjectPrincipal.js
++++ b/dist/ProjectPrincipal.js
+@@ -26,21 +26,23 @@ export class ProjectPrincipal {
+     _visitor;
+     syncCompilers = new Map();
+     asyncCompilers = new Map();
+-    paths = {};
++    paths = new Map();
+     rootDirs = [];
+     extensions = new Set(DEFAULT_EXTENSIONS);
+     cache;
+     toSourceFilePath;
+     findWorkspaceManifestImports;
++    findWorkspaceDir;
+     fileManager;
+     resolveModule = () => undefined;
+     resolvedFiles = new Set();
+     deletedFiles = new Set();
+     onPathAdded;
+-    constructor(options, toSourceFilePath, findWorkspaceManifestImports) {
++    constructor(options, toSourceFilePath, findWorkspaceManifestImports, findWorkspaceDir) {
+         this.cache = new CacheConsultant('root', options);
+         this.toSourceFilePath = toSourceFilePath;
+         this.findWorkspaceManifestImports = findWorkspaceManifestImports;
++        this.findWorkspaceDir = findWorkspaceDir;
+         this.pluginVisitorObjects.push(createBunShellVisitor(this.pluginCtx));
+         this.fileManager = new SourceFileManager({
+             compilers: [this.syncCompilers, this.asyncCompilers],
+@@ -61,16 +63,21 @@ export class ProjectPrincipal {
+             }
+         }
+     }
+-    addPaths(paths, basePath) {
++    addPaths(paths, basePath, workspaceDir) {
+         if (!paths)
+             return;
++        let scoped = this.paths.get(workspaceDir);
++        if (!scoped) {
++            scoped = {};
++            this.paths.set(workspaceDir, scoped);
++        }
+         for (const key in paths) {
+             const prefixes = paths[key].map(prefix => toAbsolute(prefix, basePath));
+-            if (key in this.paths) {
+-                this.paths[key] = compact([...this.paths[key], ...prefixes]);
++            if (key in scoped) {
++                scoped[key] = compact([...scoped[key], ...prefixes]);
+             }
+             else {
+-                this.paths[key] = prefixes;
++                scoped[key] = prefixes;
+             }
+         }
+     }
+@@ -86,9 +93,9 @@ export class ProjectPrincipal {
+             ...getCompilerExtensions([this.syncCompilers, this.asyncCompilers]),
+         ]);
+         const customCompilerExtensions = getCompilerExtensions([this.syncCompilers, this.asyncCompilers]);
+-        const pathsOrUndefined = Object.keys(this.paths).length > 0 ? this.paths : undefined;
++        const scopedPaths = this.paths.size > 0 ? [...this.paths].map(([dir, paths]) => ({ dir, paths })) : undefined;
+         const rootDirsOrUndefined = this.rootDirs.length > 1 ? this.rootDirs : undefined;
+-        this.resolveModule = createCustomModuleResolver({ paths: pathsOrUndefined, rootDirs: rootDirsOrUndefined }, customCompilerExtensions, this.toSourceFilePath, this.findWorkspaceManifestImports);
++        this.resolveModule = createCustomModuleResolver({ scopedPaths, rootDirs: rootDirsOrUndefined }, customCompilerExtensions, this.toSourceFilePath, this.findWorkspaceManifestImports, this.findWorkspaceDir);
+     }
+     readFile(filePath) {
+         return this.fileManager.readFile(filePath);
+diff --git a/dist/graph/build.js b/dist/graph/build.js
+index 328785853de3d95a3895a3f3af1e053f631e1f8c..c692122b08fdab00d9deed62eb3e0d92ee48ca51 100644
+--- a/dist/graph/build.js
++++ b/dist/graph/build.js
+@@ -128,7 +128,7 @@ export async function build({ chief, collector, counselor, deputy, principal, is
+         }
+         for (const dep of getManifestImportDependencies(manifest))
+             deputy.addReferencedDependency(name, dep);
+-        principal.addPaths(config.paths, dir);
++        principal.addPaths(config.paths, dir, dir);
+         if (compilerOptions.rootDirs)
+             principal.addRootDirs(compilerOptions.rootDirs);
+         const inputsFromPlugins = await worker.runPlugins();
+@@ -170,7 +170,7 @@ export async function build({ chief, collector, counselor, deputy, principal, is
+                 projectFilePatterns.add(toWorkspaceRelative(specifier));
+             }
+             else if (isAlias(input)) {
+-                principal.addPaths({ [input.specifier]: input.prefixes }, input.dir ?? dir);
++                principal.addPaths({ [input.specifier]: input.prefixes }, input.dir ?? dir, dir);
+             }
+             else if (isIgnore(input)) {
+                 if (input.issueType === 'dependencies' || input.issueType === 'unlisted') {
+diff --git a/dist/run.js b/dist/run.js
+index a2c5b65de0a091c2784d2a67663342f2d60a9831..35c9eb40dc047d5a9cc78c26318a49adb9661716 100644
+--- a/dist/run.js
++++ b/dist/run.js
+@@ -31,7 +31,8 @@ export const run = async (options) => {
+     const isGitIgnored = await getGitIgnoredHandler(options, new Set(workspaces.map(w => w.dir)));
+     const toSourceFilePath = getModuleSourcePathHandler(chief);
+     const findWorkspaceManifestImports = getWorkspaceManifestHandler(chief);
+-    const principal = new ProjectPrincipal(options, toSourceFilePath, findWorkspaceManifestImports);
++    const findWorkspaceDir = (filePath) => chief.findWorkspaceByFilePath(filePath)?.dir;
++    const principal = new ProjectPrincipal(options, toSourceFilePath, findWorkspaceManifestImports, findWorkspaceDir);
+     collector.setWorkspaceFilter(chief.workspaceFilePathFilter);
+     collector.setIgnoreIssues(chief.config.ignoreIssues);
+     debugLogObject('*', 'Included workspaces', () => workspaces.map(w => w.pkgName));
+diff --git a/dist/typescript/resolve-module-names.js b/dist/typescript/resolve-module-names.js
+index 59b5b2debf026bb4ac0ccb6ebd1ba26631663a25..4375a55cce12ee8e5f21001ddd86ae34e4cd6f8f 100644
+--- a/dist/typescript/resolve-module-names.js
++++ b/dist/typescript/resolve-module-names.js
+@@ -42,13 +42,18 @@ function compilePathMappings(paths) {
+     }
+     return mappings.length > 0 ? mappings : undefined;
+ }
+-export function createCustomModuleResolver(compilerOptions, customCompilerExtensions, toSourceFilePath, findWorkspaceManifestImports) {
++export function createCustomModuleResolver(resolverOptions, customCompilerExtensions, toSourceFilePath, findWorkspaceManifestImports, findWorkspaceDir) {
+     const customCompilerExtensionsSet = new Set(customCompilerExtensions);
+     const hasCustomExts = customCompilerExtensionsSet.size > 0;
+     const extensions = [...DEFAULT_EXTENSIONS, ...customCompilerExtensions, ...DTS_EXTENSIONS];
+     const resolveSync = hasCustomExts ? _createSyncModuleResolver(extensions) : _resolveModuleSync;
+-    const pathMappings = compilePathMappings(compilerOptions.paths);
+-    const rootDirs = compilerOptions.rootDirs;
++    const pathMappings = new Map();
++    for (const { dir, paths } of resolverOptions.scopedPaths ?? []) {
++        const mappings = compilePathMappings(paths);
++        if (mappings)
++            pathMappings.set(dir, mappings);
++    }
++    const rootDirs = resolverOptions.rootDirs;
+     function toSourcePath(resolvedFileName) {
+         if (!hasCustomExts || !customCompilerExtensionsSet.has(extname(resolvedFileName))) {
+             return toSourceFilePath(resolvedFileName) || resolvedFileName;
+@@ -86,8 +91,10 @@ export function createCustomModuleResolver(compilerOptions, customCompilerExtens
+         const resolvedFileName = resolveSync(specifier, containingFile);
+         if (resolvedFileName)
+             return toResult(resolvedFileName);
+-        if (pathMappings) {
+-            for (const { prefix, wildcard, values } of pathMappings) {
++        const workspaceDir = findWorkspaceDir?.(containingFile);
++        const scopedMappings = workspaceDir ? pathMappings.get(workspaceDir) : undefined;
++        if (scopedMappings) {
++            for (const { prefix, wildcard, values } of scopedMappings) {
+                 if (wildcard ? specifier.startsWith(prefix) : specifier === prefix) {
+                     const captured = wildcard ? specifier.slice(prefix.length) : '';
+                     for (const value of values) {
