@@ -1,0 +1,114 @@
+diff --git a/dist/ProjectPrincipal.js b/dist/ProjectPrincipal.js
+index a0f805bd5b9c2b543f5e46e2fda0fd2a88ab4691..d33c56f05a22cb546819b405e73fd099c0738a22 100644
+--- a/dist/ProjectPrincipal.js
++++ b/dist/ProjectPrincipal.js
+@@ -29,6 +29,7 @@ export class ProjectPrincipal {
+     syncCompilers = new Map();
+     asyncCompilers = new Map();
+     paths = new Map();
++    rootDirs = new Map();
+     extensions = new Set(DEFAULT_EXTENSIONS);
+     cache;
+     toSourceFilePath;
+@@ -72,6 +73,12 @@ export class ProjectPrincipal {
+         }
+         this.paths.set(scope, scoped);
+     }
++    addRootDirs(rootDirs, scope) {
++        if (!rootDirs?.length)
++            return;
++        const scoped = this.rootDirs.get(scope) ?? [];
++        this.rootDirs.set(scope, compact([...scoped, ...rootDirs]));
++    }
+     init() {
+         this.extensions = new Set([
+             ...DEFAULT_EXTENSIONS,
+@@ -79,7 +86,8 @@ export class ProjectPrincipal {
+         ]);
+         const customCompilerExtensions = getCompilerExtensions([this.syncCompilers, this.asyncCompilers]);
+         const scopedPaths = this.paths.size > 0 ? Array.from(this.paths, ([scope, paths]) => ({ scope, paths })) : undefined;
+-        this.resolveModule = createCustomModuleResolver({ scopedPaths }, customCompilerExtensions, this.toSourceFilePath, this.findWorkspaceManifestImports);
++        const scopedRootDirs = this.rootDirs.size > 0 ? Array.from(this.rootDirs, ([scope, rootDirs]) => ({ scope, rootDirs })) : undefined;
++        this.resolveModule = createCustomModuleResolver({ scopedPaths, scopedRootDirs }, customCompilerExtensions, this.toSourceFilePath, this.findWorkspaceManifestImports);
+     }
+     readFile(filePath) {
+         return this.fileManager.readFile(filePath);
+diff --git a/dist/graph/build.js b/dist/graph/build.js
+index 08f979a55273367939ae3426c91eefffa8124fe8..98e5250829c50becb3d12b209864bde9ba23d321 100644
+--- a/dist/graph/build.js
++++ b/dist/graph/build.js
+@@ -129,6 +129,8 @@ export async function build({ chief, collector, counselor, deputy, principal, is
+         for (const dep of getManifestImportDependencies(manifest))
+             deputy.addReferencedDependency(name, dep);
+         principal.addPaths(config.paths, dir, dir);
++        if (compilerOptions?.rootDirs?.length)
++            principal.addRootDirs(compilerOptions.rootDirs.map(rootDir => isAbsolute(rootDir) ? rootDir : join(dir, rootDir)), dir);
+         const inputsFromPlugins = await worker.runPlugins();
+         for (const id of inputsFromPlugins)
+             inputs.add(Object.assign(id, { skipExportsAnalysis: !id.allowIncludeExports }));
+diff --git a/dist/typescript/resolve-module-names.js b/dist/typescript/resolve-module-names.js
+index dde3536dcc01b4c75b3127f32e27a6b5a775439b..5e151ef64f2698b3145aa165771b876e8a27da81 100644
+--- a/dist/typescript/resolve-module-names.js
++++ b/dist/typescript/resolve-module-names.js
+@@ -47,12 +47,22 @@ function compilePathMappings(scopedPaths) {
+     mappings.sort((a, b) => b.scope.length - a.scope.length);
+     return mappings;
+ }
++function compileRootDirs(scopedRootDirs) {
++    if (!scopedRootDirs)
++        return undefined;
++    const rootDirs = scopedRootDirs.filter(({ rootDirs }) => rootDirs.length > 0);
++    if (rootDirs.length === 0)
++        return undefined;
++    rootDirs.sort((a, b) => b.scope.length - a.scope.length);
++    return rootDirs;
++}
+ export function createCustomModuleResolver(compilerOptions, customCompilerExtensions, toSourceFilePath, findWorkspaceManifestImports) {
+     const customCompilerExtensionsSet = new Set(customCompilerExtensions);
+     const hasCustomExts = customCompilerExtensionsSet.size > 0;
+     const extensions = [...DEFAULT_EXTENSIONS, ...customCompilerExtensions, ...DTS_EXTENSIONS];
+     const resolveSync = hasCustomExts ? _createSyncModuleResolver(extensions) : _resolveModuleSync;
+     const pathMappings = compilePathMappings(compilerOptions.scopedPaths);
++    const scopedRootDirs = compileRootDirs(compilerOptions.scopedRootDirs);
+     function toSourcePath(resolvedFileName) {
+         if (!hasCustomExts || !customCompilerExtensionsSet.has(extname(resolvedFileName))) {
+             return toSourceFilePath(resolvedFileName) || resolvedFileName;
+@@ -118,6 +128,25 @@ export function createCustomModuleResolver(compilerOptions, customCompilerExtens
+                 }
+             }
+         }
++        if (!isAbsolute(specifier) && scopedRootDirs) {
++            const dir = dirname(containingFile);
++            for (const { scope, rootDirs } of scopedRootDirs) {
++                if (dir !== scope && !dir.startsWith(`${scope}/`))
++                    continue;
++                for (const rootDir of rootDirs) {
++                    if (dir !== rootDir && !dir.startsWith(`${rootDir}/`))
++                        continue;
++                    const relPath = dir === rootDir ? '' : dir.slice(rootDir.length + 1);
++                    for (const targetRoot of rootDirs) {
++                        if (targetRoot === rootDir)
++                            continue;
++                        const resolved = resolveSync(join(targetRoot, relPath, specifier), containingFile);
++                        if (resolved)
++                            return toResult(resolved);
++                    }
++                }
++            }
++        }
+         const candidate = isAbsolute(specifier) ? specifier : join(dirname(containingFile), specifier);
+         if (existsSync(candidate)) {
+             return { resolvedFileName: candidate, isExternalLibraryImport: false };
+diff --git a/dist/util/load-tsconfig.js b/dist/util/load-tsconfig.js
+index d9b1fd39dfc6e18a2c6c2878e9fe3e6549a274e2..4a194637242fb1f223885feb1050ce775177d7eb 100644
+--- a/dist/util/load-tsconfig.js
++++ b/dist/util/load-tsconfig.js
+@@ -94,6 +94,8 @@ export const loadTSConfig = async (tsConfigFilePath) => {
+             compilerOptions.outDir = absDir(compilerOptions.outDir, dir);
+         if (compilerOptions.rootDir)
+             compilerOptions.rootDir = absDir(compilerOptions.rootDir, dir);
++        if (compilerOptions.rootDirs)
++            compilerOptions.rootDirs = compilerOptions.rootDirs.map(rootDir => absDir(rootDir, dir));
+         if (compilerOptions.paths) {
+             compilerOptions.pathsBasePath ??= dir;
+         }
