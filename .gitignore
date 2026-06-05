@@ -8,3 +8,4 @@ tasks.db-*
 
 # runtime agent-fleet heartbeat (written by the warm session/manager, read by the rail)
 data/agent-fleet-status.json
+data/eleven-api-key

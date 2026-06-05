@@ -42,8 +42,10 @@
   // the FIRST render — otherwise flipping it post-mount re-renders {@html} and
   // clobbers the glossary spans the effect just injected.
   let human = $state(!!data.bodyHtmlHuman); // show the plain-English rewrite
+  let voice = $state('agent-a');     // TTS voice for Listen (server whitelists the key)
 
   const FONTS = ['0.92', '1', '1.08', '1.18', '1.3'];
+  const VOICES = [{ id: 'agent-a', label: 'Agent-a' }, { id: 'george', label: 'George' }, { id: 'river', label: 'River' }, { id: 'brian', label: 'Brian' }, { id: 'sarah', label: 'Sarah' }];
   const docHtml = $derived(human && hasHuman ? data.bodyHtmlHuman : data.bodyHtml);
 
   $effect(() => {
@@ -52,10 +54,11 @@
       if (typeof p.font === 'number') font = p.font;
       if (typeof p.wide === 'boolean') wide = p.wide;
       if (typeof p.serif === 'boolean') serif = p.serif;
+      if (typeof p.voice === 'string') voice = p.voice;
     } catch {}
   });
   $effect(() => {
-    try { localStorage.setItem('reader', JSON.stringify({ font, wide, serif })); } catch {}
+    try { localStorage.setItem('reader', JSON.stringify({ font, wide, serif, voice })); } catch {}
   });
 
   // ── glossary: wrap defined terms in the rendered prose with hover cards ──
@@ -113,7 +116,7 @@
     try {
       const r = await fetch(`/task/${t.id}/tts`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: text.slice(0, 4800) })
+        body: JSON.stringify({ text: text.slice(0, 4800), voice })
       });
       if (r.ok && (r.headers.get('content-type') || '').includes('audio')) {
         const url = URL.createObjectURL(await r.blob());
@@ -244,10 +247,15 @@
             <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><svg width="14" height="14"><use href="#i-doc"/></svg></button>
           </div>
         {/if}
-        <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
-          {#if loadingAudio}<span class="spin"></span>{:else}<svg width="15" height="15"><use href="#i-{speaking ? 'check' : 'arrow'}"/></svg>{/if}
-          <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
-        </button>
+        <div class="rb-right">
+          <select class="rb voice" bind:value={voice} title="Narrator voice" aria-label="Narrator voice">
+            {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
+          </select>
+          <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
+            {#if loadingAudio}<span class="spin"></span>{:else}<svg width="15" height="15"><use href="#i-{speaking ? 'check' : 'arrow'}"/></svg>{/if}
+            <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
+          </button>
+        </div>
       </div>
       {#if hasHuman && human}
         <div class="human-note mono"><svg width="12" height="12"><use href="#i-check"/></svg> plain-english rewrite · switch to technical for the exact source</div>
@@ -509,7 +517,10 @@
   .rb:disabled { opacity: .35; cursor: default; }
   .rb.on { background: var(--accent-bg); border-color: var(--accent-ln); color: var(--accent-b); }
   .rb svg { display: block; }
-  .listen { margin-left: auto; font-size: 12px; }
+  .rb-right { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+  .rb.voice { appearance: none; -webkit-appearance: none; cursor: pointer; padding: 0 9px; font-size: 12px; }
+  .rb.voice:hover { border-color: var(--accent-ln); color: var(--text-1); }
+  .listen { font-size: 12px; }
   .listen.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
   .listen .spin {
     width: 13px; height: 13px; border-radius: 50%;
