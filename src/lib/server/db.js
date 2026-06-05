@@ -282,8 +282,9 @@ export function createQuestion(project_id, title, context, options, created_by =
 }
 
 // sub-task hierarchy (beads-style breakdown)
-export const children = (pid) => withKids(db.prepare(`SELECT * FROM tasks WHERE parent_id=? AND ${ACTIVE} ORDER BY rank, priority`).all(pid));
-const withKids = (rows) => rows.map((r) => ({ ...r, kids: children(r.id) }));
+// depth-capped to survive a parent_id cycle (A->B->A) — would otherwise infinitely recurse and crash the board.
+export const children = (pid, depth = 0) => depth >= 8 ? [] : withKids(db.prepare(`SELECT * FROM tasks WHERE parent_id=? AND ${ACTIVE} ORDER BY rank, priority`).all(pid), depth);
+const withKids = (rows, depth = 0) => rows.map((r) => ({ ...r, kids: children(r.id, depth + 1) }));
 
 // The agent query (MCP get_ready, phase 2): actionable, unblocked, up-next first then by manual rank.
 export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ORDER BY up_next DESC, rank, priority`).all(args(p));
