@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import {
   upNext, inbox, backlog, doing, recentDone, listProjects, getProjectByName,
-  createTask, updateTask, ensureProject, nextUpNextRank, getTask, canWrite,
+  createTask, updateTask, ensureProject, nextUpNextRank, getTask, canWrite, deepScrub,
   listDocs, openQuestions, answerQuestion, listAssignees,
   blockedList, addBlocker, removeBlocker, unfinishedBlockers, blockerCandidates
 } from '$lib/server/db.js';
@@ -15,7 +15,7 @@ export function load({ url, locals }) {
   const proj = projName ? getProjectByName(projName) : null;
   const pid = proj?.id ?? null;
   const who = url.searchParams.get('assignee') || null;   // assignee filter (combinable with project)
-  return {
+  return deepScrub({
     projects: listProjects(me),
     current: proj?.name ?? null,
     backend: proj?.backend ?? null,
@@ -31,7 +31,7 @@ export function load({ url, locals }) {
     done: recentDone(pid, me, who),
     candidates: blockerCandidates(me),
     docs: listDocs(pid, me, who)
-  };
+  });
 }
 
 function parseOpts(s) { try { return JSON.parse(s || '[]'); } catch { return []; } }

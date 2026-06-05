@@ -122,6 +122,21 @@ export function canWrite(id, me) {
   return !(t.visibility === 'private' && t.owner && t.owner !== me);
 }
 
+// Strip server-only secret columns from anything bound for the browser. claim_token
+// is the live lease secret claimTask/reportTask authenticate with — shipping it via
+// SELECT * let any viewer hijack a worker's claim. deepScrub walks the whole load
+// payload (incl. nested .kids) so callers just wrap their return value once.
+const SECRET_COLS = new Set(['claim_token', 'claimed_by', 'lease_expires_at']);
+export function deepScrub(v) {
+  if (Array.isArray(v)) return v.map(deepScrub);
+  if (v && typeof v === 'object') {
+    const o = {};
+    for (const k of Object.keys(v)) if (!SECRET_COLS.has(k)) o[k] = deepScrub(v[k]);
+    return o;
+  }
+  return v;
+}
+
 // --- task-to-task blocking ---
 // A task is "blocked" iff it has >=1 blocker whose status is NOT in (done,dropped).
 export const blockersOf = (task_id) => db.prepare(
@@ -247,10 +262,16 @@ export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('to
 // append to the end of the Up Next order
 export const nextUpNextRank = () => (db.prepare('SELECT COALESCE(MAX(rank),0)+1 AS r FROM tasks WHERE up_next=1').get().r);
 
-export function ensureProject(name, backend = 'local_private') {
+export function ensureProject(name, backend = 'local_private', opts = {}) {
   const found = getProjectByName(name);
   if (found) return found.id;
-  return Number(db.prepare('INSERT INTO projects (name,backend) VALUES (?,?)').run(name, backend).lastInsertRowid);
+  // create-only owner/visibility: the Corner sync passes {owner:'alice',visibility:'private'}
+  // so a project auto-created to hold a PRIVATE mirrored doc isn't minted 'shared' (which
+  // leaked the private project name + let other users act on it). Default stays shared.
+  const owner = opts.owner ?? '';
+  const visibility = opts.visibility ?? 'shared';
+  return Number(db.prepare('INSERT INTO projects (name,backend,owner,visibility) VALUES (?,?,?,?)')
+    .run(name, backend, owner, visibility).lastInsertRowid);
 }
 
 export function createTask(t) {

@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { renderMd } from '$lib/server/md.js';
-import { getTask, listComments, children, listProjects, updateTask, addComment, answerQuestion, canWrite } from '$lib/server/db.js';
+import { getTask, listComments, children, listProjects, updateTask, addComment, answerQuestion, canWrite, deepScrub } from '$lib/server/db.js';
 
 // IDOR guard — a human may only mutate a task they can write (shared, or own private).
 const gate = (id, me) => { if (!canWrite(id, me)) throw error(403, 'Not allowed'); };
@@ -39,7 +39,7 @@ export function load({ params, locals }) {
   if (task.visibility === 'private' && task.owner && task.owner !== locals.user) throw error(404, 'No such task'); // private = owner-only (404, don't reveal existence)
   let opts = [];
   try { opts = JSON.parse(task.options || '[]'); } catch { opts = []; }
-  return {
+  return deepScrub({
     task,
     bodyHtml: renderMd(task.body),
     bodyHtmlHuman: renderMd(task.body_alt),
@@ -49,9 +49,9 @@ export function load({ params, locals }) {
     opts,
     comments: listComments(id),
     kids: children(id),
-    projects: listProjects(),
+    projects: listProjects(locals.user),  // me-scoped: don't leak private project names
     me: locals.user
-  };
+  });
 }
 
 export const actions = {
@@ -65,8 +65,14 @@ export const actions = {
     }
     // only the full details form carries vis_touched — inline status/priority quick-edits must not reset visibility
     if (f.has('vis_touched')) {
-      patch.visibility = f.get('private') ? 'private' : 'shared';
-      if (f.get('private')) patch.owner = locals.user;   // claim ownership when locking it down
+      // Ownership/visibility may only be changed by the current owner, or claimed on an
+      // UNOWNED task. Without this, any user could open a shared task someone else made,
+      // flip it private + seize owner=self, and lock the creator out (privesc through canWrite).
+      const cur = getTask(Number(params.id));
+      if (!cur.owner || cur.owner === locals.user) {
+        patch.visibility = f.get('private') ? 'private' : 'shared';
+        if (f.get('private')) patch.owner = locals.user;   // claim ownership when locking it down
+      }
     }
     updateTask(Number(params.id), patch);
     return { ok: true };
