@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { listProjects, ensureProject, createTask, createDoc, createQuestion, updateTask, nextUpNextRank } from '$lib/server/db.js';
 
-export function load() { return { projects: listProjects() }; }
+export function load({ locals }) { return { projects: listProjects(locals.user) }; }
 
 export const actions = {
   create: async ({ request, locals }) => {
