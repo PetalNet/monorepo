@@ -15,10 +15,12 @@ export function load({ locals }) {
 
 export const actions = {
   // answer an open question right from the hub
-  answer: async ({ request }) => {
-    const { answerQuestion } = await import('$lib/server/db.js');
+  answer: async ({ request, locals }) => {
+    const { answerQuestion, canWrite } = await import('$lib/server/db.js');
     const f = await request.formData();
-    answerQuestion(Number(f.get('id')), String(f.get('value') || ''));
+    const id = Number(f.get('id'));
+    if (!canWrite(id, locals.user)) { const { error } = await import('@sveltejs/kit'); throw error(403, 'Not allowed'); }
+    answerQuestion(id, String(f.get('value') || ''));
     return { ok: true };
   }
 };

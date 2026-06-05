@@ -1,6 +1,9 @@
 import { error } from '@sveltejs/kit';
-import { marked } from 'marked';
-import { getTask, listComments, children, listProjects, updateTask, addComment, answerQuestion } from '$lib/server/db.js';
+import { renderMd } from '$lib/server/md.js';
+import { getTask, listComments, children, listProjects, updateTask, addComment, answerQuestion, canWrite } from '$lib/server/db.js';
+
+// IDOR guard — a human may only mutate a task they can write (shared, or own private).
+const gate = (id, me) => { if (!canWrite(id, me)) throw error(403, 'Not allowed'); };
 
 // Pull a glossary out of a "## Glossary" / "## Definitions" section so the reader
 // can hover-define jargon. Matches bullet lines like "- **Term** — definition"
@@ -38,8 +41,8 @@ export function load({ params, locals }) {
   try { opts = JSON.parse(task.options || '[]'); } catch { opts = []; }
   return {
     task,
-    bodyHtml: task.body ? marked.parse(task.body, { breaks: true }) : '',
-    bodyHtmlHuman: task.body_alt ? marked.parse(task.body_alt, { breaks: true }) : '',
+    bodyHtml: renderMd(task.body),
+    bodyHtmlHuman: renderMd(task.body_alt),
     // glossary lives in the humanized body_alt when present (sync-safe — the
     // Corner→tasks mirror overwrites body but never touches body_alt), else body
     glossary: parseGlossary(task.body_alt || task.body),
@@ -54,6 +57,7 @@ export function load({ params, locals }) {
 export const actions = {
   // edit title / plan (body) / status / priority / blocked_on
   save: async ({ request, params, locals }) => {
+    gate(Number(params.id), locals.user);
     const f = await request.formData();
     const patch = {};
     for (const k of ['title', 'body', 'status', 'priority', 'blocked_on', 'assignee', 'responsible', 'capability', 'acceptance_criteria', 'handoff_context']) {
@@ -67,7 +71,8 @@ export const actions = {
     updateTask(Number(params.id), patch);
     return { ok: true };
   },
-  answer: async ({ request, params }) => {
+  answer: async ({ request, params, locals }) => {
+    gate(Number(params.id), locals.user);
     const f = await request.formData();
     answerQuestion(Number(params.id), String(f.get('value') || ''));
     return { ok: true };
@@ -75,6 +80,7 @@ export const actions = {
 
   // append to the coordination log (agents drop research/findings here)
   comment: async ({ request, params, locals }) => {
+    gate(Number(params.id), locals.user);
     const f = await request.formData();
     const body = String(f.get('body') || '').trim();
     if (body) addComment(Number(params.id), locals.user || 'web', body);

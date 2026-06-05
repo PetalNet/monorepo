@@ -112,6 +112,16 @@ const args = (p) => (p ? { p } : {});
 
 export const getTask = (id) => db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
 
+// Write authorization for a HUMAN actor. Mirrors the read gate (vis): a private
+// task is owner-only. Reads were gated but mutating actions were not (IDOR) — every
+// human-facing action must call this before mutating an existing task by id.
+// Missing task -> false. Shared task or your own -> true.
+export function canWrite(id, me) {
+  const t = db.prepare('SELECT owner, visibility FROM tasks WHERE id=?').get(id);
+  if (!t) return false;
+  return !(t.visibility === 'private' && t.owner && t.owner !== me);
+}
+
 // --- task-to-task blocking ---
 // A task is "blocked" iff it has >=1 blocker whose status is NOT in (done,dropped).
 export const blockersOf = (task_id) => db.prepare(

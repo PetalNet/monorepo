@@ -1,9 +1,13 @@
+import { error } from '@sveltejs/kit';
 import {
   upNext, inbox, backlog, doing, recentDone, listProjects, getProjectByName,
-  createTask, updateTask, ensureProject, nextUpNextRank, getTask,
+  createTask, updateTask, ensureProject, nextUpNextRank, getTask, canWrite,
   listDocs, openQuestions, answerQuestion, listAssignees,
   blockedList, addBlocker, removeBlocker, unfinishedBlockers, blockerCandidates
 } from '$lib/server/db.js';
+
+// IDOR guard: a human may only mutate tasks they can write (shared, or their own private).
+const gate = (id, me) => { if (!canWrite(id, me)) throw error(403, 'Not allowed'); };
 
 export function load({ url, locals }) {
   const me = locals.user;                       // logged-in human; filters out others' private items
@@ -45,19 +49,21 @@ export const actions = {
   },
 
   // break a task down into a sub-task (beads-style; child inherits the parent's project)
-  subtask: async ({ request }) => {
+  subtask: async ({ request, locals }) => {
     const f = await request.formData();
     const parent_id = Number(f.get('parent'));
     const title = String(f.get('title') || '').trim();
     if (!parent_id || !title) return { ok: false };
+    gate(parent_id, locals.user);
     const parent = getTask(parent_id);
     createTask({ title, kind: 'task', status: 'todo', parent_id, project_id: parent?.project_id ?? null, created_by: 'web' });
     return { ok: true };
   },
 
-  update: async ({ request }) => {
+  update: async ({ request, locals }) => {
     const f = await request.formData();
     const id = Number(f.get('id'));
+    gate(id, locals.user);
     const patch = {};
     for (const k of ['status', 'priority', 'up_next', 'blocked_on', 'title']) {
       if (f.has(k)) patch[k] = (k === 'priority' || k === 'up_next') ? Number(f.get(k)) : String(f.get(k));
@@ -70,12 +76,13 @@ export const actions = {
   },
 
   // add or remove a task-to-task blocker edge ("this is blocked BY that")
-  blocker: async ({ request }) => {
+  blocker: async ({ request, locals }) => {
     const f = await request.formData();
     const id = Number(f.get('id'));
     const blocker_id = Number(f.get('blocker_id'));
     const op = String(f.get('op') || 'add');
     if (!id || !blocker_id) return { ok: false };
+    gate(id, locals.user);
     if (op === 'remove') removeBlocker(id, blocker_id);
     else {
       addBlocker(id, blocker_id);
@@ -86,9 +93,10 @@ export const actions = {
   },
 
   // triage an inbox idea: up=Up Next, backlog, drop, or rank it up into its OWN project
-  triage: async ({ request }) => {
+  triage: async ({ request, locals }) => {
     const f = await request.formData();
     const id = Number(f.get('id'));
+    gate(id, locals.user);
     const to = String(f.get('to'));
     if (to === 'up')           updateTask(id, { kind: 'task', status: 'todo', up_next: 1, rank: nextUpNextRank() });
     else if (to === 'backlog') updateTask(id, { kind: 'task', status: 'todo', up_next: 0 });
@@ -101,18 +109,21 @@ export const actions = {
   },
 
   // answer an async decision (Corner-style question)
-  answer: async ({ request }) => {
+  answer: async ({ request, locals }) => {
     const f = await request.formData();
-    answerQuestion(Number(f.get('id')), String(f.get('value') || ''));
+    const id = Number(f.get('id'));
+    gate(id, locals.user);
+    answerQuestion(id, String(f.get('value') || ''));
     return { ok: true };
   },
 
   // assign/change a task's project from the per-task picker ("none" clears it)
-  setproject: async ({ request }) => {
+  setproject: async ({ request, locals }) => {
     const f = await request.formData();
     const id = Number(f.get('id'));
     const v = String(f.get('project_id') || '');
     if (!id || !v) return { ok: false };
+    gate(id, locals.user);
     updateTask(id, { project_id: v === 'none' ? null : Number(v) });
     return { ok: true };
   }
