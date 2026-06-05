@@ -3,6 +3,12 @@
   import { page } from '$app/stores';
   let { children, data } = $props();
 
+  // who's actually signed in (Authentik -> locals.user -> data.user). Was hardcoded "Alice".
+  const WHO = { alice: { name: 'Alice', color: '#fb7185' }, alice: { name: 'Alice', color: '#fb7185' }, bob: { name: 'Bob', color: '#38bdf8' }, bob: { name: 'Bob', color: '#38bdf8' }, dev: { name: 'dev', color: '#94a3b8' } };
+  const me = $derived(String(data.user || 'dev').toLowerCase());
+  const whoName = $derived(WHO[me]?.name ?? (me.charAt(0).toUpperCase() + me.slice(1)));
+  const whoColor = $derived(WHO[me]?.color ?? '#94a3b8');
+
   // nav (only routes that exist today; inbox/issues come with their screens)
   const nav = [
     { name: 'board', label: 'board', icon: 'board', href: '/' },
@@ -121,8 +127,8 @@
       </div>
     </div>
     <div class="sidebar-foot">
-      <span class="avatar" style="width:26px;height:26px;font-size:11px;color:#fb7185;border-color:#fb7185;background:#fb718522">p</span>
-      <div class="sf-who"><span class="sf-name">Alice</span><span class="mono dim">human · alice + bob</span></div>
+      <span class="avatar" style="width:26px;height:26px;font-size:11px;color:{whoColor};border-color:{whoColor};background:{whoColor}22">{whoName.charAt(0).toLowerCase()}</span>
+      <div class="sf-who"><span class="sf-name">{whoName}</span><span class="mono dim">{me === 'dev' ? 'local dev' : `signed in · ${me}`}</span></div>
       <button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"><svg width="16" height="16"><use href="#i-moon"/></svg></button>
     </div>
   </aside>

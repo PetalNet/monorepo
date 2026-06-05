@@ -20,5 +20,5 @@ export function load({ locals }) {
     const h = String(t.assignee).toLowerCase();
     (byAgent[h] ??= []).push({ id: t.id, title: t.title });
   }
-  return { activeAgents: byAgent, fleet: readFleet() };
+  return { activeAgents: byAgent, fleet: readFleet(), user: locals.user };
 }
