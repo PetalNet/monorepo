@@ -28,8 +28,11 @@ export const actions = {
     for (const k of ['title', 'body', 'status', 'priority', 'blocked_on', 'assignee', 'responsible', 'capability', 'acceptance_criteria', 'handoff_context']) {
       if (f.has(k)) patch[k] = k === 'priority' ? Number(f.get(k)) : String(f.get(k));
     }
-    patch.visibility = f.get('private') ? 'private' : 'shared';
-    if (f.get('private')) patch.owner = locals.user;   // claim ownership when locking it down
+    // only the full details form carries vis_touched — inline status/priority quick-edits must not reset visibility
+    if (f.has('vis_touched')) {
+      patch.visibility = f.get('private') ? 'private' : 'shared';
+      if (f.get('private')) patch.owner = locals.user;   // claim ownership when locking it down
+    }
     updateTask(Number(params.id), patch);
     return { ok: true };
   },

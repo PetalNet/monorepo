@@ -3,25 +3,29 @@
   import { goto } from '$app/navigation';
 
   let { data } = $props();
-  let openSub = $state({}); // which task ids have their "+ sub" input open
 
   const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
 
-  function ago(ts) {
-    const d = (Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 1000;
-    if (d < 60) return 'just now';
-    if (d < 3600) return Math.floor(d / 60) + 'm ago';
-    if (d < 86400) return Math.floor(d / 3600) + 'h ago';
-    return Math.floor(d / 86400) + 'd ago';
+  function relShort(ts) {
+    if (!ts) return '';
+    const s = Math.round((Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 1000);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.round(s / 60) + 'm';
+    if (s < 86400) return Math.round(s / 3600) + 'h';
+    if (s < 604800) return Math.round(s / 86400) + 'd';
+    return Math.round(s / 604800) + 'w';
   }
 
-  function toggleTheme() {
-    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    try { localStorage.setItem('tasks-theme', next); } catch {}
-  }
+  // per-person colours (design's HUMANS/AGENTS), hashed fallback for anyone else
+  const PERSON = {
+    claude: '#fb923c', agent-a: '#8b5cf6', agent-b: '#22d3ee',
+    alice: '#fb7185', alice: '#fb7185', alice: '#fb7185',
+    bob: '#38bdf8', bob: '#38bdf8', bob: '#38bdf8'
+  };
+  const hue = (s) => { let h = 0; for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
+  const whoColor = (h) => h ? (PERSON[String(h).toLowerCase()] ?? `hsl(${hue(h)} 60% 68%)`) : null;
+  const isAgent = (h) => ['claude', 'agent-a', 'agent-b'].includes(String(h).toLowerCase());
 
-  // build a query string preserving whichever of project/assignee aren't being changed
   function filterUrl({ project = data.current, assignee = data.assignee } = {}) {
     const q = new URLSearchParams();
     if (project) q.set('project', project);
@@ -29,280 +33,286 @@
     const s = q.toString();
     return s ? `?${s}` : '?';
   }
+  const pickProject = (e) => goto(filterUrl({ project: e.target.value || null }), { keepFocus: true, noScroll: true });
+  const pickAssignee = (e) => goto(filterUrl({ assignee: e.target.value || null }), { keepFocus: true, noScroll: true });
 
-  function pickProject(e) {
-    goto(filterUrl({ project: e.target.value || null }), { keepFocus: true, noScroll: true });
-  }
-
-  function pickAssignee(e) {
-    goto(filterUrl({ assignee: e.target.value || null }), { keepFocus: true, noScroll: true });
-  }
+  // attention sub-line counts
+  const waitingCount = $derived(data.questions.length);
 </script>
 
 <svelte:head><title>tasks{data.current ? ' · ' + data.current : ''}</title></svelte:head>
 
-<svg width="0" height="0" style="position:absolute"><defs>
-  <symbol id="i-mark" viewBox="0 0 32 32"><rect x="3.5" y="3.5" width="25" height="25" rx="6" stroke="currentColor" stroke-width="1.4" fill="none"/><rect x="10" y="10" width="12" height="12" rx="2.5" fill="currentColor"/></symbol>
-  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
-  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
-  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 14a8 8 0 1 1-10-10 6.5 6.5 0 0 0 10 10z"/></symbol>
-  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></symbol>
-</defs></svg>
-
-<!-- one task + its sub-tasks, nested recursively (work isn't flat) -->
-{#snippet row(t, depth)}
-  <div class="item" class:sub={depth > 0}>
-    <form method="POST" action="?/update" use:enhance>
-      <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
-      <button class="box" title="Complete"><svg class="chk ic"><use href="#i-check"/></svg></button>
-    </form>
-    <div class="body">
-      <a class="ttl" href="/task/{t.id}">{t.title}</a>
-      <div class="meta">
-        <span class="dot p{t.priority}"></span>P{t.priority}
-        {#if projName(t.project_id)}<a class="tag" href={filterUrl({ project: projName(t.project_id) })}>{projName(t.project_id)}</a>{/if}
-        {#if t.assignee}<a class="tag who" href={filterUrl({ assignee: t.assignee })}>@{t.assignee}</a>{/if}
-        <form method="POST" action="?/setproject" use:enhance class="pp"><input type="hidden" name="id" value={t.id} /><select name="project_id" aria-label="Set project" onchange={(e) => e.currentTarget.form.requestSubmit()}><option value="">{t.project_id ? '⋯' : '+ project'}</option>{#each data.projects as p}<option value={p.id} selected={p.id === t.project_id}>{p.name}</option>{/each}<option value="none">(no project)</option></select></form>
-        {#if t.blocked_on}<span class="blocked">· note: {t.blocked_on}</span>{/if}
-        <button type="button" class="link" onclick={() => (openSub[t.id] = !openSub[t.id])}>+ sub</button>
-        <form method="POST" action="?/blocker" use:enhance class="pp">
-          <input type="hidden" name="id" value={t.id} /><input type="hidden" name="op" value="add" />
-          <select name="blocker_id" aria-label="Blocked by" onchange={(e) => e.currentTarget.value && e.currentTarget.form.requestSubmit()}>
-            <option value="">⊘ block by…</option>
-            {#each data.candidates as c}{#if c.id !== t.id}<option value={c.id}>#{c.id} {c.title}</option>{/if}{/each}
-          </select>
-        </form>
-      </div>
-      {#if openSub[t.id]}
-        <form class="subadd" method="POST" action="?/subtask"
-              use:enhance={() => async ({ update }) => { openSub[t.id] = false; await update({ reset: true }); }}>
-          <input type="hidden" name="parent" value={t.id} />
-          <input name="title" placeholder="Break it down…" autocomplete="off" />
-        </form>
+<!-- one task row + its subtasks, recursively -->
+{#snippet row(t, kind)}
+  {@const pc = whoColor(t.assignee)}
+  <div class="row kind-{kind} st-{t.status ?? 'todo'}" style={pc ? `--pl:${pc}` : ''}>
+    <span class="row-ic"><svg width="16" height="16"><use href="#i-{kind}"/></svg></span>
+    <a class="row-main" href="/task/{t.id}">
+      <span class="row-title">{t.title}</span>
+      <span class="row-sub">
+        {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
+        {#if t.priority != null}<span class="chip prio prio-{t.priority}">P{t.priority}</span>{/if}
+        {#if t.blocked_on}<span class="tag-s mono">{t.blocked_on}</span>{/if}
+        {#if t.blockers?.length}<span class="blk"><svg width="11" height="11"><use href="#i-block"/></svg> blocked</span>{/if}
+      </span>
+    </a>
+    <span class="row-right">
+      {#if t.assignee}
+        <span class="avatar" style="width:20px;height:20px;font-size:9px;color:{pc};border-color:{pc};background:{isAgent(t.assignee) ? 'transparent' : pc + '22'};border-style:{isAgent(t.assignee) ? 'dashed' : 'solid'}">{t.assignee.charAt(0).toLowerCase()}</span>
       {/if}
-    </div>
-    {#if !t.up_next}
-      <form method="POST" action="?/update" use:enhance class="bump">
-        <input type="hidden" name="id" value={t.id} /><input type="hidden" name="up_next" value="1" />
-        <button class="tg" title="Move to Up Next">↑</button>
+      <span class="mono dim age">{relShort(t.created_at)}</span>
+      <form method="POST" action="?/update" use:enhance>
+        <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
+        <button class="rcheck" title="Complete"><svg width="13" height="13"><use href="#i-check"/></svg></button>
       </form>
-    {/if}
+    </span>
   </div>
-  {#each t.kids ?? [] as k (k.id)}{@render row(k, depth + 1)}{/each}
+  {#each t.kids ?? [] as k (k.id)}
+    <div class="substack"><svg class="sub-tee" width="14" height="22" viewBox="0 0 14 22"><path d="M1 0v11a4 4 0 0 0 4 4h8" fill="none" stroke="var(--border)" stroke-width="1.4"/></svg>{@render row(k, 'task')}</div>
+  {/each}
 {/snippet}
 
-<div class="wrap">
-  <header class="bar">
-    <a class="logo" href="?"><svg class="mk ic"><use href="#i-mark"/></svg>tasks</a>
-    <div class="proj">
-      {#if data.current}<svg class="lock ic"><use href="#i-lock"/></svg>{/if}
-      <select onchange={pickProject} value={data.current ?? ''} aria-label="Project">
-        <option value="">All projects</option>
-        {#each data.projects as p}<option value={p.name}>{p.name}</option>{/each}
-      </select>
-    </div>
-    {#if data.assignees.length}
-      <div class="proj" class:active={data.assignee}>
-        <select onchange={pickAssignee} value={data.assignee ?? ''} aria-label="Assignee">
-          <option value="">All assignees</option>
-          {#each data.assignees as a}<option value={a}>{a}</option>{/each}
-        </select>
+{#snippet laneHead(title, count, accent, icon)}
+  <div class="lane-head {accent ? 'lane-' + accent : ''}">
+    {#if icon}<span class="lane-ic"><svg width="14" height="14"><use href="#i-{icon}"/></svg></span>{/if}
+    <h2>{title}</h2>
+    <span class="lane-count">{count}</span>
+  </div>
+{/snippet}
+
+<div class="screen board">
+  <header class="page-head">
+    <div class="ph-row">
+      <h1>tasks</h1>
+      <span class="ph-tag mono">the future corner</span>
+      <span class="ph-spacer"></span>
+      <div class="ph-filters">
+        <div class="fsel">
+          {#if data.current}<svg class="lk" width="12" height="12"><use href="#i-lock"/></svg>{/if}
+          <select onchange={pickProject} value={data.current ?? ''} aria-label="Project">
+            <option value="">all projects</option>
+            {#each data.projects as p}<option value={p.name}>{p.name}</option>{/each}
+          </select>
+        </div>
+        {#if data.assignees.length}
+          <div class="fsel" class:on={data.assignee}>
+            <select onchange={pickAssignee} value={data.assignee ?? ''} aria-label="Assignee">
+              <option value="">all people</option>
+              {#each data.assignees as a}<option value={a}>{a}</option>{/each}
+            </select>
+          </div>
+        {/if}
       </div>
-    {/if}
-    <span class="spacer"></span>
-    <a class="hlink" href="/projects">Projects</a>
-    <a class="new" href="/new">+ New</a>
-    <button class="ico" onclick={toggleTheme} title="Theme"><svg class="ic"><use href="#i-moon"/></svg></button>
+    </div>
+    <p class="ph-sub mono">
+      <span class="hl-v">{waitingCount} waiting on you</span>{#if data.doing.length} · <span class="hl-a">{data.doing.length} in progress</span>{/if} · {data.upNext.length} up next · {data.backlog.length} to do · {data.inbox.length} in inbox
+    </p>
   </header>
 
   <form class="capture" method="POST" action="?/capture" use:enhance={() => ({ update }) => update({ reset: true })}>
-    <svg><use href="#i-plus"/></svg>
+    <svg width="18" height="18"><use href="#i-plus"/></svg>
     <input name="title" placeholder="Capture an idea or task…" autocomplete="off" />
     {#if data.current}<input type="hidden" name="project" value={data.current} />{/if}
-    <kbd>↵</kbd>
+    <kbd class="mono">↵</kbd>
   </form>
 
-  <!-- QUESTIONS — async decisions (merged from Claude Corner) -->
-  {#if data.questions.length}
-    <section class="sec">
-      <div class="sec-h"><h2>Questions</h2><span class="count">{data.questions.length}</span></div>
-      {#each data.questions as q (q.id)}
-        <div class="item q">
-          <div class="body">
-            <a class="ttl" href="/task/{q.id}">{q.title}</a>
-            <div class="opts">
-              {#each q.opts as o}
-                <form method="POST" action="?/answer" use:enhance>
-                  <input type="hidden" name="id" value={q.id} /><input type="hidden" name="value" value={o.value} />
-                  <button class="opt">{o.label}</button>
-                </form>
-              {/each}
-              {#if !q.opts.length}
-                <form method="POST" action="?/answer" use:enhance class="q-free">
-                  <input type="hidden" name="id" value={q.id} />
-                  <input name="value" placeholder="Type an answer…" required aria-label="Answer" />
-                  <button class="opt">Answer</button>
-                </form>
-              {/if}
-            </div>
+  <div class="lanes">
+    {#if data.questions.length}
+      <section class="lane">
+        {@render laneHead('Waiting on you', data.questions.length, 'attention', 'question')}
+        <div class="lane-body">
+          <div class="sticky-note">
+            <span class="sn-ic"><svg width="14" height="14"><use href="#i-sticky"/></svg></span>
+            <span><b>questions</b> need a typed answer · agents are blocked on you</span>
           </div>
+          {#each data.questions as q (q.id)}
+            <div class="row kind-question st-todo needs-human" style="--pl:var(--violet)">
+              <span class="row-ic"><svg width="16" height="16"><use href="#i-question"/></svg></span>
+              <div class="row-main">
+                <a class="row-title" href="/task/{q.id}">{q.title}</a>
+                <div class="q-answer">
+                  {#each q.opts as o}
+                    <form method="POST" action="?/answer" use:enhance>
+                      <input type="hidden" name="id" value={q.id} /><input type="hidden" name="value" value={o.value} />
+                      <button class="q-opt">{o.label}</button>
+                    </form>
+                  {/each}
+                  {#if !q.opts.length}
+                    <form method="POST" action="?/answer" use:enhance class="q-free">
+                      <input type="hidden" name="id" value={q.id} />
+                      <input name="value" placeholder="Type an answer…" required aria-label="Answer" />
+                      <button class="q-submit-sm">Answer</button>
+                    </form>
+                  {/if}
+                </div>
+              </div>
+            </div>
+          {/each}
         </div>
-      {/each}
-    </section>
-  {/if}
+      </section>
+    {/if}
 
-  <!-- UP NEXT — manual rank order ("do this then that") -->
-  <section class="sec">
-    <div class="sec-h"><h2>Up Next</h2><span class="count">{data.upNext.length}</span></div>
-    {#each data.upNext as t (t.id)}{@render row(t, 0)}{:else}<p class="empty">Nothing queued. Triage an idea up here.</p>{/each}
-  </section>
+    {#if data.doing.length}
+      <section class="lane">
+        {@render laneHead('In progress', data.doing.length, 'active', 'bolt')}
+        <div class="lane-body">
+          {#each data.doing as t (t.id)}{@render row(t, t.kind ?? 'task')}{/each}
+        </div>
+      </section>
+    {/if}
 
-  <!-- INBOX — raw idea capture awaiting triage -->
-  <section class="sec">
-    <div class="sec-h"><h2>Inbox</h2><span class="count">{data.inbox.length}</span></div>
-    {#each data.inbox as t (t.id)}
-      <div class="item idea">
-        <div class="body">
-          <a class="ttl" href="/task/{t.id}">{t.title}</a>
-          <div class="meta mono">captured {ago(t.created_at)}{t.created_by ? ' · ' + t.created_by : ''}</div>
-        </div>
-        <div class="triage">
-          <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="up"/><button class="tg up">↑ Up Next</button></form>
-          <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="project"/><input type="hidden" name="name" value={t.title}/><button class="tg">→ Project</button></form>
-          <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="backlog"/><button class="tg">Backlog</button></form>
-          <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="drop"/><button class="tg" title="Dismiss">✕</button></form>
-        </div>
+    <section class="lane">
+      {@render laneHead('Up next', data.upNext.length, 'emerald', 'bolt')}
+      <div class="lane-body">
+        {#each data.upNext as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Nothing queued. Triage an idea up here.</p>{/each}
       </div>
-    {:else}
-      <p class="empty">Inbox zero.</p>
-    {/each}
-  </section>
+    </section>
 
-  <!-- BACKLOG -->
-  <section class="sec">
-    <div class="sec-h"><h2>Backlog</h2><span class="count">{data.backlog.length}</span></div>
-    {#each data.backlog as t (t.id)}{@render row(t, 0)}{:else}<p class="empty">Backlog clear.</p>{/each}
-  </section>
-
-  <!-- BLOCKED — waiting on another task; muted, auto-clears when its blockers close -->
-  {#if data.blocked.length}
-    <section class="sec">
-      <div class="sec-h"><h2>Blocked</h2><span class="count">{data.blocked.length}</span></div>
-      {#each data.blocked as t (t.id)}
-        <div class="item blk">
-          <form method="POST" action="?/update" use:enhance>
-            <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
-            <button class="box" title="Complete"><svg class="chk ic"><use href="#i-check"/></svg></button>
-          </form>
-          <div class="body">
-            <a class="ttl" href="/task/{t.id}">{t.title}</a>
-            <div class="meta">
-              <span class="dot p{t.priority}"></span>P{t.priority}
-              {#if projName(t.project_id)}<a class="tag" href={filterUrl({ project: projName(t.project_id) })}>{projName(t.project_id)}</a>{/if}
-              <span class="blocked">blocked by</span>
-              {#each t.blockers as b}
-                <a class="tag {b.status === 'done' || b.status === 'dropped' ? 'doneb' : 'liveb'}" href="/task/{b.id}">#{b.id}</a>
-                <form method="POST" action="?/blocker" use:enhance class="pp">
-                  <input type="hidden" name="id" value={t.id} /><input type="hidden" name="blocker_id" value={b.id} /><input type="hidden" name="op" value="remove" />
-                  <button class="link" title="Remove blocker">✕</button>
-                </form>
-              {/each}
-            </div>
+    <section class="lane">
+      {@render laneHead('Inbox', data.inbox.length, '', 'idea')}
+      <div class="lane-body">
+        {#each data.inbox as t (t.id)}
+          <div class="row kind-idea st-inbox">
+            <span class="row-ic"><svg width="16" height="16"><use href="#i-idea"/></svg></span>
+            <a class="row-main" href="/task/{t.id}">
+              <span class="row-title">{t.title}</span>
+              <span class="row-sub"><span class="mono dim">captured {relShort(t.created_at)} ago{t.created_by ? ' · ' + t.created_by : ''}</span></span>
+            </a>
+            <span class="triage">
+              <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="up"/><button class="tg up" title="Up Next">↑</button></form>
+              <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="project"/><input type="hidden" name="name" value={t.title}/><button class="tg" title="Make a project">proj</button></form>
+              <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="backlog"/><button class="tg" title="Backlog">↓</button></form>
+              <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="drop"/><button class="tg x" title="Dismiss">✕</button></form>
+            </span>
           </div>
+        {:else}<p class="lane-empty">Inbox zero.</p>{/each}
+      </div>
+    </section>
+
+    <section class="lane">
+      {@render laneHead('To do', data.backlog.length, '', 'task')}
+      <div class="lane-body">
+        {#each data.backlog as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Backlog clear.</p>{/each}
+      </div>
+    </section>
+
+    {#if data.blocked.length}
+      <section class="lane">
+        {@render laneHead('Blocked', data.blocked.length, 'danger', 'block')}
+        <div class="lane-body">
+          {#each data.blocked as t (t.id)}
+            <div class="row kind-task st-blocked">
+              <span class="row-ic"><svg width="16" height="16"><use href="#i-block"/></svg></span>
+              <a class="row-main" href="/task/{t.id}">
+                <span class="row-title">{t.title}</span>
+                <span class="row-sub">
+                  {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
+                  <span class="blk">blocked by</span>
+                  {#each t.blockers as b}<span class="tag-s mono">#{b.id}</span>{/each}
+                </span>
+              </a>
+              <span class="row-right"><span class="mono dim age">{relShort(t.created_at)}</span></span>
+            </div>
+          {/each}
         </div>
-      {/each}
-    </section>
-  {/if}
+      </section>
+    {/if}
 
-  <!-- DOCS — briefs / ADRs (merged from Claude Corner) -->
-  {#if data.docs.length}
-    <section class="sec">
-      <div class="sec-h"><h2>Docs</h2><span class="count">{data.docs.length}</span></div>
-      {#each data.docs as d (d.id)}
-        <a class="docrow" href="/task/{d.id}">
-          <span class="ttl">{d.title}</span>
-          {#if projName(d.project_id)}<a class="tag" href={filterUrl({ project: projName(d.project_id) })} onclick={(e) => e.stopPropagation()}>{projName(d.project_id)}</a>{/if}
-        </a>
-      {/each}
-    </section>
-  {/if}
+    {#if data.docs.length}
+      <section class="lane">
+        {@render laneHead('Docs', data.docs.length, '', 'doc')}
+        <div class="lane-body">
+          {#each data.docs as d (d.id)}
+            <a class="row kind-doc st-todo" href="/task/{d.id}">
+              <span class="row-ic"><svg width="16" height="16"><use href="#i-doc"/></svg></span>
+              <span class="row-main"><span class="row-title">{d.title}</span></span>
+              <span class="row-right">{#if projName(d.project_id)}<span class="mono dim">{projName(d.project_id)}</span>{/if}</span>
+            </a>
+          {/each}
+        </div>
+      </section>
+    {/if}
+    {#if data.done.length}
+      <section class="lane lane-done">
+        {@render laneHead('Recently shipped', data.done.length, '', 'check')}
+        <div class="lane-body">
+          {#each data.done as t (t.id)}
+            <a class="row st-done kind-task shipped-row" href="/task/{t.id}">
+              <span class="row-ic shipped-ic"><svg width="14" height="14"><use href="#i-check"/></svg></span>
+              <span class="row-main"><span class="row-title">{t.title}</span></span>
+              <span class="row-right">
+                {#if t.assignee}{@const pc = whoColor(t.assignee)}<span class="avatar" style="width:18px;height:18px;font-size:8px;color:{pc};border-color:{pc};background:{isAgent(t.assignee) ? 'transparent' : pc + '22'};border-style:{isAgent(t.assignee) ? 'dashed' : 'solid'}">{t.assignee.charAt(0).toLowerCase()}</span>{/if}
+                <span class="mono dim age">{relShort(t.updated_at)}</span>
+              </span>
+            </a>
+          {/each}
+        </div>
+      </section>
+    {/if}
+  </div>
 
-  <div class="foot mono">SQLite-backed · tasks · docs · questions · agents</div>
+  <div class="foot mono dim">SQLite-backed · tasks · docs · questions · agents</div>
 </div>
 
 <style>
-  :global(:root),:global([data-theme=dark]){--bg:#0c0c0d;--surface:#161617;--elev:#1c1c1e;--border:#262628;--border-strong:#34343a;--text:#ededed;--mute:#9a9aa0;--soft:#67676d;--green:#2bd576;--amber:#e0a93a;--red:#e05a5a;--blue:#6f9cff;}
-  :global([data-theme=light]){--bg:#fbfbfa;--surface:#fff;--elev:#fff;--border:#ececea;--border-strong:#dcdcd8;--text:#15151a;--mute:#66666c;--soft:#9a9aa0;--green:#1f9d57;--amber:#b9842a;--red:#c44;--blue:#2f5fd0;}
-  :global(*){box-sizing:border-box}
-  :global(body){margin:0;background:var(--bg);color:var(--text);font-family:'Geist',ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
-  .mono{font-family:'Geist Mono',ui-monospace,monospace;}
-  svg.ic{width:100%;height:100%;display:block;}
-  .wrap{max-width:680px;margin:0 auto;padding:0 18px 80px;}
+  .page-head { margin-bottom: 18px; }
+  .ph-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ph-spacer { flex: 1; }
+  .ph-filters { display: flex; gap: 8px; }
+  .fsel { display: flex; align-items: center; gap: 5px; background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 0 6px 0 10px; }
+  .fsel .lk { color: var(--text-4); flex: none; }
+  .fsel select { border: 0; background: none; color: var(--text-2); font: inherit; font-size: 12.5px; padding: 6px 4px; cursor: pointer; outline: 0; }
+  .fsel.on { border-color: var(--accent-ln); } .fsel.on select { color: var(--accent-b); }
 
-  .bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;height:60px;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(10px);}
-  .logo{display:flex;align-items:center;gap:8px;font-weight:600;font-size:16px;letter-spacing:-.02em;text-decoration:none;color:var(--text);}
-  .logo .mk{width:22px;height:22px;}
-  .proj{margin-left:4px;display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:0 4px 0 10px;}
-  .proj .lock{color:var(--soft);width:13px;height:13px;flex:none;}
-  .proj select{border:0;background:none;color:var(--text);font:inherit;font-size:13.5px;padding:7px 4px;cursor:pointer;outline:0;}
-  .proj.active{border-color:var(--blue);}.proj.active select{color:var(--blue);}
-  .spacer{flex:1}
-  .ico{width:34px;height:34px;padding:7px;border-radius:8px;border:0;background:none;color:var(--mute);cursor:pointer;}.ico:hover{background:var(--surface);color:var(--text);}
-  .hlink{font-size:13px;text-decoration:none;color:var(--mute);padding:6px 4px;}.hlink:hover{color:var(--text);}
-  .new{font-size:13px;font-weight:500;text-decoration:none;color:var(--text);border:1px solid var(--border-strong);border-radius:9px;padding:6px 12px;}
-  .new:hover{border-color:var(--blue);color:var(--blue);}
+  .capture { display: flex; align-items: center; gap: 11px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0 14px; height: 50px; margin: 0 0 24px; transition: border-color .12s, box-shadow .12s; }
+  .capture svg { color: var(--text-4); flex: none; }
+  .capture input { flex: 1; border: 0; background: none; outline: 0; color: var(--text-1); font: inherit; font-size: 15px; }
+  .capture:focus-within { border-color: var(--accent-ln); box-shadow: 0 0 0 3px var(--accent-bg); }
+  .capture kbd { font-size: 11px; color: var(--text-4); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 6px; }
 
-  .capture{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border-strong);border-radius:13px;padding:0 12px;height:50px;margin:6px 0 26px;}
-  .capture svg{width:18px;height:18px;color:var(--soft);flex:none;}
-  .capture input{flex:1;border:0;background:none;outline:0;color:var(--text);font:inherit;font-size:15.5px;}
-  .capture kbd{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:var(--soft);border:1px solid var(--border);border-radius:5px;padding:2px 6px;}
+  .lane-empty { color: var(--text-4); font-size: 13px; padding: 4px 2px; }
+  .lane-head { width: 100%; }
 
-  .sec{margin-bottom:26px;}
-  .sec-h{display:flex;align-items:center;gap:9px;margin:0 2px 11px;}
-  .sec-h h2{font-size:13px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--mute);margin:0;}
-  .sec-h .count{font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;color:var(--soft);}
-  .empty{color:var(--soft);font-size:13px;margin:2px;}
-  .item.q{border-color:var(--border-strong);}
-  .q .opts{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;}
-  .opt{font-size:13px;border:1px solid var(--border-strong);background:var(--elev);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit;font-size:13px;}
-  .opt:hover{border-color:var(--blue);color:var(--blue);}
-  .docrow{display:flex;align-items:center;gap:9px;padding:11px 13px;border:1px solid var(--border);border-radius:11px;background:var(--surface);margin-bottom:8px;text-decoration:none;}
-  .docrow:hover{border-color:var(--border-strong);}
-  .docrow .ttl{flex:1;}
+  .rcheck { width: 22px; height: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); color: transparent; display: flex; align-items: center; justify-content: center; flex: none; transition: .12s; }
+  .rcheck:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+  .row-right form { display: flex; }
 
-  .item{display:flex;align-items:flex-start;gap:11px;padding:12px 13px;border-radius:11px;border:1px solid var(--border);background:var(--surface);margin-bottom:8px;}
-  .item:hover{border-color:var(--border-strong);}
-  .box{width:20px;height:20px;border-radius:6px;border:1.6px solid var(--border-strong);flex:none;margin-top:1px;cursor:pointer;background:none;color:transparent;padding:1px;}
-  .box:hover{border-color:var(--green);color:var(--green);}
-  .body{flex:1;min-width:0;}
-  .ttl{display:block;font-size:14.5px;line-height:1.35;color:var(--text);text-decoration:none;}
-  .ttl:hover{text-decoration:underline;text-underline-offset:2px;}
-  .meta{display:flex;align-items:center;gap:7px;margin-top:5px;font-size:12px;color:var(--soft);}
-  .dot{width:7px;height:7px;border-radius:50%;flex:none;}
-  .p0{background:var(--red)}.p1{background:var(--amber)}.p2{background:var(--blue)}.p3{background:var(--soft)}
-  .tag{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:var(--mute);background:var(--elev);border:1px solid var(--border);border-radius:5px;padding:1px 6px;text-decoration:none;cursor:pointer;}
-  a.tag:hover{color:var(--text);border-color:var(--border-strong);}
-  .pp{display:inline;margin:0;}
-  .pp select{font:inherit;font-size:11px;color:var(--soft);background:none;border:1px dashed var(--border);border-radius:5px;padding:1px 4px;cursor:pointer;max-width:120px;}
-  .pp select:hover{color:var(--text);border-color:var(--border-strong);}
-  .blocked{color:var(--amber);}
-  .item.blk{opacity:.72;border-style:dashed;}
-  .item.blk:hover{opacity:1;}
-  .tag.liveb{color:var(--amber);border-color:var(--amber);}
-  .tag.doneb{color:var(--soft);text-decoration:line-through;}
+  .substack { display: flex; align-items: stretch; gap: 0; padding-left: 14px; }
+  .substack .sub-tee { flex: none; margin-right: 4px; align-self: flex-start; margin-top: -3px; }
+  .substack :global(.row) { flex: 1; min-width: 0; }
 
-  .idea{border-style:dashed;}
-  .triage{display:flex;gap:6px;flex:none;align-self:center;}
-  .tg{font-size:12px;border:1px solid var(--border);background:var(--elev);color:var(--mute);border-radius:7px;padding:5px 9px;cursor:pointer;white-space:nowrap;}
-  .tg:hover{color:var(--text);border-color:var(--border-strong);}
-  .tg.up{color:var(--green);}
-  .bump{align-self:center;}.bump .tg{padding:5px 8px;}
-  .item.sub{margin-left:26px;border-style:dashed;}
-  .link{background:none;border:0;color:var(--soft);font:inherit;font-size:11.5px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;}
-  .link:hover{color:var(--text);}
-  .subadd{margin-top:7px;}
-  .subadd input{width:100%;background:var(--elev);border:1px solid var(--border);border-radius:7px;color:var(--text);font:inherit;font-size:13px;padding:6px 9px;outline:0;}
+  .q-answer { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+  .q-opt, .q-submit-sm { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-1); border-radius: var(--radius); padding: 6px 13px; cursor: pointer; transition: .12s; }
+  .q-opt:hover { border-color: var(--violet); color: var(--violet-b); }
+  .q-free { display: flex; gap: 7px; align-items: center; flex: 1; min-width: 200px; }
+  .q-free input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius); padding: 7px 11px; color: var(--text-1); font: inherit; font-size: 13px; outline: 0; }
+  .q-free input:focus { border-color: var(--violet-ln); }
+  .q-submit-sm { background: var(--violet); border-color: var(--violet); color: #06240f; font-weight: 600; flex: none; }
+  .q-submit-sm:hover { background: var(--violet-b); border-color: var(--violet-b); }
+  .row.kind-question { align-items: flex-start; }
+  .row.kind-question .row-ic { padding-top: 2px; }
 
-  .foot{color:var(--soft);font-size:12px;text-align:center;margin-top:30px;}
-  @media(max-width:540px){ .triage form:not(:first-child) .tg{display:none;} .item{padding:11px;} }
+  .triage { display: flex; gap: 5px; align-items: center; flex: none; }
+  .tg { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border-sub); background: var(--surface-2); color: var(--text-3); border-radius: var(--radius-sm); padding: 4px 8px; cursor: pointer; transition: .12s; min-width: 26px; }
+  .tg:hover { color: var(--text-1); border-color: var(--border); }
+  .tg.up:hover { color: var(--accent-b); border-color: var(--accent-ln); }
+  .tg.x:hover { color: var(--danger-b); border-color: var(--danger); }
+
+  /* in-progress lane: amber "live" accent + a pulse on the icon */
+  .lane-active :global(.lane-head h2) { color: var(--accent-b); }
+  .lane-active :global(.lane-ic) { color: var(--accent-b); animation: livepulse 2.4s ease-in-out infinite; }
+  @keyframes livepulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  .hl-a { color: var(--accent-b); }
+
+  /* recently-shipped lane */
+  .lane-done { opacity: .85; }
+  .shipped-row { text-decoration: none; }
+  .shipped-ic { color: var(--accent); }
+  .shipped-row .row-title { text-decoration: line-through; text-decoration-color: var(--text-4); }
+
+  .foot { font-size: 12px; text-align: center; margin-top: 36px; }
+
+  @media (max-width: 560px) {
+    .triage form:nth-child(2) .tg { display: none; }
+  }
 </style>

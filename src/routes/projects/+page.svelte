@@ -1,61 +1,94 @@
 <script>
   import { enhance } from '$app/forms';
   let { data } = $props();
+  const PERSON = { claude:'#fb923c', agent-a:'#8b5cf6', agent-b:'#22d3ee', alice:'#fb7185', alice:'#fb7185', bob:'#38bdf8', bob:'#38bdf8' };
+  const hue = (s) => { let h = 0; for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
+  const whoColor = (h) => h ? (PERSON[String(h).toLowerCase()] ?? `hsl(${hue(h)} 60% 68%)`) : null;
 </script>
 
-<svelte:head><title>Projects · tasks</title></svelte:head>
+<svelte:head><title>projects · tasks</title></svelte:head>
 
-<div class="wrap">
-  <a class="back" href="/">← tasks</a>
-  <h1>Projects</h1>
-  {#each data.projects as p (p.id)}
-    <div class="proj">
-      <form method="POST" action="?/rename" use:enhance class="ren">
-        <input type="hidden" name="id" value={p.id} />
-        <input class="name" name="name" value={p.name} aria-label="Project name" />
-      </form>
-      <span class="count" title="active items">{p.count}</span>
-      <form method="POST" action="?/visibility" use:enhance>
-        <input type="hidden" name="id" value={p.id} />
-        <label class="chk"><input type="checkbox" name="private" checked={p.visibility === 'private'} onchange={(e) => e.target.form.requestSubmit()} /> private</label>
-      </form>
-      <form method="POST" action="?/move" use:enhance class="mv">
-        <input type="hidden" name="id" value={p.id} />
-        <select name="dest" class="dest" aria-label="Move into project">
-          <option value="">move into…</option>
-          {#each data.projects.filter((o) => o.id !== p.id) as o}<option value={o.id}>{o.name}</option>{/each}
-        </select>
-        <button class="mvbtn" onclick={(e) => { const s = e.currentTarget.form.dest; if (!s.value) { e.preventDefault(); return; } if (!confirm(`Move all items from "${p.name}" into "${s.options[s.selectedIndex].text}", then delete "${p.name}"?`)) e.preventDefault(); }}>Move</button>
-      </form>
-      <form method="POST" action="?/delete" use:enhance>
-        <input type="hidden" name="id" value={p.id} />
-        <button class="del" onclick={(e) => { if (!confirm(`Delete "${p.name}" and all its items?`)) e.preventDefault(); }}>Delete</button>
-      </form>
+<div class="screen projects">
+  <header class="page-head">
+    <h1>projects</h1>
+    <p class="ph-sub mono">{data.projects.length} project{data.projects.length === 1 ? '' : 's'} · owner + visibility scoping</p>
+  </header>
+
+  {#if data.projects.length}
+    <div class="proj-grid">
+      {#each data.projects as p (p.id)}
+        {@const pc = whoColor(p.owner)}
+        <div class="proj-card" class:priv={p.visibility === 'private'}>
+          <div class="pc-head">
+            <span class="pc-dot"></span>
+            <a class="pc-name mono" href="/?project={encodeURIComponent(p.name)}">{p.name}</a>
+            {#if p.count > 0}<span class="pc-badge">{p.count}</span>{/if}
+          </div>
+          <div class="pc-meta">
+            <span class="pc-vis">
+              <svg width="12" height="12"><use href="#i-lock"/></svg>
+              {p.visibility}{#if p.owner} · {p.owner}{/if}
+            </span>
+          </div>
+          <div class="pc-manage">
+            <form method="POST" action="?/rename" use:enhance class="ren">
+              <input type="hidden" name="id" value={p.id} />
+              <input class="ren-in mono" name="name" value={p.name} aria-label="Rename project" />
+            </form>
+            <form method="POST" action="?/visibility" use:enhance>
+              <input type="hidden" name="id" value={p.id} />
+              <label class="chk mono"><input type="checkbox" name="private" checked={p.visibility === 'private'} onchange={(e) => e.target.form.requestSubmit()} /> private</label>
+            </form>
+            <span class="pm-sp"></span>
+            <form method="POST" action="?/move" use:enhance class="mv">
+              <input type="hidden" name="id" value={p.id} />
+              <select name="dest" aria-label="Move into project">
+                <option value="">move into…</option>
+                {#each data.projects.filter((o) => o.id !== p.id) as o}<option value={o.id}>{o.name}</option>{/each}
+              </select>
+              <button class="pm-btn" onclick={(e) => { const s = e.currentTarget.form.dest; if (!s.value) { e.preventDefault(); return; } if (!confirm(`Move all items from "${p.name}" into "${s.options[s.selectedIndex].text}", then delete "${p.name}"?`)) e.preventDefault(); }}>move</button>
+            </form>
+            <form method="POST" action="?/delete" use:enhance>
+              <input type="hidden" name="id" value={p.id} />
+              <button class="pm-btn del" onclick={(e) => { if (!confirm(`Delete "${p.name}" and all its items?`)) e.preventDefault(); }}>delete</button>
+            </form>
+          </div>
+        </div>
+      {/each}
     </div>
   {:else}
     <p class="empty">No projects yet.</p>
-  {/each}
+  {/if}
 </div>
 
 <style>
-  :global([data-theme=dark]),:global(:root){--bg:#0c0c0d;--surface:#161617;--elev:#1c1c1e;--border:#262628;--border-strong:#34343a;--text:#ededed;--mute:#9a9aa0;--soft:#67676d;--red:#e05a5a;--blue:#6f9cff;}
-  :global([data-theme=light]){--bg:#fbfbfa;--surface:#fff;--elev:#fff;--border:#ececea;--border-strong:#dcdcd8;--text:#15151a;--mute:#66666c;--soft:#9a9aa0;--red:#c44;--blue:#2f5fd0;}
-  :global(*){box-sizing:border-box}
-  :global(body){margin:0;background:var(--bg);color:var(--text);font-family:'Geist',ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
-  .wrap{max-width:680px;margin:0 auto;padding:18px 18px 80px;}
-  .back{display:inline-block;color:var(--mute);text-decoration:none;font-size:13px;margin-bottom:10px;}.back:hover{color:var(--text);}
-  h1{font-size:20px;font-weight:600;letter-spacing:-.02em;margin:0 0 16px;}
-  .proj{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);}
-  .ren{flex:1;}
-  .name{width:100%;background:none;border:1px solid transparent;border-radius:7px;color:var(--text);font:inherit;font-size:14.5px;padding:5px 7px;outline:0;}
-  .name:hover{border-color:var(--border);}.name:focus{border-color:var(--blue);background:var(--surface);}
-  .count{font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;color:var(--soft);min-width:20px;text-align:right;}
-  .chk{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mute);}.chk input{width:auto;}
-  .del{font:inherit;font-size:12px;color:var(--soft);background:none;border:1px solid var(--border);border-radius:7px;padding:5px 10px;cursor:pointer;}
-  .del:hover{color:var(--red);border-color:var(--red);}
-  .mv{display:flex;gap:5px;align-items:center;}
-  .dest{font:inherit;font-size:12px;color:var(--mute);background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:4px 6px;max-width:140px;}
-  .mvbtn{font:inherit;font-size:12px;color:var(--soft);background:none;border:1px solid var(--border);border-radius:7px;padding:5px 10px;cursor:pointer;}
-  .mvbtn:hover{color:var(--blue);border-color:var(--blue);}
-  .empty{color:var(--soft);font-size:13px;}
+  .pc-name { text-decoration: none; }
+  .pc-name:hover { color: var(--accent-b); }
+  .pc-vis svg { vertical-align: -1px; margin-right: 2px; }
+  .pc-manage {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding-top: 11px; margin-top: 2px; border-top: 1px solid var(--border-sub);
+  }
+  .ren { flex: 1; min-width: 110px; }
+  .ren-in {
+    width: 100%; background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+    color: var(--text-2); font-size: 12px; padding: 4px 6px; outline: 0;
+  }
+  .ren-in:hover { border-color: var(--border-sub); }
+  .ren-in:focus { border-color: var(--accent-ln); background: var(--surface-2); color: var(--text-1); }
+  .chk { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-3); cursor: pointer; }
+  .chk input { width: auto; accent-color: var(--accent); }
+  .pm-sp { flex: 1; }
+  .mv { display: flex; gap: 5px; align-items: center; }
+  .mv select {
+    font: inherit; font-size: 11px; color: var(--text-3); background: var(--surface-2);
+    border: 1px solid var(--border-sub); border-radius: var(--radius-sm); padding: 4px 6px; max-width: 120px; cursor: pointer;
+  }
+  .pm-btn {
+    font-family: var(--mono); font-size: 11px; color: var(--text-3); background: var(--surface-2);
+    border: 1px solid var(--border-sub); border-radius: var(--radius-sm); padding: 4px 9px; cursor: pointer; transition: .12s;
+  }
+  .pm-btn:hover { color: var(--text-1); border-color: var(--border); }
+  .pm-btn.del:hover { color: var(--danger-b); border-color: var(--danger); }
+  .empty { color: var(--text-4); font-size: 13px; }
 </style>

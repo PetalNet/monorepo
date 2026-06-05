@@ -1,5 +1,5 @@
 import {
-  upNext, inbox, backlog, listProjects, getProjectByName,
+  upNext, inbox, backlog, doing, recentDone, listProjects, getProjectByName,
   createTask, updateTask, ensureProject, nextUpNextRank, getTask,
   listDocs, openQuestions, answerQuestion, listAssignees,
   blockedList, addBlocker, removeBlocker, unfinishedBlockers, blockerCandidates
@@ -19,10 +19,12 @@ export function load({ url, locals }) {
     assignees: listAssignees(me),
     assignee: who,
     questions: openQuestions(pid, me, who).map((q) => ({ ...q, opts: parseOpts(q.options) })),
+    doing: doing(pid, me, who),
     upNext: upNext(pid, me, who),
     inbox: inbox(pid, me, who),
     backlog: backlog(pid, me, who),
     blocked: blockedList(pid, me, who),
+    done: recentDone(pid, me, who),
     candidates: blockerCandidates(me),
     docs: listDocs(pid, me, who)
   };
