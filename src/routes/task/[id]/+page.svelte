@@ -32,7 +32,8 @@
   // ── reader modes ──────────────────────────────────────────────
   // font scale + measure + serif + focus, persisted per-browser.
   const hasHuman = $derived(!!data.bodyHtmlHuman);
-  const longDoc = $derived((t.body?.length ?? 0) > 2500); // toolbar only earns its space on real docs
+  // toolbar earns its space on real docs — measure whichever body is actually shown
+  const longDoc = $derived(Math.max(t.body?.length ?? 0, t.body_alt?.length ?? 0) > 2500);
   let font = $state(2);            // 0..4 → scale steps
   let wide = $state(false);        // wider measure
   let serif = $state(false);       // serif body
@@ -48,17 +49,25 @@
   const VOICES = [{ id: 'agent-a', label: 'Agent-a' }, { id: 'george', label: 'George' }, { id: 'river', label: 'River' }, { id: 'brian', label: 'Brian' }, { id: 'sarah', label: 'Sarah' }];
   const docHtml = $derived(human && hasHuman ? data.bodyHtmlHuman : data.bodyHtml);
 
+  // restore prefs once on mount, THEN allow saving — a `loaded` gate stops the save
+  // effect from firing first and clobbering stored prefs with defaults (two-effect race).
+  let loaded = $state(false);
   $effect(() => {
+    if (loaded) return;
     try {
       const p = JSON.parse(localStorage.getItem('reader') || '{}');
       if (typeof p.font === 'number') font = p.font;
       if (typeof p.wide === 'boolean') wide = p.wide;
       if (typeof p.serif === 'boolean') serif = p.serif;
+      if (typeof p.focus === 'boolean') focus = p.focus;
       if (typeof p.voice === 'string') voice = p.voice;
     } catch {}
+    loaded = true;
   });
   $effect(() => {
-    try { localStorage.setItem('reader', JSON.stringify({ font, wide, serif, voice })); } catch {}
+    const snap = { font, wide, serif, focus, voice };
+    if (!loaded) return;
+    try { localStorage.setItem('reader', JSON.stringify(snap)); } catch {}
   });
 
   // ── glossary: wrap defined terms in the rendered prose with hover cards ──
@@ -72,7 +81,9 @@
     // wrap each defined term at its FIRST occurrence (wiki-style), one term at a
     // time so two terms in the same text node both get wrapped.
     for (const { term, def } of terms) {
-      const re = new RegExp('\\b' + escRe(term) + '\\b', 'i');
+      // explicit word-char boundaries (not \b) so terms with non-word edges match too
+      // — ".env", "C++", ".14" all have non-word first/last chars that \b can't bound.
+      const re = new RegExp('(?<![A-Za-z0-9_])' + escRe(term) + '(?![A-Za-z0-9_])', 'i');
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
         acceptNode(n) {
           // skip headings, code, links, and any already-wrapped term
