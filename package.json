@@ -38,7 +38,7 @@
 		"update-ts-references": "catalog:dev",
 		"vite-plus": "catalog:dev"
 	},
-	"packageManager": "pnpm@11.5.0",
+	"packageManager": "pnpm@11.5.1",
 	"engines": {
 		"node": "^26.0.0"
 	},
