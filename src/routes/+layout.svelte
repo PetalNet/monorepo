@@ -97,10 +97,10 @@
     <div class="sidebar-rail">
       <div class="rail">
         <div class="rail-head"><span class="rail-pulse" class:dim={!anyWorking}></span><span>agent activity</span></div>
-        {#if fleet}
+        {#if fleet?.totals}
           <div class="fleet" class:stale={!fleetFresh} title="live agent fleet (heartbeat)">
             <span class="fleet-dot"></span>
-            <span class="fleet-nums mono">{fleet.totals.workflows} workflow{fleet.totals.workflows === 1 ? '' : 's'} · {fleet.totals.subagents} subagent{fleet.totals.subagents === 1 ? '' : 's'}</span>
+            <span class="fleet-nums mono">{fleet.totals.workflows ?? 0} workflow{fleet.totals.workflows === 1 ? '' : 's'} · {fleet.totals.subagents ?? 0} subagent{fleet.totals.subagents === 1 ? '' : 's'}</span>
             <span class="fleet-age mono">{fleetAge == null ? '' : fleetAge === 0 ? 'now' : fleetAge + 'm ago'}</span>
           </div>
         {/if}

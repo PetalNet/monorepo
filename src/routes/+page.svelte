@@ -63,7 +63,7 @@
       <span class="mono dim age">{relShort(t.created_at)}</span>
       <form method="POST" action="?/update" use:enhance>
         <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
-        <button class="rcheck" title="Complete"><svg width="13" height="13"><use href="#i-check"/></svg></button>
+        <button class="rcheck" title="Complete" aria-label="Mark task done"><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg></button>
       </form>
     </span>
   </div>

@@ -414,7 +414,7 @@
     <form method="POST" action="?/comment" use:enhance={() => async ({ update }) => update({ reset: true })} class="chatbar">
       <textarea name="body" rows="1" placeholder="message the thread…"
         onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.form.requestSubmit(); } }}></textarea>
-      <button class="chat-send" type="submit" title="send"><svg width="18" height="18"><use href="#i-arrow"/></svg></button>
+      <button class="chat-send" type="submit" title="send" aria-label="Send message"><svg width="18" height="18" aria-hidden="true"><use href="#i-arrow"/></svg></button>
     </form>
   </section>
 </div>
