@@ -67,8 +67,8 @@
       </form>
     </span>
   </div>
-  {#each t.kids ?? [] as k (k.id)}
-    <div class="substack"><svg class="sub-tee" width="14" height="22" viewBox="0 0 14 22"><path d="M1 0v11a4 4 0 0 0 4 4h8" fill="none" stroke="var(--border)" stroke-width="1.4"/></svg>{@render row(k, 'task')}</div>
+  {#each t.kids ?? [] as k, i (k.id)}
+    <div class="substack" class:last={i === (t.kids.length - 1)}>{@render row(k, 'task')}</div>
   {/each}
 {/snippet}
 
@@ -277,9 +277,14 @@
   .rcheck:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
   .row-right form { display: flex; }
 
-  .substack { display: flex; align-items: stretch; gap: 0; padding-left: 14px; }
-  .substack .sub-tee { flex: none; margin-right: 4px; align-self: flex-start; margin-top: -3px; }
-  .substack :global(.row) { flex: 1; min-width: 0; }
+  /* sub-task tree: a continuous trunk down the left, an elbow tick into each child.
+     consecutive .substack siblings stack their ::before lines into one unbroken trunk;
+     the last child stops its trunk at the elbow so nothing dangles below. */
+  .substack { position: relative; padding-left: 24px; }
+  .substack::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 1.5px; background: var(--border); }
+  .substack.last::before { bottom: auto; height: 18px; }
+  .substack::after { content: ''; position: absolute; left: 9px; top: 18px; width: 13px; height: 1.5px; background: var(--border); }
+  .substack :global(.row) { min-width: 0; }
 
   .q-answer { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
   .q-opt, .q-submit-sm { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-1); border-radius: var(--radius); padding: 6px 13px; cursor: pointer; transition: .12s; }
