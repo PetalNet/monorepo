@@ -6,13 +6,15 @@
   // nav (only routes that exist today; inbox/issues come with their screens)
   const nav = [
     { name: 'board', label: 'board', icon: 'board', href: '/' },
-    { name: 'projects', label: 'projects', icon: 'projects', href: '/projects' },
+    { name: 'inbox', label: 'inbox', icon: 'inbox', href: '/inbox' },
     { name: 'issues', label: 'issues', icon: 'iopen', href: '/issues' },
+    { name: 'projects', label: 'projects', icon: 'projects', href: '/projects' },
     { name: 'new', label: 'new', icon: 'plus', href: '/new' }
   ];
   const active = (n) => {
     const p = $page.url.pathname;
     if (n === 'projects') return p.startsWith('/projects');
+    if (n === 'inbox') return p.startsWith('/inbox');
     if (n === 'issues') return p.startsWith('/issues');
     if (n === 'new') return p.startsWith('/new');
     if (n === 'board') return p === '/' || p.startsWith('/task');
