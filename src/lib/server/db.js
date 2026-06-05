@@ -209,6 +209,14 @@ export const blockerCandidates = (me) => db.prepare(
 
 // --- Claude Corner merge: docs (briefs/ADRs) + questions (async decisions) ---
 export const listDocs = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY updated_at DESC`).all(qargs(p, me, a));
+// every doc (research/briefs/ADRs) across all projects, for the /docs research library (joined → qualify cols)
+export const allDocs = (me) => db.prepare(
+  `SELECT t.id, t.title, t.updated_at, t.created_by, t.project_id, p.name AS project_name
+   FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+   WHERE t.kind='doc' AND t.status NOT IN ('done','dropped')
+   ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ''}
+   ORDER BY (p.name IS NULL), p.name COLLATE NOCASE, t.updated_at DESC`
+).all(me ? { me } : {});
 export const openQuestions = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, created_at`).all(qargs(p, me, a));
 export const answerQuestion = (id, value) => updateTask(id, { answer: value, status: 'done' });
 export const createDoc = (project_id, title, body, created_by = '') => createTask({ kind: 'doc', title, body, status: 'todo', project_id, created_by });

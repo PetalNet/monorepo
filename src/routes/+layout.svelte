@@ -8,6 +8,7 @@
     { name: 'board', label: 'board', icon: 'board', href: '/' },
     { name: 'inbox', label: 'inbox', icon: 'inbox', href: '/inbox' },
     { name: 'issues', label: 'issues', icon: 'iopen', href: '/issues' },
+    { name: 'docs', label: 'docs', icon: 'doc', href: '/docs' },
     { name: 'projects', label: 'projects', icon: 'projects', href: '/projects' },
     { name: 'new', label: 'new', icon: 'plus', href: '/new' }
   ];
@@ -16,6 +17,7 @@
     if (n === 'projects') return p.startsWith('/projects');
     if (n === 'inbox') return p.startsWith('/inbox');
     if (n === 'issues') return p.startsWith('/issues');
+    if (n === 'docs') return p.startsWith('/docs');
     if (n === 'new') return p.startsWith('/new');
     if (n === 'board') return p === '/' || p.startsWith('/task');
     return false;
