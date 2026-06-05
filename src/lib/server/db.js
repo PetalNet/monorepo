@@ -189,6 +189,8 @@ export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WH
 export const recentDone = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='done' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY updated_at DESC LIMIT 12`).all(qargs(p, me, a));
 // who's actively on something right now (incl. subtasks) — feeds the live agent rail
 export const activeLeases = (me) => db.prepare(`SELECT id, title, assignee, project_id FROM tasks WHERE status='doing' AND assignee IS NOT NULL AND assignee!='' ${vis(me)} ORDER BY updated_at DESC`).all(me ? { me } : {});
+// flat GitHub-style issues list — every actionable item (not docs) + its comment count, for the /issues view
+export const issuesList = (me) => db.prepare(`SELECT *, (SELECT COUNT(*) FROM comments c WHERE c.task_id=tasks.id) AS ncomments FROM tasks WHERE kind != 'doc' ${vis(me)} ORDER BY priority DESC, updated_at DESC`).all(me ? { me } : {});
 // dedicated muted section for blocked tasks (top-level only; children render under their parent).
 export const blockedList = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a))
   .map((r) => ({ ...r, blockers: blockersOf(r.id) }));

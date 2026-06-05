@@ -7,11 +7,13 @@
   const nav = [
     { name: 'board', label: 'board', icon: 'board', href: '/' },
     { name: 'projects', label: 'projects', icon: 'projects', href: '/projects' },
+    { name: 'issues', label: 'issues', icon: 'iopen', href: '/issues' },
     { name: 'new', label: 'new', icon: 'plus', href: '/new' }
   ];
   const active = (n) => {
     const p = $page.url.pathname;
     if (n === 'projects') return p.startsWith('/projects');
+    if (n === 'issues') return p.startsWith('/issues');
     if (n === 'new') return p.startsWith('/new');
     if (n === 'board') return p === '/' || p.startsWith('/task');
     return false;
@@ -60,6 +62,9 @@
   <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
   <symbol id="i-sticky" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v10l-5 5H5z"/><path d="M19 14h-5v5"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 14a8 8 0 1 1-10-10 6.5 6.5 0 0 0 10 10z"/></symbol>
+  <symbol id="i-iopen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-iclosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.4 2.4 4.6-4.8"/></symbol>
+  <symbol id="i-comment" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v11H9l-4 3z"/></symbol>
 </defs></svg>
 
 <div class="app">
