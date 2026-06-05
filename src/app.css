@@ -581,8 +581,8 @@ button {
   border:6px solid transparent; border-top-color:var(--border);
   opacity:0; transition:opacity .14s;
 }
-.gloss:hover::after { opacity:1; transform:translateY(0); }
-.gloss:hover::before { opacity:1; }
+.gloss:hover::after, .gloss:focus::after { opacity:1; transform:translateY(0); }
+.gloss:hover::before, .gloss:focus::before { opacity:1; }
 
 /* reader head */
 .post-head { margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--border-sub); }
@@ -692,4 +692,15 @@ button {
   .kcol { flex:1 1 auto; max-height:none; width:100%; }
   .loop2 { grid-template-columns:1fr; }
   .done-row { grid-template-columns:1fr; }
+}
+
+/* a11y: a visible keyboard focus ring everywhere (was missing — outlines had been stripped) */
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible {
+  outline:2px solid var(--accent-b); outline-offset:2px; border-radius:3px;
+}
+/* a11y: respect reduced-motion — kill the infinite pulse/spin loops for sensitive users */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important;
+  }
 }

@@ -19,5 +19,10 @@ export async function handle({ event, resolve }) {
     // local dev only (no access list): permit the dev fallback identity
     event.locals.user = user || 'dev';
   }
-  return resolve(event);
+  const res = await resolve(event);
+  // defense-in-depth headers (sanitizer is the primary XSS line; these harden the rest)
+  res.headers.set('X-Frame-Options', 'DENY');              // clickjacking
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('Referrer-Policy', 'same-origin');
+  return res;
 }

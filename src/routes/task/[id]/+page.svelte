@@ -88,7 +88,11 @@
       const span = document.createElement('span');
       span.className = 'gloss';
       span.textContent = m[0];
-      span.setAttribute('data-def', def);
+      span.setAttribute('data-def', def);     // CSS hover card (pointer users)
+      span.title = def;                        // native tooltip — touch long-press + fallback
+      span.tabIndex = 0;                        // keyboard-focusable (hover card shows on focus)
+      span.setAttribute('role', 'note');
+      span.setAttribute('aria-label', `${m[0]}: ${def}`); // screen-reader gets the definition
       text.parentNode.insertBefore(span, after);
     }
   });
@@ -99,40 +103,52 @@
   let speaking = $state(false);
   let loadingAudio = $state(false);
   let audioEl = null;
+  let ttsCtrl = null;       // AbortController for the in-flight TTS fetch
+  let blobUrl = null;       // revoke on stop to avoid leaking
   function readableText() {
     return (proseEl?.innerText || '').replace(/\s+\n/g, '\n').trim();
   }
   function stopAudio() {
-    speaking = false;
+    speaking = false; loadingAudio = false;
+    try { ttsCtrl?.abort(); } catch {}
+    ttsCtrl = null;
     try { window.speechSynthesis?.cancel(); } catch {}
-    if (audioEl) { audioEl.pause(); audioEl = null; }
+    if (audioEl) { audioEl.onended = audioEl.onerror = null; audioEl.pause(); audioEl = null; }
+    if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
   }
+  // stop audio when the doc changes or the component unmounts (no orphan playback on nav)
+  $effect(() => { t.id; return stopAudio; });
   async function listen() {
-    if (speaking || loadingAudio) { stopAudio(); loadingAudio = false; return; }
+    if (speaking || loadingAudio) { stopAudio(); return; }
     const text = readableText();
     if (!text) return;
     loadingAudio = true;
+    ttsCtrl = new AbortController();
     // try the server TTS (ElevenLabs) first; fall back to browser speech
     try {
       const r = await fetch(`/task/${t.id}/tts`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: text.slice(0, 4800), voice })
+        body: JSON.stringify({ text: text.slice(0, 4800), voice }), signal: ttsCtrl.signal
       });
       if (r.ok && (r.headers.get('content-type') || '').includes('audio')) {
-        const url = URL.createObjectURL(await r.blob());
-        audioEl = new Audio(url);
-        audioEl.onended = () => { speaking = false; URL.revokeObjectURL(url); };
+        blobUrl = URL.createObjectURL(await r.blob());
+        audioEl = new Audio(blobUrl);
+        audioEl.onended = () => stopAudio();
+        audioEl.onerror = () => stopAudio();
         loadingAudio = false; speaking = true;
-        await audioEl.play();
+        await audioEl.play();   // may reject (autoplay block / rapid toggle)
         return;
       }
-    } catch {}
+    } catch (e) {
+      if (e?.name === 'AbortError') return;   // user cancelled — don't fall through
+    }
     // fallback: Web Speech API
-    loadingAudio = false;
+    loadingAudio = false; speaking = false;
     if (!window.speechSynthesis) return;
     const u = new SpeechSynthesisUtterance(text.slice(0, 32000));
     u.rate = 1.0; u.pitch = 1.0;
     u.onend = () => { speaking = false; };
+    u.onerror = () => { speaking = false; };
     speaking = true;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);

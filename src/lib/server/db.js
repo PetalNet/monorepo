@@ -96,8 +96,37 @@ function ensureProjectColumns() {
 }
 ensureProjectColumns();
 
+// Indexes for the hot query paths (board lists, child fetch, events log) — the DB had none,
+// so every list was a full table scan. IF NOT EXISTS = safe to run on every boot.
+function ensureIndexes() {
+  for (const sql of [
+    'CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)',
+    'CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)',
+    'CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_tasks_upnext ON tasks(up_next)',
+    'CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source)',
+    'CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, at)'
+  ]) db.exec(sql);
+}
+ensureIndexes();
+
+// Keep the audit log lean: record WHICH keys changed + small scalar values, but never
+// serialize large text columns (body/body_alt/etc.) into events.data. Logging full doc
+// bodies on every save had ballooned the DB to 683MB / ~99k rows. (Forward fix; existing
+// rows untouched pending an explicit prune.)
+const BIG_FIELDS = new Set(['body', 'body_alt', 'acceptance_criteria', 'handoff_context', 'result_summary', 'options', 'budget', 'context', 'plan']);
+function trimEventData(data) {
+  if (!data || typeof data !== 'object') return data;
+  const o = {};
+  for (const [k, v] of Object.entries(data)) {
+    o[k] = (BIG_FIELDS.has(k) || (typeof v === 'string' && v.length > 200))
+      ? `[${typeof v === 'string' ? v.length + ' chars' : 'omitted'}]`
+      : v;
+  }
+  return o;
+}
 const log = (task_id, type, data) =>
-  db.prepare('INSERT INTO events (task_id,type,data) VALUES (?,?,?)').run(task_id, type, data ? JSON.stringify(data) : null);
+  db.prepare('INSERT INTO events (task_id,type,data) VALUES (?,?,?)').run(task_id, type, data ? JSON.stringify(trimEventData(data)) : null);
 
 const ACTIVE = "status NOT IN ('done','dropped')";
 // actionable list filter: blocked tasks get their own muted section, so the working lists hide them.
@@ -317,6 +346,11 @@ function cascadeUnblock(blockerId) {
 }
 
 export const updateTask = db.transaction((id, patch) => {
+  // Releasing the lease: any transition OUT of 'doing' clears the claim, so a re-opened
+  // task isn't silently un-claimable behind a stale future-dated lease.
+  if (patch.status && patch.status !== 'doing' && !('claim_token' in patch)) {
+    patch = { ...patch, claimed_by: '', claim_token: '', lease_expires_at: null };
+  }
   const cols = Object.keys(patch).filter((k) => PATCHABLE.includes(k));
   if (!cols.length) return;
   // Guard: status='blocked' requires >=1 live blocker. No-op (with a clear return) otherwise.
