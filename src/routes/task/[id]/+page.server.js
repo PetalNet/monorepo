@@ -2,6 +2,33 @@ import { error } from '@sveltejs/kit';
 import { marked } from 'marked';
 import { getTask, listComments, children, listProjects, updateTask, addComment, answerQuestion } from '$lib/server/db.js';
 
+// Pull a glossary out of a "## Glossary" / "## Definitions" section so the reader
+// can hover-define jargon. Matches bullet lines like "- **Term** — definition"
+// (em-dash, en-dash, hyphen, or colon as the separator).
+function parseGlossary(md) {
+  if (!md) return [];
+  const lines = md.split('\n');
+  let inSec = false;
+  const out = [];
+  const seen = new Set();
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const head = line.match(/^#{1,6}\s+(.+?)\s*$/);
+    if (head) { inSec = /^(glossary|definitions|terms|jargon)\b/i.test(head[1].trim()); continue; }
+    if (!inSec) continue;
+    // - **Term** — definition   |   - Term: definition
+    const m = line.match(/^\s*[-*]\s+(?:\*\*|__)?(.+?)(?:\*\*|__)?\s*(?:[—–:-]|--)\s+(.+)$/);
+    if (m) {
+      const term = m[1].replace(/[*_`]/g, '').trim();
+      const def = m[2].replace(/[*_`]/g, '').trim();
+      const key = term.toLowerCase();
+      if (term && def && !seen.has(key)) { seen.add(key); out.push({ term, def }); }
+    }
+  }
+  // longest first so multi-word terms win over their substrings when matching
+  return out.sort((a, b) => b.term.length - a.term.length);
+}
+
 export function load({ params, locals }) {
   const id = Number(params.id);
   const task = getTask(id);
@@ -12,6 +39,10 @@ export function load({ params, locals }) {
   return {
     task,
     bodyHtml: task.body ? marked.parse(task.body, { breaks: true }) : '',
+    bodyHtmlHuman: task.body_alt ? marked.parse(task.body_alt, { breaks: true }) : '',
+    // glossary lives in the humanized body_alt when present (sync-safe — the
+    // Corner→tasks mirror overwrites body but never touches body_alt), else body
+    glossary: parseGlossary(task.body_alt || task.body),
     opts,
     comments: listComments(id),
     kids: children(id),

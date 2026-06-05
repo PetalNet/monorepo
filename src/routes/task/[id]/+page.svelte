@@ -28,6 +28,112 @@
   const isQuestion = $derived(t.kind === 'question');
   const verif = $derived(t.verification_status || 'unverified');
   const verifClass = $derived(verif === 'unverified' ? 'none' : verif);
+
+  // ── reader modes ──────────────────────────────────────────────
+  // font scale + measure + serif + focus, persisted per-browser.
+  const hasHuman = $derived(!!data.bodyHtmlHuman);
+  const longDoc = $derived((t.body?.length ?? 0) > 2500); // toolbar only earns its space on real docs
+  let font = $state(2);            // 0..4 → scale steps
+  let wide = $state(false);        // wider measure
+  let serif = $state(false);       // serif body
+  let focus = $state(false);       // dim chrome, center the column
+  // default to the human version when one exists — that's the whole point.
+  // initialise directly from data (not via an effect) so docHtml is correct on
+  // the FIRST render — otherwise flipping it post-mount re-renders {@html} and
+  // clobbers the glossary spans the effect just injected.
+  let human = $state(!!data.bodyHtmlHuman); // show the plain-English rewrite
+
+  const FONTS = ['0.92', '1', '1.08', '1.18', '1.3'];
+  const docHtml = $derived(human && hasHuman ? data.bodyHtmlHuman : data.bodyHtml);
+
+  $effect(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem('reader') || '{}');
+      if (typeof p.font === 'number') font = p.font;
+      if (typeof p.wide === 'boolean') wide = p.wide;
+      if (typeof p.serif === 'boolean') serif = p.serif;
+    } catch {}
+  });
+  $effect(() => {
+    try { localStorage.setItem('reader', JSON.stringify({ font, wide, serif })); } catch {}
+  });
+
+  // ── glossary: wrap defined terms in the rendered prose with hover cards ──
+  let proseEl = $state(null);
+  function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  $effect(() => {
+    docHtml; // re-run when the technical⇄human body swaps
+    const el = proseEl;
+    const terms = data.glossary;
+    if (!el || !terms?.length) return;
+    // wrap each defined term at its FIRST occurrence (wiki-style), one term at a
+    // time so two terms in the same text node both get wrapped.
+    for (const { term, def } of terms) {
+      const re = new RegExp('\\b' + escRe(term) + '\\b', 'i');
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode(n) {
+          // skip headings, code, links, and any already-wrapped term
+          if (n.parentElement?.closest('h1,h2,h3,h4,h5,h6,code,pre,a,.gloss')) return NodeFilter.FILTER_REJECT;
+          return re.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+        }
+      });
+      const text = walker.nextNode();
+      if (!text) continue;
+      const m = text.nodeValue.match(re);
+      const after = text.splitText(m.index);
+      after.nodeValue = after.nodeValue.slice(m[0].length);
+      const span = document.createElement('span');
+      span.className = 'gloss';
+      span.textContent = m[0];
+      span.setAttribute('data-def', def);
+      text.parentNode.insertBefore(span, after);
+    }
+  });
+
+  // ── listen / podcast mode ──────────────────────────────────────
+  // ElevenLabs when a key is on the box (server endpoint), else the
+  // browser's built-in speech synth. No key required to use it.
+  let speaking = $state(false);
+  let loadingAudio = $state(false);
+  let audioEl = null;
+  function readableText() {
+    return (proseEl?.innerText || '').replace(/\s+\n/g, '\n').trim();
+  }
+  function stopAudio() {
+    speaking = false;
+    try { window.speechSynthesis?.cancel(); } catch {}
+    if (audioEl) { audioEl.pause(); audioEl = null; }
+  }
+  async function listen() {
+    if (speaking || loadingAudio) { stopAudio(); loadingAudio = false; return; }
+    const text = readableText();
+    if (!text) return;
+    loadingAudio = true;
+    // try the server TTS (ElevenLabs) first; fall back to browser speech
+    try {
+      const r = await fetch(`/task/${t.id}/tts`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: text.slice(0, 4800) })
+      });
+      if (r.ok && (r.headers.get('content-type') || '').includes('audio')) {
+        const url = URL.createObjectURL(await r.blob());
+        audioEl = new Audio(url);
+        audioEl.onended = () => { speaking = false; URL.revokeObjectURL(url); };
+        loadingAudio = false; speaking = true;
+        await audioEl.play();
+        return;
+      }
+    } catch {}
+    // fallback: Web Speech API
+    loadingAudio = false;
+    if (!window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance(text.slice(0, 32000));
+    u.rate = 1.0; u.pitch = 1.0;
+    u.onend = () => { speaking = false; };
+    speaking = true;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }
 </script>
 
 <svelte:head><title>{t.title} · tasks</title></svelte:head>
@@ -119,9 +225,35 @@
     {/if}
   {/if}
 
-  <!-- doc / idea: rendered prose -->
+  <!-- doc / idea: rendered prose with reader modes -->
   {#if isProse && data.bodyHtml}
-    <article class="prose">{@html data.bodyHtml}</article>
+    <div class="reader" class:focus>
+      <div class="reader-bar">
+        {#if hasHuman}
+          <div class="seg" role="group" aria-label="Version">
+            <button class="seg-btn" class:on={human} onclick={() => (human = true)}>plain english</button>
+            <button class="seg-btn" class:on={!human} onclick={() => (human = false)}>technical</button>
+          </div>
+        {/if}
+        {#if longDoc}
+          <div class="rb-group">
+            <button class="rb" title="Smaller text" disabled={font === 0} onclick={() => (font = Math.max(0, font - 1))}>A−</button>
+            <button class="rb" title="Larger text" disabled={font === FONTS.length - 1} onclick={() => (font = Math.min(FONTS.length - 1, font + 1))}>A+</button>
+            <button class="rb" class:on={serif} title="Serif" onclick={() => (serif = !serif)} style="font-family:Georgia,serif">A</button>
+            <button class="rb" class:on={wide} title="Wider column" onclick={() => (wide = !wide)}><svg width="14" height="14"><use href="#i-board"/></svg></button>
+            <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><svg width="14" height="14"><use href="#i-doc"/></svg></button>
+          </div>
+        {/if}
+        <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
+          {#if loadingAudio}<span class="spin"></span>{:else}<svg width="15" height="15"><use href="#i-{speaking ? 'check' : 'arrow'}"/></svg>{/if}
+          <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
+        </button>
+      </div>
+      {#if hasHuman && human}
+        <div class="human-note mono"><svg width="12" height="12"><use href="#i-check"/></svg> plain-english rewrite · switch to technical for the exact source</div>
+      {/if}
+      <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}>{@html docHtml}</article>
+    </div>
   {/if}
 
   <!-- handoff context -->
@@ -359,4 +491,60 @@
   }
   .freeanswer textarea:focus { border-color: var(--violet); background: var(--surface-2); }
   .freeanswer .q-submit { align-self: flex-start; padding: 11px 20px; }
+
+  /* ── reader ─────────────────────────────────────────────── */
+  .reader { margin: 4px 0 8px; }
+  .reader-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border-sub);
+  }
+  .rb-group { display: inline-flex; gap: 2px; }
+  .rb {
+    display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+    min-width: 30px; height: 30px; padding: 0 9px; border-radius: var(--radius);
+    background: var(--surface-1); border: 1px solid var(--border-sub); color: var(--text-2);
+    font: inherit; font-size: 12.5px; cursor: pointer; transition: .12s;
+  }
+  .rb:hover:not(:disabled) { border-color: var(--accent-ln); color: var(--text-1); }
+  .rb:disabled { opacity: .35; cursor: default; }
+  .rb.on { background: var(--accent-bg); border-color: var(--accent-ln); color: var(--accent-b); }
+  .rb svg { display: block; }
+  .listen { margin-left: auto; font-size: 12px; }
+  .listen.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
+  .listen .spin {
+    width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--accent-b); animation: rspin .7s linear infinite;
+  }
+  @keyframes rspin { to { transform: rotate(360deg); } }
+
+  /* technical ⇄ plain-english segmented toggle */
+  .seg { display: inline-flex; padding: 2px; background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); }
+  .seg-btn {
+    padding: 4px 11px; border: none; background: none; border-radius: calc(var(--radius) - 2px);
+    color: var(--text-3); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: .12s; white-space: nowrap;
+  }
+  .seg-btn.on { background: var(--accent-bg); color: var(--accent-b); }
+  .seg-btn:not(.on):hover { color: var(--text-1); }
+
+  .human-note { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-3); margin: -4px 0 14px; }
+  .human-note svg { color: var(--accent-b); }
+
+  /* font scale + measure (applies to the {@html} children via the article) */
+  .prose.font-0 { font-size: 13.6px; }
+  .prose.font-1 { font-size: 14.8px; }
+  .prose.font-2 { font-size: 15.5px; }
+  .prose.font-3 { font-size: 17px; }
+  .prose.font-4 { font-size: 18.5px; }
+  .prose.wide { max-width: 820px; }
+  .prose.serif { font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
+  .prose.serif :global(code), .prose.serif :global(pre) { font-family: var(--mono); }
+
+  /* focus mode: center the column, dim the surrounding chrome */
+  .reader.focus { position: relative; }
+  .reader.focus .prose { max-width: 680px; margin-inline: auto; }
+  :global(.screen.detail:has(.reader.focus)) .det-sec,
+  :global(.screen.detail:has(.reader.focus)) .page-head .det-meta,
+  :global(.screen.detail:has(.reader.focus)) .live-bar { opacity: .4; transition: opacity .2s; }
+  :global(.screen.detail:has(.reader.focus)) .det-sec:hover,
+  :global(.screen.detail:has(.reader.focus)) .page-head .det-meta:hover { opacity: 1; }
 </style>

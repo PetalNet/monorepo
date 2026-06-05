@@ -561,6 +561,29 @@ button {
 .prose pre code { background:none; padding:0; font-size:12.5px; line-height:1.5; }
 .prose img { max-width:100%; border-radius:var(--radius-sm); }
 
+/* glossary: hover-defined terms (spans injected into {@html}, so global) */
+.gloss {
+  border-bottom:1px dashed var(--accent-ln); cursor:help; position:relative;
+  color:var(--text-1); transition:.12s;
+}
+.gloss:hover { color:var(--accent-b); border-bottom-color:var(--accent-b); }
+.gloss::after {
+  content:attr(data-def); position:absolute; left:0; bottom:calc(100% + 8px); z-index:30;
+  width:max-content; max-width:320px; padding:9px 12px;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius);
+  box-shadow:0 8px 28px rgba(0,0,0,.4);
+  font-family:var(--sans); font-size:12.5px; font-weight:400; font-style:normal; line-height:1.5; color:var(--text-2);
+  white-space:normal; text-align:left; letter-spacing:0;
+  opacity:0; transform:translateY(4px); pointer-events:none; transition:opacity .14s, transform .14s;
+}
+.gloss::before {
+  content:''; position:absolute; left:14px; bottom:calc(100% + 2px); z-index:31;
+  border:6px solid transparent; border-top-color:var(--border);
+  opacity:0; transition:opacity .14s;
+}
+.gloss:hover::after { opacity:1; transform:translateY(0); }
+.gloss:hover::before { opacity:1; }
+
 /* reader head */
 .post-head { margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--border-sub); }
 .post-head h1 { font-size:clamp(26px,4.6vw,34px); font-weight:700; letter-spacing:-.025em; line-height:1.18; }

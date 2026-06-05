@@ -81,7 +81,8 @@ function ensureColumns() {
     source: "TEXT DEFAULT ''",              // provenance for sync upserts, e.g. 'corner:post:42'
     owner: "TEXT DEFAULT ''",               // who created/owns it (authentik username; privacy)
     visibility: "TEXT DEFAULT 'shared'",    // shared | private (private = owner-only for humans)
-    responsible: "TEXT DEFAULT ''"          // human accountable for completion (alice|bob); != assignee(agent)
+    responsible: "TEXT DEFAULT ''",         // human accountable for completion (alice|bob); != assignee(agent)
+    body_alt: "TEXT DEFAULT ''"             // "human version" — plain-english rewrite (humanize-doc skill); reader toggle + sync-safe glossary
   };
   for (const [name, def] of Object.entries(adds)) if (!have.has(name)) db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
 }
