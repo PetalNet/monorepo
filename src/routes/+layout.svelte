@@ -40,6 +40,13 @@
   });
   const anyWorking = $derived(agents.some((a) => a.tasks.length));
 
+  // live agent-fleet heartbeat (sessions / workflows / subagents) — staleness-aware
+  const fleet = $derived(data?.fleet ?? null);
+  const fleetAge = $derived(
+    fleet?.updated_at ? Math.max(0, Math.round((Date.now() - new Date(fleet.updated_at).getTime()) / 60000)) : null
+  );
+  const fleetFresh = $derived(fleetAge != null && fleetAge <= 10);
+
   function toggleTheme() {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
     document.documentElement.dataset.theme = next;
@@ -82,6 +89,13 @@
     <div class="sidebar-rail">
       <div class="rail">
         <div class="rail-head"><span class="rail-pulse" class:dim={!anyWorking}></span><span>agent activity</span></div>
+        {#if fleet}
+          <div class="fleet" class:stale={!fleetFresh} title="live agent fleet (heartbeat)">
+            <span class="fleet-dot"></span>
+            <span class="fleet-nums mono">{fleet.totals.workflows} workflow{fleet.totals.workflows === 1 ? '' : 's'} · {fleet.totals.subagents} subagent{fleet.totals.subagents === 1 ? '' : 's'}</span>
+            <span class="fleet-age mono">{fleetAge == null ? '' : fleetAge === 0 ? 'now' : fleetAge + 'm ago'}</span>
+          </div>
+        {/if}
         <div class="rail-list">
           {#each agents as a (a.h)}
             {@const working = a.tasks.length > 0}
@@ -137,4 +151,10 @@
   .rail-agent .ra-item { text-decoration: none; cursor: pointer; }
   .rail-agent .ra-item:hover .ra-title { color: var(--c); }
   .rail-pulse.dim { background: var(--text-4); box-shadow: none; animation: none; }
+  .fleet { display: flex; align-items: center; gap: 7px; margin: 9px 0 3px; padding: 7px 9px; border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--border-sub); }
+  .fleet-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; box-shadow: 0 0 6px var(--accent); }
+  .fleet.stale .fleet-dot { background: var(--text-4); box-shadow: none; }
+  .fleet-nums { font-size: 11px; color: var(--text-2); }
+  .fleet.stale .fleet-nums { color: var(--text-4); }
+  .fleet-age { margin-left: auto; font-size: 10px; color: var(--text-4); }
 </style>

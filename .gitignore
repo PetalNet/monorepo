@@ -5,3 +5,6 @@ tasks.db
 tasks.db-*
 *.local
 .env
+
+# runtime agent-fleet heartbeat (written by the warm session/manager, read by the rail)
+data/agent-fleet-status.json
