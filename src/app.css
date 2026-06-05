@@ -554,6 +554,12 @@ button {
 .prose a { color:var(--accent-b); text-decoration:underline; text-decoration-color:var(--accent-ln); text-underline-offset:3px; }
 .prose blockquote { border-left:3px solid var(--accent); padding-left:15px; color:var(--text-3); font-style:italic; }
 .prose hr { border:none; border-top:1px solid var(--border); margin:26px 0; }
+.prose table { width:100%; border-collapse:collapse; margin:14px 0; font-size:13px; display:block; overflow-x:auto; }
+.prose th, .prose td { border:1px solid var(--border-sub); padding:7px 10px; text-align:left; vertical-align:top; }
+.prose th { background:var(--surface-2); color:var(--text-1); font-weight:600; white-space:nowrap; }
+.prose pre { background:var(--surface-1); border:1px solid var(--border-sub); border-radius:var(--radius); padding:12px 14px; overflow-x:auto; margin:12px 0; }
+.prose pre code { background:none; padding:0; font-size:12.5px; line-height:1.5; }
+.prose img { max-width:100%; border-radius:var(--radius-sm); }
 
 /* reader head */
 .post-head { margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--border-sub); }
