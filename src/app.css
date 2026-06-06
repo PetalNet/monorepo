@@ -645,6 +645,8 @@ button {
   display:flex; align-items:center; justify-content:center; }
 .sk-x:hover { background:rgba(0,0,0,.18); }
 .sk-body { color:#1a1a1a; word-wrap:break-word; }
+.sk-snip { font-size:11px; font-style:italic; color:#4a3815; margin-top:6px; padding:4px 6px;
+  background:rgba(0,0,0,.05); border-radius:3px; border-left:2px solid #b45309; word-wrap:break-word; }
 .sk-ack { margin-top:9px; width:100%; padding:7px; background:#b45309; color:#fef3c7; border-radius:5px; font-family:var(--mono);
   font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; text-align:center; }
 .sk-ack:hover { background:#92400e; }

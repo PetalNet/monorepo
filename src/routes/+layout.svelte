@@ -1,6 +1,7 @@
 <script>
   import '../app.css';
   import { page } from '$app/stores';
+  import Stickies from '$lib/Stickies.svelte';
   let { children, data } = $props();
 
   // who's actually signed in (Authentik -> locals.user -> data.user). Was hardcoded "Alice".
@@ -148,6 +149,8 @@
     {/each}
   </nav>
 </div>
+
+<Stickies />
 
 <style>
   .sidebar-foot .ico-theme, .topbar .ico-theme {

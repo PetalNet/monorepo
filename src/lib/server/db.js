@@ -57,6 +57,20 @@ db.exec(`
     FOREIGN KEY (task_id)    REFERENCES tasks(id) ON DELETE CASCADE,
     FOREIGN KEY (blocker_id) REFERENCES tasks(id) ON DELETE CASCADE
   );
+  -- stickies: page-anchored collaborative annotations (long-press/right-click anywhere ->
+  -- note pinned to a DOM element). Scoped by page_path (we have no /p/<project>/ routes),
+  -- author = the signed-in Authentik user. Best-effort UI layer; ack&remove deletes.
+  CREATE TABLE IF NOT EXISTS annotations (
+    id              INTEGER PRIMARY KEY,
+    page_path       TEXT NOT NULL,
+    anchor_selector TEXT NOT NULL,
+    anchor_snippet  TEXT DEFAULT '',
+    anchor_offset_x REAL,
+    anchor_offset_y REAL,
+    body            TEXT NOT NULL,
+    author          TEXT DEFAULT '',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Delegation columns (added incrementally — the live DB predates them). Idempotent.
@@ -105,7 +119,8 @@ function ensureIndexes() {
     'CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_upnext ON tasks(up_next)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source)',
-    'CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, at)'
+    'CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, at)',
+    'CREATE INDEX IF NOT EXISTS idx_annotations_page ON annotations(page_path)'
   ]) db.exec(sql);
 }
 ensureIndexes();
@@ -200,6 +215,18 @@ export function addComment(task_id, author, body) {
   log(task_id, 'comment', { author, body });
   return Number(r.lastInsertRowid);
 }
+// ── stickies (page-anchored annotations) ──────────────────────────────────
+export const listAnnotations = (page_path) =>
+  db.prepare('SELECT * FROM annotations WHERE page_path=? ORDER BY created_at').all(page_path);
+export function addAnnotation({ page_path, anchor_selector, anchor_snippet, anchor_offset_x, anchor_offset_y, body, author }) {
+  const r = db.prepare(
+    `INSERT INTO annotations (page_path,anchor_selector,anchor_snippet,anchor_offset_x,anchor_offset_y,body,author)
+     VALUES (?,?,?,?,?,?,?)`
+  ).run(page_path, anchor_selector, anchor_snippet || '', anchor_offset_x, anchor_offset_y, body, author || '');
+  return db.prepare('SELECT * FROM annotations WHERE id=?').get(Number(r.lastInsertRowid));
+}
+export const deleteAnnotation = (id) => db.prepare('DELETE FROM annotations WHERE id=?').run(id).changes > 0;
+
 export const listProjects = (me) => db.prepare(
   `SELECT * FROM projects ${me ? "WHERE visibility='shared' OR owner=@me" : ''} ORDER BY name`
 ).all(me ? { me } : {});
