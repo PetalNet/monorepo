@@ -189,7 +189,9 @@
     document.addEventListener('contextmenu', onContextMenu);
     scrollHandler = () => positionTick++;
     resizeHandler = () => positionTick++;
-    window.addEventListener('scroll', scrollHandler, { passive: true });
+    // Capture phase: the tasks shell scrolls inside <main> (not window), and scroll
+    // events don't bubble — capture catches scroll from ANY container so pins track.
+    document.addEventListener('scroll', scrollHandler, { passive: true, capture: true });
     window.addEventListener('resize', resizeHandler);
   });
   onDestroy(() => {
@@ -199,7 +201,7 @@
     document.removeEventListener('pointerup', cancelPress);
     document.removeEventListener('pointercancel', cancelPress);
     document.removeEventListener('contextmenu', onContextMenu);
-    if (scrollHandler) window.removeEventListener('scroll', scrollHandler);
+    if (scrollHandler) document.removeEventListener('scroll', scrollHandler, { capture: true });
     if (resizeHandler) window.removeEventListener('resize', resizeHandler);
   });
 
