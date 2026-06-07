@@ -166,6 +166,18 @@ export function canWrite(id, me) {
   return !(t.visibility === 'private' && t.owner && t.owner !== me);
 }
 
+// Read authorization for a HUMAN actor. Deliberately the SAME predicate as the load-gate
+// in task/[id]/+page.server.js and the `vis` filter (private+owned => owner-only; everything
+// else, incl. owner-less private, => visible). Kept in lockstep on purpose: a side-channel
+// route (the TTS proxy) must not be able to read out a task the page would refuse, NOR
+// refuse one the page would show (that would break Listen for a task you can see). Missing
+// task -> false (fail closed). Only an exact 'private' visibility ever restricts.
+export function canRead(id, me) {
+  const t = db.prepare('SELECT owner, visibility FROM tasks WHERE id=?').get(id);
+  if (!t) return false;
+  return !(t.visibility === 'private' && t.owner && t.owner !== me);
+}
+
 // Strip server-only secret columns from anything bound for the browser. claim_token
 // is the live lease secret claimTask/reportTask authenticate with — shipping it via
 // SELECT * let any viewer hijack a worker's claim. deepScrub walks the whole load
