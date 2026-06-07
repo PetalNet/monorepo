@@ -20,9 +20,12 @@ export async function handle({ event, resolve }) {
     event.locals.user = user || 'dev';
   }
   const res = await resolve(event);
-  // defense-in-depth headers (sanitizer is the primary XSS line; these harden the rest)
-  res.headers.set('X-Frame-Options', 'DENY');              // clickjacking
+  // defense-in-depth headers (sanitizer is the primary XSS line; these harden the rest).
+  // Use the no-clobber form: a route may legitimately need to relax a header for itself
+  // (e.g. the gallery raw-artifact endpoint frames its own same-origin sandbox iframe, so
+  // it sets X-Frame-Options: SAMEORIGIN + a CSP sandbox). Only fill in defaults it left unset.
+  if (!res.headers.has('X-Frame-Options')) res.headers.set('X-Frame-Options', 'DENY'); // clickjacking
   res.headers.set('X-Content-Type-Options', 'nosniff');
-  res.headers.set('Referrer-Policy', 'same-origin');
+  if (!res.headers.has('Referrer-Policy')) res.headers.set('Referrer-Policy', 'same-origin');
   return res;
 }
