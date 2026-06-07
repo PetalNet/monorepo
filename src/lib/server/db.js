@@ -127,21 +127,80 @@ ensureIndexes();
 
 // Keep the audit log lean: record WHICH keys changed + small scalar values, but never
 // serialize large text columns (body/body_alt/etc.) into events.data. Logging full doc
-// bodies on every save had ballooned the DB to 683MB / ~99k rows. (Forward fix; existing
-// rows untouched pending an explicit prune.)
-const BIG_FIELDS = new Set(['body', 'body_alt', 'acceptance_criteria', 'handoff_context', 'result_summary', 'options', 'budget', 'context', 'plan']);
-function trimEventData(data) {
+// bodies on every save had ballooned the DB to ~716MB / ~126k rows (task-340).
+// trimEventData + EVENT_KEEP_PER_TASK are exported so the one-time compaction migration
+// (scripts/compact-events.mjs) reuses the EXACT same rules — no drift between the
+// forward fix and the backfill.
+const BIG_FIELDS = new Set(['body', 'body_alt', 'acceptance_criteria', 'handoff_context', 'result_summary', 'options', 'answer', 'budget', 'context', 'plan']);
+const FIELD_MAX = 200;        // any string longer than this is summarized, never stored verbatim
+const EVENT_DATA_MAX = 4000;  // hard backstop on the serialized event payload (defends against
+                              // nested/large structured values + high key counts trimEventData's
+                              // shallow pass can't see). An oversized event is dropped to a stub.
+// A summary marker we produce ourselves, e.g. "[1234 chars]" or "[omitted]". Recognizing our
+// own marker makes trimEventData IDEMPOTENT (re-trimming a marker returns it unchanged) — the
+// migration relies on this to reach a true fixed point.
+const SUMMARY_MARKER = /^\[(?:\d+ chars|omitted)\]$/;
+export function trimEventData(data) {
   if (!data || typeof data !== 'object') return data;
   const o = {};
   for (const [k, v] of Object.entries(data)) {
-    o[k] = (BIG_FIELDS.has(k) || (typeof v === 'string' && v.length > 200))
+    if (typeof v === 'string' && SUMMARY_MARKER.test(v)) { o[k] = v; continue; } // already summarized
+    o[k] = (BIG_FIELDS.has(k) || (typeof v === 'string' && v.length > FIELD_MAX) || (v != null && typeof v === 'object'))
       ? `[${typeof v === 'string' ? v.length + ' chars' : 'omitted'}]`
       : v;
   }
   return o;
 }
-const log = (task_id, type, data) =>
-  db.prepare('INSERT INTO events (task_id,type,data) VALUES (?,?,?)').run(task_id, type, data ? JSON.stringify(trimEventData(data)) : null);
+
+// Final serialization with the hard byte cap as a last line of defense: if even the trimmed
+// object exceeds EVENT_DATA_MAX (pathological key counts), collapse to a tiny stub recording
+// only which keys changed. Guarantees a bounded per-event payload no matter the input.
+export function serializeEventData(data) {
+  if (data == null) return null;
+  let s = JSON.stringify(trimEventData(data));
+  if (s.length > EVENT_DATA_MAX) {
+    const keys = (data && typeof data === 'object') ? Object.keys(data).slice(0, 50) : [];
+    s = JSON.stringify({ _truncated: true, bytes: s.length, keys });
+  }
+  return s;
+}
+
+// Bounding: retain at most this many events per task. The events log is an audit/history
+// substrate (design: "basis for git export + future sync") with NO live app consumer, so a
+// rolling window per task is safe — we keep the most recent N plus the ORIGINAL create anchor.
+export const EVENT_KEEP_PER_TASK = 200;
+
+// Prune events for ONE task down to the keep-window, atomically.
+// Preserves only the EARLIEST 'create' event (the real provenance anchor) — later/duplicate
+// 'create' rows are prunable like any other event, so they can't accumulate unbounded.
+const pruneStmt = db.prepare(`
+  DELETE FROM events
+   WHERE task_id = @tid
+     AND id NOT IN (
+       SELECT id FROM events WHERE task_id = @tid ORDER BY id DESC LIMIT @keep
+     )
+     AND id != (SELECT MIN(id) FROM events WHERE task_id = @tid AND type = 'create')`);
+export function pruneTaskEvents(tid, keep = EVENT_KEEP_PER_TASK) {
+  if (tid == null) return 0;
+  return pruneStmt.run({ tid, keep }).changes;
+}
+
+// Per-task write counter so pruning fires deterministically for EACH task (a global rowid
+// modulo could starve a hot task whose ids never land on the boundary). Bounded: at most
+// PRUNE_EVERY-1 events can sit above the cap between prunes. Map is process-local; that's
+// fine — better-sqlite3 is single-process, and a restart just re-prunes on the next batch.
+const PRUNE_EVERY = 25;
+const writeCounts = new Map();
+const log = (task_id, type, data) => {
+  const r = db.prepare('INSERT INTO events (task_id,type,data) VALUES (?,?,?)')
+    .run(task_id, type, serializeEventData(data));
+  if (task_id != null) {
+    const n = (writeCounts.get(task_id) || 0) + 1;
+    if (n >= PRUNE_EVERY) { pruneTaskEvents(task_id); writeCounts.set(task_id, 0); }
+    else writeCounts.set(task_id, n);
+  }
+  return r;
+};
 
 const ACTIVE = "status NOT IN ('done','dropped')";
 // actionable list filter: blocked tasks get their own muted section, so the working lists hide them.
