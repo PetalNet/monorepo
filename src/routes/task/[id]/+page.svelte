@@ -111,6 +111,16 @@
   // ── listen / podcast mode ──────────────────────────────────────
   // ElevenLabs when a key is on the box (server endpoint), else the
   // browser's built-in speech synth. No key required to use it.
+  // ── body edit-on-demand ─────────────────────────────────────
+  // The body renders as SANITIZED markdown by default (read mode, server-rendered
+  // via renderMd → data.bodyHtml). An Edit button swaps in the raw-markdown textarea;
+  // Save submits the existing ?/save form, Cancel reverts. This replaces the old
+  // "always a raw textarea" UX where headings/lists/code never rendered.
+  let editingBody = $state(false);
+  let bodyDraft = $state('');            // textarea value while editing
+  function startEditBody() { bodyDraft = t.body ?? ''; editingBody = true; }
+  function cancelEditBody() { editingBody = false; }
+
   let speaking = $state(false);
   let loadingAudio = $state(false);
   let audioEl = null;
@@ -313,18 +323,53 @@
 
   <!-- the editable details form (tasks / docs / ideas — questions stay lean) -->
   {#if !isQuestion}
-  <form method="POST" action="?/save" use:enhance class="details">
+  <form method="POST" action="?/save" use:enhance={() => async ({ update }) => { await update(); editingBody = false; }} class="details">
     <input type="hidden" name="vis_touched" value="1" />
 
+    <!-- body: rendered markdown by default, edit-on-demand. For prose (doc/idea) the
+         reader above already shows the body, so this section is the editor only. -->
     {#if !isProse}
       <section class="det-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span><h2>plan / notes</h2></div>
-        <textarea name="body" rows="8" placeholder="The detailed plan. Drop research here before starting…">{t.body ?? ''}</textarea>
+        <div class="ds-head">
+          <span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span>
+          <h2>plan / notes</h2>
+          {#if !editingBody}
+            <button type="button" class="ds-edit" onclick={startEditBody}>edit</button>
+          {/if}
+        </div>
+        {#if editingBody}
+          <textarea name="body" rows="8" bind:value={bodyDraft} placeholder="The detailed plan. Drop research here before starting…"></textarea>
+          <div class="edit-actions">
+            <button type="button" class="btn-ghost" onclick={cancelEditBody}>cancel</button>
+            <button type="submit" class="btn-save-sm">save body</button>
+          </div>
+        {:else if data.bodyHtml}
+          <input type="hidden" name="body" value={t.body ?? ''} />
+          <article class="prose body-prose">{@html data.bodyHtml}</article>
+        {:else}
+          <input type="hidden" name="body" value={t.body ?? ''} />
+          <button type="button" class="body-empty" onclick={startEditBody}>No plan yet — click to add the detailed plan.</button>
+        {/if}
       </section>
     {:else}
       <section class="det-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span><h2>edit body · markdown</h2></div>
-        <textarea name="body" rows="6" class="mono" placeholder="# markdown body…">{t.body ?? ''}</textarea>
+        <div class="ds-head">
+          <span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span>
+          <h2>{editingBody ? 'edit body · markdown' : 'body · markdown'}</h2>
+          {#if !editingBody}
+            <button type="button" class="ds-edit" onclick={startEditBody}>edit</button>
+          {/if}
+        </div>
+        {#if editingBody}
+          <textarea name="body" rows="6" class="mono" bind:value={bodyDraft} placeholder="# markdown body…"></textarea>
+          <div class="edit-actions">
+            <button type="button" class="btn-ghost" onclick={cancelEditBody}>cancel</button>
+            <button type="submit" class="btn-save-sm">save body</button>
+          </div>
+        {:else}
+          <input type="hidden" name="body" value={t.body ?? ''} />
+          <p class="mono dim body-hint">Rendered above in the reader. Click edit to change the markdown source.</p>
+        {/if}
       </section>
     {/if}
 
@@ -492,6 +537,39 @@
   .details textarea.mono { font-family: var(--mono); font-size: 13px; }
   .details textarea:focus, .details input:focus, .details select:focus { border-color: var(--accent-ln); background: var(--surface-2); }
   .details select { cursor: pointer; }
+
+  /* body edit-on-demand */
+  .ds-edit {
+    margin-left: auto; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-3); background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-sm);
+    padding: 4px 10px; cursor: pointer; transition: .12s;
+  }
+  .ds-edit:hover { color: var(--accent-b); border-color: var(--accent-ln); }
+  .edit-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+  .btn-ghost {
+    font: inherit; font-size: 13px; color: var(--text-3); background: none; border: 1px solid var(--border-sub);
+    border-radius: var(--radius); padding: 8px 16px; cursor: pointer; transition: .12s;
+  }
+  .btn-ghost:hover { color: var(--text-1); border-color: var(--border); }
+  .btn-save-sm {
+    font: inherit; font-size: 13px; font-weight: 600; color: #1a1205; background: var(--accent); border: none;
+    border-radius: var(--radius); padding: 8px 18px; cursor: pointer; transition: .12s;
+  }
+  .btn-save-sm:hover { background: var(--accent-b); }
+  /* rendered body sits in a quiet card so read-mode looks intentional, not like a raw dump */
+  .body-prose {
+    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius);
+    padding: 14px 16px; margin-top: 0;
+  }
+  .body-prose :global(> :first-child) { margin-top: 0; }
+  .body-prose :global(> :last-child) { margin-bottom: 0; }
+  .body-empty {
+    width: 100%; text-align: left; font: inherit; font-size: 13.5px; color: var(--text-4);
+    background: var(--surface-1); border: 1px dashed var(--border); border-radius: var(--radius);
+    padding: 14px 16px; cursor: pointer; transition: .12s;
+  }
+  .body-empty:hover { border-color: var(--accent-ln); color: var(--text-2); }
+  .body-hint { font-size: 11px; }
 
   .assign-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
   .afield { display: flex; flex-direction: column; gap: 6px; }

@@ -308,6 +308,15 @@ export function createQuestion(project_id, title, context, options, created_by =
   return id;
 }
 
+// --- project drill-in ---
+// Every visible item in one project (all kinds: task/idea/doc/question), honoring the
+// same human visibility gate as the board (shared, or your own private). Flat list —
+// the page groups it by status lane. Returns [] for an unknown/forbidden project.
+export const tasksInProject = (pid, me) => db.prepare(
+  `SELECT id, title, kind, status, priority, up_next, assignee, owner, visibility, created_at, updated_at
+   FROM tasks WHERE project_id=@pid ${vis(me)} ORDER BY priority, rank, updated_at DESC`
+).all({ pid, ...(me ? { me } : {}) });
+
 // sub-task hierarchy (beads-style breakdown)
 // depth-capped to survive a parent_id cycle (A->B->A) — would otherwise infinitely recurse and crash the board.
 export const children = (pid, depth = 0) => depth >= 8 ? [] : withKids(db.prepare(`SELECT * FROM tasks WHERE parent_id=? AND ${ACTIVE} ORDER BY rank, priority`).all(pid), depth);

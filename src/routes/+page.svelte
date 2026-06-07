@@ -38,6 +38,34 @@
 
   // attention sub-line counts
   const waitingCount = $derived(data.questions.length);
+
+  // ── client-side search ──────────────────────────────────────
+  // Browsing a board with 50+ rows across many lanes is a scroll-hunt. A live
+  // title/project filter narrows every lane at once (matches a row OR any of its
+  // sub-tasks) so you can find a task by typing instead of scanning. Project +
+  // assignee dropdowns stay server-side (they re-query); this is a pure in-page
+  // narrow of what's already loaded.
+  let query = $state('');
+  const needle = $derived(query.trim().toLowerCase());
+  const rowMatch = (t) =>
+    !needle ||
+    (t.title ?? '').toLowerCase().includes(needle) ||
+    (projName(t.project_id) ?? '').toLowerCase().includes(needle) ||
+    (t.kids ?? []).some(rowMatch);
+  const f = (list) => (needle ? (list ?? []).filter(rowMatch) : (list ?? []));
+  const fQuestions = $derived(f(data.questions));
+  const fDoing = $derived(f(data.doing));
+  const fUpNext = $derived(f(data.upNext));
+  const fInbox = $derived(f(data.inbox));
+  const fBacklog = $derived(f(data.backlog));
+  const fBlocked = $derived(f(data.blocked));
+  const fDocs = $derived(f(data.docs));
+  const fDone = $derived(f(data.done));
+  const matchCount = $derived(
+    fQuestions.length + fDoing.length + fUpNext.length + fInbox.length +
+    fBacklog.length + fBlocked.length + fDocs.length + fDone.length
+  );
+  const searching = $derived(!!needle);
 </script>
 
 <svelte:head><title>tasks{data.current ? ' · ' + data.current : ''}</title></svelte:head>
@@ -50,6 +78,7 @@
     <a class="row-main" href="/task/{t.id}">
       <span class="row-title">{t.title}</span>
       <span class="row-sub">
+        <span class="tasknum mono">#{t.id}</span>
         {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
         {#if t.priority != null}<span class="chip prio prio-{t.priority}">P{t.priority}</span>{/if}
         {#if t.blocked_on}<span class="tag-s mono">{t.blocked_on}</span>{/if}
@@ -116,20 +145,36 @@
     <kbd class="mono">↵</kbd>
   </form>
 
+  <div class="searchbar" class:on={searching}>
+    <svg width="16" height="16"><use href="#i-board"/></svg>
+    <input bind:value={query} placeholder="Find a task…" autocomplete="off" aria-label="Find a task"
+      onkeydown={(e) => { if (e.key === 'Escape') query = ''; }} />
+    {#if searching}
+      <span class="sb-count mono">{matchCount} match{matchCount === 1 ? '' : 'es'}</span>
+      <button type="button" class="sb-clear" onclick={() => (query = '')} aria-label="Clear search">✕</button>
+    {/if}
+  </div>
+
+  {#if searching && matchCount === 0}
+    <p class="no-matches mono">No tasks match “{query}”. <button type="button" class="link-btn" onclick={() => (query = '')}>clear</button></p>
+  {/if}
+
   <div class="lanes">
-    {#if data.questions.length}
+    {#if fQuestions.length}
       <section class="lane">
-        {@render laneHead('Waiting on you', data.questions.length, 'attention', 'question')}
+        {@render laneHead('Waiting on you', fQuestions.length, 'attention', 'question')}
         <div class="lane-body">
-          <div class="sticky-note">
-            <span class="sn-ic"><svg width="14" height="14"><use href="#i-sticky"/></svg></span>
-            <span><b>questions</b> need a typed answer · agents are blocked on you</span>
-          </div>
-          {#each data.questions as q (q.id)}
+          {#if !searching}
+            <div class="sticky-note">
+              <span class="sn-ic"><svg width="14" height="14"><use href="#i-sticky"/></svg></span>
+              <span><b>questions</b> need a typed answer · agents are blocked on you</span>
+            </div>
+          {/if}
+          {#each fQuestions as q (q.id)}
             <div class="row kind-question st-todo needs-human" style="--pl:var(--violet)">
               <span class="row-ic"><svg width="16" height="16"><use href="#i-question"/></svg></span>
               <div class="row-main">
-                <a class="row-title" href="/task/{q.id}">{q.title}</a>
+                <a class="row-title" href="/task/{q.id}">{q.title} <span class="tasknum mono">#{q.id}</span></a>
                 <div class="q-answer">
                   {#each q.opts as o}
                     <form method="POST" action="?/answer" use:enhance>
@@ -152,31 +197,34 @@
       </section>
     {/if}
 
-    {#if data.doing.length}
+    {#if fDoing.length}
       <section class="lane">
-        {@render laneHead('In progress', data.doing.length, 'active', 'bolt')}
+        {@render laneHead('In progress', fDoing.length, 'active', 'bolt')}
         <div class="lane-body">
-          {#each data.doing as t (t.id)}{@render row(t, t.kind ?? 'task')}{/each}
+          {#each fDoing as t (t.id)}{@render row(t, t.kind ?? 'task')}{/each}
         </div>
       </section>
     {/if}
 
-    <section class="lane">
-      {@render laneHead('Up next', data.upNext.length, 'emerald', 'bolt')}
-      <div class="lane-body">
-        {#each data.upNext as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Nothing queued. Triage an idea up here.</p>{/each}
-      </div>
-    </section>
+    {#if !searching || fUpNext.length}
+      <section class="lane">
+        {@render laneHead('Up next', fUpNext.length, 'emerald', 'bolt')}
+        <div class="lane-body">
+          {#each fUpNext as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Nothing queued. Triage an idea up here.</p>{/each}
+        </div>
+      </section>
+    {/if}
 
+    {#if !searching || fInbox.length}
     <section class="lane">
-      {@render laneHead('Inbox', data.inbox.length, '', 'idea')}
+      {@render laneHead('Inbox', fInbox.length, '', 'idea')}
       <div class="lane-body">
-        {#each data.inbox as t (t.id)}
+        {#each fInbox as t (t.id)}
           <div class="row kind-idea st-inbox">
             <span class="row-ic"><svg width="16" height="16"><use href="#i-idea"/></svg></span>
             <a class="row-main" href="/task/{t.id}">
               <span class="row-title">{t.title}</span>
-              <span class="row-sub"><span class="mono dim">captured {relShort(t.created_at)} ago{t.created_by ? ' · ' + t.created_by : ''}</span></span>
+              <span class="row-sub"><span class="tasknum mono">#{t.id}</span><span class="mono dim">captured {relShort(t.created_at)} ago{t.created_by ? ' · ' + t.created_by : ''}</span></span>
             </a>
             <span class="triage">
               <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="up"/><button class="tg up" title="Up Next">↑</button></form>
@@ -188,24 +236,28 @@
         {:else}<p class="lane-empty">Inbox zero.</p>{/each}
       </div>
     </section>
+    {/if}
 
+    {#if !searching || fBacklog.length}
     <section class="lane">
-      {@render laneHead('To do', data.backlog.length, '', 'task')}
+      {@render laneHead('To do', fBacklog.length, '', 'task')}
       <div class="lane-body">
-        {#each data.backlog as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Backlog clear.</p>{/each}
+        {#each fBacklog as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Backlog clear.</p>{/each}
       </div>
     </section>
+    {/if}
 
-    {#if data.blocked.length}
+    {#if fBlocked.length}
       <section class="lane">
-        {@render laneHead('Blocked', data.blocked.length, 'danger', 'block')}
+        {@render laneHead('Blocked', fBlocked.length, 'danger', 'block')}
         <div class="lane-body">
-          {#each data.blocked as t (t.id)}
+          {#each fBlocked as t (t.id)}
             <div class="row kind-task st-blocked">
               <span class="row-ic"><svg width="16" height="16"><use href="#i-block"/></svg></span>
               <a class="row-main" href="/task/{t.id}">
                 <span class="row-title">{t.title}</span>
                 <span class="row-sub">
+                  <span class="tasknum mono">#{t.id}</span>
                   {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
                   <span class="blk">blocked by</span>
                   {#each t.blockers as b}<span class="tag-s mono">#{b.id}</span>{/each}
@@ -218,29 +270,30 @@
       </section>
     {/if}
 
-    {#if data.docs.length}
+    {#if fDocs.length}
       <section class="lane">
-        {@render laneHead('Docs', data.docs.length, '', 'doc')}
+        {@render laneHead('Docs', fDocs.length, '', 'doc')}
         <div class="lane-body">
-          {#each data.docs as d (d.id)}
+          {#each fDocs as d (d.id)}
             <a class="row kind-doc st-todo" href="/task/{d.id}">
               <span class="row-ic"><svg width="16" height="16"><use href="#i-doc"/></svg></span>
               <span class="row-main"><span class="row-title">{d.title}</span></span>
-              <span class="row-right">{#if projName(d.project_id)}<span class="mono dim">{projName(d.project_id)}</span>{/if}</span>
+              <span class="row-right"><span class="tasknum mono">#{d.id}</span>{#if projName(d.project_id)}<span class="mono dim">{projName(d.project_id)}</span>{/if}</span>
             </a>
           {/each}
         </div>
       </section>
     {/if}
-    {#if data.done.length}
+    {#if fDone.length}
       <section class="lane lane-done">
-        {@render laneHead('Recently shipped', data.done.length, '', 'check')}
+        {@render laneHead('Recently shipped', fDone.length, '', 'check')}
         <div class="lane-body">
-          {#each data.done as t (t.id)}
+          {#each fDone as t (t.id)}
             <a class="row st-done kind-task shipped-row" href="/task/{t.id}">
               <span class="row-ic shipped-ic"><svg width="14" height="14"><use href="#i-check"/></svg></span>
               <span class="row-main"><span class="row-title">{t.title}</span></span>
               <span class="row-right">
+                <span class="tasknum mono">#{t.id}</span>
                 {#if t.assignee}{@const pc = whoColor(t.assignee)}<span class="avatar" style="width:18px;height:18px;font-size:8px;color:{pc};border-color:{pc};background:{isAgent(t.assignee) ? 'transparent' : pc + '22'};border-style:{isAgent(t.assignee) ? 'dashed' : 'solid'}">{t.assignee.charAt(0).toLowerCase()}</span>{/if}
                 <span class="mono dim age">{relShort(t.updated_at)}</span>
               </span>
@@ -269,6 +322,23 @@
   .capture input { flex: 1; border: 0; background: none; outline: 0; color: var(--text-1); font: inherit; font-size: 15px; }
   .capture:focus-within { border-color: var(--accent-ln); box-shadow: 0 0 0 3px var(--accent-bg); }
   .capture kbd { font-size: 11px; color: var(--text-4); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 6px; }
+
+  /* find-a-task search */
+  .searchbar {
+    display: flex; align-items: center; gap: 10px; background: var(--surface-1); border: 1px solid var(--border-sub);
+    border-radius: var(--radius); padding: 0 12px; height: 40px; margin: -10px 0 20px; transition: border-color .12s, box-shadow .12s;
+  }
+  .searchbar svg { color: var(--text-4); flex: none; }
+  .searchbar input { flex: 1; min-width: 0; border: 0; background: none; outline: 0; color: var(--text-1); font: inherit; font-size: 14px; }
+  .searchbar:focus-within, .searchbar.on { border-color: var(--accent-ln); box-shadow: 0 0 0 3px var(--accent-bg); }
+  .sb-count { font-size: 11px; color: var(--text-3); flex: none; }
+  .sb-clear {
+    flex: none; width: 22px; height: 22px; border-radius: var(--radius-sm); border: 0; background: var(--surface-2);
+    color: var(--text-3); font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .12s;
+  }
+  .sb-clear:hover { color: var(--text-1); background: var(--border-sub); }
+  .no-matches { font-size: 13px; color: var(--text-3); padding: 8px 2px 20px; }
+  .link-btn { background: none; border: 0; color: var(--accent-b); font: inherit; cursor: pointer; text-decoration: underline; }
 
   .lane-empty { color: var(--text-4); font-size: 13px; padding: 4px 2px; }
   .lane-head { width: 100%; }

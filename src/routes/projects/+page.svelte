@@ -21,7 +21,7 @@
         <div class="proj-card" class:priv={p.visibility === 'private'}>
           <div class="pc-head">
             <span class="pc-dot"></span>
-            <a class="pc-name mono" href="/?project={encodeURIComponent(p.name)}">{p.name}</a>
+            <a class="pc-name mono" href="/project/{p.id}">{p.name}</a>
             {#if p.count > 0}<span class="pc-badge">{p.count}</span>{/if}
           </div>
           <div class="pc-meta">
@@ -29,6 +29,7 @@
               <svg width="12" height="12"><use href="#i-lock"/></svg>
               {p.visibility}{#if p.owner} · {p.owner}{/if}
             </span>
+            <a class="pc-board mono" href="/?project={encodeURIComponent(p.name)}">on board →</a>
           </div>
           <div class="pc-manage">
             <form method="POST" action="?/rename" use:enhance class="ren">
@@ -64,6 +65,8 @@
 <style>
   .pc-name { text-decoration: none; }
   .pc-name:hover { color: var(--accent-b); }
+  .pc-board { margin-left: auto; color: var(--text-4); text-decoration: none; transition: color .12s; }
+  .pc-board:hover { color: var(--accent-b); }
   .pc-vis svg { vertical-align: -1px; margin-right: 2px; }
   .pc-manage {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

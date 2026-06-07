@@ -288,6 +288,8 @@ button {
 .tag-q { font-family:var(--mono); font-size:10.5px; color:var(--violet-b); background:var(--violet-bg); padding:1px 6px; border-radius:5px; }
 .tag-v { font-family:var(--mono); font-size:10.5px; color:var(--warn-b); background:rgba(234,179,8,.12); padding:1px 6px; border-radius:5px; text-transform:uppercase; }
 .tag-s { font-family:var(--mono); font-size:10.5px; color:var(--text-3); background:var(--surface-3); padding:1px 6px; border-radius:5px; }
+/* task number: a muted monospace "#412" so you can tell rows apart while browsing the board / a project */
+.tasknum { font-family:var(--mono); font-size:10.5px; color:var(--text-4); letter-spacing:-.01em; }
 .blk { display:inline-flex; align-items:center; gap:3px; font-family:var(--mono); font-size:10.5px; color:var(--danger-b); }
 .waiting-on { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--pc,var(--text-3));
   background:color-mix(in srgb,var(--pc,var(--text-3)) 12%,transparent); padding:2px 8px 2px 4px; border-radius:20px; font-weight:500; }
