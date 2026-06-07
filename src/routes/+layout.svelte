@@ -16,6 +16,7 @@
     { name: 'inbox', label: 'inbox', icon: 'inbox', href: '/inbox' },
     { name: 'issues', label: 'issues', icon: 'iopen', href: '/issues' },
     { name: 'docs', label: 'docs', icon: 'doc', href: '/docs' },
+    { name: 'gallery', label: 'gallery', icon: 'gallery', href: '/gallery' },
     { name: 'projects', label: 'projects', icon: 'projects', href: '/projects' },
     { name: 'new', label: 'new', icon: 'plus', href: '/new' }
   ];
@@ -25,6 +26,7 @@
     if (n === 'inbox') return p.startsWith('/inbox');
     if (n === 'issues') return p.startsWith('/issues');
     if (n === 'docs') return p.startsWith('/docs');
+    if (n === 'gallery') return p.startsWith('/gallery');
     if (n === 'new') return p.startsWith('/new');
     if (n === 'board') return p === '/' || p.startsWith('/task');
     return false;
@@ -83,6 +85,7 @@
   <symbol id="i-iopen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-iclosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.4 2.4 4.6-4.8"/></symbol>
   <symbol id="i-comment" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v11H9l-4 3z"/></symbol>
+  <symbol id="i-gallery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="8.5" cy="9" r="1.4"/></symbol>
 </defs></svg>
 
 <div class="app">

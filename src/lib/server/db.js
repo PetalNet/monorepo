@@ -71,6 +71,28 @@ db.exec(`
     author          TEXT DEFAULT '',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  -- artifacts / pages gallery: browsable writeups Agent-a generates (dossiers, research pages,
+  -- future briefs) served INSIDE tasks behind the existing Authentik gate, instead of one-off
+  -- gated subdomains (brain.example.com / tag.example.com). Content is stored IN the DB (the
+  -- source of truth the container already mounts) — no on-disk file path => no path-traversal
+  -- surface. kind: 'markdown' renders through renderMd (sanitized, inline .prose); 'html' is a
+  -- pre-built standalone document served raw into a locked-down sandbox <iframe> (it cannot run
+  -- scripts, reach the parent DOM/cookies, or make same-origin requests — see /gallery/[slug]/raw).
+  -- visibility mirrors tasks: 'shared' (alice+bob) | 'private' (owner-only).
+  CREATE TABLE IF NOT EXISTS artifacts (
+    id          INTEGER PRIMARY KEY,
+    slug        TEXT NOT NULL UNIQUE,                 -- URL id, e.g. 'brain-dossier'
+    title       TEXT NOT NULL,
+    description TEXT DEFAULT '',                       -- one-line gallery blurb
+    kind        TEXT NOT NULL DEFAULT 'markdown',      -- markdown | html
+    content     TEXT NOT NULL,                         -- the markdown source or full HTML document
+    source      TEXT DEFAULT '',                       -- provenance, e.g. 'brain-research/DOSSIER.md'
+    owner       TEXT DEFAULT '',
+    visibility  TEXT NOT NULL DEFAULT 'shared',        -- shared | private
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_artifacts_slug ON artifacts(slug);
 `);
 
 // Delegation columns (added incrementally — the live DB predates them). Idempotent.
@@ -463,6 +485,41 @@ export function reapLeases() {
     `UPDATE tasks SET status='todo', claimed_by='', claim_token='', lease_expires_at=NULL, updated_at=datetime('now')
      WHERE status='doing' AND lease_expires_at IS NOT NULL AND lease_expires_at < datetime('now')`
   ).run().changes;
+}
+
+// --- artifacts / pages gallery ---------------------------------------------
+// Human visibility gate, identical rule to tasks: a private artifact is owner-only.
+// `me` is ALWAYS supplied for web views (the gallery has no agent API), so the gate
+// is never skipped. Listing returns metadata only — never the (large) content blob.
+const artVis = (me) => (me ? "WHERE (visibility='shared' OR owner=@me)" : '');
+export const listArtifacts = (me) => db.prepare(
+  `SELECT id, slug, title, description, kind, source, owner, visibility, created_at, updated_at
+   FROM artifacts ${artVis(me)} ORDER BY updated_at DESC`
+).all(me ? { me } : {});
+
+// Fetch ONE artifact by slug, enforcing the same visibility gate in SQL. Returns
+// undefined when the slug is unknown OR the caller may not see it (so callers 404
+// uniformly — a private artifact never reveals its existence to an outsider).
+export const getArtifact = (slug, me) => db.prepare(
+  `SELECT * FROM artifacts WHERE slug=@slug ${me ? "AND (visibility='shared' OR owner=@me)" : ''}`
+).get({ slug, ...(me ? { me } : {}) });
+
+// Upsert by slug — used by the seed script and any future writer. Content stays in the DB.
+export function upsertArtifact({ slug, title, description = '', kind = 'markdown', content, source = '', owner = '', visibility = 'shared' }) {
+  if (!slug || !title || !content) throw new Error('artifact requires slug, title, content');
+  if (kind !== 'markdown' && kind !== 'html') throw new Error('artifact kind must be markdown|html');
+  // validate enum (a typo'd visibility silently becoming owner-only — or worse, "shared" by
+  // accident — is an authz footgun; fail loudly instead). slug stays URL-clean.
+  if (visibility !== 'shared' && visibility !== 'private') throw new Error('artifact visibility must be shared|private');
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) throw new Error('artifact slug must be lowercase alphanumeric + dashes');
+  db.prepare(
+    `INSERT INTO artifacts (slug,title,description,kind,content,source,owner,visibility)
+       VALUES (@slug,@title,@description,@kind,@content,@source,@owner,@visibility)
+     ON CONFLICT(slug) DO UPDATE SET
+       title=@title, description=@description, kind=@kind, content=@content,
+       source=@source, owner=@owner, visibility=@visibility, updated_at=datetime('now')`
+  ).run({ slug, title, description, kind, content, source, owner, visibility });
+  return getArtifact(slug, null);
 }
 
 // An agent's own queue (for the SessionStart hook).
