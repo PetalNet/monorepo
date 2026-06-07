@@ -263,10 +263,10 @@ const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of t
 
 // Top-level items per section (children render nested under their parent — work isn't flat, per Bob).
 // in-progress work gets its own lane, so pull status='doing' out of up-next / to-do
-export const doing   = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE status='doing' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, updated_at DESC`).all(qargs(p, me, a)));
-export const upNext  = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me, a)));
+export const doing   = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE status='doing' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, updated_at DESC`).all(qargs(p, me, a)), me);
+export const upNext  = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me, a)), me);
 export const inbox   = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY created_at DESC`).all(qargs(p, me, a));
-export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a)));
+export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a)), me);
 // recently-shipped (top-level), capped — a "done" lane so the board shows momentum
 export const recentDone = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='done' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY updated_at DESC LIMIT 12`).all(qargs(p, me, a));
 // who's actively on something right now (incl. subtasks) — feeds the live agent rail
@@ -319,8 +319,13 @@ export const tasksInProject = (pid, me) => db.prepare(
 
 // sub-task hierarchy (beads-style breakdown)
 // depth-capped to survive a parent_id cycle (A->B->A) — would otherwise infinitely recurse and crash the board.
-export const children = (pid, depth = 0) => depth >= 8 ? [] : withKids(db.prepare(`SELECT * FROM tasks WHERE parent_id=? AND ${ACTIVE} ORDER BY rank, priority`).all(pid), depth);
-const withKids = (rows, depth = 0) => rows.map((r) => ({ ...r, kids: children(r.id, depth + 1) }));
+// HUMAN visibility gate: pass `me` (logged-in user) so a SHARED parent doesn't leak its
+// PRIVATE children to someone who can't see them. Same rule as the board/list queries (vis):
+// a human sees shared children + their own private ones; omit `me` for agents (they see all).
+// Threaded recursively so it also covers sub-sub-children at every depth (task-285 / task-343).
+export const children = (pid, me, depth = 0) => depth >= 8 ? [] :
+  withKids(db.prepare(`SELECT * FROM tasks WHERE parent_id=@pid AND ${ACTIVE} ${vis(me)} ORDER BY rank, priority`).all({ pid, ...(me ? { me } : {}) }), me, depth);
+const withKids = (rows, me, depth = 0) => rows.map((r) => ({ ...r, kids: children(r.id, me, depth + 1) }));
 
 // The agent query (MCP get_ready, phase 2): actionable, unblocked, up-next first then by manual rank.
 export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ORDER BY up_next DESC, rank, priority`).all(args(p));

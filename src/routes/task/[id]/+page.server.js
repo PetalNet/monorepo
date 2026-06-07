@@ -48,7 +48,7 @@ export function load({ params, locals }) {
     glossary: parseGlossary(task.body_alt || task.body),
     opts,
     comments: listComments(id),
-    kids: children(id),
+    kids: children(id, locals.user),  // me-scoped: don't leak private sub-tasks under a shared parent
     projects: listProjects(locals.user),  // me-scoped: don't leak private project names
     me: locals.user
   });
