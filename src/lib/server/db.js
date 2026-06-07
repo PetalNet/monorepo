@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import crypto from 'node:crypto';
 
 // Local SQLite is the source of truth (design: tracker-design-2026-05-26.md).
 const DB_PATH = process.env.TASKS_DB_PATH || 'tasks.db';
@@ -419,6 +420,34 @@ export function claimTask(id, worker, token) {
   if (r.changes) log(id, 'claim', { worker });
   return r.changes > 0;
 }
+
+// Lockless, assignee-agnostic claim of THE next Up Next task (compare-and-set).
+// Distinct from claimTask (which is scoped to a pre-assigned worker): this grabs the
+// top of the Up Next queue regardless of assignee, for opportunistic workers (the MCP
+// `claim` tool). The single-statement guarded UPDATE is atomic under better-sqlite3's
+// single writer, so two callers can't grab the same row. Optional filters narrow the
+// candidate pool. Logs a 'claim' audit event on success (parity with claimTask).
+// Returns the claimed row (with its fresh claim_token) or null if nothing was free.
+export const claimNext = db.transaction((worker, { project_id = null, capability = null, assignee = null } = {}) => {
+  const f = [];
+  const args = { worker, tok: crypto.randomUUID() };
+  if (project_id != null) { f.push('AND project_id=@pid'); args.pid = project_id; }
+  if (capability) { f.push('AND capability=@cap'); args.cap = capability; }
+  if (assignee) { f.push('AND assignee=@asg'); args.asg = assignee; }
+  // CAS + audit log run in one transaction so a claimed task always has its 'claim' event
+  // (no half-state where the lease is taken but the event insert failed).
+  const r = db.prepare(`
+    UPDATE tasks SET status='doing', claimed_by=@worker, claim_token=@tok,
+      lease_expires_at=datetime('now','+30 minutes'), updated_at=datetime('now')
+    WHERE id = (SELECT id FROM tasks
+                WHERE up_next=1 AND status='todo' AND kind IN ('task','idea')
+                  AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))
+                  ${f.join(' ')}
+                ORDER BY rank, priority LIMIT 1)
+    RETURNING *`).get(args);
+  if (r) log(r.id, 'claim', { worker });
+  return r || null;
+});
 
 // Worker reports back. Only the current lease holder may report.
 export function reportTask(id, worker, token, { status, result_summary, blocked_on } = {}) {
