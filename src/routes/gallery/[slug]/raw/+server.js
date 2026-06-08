@@ -27,12 +27,15 @@ export function GET({ params, locals }) {
   return new Response(a.content, {
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      // Tight CSP: sandbox (no scripts/same-origin), and NO remote fetches — img/font are
-      // data:-only so an artifact can't beacon out the viewer's IP or track them, even though
-      // these are our own (trusted) artifacts. style 'unsafe-inline' is needed for the
+      // Tight CSP: sandbox with allow-same-origin ONLY (NO allow-scripts → scripts still
+      // can't run; default-src 'none' double-blocks them). allow-same-origin is here so the
+      // gallery parent can read the doc's scrollHeight and auto-size the frame; safe without
+      // allow-scripts (the cookie/DOM risk is the same-origin + scripts COMBO, never granted).
+      // NO remote fetches — img/font data:-only so an artifact can't beacon out the viewer's
+      // IP, even though these are our own (trusted) artifacts. style 'unsafe-inline' is for the
       // documents' own <style> blocks. external <a href> citation links still work (sandbox
       // blocks in-frame nav; "open full" opens them in a normal new tab).
-      'content-security-policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'",
+      'content-security-policy': "sandbox allow-same-origin; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'",
       'x-frame-options': 'SAMEORIGIN',
       // private content behind SSO: don't let a shared cache (or post-logout browser) reuse it.
       'cache-control': 'private, no-store',
