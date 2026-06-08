@@ -28,7 +28,7 @@ process.env.TASKS_DB_PATH ||= "/srv/tasks/data/tasks.db";
 const DB = await import("../src/lib/server/db.js");
 const db = DB.default; // the shared connection (used only for read queries below)
 const {
-  createTask, updateTask, getTask, getProjectByName, ensureProject, claimNext, reapLeases,
+  createTask, updateTask, getTask, getProjectByName, ensureProject, claimNext, reapLeases, closeTask,
 } = DB;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -147,8 +147,13 @@ server.tool(
     body: z.string().default("").describe("Longer description / context"),
     parent_id: z.number().int().optional().describe("Parent task id (sub-task)"),
     up_next: z.boolean().default(false).describe("Mark as Up Next"),
+    discovered_from: z.number().int().optional().describe("Task id this was discovered from (records a non-blocking 'discovered_from' provenance link)"),
+    owner_machine: z.string().optional().describe("Routing hint: which host should run it"),
+    suggested_agent: z.string().optional().describe("Routing hint: recommended worker persona"),
+    effort: z.string().optional().describe("Routing hint: rough size (e.g. xs|s|m|l)"),
+    parallel_group: z.string().optional().describe("Routing hint: tasks sharing a group may run concurrently"),
   },
-  async ({ title, kind, project, priority, body, parent_id, up_next }) => {
+  async ({ title, kind, project, priority, body, parent_id, up_next, discovered_from, owner_machine, suggested_agent, effort, parallel_group }) => {
     const project_id = project ? projIdForWrite(project)
       : (parent_id ? getTask(parent_id)?.project_id ?? null : null);
     const id = createTask({
@@ -157,6 +162,8 @@ server.tool(
       up_next: up_next ? 1 : 0,
       status: kind === "idea" ? "inbox" : "todo",
       created_by: "mcp",
+      discovered_from: discovered_from ?? null,
+      owner_machine, suggested_agent, effort, parallel_group,
     });
     return txt({ filed: shape(getTask(id)) });
   },
@@ -180,6 +187,10 @@ server.tool(
     blocked_on: z.string().optional(),
     assignee: z.string().optional(),
     result_summary: z.string().optional(),
+    owner_machine: z.string().optional().describe("Routing hint: which host should run it"),
+    suggested_agent: z.string().optional().describe("Routing hint: recommended worker persona"),
+    effort: z.string().optional().describe("Routing hint: rough size (e.g. xs|s|m|l)"),
+    parallel_group: z.string().optional().describe("Routing hint: tasks sharing a group may run concurrently"),
   },
   async ({ id, project, ...patch }) => {
     if (!getTask(id)) return txt(`task #${id} not found`);
@@ -198,19 +209,24 @@ server.tool(
   },
 );
 
-// close — mark a task done via the canonical updateTask (fires cascade-unblock + logs the event).
+// close — mark a task done via the canonical closeTask (REQUIRES a reason — the "why" ledger).
+// closeTask stores close_reason, emits a tiny 'closed' event, and routes the status change
+// through updateTask (so cascade-unblock + audit log still fire). A missing/blank reason is
+// rejected with {rejected:{reason:'reason_required'}} instead of silently closing.
 server.tool(
   "close",
-  "Mark a task done. Optionally record a one-line result summary. Use this when you finish a task.",
+  "Mark a task done (or dropped) WITH A MANDATORY one-line reason — the 'why' ledger. Optionally record a result summary. Rejects a close with no reason.",
   {
     id: z.number().int(),
+    reason: z.string().min(1).describe("Required. Why it's being closed (the why-ledger)."),
+    status: z.enum(["done", "dropped"]).default("done").describe("done (default) or dropped"),
     result_summary: z.string().optional().describe("One-line note about the outcome"),
   },
-  async ({ id, result_summary }) => {
+  async ({ id, reason, status, result_summary }) => {
     if (!getTask(id)) return txt(`task #${id} not found`);
-    const patch = { status: "done" };
-    if (result_summary !== undefined) patch.result_summary = result_summary;
-    updateTask(id, patch); // status='done' => cascadeUnblock(id) frees dependents
+    if (result_summary !== undefined) updateTask(id, { result_summary });
+    const res = closeTask(id, { reason, by: "mcp", status });
+    if (res && res.ok === false) return txt({ rejected: res });
     return txt({ closed: shape(getTask(id)) });
   },
 );

@@ -422,6 +422,29 @@
       </div>
     </section>
 
+    <!-- fleet execution hints: advisory routing metadata (Phase 1) -->
+    <section class="det-sec">
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-board"/></svg></span><h2>execution hints</h2><span class="ds-extra mono dim">routing only — advisory</span></div>
+      <div class="assign-grid">
+        <label class="afield">
+          <span class="af-lbl">owner machine</span>
+          <input name="owner_machine" value={t.owner_machine ?? ''} placeholder="e.g. dot14 · example-host" />
+        </label>
+        <label class="afield">
+          <span class="af-lbl">suggested agent</span>
+          <input name="suggested_agent" value={t.suggested_agent ?? ''} placeholder="e.g. agent-a · agent-c" />
+        </label>
+        <label class="afield">
+          <span class="af-lbl">effort</span>
+          <input name="effort" value={t.effort ?? ''} placeholder="e.g. xs · s · m · l" />
+        </label>
+        <label class="afield">
+          <span class="af-lbl">parallel group</span>
+          <input name="parallel_group" value={t.parallel_group ?? ''} placeholder="group key — same group may run concurrently" />
+        </label>
+      </div>
+    </section>
+
     <div class="save-bar">
       <label class="chk mono"><input type="checkbox" name="private" checked={t.visibility === 'private'} /> <svg width="12" height="12"><use href="#i-lock"/></svg> private — only you</label>
       <button class="save" type="submit">save changes</button>
@@ -442,6 +465,52 @@
           </a>
         {/each}
       </div>
+    </section>
+  {/if}
+
+  <!-- relations: blocking deps (both directions) + non-blocking discovered-from provenance -->
+  {#if data.blockers.length || data.blocking.length || data.discoveredFrom.length || data.discoveries.length}
+    <section class="det-sec">
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-block"/></svg></span><h2>relations</h2></div>
+      <div class="rel-grid">
+        {#snippet rellist(label, rows)}
+          {#if rows.length}
+            <div class="rel-col">
+              <div class="rel-lbl mono">{label} · {rows.length}</div>
+              <div class="blk-list">
+                {#each rows as r (r.id)}
+                  <a class="blk-row kid" href="/task/{r.id}">
+                    <span class="kid-dot prio-{r.priority}"></span>
+                    <span class="blk-title">{r.title}</span>
+                    <span class="chip status-{r.status}">{r.status}</span>
+                  </a>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        {/snippet}
+        {@render rellist('blocked by', data.blockers)}
+        {@render rellist('blocks', data.blocking)}
+        {@render rellist('discovered from', data.discoveredFrom)}
+        {@render rellist('discoveries', data.discoveries)}
+      </div>
+    </section>
+  {/if}
+
+  <!-- close with a mandatory reason (the "why" ledger) — only for open, non-question tasks -->
+  {#if !isQuestion && t.status !== 'done' && t.status !== 'dropped'}
+    <section class="det-sec">
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-check"/></svg></span><h2>close</h2><span class="ds-extra mono dim">a reason is required</span></div>
+      <form method="POST" action="?/close" use:enhance class="closeform">
+        <input class="close-reason" name="reason" required placeholder="why is this closing? (the why-ledger)" />
+        <select name="status" aria-label="Close as"><option value="done">done</option><option value="dropped">dropped</option></select>
+        <button class="close-btn" type="submit">close</button>
+      </form>
+    </section>
+  {:else if t.close_reason}
+    <section class="det-sec">
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-check"/></svg></span><h2>close reason</h2></div>
+      <div class="result">{t.close_reason}</div>
     </section>
   {/if}
 
@@ -596,6 +665,28 @@
 
   .det-id { margin-left: auto; }
   .dim { color: var(--text-4); }
+
+  /* relations grid */
+  .rel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .rel-col { display: flex; flex-direction: column; gap: 8px; }
+  .rel-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+
+  /* close form */
+  .closeform { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .close-reason {
+    flex: 1; min-width: 180px; font: inherit; font-size: 14px; color: var(--text-1);
+    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 10px 13px; outline: none;
+  }
+  .close-reason:focus { border-color: var(--accent-ln); background: var(--surface-2); }
+  .closeform select {
+    font: inherit; font-size: 13px; color: var(--text-1); background: var(--surface-1);
+    border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 9px 11px; cursor: pointer; outline: none;
+  }
+  .close-btn {
+    padding: 9px 18px; border-radius: var(--radius); background: var(--accent); color: #1a1205;
+    border: none; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: .12s;
+  }
+  .close-btn:hover { background: var(--accent-b); }
 
   .freeanswer { display: flex; flex-direction: column; gap: 12px; }
   .freeanswer textarea {

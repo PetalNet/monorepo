@@ -1,6 +1,6 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { renderMd } from '$lib/server/md.js';
-import { getTask, listComments, children, listProjects, updateTask, addComment, answerQuestion, canWrite, deepScrub } from '$lib/server/db.js';
+import { getTask, listComments, children, listProjects, updateTask, addComment, answerQuestion, canWrite, deepScrub, blockersOf, blocks, discoveredFrom, discoveries, closeTask } from '$lib/server/db.js';
 
 // IDOR guard — a human may only mutate a task they can write (shared, or own private).
 const gate = (id, me) => { if (!canWrite(id, me)) throw error(403, 'Not allowed'); };
@@ -50,6 +50,12 @@ export function load({ params, locals }) {
     comments: listComments(id),
     kids: children(id, locals.user),  // me-scoped: don't leak private sub-tasks under a shared parent
     projects: listProjects(locals.user),  // me-scoped: don't leak private project names
+    // fleet coordination spine (Phase 1): blocking deps (both directions) + non-blocking
+    // discovered-from provenance. deepScrub strips lease secrets from these task rows too.
+    blockers: blockersOf(id, locals.user),          // me-scoped: don't leak a private blocker's title
+    blocking: blocks(id, locals.user),              // me-scoped
+    discoveredFrom: discoveredFrom(id, locals.user),// me-scoped provenance
+    discoveries: discoveries(id, locals.user),      // me-scoped
     me: locals.user
   });
 }
@@ -60,7 +66,8 @@ export const actions = {
     gate(Number(params.id), locals.user);
     const f = await request.formData();
     const patch = {};
-    for (const k of ['title', 'body', 'status', 'priority', 'blocked_on', 'assignee', 'responsible', 'capability', 'acceptance_criteria', 'handoff_context']) {
+    for (const k of ['title', 'body', 'status', 'priority', 'blocked_on', 'assignee', 'responsible', 'capability', 'acceptance_criteria', 'handoff_context',
+      'owner_machine', 'suggested_agent', 'effort', 'parallel_group']) {
       if (f.has(k)) patch[k] = k === 'priority' ? Number(f.get(k)) : String(f.get(k));
     }
     // only the full details form carries vis_touched — inline status/priority quick-edits must not reset visibility
@@ -81,6 +88,19 @@ export const actions = {
     gate(Number(params.id), locals.user);
     const f = await request.formData();
     answerQuestion(Number(params.id), String(f.get('value') || ''));
+    return { ok: true };
+  },
+
+  // close a task WITH A MANDATORY reason (the "why" ledger — fleet-dispatcher Phase 1).
+  // Rejects a blank reason (returns {ok:false} so the UI can show the requirement) and
+  // stores it via the canonical closeTask (close_reason + tiny 'closed' event + cascade-unblock).
+  close: async ({ request, params, locals }) => {
+    gate(Number(params.id), locals.user);
+    const f = await request.formData();
+    const reason = String(f.get('reason') || '').trim();
+    const status = f.get('status') === 'dropped' ? 'dropped' : 'done';
+    const res = closeTask(Number(params.id), { reason, by: locals.user || 'web', status });
+    if (res && res.ok === false) return fail(400, res);
     return { ok: true };
   },
 

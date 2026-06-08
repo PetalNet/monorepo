@@ -94,6 +94,22 @@ db.exec(`
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_artifacts_slug ON artifacts(slug);
+  -- typed NON-blocking provenance links between tasks (fleet-dispatcher Phase 1). Distinct from
+  -- task_blockers (which is the UNTYPED BLOCKING graph that gates UNBLOCKED eligibility): these
+  -- carry a relationship TYPE and do NOT affect status/eligibility. First rel: 'discovered_from'
+  -- (this task was discovered while working related_id). UNIQUE so re-filing the same link is a no-op.
+  CREATE TABLE IF NOT EXISTS task_links (
+    id         INTEGER PRIMARY KEY,
+    task_id    INTEGER NOT NULL,           -- the task that owns the link (e.g. the newly discovered one)
+    related_id INTEGER NOT NULL,           -- the other end (e.g. the parent it was discovered from)
+    rel        TEXT    NOT NULL,           -- 'discovered_from' (extensible)
+    created_at TEXT    DEFAULT (datetime('now')),
+    UNIQUE (task_id, related_id, rel),
+    FOREIGN KEY (task_id)    REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (related_id) REFERENCES tasks(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_links_task    ON task_links(task_id, rel);
+  CREATE INDEX IF NOT EXISTS idx_task_links_related ON task_links(related_id, rel);
 `);
 
 // Delegation columns (added incrementally — the live DB predates them). Idempotent.
@@ -119,7 +135,15 @@ function ensureColumns() {
     owner: "TEXT DEFAULT ''",               // who created/owns it (authentik username; privacy)
     visibility: "TEXT DEFAULT 'shared'",    // shared | private (private = owner-only for humans)
     responsible: "TEXT DEFAULT ''",         // human accountable for completion (alice|bob); != assignee(agent)
-    body_alt: "TEXT DEFAULT ''"             // "human version" — plain-english rewrite (humanize-doc skill); reader toggle + sync-safe glossary
+    body_alt: "TEXT DEFAULT ''",            // "human version" — plain-english rewrite (humanize-doc skill); reader toggle + sync-safe glossary
+    // Fleet/dispatcher coordination spine (Phase 1, fleet-dispatcher-proposal.md). Execution
+    // HINTS for cross-machine routing — purely advisory metadata, no behavior change to the
+    // board/queries. + a mandatory close-reason ledger ("git has the what, tasks has the why").
+    owner_machine: "TEXT DEFAULT ''",       // which host should run it (routing hint)
+    suggested_agent: "TEXT DEFAULT ''",     // recommended worker persona (routing hint)
+    effort: "TEXT DEFAULT ''",              // rough size hint (e.g. xs|s|m|l)
+    parallel_group: "TEXT DEFAULT ''",      // tasks in the same group may run concurrently
+    close_reason: "TEXT DEFAULT ''"         // why it closed (the "why" ledger; required by the close tool/action, not yet by every status-edit path)
   };
   for (const [name, def] of Object.entries(adds)) if (!have.has(name)) db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
 }
@@ -277,9 +301,12 @@ export function deepScrub(v) {
 
 // --- task-to-task blocking ---
 // A task is "blocked" iff it has >=1 blocker whose status is NOT in (done,dropped).
-export const blockersOf = (task_id) => db.prepare(
-  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id WHERE b.task_id=? ORDER BY t.id`
-).all(task_id);
+// me (optional) applies the same visibility gate as children()/upNext() — a private task linked
+// to a shared one must NOT leak its title via the relations panel (#285/#343 class). Agent/MCP/
+// internal callers pass no me and see all.
+export const blockersOf = (task_id, me) => db.prepare(
+  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id WHERE b.task_id=@task_id ${vis(me)} ORDER BY t.id`
+).all({ task_id, ...(me ? { me } : {}) });
 export const unfinishedBlockers = (task_id) => db.prepare(
   `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id
    WHERE b.task_id=? AND t.status NOT IN ('done','dropped') ORDER BY t.id`
@@ -303,6 +330,33 @@ export function removeBlocker(task_id, blocker_id) {
   }
   return true;
 }
+// Inverse blocking edge: tasks that THIS task blocks (i.e. rows where this is the blocker_id).
+// Complements blockersOf (tasks that block this one). Read-only; no eligibility effect.
+export const blocks = (id, me) => db.prepare(
+  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.task_id WHERE b.blocker_id=@id ${vis(me)} ORDER BY t.id`
+).all({ id, ...(me ? { me } : {}) });
+
+// --- typed NON-blocking provenance links (task_links) ---
+// addLink: record a typed edge. Self-links and bad ids are rejected; UNIQUE makes it idempotent.
+// Keeps the event payload TINY (ids + rel only, never task bodies — task-340 bloat rule).
+export function addLink(task_id, related_id, rel = 'discovered_from') {
+  task_id = Number(task_id); related_id = Number(related_id);
+  if (!task_id || !related_id || task_id === related_id || !rel) return false;
+  db.prepare('INSERT OR IGNORE INTO task_links (task_id,related_id,rel) VALUES (?,?,?)').run(task_id, related_id, rel);
+  log(task_id, 'link', { related_id, rel });
+  return true;
+}
+export const removeLink = (task_id, related_id, rel = 'discovered_from') =>
+  db.prepare('DELETE FROM task_links WHERE task_id=? AND related_id=? AND rel=?').run(Number(task_id), Number(related_id), rel).changes > 0;
+// discoveredFrom: the task(s) THIS one was discovered from (the parent provenance).
+export const discoveredFrom = (id, me, rel = 'discovered_from') => db.prepare(
+  `SELECT t.* FROM task_links l JOIN tasks t ON t.id=l.related_id WHERE l.task_id=@id AND l.rel=@rel ${vis(me)} ORDER BY t.id`
+).all({ id, rel, ...(me ? { me } : {}) });
+// discoveries: the task(s) discovered FROM this one (the inverse — the discovery tree's children).
+export const discoveries = (id, me, rel = 'discovered_from') => db.prepare(
+  `SELECT t.* FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.related_id=@id AND l.rel=@rel ${vis(me)} ORDER BY t.id`
+).all({ id, rel, ...(me ? { me } : {}) });
+
 export const listComments = (tid) => db.prepare('SELECT * FROM comments WHERE task_id=? ORDER BY created_at').all(tid);
 export function addComment(task_id, author, body) {
   const r = db.prepare('INSERT INTO comments (task_id,author,body) VALUES (?,?,?)').run(task_id, author || '', body);
@@ -442,8 +496,10 @@ export function ensureProject(name, backend = 'local_private', opts = {}) {
 export function createTask(t) {
   const kind = t.kind ?? 'task';
   const r = db.prepare(
-    `INSERT INTO tasks (project_id,kind,title,body,status,priority,up_next,rank,parent_id,created_by)
-     VALUES (@project_id,@kind,@title,@body,@status,@priority,@up_next,@rank,@parent_id,@created_by)`
+    `INSERT INTO tasks (project_id,kind,title,body,status,priority,up_next,rank,parent_id,created_by,
+       owner_machine,suggested_agent,effort,parallel_group)
+     VALUES (@project_id,@kind,@title,@body,@status,@priority,@up_next,@rank,@parent_id,@created_by,
+       @owner_machine,@suggested_agent,@effort,@parallel_group)`
   ).run({
     // tolerate a project row being passed instead of its id (caught via dogfood)
     project_id: (t.project_id && typeof t.project_id === 'object') ? t.project_id.id : (t.project_id ?? null),
@@ -455,17 +511,26 @@ export function createTask(t) {
     up_next: t.up_next ? 1 : 0,
     rank: t.rank ?? 0,
     parent_id: t.parent_id ?? null,
-    created_by: t.created_by ?? ''
+    created_by: t.created_by ?? '',
+    // fleet execution hints (advisory routing metadata) — default '' so existing callers are unaffected
+    owner_machine: t.owner_machine ?? '',
+    suggested_agent: t.suggested_agent ?? '',
+    effort: t.effort ?? '',
+    parallel_group: t.parallel_group ?? ''
   });
   const id = Number(r.lastInsertRowid);
   log(id, 'create', t);
+  // typed provenance: if this task was discovered while working another, record it (non-blocking).
+  if (t.discovered_from) addLink(id, t.discovered_from, 'discovered_from');
   return id;
 }
 
 const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'parent_id', 'blocked_on', 'project_id', 'kind',
   'assignee', 'capability', 'type', 'handoff_context', 'acceptance_criteria', 'result_summary', 'verification_status',
   'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer', 'source',
-  'owner', 'visibility', 'responsible'];
+  'owner', 'visibility', 'responsible',
+  // fleet execution hints + close-reason (Phase 1)
+  'owner_machine', 'suggested_agent', 'effort', 'parallel_group', 'close_reason'];
 
 export const getTaskBySource = (source) => db.prepare('SELECT * FROM tasks WHERE source=?').get(source);
 
@@ -558,6 +623,23 @@ export function reportTask(id, worker, token, { status, result_summary, blocked_
   updateTask(id, patch);
   log(id, 'report', { worker, ...patch });
   return true;
+}
+
+// Close a task with a MANDATORY reason (the "why" ledger — fleet-dispatcher Phase 1).
+// Stores the reason in close_reason AND emits a tiny 'closed' event {reason, by}. The new
+// MCP/action paths supply a reason and the no-reason call is rejected here. Backward-compat:
+// callers that genuinely can't yet supply one may pass a fallback (e.g. result_summary) so
+// existing flows never break — see the MCP/actions wiring. status defaults to 'done' but
+// 'dropped' is allowed (a drop is also a close-with-reason). Returns updateTask's result.
+export function closeTask(id, { reason, by = '', status = 'done' } = {}) {
+  reason = (reason ?? '').toString().trim();
+  if (!reason) return { ok: false, reason: 'reason_required', message: 'A close reason is required.' };
+  if (status !== 'done' && status !== 'dropped') status = 'done';
+  // updateTask logs an 'update' event; add a dedicated tiny 'closed' event for the why-ledger.
+  const res = updateTask(id, { status, close_reason: reason });
+  if (res && res.ok === false) return res;            // e.g. nonexistent → no cols patched
+  log(id, 'closed', { reason: reason.slice(0, 200), by });
+  return res ?? { ok: true };
 }
 
 // Agent-a verifies a reviewed task against acceptance_criteria, then closes or bounces it back.
