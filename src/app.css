@@ -73,7 +73,13 @@
 	--text-2: #3f3f46;
 	--text-3: #5c5c64;
 	--text-4: #83838c;
-	--accent-bg: rgba(16, 185, 129, 0.1);
+	/* accent must be RE-DARKENED for light mode: the dark theme's --accent-b (#fbbf24,
+	   pale amber) is unreadable on a light bg, and .prose uses --accent-b for h2 / links /
+	   inline-code — that was the "light mode gallery docs broken" bug. amber-600/700 hit AA. */
+	--accent: #d97706;
+	--accent-b: #b45309;
+	--accent-ln: rgba(180, 83, 9, 0.32);
+	--accent-bg: rgba(217, 119, 6, 0.1);
 	--violet-bg: rgba(34, 197, 94, 0.1);
 }
 
