@@ -1,0 +1,5 @@
+# Generated build output — formatted by the generators, not hand-edited.
+# (dist/ is already gitignored, but the design page must SERVE its compiled CSS
+#  from site/, so styles.css lives outside dist/ and is committed; it is emitted
+#  by apps/design/tools/build-css.mts and must not be reformatted out of band.)
+apps/design/site/styles.css

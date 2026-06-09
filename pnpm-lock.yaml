@@ -24,9 +24,15 @@ catalogs:
     '@sveltejs/vite-plugin-svelte':
       specifier: ^7.0.0
       version: 7.1.2
+    '@tailwindcss/node':
+      specifier: ^4.1.18
+      version: 4.3.0
     '@tailwindcss/vite':
       specifier: ^4.1.18
       version: 4.3.0
+    daisyui:
+      specifier: ^5.5.23
+      version: 5.5.23
     drizzle-kit:
       specifier: ^0.31.8
       version: 0.31.10
@@ -227,6 +233,25 @@ importers:
       vite:
         specifier: catalog:dev
         version: 8.0.14(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
+
+  apps/design:
+    dependencies:
+      '@petalnet/tokens':
+        specifier: workspace:*
+        version: link:../../packages/tokens
+      daisyui:
+        specifier: catalog:dev
+        version: 5.5.23
+      tailwindcss:
+        specifier: catalog:prod
+        version: 4.3.0
+    devDependencies:
+      '@tailwindcss/node':
+        specifier: catalog:dev
+        version: 4.3.0
+      '@types/node':
+        specifier: catalog:types
+        version: 25.9.1
 
   packages/tokens:
     devDependencies:
@@ -2465,6 +2490,9 @@ packages:
 
   d3-queue@2.0.3:
     resolution: {integrity: sha512-ejbdHqZYEmk9ns/ljSbEcD6VRiuNwAkZMdFf6rsUb3vHROK5iMFd8xewDQnUVr6m/ba2BG63KmR/LySfsluxbg==}
+
+  daisyui@5.5.23:
+    resolution: {integrity: sha512-xuheNUSL4T6ZVtWXoioqcNkjoyGX85QTDz4HTw2aBPfqk4fuMjax5HDo8qCmpV6M1YN8bGvfx5BpYCoDeRlt+A==}
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -5722,6 +5750,8 @@ snapshots:
       which: 2.0.2
 
   d3-queue@2.0.3: {}
+
+  daisyui@5.5.23: {}
 
   debug@4.4.3:
     dependencies:
