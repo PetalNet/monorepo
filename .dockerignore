@@ -1,0 +1,16 @@
+**/node_modules
+**/.svelte-kit
+**/build
+**/.turbo
+**/dist
+.git
+**/.env
+**/.env.*
+!**/.env.example
+**/*.db
+**/*.db-journal
+**/.DS_Store
+**/*.log
+**/coverage
+.vscode
+.idea
