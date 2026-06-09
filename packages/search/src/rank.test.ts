@@ -66,4 +66,35 @@ describe("rank ordering", () => {
 	it("throws if the ranker returns the wrong number of scores", () => {
 		expect(() => rank([input("a", 1, {})], () => [])).toThrow();
 	});
+
+	it("is deterministic: input order does not change the output order", () => {
+		const ranker = defaultRanker({ now: 0 });
+		// A set with score ties (so tiebreaks matter) and distinct providerIndexes.
+		const items: RankInput[] = [
+			input("p0", 1, { id: "a", score: 0.5 }, 0),
+			input("p1", 1, { id: "b", score: 0.9 }, 1),
+			input("p2", 1, { id: "c", score: 0.5 }, 2),
+			input("p3", 2, { id: "d", score: 0.5 }, 3),
+			input("p1", 1, { id: "e", score: 0.5 }, 1),
+		];
+		const forward = rank(items, ranker).map((r) => r.id);
+		const reversed = rank(items.toReversed(), ranker).map((r) => r.id);
+		// Same multiset in, identical order out regardless of presentation order.
+		expect(reversed).toEqual(forward);
+		// And the order is the expected one: d (0.5*2=1.0), b (0.9), then the
+		// score-0.5 weight-1 trio broken by providerIndex ascending: a(0), e(1), c(2).
+		expect(forward).toEqual(["d", "b", "a", "e", "c"]);
+	});
+
+	it("breaks a full tie (same rankScore AND providerIndex) by local score", () => {
+		const out = rank(
+			[
+				input("same", 1, { id: "lo", score: 0.4 }, 0),
+				input("same", 1, { id: "hi", score: 0.6 }, 0),
+			],
+			// Force identical rankScores so only the local-score tiebreak applies.
+			(inputs) => inputs.map(() => 1),
+		);
+		expect(out.map((r) => r.id)).toEqual(["hi", "lo"]);
+	});
 });

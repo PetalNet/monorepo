@@ -17,6 +17,8 @@ export default {
 		"packages/search": {
 			// Test files plus the runnable federation demo (an intentional executable,
 			// not dead code) are entry points; the library surface is `src/index.ts`.
+			// (`src/server.ts` is already an entry via the package.json `bin`/`./server`
+			// export, so it isn't listed here — knip resolves it automatically.)
 			entry: ["src/**/*.test.ts", "src/example.ts"],
 			// `vitest` is not a declared dependency: `vp test` provides the Vitest
 			// runtime (re-exported from @voidzero-dev/vite-plus-test), so the import

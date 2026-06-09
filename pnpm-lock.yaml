@@ -233,6 +233,9 @@ importers:
       '@petalnet/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@types/node':
+        specifier: catalog:types
+        version: 25.9.1
       typescript:
         specifier: catalog:dev
         version: 6.0.3

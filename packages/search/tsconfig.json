@@ -2,7 +2,11 @@
 	"extends": "@petalnet/tsconfig/base.json",
 	"compilerOptions": {
 		"outDir": "dist",
-		"rootDir": "src"
+		"rootDir": "src",
+		// The thin HTTP service (`src/server.ts`) uses node:http/process/Buffer.
+		// The rest of the package stays runtime-free; only the server file pulls
+		// these globals in.
+		"types": ["node"]
 	},
 	"include": ["src/**/*"],
 	"exclude": ["dist", "node_modules", "src/**/*.test.ts"]

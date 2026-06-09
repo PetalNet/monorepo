@@ -42,6 +42,79 @@ describe("createWebProvider (SearXNG)", () => {
 		expect(results[0]!.score).toBeGreaterThan(results[1]!.score);
 	});
 
+	it("scores a lone result at 1 (no divide-by-one degenerate)", async () => {
+		const provider = createWebProvider({
+			fetch: fakeFetch({ results: [{ url: "https://solo.com", title: "Solo" }] }),
+		});
+		const { results } = await provider.query("t", {});
+		expect(results).toHaveLength(1);
+		expect(results[0]?.score).toBe(1);
+	});
+
+	it("decays ordinal scores monotonically across many results", async () => {
+		const rows = Array.from({ length: 5 }, (_, i) => ({
+			url: `https://r${i}.com`,
+			title: `R${i}`,
+		}));
+		const provider = createWebProvider({ fetch: fakeFetch({ results: rows }) });
+		const { results } = await provider.query("t", {});
+		const scores = results.map((r) => r.score);
+		// Strictly descending: each earlier hit outranks the next.
+		for (let i = 1; i < scores.length; i++) {
+			expect(scores[i - 1]!).toBeGreaterThan(scores[i]!);
+		}
+	});
+
+	it("falls back to a synthetic id when a row has no url", async () => {
+		const provider = createWebProvider({
+			fetch: fakeFetch({ results: [{ title: "no url here", content: "snippet" }] }),
+		});
+		const { results } = await provider.query("t", {});
+		expect(results[0]?.id).toBe("web:0");
+		expect(results[0]?.url).toBeUndefined();
+		expect(results[0]?.title).toBe("no url here");
+	});
+
+	it("titles an untitled, url-less row as (untitled)", async () => {
+		const provider = createWebProvider({ fetch: fakeFetch({ results: [{ content: "c" }] }) });
+		const { results } = await provider.query("t", {});
+		expect(results[0]?.title).toBe("(untitled)");
+	});
+
+	it("preserves the raw SearXNG row on each result", async () => {
+		const provider = createWebProvider({
+			fetch: fakeFetch({
+				results: [{ url: "https://x.com", title: "X", engine: "brave", category: "general" }],
+			}),
+		});
+		const { results } = await provider.query("t", {});
+		expect(results[0]?.raw).toMatchObject({ engine: "brave", category: "general" });
+	});
+
+	it("sends the engines param when configured", async () => {
+		const cap: { url?: string; headers?: Headers } = {};
+		const provider = createWebProvider({
+			engines: ["duckduckgo", "brave"],
+			fetch: fakeFetch({ results: [] }, cap),
+		});
+		await provider.query("t", {});
+		expect(cap.url).toContain("engines=duckduckgo%2Cbrave");
+	});
+
+	it("uses a custom provider id/name/weight when given", async () => {
+		const provider = createWebProvider({
+			id: "web2",
+			name: "Secondary Web",
+			weight: 0.5,
+			fetch: fakeFetch({ results: [{ url: "https://a.com", title: "A" }] }),
+		});
+		expect(provider.id).toBe("web2");
+		expect(provider.name).toBe("Secondary Web");
+		expect(provider.weight).toBe(0.5);
+		const { results } = await provider.query("t", {});
+		expect(results[0]?.providerId).toBe("web2");
+	});
+
 	it("sends the JSON format param and a browser UA", async () => {
 		const cap: { url?: string; headers?: Headers } = {};
 		const provider = createWebProvider({ fetch: fakeFetch({ results: [] }, cap) });
