@@ -50,6 +50,14 @@ db.exec(`
     data    TEXT,
     at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  -- small key/value store. First use: events_archived_through = max events.id that has been
+  -- safely written to the NAS event archive (scripts/archive-events.mjs). The in-process event
+  -- pruner only deletes rows at/below this watermark, so nothing is ever dropped from the live
+  -- DB before it's archived off-box (task-340: archive-to-NAS, don't lose history).
+  CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+  );
   -- task-to-task blocking: task_id is blocked BY blocker_id. blocked_on (text) stays as a human note.
   CREATE TABLE IF NOT EXISTS task_blockers (
     task_id    INTEGER NOT NULL,
@@ -217,20 +225,51 @@ export function serializeEventData(data) {
 // rolling window per task is safe — we keep the most recent N plus the ORIGINAL create anchor.
 export const EVENT_KEEP_PER_TASK = 200;
 
-// Prune events for ONE task down to the keep-window, atomically.
-// Preserves only the EARLIEST 'create' event (the real provenance anchor) — later/duplicate
-// 'create' rows are prunable like any other event, so they can't accumulate unbounded.
+// Archive watermark: the max events.id written to the NAS archive (scripts/archive-events.mjs).
+// The pruner NEVER deletes an event above this, so the live DB only ever sheds rows already
+// preserved off-box. With watermark 0 (archiver never ran) the pruner deletes NOTHING — the
+// safe default (events accumulate, slim, until the nightly archiver advances the watermark).
+const _wmGet = db.prepare("SELECT value FROM meta WHERE key='events_archived_through'");
+// Monotonic: the watermark can only move FORWARD (guards against a late/overlapping writer
+// moving it backward, which would re-expose archived rows to re-pruning churn).
+const _wmSet = db.prepare(
+  "INSERT INTO meta (key,value) VALUES ('events_archived_through',@v) " +
+  "ON CONFLICT(key) DO UPDATE SET value=@v WHERE CAST(@v AS INTEGER) > CAST(value AS INTEGER)");
+export function getArchiveWatermark() { const r = _wmGet.get(); return r ? (Number(r.value) || 0) : 0; }
+export function setArchiveWatermark(id) { _wmSet.run({ v: String(Number(id) || 0) }); return getArchiveWatermark(); }
+
+// Prune ONE task's events down to the keep-window, atomically — but ONLY rows at/below the
+// archive watermark (already on the NAS). Preserves the EARLIEST 'create' anchor; later/dup
+// 'create' rows are prunable like any other event so they can't accumulate unbounded.
 const pruneStmt = db.prepare(`
   DELETE FROM events
    WHERE task_id = @tid
+     AND id <= @wm
      AND id NOT IN (
        SELECT id FROM events WHERE task_id = @tid ORDER BY id DESC LIMIT @keep
      )
      AND id != (SELECT MIN(id) FROM events WHERE task_id = @tid AND type = 'create')`);
 export function pruneTaskEvents(tid, keep = EVENT_KEEP_PER_TASK) {
   if (tid == null) return 0;
-  return pruneStmt.run({ tid, keep }).changes;
+  return pruneStmt.run({ tid, keep, wm: getArchiveWatermark() }).changes;
 }
+
+// --- helpers for the NAS event archiver (scripts/archive-events.mjs) — kept here so the
+// archive/reclaim path shares this module's connection (WAL, busy_timeout) and never forks a
+// divergent second code path (the task-284 lesson). ---
+// A batch of events strictly above `afterId`, oldest-first (id cursor → bounded memory on the
+// big first run). Selected columns ARE the archive record.
+export const eventsBatchAfter = (afterId, limit) =>
+  db.prepare('SELECT id, task_id, type, data, at FROM events WHERE id > ? ORDER BY id ASC LIMIT ?').all(afterId, limit);
+export const maxEventId = () => db.prepare('SELECT COALESCE(MAX(id),0) AS m FROM events').get().m;
+export const eventCount = () => db.prepare('SELECT COUNT(*) AS c FROM events').get().c;
+// distinct task_ids that currently have events (so the archiver can prune each to its window).
+export const eventTaskIds = () =>
+  db.prepare('SELECT DISTINCT task_id FROM events WHERE task_id IS NOT NULL').all().map((r) => r.task_id);
+// Full VACUUM to return freed pages to the filesystem (reclaim). Heavy + needs a write lock;
+// busy_timeout (5s) covers the low-traffic tracker. Called explicitly by the archiver's
+// --vacuum path, never on a normal write.
+export const vacuumDb = () => { db.exec('VACUUM'); };
 
 // Per-task write counter so pruning fires deterministically for EACH task (a global rowid
 // modulo could starve a hot task whose ids never land on the boundary). Bounded: at most
