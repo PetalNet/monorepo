@@ -1,18 +1,18 @@
 {
-	"$description": "Dark theme semantic tokens. Same key shape as light/*.",
-	"semantic": {
-		"color": {
-			"$type": "color",
-			"bg": { "$value": "{color.gray.950}" },
-			"surface": { "$value": "{color.gray.900}" },
-			"surface-2": { "$value": "{color.gray.800}" },
-			"fg": { "$value": "{color.gray.100}" },
-			"fg-dim": { "$value": "{color.gray.400}" },
-			"border": { "$value": "{color.gray.800}" },
-			"accent": { "$value": "{color.blue.500}" },
-			"ok": { "$value": "{color.green.500}" },
-			"warn": { "$value": "{color.amber.500}" },
-			"err": { "$value": "{color.red.500}" }
-		}
+	"$description": "Dark ('Ink') theme semantic tokens — overrides the same role names under [data-theme='dark']. Token paths are the bare role names so emitted vars are --bg, --surface, --petal, ... matching apps/design/site/styles.css.",
+	"bg": { "$type": "color", "$value": "{color.ink.bg}" },
+	"surface": { "$type": "color", "$value": "{color.ink.surface}" },
+	"elev": { "$type": "color", "$value": "{color.ink.elev}" },
+	"rule": { "$type": "color", "$value": "{color.ink.rule}" },
+	"rule-strong": { "$type": "color", "$value": "{color.ink.rule-strong}" },
+	"text": { "$type": "color", "$value": "{color.ink.text}" },
+	"text-mute": { "$type": "color", "$value": "{color.ink.text-mute}" },
+	"text-soft": { "$type": "color", "$value": "{color.ink.text-soft}" },
+	"petal": { "$type": "color", "$value": "{color.petal.ink}" },
+	"on-petal": { "$type": "color", "$value": "{color.ink.bg}" },
+	"petal-soft-pct": { "$type": "number", "$value": "15%" },
+	"shadow-pop": {
+		"$type": "shadow",
+		"$value": "0 1px 2px rgba(0,0,0,.4), 0 16px 40px -12px rgba(0,0,0,.65)"
 	}
 }
