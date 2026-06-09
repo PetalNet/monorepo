@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PetalNet design system</title>
+<meta name="description" content="The shared design system for everything PetalCat ships. Paper and ink, one accent, quiet by default.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+
+<!-- Anti-FOUC: apply the saved/OS theme synchronously BEFORE first paint, so a
+     dark-mode visitor never flashes paper. Must run render-blocking in <head>,
+     ahead of the stylesheet. The end-of-body init re-applies the same value
+     (idempotent) and wires up the toggle. Mirrors the init logic below. -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('petalnet-theme');
+      var theme = saved || (window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {}
+  })();
+</script>
+
+<!-- Preload the in-viewport Geist weights so the brand font lands ASAP. The
+     metric-matched 'Geist Fallback' above makes the swap shift-free regardless,
+     but preloading gets Geist painted sooner. crossorigin is required for fonts
+     even same-origin (CORS-mode fetch). -->
+<link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/geist-latin-400-normal.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/geist-latin-500-normal.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/geist-mono-latin-400-normal.woff2">
+
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <span>PetalNet design</span>
+      <span class="sub">the system</span>
+    </div>
+    <div class="spacer"></div>
+
+    <div class="toggle" role="group" aria-label="Theme">
+      <button id="t-light" aria-pressed="true"><span class="i" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg></span> Paper</button>
+      <button id="t-dark" aria-pressed="false"><span class="i" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg></span> Ink</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero settle" id="top">
+    <div class="eyebrow"><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg></span> The shared system</div>
+    <h1>Paper and ink.<br>One accent.<br>Quiet by default.</h1>
+    <p class="ethos">
+      The system behind everything PetalCat ships: launchpad, status pages, trackers, and the apps to come.
+      <b>Paper and ink, one accent, cards done quietly, Geist, plain language.</b>
+      This page wears it. Flip Paper to Ink up top.
+    </p>
+    <div class="hero-line"><span class="pip" aria-hidden="true"></span> A healthy lab is undramatic</div>
+  </section>
+
+  <section id="color">
+    <div class="eyebrow"><span class="no">01</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></svg></span> Color</div>
+    <h2>Two stories: paper and ink</h2>
+    <p class="lede">Not one palette inverted. Ink runs warmer. One accent does the signaling; status colors are functional only. The accent is theme-aware: deeper on paper, brighter on ink. Swatches read live from the active theme.</p>
+    <div class="swatch-grid" id="swatches"><div class="swatch ring"><div class="chip chip-bg-bg"></div><div class="meta"><div class="name mono">--bg</div><div class="hex">#FFFFFF · paper</div></div></div><div class="swatch"><div class="chip chip-bg-surface"></div><div class="meta"><div class="name mono">--surface</div><div class="hex">#F6F5F3 · filled cards</div></div></div><div class="swatch ring"><div class="chip chip-bg-elev"></div><div class="meta"><div class="name mono">--elev</div><div class="hex">#FBFAF9 · hover surface</div></div></div><div class="swatch"><div class="chip chip-bg-rule"></div><div class="meta"><div class="name mono">--rule</div><div class="hex">#ECECEA · hairline rules</div></div></div><div class="swatch"><div class="chip chip-bg-rule-strong"></div><div class="meta"><div class="name mono">--rule-strong</div><div class="hex">#D9D7D3 · outlined edge</div></div></div><div class="swatch"><div class="chip chip-bg-text"></div><div class="meta"><div class="name mono">--text</div><div class="hex">#161412 · ink</div></div></div><div class="swatch"><div class="chip chip-bg-text-mute"></div><div class="meta"><div class="name mono">--text-mute</div><div class="hex">#645F59 · secondary</div></div></div><div class="swatch"><div class="chip chip-bg-text-soft"></div><div class="meta"><div class="name mono">--text-soft</div><div class="hex">#97928B · tertiary</div></div></div><div class="swatch"><div class="chip chip-bg-petal"></div><div class="meta"><div class="name mono">--petal</div><div class="hex">#BC5638 · the accent</div></div></div><div class="swatch"><div class="chip chip-bg-petal-soft"></div><div class="meta"><div class="name mono">--petal-soft</div><div class="hex">color-mix(in srgb, #bc5638 11%, transparent) · state layer</div></div></div><div class="swatch"><div class="chip chip-bg-success"></div><div class="meta"><div class="name mono">--success</div><div class="hex">#2F8F5B · status only</div></div></div><div class="swatch"><div class="chip chip-bg-warning"></div><div class="meta"><div class="name mono">--warning</div><div class="hex">#C77D11 · status only</div></div></div><div class="swatch"><div class="chip chip-bg-danger"></div><div class="meta"><div class="name mono">--danger</div><div class="hex">#C5374B · status only</div></div></div></div>
+  </section>
+
+  <section id="type">
+    <div class="eyebrow"><span class="no">02</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg></span> Typography</div>
+    <h2>Geist, used well</h2>
+    <p class="lede">One face for UI, one mono for codes and timestamps. No third font. Weight and tracking stay light; only the hero leans into negative tracking. Fonts are self-hosted at build by the <a href="https://npmx.dev/fontless" rel="noopener">fontless</a> Vite plugin, no CDN.</p>
+    <div class="mt-s3">
+      <div class="type-row"><div class="type-spec">11px · 500<br>mono · upper</div><div class="type-sample"><span class="s-micro mono">Lab status · 14d</span></div></div>
+      <div class="type-row"><div class="type-spec">12px · 400<br>caption</div><div class="type-sample"><span class="s-small">Movies, shows, and music, all in one place.</span></div></div>
+      <div class="type-row"><div class="type-spec">14px · 400<br>body</div><div class="type-sample"><span class="s-body">Surfaces are calm. Type does the talking; we don't lean on illustration or chrome.</span></div></div>
+      <div class="type-row"><div class="type-spec">13.5px · 500<br>card title</div><div class="type-sample"><span class="s-card">Up next</span></div></div>
+      <div class="type-row"><div class="type-spec">14px · 500<br>section head</div><div class="type-sample"><span class="s-head">Open questions</span></div></div>
+      <div class="type-row"><div class="type-spec">14px · 400<br>hero subline</div><div class="type-sample"><span class="s-subln">A friendly back office.</span></div></div>
+      <div class="type-row"><div class="type-spec">32px · 500<br>hero</div><div class="type-sample"><span class="s-hero">Good morning, Parker.</span></div></div>
+    </div>
+  </section>
+
+  <section id="spacing">
+    <div class="eyebrow"><span class="no">03</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg></span> Spacing</div>
+    <h2>An 8-point rhythm</h2>
+    <p class="lede">Spacing lands on multiples of 8, with a 4 for tight pairs. The container caps at 880, centered, single-column.</p>
+    <div class="mt-14" id="spaces"><div class="space-row"><span class="space-lbl">4 px</span><span class="space-bar space-bar-16"></span><span class="space-use">tight pairs</span></div><div class="space-row"><span class="space-lbl">8 px</span><span class="space-bar space-bar-32"></span><span class="space-use">within a block</span></div><div class="space-row"><span class="space-lbl">16 px</span><span class="space-bar space-bar-64"></span><span class="space-use">block to block</span></div><div class="space-row"><span class="space-lbl">24 px</span><span class="space-bar space-bar-96"></span><span class="space-use">page padding · desktop</span></div><div class="space-row"><span class="space-lbl">32 px</span><span class="space-bar space-bar-128"></span><span class="space-use">major gaps</span></div><div class="space-row"><span class="space-lbl">48 px</span><span class="space-bar space-bar-192"></span><span class="space-use">between sections</span></div><div class="space-row"><span class="space-lbl">64 px</span><span class="space-bar space-bar-256"></span><span class="space-use">page top</span></div></div>
+  </section>
+
+  <section id="components">
+    <div class="eyebrow"><span class="no">04</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M15.536 11.293a1 1 0 0 0 0 1.414l2.376 2.377a1 1 0 0 0 1.414 0l2.377-2.377a1 1 0 0 0 0-1.414l-2.377-2.377a1 1 0 0 0-1.414 0z"/><path d="M2.297 11.293a1 1 0 0 0 0 1.414l2.377 2.377a1 1 0 0 0 1.414 0l2.377-2.377a1 1 0 0 0 0-1.414L6.088 8.916a1 1 0 0 0-1.414 0z"/><path d="M8.916 17.912a1 1 0 0 0 0 1.415l2.377 2.376a1 1 0 0 0 1.414 0l2.377-2.376a1 1 0 0 0 0-1.415l-2.377-2.376a1 1 0 0 0-1.414 0z"/><path d="M8.916 4.674a1 1 0 0 0 0 1.414l2.377 2.376a1 1 0 0 0 1.414 0l2.377-2.376a1 1 0 0 0 0-1.414l-2.377-2.377a1 1 0 0 0-1.414 0z"/></svg></span> Components</div>
+    <h2>Few, on purpose</h2>
+    <p class="lede">Filled cards for content, an outlined variant for tappable tiles. The accent shown in its real states.</p>
+
+    <div class="sub-h">Cards</div>
+    <div class="demo-grid">
+      <div class="card-filled">
+        <div class="card-variant mono">Filled · content</div>
+        <div class="card-title">Lab health</div>
+        <div class="card-body">Tunnel connected, 14 days uninterrupted. Storage pool healthy. No alerts in 48 hours.</div>
+      </div>
+      <div class="card-outlined" tabindex="0">
+        <div class="card-variant mono">Outlined · tappable</div>
+        <div class="card-title">Hover me</div>
+        <div class="card-body">A 1px outline. On hover a faint accent state-layer appears; the outline holds. No lift.</div>
+      </div>
+    </div>
+
+    <div class="sub-h">Tiles</div>
+    <div class="demo-grid mt-14" id="tiles"><div class="tile" tabindex="0"><span class="tile-status"></span><div class="tile-icon"><img src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%23bc5638'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Crect%20width%3D'18'%20height%3D'18'%20x%3D'3'%20y%3D'3'%20rx%3D'2'%20ry%3D'2'%2F%3E%3Ccircle%20cx%3D'9'%20cy%3D'9'%20r%3D'2'%2F%3E%3Cpath%20d%3D'm21%2015-3.086-3.086a2%202%200%200%200-2.828%200L6%2021'%2F%3E%3C%2Fsvg%3E" alt="" width="22" height="22"></div><div class="tile-name">Photos</div><div class="tile-tag">Every photo and video, in one place.</div></div><div class="tile" tabindex="0"><span class="tile-status"></span><div class="tile-icon"><img src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%23bc5638'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Crect%20width%3D'18'%20height%3D'11'%20x%3D'3'%20y%3D'11'%20rx%3D'2'%20ry%3D'2'%2F%3E%3Cpath%20d%3D'M7%2011V7a5%205%200%200%201%2010%200v4'%2F%3E%3C%2Fsvg%3E" alt="" width="22" height="22"></div><div class="tile-name">Passwords</div><div class="tile-tag">Your logins, kept safe.</div></div><div class="tile" tabindex="0"><span class="tile-status"></span><div class="tile-icon"><img src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%23bc5638'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M20%2013c0%205-3.5%207.5-7.66%208.95a1%201%200%200%201-.67-.01C7.5%2020.5%204%2018%204%2013V6a1%201%200%200%201%201-1c2%200%204.5-1.2%206.24-2.72a1.17%201.17%200%200%201%201.52%200C14.51%203.81%2017%205%2019%205a1%201%200%200%201%201%201z'%2F%3E%3Cpath%20d%3D'm9%2012%202%202%204-4'%2F%3E%3C%2Fsvg%3E" alt="" width="22" height="22"></div><div class="tile-name">VPN access</div><div class="tile-tag">A private door home.</div></div><div class="tile" tabindex="0"><span class="tile-status status-warn"></span><div class="tile-icon"><img src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%23bc5638'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M13%205h8'%2F%3E%3Cpath%20d%3D'M13%2012h8'%2F%3E%3Cpath%20d%3D'M13%2019h8'%2F%3E%3Cpath%20d%3D'm3%2017%202%202%204-4'%2F%3E%3Crect%20x%3D'3'%20y%3D'4'%20width%3D'6'%20height%3D'6'%20rx%3D'1'%2F%3E%3C%2Fsvg%3E" alt="" width="22" height="22"></div><div class="tile-name">Tasks</div><div class="tile-tag">What needs doing.</div></div></div>
+
+    <div class="sub-h">Buttons</div>
+    <div class="btn-row mt-14">
+      <button class="btn btn-primary">Open</button>
+      <button class="btn btn-ghost">Cancel</button>
+      <span class="state-note">Tab to see the focus ring</span>
+    </div>
+
+    <div class="sub-h">Input</div>
+    <div class="field mt-14">
+      <label for="demo-input">Search the lab</label>
+      <input id="demo-input" type="text" placeholder="Type to filter">
+    </div>
+
+    <div class="sub-h">Chips and status</div>
+    <div class="chips-stack">
+      <div class="role-chips" id="rolechips">
+        <button class="role-chip" aria-pressed="true">Friend</button>
+        <button class="role-chip" aria-pressed="false">Household</button>
+        <button class="role-chip" aria-pressed="false">Owner</button>
+      </div>
+      <div class="status-pills">
+        <span class="status-pill"><span class="sdot ok"></span> Healthy</span>
+        <span class="status-pill"><span class="sdot warn pulse"></span> Checking</span>
+        <span class="status-pill"><span class="sdot down"></span> Down</span>
+      </div>
+    </div>
+
+    <div class="sub-h">List</div>
+    <div class="lab-list mt-14">
+      <div class="lab-item"><span class="sdot ok"></span> Photos <span class="ago mono">2m</span></div>
+      <div class="lab-item"><span class="sdot ok"></span> Passwords <span class="ago mono">11m</span></div>
+      <div class="lab-item"><span class="sdot warn"></span> Backups, checking <span class="ago mono">now</span></div>
+    </div>
+
+    <div class="sub-h">Skeleton loading</div>
+    <p class="lede mt-6">Placeholders for content that hasn't landed yet. A calm tinted block with one slow shimmer, never a flash. Reserve the real layout so nothing shifts when content arrives. The shimmer holds still under reduced motion.</p>
+    <div class="demo-grid mt-14">
+      <!-- A skeleton card: aria-busy marks the region as loading; the placeholder
+           shapes are decorative (aria-hidden). Swap for real content on load. -->
+      <div class="skeleton-card" role="status" aria-busy="true" aria-label="Loading lab health">
+        <div class="skeleton-head">
+          <div class="skeleton skeleton-avatar" aria-hidden="true"></div>
+          <div class="lines">
+            <div class="skeleton skeleton-title" aria-hidden="true"></div>
+            <div class="skeleton skeleton-line short mt-half" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="skeleton skeleton-line long" aria-hidden="true"></div>
+        <div class="skeleton skeleton-line" aria-hidden="true"></div>
+        <div class="skeleton skeleton-line short" aria-hidden="true"></div>
+      </div>
+      <div class="skeleton-card" role="status" aria-busy="true" aria-label="Loading preview">
+        <div class="skeleton skeleton-box" aria-hidden="true"></div>
+        <div class="skeleton skeleton-title mt-s3" aria-hidden="true"></div>
+        <div class="skeleton skeleton-line long mt-5eq" aria-hidden="true"></div>
+        <div class="skeleton skeleton-line short" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div class="sub-h">Dialog and notice</div>
+    <div class="btn-row mt-14">
+      <button class="btn btn-ghost" id="open-dialog">Open a dialog</button>
+      <button class="btn btn-ghost" id="fire-toast">Show a notice</button>
+      <span class="state-note">Real modal + toast components</span>
+    </div>
+
+    <div class="sub-h">Markdown editing, ProseMark</div>
+    <p class="lede mt-6">A live <a href="https://prosemark.com/">ProseMark</a> editor, themed to this spec. Opens rendered; flip Read and Edit. Read and edit share identical metrics, so the swap doesn't shift a pixel.</p>
+    <div class="pm-shell settle mt-14" id="pm-shell">
+      <div class="pm-bar">
+        <span class="pm-ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg></span>
+        <span class="pm-label">Editor</span>
+        <div class="pm-toggle" id="pm-toggle" role="group" aria-label="Read or edit">
+          <button type="button" id="pm-read-btn" aria-pressed="true">Read</button>
+          <button type="button" id="pm-edit-btn" aria-pressed="false">Edit</button>
+        </div>
+      </div>
+      <div class="pm-pane pm-rendered" id="pm-read"></div>
+      <div class="pm-pane" id="pm-edit" hidden><div id="pm-mount"></div></div>
+    </div>
+  </section>
+
+  <section id="motion">
+    <div class="eyebrow"><span class="no">05</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><path d="M5 17A12 12 0 0 1 17 5"/></svg></span> Motion</div>
+    <h2>Every change, quietly</h2>
+    <p class="lede">Every state change animates, fast and subtle enough to read as "nice," not noticeable. Idle stays silent; nothing reveals on scroll. <code>prefers-reduced-motion</code> is a real branch in the code.</p>
+
+    <div class="motion-block">
+      <h3>Light and dark, an instant cut</h3>
+      <div class="hint">The theme swaps instantly, with no cross-fade and no flash. Paint props are suspended for one frame so the tokens flip hard; the reserved scrollbar gutter keeps it jump-free.</div>
+      <button class="btn btn-ghost" id="motion-toggle">Flip the theme</button>
+    </div>
+
+    <div class="motion-block">
+      <h3>Button presses, tactile</h3>
+      <div class="hint">A press-scale and a quick accent ink-in from the point you pressed.</div>
+      <div class="btn-row">
+        <button class="btn btn-primary">Open</button>
+        <button class="btn btn-ghost">Cancel</button>
+        <button class="btn btn-ghost">Try me</button>
+      </div>
+    </div>
+
+    <div class="motion-block">
+      <h3>Motion tokens</h3>
+      <div class="hint">The canonical values. Replay to watch each curve.</div>
+      <div class="token-table" id="token-table"><div class="token-row"><span class="token-name">--dur-fast</span><span class="token-val">120ms</span><span class="token-use">press, tiny hovers</span><span class="curve curve-120-std"><span class="dot"></span></span></div><div class="token-row"><span class="token-name">--dur-base</span><span class="token-val">160ms</span><span class="token-use">hover, focus, color</span><span class="curve curve-160-std"><span class="dot"></span></span></div><div class="token-row"><span class="token-name">--dur-mid</span><span class="token-val">240ms</span><span class="token-use">small entrances, popovers</span><span class="curve curve-240-in"><span class="dot"></span></span></div><div class="token-row"><span class="token-name">--dur-slow</span><span class="token-val">360ms</span><span class="token-use">longest, large transitions</span><span class="curve curve-360-in"><span class="dot"></span></span></div><div class="token-row"><span class="token-name">--ease-standard</span><span class="token-val">cubic-bezier(.2,0,0,1)</span><span class="token-use">ordinary state changes</span><span class="curve curve-360-std"><span class="dot"></span></span></div><div class="token-row"><span class="token-name">--ease-emph-in</span><span class="token-val">cubic-bezier(.05,.7,.1,1)</span><span class="token-use">enters (decelerate)</span><span class="curve curve-360-in"><span class="dot"></span></span></div><div class="token-row"><span class="token-name">--ease-emph-out</span><span class="token-val">cubic-bezier(.3,0,.8,.15)</span><span class="token-use">exits (accelerate)</span><span class="curve curve-360-out"><span class="dot"></span></span></div></div>
+      <div class="mt-14"><button class="replay-all" id="replay-curves">Replay curves</button></div>
+    </div>
+
+    <div class="rm-note">
+      <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span>
+      <span><b>Reduced motion.</b> <span class="d">Theme swaps instantly, presses change color only, pulses stop. Honors the live OS setting.</span></span>
+    </div>
+  </section>
+
+  <section id="voice">
+    <div class="eyebrow"><span class="no">06</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7 11h10"/><path d="M7 15h6"/><path d="M7 7h8"/></svg></span> Voice</div>
+    <h2>Plain language, less of it</h2>
+    <p class="lede">Human descriptions over jargon. Minimum viable text. Empty states say something, briefly. Never an em dash in a UI string.</p>
+    <div class="compare">
+      <div class="compare-cell bad">
+        <span class="compare-tag dont"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>Don't</span>
+        <div class="card-body body-ink">"Media stack. OIDC outpost. Secrets store, reverse-proxied."</div>
+        <div class="what">Correct words, wrong audience.</div>
+      </div>
+      <div class="compare-cell good">
+        <span class="compare-tag do"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span>Do</span>
+        <div class="card-body body-ink">"Movies and music. Your passwords. VPN access."</div>
+        <div class="what">Human descriptions for humans.</div>
+      </div>
+      <div class="compare-cell bad">
+        <span class="compare-tag dont"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>Don't</span>
+        <div class="card-body body-ink">"All caught up, no open questions right now."</div>
+        <div class="what">Says it twice.</div>
+      </div>
+      <div class="compare-cell good">
+        <span class="compare-tag do"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span>Do</span>
+        <div class="card-body body-ink">"All caught up."</div>
+        <div class="what">Minimum viable.</div>
+      </div>
+      <div class="compare-cell bad">
+        <span class="compare-tag dont"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>Don't</span>
+        <div class="card-body mono body-ink-mono12">87 services · containers on host</div>
+        <div class="what">Static info posing as health.</div>
+      </div>
+      <div class="compare-cell good">
+        <span class="compare-tag do"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span>Do</span>
+        <div class="card-body body-ink">"Tunnel connected, 14 days steady. No alerts in 48 hours."</div>
+        <div class="what">Health in sentences.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="icons">
+    <div class="eyebrow"><span class="no">07</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2"/><rect x="14" y="2" width="8" height="8" rx="1"/></svg></span> Iconography</div>
+    <h2>Lucide, only</h2>
+    <p class="lede">One icon library: lucide. No inline SVG by hand, no emoji. A glyph that lucide lacks is added to one external file and used from there. Off-the-shelf brand marks come from the dashboard-icons set for tiles.</p>
+    <div class="icon-row">
+      <div class="icon-card">
+        <div class="ibox"><span aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M15.536 11.293a1 1 0 0 0 0 1.414l2.376 2.377a1 1 0 0 0 1.414 0l2.377-2.377a1 1 0 0 0 0-1.414l-2.377-2.377a1 1 0 0 0-1.414 0z"/><path d="M2.297 11.293a1 1 0 0 0 0 1.414l2.377 2.377a1 1 0 0 0 1.414 0l2.377-2.377a1 1 0 0 0 0-1.414L6.088 8.916a1 1 0 0 0-1.414 0z"/><path d="M8.916 17.912a1 1 0 0 0 0 1.415l2.377 2.376a1 1 0 0 0 1.414 0l2.377-2.376a1 1 0 0 0 0-1.415l-2.377-2.376a1 1 0 0 0-1.414 0z"/><path d="M8.916 4.674a1 1 0 0 0 0 1.414l2.377 2.376a1 1 0 0 0 1.414 0l2.377-2.376a1 1 0 0 0 0-1.414l-2.377-2.377a1 1 0 0 0-1.414 0z"/></svg></span></div>
+        <h4>Lucide set</h4>
+        <p>The single source. Stroked in the accent, 24-grid, 2px round.</p>
+        <div class="icon-strip" id="icon-strip" aria-hidden="true"><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg></span><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg></span><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 5h8"></path><path d="M13 12h8"></path><path d="M13 19h8"></path><path d="m3 17 2 2 4-4"></path><rect x="3" y="4" width="6" height="6" rx="1"></rect></svg></span><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M7 3v18"></path><path d="M3 7.5h4"></path><path d="M3 12h18"></path><path d="M3 16.5h4"></path><path d="M17 3v18"></path><path d="M17 7.5h4"></path><path d="M17 16.5h4"></path></svg></span><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg></span><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"></rect><rect width="20" height="8" x="2" y="14" rx="2" ry="2"></rect><line x1="6" x2="6.01" y1="6" y2="6"></line><line x1="6" x2="6.01" y1="18" y2="18"></line></svg></span><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"></path></svg></span><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v14"></path><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"></path></svg></span></div>
+      </div>
+      <div class="icon-card">
+        <div class="ibox"><span aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/></svg></span></div>
+        <h4>Brand marks</h4>
+        <p>Real service logos from dashboard-icons, used on launcher tiles.</p>
+      </div>
+      <div class="icon-card">
+        <div class="ibox"><span aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.3 2.3 7.286 7.286"/><circle cx="11" cy="11" r="2"/></svg></span></div>
+        <h4>Native, external</h4>
+        <p>Something lucide lacks gets drawn once into the icon file. Never inlined ad hoc.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="anti">
+    <div class="eyebrow"><span class="no">08</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span> Anti-patterns</div>
+    <h2>Shipped, regretted, reverted</h2>
+    <p class="lede">Learned the hard way. Don't rediscover them.</p>
+    <div class="compare">
+      <div class="compare-cell bad">
+        <span class="compare-tag dont"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>Don't</span>
+        <div class="pal timid"><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="what">An even palette. Nothing signals.</div>
+      </div>
+      <div class="compare-cell good">
+        <span class="compare-tag do"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span>Do</span>
+        <div class="pal one"><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="what">One accent. A signal, not a wash.</div>
+      </div>
+      <div class="compare-cell bad">
+        <span class="compare-tag dont"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>Don't</span>
+        <div class="alive-row"><span class="fake-alive"></span><span class="card-body body-flush">A breathing dot on idle</span></div>
+        <div class="what">Fake aliveness on healthy things.</div>
+      </div>
+      <div class="compare-cell good">
+        <span class="compare-tag do"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span>Do</span>
+        <div class="alive-row"><span class="calm-alive"></span><span class="card-body body-flush">Healthy, still</span></div>
+        <div class="what">Pulse only what's being polled.</div>
+      </div>
+      <div class="compare-cell bad">
+        <span class="compare-tag dont"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>Don't</span>
+        <div class="aurora" aria-hidden="true"></div>
+        <div class="what">An aurora gradient. AI-slop forever after.</div>
+      </div>
+      <div class="compare-cell good">
+        <span class="compare-tag do"><span ><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg></span>Do</span>
+        <div class="solid-mark"><span class="m" aria-hidden="true"></span></div>
+        <div class="what">Solid color. No gradients on surfaces.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="a11y">
+    <div class="eyebrow"><span class="no">09</span><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="16" cy="4" r="1"/><path d="m18 19 1-7-6 1"/><path d="m5 8 3-3 5.5 3-2.36 3.5"/><path d="M4.24 14.5a5 5 0 0 0 6.88 6"/><path d="M13.76 17.5a5 5 0 0 0-6.88-6"/></svg></span> Accessibility</div>
+    <h2>Built in, not bolted on</h2>
+    <ul class="a11y-list">
+      <li><span class="tick"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span><span><b>Visible focus rings.</b> <span class="d">2px accent, 2px offset on focus-visible. Tab through to see it.</span></span></li>
+      <li><span class="tick"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span><span><b>Generous tap targets.</b> <span class="d">At least 32px; 40px for primary actions.</span></span></li>
+      <li><span class="tick"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span><span><b>Keyboard everywhere.</b> <span class="d">Every control is reachable and operable.</span></span></li>
+      <li><span class="tick"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span><span><b>Reasonable AA contrast.</b> <span class="d">Text and the theme-aware accent measure to AA on both surfaces. Not AAA everywhere.</span></span></li>
+      <li><span class="tick"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span><span><b>Reduced motion honored.</b> <span class="d">As a real branch in the code, not just a CSS speed-up.</span></span></li>
+      <li><span class="tick"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span><span><b>System theme respected.</b> <span class="d">First visit follows the OS; your choice persists after.</span></span></li>
+    </ul>
+  </section>
+
+  <footer>
+    <div>PetalNet design system. Paper and ink, one accent, cards done quietly, Geist, plain language.</div>
+    <div class="mono mt-6">A living guide that wears the system it describes.</div>
+  </footer>
+</main>
+
+<!-- Real components: a dialog and a toast host (wires the former dead notice) -->
+<div class="dialog-backdrop" id="dialog-backdrop" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <div class="dialog-icon"><span aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></span></div>
+    <h3 id="dialog-title">A new question arrived</h3>
+    <p>Someone asked the lab something. Open it now, or come back later.</p>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" id="dialog-cancel">Later</button>
+      <button class="btn btn-primary" id="dialog-ok">Open it</button>
+    </div>
+  </div>
+</div>
+<div class="toast-host" id="toast-host" aria-live="polite"></div>
+
+<script type="module">
+import { icon, iconDataUri } from '/vendor/icons.js';
+
+// Icon glyphs are now INLINED into the markup (present at first paint) — no
+// post-paint [data-icon] hydration, so injecting icons causes ZERO layout shift
+// (the header .toggle no longer bounces on reload). icon()/iconDataUri() below
+// still build the JS-generated iconography strip + launcher tiles from the same
+// lucide map, into spans that already reserve their box in CSS (no shift).
+
+const root = document.documentElement;
+const bLight = document.getElementById('t-light');
+const bDark  = document.getElementById('t-dark');
+const meta   = document.querySelector('meta[name="theme-color"]');
+const rmQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+const reducedMotion = () => rmQuery.matches;
+
+function setTheme(theme, persist, skipBuild) {
+  root.setAttribute('data-theme', theme);
+  bLight.setAttribute('aria-pressed', String(theme === 'light'));
+  bDark.setAttribute('aria-pressed', String(theme === 'dark'));
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0d0c0b' : '#ffffff');
+  // Swatches + tiles are SERVER-RENDERED (light theme) into the markup so they're
+  // present at first paint — zero layout shift. We only rebuild them on an actual
+  // theme change; the first light init reuses the static DOM (skipBuild). Swatch/
+  // tile COUNT + geometry are identical across themes, so even a dark rebuild
+  // changes colors only, never height → still no CLS.
+  if (!skipBuild) { renderSwatches(); renderTiles(); }
+  if (persist) { try { localStorage.setItem('petalnet-theme', theme); } catch (e) {} }
+}
+// Theme apply: an INSTANT, flash-free, jump-free cut (Eli pass 5 — the cross-fade
+// "flashbanged"). We suspend all paint-prop transitions for one synchronous frame
+// (.no-theme-transition), flip the tokens, force a reflow so the hard swap commits
+// with transitions off, then re-enable transitions next frame. scrollbar-gutter:
+// stable keeps it jump-free. Reduced motion takes the same hard path.
+let noTransRaf = null;
+function apply(theme, persist) {
+  if (noTransRaf) cancelAnimationFrame(noTransRaf);   // a rapid re-toggle mustn't let an
+                                                       // earlier frame strip the class mid-swap
+  root.classList.add('no-theme-transition');
+  setTheme(theme, persist);                            // setTheme also rebuilds swatches+tiles
+  void root.offsetWidth;                               // flush the swap with transitions disabled
+  noTransRaf = requestAnimationFrame(() => { root.classList.remove('no-theme-transition'); noTransRaf = null; });
+}
+
+// ── Swatches (read live computed values) ──
+const TOKENS = [
+  ['--bg','paper'], ['--surface','filled cards'], ['--elev','hover surface'],
+  ['--rule','hairline rules'], ['--rule-strong','outlined edge'],
+  ['--text','ink'], ['--text-mute','secondary'], ['--text-soft','tertiary'],
+  ['--petal','the accent'], ['--petal-soft','state layer'],
+  ['--success','status only'], ['--warning','status only'], ['--danger','status only']
+];
+function toHex(c) {
+  c = c.trim();
+  if (c[0] === '#') return c.toUpperCase();
+  const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return c;
+  const p = m[1].split(/[,\s/]+/).filter(Boolean);
+  const h = n => (+n).toString(16).padStart(2, '0');
+  let hex = '#' + (h(p[0]) + h(p[1]) + h(p[2])).toUpperCase();
+  if (p[3] !== undefined && +p[3] < 1) hex += ' · ' + Math.round(+p[3] * 100) + '%';
+  return hex;
+}
+function renderSwatches() {
+  const host = document.getElementById('swatches'); if (!host) return;
+  const cs = getComputedStyle(root); host.innerHTML = '';
+  TOKENS.forEach(t => {
+    const raw = cs.getPropertyValue(t[0]);
+    const ring = (t[0] === '--bg' || t[0] === '--elev') ? ' ring' : '';
+    const el = document.createElement('div'); el.className = 'swatch' + ring;
+    el.innerHTML = '<div class="chip" style="background:' + raw.trim() + '"></div>' +
+      '<div class="meta"><div class="name mono">' + t[0] + '</div>' +
+      '<div class="hex">' + toHex(raw) + ' · ' + t[1] + '</div></div>';
+    host.appendChild(el);
+  });
+}
+
+// The spacing scale, the motion token table, and the iconography strip are now
+// SERVER-RENDERED directly into the markup (they're theme-independent), so they
+// occupy their final box at first paint and need no JS to build — zero shift.
+
+// ── Tiles (brand-ish marks rendered from the lucide set, accent-stroked) ──
+function currentAccent() { return getComputedStyle(root).getPropertyValue('--petal').trim() || '#bc5638'; }
+const TILES = [
+  ['Photos', 'Every photo and video, in one place.', 'image', 'ok'],
+  ['Passwords', 'Your logins, kept safe.', 'lock', 'ok'],
+  ['VPN access', 'A private door home.', 'shield-check', 'ok'],
+  ['Tasks', 'What needs doing.', 'list-todo', 'warn']
+];
+function renderTiles() {
+  const host = document.getElementById('tiles'); if (!host) return;
+  const stroke = currentAccent(); host.innerHTML = '';
+  TILES.forEach(t => {
+    const el = document.createElement('div'); el.className = 'tile'; el.tabIndex = 0;
+    const dot = t[3] === 'warn'
+      ? '<span class="tile-status" style="background:var(--warning)"></span>'
+      : '<span class="tile-status"></span>';
+    el.innerHTML = dot +
+      '<div class="tile-icon"><img src="' + iconDataUri(t[2], stroke) + '" alt="" width="22" height="22"></div>' +
+      '<div class="tile-name">' + t[0] + '</div><div class="tile-tag">' + t[1] + '</div>';
+    host.appendChild(el);
+  });
+}
+// init theme: first visit follows the OS; after, localStorage. The swatches +
+// tiles are server-rendered for LIGHT, so a light init reuses the static DOM
+// (skipBuild) — no first-paint rebuild. A dark init rebuilds (colors only; same
+// geometry → no CLS).
+let saved = null; try { saved = localStorage.getItem('petalnet-theme'); } catch (e) {}
+const initial = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+setTheme(initial, false, initial === 'light');
+bLight.addEventListener('click', () => apply('light', true));
+bDark.addEventListener('click', () => apply('dark', true));
+const mToggle = document.getElementById('motion-toggle');
+if (mToggle) mToggle.addEventListener('click', () => apply(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true));
+
+// (Icon strip in the iconography card is server-rendered into the markup.)
+
+// ── Role chips ──
+document.querySelectorAll('#rolechips .role-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#rolechips .role-chip').forEach(c => c.setAttribute('aria-pressed', 'false'));
+    chip.setAttribute('aria-pressed', 'true');
+  });
+});
+
+// ── Button ripple (accent ink-in from press point) ──
+document.addEventListener('pointerdown', e => {
+  if (reducedMotion()) return;
+  const btn = e.target.closest && e.target.closest('.btn'); if (!btn) return;
+  const r = btn.getBoundingClientRect(); const size = Math.max(r.width, r.height) * 2;
+  const span = document.createElement('span'); span.className = 'ripple';
+  span.style.width = span.style.height = size + 'px';
+  span.style.left = (e.clientX - r.left - size / 2) + 'px';
+  span.style.top  = (e.clientY - r.top  - size / 2) + 'px';
+  btn.appendChild(span);
+  span.addEventListener('animationend', () => span.remove());
+});
+
+// ── Motion token panel + curve replay ──
+// The token table is server-rendered into the markup (theme-independent → present
+// at first paint, no shift). We just grab the static .curve nodes to replay.
+const curves = Array.from(document.querySelectorAll('#token-table .curve'));
+function runCurves() {
+  if (reducedMotion()) return;
+  curves.forEach(c => { c.classList.remove('run'); void c.offsetWidth; c.classList.add('run'); });
+}
+const replayCurves = document.getElementById('replay-curves');
+if (replayCurves) replayCurves.addEventListener('click', runCurves);
+
+// ── Dialog (real modal: Escape closes, focus trapped, background inert) ──
+(function () {
+  const backdrop = document.getElementById('dialog-backdrop');
+  const dialog = backdrop ? backdrop.querySelector('.dialog') : null;
+  const main = document.querySelector('main.wrap');
+  const openBtn = document.getElementById('open-dialog');
+  const cancel = document.getElementById('dialog-cancel');
+  const ok = document.getElementById('dialog-ok');
+  if (!backdrop || !openBtn || !dialog) return;
+  let lastFocus = null, closeTimer = null;
+  const focusables = () => Array.from(dialog.querySelectorAll('button, [href], input, [tabindex]:not([tabindex="-1"])')).filter(el => !el.disabled && el.offsetParent !== null);
+  function open() {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    lastFocus = document.activeElement;
+    backdrop.hidden = false; backdrop.classList.add('enter'); void backdrop.offsetWidth;
+    backdrop.classList.remove('enter'); backdrop.classList.add('open');
+    if (main) { main.setAttribute('inert', ''); main.setAttribute('aria-hidden', 'true'); }
+    document.addEventListener('keydown', onKey, true);
+    if (ok) ok.focus();
+  }
+  function close() {
+    backdrop.classList.remove('open');
+    const done = () => { backdrop.hidden = true; closeTimer = null; backdrop.removeEventListener('transitionend', done); };
+    if (reducedMotion()) done();
+    else { backdrop.addEventListener('transitionend', done); closeTimer = setTimeout(done, 320); }
+    if (main) { main.removeAttribute('inert'); main.removeAttribute('aria-hidden'); }
+    document.removeEventListener('keydown', onKey, true);
+    if (lastFocus) try { lastFocus.focus(); } catch (e) {}
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { close(); return; }
+    if (e.key !== 'Tab') return;
+    const f = focusables(); if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  openBtn.addEventListener('click', open);
+  if (cancel) cancel.addEventListener('click', close);
+  if (ok) ok.addEventListener('click', () => { close(); fireToast('Opened the question.'); });
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+})();
+
+// ── Snackbar notice (bottom-left, capped + scrollback) ──
+// Visible stack is capped to ~5 by the host's max-height + scroll; we also cap the
+// DOM at MAX_TOASTS so unlimited firing can't grow memory/coverage without bound.
+const MAX_TOASTS = 12;
+function fireToast(msg) {
+  const host = document.getElementById('toast-host'); if (!host) return;
+  // drop the oldest beyond the DOM cap (host is column-reverse: first child = oldest)
+  while (host.children.length >= MAX_TOASTS) host.removeChild(host.firstElementChild);
+  const el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status');
+  el.innerHTML = '<span class="tdot" aria-hidden="true"></span><span class="tmsg"></span>' +
+    '<button class="tclose" aria-label="Dismiss">' + icon('x') + '</button>';
+  el.querySelector('.tmsg').textContent = msg;   // textContent: no HTML injection from msg
+  host.appendChild(el); void el.offsetWidth; el.classList.add('show');
+  host.scrollTop = host.scrollHeight;            // keep the newest in view
+  let removed = false, gone = null;
+  const remove = () => {
+    if (removed) return; removed = true;
+    if (autoTimer) clearTimeout(autoTimer);
+    el.classList.remove('show');
+    if (reducedMotion()) el.remove();
+    else gone = setTimeout(() => el.remove(), 280);
+  };
+  el.querySelector('.tclose').addEventListener('click', remove);
+  const autoTimer = setTimeout(remove, 4200);
+}
+const fireBtn = document.getElementById('fire-toast');
+if (fireBtn) fireBtn.addEventListener('click', () => fireToast('A new question arrived.'));
+</script>
+
+<!-- ProseMark: self-hosted ESM bundle, no CDN. LAZY: the bundle (~860KB) is NOT
+     statically imported, so it never gates first paint. The read view is static
+     HTML and paints instantly; the editor module is dynamically imported on idle
+     (prefetched so it's warm) and resolved on the first Edit click. -->
+<script type="module">
+  // Dynamic, idle-prefetched import of the heavy editor bundle. Returns the
+  // createProseMark factory; cached after the first load.
+  let _pmPromise = null;
+  function loadProseMark() {
+    if (!_pmPromise) _pmPromise = import('/vendor/prosemark.bundle.js').then(m => m.createProseMark);
+    return _pmPromise;
+  }
+  // Warm the bundle only AFTER the page has loaded and the browser goes idle, so
+  // the heavy editor fetch never competes with first paint / critical resources.
+  // (Edit also resolves it on demand, so this is purely a latency nicety.)
+  const _warm = () => { const ric = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500)); ric(() => loadProseMark().catch(() => {})); };
+  if (document.readyState === 'complete') _warm();
+  else window.addEventListener('load', _warm, { once: true });
+
+  const mount = document.getElementById('pm-mount');
+  const readEl = document.getElementById('pm-read');
+  const editEl = document.getElementById('pm-edit');
+  const readBtn = document.getElementById('pm-read-btn');
+  const editBtn = document.getElementById('pm-edit-btn');
+
+  // Seed: each paragraph is ONE source line (no mid-paragraph hard wraps), so the
+  // WYSIWYM editor (which preserves source line breaks) and the reflowed read view
+  // wrap identically — keeping the read/edit swap a true visual no-op.
+  const seed = [
+    '# Welcome to ProseMark',
+    '',
+    'A **WYSIWYM** markdown editor, themed to the PetalNet spec. The text reads like the rendered result while you type.',
+    '',
+    '## Try it',
+    '',
+    '- Edit any of this text directly',
+    '- Use `**bold**`, `*italic*`, or inline `code`',
+    '- Links use the accent, like [the spec](https://prosemark.com/)',
+    '',
+    '> Idle is silent. Motion rewards a change.',
+    '',
+    '```js',
+    'function greet(name) {',
+    "  return `Good morning, ${name}.`;",
+    '}',
+    '```',
+    '',
+    'Code uses Geist Mono. Everything else is Geist. One accent.',
+    ''
+  ].join('\n');
+
+  let doc = seed; let view = null;
+
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  const CODE_SENTINEL = 'CODE';
+  function inline(raw) {
+    const codes = [];
+    let s = raw.replace(/`([^`]+)`/g, (_, c) => { codes.push(esc(c)); return CODE_SENTINEL + (codes.length - 1) + CODE_SENTINEL; });
+    s = esc(s);
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, url) => (!/^(https?:\/\/|\/|#)/i.test(url) ? t : '<a href="' + url + '" rel="noopener">' + t + '</a>'));
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');
+    s = s.replace(new RegExp(CODE_SENTINEL + '(\\d+)' + CODE_SENTINEL, 'g'), (_, i) => '<code>' + codes[+i] + '</code>');
+    return s;
+  }
+  function renderMd(src) {
+    const lines = src.split('\n'); let html = '', i = 0;
+    // GitHub-comment style: a blank source line = visible separation. The editor
+    // (WYSIWYM) shows every blank source line as a real empty line (1.6em tall),
+    // so the read view mirrors that EXACTLY: we count the blank lines that precede
+    // each block and reserve that many line-heights as the block's top margin.
+    // 1 blank → 1.6em (the seed's case, preserving read/edit parity); N blanks →
+    // N × 1.6em, so consecutive blank lines no longer collapse.
+    let blanks = 0, firstBlock = true;
+    const sep = () => {
+      // first block hugs the top (pane padding handles it); after that, the gap is
+      // max(1, #blank lines) BODY line-heights so single-blank parity holds and
+      // extra blank lines add visible space like GitHub. We measure in body
+      // line-heights (var(--pm-lh) = 14px*1.6), NOT em — em would scale with the
+      // block's own font-size (a heading's 1.6em ≠ a body line), breaking editor
+      // parity where every blank source line is exactly one body line tall.
+      const n = firstBlock ? 0 : Math.max(1, blanks);
+      firstBlock = false; blanks = 0;
+      return n ? ' style="margin-top:calc(' + n + ' * var(--pm-lh))"' : '';
+    };
+    while (i < lines.length) {
+      const line = lines[i];
+      if (/^\s*$/.test(line)) { blanks++; i++; continue; }
+      const fence = line.match(/^```(.*)$/);
+      if (fence) {
+        // BUG-1 FIX (edit↔read chrome parity): the editor (ProseMark) draws a
+        // language badge + copy button floated to the top-right of every fenced
+        // block (.cm-code-block-info > .cm-code-block-lang-container + .cm-code-
+        // block-copy-button, with a lucide "copy" SVG). The read view's <pre> had
+        // neither, so toggling popped the badge in/out. We reproduce the SAME DOM
+        // (same classes → same CSS), the SAME "JS" label (uppercased fence lang),
+        // and the SAME lucide copy glyph, positioned to land pixel-on the editor's.
+        const lang = (fence[1] || '').trim().split(/\s+/)[0];
+        const langLabel = lang ? esc(lang.toUpperCase()) : '';
+        const COPY_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy-icon lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>';
+        const chrome = '<span class="cm-code-block-info" contenteditable="false" aria-hidden="true"><span class="cm-code-block-lang-container">' + langLabel + '</span><button type="button" class="cm-code-block-copy-button" title="Copy code">' + COPY_SVG + '</button></span>';
+        const buf = []; i++; while (i < lines.length && !/^```\s*$/.test(lines[i])) { buf.push(esc(lines[i])); i++; } i++;
+        html += '<pre' + sep() + '>' + chrome + '<code>' + buf.join('\n') + '</code></pre>'; continue;
+      }
+      const h = line.match(/^(#{1,3})\s+(.*)$/);
+      if (h) { const n = h[1].length; html += '<h' + n + sep() + '>' + inline(h[2]) + '</h' + n + '>'; i++; continue; }
+      if (/^[-*]\s+/.test(line)) { html += '<ul' + sep() + '>'; while (i < lines.length && /^[-*]\s+/.test(lines[i])) { html += '<li>' + inline(lines[i].replace(/^[-*]\s+/, '')) + '</li>'; i++; } html += '</ul>'; continue; }
+      if (/^>\s?/.test(line)) { const q = []; while (i < lines.length && /^>\s?/.test(lines[i])) { q.push(lines[i].replace(/^>\s?/, '')); i++; } html += '<blockquote' + sep() + '><span class="bq-mark">&gt; </span>' + inline(q.join(' ')) + '</blockquote>'; continue; }
+      const para = []; while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,3}\s|[-*]\s|>\s?|```)/.test(lines[i])) { para.push(lines[i]); i++; }
+      html += '<p' + sep() + '>' + inline(para.join(' ')) + '</p>';
+    }
+    // BUG-2 FIX (trailing blank-line parity): the per-block top-margin machinery
+    // (sep()) reserves space for blanks that PRECEDE a block, but trailing blanks
+    // at the END of the doc have no following block to carry that margin, so the
+    // read view flattened them while the editor still shows each as a real empty
+    // line (one --pm-lh tall — measured: a single trailing return = 22.4px in CM).
+    // After the loop, `blanks` holds the count of trailing blank source lines; emit
+    // a zero-content spacer that height so read's tail matches the editor's exactly.
+    if (blanks > 0) html += '<div class="pm-trailing-blank" aria-hidden="true" style="height:calc(' + blanks + ' * var(--pm-lh))"></div>';
+    return html;
+  }
+  function renderRead() { if (readEl) readEl.innerHTML = renderMd(doc); }
+  // Bug-1 nice-to-have: wire the read view's copy buttons to actually copy the code.
+  if (readEl) readEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.cm-code-block-copy-button'); if (!btn) return;
+    const code = btn.closest('pre')?.querySelector('code'); if (!code) return;
+    try { navigator.clipboard?.writeText(code.textContent); } catch (err) {}
+  });
+  async function ensureEditor() {
+    if (view || !mount) return;
+    try { const createProseMark = await loadProseMark(); if (view) return; view = createProseMark(mount, doc); }
+    catch (e) { mount.innerHTML = '<div style="padding:18px 20px;color:var(--text-mute);font-size:13px">Editor failed to load.</div>'; console.error('ProseMark mount failed', e); }
+  }
+  function showRead() {
+    if (view) { try { doc = view.state.doc.toString(); } catch (e) {} }
+    renderRead();
+    if (editEl) editEl.hidden = true; if (readEl) readEl.hidden = false;
+    readBtn.setAttribute('aria-pressed', 'true'); editBtn.setAttribute('aria-pressed', 'false');
+  }
+  async function showEdit() {
+    // Flip the panes immediately (the edit surface is themed + reserves its box),
+    // then resolve the editor bundle. The swap stays shift-free either way.
+    if (readEl) readEl.hidden = true; if (editEl) editEl.hidden = false;
+    editBtn.setAttribute('aria-pressed', 'true'); readBtn.setAttribute('aria-pressed', 'false');
+    await ensureEditor();
+    if (view && view.state.doc.toString() !== doc) { try { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } }); } catch (e) {} }
+    if (view) { try { view.focus(); } catch (e) {} }
+  }
+  if (readEl && editEl && readBtn && editBtn) {
+    readBtn.addEventListener('click', showRead);
+    editBtn.addEventListener('click', showEdit);
+    showRead();
+  }
+</script>
+</body>
+</html>

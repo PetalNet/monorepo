@@ -1,0 +1,826 @@
+/* ── A11Y UNIT PASS ────────────────────────────────────────────────────
+   px → relative units (rem = N/16, em where own-font-relative) so text and
+   spacing honor the user's browser font-size. EXCEPTIONS kept in px: 1px/2px
+   hairline borders/outlines/inset-rings, box-shadow hairline offsets,
+   @media breakpoints, and pill radii (999px). CRITICAL: the .pm-rendered
+   read view's code/bullet/blockquote/inline-code geometry AND its base
+   14px font are deliberately pixel-MATCHED to CodeMirror (which renders at
+   FIXED px); converting those would desync the editor↔read parity, so they
+   stay px on purpose. ──────────────────────────────────────────────────── */
+/* ── Self-hosted Geist, no CDN. In the apps these @font-face rules are generated
+   by the `fontless` npm Vite plugin (https://npmx.dev/fontless) — plug-and-play
+   font optimization that self-hosts the font files at build. This static design
+   site hand-writes the equivalent. NB: "fontless" is the package name, NOT
+   "use no fonts / system fonts". ─────────────────────────────────────── */
+@font-face { font-family:'Geist'; font-style:normal; font-weight:400; font-display:swap; src:url('/fonts/geist-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family:'Geist'; font-style:normal; font-weight:500; font-display:swap; src:url('/fonts/geist-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family:'Geist'; font-style:normal; font-weight:600; font-display:swap; src:url('/fonts/geist-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family:'Geist Mono'; font-style:normal; font-weight:400; font-display:swap; src:url('/fonts/geist-mono-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family:'Geist Mono'; font-style:normal; font-weight:500; font-display:swap; src:url('/fonts/geist-mono-latin-500-normal.woff2') format('woff2'); }
+
+/* ── Metric-matched fallbacks (the "size-adjust" technique) ───────────────
+   These synthesize a fallback face from a local system font whose box EXACTLY
+   matches real Geist, so the swap (fallback → Geist) reflows NOTHING — zero CLS,
+   while the page still ends up rendered in Geist. Overrides computed from the
+   real woff2 metrics (Geist UPM 1000, ascent 1005, descent −295, lineGap 0) vs
+   the system-font metrics (Arial / Courier New via @capsizecss/metrics), using
+   capsize letter-frequency-weighted avg advance widths:
+     Geist xWidthAvg/em = .54304 ; Arial = .4458  → size-adjust 121.81%
+     Geist Mono = .60000 ; Courier New = .6001    → size-adjust 99.98%
+   ascent/descent overrides are (geist_metric/em) ÷ size-adjust so the adjusted
+   em still maps onto Geist's exact line box. Same family-name ordering as the
+   apps' fontless output: 'Geist', 'Geist Fallback', system-ui. */
+@font-face { font-family:'Geist Fallback'; src:local('Arial'); size-adjust:121.8125%; ascent-override:82.5039%; descent-override:24.2176%; line-gap-override:0%; }
+@font-face { font-family:'Geist Mono Fallback'; src:local('Courier New'),local('Courier'); size-adjust:99.9833%; ascent-override:100.5168%; descent-override:29.5049%; line-gap-override:0%; }
+
+/* ════════════════════════════════════════════════════════════════════
+   TOKENS  (canonical — mirrors DESIGN.md §2)
+   The accent is THEME-AWARE: --petal differs under paper vs ink, tuned
+   for measured contrast on each surface. Derived shades recompute per
+   theme via color-mix. This is the locked burnt-sienna pair.
+   ════════════════════════════════════════════════════════════════════ */
+:root, [data-theme='light'] {
+  --bg:            #ffffff;   /* paper */
+  --surface:       #f6f5f3;   /* warm stationery, filled cards */
+  --elev:          #fbfaf9;   /* elevated/hover surface — a hair under paper white, so it's a real 3rd step above --surface (not === --bg) */
+  --rule:          #ececea;   /* hairline ink rule (NOT a card border) */
+  --rule-strong:   #d9d7d3;   /* stronger rule / outlined-tile edge */
+  --text:          #161412;   /* warm near-black ink */
+  --text-mute:     #645f59;
+  --text-soft:     #97928b;
+  --petal:         #bc5638;   /* THE accent — paper: deepened burnt sienna (AA on white) */
+  --on-petal:      #ffffff;   /* text on an accent fill */
+  --petal-soft-pct: 11%;
+  --success:       #2f8f5b;
+  --warning:       #c77d11;
+  --danger:        #c5374b;
+}
+[data-theme='dark'] {
+  --bg:            #0d0c0b;   /* warm ink */
+  --surface:       #161413;
+  --elev:          #1d1b19;
+  --rule:          #262321;
+  --rule-strong:   #36322f;
+  --text:          #ece8e3;
+  --text-mute:     #9a938b;
+  --text-soft:     #645e57;
+  --petal:         #e2725b;   /* THE accent — ink: base burnt sienna (6.4:1 on bg) */
+  --on-petal:      #0d0c0b;
+  --petal-soft-pct: 15%;
+}
+/* derived accent shades — recomputed FROM --petal so the picker re-themes
+   hover / active / wash everywhere it appears. color-mix is supported in all
+   target engines (Chrome 111+, Safari 16.2+, Firefox 113+); literal fallbacks
+   first so an older engine still gets a usable accent (the default pair). */
+:root {
+  --petal-soft:   rgba(188, 86, 56, .11);
+  --petal-wash:   rgba(188, 86, 56, .055);
+  --petal-hover:  #a14a30;
+  --petal-active: #8b3f29;
+  --petal-soft:   color-mix(in srgb, var(--petal) var(--petal-soft-pct), transparent);
+  --petal-wash:   color-mix(in srgb, var(--petal) calc(var(--petal-soft-pct) / 2), transparent);
+  --petal-hover:  color-mix(in srgb, var(--petal) 86%, #000);
+  --petal-active: color-mix(in srgb, var(--petal) 74%, #000);
+
+  --font-sans: 'Geist', 'Geist Fallback', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback', ui-monospace, monospace;
+
+  /* ── Motion tokens (mirrors DESIGN.md §7) — M3 easing, short durations ── */
+  --ease-standard:   cubic-bezier(.2, 0, 0, 1);
+  --ease-emph-in:    cubic-bezier(.05, .7, .1, 1);   /* enters: gentle decelerate */
+  --ease-emph-out:   cubic-bezier(.3, 0, .8, .15);   /* exits: quick accelerate */
+  --dur-fast:  120ms;   /* press, tiny hovers */
+  --dur-base:  160ms;   /* hover/focus, color, the default */
+  --dur-mid:   240ms;   /* small entrances, popovers */
+  --dur-slow:  360ms;   /* longest, for large transitions (theme swap is now an instant cut, not a fade) */
+  --t: var(--dur-base) var(--ease-standard);
+
+  /* 8pt spacing scale (DESIGN.md §4) — rem so the whole scale honors root font-size */
+  --s1: 0.25rem; --s2: 0.5rem; --s3: 1rem; --s4: 1.5rem; --s5: 2rem; --s6: 3rem; --s7: 4rem;
+
+  /* ── Radius scale (DESIGN.md §6) — ONE consistent set; nested radii relate
+     inner = outer − padding (https://blog.92learns.com/border-radius-rules/).
+       xs 2  · sm 8 · md 12 · lg 16 · pill 999
+     Everything on the page uses a token below; no ad-hoc px radii. */
+  --radius-xs:  0.125rem;   /* 2px — badges, eyebrow filed corner, small accent caps, the note */
+  --radius-sm:  0.5rem;     /* 8px — chips, small buttons, inputs, code blocks, toast, icon boxes */
+  --radius:    0.75rem;     /* 12px — cards, editor shell, swatches, lists (the default) */
+  --radius-lg: 1rem;        /* 16px — modals/dialog */
+  --radius-pill: 999px;     /* pill stays px (geometry, not a scalable measure) */
+  --shadow-pop: 0 1px 2px rgba(20,16,12,.05), 0 12px 32px -10px rgba(20,16,12,.16);
+}
+[data-theme='dark'] { --shadow-pop: 0 1px 2px rgba(0,0,0,.4), 0 16px 40px -12px rgba(0,0,0,.65); }
+
+/* ── Reset ──────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* Reserve the scrollbar gutter permanently so toggling the theme can't momentarily
+   hide/show the root scrollbar — that flicker was the "page jumps a px then back" on
+   Paper↔Ink (a classic-scrollbar browser widens by the scrollbar width when the
+   scrollbar appears/disappears). Reserving the gutter = zero layout shift on toggle.
+   The theme swap itself is now an INSTANT, synchronous cut (no cross-fade) — see
+   .no-theme-transition below. */
+html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
+body {
+  font-family: var(--font-sans);
+  /* PetalNet type voice: stylistic alternates + contextual ligatures on,
+     so headings read like set type, not a system stack. */
+  font-feature-settings: 'ss01' 1, 'cv01' 1, 'cv11' 1;
+  font-variant-ligatures: common-ligatures contextual;
+  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.875rem;   /* 14px @ root 16 — scales with user font-size */
+  line-height: 1.6;
+  letter-spacing: 0;
+  /* Better rag + no orphans on prose. text-wrap inherits, so this cascades to
+     every paragraph / list / description; display headings override to `balance`
+     below. Both are progressive — older engines fall back to normal wrap. */
+  text-wrap: pretty;
+  /* Progressive enhancement (Eli): opening quotes/punctuation hang into the margin
+     for a cleaner optical edge. WebKit-only today (Safari/iPad) — ignored elsewhere,
+     no fallback needed. Parker verifies on iPad Safari. */
+  hanging-punctuation: first allow-end last;
+}
+/* Short display text reads better with balanced line lengths than pretty's
+   last-line optimization — headings, section heads, card/tile/token titles,
+   the lede, and rendered-markdown headings. */
+h1, h2, h3, h4, .s-hero, .s-head, .card-title, .tile-name, .token-name, .lede, .eyebrow { text-wrap: balance; }
+/* Theme flip is an INSTANT, flash-free cut (Eli pass 5): the cross-fade
+   "flashbanged." During the swap we add .no-theme-transition to <html>, which
+   kills any transition on the paint props (color/background/border-color/
+   box-shadow/outline-color) for one synchronous frame, so the theme tokens flip
+   hard with no animation. scrollbar-gutter:stable still prevents the layout jump.
+   Resting hover/focus transitions on individual elements are untouched. */
+html.no-theme-transition,
+html.no-theme-transition *,
+html.no-theme-transition *::before,
+html.no-theme-transition *::after {
+  transition: none !important;
+}
+
+.mono { font-family: var(--font-mono); font-feature-settings: 'tnum' 1; }
+a { color: var(--petal); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 0.125em; }
+:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; border-radius: var(--radius-xs); }
+
+/* ── Layout ─────────────────────────────────────────────────────────── */
+.wrap { max-width: 55rem; margin: 0 auto; padding: var(--s5) var(--s4) var(--s7); }
+@media (max-width: 600px) { .wrap { padding: var(--s4) var(--s3) var(--s6); } }
+
+/* ════════════════ HEADER — solid, never see-through ════════════════ */
+header.top {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--bg);                 /* fully opaque: no content bleeds through */
+  border-bottom: 1px solid var(--rule);  /* a rule, not a card border */
+  transition: border-color var(--t);
+}
+.top-inner {
+  max-width: 55rem; margin: 0 auto;
+  padding: 0.625rem var(--s4);
+  display: flex; align-items: center; gap: var(--s2);
+}
+@media (max-width: 600px) { .top-inner { padding: 0.625rem var(--s3); } }
+/* Brand mark: the PetalNet "filed corner" — a small folded ledger tab. */
+.brand { display: inline-flex; align-items: center; gap: 0.5625rem; font-weight: 500; font-size: 0.875rem; letter-spacing: 0; }
+.brand .mark {
+  position: relative; width: 1rem; height: 1rem; border-radius: var(--radius-xs);
+  background: var(--petal); flex: none; overflow: hidden;
+  transition: background var(--t);
+}
+.brand .mark::after {                    /* the dog-eared corner — the motif */
+  content: ''; position: absolute; top: 0; right: 0;
+  border-width: 0 0.375rem 0.375rem 0; border-style: solid;   /* dog-ear triangle, scales with the 1rem mark */
+  border-color: transparent var(--bg) transparent transparent;
+  transition: border-color var(--t);
+}
+.brand .sub { color: var(--text-soft); font-weight: 400; }
+@media (max-width: 460px) { .brand .sub { display: none; } }
+.spacer { flex: 1; }
+
+/* Theme toggle — fill, not bordered box */
+.toggle { display: inline-flex; gap: 0; background: var(--surface); border-radius: 999px; padding: 0.1875rem; transition: background var(--t); }
+.toggle button {
+  font: 500 0.78125rem var(--font-sans); color: var(--text-mute);
+  background: transparent; border: 0; padding: 0.375rem 0.8125rem; border-radius: 999px;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 0.375rem;
+  min-height: 2rem; transition: color var(--t), background var(--t);
+}
+.toggle button[aria-pressed='true'] { background: var(--petal); color: var(--on-petal); }
+.toggle svg, .toggle .i { width: 0.875rem; height: 0.875rem; }
+
+/* ── Icon-box reservation (zero injection reflow) ─────────────────────────
+   Icon glyphs are inlined into the markup at first paint (no post-paint JS
+   injection — see /vendor/icons.js note). As a belt-and-suspenders for any
+   icon that IS built in JS (e.g. the iconography strip), every icon
+   PLACEHOLDER span reserves its glyph's exact box on the span itself — not
+   just on the injected <svg> — so a glyph dropping in cannot grow its parent
+   or shove the page. The header .toggle used to bounce ~124→152px on every
+   reload; reserving the box kills that shift entirely. */
+.i, .ico, .pm-ico, .tick, .compare-tag span:first-child, .rm-note .ico {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+}
+.i > svg, .ico > svg, .pm-ico > svg, .tick > svg {
+  display: block; width: 100%; height: 100%;
+}
+/* compare-tag icon keeps its own explicit 0.8125rem size (rule below) — it has no
+   sized wrapper box, so a 100% svg would balloon to fill the cell (the check/X bug). */
+
+/* (Accent picker removed — round-2. The accent is LOCKED to the theme-aware
+   burnt-sienna pair, which swaps automatically by light/dark. No manual switcher.) */
+
+/* ════════════════ SECTIONS — ledger eyebrows + ruled heads ════════════ */
+section { padding-top: var(--s6); scroll-margin-top: 4rem; }
+@media (max-width: 600px) { section { padding-top: var(--s5); } }
+
+/* The PetalNet eyebrow: a small filed "index tab" — number + label on the
+   ledger. This is our signature, not Anthropic's bare coral kicker. */
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font: 500 0.6875rem var(--font-mono); text-transform: uppercase; letter-spacing: 0.10em;
+  color: var(--text-mute); margin-bottom: 0.75rem;
+}
+.eyebrow .no {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.375rem; height: 1.125rem; padding: 0 0.375rem;
+  background: var(--petal-soft); color: var(--petal);
+  border-radius: var(--radius-xs) var(--radius-xs) var(--radius-xs) 0;   /* one squared "filed" corner */
+  font-weight: 500; font-variant-numeric: tabular-nums;
+}
+.eyebrow .ico { width: 0.8125rem; height: 0.8125rem; color: var(--petal); }
+
+/* Section head with a hairline rule beneath — ruled paper, not a box. */
+h2 { font-size: 1.4375rem; font-weight: 500; line-height: 1.22; letter-spacing: -0.004em; }
+.lede { color: var(--text-mute); font-size: 0.875rem; font-weight: 400; margin-top: var(--s2); max-width: 60ch; }
+.sub-h { font-size: 0.84375rem; font-weight: 500; margin-top: var(--s4); padding-bottom: 0.375rem; border-bottom: 1px solid var(--rule); color: var(--text); }
+
+/* ── Hero ───────────────────────────────────────────────────────────── */
+.hero { padding-top: var(--s7); }
+@media (max-width: 600px) { .hero { padding-top: var(--s5); } }
+.hero h1 { font-size: 2.375rem; font-weight: 500; line-height: 1.1; letter-spacing: -0.012em; }
+@media (max-width: 600px) { .hero h1 { font-size: 1.8125rem; } }
+.hero .ethos { color: var(--text-mute); font-size: 0.9375rem; margin-top: var(--s3); max-width: 54ch; line-height: 1.6; }
+.hero .ethos b { color: var(--text); font-weight: 500; }
+.hero-line { margin-top: var(--s3); display: inline-flex; align-items: center; gap: 0.5rem; font: 500 0.6875rem var(--font-mono); color: var(--text-soft); text-transform: uppercase; letter-spacing: 0.06em; }
+.hero-line .pip { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--success); }
+
+/* ── Color swatches — filled, NO borders ──
+   No ring/hairline on any swatch (Eli pass 5). The near-invisible chips
+   (--bg / --elev) just read faintly against the warm --surface card, which is
+   on-brand for "quiet." Every attempt at a border either wrapped the whole card
+   or fought the chip/meta seam, so it's gone. The `.ring` class is now a no-op. */
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.375rem, 1fr)); gap: var(--s2); margin-top: var(--s3); }
+.swatch { border-radius: var(--radius); overflow: hidden; background: var(--surface); transition: background var(--t); }
+.swatch .chip { height: 3.75rem; }
+.swatch .meta { padding: 0.625rem 0.75rem; }
+.swatch .name { font: 500 0.75rem var(--font-mono); }
+.swatch .hex { font: 0.6875rem var(--font-mono); color: var(--text-mute); margin-top: 0.125rem; }
+
+/* ── Type specimen — hairline ruled rows ────────────────────────────── */
+.type-row { display: flex; align-items: baseline; gap: var(--s3); padding: var(--s2) 0; border-top: 1px solid var(--rule); transition: border-color var(--t); }
+.type-row:last-child { border-bottom: 1px solid var(--rule); }
+.type-spec { flex: none; width: 8.25rem; font: 0.6875rem var(--font-mono); color: var(--text-mute); line-height: 1.5; }
+.type-sample { flex: 1; min-width: 0; }
+/* Body/UI type LIGHTENED per Eli — 400/500 with relaxed tracking, not heavy+kerned. */
+.s-micro  { font: 500 0.6875rem var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; }
+.s-small  { font: 400 0.75rem var(--font-sans); color: var(--text-mute); }
+.s-body   { font: 400 0.875rem var(--font-sans); }
+.s-card   { font: 500 0.84375rem var(--font-sans); letter-spacing: 0; }
+.s-head   { font: 500 0.875rem var(--font-sans); letter-spacing: 0; }
+.s-subln  { font: 400 0.875rem var(--font-sans); color: var(--text-mute); }
+.s-hero   { font: 500 2rem var(--font-sans); letter-spacing: -0.012em; line-height: 1.1; }
+@media (max-width: 600px) { .type-row { flex-direction: column; gap: 0.25rem; } .type-spec { width: auto; } .s-hero { font-size: 1.625rem; } }
+
+/* ── Spacing scale ──────────────────────────────────────────────────── */
+.space-row { display: flex; align-items: center; gap: var(--s3); padding: 0.4375rem 0; }
+.space-bar { height: 0.875rem; background: var(--petal-soft); border-radius: 0 var(--radius-xs) var(--radius-xs) 0; box-shadow: -2px 0 0 var(--petal); }   /* 2px accent edge = hairline-as-border, kept px */
+.space-lbl { font: 0.6875rem var(--font-mono); color: var(--text-mute); width: 4.875rem; flex: none; }
+.space-use { font-size: 0.75rem; color: var(--text-soft); }
+@media (max-width: 600px) { .space-use { display: none; } }
+
+/* ════════════════ COMPONENTS ════════════════ */
+.demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); margin-top: var(--s3); }
+@media (max-width: 560px) { .demo-grid { grid-template-columns: 1fr; } }
+
+/* Filled card — surface fill, NO border (Eli: borders banned on bg-cards). */
+.card-filled { background: var(--surface); border-radius: var(--radius); padding: var(--s3); transition: background var(--t); }
+/* Outlined card / tile — the ONE place a border is legitimate (M3 outlined
+   card uses a 1px outline). On hover the outline does NOT change; only a
+   subtle M3 state-layer scrim appears (M3-correct). Press deepens the scrim.
+   M3 state-layer opacities: hover 8%, press 12% — the canonical quiet middle.
+   Outlined card and tiles share ONE state-layer so neither reads as playful. */
+.card-outlined, .tile {
+  position: relative; background: transparent; border: 1px solid var(--rule-strong);
+  border-radius: var(--radius); transition: box-shadow var(--t);
+}
+.card-outlined { padding: var(--s3); cursor: pointer; }
+.card-outlined::before, .tile::before {
+  content: ''; position: absolute; inset: 0; border-radius: var(--radius);
+  background: var(--petal); opacity: 0; transition: opacity var(--t); pointer-events: none;
+}
+.card-outlined:hover::before, .tile:hover::before { opacity: 0.08; }   /* M3 hover state-layer (~8%), quiet petal tint — not a grey scrim */
+.card-outlined:active::before, .tile:active::before { opacity: 0.12; } /* M3 press state-layer (~12%) */
+/* Tiles carry the SAME quiet M3 state-layer as the outlined card (round-3:
+   present-but-understated, not the loud version, not zero). Content sits above
+   the ::before via position:relative + z-index on the children below. */
+.card-variant { font: 500 0.625rem var(--font-mono); color: var(--text-soft); text-transform: uppercase; letter-spacing: 0.06em; }
+.card-title { font: 500 0.84375rem var(--font-sans); margin-top: var(--s2); }
+.card-body { font: 400 0.84375rem var(--font-sans); color: var(--text-mute); margin-top: 0.375rem; }
+
+.tile { display: flex; flex-direction: column; gap: var(--s2); padding: 0.875rem; cursor: pointer; }
+/* keep tile content (incl. the absolute status dot) above the ::before scrim */
+.tile > * { position: relative; z-index: 1; }
+.tile-icon { width: 2.5rem; height: 2.5rem; border-radius: var(--radius-sm); flex: none; display: grid; place-items: center; background: var(--surface); color: var(--petal); }
+[data-theme='dark'] .tile-icon { background: var(--elev); box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.tile-icon svg { width: 1.375rem; height: 1.375rem; }
+.tile-name { font: 500 0.875rem var(--font-sans); }
+.tile-tag { font: 400 0.75rem var(--font-sans); color: var(--text-mute); line-height: 1.45; }
+.tile-status { position: absolute; top: 0.875rem; right: 0.875rem; width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--success); }
+
+/* Buttons — tactile press + quick petal "ink-in" glow (our motion signature) */
+.btn-row { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin-top: 0.25rem; }
+.btn {
+  position: relative; overflow: hidden;
+  font: 500 0.8125rem var(--font-sans); padding: 0.5625rem 1.0625rem; border-radius: 999px;
+  cursor: pointer; border: 0; min-height: 2.25rem;
+  transition: background var(--t), color var(--t), box-shadow var(--dur-base) var(--ease-standard),
+              transform var(--dur-fast) var(--ease-standard);
+}
+.btn:active { transform: scale(.97); box-shadow: 0 0 0 4px var(--petal-soft); }
+.btn-primary { background: var(--petal); color: var(--on-petal); }
+.btn-primary:hover { background: var(--petal-hover); }
+.btn-primary:active { background: var(--petal-active); }
+.btn-ghost { background: var(--surface); color: var(--text); }
+.btn-ghost:hover { background: var(--petal-soft); color: var(--petal); }
+.ripple { position: absolute; border-radius: 50%; pointer-events: none; background: var(--petal); opacity: .26; transform: scale(0); animation: ripple-out var(--dur-slow) var(--ease-emph-in) forwards; }
+@keyframes ripple-out { to { transform: scale(1); opacity: 0; } }
+.btn-primary .ripple { background: var(--on-petal); opacity: .3; }
+.state-note { font: 500 0.625rem var(--font-mono); color: var(--text-soft); text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Inputs — fill + cross-browser-safe rounded focus ring (outline, no resting border).
+   `outline` + `outline-offset` follows border-radius cleanly on Chromium, WebKit,
+   AND Firefox (unlike `inset box-shadow`, which crops at rounded corners cross-engine). */
+.field { display: flex; flex-direction: column; gap: 0.375rem; max-width: 20rem; }
+.field label { font-size: 0.75rem; color: var(--text-mute); }
+.field input {
+  font: 0.875rem var(--font-sans); color: var(--text); background: var(--surface);
+  border: 0; border-radius: var(--radius-sm); padding: 0.6875rem 0.8125rem; outline: 0;
+  transition: box-shadow var(--t), background var(--t), outline-color var(--t);
+}
+.field input::placeholder { color: var(--text-soft); }
+.field input:hover { box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.field input:focus { box-shadow: 0 0 0 2px var(--petal); outline: none; background: var(--bg); }   /* Tailwind-style ring: outset box-shadow, follows radius, no crop */
+
+/* Role chips / status pills — fills */
+/* width:max-content keeps the chips' bg contained to its wrapper even inside a
+   stretch flex/grid parent (round-2 fix: bg was spanning full page). */
+.role-chips { display: inline-flex; align-self: flex-start; width: max-content; max-width: 100%; gap: 0.375rem; background: var(--surface); border-radius: 999px; padding: 0.1875rem; transition: background var(--t); }
+.role-chip { font: 0.78125rem var(--font-sans); color: var(--text-mute); background: transparent; border: 0; padding: 0.375rem 0.8125rem; border-radius: 999px; cursor: pointer; transition: background var(--t), color var(--t); }
+.role-chip[aria-pressed='true'] { background: var(--petal); color: var(--on-petal); font-weight: 500; }
+.status-pills { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.status-pill { display: inline-flex; align-items: center; gap: 0.4375rem; font-size: 0.75rem; padding: 0.375rem 0.75rem; border-radius: 999px; background: var(--surface); transition: background var(--t); }
+.sdot { width: 0.375rem; height: 0.375rem; border-radius: 50%; flex: none; }
+.sdot.ok { background: var(--success); } .sdot.warn { background: var(--warning); } .sdot.down { background: var(--danger); }
+
+/* List — filled, hairline separators (rules) */
+.lab-list { background: var(--surface); border-radius: var(--radius); padding: var(--s2); transition: background var(--t); }
+/* Nested in .lab-list (radius 12, padding 8): concentric inner = outer − padding = 4. */
+.lab-item { display: flex; align-items: center; gap: 0.625rem; padding: 0.625rem 0.75rem; border-radius: max(0px, calc(var(--radius) - var(--s2))); font-size: 0.84375rem; }
+.lab-item + .lab-item { border-top: 1px solid var(--rule); }
+.lab-item .ago { margin-left: auto; font: 0.6875rem var(--font-mono); color: var(--text-soft); }
+
+/* Dialog / modal (real component — Eli asked for one) */
+.dialog-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(22,20,18,.42); background: color-mix(in srgb, var(--text) 28%, transparent); display: grid; place-items: center; padding: var(--s4); opacity: 0; transition: opacity var(--dur-mid) var(--ease-standard); }
+.dialog-backdrop[hidden] { display: none; }
+.dialog-backdrop.enter { opacity: 0; }
+.dialog-backdrop.open { opacity: 1; }
+.dialog { width: min(26.25rem, 100%); background: var(--elev); border-radius: var(--radius-lg); padding: var(--s4); box-shadow: var(--shadow-pop); transform: scale(.96) translateY(0.5rem); opacity: 0; transition: transform var(--dur-mid) var(--ease-emph-in), opacity var(--dur-mid) var(--ease-emph-in); }
+.dialog-backdrop.open .dialog { transform: none; opacity: 1; }
+.dialog-icon { width: 2.375rem; height: 2.375rem; border-radius: var(--radius-sm); display: grid; place-items: center; background: var(--petal-soft); color: var(--petal); margin-bottom: var(--s3); }
+.dialog-icon svg { width: 1.25rem; height: 1.25rem; }
+.dialog h3 { font: 500 1.0625rem var(--font-sans); letter-spacing: -0.004em; }
+.dialog p { font-size: 0.84375rem; color: var(--text-mute); margin-top: 0.375rem; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: var(--s4); }
+
+/* Snackbar (Material-style notice) — anchored BOTTOM-LEFT, rectangular, quiet.
+   Reads as "present," not "look at me." Caps visible stack at ~5 + scrollback. */
+.toast-host {
+  position: fixed; left: var(--s4); bottom: var(--s4); z-index: 90;
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: var(--s2);
+  /* newest is appended last → sits at the BOTTOM (plain column); scrollTop=scrollHeight
+     reliably reveals it. Host is interactive so its scrollbar works; it has zero
+     height when empty (no children) so it never blocks the page underneath. */
+  pointer-events: auto;
+  width: min(22.5rem, calc(100vw - var(--s4) * 2));
+  max-height: calc(5 * 3.25rem + 4 * var(--s2));   /* ~5 rows; older ones scroll back */
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+@media (max-width: 600px) { .toast-host { left: var(--s3); right: var(--s3); bottom: var(--s3); max-width: none; } }
+.toast {
+  pointer-events: auto; display: flex; align-items: center; gap: 0.625rem; width: 100%;
+  background: var(--elev); color: var(--text);
+  border-radius: var(--radius-sm);                 /* rectangular, not "all circley" */
+  box-shadow: inset 0 0 0 1px var(--rule); padding: 0.6875rem 0.625rem 0.6875rem 0.875rem;   /* quiet: hairline, not a big pop shadow */
+  font-size: 0.8125rem; transform: translateY(0.5rem); opacity: 0;
+  transition: transform var(--dur-mid) var(--ease-emph-in), opacity var(--dur-mid) var(--ease-emph-in);
+}
+[data-theme='dark'] .toast { box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.toast.show { transform: none; opacity: 1; }
+.toast .tdot { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--text-soft); flex: none; }
+.toast .tmsg { flex: 1; min-width: 0; }
+.toast .tclose { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: var(--radius-sm); border: 0; background: transparent; color: var(--text-soft); cursor: pointer; flex: none; transition: color var(--t), background var(--t); }
+.toast .tclose:hover { color: var(--text); background: var(--surface); }
+.toast .tclose svg { width: 0.875rem; height: 0.875rem; }
+
+/* Pulse ring (sanctioned: only checking/degraded) */
+.pulse { position: relative; }
+.pulse::after { content: ''; position: absolute; inset: -0.1875rem; border-radius: 50%; box-shadow: 0 0 0 0 currentColor; animation: pulsering 2s var(--ease-standard) infinite; }
+.sdot.warn.pulse { color: var(--warning); }
+@keyframes pulsering { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); } 70% { box-shadow: 0 0 0 0.375rem color-mix(in srgb, currentColor 0%, transparent); } 100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent); } }
+
+/* ── ProseMark editor themed to spec ────────────────────────────────── */
+.pm-shell {
+  --pm-link-color: var(--petal); --pm-cursor-color: var(--petal);
+  --pm-header-mark-color: var(--text-soft); --pm-muted-color: var(--text-mute);
+  --pm-code-font: var(--font-mono); --pm-code-background-color: var(--surface);
+  --pm-code-btn-background-color: var(--surface); --pm-code-btn-hover-background-color: var(--elev);
+  --pm-blockquote-vertical-line-background-color: var(--rule-strong);
+  --pm-syntax-keyword: var(--petal); --pm-syntax-string: var(--text); --pm-syntax-comment: var(--text-soft);
+  --pm-syntax-atom: var(--petal); --pm-syntax-literal: var(--text); --pm-syntax-link: var(--petal);
+  --pm-syntax-class-name: var(--text); --pm-syntax-definition-property: var(--text);
+  --pm-syntax-definition-variable: var(--text); --pm-syntax-local-variable: var(--text);
+  --pm-syntax-special-variable-macro: var(--text); --pm-syntax-type-namespace: var(--text-mute);
+  --pm-syntax-regexp: var(--text); --pm-syntax-invalid: var(--danger);
+  border-radius: var(--radius); background: var(--bg); overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--rule-strong); outline: 0;
+  transition: box-shadow var(--t), background var(--t), outline-color var(--t);
+}
+/* Cross-browser-safe rounded focus ring: outline follows border-radius on all
+   three engines; the negative offset tucks it inside the overflow:hidden shell. */
+/* edit-mode only: ring shows when the editor is focused, NOT in read mode (Eli).
+   Tailwind-style ring = resting hairline + outset petal box-shadow (outset isn't
+   clipped by the shell's overflow:hidden, and follows border-radius — no crop). */
+.pm-shell:has(.cm-editor.cm-focused) { box-shadow: inset 0 0 0 1px var(--rule-strong), 0 0 0 2px var(--petal); outline: none; }
+.pm-bar { display: flex; align-items: center; gap: var(--s2); padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--rule); background: var(--surface); transition: background var(--t), border-color var(--t); }
+.pm-bar .pm-ico { width: 0.875rem; height: 0.875rem; color: var(--petal); }
+.pm-bar .pm-label { font: 500 0.6875rem var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--text-mute); }
+/* CodeMirror surface — line-height + padding MUST match the rendered read view (zero shift) */
+.pm-shell .cm-editor { font: 14px/1.6 var(--font-sans); color: var(--text); background: var(--bg); }
+.pm-shell .cm-editor.cm-focused { outline: none; }
+/* Force editor text metrics to EXACTLY match the read view (14px / 1.6),
+   overriding CodeMirror's theme defaults (it computes 14.4px / 1.4) so the swap
+   doesn't reflow. Same padding as .pm-rendered (18px 20px). */
+.pm-shell .cm-scroller { font-family: var(--font-sans); font-size: 14px; line-height: 1.6; }
+.pm-shell .cm-content { padding: 18px 20px; caret-color: var(--petal); max-width: none; font-size: 14px; line-height: 1.6; }
+.pm-shell .cm-line { padding: 0; line-height: 1.6; }
+/* Hanging-decoration bg, editor side (Eli) — mirror of .pm-rendered pre. CAUTION:
+   ProseMark/CodeMirror renders code INDENTATION via an inline `padding-inline-start
+   + text-indent` on `.cm-soft-indent-line` (hanging-indent for wrapped lines). Any
+   padding/margin we add to the line fights that measurement and shifts the indented
+   rows (the "spaces shifting" bug). So we DON'T touch the box — text stays 100% CM-
+   native — and paint the 12px left/right breathing with a layout-neutral box-shadow
+   in the surface colour. It follows the first/last line's 0.4rem radii, so the block's
+   outer corners round exactly like the read view's <pre>. */
+.pm-shell .cm-fenced-code-line { box-shadow: -12px 0 0 0 var(--pm-code-background-color), 12px 0 0 0 var(--pm-code-background-color); }
+/* Neutralise CodeMirror's soft-indent ONLY on fenced code (Eli "spaces shifting"):
+   CM gives indented, wrappable lines an inline `padding-inline-start + text-indent`
+   hanging-indent (the `cm-soft-indent-line` class), so a 2-space code indent rendered
+   ~22px in the editor vs 16px (2×8) in the read <pre>. Code shouldn't hang-indent on
+   wrap anyway (the read view scrolls, doesn't wrap), so we cancel both inline props
+   for fenced code → indentation is literal spaces, pixel-matching read. !important is
+   required to beat CM's inline style. (Prose lists/quotes keep their hanging indent.) */
+.pm-shell .cm-fenced-code-line.cm-soft-indent-line { padding-inline-start: 0 !important; text-indent: 0 !important; }
+.pm-shell .cm-selectionBackground, .pm-shell .cm-content ::selection { background: var(--petal-soft) !important; }
+.pm-shell .cm-focused .cm-selectionBackground, .pm-shell ::selection { background: var(--petal-soft) !important; }
+.pm-shell .cm-cursor { border-left-color: var(--petal); }
+.pm-shell .cm-activeLine, .pm-shell .cm-activeLineGutter { background: transparent; }
+.pm-shell .cm-inline-code, .pm-shell code, .pm-shell .cm-monospace { font-family: var(--font-mono); font-size: 12.5px; }
+.pm-shell .cm-inline-code { background: var(--surface); border-radius: var(--radius-xs); padding: 1px 4px; }
+.pm-shell .cm-rendered-link, .pm-shell .cm-url, .pm-shell .cm-link { color: var(--petal); }
+.pm-shell .cm-blockquote-line { color: var(--text); }   /* full ink, matches read view (not muted) */
+.pm-shell .cm-rendered-list-mark { color: var(--petal); }   /* petal bullets, matches read view ::marker */
+.pm-shell .cm-gutters { display: none; }
+/* PARKER TWEAK — code-block badge: mirror the READ view's orange + de-cramp on the
+   EDITOR side. The editor's lang label + copy SVG inherit --pm-muted-color (grey), so
+   force var(--petal). The badge is a `float:right` on the open-fence line; positive
+   margins shift a float, so margin-top:4px (down) + margin-right:8px (in from the edge)
+   reproduce the read view's top:4px/right:20px shift PIXEL-FOR-PIXEL (the read pre hangs
+   12px past the editor's fenced line, so read right = 12 + 8 = 20). Keep edit↔read identical. */
+.pm-shell .cm-code-block-info { margin-top: 4px; margin-right: 8px; }
+.pm-shell .cm-code-block-lang-container { color: var(--petal); }
+.pm-shell .cm-code-block-copy-button { color: var(--petal); }
+.pm-shell .cm-code-block-copy-button:hover { color: var(--petal-hover); }
+
+/* Read ⇄ Edit toggle */
+.pm-toggle { margin-left: auto; display: inline-flex; gap: 0.125rem; background: var(--bg); box-shadow: inset 0 0 0 1px var(--rule); border-radius: 999px; padding: 0.125rem; transition: background var(--t); }
+.pm-toggle button { font: 500 0.71875rem var(--font-sans); letter-spacing: .02em; color: var(--text-mute); background: transparent; border: 0; padding: 0.25rem 0.8125rem; border-radius: 999px; cursor: pointer; transition: background var(--t), color var(--t); }
+.pm-toggle button:hover { color: var(--text); }
+.pm-toggle button[aria-pressed='true'] { background: var(--petal-soft); color: var(--petal); }
+.pm-pane[hidden] { display: none; }
+
+/* Rendered READ view — PIXEL PARITY with the ProseMark edit surface (zero shift
+   on swap). ProseMark is WYSIWYM: it renders the SAME view, just editable. So the
+   read view mirrors ProseMark's actual rendered geometry, NOT a separate doc style:
+     • base 14px/1.6 Geist, padding 18px 20px            (= .cm-content)
+     • headings em-scaled + bold: h1 1.6em, h2 1.4em, h3 1.2em, weight 700
+       (ProseMark's exact heading scale — read from the bundle)
+     • bullets colored petal in BOTH (here via ::marker; editor via .cm-rendered-list-mark)
+     • blockquote sized UP to the editor: same 14px text, full ink color, 0.3em accent rule
+   Every metric below is matched to the editor so the toggle moves nothing. */
+.pm-rendered { padding: 18px 20px; color: var(--text); font: 14px/1.6 var(--font-sans); --pm-lh: 22.4px; }   /* --pm-lh = body 14px × 1.6 = one editor line */
+/* WYSIWYM blank-line parity (GitHub-comment style): in the editor every blank
+   source line is a real line (one line-height tall). renderMd() now reserves a
+   per-block top margin equal to the # of preceding blank source lines × 1.6em
+   (set inline), so a single blank = one line-height (parity with the editor) and
+   consecutive blanks render proportional visible gaps instead of collapsing.
+   The rule below is the fallback for any block renderMd didn't annotate. */
+.pm-rendered > * { margin: 0; }
+.pm-rendered > * + * { margin-top: var(--pm-lh); }
+.pm-rendered h1, .pm-rendered h2, .pm-rendered h3 { font-weight: 700; line-height: 1.6; letter-spacing: 0; margin: 0; }
+.pm-rendered h1 { font-size: 1.6em; }   /* = ProseMark heading1 */
+.pm-rendered h2 { font-size: 1.4em; }   /* = ProseMark heading2 */
+.pm-rendered h3 { font-size: 1.2em; }   /* = ProseMark heading3 */
+.pm-rendered p { margin: 0; }
+.pm-rendered strong { font-weight: 700; }
+.pm-rendered em { font-style: italic; }
+.pm-rendered a { color: var(--petal); text-decoration: underline; }   /* editor underlines links (.cm-rendered-link); read view matches */
+/* Bullets: render the SAME "•" glyph the editor draws (.cm-rendered-list-mark),
+   at the SAME size + spacing, so size AND padding are identical read vs edit
+   (Eli pass 5a). The editor uses the literal • at 14px with a ~2.8px gap and a
+   small hanging indent; we reproduce that with ::before instead of the browser's
+   ::marker (which draws a larger disc at a different offset). */
+.pm-rendered ul { margin: 0; padding-left: 0; list-style: none; }
+/* Bullet + text x matched to the editor's measured geometry (Playwright, Eli pass 6):
+   editor renders the list mark at line-edge +8.8px and the text at line-edge +19.6px.
+   So li text sits at padding-left 19.6px; the ::before bullet box (width = margin pull)
+   starts 10.8px left of the text = line-edge +8.8px. */
+.pm-rendered ul > li { margin: 0; padding-left: 19.6px; }
+.pm-rendered ul > li::before { content: '\2022'; color: var(--petal); display: inline-block; width: 10.8px; margin-left: -10.8px; font-size: 14px; }
+.pm-rendered code { font-family: var(--font-mono); font-size: 12.5px; background: var(--surface); border-radius: var(--radius-xs); padding: 1px 4px; }   /* 4px (not 5) to match editor .cm-inline-code exactly */
+/* Code block: more padding in read (Eli pass 5c). The editor shows the ```js fence
+   + code-block chrome (~one line tall) above the code; the read view hides the fence,
+   so it gets extra vertical padding to balance — the code content no longer hugs the
+   top edge and the two modes read as comparably padded. Radius on the sm token. */
+/* Code block sized to MATCH the editor's per-line code bg (Eli pass 6): the editor
+   renders code lines indented 6px from the content edge with the text AT the bg's left
+   edge and only the line's own ~2px leading top/bottom (no block padding). So: shift the
+   block 6px (margin-left) so its bg starts where the editor's does, 0 horizontal padding
+   so text sits at the bg edge (= editor), and 2px vertical to match the leading — no more
+   16px block padding, which was the read↔edit jump. */
+/* Reserve the FENCE HEIGHT (Eli pass 6): the editor shows the ```lang OPEN line + the ```
+   CLOSE line (a real line-height each, 1.6em), the read view strips both — so without this
+   the preview block is ~2 lines shorter and the code sits a line too high on toggle. 1.6em
+   top = the hidden open fence (drops code to where the editor has it), 1.6em bottom = the
+   hidden close fence (so the block's total footprint matches). 0 horizontal: text sits at
+   the bg's left edge = the editor's per-line code position; margin-left 6px aligns the bg. */
+/* Hanging-decoration bg (Eli): the bg gets 12px of horizontal breathing room but
+   the TEXT must not move. So pad the box 12px and pull it back out with negative
+   margins (left −6px = the prior +6px align minus the 12px pad; right −12px) — the
+   bg hangs 12px past the text on each side while the code stays at the same x. The
+   SAME treatment is mirrored on the editor's .cm-fenced-code-line below, so edit↔read
+   stay pixel-identical. Radius bumped to 0.4rem to match the editor's fenced corners. */
+.pm-rendered pre { position: relative; font: 14px/1.6 var(--font-mono); background: var(--surface); border-radius: 0.4rem; padding: 1.6em 12px; margin: 0 -12px 0 -6px; overflow-x: auto; transition: background var(--t); tab-size: 4; -moz-tab-size: 4; }   /* position:relative anchors the lang/copy chrome (Bug-1); tab-size 4 matches the editor so TAB-indented code lines up edit↔read */
+.pm-rendered pre code { background: none; border-radius: 0; padding: 0; font-size: 14px; }   /* match editor code-block (14px), override the inline-code 12.5px rule */
+/* BUG-1: code-block chrome (lang badge + copy button) — PIXEL MIRROR of the editor.
+   The editor (ProseMark) renders .cm-code-block-info as a flex pill floated to the
+   top-right of the first fenced line: gap 4.8px, 3.2px padding, Geist Mono. The lang
+   label is --text-mute at 12.8px; the copy button is a 22.4px --surface square with a
+   3.2px radius holding a 16px lucide "copy" SVG (stroke=currentColor, --text-mute).
+   Read reproduces the SAME classes/DOM; here we just pin it to the <pre>'s top-right.
+   The editor floats the badge AT the block's right content edge (= pre's content-right
+   = right:12px past the −12px hang) and vertically on the (read-hidden) open-fence line,
+   whose 22.4px is reserved by the pre's 1.6em padding-top. The editor anchors the
+   badge's TOP at that fence line's top (= the pre's content top), so we do too: top:0
+   (the pre's padding-box top, where the open-fence line begins), right:12px.
+   PARKER TWEAK: badge is on-brand ORANGE (var(--petal)) + de-cramped out of the
+   corner. The READ badge is absolutely positioned, so the inset is top:4px (was 0)
+   + right:20px (was 12 — i.e. the same 12px content-edge alignment PLUS an 8px
+   breathing inset). The EDITOR badge is a `float:right` on the open-fence line, so
+   it gets the IDENTICAL shift via margin-top:4px + margin-right:8px (float honors
+   margins) — see the .pm-shell override below. 4px down keeps it clear of the
+   left-aligned first code line; 8px in floats it off the right edge. */
+.pm-rendered pre .cm-code-block-info { position: absolute; top: 4px; right: 20px; display: flex; align-items: center; gap: 4.8px; padding: 3.2px; margin: 0; font: 14px/22.4px var(--font-mono); color: var(--petal); pointer-events: auto; }
+.pm-rendered pre .cm-code-block-lang-container { font: 400 12.8px/20.48px var(--font-mono); color: var(--petal); text-transform: none; letter-spacing: normal; }
+.pm-rendered pre .cm-code-block-copy-button { display: flex; align-items: center; justify-content: center; width: 22.4px; height: 22.4px; padding: 3.2px; margin: 0; border: 0; border-radius: 3.2px; background: var(--surface); color: var(--petal); cursor: pointer; transition: color var(--t); }
+.pm-rendered pre .cm-code-block-copy-button:hover { color: var(--petal-hover); }
+.pm-rendered pre .cm-code-block-copy-button svg { width: 16px; height: 16px; display: block; }
+/* BUG-2: trailing blank-line spacer. renderMd emits a fixed-height div for the doc's
+   trailing blank lines; zero its inherited block margin so its height is the WHOLE
+   gap (the editor shows each trailing return as exactly one --pm-lh, no extra margin). */
+.pm-rendered .pm-trailing-blank { margin: 0; }
+/* Blockquote: full ink color, same 14px text. Bar position matched to the editor
+   (Eli pass 5b): the editor draws a ~2px vertical rule (--pm-blockquote-vertical-
+   line-background-color = --rule-strong) ~6px in, with the text at 12px from the
+   content edge. Read previously used a 4px border at the very edge with 11.2px
+   padding, so its bar sat farther OUT and text farther in. We reproduce the
+   editor's exact geometry with an absolute ::before bar instead of a thick border. */
+/* Blockquote — replicates the editor's EXACT mechanism (Playwright-measured, Eli pass 6):
+   the editor's .cm-blockquote-line uses `padding-inline-start:12px; text-indent:-6px`,
+   keeps a TRANSPARENT "> " marker that still occupies space, and draws the bar as a
+   4px border-left on ::before at left:6px in --rule-strong. We mirror all of it so the
+   geometry (bar position + width + color + text x) is identical read↔edit, first line
+   and wrapped lines. Logical props also make it RTL-correct (Eli). */
+.pm-rendered blockquote { position: relative; margin: 0; padding-inline-start: 12px; text-indent: -6px; color: var(--text); }
+.pm-rendered blockquote .bq-mark { color: transparent; }
+.pm-rendered blockquote::before { content: ''; position: absolute; left: 6px; top: 0; bottom: 0; width: 4px; background: var(--rule-strong); }
+
+/* ════════════════ MOTION SECTION ════════════════ */
+.motion-block { background: var(--surface); border-radius: var(--radius); padding: var(--s3); transition: background var(--t); margin-top: 0.875rem; }
+.motion-block h3 { font: 500 0.84375rem var(--font-sans); margin-bottom: 0.25rem; }
+.motion-block .hint { font-size: 0.75rem; color: var(--text-mute); margin-bottom: 0.75rem; }
+.token-table { display: grid; gap: var(--s2); margin-top: 0.75rem; }
+.token-row { display: grid; grid-template-columns: 8.125rem 10.5rem 1fr 6.75rem; gap: 0.875rem; align-items: center; padding: 0.625rem 0; border-top: 1px solid var(--rule); transition: border-color var(--t); }
+.token-row:first-child { border-top: 0; }
+.token-name { font: 0.6875rem var(--font-mono); color: var(--text); white-space: nowrap; }
+.token-val { font: 0.65625rem var(--font-mono); color: var(--text-mute); white-space: nowrap; }
+.token-use { font-size: 0.75rem; color: var(--text-soft); }
+@media (max-width: 720px) {
+  .token-row { grid-template-columns: 1fr 6rem; row-gap: 0.25rem; }
+  .token-name { grid-column: 1; } .token-val { grid-column: 1 / 2; grid-row: 2; white-space: normal; }
+  .token-use { grid-column: 1 / 2; grid-row: 3; } .token-row .curve { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+}
+.curve { position: relative; width: 6rem; height: 1.125rem; flex: none; border-radius: 999px; background: var(--petal-soft); overflow: hidden; }
+.curve .dot { position: absolute; top: 50%; left: 0.1875rem; width: 0.75rem; height: 0.75rem; margin-top: -0.375rem; border-radius: 50%; background: var(--petal); transform: translateX(0); }
+.curve.run .dot { animation: curve-run var(--cdur, 360ms) var(--ceas, linear) forwards; }
+@keyframes curve-run { to { transform: translateX(4.875rem); } }   /* track 6rem − dot 0.75rem − 2×0.1875rem inset */
+.replay-all { font: 0.6875rem var(--font-mono); color: var(--petal); background: var(--surface); border: 0; border-radius: 999px; padding: 0.4375rem 0.875rem; cursor: pointer; min-height: 2rem; transition: background var(--t); }
+.replay-all:hover { background: var(--petal-soft); }
+/* radius dropped to xs (2px) — Eli pass 5 revised his earlier "radius is fine". */
+.rm-note { position: relative; display: flex; gap: 0.6875rem; align-items: flex-start; margin-top: 0.875rem; background: var(--surface); border-radius: var(--radius-xs); padding: 0.75rem 0.875rem; transition: background var(--t); font-size: 0.8125rem; }
+/* straight accent bar, inset from top/bottom so it stays a clean vertical rule.
+   With the note now at 2px the bar reads essentially straight; its own rounding is
+   the same xs token so the bottom-right tuck matches the card corner. */
+.rm-note::before { content: ''; position: absolute; left: 0; top: 0.625rem; bottom: 0.625rem; width: 2px; border-radius: 0 var(--radius-xs) var(--radius-xs) 0; background: var(--petal); }   /* 2px accent rule = hairline-as-border, kept px */
+.rm-note .ico { color: var(--petal); flex: none; width: 1rem; height: 1rem; margin-top: 0.0625rem; }
+.rm-note b { font-weight: 500; }
+.rm-note .d { color: var(--text-mute); }
+
+/* ════════════════ VOICE / ANTI-PATTERN compare ════════════════ */
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); margin-top: var(--s3); }
+@media (max-width: 560px) { .compare { grid-template-columns: 1fr; } }
+.compare-cell { border-radius: var(--radius); padding: var(--s3); background: var(--surface); transition: background var(--t); }
+.compare-cell.bad { background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
+.compare-cell.good { background: color-mix(in srgb, var(--success) 10%, var(--surface)); }   /* do = green, balances the red don't */
+.compare-tag { display: inline-flex; align-items: center; gap: 0.375rem; font: 500 0.625rem var(--font-mono); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 0.625rem; }
+.compare-tag.do { color: var(--success); } .compare-tag.dont { color: var(--danger); }
+.compare-tag svg { width: 0.8125rem; height: 0.8125rem; }
+.compare-cell .what { font-size: 0.75rem; color: var(--text-soft); margin-top: 0.75rem; font-style: italic; }
+.pal { display: flex; gap: 0.25rem; }
+.pal span { width: 1.625rem; height: 1.625rem; border-radius: var(--radius-xs); }
+.pal.timid span:nth-child(1){background:#d97757}.pal.timid span:nth-child(2){background:#6366f1}.pal.timid span:nth-child(3){background:#10b981}.pal.timid span:nth-child(4){background:#f59e0b}.pal.timid span:nth-child(5){background:#06b6d4}
+.pal.one span{background:var(--rule-strong)} .pal.one span:nth-child(3){background:var(--petal)}
+.fake-alive { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--text-soft); animation: breathe 2.2s ease-in-out infinite; }
+@keyframes breathe { 0%,100%{transform:scale(1);opacity:.5} 50%{transform:scale(1.6);opacity:1} }
+.calm-alive { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--success); }
+.aurora { height: 2.875rem; border-radius: var(--radius-sm); background: linear-gradient(120deg,#f0abfc,#d97757,#a78bfa); }
+.solid-mark { height: 2.875rem; border-radius: var(--radius-sm); background: var(--surface); display: grid; place-items: center; }
+.solid-mark .m { width: 1rem; height: 1rem; border-radius: var(--radius-xs); background: var(--petal); }
+
+/* ── Iconography ───────────────────────────────────────────────────── */
+.icon-row { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+.icon-card { flex: 1 1 11.25rem; background: var(--surface); border-radius: var(--radius); padding: var(--s3); display: flex; flex-direction: column; gap: 0.625rem; transition: background var(--t); }
+.icon-card .ibox { width: 2.5rem; height: 2.5rem; border-radius: var(--radius-sm); display: grid; place-items: center; background: var(--bg); color: var(--petal); }
+[data-theme='dark'] .icon-card .ibox { background: var(--elev); box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.icon-card .ibox svg { width: 1.375rem; height: 1.375rem; }
+.icon-strip { display: flex; gap: 0.625rem; flex-wrap: wrap; }
+.icon-strip span { width: 1.875rem; height: 1.875rem; display: grid; place-items: center; color: var(--text-mute); }
+.icon-strip svg { width: 1.1875rem; height: 1.1875rem; }
+.icon-card h4 { font: 500 0.84375rem var(--font-sans); }
+.icon-card p { font-size: 0.75rem; color: var(--text-mute); }
+
+/* ── Accessibility list ────────────────────────────────────────────── */
+.a11y-list { list-style: none; display: grid; gap: var(--s2); margin-top: var(--s3); }
+.a11y-list li { display: flex; gap: 0.6875rem; font-size: 0.84375rem; align-items: flex-start; background: var(--surface); border-radius: var(--radius-sm); padding: 0.75rem 0.875rem; transition: background var(--t); }
+.a11y-list .tick { color: var(--petal); flex: none; margin-top: 0.0625rem; width: 1rem; height: 1rem; }
+.a11y-list b { font-weight: 500; } .a11y-list span.d { color: var(--text-mute); }
+
+/* ── Skeleton (loading placeholders) ───────────────────────────────────
+   Paper-and-ink loading state: a calm --surface block with a single, slow
+   accent-free shimmer sweeping across it. Quiet by default — the shimmer is
+   a thin highlight, not a flash. Under prefers-reduced-motion the sweep is
+   removed entirely and the block rests as a static tinted placeholder. */
+.skeleton {
+  position: relative; overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  /* the moving highlight: a soft band a hair lighter than the surface (--elev) */
+  background-image: linear-gradient(90deg, transparent 0%, var(--elev) 50%, transparent 100%);
+  background-repeat: no-repeat;
+  background-size: 60% 100%;
+  background-position: -150% 0;
+  animation: skeleton-sweep 1.6s var(--ease-standard) infinite;
+}
+[data-theme='dark'] .skeleton { box-shadow: inset 0 0 0 1px var(--rule); }
+@keyframes skeleton-sweep {
+  from { background-position: -150% 0; }
+  to   { background-position:  250% 0; }
+}
+/* Variants — line / title / box / avatar */
+.skeleton-line  { height: 0.75rem; border-radius: var(--radius-xs); }
+.skeleton-line + .skeleton-line { margin-top: 0.625rem; }
+.skeleton-line.short { width: 55%; }
+.skeleton-line.long  { width: 92%; }
+.skeleton-title { height: 1.125rem; width: 45%; border-radius: var(--radius-xs); }
+.skeleton-box   { width: 100%; height: 6.5rem; border-radius: var(--radius); }
+.skeleton-avatar{ width: 2.5rem; height: 2.5rem; border-radius: 999px; flex: none; }
+/* A skeleton CARD: mirrors .card-filled geometry so the real content drops in
+   with no layout shift once loaded. */
+.skeleton-card  { background: var(--surface); border-radius: var(--radius); padding: var(--s3); }
+.skeleton-card .skeleton { background-color: var(--bg); background-image: linear-gradient(90deg, transparent 0%, var(--surface) 50%, transparent 100%); }
+[data-theme='dark'] .skeleton-card .skeleton { background-color: var(--elev); background-image: linear-gradient(90deg, transparent 0%, var(--surface) 50%, transparent 100%); }
+.skeleton-head  { display: flex; align-items: center; gap: 0.75rem; margin-bottom: var(--s3); }
+.skeleton-head .lines { flex: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background-image: none; }
+}
+
+/* ── Footer ────────────────────────────────────────────────────────── */
+footer { margin-top: var(--s7); padding: var(--s4) 0 0.5rem; border-top: 1px solid var(--rule); font-size: 0.75rem; color: var(--text-soft); transition: border-color var(--t); }
+footer .mono { color: var(--text-mute); }
+
+/* ── Entrance: the PetalNet "settle" — laid down once on first paint.
+   A tiny opacity+2px lift, quick, NOT scroll-driven (reveal-on-scroll is
+   removed entirely per Eli). Honors reduced motion. ──────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  .settle { opacity: 0; transform: translateY(0.125rem); animation: settle var(--dur-mid) var(--ease-emph-in) forwards; animation-delay: var(--settle-d, 0ms); }
+  @keyframes settle { to { opacity: 1; transform: none; } }
+}
+
+/* ── Reduced motion (non-negotiable, §7) ───────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; scroll-behavior: auto !important; }
+  .settle { opacity: 1 !important; transform: none !important; }
+  .btn:active { transform: none !important; box-shadow: none !important; }
+  .ripple { display: none !important; }
+  .curve .dot { animation: none !important; transform: translateX(4.875rem) !important; }
+}
+
+/* ── EXTRACTED INLINE STYLES ───────────────────────────────────────────
+   PR janet/ds-1: every static style="" attribute from the design page was
+   lifted out into the classes below so the markup carries zero inline style.
+   Class names are descriptive utilities; values are byte-for-byte what the
+   inline attributes held, so the rendered page is pixel-identical.
+   (The 5 remaining style="" strings live inside <script> JS template literals
+   that build DOM at runtime with dynamic values — they are not markup
+   attributes and are out of scope for static extraction.) */
+
+/* margin-top utilities */
+.mt-s3   { margin-top: var(--s3); }
+.mt-14   { margin-top: 14px; }
+.mt-6    { margin-top: 6px; }
+.mt-half { margin-top: 0.5rem; }
+.mt-5eq  { margin-top: 0.625rem; }
+
+/* composite one-offs */
+.chips-stack {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.body-ink        { color: var(--text); }
+.body-ink-mono12 { color: var(--text); font-size: 12px; }
+.alive-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+}
+.body-flush { margin: 0; }
+
+/* swatch chip backgrounds (section 01 — Color) */
+.chip-bg-bg          { background: #ffffff; }
+.chip-bg-surface     { background: #f6f5f3; }
+.chip-bg-elev        { background: #fbfaf9; }
+.chip-bg-rule        { background: #ececea; }
+.chip-bg-rule-strong { background: #d9d7d3; }
+.chip-bg-text        { background: #161412; }
+.chip-bg-text-mute   { background: #645f59; }
+.chip-bg-text-soft   { background: #97928b; }
+.chip-bg-petal       { background: #bc5638; }
+.chip-bg-petal-soft  { background: color-mix(in srgb, #bc5638 11%, transparent); }
+.chip-bg-success     { background: #2f8f5b; }
+.chip-bg-warning     { background: #c77d11; }
+.chip-bg-danger      { background: #c5374b; }
+
+/* tile status override (section 04 — Tiles) */
+.status-warn { background: var(--warning); }
+
+/* spacing bars (section 03 — Spacing) */
+.space-bar-16  { width: 16px; }
+.space-bar-32  { width: 32px; }
+.space-bar-64  { width: 64px; }
+.space-bar-96  { width: 96px; }
+.space-bar-128 { width: 128px; }
+.space-bar-192 { width: 192px; }
+.space-bar-256 { width: 256px; }
+
+/* motion curve cells (section 05 — Motion): --cdur / --ceas per row */
+.curve-120-std  { --cdur: 120ms; --ceas: cubic-bezier(.2,0,0,1); }
+.curve-160-std  { --cdur: 160ms; --ceas: cubic-bezier(.2,0,0,1); }
+.curve-240-in   { --cdur: 240ms; --ceas: cubic-bezier(.05,.7,.1,1); }
+.curve-360-in   { --cdur: 360ms; --ceas: cubic-bezier(.05,.7,.1,1); }
+.curve-360-std  { --cdur: 360ms; --ceas: cubic-bezier(.2,0,0,1); }
+.curve-360-out  { --cdur: 360ms; --ceas: cubic-bezier(.3,0,.8,.15); }
