@@ -17,6 +17,11 @@
  */
 export type ResultKind =
 	| "web"
+	| "news"
+	| "image"
+	| "video"
+	| "map"
+	| "music"
 	| "note"
 	| "contact"
 	| "event"

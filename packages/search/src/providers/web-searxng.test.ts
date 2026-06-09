@@ -82,4 +82,103 @@ describe("createWebProvider (SearXNG)", () => {
 		});
 		await expect(provider.query("t", {})).rejects.toThrow(/403/);
 	});
+
+	it("maps SearXNG category to ResultKind", async () => {
+		const provider = createWebProvider({
+			fetch: fakeFetch({
+				results: [
+					{ url: "https://n.com", title: "N", category: "news" },
+					{ url: "https://i.com", title: "I", category: "images" },
+					{ url: "https://v.com", title: "V", category: "videos" },
+					{ url: "https://g.com", title: "G", category: "general" },
+					{ url: "https://u.com", title: "U", category: "weather" },
+					// Falls back to categories[0] when `category` is absent.
+					{ url: "https://c.com", title: "C", categories: ["science"] },
+				],
+			}),
+		});
+		const { results } = await provider.query("t", {});
+		expect(results.map((r) => r.kind)).toEqual([
+			"news",
+			"image",
+			"video",
+			"web",
+			"web", // unknown "weather" → web fallback
+			"science",
+		]);
+	});
+
+	it("emits a 'search the web' action with the encoded query", async () => {
+		const provider = createWebProvider({
+			baseUrl: "https://searx.example",
+			fetch: fakeFetch({ results: [{ url: "https://a.com", title: "A" }] }),
+		});
+		const { actions } = await provider.query("cats & dogs", {});
+		expect(actions).toHaveLength(1);
+		expect(actions?.[0]).toMatchObject({ id: "web:search", providerId: "web" });
+		expect(actions?.[0]?.title).toContain("cats & dogs");
+		const raw = actions?.[0]?.raw as { url: string };
+		expect(raw.url).toBe("https://searx.example/search?q=cats%20%26%20dogs");
+	});
+
+	it("sends the categories param when configured", async () => {
+		const cap: { url?: string; headers?: Headers } = {};
+		const provider = createWebProvider({
+			categories: ["general", "news"],
+			fetch: fakeFetch({ results: [] }, cap),
+		});
+		await provider.query("t", {});
+		expect(cap.url).toContain("categories=general%2Cnews");
+	});
+
+	it("graceful mode resolves to empty + action instead of throwing", async () => {
+		const provider = createWebProvider({
+			graceful: true,
+			fetch: (() => Promise.reject(new Error("network down"))) as typeof fetch,
+		});
+		const { results, actions } = await provider.query("t", {});
+		expect(results).toHaveLength(0);
+		expect(actions).toHaveLength(1);
+		expect(actions?.[0]?.id).toBe("web:search");
+	});
+
+	it("graceful mode swallows a non-OK response", async () => {
+		const provider = createWebProvider({
+			graceful: true,
+			fetch: (() => Promise.resolve(new Response("nope", { status: 502 }))) as typeof fetch,
+		});
+		const { results } = await provider.query("t", {});
+		expect(results).toHaveLength(0);
+	});
+
+	it("aborts the fetch when its own timeout fires", async () => {
+		let seenSignal: AbortSignal | undefined;
+		const provider = createWebProvider({
+			timeoutMs: 5,
+			fetch: ((_input: string | URL | Request, init?: RequestInit) => {
+				seenSignal = init?.signal ?? undefined;
+				// Never resolve on its own; rely on the abort signal to reject.
+				return new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+				});
+			}) as typeof fetch,
+		});
+		await expect(provider.query("t", {})).rejects.toBeDefined();
+		expect(seenSignal).toBeInstanceOf(AbortSignal);
+	});
+
+	it("honors the caller's abort signal", async () => {
+		const ac = new AbortController();
+		const provider = createWebProvider({
+			timeoutMs: 0,
+			fetch: ((_input: string | URL | Request, init?: RequestInit) => {
+				return new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+				});
+			}) as typeof fetch,
+		});
+		const p = provider.query("t", { signal: ac.signal });
+		ac.abort();
+		await expect(p).rejects.toThrow(/aborted/);
+	});
 });

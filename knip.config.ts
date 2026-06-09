@@ -15,7 +15,9 @@ export default {
 		// declare the test files as entry points explicitly so they aren't flagged
 		// as unused.
 		"packages/search": {
-			entry: ["src/**/*.test.ts"],
+			// Test files plus the runnable federation demo (an intentional executable,
+			// not dead code) are entry points; the library surface is `src/index.ts`.
+			entry: ["src/**/*.test.ts", "src/example.ts"],
 			// `vitest` is not a declared dependency: `vp test` provides the Vitest
 			// runtime (re-exported from @voidzero-dev/vite-plus-test), so the import
 			// resolves at test time without a package.json entry. Tell knip it's
