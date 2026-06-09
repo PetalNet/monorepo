@@ -43,6 +43,8 @@ catalogs:
     eslint-plugin-oxlint: ^1.67.0
     eslint-plugin-package-json: ^1.2.0
     daisyui: ^5.5.23
+    "@storybook/sveltekit": ^10.4.2
+    storybook: ^10.4.2
     knip: ^6.14.2
     oxlint: ^1.67.0
     style-dictionary: ^5.4.2

@@ -16,6 +16,8 @@
 		"**/build/**",
 		"**/.svelte-kit/**",
 		"**/node_modules/**",
-		"**/coverage/**"
+		"**/coverage/**",
+		"**/storybook-static/**",
+		"**/vendor/**"
 	]
 }

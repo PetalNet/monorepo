@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<title>PetalNet design system</title>
+		<meta
+			name="description"
+			content="The shared design system for everything PetalCat ships. Paper and ink, one accent, quiet by default."
+		/>
+		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+
+		<!-- Anti-FOUC: apply the saved/OS theme synchronously BEFORE first paint, so a
+     dark-mode visitor never flashes paper. Must run render-blocking in <head>,
+     ahead of the stylesheet. The Svelte toggle re-applies the same value
+     (idempotent) on hydration and wires up the buttons. -->
+		<script>
+			(function () {
+				try {
+					var saved = localStorage.getItem("petalnet-theme");
+					var theme =
+						saved ||
+						(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+							? "dark"
+							: "light");
+					document.documentElement.setAttribute("data-theme", theme);
+				} catch (e) {}
+			})();
+		</script>
+
+		<!-- Preload the in-viewport Geist weights so the brand font lands ASAP. -->
+		<link
+			rel="preload"
+			as="font"
+			type="font/woff2"
+			crossorigin
+			href="/fonts/geist-latin-400-normal.woff2"
+		/>
+		<link
+			rel="preload"
+			as="font"
+			type="font/woff2"
+			crossorigin
+			href="/fonts/geist-latin-500-normal.woff2"
+		/>
+		<link
+			rel="preload"
+			as="font"
+			type="font/woff2"
+			crossorigin
+			href="/fonts/geist-mono-latin-400-normal.woff2"
+		/>
+
+		%sveltekit.head%
+	</head>
+	<body>
+		%sveltekit.body%
+	</body>
+</html>
