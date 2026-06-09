@@ -34,45 +34,28 @@
 @font-face { font-family:'Geist Mono Fallback'; src:local('Courier New'),local('Courier'); size-adjust:99.9833%; ascent-override:100.5168%; descent-override:29.5049%; line-gap-override:0%; }
 
 /* ════════════════════════════════════════════════════════════════════
-   TOKENS  (canonical — mirrors DESIGN.md §2)
-   The accent is THEME-AWARE: --petal differs under paper vs ink, tuned
-   for measured contrast on each surface. Derived shades recompute per
-   theme via color-mix. This is the locked burnt-sienna pair.
+   TOKENS  (DTCG → CSS, driven by @petalnet/tokens)
+   The canonical token VALUES now live in DTCG JSON under packages/tokens/src
+   and are emitted as CSS custom properties into tokens.css (linked just above
+   styles.css in index.html). That generated file defines, per theme:
+     • role vars   : --bg --surface --elev --rule --rule-strong
+                     --text --text-mute --text-soft
+                     --petal --on-petal --petal-soft-pct
+                     --success --warning --danger --shadow-pop
+     • primitives  : --space-1..7 · --radius-xs/sm/md/lg/pill
+                     --font-family-sans/mono · --font-size-* · --font-weight-*
+                     --ease-standard/emph-in/emph-out · --dur-fast/base/mid/slow
+   The accent stays THEME-AWARE (--petal differs paper vs ink); tokens.css emits
+   both themes. What CANNOT be expressed as a static DTCG leaf — the color-mix
+   DERIVED shades and the few composite/alias names the page's selectors use —
+   stays here, layered on top of the generated vars. Pixel-identical: every value
+   below resolves to the exact same computed value as the old literal block.
    ════════════════════════════════════════════════════════════════════ */
-:root, [data-theme='light'] {
-  --bg:            #ffffff;   /* paper */
-  --surface:       #f6f5f3;   /* warm stationery, filled cards */
-  --elev:          #fbfaf9;   /* elevated/hover surface — a hair under paper white, so it's a real 3rd step above --surface (not === --bg) */
-  --rule:          #ececea;   /* hairline ink rule (NOT a card border) */
-  --rule-strong:   #d9d7d3;   /* stronger rule / outlined-tile edge */
-  --text:          #161412;   /* warm near-black ink */
-  --text-mute:     #645f59;
-  --text-soft:     #97928b;
-  --petal:         #bc5638;   /* THE accent — paper: deepened burnt sienna (AA on white) */
-  --on-petal:      #ffffff;   /* text on an accent fill */
-  --petal-soft-pct: 11%;
-  --success:       #2f8f5b;
-  --warning:       #c77d11;
-  --danger:        #c5374b;
-}
-[data-theme='dark'] {
-  --bg:            #0d0c0b;   /* warm ink */
-  --surface:       #161413;
-  --elev:          #1d1b19;
-  --rule:          #262321;
-  --rule-strong:   #36322f;
-  --text:          #ece8e3;
-  --text-mute:     #9a938b;
-  --text-soft:     #645e57;
-  --petal:         #e2725b;   /* THE accent — ink: base burnt sienna (6.4:1 on bg) */
-  --on-petal:      #0d0c0b;
-  --petal-soft-pct: 15%;
-}
-/* derived accent shades — recomputed FROM --petal so the picker re-themes
-   hover / active / wash everywhere it appears. color-mix is supported in all
-   target engines (Chrome 111+, Safari 16.2+, Firefox 113+); literal fallbacks
-   first so an older engine still gets a usable accent (the default pair). */
 :root {
+  /* Derived accent shades — recomputed FROM the generated --petal / --petal-soft-pct
+     so they re-theme together. color-mix is supported in all target engines
+     (Chrome 111+, Safari 16.2+, Firefox 113+); literal fallbacks first so an older
+     engine still gets a usable accent (the default paper pair). */
   --petal-soft:   rgba(188, 86, 56, .11);
   --petal-wash:   rgba(188, 86, 56, .055);
   --petal-hover:  #a14a30;
@@ -82,34 +65,22 @@
   --petal-hover:  color-mix(in srgb, var(--petal) 86%, #000);
   --petal-active: color-mix(in srgb, var(--petal) 74%, #000);
 
-  --font-sans: 'Geist', 'Geist Fallback', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Geist Mono', 'Geist Mono Fallback', ui-monospace, monospace;
+  /* Aliases — map the page's short selector names onto the generated tokens so
+     the ~hundreds of `var(--sN)` / `var(--radius)` / `var(--font-sans)` references
+     below need no churn and stay byte-identical in computed value. */
+  --font-sans: var(--font-family-sans);
+  --font-mono: var(--font-family-mono);
 
-  /* ── Motion tokens (mirrors DESIGN.md §7) — M3 easing, short durations ── */
-  --ease-standard:   cubic-bezier(.2, 0, 0, 1);
-  --ease-emph-in:    cubic-bezier(.05, .7, .1, 1);   /* enters: gentle decelerate */
-  --ease-emph-out:   cubic-bezier(.3, 0, .8, .15);   /* exits: quick accelerate */
-  --dur-fast:  120ms;   /* press, tiny hovers */
-  --dur-base:  160ms;   /* hover/focus, color, the default */
-  --dur-mid:   240ms;   /* small entrances, popovers */
-  --dur-slow:  360ms;   /* longest, for large transitions (theme swap is now an instant cut, not a fade) */
+  /* --t = the page's transition shorthand (no DTCG leaf for a composite). */
   --t: var(--dur-base) var(--ease-standard);
 
-  /* 8pt spacing scale (DESIGN.md §4) — rem so the whole scale honors root font-size */
-  --s1: 0.25rem; --s2: 0.5rem; --s3: 1rem; --s4: 1.5rem; --s5: 2rem; --s6: 3rem; --s7: 4rem;
+  /* 8pt spacing aliases → generated --space-N */
+  --s1: var(--space-1); --s2: var(--space-2); --s3: var(--space-3);
+  --s4: var(--space-4); --s5: var(--space-5); --s6: var(--space-6); --s7: var(--space-7);
 
-  /* ── Radius scale (DESIGN.md §6) — ONE consistent set; nested radii relate
-     inner = outer − padding (https://blog.92learns.com/border-radius-rules/).
-       xs 2  · sm 8 · md 12 · lg 16 · pill 999
-     Everything on the page uses a token below; no ad-hoc px radii. */
-  --radius-xs:  0.125rem;   /* 2px — badges, eyebrow filed corner, small accent caps, the note */
-  --radius-sm:  0.5rem;     /* 8px — chips, small buttons, inputs, code blocks, toast, icon boxes */
-  --radius:    0.75rem;     /* 12px — cards, editor shell, swatches, lists (the default) */
-  --radius-lg: 1rem;        /* 16px — modals/dialog */
-  --radius-pill: 999px;     /* pill stays px (geometry, not a scalable measure) */
-  --shadow-pop: 0 1px 2px rgba(20,16,12,.05), 0 12px 32px -10px rgba(20,16,12,.16);
+  /* default radius alias (the page calls the 12px step plain `--radius`) */
+  --radius: var(--radius-md);
 }
-[data-theme='dark'] { --shadow-pop: 0 1px 2px rgba(0,0,0,.4), 0 16px 40px -12px rgba(0,0,0,.65); }
 
 /* ── Reset ──────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }

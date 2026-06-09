@@ -1,0 +1,17 @@
+{
+	"ease": {
+		"$type": "cubicBezier",
+		"$description": "Motion easing (DESIGN.md §7) — Material-3 curves. Emitted as CSS cubic-bezier() strings.",
+		"standard": { "$value": "cubic-bezier(0.2, 0, 0, 1)" },
+		"emph-in": { "$value": "cubic-bezier(0.05, 0.7, 0.1, 1)" },
+		"emph-out": { "$value": "cubic-bezier(0.3, 0, 0.8, 0.15)" }
+	},
+	"dur": {
+		"$type": "duration",
+		"$description": "Motion durations (DESIGN.md §7) — short by design.",
+		"fast": { "$value": "120ms" },
+		"base": { "$value": "160ms" },
+		"mid": { "$value": "240ms" },
+		"slow": { "$value": "360ms" }
+	}
+}

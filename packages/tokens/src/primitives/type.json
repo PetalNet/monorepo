@@ -2,46 +2,39 @@
 	"font": {
 		"family": {
 			"$type": "fontFamily",
+			"$description": "Self-hosted Geist (via the `fontless` Vite plugin in the apps; hand-written @font-face on the static design site). 'Geist Fallback'/'Geist Mono Fallback' are metric-matched (size-adjust) faces so the swap reflows nothing.",
 			"sans": {
-				"$value": [
-					"Inter",
-					"system-ui",
-					"-apple-system",
-					"BlinkMacSystemFont",
-					"Segoe UI",
-					"Roboto",
-					"sans-serif"
-				]
+				"$value": ["Geist", "Geist Fallback", "system-ui", "-apple-system", "sans-serif"]
 			},
-			"serif": { "$value": ["Fraunces", "ui-serif", "Georgia", "serif"] },
 			"mono": {
-				"$value": [
-					"JetBrains Mono",
-					"ui-monospace",
-					"SFMono-Regular",
-					"Menlo",
-					"Consolas",
-					"monospace"
-				]
+				"$value": ["Geist Mono", "Geist Mono Fallback", "ui-monospace", "monospace"]
 			}
 		},
 		"size": {
 			"$type": "dimension",
-			"xs": { "$value": "0.75rem" },
-			"sm": { "$value": "0.875rem" },
-			"base": { "$value": "1rem" },
-			"lg": { "$value": "1.125rem" },
-			"xl": { "$value": "1.25rem" },
-			"2xl": { "$value": "1.5rem" },
-			"3xl": { "$value": "1.875rem" },
-			"4xl": { "$value": "2.25rem" }
+			"$description": "Type scale taken from the design page's type specimen + body. rem (= N/16) so text honors the user's browser font-size. The pm-rendered read view's 14px code geometry is deliberately pixel-locked to CodeMirror and stays literal px in the page, NOT tokenized.",
+			"micro": { "$value": "0.6875rem" },
+			"small": { "$value": "0.75rem" },
+			"body": { "$value": "0.875rem" },
+			"card": { "$value": "0.84375rem" },
+			"head": { "$value": "0.875rem" },
+			"h2": { "$value": "1.4375rem" },
+			"hero": { "$value": "2rem" },
+			"hero-display": { "$value": "2.375rem" }
 		},
 		"weight": {
 			"$type": "fontWeight",
+			"$description": "PetalNet voice is light: 400 body / 500 emphasis, 700 only for rendered-markdown headings (ProseMark parity).",
 			"regular": { "$value": "400" },
 			"medium": { "$value": "500" },
-			"semibold": { "$value": "600" },
 			"bold": { "$value": "700" }
+		},
+		"leading": {
+			"$type": "number",
+			"$description": "Line-height multipliers used on the page.",
+			"tight": { "$value": "1.1" },
+			"snug": { "$value": "1.22" },
+			"normal": { "$value": "1.6" }
 		}
 	}
 }

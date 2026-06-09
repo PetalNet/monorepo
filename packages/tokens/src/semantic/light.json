@@ -1,18 +1,21 @@
 {
-	"$description": "Light theme semantic tokens. References primitive tokens; DaisyUI's @plugin theme consumes the CSS-var output.",
-	"semantic": {
-		"color": {
-			"$type": "color",
-			"bg": { "$value": "{color.gray.50}" },
-			"surface": { "$value": "#ffffff" },
-			"surface-2": { "$value": "{color.gray.100}" },
-			"fg": { "$value": "{color.gray.900}" },
-			"fg-dim": { "$value": "{color.gray.600}" },
-			"border": { "$value": "{color.gray.200}" },
-			"accent": { "$value": "{color.blue.500}" },
-			"ok": { "$value": "{color.green.500}" },
-			"warn": { "$value": "{color.amber.500}" },
-			"err": { "$value": "{color.red.500}" }
-		}
+	"$description": "Light ('Paper') theme semantic tokens — the role layer the design page consumes. Token paths are the bare role names so the emitted CSS custom properties are exactly --bg, --surface, --petal, ... matching apps/design/site/styles.css. References primitive tokens where a primitive exists; theme-specific literals (the petal pair, soft-pct) inline.",
+	"bg": { "$type": "color", "$value": "{color.paper.white}" },
+	"surface": { "$type": "color", "$value": "{color.paper.surface}" },
+	"elev": { "$type": "color", "$value": "{color.paper.elev}" },
+	"rule": { "$type": "color", "$value": "{color.paper.rule}" },
+	"rule-strong": { "$type": "color", "$value": "{color.paper.rule-strong}" },
+	"text": { "$type": "color", "$value": "{color.paper.ink}" },
+	"text-mute": { "$type": "color", "$value": "{color.paper.ink-mute}" },
+	"text-soft": { "$type": "color", "$value": "{color.paper.ink-soft}" },
+	"petal": { "$type": "color", "$value": "{color.petal.paper}" },
+	"on-petal": { "$type": "color", "$value": "{color.paper.white}" },
+	"petal-soft-pct": { "$type": "number", "$value": "11%" },
+	"success": { "$type": "color", "$value": "{color.status.success}" },
+	"warning": { "$type": "color", "$value": "{color.status.warning}" },
+	"danger": { "$type": "color", "$value": "{color.status.danger}" },
+	"shadow-pop": {
+		"$type": "shadow",
+		"$value": "0 1px 2px rgba(20,16,12,.05), 0 12px 32px -10px rgba(20,16,12,.16)"
 	}
 }
