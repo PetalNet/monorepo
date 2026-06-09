@@ -431,7 +431,7 @@ export const inboxCounts = (me) => db.prepare(`SELECT
   FROM tasks WHERE 1=1 ${vis(me)}`).get(me ? { me } : {});
 // dedicated muted section for blocked tasks (top-level only; children render under their parent).
 export const blockedList = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a))
-  .map((r) => ({ ...r, blockers: blockersOf(r.id) }));
+  .map((r) => ({ ...r, blockers: blockersOf(r.id, me) }));  // me-scoped: don't leak a private blocker's title on the board (#285)
 // lightweight {id,title} list of open tasks for the blocker-picker dropdown (honors visibility).
 export const blockerCandidates = (me) => db.prepare(
   `SELECT id, title FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)} ORDER BY updated_at DESC LIMIT 500`
