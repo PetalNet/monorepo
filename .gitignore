@@ -3,6 +3,7 @@
 **/dist/
 **/build/
 **/.svelte-kit/
+**/storybook-static/
 **/coverage/
 *.log
 .env

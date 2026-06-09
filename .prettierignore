@@ -3,3 +3,11 @@
 #  from site/, so styles.css lives outside dist/ and is committed; it is emitted
 #  by apps/design/tools/build-css.mts and must not be reformatted out of band.)
 apps/design/site/styles.css
+
+# design-svelte (PR ds-5): the compiled design-system stylesheet (copied from
+# apps/design's generated styles.css) and the vendored ProseMark/lucide assets
+# are shipped byte-for-byte — reformatting them would break pixel-identity and
+# corrupt the bundle. Treat as build/vendor output, never hand-format.
+apps/design-svelte/src/lib/styles.css
+apps/design-svelte/src/lib/vendor/**
+apps/design-svelte/static/vendor/**
