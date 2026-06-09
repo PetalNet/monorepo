@@ -12,10 +12,20 @@
 		"./tailwind": {
 			"types": "./dist/tailwind.preset.d.ts",
 			"default": "./dist/tailwind.preset.js"
+		},
+		"./daisyui": "./dist/daisyui.css",
+		"./daisyui/paper": {
+			"types": "./dist/daisyui.paper.d.ts",
+			"default": "./dist/daisyui.paper.js"
+		},
+		"./daisyui/ink": {
+			"types": "./dist/daisyui.ink.d.ts",
+			"default": "./dist/daisyui.ink.js"
 		}
 	},
 	"scripts": {
 		"build": "node tools/build.mts",
+		"test": "node --test tools/*.test.mts",
 		"typecheck": "tsc -b"
 	},
 	"devDependencies": {

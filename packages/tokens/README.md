@@ -23,8 +23,31 @@ DaisyUI's `@plugin "daisyui/theme"` and Tailwind v4's `@theme` directive consume
 dist/
 ├── tokens.css           CSS custom properties (light + dark), scoped by [data-theme]
 ├── tailwind.preset.js   Tailwind preset — `import preset from '@petalnet/tokens/tailwind'`
+├── daisyui.css          daisyUI v5 themes (paper + ink) as `@plugin "daisyui/theme"` blocks
+├── daisyui.paper.js     the `paper` (light) theme as a JS object — `import paper from '@petalnet/tokens/daisyui/paper'`
+├── daisyui.ink.js       the `ink` (dark) theme as a JS object
 ├── index.js             typed exports for non-Tailwind callsites (canvas, SVG, email)
 └── *.d.ts               tiny hand-written declarations
+```
+
+## daisyUI v5 theme
+
+`tools/daisyui.mts` maps our resolved semantic tokens onto the daisyUI v5 theme
+variables (`--color-primary`, `--color-base-100`, `--radius-box`, …). Two themes
+are emitted — **`paper`** (light, `default`) and **`ink`** (dark, `prefersdark`).
+The mapping is a single-accent system: `--color-primary` / `--color-accent` /
+`--color-info` all resolve to `--petal`.
+
+```css
+@import "tailwindcss";
+@plugin "daisyui";
+@import "@petalnet/tokens/daisyui"; /* registers the paper + ink themes */
+```
+
+```ts
+// Or as data (theme switchers, tooling, Storybook)
+import paper from "@petalnet/tokens/daisyui/paper";
+paper["color-primary"]; // "#bc5638"
 ```
 
 ## Use
