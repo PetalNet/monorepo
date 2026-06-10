@@ -1,10 +1,18 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
 // Local SQLite is the source of truth (design: tracker-design-2026-05-26.md).
-const DB_PATH = process.env.TASKS_DB_PATH || 'tasks.db';
+// The default MUST be absolute, anchored to the repo's data/ dir (this module lives at
+// src/lib/server/db.js → repo root is three dirs up, then data/). A bare relative 'tasks.db'
+// followed the CWD, so a process started from a different directory silently opened a NEW empty
+// DB and wrote there — invisible data loss (task-337). Warn when the env is unset so the
+// canonical deploy path (TASKS_DB_PATH) is always explicit.
+const DEFAULT_DB_PATH = resolve(fileURLToPath(import.meta.url), '../../../../data/tasks.db');
+if (!process.env.TASKS_DB_PATH) console.warn(`[db] TASKS_DB_PATH unset; defaulting to ${DEFAULT_DB_PATH}`);
+const DB_PATH = process.env.TASKS_DB_PATH || DEFAULT_DB_PATH;
 try { mkdirSync(dirname(DB_PATH), { recursive: true }); } catch {}
 
 const db = new Database(DB_PATH);
@@ -25,7 +33,7 @@ db.exec(`
     kind       TEXT    NOT NULL DEFAULT 'task',          -- task | idea
     title      TEXT    NOT NULL,
     body       TEXT    DEFAULT '',
-    status     TEXT    NOT NULL DEFAULT 'todo',          -- inbox | todo | doing | blocked | done | dropped
+    status     TEXT    NOT NULL DEFAULT 'todo',          -- inbox | todo | doing | blocked | review | done | dropped
     priority   INTEGER NOT NULL DEFAULT 2,               -- 0=P0 (highest) .. 3=P3
     up_next    INTEGER NOT NULL DEFAULT 0,
     rank       REAL    NOT NULL DEFAULT 0,               -- manual order ("do this then that"), NOT priority
@@ -500,7 +508,14 @@ export const allDocs = (me) => db.prepare(
    ORDER BY (p.name IS NULL), p.name COLLATE NOCASE, t.updated_at DESC`
 ).all(me ? { me } : {});
 export const openQuestions = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, created_at`).all(qargs(p, me, a));
-export const answerQuestion = (id, value) => updateTask(id, { answer: value, status: 'done' });
+// Answer a question: only valid for kind='question', and an empty answer is rejected (an
+// empty value would otherwise mark the question done with no recorded decision). task-302.
+export function answerQuestion(id, value) {
+  if (value == null || String(value).trim() === '') return { ok: false, reason: 'empty_answer', message: 'An answer value is required.' };
+  const t = getTask(id);
+  if (!t || t.kind !== 'question') return { ok: false, reason: 'not_a_question', message: 'answerQuestion only applies to kind=question.' };
+  return updateTask(id, { answer: value, status: 'done' });
+}
 export const createDoc = (project_id, title, body, created_by = '') => createTask({ kind: 'doc', title, body, status: 'todo', project_id, created_by });
 export function createQuestion(project_id, title, context, options, created_by = '') {
   const id = createTask({ kind: 'question', title, body: context, status: 'todo', project_id, created_by });
@@ -530,8 +545,9 @@ const withKids = (rows, me, depth = 0) => rows.map((r) => ({ ...r, kids: childre
 // The agent query (MCP get_ready, phase 2): actionable, unblocked, up-next first then by manual rank.
 export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ORDER BY up_next DESC, rank, priority`).all(args(p));
 
-// append to the end of the Up Next order
-export const nextUpNextRank = () => (db.prepare('SELECT COALESCE(MAX(rank),0)+1 AS r FROM tasks WHERE up_next=1').get().r);
+// append to the end of the Up Next order — scoped to ACTIVE rows so a closed (done/dropped)
+// task's stale rank can't push the next item's rank arbitrarily high and break manual ordering (task-323).
+export const nextUpNextRank = () => (db.prepare(`SELECT COALESCE(MAX(rank),0)+1 AS r FROM tasks WHERE up_next=1 AND ${ACTIVE}`).get().r);
 
 export function ensureProject(name, backend = 'local_private', opts = {}) {
   const found = getProjectByName(name);
@@ -544,6 +560,13 @@ export function ensureProject(name, backend = 'local_private', opts = {}) {
   return Number(db.prepare('INSERT INTO projects (name,backend,owner,visibility) VALUES (?,?,?,?)')
     .run(name, backend, owner, visibility).lastInsertRowid);
 }
+
+// Default home for tasks filed without an explicit project (task-192). Rather than
+// erroring on a floating task (which would block the capture path), unparented work
+// lands in a single, sane catch-all project so nothing goes truly orphaned. Lazily
+// created on first use; safe/reversible (just another shared project).
+export const DEFAULT_PROJECT = 'inbox';
+export const defaultProjectId = () => ensureProject(DEFAULT_PROJECT);
 
 export function createTask(t) {
   const kind = t.kind ?? 'task';

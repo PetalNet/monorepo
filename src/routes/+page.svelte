@@ -74,7 +74,7 @@
 {#snippet row(t, kind)}
   {@const pc = whoColor(t.assignee)}
   <div class="row kind-{kind} st-{t.status ?? 'todo'}" style={pc ? `--pl:${pc}` : ''}>
-    <span class="row-ic"><svg width="16" height="16"><use href="#i-{kind}"/></svg></span>
+    <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-{kind}"/></svg></span>
     <a class="row-main" href="/task/{t.id}">
       <span class="row-title">{t.title}</span>
       <span class="row-sub">
@@ -82,7 +82,7 @@
         {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
         {#if t.priority != null}<span class="chip prio prio-{t.priority}">P{t.priority}</span>{/if}
         {#if t.blocked_on}<span class="tag-s mono">{t.blocked_on}</span>{/if}
-        {#if t.blockers?.length}<span class="blk"><svg width="11" height="11"><use href="#i-block"/></svg> blocked</span>{/if}
+        {#if t.blockers?.length}<span class="blk"><svg width="11" height="11" aria-hidden="true"><use href="#i-block"/></svg> blocked</span>{/if}
       </span>
     </a>
     <span class="row-right">
@@ -103,7 +103,7 @@
 
 {#snippet laneHead(title, count, accent, icon)}
   <div class="lane-head {accent ? 'lane-' + accent : ''}">
-    {#if icon}<span class="lane-ic"><svg width="14" height="14"><use href="#i-{icon}"/></svg></span>{/if}
+    {#if icon}<span class="lane-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-{icon}"/></svg></span>{/if}
     <h2>{title}</h2>
     <span class="lane-count">{count}</span>
   </div>
@@ -117,7 +117,7 @@
       <span class="ph-spacer"></span>
       <div class="ph-filters">
         <div class="fsel">
-          {#if data.current}<svg class="lk" width="12" height="12"><use href="#i-lock"/></svg>{/if}
+          {#if data.current}<svg class="lk" width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg>{/if}
           <select onchange={pickProject} value={data.current ?? ''} aria-label="Project">
             <option value="">all projects</option>
             {#each data.projects as p}<option value={p.name}>{p.name}</option>{/each}
@@ -139,14 +139,14 @@
   </header>
 
   <form class="capture" method="POST" action="?/capture" use:enhance={() => ({ update }) => update({ reset: true })}>
-    <svg width="18" height="18"><use href="#i-plus"/></svg>
-    <input name="title" placeholder="Capture an idea or task…" autocomplete="off" />
+    <svg width="18" height="18" aria-hidden="true"><use href="#i-plus"/></svg>
+    <input name="title" placeholder="Capture an idea or task…" autocomplete="off" aria-label="Capture an idea or task" />
     {#if data.current}<input type="hidden" name="project" value={data.current} />{/if}
     <kbd class="mono">↵</kbd>
   </form>
 
   <div class="searchbar" class:on={searching}>
-    <svg width="16" height="16"><use href="#i-board"/></svg>
+    <svg width="16" height="16" aria-hidden="true"><use href="#i-board"/></svg>
     <input bind:value={query} placeholder="Find a task…" autocomplete="off" aria-label="Find a task"
       onkeydown={(e) => { if (e.key === 'Escape') query = ''; }} />
     {#if searching}
@@ -166,13 +166,13 @@
         <div class="lane-body">
           {#if !searching}
             <div class="sticky-note">
-              <span class="sn-ic"><svg width="14" height="14"><use href="#i-sticky"/></svg></span>
+              <span class="sn-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-sticky"/></svg></span>
               <span><b>questions</b> need a typed answer · agents are blocked on you</span>
             </div>
           {/if}
           {#each fQuestions as q (q.id)}
             <div class="row kind-question st-todo needs-human" style="--pl:var(--violet)">
-              <span class="row-ic"><svg width="16" height="16"><use href="#i-question"/></svg></span>
+              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-question"/></svg></span>
               <div class="row-main">
                 <a class="row-title" href="/task/{q.id}">{q.title} <span class="tasknum mono">#{q.id}</span></a>
                 <div class="q-answer">
@@ -221,7 +221,7 @@
       <div class="lane-body">
         {#each fInbox as t (t.id)}
           <div class="row kind-idea st-inbox">
-            <span class="row-ic"><svg width="16" height="16"><use href="#i-idea"/></svg></span>
+            <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-idea"/></svg></span>
             <a class="row-main" href="/task/{t.id}">
               <span class="row-title">{t.title}</span>
               <span class="row-sub"><span class="tasknum mono">#{t.id}</span><span class="mono dim">captured {relShort(t.created_at)} ago{t.created_by ? ' · ' + t.created_by : ''}</span></span>
@@ -253,7 +253,7 @@
         <div class="lane-body">
           {#each fBlocked as t (t.id)}
             <div class="row kind-task st-blocked">
-              <span class="row-ic"><svg width="16" height="16"><use href="#i-block"/></svg></span>
+              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-block"/></svg></span>
               <a class="row-main" href="/task/{t.id}">
                 <span class="row-title">{t.title}</span>
                 <span class="row-sub">
@@ -276,7 +276,7 @@
         <div class="lane-body">
           {#each fDocs as d (d.id)}
             <a class="row kind-doc st-todo" href="/task/{d.id}">
-              <span class="row-ic"><svg width="16" height="16"><use href="#i-doc"/></svg></span>
+              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-doc"/></svg></span>
               <span class="row-main"><span class="row-title">{d.title}</span></span>
               <span class="row-right"><span class="tasknum mono">#{d.id}</span>{#if projName(d.project_id)}<span class="mono dim">{projName(d.project_id)}</span>{/if}</span>
             </a>
@@ -290,7 +290,7 @@
         <div class="lane-body">
           {#each fDone as t (t.id)}
             <a class="row st-done kind-task shipped-row" href="/task/{t.id}">
-              <span class="row-ic shipped-ic"><svg width="14" height="14"><use href="#i-check"/></svg></span>
+              <span class="row-ic shipped-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-check"/></svg></span>
               <span class="row-main"><span class="row-title">{t.title}</span></span>
               <span class="row-right">
                 <span class="tasknum mono">#{t.id}</span>

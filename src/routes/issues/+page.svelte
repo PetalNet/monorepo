@@ -39,22 +39,22 @@
 
   <div class="iss-list">
     <div class="iss-tabs">
-      <button class:on={tab === 'open'} onclick={() => (tab = 'open')}><svg width="15" height="15"><use href="#i-iopen"/></svg> {data.open.length} Open</button>
-      <button class:on={tab === 'closed'} onclick={() => (tab = 'closed')}><svg width="15" height="15"><use href="#i-iclosed"/></svg> {data.closed.length} Closed</button>
+      <button class:on={tab === 'open'} onclick={() => (tab = 'open')}><svg width="15" height="15" aria-hidden="true"><use href="#i-iopen"/></svg> {data.open.length} Open</button>
+      <button class:on={tab === 'closed'} onclick={() => (tab = 'closed')}><svg width="15" height="15" aria-hidden="true"><use href="#i-iclosed"/></svg> {data.closed.length} Closed</button>
     </div>
 
     {#each list as it (it.id)}
       {@const closed = it.status === 'done' || it.status === 'dropped'}
       {@const author = it.created_by || it.responsible || it.assignee}
       <a class="iss-row" href="/task/{it.id}">
-        <span class="iss-ic {closed ? 'closed' : 'open'}"><svg width="17" height="17"><use href="#i-{closed ? 'iclosed' : 'iopen'}"/></svg></span>
+        <span class="iss-ic {closed ? 'closed' : 'open'}"><svg width="17" height="17" aria-hidden="true"><use href="#i-{closed ? 'iclosed' : 'iopen'}"/></svg></span>
         <span class="iss-main">
           <span class="iss-title-row">
             <span class="iss-title">{it.title}</span>
             {#if it.kind === 'question'}<span class="iss-label" style="--h:142">question</span>{/if}
             {#if it.kind === 'idea'}<span class="iss-label" style="--h:48">idea</span>{/if}
             {#if it.up_next}<span class="iss-label" style="--h:32">up next</span>{/if}
-            {#if it.priority >= 3}<span class="iss-label" style="--h:2">priority</span>{/if}
+            {#if it.priority <= 1}<span class="iss-label" style="--h:2">priority</span>{/if}
             {#if projName(it.project_id)}<span class="iss-label" style="--h:{labelHue(projName(it.project_id))}">{projName(it.project_id)}</span>{/if}
           </span>
           <span class="iss-meta mono">
@@ -63,7 +63,7 @@
         </span>
         <span class="iss-right">
           {#if it.assignee}{@render avatar(it.assignee, 20)}{/if}
-          {#if it.ncomments > 0}<span class="iss-comments"><svg width="13" height="13"><use href="#i-comment"/></svg> {it.ncomments}</span>{/if}
+          {#if it.ncomments > 0}<span class="iss-comments"><svg width="13" height="13" aria-hidden="true"><use href="#i-comment"/></svg> {it.ncomments}</span>{/if}
         </span>
       </a>
     {:else}

@@ -24,14 +24,14 @@
       {#each data.groups as g (g.project)}
         <section class="lane">
           <div class="lane-head">
-            <span class="lane-ic"><svg width="14" height="14"><use href="#i-doc"/></svg></span>
+            <span class="lane-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-doc"/></svg></span>
             {#if g.project_id}<a class="proj-link mono" href="/?project={encodeURIComponent(g.project)}">{g.project}</a>{:else}<h2>{g.project}</h2>{/if}
             <span class="lane-count">{g.docs.length}</span>
           </div>
           <div class="lane-body">
             {#each g.docs as d (d.id)}
               <a class="row kind-doc st-todo" href="/task/{d.id}">
-                <span class="row-ic"><svg width="16" height="16"><use href="#i-doc"/></svg></span>
+                <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-doc"/></svg></span>
                 <span class="row-main"><span class="row-title">{d.title}</span></span>
                 <span class="row-right">
                   {#if d.created_by}<span class="mono dim">{d.created_by}</span>{/if}

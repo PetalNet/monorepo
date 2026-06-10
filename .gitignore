@@ -6,6 +6,12 @@ tasks.db-*
 *.local
 .env
 
+# runtime DB lives under data/ (the root tasks.db globs above only catch a top-level copy)
+data/tasks.db
+data/tasks.db-*
 # runtime agent-fleet heartbeat (written by the warm session/manager, read by the rail)
 data/agent-fleet-status.json
+# Corner sync log (runtime artifact, was tracked by mistake — task-367)
+data/sync-corner.log
+# ElevenLabs TTS key — secret; never commit (key itself is out of scope, just ignored here — task-367)
 data/eleven-api-key

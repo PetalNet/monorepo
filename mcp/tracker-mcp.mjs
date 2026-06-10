@@ -28,7 +28,7 @@ process.env.TASKS_DB_PATH ||= "/srv/tasks/data/tasks.db";
 const DB = await import("../src/lib/server/db.js");
 const db = DB.default; // the shared connection (used only for read queries below)
 const {
-  createTask, updateTask, getTask, getProjectByName, ensureProject, claimNext, reapLeases, closeTask,
+  createTask, updateTask, getTask, getProjectByName, ensureProject, defaultProjectId, claimNext, reapLeases, closeTask,
 } = DB;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -154,8 +154,11 @@ server.tool(
     parallel_group: z.string().optional().describe("Routing hint: tasks sharing a group may run concurrently"),
   },
   async ({ title, kind, project, priority, body, parent_id, up_next, discovered_from, owner_machine, suggested_agent, effort, parallel_group }) => {
+    // task-192: never file a floating task — explicit project wins, else inherit the
+    // parent's project, else fall back to the default catch-all (rather than null).
     const project_id = project ? projIdForWrite(project)
-      : (parent_id ? getTask(parent_id)?.project_id ?? null : null);
+      : (parent_id ? getTask(parent_id)?.project_id ?? null : null)
+      ?? defaultProjectId();
     const id = createTask({
       title, kind, project_id, priority, body,
       parent_id: parent_id ?? null,
@@ -178,7 +181,7 @@ server.tool(
   "Update one or more fields on an existing task. Supply the task id plus any fields to change. Returns the updated row. Enforces tracker invariants (blocked-guard, cascade-unblock, audit log).",
   {
     id: z.number().int(),
-    status: z.enum(["inbox", "todo", "doing", "blocked", "done", "dropped"]).optional(),
+    status: z.enum(["inbox", "todo", "doing", "blocked", "review", "done", "dropped"]).optional(),
     priority: z.number().int().min(0).max(3).optional(),
     up_next: z.boolean().optional(),
     title: z.string().optional(),

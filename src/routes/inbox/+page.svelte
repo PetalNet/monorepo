@@ -37,7 +37,7 @@
 
   {#if data.open.length === 0}
     <div class="caughtup">
-      <span class="cu-check"><svg width="20" height="20"><use href="#i-check"/></svg></span>
+      <span class="cu-check"><svg width="20" height="20" aria-hidden="true"><use href="#i-check"/></svg></span>
       <span>all caught up — nothing waiting on you.</span>
     </div>
   {:else}
@@ -46,7 +46,7 @@
       <div class="list">
         {#each data.open as q (q.id)}
           <div class="row kind-question st-todo needs-human" style="--pl:var(--violet)">
-            <span class="row-ic"><svg width="16" height="16"><use href="#i-question"/></svg></span>
+            <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-question"/></svg></span>
             <div class="row-main">
               <a class="row-title" href="/task/{q.id}">{q.title}</a>
               <span class="row-sub">
@@ -79,7 +79,7 @@
   <section class="block">
     <h2 class="block-h">notifications · both ways</h2>
     <div class="loop-soon">
-      <span class="ls-ic"><svg width="15" height="15"><use href="#i-bolt"/></svg></span>
+      <span class="ls-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-bolt"/></svg></span>
       <div>
         <div class="ls-title">the async loop closes here next</div>
         <p class="loop-cap mono">→ matrix push when you're mentioned · → corner-inbox.jsonl write-back · cold agents read it on SessionStart</p>
@@ -93,7 +93,7 @@
       <div class="list">
         {#each data.answered as q (q.id)}
           <a class="row kind-question st-done" href="/task/{q.id}">
-            <span class="row-ic done-tick"><svg width="15" height="15"><use href="#i-check"/></svg></span>
+            <span class="row-ic done-tick"><svg width="15" height="15" aria-hidden="true"><use href="#i-check"/></svg></span>
             <span class="row-main">
               <span class="row-title">{q.title}</span>
               <span class="row-sub"><span class="ans mono">→ {answerLabel(q)}</span><span class="mono dim">{relShort(q.updated_at)} ago</span></span>

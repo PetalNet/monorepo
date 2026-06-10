@@ -94,7 +94,7 @@
     <nav class="snav">
       {#each nav as n}
         <a class="snav-item" class:on={active(n.name)} href={n.href}>
-          <svg width="17" height="17"><use href="#i-{n.icon}"/></svg><span>{n.label}</span>
+          <svg width="17" height="17" aria-hidden="true"><use href="#i-{n.icon}"/></svg><span>{n.label}</span>
         </a>
       {/each}
     </nav>
@@ -133,13 +133,13 @@
     <div class="sidebar-foot">
       <span class="avatar" style="width:26px;height:26px;font-size:11px;color:{whoColor};border-color:{whoColor};background:{whoColor}22">{whoName.charAt(0).toLowerCase()}</span>
       <div class="sf-who"><span class="sf-name">{whoName}</span><span class="mono dim">{me === 'dev' ? 'local dev' : `signed in · ${me}`}</span></div>
-      <button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"><svg width="16" height="16"><use href="#i-moon"/></svg></button>
+      <button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"><svg width="16" height="16" aria-hidden="true"><use href="#i-moon"/></svg></button>
     </div>
   </aside>
 
   <header class="topbar">
     <a class="brand" href="/"><span class="brand-dot"></span><span class="brand-name">tasks</span></a>
-    <button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"><svg width="18" height="18"><use href="#i-moon"/></svg></button>
+    <button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"><svg width="18" height="18" aria-hidden="true"><use href="#i-moon"/></svg></button>
   </header>
 
   <main class="main">{@render children()}</main>
@@ -147,7 +147,7 @@
   <nav class="tabbar">
     {#each nav as n}
       <a class="tab" class:on={active(n.name)} href={n.href}>
-        <svg width="20" height="20"><use href="#i-{n.icon}"/></svg><span>{n.label}</span>
+        <svg width="20" height="20" aria-hidden="true"><use href="#i-{n.icon}"/></svg><span>{n.label}</span>
       </a>
     {/each}
   </nav>

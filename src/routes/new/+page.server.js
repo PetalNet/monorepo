@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { listProjects, ensureProject, createTask, createDoc, createQuestion, updateTask, nextUpNextRank } from '$lib/server/db.js';
+import { listProjects, ensureProject, defaultProjectId, createTask, createDoc, createQuestion, updateTask, nextUpNextRank } from '$lib/server/db.js';
 
 export function load({ locals }) { return { projects: listProjects(locals.user) }; }
 
@@ -10,7 +10,9 @@ export const actions = {
     const title = String(f.get('title') || '').trim();
     if (!title) return { ok: false };
     const projName = String(f.get('project') || '').trim();
-    const pid = projName ? ensureProject(projName) : null;
+    // task-192: every captured item gets a project — fall back to the default catch-all
+    // rather than minting a floating/orphaned task.
+    const pid = projName ? ensureProject(projName) : defaultProjectId();
     const body = String(f.get('body') || '');
     let id;
     if (kind === 'doc') {

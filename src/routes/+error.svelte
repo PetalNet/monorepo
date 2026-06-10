@@ -17,13 +17,13 @@
 <div class="screen err">
   <div class="err-card">
     <span class="err-ic" class:warn={!is404}>
-      <svg width="26" height="26"><use href="#e-{is404 ? 'inbox' : 'block'}"/></svg>
+      <svg width="26" height="26" aria-hidden="true"><use href="#e-{is404 ? 'inbox' : 'block'}"/></svg>
     </span>
     <div class="err-code mono">{status}</div>
     <h1>{is404 ? 'Nothing here' : 'That broke'}</h1>
     <p class="err-msg">{message}</p>
     <a class="err-back" href="/">
-      <svg width="14" height="14" style="transform:scaleX(-1)"><use href="#e-arrow"/></svg>
+      <svg width="14" height="14" style="transform:scaleX(-1)" aria-hidden="true"><use href="#e-arrow"/></svg>
       back to the board
     </a>
   </div>

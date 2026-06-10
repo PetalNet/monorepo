@@ -26,7 +26,7 @@
           </div>
           <div class="pc-meta">
             <span class="pc-vis">
-              <svg width="12" height="12"><use href="#i-lock"/></svg>
+              <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg>
               {p.visibility}{#if p.owner} · {p.owner}{/if}
             </span>
             <a class="pc-board mono" href="/?project={encodeURIComponent(p.name)}">on board →</a>

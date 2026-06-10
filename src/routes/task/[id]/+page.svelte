@@ -78,6 +78,14 @@
     const el = proseEl;
     const terms = data.glossary;
     if (!el || !terms?.length) return;
+    // A glossary definition entry renders as "<Term> <sep> definition" — the SAME
+    // "- **Term** — def" shape parseGlossary matched. Match anchored at the entry
+    // start against the known terms so we skip ONLY real definition list-items
+    // (not arbitrary body bullets that happen to contain a dash).
+    const defEntry = new RegExp(
+      '^\\s*(?:' + terms.map((g) => escRe(g.term)).join('|') + ')\\s*(?:[—–:-]|--)\\s',
+      'i'
+    );
     // wrap each defined term at its FIRST occurrence (wiki-style), one term at a
     // time so two terms in the same text node both get wrapped.
     for (const { term, def } of terms) {
@@ -88,6 +96,11 @@
         acceptNode(n) {
           // skip headings, code, links, and any already-wrapped term
           if (n.parentElement?.closest('h1,h2,h3,h4,h5,h6,code,pre,a,.gloss')) return NodeFilter.FILTER_REJECT;
+          // skip the glossary's own definition entries — otherwise a term's FIRST
+          // occurrence is inside its "- **Term** — definition" <li>, so it self-wraps
+          // there instead of in the body.
+          const li = n.parentElement?.closest('li');
+          if (li && defEntry.test(li.textContent)) return NodeFilter.FILTER_REJECT;
           return re.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
         }
       });
@@ -187,12 +200,12 @@
 <div class="screen detail">
   <header class="page-head">
     <a class="back" href={projName(t.project_id) ? `/?project=${encodeURIComponent(projName(t.project_id))}` : '/'}>
-      <svg width="13" height="13" style="transform:scaleX(-1)"><use href="#i-arrow"/></svg>
+      <svg width="13" height="13" style="transform:scaleX(-1)" aria-hidden="true"><use href="#i-arrow"/></svg>
       {projName(t.project_id) || 'board'}
     </a>
 
     <div class="det-meta">
-      <span class="kindtag kind-{t.kind}"><svg width="12" height="12"><use href="#i-{kindIcon(t.kind)}"/></svg> {t.kind}</span>
+      <span class="kindtag kind-{t.kind}"><svg width="12" height="12" aria-hidden="true"><use href="#i-{kindIcon(t.kind)}"/></svg> {t.kind}</span>
 
       <form method="POST" action="?/save" use:enhance class="qedit">
         <select class="chip status-{t.status}" name="status" value={t.status} onchange={(e) => e.target.form.requestSubmit()} aria-label="Status">
@@ -217,7 +230,7 @@
     {#if t.assignee || t.responsible}
       <div class="handoff-trail mono">
         {#if t.assignee}<span class="ht-seg">{@render avatar(t.assignee, 18)} <b style="color:{whoColor(t.assignee)}">{t.assignee}</b> <span class="dim">works it</span></span>{/if}
-        {#if t.assignee && t.responsible}<svg class="ht-arr" width="13" height="13"><use href="#i-arrow"/></svg>{/if}
+        {#if t.assignee && t.responsible}<svg class="ht-arr" width="13" height="13" aria-hidden="true"><use href="#i-arrow"/></svg>{/if}
         {#if t.responsible}<span class="ht-seg">{@render avatar(t.responsible, 18)} <b style="color:{whoColor(t.responsible)}">{t.responsible}</b> <span class="dim">responsible</span></span>{/if}
       </div>
     {/if}
@@ -236,7 +249,7 @@
 
     {#if t.answer}
       <div class="q-done">
-        <span class="qd-check"><svg width="20" height="20"><use href="#i-check"/></svg></span>
+        <span class="qd-check"><svg width="20" height="20" aria-hidden="true"><use href="#i-check"/></svg></span>
         <div>
           <div class="qd-title">answered</div>
           <div class="qd-sub mono">→ {data.opts.find((o) => o.value === t.answer)?.label ?? t.answer}</div>
@@ -259,14 +272,14 @@
     {:else}
       <!-- open question (no preset options): free-text answer -->
       <form method="POST" action="?/answer" use:enhance class="freeanswer">
-        <textarea name="value" rows="3" placeholder="type your answer…">{t.answer ?? ''}</textarea>
+        <textarea name="value" rows="3" placeholder="type your answer…" aria-label="Your answer">{t.answer ?? ''}</textarea>
         <button class="q-submit" type="submit">{t.answer ? 'update answer' : 'send answer'}</button>
       </form>
     {/if}
   {/if}
 
   <!-- doc / idea: rendered prose with reader modes -->
-  {#if isProse && data.bodyHtml}
+  {#if isProse}
     <div class="reader" class:focus>
       <div class="reader-bar">
         {#if hasHuman}
@@ -280,8 +293,8 @@
             <button class="rb" title="Smaller text" disabled={font === 0} onclick={() => (font = Math.max(0, font - 1))}>A−</button>
             <button class="rb" title="Larger text" disabled={font === FONTS.length - 1} onclick={() => (font = Math.min(FONTS.length - 1, font + 1))}>A+</button>
             <button class="rb" class:on={serif} title="Serif" onclick={() => (serif = !serif)} style="font-family:Georgia,serif">A</button>
-            <button class="rb" class:on={wide} title="Wider column" onclick={() => (wide = !wide)}><svg width="14" height="14"><use href="#i-board"/></svg></button>
-            <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><svg width="14" height="14"><use href="#i-doc"/></svg></button>
+            <button class="rb" class:on={wide} title="Wider column" onclick={() => (wide = !wide)}><svg width="14" height="14" aria-hidden="true"><use href="#i-board"/></svg></button>
+            <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><svg width="14" height="14" aria-hidden="true"><use href="#i-doc"/></svg></button>
           </div>
         {/if}
         <div class="rb-right">
@@ -289,22 +302,26 @@
             {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
           </select>
           <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
-            {#if loadingAudio}<span class="spin"></span>{:else}<svg width="15" height="15"><use href="#i-{speaking ? 'check' : 'arrow'}"/></svg>{/if}
+            {#if loadingAudio}<span class="spin"></span>{:else}<svg width="15" height="15" aria-hidden="true"><use href="#i-{speaking ? 'check' : 'arrow'}"/></svg>{/if}
             <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
           </button>
         </div>
       </div>
       {#if hasHuman && human}
-        <div class="human-note mono"><svg width="12" height="12"><use href="#i-check"/></svg> plain-english rewrite · switch to technical for the exact source</div>
+        <div class="human-note mono"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg> plain-english rewrite · switch to technical for the exact source</div>
       {/if}
-      <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}>{@html docHtml}</article>
+      {#if docHtml}
+        <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}>{@html docHtml}</article>
+      {:else}
+        <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}><p class="dim">Nothing written yet — add a body below.</p></article>
+      {/if}
     </div>
   {/if}
 
   <!-- handoff context -->
   {#if t.handoff_context}
     <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-arrow"/></svg></span><h2>handoff context</h2></div>
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-arrow"/></svg></span><h2>handoff context</h2></div>
       <div class="handoff mono">{t.handoff_context}</div>
     </section>
   {/if}
@@ -313,7 +330,7 @@
   {#if t.result_summary}
     <section class="det-sec">
       <div class="ds-head">
-        <span class="ds-ic"><svg width="12" height="12"><use href="#i-check"/></svg></span>
+        <span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg></span>
         <h2>worker result</h2>
         <span class="ds-extra"><span class="verif v-{verifClass}">{verif === 'needs_human' ? 'needs human' : verif}</span></span>
       </div>
@@ -331,7 +348,7 @@
     {#if !isProse}
       <section class="det-sec">
         <div class="ds-head">
-          <span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span>
+          <span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span>
           <h2>plan / notes</h2>
           {#if !editingBody}
             <button type="button" class="ds-edit" onclick={startEditBody}>edit</button>
@@ -354,7 +371,7 @@
     {:else}
       <section class="det-sec">
         <div class="ds-head">
-          <span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span>
+          <span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span>
           <h2>{editingBody ? 'edit body · markdown' : 'body · markdown'}</h2>
           {#if !editingBody}
             <button type="button" class="ds-edit" onclick={startEditBody}>edit</button>
@@ -376,7 +393,7 @@
     {#if !isProse}
       <section class="det-sec">
         <div class="ds-head">
-          <span class="ds-ic"><svg width="12" height="12"><use href="#i-check"/></svg></span>
+          <span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg></span>
           <h2>acceptance criteria</h2>
           {#if t.result_summary}<span class="ds-extra"><span class="verif v-{verifClass}">{verif === 'needs_human' ? 'needs human' : verif}</span></span>{/if}
         </div>
@@ -384,10 +401,10 @@
       </section>
 
       <section class="det-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-block"/></svg></span><h2>blocked on</h2></div>
+        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-block"/></svg></span><h2>blocked on</h2></div>
         {#if t.blocked_on}
           <div class="blk-list">
-            <div class="blk-row static"><span class="blk-ic"><svg width="13" height="13"><use href="#i-block"/></svg></span><span class="blk-title">{t.blocked_on}</span></div>
+            <div class="blk-row static"><span class="blk-ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-block"/></svg></span><span class="blk-title">{t.blocked_on}</span></div>
           </div>
         {/if}
         <input name="blocked_on" value={t.blocked_on ?? ''} placeholder="(nothing — what must clear first?)" />
@@ -395,7 +412,7 @@
     {/if}
 
     <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-task"/></svg></span><h2>assignment</h2></div>
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-task"/></svg></span><h2>assignment</h2></div>
       <div class="assign-grid">
         <label class="afield">
           <span class="af-lbl">agent · works it next</span>
@@ -424,7 +441,7 @@
 
     <!-- fleet execution hints: advisory routing metadata (Phase 1) -->
     <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-board"/></svg></span><h2>execution hints</h2><span class="ds-extra mono dim">routing only — advisory</span></div>
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-board"/></svg></span><h2>execution hints</h2><span class="ds-extra mono dim">routing only — advisory</span></div>
       <div class="assign-grid">
         <label class="afield">
           <span class="af-lbl">owner machine</span>
@@ -446,7 +463,7 @@
     </section>
 
     <div class="save-bar">
-      <label class="chk mono"><input type="checkbox" name="private" checked={t.visibility === 'private'} /> <svg width="12" height="12"><use href="#i-lock"/></svg> private — only you</label>
+      <label class="chk mono"><input type="checkbox" name="private" checked={t.visibility === 'private'} /> <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg> private — only you</label>
       <button class="save" type="submit">save changes</button>
     </div>
   </form>
@@ -455,7 +472,7 @@
   <!-- sub-tasks -->
   {#if data.kids.length}
     <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-board"/></svg></span><h2>sub-tasks · {data.kids.length}</h2></div>
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-board"/></svg></span><h2>sub-tasks · {data.kids.length}</h2></div>
       <div class="blk-list">
         {#each data.kids as k (k.id)}
           <a class="blk-row kid" href="/task/{k.id}">
@@ -471,7 +488,7 @@
   <!-- relations: blocking deps (both directions) + non-blocking discovered-from provenance -->
   {#if data.blockers.length || data.blocking.length || data.discoveredFrom.length || data.discoveries.length}
     <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-block"/></svg></span><h2>relations</h2></div>
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-block"/></svg></span><h2>relations</h2></div>
       <div class="rel-grid">
         {#snippet rellist(label, rows)}
           {#if rows.length}
@@ -500,7 +517,7 @@
   <!-- close with a mandatory reason (the "why" ledger) — only for open, non-question tasks -->
   {#if !isQuestion && t.status !== 'done' && t.status !== 'dropped'}
     <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-check"/></svg></span><h2>close</h2><span class="ds-extra mono dim">a reason is required</span></div>
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg></span><h2>close</h2><span class="ds-extra mono dim">a reason is required</span></div>
       <form method="POST" action="?/close" use:enhance class="closeform">
         <input class="close-reason" name="reason" required placeholder="why is this closing? (the why-ledger)" />
         <select name="status" aria-label="Close as"><option value="done">done</option><option value="dropped">dropped</option></select>
@@ -509,14 +526,14 @@
     </section>
   {:else if t.close_reason}
     <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-check"/></svg></span><h2>close reason</h2></div>
+      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg></span><h2>close reason</h2></div>
       <div class="result">{t.close_reason}</div>
     </section>
   {/if}
 
   <!-- coordination log: chat-style -->
   <section class="det-sec">
-    <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-inbox"/></svg></span><h2>coordination log · {data.comments.length}</h2><span class="ds-extra mono dim">plan in the body, findings here</span></div>
+    <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-inbox"/></svg></span><h2>coordination log · {data.comments.length}</h2><span class="ds-extra mono dim">plan in the body, findings here</span></div>
     <div class="chat">
       {#each data.comments as c (c.id)}
         {@const author = c.author || 'someone'}
@@ -537,7 +554,7 @@
       {/each}
     </div>
     <form method="POST" action="?/comment" use:enhance={() => async ({ update }) => update({ reset: true })} class="chatbar">
-      <textarea name="body" rows="1" placeholder="message the thread…"
+      <textarea name="body" rows="1" placeholder="message the thread…" aria-label="Message the thread"
         onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.form.requestSubmit(); } }}></textarea>
       <button class="chat-send" type="submit" title="send" aria-label="Send message"><svg width="18" height="18" aria-hidden="true"><use href="#i-arrow"/></svg></button>
     </form>

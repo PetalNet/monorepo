@@ -10,14 +10,14 @@
 <div class="screen newscreen">
   <header class="page-head">
     <a class="back" href="/">
-      <svg width="13" height="13" style="transform:scaleX(-1)"><use href="#i-arrow"/></svg>
+      <svg width="13" height="13" style="transform:scaleX(-1)" aria-hidden="true"><use href="#i-arrow"/></svg>
       board
     </a>
     <h1>new</h1>
     <div class="kindtabs">
       {#each ['task', 'doc', 'question'] as k}
         <button type="button" class="kindtab" class:on={kind === k} onclick={() => (kind = k)}>
-          <svg width="13" height="13"><use href="#i-{KIND_ICON[k]}"/></svg>{k}
+          <svg width="13" height="13" aria-hidden="true"><use href="#i-{KIND_ICON[k]}"/></svg>{k}
         </button>
       {/each}
     </div>
@@ -44,28 +44,28 @@
 
     {#if kind === 'task'}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span><h2>notes / plan</h2></div>
+        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>notes / plan</h2></div>
         <textarea name="body" rows="5" placeholder="optional — drop research / the plan here"></textarea>
       </section>
-      <label class="chk mono"><input type="checkbox" name="up_next" /> <svg width="12" height="12"><use href="#i-bolt"/></svg> up next</label>
+      <label class="chk mono"><input type="checkbox" name="up_next" /> <svg width="12" height="12" aria-hidden="true"><use href="#i-bolt"/></svg> up next</label>
     {:else if kind === 'doc'}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span><h2>body · markdown</h2></div>
+        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>body · markdown</h2></div>
         <textarea name="body" rows="14" class="mono" placeholder="# Brief / ADR…"></textarea>
       </section>
     {:else}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-doc"/></svg></span><h2>context · markdown</h2></div>
+        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>context · markdown</h2></div>
         <textarea name="body" rows="5" placeholder="background for the decision"></textarea>
       </section>
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12"><use href="#i-question"/></svg></span><h2>options</h2><span class="ds-extra mono dim">one per line · "value | label"</span></div>
+        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-question"/></svg></span><h2>options</h2><span class="ds-extra mono dim">one per line · "value | label"</span></div>
         <textarea name="options" rows="4" class="mono" placeholder={"yes | Yes, do it\nno | No"}></textarea>
       </section>
     {/if}
 
     <div class="save-bar">
-      <label class="chk mono"><input type="checkbox" name="private" /> <svg width="12" height="12"><use href="#i-lock"/></svg> private — only you</label>
+      <label class="chk mono"><input type="checkbox" name="private" /> <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg> private — only you</label>
       <button class="save" type="submit">create {kind}</button>
     </div>
   </form>
