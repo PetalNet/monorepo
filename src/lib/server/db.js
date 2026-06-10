@@ -151,9 +151,16 @@ function ensureColumns() {
     suggested_agent: "TEXT DEFAULT ''",     // recommended worker persona (routing hint)
     effort: "TEXT DEFAULT ''",              // rough size hint (e.g. xs|s|m|l)
     parallel_group: "TEXT DEFAULT ''",      // tasks in the same group may run concurrently
-    close_reason: "TEXT DEFAULT ''"         // why it closed (the "why" ledger; required by the close tool/action, not yet by every status-edit path)
+    close_reason: "TEXT DEFAULT ''",        // why it closed (the "why" ledger; required by the close tool/action, not yet by every status-edit path)
+    synced_snapshot: "TEXT DEFAULT ''"      // JSON of the fields the Corner mirror last wrote — the 3-way-merge base so a re-sync never clobbers a local edit (task-346)
   };
-  for (const [name, def] of Object.entries(adds)) if (!have.has(name)) db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
+  // try/catch: two processes booting at once (server + sync cron) can both read `have`
+  // before either adds the column, then race the ALTER — the loser throws "duplicate column".
+  // Swallow only that; anything else is a real error.
+  for (const [name, def] of Object.entries(adds)) if (!have.has(name)) {
+    try { db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`); }
+    catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+  }
 }
 ensureColumns();
 
@@ -603,6 +610,18 @@ export const updateTask = db.transaction((id, patch) => {
   if (patch.status === 'done' || patch.status === 'dropped') cascadeUnblock(id);
   return { ok: true };
 });
+
+// Corner-mirror bookkeeping: records the field values the mirror last wrote, used as the
+// 3-way-merge base in sync-corner.mjs (task-346). Deliberately a raw write — it must NOT log
+// an event or bump updated_at, since it's invisible internal state, not a user-visible change.
+export const setSyncSnapshot = (id, snapshot) =>
+  db.prepare('UPDATE tasks SET synced_snapshot=? WHERE id=?').run(snapshot, id);
+
+// Run fn as a single IMMEDIATE transaction (takes the write lock up front). The Corner mirror
+// uses this to do its read → 3-way-compare → patch → snapshot-advance atomically: the row is
+// re-read INSIDE the txn, so a human edit can't land between the read and the write and get
+// clobbered from a stale snapshot (task-346, the stale-read race).
+export const withTxn = (fn) => db.transaction(fn).immediate();
 
 // --- delegation: assignment, atomic claim/lease, report-back, verify, reap ---
 
