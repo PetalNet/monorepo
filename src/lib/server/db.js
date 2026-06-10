@@ -86,14 +86,20 @@ db.exec(`
   -- source of truth the container already mounts) — no on-disk file path => no path-traversal
   -- surface. kind: 'markdown' renders through renderMd (sanitized, inline .prose); 'html' is a
   -- pre-built standalone document served raw into a locked-down sandbox <iframe> (it cannot run
-  -- scripts, reach the parent DOM/cookies, or make same-origin requests — see /gallery/[slug]/raw).
+  -- scripts, reach the parent DOM/cookies, or make same-origin requests — see /gallery/[slug]/raw);
+  -- 'interactive' is the same standalone-document delivery but ALLOWED to run its own JS for live
+  -- demos — sandboxed allow-scripts WITHOUT allow-same-origin (opaque origin). A confidentiality
+  -- cage: its JS cannot read the SSO cookie, reach the parent DOM, navigate the top frame, or make
+  -- any scripted background request (default-src 'none'). The one inherent residual — a script can
+  -- navigate its OWN frame out, leaking the viewer IP — is mitigated by author-only content (no user
+  -- upload path), so it's as trusted as anything else Agent-a publishes. See /gallery/[slug]/raw.
   -- visibility mirrors tasks: 'shared' (alice+bob) | 'private' (owner-only).
   CREATE TABLE IF NOT EXISTS artifacts (
     id          INTEGER PRIMARY KEY,
     slug        TEXT NOT NULL UNIQUE,                 -- URL id, e.g. 'brain-dossier'
     title       TEXT NOT NULL,
     description TEXT DEFAULT '',                       -- one-line gallery blurb
-    kind        TEXT NOT NULL DEFAULT 'markdown',      -- markdown | html
+    kind        TEXT NOT NULL DEFAULT 'markdown',      -- markdown | html | interactive
     content     TEXT NOT NULL,                         -- the markdown source or full HTML document
     source      TEXT DEFAULT '',                       -- provenance, e.g. 'brain-research/DOSSIER.md'
     owner       TEXT DEFAULT '',
@@ -735,7 +741,7 @@ export const getArtifact = (slug, me) => db.prepare(
 // Upsert by slug — used by the seed script and any future writer. Content stays in the DB.
 export function upsertArtifact({ slug, title, description = '', kind = 'markdown', content, source = '', owner = '', visibility = 'shared' }) {
   if (!slug || !title || !content) throw new Error('artifact requires slug, title, content');
-  if (kind !== 'markdown' && kind !== 'html') throw new Error('artifact kind must be markdown|html');
+  if (kind !== 'markdown' && kind !== 'html' && kind !== 'interactive') throw new Error('artifact kind must be markdown|html|interactive');
   // validate enum (a typo'd visibility silently becoming owner-only — or worse, "shared" by
   // accident — is an authz footgun; fail loudly instead). slug stays URL-clean.
   if (visibility !== 'shared' && visibility !== 'private') throw new Error('artifact visibility must be shared|private');
