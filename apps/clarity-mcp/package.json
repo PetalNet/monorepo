@@ -1,0 +1,23 @@
+{
+	"name": "@petalnet/clarity-mcp",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"clarity-mcp": "./dist/index.js"
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"start": "node ./dist/index.js",
+		"typecheck": "tsc -b"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "catalog:prod",
+		"zod": "catalog:prod"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"typescript": "catalog:dev"
+	}
+}
