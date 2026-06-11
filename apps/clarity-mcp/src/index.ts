@@ -79,6 +79,40 @@ async function httpGet(url: string, accept = "application/json"): Promise<Respon
 	return res;
 }
 
+const HTML_ENTITIES: Record<string, string> = {
+	"&amp;": "&",
+	"&lt;": "<",
+	"&gt;": ">",
+	"&quot;": '"',
+	"&apos;": "'",
+	"&#39;": "'",
+	"&nbsp;": " ",
+};
+
+/** Decode HTML entities in a single pass (each match resolved once → no double-unescaping). */
+function decodeEntities(input: string): string {
+	return input.replace(/&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#x[0-9a-fA-F]+);/gi, (match) => {
+		const named = HTML_ENTITIES[match.toLowerCase()];
+		if (named !== undefined) return named;
+		const isHex = match.startsWith("&#x") || match.startsWith("&#X");
+		const code = Number.parseInt(match.slice(isHex ? 3 : 2, -1), isHex ? 16 : 10);
+		return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+	});
+}
+
+/** Extract readable text from HTML. End tags tolerate trailing whitespace (e.g. `</script >`). */
+function htmlToText(html: string): string {
+	const stripped = html
+		.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, " ")
+		.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, " ")
+		.replace(/<!--[\s\S]*?-->/g, " ")
+		.replace(/<[^>]+>/g, " ");
+	return decodeEntities(stripped)
+		.replace(/[^\S\n]+/g, " ")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
 const server = new McpServer({ name: "clarity-search", version: "1.0.0" });
 
 const resultShape = {
@@ -209,24 +243,8 @@ server.registerTool(
 		const res = await httpGet(url, "text/html,application/xhtml+xml");
 		const contentType = res.headers.get("content-type") ?? "";
 		const raw = await res.text();
-		let text = raw;
-		if (contentType.includes("html") || /<html[\s>]/i.test(raw)) {
-			text = raw
-				.replace(/<script[\s\S]*?<\/script>/gi, " ")
-				.replace(/<style[\s\S]*?<\/style>/gi, " ")
-				.replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-				.replace(/<!--[\s\S]*?-->/g, " ")
-				.replace(/<[^>]+>/g, " ")
-				.replace(/&nbsp;/g, " ")
-				.replace(/&amp;/g, "&")
-				.replace(/&lt;/g, "<")
-				.replace(/&gt;/g, ">")
-				.replace(/&#39;/g, "'")
-				.replace(/&quot;/g, '"')
-				.replace(/[ \t]+/g, " ")
-				.replace(/\n\s*\n\s*\n+/g, "\n\n")
-				.trim();
-		}
+		const isHtml = contentType.includes("html") || /<html[\s>]/i.test(raw);
+		const text = isHtml ? htmlToText(raw) : raw;
 		const limit = max_chars ?? 8000;
 		const truncated = text.length > limit;
 		const out =
