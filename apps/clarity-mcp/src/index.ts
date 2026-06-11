@@ -100,14 +100,50 @@ function decodeEntities(input: string): string {
 	});
 }
 
-/** Extract readable text from HTML. End tags tolerate trailing whitespace (e.g. `</script >`). */
+const DROP_ELEMENTS = ["script", "style", "noscript"];
+const TAG_BOUNDARY = new Set([">", "/", " ", "\t", "\n", "\r", "\f"]);
+
+/**
+ * Extract readable text from HTML with a single linear scan — no tag-matching regex (which is
+ * unreliable for sanitisation). Drops comments and the contents of script/style/noscript, emits the
+ * text between tags, then decodes entities once.
+ */
 function htmlToText(html: string): string {
-	const stripped = html
-		.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, " ")
-		.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, " ")
-		.replace(/<!--[\s\S]*?-->/g, " ")
-		.replace(/<[^>]+>/g, " ");
-	return decodeEntities(stripped)
+	const lower = html.toLowerCase();
+	const n = html.length;
+	let out = "";
+	let i = 0;
+	while (i < n) {
+		const lt = html.indexOf("<", i);
+		if (lt === -1) {
+			out += html.slice(i);
+			break;
+		}
+		out += html.slice(i, lt);
+
+		if (lower.startsWith("<!--", lt)) {
+			const end = html.indexOf("-->", lt + 4);
+			i = end === -1 ? n : end + 3;
+			continue;
+		}
+
+		const dropped = DROP_ELEMENTS.find((tag) => {
+			if (!lower.startsWith(`<${tag}`, lt)) return false;
+			const after = lower[lt + tag.length + 1];
+			return after === undefined || TAG_BOUNDARY.has(after);
+		});
+		if (dropped !== undefined) {
+			const close = lower.indexOf(`</${dropped}`, lt);
+			const gt = close === -1 ? -1 : html.indexOf(">", close);
+			i = gt === -1 ? n : gt + 1;
+			continue;
+		}
+
+		// Generic tag: skip to its closing '>'.
+		const gt = html.indexOf(">", lt);
+		i = gt === -1 ? n : gt + 1;
+	}
+	return decodeEntities(out)
 		.replace(/[^\S\n]+/g, " ")
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
