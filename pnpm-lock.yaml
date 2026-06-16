@@ -93,8 +93,8 @@ catalogs:
       specifier: ^2.50.1
       version: 2.63.0
     bcryptjs:
-      specifier: ^2.4.3
-      version: 2.4.3
+      specifier: ^3.0.0
+      version: 3.0.3
     date-fns:
       specifier: ^4.1.0
       version: 4.4.0
@@ -133,8 +133,8 @@ catalogs:
       version: 4.4.3
   types:
     '@types/bcryptjs':
-      specifier: ^2.4.6
-      version: 2.4.6
+      specifier: ^3.0.0
+      version: 3.0.0
     '@types/leaflet':
       specifier: ^1.9.21
       version: 1.9.21
@@ -300,7 +300,7 @@ importers:
         version: 2.63.0(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.60.1))(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4)(yaml@2.9.0)))(svelte@5.56.3(@typescript-eslint/types@8.60.1))(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4)(yaml@2.9.0))
       bcryptjs:
         specifier: catalog:prod
-        version: 2.4.3
+        version: 3.0.3
       date-fns:
         specifier: catalog:prod
         version: 4.4.0
@@ -325,7 +325,7 @@ importers:
         version: 7.1.2(svelte@5.56.3(@typescript-eslint/types@8.60.1))(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4)(yaml@2.9.0))
       '@types/bcryptjs':
         specifier: catalog:types
-        version: 2.4.6
+        version: 3.0.0
       '@types/qrcode':
         specifier: catalog:types
         version: 1.5.6
@@ -2163,8 +2163,9 @@ packages:
   '@tybys/wasm-util@0.10.2':
     resolution: {integrity: sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg==}
 
-  '@types/bcryptjs@2.4.6':
-    resolution: {integrity: sha512-9xlo6R2qDs5uixm0bcIqCeMCE6HiQsIyel9KQySStiyqNl2tnj2mP3DX1Nf56MD6KMenNNlBBsy3LJ7gUEQPXQ==}
+  '@types/bcryptjs@3.0.0':
+    resolution: {integrity: sha512-WRZOuCuaz8UcZZE4R5HXTco2goQSI2XxjGY3hbM/xDvwmqFWd4ivooImsMx65OKM6CtNKbnZ5YL+YwAwK7c1dg==}
+    deprecated: This is a stub types definition. bcryptjs provides its own type definitions, so you do not need this installed.
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -2540,8 +2541,9 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  bcryptjs@2.4.3:
-    resolution: {integrity: sha512-V/Hy/X9Vt7f3BbPJEi8BdVFMByHi+jNXrYkW3huaybV/kQ0KJg0Y6PkEMbn+zeT+i+SiKZ/HMqJGIIt4LZDqNQ==}
+  bcryptjs@3.0.3:
+    resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
+    hasBin: true
 
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
@@ -5776,7 +5778,9 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@types/bcryptjs@2.4.6': {}
+  '@types/bcryptjs@3.0.0':
+    dependencies:
+      bcryptjs: 3.0.3
 
   '@types/chai@5.2.3':
     dependencies:
@@ -6094,7 +6098,7 @@ snapshots:
 
   baseline-browser-mapping@2.10.37: {}
 
-  bcryptjs@2.4.3: {}
+  bcryptjs@3.0.3: {}
 
   binary-extensions@2.3.0: {}
 
