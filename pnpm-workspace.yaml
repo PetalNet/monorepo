@@ -71,4 +71,4 @@ catalogs:
     leaflet.markercluster: ^1.5.3
     svelte: ^5.48.2
     tailwindcss: ^4.1.18
-    zod: ^3.25.76
+    zod: ^4.0.0
