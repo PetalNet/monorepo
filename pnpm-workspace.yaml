@@ -37,12 +37,15 @@ catalogs:
     "@sveltejs/adapter-node": ^5.5.2
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.1.18
+    autoprefixer: ^10.4.20
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
     eslint-plugin-oxlint: ^1.67.0
     eslint-plugin-package-json: ^1.2.0
     knip: ^6.16.1
     oxlint: ^1.67.0
+    postcss: ^8.4.49
+    prisma: ^5.22.0
     svelte-check: ^4.3.5
     typescript: ^6.0.3
     typescript-eslint: ^8.60.0
@@ -54,20 +57,33 @@ catalogs:
     vite-plus: 0.1.24
 
   types:
+    "@types/bcryptjs": ^2.4.6
     "@types/leaflet": ^1.9.21
     "@types/leaflet.heat": ^0.2.5
     "@types/leaflet.markercluster": ^1.5.6
     "@types/node": ^25.9.1
+    "@types/qrcode": ^1.5.5
+    "@types/sortablejs": ^1.15.8
 
   prod:
     "@libsql/client": ^0.17.0
     "@modelcontextprotocol/sdk": ^1.29.0
+    "@prisma/client": ^5.22.0
     "@sveltejs/kit": ^2.50.1
+    bcryptjs: ^2.4.3
+    date-fns: ^4.1.0
     drizzle-orm: ^0.45.1
     leaflet: ^1.9.4
     leaflet-image: ^0.4.0
     leaflet.heat: ^0.2.0
     leaflet.markercluster: ^1.5.3
+    nanoid: ^5.0.0
+    qrcode: ^1.5.4
+    sortablejs: ^1.15.6
     svelte: ^5.48.2
     tailwindcss: ^4.1.18
     zod: ^4.0.0
+
+  # Apps still on Tailwind v3 (consolidated to latest v3); not upgraded to v4 yet.
+  legacy:
+    tailwindcss: ^3.4.17
