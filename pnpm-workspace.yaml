@@ -16,7 +16,6 @@ minimumReleaseAgeExclude:
   - "@eslint/plugin-kit"
   - "@eslint/json"
   - "@eslint/markdown"
-  - style-dictionary
   - svelte
   - knip
 
@@ -44,7 +43,6 @@ catalogs:
     eslint-plugin-package-json: ^1.2.0
     knip: ^6.16.1
     oxlint: ^1.67.0
-    style-dictionary: ^5.4.2
     svelte-check: ^4.3.5
     typescript: ^6.0.3
     typescript-eslint: ^8.60.0

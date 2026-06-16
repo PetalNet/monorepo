@@ -6,7 +6,6 @@
 		"noEmit": true
 	},
 	"references": [
-		{ "path": "./packages/tokens" },
 		{ "path": "./packages/ui" },
 		{ "path": "./packages/utils" },
 		{ "path": "./packages/types" }

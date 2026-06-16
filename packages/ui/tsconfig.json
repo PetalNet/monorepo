@@ -5,10 +5,5 @@
 		"rootDir": "src"
 	},
 	"include": ["src/**/*"],
-	"exclude": ["dist", "node_modules"],
-	"references": [
-		{
-			"path": "../tokens"
-		}
-	]
+	"exclude": ["dist", "node_modules"]
 }
