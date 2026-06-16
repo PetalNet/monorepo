@@ -28,7 +28,7 @@
 		const deadlines = event.groups?.map((g: any) => g.deadline ? new Date(g.deadline) : null).filter(Boolean) ?? [];
 		if (!deadlines.length) return null;
 		const future = deadlines.filter((d: any) => d && d > new Date());
-		const soonest = (future.length ? future : deadlines).sort((a: any, b: any) => a.getTime() - b.getTime())[0];
+		const soonest = (future.length ? future : deadlines).toSorted((a: any, b: any) => a.getTime() - b.getTime())[0];
 		return soonest;
 	}
 </script>

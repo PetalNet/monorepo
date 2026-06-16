@@ -15,31 +15,10 @@ pnpm prisma migrate dev
 pnpm dev
 ```
 
-## 🐳 Production Deployment
-
-This app is production-ready with Docker and Cloudflare Tunnel support.
-
-**→ See [QUICKSTART.md](./QUICKSTART.md) for fast deployment**
-
-**→ See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed documentation**
-
-**→ See [DOCKER-SETUP.md](./DOCKER-SETUP.md) for complete overview**
-
-### Quick Deploy
-
-```sh
-# On your production server
-./deploy.sh                      # Deploy with Docker
-./setup-cloudflare-tunnel.sh     # Set up Cloudflare Tunnel
-./backup.sh                      # Backup database
-```
-
 ## 📚 Documentation
 
-- **[QUICKSTART.md](./QUICKSTART.md)** - Fast production deployment guide
-- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Comprehensive deployment docs
-- **[DOCKER-SETUP.md](./DOCKER-SETUP.md)** - Docker setup overview
-- **[TIMEZONE_GUIDE.md](./TIMEZONE_GUIDE.md)** - Timezone handling guide
+- **[ADMIN.md](./ADMIN.md)** - admin access setup
+- **[TIMEZONE_GUIDE.md](./TIMEZONE_GUIDE.md)** - timezone handling guide
 
 ## 🔧 Development
 
@@ -79,7 +58,6 @@ pnpm prisma migrate reset
 - **Styling**: TailwindCSS
 - **Real-time**: Server-Sent Events (SSE)
 - **Auth**: Custom session-based auth with bcrypt
-- **Deployment**: Docker + Cloudflare Tunnel
 
 ## ✨ Features
 
@@ -88,8 +66,6 @@ pnpm prisma migrate reset
 - 🔐 Secure authentication
 - 🌐 Timezone-aware scheduling
 - 📱 Responsive design
-- 🚀 Production-ready Docker setup
-- 🔒 Cloudflare Tunnel integration
 
 ## 📝 License
 

@@ -5,8 +5,8 @@
 	import { onMount } from 'svelte';
 	
 	let showContent = $state(false);
-	let spot1El: HTMLElement;
-	let spot2El: HTMLElement;
+	let spot1El = $state<HTMLElement>();
+	let spot2El = $state<HTMLElement>();
 	let beam1Style = $state('');
 	let beam2Style = $state('');
 	

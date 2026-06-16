@@ -29,7 +29,9 @@
 
 	const emojiOptions = ['📊', '🎤', '🎬', '🎨', '🎯', '🚀', '💡', '⭐', '🔥', '✨', '🎪', '🎭', '🎸', '🎮', '💻', '📱'];
 
-	const joinUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/night/${data.event.joinCode}`;
+	const joinUrl = $derived(
+		`${typeof window !== 'undefined' ? window.location.origin : ''}/night/${data.event.joinCode}`,
+	);
 
 	onMount(async () => {
 		if (data.isHost) {
@@ -177,7 +179,7 @@
 	}
 
 	async function handleReorder(oldIndex: number, newIndex: number) {
-		const sortedGroups = [...data.event.groups].sort((a: any, b: any) => (a.presentationOrder || 999) - (b.presentationOrder || 999));
+		const sortedGroups = [...data.event.groups].toSorted((a: any, b: any) => (a.presentationOrder || 999) - (b.presentationOrder || 999));
 		const orderedGroupIds = sortedGroups.map((g: any) => g.id);
 		
 		// Reorder the array

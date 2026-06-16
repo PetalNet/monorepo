@@ -7,7 +7,11 @@
 	import ParticleBackground from '$lib/components/ParticleBackground.svelte';
 	
 	const { data } = $props();
-	const { event, orderedGroups, isHost, votingSession, currentUser } = data;
+	const event = $derived(data.event);
+	const orderedGroups = $derived(data.orderedGroups);
+	const isHost = $derived(data.isHost);
+	const votingSession = $derived(data.votingSession);
+	const currentUser = $derived(data.currentUser);
 	
 	let qrCodeUrl = $state('');
 	let showJoinModal = $state(false);
