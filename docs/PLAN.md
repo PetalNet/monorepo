@@ -31,7 +31,7 @@ homelab-docs (public-facing content), shared FE packages, shared utils.
 ```tree
 PetalNet/monorepo/
 ├── apps/           # each ships independently
-├── packages/       # shared libs: tokens, ui, utils, types
+├── packages/       # shared libs: ui, utils, types
 ├── tools/          # repo-internal scripts
 ├── docs/           # design / architecture / runbooks (homelab-docs lands here)
 ├── pnpm-workspace.yaml
@@ -51,17 +51,6 @@ PetalNet/monorepo/
 Dual: `oxlint` (fast) + `eslint` (the rest). Disable overlap via the oxc-published `eslint-plugin-oxlint` preset (`pluginOxlint.buildFromOxlintConfigFile()`) so nothing double-reports.
 
 ESLint config based on `lishaduck/deputy`'s flat-config pattern. Consume `@eslint-deputy/*` packages (`internal-config`, `tailwind`, `svelte`, `imports`, `node`, `pnpm`, `sonar`, `tsconfig`, `vitest`). They aren't on npm yet — vendor via pnpm catalog with git deps or workspace symlink until they are. PRs to deputy when our usage exposes gaps.
-
-## Tokens (`packages/tokens/`)
-
-- **Source:** DTCG JSON in `src/`. Two layers: `primitives/` (raw values: `color.amber.500 = #f59e0b`) and `semantic/` (`color.bg = {color.gray.950}` for dark, `{color.gray.50}` for light).
-- **Compiler:** `style-dictionary`.
-- **Outputs (3):**
-  1. `dist/tokens.css` — CSS custom properties consumed by Tailwind v4's `@theme` and DaisyUI's `@plugin "daisyui/theme"`.
-  2. `dist/tailwind.preset.ts` — Tailwind preset object; apps import & merge.
-  3. `dist/index.ts` — typed exports for non-Tailwind callsites (canvas, SVG strings, email templates).
-
-Primary runtime is Tailwind + DaisyUI. DTCG is the authoring format only.
 
 ## Auxiliary tooling
 

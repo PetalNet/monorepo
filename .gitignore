@@ -9,3 +9,4 @@
 !.env.example
 **/.cache/
 /.vscode/settings.json
+.pnpm-store/

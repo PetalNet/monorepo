@@ -7,9 +7,6 @@ export default {
 		".": {
 			entry: ["vite.config.ts"],
 		},
-		"packages/tokens": {
-			project: ["!tools/build.mts!"],
-		},
 		"apps/collegemap": {
 			drizzle: {
 				config: [],
