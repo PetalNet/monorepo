@@ -19,7 +19,16 @@ export async function handle({ event, resolve }) {
     // local dev only (no access list): permit the dev fallback identity
     event.locals.user = user || 'dev';
   }
-  const res = await resolve(event);
+  // Skin: when TASKS_SKIN is set (the tasks2 container runs TASKS_SKIN=paper-ink),
+  // tag <html> so the matching skin CSS activates. Same image, runtime env-switched;
+  // unset (main tasks) = no class = default look untouched.
+  const skin = (process.env.TASKS_SKIN || '').trim();
+  const res = await resolve(
+    event,
+    skin
+      ? { transformPageChunk: ({ html }) => html.replace('<html lang="en">', `<html lang="en" class="skin-${skin}">`) }
+      : undefined
+  );
   // defense-in-depth headers (sanitizer is the primary XSS line; these harden the rest).
   // Use the no-clobber form: a route may legitimately need to relax a header for itself
   // (e.g. the gallery raw-artifact endpoint frames its own same-origin sandbox iframe, so
