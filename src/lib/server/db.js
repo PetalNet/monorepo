@@ -192,6 +192,9 @@ function ensureIndexes() {
   for (const sql of [
     'CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)',
+    // composite: the board sections filter parent_id (NULL for top-level, NOT NULL for the
+    // child-map preload) together with status — one index serves both (task-280 N+1 work).
+    'CREATE INDEX IF NOT EXISTS idx_tasks_parent_status ON tasks(parent_id, status)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_upnext ON tasks(up_next)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source)',
@@ -494,8 +497,24 @@ export const inboxCounts = (me) => db.prepare(`SELECT
     SUM(CASE WHEN status='doing' THEN 1 ELSE 0 END) AS doing
   FROM tasks WHERE 1=1 ${vis(me)}`).get(me ? { me } : {});
 // dedicated muted section for blocked tasks (top-level only; children render under their parent).
-export const blockedList = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a))
-  .map((r) => ({ ...r, blockers: blockersOf(r.id, me) }));  // me-scoped: don't leak a private blocker's title on the board (#285)
+// blockers are fetched in ONE batched query (was a per-row blockersOf() call = N+1). me-scoped
+// vis so a private blocker's title never leaks on the board (#285); order matches blockersOf (t.id).
+export const blockedList = (p, me, a) => {
+  const rows = db.prepare(`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a));
+  if (!rows.length) return rows;
+  const idp = {}; rows.forEach((r, i) => { idp['t' + i] = r.id; });
+  const placeholders = rows.map((_, i) => '@t' + i).join(',');
+  const edges = db.prepare(
+    `SELECT b.task_id AS _owner, t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id
+      WHERE b.task_id IN (${placeholders}) ${vis(me)} ORDER BY t.id`
+  ).all({ ...idp, ...(me ? { me } : {}) });
+  const byOwner = new Map();
+  for (const e of edges) {
+    const owner = e._owner; delete e._owner;
+    const arr = byOwner.get(owner); if (arr) arr.push(e); else byOwner.set(owner, [e]);
+  }
+  return rows.map((r) => ({ ...r, blockers: byOwner.get(r.id) || [] }));
+};
 // lightweight {id,title} list of open tasks for the blocker-picker dropdown (honors visibility).
 export const blockerCandidates = (me) => db.prepare(
   `SELECT id, title FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)} ORDER BY updated_at DESC LIMIT 500`
@@ -536,15 +555,41 @@ export const tasksInProject = (pid, me) => db.prepare(
    FROM tasks WHERE project_id=@pid ${vis(me)} ORDER BY priority, rank, updated_at DESC`
 ).all({ pid, ...(me ? { me } : {}) });
 
-// sub-task hierarchy (beads-style breakdown)
-// depth-capped to survive a parent_id cycle (A->B->A) — would otherwise infinitely recurse and crash the board.
-// HUMAN visibility gate: pass `me` (logged-in user) so a SHARED parent doesn't leak its
-// PRIVATE children to someone who can't see them. Same rule as the board/list queries (vis):
-// a human sees shared children + their own private ones; omit `me` for agents (they see all).
-// Threaded recursively so it also covers sub-sub-children at every depth (task-285 / task-343).
-export const children = (pid, me, depth = 0) => depth >= 8 ? [] :
-  withKids(db.prepare(`SELECT * FROM tasks WHERE parent_id=@pid AND ${ACTIVE} ${vis(me)} ORDER BY rank, priority`).all({ pid, ...(me ? { me } : {}) }), me, depth);
-const withKids = (rows, me, depth = 0) => rows.map((r) => ({ ...r, kids: children(r.id, me, depth + 1) }));
+// sub-task hierarchy (beads-style breakdown). HUMAN visibility gate: pass `me` so a SHARED
+// parent doesn't leak its PRIVATE children to someone who can't see them (same `vis` rule as
+// the board/list queries); omit `me` for agents (they see all). Covers sub-sub-children at
+// every depth (task-285 / task-343), depth-capped at 8 to survive a parent_id cycle (A->B->A)
+// which would otherwise recurse forever and crash the board.
+//
+// PERF (task-280): this used to be a mutually-recursive pair that fired ONE query PER node,
+// so rendering the board was O(active tasks) round-trips (the documented N+1). Now it's a
+// SINGLE query for all visible active children grouped by parent_id, then pure in-memory
+// subtree assembly — one DB hit regardless of tree size/shape.
+function childMapByParent(me) {
+  const rows = db.prepare(
+    `SELECT * FROM tasks WHERE parent_id IS NOT NULL AND ${ACTIVE} ${vis(me)} ORDER BY rank, priority`
+  ).all(me ? { me } : {});
+  const m = new Map();
+  for (const r of rows) {
+    const arr = m.get(r.parent_id);
+    if (arr) arr.push(r); else m.set(r.parent_id, [r]);
+  }
+  return m;
+}
+// Assemble subtrees for `rows` from a preloaded parent->children map (no DB). Depth-capped
+// at 8 levels deep (rows at depth 0..7; depth-7 nodes get no kids) — exactly the prior
+// recursion's cap, which guards against a parent_id cycle (A->B->A) recursing forever.
+const attachKids = (rows, map, depth = 0) =>
+  rows.map((r) => ({ ...r, kids: depth >= 7 ? [] : attachKids(map.get(r.id) || [], map, depth + 1) }));
+// Top-level rows + their full (visible, active) subtrees — one preload, then assemble.
+const withKids = (rows, me) => (rows.length ? attachKids(rows, childMapByParent(me)) : rows);
+// One task's children + descendants (the task/[id] relations panel). Same one-query model.
+export const children = (pid, me) => {
+  const roots = db.prepare(
+    `SELECT * FROM tasks WHERE parent_id=@pid AND ${ACTIVE} ${vis(me)} ORDER BY rank, priority`
+  ).all({ pid, ...(me ? { me } : {}) });
+  return roots.length ? attachKids(roots, childMapByParent(me)) : roots;
+};
 
 // The agent query (MCP get_ready, phase 2): actionable, unblocked, up-next first then by manual rank.
 export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ORDER BY up_next DESC, rank, priority`).all(args(p));

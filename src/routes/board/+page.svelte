@@ -71,7 +71,7 @@
   </a>
 {/snippet}
 
-<div class="screen board fleet-wide">
+<div class="screen board">
   <header class="page-head">
     <div class="ph-row">
       <h1>fleet</h1>
@@ -203,9 +203,8 @@
 </div>
 
 <style>
-  /* the fleet view is a dashboard, not a reading column — give it room
-     (overrides app.css .board.screen 780px; the task board stays narrow). */
-  .screen.fleet-wide { max-width: 1180px; }
+  /* fleet view inherits the standard .board.screen width (780px) — it's a
+     single-column stack of cards, not a wide multi-column dashboard. */
   .page-head { margin-bottom: 18px; }
   .ph-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .ph-spacer { flex: 1; }
