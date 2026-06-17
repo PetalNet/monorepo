@@ -51,7 +51,7 @@ export function load({ params, locals }) {
     kids: children(id, locals.user),  // me-scoped: don't leak private sub-tasks under a shared parent
     projects: listProjects(locals.user),  // me-scoped: don't leak private project names
     // fleet coordination spine (Phase 1): blocking deps (both directions) + non-blocking
-    // discovered-from provenance. deepScrub strips lease secrets from these task rows too.
+    // discovered-from provenance. deepScrub strips claim_token from these task rows too.
     blockers: blockersOf(id, locals.user),          // me-scoped: don't leak a private blocker's title
     blocking: blocks(id, locals.user),              // me-scoped
     discoveredFrom: discoveredFrom(id, locals.user),// me-scoped provenance

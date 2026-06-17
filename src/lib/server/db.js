@@ -196,6 +196,7 @@ function ensureIndexes() {
     'CREATE INDEX IF NOT EXISTS idx_tasks_upnext ON tasks(up_next)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source)',
     'CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, at)',
+    'CREATE INDEX IF NOT EXISTS idx_events_type_at ON events(type, at)',  // board: closedToday + closed ledger
     'CREATE INDEX IF NOT EXISTS idx_annotations_page ON annotations(page_path)'
   ]) db.exec(sql);
 }
@@ -344,11 +345,14 @@ export function canRead(id, me) {
   return !(t.visibility === 'private' && t.owner && t.owner !== me);
 }
 
-// Strip server-only secret columns from anything bound for the browser. claim_token
-// is the live lease secret claimTask/reportTask authenticate with — shipping it via
-// SELECT * let any viewer hijack a worker's claim. deepScrub walks the whole load
-// payload (incl. nested .kids) so callers just wrap their return value once.
-const SECRET_COLS = new Set(['claim_token', 'claimed_by', 'lease_expires_at']);
+// Strip the ONE server-only secret from anything bound for the browser: claim_token.
+// It's the live lease capability claimTask/reportTask authenticate with — shipping it
+// via SELECT * would let any viewer hijack a worker's claim. claimed_by and
+// lease_expires_at are NOT secrets: knowing either enables no action without the token,
+// so they ship to the UI on purpose — claimed_by drives the fleet board's agent
+// swimlanes, lease_expires_at the lease-age / countdown display. deepScrub walks the
+// whole payload (incl. nested .kids / lanes) so callers just wrap their return once.
+const SECRET_COLS = new Set(['claim_token']);
 export function deepScrub(v) {
   if (Array.isArray(v)) return v.map(deepScrub);
   if (v && typeof v === 'object') {
@@ -786,5 +790,160 @@ export const agentQueue = (agent) => db.prepare(
 
 // Tasks awaiting the lead's verification.
 export const needsReview = () => db.prepare("SELECT * FROM tasks WHERE status='review' ORDER BY updated_at DESC").all();
+
+// --- /board: the fleet at a glance (fleet-dispatcher Phase 2, #242) -----------
+// One aggregate so the board does a single load with no N+1. Everything respects
+// the HUMAN visibility gate (vis(me)) exactly like the main board — agents never
+// open /board, but the gate is cheap and keeps a private task off the wall if a
+// human is viewing. The SERVER pre-computes lease_age_s / lease_state here from the
+// raw column (handy, avoids client clock skew); lease_expires_at itself is NOT a
+// secret and ships too (only claim_token is stripped).
+
+// In-progress / claimed work, one row per active lease. lane = claimed_by, falling
+// back to assignee (an assigned-but-pre-claim 'doing' row still belongs to someone),
+// then '(unassigned)'. lease_age_s = now - lease_expires_at in seconds: POSITIVE means
+// the lease already expired (reap candidate). lease_state: 'expired' (past), 'soon'
+// (<5 min left → amber), else 'ok'. No lease set → null age, 'none' state.
+const SOON_S = 300; // 5 min: amber "lease nearly up" window
+export function boardLanes(me) {
+  const rows = db.prepare(
+    `SELECT id, title, status, priority, project_id, assignee, claimed_by, lease_expires_at, updated_at, kind
+       FROM tasks
+      WHERE status='doing' AND ${TASKISH} ${vis(me)}
+      ORDER BY priority, updated_at DESC`
+  ).all(me ? { me } : {});
+  const nowMs = Date.now();
+  const toMs = (ts) => ts ? new Date(ts.replace(' ', 'T') + 'Z').getTime() : null;
+  const lanes = new Map();
+  for (const r of rows) {
+    const exp = toMs(r.lease_expires_at);
+    const lease_age_s = exp == null ? null : Math.round((nowMs - exp) / 1000); // >0 = expired
+    const lease_state = exp == null ? 'none'
+      : lease_age_s >= 0 ? 'expired'
+      : -lease_age_s <= SOON_S ? 'soon' : 'ok';
+    const who = (r.claimed_by || r.assignee || '').toLowerCase() || '(unassigned)';
+    const task = {
+      id: r.id, title: r.title, status: r.status, priority: r.priority,
+      project_id: r.project_id, kind: r.kind,
+      assignee: r.assignee, claimed_by: r.claimed_by,  // claimed_by ships to the UI (drives the swimlanes); not a secret
+      lease_age_s, lease_state
+    };
+    if (!lanes.has(who)) lanes.set(who, { agent: who, tasks: [], expired: 0, soon: 0 });
+    const lane = lanes.get(who);
+    lane.tasks.push(task);
+    if (lease_state === 'expired') lane.expired++;
+    else if (lease_state === 'soon') lane.soon++;
+  }
+  // most-loaded agent first, with any expired-lease lane bubbled to the top (it wants attention)
+  return [...lanes.values()].sort((a, b) =>
+    (b.expired - a.expired) || (b.tasks.length - a.tasks.length) || a.agent.localeCompare(b.agent));
+}
+
+// Stale/reaped log: 'doing' rows whose lease is already in the past (live reap
+// candidates — Agent-a's reapLeases() will free these), plus the recent 'closed'
+// event ledger (the "why" — reason + by). Two distinct sources, returned separately.
+export function staleLog(me, { closedLimit = 15 } = {}) {
+  const staleLeases = db.prepare(
+    `SELECT id, title, assignee, claimed_by, lease_expires_at, project_id, priority
+       FROM tasks
+      WHERE status='doing' AND lease_expires_at IS NOT NULL
+        AND lease_expires_at < datetime('now') AND ${TASKISH} ${vis(me)}
+      ORDER BY lease_expires_at ASC`
+  ).all(me ? { me } : {});
+  const nowMs = Date.now();
+  const toMs = (ts) => ts ? new Date(ts.replace(' ', 'T') + 'Z').getTime() : null;
+  const stale = staleLeases.map((r) => ({
+    id: r.id, title: r.title, project_id: r.project_id, priority: r.priority,
+    assignee: r.assignee, claimed_by: r.claimed_by,
+    lease_age_s: r.lease_expires_at ? Math.round((nowMs - toMs(r.lease_expires_at)) / 1000) : null
+  }));
+  // recent closes from the why-ledger. FAIL CLOSED: INNER JOIN the task + gate visibility IN SQL,
+  // so a close whose task was DELETED (no row) or is owner-private to someone else never appears —
+  // and the LIMIT applies to already-visible rows (no over-fetch/underfill). (codex+adversarial review)
+  const closed = db.prepare(
+    `SELECT e.task_id AS id, e.data AS data, e.at AS at,
+            t.title AS title, t.status AS status, t.project_id AS project_id
+       FROM events e JOIN tasks t ON t.id = e.task_id
+      WHERE e.type='closed' ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ''}
+      ORDER BY e.id DESC LIMIT @lim`
+  ).all({ lim: closedLimit, ...(me ? { me } : {}) })
+    .map((e) => {
+      let reason = '', by = '';
+      try { const d = JSON.parse(e.data || '{}'); reason = d.reason || ''; by = d.by || ''; } catch {}
+      return { id: e.id, title: e.title ?? `#${e.id}`, status: e.status, project_id: e.project_id, at: e.at, reason, by };
+    });
+  return { stale, closed };
+}
+
+// Per-agent + global running counts. closedToday = 'closed' events since local-ish
+// midnight UTC (the DB stores UTC); cheap COUNT off the indexed events table.
+export function boardCounts(me) {
+  // per-status tallies in one pass over the visible task set
+  const byAgent = new Map();
+  const get = (a) => { const k = a || '(unassigned)'; if (!byAgent.has(k)) byAgent.set(k, { agent: k, ready: 0, doing: 0, blocked: 0, review: 0, closedToday: 0 }); return byAgent.get(k); };
+  const global = { ready: 0, doing: 0, blocked: 0, review: 0, closedToday: 0 };
+  // ready = unblocked actionable (todo/up-next), doing, blocked, review — grouped by claimed_by||assignee
+  const rows = db.prepare(
+    `SELECT status, up_next, blocked_on, claimed_by, assignee
+       FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)}`
+  ).all(me ? { me } : {});
+  for (const r of rows) {
+    const who = (r.claimed_by || r.assignee || '').toLowerCase();
+    const a = get(who);
+    if (r.status === 'doing')       { a.doing++; global.doing++; }
+    else if (r.status === 'blocked'){ a.blocked++; global.blocked++; }
+    else if (r.status === 'review') { a.review++; global.review++; }
+    else if ((r.status === 'todo') && (!r.blocked_on)) { a.ready++; global.ready++; }
+  }
+  // closed today (from the events ledger; attribute to the {by} actor when present).
+  // INNER JOIN + vis() so the count never includes closures of tasks this viewer can't see. (review)
+  const closes = db.prepare(
+    `SELECT e.data AS data FROM events e JOIN tasks t ON t.id = e.task_id
+      WHERE e.type='closed' AND e.at >= datetime('now','start of day')
+        ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ''}`
+  ).all(me ? { me } : {});
+  for (const c of closes) {
+    global.closedToday++;
+    let by = ''; try { by = (JSON.parse(c.data || '{}').by || '').toLowerCase(); } catch {}
+    get(by).closedToday++;
+  }
+  return { global, byAgent: Object.fromEntries(byAgent) };
+}
+
+// Visibility-aware READY queue for the board. The agent ready() deliberately skips
+// the human vis() gate (agents see all); the board is a HUMAN view, so it must not
+// surface a private task. Same eligibility predicate as ready(): actionable + unblocked,
+// up-next first then manual rank. Capped — the board shows the head of the queue.
+export const boardReady = (me, limit = 25) => db.prepare(
+  `SELECT id, title, status, priority, up_next, project_id, assignee, kind
+     FROM tasks
+    WHERE status='todo' AND (blocked_on='' OR blocked_on IS NULL)
+      AND ${TASKISH} ${vis(me)}
+    ORDER BY up_next DESC, rank, priority LIMIT @lim`
+).all({ lim: limit, ...(me ? { me } : {}) });
+
+// The whole board in one call. Reuses needsReview() and the new aggregates.
+// `me` is the signed-in human (visibility gate); pass null for an agent (sees all).
+//   { lanes:[{agent,tasks:[{id,title,priority,project_id,lease_age_s,lease_state,...}],expired,soon}],
+//     counts:{ global:{ready,doing,blocked,review,closedToday}, byAgent:{[agent]:{...}} },
+//     review:[task], ready:[task], stale:{ stale:[task], closed:[{id,title,reason,by,at}] },
+//     generatedAt }
+// lease_age_s / lease_state are SERVER-derived (handy + clock-skew-proof); lease_expires_at also ships now.
+export function boardData(me) {
+  // needs-human / escalation lane: status='review' (the human-gated items an agent can't
+  // self-close). Visibility-gated for the human board (needsReview() itself is the agent path).
+  const review = db.prepare(
+    `SELECT id, title, status, priority, project_id, assignee, kind, updated_at
+       FROM tasks WHERE status='review' AND ${TASKISH} ${vis(me)} ORDER BY updated_at DESC`
+  ).all(me ? { me } : {});
+  return {
+    lanes: boardLanes(me),
+    counts: boardCounts(me),
+    review,
+    ready: boardReady(me),              // visible unblocked queue, ordered (up_next, rank, priority)
+    stale: staleLog(me),
+    generatedAt: new Date().toISOString()
+  };
+}
 
 export default db;

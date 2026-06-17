@@ -15,3 +15,6 @@ data/agent-fleet-status.json
 data/sync-corner.log
 # ElevenLabs TTS key — secret; never commit (key itself is out of scope, just ignored here — task-367)
 data/eleven-api-key
+
+# local board verification artifacts (screenshots) — not app source
+_board-verify/
