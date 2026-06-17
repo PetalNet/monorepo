@@ -36,8 +36,8 @@
 
   // agent activity rail — live-wired to in-progress leases (data.activeAgents)
   const KNOWN = [
-    { h: 'claude', color: '#fb923c', cap: 'code · review' },
     { h: 'agent-a', color: '#8b5cf6', cap: 'orchestrate · ops' },
+    { h: 'agent-c', color: '#2dd4bf', cap: 'review · ethics' },
     { h: 'agent-b', color: '#22d3ee', cap: 'research' }
   ];
   const EXTRA_CAP = { codex: 'deep code', agent-d: 'updates', agent-e: 'relay' };
@@ -59,6 +59,10 @@
     fleet?.updated_at ? Math.max(0, Math.round((Date.now() - new Date(fleet.updated_at).getTime()) / 60000)) : null
   );
   const fleetFresh = $derived(fleetAge != null && fleetAge <= 10);
+  // bucket the age (no more "16173m ago"); hide the heartbeat entirely once it's
+  // clearly stale (>1h = the auto-capture writer isn't running) rather than show noise.
+  const fmtAge = (m) => (m == null ? '' : m === 0 ? 'now' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`);
+  const fleetLive = $derived(fleet?.totals && fleetAge != null && fleetAge < 60);
 
   function toggleTheme() {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
@@ -103,11 +107,11 @@
     <div class="sidebar-rail">
       <div class="rail">
         <div class="rail-head"><span class="rail-pulse" class:dim={!anyWorking}></span><span>agent activity</span></div>
-        {#if fleet?.totals}
+        {#if fleetLive}
           <div class="fleet" class:stale={!fleetFresh} title="live agent fleet (heartbeat)">
             <span class="fleet-dot"></span>
             <span class="fleet-nums mono">{fleet.totals.workflows ?? 0} workflow{fleet.totals.workflows === 1 ? '' : 's'} · {fleet.totals.subagents ?? 0} subagent{fleet.totals.subagents === 1 ? '' : 's'}</span>
-            <span class="fleet-age mono">{fleetAge == null ? '' : fleetAge === 0 ? 'now' : fleetAge + 'm ago'}</span>
+            <span class="fleet-age mono">{fmtAge(fleetAge)}</span>
           </div>
         {/if}
         <div class="rail-list">

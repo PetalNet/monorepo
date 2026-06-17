@@ -71,13 +71,12 @@
   </a>
 {/snippet}
 
-<div class="screen board">
+<div class="screen board fleet-wide">
   <header class="page-head">
     <div class="ph-row">
       <h1>fleet</h1>
       <span class="ph-tag mono">at a glance</span>
       <span class="ph-spacer"></span>
-      <a class="back" href="/"><svg width="13" height="13" aria-hidden="true"><use href="#i-board"/></svg> board</a>
     </div>
     <p class="ph-sub mono">
       <span class="hl-a">{g.doing} claimed</span> · {g.ready} ready · {g.review} need review · {g.blocked} blocked · {g.closedToday} closed today
@@ -204,6 +203,9 @@
 </div>
 
 <style>
+  /* the fleet view is a dashboard, not a reading column — give it room
+     (overrides app.css .board.screen 780px; the task board stays narrow). */
+  .screen.fleet-wide { max-width: 1180px; }
   .page-head { margin-bottom: 18px; }
   .ph-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .ph-spacer { flex: 1; }

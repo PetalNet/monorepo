@@ -128,7 +128,6 @@
   <header class="page-head">
     <div class="ph-row">
       <h1>tasks</h1>
-      <span class="ph-tag mono">the future corner</span>
       <span class="ph-spacer"></span>
       <div class="ph-filters">
         <div class="fsel">
