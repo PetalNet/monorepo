@@ -6,6 +6,19 @@
 
   const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
 
+  // Compact lease badge for in-progress rows. lease_expires_at now ships (only
+  // claim_token is scrubbed); snapshot at render, refreshes on reload/nav.
+  function leaseBadge(t) {
+    if (t.status !== 'doing' || !t.lease_expires_at) return null;
+    const s = t.lease_expires_at;
+    const ms = new Date(/[TZ]/.test(s) ? s : s.replace(' ', 'T') + 'Z').getTime();
+    if (isNaN(ms)) return null;
+    const now = Date.now();
+    const a = Math.abs(Math.round((now - ms) / 1000));
+    const mag = a < 60 ? `${a}s` : a < 3600 ? `${Math.round(a / 60)}m` : a < 86400 ? `${Math.round(a / 3600)}h` : `${Math.round(a / 86400)}d`;
+    return { state: now >= ms ? 'expired' : now > ms - 300000 ? 'soon' : 'ok', label: now >= ms ? `${mag} over` : mag };
+  }
+
   function relShort(ts) {
     if (!ts) return '';
     const s = Math.round((Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 1000);
@@ -73,6 +86,7 @@
 <!-- one task row + its subtasks, recursively -->
 {#snippet row(t, kind)}
   {@const pc = whoColor(t.assignee)}
+  {@const lb = leaseBadge(t)}
   <div class="row kind-{kind} st-{t.status ?? 'todo'}" style={pc ? `--pl:${pc}` : ''}>
     <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-{kind}"/></svg></span>
     <a class="row-main" href="/task/{t.id}">
@@ -89,6 +103,7 @@
       {#if t.assignee}
         <span class="avatar" style="width:20px;height:20px;font-size:9px;color:{pc};border-color:{pc};background:{isAgent(t.assignee) ? 'transparent' : pc + '22'};border-style:{isAgent(t.assignee) ? 'dashed' : 'solid'}">{t.assignee.charAt(0).toLowerCase()}</span>
       {/if}
+      {#if lb}<span class="lease lease-{lb.state}" title="lease {lb.label}">{lb.label}</span>{/if}
       <span class="mono dim age">{relShort(t.created_at)}</span>
       <form method="POST" action="?/update" use:enhance>
         <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
@@ -341,6 +356,12 @@
   .link-btn { background: none; border: 0; color: var(--accent-b); font: inherit; cursor: pointer; text-decoration: underline; }
 
   .lane-empty { color: var(--text-4); font-size: 13px; padding: 4px 2px; }
+
+  /* compact lease badge on in-progress rows (mirrors /board + task detail) */
+  .lease { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 9px; white-space: nowrap; }
+  .lease-expired { background: rgba(220,38,38,.14); color: var(--danger-b); }
+  .lease-soon { background: rgba(234,179,8,.14); color: var(--warn-b); }
+  .lease-ok { color: var(--text-4); }
   .lane-head { width: 100%; }
 
   .rcheck { width: 22px; height: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); color: transparent; display: flex; align-items: center; justify-content: center; flex: none; transition: .12s; }

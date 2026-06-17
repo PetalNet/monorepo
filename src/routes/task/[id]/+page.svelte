@@ -3,6 +3,22 @@
   let { data } = $props();
   const t = $derived(data.task);
 
+  // Live lease countdown for in-progress tasks. lease_expires_at now ships to the
+  // browser (only claim_token is scrubbed). Ticks client-side; display-only, so a
+  // skewed clock just drifts a few seconds and self-corrects on reload.
+  let now = $state(Date.now());
+  $effect(() => { const i = setInterval(() => (now = Date.now()), 15000); return () => clearInterval(i); });
+  const toMs = (s) => (s ? new Date(/[TZ]/.test(s) ? s : s.replace(' ', 'T') + 'Z').getTime() : NaN);
+  function leaseInfo(expires) {
+    const ms = toMs(expires);
+    if (isNaN(ms)) return null;
+    const s = Math.round((now - ms) / 1000); // >0 = overdue
+    const a = Math.abs(s);
+    const mag = a < 60 ? `${a}s` : a < 3600 ? `${Math.round(a / 60)}m` : a < 86400 ? `${Math.round(a / 3600)}h` : `${Math.round(a / 86400)}d`;
+    return { state: s >= 0 ? 'expired' : s > -300 ? 'soon' : 'ok', label: s >= 0 ? `${mag} overdue` : `expires in ${mag}` };
+  }
+  const lease = $derived(leaseInfo(t.lease_expires_at));
+
   const PERSON = { claude:'#fb923c', agent-a:'#8b5cf6', agent-b:'#22d3ee', alice:'#fb7185', alice:'#fb7185', bob:'#38bdf8', bob:'#38bdf8', codex:'#a3e635', agent-d:'#f472b6', agent-e:'#facc15' };
   const AGENTS = ['claude', 'agent-a', 'agent-b', 'codex', 'agent-d', 'agent-e'];
   const hue = (s) => { let h = 0; for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
@@ -240,6 +256,7 @@
     <div class="live-bar">
       {#if t.assignee}<span class="agent-badge">{@render avatar(t.assignee, 20)} <span style="color:{whoColor(t.assignee)}">{t.assignee}</span></span>{/if}
       <span class="lb-txt mono">in progress{t.capability ? ` · ${t.capability}` : ''}</span>
+      {#if lease}<span class="lease lease-{lease.state}" title="lease {lease.label}">{t.claimed_by ? `leased to ${t.claimed_by} · ` : ''}{lease.label}</span>{/if}
     </div>
   {/if}
 
@@ -607,6 +624,12 @@
   /* verification chips not in base set */
   .verif.v-verified { background: var(--accent-bg); color: var(--accent-b); }
   .verif.v-rejected { background: rgba(220,38,38,.12); color: var(--danger-b); }
+
+  /* live lease countdown pill (mirrors /board's lease styles) */
+  .lease { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+  .lease-expired { background: rgba(220,38,38,.14); color: var(--danger-b); }
+  .lease-soon { background: rgba(234,179,8,.14); color: var(--warn-b); }
+  .lease-ok { color: var(--text-4); }
 
   /* worker result */
   .result {
