@@ -33,7 +33,17 @@ Then, the things that bit slide:
 
 ## Migrated
 
-_(populated as repos land — see issue #1 for the live checklist)_
+- `slide` → `apps/slide`
+- `CollegeMap` → `apps/collegemap`
+- `PetalBoard` → `apps/petalboard` — SvelteKit + Prisma 5 (sqlite) event board.
+  Kept on the Prisma 5 catalog (plain `prisma-client-js` generator, no Prisma 6
+  features) and added `prisma generate` to build/prepare. Dropped standalone
+  `deploy.ps1` (PowerShell deploy-to-a-box), dev-only `@vitejs/plugin-basic-ssl`,
+  and unused `@sveltejs/adapter-auto`. Allowlisted Prisma aggregate keys
+  (`_count`/`_sum`/…) for oxlint's `no-underscore-dangle`. No secrets in source
+  or history (the `.env.example` / `*_SETUP.md` docs are placeholders only).
+
+_(see issue #1 for the live checklist)_
 
 ## Excluded
 
