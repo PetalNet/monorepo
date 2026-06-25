@@ -195,8 +195,7 @@
               <circle class="ring-seg" cx="42" cy="42" r={R} stroke={a.stroke} stroke-dasharray={a.dash} stroke-dashoffset={a.dashoffset} />
             {/each}
           </g>
-          <text class="ring-ctr-n mono" x="42" y="40" text-anchor="middle" dominant-baseline="central">{g.focus.total}</text>
-          <text class="ring-ctr-l mono" x="42" y="56" text-anchor="middle">on your plate</text>
+          <text class="ring-ctr-n mono" x="42" y="42" text-anchor="middle" dominant-baseline="central">{g.focus.total}</text>
         </svg>
         <div class="ring-legend">
           <span class="ring-key ky"><span class="sw"></span><b class="mono">{g.focus.needsYou}</b> need you</span>

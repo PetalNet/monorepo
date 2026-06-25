@@ -237,7 +237,7 @@
   .lease-ok { color: var(--text-4); }
   .lease-none { color: var(--text-4); }
 
-  .reap-row { border-left: 3px solid var(--danger); }
+  .reap-row .row-ic { color: var(--danger-b); }   /* cue via the block icon, not a side-stripe */
   .closed-row { text-decoration: none; }
   .closed-row .row-title { text-decoration: line-through; text-decoration-color: var(--text-4); }
   .close-reason { color: var(--text-3); font-size: 12px; line-height: 1.35; }

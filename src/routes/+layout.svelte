@@ -74,7 +74,6 @@
   <label class="sheet-bd" for="more-tgl" aria-hidden="true"></label>
   <div class="sheet" role="dialog" aria-label="More">
     <h3>More</h3>
-    <a href="/issues"><Icon name="iopen" size={20} />Issues</a>
     <a href="/docs"><Icon name="doc" size={20} />Docs</a>
     <a href="/gallery"><Icon name="gallery" size={20} />Gallery</a>
     <a href="/projects"><Icon name="projects" size={20} />Projects</a>

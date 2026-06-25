@@ -17,12 +17,11 @@
     return false;
   };
 
-  // Grouped nav (Inbox folded into the Desk; Fleet lives as the live status block below).
+  // Nav: Inbox folded into the Desk; Issues retired (Bob); Fleet is the status card below.
   const groups = [
-    { label: null, items: [{ id: 'desk', label: 'Desk', href: '/', icon: 'desk' }] },
-    { label: 'Work', items: [
+    { label: null, items: [
+      { id: 'desk', label: 'Desk', href: '/', icon: 'desk' },
       { id: 'browse', label: 'Browse', href: '/browse', icon: 'board' },
-      { id: 'issues', label: 'Issues', href: '/issues', icon: 'iopen' },
     ]},
     { label: 'Library', items: [
       { id: 'docs', label: 'Docs', href: '/docs', icon: 'doc' },
@@ -111,12 +110,15 @@
   .collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; gap: 0; }
   .collapsed .wordmark { opacity: 0; width: 0; }
 
+  /* primary action — SOLID accent fill so it's clearly distinct from the active-tab tint */
   .new-btn { display: flex; align-items: center; gap: 10px; margin: 0 2px 10px; padding: 9px 11px;
     border-radius: var(--radius); text-decoration: none; white-space: nowrap;
-    color: var(--accent-b); background: var(--accent-bg);
-    font-size: 13px; font-weight: 600; transition: background .14s; }
+    color: #1a1205; background: var(--accent);
+    font-size: 13px; font-weight: 650; transition: background .14s; }
+  :global(html.skin-paper-ink[data-theme='light']) .new-btn,
+  :global(html.skin-paper-ink [data-theme='light']) .new-btn { color: #fff; }
   .new-btn :global(svg) { flex-shrink: 0; }
-  .new-btn:hover { background: color-mix(in srgb, var(--accent) 16%, var(--surface-1)); }
+  .new-btn:hover { background: var(--accent-b); }
   .collapsed .new-btn { justify-content: center; padding-left: 0; padding-right: 0; }
   .collapsed .new-btn .lbl { display: none; }
 
