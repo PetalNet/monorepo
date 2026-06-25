@@ -3,9 +3,7 @@ env.FORCE_COLOR = "1"
 env.CARGO_TERM_COLOR = "always"
 
 [jobs.run]
-command = [
-    "cargo", "run"
-]
+command = ["cargo", "run"]
 need_stdout = true
 allow_warnings = true
 background = false

@@ -26,7 +26,6 @@ cargo build --release
 cargo fmt && cargo clippy
 ```
 
-
 ## Run
 
 You can use flags or environment variables.
