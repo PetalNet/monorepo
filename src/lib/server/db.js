@@ -553,6 +553,23 @@ export const inbox   = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind=
 export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a)), me);
 // recently-shipped (top-level), capped — a "done" lane so the board shows momentum
 export const recentDone = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='done' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY updated_at DESC LIMIT 12`).all(qargs(p, me, a));
+// global title/body search (the top-bar search box). Visibility-gated like every list, open items
+// first then done, dropped excluded. LIKE wildcards in the user's term are escaped so a literal
+// '%' or '_' matches itself. Capped — this is a quick jump-to, not a report.
+export const searchTasks = (q, me) => {
+  const term = `%${String(q || '').replace(/[\\%_]/g, '\\$&')}%`;
+  const params = { q: term };
+  if (me) params.me = me;
+  return db.prepare(
+    `SELECT id, title, kind, status, priority, project_id, assignee, owner, visibility, updated_at
+       FROM tasks
+      WHERE status != 'dropped'
+        AND (title LIKE @q ESCAPE '\\' OR body LIKE @q ESCAPE '\\')
+        ${vis(me)}
+      ORDER BY (status='done') ASC, priority, updated_at DESC
+      LIMIT 60`
+  ).all(params);
+};
 // who's actively on something right now (incl. subtasks) — feeds the live agent rail
 export const activeLeases = (me) => db.prepare(`SELECT id, title, assignee, project_id FROM tasks WHERE status='doing' AND assignee IS NOT NULL AND assignee!='' ${vis(me)} ORDER BY updated_at DESC`).all(me ? { me } : {});
 // flat GitHub-style issues list — every actionable item (not docs) + its comment count, for the /issues view

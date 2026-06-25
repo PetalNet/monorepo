@@ -2,7 +2,8 @@
   import { page } from '$app/stores';
   import Icon from '$lib/Icon.svelte';
 
-  let { me = 'dev', whoName = 'dev', collapsed = $bindable(false), fleet = null, onToggleTheme } = $props();
+  // Account moved UP to the top bar (task-499); the sidebar foot is now the live Fleet card.
+  let { collapsed = $bindable(false), fleet = null } = $props();
 
   const path = $derived($page.url.pathname);
   const isActive = (n) => {
@@ -32,6 +33,7 @@
 
   const agents = $derived(fleet?.agents ?? []);
   const working = $derived(fleet?.totals?.working ?? 0);
+  const online = $derived(fleet?.totals?.online ?? 0);
 </script>
 
 <aside class="nav" class:collapsed>
@@ -58,34 +60,27 @@
     {/each}
   </nav>
 
-  <!-- live fleet status (clickable → /fleet) — restored to the sidebar -->
-  <a class="fleet" class:on={isActive('fleet')} href="/fleet" aria-label="Agent fleet — {working} working">
+  <!-- FOOT: the live Fleet — full known roster, greyed when offline. Clickable → /fleet. -->
+  <a class="fleet" class:on={isActive('fleet')} href="/fleet"
+     aria-label="Agent fleet — {working} working, {online} online of {agents.length}">
     <div class="fleet-head">
       <Icon name="bolt" size={16} />
       <span class="lbl">Fleet</span>
-      <span class="fleet-n">{working}</span>
+      <span class="fleet-n" class:live={working > 0}>{working ? `${working} working` : `${online}/${agents.length}`}</span>
     </div>
     {#if !collapsed && agents.length}
       <div class="fleet-list">
-        {#each agents.slice(0, 4) as a}
-          <span class="fa" title="{a.handle} · {a.status}">
-            <span class="fa-dot s-{a.status}"></span><span class="fa-h">{a.handle}</span>
+        {#each agents as a}
+          <span class="fa" class:off={a.offline} title="{a.handle}{a.host ? ` · ${a.host}` : ''} · {a.offline ? (a.never_seen ? 'never reported' : 'offline') : a.status}{a.current_tool ? ` · ${a.current_tool}` : ''}">
+            <span class="fa-dot s-{a.status}"></span>
+            <span class="fa-h">{a.handle}</span>
+            {#if a.status === 'working'}<span class="fa-x mono">working</span>
+            {:else if a.offline}<span class="fa-x off">offline</span>{/if}
           </span>
         {/each}
       </div>
     {/if}
   </a>
-
-  <div class="foot">
-    <span class="avatar usr">{whoName.charAt(0)}</span>
-    <span class="who">
-      <span class="nm">{whoName}</span>
-      <span class="sub mono">@{me}</span>
-    </span>
-    <button class="theme" onclick={onToggleTheme} title="Theme" aria-label="Toggle theme">
-      <Icon name="moon" size={16} />
-    </button>
-  </div>
 </aside>
 
 <style>
@@ -139,39 +134,32 @@
   .collapsed .item { justify-content: center; padding-left: 0; padding-right: 0; gap: 0; }
   .collapsed .item .lbl { display: none; }
 
-  /* fleet status — clickable, live agent dots */
-  .fleet { display: block; margin: 8px 2px 2px; padding: 9px 11px; border-radius: var(--radius);
-    text-decoration: none; color: var(--text-3); transition: background .14s; }
-  .fleet:hover { background: var(--surface-2); color: var(--text-1); }
-  .fleet.on { background: var(--accent-bg); color: var(--accent-b); }
-  .fleet-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  /* FOOT: live Fleet — full roster, the sidebar's bottom anchor (clickable → /fleet) */
+  .fleet { display: block; margin-top: 8px; padding: 11px 9px 4px; border-top: 1px solid var(--border-sub);
+    text-decoration: none; color: var(--text-3); transition: color .14s; }
+  .fleet:hover { color: var(--text-1); }
+  .fleet:hover .fleet-head .lbl { color: var(--text-1); }
+  .fleet.on .fleet-head .lbl { color: var(--accent-b); }
+  .fleet-head { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em; color: var(--text-4); white-space: nowrap; }
   .fleet-head :global(svg) { flex-shrink: 0; }
-  .fleet-head .lbl { letter-spacing: .01em; }
-  .fleet-head .fleet-n { margin-left: auto; font-family: var(--mono); font-size: 11px;
-    background: var(--surface-3); color: var(--text-2); border-radius: 999px; padding: 1px 8px; }
+  .fleet-head .fleet-n { margin-left: auto; font-family: var(--mono); font-size: 10.5px;
+    letter-spacing: 0; text-transform: none; font-weight: 500; color: var(--text-4); }
+  .fleet-head .fleet-n.live { color: var(--violet); }
   .collapsed .fleet { text-align: center; padding-left: 0; padding-right: 0; }
   .collapsed .fleet-head { justify-content: center; }
   .collapsed .fleet-head .lbl, .collapsed .fleet-head .fleet-n { display: none; }
-  .fleet-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-  .fa { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-3); min-width: 0; }
-  .fa-h { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fleet-list { display: flex; flex-direction: column; gap: 0; margin-top: 7px; }
+  .fa { display: flex; align-items: center; gap: 8px; padding: 4px 3px; font-size: 12.5px; color: var(--text-2);
+    min-width: 0; }
+  .fa.off { color: var(--text-4); }
+  .fa-h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fa-x { margin-left: auto; font-size: 9px; text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+  .fa-x.off { color: var(--text-4); }
+  .fa .fa-x:not(.off) { color: var(--violet); }
   .fa-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--text-4); }
   .fa-dot.s-working { background: var(--violet); }
   .fa-dot.s-alive { background: var(--info); }
-  .fa-dot.s-idle { background: var(--text-4); }
-  .fa-dot.s-offline { background: var(--text-4); opacity: .45; }
-
-  .foot { display: flex; align-items: center; gap: 10px; margin-top: 8px;
-    padding: 11px 6px 4px; border-top: 1px solid var(--border-sub); }
-  .foot .usr { width: 30px; height: 30px; font-size: 13px;
-    color: var(--accent-b); border-color: var(--accent); background: var(--accent-bg); }
-  .who { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; flex: 1;
-    white-space: nowrap; transition: opacity .16s; }
-  .who .nm { font-size: 13px; font-weight: 600; color: var(--text-1); }
-  .who .sub { font-size: 10.5px; color: var(--text-4); }
-  .theme { width: 30px; height: 30px; flex-shrink: 0; display: grid; place-items: center;
-    border-radius: var(--radius); color: var(--text-3); }
-  .theme:hover { background: var(--surface-2); color: var(--text-1); }
-  .collapsed .foot { justify-content: center; padding-left: 0; padding-right: 0; }
-  .collapsed .who, .collapsed .theme { display: none; }
+  .fa-dot.s-idle { background: var(--text-3); }
+  .fa-dot.s-offline { background: var(--text-4); opacity: .4; }
 </style>

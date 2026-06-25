@@ -7,7 +7,7 @@
     FileText, Lightbulb, Zap, Check, Ban, ArrowRight, Plus, Lock, StickyNote,
     Moon, Sun, CircleDot, CircleCheck, MessageSquare, Images, MoreHorizontal,
     ChevronDown, ChevronLeft, ChevronRight, Flame, Activity, Clock, ShieldCheck,
-    ListChecks, PanelLeftClose, PanelLeft, Pencil, X
+    ListChecks, PanelLeftClose, PanelLeft, Pencil, X, Search, LogOut
   } from 'lucide-svelte';
 
   const MAP = {
@@ -21,8 +21,8 @@
     iopen: CircleDot, iclosed: CircleCheck, fire: Flame, pulse: Activity,
     clock: Clock, shield: ShieldCheck, edit: Pencil, close: X,
     // chrome
-    more: MoreHorizontal, car: ChevronDown, chevdown: ChevronDown,
-    chevleft: ChevronLeft, chevright: ChevronRight,
+    more: MoreHorizontal, chevdown: ChevronDown,
+    chevleft: ChevronLeft, chevright: ChevronRight, search: Search, signout: LogOut,
     collapse: PanelLeftClose, expand: PanelLeft, brand: ListChecks
   };
 
