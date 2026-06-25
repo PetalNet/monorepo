@@ -59,27 +59,6 @@ pnpm run preview      # Preview the production build
 pnpm exec prisma studio  # Inspect the database UI
 ```
 
-## Deploy with Docker
-
-To build and run PetalBoard in a production-style container you only need Docker and PowerShell. The
-included `deploy.ps1` script clones the repository (if needed), builds the Docker image, and runs the
-container on a rarely used port (`4173`). Persistent SQLite data is stored in a `data/` directory next
-to the cloned repo so it survives restarts.
-
-```powershell
-git clone https://github.com/petalboard/petalboard.git
-cd petalboard
-./deploy.ps1
-```
-
-After the script finishes, visit <http://localhost:4173>. To stop and remove the container later, run:
-
-```powershell
-docker rm -f petalboard-app
-```
-
-You can change the published port by supplying `-Port <port>` to `deploy.ps1`.
-
 ## Project structure
 
 ```
