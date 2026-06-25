@@ -260,9 +260,16 @@ function ensureIndexes() {
     'CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_upnext ON tasks(up_next)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source)',
+    // assignee: board lanes + listAssignees/activeLeases/MCP filters all do `WHERE assignee=?`
+    // (whoFilter); kind: issuesList/listDocs/allDocs filter `kind IN (...)` (task-280 audit).
+    'CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee)',
+    'CREATE INDEX IF NOT EXISTS idx_tasks_kind ON tasks(kind)',
     'CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, at)',
     'CREATE INDEX IF NOT EXISTS idx_events_type_at ON events(type, at)',  // board: closedToday + closed ledger
-    'CREATE INDEX IF NOT EXISTS idx_annotations_page ON annotations(page_path)'
+    'CREATE INDEX IF NOT EXISTS idx_annotations_page ON annotations(page_path)',
+    // blocker_id-leading lookups (cascadeUnblock, blocks(), removeBlocker) aren't covered by the
+    // task_blockers PK (task_id, blocker_id), so index the reverse direction (task-280 audit).
+    'CREATE INDEX IF NOT EXISTS idx_blockers_blocker ON task_blockers(blocker_id)'
   ]) db.exec(sql);
 }
 ensureIndexes();
