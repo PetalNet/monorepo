@@ -1,0 +1,12 @@
+ignoredBuiltDependencies:
+  - "@prisma/client"
+
+onlyBuiltDependencies:
+  - "@prisma/engines"
+  - esbuild
+  - prisma
+
+# Minimal workspace package globs so pnpm treats this repo as a workspace.
+# For a single-package repo this can be just ['.'].
+packages:
+  - "."

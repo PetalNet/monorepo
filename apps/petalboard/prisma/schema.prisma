@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  passwordHash      String
+  name              String
+  emailVerified     Boolean  @default(false)
+  verificationToken String?  @unique
+  spotifyAccessToken  String?
+  spotifyRefreshToken String?
+  spotifyTokenExpiry  DateTime?
+  events            Event[]
+  sessions          Session[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id           String     @id @default(cuid())
+  title        String
+  description  String?
+  date         DateTime
+  endDate      DateTime?
+  timezone     String     @default("America/New_York") // IANA timezone identifier
+  location     String?
+  rsvpLimit    Int?
+  publicCode   String     @unique
+  manageToken  String     @unique
+  spotifyPlaylistId String?
+  theme        String     @default("light") // "light" or "dark"
+  primaryColor String?    // Hex color for primary theme
+  secondaryColor String?  // Hex color for secondary theme
+  backgroundImage String? // URL to background image
+  emoji        String?    // Event emoji/icon
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questions    Question[]
+  rsvps        Rsvp[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Question {
+  id                 String     @id @default(cuid())
+  eventId            String
+  event              Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  type               String     // "text", "multiple_choice", "checkbox", "slots", "spotify_playlist"
+  label              String
+  description        String?
+  required           Boolean    @default(false)
+  order              Int        @default(0)
+  options            String?    // JSON array for multiple_choice/checkbox options - can include {label, quantity} per option
+  quantity           Int?       // Global quantity limit (e.g., max responses for entire question)
+  limitPerOption     Boolean    @default(false) // If true, quantity limits apply per option instead of globally
+  isPublic           Boolean    @default(false) // If true, responses are visible to all attendees
+  spotifyPlaylistId  String?    // Spotify playlist ID for spotify_playlist type questions
+  songsPerUser       Int?       // Max number of songs each user can add (for spotify_playlist type)
+  responses          Response[]
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+}
+
+model Rsvp {
+  id          String     @id @default(cuid())
+  name        String
+  email       String?
+  status      String     @default("attending") // "attending", "maybe", "not_attending"
+  guestCount  Int        @default(1)
+  pinHash     String
+  eventId     String
+  event       Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  responses   Response[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([eventId, pinHash])
+}
+
+model Response {
+  id         String   @id @default(cuid())
+  rsvpId     String
+  rsvp       Rsvp     @relation(fields: [rsvpId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  value      String   // JSON for multiple values (checkbox) or simple text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([rsvpId, questionId])
+}
