@@ -1,6 +1,7 @@
 <script>
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
+  import Icon from '$lib/Icon.svelte';
 
   let { data } = $props();
 
@@ -11,8 +12,12 @@
   const me = $derived(String(data.me || 'dev').toLowerCase());
   const whoName = $derived(WHO[me] ?? (me.charAt(0).toUpperCase() + me.slice(1)));
 
-  // time-of-day greeting + clock (client-rendered; harmless if it differs by a tick)
+  // time-of-day greeting + live clock — the desk shows live data, so it ticks every second
   let now = $state(new Date());
+  $effect(() => {
+    const id = setInterval(() => { now = new Date(); }, 1000);
+    return () => clearInterval(id);
+  });
   const greetWord = $derived(now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening');
   const clock = $derived(now.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase() + ' ' +
     now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }));
@@ -128,7 +133,7 @@
     </div>
     <div class="filters">
       <span class="fsel">
-        <svg width="13" height="13" aria-hidden="true"><use href="#i-projects"/></svg>
+        <Icon name="projects" size={13} />
         <select onchange={pickProject} aria-label="Project">
           <option value="">all projects</option>
           {#each data.projects as p}<option value={p.name}>{p.name}</option>{/each}
@@ -150,7 +155,7 @@
 
     <!-- momentum -->
     <div class="gcard g-mom">
-      <div class="gc-head"><span class="gc-ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-pulse"/></svg></span>Momentum</div>
+      <div class="gc-head"><span class="gc-ic"><Icon name="pulse" size={13} /></span>Momentum</div>
       <div class="mom-top"><span class="mom-n mono">{g.momentum.closedToday}</span><span class="mom-unit">closed today</span></div>
       <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="closes per day over 14 days">
         <line x1="0" y1="28" x2="100" y2="28" stroke="var(--border)" stroke-width="1.2" />
@@ -164,7 +169,7 @@
 
     <!-- backlog by priority -->
     <div class="gcard g-bl">
-      <div class="gc-head"><span class="gc-ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-board"/></svg></span>Backlog · {bl.total} open</div>
+      <div class="gc-head"><span class="gc-ic"><Icon name="board" size={13} /></span>Backlog · {bl.total} open</div>
       <div class="bl-bar" role="img" aria-label="Backlog by priority: P0 {bl.p0}, P1 {bl.p1}, P2 {bl.p2}, P3 {bl.p3}">
         <span class="bl-seg bl-p0" style="width:{bl.w0}%"></span>
         <span class="bl-seg bl-p1" style="width:{bl.w1}%"></span>
@@ -181,7 +186,7 @@
 
     <!-- focus ring -->
     <div class="gcard g-ring">
-      <div class="gc-head"><span class="gc-ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-question"/></svg></span>Your focus</div>
+      <div class="gc-head"><span class="gc-ic"><Icon name="question" size={13} /></span>Your focus</div>
       <div class="ring-wrap">
         <svg class="ring" viewBox="0 0 84 84" role="img" aria-label="Focus: {g.focus.needsYou} need you, {g.focus.onFire} on fire, {g.focus.inFlight} in flight">
           <circle class="ring-bg" cx="42" cy="42" r={R} />
@@ -205,7 +210,7 @@
 
   <!-- quick capture -->
   <form class="capture" method="POST" action="?/capture" use:enhance={() => ({ update }) => update({ reset: true })}>
-    <svg width="18" height="18" aria-hidden="true"><use href="#i-plus"/></svg>
+    <Icon name="plus" size={18} />
     <input name="title" placeholder="Capture an idea or task…" autocomplete="off" aria-label="Capture an idea or task" />
     <kbd class="mono">↵</kbd>
   </form>
@@ -216,14 +221,14 @@
     {#if data.onFire.length}
       <section class="lane lane-fire">
         <div class="lane-head">
-          <span class="lane-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-fire"/></svg></span>
+          <span class="lane-ic"><Icon name="fire" size={15} /></span>
           <h2>On fire</h2><span class="lane-count">{data.onFire.length}</span>
           <span class="lane-sub">open P0s</span>
         </div>
         <div class="list">
           {#each data.onFire as t (t.id)}
             <a class="row" href="/task/{t.id}">
-              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-fire"/></svg></span>
+              <span class="row-ic"><Icon name="fire" size={16} /></span>
               <div class="row-main">
                 <span class="row-title">{t.title}</span>
                 <span class="row-sub">
@@ -243,7 +248,7 @@
     {#if data.needsYou.length}
       <section class="lane lane-you">
         <div class="lane-head">
-          <span class="lane-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-question"/></svg></span>
+          <span class="lane-ic"><Icon name="question" size={15} /></span>
           <h2>Needs you</h2><span class="lane-count">{data.needsYou.length}</span>
           <span class="lane-sub">decisions you owe + tasks on you</span>
         </div>
@@ -252,7 +257,7 @@
             {#if t.reason === 'question'}
               {@const opts = (() => { try { return JSON.parse(t.options || '[]'); } catch { return []; } })()}
               <div class="row row-q">
-                <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-question"/></svg></span>
+                <span class="row-ic"><Icon name="question" size={16} /></span>
                 <div class="row-main">
                   <a class="row-title" href="/task/{t.id}">{t.title}</a>
                   <span class="row-sub"><span class="tasknum mono">#{t.id}</span><span class="dim mono">decision · agent blocked on you</span></span>
@@ -273,7 +278,7 @@
               </div>
             {:else}
               <a class="row" href="/task/{t.id}">
-                <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-task"/></svg></span>
+                <span class="row-ic"><Icon name="task" size={16} /></span>
                 <div class="row-main">
                   <span class="row-title">{t.title}</span>
                   <span class="row-sub">
@@ -295,7 +300,7 @@
     {#if data.inFlight.length}
       <section class="lane lane-flight">
         <div class="lane-head">
-          <span class="lane-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-pulse"/></svg></span>
+          <span class="lane-ic"><Icon name="pulse" size={15} /></span>
           <h2>In flight</h2><span class="lane-count">{data.inFlight.length}</span>
           <span class="lane-sub">what's moving right now</span>
         </div>
@@ -320,16 +325,49 @@
       </section>
     {/if}
 
+    <!-- INBOX (folded into the desk; the standalone /inbox page is no longer needed for the daily view) -->
+    {#if data.inbox?.length}
+      <section class="lane lane-inbox">
+        <div class="lane-head">
+          <span class="lane-ic"><Icon name="inbox" size={15} /></span>
+          <h2>Inbox</h2><span class="lane-count">{data.inbox.length}</span>
+          <span class="lane-sub">captured ideas waiting to be triaged</span>
+        </div>
+        <div class="list">
+          {#each data.inbox as t (t.id)}
+            <a class="row" href="/task/{t.id}">
+              <span class="row-ic"><Icon name="idea" size={16} /></span>
+              <div class="row-main">
+                <span class="row-title">{t.title}</span>
+                <span class="row-sub">
+                  <span class="tasknum mono">#{t.id}</span>
+                  {@render prioChip(t.priority)}
+                  {#if projName(t.project_id)}<span class="dim mono">{projName(t.project_id)}</span>{/if}
+                </span>
+              </div>
+              <span class="row-right"><span class="act act-review">Triage</span></span>
+            </a>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     <!-- WHAT CHANGED TODAY -->
     {#if data.changedToday.length}
       <section class="lane">
         <div class="lane-head">
-          <span class="lane-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-clock"/></svg></span>
+          <span class="lane-ic"><Icon name="clock" size={15} /></span>
           <h2>What changed today</h2><span class="lane-count">{data.changedToday.length}</span>
         </div>
-        <p class="changed">
-          {#each data.changedToday as c, i (c.id)}{#if i > 0} · {/if}<a class="ch-item" href="/task/{c.id}"><b class="ok">closed</b> <span class="mono">#{c.id}</span></a>{#if c.by} <span class="mono dim">{c.by}</span>{/if}{/each}
-        </p>
+        <div class="changed">
+          {#each data.changedToday as c (c.id)}
+            <a class="ch-item" href="/task/{c.id}">
+              <b class="ok">closed</b>
+              <span class="ch-id mono">#{c.id}</span>
+              {#if c.by}<span class="ch-sep" aria-hidden="true">·</span><span class="ch-by mono dim">by {c.by}</span>{/if}
+            </a>
+          {/each}
+        </div>
       </section>
     {/if}
 
@@ -341,9 +379,9 @@
 
   <!-- one door to the firehose -->
   <a class="browse" href="/browse">
-    <span class="bz-ic"><svg width="20" height="20" aria-hidden="true"><use href="#i-board"/></svg></span>
+    <span class="bz-ic"><Icon name="board" size={20} /></span>
     <span class="bz-txt"><b>Browse all tasks</b><span>{g.backlog.total} open across every lane &amp; project</span></span>
-    <span class="bz-go"><svg width="18" height="18" aria-hidden="true"><use href="#i-arrow"/></svg></span>
+    <span class="bz-go"><Icon name="arrow" size={18} /></span>
   </a>
 
   <div class="foot mono dim">SQLite-backed · your desk</div>
@@ -444,6 +482,7 @@
   .lane-you .lane-head h2, .lane-you .lane-ic { color: var(--violet-b); }
   .lane-fire .lane-head h2, .lane-fire .lane-ic { color: var(--danger-b); }
   .lane-flight .lane-head h2, .lane-flight .lane-ic { color: var(--accent-b); }
+  .lane-inbox .lane-ic { color: var(--text-3); }
 
   .list { display: flex; flex-direction: column; gap: 6px; }
 
@@ -504,14 +543,18 @@
   .ag-task { font-size: 13.5px; color: var(--text-2); min-width: 0; }
   .ag-task .tasknum { font-size: 10.5px; }
 
-  /* WHAT CHANGED */
-  .changed { padding: 13px 15px; background: var(--surface-1); border: 1px solid var(--border-sub);
-    border-radius: var(--radius); font-size: 13px; line-height: 1.9; color: var(--text-3); }
-  .changed .ch-item { text-decoration: none; }
+  /* WHAT CHANGED — each close is its own readable entry: action · #id · by actor */
+  .changed { display: flex; flex-wrap: wrap; gap: 7px; padding: 13px 15px; background: var(--surface-1);
+    border: 1px solid var(--border-sub); border-radius: var(--radius); font-size: 13px; color: var(--text-3); }
+  .changed .ch-item { display: inline-flex; align-items: baseline; gap: 6px; text-decoration: none;
+    padding: 4px 10px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border-sub); }
+  .changed .ch-item:hover { border-color: var(--border); }
   .changed .ch-item:hover b { text-decoration: underline; }
   .changed b { font-weight: 600; }
   .changed .ok { color: var(--violet-b); }
-  .changed .mono { font-size: 11.5px; }
+  .changed .ch-id { font-size: 11.5px; color: var(--text-2); }
+  .changed .ch-sep { color: var(--text-4); }
+  .changed .ch-by { font-size: 11.5px; }
 
   .all-clear { margin-top: 26px; padding: 20px; text-align: center; font-size: 13px; color: var(--text-3);
     border: 1px dashed var(--border); border-radius: var(--radius-lg); }

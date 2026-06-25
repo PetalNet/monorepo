@@ -1,4 +1,5 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
   let { data } = $props();
   let tab = $state('open');
 
@@ -39,15 +40,15 @@
 
   <div class="iss-list">
     <div class="iss-tabs">
-      <button class:on={tab === 'open'} onclick={() => (tab = 'open')}><svg width="15" height="15" aria-hidden="true"><use href="#i-iopen"/></svg> {data.open.length} Open</button>
-      <button class:on={tab === 'closed'} onclick={() => (tab = 'closed')}><svg width="15" height="15" aria-hidden="true"><use href="#i-iclosed"/></svg> {data.closed.length} Closed</button>
+      <button class:on={tab === 'open'} onclick={() => (tab = 'open')}><Icon name="iopen" size={15} /> {data.open.length} Open</button>
+      <button class:on={tab === 'closed'} onclick={() => (tab = 'closed')}><Icon name="iclosed" size={15} /> {data.closed.length} Closed</button>
     </div>
 
     {#each list as it (it.id)}
       {@const closed = it.status === 'done' || it.status === 'dropped'}
       {@const author = it.created_by || it.responsible || it.assignee}
       <a class="iss-row" href="/task/{it.id}">
-        <span class="iss-ic {closed ? 'closed' : 'open'}"><svg width="17" height="17" aria-hidden="true"><use href="#i-{closed ? 'iclosed' : 'iopen'}"/></svg></span>
+        <span class="iss-ic {closed ? 'closed' : 'open'}"><Icon name={closed ? 'iclosed' : 'iopen'} size={17} /></span>
         <span class="iss-main">
           <span class="iss-title-row">
             <span class="iss-title">{it.title}</span>
@@ -63,7 +64,7 @@
         </span>
         <span class="iss-right">
           {#if it.assignee}{@render avatar(it.assignee, 20)}{/if}
-          {#if it.ncomments > 0}<span class="iss-comments"><svg width="13" height="13" aria-hidden="true"><use href="#i-comment"/></svg> {it.ncomments}</span>{/if}
+          {#if it.ncomments > 0}<span class="iss-comments"><Icon name="comment" size={13} /> {it.ncomments}</span>{/if}
         </span>
       </a>
     {:else}

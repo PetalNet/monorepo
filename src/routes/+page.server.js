@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import {
   cockpitData, listProjects, listAssignees, deepScrub,
-  ensureProject, createTask, updateTask, answerQuestion, canWrite
+  ensureProject, createTask, updateTask, answerQuestion, canWrite, inbox
 } from '$lib/server/db.js';
 import { getFleet } from '$lib/server/fleet.js';
 
@@ -18,6 +18,7 @@ export function load({ locals }) {
   return deepScrub({
     ...data,
     fleet,                                     // for the in-flight lane's live agent join
+    inbox: inbox(null, me, null),              // captured ideas (folded into the desk; same vis-gating)
     projects: listProjects(me),                // project-name lookup + filter dropdown
     assignees: listAssignees(me),
     me

@@ -1,4 +1,5 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
   import { enhance } from '$app/forms';
   let { data } = $props();
   const PERSON = { claude:'#fb923c', agent-a:'#8b5cf6', agent-b:'#22d3ee', alice:'#fb7185', alice:'#fb7185', bob:'#38bdf8', bob:'#38bdf8' };
@@ -26,7 +27,7 @@
           </div>
           <div class="pc-meta">
             <span class="pc-vis">
-              <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg>
+              <Icon name="lock" size={12} />
               {p.visibility}{#if p.owner} · {p.owner}{/if}
             </span>
             <a class="pc-board mono" href="/?project={encodeURIComponent(p.name)}">on board →</a>

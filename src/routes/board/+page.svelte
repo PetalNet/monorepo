@@ -1,4 +1,5 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
   let { data } = $props();
 
   const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
@@ -45,7 +46,7 @@
 
 {#snippet laneHead(title, count, accent, icon)}
   <div class="lane-head {accent ? 'lane-' + accent : ''}">
-    {#if icon}<span class="lane-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-{icon}"/></svg></span>{/if}
+    {#if icon}<span class="lane-ic"><Icon name={icon} size={14} /></span>{/if}
     <h2>{title}</h2>
     <span class="lane-count">{count}</span>
   </div>
@@ -55,7 +56,7 @@
 {#snippet miniRow(t)}
   {@const pc = whoColor(t.assignee)}
   <a class="row kind-{t.kind ?? 'task'} st-{t.status ?? 'todo'}" href="/task/{t.id}" style={t.assignee ? `--pl:${pc}` : ''}>
-    <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-{t.kind ?? 'task'}"/></svg></span>
+    <span class="row-ic"><Icon name={t.kind ?? 'task'} size={16} /></span>
     <span class="row-main">
       <span class="row-title">{t.title}</span>
       <span class="row-sub">
@@ -112,7 +113,7 @@
             <div class="swim-body">
               {#each ln.tasks as t (t.id)}
                 <a class="row kind-{t.kind ?? 'task'} st-doing" href="/task/{t.id}" style="--pl:{whoColor(ln.agent)}">
-                  <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-{t.kind ?? 'task'}"/></svg></span>
+                  <span class="row-ic"><Icon name={t.kind ?? 'task'} size={16} /></span>
                   <span class="row-main">
                     <span class="row-title">{t.title}</span>
                     <span class="row-sub">
@@ -159,7 +160,7 @@
         <div class="lane-body">
           {#each data.stale.stale as t (t.id)}
             <a class="row kind-task st-doing reap-row" href="/task/{t.id}">
-              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-block"/></svg></span>
+              <span class="row-ic"><Icon name="block" size={16} /></span>
               <span class="row-main">
                 <span class="row-title">{t.title}</span>
                 <span class="row-sub">
@@ -182,7 +183,7 @@
         <div class="lane-body">
           {#each data.stale.closed as c (c.at + '-' + c.id)}
             <a class="row st-done kind-task closed-row" href="/task/{c.id}">
-              <span class="row-ic shipped-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-check"/></svg></span>
+              <span class="row-ic shipped-ic"><Icon name="check" size={14} /></span>
               <span class="row-main">
                 <span class="row-title">{c.title}</span>
                 {#if c.reason}<span class="row-sub close-reason">{c.reason}</span>{/if}

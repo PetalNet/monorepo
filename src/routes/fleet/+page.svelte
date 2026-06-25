@@ -133,7 +133,7 @@
 </div>
 
 <style>
-  .fleet-screen { max-width: 880px; }
+  .fleet-screen { max-width: 760px; }
   .fleet-head { margin-bottom: 22px; }
   .fh-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 

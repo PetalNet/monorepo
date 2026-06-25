@@ -91,6 +91,12 @@ export const actions = {
       'owner_machine', 'suggested_agent', 'effort', 'parallel_group']) {
       if (f.has(k)) patch[k] = k === 'priority' ? Number(f.get(k)) : String(f.get(k));
     }
+    // project_id: the sidebar can now (re)assign a task's project inline. Empty = unset (null);
+    // otherwise the numeric project id. updateTask's PATCHABLE already allows project_id.
+    if (f.has('project_id')) {
+      const v = String(f.get('project_id')).trim();
+      patch.project_id = v === '' ? null : Number(v);
+    }
     // only the full details form carries vis_touched — inline status/priority quick-edits must not reset visibility
     if (f.has('vis_touched')) {
       // Ownership/visibility may only be changed by the current owner, or claimed on an

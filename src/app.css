@@ -141,7 +141,10 @@ body {
 	font-family: var(--sans);
 	font-size: 15px;
 	font-feature-settings: 'cv11', 'ss01', 'ss03';
+	font-kerning: normal;
+	text-rendering: optimizeLegibility;
 	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 a {
 	color: inherit;
@@ -184,7 +187,7 @@ button {
 .topbar, .tabbar { display:none; }
 .main { overflow-y:auto; overflow-x:hidden; height:100dvh; }
 .screen { max-width:760px; margin:0 auto; padding:30px 24px 96px; }
-.board .screen, .board.screen { max-width:780px; }
+/* board uses the standard .screen width (760) — consistent with every other page */
 
 /* sidebar */
 .sidebar { display:flex; flex-direction:column; background:var(--surface-1); border-right:1px solid var(--border-sub);

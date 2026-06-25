@@ -1,4 +1,5 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
   import { enhance } from '$app/forms';
   let { data } = $props();
   let kind = $state('task');
@@ -10,14 +11,14 @@
 <div class="screen newscreen">
   <header class="page-head">
     <a class="back" href="/">
-      <svg width="13" height="13" style="transform:scaleX(-1)" aria-hidden="true"><use href="#i-arrow"/></svg>
+      <span style="transform:scaleX(-1);display:inline-flex"><Icon name="arrow" size={13} /></span>
       board
     </a>
     <h1>new</h1>
     <div class="kindtabs">
       {#each ['task', 'doc', 'question'] as k}
         <button type="button" class="kindtab" class:on={kind === k} onclick={() => (kind = k)}>
-          <svg width="13" height="13" aria-hidden="true"><use href="#i-{KIND_ICON[k]}"/></svg>{k}
+          <Icon name={KIND_ICON[k]} size={13} />{k}
         </button>
       {/each}
     </div>
@@ -44,35 +45,35 @@
 
     {#if kind === 'task'}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>notes / plan</h2></div>
+        <div class="ds-head"><span class="ds-ic"><Icon name="doc" size={12} /></span><h2>notes / plan</h2></div>
         <textarea name="body" rows="5" placeholder="optional — drop research / the plan here"></textarea>
       </section>
-      <label class="chk mono"><input type="checkbox" name="up_next" /> <svg width="12" height="12" aria-hidden="true"><use href="#i-bolt"/></svg> up next</label>
+      <label class="chk mono"><input type="checkbox" name="up_next" /> <Icon name="bolt" size={12} /> up next</label>
     {:else if kind === 'doc'}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>body · markdown</h2></div>
+        <div class="ds-head"><span class="ds-ic"><Icon name="doc" size={12} /></span><h2>body · markdown</h2></div>
         <textarea name="body" rows="14" class="mono" placeholder="# Brief / ADR…"></textarea>
       </section>
     {:else}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>context · markdown</h2></div>
+        <div class="ds-head"><span class="ds-ic"><Icon name="doc" size={12} /></span><h2>context · markdown</h2></div>
         <textarea name="body" rows="5" placeholder="background for the decision"></textarea>
       </section>
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-question"/></svg></span><h2>options</h2><span class="ds-extra mono dim">one per line · "value | label"</span></div>
+        <div class="ds-head"><span class="ds-ic"><Icon name="question" size={12} /></span><h2>options</h2><span class="ds-extra mono dim">one per line · "value | label"</span></div>
         <textarea name="options" rows="4" class="mono" placeholder={"yes | Yes, do it\nno | No"}></textarea>
       </section>
     {/if}
 
     <div class="save-bar">
-      <label class="chk mono"><input type="checkbox" name="private" /> <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg> private — only you</label>
+      <label class="chk mono"><input type="checkbox" name="private" /> <Icon name="lock" size={12} /> private — only you</label>
       <button class="save" type="submit">create {kind}</button>
     </div>
   </form>
 </div>
 
 <style>
-  .newscreen { max-width: 720px; }
+  .newscreen { max-width: 760px; }
   .page-head h1 { margin-top: 4px; }
 
   .kindtabs { display: flex; gap: 7px; margin-top: 14px; }

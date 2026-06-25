@@ -1,4 +1,5 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
   let { data } = $props();
   function ago(ts) {
     if (!ts) return '';
@@ -23,17 +24,17 @@
     <div class="cards">
       {#each data.artifacts as a (a.slug)}
         <a class="card" href="/gallery/{a.slug}">
-          <span class="card-ic"><svg width="18" height="18" aria-hidden="true"><use href="#i-doc"/></svg></span>
+          <span class="card-ic"><Icon name="doc" size={18} /></span>
           <span class="card-main">
             <span class="card-title">{a.title}</span>
             {#if a.description}<span class="card-desc">{a.description}</span>{/if}
             <span class="card-meta mono">
               <span class="kind-tag">{a.kind === 'html' ? 'page' : 'doc'}</span>
-              {#if a.visibility === 'private'}<span class="priv"><svg width="11" height="11" aria-hidden="true"><use href="#i-lock"/></svg> private</span>{/if}
+              {#if a.visibility === 'private'}<span class="priv"><Icon name="lock" size={11} /> private</span>{/if}
               <span class="dim age">{ago(a.updated_at)}</span>
             </span>
           </span>
-          <span class="card-arrow"><svg width="16" height="16" aria-hidden="true"><use href="#i-arrow"/></svg></span>
+          <span class="card-arrow"><Icon name="arrow" size={16} /></span>
         </a>
       {/each}
     </div>

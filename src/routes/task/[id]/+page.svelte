@@ -1,5 +1,6 @@
 <script>
   import { enhance } from '$app/forms';
+  import Icon from '$lib/Icon.svelte';
   let { data } = $props();
   const t = $derived(data.task);
 
@@ -150,9 +151,65 @@
   // Save submits the existing ?/save form, Cancel reverts. This replaces the old
   // "always a raw textarea" UX where headings/lists/code never rendered.
   let editingBody = $state(false);
-  let bodyDraft = $state('');            // textarea value while editing
+  let bodyDraft = $state('');            // textarea value (fallback editor + the submitted value)
   function startEditBody() { bodyDraft = t.body ?? ''; editingBody = true; }
-  function cancelEditBody() { editingBody = false; }
+  function cancelEditBody() { editingBody = false; teardownPM(); }
+
+  // ── ProseMark body editor (lazy ESM, exactly like the design-system site) ──
+  // The bundle is heavy (~860KB) so it is NEVER statically imported — it's dynamically
+  // imported only when the user opens edit mode, then createProseMark(el, md) mounts a real
+  // CodeMirror-based WYSIWYM editor. We extract the edited markdown via the returned
+  // EditorView's `view.state.doc.toString()` (the bundle's own showRead() does the same).
+  // If the bundle fails to load, we fall back to the plain <textarea> so edits NEVER drop.
+  let pmHost = $state(null);     // div ProseMark mounts into
+  let pmView = null;             // the EditorView createProseMark returns
+  let pmStatus = $state('idle'); // 'idle' | 'loading' | 'ready' | 'failed'
+  let _pmPromise = null;
+  function loadProseMark() {
+    // @vite-ignore + a runtime-built specifier: this is a static asset served from /static,
+    // NOT a bundled module — Rollup must not try to resolve/bundle it at build time.
+    const url = '/vendor/' + 'prosemark.bundle.js';
+    if (!_pmPromise) _pmPromise = import(/* @vite-ignore */ url).then((m) => m.createProseMark);
+    return _pmPromise;
+  }
+  function teardownPM() {
+    try { pmView?.destroy?.(); } catch {}
+    pmView = null;
+    pmStatus = 'idle';
+  }
+  // mount ProseMark whenever the host div appears in edit mode (and we don't already have a view)
+  $effect(() => {
+    if (!editingBody || !pmHost || pmView || pmStatus === 'failed') return;
+    pmStatus = 'loading';
+    let cancelled = false;
+    loadProseMark()
+      .then((createProseMark) => {
+        if (cancelled || !pmHost) return;
+        pmView = createProseMark(pmHost, bodyDraft ?? '');
+        pmStatus = 'ready';
+      })
+      .catch((e) => { console.error('ProseMark mount failed', e); pmStatus = 'failed'; });
+    return () => { cancelled = true; };
+  });
+  // Pull the edited markdown out of ProseMark via the EditorView's state.doc.toString()
+  // (the bundle's own showRead() extracts identically). Returns the current markdown, or
+  // null when ProseMark isn't the active editor (failed → textarea path handles its own value).
+  function extractPMMarkdown() {
+    if (pmStatus === 'ready' && pmView) {
+      try { return pmView.state.doc.toString(); } catch (e) { console.error('ProseMark extract failed', e); }
+    }
+    return null;
+  }
+  // Submit handler: write the editor's CURRENT markdown straight onto the outgoing FormData.
+  // We must mutate formData synchronously here (NOT rely on a reactive bind:value flush) — enhance
+  // serializes the form the instant submit fires, before Svelte flushes DOM updates, so a hidden
+  // input bound to a $state set in this callback would still carry the stale value. Setting
+  // formData directly is what actually persists the edit (the anti-facade fix).
+  const saveBody = ({ formData }) => {
+    const md = extractPMMarkdown();
+    if (md != null) { bodyDraft = md; formData.set('body', md); }
+    return async ({ update }) => { await update(); editingBody = false; teardownPM(); };
+  };
 
   let speaking = $state(false);
   let loadingAudio = $state(false);
@@ -216,6 +273,22 @@
   // mutating action server-side; the UI hides the controls when read-only, but the gate is the
   // real boundary.
   const canWrite = $derived(!!data.canWrite);
+
+  // ── inline sidebar field editing ───────────────────────────────
+  // Every sidebar field is settable inline EVEN WHEN EMPTY: an "unset" value is itself a
+  // click target that reveals the same control the populated state uses. `editField` holds
+  // the name of the one field currently open (one at a time keeps the panel calm). Each opens
+  // a tiny ?/save form (the SAME action the action bar + full edit form use) — no new actions.
+  // canWrite still gates every mutation server-side; these controls only render when canWrite.
+  let editField = $state(null);
+  let editMore = $state(false);   // "Edit all fields" details open state (routing rows pop it open)
+  const openField = (f) => { editField = f; };
+  const closeField = () => { editField = null; };
+  // close on save (use:enhance) so the populated value re-renders from fresh data
+  const fieldSaved = () => async ({ update }) => { await update(); editField = null; };
+  const ASSIGNEES = ['agent-a', 'claude', 'agent-b', 'codex', 'agent-d', 'agent-e'];
+  const RESPONSIBLES = ['alice', 'bob'];
+
   let reassigning = $state(false);
   let showClose = $state(false);
   let closePanel = $state(null);
@@ -271,7 +344,7 @@
 
   <!-- breadcrumb -->
   <a class="back" href={projName(t.project_id) ? `/?project=${encodeURIComponent(projName(t.project_id))}` : '/'}>
-    <svg width="13" height="13" style="transform:scaleX(-1)" aria-hidden="true"><use href="#i-arrow"/></svg>
+    <span style="display:inline-flex;transform:scaleX(-1)"><Icon name="arrow" size={13} /></span>
     {projName(t.project_id) || 'board'} <span class="sep">·</span> board
   </a>
 
@@ -279,14 +352,14 @@
   <header class="head">
     {#if data.parent}
       <a class="parent-up mono" href="/task/{data.parent.id}">
-        <svg width="13" height="13" aria-hidden="true" style="transform:rotate(-90deg)"><use href="#i-arrow"/></svg>
+        <span style="display:inline-flex;transform:rotate(-90deg)"><Icon name="arrow" size={13} /></span>
         part of #{data.parent.id} · {data.parent.title}
       </a>
     {/if}
 
     <div class="head-id">
       <span class="tnum mono">#{t.id}</span>
-      <span class="kindtag kind-{t.kind}"><svg width="12" height="12" aria-hidden="true"><use href="#i-{kindIcon(t.kind)}"/></svg> {t.kind}</span>
+      <span class="kindtag kind-{t.kind}"><Icon name={kindIcon(t.kind)} size={12} /> {t.kind}</span>
       <span class="sbadge {statusTone(t.status)}"><span class="sdot"></span>{t.status}</span>
       <span class="pchip mono prio-{t.priority}">P{t.priority}</span>
       <span class="proj-tag">{projName(t.project_id) || '—'}</span>
@@ -300,7 +373,7 @@
     {#if t.assignee || t.responsible}
       <div class="handoff-trail mono">
         {#if t.assignee}<span class="ht-seg">{@render avatar(t.assignee, 18)} <b style="color:{whoColor(t.assignee)}">{t.assignee}</b> <span class="dim">works it</span></span>{/if}
-        {#if t.assignee && t.responsible}<svg class="ht-arr" width="13" height="13" aria-hidden="true"><use href="#i-arrow"/></svg>{/if}
+        {#if t.assignee && t.responsible}<span class="ht-arr"><Icon name="arrow" size={13} /></span>{/if}
         {#if t.responsible}<span class="ht-seg">{@render avatar(t.responsible, 18)} <b style="color:{whoColor(t.responsible)}">{t.responsible}</b> <span class="dim">responsible</span></span>{/if}
       </div>
     {/if}
@@ -320,25 +393,25 @@
       <span class="ab-hint mono">do</span>
 
       {#if isQuestion}
-        <button class="btn primary" type="button" onclick={jumpToAnswers}><svg width="15" height="15" aria-hidden="true"><use href="#i-check"/></svg>Submit decision</button>
+        <button class="btn primary" type="button" onclick={jumpToAnswers}><Icon name="check" size={15} />Submit decision</button>
       {/if}
 
       {#if !isClosed}
         <form method="POST" action="?/claim" use:enhance class="ab-form">
-          <button class="btn" type="submit"><svg width="15" height="15" aria-hidden="true"><use href="#i-bolt"/></svg>Claim</button>
+          <button class="btn" type="submit"><Icon name="bolt" size={15} />Claim</button>
         </form>
 
-        <button class="btn" type="button" class:on={reassigning} onclick={() => (reassigning = !reassigning)}><svg width="15" height="15" aria-hidden="true"><use href="#i-task"/></svg>Reassign</button>
+        <button class="btn" type="button" class:on={reassigning} onclick={() => (reassigning = !reassigning)}><Icon name="task" size={15} />Reassign</button>
 
         {#if t.status !== 'blocked'}
           <form method="POST" action="?/save" use:enhance class="ab-form">
             <input type="hidden" name="status" value="blocked" />
-            <button class="btn danger" type="submit"><svg width="15" height="15" aria-hidden="true"><use href="#i-block"/></svg>Mark blocked</button>
+            <button class="btn danger" type="submit"><Icon name="block" size={15} />Mark blocked</button>
           </form>
         {:else}
           <form method="POST" action="?/save" use:enhance class="ab-form">
             <input type="hidden" name="status" value="todo" />
-            <button class="btn" type="submit"><svg width="15" height="15" aria-hidden="true"><use href="#i-arrow"/></svg>Unblock</button>
+            <button class="btn" type="submit"><Icon name="arrow" size={15} />Unblock</button>
           </form>
         {/if}
       {/if}
@@ -346,7 +419,7 @@
       <span class="ab-spacer"></span>
 
       {#if !isClosed && !isQuestion}
-        <button class="btn" type="button" onclick={openClose}><svg width="15" height="15" aria-hidden="true"><use href="#i-check"/></svg>Close…</button>
+        <button class="btn" type="button" onclick={openClose}><Icon name="check" size={15} />Close…</button>
       {/if}
     </div>
 
@@ -396,13 +469,13 @@
       <!-- question: the violet one-tap answer / DECISION block -->
       {#if isQuestion}
         <section class="sec" bind:this={answersEl}>
-          <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-question"/></svg></span><h2>Decision</h2></div>
+          <div class="sec-head"><span class="ic"><Icon name="question" size={13} /></span><h2>Decision</h2></div>
 
           {#if data.bodyHtml}<div class="bodycard read"><div class="prose">{@html data.bodyHtml}</div></div>{/if}
 
           {#if t.answer}
             <div class="q-done">
-              <span class="qd-check"><svg width="20" height="20" aria-hidden="true"><use href="#i-check"/></svg></span>
+              <span class="qd-check"><Icon name="check" size={20} /></span>
               <div>
                 <div class="qd-title">answered</div>
                 <div class="qd-sub mono">→ {data.opts.find((o) => o.value === t.answer)?.label ?? t.answer}</div>
@@ -435,7 +508,7 @@
       <!-- doc / idea: rendered prose with reader modes -->
       {#if isProse}
         <section class="sec">
-          <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>{t.kind === 'idea' ? 'Idea' : 'Document'}</h2></div>
+          <div class="sec-head"><span class="ic"><Icon name="doc" size={13} /></span><h2>{t.kind === 'idea' ? 'Idea' : 'Document'}</h2></div>
           <div class="reader" class:focus>
             <div class="reader-bar">
               {#if hasHuman}
@@ -449,8 +522,8 @@
                   <button class="rb" title="Smaller text" disabled={font === 0} onclick={() => (font = Math.max(0, font - 1))}>A−</button>
                   <button class="rb" title="Larger text" disabled={font === FONTS.length - 1} onclick={() => (font = Math.min(FONTS.length - 1, font + 1))}>A+</button>
                   <button class="rb" class:on={serif} title="Serif" onclick={() => (serif = !serif)} style="font-family:Georgia,serif">A</button>
-                  <button class="rb" class:on={wide} title="Wider column" onclick={() => (wide = !wide)}><svg width="14" height="14" aria-hidden="true"><use href="#i-board"/></svg></button>
-                  <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><svg width="14" height="14" aria-hidden="true"><use href="#i-doc"/></svg></button>
+                  <button class="rb" class:on={wide} title="Wider column" onclick={() => (wide = !wide)}><Icon name="board" size={14} /></button>
+                  <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><Icon name="doc" size={14} /></button>
                 </div>
               {/if}
               <div class="rb-right">
@@ -458,13 +531,13 @@
                   {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
                 </select>
                 <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
-                  {#if loadingAudio}<span class="spin"></span>{:else}<svg width="15" height="15" aria-hidden="true"><use href="#i-{speaking ? 'check' : 'arrow'}"/></svg>{/if}
+                  {#if loadingAudio}<span class="spin"></span>{:else}<Icon name={speaking ? 'check' : 'arrow'} size={15} />{/if}
                   <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
                 </button>
               </div>
             </div>
             {#if hasHuman && human}
-              <div class="human-note mono"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg> plain-english rewrite · switch to technical for the exact source</div>
+              <div class="human-note mono"><Icon name="check" size={12} /> plain-english rewrite · switch to technical for the exact source</div>
             {/if}
             {#if docHtml}
               <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}>{@html docHtml}</article>
@@ -480,7 +553,7 @@
       {#if !isProse && !isQuestion}
         <section class="sec">
           <div class="sec-head">
-            <span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-doc"/></svg></span>
+            <span class="ic"><Icon name="doc" size={13} /></span>
             <h2>Description</h2>
             {#if canWrite && !editingBody}
               <span class="right"><button type="button" class="edit-btn" onclick={startEditBody}>Edit</button></span>
@@ -488,13 +561,23 @@
           </div>
 
           {#if editingBody}
-            <!-- Edit mode: simple raw-markdown textarea + Save/Cancel (ProseMark WYSIWYG is a
-                 deliberate follow-up; this two-button toggle is what ships now). -->
-            <form method="POST" action="?/save" use:enhance={() => async ({ update }) => { await update(); editingBody = false; }}>
+            <!-- Edit mode: the real ProseMark WYSIWYM editor (lazy ESM bundle). The body value
+                 submitted to ?/save is the hidden input bound to bodyDraft; we extract the edited
+                 markdown from the live EditorView into bodyDraft on submit (syncBodyFromPM). If the
+                 bundle fails to load we fall back to the raw textarea so edits are never lost. -->
+            <form method="POST" action="?/save" use:enhance={saveBody}>
               <input type="hidden" name="vis_touched" value="1" />
               <input type="hidden" name="private" value={t.visibility === 'private' ? '1' : ''} />
-              <div class="pm-toolbar"><span class="pm-tag mono">markdown · raw</span></div>
-              <textarea name="body" class="pm-surface mono" rows="12" bind:value={bodyDraft} placeholder="# The detailed plan. Drop research here before starting…"></textarea>
+              <input type="hidden" name="body" value={bodyDraft} />
+              <div class="pm-toolbar">
+                <span class="pm-tag mono">{pmStatus === 'failed' ? 'markdown · raw (editor unavailable)' : 'prosemark · paper-ink'}</span>
+                {#if pmStatus === 'loading'}<span class="pm-loading mono">loading editor…</span>{/if}
+              </div>
+              {#if pmStatus === 'failed'}
+                <textarea name="body_fallback" class="pm-surface mono" rows="12" bind:value={bodyDraft} placeholder="# The detailed plan. Drop research here before starting…"></textarea>
+              {:else}
+                <div class="pm-mount" bind:this={pmHost}></div>
+              {/if}
               <div class="edit-actions">
                 <span class="edit-hint mono">renders as sanitized markdown on save</span>
                 <button type="button" class="btn-ghost" onclick={cancelEditBody}>Cancel</button>
@@ -514,7 +597,7 @@
       <!-- HIERARCHY — sub-tasks / children, first-class (all statuses) -->
       {#if data.childrenAll.length}
         <section class="sec">
-          <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-board"/></svg></span><h2>Sub-tasks · {data.childrenAll.length}</h2></div>
+          <div class="sec-head"><span class="ic"><Icon name="board" size={13} /></span><h2>Sub-tasks · {data.childrenAll.length}</h2></div>
           <div class="kid-list">
             {#each data.childrenAll as k (k.id)}
               <a class="kid-row" class:closed={k.status === 'done' || k.status === 'dropped'} href="/task/{k.id}">
@@ -532,7 +615,7 @@
       <!-- relations: blocking deps (both directions) + non-blocking discovered-from provenance -->
       {#if data.blockers.length || data.blocking.length || data.discoveredFrom.length || data.discoveries.length}
         <section class="sec">
-          <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-block"/></svg></span><h2>Relations</h2></div>
+          <div class="sec-head"><span class="ic"><Icon name="block" size={13} /></span><h2>Relations</h2></div>
           <div class="rel-grid">
             {#snippet rellist(label, rows)}
               {#if rows.length}
@@ -561,7 +644,7 @@
 
       <!-- ── ACTIVITY TIMELINE (issue-comment style) ──────── -->
       <section class="sec">
-        <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-clock"/></svg></span><h2>Activity</h2></div>
+        <div class="sec-head"><span class="ic"><Icon name="clock" size={13} /></span><h2>Activity</h2></div>
 
         <!-- handoff context — keep the dedicated callout when present -->
         {#if t.handoff_context}
@@ -608,7 +691,7 @@
           <form method="POST" action="?/comment" use:enhance={() => async ({ update }) => update({ reset: true })} class="tl-comment-bar">
             <textarea name="body" rows="1" placeholder="Comment on this task…" aria-label="Comment on this task"
               onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.form.requestSubmit(); } }}></textarea>
-            <button class="tl-send" type="submit" title="send" aria-label="Send message"><svg width="17" height="17" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+            <button class="tl-send" type="submit" title="send" aria-label="Send message"><Icon name="arrow" size={17} /></button>
           </form>
         {/if}
       </section>
@@ -617,12 +700,23 @@
     <!-- ── RIGHT SIDEBAR (the fields, tidy + secondary) ── -->
     <aside class="col-side">
       <details class="side-wrap" open>
-        <summary>Details <svg class="car" width="14" height="14" aria-hidden="true"><use href="#i-car"/></svg></summary>
+        <summary>Details <span class="car"><Icon name="car" size={14} /></span></summary>
         <div class="side">
 
           <div class="sblock">
             <div class="slabel mono">Assignee</div>
-            {#if t.assignee}<div class="sval">{@render avatar(t.assignee, 22)}<span class="who" style="color:{whoColor(t.assignee)}">{t.assignee}</span></div>
+            {#if editField === 'assignee' && canWrite}
+              <form method="POST" action="?/save" use:enhance={fieldSaved} class="qedit-inline">
+                <select name="assignee" value={t.assignee ?? ''} onchange={(e) => e.target.form.requestSubmit()} aria-label="Assignee">
+                  <option value="">— none —</option>
+                  {#each ASSIGNEES as a}<option value={a}>{a}</option>{/each}
+                </select>
+                <button type="button" class="field-x" onclick={closeField} aria-label="Cancel">×</button>
+              </form>
+            {:else if t.assignee}
+              <button type="button" class="sval sval-edit" onclick={() => openField('assignee')} disabled={!canWrite}>{@render avatar(t.assignee, 22)}<span class="who" style="color:{whoColor(t.assignee)}">{t.assignee}</span></button>
+            {:else if canWrite}
+              <button type="button" class="sval is-unset sval-edit" onclick={() => openField('assignee')}>set assignee</button>
             {:else}<div class="sval is-unset">unset</div>{/if}
           </div>
 
@@ -646,46 +740,94 @@
 
           <div class="sblock">
             <div class="slabel mono">Project</div>
-            <div class="sval"><span class="who">{projName(t.project_id) || '—'}</span></div>
+            {#if editField === 'project' && canWrite}
+              <form method="POST" action="?/save" use:enhance={fieldSaved} class="qedit-inline">
+                <select name="project_id" value={t.project_id ?? ''} onchange={(e) => e.target.form.requestSubmit()} aria-label="Project">
+                  <option value="">— none —</option>
+                  {#each data.projects as p}<option value={p.id}>{p.name}</option>{/each}
+                </select>
+                <button type="button" class="field-x" onclick={closeField} aria-label="Cancel">×</button>
+              </form>
+            {:else if projName(t.project_id)}
+              <button type="button" class="sval sval-edit" onclick={() => openField('project')} disabled={!canWrite}><span class="who">{projName(t.project_id)}</span></button>
+            {:else if canWrite}
+              <button type="button" class="sval is-unset sval-edit" onclick={() => openField('project')}>set project</button>
+            {:else}<div class="sval is-unset">—</div>{/if}
           </div>
 
           <div class="sblock">
             <div class="slabel mono">Responsible</div>
-            {#if t.responsible}<div class="sval">{@render avatar(t.responsible, 22)}<span class="who" style="color:{whoColor(t.responsible)}">{t.responsible}</span></div>
+            {#if editField === 'responsible' && canWrite}
+              <form method="POST" action="?/save" use:enhance={fieldSaved} class="qedit-inline">
+                <select name="responsible" value={t.responsible ?? ''} onchange={(e) => e.target.form.requestSubmit()} aria-label="Responsible">
+                  <option value="">— none —</option>
+                  {#each RESPONSIBLES as r}<option value={r}>{r}</option>{/each}
+                </select>
+                <button type="button" class="field-x" onclick={closeField} aria-label="Cancel">×</button>
+              </form>
+            {:else if t.responsible}
+              <button type="button" class="sval sval-edit" onclick={() => openField('responsible')} disabled={!canWrite}>{@render avatar(t.responsible, 22)}<span class="who" style="color:{whoColor(t.responsible)}">{t.responsible}</span></button>
+            {:else if canWrite}
+              <button type="button" class="sval is-unset sval-edit" onclick={() => openField('responsible')}>set responsible</button>
             {:else}<div class="sval is-unset">unset</div>{/if}
           </div>
 
           <div class="sblock">
             <div class="slabel mono">Blocked on</div>
-            {#if t.blocked_on}<div class="sval"><span class="blk-on">{t.blocked_on}</span></div>
+            {#if editField === 'blocked_on' && canWrite}
+              <form method="POST" action="?/save" use:enhance={fieldSaved} class="field-inline">
+                <input name="blocked_on" value={t.blocked_on ?? ''} placeholder="what must clear first?" aria-label="Blocked on" autofocus />
+                <div class="field-row"><button type="button" class="btn-ghost field-cancel" onclick={closeField}>cancel</button><button type="submit" class="btn-save-sm">set</button></div>
+              </form>
+            {:else if t.blocked_on}
+              <button type="button" class="sval sval-edit" onclick={() => openField('blocked_on')} disabled={!canWrite}><span class="blk-on">{t.blocked_on}</span></button>
+            {:else if canWrite}
+              <button type="button" class="sval is-unset sval-edit" onclick={() => openField('blocked_on')}>set blocker</button>
             {:else}<div class="sval is-unset">nothing</div>{/if}
           </div>
 
           {#if !isProse && !isQuestion}
             <div class="sblock">
               <div class="slabel mono">Acceptance criteria</div>
-              {#if t.acceptance_criteria}<div class="sval ac">{t.acceptance_criteria}</div>
+              {#if editField === 'acceptance_criteria' && canWrite}
+                <form method="POST" action="?/save" use:enhance={fieldSaved} class="field-inline">
+                  <textarea name="acceptance_criteria" rows="3" placeholder="What 'done' means." aria-label="Acceptance criteria" autofocus>{t.acceptance_criteria ?? ''}</textarea>
+                  <div class="field-row"><button type="button" class="btn-ghost field-cancel" onclick={closeField}>cancel</button><button type="submit" class="btn-save-sm">set</button></div>
+                </form>
+              {:else if t.acceptance_criteria}
+                <button type="button" class="sval ac sval-edit" onclick={() => openField('acceptance_criteria')} disabled={!canWrite}>{t.acceptance_criteria}</button>
+              {:else if canWrite}
+                <button type="button" class="sval is-unset sval-edit" onclick={() => openField('acceptance_criteria')}>set criteria</button>
               {:else}<div class="sval is-unset">unset</div>{/if}
             </div>
           {/if}
 
-          <!-- collapsed routing/handoff group — advisory, tucked but reachable -->
+          <!-- routing/handoff group — advisory; each row is a click target that opens the
+               full edit form below (so even-empty routing fields are obviously settable). -->
           <details class="routing">
-            <summary>Routing &amp; handoff <span class="adv mono">advisory</span><span class="car"><svg width="14" height="14" aria-hidden="true"><use href="#i-car"/></svg></span></summary>
+            <summary>Routing &amp; handoff <span class="adv mono">advisory</span><span class="car"><Icon name="car" size={14} /></span></summary>
             <div class="rt-body">
-              <div class="rt-field"><span class="rt-lbl mono">Capability</span><span class="rt-val mono" class:is-unset={!t.capability}>{t.capability || '—'}</span></div>
-              <div class="rt-field"><span class="rt-lbl mono">Suggested agent</span><span class="rt-val mono" class:is-unset={!t.suggested_agent}>{t.suggested_agent || '—'}</span></div>
-              <div class="rt-field"><span class="rt-lbl mono">Owner machine</span><span class="rt-val mono" class:is-unset={!t.owner_machine}>{t.owner_machine || '—'}</span></div>
-              <div class="rt-field"><span class="rt-lbl mono">Effort</span><span class="rt-val mono" class:is-unset={!t.effort}>{t.effort || '—'}</span></div>
-              <div class="rt-field"><span class="rt-lbl mono">Parallel group</span><span class="rt-val mono" class:is-unset={!t.parallel_group}>{t.parallel_group || '—'}</span></div>
+              {#snippet rtrow(label, val)}
+                {#if canWrite}
+                  <button type="button" class="rt-field rt-edit" onclick={() => (editMore = true)}><span class="rt-lbl mono">{label}</span><span class="rt-val mono" class:is-unset={!val}>{val || 'set…'}</span></button>
+                {:else}
+                  <div class="rt-field"><span class="rt-lbl mono">{label}</span><span class="rt-val mono" class:is-unset={!val}>{val || '—'}</span></div>
+                {/if}
+              {/snippet}
+              {@render rtrow('Capability', t.capability)}
+              {@render rtrow('Suggested agent', t.suggested_agent)}
+              {@render rtrow('Owner machine', t.owner_machine)}
+              {@render rtrow('Effort', t.effort)}
+              {@render rtrow('Parallel group', t.parallel_group)}
             </div>
           </details>
 
-          <!-- full edit form for the long-tail fields (acceptance, blocked-on, routing) —
-               present but quiet; the action bar covers the common moves. -->
-          {#if canWrite && !isProse && !isQuestion}
-            <details class="routing edit-more">
-              <summary>Edit all fields <span class="car"><svg width="14" height="14" aria-hidden="true"><use href="#i-car"/></svg></span></summary>
+          <!-- full edit form for the long-tail fields (acceptance, blocked-on, routing).
+               Available for every kind so all sidebar fields are reachable even when empty;
+               binds `editMore` so a routing-row click can pop it open. -->
+          {#if canWrite}
+            <details class="routing edit-more" bind:open={editMore}>
+              <summary>Edit all fields <span class="car"><Icon name="car" size={14} /></span></summary>
               <form method="POST" action="?/save" use:enhance class="rt-body edit-form">
                 <input type="hidden" name="vis_touched" value="1" />
                 <label class="rt-field"><span class="rt-lbl mono">Acceptance criteria</span>
@@ -702,7 +844,7 @@
                   <input name="effort" value={t.effort ?? ''} placeholder="xs · s · m · l" /></label>
                 <label class="rt-field"><span class="rt-lbl mono">Parallel group</span>
                   <input name="parallel_group" value={t.parallel_group ?? ''} placeholder="group key" /></label>
-                <label class="chk mono"><input type="checkbox" name="private" checked={t.visibility === 'private'} /> <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg> private — only you</label>
+                <label class="chk mono"><input type="checkbox" name="private" checked={t.visibility === 'private'} /> <Icon name="lock" size={12} /> private — only you</label>
                 <button class="btn-save-sm" type="submit">save fields</button>
               </form>
             </details>
@@ -837,6 +979,37 @@
     color: var(--text-1); outline: none; resize: vertical;
   }
   .pm-surface:focus { border-color: var(--accent-ln); }
+  .pm-loading { margin-left: auto; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-4); }
+
+  /* ── ProseMark editor surface (lazy CodeMirror bundle) ──
+     The bundle generates .cm-* nodes; Svelte scopes styles, so these are :global() and
+     theme the editor with the tasks tokens. Geometry (14px/1.6, 18/20 padding) mirrors the
+     design-system read-view CSS (.pm-rendered, lines 565-577) so editor ⇄ rendered markdown
+     stay visually consistent. */
+  .pm-mount {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg); overflow: hidden; min-height: 220px;
+    --pm-code-background-color: var(--surface-2);
+  }
+  .pm-mount :global(.cm-editor) { font: 14px/1.6 var(--sans); color: var(--text-1); background: var(--surface-1); }
+  .pm-mount :global(.cm-editor.cm-focused) { outline: none; }
+  .pm-mount :global(.cm-scroller) { font-family: var(--sans); font-size: 14px; line-height: 1.6; }
+  .pm-mount :global(.cm-content) { padding: 18px 20px; caret-color: var(--accent-b); max-width: none; font-size: 14px; line-height: 1.6; }
+  .pm-mount :global(.cm-line) { padding: 0; line-height: 1.6; }
+  .pm-mount :global(.cm-gutters) { display: none; }
+  .pm-mount :global(.cm-cursor) { border-left-color: var(--accent-b); }
+  .pm-mount :global(.cm-activeLine), .pm-mount :global(.cm-activeLineGutter) { background: transparent; }
+  .pm-mount :global(.cm-selectionBackground), .pm-mount :global(.cm-content ::selection) { background: var(--accent-bg) !important; }
+  .pm-mount :global(.cm-focused .cm-selectionBackground) { background: var(--accent-bg) !important; }
+  .pm-mount :global(.cm-inline-code), .pm-mount :global(code), .pm-mount :global(.cm-monospace) { font-family: var(--mono); font-size: 12.5px; }
+  .pm-mount :global(.cm-inline-code) { background: var(--surface-2); border-radius: var(--radius-sm); padding: 1px 4px; }
+  .pm-mount :global(.cm-rendered-link), .pm-mount :global(.cm-url), .pm-mount :global(.cm-link) { color: var(--accent-b); }
+  .pm-mount :global(.cm-blockquote-line) { color: var(--text-1); }
+  .pm-mount :global(.cm-rendered-list-mark) { color: var(--accent-b); }
+  .pm-mount :global(.cm-fenced-code-line) { box-shadow: -12px 0 0 0 var(--surface-2), 12px 0 0 0 var(--surface-2); }
+  .pm-mount :global(.cm-fenced-code-line.cm-soft-indent-line) { padding-inline-start: 0 !important; text-indent: 0 !important; }
+  .pm-mount :global(.cm-code-block-info) { margin-top: 4px; margin-right: 8px; }
+  .pm-mount :global(.cm-code-block-lang-container), .pm-mount :global(.cm-code-block-copy-button) { color: var(--accent-b); }
   .edit-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 12px; }
   .edit-hint { margin-right: auto; font-size: 10.5px; color: var(--text-4); }
   .btn-ghost {
@@ -981,6 +1154,45 @@
   .sval { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-2); }
   .sval .who { font-weight: 500; color: var(--text-1); }
   .sval.is-unset { color: var(--text-4); font-style: italic; }
+
+  /* inline-editable sidebar fields: the value (or "unset") is itself a click target
+     that reveals the same control. styled as a borderless button so it reads like text. */
+  button.sval-edit {
+    font: inherit; font-size: 13.5px; text-align: left; width: 100%; background: none;
+    border: 1px solid transparent; border-radius: var(--radius-sm); padding: 3px 6px; margin: -3px -6px;
+    cursor: pointer; transition: .12s; color: inherit;
+  }
+  button.sval-edit:hover:not(:disabled) { border-color: var(--border-sub); background: var(--surface-1); }
+  button.sval-edit:disabled { cursor: default; }
+  button.sval-edit.is-unset { font-style: italic; color: var(--text-4); }
+  button.sval-edit.is-unset:hover { color: var(--accent-b); border-color: var(--accent-ln); }
+  button.sval-edit.ac { font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+  /* the × cancel button beside an inline select */
+  .qedit-inline { display: flex; align-items: center; gap: 6px; }
+  .qedit-inline select {
+    flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--text-1); background: var(--surface-2);
+    border: 1px solid var(--border-sub); border-radius: var(--radius-sm); padding: 7px 9px; cursor: pointer; outline: none;
+  }
+  .qedit-inline select:focus { border-color: var(--accent-ln); }
+  .field-x { flex-shrink: 0; width: 24px; height: 24px; border: 1px solid var(--border-sub); border-radius: var(--radius-sm);
+    background: var(--surface-1); color: var(--text-3); font-size: 15px; line-height: 1; cursor: pointer; transition: .12s; }
+  .field-x:hover { color: var(--text-1); border-color: var(--border); }
+  /* text/textarea inline editors */
+  .field-inline { display: flex; flex-direction: column; gap: 8px; }
+  .field-inline input, .field-inline textarea {
+    width: 100%; font: inherit; font-size: 13px; color: var(--text-1); background: var(--surface-2);
+    border: 1px solid var(--border-sub); border-radius: var(--radius-sm); padding: 8px 10px; outline: none; resize: vertical;
+  }
+  .field-inline input:focus, .field-inline textarea:focus { border-color: var(--accent-ln); }
+  .field-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .field-row .btn-save-sm { padding: 6px 14px; font-size: 12px; }
+  .field-cancel { padding: 6px 12px; font-size: 12px; }
+  /* routing advisory rows as click-to-edit targets */
+  button.rt-edit { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%;
+    font: inherit; text-align: left; background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+    padding: 4px 6px; margin: 0 -6px; cursor: pointer; transition: .12s; }
+  button.rt-edit:hover { border-color: var(--border-sub); background: var(--surface-2); }
+  button.rt-edit:hover .rt-val.is-unset { color: var(--accent-b); }
   .rt-val.is-unset { color: var(--text-4); opacity: .6; }
   .sval.ac { font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
   .blk-on { color: var(--danger-b); font-size: 13px; }
