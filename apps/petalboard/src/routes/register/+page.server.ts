@@ -1,6 +1,6 @@
-import { hashPassword, createSession } from "$lib/server/auth";
+import { hashPassword } from "$lib/server/auth";
 import { sendVerificationEmail } from "$lib/server/email";
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { registerSchema } from "$lib/server/validation";
 import { Prisma } from "@prisma/client";
 import { fail, redirect } from "@sveltejs/kit";
@@ -15,7 +15,7 @@ export const load = async ({ locals }) => {
 };
 
 export const actions = {
-	default: async ({ request, cookies }) => {
+	default: async ({ request }) => {
 		const formData = await request.formData();
 		const raw = Object.fromEntries(formData) as Record<string, string>;
 		const parsed = registerSchema.safeParse(raw);

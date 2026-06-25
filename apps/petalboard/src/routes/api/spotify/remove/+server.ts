@@ -1,4 +1,4 @@
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { removeTracksFromPlaylist, refreshAccessToken } from "$lib/server/spotify";
 import { json, error } from "@sveltejs/kit";
 
@@ -71,9 +71,9 @@ export const POST = async ({ request, locals }) => {
 		await removeTracksFromPlaylist(playlistId, [trackUri], accessToken);
 
 		return json({ success: true });
-	} catch (err: any) {
+	} catch (err: unknown) {
 		console.error("Remove track error:", err);
-		if (err.status) {
+		if (typeof err === "object" && err !== null && "status" in err) {
 			throw err;
 		}
 		throw error(500, "Failed to remove track");

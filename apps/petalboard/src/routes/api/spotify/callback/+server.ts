@@ -8,6 +8,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	if (!locals.user) {
 		throw redirect(302, "/login");
 	}
+	const user = locals.user;
 
 	const code = url.searchParams.get("code");
 	const state = url.searchParams.get("state");
@@ -26,7 +27,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	}
 
 	try {
-		console.log("=== CALLBACK: Starting token exchange for user:", locals.user.id);
+		console.log("=== CALLBACK: Starting token exchange for user:", user.id);
 		const tokenData = await exchangeCodeForToken(code);
 
 		console.log("=== CALLBACK: Token exchange successful");
@@ -43,7 +44,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		// Use $transaction to ensure atomicity
 		const result = await prisma.$transaction(async (tx) => {
 			const updatedUser = await tx.user.update({
-				where: { id: locals.user.id },
+				where: { id: user.id },
 				data: {
 					spotifyAccessToken: tokenData.access_token,
 					spotifyRefreshToken: tokenData.refresh_token,
@@ -63,7 +64,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 
 			// Verify the update by reading it back
 			const verified = await tx.user.findUnique({
-				where: { id: locals.user.id },
+				where: { id: user.id },
 				select: { spotifyAccessToken: true },
 			});
 			console.log("=== CALLBACK: Verification - has token:", !!verified?.spotifyAccessToken);

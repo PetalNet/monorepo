@@ -118,8 +118,9 @@
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
+  const clamp = (value: number, min = 0, max = 1) => Math.min(Math.max(value, min), max);
+
   const mixColors = (colorA: string, colorB: string, weight = 0.5, alpha = 1) => {
-    const clamp = (value: number, min = 0, max = 1) => Math.min(Math.max(value, min), max);
     const w = clamp(weight);
     const a = hexToRgb(colorA);
     const b = hexToRgb(colorB);
@@ -420,14 +421,14 @@ const backgroundOverlayDark = event.backgroundImage
   }
 
   function buildPlaylistEntries(
-    responses: Array<{ name: string; status: string; value: string }>,
+    responseList: Array<{ name: string; status: string; value: string }>,
     status: RsvpStatus
   ): PlaylistEntry[] {
-    if (!responses || responses.length === 0) {
+    if (!responseList || responseList.length === 0) {
       return [];
     }
 
-    return responses
+    return responseList
       .filter((response) => response.status === status)
       .flatMap((response, responseIndex) => {
         const guestName = response.name ?? 'Guest';
@@ -441,9 +442,9 @@ const backgroundOverlayDark = event.backgroundImage
       });
   }
 
-  function handleOverlayKeydown(event: KeyboardEvent, action: () => void) {
-    if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
+  function handleOverlayKeydown(keyEvent: KeyboardEvent, action: () => void) {
+    if (keyEvent.key === 'Escape' || keyEvent.key === 'Enter' || keyEvent.key === ' ') {
+      keyEvent.preventDefault();
       action();
     }
   }

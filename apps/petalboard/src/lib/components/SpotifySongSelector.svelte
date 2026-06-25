@@ -108,7 +108,7 @@
 
   function removeTrack(trackId: string) {
     const track = selectedTracks.find(t => t.id === trackId);
-    selectedTracks = selectedTracks.filter((track) => track.id !== trackId);
+    selectedTracks = selectedTracks.filter((candidate) => candidate.id !== trackId);
     
     // Only remove from Spotify if it was added in this session (not there initially)
     if (playlistId && track?.uri && questionId && !initialTracks.has(trackId)) {

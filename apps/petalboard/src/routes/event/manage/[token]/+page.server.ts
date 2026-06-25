@@ -1,4 +1,4 @@
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { eventSchema, questionSchema } from "$lib/server/validation";
 import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
 import { fail, error, redirect } from "@sveltejs/kit";
@@ -8,7 +8,6 @@ const questionUpdateSchema = questionSchema.extend({
 	questionId: z.string().cuid(),
 });
 const questionTargetSchema = z.object({ questionId: z.string().cuid() });
-const rsvpTargetSchema = z.object({ rsvpId: z.string().cuid() });
 
 async function getEventId(token: string) {
 	const event = await prisma.event.findUnique({
@@ -215,8 +214,8 @@ export const actions = {
 		const spotifyPlaylistId = raw.spotifyPlaylistId || null;
 		const songsPerUser = (() => {
 			if (!raw.songsPerUser) return null;
-			const parsed = Number.parseInt(raw.songsPerUser, 10);
-			return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
+			const parsedCount = Number.parseInt(raw.songsPerUser, 10);
+			return Number.isNaN(parsedCount) || parsedCount <= 0 ? null : parsedCount;
 		})();
 
 		// Get the highest order value for this event
@@ -287,8 +286,8 @@ export const actions = {
 		const spotifyPlaylistId = raw.spotifyPlaylistId || null;
 		const songsPerUser = (() => {
 			if (!raw.songsPerUser) return null;
-			const parsed = Number.parseInt(raw.songsPerUser, 10);
-			return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
+			const parsedCount = Number.parseInt(raw.songsPerUser, 10);
+			return Number.isNaN(parsedCount) || parsedCount <= 0 ? null : parsedCount;
 		})();
 
 		const question = await prisma.question.findFirst({
@@ -381,7 +380,7 @@ export const actions = {
 
 		return { success: true, type: "deleteRsvp" } as const;
 	},
-	deleteEvent: async ({ params, locals }) => {
+	deleteEvent: async ({ params }) => {
 		const eventId = await getEventId(params.token);
 
 		// Delete the event (cascading deletes will handle questions and responses)

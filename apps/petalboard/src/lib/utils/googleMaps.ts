@@ -22,18 +22,17 @@ export function loadGoogleMaps(apiKey: string): Promise<void> {
 		}
 
 		// Create callback
-		const callbackName = "initGoogleMaps";
-		(window as any)[callbackName] = () => {
+		window.initGoogleMaps = () => {
 			resolve();
-			delete (window as any)[callbackName];
+			Reflect.deleteProperty(window, "initGoogleMaps");
 		};
 
 		// Load script
 		const script = document.createElement("script");
-		script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,marker&loading=async&callback=${callbackName}`;
+		script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,marker&loading=async&callback=initGoogleMaps`;
 		script.async = true;
 		script.defer = true;
-		script.onerror = () => reject(new Error("Failed to load Google Maps script"));
+		script.addEventListener("error", () => reject(new Error("Failed to load Google Maps script")));
 		document.head.appendChild(script);
 	});
 

@@ -1,4 +1,4 @@
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { eventSchema } from "$lib/server/validation";
 import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
 import { Prisma } from "@prisma/client";
@@ -15,7 +15,7 @@ export const load = async ({ locals }) => {
 };
 
 export const actions = {
-	default: async ({ request, url, locals }) => {
+	default: async ({ request, locals }) => {
 		if (!locals.user) {
 			throw redirect(303, "/login");
 		}
@@ -51,6 +51,7 @@ export const actions = {
 			const manageToken = manageId();
 
 			try {
+				// oxlint-disable-next-line no-await-in-loop -- retry loop: each attempt must observe the previous collision before retrying
 				const event = await prisma.event.create({
 					data: {
 						title,

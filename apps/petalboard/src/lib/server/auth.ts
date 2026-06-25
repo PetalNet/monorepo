@@ -2,7 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
 import type { Cookies } from "@sveltejs/kit";
 
-import prisma from "./prisma";
+import { prisma } from "./prisma";
 
 const KEY_LENGTH = 64;
 const SESSION_COOKIE = "session";

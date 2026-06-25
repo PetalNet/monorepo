@@ -20,7 +20,7 @@ This feature allows event hosts to add collaborative playlist questions to their
 
 Add these to your `.env` file:
 
-```
+```bash
 SPOTIFY_CLIENT_ID=your_client_id_here
 SPOTIFY_CLIENT_SECRET=your_client_secret_here
 SPOTIFY_REDIRECT_URI=http://localhost:5173/api/spotify/callback

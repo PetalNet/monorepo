@@ -61,7 +61,7 @@ pnpm exec prisma studio  # Inspect the database UI
 
 ## Project structure
 
-```
+```text
 src/
   lib/
     server/    # Prisma client and validation helpers

@@ -62,8 +62,8 @@
   const rsvps = data.rsvps;
 
   // Make questions and rsvps reactive so we can update them
-  let questions = $state(data.event.questions);
-  let rsvpsList = $state(data.rsvps);
+  let questions = $state<PageData['event']['questions']>(data.event.questions);
+  let rsvpsList = $state<PageData['rsvps']>(data.rsvps);
 
   const manageTotalGuests = $derived(rsvpsList.reduce((sum: number, r: typeof rsvpsList[number]) => sum + r.guestCount, 0));
   const manageAttendingRsvps = $derived(rsvpsList.filter((r: typeof rsvpsList[number]) => r.status === 'attending'));
@@ -114,8 +114,8 @@
     try {
       const response = await fetch('/api/spotify/playlists');
       if (response.ok) {
-        const data = await response.json();
-        playlists = data.playlists;
+        const payload = await response.json();
+        playlists = payload.playlists;
       }
     } catch (error) {
       console.error('Failed to fetch playlists:', error);
@@ -151,10 +151,10 @@
           const name = typeof track.name === 'string' ? track.name : 'Unknown track';
           const rawArtists = Array.isArray(track.artists)
             ? track.artists
-                .map((artist) =>
+                .map((artist: { name?: unknown } | null | undefined) =>
                   artist && typeof artist === 'object' && typeof artist.name === 'string' ? artist.name : null
                 )
-                .filter((artist): artist is string => Boolean(artist))
+                .filter((artist: string | null): artist is string => Boolean(artist))
             : [];
           const album =
             track.album && typeof track.album === 'object' && typeof track.album.name === 'string'

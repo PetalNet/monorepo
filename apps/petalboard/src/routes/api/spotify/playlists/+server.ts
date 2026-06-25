@@ -39,7 +39,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 					spotifyTokenExpiry: new Date(Date.now() + tokenData.expires_in * 1000),
 				},
 			});
-		} catch (error) {
+		} catch {
 			return json({ error: "Failed to refresh Spotify token" }, { status: 401 });
 		}
 	}

@@ -151,7 +151,7 @@ export async function createPlaylist(
 	return response.json();
 }
 
-export async function addTracksToPlaylist(
+async function addTracksToPlaylist(
 	playlistId: string,
 	trackUris: string[],
 	accessToken: string,
@@ -222,6 +222,7 @@ export async function replacePlaylistTracks(
 
 	for (let index = 100; index < trackUris.length; index += 100) {
 		const chunk = trackUris.slice(index, index + 100);
+		// oxlint-disable-next-line no-await-in-loop -- Spotify appends each chunk to the playlist end; order must be preserved sequentially
 		await addTracksToPlaylist(playlistId, chunk, accessToken);
 	}
 }
@@ -264,21 +265,4 @@ export async function getUserPlaylists(accessToken: string): Promise<SpotifyPlay
 
 	const data = await response.json();
 	return data.items;
-}
-
-export async function getPlaylist(
-	playlistId: string,
-	accessToken: string,
-): Promise<SpotifyPlaylist> {
-	const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
-		headers: {
-			Authorization: `Bearer ${accessToken}`,
-		},
-	});
-
-	if (!response.ok) {
-		throw new Error("Failed to get playlist");
-	}
-
-	return response.json();
 }

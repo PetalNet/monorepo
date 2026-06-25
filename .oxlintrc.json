@@ -9,7 +9,8 @@
 		"pedantic": "off"
 	},
 	"rules": {
-		"import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }]
+		"import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
+		"no-underscore-dangle": ["warn", { "allow": ["_count", "_sum", "_avg", "_min", "_max"] }]
 	},
 	"ignorePatterns": [
 		"**/dist/**",

@@ -7,28 +7,6 @@ const optionalText = (schema: z.ZodString) =>
 		.transform((value) => (value.length === 0 ? undefined : value))
 		.pipe(schema.optional());
 
-const nullableUpdateText = (schema: z.ZodString) =>
-	z
-		.string()
-		.optional()
-		.transform((value) => {
-			if (value === undefined) return undefined;
-			const trimmed = value.trim();
-			return trimmed.length === 0 ? null : trimmed;
-		})
-		.pipe(schema.nullable().optional());
-
-const strictUpdateText = (schema: z.ZodString) =>
-	z
-		.string()
-		.optional()
-		.transform((value) => {
-			if (value === undefined) return undefined;
-			const trimmed = value.trim();
-			return trimmed.length === 0 ? undefined : trimmed;
-		})
-		.pipe(schema.optional());
-
 export const eventSchema = z.object({
 	title: z.string().trim().min(3, "Title must be at least 3 characters"),
 	date: z
@@ -121,19 +99,6 @@ export const rsvpSchema = z.object({
 			message: "Guest count must be between 1 and 20",
 		}),
 	responses: z.record(z.string(), z.string()).optional().default({}),
-});
-
-export const rsvpUpdateSchema = z.object({
-	name: z.string().trim().min(2, "Name is required"),
-	email: optionalText(z.string().email("Enter a valid email").max(160)),
-	pin: z.string().regex(/^[0-9]{4,6}$/, "PIN must be 4-6 digits"),
-	status: z.enum(["attending", "maybe", "not_attending"]).default("attending"),
-	responses: z.record(z.string(), z.string()).optional().default({}),
-});
-
-export const lookupSchema = z.object({
-	signupId: z.string().cuid(),
-	pin: z.string().regex(/^[0-9]{4,6}$/, "PIN must be 4-6 digits"),
 });
 
 export const registerSchema = z.object({

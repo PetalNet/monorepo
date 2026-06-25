@@ -1,5 +1,5 @@
 import { createSession } from "$lib/server/auth";
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { error, redirect } from "@sveltejs/kit";
 
 export const GET = async ({ params, cookies }) => {

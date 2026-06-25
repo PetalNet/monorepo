@@ -99,7 +99,7 @@ export const actions = {
 				success: true,
 				message: "Profile updated successfully",
 			};
-		} catch (error) {
+		} catch {
 			return fail(500, {
 				type: "updateProfile",
 				message: "Failed to update profile",
@@ -178,7 +178,7 @@ export const actions = {
 				success: true,
 				message: "Password changed successfully",
 			};
-		} catch (error) {
+		} catch {
 			return fail(500, {
 				type: "changePassword",
 				message: "Failed to change password",
@@ -224,9 +224,9 @@ export const actions = {
 			cookies.delete("session", { path: "/" });
 
 			throw redirect(302, "/");
-		} catch (error: any) {
-			if (error?.status === 302) {
-				throw error;
+		} catch (err: unknown) {
+			if (typeof err === "object" && err !== null && "status" in err && err.status === 302) {
+				throw err;
 			}
 			return fail(500, {
 				type: "deleteAccount",
@@ -243,7 +243,7 @@ export const actions = {
 		console.log("=== DISCONNECT SPOTIFY called for user:", locals.user.id);
 
 		try {
-			const result = await prisma.user.update({
+			await prisma.user.update({
 				where: { id: locals.user.id },
 				data: {
 					spotifyAccessToken: null,

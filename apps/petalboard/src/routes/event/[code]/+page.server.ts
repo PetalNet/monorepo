@@ -1,4 +1,4 @@
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { hashPin, verifyPin } from "$lib/server/security";
 import {
 	refreshAccessToken,
@@ -9,7 +9,6 @@ import {
 import type { SpotifyTrack } from "$lib/server/spotify";
 import { rsvpSchema } from "$lib/server/validation";
 import { fail, error } from "@sveltejs/kit";
-import { z } from "zod";
 
 export const load = async ({ params, locals }) => {
 	const event = await prisma.event.findUnique({
@@ -161,8 +160,8 @@ function parseSpotifySelection(raw: string | null | undefined): SpotifyTrack[] {
 		if (typeof parsed === "object" && parsed !== null && "uri" in parsed) {
 			return [parsed as SpotifyTrack];
 		}
-	} catch (error) {
-		console.warn("Failed to parse Spotify response value", error);
+	} catch (err) {
+		console.warn("Failed to parse Spotify response value", err);
 	}
 
 	return [];
@@ -199,8 +198,8 @@ async function getSpotifyAccessTokenForUser(userId: string) {
 					spotifyTokenExpiry: new Date(Date.now() + refreshed.expires_in * 1000),
 				},
 			});
-		} catch (error) {
-			console.error("Failed to refresh Spotify access token", error);
+		} catch (err) {
+			console.error("Failed to refresh Spotify access token", err);
 			return null;
 		}
 	}
@@ -267,11 +266,13 @@ async function syncSpotifyPlaylists(eventId: string) {
 				}
 
 				if (!spotifyUserId) {
+					// oxlint-disable-next-line no-await-in-loop -- memoizes spotifyUserId across iterations; must run before later iterations read it
 					const profile = await getSpotifyProfile(spotifyAuth.accessToken);
 					spotifyUserId = profile.id;
 				}
 
 				if (spotifyUserId) {
+					// oxlint-disable-next-line no-await-in-loop -- createPlaylist result feeds the update + replacePlaylistTracks below
 					const playlist = await createPlaylist(
 						spotifyUserId,
 						`${event.title} - ${question.label}`,
@@ -279,6 +280,7 @@ async function syncSpotifyPlaylists(eventId: string) {
 						spotifyAuth.accessToken,
 					);
 
+					// oxlint-disable-next-line no-await-in-loop -- persists the playlist id created immediately above
 					await prisma.question.update({
 						where: { id: question.id },
 						data: { spotifyPlaylistId: playlist.id },
@@ -289,14 +291,15 @@ async function syncSpotifyPlaylists(eventId: string) {
 			}
 
 			if (question.spotifyPlaylistId) {
+				// oxlint-disable-next-line no-await-in-loop -- depends on the playlist id resolved earlier in this iteration
 				await replacePlaylistTracks(
 					question.spotifyPlaylistId,
 					desiredUris,
 					spotifyAuth.accessToken,
 				);
 			}
-		} catch (error) {
-			console.error(`Failed to sync Spotify playlist for question ${question.id}`, error);
+		} catch (err) {
+			console.error(`Failed to sync Spotify playlist for question ${question.id}`, err);
 		}
 	}
 }
@@ -506,8 +509,8 @@ export const actions = {
 		const updatedRsvpCount = updatedRsvps.length;
 		const updatedTotalGuests = updatedRsvps.reduce((sum, r) => sum + r.guestCount, 0);
 
-		await syncSpotifyPlaylists(event.id).catch((error) => {
-			console.error("Spotify sync failed after RSVP create", error);
+		await syncSpotifyPlaylists(event.id).catch((err) => {
+			console.error("Spotify sync failed after RSVP create", err);
 		});
 
 		return {
@@ -783,8 +786,8 @@ export const actions = {
 			0,
 		);
 
-		await syncSpotifyPlaylists(event.id).catch((error) => {
-			console.error("Spotify sync failed after RSVP update", error);
+		await syncSpotifyPlaylists(event.id).catch((err) => {
+			console.error("Spotify sync failed after RSVP update", err);
 		});
 
 		return {
@@ -849,8 +852,8 @@ export const actions = {
 			where: { id: rsvp.id },
 		});
 
-		await syncSpotifyPlaylists(rsvp.eventId).catch((error) => {
-			console.error("Spotify sync failed after RSVP cancellation", error);
+		await syncSpotifyPlaylists(rsvp.eventId).catch((err) => {
+			console.error("Spotify sync failed after RSVP cancellation", err);
 		});
 
 		// Fetch updated data to return

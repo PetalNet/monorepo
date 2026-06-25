@@ -7,10 +7,6 @@ export function formatDate(date: Date | string, timezone?: string): string {
 	}).format(parsed);
 }
 
-export function remainingCount(quantity: number, taken: number): number {
-	return Math.max(quantity - taken, 0);
-}
-
 export function formatShortDate(date: Date | string, timezone?: string): string {
 	const parsed = typeof date === "string" ? new Date(date) : date;
 	return new Intl.DateTimeFormat("en-US", {
