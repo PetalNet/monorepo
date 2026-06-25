@@ -33,6 +33,22 @@ Then, the things that bit slide:
 
 ## Migrated
 
+- `matrix-bot` → `apps/matrix-bot` — Rust Cargo workspace (matrix-sdk E2EE relay
+  bot + plugin crates), **not** a pnpm/SvelteKit app. It has no `package.json`,
+  so pnpm/`vp`/svelte-check ignore it; oxfmt still owns its `.toml`/`.md` (repo
+  policy) while `cargo fmt` owns the `.rs`. Validation is Cargo-native: `cargo
+fmt --check`, `cargo clippy -D warnings`, `cargo build --locked`, `cargo test`
+  (mirrors the source repo's CI; toolchain pinned to 1.90 via
+  `rust-toolchain.toml`). The per-app JS cleanup steps (rename to
+  `@petalnet/*`, deps→catalogs, drop per-app lockfile/relock) are N/A — there
+  are no JS deps and `Cargo.lock` is kept for `--locked` builds. Dropped
+  standalone deploy cruft (per-app `Dockerfile`, `docker-compose.yml`,
+  `.dockerignore`, `matrix-ping-bot.service.example`) and trimmed the AGENTS.md
+  Deploy section. No secrets in source or history: only `.env.example` /
+  `config.example.yaml` / `plugins/*/config.example.yaml` placeholders ever
+  committed; no real `.env`/`config.yaml`/`session.json` and no token/key value
+  patterns across all branches' blobs.
+
 _(populated as repos land — see issue #1 for the live checklist)_
 
 ## Excluded
