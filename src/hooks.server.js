@@ -4,12 +4,16 @@
 // 'dev' fallback exists ONLY for local dev where no ALLOW is configured.
 const ALLOW = (process.env.ALLOW || '').split(',').map((s) => s.trim()).filter(Boolean);
 
-// NOTE: the public scoped-share exemption (/s/<token>, the #487 feature) is intentionally
-// NOT present in this redesign-only ship — #487 (gallery share-UI + /s/ route) is held for
-// its own reviewed PR, so this gate has no SSO-exempt path: every route requires identity.
+// PUBLIC scoped-share exemption (/s/<token>, the #487 feature): /s/ is the ONE SSO-exempt path.
+// Traefik already strips the Authentik forward-auth middleware for PathPrefix `/s/` (see
+// /srv/traefik/dynamic/tasks.yml router `tasks-share`), so this gate must NOT re-reject a
+// /s/ request for lacking an identity. The /s/ handler (src/routes/s/[token]/+server.js) is
+// fail-closed, read-only, and token-scoped to a single artifact, so ALL access control lives there.
+// Strict exact-prefix match — exactly `/s` or `/s/…`, nothing else can ride the exemption.
+const isPublicShare = (pathname) => pathname === '/s' || pathname.startsWith('/s/');
 export async function handle({ event, resolve }) {
   const user = event.request.headers.get('x-authentik-username') || '';
-  if (ALLOW.length) {
+  if (ALLOW.length && !isPublicShare(event.url.pathname)) {
     // production: require a valid Authentik identity (fail closed — was fail-open via 'dev')
     if (!user || !ALLOW.includes(user)) {
       return new Response('Private tracker — ask Alice for access.', {
@@ -18,10 +22,12 @@ export async function handle({ event, resolve }) {
       });
     }
     event.locals.user = user;
-  } else {
+  } else if (!ALLOW.length) {
     // local dev only (no access list): permit the dev fallback identity
     event.locals.user = user || 'dev';
   }
+  // production + /s/ public share: no identity required; event.locals.user intentionally left
+  // unset — the share route resolves strictly by token, never by user.
   // Skin: paper-and-ink is now the DEFAULT skin (Bob: "finish flipping over to DS").
   // Tag <html class="skin-paper-ink"> so the skin CSS activates. Escape hatch:
   // TASKS_SKIN=none falls back to the old dark-zinc/amber look; any other value
