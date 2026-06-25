@@ -8,33 +8,27 @@ const FROM_EMAIL = process.env.FROM_EMAIL || SMTP_USER;
 const APP_URL = process.env.APP_URL || "http://localhost:5173";
 
 if (!SMTP_USER || !SMTP_PASS) {
-  console.warn(
-    "Email not configured: SMTP_USER and SMTP_PASS must be set in .env"
-  );
+	console.warn("Email not configured: SMTP_USER and SMTP_PASS must be set in .env");
 }
 
 const transporter = nodemailer.createTransport({
-  host: SMTP_HOST,
-  port: SMTP_PORT,
-  secure: false, // Use STARTTLS
-  auth: {
-    user: SMTP_USER,
-    pass: SMTP_PASS,
-  },
+	host: SMTP_HOST,
+	port: SMTP_PORT,
+	secure: false, // Use STARTTLS
+	auth: {
+		user: SMTP_USER,
+		pass: SMTP_PASS,
+	},
 });
 
-export async function sendVerificationEmail(
-  email: string,
-  name: string,
-  token: string
-) {
-  const verifyUrl = `${APP_URL}/verify/${token}`;
+export async function sendVerificationEmail(email: string, name: string, token: string) {
+	const verifyUrl = `${APP_URL}/verify/${token}`;
 
-  const mailOptions = {
-    from: `"PetalBoard" <${FROM_EMAIL}>`,
-    to: email,
-    subject: "Verify your PetalBoard account",
-    html: `
+	const mailOptions = {
+		from: `"PetalBoard" <${FROM_EMAIL}>`,
+		to: email,
+		subject: "Verify your PetalBoard account",
+		html: `
       <!DOCTYPE html>
       <html>
         <head>
@@ -70,14 +64,14 @@ export async function sendVerificationEmail(
         </body>
       </html>
     `,
-    text: `Hi ${name},\n\nThanks for creating a PetalBoard account! Please verify your email address by clicking the link below:\n\n${verifyUrl}\n\nIf you didn't create this account, you can safely ignore this email.\n\nPetalBoard - Effortless event signups`,
-  };
+		text: `Hi ${name},\n\nThanks for creating a PetalBoard account! Please verify your email address by clicking the link below:\n\n${verifyUrl}\n\nIf you didn't create this account, you can safely ignore this email.\n\nPetalBoard - Effortless event signups`,
+	};
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Verification email sent to ${email}`);
-  } catch (error) {
-    console.error("Failed to send verification email:", error);
-    throw new Error("Failed to send verification email");
-  }
+	try {
+		await transporter.sendMail(mailOptions);
+		console.log(`Verification email sent to ${email}`);
+	} catch (error) {
+		console.error("Failed to send verification email:", error);
+		throw new Error("Failed to send verification email");
+	}
 }

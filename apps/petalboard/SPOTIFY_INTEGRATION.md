@@ -42,14 +42,12 @@ npx prisma db push
 ### For Event Hosts
 
 1. **Connect Spotify Account**
-
    - Go to Settings
    - Click "Connect Spotify" in the Spotify Integration section
    - Authorize PetalBoard to access your Spotify account
    - This allows you to create playlist questions
 
 2. **Add Playlist Question**
-
    - When creating or editing an event, select question type "Spotify Playlist"
    - This question type requires Spotify authentication
    - If not connected, you'll be prompted to connect your account
@@ -89,16 +87,16 @@ When a question has `type: "spotify_playlist"`, the response `value` is stored a
 
 ```json
 {
-  "id": "spotify_track_id",
-  "name": "Song Name",
-  "artists": [{ "name": "Artist Name" }],
-  "album": {
-    "name": "Album Name",
-    "images": [{ "url": "image_url" }]
-  },
-  "uri": "spotify:track:xxx",
-  "preview_url": "preview_url_if_available",
-  "duration_ms": 240000
+	"id": "spotify_track_id",
+	"name": "Song Name",
+	"artists": [{ "name": "Artist Name" }],
+	"album": {
+		"name": "Album Name",
+		"images": [{ "url": "image_url" }]
+	},
+	"uri": "spotify:track:xxx",
+	"preview_url": "preview_url_if_available",
+	"duration_ms": 240000
 }
 ```
 

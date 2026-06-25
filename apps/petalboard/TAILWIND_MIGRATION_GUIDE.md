@@ -7,13 +7,11 @@
 The following files have been successfully migrated to Tailwind CSS:
 
 1. **Configuration Files**
-
    - `tailwind.config.js` - Custom colors, fonts, gradients, shadows
    - `postcss.config.js` - PostCSS configuration
    - `src/app.css` - Tailwind directives + custom component classes
 
 2. **Layout & Core Pages**
-
    - `src/routes/+layout.svelte` - Global layout, navigation, footer
    - `src/routes/+page.svelte` - Homepage with hero, features, CTA sections
    - `src/routes/create/+page.svelte` - Event creation form
