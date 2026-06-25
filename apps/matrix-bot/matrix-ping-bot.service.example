@@ -1,0 +1,27 @@
+[Unit]
+Description=Matrix Ping Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=matrixbot
+Group=matrixbot
+WorkingDirectory=/opt/matrix-ping-bot
+EnvironmentFile=/etc/matrix-ping-bot.env
+ExecStart=/opt/matrix-ping-bot/matrix-ping-bot \
+  --device-name matrix-ping-bot \
+  --config /opt/matrix-ping-bot/config.yaml
+Restart=always
+RestartSec=5s
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+AmbientCapabilities=
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

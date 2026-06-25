@@ -1,0 +1,7 @@
+# Example echo tool config (copy to config.yaml to customise behaviour)
+
+# Optional text prefix for echoed replies
+prefix: "[echo] "
+
+# Uppercase the echoed text
+uppercase: false

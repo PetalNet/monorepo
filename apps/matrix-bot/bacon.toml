@@ -1,0 +1,13 @@
+default_job = "run"
+env.FORCE_COLOR = "1"
+env.CARGO_TERM_COLOR = "always"
+
+[jobs.run]
+command = [
+    "cargo", "run"
+]
+need_stdout = true
+allow_warnings = true
+background = false
+on_change_strategy = "kill_then_restart"
+env.RUST_LOG = "info,matrix_ping_bot=debug"

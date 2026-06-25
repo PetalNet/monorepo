@@ -1,0 +1,22 @@
+# Example AI tool configuration (copy to config.yaml and tweak for your environment)
+
+# Display name used in replies and mention fallback
+name: "Claire"
+
+# OpenAI-compatible endpoint (e.g., OpenAI, Together, Open WebUI proxy)
+api_base: "https://api.your-provider.test"
+api_path: "/v1/chat/completions"
+
+# Set either api_key OR api_key_env.
+# api_key_env reads from the named environment variable and is preferred for secrets.
+api_key_env: "OPENAI_API_KEY"
+# api_key: "sk-your-real-key"
+
+# Default model + history behaviour
+model: "gpt-4o-mini"
+history_backfill_on_start: true
+history_backfill_lines: 50
+
+# Optional: custom system prompt. If omitted, the built-in group-chat prompt is used.
+# system_prompt: |
+#   You are "@Claire", a witty but kind friend…

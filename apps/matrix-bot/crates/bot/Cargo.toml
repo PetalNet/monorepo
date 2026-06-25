@@ -1,0 +1,36 @@
+[package]
+name = "matrix-ping-bot"
+version = "0.1.0"
+
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+futures-util.workspace = true
+matrix-sdk.workspace = true
+mime.workspace = true
+rpassword = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+time.workspace = true
+
+plugin-ai = {  path = "../plugin-ai" }
+plugin-diagnostics = {  path = "../plugin-diagnostics" }
+plugin-echo = {  path = "../plugin-echo" }
+plugin-mode = {  path = "../plugin-mode" }
+plugin-ping = {  path = "../plugin-ping" }
+plugin-tools-manager = {  path = "../plugin-tools-manager" }
+plugin-relay = {  path = "../plugin-relay" }
+plugin-core = { path = "../plugin-core" }
+
+[features]
+default = ["rpassword"]
+
+[lints]
+workspace = true

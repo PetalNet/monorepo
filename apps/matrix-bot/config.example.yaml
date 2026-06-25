@@ -1,0 +1,44 @@
+# Define clusters of rooms to relay between.
+# Each cluster lists room IDs or aliases. Messages in one room
+# will be forwarded to the other rooms in the same cluster.
+
+## Global defaults (can be overridden per-cluster)
+# dev_mode: false         # enable dev-mode gating for this instance
+# dev_id: your-dev-id     # identifier used for !devid.command and @devid.mention
+# reupload_media: true    # download remote media and reupload before sending
+# caption_media:  true    # send a caption like "Name: sent an image"
+# backfill_limit: 12      # on startup, relay up to this many missed recent messages per source room (max 25)
+
+clusters:
+  - name: sample-pair
+    rooms:
+      - "!roomIdA:example.org" # or "#aliasA:example.org"
+      - "!roomIdB:example.org" # or "#aliasB:example.org"
+    # Optional overrides for this cluster
+    # reupload_media: true
+    # caption_media: true
+    # backfill_limit: 12
+
+plugins:
+  - id: ai
+    # provider: "gemini" # or "openai" (default)
+    # model: "gemini-1.5-flash"
+    # pii_redaction: true # Redact sensitive data (emails, IPs, phones) before sending to LLM
+    # pii_ner: true # Use local AI to redact Names, Locations, and Orgs (heavy download!)
+    # mcp_servers:
+    #   time:
+    #     command: "cargo" # or "./matrix-ping-bot" in prod
+    #     args: ["run", "--", "--mcp-server", "time"]
+    #   websearch:
+    #     # Option 1: Use published npm package (simpler)
+    #     command: "npx -y @guhcostan/web-search-mcp"
+    #     # Option 2: Clone https://github.com/mrkrsl/web-search-mcp, npm install && npm run build
+    #     # command: "node /path/to/web-search-mcp/dist/index.js"
+    #   filesystem:
+    #     command: "npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/directory"
+
+  # - name: another-cluster
+  #   rooms:
+  #     - "!roomIdC:example.org"
+  #     - "!roomIdD:example.org"
+  #     - "!roomIdE:example.org"
