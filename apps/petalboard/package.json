@@ -1,41 +1,39 @@
 {
-  "name": "petalboard",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "dev": "vite dev",
-    "build": "vite build",
-    "preview": "vite preview",
-    "prepare": "svelte-kit sync || echo ''",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
-  },
-  "devDependencies": {
-    "@sveltejs/adapter-auto": "^7.0.0",
-    "@sveltejs/adapter-node": "^5.0.0",
-    "@sveltejs/kit": "^2.47.1",
-    "@sveltejs/vite-plugin-svelte": "^6.2.1",
-    "@types/google.maps": "^3.58.1",
-    "@types/node": "^24.9.2",
-    "@types/nodemailer": "^7.0.3",
-    "@vitejs/plugin-basic-ssl": "^2.1.0",
-    "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.6",
-    "prisma": "^6.18.0",
-    "svelte": "^5.41.0",
-    "svelte-check": "^4.3.3",
-    "tailwindcss": "^3",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.10"
-  },
-  "dependencies": {
-    "@prisma/client": "^6.18.0",
-    "nanoid": "^5.1.6",
-    "nodemailer": "^7.0.10",
-    "remark": "^15.0.1",
-    "remark-gfm": "^4.0.1",
-    "remark-html": "^16.0.1",
-    "zod": "^4.1.12"
-  }
+	"name": "@petalnet/petalboard",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "prisma generate && vite build",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"dev": "vite dev",
+		"prepare": "prisma generate && svelte-kit sync || echo ''",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"@prisma/client": "catalog:prod",
+		"@sveltejs/kit": "catalog:prod",
+		"nanoid": "catalog:prod",
+		"nodemailer": "catalog:prod",
+		"remark": "catalog:prod",
+		"remark-gfm": "catalog:prod",
+		"remark-html": "catalog:prod",
+		"svelte": "catalog:prod",
+		"zod": "catalog:prod"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "catalog:dev",
+		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"@types/google.maps": "catalog:types",
+		"@types/node": "catalog:types",
+		"@types/nodemailer": "catalog:types",
+		"autoprefixer": "catalog:dev",
+		"postcss": "catalog:dev",
+		"prisma": "catalog:dev",
+		"svelte-check": "catalog:dev",
+		"tailwindcss": "catalog:legacy",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev"
+	}
 }
