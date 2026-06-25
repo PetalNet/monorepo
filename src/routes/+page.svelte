@@ -6,408 +6,533 @@
 
   const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
 
-  // Compact lease badge for in-progress rows. lease_expires_at now ships (only
-  // claim_token is scrubbed); snapshot at render, refreshes on reload/nav.
-  function leaseBadge(t) {
-    if (t.status !== 'doing' || !t.lease_expires_at) return null;
-    const s = t.lease_expires_at;
-    const ms = new Date(/[TZ]/.test(s) ? s : s.replace(' ', 'T') + 'Z').getTime();
-    if (isNaN(ms)) return null;
-    const now = Date.now();
-    const a = Math.abs(Math.round((now - ms) / 1000));
-    const mag = a < 60 ? `${a}s` : a < 3600 ? `${Math.round(a / 60)}m` : a < 86400 ? `${Math.round(a / 3600)}h` : `${Math.round(a / 86400)}d`;
-    return { state: now >= ms ? 'expired' : now > ms - 300000 ? 'soon' : 'ok', label: now >= ms ? `${mag} over` : mag };
-  }
+  // who's signed in → greeting
+  const WHO = { alice: 'Alice', alice: 'Alice', bob: 'Bob', bob: 'Bob', bob: 'Bob', dev: 'there' };
+  const me = $derived(String(data.me || 'dev').toLowerCase());
+  const whoName = $derived(WHO[me] ?? (me.charAt(0).toUpperCase() + me.slice(1)));
+
+  // time-of-day greeting + clock (client-rendered; harmless if it differs by a tick)
+  let now = $state(new Date());
+  const greetWord = $derived(now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening');
+  const clock = $derived(now.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase() + ' ' +
+    now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }));
+
+  const hud = $derived(data.hud ?? { needsYou: 0, onFire: 0, working: 0 });
+  const g = $derived(data.graphs ?? { momentum: { closedToday: 0, series: [] }, backlog: { total: 0, byPriority: {} }, focus: { needsYou: 0, onFire: 0, inFlight: 0, total: 0 } });
+
+  // lab health phrase keyed to on-fire count
+  const labState = $derived(hud.onFire > 0 ? `${hud.onFire} on fire` : 'lab nominal');
+
+  // ── live fleet: handle → telemetry, to enrich the IN FLIGHT lane ──
+  const fleetByHandle = $derived(Object.fromEntries((data.fleet?.agents ?? []).map((a) => [a.handle, a])));
+  const fmtAge = (ms) => {
+    if (ms == null) return '';
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.round(s / 60);
+    if (m < 60) return m + 'm';
+    const h = Math.round(m / 60);
+    return h < 24 ? h + 'h' : Math.round(h / 24) + 'd';
+  };
 
   function relShort(ts) {
     if (!ts) return '';
-    const s = Math.round((Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 1000);
+    const s = Math.round((Date.now() - new Date(/[TZ]/.test(ts) ? ts : ts.replace(' ', 'T') + 'Z').getTime()) / 1000);
     if (s < 60) return s + 's';
     if (s < 3600) return Math.round(s / 60) + 'm';
     if (s < 86400) return Math.round(s / 3600) + 'h';
-    if (s < 604800) return Math.round(s / 86400) + 'd';
-    return Math.round(s / 604800) + 'w';
+    return Math.round(s / 86400) + 'd';
   }
 
-  // per-person colours (design's HUMANS/AGENTS), hashed fallback for anyone else
-  const PERSON = {
-    claude: '#fb923c', agent-a: '#8b5cf6', agent-b: '#22d3ee',
-    alice: '#fb7185', alice: '#fb7185', alice: '#fb7185',
-    bob: '#38bdf8', bob: '#38bdf8', bob: '#38bdf8'
-  };
-  const hue = (s) => { let h = 0; for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
-  const whoColor = (h) => h ? (PERSON[String(h).toLowerCase()] ?? `hsl(${hue(h)} 60% 68%)`) : null;
-  const isAgent = (h) => ['claude', 'agent-a', 'agent-b'].includes(String(h).toLowerCase());
+  // ── filters (mirror the board; navigate to /browse with the same query) ──
+  const pickProject = (e) => { const v = e.target.value; goto('/browse' + (v ? `?project=${encodeURIComponent(v)}` : '')); };
+  const pickAssignee = (e) => { const v = e.target.value; goto('/browse' + (v ? `?assignee=${encodeURIComponent(v)}` : '')); };
 
-  function filterUrl({ project = data.current, assignee = data.assignee } = {}) {
-    const q = new URLSearchParams();
-    if (project) q.set('project', project);
-    if (assignee) q.set('assignee', assignee);
-    const s = q.toString();
-    return s ? `?${s}` : '?';
-  }
-  const pickProject = (e) => goto(filterUrl({ project: e.target.value || null }), { keepFocus: true, noScroll: true });
-  const pickAssignee = (e) => goto(filterUrl({ assignee: e.target.value || null }), { keepFocus: true, noScroll: true });
-
-  // attention sub-line counts
-  const waitingCount = $derived(data.questions.length);
-
-  // ── client-side search ──────────────────────────────────────
-  // Browsing a board with 50+ rows across many lanes is a scroll-hunt. A live
-  // title/project filter narrows every lane at once (matches a row OR any of its
-  // sub-tasks) so you can find a task by typing instead of scanning. Project +
-  // assignee dropdowns stay server-side (they re-query); this is a pure in-page
-  // narrow of what's already loaded.
-  let query = $state('');
-  const needle = $derived(query.trim().toLowerCase());
-  const rowMatch = (t) =>
-    !needle ||
-    (t.title ?? '').toLowerCase().includes(needle) ||
-    (projName(t.project_id) ?? '').toLowerCase().includes(needle) ||
-    (t.kids ?? []).some(rowMatch);
-  const f = (list) => (needle ? (list ?? []).filter(rowMatch) : (list ?? []));
-  const fQuestions = $derived(f(data.questions));
-  const fDoing = $derived(f(data.doing));
-  const fUpNext = $derived(f(data.upNext));
-  const fInbox = $derived(f(data.inbox));
-  const fBacklog = $derived(f(data.backlog));
-  const fBlocked = $derived(f(data.blocked));
-  const fDocs = $derived(f(data.docs));
-  const fDone = $derived(f(data.done));
-  const matchCount = $derived(
-    fQuestions.length + fDoing.length + fUpNext.length + fInbox.length +
-    fBacklog.length + fBlocked.length + fDocs.length + fDone.length
+  // ── momentum sparkline geometry from the real 14-day series ──
+  const spark = $derived.by(() => {
+    const s = g.momentum.series ?? [];
+    if (!s.length) return { points: '', dot: null };
+    const max = Math.max(1, ...s.map((d) => d.n));
+    const n = s.length;
+    const pts = s.map((d, i) => {
+      const x = n === 1 ? 50 : (i / (n - 1)) * 100;
+      const y = 28 - (d.n / max) * 24;          // baseline ~28, top ~4
+      return { x, y };
+    });
+    return {
+      points: pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '),
+      dot: pts[pts.length - 1]
+    };
+  });
+  const momCap = $derived(
+    g.momentum.closedToday > 0
+      ? `${g.momentum.closedToday} closed in the last day`
+      : 'no closes yet today'
   );
-  const searching = $derived(!!needle);
+
+  // ── backlog stacked bar from real counts ──
+  const bl = $derived.by(() => {
+    const bp = g.backlog.byPriority ?? {};
+    const total = g.backlog.total || 0;
+    const pct = (n) => (total ? (n / total) * 100 : 0);
+    return {
+      total,
+      p0: bp[0] ?? 0, p1: bp[1] ?? 0, p2: bp[2] ?? 0, p3: bp[3] ?? 0,
+      w0: pct(bp[0] ?? 0), w1: pct(bp[1] ?? 0), w2: pct(bp[2] ?? 0), w3: pct(bp[3] ?? 0)
+    };
+  });
+
+  // ── focus donut: three arcs (need-you / on-fire / in-flight) over the ring ──
+  const R = 37, C = 2 * Math.PI * R;            // ≈ 232.48
+  const ring = $derived.by(() => {
+    const f = g.focus ?? {};
+    const total = f.total || 0;
+    const segs = [
+      { key: 'y', n: f.needsYou ?? 0, stroke: 'var(--violet-b)' },
+      { key: 'f', n: f.onFire ?? 0, stroke: 'var(--danger-b)' },
+      { key: 'w', n: f.inFlight ?? 0, stroke: 'var(--accent-b)' }
+    ].filter((s) => s.n > 0);
+    if (!total) return { arcs: [], total: 0 };
+    const gap = segs.length > 1 ? 1.5 : 0;
+    let offset = 0;
+    const arcs = segs.map((s) => {
+      const len = Math.max(0, (s.n / total) * C - gap);
+      const arc = { ...s, dash: `${len.toFixed(2)} ${(C - len).toFixed(2)}`, dashoffset: (-offset).toFixed(2) };
+      offset += (s.n / total) * C;
+      return arc;
+    });
+    return { arcs, total };
+  });
 </script>
 
-<svelte:head><title>tasks{data.current ? ' · ' + data.current : ''}</title></svelte:head>
+<svelte:head><title>tasks · desk</title></svelte:head>
 
-<!-- one task row + its subtasks, recursively -->
-{#snippet row(t, kind)}
-  {@const pc = whoColor(t.assignee)}
-  {@const lb = leaseBadge(t)}
-  <div class="row kind-{kind} st-{t.status ?? 'todo'}" style={pc ? `--pl:${pc}` : ''}>
-    <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-{kind}"/></svg></span>
-    <a class="row-main" href="/task/{t.id}">
-      <span class="row-title">{t.title}</span>
-      <span class="row-sub">
-        <span class="tasknum mono">#{t.id}</span>
-        {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
-        {#if t.priority != null}<span class="chip prio prio-{t.priority}">P{t.priority}</span>{/if}
-        {#if t.blocked_on}<span class="tag-s mono">{t.blocked_on}</span>{/if}
-        {#if t.blockers?.length}<span class="blk"><svg width="11" height="11" aria-hidden="true"><use href="#i-block"/></svg> blocked</span>{/if}
-      </span>
-    </a>
-    <span class="row-right">
-      {#if t.assignee}
-        <span class="avatar" style="width:20px;height:20px;font-size:9px;color:{pc};border-color:{pc};background:{isAgent(t.assignee) ? 'transparent' : pc + '22'};border-style:{isAgent(t.assignee) ? 'dashed' : 'solid'}">{t.assignee.charAt(0).toLowerCase()}</span>
-      {/if}
-      {#if lb}<span class="lease lease-{lb.state}" title="lease {lb.label}">{lb.label}</span>{/if}
-      <span class="mono dim age">{relShort(t.created_at)}</span>
-      <form method="POST" action="?/update" use:enhance>
-        <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
-        <button class="rcheck" title="Complete" aria-label="Mark task done"><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg></button>
-      </form>
-    </span>
-  </div>
-  {#each t.kids ?? [] as k, i (k.id)}
-    <div class="substack" class:last={i === (t.kids.length - 1)}>{@render row(k, 'task')}</div>
-  {/each}
+{#snippet prioChip(p)}
+  {#if p != null}<span class="prio prio-{p}">P{p}</span>{/if}
 {/snippet}
 
-{#snippet laneHead(title, count, accent, icon)}
-  <div class="lane-head {accent ? 'lane-' + accent : ''}">
-    {#if icon}<span class="lane-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-{icon}"/></svg></span>{/if}
-    <h2>{title}</h2>
-    <span class="lane-count">{count}</span>
-  </div>
-{/snippet}
+<div class="screen cockpit">
 
-<div class="screen board">
-  <header class="page-head">
-    <div class="ph-row">
-      <h1>tasks</h1>
-      <span class="ph-spacer"></span>
-      <div class="ph-filters">
-        <div class="fsel">
-          {#if data.current}<svg class="lk" width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg>{/if}
-          <select onchange={pickProject} value={data.current ?? ''} aria-label="Project">
-            <option value="">all projects</option>
-            {#each data.projects as p}<option value={p.name}>{p.name}</option>{/each}
-          </select>
-        </div>
-        {#if data.assignees.length}
-          <div class="fsel" class:on={data.assignee}>
-            <select onchange={pickAssignee} value={data.assignee ?? ''} aria-label="Assignee">
-              <option value="">all people</option>
-              {#each data.assignees as a}<option value={a}>{a}</option>{/each}
-            </select>
-          </div>
-        {/if}
-      </div>
+  <!-- HUD header -->
+  <header class="ckhead">
+    <div class="ck-eyebrow">
+      <span class="live"></span>
+      <span>your desk · {labState}</span>
+      <span class="when mono">{clock}</span>
     </div>
-    <p class="ph-sub mono">
-      <span class="hl-v">{waitingCount} waiting on you</span>{#if data.doing.length} · <span class="hl-a">{data.doing.length} in progress</span>{/if} · {data.upNext.length} up next · {data.backlog.length} to do · {data.inbox.length} in inbox
-    </p>
+    <h1 class="greet">{greetWord}, <em>{whoName}</em></h1>
+    <div class="statline">
+      <div class="stat you"><span class="n mono">{hud.needsYou}</span><span class="l">need you</span></div>
+      <div class="stat fire"><span class="n mono">{hud.onFire}</span><span class="l">on fire</span></div>
+      <div class="stat work"><span class="n mono">{hud.working}</span><span class="l">{hud.working === 1 ? 'agent working' : 'agents working'}</span></div>
+    </div>
+    <div class="filters">
+      <span class="fsel">
+        <svg width="13" height="13" aria-hidden="true"><use href="#i-projects"/></svg>
+        <select onchange={pickProject} aria-label="Project">
+          <option value="">all projects</option>
+          {#each data.projects as p}<option value={p.name}>{p.name}</option>{/each}
+        </select>
+      </span>
+      {#if data.assignees.length}
+        <span class="fsel">
+          <select onchange={pickAssignee} aria-label="People">
+            <option value="">all people</option>
+            {#each data.assignees as a}<option value={a}>{a}</option>{/each}
+          </select>
+        </span>
+      {/if}
+    </div>
   </header>
 
+  <!-- GRAPHS STRIP -->
+  <section class="graphs" aria-label="At-a-glance charts">
+
+    <!-- momentum -->
+    <div class="gcard g-mom">
+      <div class="gc-head"><span class="gc-ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-pulse"/></svg></span>Momentum</div>
+      <div class="mom-top"><span class="mom-n mono">{g.momentum.closedToday}</span><span class="mom-unit">closed today</span></div>
+      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="closes per day over 14 days">
+        <line x1="0" y1="28" x2="100" y2="28" stroke="var(--border)" stroke-width="1.2" />
+        {#if spark.points}
+          <polyline points={spark.points} fill="none" stroke="var(--accent-b)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+          {#if spark.dot}<circle class="spark-dot" cx={spark.dot.x} cy={spark.dot.y} r="3" />{/if}
+        {/if}
+      </svg>
+      <div class="mom-cap">{momCap}</div>
+    </div>
+
+    <!-- backlog by priority -->
+    <div class="gcard g-bl">
+      <div class="gc-head"><span class="gc-ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-board"/></svg></span>Backlog · {bl.total} open</div>
+      <div class="bl-bar" role="img" aria-label="Backlog by priority: P0 {bl.p0}, P1 {bl.p1}, P2 {bl.p2}, P3 {bl.p3}">
+        <span class="bl-seg bl-p0" style="width:{bl.w0}%"></span>
+        <span class="bl-seg bl-p1" style="width:{bl.w1}%"></span>
+        <span class="bl-seg bl-p2" style="width:{bl.w2}%"></span>
+        <span class="bl-seg bl-p3" style="width:{bl.w3}%"></span>
+      </div>
+      <div class="bl-legend">
+        <span class="bl-key k0"><span class="sw"></span>P0<span class="kc mono">{bl.p0}</span></span>
+        <span class="bl-key k1"><span class="sw"></span>P1<span class="kc mono">{bl.p1}</span></span>
+        <span class="bl-key k2"><span class="sw"></span>P2<span class="kc mono">{bl.p2}</span></span>
+        <span class="bl-key k3"><span class="sw"></span>P3<span class="kc mono">{bl.p3}</span></span>
+      </div>
+    </div>
+
+    <!-- focus ring -->
+    <div class="gcard g-ring">
+      <div class="gc-head"><span class="gc-ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-question"/></svg></span>Your focus</div>
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 84 84" role="img" aria-label="Focus: {g.focus.needsYou} need you, {g.focus.onFire} on fire, {g.focus.inFlight} in flight">
+          <circle class="ring-bg" cx="42" cy="42" r={R} />
+          <g transform="rotate(-90 42 42)">
+            {#each ring.arcs as a (a.key)}
+              <circle class="ring-seg" cx="42" cy="42" r={R} stroke={a.stroke} stroke-dasharray={a.dash} stroke-dashoffset={a.dashoffset} />
+            {/each}
+          </g>
+          <text class="ring-ctr-n mono" x="42" y="40" text-anchor="middle" dominant-baseline="central">{g.focus.total}</text>
+          <text class="ring-ctr-l mono" x="42" y="56" text-anchor="middle">on your plate</text>
+        </svg>
+        <div class="ring-legend">
+          <span class="ring-key ky"><span class="sw"></span><b class="mono">{g.focus.needsYou}</b> need you</span>
+          <span class="ring-key kf"><span class="sw"></span><b class="mono">{g.focus.onFire}</b> on fire</span>
+          <span class="ring-key kw"><span class="sw"></span><b class="mono">{g.focus.inFlight}</b> in flight</span>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- quick capture -->
   <form class="capture" method="POST" action="?/capture" use:enhance={() => ({ update }) => update({ reset: true })}>
     <svg width="18" height="18" aria-hidden="true"><use href="#i-plus"/></svg>
     <input name="title" placeholder="Capture an idea or task…" autocomplete="off" aria-label="Capture an idea or task" />
-    {#if data.current}<input type="hidden" name="project" value={data.current} />{/if}
     <kbd class="mono">↵</kbd>
   </form>
 
-  <div class="searchbar" class:on={searching}>
-    <svg width="16" height="16" aria-hidden="true"><use href="#i-board"/></svg>
-    <input bind:value={query} placeholder="Find a task…" autocomplete="off" aria-label="Find a task"
-      onkeydown={(e) => { if (e.key === 'Escape') query = ''; }} />
-    {#if searching}
-      <span class="sb-count mono">{matchCount} match{matchCount === 1 ? '' : 'es'}</span>
-      <button type="button" class="sb-clear" onclick={() => (query = '')} aria-label="Clear search">✕</button>
-    {/if}
-  </div>
-
-  {#if searching && matchCount === 0}
-    <p class="no-matches mono">No tasks match “{query}”. <button type="button" class="link-btn" onclick={() => (query = '')}>clear</button></p>
-  {/if}
-
   <div class="lanes">
-    {#if fQuestions.length}
-      <section class="lane">
-        {@render laneHead('Waiting on you', fQuestions.length, 'attention', 'question')}
-        <div class="lane-body">
-          {#if !searching}
-            <div class="sticky-note">
-              <span class="sn-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-sticky"/></svg></span>
-              <span><b>questions</b> need a typed answer · agents are blocked on you</span>
-            </div>
-          {/if}
-          {#each fQuestions as q (q.id)}
-            <div class="row kind-question st-todo needs-human" style="--pl:var(--violet)">
-              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-question"/></svg></span>
+
+    <!-- ON FIRE -->
+    {#if data.onFire.length}
+      <section class="lane lane-fire">
+        <div class="lane-head">
+          <span class="lane-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-fire"/></svg></span>
+          <h2>On fire</h2><span class="lane-count">{data.onFire.length}</span>
+          <span class="lane-sub">open P0s</span>
+        </div>
+        <div class="list">
+          {#each data.onFire as t (t.id)}
+            <a class="row" href="/task/{t.id}">
+              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-fire"/></svg></span>
               <div class="row-main">
-                <a class="row-title" href="/task/{q.id}">{q.title} <span class="tasknum mono">#{q.id}</span></a>
-                <div class="q-answer">
-                  {#each q.opts as o}
-                    <form method="POST" action="?/answer" use:enhance>
-                      <input type="hidden" name="id" value={q.id} /><input type="hidden" name="value" value={o.value} />
-                      <button class="q-opt">{o.label}</button>
-                    </form>
-                  {/each}
-                  {#if !q.opts.length}
-                    <form method="POST" action="?/answer" use:enhance class="q-free">
-                      <input type="hidden" name="id" value={q.id} />
-                      <input name="value" placeholder="Type an answer…" required aria-label="Answer" />
-                      <button class="q-submit-sm">Answer</button>
-                    </form>
-                  {/if}
-                </div>
-              </div>
-            </div>
-          {/each}
-        </div>
-      </section>
-    {/if}
-
-    {#if fDoing.length}
-      <section class="lane">
-        {@render laneHead('In progress', fDoing.length, 'active', 'bolt')}
-        <div class="lane-body">
-          {#each fDoing as t (t.id)}{@render row(t, t.kind ?? 'task')}{/each}
-        </div>
-      </section>
-    {/if}
-
-    {#if !searching || fUpNext.length}
-      <section class="lane">
-        {@render laneHead('Up next', fUpNext.length, 'emerald', 'bolt')}
-        <div class="lane-body">
-          {#each fUpNext as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Nothing queued. Triage an idea up here.</p>{/each}
-        </div>
-      </section>
-    {/if}
-
-    {#if !searching || fInbox.length}
-    <section class="lane">
-      {@render laneHead('Inbox', fInbox.length, '', 'idea')}
-      <div class="lane-body">
-        {#each fInbox as t (t.id)}
-          <div class="row kind-idea st-inbox">
-            <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-idea"/></svg></span>
-            <a class="row-main" href="/task/{t.id}">
-              <span class="row-title">{t.title}</span>
-              <span class="row-sub"><span class="tasknum mono">#{t.id}</span><span class="mono dim">captured {relShort(t.created_at)} ago{t.created_by ? ' · ' + t.created_by : ''}</span></span>
-            </a>
-            <span class="triage">
-              <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="up"/><button class="tg up" title="Up Next">↑</button></form>
-              <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="project"/><input type="hidden" name="name" value={t.title}/><button class="tg" title="Make a project">proj</button></form>
-              <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="backlog"/><button class="tg" title="Backlog">↓</button></form>
-              <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="drop"/><button class="tg x" title="Dismiss">✕</button></form>
-            </span>
-          </div>
-        {:else}<p class="lane-empty">Inbox zero.</p>{/each}
-      </div>
-    </section>
-    {/if}
-
-    {#if !searching || fBacklog.length}
-    <section class="lane">
-      {@render laneHead('To do', fBacklog.length, '', 'task')}
-      <div class="lane-body">
-        {#each fBacklog as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Backlog clear.</p>{/each}
-      </div>
-    </section>
-    {/if}
-
-    {#if fBlocked.length}
-      <section class="lane">
-        {@render laneHead('Blocked', fBlocked.length, 'danger', 'block')}
-        <div class="lane-body">
-          {#each fBlocked as t (t.id)}
-            <div class="row kind-task st-blocked">
-              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-block"/></svg></span>
-              <a class="row-main" href="/task/{t.id}">
                 <span class="row-title">{t.title}</span>
                 <span class="row-sub">
                   <span class="tasknum mono">#{t.id}</span>
-                  {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
-                  <span class="blk">blocked by</span>
-                  {#each t.blockers as b}<span class="tag-s mono">#{b.id}</span>{/each}
+                  {@render prioChip(t.priority)}
+                  {#if projName(t.project_id)}<span class="dim mono">{projName(t.project_id)}</span>{/if}
                 </span>
+              </div>
+              <span class="row-right">{#if t.status === 'doing'}<span class="fire-tag mono">in progress</span>{/if}</span>
+            </a>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
+    <!-- NEEDS YOU -->
+    {#if data.needsYou.length}
+      <section class="lane lane-you">
+        <div class="lane-head">
+          <span class="lane-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-question"/></svg></span>
+          <h2>Needs you</h2><span class="lane-count">{data.needsYou.length}</span>
+          <span class="lane-sub">decisions you owe + tasks on you</span>
+        </div>
+        <div class="list">
+          {#each data.needsYou as t (t.id)}
+            {#if t.reason === 'question'}
+              {@const opts = (() => { try { return JSON.parse(t.options || '[]'); } catch { return []; } })()}
+              <div class="row row-q">
+                <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-question"/></svg></span>
+                <div class="row-main">
+                  <a class="row-title" href="/task/{t.id}">{t.title}</a>
+                  <span class="row-sub"><span class="tasknum mono">#{t.id}</span><span class="dim mono">decision · agent blocked on you</span></span>
+                  {#if opts.length}
+                    <div class="q-answer">
+                      {#each opts as o}
+                        <form method="POST" action="?/answer" use:enhance>
+                          <input type="hidden" name="id" value={t.id} /><input type="hidden" name="value" value={o.value} />
+                          <button class="act act-decide">{o.label}</button>
+                        </form>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+                <span class="row-right">
+                  {#if !opts.length}<a class="act act-decide" href="/task/{t.id}">Decide</a>{/if}
+                </span>
+              </div>
+            {:else}
+              <a class="row" href="/task/{t.id}">
+                <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-task"/></svg></span>
+                <div class="row-main">
+                  <span class="row-title">{t.title}</span>
+                  <span class="row-sub">
+                    <span class="tasknum mono">#{t.id}</span>
+                    {@render prioChip(t.priority)}
+                    {#if projName(t.project_id)}<span class="dim mono">{projName(t.project_id)}</span>{/if}
+                    <span class="dim mono">assigned to you</span>
+                  </span>
+                </div>
+                <span class="row-right"><span class="act act-review">Open</span></span>
               </a>
-              <span class="row-right"><span class="mono dim age">{relShort(t.created_at)}</span></span>
+            {/if}
+          {/each}
+        </div>
+      </section>
+    {/if}
+
+    <!-- IN FLIGHT -->
+    {#if data.inFlight.length}
+      <section class="lane lane-flight">
+        <div class="lane-head">
+          <span class="lane-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-pulse"/></svg></span>
+          <h2>In flight</h2><span class="lane-count">{data.inFlight.length}</span>
+          <span class="lane-sub">what's moving right now</span>
+        </div>
+        <div class="list">
+          {#each data.inFlight as t (t.id)}
+            {@const who = String(t.claimed_by || t.assignee || '').toLowerCase()}
+            {@const ag = fleetByHandle[who]}
+            <div class="agent">
+              <div class="ag-top">
+                <span class="ag-dot" class:idle={!ag || ag.status !== 'working'}></span>
+                <span class="ag-name mono">{who || 'unclaimed'}</span>
+                {#if ag}<span class="ag-status">{ag.status}</span>{/if}
+                {#if ag?.age_ms != null}<span class="ag-age mono">{fmtAge(ag.age_ms)}</span>{/if}
+              </div>
+              <a class="ag-body" href="/task/{t.id}">
+                {#if ag?.status === 'working' && ag.current_tool}<span class="ag-tool mono">{ag.current_tool}</span>{/if}
+                <span class="ag-task">{t.title} <span class="tasknum mono">#{t.id}</span></span>
+              </a>
             </div>
           {/each}
         </div>
       </section>
     {/if}
 
-    {#if fDocs.length}
+    <!-- WHAT CHANGED TODAY -->
+    {#if data.changedToday.length}
       <section class="lane">
-        {@render laneHead('Docs', fDocs.length, '', 'doc')}
-        <div class="lane-body">
-          {#each fDocs as d (d.id)}
-            <a class="row kind-doc st-todo" href="/task/{d.id}">
-              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-doc"/></svg></span>
-              <span class="row-main"><span class="row-title">{d.title}</span></span>
-              <span class="row-right"><span class="tasknum mono">#{d.id}</span>{#if projName(d.project_id)}<span class="mono dim">{projName(d.project_id)}</span>{/if}</span>
-            </a>
-          {/each}
+        <div class="lane-head">
+          <span class="lane-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-clock"/></svg></span>
+          <h2>What changed today</h2><span class="lane-count">{data.changedToday.length}</span>
         </div>
+        <p class="changed">
+          {#each data.changedToday as c, i (c.id)}{#if i > 0} · {/if}<a class="ch-item" href="/task/{c.id}"><b class="ok">closed</b> <span class="mono">#{c.id}</span></a>{#if c.by} <span class="mono dim">{c.by}</span>{/if}{/each}
+        </p>
       </section>
     {/if}
-    {#if fDone.length}
-      <section class="lane lane-done">
-        {@render laneHead('Recently shipped', fDone.length, '', 'check')}
-        <div class="lane-body">
-          {#each fDone as t (t.id)}
-            <a class="row st-done kind-task shipped-row" href="/task/{t.id}">
-              <span class="row-ic shipped-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-check"/></svg></span>
-              <span class="row-main"><span class="row-title">{t.title}</span></span>
-              <span class="row-right">
-                <span class="tasknum mono">#{t.id}</span>
-                {#if t.assignee}{@const pc = whoColor(t.assignee)}<span class="avatar" style="width:18px;height:18px;font-size:8px;color:{pc};border-color:{pc};background:{isAgent(t.assignee) ? 'transparent' : pc + '22'};border-style:{isAgent(t.assignee) ? 'dashed' : 'solid'}">{t.assignee.charAt(0).toLowerCase()}</span>{/if}
-                <span class="mono dim age">{relShort(t.updated_at)}</span>
-              </span>
-            </a>
-          {/each}
-        </div>
-      </section>
-    {/if}
+
   </div>
 
-  <div class="foot mono dim">SQLite-backed · tasks · docs · questions · agents</div>
+  {#if !data.onFire.length && !data.needsYou.length && !data.inFlight.length && !data.changedToday.length}
+    <p class="all-clear mono">All clear — nothing on fire, nothing waiting on you. <a href="/browse">Browse the board →</a></p>
+  {/if}
+
+  <!-- one door to the firehose -->
+  <a class="browse" href="/browse">
+    <span class="bz-ic"><svg width="20" height="20" aria-hidden="true"><use href="#i-board"/></svg></span>
+    <span class="bz-txt"><b>Browse all tasks</b><span>{g.backlog.total} open across every lane &amp; project</span></span>
+    <span class="bz-go"><svg width="18" height="18" aria-hidden="true"><use href="#i-arrow"/></svg></span>
+  </a>
+
+  <div class="foot mono dim">SQLite-backed · your desk</div>
 </div>
 
 <style>
-  .page-head { margin-bottom: 18px; }
-  .ph-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .ph-spacer { flex: 1; }
-  .ph-filters { display: flex; gap: 8px; }
-  .fsel { display: flex; align-items: center; gap: 5px; background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 0 6px 0 10px; }
-  .fsel .lk { color: var(--text-4); flex: none; }
-  .fsel select { border: 0; background: none; color: var(--text-2); font: inherit; font-size: 12.5px; padding: 6px 4px; cursor: pointer; outline: 0; }
-  .fsel.on { border-color: var(--accent-ln); } .fsel.on select { color: var(--accent-b); }
+  .cockpit { max-width: 760px; }
 
-  .capture { display: flex; align-items: center; gap: 11px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0 14px; height: 50px; margin: 0 0 24px; transition: border-color .12s, box-shadow .12s; }
+  /* HUD header */
+  .ckhead { margin-bottom: 8px; }
+  .ck-eyebrow { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: .16em; color: var(--text-4); margin-bottom: 10px; }
+  .ck-eyebrow .live { width: 6px; height: 6px; border-radius: 50%; background: var(--violet-b);
+    animation: ckpulse 1.8s infinite; }
+  .ck-eyebrow .when { margin-left: auto; color: var(--text-4); letter-spacing: .08em; }
+  .ckhead .greet { font-size: clamp(24px, 4vw, 30px); font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
+  .ckhead .greet em { font-style: normal; color: var(--accent-b); }
+  .statline { margin-top: 13px; display: flex; align-items: stretch; gap: 0; flex-wrap: wrap;
+    border: 1px solid var(--border-sub); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface-1); }
+  .stat { display: flex; align-items: baseline; gap: 8px; padding: 11px 16px; flex: 1; min-width: 120px;
+    border-right: 1px solid var(--border-sub); }
+  .stat:last-child { border-right: 0; }
+  .stat .n { font-size: 22px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12px; color: var(--text-3); }
+  .stat.you .n { color: var(--violet-b); }
+  .stat.fire .n { color: var(--danger-b); }
+  .stat.work .n { color: var(--accent-b); }
+
+  .filters { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .fsel { display: flex; align-items: center; gap: 5px; background: var(--surface-1); border: 1px solid var(--border-sub);
+    border-radius: var(--radius); padding: 0 10px; opacity: .82; }
+  .fsel:hover { opacity: 1; }
+  .fsel svg { color: var(--text-4); }
+  .fsel select { border: 0; background: none; color: var(--text-3); font: inherit; font-size: 12.5px; padding: 6px 4px; cursor: pointer; outline: 0; }
+
+  /* GRAPHS strip */
+  .graphs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 13px; }
+  .gcard { background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-lg);
+    padding: 13px 15px; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+  .gc-head { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 9.5px;
+    text-transform: uppercase; letter-spacing: .11em; color: var(--text-4); }
+  .gc-head .gc-ic { display: flex; color: var(--text-3); }
+
+  .g-mom .mom-top { display: flex; align-items: baseline; gap: 8px; }
+  .g-mom .mom-n { font-variant-numeric: tabular-nums; font-size: 38px; font-weight: 600; line-height: .92;
+    color: var(--accent-b); letter-spacing: -.02em; }
+  .g-mom .mom-unit { font-size: 12px; color: var(--text-3); }
+  .g-mom .spark { width: 100%; height: 30px; display: block; }
+  .g-mom .spark-dot { fill: var(--accent-b); filter: drop-shadow(0 0 5px var(--accent-ln)); animation: sparkpulse 2.4s ease-in-out infinite; }
+  @keyframes sparkpulse { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
+  .g-mom .mom-cap { font-size: 11px; color: var(--violet-b); line-height: 1.3; }
+
+  .g-bl .bl-bar { display: flex; height: 13px; border-radius: 7px; overflow: hidden; background: var(--surface-3); }
+  .g-bl .bl-seg { height: 100%; }
+  .g-bl .bl-p0 { background: var(--danger); }
+  .g-bl .bl-p1 { background: var(--warn); }
+  .g-bl .bl-p2 { background: var(--text-4); }
+  .g-bl .bl-p3 { background: var(--border); }
+  .g-bl .bl-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; margin-top: 1px; }
+  .g-bl .bl-key { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-3); }
+  .g-bl .bl-key .sw { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .g-bl .bl-key .kc { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-2); }
+  .g-bl .bl-key.k0 .sw { background: var(--danger); } .g-bl .bl-key.k0 { color: var(--danger-b); }
+  .g-bl .bl-key.k1 .sw { background: var(--warn); } .g-bl .bl-key.k1 { color: var(--warn-b); }
+  .g-bl .bl-key.k2 .sw { background: var(--text-4); }
+  .g-bl .bl-key.k3 .sw { background: var(--border); }
+
+  .g-ring .ring-wrap { display: flex; align-items: center; gap: 14px; }
+  .g-ring .ring { width: 84px; height: 84px; flex-shrink: 0; }
+  .g-ring .ring-bg { fill: none; stroke: var(--surface-3); stroke-width: 9; }
+  .g-ring .ring-seg { fill: none; stroke-width: 9; stroke-linecap: butt; }
+  .g-ring .ring-ctr-n { font-variant-numeric: tabular-nums; font-size: 24px; font-weight: 600; fill: var(--text-1); }
+  .g-ring .ring-ctr-l { font-size: 7px; letter-spacing: .1em; text-transform: uppercase; fill: var(--text-4); }
+  .g-ring .ring-legend { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .g-ring .ring-key { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-3); }
+  .g-ring .ring-key .sw { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .g-ring .ring-key b { font-variant-numeric: tabular-nums; color: var(--text-1); font-weight: 600; margin-right: 1px; }
+  .g-ring .ring-key.ky .sw { background: var(--violet-b); }
+  .g-ring .ring-key.kf .sw { background: var(--danger-b); }
+  .g-ring .ring-key.kw .sw { background: var(--accent-b); }
+
+  /* capture */
+  .capture { display: flex; align-items: center; gap: 11px; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 0 14px; height: 48px; margin: 22px 0 0; transition: border-color .12s, box-shadow .12s; }
   .capture svg { color: var(--text-4); flex: none; }
   .capture input { flex: 1; border: 0; background: none; outline: 0; color: var(--text-1); font: inherit; font-size: 15px; }
   .capture:focus-within { border-color: var(--accent-ln); box-shadow: 0 0 0 3px var(--accent-bg); }
   .capture kbd { font-size: 11px; color: var(--text-4); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 6px; }
 
-  /* find-a-task search */
-  .searchbar {
-    display: flex; align-items: center; gap: 10px; background: var(--surface-1); border: 1px solid var(--border-sub);
-    border-radius: var(--radius); padding: 0 12px; height: 40px; margin: -10px 0 20px; transition: border-color .12s, box-shadow .12s;
-  }
-  .searchbar svg { color: var(--text-4); flex: none; }
-  .searchbar input { flex: 1; min-width: 0; border: 0; background: none; outline: 0; color: var(--text-1); font: inherit; font-size: 14px; }
-  .searchbar:focus-within, .searchbar.on { border-color: var(--accent-ln); box-shadow: 0 0 0 3px var(--accent-bg); }
-  .sb-count { font-size: 11px; color: var(--text-3); flex: none; }
-  .sb-clear {
-    flex: none; width: 22px; height: 22px; border-radius: var(--radius-sm); border: 0; background: var(--surface-2);
-    color: var(--text-3); font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .12s;
-  }
-  .sb-clear:hover { color: var(--text-1); background: var(--border-sub); }
-  .no-matches { font-size: 13px; color: var(--text-3); padding: 8px 2px 20px; }
-  .link-btn { background: none; border: 0; color: var(--accent-b); font: inherit; cursor: pointer; text-decoration: underline; }
+  /* lanes */
+  .lanes { display: flex; flex-direction: column; gap: 26px; margin-top: 26px; }
+  .lane-head { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
+  .lane-head h2 { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); }
+  .lane-ic { display: flex; color: var(--text-3); }
+  .lane-count { font-family: var(--mono); font-size: 11px; color: var(--text-3); background: var(--surface-2); padding: 1px 8px; border-radius: 10px; }
+  .lane-sub { font-size: 11.5px; color: var(--text-4); margin-left: 2px; }
 
-  .lane-empty { color: var(--text-4); font-size: 13px; padding: 4px 2px; }
+  .lane-you .lane-head h2, .lane-you .lane-ic { color: var(--violet-b); }
+  .lane-fire .lane-head h2, .lane-fire .lane-ic { color: var(--danger-b); }
+  .lane-flight .lane-head h2, .lane-flight .lane-ic { color: var(--accent-b); }
 
-  /* compact lease badge on in-progress rows (mirrors /board + task detail) */
-  .lease { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 9px; white-space: nowrap; }
-  .lease-expired { background: rgba(220,38,38,.14); color: var(--danger-b); }
-  .lease-soon { background: rgba(234,179,8,.14); color: var(--warn-b); }
-  .lease-ok { color: var(--text-4); }
-  .lane-head { width: 100%; }
+  .list { display: flex; flex-direction: column; gap: 6px; }
 
-  .rcheck { width: 22px; height: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); color: transparent; display: flex; align-items: center; justify-content: center; flex: none; transition: .12s; }
-  .rcheck:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
-  .row-right form { display: flex; }
+  .row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+    padding: 11px 14px; background: var(--surface-1); border: 1px solid var(--border-sub);
+    border-radius: var(--radius); transition: .12s; text-decoration: none; }
+  .row:hover { border-color: var(--border); background: var(--surface-2); }
+  .row-ic { color: var(--text-3); display: flex; align-items: center; }
+  .row-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .row-title { font-size: 14.5px; font-weight: 550; color: var(--text-1); line-height: 1.4; }
+  .row-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+  .tasknum { font-size: 10.5px; color: var(--text-4); }
+  .dim { color: var(--text-3); }
+  .row-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .row.row-q { align-items: flex-start; }
+  .row.row-q .row-ic { padding-top: 2px; }
 
-  /* sub-task tree: a continuous trunk down the left, an elbow tick into each child.
-     consecutive .substack siblings stack their ::before lines into one unbroken trunk;
-     the last child stops its trunk at the elbow so nothing dangles below. */
-  .substack { position: relative; padding-left: 24px; }
-  .substack::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 1.5px; background: var(--border); }
-  .substack.last::before { bottom: auto; height: 18px; }
-  .substack::after { content: ''; position: absolute; left: 9px; top: 18px; width: 13px; height: 1.5px; background: var(--border); }
-  .substack :global(.row) { min-width: 0; }
+  .prio { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+    text-transform: uppercase; letter-spacing: .03em; }
+  .prio-0 { background: var(--danger-bg, rgba(220,38,38,.16)); color: var(--danger-b); }
+  .prio-1 { background: var(--warn-bg, rgba(234,179,8,.16)); color: var(--warn-b); }
+  .prio-2 { background: var(--info-bg, rgba(59,130,246,.16)); color: var(--info-b); }
+  .prio-3 { background: var(--surface-2); color: var(--text-3); }
 
-  .q-answer { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
-  .q-opt, .q-submit-sm { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-1); border-radius: var(--radius); padding: 6px 13px; cursor: pointer; transition: .12s; }
-  .q-opt:hover { border-color: var(--violet); color: var(--violet-b); }
-  .q-free { display: flex; gap: 7px; align-items: center; flex: 1; min-width: 200px; }
-  .q-free input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius); padding: 7px 11px; color: var(--text-1); font: inherit; font-size: 13px; outline: 0; }
-  .q-free input:focus { border-color: var(--violet-ln); }
-  .q-submit-sm { background: var(--violet); border-color: var(--violet); color: #06240f; font-weight: 600; flex: none; }
-  .q-submit-sm:hover { background: var(--violet-b); border-color: var(--violet-b); }
-  .row.kind-question { align-items: flex-start; }
-  .row.kind-question .row-ic { padding-top: 2px; }
+  /* NEEDS YOU: violet cue (carried by the row icon, not a side stripe) + action pills */
+  .lane-you .row-ic { color: var(--violet-b); }
+  .act { font-family: var(--mono); font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .04em; padding: 5px 11px; border-radius: var(--radius-sm); white-space: nowrap;
+    border: 1px solid transparent; transition: .12s; cursor: pointer; }
+  .act-decide { background: var(--violet-bg); color: var(--violet-b); border-color: var(--violet-ln); }
+  .act-decide:hover { background: var(--violet-bg); border-color: var(--violet); }
+  .act-review { background: var(--accent-bg); color: var(--accent-b); border-color: var(--accent-ln); }
+  .act-review:hover { border-color: var(--accent); }
+  .q-answer { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 8px; }
+  .q-answer form { display: flex; }
 
-  .triage { display: flex; gap: 5px; align-items: center; flex: none; }
-  .tg { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border-sub); background: var(--surface-2); color: var(--text-3); border-radius: var(--radius-sm); padding: 4px 8px; cursor: pointer; transition: .12s; min-width: 26px; }
-  .tg:hover { color: var(--text-1); border-color: var(--border); }
-  .tg.up:hover { color: var(--accent-b); border-color: var(--accent-ln); }
-  .tg.x:hover { color: var(--danger-b); border-color: var(--danger); }
+  /* ON FIRE: danger cue carried by the icon + count chip (no side stripe, no edge wash) */
+  .lane-fire .lane-count { background: var(--danger-bg, rgba(220,38,38,.16)); color: var(--danger-b); }
+  .lane-fire .lane-ic svg { animation: ember 2.6s ease-in-out infinite; }
+  @keyframes ember { 0%, 100% { opacity: .85; } 50% { opacity: 1; } }
+  .lane-fire .row-ic { color: var(--danger-b); }
+  .fire-tag { font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-4); }
 
-  /* in-progress lane: amber "live" accent + a pulse on the icon */
-  .lane-active :global(.lane-head h2) { color: var(--accent-b); }
-  .lane-active :global(.lane-ic) { color: var(--accent-b); animation: livepulse 2.4s ease-in-out infinite; }
-  @keyframes livepulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
-  .hl-a { color: var(--accent-b); }
+  /* IN FLIGHT agent cards */
+  .agent { display: flex; flex-direction: column; gap: 6px; padding: 11px 14px; border-radius: var(--radius);
+    background: var(--surface-1); border: 1px solid var(--border-sub); }
+  .ag-top { display: flex; align-items: center; gap: 8px; }
+  .ag-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--violet-b);
+    animation: ckpulse 1.8s infinite; flex-shrink: 0; }
+  .ag-dot.idle { background: var(--text-4); box-shadow: none; animation: none; }
+  .ag-name { font-size: 13px; font-weight: 600; color: var(--accent-b); }
+  .ag-status { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; padding: 1px 7px; border-radius: 5px;
+    background: var(--accent-bg); color: var(--accent-b); font-family: var(--mono); }
+  .ag-age { margin-left: auto; font-size: 9.5px; color: var(--text-4); }
+  .ag-body { display: flex; align-items: center; gap: 9px; text-decoration: none; }
+  .ag-tool { font-size: 10px; color: var(--text-1); padding: 1px 7px; border-radius: 5px;
+    background: var(--accent-bg); border: 1px solid var(--accent-ln); flex-shrink: 0; }
+  .ag-task { font-size: 13.5px; color: var(--text-2); min-width: 0; }
+  .ag-task .tasknum { font-size: 10.5px; }
 
-  /* recently-shipped lane */
-  .lane-done { opacity: .85; }
-  .shipped-row { text-decoration: none; }
-  .shipped-ic { color: var(--accent); }
-  .shipped-row .row-title { text-decoration: line-through; text-decoration-color: var(--text-4); }
+  /* WHAT CHANGED */
+  .changed { padding: 13px 15px; background: var(--surface-1); border: 1px solid var(--border-sub);
+    border-radius: var(--radius); font-size: 13px; line-height: 1.9; color: var(--text-3); }
+  .changed .ch-item { text-decoration: none; }
+  .changed .ch-item:hover b { text-decoration: underline; }
+  .changed b { font-weight: 600; }
+  .changed .ok { color: var(--violet-b); }
+  .changed .mono { font-size: 11.5px; }
 
-  .foot { font-size: 12px; text-align: center; margin-top: 36px; }
+  .all-clear { margin-top: 26px; padding: 20px; text-align: center; font-size: 13px; color: var(--text-3);
+    border: 1px dashed var(--border); border-radius: var(--radius-lg); }
+  .all-clear a { color: var(--accent-b); }
 
-  @media (max-width: 560px) {
-    .triage form:nth-child(2) .tg { display: none; }
+  /* browse door */
+  .browse { display: flex; align-items: center; gap: 12px; margin-top: 26px; padding: 15px 18px;
+    background: var(--surface-1); border: 1px dashed var(--border); border-radius: var(--radius-lg); transition: .12s; }
+  .browse:hover { border-color: var(--text-4); background: var(--surface-2); }
+  .browse .bz-ic { display: flex; color: var(--text-3); }
+  .browse .bz-txt { display: flex; flex-direction: column; gap: 2px; }
+  .browse .bz-txt b { font-size: 14px; font-weight: 600; color: var(--text-1); }
+  .browse .bz-txt span { font-size: 12px; color: var(--text-4); }
+  .browse .bz-go { margin-left: auto; color: var(--text-4); display: flex; }
+
+  .foot { font-size: 11.5px; text-align: center; margin-top: 34px; }
+
+  @keyframes ckpulse { 50% { opacity: .4; } }
+
+  /* phone: graphs stack one-per-row (mirror the board's 760px container query) */
+  @container app (max-width: 760px) {
+    .graphs { grid-template-columns: 1fr; gap: 9px; }
   }
 </style>

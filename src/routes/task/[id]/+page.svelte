@@ -42,8 +42,12 @@
 
   const isProse = $derived(t.kind === 'doc' || t.kind === 'idea');
   const isQuestion = $derived(t.kind === 'question');
+  const isClosed = $derived(t.status === 'done' || t.status === 'dropped');
   const verif = $derived(t.verification_status || 'unverified');
   const verifClass = $derived(verif === 'unverified' ? 'none' : verif);
+
+  // status → the three-bucket badge tone (open / in-progress / closed), GitHub-pill style
+  const statusTone = (s) => (s === 'done' || s === 'dropped') ? 'done' : (s === 'doing' ? 'doing' : 'todo');
 
   // ── reader modes ──────────────────────────────────────────────
   // font scale + measure + serif + focus, persisted per-browser.
@@ -203,9 +207,59 @@
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
   }
+
+  // ── action bar ────────────────────────────────────────────────
+  // The action bar presents the EXISTING server actions as obvious buttons instead of a
+  // field-wall. Reassign + Mark-blocked are tiny inline forms hitting ?/save (the same action
+  // the details form uses); Claim hits ?/claim (assign-to-self); Close opens the close panel;
+  // Submit-decision (questions) scrolls to the one-tap answer pills. canWrite gates every
+  // mutating action server-side; the UI hides the controls when read-only, but the gate is the
+  // real boundary.
+  const canWrite = $derived(!!data.canWrite);
+  let reassigning = $state(false);
+  let showClose = $state(false);
+  let closePanel = $state(null);
+  let answersEl = $state(null);
+  function openClose() { showClose = true; queueMicrotask(() => closePanel?.querySelector('input')?.focus()); }
+  function jumpToAnswers() { answersEl?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+
+  // activity timeline: fold the audit events + handoff/result/close/comments into one
+  // chronological stream. Each entry is { who, kind, at, text?, bubble?, tone? }.
+  // event 'data' is the parsed JSON payload from the server.
+  const eventLabel = (e) => {
+    const d = e.data || {};
+    switch (e.type) {
+      case 'create': return { who: d.by || t.created_by || 'someone', act: 'opened this task' };
+      case 'update': return { who: d.by || 'someone', act: 'updated the task' };
+      case 'claim':  return { who: d.worker || 'a worker', act: 'claimed the lease' };
+      case 'report': return { who: d.worker || 'a worker', act: `reported · ${d.status || 'progress'}` };
+      case 'closed': return { who: d.by || 'someone', act: 'closed this task', sub: d.reason };
+      case 'handoff': return { who: d.from || 'someone', act: `handed off${d.to ? ' to ' + d.to : ''}`, kind: 'handoff' };
+      default: return { who: d.by || d.worker || 'system', act: e.type };
+    }
+  };
+  const timeline = $derived.by(() => {
+    const items = [];
+    for (const e of (data.events || [])) {
+      const l = eventLabel(e);
+      items.push({ ts: e.at, who: l.who, act: l.act, sub: l.sub, kind: l.kind || 'event', _o: e.id });
+    }
+    // worker result — a richer bubble, anchored to updated_at (no dedicated event for it)
+    if (t.result_summary) {
+      items.push({ ts: t.updated_at, who: t.assignee || t.claimed_by || 'worker', act: 'posted a result',
+        kind: 'result', bubble: t.result_summary, verif: verif, _o: 1e15 });
+    }
+    for (const c of (data.comments || [])) {
+      items.push({ ts: c.created_at, who: c.author || 'someone', act: 'left a comment', kind: 'comment', bubble: c.body, _o: 2e15 + c.id });
+    }
+    return items.sort((a, b) => {
+      const ta = toMs(a.ts) || 0, tb = toMs(b.ts) || 0;
+      return ta - tb || (a._o - b._o);
+    });
+  });
 </script>
 
-<svelte:head><title>{t.title} · tasks</title></svelte:head>
+<svelte:head><title>#{t.id} {t.title} · tasks</title></svelte:head>
 
 {#snippet avatar(handle, size)}
   {@const c = whoColor(handle)}
@@ -214,33 +268,33 @@
 {/snippet}
 
 <div class="screen detail">
-  <header class="page-head">
-    <a class="back" href={projName(t.project_id) ? `/?project=${encodeURIComponent(projName(t.project_id))}` : '/'}>
-      <svg width="13" height="13" style="transform:scaleX(-1)" aria-hidden="true"><use href="#i-arrow"/></svg>
-      {projName(t.project_id) || 'board'}
-    </a>
 
-    <div class="det-meta">
+  <!-- breadcrumb -->
+  <a class="back" href={projName(t.project_id) ? `/?project=${encodeURIComponent(projName(t.project_id))}` : '/'}>
+    <svg width="13" height="13" style="transform:scaleX(-1)" aria-hidden="true"><use href="#i-arrow"/></svg>
+    {projName(t.project_id) || 'board'} <span class="sep">·</span> board
+  </a>
+
+  <!-- ── clean header ──────────────────────────────────── -->
+  <header class="head">
+    {#if data.parent}
+      <a class="parent-up mono" href="/task/{data.parent.id}">
+        <svg width="13" height="13" aria-hidden="true" style="transform:rotate(-90deg)"><use href="#i-arrow"/></svg>
+        part of #{data.parent.id} · {data.parent.title}
+      </a>
+    {/if}
+
+    <div class="head-id">
+      <span class="tnum mono">#{t.id}</span>
       <span class="kindtag kind-{t.kind}"><svg width="12" height="12" aria-hidden="true"><use href="#i-{kindIcon(t.kind)}"/></svg> {t.kind}</span>
-
-      <form method="POST" action="?/save" use:enhance class="qedit">
-        <select class="chip status-{t.status}" name="status" value={t.status} onchange={(e) => e.target.form.requestSubmit()} aria-label="Status">
-          {#each STATUSES as s}<option value={s}>{s}</option>{/each}
-        </select>
-      </form>
-
-      <form method="POST" action="?/save" use:enhance class="qedit">
-        <select class="chip prio-{t.priority}" name="priority" value={t.priority} onchange={(e) => e.target.form.requestSubmit()} aria-label="Priority">
-          {#each [0, 1, 2, 3] as p}<option value={p}>P{p}</option>{/each}
-        </select>
-      </form>
-
-      {#if t.up_next}<span class="chip chip-up">up next</span>{/if}
-      <span class="mono dim det-id">#{t.id}</span>
+      <span class="sbadge {statusTone(t.status)}"><span class="sdot"></span>{t.status}</span>
+      <span class="pchip mono prio-{t.priority}">P{t.priority}</span>
+      <span class="proj-tag">{projName(t.project_id) || '—'}</span>
+      {#if t.up_next}<span class="proj-tag up">up next</span>{/if}
     </div>
 
     <form method="POST" action="?/save" use:enhance class="titleform">
-      <input class="title-in" name="title" value={t.title} aria-label="Title" />
+      <input class="title-in" name="title" value={t.title} aria-label="Title" readonly={!canWrite} />
     </form>
 
     {#if t.assignee || t.responsible}
@@ -260,179 +314,46 @@
     </div>
   {/if}
 
-  <!-- question: the violet one-tap answer UX -->
-  {#if t.kind === 'question'}
-    {#if data.bodyHtml}<div class="q-context">{@html data.bodyHtml}</div>{/if}
+  <!-- ── ACTION BAR — the core fix: obvious "what do I do" buttons ── -->
+  {#if canWrite}
+    <div class="actionbar">
+      <span class="ab-hint mono">do</span>
 
-    {#if t.answer}
-      <div class="q-done">
-        <span class="qd-check"><svg width="20" height="20" aria-hidden="true"><use href="#i-check"/></svg></span>
-        <div>
-          <div class="qd-title">answered</div>
-          <div class="qd-sub mono">→ {data.opts.find((o) => o.value === t.answer)?.label ?? t.answer}</div>
-        </div>
-      </div>
-    {/if}
-
-    {#if data.opts.length}
-      <div class="answers" class:locked={t.answer}>
-        {#each data.opts as o}
-          <form method="POST" action="?/answer" use:enhance>
-            <input type="hidden" name="value" value={o.value} />
-            <button class="answer" class:on={t.answer === o.value} type="submit">
-              <span class="a-dot"></span>
-              <span>{o.label}</span>
-            </button>
-          </form>
-        {/each}
-      </div>
-    {:else}
-      <!-- open question (no preset options): free-text answer -->
-      <form method="POST" action="?/answer" use:enhance class="freeanswer">
-        <textarea name="value" rows="3" placeholder="type your answer…" aria-label="Your answer">{t.answer ?? ''}</textarea>
-        <button class="q-submit" type="submit">{t.answer ? 'update answer' : 'send answer'}</button>
-      </form>
-    {/if}
-  {/if}
-
-  <!-- doc / idea: rendered prose with reader modes -->
-  {#if isProse}
-    <div class="reader" class:focus>
-      <div class="reader-bar">
-        {#if hasHuman}
-          <div class="seg" role="group" aria-label="Version">
-            <button class="seg-btn" class:on={human} onclick={() => (human = true)}>plain english</button>
-            <button class="seg-btn" class:on={!human} onclick={() => (human = false)}>technical</button>
-          </div>
-        {/if}
-        {#if longDoc}
-          <div class="rb-group">
-            <button class="rb" title="Smaller text" disabled={font === 0} onclick={() => (font = Math.max(0, font - 1))}>A−</button>
-            <button class="rb" title="Larger text" disabled={font === FONTS.length - 1} onclick={() => (font = Math.min(FONTS.length - 1, font + 1))}>A+</button>
-            <button class="rb" class:on={serif} title="Serif" onclick={() => (serif = !serif)} style="font-family:Georgia,serif">A</button>
-            <button class="rb" class:on={wide} title="Wider column" onclick={() => (wide = !wide)}><svg width="14" height="14" aria-hidden="true"><use href="#i-board"/></svg></button>
-            <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><svg width="14" height="14" aria-hidden="true"><use href="#i-doc"/></svg></button>
-          </div>
-        {/if}
-        <div class="rb-right">
-          <select class="rb voice" bind:value={voice} title="Narrator voice" aria-label="Narrator voice">
-            {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
-          </select>
-          <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
-            {#if loadingAudio}<span class="spin"></span>{:else}<svg width="15" height="15" aria-hidden="true"><use href="#i-{speaking ? 'check' : 'arrow'}"/></svg>{/if}
-            <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
-          </button>
-        </div>
-      </div>
-      {#if hasHuman && human}
-        <div class="human-note mono"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg> plain-english rewrite · switch to technical for the exact source</div>
+      {#if isQuestion}
+        <button class="btn primary" type="button" onclick={jumpToAnswers}><svg width="15" height="15" aria-hidden="true"><use href="#i-check"/></svg>Submit decision</button>
       {/if}
-      {#if docHtml}
-        <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}>{@html docHtml}</article>
-      {:else}
-        <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}><p class="dim">Nothing written yet — add a body below.</p></article>
+
+      {#if !isClosed}
+        <form method="POST" action="?/claim" use:enhance class="ab-form">
+          <button class="btn" type="submit"><svg width="15" height="15" aria-hidden="true"><use href="#i-bolt"/></svg>Claim</button>
+        </form>
+
+        <button class="btn" type="button" class:on={reassigning} onclick={() => (reassigning = !reassigning)}><svg width="15" height="15" aria-hidden="true"><use href="#i-task"/></svg>Reassign</button>
+
+        {#if t.status !== 'blocked'}
+          <form method="POST" action="?/save" use:enhance class="ab-form">
+            <input type="hidden" name="status" value="blocked" />
+            <button class="btn danger" type="submit"><svg width="15" height="15" aria-hidden="true"><use href="#i-block"/></svg>Mark blocked</button>
+          </form>
+        {:else}
+          <form method="POST" action="?/save" use:enhance class="ab-form">
+            <input type="hidden" name="status" value="todo" />
+            <button class="btn" type="submit"><svg width="15" height="15" aria-hidden="true"><use href="#i-arrow"/></svg>Unblock</button>
+          </form>
+        {/if}
+      {/if}
+
+      <span class="ab-spacer"></span>
+
+      {#if !isClosed && !isQuestion}
+        <button class="btn" type="button" onclick={openClose}><svg width="15" height="15" aria-hidden="true"><use href="#i-check"/></svg>Close…</button>
       {/if}
     </div>
-  {/if}
 
-  <!-- handoff context -->
-  {#if t.handoff_context}
-    <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-arrow"/></svg></span><h2>handoff context</h2></div>
-      <div class="handoff mono">{t.handoff_context}</div>
-    </section>
-  {/if}
-
-  <!-- worker result -->
-  {#if t.result_summary}
-    <section class="det-sec">
-      <div class="ds-head">
-        <span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg></span>
-        <h2>worker result</h2>
-        <span class="ds-extra"><span class="verif v-{verifClass}">{verif === 'needs_human' ? 'needs human' : verif}</span></span>
-      </div>
-      <div class="result">{t.result_summary}</div>
-    </section>
-  {/if}
-
-  <!-- the editable details form (tasks / docs / ideas — questions stay lean) -->
-  {#if !isQuestion}
-  <form method="POST" action="?/save" use:enhance={() => async ({ update }) => { await update(); editingBody = false; }} class="details">
-    <input type="hidden" name="vis_touched" value="1" />
-
-    <!-- body: rendered markdown by default, edit-on-demand. For prose (doc/idea) the
-         reader above already shows the body, so this section is the editor only. -->
-    {#if !isProse}
-      <section class="det-sec">
-        <div class="ds-head">
-          <span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span>
-          <h2>plan / notes</h2>
-          {#if !editingBody}
-            <button type="button" class="ds-edit" onclick={startEditBody}>edit</button>
-          {/if}
-        </div>
-        {#if editingBody}
-          <textarea name="body" rows="8" bind:value={bodyDraft} placeholder="The detailed plan. Drop research here before starting…"></textarea>
-          <div class="edit-actions">
-            <button type="button" class="btn-ghost" onclick={cancelEditBody}>cancel</button>
-            <button type="submit" class="btn-save-sm">save body</button>
-          </div>
-        {:else if data.bodyHtml}
-          <input type="hidden" name="body" value={t.body ?? ''} />
-          <article class="prose body-prose">{@html data.bodyHtml}</article>
-        {:else}
-          <input type="hidden" name="body" value={t.body ?? ''} />
-          <button type="button" class="body-empty" onclick={startEditBody}>No plan yet — click to add the detailed plan.</button>
-        {/if}
-      </section>
-    {:else}
-      <section class="det-sec">
-        <div class="ds-head">
-          <span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span>
-          <h2>{editingBody ? 'edit body · markdown' : 'body · markdown'}</h2>
-          {#if !editingBody}
-            <button type="button" class="ds-edit" onclick={startEditBody}>edit</button>
-          {/if}
-        </div>
-        {#if editingBody}
-          <textarea name="body" rows="6" class="mono" bind:value={bodyDraft} placeholder="# markdown body…"></textarea>
-          <div class="edit-actions">
-            <button type="button" class="btn-ghost" onclick={cancelEditBody}>cancel</button>
-            <button type="submit" class="btn-save-sm">save body</button>
-          </div>
-        {:else}
-          <input type="hidden" name="body" value={t.body ?? ''} />
-          <p class="mono dim body-hint">Rendered above in the reader. Click edit to change the markdown source.</p>
-        {/if}
-      </section>
-    {/if}
-
-    {#if !isProse}
-      <section class="det-sec">
-        <div class="ds-head">
-          <span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg></span>
-          <h2>acceptance criteria</h2>
-          {#if t.result_summary}<span class="ds-extra"><span class="verif v-{verifClass}">{verif === 'needs_human' ? 'needs human' : verif}</span></span>{/if}
-        </div>
-        <textarea name="acceptance_criteria" rows="3" placeholder="What 'done' means — the mayor verifies against this.">{t.acceptance_criteria ?? ''}</textarea>
-      </section>
-
-      <section class="det-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-block"/></svg></span><h2>blocked on</h2></div>
-        {#if t.blocked_on}
-          <div class="blk-list">
-            <div class="blk-row static"><span class="blk-ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-block"/></svg></span><span class="blk-title">{t.blocked_on}</span></div>
-          </div>
-        {/if}
-        <input name="blocked_on" value={t.blocked_on ?? ''} placeholder="(nothing — what must clear first?)" />
-      </section>
-    {/if}
-
-    <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-task"/></svg></span><h2>assignment</h2></div>
-      <div class="assign-grid">
-        <label class="afield">
-          <span class="af-lbl">agent · works it next</span>
+    {#if reassigning}
+      <form method="POST" action="?/save" use:enhance={() => async ({ update }) => { await update(); reassigning = false; }} class="reassign-row">
+        <label class="rr-field">
+          <span class="af-lbl">agent · works it</span>
           <select name="assignee" value={t.assignee ?? ''}>
             <option value="">— none —</option>
             <option value="agent-a">agent-a</option>
@@ -441,7 +362,7 @@
             <option value="codex">codex</option>
           </select>
         </label>
-        <label class="afield">
+        <label class="rr-field">
           <span class="af-lbl">responsible · human</span>
           <select name="responsible" value={t.responsible ?? ''}>
             <option value="">— none —</option>
@@ -449,212 +370,475 @@
             <option value="bob">bob</option>
           </select>
         </label>
-        <label class="afield">
-          <span class="af-lbl">capability</span>
-          <input name="capability" value={t.capability ?? ''} placeholder="e.g. code · review" />
-        </label>
-      </div>
-    </section>
+        <button class="btn-save-sm" type="submit">set</button>
+        <button class="btn-ghost" type="button" onclick={() => (reassigning = false)}>cancel</button>
+      </form>
+    {/if}
 
-    <!-- fleet execution hints: advisory routing metadata (Phase 1) -->
-    <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-board"/></svg></span><h2>execution hints</h2><span class="ds-extra mono dim">routing only — advisory</span></div>
-      <div class="assign-grid">
-        <label class="afield">
-          <span class="af-lbl">owner machine</span>
-          <input name="owner_machine" value={t.owner_machine ?? ''} placeholder="e.g. dot14 · example-host" />
-        </label>
-        <label class="afield">
-          <span class="af-lbl">suggested agent</span>
-          <input name="suggested_agent" value={t.suggested_agent ?? ''} placeholder="e.g. agent-a · agent-c" />
-        </label>
-        <label class="afield">
-          <span class="af-lbl">effort</span>
-          <input name="effort" value={t.effort ?? ''} placeholder="e.g. xs · s · m · l" />
-        </label>
-        <label class="afield">
-          <span class="af-lbl">parallel group</span>
-          <input name="parallel_group" value={t.parallel_group ?? ''} placeholder="group key — same group may run concurrently" />
-        </label>
+    {#if showClose && !isClosed && !isQuestion}
+      <div class="close-panel" bind:this={closePanel}>
+        <form method="POST" action="?/close" use:enhance={() => async ({ update }) => { await update(); showClose = false; }} class="closeform">
+          <input class="close-reason" name="reason" required placeholder="why is this closing? (the why-ledger — required)" />
+          <select name="status" aria-label="Close as"><option value="done">done</option><option value="dropped">dropped</option></select>
+          <button class="close-btn" type="submit">close</button>
+          <button class="btn-ghost" type="button" onclick={() => (showClose = false)}>cancel</button>
+        </form>
       </div>
-    </section>
-
-    <div class="save-bar">
-      <label class="chk mono"><input type="checkbox" name="private" checked={t.visibility === 'private'} /> <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg> private — only you</label>
-      <button class="save" type="submit">save changes</button>
-    </div>
-  </form>
+    {/if}
   {/if}
 
-  <!-- sub-tasks -->
-  {#if data.kids.length}
-    <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-board"/></svg></span><h2>sub-tasks · {data.kids.length}</h2></div>
-      <div class="blk-list">
-        {#each data.kids as k (k.id)}
-          <a class="blk-row kid" href="/task/{k.id}">
-            <span class="kid-dot prio-{k.priority}"></span>
-            <span class="blk-title">{k.title}</span>
-            <span class="chip status-{k.status}">{k.status}</span>
-          </a>
-        {/each}
-      </div>
-    </section>
-  {/if}
+  <!-- ── two-column issue layout ─────────────────────────── -->
+  <div class="grid">
 
-  <!-- relations: blocking deps (both directions) + non-blocking discovered-from provenance -->
-  {#if data.blockers.length || data.blocking.length || data.discoveredFrom.length || data.discoveries.length}
-    <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-block"/></svg></span><h2>relations</h2></div>
-      <div class="rel-grid">
-        {#snippet rellist(label, rows)}
-          {#if rows.length}
-            <div class="rel-col">
-              <div class="rel-lbl mono">{label} · {rows.length}</div>
-              <div class="blk-list">
-                {#each rows as r (r.id)}
-                  <a class="blk-row kid" href="/task/{r.id}">
-                    <span class="kid-dot prio-{r.priority}"></span>
-                    <span class="blk-title">{r.title}</span>
-                    <span class="chip status-{r.status}">{r.status}</span>
-                  </a>
-                {/each}
+    <!-- MAIN COLUMN -->
+    <div class="col-body">
+
+      <!-- question: the violet one-tap answer / DECISION block -->
+      {#if isQuestion}
+        <section class="sec" bind:this={answersEl}>
+          <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-question"/></svg></span><h2>Decision</h2></div>
+
+          {#if data.bodyHtml}<div class="bodycard read"><div class="prose">{@html data.bodyHtml}</div></div>{/if}
+
+          {#if t.answer}
+            <div class="q-done">
+              <span class="qd-check"><svg width="20" height="20" aria-hidden="true"><use href="#i-check"/></svg></span>
+              <div>
+                <div class="qd-title">answered</div>
+                <div class="qd-sub mono">→ {data.opts.find((o) => o.value === t.answer)?.label ?? t.answer}</div>
               </div>
             </div>
           {/if}
-        {/snippet}
-        {@render rellist('blocked by', data.blockers)}
-        {@render rellist('blocks', data.blocking)}
-        {@render rellist('discovered from', data.discoveredFrom)}
-        {@render rellist('discoveries', data.discoveries)}
-      </div>
-    </section>
-  {/if}
 
-  <!-- close with a mandatory reason (the "why" ledger) — only for open, non-question tasks -->
-  {#if !isQuestion && t.status !== 'done' && t.status !== 'dropped'}
-    <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg></span><h2>close</h2><span class="ds-extra mono dim">a reason is required</span></div>
-      <form method="POST" action="?/close" use:enhance class="closeform">
-        <input class="close-reason" name="reason" required placeholder="why is this closing? (the why-ledger)" />
-        <select name="status" aria-label="Close as"><option value="done">done</option><option value="dropped">dropped</option></select>
-        <button class="close-btn" type="submit">close</button>
-      </form>
-    </section>
-  {:else if t.close_reason}
-    <section class="det-sec">
-      <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg></span><h2>close reason</h2></div>
-      <div class="result">{t.close_reason}</div>
-    </section>
-  {/if}
-
-  <!-- coordination log: chat-style -->
-  <section class="det-sec">
-    <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-inbox"/></svg></span><h2>coordination log · {data.comments.length}</h2><span class="ds-extra mono dim">plan in the body, findings here</span></div>
-    <div class="chat">
-      {#each data.comments as c (c.id)}
-        {@const author = c.author || 'someone'}
-        {@const mine = author === data.me}
-        <div class="msg" class:mine>
-          {@render avatar(author, 28)}
-          <div class="bubble-wrap">
-            <div class="msg-meta">
-              <b style="color:{whoColor(author)}">{author}</b>
-              <span class="chip-mini">{whoKind(author)}</span>
-              <span class="mono dim">{ago(c.created_at)}</span>
+          {#if data.opts.length}
+            <div class="answers" class:locked={t.answer}>
+              {#each data.opts as o}
+                <form method="POST" action="?/answer" use:enhance>
+                  <input type="hidden" name="value" value={o.value} />
+                  <button class="answer" class:on={t.answer === o.value} type="submit" disabled={!canWrite}>
+                    <span class="a-dot"></span>
+                    <span>{o.label}</span>
+                  </button>
+                </form>
+              {/each}
             </div>
-            <div class="bubble">{c.body}</div>
+          {:else}
+            <!-- open question (no preset options): free-text answer -->
+            <form method="POST" action="?/answer" use:enhance class="freeanswer">
+              <textarea name="value" rows="3" placeholder="type your answer…" aria-label="Your answer" readonly={!canWrite}>{t.answer ?? ''}</textarea>
+              {#if canWrite}<button class="q-submit" type="submit">{t.answer ? 'update answer' : 'send answer'}</button>{/if}
+            </form>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- doc / idea: rendered prose with reader modes -->
+      {#if isProse}
+        <section class="sec">
+          <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>{t.kind === 'idea' ? 'Idea' : 'Document'}</h2></div>
+          <div class="reader" class:focus>
+            <div class="reader-bar">
+              {#if hasHuman}
+                <div class="seg" role="group" aria-label="Version">
+                  <button class="seg-btn" class:on={human} onclick={() => (human = true)}>plain english</button>
+                  <button class="seg-btn" class:on={!human} onclick={() => (human = false)}>technical</button>
+                </div>
+              {/if}
+              {#if longDoc}
+                <div class="rb-group">
+                  <button class="rb" title="Smaller text" disabled={font === 0} onclick={() => (font = Math.max(0, font - 1))}>A−</button>
+                  <button class="rb" title="Larger text" disabled={font === FONTS.length - 1} onclick={() => (font = Math.min(FONTS.length - 1, font + 1))}>A+</button>
+                  <button class="rb" class:on={serif} title="Serif" onclick={() => (serif = !serif)} style="font-family:Georgia,serif">A</button>
+                  <button class="rb" class:on={wide} title="Wider column" onclick={() => (wide = !wide)}><svg width="14" height="14" aria-hidden="true"><use href="#i-board"/></svg></button>
+                  <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><svg width="14" height="14" aria-hidden="true"><use href="#i-doc"/></svg></button>
+                </div>
+              {/if}
+              <div class="rb-right">
+                <select class="rb voice" bind:value={voice} title="Narrator voice" aria-label="Narrator voice">
+                  {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
+                </select>
+                <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
+                  {#if loadingAudio}<span class="spin"></span>{:else}<svg width="15" height="15" aria-hidden="true"><use href="#i-{speaking ? 'check' : 'arrow'}"/></svg>{/if}
+                  <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
+                </button>
+              </div>
+            </div>
+            {#if hasHuman && human}
+              <div class="human-note mono"><svg width="12" height="12" aria-hidden="true"><use href="#i-check"/></svg> plain-english rewrite · switch to technical for the exact source</div>
+            {/if}
+            {#if docHtml}
+              <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}>{@html docHtml}</article>
+            {:else}
+              <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}><p class="dim">Nothing written yet — add a body below.</p></article>
+            {/if}
           </div>
+        </section>
+      {/if}
+
+      <!-- body — rendered markdown by default, Edit → Save/Cancel toggle (tasks only;
+           docs/ideas show in the reader above, questions show context in the decision block) -->
+      {#if !isProse && !isQuestion}
+        <section class="sec">
+          <div class="sec-head">
+            <span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-doc"/></svg></span>
+            <h2>Description</h2>
+            {#if canWrite && !editingBody}
+              <span class="right"><button type="button" class="edit-btn" onclick={startEditBody}>Edit</button></span>
+            {/if}
+          </div>
+
+          {#if editingBody}
+            <!-- Edit mode: simple raw-markdown textarea + Save/Cancel (ProseMark WYSIWYG is a
+                 deliberate follow-up; this two-button toggle is what ships now). -->
+            <form method="POST" action="?/save" use:enhance={() => async ({ update }) => { await update(); editingBody = false; }}>
+              <input type="hidden" name="vis_touched" value="1" />
+              <input type="hidden" name="private" value={t.visibility === 'private' ? '1' : ''} />
+              <div class="pm-toolbar"><span class="pm-tag mono">markdown · raw</span></div>
+              <textarea name="body" class="pm-surface mono" rows="12" bind:value={bodyDraft} placeholder="# The detailed plan. Drop research here before starting…"></textarea>
+              <div class="edit-actions">
+                <span class="edit-hint mono">renders as sanitized markdown on save</span>
+                <button type="button" class="btn-ghost" onclick={cancelEditBody}>Cancel</button>
+                <button type="submit" class="btn-save-sm">Save</button>
+              </div>
+            </form>
+          {:else if data.bodyHtml}
+            <div class="bodycard read"><article class="prose body-prose">{@html data.bodyHtml}</article></div>
+          {:else if canWrite}
+            <button type="button" class="body-empty" onclick={startEditBody}>No description yet — click to add the plan.</button>
+          {:else}
+            <div class="bodycard read"><p class="dim">No description.</p></div>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- HIERARCHY — sub-tasks / children, first-class (all statuses) -->
+      {#if data.childrenAll.length}
+        <section class="sec">
+          <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-board"/></svg></span><h2>Sub-tasks · {data.childrenAll.length}</h2></div>
+          <div class="kid-list">
+            {#each data.childrenAll as k (k.id)}
+              <a class="kid-row" class:closed={k.status === 'done' || k.status === 'dropped'} href="/task/{k.id}">
+                <span class="kid-dot prio-{k.priority}"></span>
+                <span class="kid-num mono">#{k.id}</span>
+                <span class="kid-title">{k.title}</span>
+                {#if k.assignee}<span class="kid-asg mono" style="color:{whoColor(k.assignee)}">{k.assignee}</span>{/if}
+                <span class="chip status-{k.status}">{k.status}</span>
+              </a>
+            {/each}
+          </div>
+        </section>
+      {/if}
+
+      <!-- relations: blocking deps (both directions) + non-blocking discovered-from provenance -->
+      {#if data.blockers.length || data.blocking.length || data.discoveredFrom.length || data.discoveries.length}
+        <section class="sec">
+          <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-block"/></svg></span><h2>Relations</h2></div>
+          <div class="rel-grid">
+            {#snippet rellist(label, rows)}
+              {#if rows.length}
+                <div class="rel-col">
+                  <div class="rel-lbl mono">{label} · {rows.length}</div>
+                  <div class="kid-list">
+                    {#each rows as r (r.id)}
+                      <a class="kid-row" href="/task/{r.id}">
+                        <span class="kid-dot prio-{r.priority}"></span>
+                        <span class="kid-num mono">#{r.id}</span>
+                        <span class="kid-title">{r.title}</span>
+                        <span class="chip status-{r.status}">{r.status}</span>
+                      </a>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            {/snippet}
+            {@render rellist('blocked by', data.blockers)}
+            {@render rellist('blocks', data.blocking)}
+            {@render rellist('discovered from', data.discoveredFrom)}
+            {@render rellist('discoveries', data.discoveries)}
+          </div>
+        </section>
+      {/if}
+
+      <!-- ── ACTIVITY TIMELINE (issue-comment style) ──────── -->
+      <section class="sec">
+        <div class="sec-head"><span class="ic"><svg width="13" height="13" aria-hidden="true"><use href="#i-clock"/></svg></span><h2>Activity</h2></div>
+
+        <!-- handoff context — keep the dedicated callout when present -->
+        {#if t.handoff_context}
+          <div class="handoff mono"><span class="hc-lbl">handoff context</span>{t.handoff_context}</div>
+        {/if}
+
+        <div class="timeline">
+          {#each timeline as it (it.kind + '-' + it._o)}
+            <div class="tl-item">
+              {@render avatar(it.who, 27)}
+              <div class="tl-meta">
+                <span class="who" style="color:{whoColor(it.who)}">{it.who}</span>
+                <span class="act">{it.act}</span>
+                {#if it.kind === 'handoff'}<span class="tl-kind mono">handoff</span>{/if}
+                {#if it.kind === 'comment'}<span class="tl-kind mono">{whoKind(it.who)}</span>{/if}
+                <span class="when mono">{ago(it.ts)}</span>
+              </div>
+              {#if it.kind === 'result'}
+                <div class="tl-bubble result">
+                  <div class="ttl">worker result <span class="verif v-{verifClass}">{it.verif === 'needs_human' ? 'needs human' : it.verif}</span></div>
+                  {it.bubble}
+                </div>
+              {:else if it.kind === 'comment'}
+                <div class="tl-bubble">{it.bubble}</div>
+              {:else if it.sub}
+                <div class="tl-event">{it.sub}</div>
+              {/if}
+            </div>
+          {:else}
+            <div class="tl-empty">no activity yet — start the thread below.</div>
+          {/each}
+
+          <!-- close reason as a terminal ledger entry when closed -->
+          {#if isClosed && t.close_reason}
+            <div class="tl-item">
+              {@render avatar('alice', 27)}
+              <div class="tl-meta"><span class="who">closed</span><span class="tl-kind mono">{t.status}</span></div>
+              <div class="tl-bubble result"><div class="ttl">close reason</div>{t.close_reason}</div>
+            </div>
+          {/if}
         </div>
-      {:else}
-        <div class="chat-empty">no messages yet — start the thread.</div>
-      {/each}
+
+        {#if canWrite}
+          <form method="POST" action="?/comment" use:enhance={() => async ({ update }) => update({ reset: true })} class="tl-comment-bar">
+            <textarea name="body" rows="1" placeholder="Comment on this task…" aria-label="Comment on this task"
+              onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.form.requestSubmit(); } }}></textarea>
+            <button class="tl-send" type="submit" title="send" aria-label="Send message"><svg width="17" height="17" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+          </form>
+        {/if}
+      </section>
     </div>
-    <form method="POST" action="?/comment" use:enhance={() => async ({ update }) => update({ reset: true })} class="chatbar">
-      <textarea name="body" rows="1" placeholder="message the thread…" aria-label="Message the thread"
-        onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.form.requestSubmit(); } }}></textarea>
-      <button class="chat-send" type="submit" title="send" aria-label="Send message"><svg width="18" height="18" aria-hidden="true"><use href="#i-arrow"/></svg></button>
-    </form>
-  </section>
+
+    <!-- ── RIGHT SIDEBAR (the fields, tidy + secondary) ── -->
+    <aside class="col-side">
+      <details class="side-wrap" open>
+        <summary>Details <svg class="car" width="14" height="14" aria-hidden="true"><use href="#i-car"/></svg></summary>
+        <div class="side">
+
+          <div class="sblock">
+            <div class="slabel mono">Assignee</div>
+            {#if t.assignee}<div class="sval">{@render avatar(t.assignee, 22)}<span class="who" style="color:{whoColor(t.assignee)}">{t.assignee}</span></div>
+            {:else}<div class="sval is-unset">unset</div>{/if}
+          </div>
+
+          <div class="sblock">
+            <div class="slabel mono">Status</div>
+            <form method="POST" action="?/save" use:enhance class="qedit">
+              <select class="chip status-{t.status}" name="status" value={t.status} onchange={(e) => e.target.form.requestSubmit()} aria-label="Status" disabled={!canWrite}>
+                {#each STATUSES as s}<option value={s}>{s}</option>{/each}
+              </select>
+            </form>
+          </div>
+
+          <div class="sblock">
+            <div class="slabel mono">Priority</div>
+            <form method="POST" action="?/save" use:enhance class="qedit">
+              <select class="chip prio-{t.priority}" name="priority" value={t.priority} onchange={(e) => e.target.form.requestSubmit()} aria-label="Priority" disabled={!canWrite}>
+                {#each [0, 1, 2, 3] as p}<option value={p}>P{p}</option>{/each}
+              </select>
+            </form>
+          </div>
+
+          <div class="sblock">
+            <div class="slabel mono">Project</div>
+            <div class="sval"><span class="who">{projName(t.project_id) || '—'}</span></div>
+          </div>
+
+          <div class="sblock">
+            <div class="slabel mono">Responsible</div>
+            {#if t.responsible}<div class="sval">{@render avatar(t.responsible, 22)}<span class="who" style="color:{whoColor(t.responsible)}">{t.responsible}</span></div>
+            {:else}<div class="sval is-unset">unset</div>{/if}
+          </div>
+
+          <div class="sblock">
+            <div class="slabel mono">Blocked on</div>
+            {#if t.blocked_on}<div class="sval"><span class="blk-on">{t.blocked_on}</span></div>
+            {:else}<div class="sval is-unset">nothing</div>{/if}
+          </div>
+
+          {#if !isProse && !isQuestion}
+            <div class="sblock">
+              <div class="slabel mono">Acceptance criteria</div>
+              {#if t.acceptance_criteria}<div class="sval ac">{t.acceptance_criteria}</div>
+              {:else}<div class="sval is-unset">unset</div>{/if}
+            </div>
+          {/if}
+
+          <!-- collapsed routing/handoff group — advisory, tucked but reachable -->
+          <details class="routing">
+            <summary>Routing &amp; handoff <span class="adv mono">advisory</span><span class="car"><svg width="14" height="14" aria-hidden="true"><use href="#i-car"/></svg></span></summary>
+            <div class="rt-body">
+              <div class="rt-field"><span class="rt-lbl mono">Capability</span><span class="rt-val mono" class:is-unset={!t.capability}>{t.capability || '—'}</span></div>
+              <div class="rt-field"><span class="rt-lbl mono">Suggested agent</span><span class="rt-val mono" class:is-unset={!t.suggested_agent}>{t.suggested_agent || '—'}</span></div>
+              <div class="rt-field"><span class="rt-lbl mono">Owner machine</span><span class="rt-val mono" class:is-unset={!t.owner_machine}>{t.owner_machine || '—'}</span></div>
+              <div class="rt-field"><span class="rt-lbl mono">Effort</span><span class="rt-val mono" class:is-unset={!t.effort}>{t.effort || '—'}</span></div>
+              <div class="rt-field"><span class="rt-lbl mono">Parallel group</span><span class="rt-val mono" class:is-unset={!t.parallel_group}>{t.parallel_group || '—'}</span></div>
+            </div>
+          </details>
+
+          <!-- full edit form for the long-tail fields (acceptance, blocked-on, routing) —
+               present but quiet; the action bar covers the common moves. -->
+          {#if canWrite && !isProse && !isQuestion}
+            <details class="routing edit-more">
+              <summary>Edit all fields <span class="car"><svg width="14" height="14" aria-hidden="true"><use href="#i-car"/></svg></span></summary>
+              <form method="POST" action="?/save" use:enhance class="rt-body edit-form">
+                <input type="hidden" name="vis_touched" value="1" />
+                <label class="rt-field"><span class="rt-lbl mono">Acceptance criteria</span>
+                  <textarea name="acceptance_criteria" rows="3" placeholder="What 'done' means.">{t.acceptance_criteria ?? ''}</textarea></label>
+                <label class="rt-field"><span class="rt-lbl mono">Blocked on</span>
+                  <input name="blocked_on" value={t.blocked_on ?? ''} placeholder="(what must clear first?)" /></label>
+                <label class="rt-field"><span class="rt-lbl mono">Capability</span>
+                  <input name="capability" value={t.capability ?? ''} placeholder="e.g. code · review" /></label>
+                <label class="rt-field"><span class="rt-lbl mono">Owner machine</span>
+                  <input name="owner_machine" value={t.owner_machine ?? ''} placeholder="e.g. dot14" /></label>
+                <label class="rt-field"><span class="rt-lbl mono">Suggested agent</span>
+                  <input name="suggested_agent" value={t.suggested_agent ?? ''} placeholder="e.g. agent-a" /></label>
+                <label class="rt-field"><span class="rt-lbl mono">Effort</span>
+                  <input name="effort" value={t.effort ?? ''} placeholder="xs · s · m · l" /></label>
+                <label class="rt-field"><span class="rt-lbl mono">Parallel group</span>
+                  <input name="parallel_group" value={t.parallel_group ?? ''} placeholder="group key" /></label>
+                <label class="chk mono"><input type="checkbox" name="private" checked={t.visibility === 'private'} /> <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg> private — only you</label>
+                <button class="btn-save-sm" type="submit">save fields</button>
+              </form>
+            </details>
+          {/if}
+        </div>
+      </details>
+    </aside>
+
+  </div>
 </div>
 
 <style>
-  .screen.detail { max-width: 720px; }
+  .screen.detail { max-width: 980px; }
 
-  /* inline chip-selects in the header */
-  .qedit { display: contents; }
-  .det-meta select.chip {
-    appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 9px;
-    border: 1px solid transparent; font-family: var(--mono); font-size: 10px; text-transform: uppercase;
-    letter-spacing: .04em; outline: none;
+  /* ── breadcrumb ──────────────────────────────────────────── */
+  .back .sep { color: var(--text-4); margin: 0 2px; }
+
+  /* ── clean header ────────────────────────────────────────── */
+  .head { margin-bottom: 6px; }
+  .parent-up {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-3);
+    padding: 5px 11px 5px 9px; border: 1px solid var(--border-sub); border-radius: var(--radius);
+    background: var(--surface-1); margin-bottom: 12px; max-width: 100%; transition: .12s;
   }
-  .det-meta select.chip:hover { filter: brightness(1.15); }
-  .chip-up { background: var(--accent-bg); color: var(--accent-b); }
+  .parent-up:hover { color: var(--accent-b); border-color: var(--accent-ln); }
+  .head-id { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; flex-wrap: wrap; }
+  .tnum { font-size: 14px; color: var(--text-4); font-weight: 600; }
+  /* status badge — pill, like GitHub's open/closed */
+  .sbadge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    padding: 4px 11px; border-radius: 20px; text-transform: lowercase; }
+  .sbadge .sdot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .sbadge.todo { background: rgba(59,130,246,.16); color: var(--info-b); }
+  .sbadge.doing { background: var(--accent-bg); color: var(--accent-b); }
+  .sbadge.done { background: var(--surface-3); color: var(--text-3); }
+  .pchip { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: var(--radius-sm); }
+  .pchip.prio-0 { background: rgba(220,38,38,.16); color: var(--danger-b); }
+  .pchip.prio-1 { background: rgba(234,179,8,.16); color: var(--warn-b); }
+  .pchip.prio-2, .pchip.prio-3 { background: rgba(59,130,246,.16); color: var(--info-b); }
+  .proj-tag { font-size: 11px; color: var(--text-3); padding: 3px 9px; border: 1px solid var(--border-sub); border-radius: 20px; }
+  .proj-tag.up { background: var(--accent-bg); color: var(--accent-b); border-color: var(--accent-ln); }
 
   /* editable title styled as the page h1 */
   .titleform { margin: 0; }
   .title-in {
-    width: 100%; background: none; border: none; border-bottom: 1px solid transparent;
-    color: var(--text-1); font-family: var(--sans); font-size: 26px; font-weight: 650;
-    letter-spacing: -.02em; line-height: 1.2; padding: 2px 0; outline: none;
+    width: 100%; background: none; border: 1px solid transparent; border-radius: var(--radius);
+    color: var(--text-1); font-family: var(--sans); font-size: clamp(22px, 3.4vw, 28px); font-weight: 700;
+    letter-spacing: -.022em; line-height: 1.2; padding: 3px 7px; margin: 0 -7px; outline: none;
   }
-  .title-in:hover { border-bottom-color: var(--border-sub); }
-  .title-in:focus { border-bottom-color: var(--accent-ln); }
+  .title-in:hover:not([readonly]) { border-color: var(--border-sub); background: var(--surface-1); }
+  .title-in:focus { border-color: var(--accent-ln); background: var(--surface-1); }
+  .title-in[readonly] { cursor: default; }
 
   /* handoff trail */
   .handoff-trail { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 13px; font-size: 12px; }
   .ht-seg { display: inline-flex; align-items: center; gap: 7px; }
   .ht-arr { color: var(--text-4); }
 
-  /* question answer options (violet) */
-  .answers { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
-  .answers form { display: contents; }
-  .answer {
-    display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
-    padding: 13px 15px; background: var(--surface-1); border: 1px solid var(--border-sub);
-    border-radius: var(--radius); color: var(--text-2); font: inherit; font-size: 14px; cursor: pointer; transition: .12s;
+  /* ── ACTION BAR ──────────────────────────────────────────── */
+  .actionbar {
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 16px 0 0; padding: 12px 15px;
+    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-lg);
   }
-  .answer:hover { border-color: var(--violet-ln); background: var(--violet-bg); }
-  .answer .a-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; position: relative; transition: .1s; }
-  .answer.on { border-color: var(--violet); background: var(--violet-bg); color: var(--violet-b); font-weight: 500; }
-  .answer.on .a-dot { border-color: var(--violet); }
-  .answer.on .a-dot::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--violet); }
-  .answers.locked .answer:not(.on) { opacity: .55; }
-
-  /* verification chips not in base set */
-  .verif.v-verified { background: var(--accent-bg); color: var(--accent-b); }
-  .verif.v-rejected { background: rgba(220,38,38,.12); color: var(--danger-b); }
-
-  /* live lease countdown pill (mirrors /board's lease styles) */
-  .lease { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
-  .lease-expired { background: rgba(220,38,38,.14); color: var(--danger-b); }
-  .lease-soon { background: rgba(234,179,8,.14); color: var(--warn-b); }
-  .lease-ok { color: var(--text-4); }
-
-  /* worker result */
-  .result {
-    font-size: 13.5px; line-height: 1.55; color: var(--text-2); white-space: pre-wrap;
-    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 12px 14px;
+  .ab-form { display: contents; }
+  .ab-hint { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--text-4); margin-right: 2px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; font-weight: 600;
+    padding: 9px 15px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text-1); cursor: pointer; transition: .12s; white-space: nowrap;
   }
+  .btn svg { flex-shrink: 0; }
+  .btn:hover { border-color: var(--text-4); background: var(--surface-3); }
+  .btn.on { border-color: var(--accent-ln); color: var(--accent-b); background: var(--accent-bg); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1205; }
+  .btn.primary:hover { background: var(--accent-b); }
+  .btn.danger:hover { border-color: var(--danger); color: var(--danger-b); background: rgba(220,38,38,.1); }
+  .ab-spacer { margin-left: auto; }
 
-  /* editable form fields (neutral / accent themed) */
-  .details textarea, .details input[type=text], .details input:not([type]), .details select {
-    width: 100%; font: inherit; font-size: 14px; color: var(--text-1);
+  /* reassign inline row */
+  .reassign-row {
+    display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 8px; padding: 13px 15px;
     background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius);
-    padding: 11px 13px; outline: none; resize: vertical;
   }
-  .details textarea.mono { font-family: var(--mono); font-size: 13px; }
-  .details textarea:focus, .details input:focus, .details select:focus { border-color: var(--accent-ln); background: var(--surface-2); }
-  .details select { cursor: pointer; }
+  .rr-field { display: flex; flex-direction: column; gap: 6px; }
+  .reassign-row select {
+    font: inherit; font-size: 14px; color: var(--text-1); background: var(--surface-2);
+    border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 9px 11px; cursor: pointer; outline: none;
+  }
+  .reassign-row select:focus { border-color: var(--accent-ln); }
 
-  /* body edit-on-demand */
-  .ds-edit {
-    margin-left: auto; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--text-3); background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-sm);
-    padding: 4px 10px; cursor: pointer; transition: .12s;
+  /* close panel */
+  .close-panel { margin-top: 8px; padding: 13px 15px; background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); }
+
+  /* ── two-column grid ─────────────────────────────────────── */
+  .grid { display: grid; grid-template-columns: 1fr 264px; gap: 26px; margin-top: 22px; align-items: start; }
+  .col-body { min-width: 0; }
+
+  /* section header inside body */
+  .sec { margin-bottom: 26px; }
+  .sec:last-child { margin-bottom: 0; }
+  .sec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .sec-head h2 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); }
+  .sec-head .ic { display: flex; color: var(--text-4); }
+  .sec-head .right { margin-left: auto; }
+  .edit-btn {
+    font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3);
+    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-sm);
+    padding: 4px 11px; cursor: pointer; transition: .12s;
   }
-  .ds-edit:hover { color: var(--accent-b); border-color: var(--accent-ln); }
-  .edit-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+  .edit-btn:hover { color: var(--accent-b); border-color: var(--accent-ln); }
+
+  /* body card — rendered markdown */
+  .bodycard { background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-lg); padding: 18px 20px; }
+  .body-prose { margin: 0; }
+  .body-prose :global(> :first-child) { margin-top: 0; }
+  .body-prose :global(> :last-child) { margin-bottom: 0; }
+  .body-empty {
+    width: 100%; text-align: left; font: inherit; font-size: 13.5px; color: var(--text-4);
+    background: var(--surface-1); border: 1px dashed var(--border); border-radius: var(--radius-lg);
+    padding: 16px 18px; cursor: pointer; transition: .12s;
+  }
+  .body-empty:hover { border-color: var(--accent-ln); color: var(--text-2); }
+
+  /* edit mode (simple markdown toggle — ProseMark WYSIWYG is a follow-up) */
+  .pm-toolbar {
+    display: flex; align-items: center; padding: 7px 11px; background: var(--surface-2);
+    border: 1px solid var(--border); border-bottom: none; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .pm-tag { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-4); }
+  .pm-surface {
+    width: 100%; min-height: 200px; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg); padding: 16px 18px; font-size: 13px; line-height: 1.6;
+    color: var(--text-1); outline: none; resize: vertical;
+  }
+  .pm-surface:focus { border-color: var(--accent-ln); }
+  .edit-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+  .edit-hint { margin-right: auto; font-size: 10.5px; color: var(--text-4); }
   .btn-ghost {
     font: inherit; font-size: 13px; color: var(--text-3); background: none; border: 1px solid var(--border-sub);
     border-radius: var(--radius); padding: 8px 16px; cursor: pointer; transition: .12s;
@@ -665,61 +849,70 @@
     border-radius: var(--radius); padding: 8px 18px; cursor: pointer; transition: .12s;
   }
   .btn-save-sm:hover { background: var(--accent-b); }
-  /* rendered body sits in a quiet card so read-mode looks intentional, not like a raw dump */
-  .body-prose {
-    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius);
-    padding: 14px 16px; margin-top: 0;
+
+  /* ── question answer options (violet, one-tap) ───────────── */
+  .answers { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+  .answers form { display: contents; }
+  .answer {
+    display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+    padding: 13px 15px; background: var(--surface-1); border: 1px solid var(--border-sub);
+    border-radius: var(--radius); color: var(--text-2); font: inherit; font-size: 14px; cursor: pointer; transition: .12s;
   }
-  .body-prose :global(> :first-child) { margin-top: 0; }
-  .body-prose :global(> :last-child) { margin-bottom: 0; }
-  .body-empty {
-    width: 100%; text-align: left; font: inherit; font-size: 13.5px; color: var(--text-4);
-    background: var(--surface-1); border: 1px dashed var(--border); border-radius: var(--radius);
-    padding: 14px 16px; cursor: pointer; transition: .12s;
+  .answer:hover:not(:disabled) { border-color: var(--violet-ln); background: var(--violet-bg); }
+  .answer:disabled { cursor: default; }
+  .answer .a-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; position: relative; transition: .1s; }
+  .answer.on { border-color: var(--violet); background: var(--violet-bg); color: var(--violet-b); font-weight: 500; }
+  .answer.on .a-dot { border-color: var(--violet); }
+  .answer.on .a-dot::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--violet); }
+  .answers.locked .answer:not(.on) { opacity: .55; }
+  .q-done { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; padding: 12px 15px;
+    background: var(--violet-bg); border: 1px solid var(--violet-ln); border-radius: var(--radius); }
+  .q-done .qd-check { color: var(--violet-b); display: flex; }
+  .q-done .qd-title { font-weight: 600; color: var(--violet-b); font-size: 13px; }
+  .q-done .qd-sub { font-size: 12px; color: var(--text-3); }
+  .freeanswer { display: flex; flex-direction: column; gap: 12px; }
+  .freeanswer textarea {
+    width: 100%; font: inherit; font-size: 14px; color: var(--text-1); resize: vertical;
+    background: var(--surface-1); border: 1px solid var(--violet-ln); border-radius: var(--radius); padding: 12px 14px; outline: none;
   }
-  .body-empty:hover { border-color: var(--accent-ln); color: var(--text-2); }
-  .body-hint { font-size: 11px; }
-
-  .assign-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-  .afield { display: flex; flex-direction: column; gap: 6px; }
-  .af-lbl { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
-
-  .save-bar {
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border-sub);
+  .freeanswer textarea:focus { border-color: var(--violet); background: var(--surface-2); }
+  .freeanswer .q-submit {
+    align-self: flex-start; padding: 11px 20px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    background: var(--violet); color: #04140a; border: none; border-radius: var(--radius);
   }
-  .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-3); cursor: pointer; }
-  .chk input { width: auto; accent-color: var(--accent); }
-  .chk svg { color: var(--text-4); }
-  .save {
-    margin-left: auto; padding: 9px 18px; border-radius: var(--radius);
-    background: var(--accent); color: #1a1205; border: none; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: .12s;
-  }
-  .save:hover { background: var(--accent-b); }
 
-  /* sub-task rows */
-  .blk-row.kid { text-decoration: none; cursor: pointer; }
-  .blk-row.static { cursor: default; }
-  .kid-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .blk-row .chip { margin-left: auto; }
+  /* verification chips */
+  .verif { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: var(--radius-sm); }
+  .verif.v-none { background: var(--surface-3); color: var(--text-4); }
+  .verif.v-verified { background: var(--violet-bg); color: var(--violet-b); }
+  .verif.v-rejected { background: rgba(220,38,38,.12); color: var(--danger-b); }
+  .verif.v-needs_human { background: rgba(234,179,8,.14); color: var(--warn-b); }
 
-  .det-id { margin-left: auto; }
-  .dim { color: var(--text-4); }
+  /* live lease countdown pill */
+  .live-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px;
+    padding: 10px 14px; background: var(--surface-1); border: 1px solid var(--accent-ln); border-radius: var(--radius); }
+  .agent-badge { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
+  .lb-txt { font-size: 11.5px; color: var(--text-3); }
+  .lease { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; margin-left: auto; }
+  .lease-expired { background: rgba(220,38,38,.14); color: var(--danger-b); }
+  .lease-soon { background: rgba(234,179,8,.14); color: var(--warn-b); }
+  .lease-ok { color: var(--text-4); }
 
-  /* relations grid */
-  .rel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-  .rel-col { display: flex; flex-direction: column; gap: 8px; }
-  .rel-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+  /* handoff context callout */
+  .handoff { font-size: 12.5px; line-height: 1.55; color: var(--text-2); white-space: pre-wrap; margin-bottom: 16px;
+    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 12px 14px; }
+  .handoff .hc-lbl { color: var(--info-b); }
+  .handoff .hc-lbl { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-4); margin-bottom: 5px; }
 
   /* close form */
   .closeform { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .close-reason {
     flex: 1; min-width: 180px; font: inherit; font-size: 14px; color: var(--text-1);
-    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 10px 13px; outline: none;
+    background: var(--surface-2); border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 10px 13px; outline: none;
   }
-  .close-reason:focus { border-color: var(--accent-ln); background: var(--surface-2); }
+  .close-reason:focus { border-color: var(--accent-ln); }
   .closeform select {
-    font: inherit; font-size: 13px; color: var(--text-1); background: var(--surface-1);
+    font: inherit; font-size: 13px; color: var(--text-1); background: var(--surface-2);
     border: 1px solid var(--border-sub); border-radius: var(--radius); padding: 9px 11px; cursor: pointer; outline: none;
   }
   .close-btn {
@@ -728,70 +921,146 @@
   }
   .close-btn:hover { background: var(--accent-b); }
 
-  .freeanswer { display: flex; flex-direction: column; gap: 12px; }
-  .freeanswer textarea {
-    width: 100%; font: inherit; font-size: 14px; color: var(--text-1); resize: vertical;
-    background: var(--surface-1); border: 1px solid var(--violet-ln); border-radius: var(--radius); padding: 12px 14px; outline: none;
+  /* ── sub-task / relation rows ────────────────────────────── */
+  .kid-list { display: flex; flex-direction: column; gap: 6px; }
+  .kid-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 13px; text-decoration: none;
+    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); transition: .12s;
   }
-  .freeanswer textarea:focus { border-color: var(--violet); background: var(--surface-2); }
-  .freeanswer .q-submit { align-self: flex-start; padding: 11px 20px; }
+  .kid-row:hover { border-color: var(--border); background: var(--surface-2); }
+  .kid-row.closed .kid-title { color: var(--text-4); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .kid-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--text-4); }
+  .kid-dot.prio-0 { background: var(--danger-b); } .kid-dot.prio-1 { background: var(--warn-b); }
+  .kid-dot.prio-2 { background: var(--info-b); } .kid-dot.prio-3 { background: var(--text-4); }
+  .kid-num { font-size: 11px; color: var(--text-4); flex-shrink: 0; }
+  .kid-title { flex: 1; min-width: 0; font-size: 13.5px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kid-asg { font-size: 11px; flex-shrink: 0; }
+  .kid-row .chip { margin-left: 0; flex-shrink: 0; }
 
-  /* ── reader ─────────────────────────────────────────────── */
-  .reader { margin: 4px 0 8px; }
-  .reader-bar {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
-    padding-bottom: 12px; border-bottom: 1px solid var(--border-sub);
+  /* relations grid */
+  .rel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .rel-col { display: flex; flex-direction: column; gap: 8px; }
+  .rel-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+
+  /* ── activity timeline ───────────────────────────────────── */
+  .timeline { position: relative; padding-left: 36px; }
+  .timeline::before { content: ''; position: absolute; left: 13px; top: 6px; bottom: 14px; width: 1.5px; background: var(--border-sub); }
+  .tl-item { position: relative; margin-bottom: 18px; }
+  .tl-item:last-child { margin-bottom: 0; }
+  .tl-item :global(.avatar) { position: absolute; left: -36px; top: 0; z-index: 1; background: var(--bg); }
+  .tl-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; margin-bottom: 6px; }
+  .tl-meta .who { font-weight: 600; }
+  .tl-meta .act { color: var(--text-3); }
+  .tl-meta .when { font-size: 11px; color: var(--text-4); }
+  .tl-kind { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-4); background: var(--surface-3); padding: 1px 6px; border-radius: var(--radius-sm); }
+  .tl-event { font-size: 13px; color: var(--text-3); line-height: 1.5; }
+  .tl-bubble { background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius);
+    padding: 12px 15px; font-size: 13.5px; line-height: 1.6; color: var(--text-2); white-space: pre-wrap; }
+  .tl-bubble .ttl { font-weight: 600; color: var(--text-1); margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
+  .tl-bubble.result .ttl { color: var(--violet-b); }
+  .tl-empty { font-size: 12.5px; color: var(--text-4); padding: 4px 0; }
+  .tl-comment-bar {
+    display: flex; align-items: flex-end; gap: 9px; margin-top: 18px; padding: 6px 6px 6px 16px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg);
   }
+  .tl-comment-bar textarea {
+    flex: 1; font: inherit; font-size: 14px; background: none; border: none; outline: none; color: var(--text-1);
+    padding: 10px 0; resize: none; max-height: 140px; line-height: 1.5;
+  }
+  .tl-comment-bar textarea::placeholder { color: var(--text-4); }
+  .tl-send { width: 38px; height: 38px; flex-shrink: 0; border: none; border-radius: 50%; background: var(--accent);
+    color: #1a1205; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: .12s; }
+  .tl-send:hover { background: var(--accent-b); }
+
+  /* ── right sidebar ───────────────────────────────────────── */
+  .col-side { align-self: start; }
+  .side { display: flex; flex-direction: column; }
+  .sblock { padding: 13px 0; border-bottom: 1px solid var(--border-sub); }
+  .sblock:first-child { padding-top: 0; }
+  .slabel { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-4); margin-bottom: 8px; }
+  .sval { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-2); }
+  .sval .who { font-weight: 500; color: var(--text-1); }
+  .sval.is-unset { color: var(--text-4); font-style: italic; }
+  .rt-val.is-unset { color: var(--text-4); opacity: .6; }
+  .sval.ac { font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+  .blk-on { color: var(--danger-b); font-size: 13px; }
+  .side .chip { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    border: 1px solid transparent; appearance: none; -webkit-appearance: none; cursor: pointer; padding: 4px 10px; border-radius: var(--radius-sm); outline: none; }
+  .side .chip:disabled { cursor: default; opacity: .8; }
+  .qedit { display: contents; }
+
+  /* collapsed routing/handoff group */
+  .routing { border: 1px solid var(--border-sub); border-radius: var(--radius); background: var(--surface-1); margin-top: 13px; }
+  .routing > summary { display: flex; align-items: center; gap: 8px; padding: 11px 13px; cursor: pointer; list-style: none;
+    font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3); }
+  .routing > summary::-webkit-details-marker { display: none; }
+  .routing > summary:hover { color: var(--text-1); }
+  .routing > summary .car { margin-left: auto; transition: transform .15s; color: var(--text-4); display: flex; }
+  .routing[open] > summary .car { transform: rotate(180deg); }
+  .routing > summary .adv { font-size: 9px; color: var(--text-4); letter-spacing: .04em; text-transform: none; opacity: .7; }
+  .rt-body { padding: 2px 13px 13px; display: flex; flex-direction: column; gap: 11px; }
+  .rt-field { display: flex; flex-direction: column; gap: 4px; }
+  .rt-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-4); }
+  .rt-val { font-size: 12.5px; color: var(--text-3); }
+  .edit-form input, .edit-form textarea, .edit-form select {
+    width: 100%; font: inherit; font-size: 13px; color: var(--text-1); background: var(--surface-2);
+    border: 1px solid var(--border-sub); border-radius: var(--radius-sm); padding: 8px 10px; outline: none; resize: vertical;
+  }
+  .edit-form input:focus, .edit-form textarea:focus { border-color: var(--accent-ln); }
+  .edit-form .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-3); cursor: pointer; }
+  .edit-form .chk input { width: auto; accent-color: var(--accent); }
+  .edit-form .btn-save-sm { align-self: flex-start; }
+
+  .dim { color: var(--text-4); }
+
+  /* ── reader (doc/idea) ───────────────────────────────────── */
+  .reader { margin: 0; }
+  .reader-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border-sub); }
   .rb-group { display: inline-flex; gap: 2px; }
-  .rb {
-    display: inline-flex; align-items: center; gap: 6px; justify-content: center;
-    min-width: 30px; height: 30px; padding: 0 9px; border-radius: var(--radius);
-    background: var(--surface-1); border: 1px solid var(--border-sub); color: var(--text-2);
-    font: inherit; font-size: 12.5px; cursor: pointer; transition: .12s;
-  }
+  .rb { display: inline-flex; align-items: center; gap: 6px; justify-content: center; min-width: 30px; height: 30px;
+    padding: 0 9px; border-radius: var(--radius); background: var(--surface-1); border: 1px solid var(--border-sub);
+    color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer; transition: .12s; }
   .rb:hover:not(:disabled) { border-color: var(--accent-ln); color: var(--text-1); }
   .rb:disabled { opacity: .35; cursor: default; }
   .rb.on { background: var(--accent-bg); border-color: var(--accent-ln); color: var(--accent-b); }
   .rb svg { display: block; }
   .rb-right { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
   .rb.voice { appearance: none; -webkit-appearance: none; cursor: pointer; padding: 0 9px; font-size: 12px; }
-  .rb.voice:hover { border-color: var(--accent-ln); color: var(--text-1); }
-  .listen { font-size: 12px; }
   .listen.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
-  .listen .spin {
-    width: 13px; height: 13px; border-radius: 50%;
-    border: 2px solid var(--border); border-top-color: var(--accent-b); animation: rspin .7s linear infinite;
-  }
+  .listen .spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent-b); animation: rspin .7s linear infinite; }
   @keyframes rspin { to { transform: rotate(360deg); } }
-
-  /* technical ⇄ plain-english segmented toggle */
   .seg { display: inline-flex; padding: 2px; background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); }
-  .seg-btn {
-    padding: 4px 11px; border: none; background: none; border-radius: calc(var(--radius) - 2px);
-    color: var(--text-3); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: .12s; white-space: nowrap;
-  }
+  .seg-btn { padding: 4px 11px; border: none; background: none; border-radius: calc(var(--radius) - 2px);
+    color: var(--text-3); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: .12s; white-space: nowrap; }
   .seg-btn.on { background: var(--accent-bg); color: var(--accent-b); }
   .seg-btn:not(.on):hover { color: var(--text-1); }
-
   .human-note { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-3); margin: -4px 0 14px; }
   .human-note svg { color: var(--accent-b); }
-
-  /* font scale + measure (applies to the {@html} children via the article) */
-  .prose.font-0 { font-size: 13.6px; }
-  .prose.font-1 { font-size: 14.8px; }
-  .prose.font-2 { font-size: 15.5px; }
-  .prose.font-3 { font-size: 17px; }
-  .prose.font-4 { font-size: 18.5px; }
+  .prose.font-0 { font-size: 13.6px; } .prose.font-1 { font-size: 14.8px; } .prose.font-2 { font-size: 15.5px; }
+  .prose.font-3 { font-size: 17px; } .prose.font-4 { font-size: 18.5px; }
   .prose.wide { max-width: 820px; }
   .prose.serif { font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
   .prose.serif :global(code), .prose.serif :global(pre) { font-family: var(--mono); }
-
-  /* focus mode: center the column, dim the surrounding chrome */
-  .reader.focus { position: relative; }
   .reader.focus .prose { max-width: 680px; margin-inline: auto; }
-  :global(.screen.detail:has(.reader.focus)) .det-sec,
-  :global(.screen.detail:has(.reader.focus)) .page-head .det-meta,
-  :global(.screen.detail:has(.reader.focus)) .live-bar { opacity: .4; transition: opacity .2s; }
-  :global(.screen.detail:has(.reader.focus)) .det-sec:hover,
-  :global(.screen.detail:has(.reader.focus)) .page-head .det-meta:hover { opacity: 1; }
+
+  /* ── responsive: phone (sidebar drops below body, buttons stay reachable) ── */
+  @media (max-width: 760px) {
+    .screen.detail { max-width: 100%; }
+    .grid { grid-template-columns: 1fr; gap: 20px; }
+    .col-side { order: 2; }
+    .actionbar { position: sticky; top: 0; z-index: 4; }
+    .ab-spacer { display: none; }
+    .actionbar .btn { flex: 1; justify-content: center; }
+    /* sidebar collapses into its <details> on phone */
+    .side-wrap > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+      font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3);
+      padding: 12px 14px; background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius); }
+    .side-wrap > summary::-webkit-details-marker { display: none; }
+    .side-wrap > summary .car { margin-left: auto; transition: transform .15s; color: var(--text-4); display: flex; }
+    .side-wrap[open] > summary .car { transform: rotate(180deg); }
+    .side { padding: 6px 4px 0; }
+  }
+  /* on desktop the side-wrap <summary> is hidden — content always shown */
+  @media (min-width: 761px) { .side-wrap > summary { display: none; } .side-wrap > .side { display: flex; } }
 </style>

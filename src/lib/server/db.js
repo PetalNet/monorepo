@@ -116,6 +116,25 @@ db.exec(`
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_artifacts_slug ON artifacts(slug);
+  -- scoped share-links: let someone with NO Authentik account view ONE artifact via a secret
+  -- link, WITHOUT exposing anything else behind the SSO. The token itself is NEVER stored — only
+  -- sha256(token) (token_hash), so a DB leak can't be replayed into working links. A row is valid
+  -- iff revoked=0 AND (expires_at IS NULL OR expires_at > now). slug ties the link to exactly one
+  -- artifact (the public /s/ route loads THAT slug only — it can't be coerced to another). Creation
+  -- and revocation live behind the same Authentik/canWrite gate as every other mutation; the public
+  -- route (Traefik-exempted from the SSO middleware for /s/ only) is strictly read-only + fail-closed.
+  CREATE TABLE IF NOT EXISTS artifact_shares (
+    id         INTEGER PRIMARY KEY,
+    slug       TEXT NOT NULL,                         -- which artifact this link unlocks (one only)
+    token_hash TEXT NOT NULL UNIQUE,                  -- sha256(token) hex; the raw token is shown ONCE on creation, never stored
+    label      TEXT DEFAULT '',                       -- optional human note ("for the client demo")
+    created_by TEXT DEFAULT '',                       -- authentik username that minted it (audit)
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT,                                  -- NULL = no expiry; else valid only while > now
+    revoked    INTEGER NOT NULL DEFAULT 0             -- 1 = killed; never serves again
+  );
+  CREATE INDEX IF NOT EXISTS idx_artifact_shares_token ON artifact_shares(token_hash);
+  CREATE INDEX IF NOT EXISTS idx_artifact_shares_slug  ON artifact_shares(slug);
   -- typed NON-blocking provenance links between tasks (fleet-dispatcher Phase 1). Distinct from
   -- task_blockers (which is the UNTYPED BLOCKING graph that gates UNBLOCKED eligibility): these
   -- carry a relationship TYPE and do NOT affect status/eligibility. First rel: 'discovered_from'
@@ -132,7 +151,50 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_task_links_task    ON task_links(task_id, rel);
   CREATE INDEX IF NOT EXISTS idx_task_links_related ON task_links(related_id, rel);
+  -- Agent registry (fleet-dispatcher, #212). The authoritative list of which agents exist and
+  -- — critically — what each MAY work. Today lane/capability routing is purely ADVISORY (the
+  -- suggested_agent / owner_machine / capability HINTS on a task). This table is the ENFORCED
+  -- side: claimNextForAgent / assignTaskToAgent look an agent's capabilities up HERE, server-side
+  -- (the agent never supplies its own filter), so an out-of-lane agent is blocked by the DB, not
+  -- by politely asking the model. lane is a coarse human label (open|work|lab|...); the real
+  -- gate is capabilities (a CSV of tags) checked against a task's capability tag in agentCan().
+  -- autonomy (auto|ask|readonly|paused) is advisory today except 'paused'/inactive, which the
+  -- claim/assign paths treat as "can work nothing". Idempotent create — see ensureAgentsTable too.
+  CREATE TABLE IF NOT EXISTS agents (
+    handle       TEXT PRIMARY KEY,                         -- canonical lowercase id (e.g. 'person-c')
+    display_name TEXT    DEFAULT '',
+    host         TEXT    DEFAULT '',                       -- which machine it runs on (advisory)
+    role         TEXT    DEFAULT '',                       -- free-text role label
+    lane         TEXT    DEFAULT 'open',                   -- coarse lane label (advisory; capabilities is the gate)
+    capabilities TEXT    DEFAULT '',                       -- CSV of capability tags it MAY work (the lane gate)
+    autonomy     TEXT    DEFAULT 'ask',                    -- auto | ask | readonly | paused
+    active       INTEGER NOT NULL DEFAULT 1,               -- 0 = retired/disabled → claims nothing
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
 `);
+
+// Agent-registry columns (additive, for a DB that predates the table). Mirrors ensureColumns'
+// idempotent ALTER pattern + the duplicate-column swallow so two booting processes can't race it.
+function ensureAgentsTable() {
+  const have = new Set(db.prepare('PRAGMA table_info(agents)').all().map((c) => c.name));
+  const adds = {
+    display_name: "TEXT DEFAULT ''",
+    host: "TEXT DEFAULT ''",
+    role: "TEXT DEFAULT ''",
+    lane: "TEXT DEFAULT 'open'",
+    capabilities: "TEXT DEFAULT ''",
+    autonomy: "TEXT DEFAULT 'ask'",
+    active: 'INTEGER NOT NULL DEFAULT 1',
+    created_at: "TEXT NOT NULL DEFAULT (datetime('now'))",
+    updated_at: "TEXT NOT NULL DEFAULT (datetime('now'))"
+  };
+  for (const [name, def] of Object.entries(adds)) if (!have.has(name)) {
+    try { db.exec(`ALTER TABLE agents ADD COLUMN ${name} ${def}`); }
+    catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+  }
+}
+ensureAgentsTable();
 
 // Delegation columns (added incrementally — the live DB predates them). Idempotent.
 function ensureColumns() {
@@ -591,6 +653,32 @@ export const children = (pid, me) => {
   return roots.length ? attachKids(roots, childMapByParent(me)) : roots;
 };
 
+// Sub-tasks for the detail page hierarchy section: ALL statuses (incl. done/dropped) so a
+// completed child still shows under its parent — distinct from children() above, which is the
+// board's ACTIVE-only roll-up. Visibility-gated; flat (one level — the detail page links down).
+export const childrenAll = (pid, me) => db.prepare(
+  `SELECT id, title, kind, status, priority, assignee FROM tasks
+   WHERE parent_id=@pid ${vis(me)} ORDER BY rank, priority, id`
+).all({ pid, ...(me ? { me } : {}) });
+
+// The parent row (for the "↳ part of #parent" up-link), visibility-gated so a private parent
+// isn't revealed under a shared child. Returns the minimal columns the link needs, or null.
+export const parentOf = (childId, me) => {
+  const c = db.prepare('SELECT parent_id FROM tasks WHERE id=?').get(childId);
+  if (!c || !c.parent_id) return null;
+  return db.prepare(
+    `SELECT id, title, status FROM tasks WHERE id=@pid ${vis(me)}`
+  ).get({ pid: c.parent_id, ...(me ? { me } : {}) }) || null;
+};
+
+// Chronological activity feed for the detail-page timeline: the task's audit events
+// (create / update / claim / report / closed …). Bounded — the per-task pruner keeps the
+// most recent EVENT_KEEP_PER_TASK, and this is purely display, so an unbounded scan never
+// happens. data is the serialized JSON payload (parsed best-effort in the loader).
+export const taskEvents = (tid) => db.prepare(
+  'SELECT id, type, data, at FROM events WHERE task_id=? ORDER BY id'
+).all(tid);
+
 // The agent query (MCP get_ready, phase 2): actionable, unblocked, up-next first then by manual rank.
 export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ORDER BY up_next DESC, rank, priority`).all(args(p));
 
@@ -793,6 +881,131 @@ export function reapLeases() {
   ).run().changes;
 }
 
+// --- agent registry + ENFORCED lane/capability routing (fleet-dispatcher, #212) ---
+// The gap this closes: lane/capability routing was ADVISORY (suggested_agent/capability HINTS).
+// Nothing stopped an out-of-lane agent (e.g. 'person-c', work-only) from claiming a lab task. These
+// functions make the lane a gate the DISPATCHER enforces server-side: an agent's capabilities are
+// looked up HERE, never trusted from the caller, so the agent cannot widen its own pool.
+
+// Normalize a handle to the canonical key (lowercase, trimmed). Mirrors fleet.js, which lowercases
+// handles read off the status files — keep the registry key in lockstep so lookups always hit.
+const normHandle = (h) => String(h ?? '').trim().toLowerCase();
+// Parse a CSV capability set → lowercase, trimmed, de-duped, empties dropped. Tolerant of the
+// free-text column (spaces, trailing commas, mixed case). Used for both agent.capabilities and
+// (degenerately) a task's single capability tag.
+const capSet = (csv) => new Set(
+  String(csv ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+);
+
+// Insert-or-update one agent by handle. Only the fields PRESENT in the arg are written on update
+// (so a partial upsert — e.g. just flipping autonomy — doesn't wipe capabilities). updated_at is
+// always bumped. active accepts a bool/0/1; an explicit value wins, else defaults to 1 on insert.
+// Returns the stored row.
+export function upsertAgent({ handle, display_name, host, role, lane, capabilities, autonomy, active } = {}) {
+  const h = normHandle(handle);
+  if (!h) throw new Error('upsertAgent requires a handle');
+  const existing = db.prepare('SELECT * FROM agents WHERE handle=?').get(h);
+  // coalesce: present-in-arg → use it; else keep existing; else the column default.
+  const pick = (val, cur, def) => (val !== undefined ? val : (existing ? cur : def));
+  const row = {
+    handle: h,
+    display_name: pick(display_name, existing?.display_name, ''),
+    host: pick(host, existing?.host, ''),
+    role: pick(role, existing?.role, ''),
+    lane: pick(lane, existing?.lane, 'open'),
+    capabilities: pick(capabilities, existing?.capabilities, ''),
+    autonomy: pick(autonomy, existing?.autonomy, 'ask'),
+    // active: normalize any truthy/0/1/false to an integer; default active on first insert.
+    active: (active !== undefined ? (active ? 1 : 0) : (existing ? existing.active : 1))
+  };
+  db.prepare(
+    `INSERT INTO agents (handle,display_name,host,role,lane,capabilities,autonomy,active)
+       VALUES (@handle,@display_name,@host,@role,@lane,@capabilities,@autonomy,@active)
+     ON CONFLICT(handle) DO UPDATE SET
+       display_name=@display_name, host=@host, role=@role, lane=@lane,
+       capabilities=@capabilities, autonomy=@autonomy, active=@active,
+       updated_at=datetime('now')`
+  ).run(row);
+  return getAgent(h);
+}
+
+export const listAgents = () => db.prepare('SELECT * FROM agents ORDER BY handle').all();
+export const getAgent = (handle) => db.prepare('SELECT * FROM agents WHERE handle=?').get(normHandle(handle));
+export const setAgentActive = (handle, on) =>
+  db.prepare("UPDATE agents SET active=@a, updated_at=datetime('now') WHERE handle=@h")
+    .run({ h: normHandle(handle), a: on ? 1 : 0 }).changes > 0;
+
+// THE LANE GATE. true iff `agent` (by handle) may work `task`. Rules:
+//   * unknown agent OR active=0 → false (a ghost/retired agent works nothing).
+//   * task.capability === '' (or null) → OPEN: any active agent may work it.
+//   * else the task's single capability tag MUST be in the agent's capabilities set.
+// The agent's capabilities come from the REGISTRY, never the caller — that's the enforcement:
+// give 'person-c' capabilities WITHOUT 'lab', tag lab tasks capability='lab' → person-c is blocked here.
+// Accepts a task row OR a bare task id (re-read for the latter). A missing task → false.
+export function agentCan(handle, task) {
+  const agent = getAgent(handle);
+  if (!agent || !agent.active) return false;
+  const t = (task && typeof task === 'object') ? task : getTask(task);
+  if (!t) return false;
+  const need = String(t.capability ?? '').trim().toLowerCase();
+  if (!need) return true;                       // OPEN task → anyone active
+  return capSet(agent.capabilities).has(need);  // gated task → must hold the tag
+}
+
+// Atomic, lane-bounded claim of the next Up Next task THIS agent may work. Like claimNext, but the
+// candidate pool is filtered by the agent's REGISTERED capabilities (looked up server-side — the
+// agent does NOT pass its own filter, the whole point). Inactive/paused agent → claims nothing.
+// Same single-statement guarded UPDATE under better-sqlite3's single writer → no double-claim; sets
+// the 30-min lease + logs the 'claim' event. Returns the claimed row (with its fresh token) or null.
+export const claimNextForAgent = db.transaction((handle, { project_id = null } = {}) => {
+  const agent = getAgent(handle);
+  if (!agent || !agent.active || agent.autonomy === 'paused') return null;
+  const caps = capSet(agent.capabilities);
+  const args = { worker: agent.handle, tok: crypto.randomUUID() };
+  const f = [];
+  if (project_id != null) { f.push('AND project_id=@pid'); args.pid = project_id; }
+  // The lane gate, IN SQL: a candidate is eligible iff its capability is empty (OPEN) OR the
+  // (lowercased) tag is one this agent holds. We can't bind a SQL "IN (set)" of arbitrary size
+  // cleanly across drivers, so enumerate the agent's tags as @c0,@c1,...; an agent with NO caps
+  // can still take OPEN tasks (the empty-capability branch). Comparison is lowercased both sides.
+  const capParams = [];
+  let i = 0;
+  for (const c of caps) { const k = 'c' + i++; args[k] = c; capParams.push('@' + k); }
+  const capPred = capParams.length
+    ? `AND (capability='' OR capability IS NULL OR lower(trim(capability)) IN (${capParams.join(',')}))`
+    : `AND (capability='' OR capability IS NULL)`;
+  const r = db.prepare(`
+    UPDATE tasks SET status='doing', claimed_by=@worker, claim_token=@tok,
+      lease_expires_at=datetime('now','+30 minutes'), updated_at=datetime('now')
+    WHERE id = (SELECT id FROM tasks
+                WHERE up_next=1 AND status='todo' AND kind IN ('task','idea')
+                  AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))
+                  ${capPred}
+                  ${f.join(' ')}
+                ORDER BY rank, priority LIMIT 1)
+    RETURNING *`).get(args);
+  if (r) log(r.id, 'claim', { worker: agent.handle, via: 'claimNextForAgent' });
+  return r || null;
+});
+
+// Mayor push-assignment WITH the lane gate. Validates agentCan() FIRST; rejects an out-of-lane (or
+// unknown/inactive) agent with {ok:false,reason} instead of routing work it can't do. On success,
+// reuses assignTask (assignee + status='todo'). Returns {ok:true,...} or {ok:false,reason,message}.
+export function assignTaskToAgent(id, handle) {
+  const h = normHandle(handle);
+  const t = getTask(id);
+  if (!t) return { ok: false, reason: 'no_task', message: `No task #${id}.` };
+  const agent = getAgent(h);
+  if (!agent) return { ok: false, reason: 'unknown_agent', message: `No registered agent '${h}'.` };
+  if (!agent.active) return { ok: false, reason: 'inactive_agent', message: `Agent '${h}' is inactive.` };
+  if (!agentCan(h, t)) {
+    return { ok: false, reason: 'out_of_lane',
+      message: `Agent '${h}' may not work capability='${t.capability || ''}' (lane gate).` };
+  }
+  assignTask(id, agent.handle, undefined); // keep the task's existing capability tag
+  return { ok: true, id: Number(id), assignee: agent.handle };
+}
+
 // --- artifacts / pages gallery ---------------------------------------------
 // Human visibility gate, identical rule to tasks: a private artifact is owner-only.
 // `me` is ALWAYS supplied for web views (the gallery has no agent API), so the gate
@@ -828,10 +1041,104 @@ export function upsertArtifact({ slug, title, description = '', kind = 'markdown
   return getArtifact(slug, null);
 }
 
-// An agent's own queue (for the SessionStart hook).
-export const agentQueue = (agent) => db.prepare(
-  `SELECT * FROM tasks WHERE assignee=? AND status IN ('todo','doing','blocked') ORDER BY status, priority, rank`
-).all(agent);
+// --- scoped share-links (artifact_shares) ----------------------------------
+// Threat model: a public, SSO-EXEMPT route (/s/[token]) must serve EXACTLY one artifact to an
+// unauthenticated visitor and nothing else. The whole security of that bypass rests here, so:
+//   * The token is 32 bytes of crypto-random → base64url (the secret, returned ONCE on creation).
+//   * We persist ONLY sha256(token). Lookups hash the incoming token and match on the UNIQUE,
+//     indexed token_hash column — an indexed equality lookup on a fixed-length hex digest of a
+//     high-entropy secret (no early-exit on the application-supplied value; SQLite compares the
+//     stored 64-char hex, not the attacker's raw token). A DB read-out yields hashes, not links.
+//   * Validity is enforced IN SQL (revoked=0 AND not expired) so the public route can't forget a check.
+const sha256hex = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+
+// Create a share for `slug`. Returns { token (RAW — show once), id, slug, expires_at }.
+// expires_at: pass an ISO/SQL UTC timestamp string or null. The CALLER (the page action) is
+// responsible for the canWrite/auth gate — this is a pure data op (mirrors createTask etc.).
+export function createArtifactShare({ slug, label = '', created_by = '', expires_at = null }) {
+  if (!slug) throw new Error('share requires slug');
+  // Don't mint a link for a slug that doesn't exist (defense-in-depth; the action also gates).
+  const exists = db.prepare('SELECT 1 FROM artifacts WHERE slug=?').get(slug);
+  if (!exists) throw new Error('no such artifact');
+  const token = crypto.randomBytes(32).toString('base64url'); // 256-bit secret
+  const token_hash = sha256hex(token);
+  const r = db.prepare(
+    `INSERT INTO artifact_shares (slug, token_hash, label, created_by, expires_at)
+       VALUES (@slug, @token_hash, @label, @created_by, @expires_at)`
+  ).run({ slug, token_hash, label: label || '', created_by: created_by || '', expires_at: expires_at || null });
+  return { id: Number(r.lastInsertRowid), slug, token, expires_at: expires_at || null };
+}
+
+// Resolve a RAW token to its artifact — the public-route lookup. FAIL CLOSED: returns the
+// artifact row ONLY when a matching share exists, is NOT revoked, and is NOT expired; otherwise
+// undefined (the route then 404s uniformly — never distinguishing unknown vs revoked vs expired).
+// Ignores artifact visibility ON PURPOSE: a share is an explicit, revocable grant for THAT one
+// artifact (so a private artifact can be shared), and it can reach no other slug — the token row
+// names a single slug. Defensive: a non-string/empty token short-circuits to undefined.
+export function getArtifactByShareToken(token) {
+  if (!token || typeof token !== 'string') return undefined;
+  const token_hash = sha256hex(token);
+  const share = db.prepare(
+    `SELECT slug FROM artifact_shares
+      WHERE token_hash=@token_hash AND revoked=0
+        AND (expires_at IS NULL OR expires_at > datetime('now'))`
+  ).get({ token_hash });
+  if (!share) return undefined;
+  // getArtifact with me=null bypasses the human visibility gate — intentional: the share IS the grant.
+  return getArtifact(share.slug, null);
+}
+
+// List a single artifact's shares for the management UI (no token/hash leaves the server).
+export const listArtifactShares = (slug) => db.prepare(
+  `SELECT id, label, created_by, created_at, expires_at, revoked,
+          (revoked=0 AND (expires_at IS NULL OR expires_at > datetime('now'))) AS active
+     FROM artifact_shares WHERE slug=@slug ORDER BY created_at DESC`
+).all({ slug });
+
+// Revoke one share BY ID, scoped to its slug (so a request can't revoke another artifact's share
+// by id alone — the page action passes the slug it's authorized for). Idempotent.
+export const revokeArtifactShare = (id, slug) => db.prepare(
+  'UPDATE artifact_shares SET revoked=1 WHERE id=@id AND slug=@slug'
+).run({ id: Number(id), slug }).changes > 0;
+
+// An agent's own queue (for the SessionStart hook + the cockpit) — now LANE-AWARE. Returns the
+// tasks this agent is responsible for OR may opportunistically pick up, in two buckets:
+//   * assigned: open work whose assignee IS this agent (todo/doing/blocked), regardless of capability
+//     (a mayor push-assignment via assignTaskToAgent already passed the gate, so it stays visible).
+//   * claimable: UNASSIGNED Up Next tasks this agent MAY claim under the lane gate (capability empty,
+//     or a tag the agent holds) — exactly the pool claimNextForAgent would draw from.
+// Both buckets are also returned flattened as `tasks` (de-duped) for the simple legacy single-list
+// consumer. An unknown/inactive agent gets empty buckets (it owns nothing and may claim nothing).
+export function agentQueue(handle) {
+  const h = normHandle(handle);
+  const agent = getAgent(h);
+  const assigned = db.prepare(
+    `SELECT * FROM tasks WHERE lower(assignee)=@h AND status IN ('todo','doing','blocked')
+       AND ${TASKISH} ORDER BY status, priority, rank`
+  ).all({ h });
+  // claimable only if the agent exists and is active (inactive owns its assigned but claims nothing).
+  let claimable = [];
+  if (agent && agent.active) {
+    const caps = capSet(agent.capabilities);
+    const args = { };
+    const capParams = []; let i = 0;
+    for (const c of caps) { const k = 'c' + i++; args[k] = c; capParams.push('@' + k); }
+    const capPred = capParams.length
+      ? `AND (capability='' OR capability IS NULL OR lower(trim(capability)) IN (${capParams.join(',')}))`
+      : `AND (capability='' OR capability IS NULL)`;
+    claimable = db.prepare(
+      `SELECT * FROM tasks
+        WHERE up_next=1 AND status='todo' AND kind IN ('task','idea')
+          AND (assignee='' OR assignee IS NULL)
+          AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))
+          ${capPred}
+        ORDER BY rank, priority`
+    ).all(args);
+  }
+  const seen = new Set(assigned.map((t) => t.id));
+  const tasks = [...assigned, ...claimable.filter((t) => !seen.has(t.id))];
+  return { assigned, claimable, tasks };
+}
 
 // Tasks awaiting the lead's verification.
 export const needsReview = () => db.prepare("SELECT * FROM tasks WHERE status='review' ORDER BY updated_at DESC").all();
@@ -987,6 +1294,116 @@ export function boardData(me) {
     review,
     ready: boardReady(me),              // visible unblocked queue, ordered (up_next, rank, priority)
     stale: staleLog(me),
+    generatedAt: new Date().toISOString()
+  };
+}
+
+// --- /  (owner cockpit landing) -----------------------------------------------
+// One aggregate for the cockpit: the few things that actually want the owner's
+// attention, plus the glance-layer graph inputs. Everything is visibility-gated
+// by `me` (the signed-in human) exactly like the board — never leak a private
+// task/project. Pure reads; additive. Shape:
+//   { onFire:[task], needsYou:[{...task, reason:'assigned'|'question'}], inFlight:[task],
+//     changedToday:[{id,title,by,at,reason}],
+//     graphs:{ momentum:{ closedToday, series:[{day,n}] },
+//              backlog:{ total, byPriority:{0,1,2,3} },
+//              focus:{ needsYou, onFire, inFlight, total } },
+//     hud:{ needsYou, onFire, working }, generatedAt }
+// `working` (HUD agent count) is supplied by the caller from getFleet (the live
+// per-agent telemetry source) — db.js has no view of the fleet/*.json files.
+export function cockpitData(me, { workingAgents = 0 } = {}) {
+  const meArgs = me ? { me } : {};
+
+  // ON FIRE — open P0s (priority=0, not done/dropped). Top-level focus; cap so the
+  // lane stays a glance, not a list. Visibility-gated.
+  const onFire = db.prepare(
+    `SELECT id, title, priority, status, project_id, assignee, kind, updated_at
+       FROM tasks
+      WHERE priority=0 AND ${TASKISH} AND ${ACTIVE} ${vis(me)}
+      ORDER BY (status='doing') DESC, updated_at DESC LIMIT 12`
+  ).all(meArgs);
+
+  // NEEDS YOU — two sources, de-duped:
+  //   * tasks where assignee = ME (open, not already in the on-fire P0 set)
+  //   * open questions/decisions (kind='question', unanswered) — agents blocked on a call
+  const assigned = me ? db.prepare(
+    `SELECT id, title, priority, status, project_id, assignee, kind, updated_at
+       FROM tasks
+      WHERE lower(assignee)=lower(@me) AND ${TASKISH} AND ${ACTIVE} ${vis(me)}
+      ORDER BY priority, updated_at DESC LIMIT 12`
+  ).all({ me }) : [];
+  const questions = db.prepare(
+    `SELECT id, title, priority, status, project_id, assignee, kind, options, updated_at
+       FROM tasks
+      WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${vis(me)}
+      ORDER BY priority, created_at LIMIT 12`
+  ).all(meArgs);
+  const seen = new Set();
+  const needsYou = [];
+  for (const q of questions) { if (seen.has(q.id)) continue; seen.add(q.id); needsYou.push({ ...q, reason: 'question' }); }
+  for (const t of assigned) { if (seen.has(t.id)) continue; seen.add(t.id); needsYou.push({ ...t, reason: 'assigned' }); }
+
+  // IN FLIGHT — what's moving now (status='doing'). The layout joins live fleet
+  // telemetry to these via assignee; here we just hand over the doing rows.
+  const inFlight = db.prepare(
+    `SELECT id, title, priority, status, project_id, assignee, claimed_by, kind, updated_at
+       FROM tasks
+      WHERE status='doing' AND ${TASKISH} ${vis(me)}
+      ORDER BY updated_at DESC LIMIT 12`
+  ).all(meArgs);
+
+  // WHAT CHANGED TODAY — closes from the why-ledger since local-ish midnight (UTC).
+  // INNER JOIN + vis() so a close of a task this viewer can't see never appears.
+  const changedToday = db.prepare(
+    `SELECT e.task_id AS id, e.data AS data, e.at AS at, t.title AS title
+       FROM events e JOIN tasks t ON t.id = e.task_id
+      WHERE e.type='closed' AND e.at >= datetime('now','start of day')
+        ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ''}
+      ORDER BY e.id DESC LIMIT 20`
+  ).all(meArgs).map((e) => {
+    let by = '', reason = '';
+    try { const d = JSON.parse(e.data || '{}'); by = d.by || ''; reason = d.reason || ''; } catch {}
+    return { id: e.id, title: e.title ?? `#${e.id}`, at: e.at, by, reason };
+  });
+
+  // GRAPHS — momentum (closes/day incl today), backlog (open by priority), focus donut.
+  // momentum: 14-day window of 'closed' events, bucketed by UTC day. Visibility-gated.
+  const closeRows = db.prepare(
+    `SELECT date(e.at) AS day, COUNT(*) AS n
+       FROM events e JOIN tasks t ON t.id = e.task_id
+      WHERE e.type='closed' AND e.at >= datetime('now','-13 days','start of day')
+        ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ''}
+      GROUP BY date(e.at)`
+  ).all(meArgs);
+  const byDay = new Map(closeRows.map((r) => [r.day, r.n]));
+  const series = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    series.push({ day: d, n: byDay.get(d) ?? 0 });
+  }
+  const closedToday = series[series.length - 1].n;
+
+  // backlog: open (active) task counts by priority bucket
+  const blRows = db.prepare(
+    `SELECT priority, COUNT(*) AS n
+       FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)}
+      GROUP BY priority`
+  ).all(meArgs);
+  const byPriority = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  let backlogTotal = 0;
+  for (const r of blRows) { const p = Number(r.priority); if (p in byPriority) byPriority[p] += r.n; else byPriority[3] += r.n; backlogTotal += r.n; }
+
+  const focus = { needsYou: needsYou.length, onFire: onFire.length, inFlight: inFlight.length };
+  focus.total = focus.needsYou + focus.onFire + focus.inFlight;
+
+  return {
+    onFire, needsYou, inFlight, changedToday,
+    graphs: {
+      momentum: { closedToday, series },
+      backlog: { total: backlogTotal, byPriority },
+      focus
+    },
+    hud: { needsYou: needsYou.length, onFire: onFire.length, working: workingAgents },
     generatedAt: new Date().toISOString()
   };
 }

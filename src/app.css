@@ -209,27 +209,34 @@ button {
 /* ── agent rail ─────────────────────────────────────────────── */
 .rail { background:var(--surface-2); border:1px solid var(--border-sub); border-radius:var(--radius-lg); padding:11px; }
 .rail-head { display:flex; align-items:center; gap:7px; font-size:10px; font-weight:600; text-transform:uppercase;
-  letter-spacing:.08em; color:var(--text-3); margin-bottom:10px; }
+  letter-spacing:.08em; color:var(--text-3); margin-bottom:10px; text-decoration:none; }
+.rail-head:hover { color:var(--text-2); }
+.rail-count { margin-left:auto; font-size:9.5px; font-weight:500; letter-spacing:.02em; text-transform:none; color:var(--text-4); }
 .rail-pulse { width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 0 var(--accent-ln);
   animation:pulse 2.4s infinite; }
 @keyframes pulse { 0%{box-shadow:0 0 0 0 var(--accent-ln);} 70%{box-shadow:0 0 0 7px transparent;} 100%{box-shadow:0 0 0 0 transparent;} }
 .rail-list { display:flex; flex-direction:column; gap:7px; }
 .rail-agent { display:flex; flex-direction:column; gap:5px; padding:9px 10px; border-radius:var(--radius);
-  background:var(--surface-1); border:1px solid var(--border-sub); transition:.12s; }
-.rail-agent:hover { border-color:var(--c); }
-.rail-agent.idle { opacity:.65; }
+  background:var(--surface-1); border:1px solid var(--border-sub); border-left:2px solid var(--c); transition:.12s; }
+.rail-agent:hover { border-color:var(--border); border-left-color:var(--c); }
+.rail-agent.idle, .rail-agent.alive { opacity:.82; }
+.rail-agent.off { opacity:.5; border-left-color:var(--text-4); }
 .ra-top { display:flex; align-items:center; gap:7px; }
 .ra-dot { width:7px; height:7px; border-radius:50%; background:var(--c); flex-shrink:0; }
-.rail-agent.working .ra-dot { box-shadow:0 0 9px var(--c); animation:pulse2 2s infinite; }
+.ra-dot.pulse { box-shadow:0 0 9px var(--c); animation:pulse2 2s infinite; }
 @keyframes pulse2 { 50%{opacity:.45;} }
 .ra-name { font-size:12px; font-weight:600; color:var(--c); }
 .ra-status { margin-left:auto; font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:.05em;
   padding:1px 6px; border-radius:5px; background:var(--surface-3); color:var(--text-3); }
-.ra-status.s-working { background:var(--accent-bg); color:var(--accent-b); }
-.ra-item { display:flex; flex-direction:column; gap:3px; }
+.ra-status.s-working { background:rgba(34,197,94,.14); color:var(--violet-b); }
+.ra-status.s-alive { color:var(--info-b); }
+.ra-age { font-family:var(--mono); font-size:9px; color:var(--text-4); flex-shrink:0; }
+.ra-item { display:flex; flex-direction:column; gap:3px; text-decoration:none; }
+.ra-tool { align-self:flex-start; font-size:10px; color:var(--text-1); padding:1px 6px; border-radius:5px;
+  background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.26); }
 .ra-title { font-size:12px; color:var(--text-2); line-height:1.35; overflow:hidden; text-overflow:ellipsis;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-.ra-lease { font-size:10px; color:var(--text-4); }
+.ra-item:hover .ra-title { color:var(--c); }
 .ra-idle { font-size:10.5px; color:var(--text-4); }
 
 /* ── page head ──────────────────────────────────────────────── */
@@ -259,8 +266,9 @@ button {
 .prio-2 { background:rgba(234,179,8,.12); color:var(--warn-b); }
 .prio-1 { background:rgba(59,130,246,.12); color:var(--info-b); }
 .prio-0 { background:var(--surface-3); color:var(--text-4); }
-.avatar { display:inline-flex; align-items:center; justify-content:center; border-radius:50%; border-width:1.5px;
-  font-family:var(--mono); font-weight:600; flex-shrink:0; line-height:1; text-transform:lowercase; }
+.avatar { display:inline-grid; place-items:center; border-radius:50%; border-width:1.5px;
+  font-family:var(--mono); font-weight:600; flex-shrink:0; line-height:1; text-transform:uppercase;
+  text-align:center; overflow:hidden; }
 .agent-badge { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px;
   padding:3px 9px 3px 7px; border-radius:20px; border:1px solid var(--c); color:var(--c); background:color-mix(in srgb,var(--c) 8%,transparent); }
 .ab-dot { width:6px; height:6px; border-radius:50%; background:var(--c); box-shadow:0 0 8px var(--c); animation:pulse2 2s infinite; }
