@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
   import Icon from '$lib/Icon.svelte';
+  import { humanizeTool } from '$lib/tool.js';
 
   let { data } = $props();
 
@@ -54,22 +55,23 @@
   const pickAssignee = (e) => { const v = e.target.value; goto('/browse' + (v ? `?assignee=${encodeURIComponent(v)}` : '')); };
 
   // ── momentum sparkline geometry from the real 14-day series ──
+  // Thin filled-area sparkline. preserveAspectRatio="none" stretches X, so the line uses
+  // a non-scaling stroke (uniform 1.6px) and there's no end-dot — that's what made the old
+  // marker render as a stretched ellipse (Bob: "momentum is still ugly").
+  const SPK_BASE = 25, SPK_TOP = 4;
   const spark = $derived.by(() => {
     const s = g.momentum.series ?? [];
-    if (!s.length) return { points: '', dot: null };
+    if (!s.length) return { line: '', area: '' };
     const max = Math.max(1, ...s.map((d) => d.n));
     const n = s.length;
     const pts = s.map((d, i) => {
-      // inset 4 units each side + a 25/4 baseline so the end-dot (r=3) is never
-      // clipped at the right edge or below the baseline (Bob: "spark-dot gets cropped off")
-      const x = n === 1 ? 50 : 4 + (i / (n - 1)) * 92;
-      const y = 25 - (d.n / max) * 21;          // baseline 25, top 4
+      const x = n === 1 ? 50 : (i / (n - 1)) * 100;
+      const y = SPK_BASE - (d.n / max) * (SPK_BASE - SPK_TOP);
       return { x, y };
     });
-    return {
-      points: pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '),
-      dot: pts[pts.length - 1]
-    };
+    const line = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const x0 = pts[0].x.toFixed(1), xN = pts[pts.length - 1].x.toFixed(1);
+    return { line, area: `${line} ${xN},${SPK_BASE + 3} ${x0},${SPK_BASE + 3}` };
   });
   const momCap = $derived(
     g.momentum.closedToday > 0
@@ -159,11 +161,11 @@
     <div class="gcard g-mom">
       <div class="gc-head"><span class="gc-ic"><Icon name="pulse" size={13} /></span>Momentum</div>
       <div class="mom-top"><span class="mom-n mono">{g.momentum.closedToday}</span><span class="mom-unit">closed today</span></div>
-      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="closes per day over 14 days">
-        <line x1="0" y1="25" x2="100" y2="25" stroke="var(--border)" stroke-width="1.2" />
-        {#if spark.points}
-          <polyline points={spark.points} fill="none" stroke="var(--accent-b)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-          {#if spark.dot}<circle class="spark-dot" cx={spark.dot.x} cy={spark.dot.y} r="3" />{/if}
+      <svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" role="img" aria-label="closes per day over 14 days">
+        {#if spark.area}<polygon class="spark-fill" points={spark.area} />{/if}
+        <line class="spark-base" x1="0" y1="25" x2="100" y2="25" />
+        {#if spark.line}
+          <polyline class="spark-line" points={spark.line} vector-effect="non-scaling-stroke" fill="none" />
         {/if}
       </svg>
       <div class="mom-cap">{momCap}</div>
@@ -317,7 +319,7 @@
                 {#if ag?.age_ms != null}<span class="ag-age mono">{fmtAge(ag.age_ms)}</span>{/if}
               </div>
               <a class="ag-body" href="/task/{t.id}">
-                {#if ag?.status === 'working' && ag.current_tool}<span class="ag-tool mono">{ag.current_tool}</span>{/if}
+                {#if ag?.status === 'working' && ag.current_tool}<span class="ag-tool mono" title={ag.current_tool}>{humanizeTool(ag.current_tool)}</span>{/if}
                 <span class="ag-task">{t.title} <span class="tasknum mono">#{t.id}</span></span>
               </a>
             </div>
@@ -418,10 +420,15 @@
   .fsel svg { color: var(--text-4); }
   .fsel select { border: 0; background: none; color: var(--text-3); font: inherit; font-size: 12.5px; padding: 6px 4px; cursor: pointer; outline: 0; }
 
-  /* GRAPHS strip */
-  .graphs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 13px; }
-  .gcard { background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-lg);
-    padding: 13px 15px; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+  /* GRAPHS strip — flat (task-499, Bob: "all cards shall die"). No boxes: three columns
+     in a single hairline-framed band, separated by vertical dividers + whitespace. */
+  .graphs { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 18px;
+    border-top: 1px solid var(--border-sub); border-bottom: 1px solid var(--border-sub); }
+  .gcard { background: none; border: 0; border-radius: 0;
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+  .gcard + .gcard { border-left: 1px solid var(--border-sub); }
+  .gcard:first-child { padding-left: 0; }
+  .gcard:last-child { padding-right: 0; }
   .gc-head { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 9.5px;
     text-transform: uppercase; letter-spacing: .11em; color: var(--text-4); }
   .gc-head .gc-ic { display: flex; color: var(--text-3); }
@@ -430,10 +437,11 @@
   .g-mom .mom-n { font-variant-numeric: tabular-nums; font-size: 38px; font-weight: 600; line-height: .92;
     color: var(--accent-b); letter-spacing: -.02em; }
   .g-mom .mom-unit { font-size: 12px; color: var(--text-3); }
-  .g-mom .spark { width: 100%; height: 30px; display: block; overflow: visible; }
-  .g-mom .spark-dot { fill: var(--accent-b); filter: drop-shadow(0 0 5px var(--accent-ln)); animation: sparkpulse 2.4s ease-in-out infinite; }
-  @keyframes sparkpulse { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
-  .g-mom .mom-cap { font-size: 11px; color: var(--violet-b); line-height: 1.3; }
+  .g-mom .spark { width: 100%; height: 30px; display: block; margin-top: 1px; }
+  .g-mom .spark-fill { fill: var(--accent-bg); }
+  .g-mom .spark-base { stroke: var(--border-sub); stroke-width: 1; }
+  .g-mom .spark-line { stroke: var(--accent-b); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+  .g-mom .mom-cap { font-size: 11px; color: var(--text-4); line-height: 1.3; }
 
   .g-bl .bl-bar { display: flex; height: 13px; border-radius: 7px; overflow: hidden; background: var(--surface-3); }
   .g-bl .bl-seg { height: 100%; }
@@ -485,12 +493,14 @@
   .lane-flight .lane-head h2, .lane-flight .lane-ic { color: var(--accent-b); }
   .lane-inbox .lane-ic { color: var(--text-3); }
 
-  .list { display: flex; flex-direction: column; gap: 6px; }
+  /* flat list — rows separated by a single hairline, no per-row box (task-499) */
+  .list { display: flex; flex-direction: column; gap: 0; }
+  .list > * + * { border-top: 1px solid var(--border-sub); }
 
   .row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
-    padding: 11px 14px; background: var(--surface-1); border: 1px solid var(--border-sub);
-    border-radius: var(--radius); transition: .12s; text-decoration: none; }
-  .row:hover { border-color: var(--border); background: var(--surface-2); }
+    padding: 13px 6px; background: none; border: 0; border-radius: var(--radius);
+    transition: background .12s; text-decoration: none; }
+  .row:hover { background: var(--surface-1); }
   .row-ic { color: var(--text-3); display: flex; align-items: center; }
   .row-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .row-title { font-size: 14.5px; font-weight: 550; color: var(--text-1); line-height: 1.4; }
@@ -527,9 +537,10 @@
   .lane-fire .row-ic { color: var(--danger-b); }
   .fire-tag { font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-4); }
 
-  /* IN FLIGHT agent cards */
-  .agent { display: flex; flex-direction: column; gap: 6px; padding: 11px 14px; border-radius: var(--radius);
-    background: var(--surface-1); border: 1px solid var(--border-sub); }
+  /* IN FLIGHT — flat rows (task-499), same hairline-separated list as the others */
+  .agent { display: flex; flex-direction: column; gap: 6px; padding: 13px 6px; border-radius: var(--radius);
+    transition: background .12s; }
+  .agent:hover { background: var(--surface-1); }
   .ag-top { display: flex; align-items: center; gap: 8px; }
   .ag-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--violet-b);
     animation: ckpulse 1.8s infinite; flex-shrink: 0; }
@@ -544,12 +555,11 @@
   .ag-task { font-size: 13.5px; color: var(--text-2); min-width: 0; }
   .ag-task .tasknum { font-size: 10.5px; }
 
-  /* WHAT CHANGED — each close is its own readable entry: action · #id · by actor */
-  .changed { display: flex; flex-wrap: wrap; gap: 7px; padding: 13px 15px; background: var(--surface-1);
-    border: 1px solid var(--border-sub); border-radius: var(--radius); font-size: 13px; color: var(--text-3); }
+  /* WHAT CHANGED — flat (task-499): no outer box; each close is a quiet borderless tag */
+  .changed { display: flex; flex-wrap: wrap; gap: 7px; padding: 2px 0; font-size: 13px; color: var(--text-3); }
   .changed .ch-item { display: inline-flex; align-items: baseline; gap: 6px; text-decoration: none;
-    padding: 4px 10px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border-sub); }
-  .changed .ch-item:hover { border-color: var(--border); }
+    padding: 4px 10px; border-radius: var(--radius-sm); background: var(--surface-2); }
+  .changed .ch-item:hover { background: var(--surface-3); }
   .changed .ch-item:hover b { text-decoration: underline; }
   .changed b { font-weight: 600; }
   .changed .ok { color: var(--violet-b); }
@@ -575,8 +585,11 @@
 
   @keyframes ckpulse { 50% { opacity: .4; } }
 
-  /* phone: graphs stack one-per-row (mirror the board's 760px container query) */
+  /* phone: graphs stack one-per-row (mirror the board's 760px container query);
+     dividers go horizontal and padding evens out so each row reads cleanly */
   @container app (max-width: 760px) {
-    .graphs { grid-template-columns: 1fr; gap: 9px; }
+    .graphs { grid-template-columns: 1fr; }
+    .gcard { padding: 15px 0; }
+    .gcard + .gcard { border-left: 0; border-top: 1px solid var(--border-sub); }
   }
 </style>

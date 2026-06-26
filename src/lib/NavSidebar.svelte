@@ -1,6 +1,7 @@
 <script>
   import { page } from '$app/stores';
   import Icon from '$lib/Icon.svelte';
+  import { humanizeTool } from '$lib/tool.js';
 
   // Account moved UP to the top bar (task-499); the sidebar foot is now the live Fleet card.
   let { collapsed = $bindable(false), fleet = null } = $props();
@@ -71,7 +72,7 @@
     {#if !collapsed && agents.length}
       <div class="fleet-list">
         {#each agents as a}
-          <span class="fa" class:off={a.offline} title="{a.handle}{a.host ? ` · ${a.host}` : ''} · {a.offline ? (a.never_seen ? 'never reported' : 'offline') : a.status}{a.current_tool ? ` · ${a.current_tool}` : ''}">
+          <span class="fa" class:off={a.offline} title="{a.handle}{a.host ? ` · ${a.host}` : ''} · {a.offline ? (a.never_seen ? 'never reported' : 'offline') : a.status}{a.current_tool ? ` · ${humanizeTool(a.current_tool)}` : ''}">
             <span class="fa-dot s-{a.status}"></span>
             <span class="fa-h">{a.handle}</span>
             {#if a.status === 'working'}<span class="fa-x mono">working</span>

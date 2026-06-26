@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { humanizeTool } from '$lib/tool.js';
 
   let { data } = $props();
 
@@ -108,7 +109,7 @@
 
           <div class="a-readout">
             {#if a.status === 'working' && a.current_tool}
-              <span class="tool mono" title="current tool">{a.current_tool}</span>
+              <span class="tool mono" title={a.current_tool}>{humanizeTool(a.current_tool)}</span>
             {:else if a.offline}
               <span class="tool mono ghost">—</span>
             {:else}

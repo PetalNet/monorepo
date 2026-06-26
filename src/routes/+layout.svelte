@@ -1,7 +1,9 @@
 <script>
   import '../app.css';
   import { page } from '$app/stores';
-  import Stickies from '$lib/Stickies.svelte';
+  // Stickies removed from render (task-499, Bob: overlay blocked inspect-element).
+  // Component left in place so it's reversible — re-add the import + <Stickies /> to restore.
+  // import Stickies from '$lib/Stickies.svelte';
   import NavSidebar from '$lib/NavSidebar.svelte';
   import Icon from '$lib/Icon.svelte';
   let { children, data } = $props();
@@ -100,7 +102,7 @@
   </nav>
 </div>
 
-<Stickies />
+<!-- <Stickies /> — removed (task-499); component retained in $lib for easy restore -->
 
 <style>
   /* ── shell layout ─────────────────────────────────────── */
