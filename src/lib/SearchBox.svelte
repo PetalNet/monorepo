@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import Icon from '$lib/Icon.svelte';
   import { rankTasks, highlightChunks } from '$lib/fuzzy.js';
+  import { statusClass, kindIcon } from '$lib/status.js';
 
   let { value = '' } = $props();
 
@@ -20,15 +21,7 @@
   const STORAGE_KEY = 'tasks:recent-searches';
   const MAX_RECENTS = 6;
 
-  // status → state icon + hue, identical to TaskRow so the dropdown reads the same
-  const STATE = {
-    done: { icon: 'iclosed', cls: 'closed' },
-    dropped: { icon: 'iclosed', cls: 'dropped' },
-    blocked: { icon: 'iopen', cls: 'blocked' },
-    doing: { icon: 'iopen', cls: 'doing' },
-    review: { icon: 'iopen', cls: 'review' }
-  };
-  const stateOf = (s) => STATE[s] ?? { icon: 'iopen', cls: 'open' };
+  // LEFT indicator: kind icon tinted by status — shared with TaskRow via $lib/status.js
   const WHO = { alice: 'Alice', alice: 'Alice', bob: 'Bob', bob: 'Bob', bob: 'Bob', dev: 'dev' };
   const who = (a) => (a ? (WHO[String(a).toLowerCase()] ?? a) : '');
 
@@ -143,7 +136,6 @@
       {#if query.trim()}
         {#if results.length}
           {#each results as t, i (t.id)}
-            {@const st = stateOf(t.status)}
             <button
               class="sb-row"
               class:active={i === activeIndex}
@@ -152,7 +144,7 @@
               onmousemove={() => (activeIndex = i)}
               onclick={() => openTask(t)}
             >
-              <span class="sb-state st-{st.cls}"><Icon name={st.icon} size={15} /></span>
+              <span class="sb-state st-{statusClass(t.status)}" title="{t.kind ?? 'task'} · {t.status}"><Icon name={kindIcon(t.kind)} size={15} /></span>
               <span class="sb-main">
                 <span class="sb-title">
                   {#each highlightChunks(t.title, t._hits) as c}{#if c.hit}<mark>{c.text}</mark>{:else}{c.text}{/if}{/each}
@@ -215,11 +207,11 @@
     cursor: pointer; color: inherit; }
   .sb-row.active { background: var(--surface-2); }
   .sb-state { display: flex; align-items: center; padding-top: 1px; flex-shrink: 0; }
-  .st-open { color: #34d399; }
+  .st-todo { color: #94a3b8; }
   .st-doing { color: var(--accent-b); }
-  .st-blocked { color: var(--danger-b); }
   .st-review { color: #5eead4; }
-  .st-closed { color: #a78bfa; }
+  .st-blocked { color: var(--danger-b); }
+  .st-done { color: #34d399; }
   .st-dropped { color: var(--text-4); }
 
   .sb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

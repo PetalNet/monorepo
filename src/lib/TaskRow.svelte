@@ -8,6 +8,7 @@
   // Flat (no per-row card box). The list that wraps these draws 1px hairline
   // separators; the row only owns a square (un-rounded) hover wash.
   import Icon from '$lib/Icon.svelte';
+  import { statusClass, kindIcon } from '$lib/status.js';
 
   let {
     task,                       // { id, title, kind, status, priority, project_id, assignee, created_at, updated_at, ... }
@@ -40,22 +41,18 @@
     return Math.round(s / 604800) + 'w';
   }
 
-  // status → GitHub-style state icon. open issue = open circle (green); closed =
-  // filled check (purple). our extra states get restrained, distinct hues.
-  const STATE = {
-    done:    { icon: 'iclosed', cls: 'closed' },
-    dropped: { icon: 'iclosed', cls: 'dropped' },
-    blocked: { icon: 'iopen', cls: 'blocked' },
-    doing:   { icon: 'iopen', cls: 'doing' },
-    review:  { icon: 'iopen', cls: 'review' }
-  };
-  const state = $derived(STATE[task?.status] ?? { icon: 'iopen', cls: 'open' });
+  // LEFT indicator = our own kind icon (idea/question/doc/task), TINTED by status —
+  // shape conveys kind (so ideas/docs read distinctly), colour conveys state. NOT
+  // GitHub's open-circle/closed-check (Bob: "a circle doesn't mean issue, it's copycat").
+  const ico = $derived(kindIcon(task?.kind));
+  const sCls = $derived(statusClass(task?.status));
   const isDone = $derived(dim || task?.status === 'done' || task?.status === 'dropped');
   const link = $derived(href ?? `/task/${task?.id}`);
   const relTime = $derived(time ?? (showTime ? rel(task?.updated_at ?? task?.created_at) : ''));
   const statusTxt = $derived(statusLabel ?? (showStatus ? (task?.status ?? '') : ''));
   const asg = $derived(showAssignee ? who(task?.assignee) : '');
-  const highPrio = $derived(task?.priority != null && task.priority <= 1);
+  // priority is a FIELD — it lives in the meta line below, not as a title-line pill (Bob).
+  const prio = $derived(task?.priority);
   const metaParts = $derived(
     [statusTxt, showProject ? project : '', asg, relTime].filter(Boolean)
   );
@@ -63,16 +60,16 @@
 
 <div class="trow" class:done={isDone}>
   <a class="trow-link" href={link}>
-    <span class="trow-state st-{state.cls}" title={task?.status}><Icon name={state.icon} size={16} /></span>
+    <span class="trow-state st-{sCls}" title="{task?.kind ?? 'task'} · {task?.status}"><Icon name={ico} size={16} /></span>
     <span class="trow-main">
       <span class="trow-titleline">
         <span class="trow-title">{task?.title}</span>
-        {#if highPrio}<span class="trow-prio p{task.priority}">P{task.priority}</span>{/if}
         <span class="trow-num mono">#{task?.id}</span>
       </span>
-      {#if metaParts.length || metaSnippet}
+      {#if metaParts.length || prio != null || metaSnippet}
         <span class="trow-meta mono">
           {#each metaParts as m, i}{#if i > 0}<span class="sep" aria-hidden="true">·</span>{/if}<span>{m}</span>{/each}
+          {#if prio != null}<span class="sep" aria-hidden="true">·</span><span class="trow-prio p{prio}">P{prio}</span>{/if}
           {#if metaSnippet}{@render metaSnippet()}{/if}
         </span>
       {/if}
@@ -91,12 +88,12 @@
 
   .trow-link { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 12px; text-decoration: none; }
   .trow-state { display: flex; align-items: center; padding-top: 1px; flex-shrink: 0; }
-  /* GitHub palette: open = green, closed = purple; our states restrained + distinct */
-  .st-open { color: #34d399; }
+  /* kind icon tinted by state — intuitive hues (green = done, not GitHub's green = open) */
+  .st-todo { color: #94a3b8; }
   .st-doing { color: var(--accent-b); }
-  .st-blocked { color: var(--danger-b); }
   .st-review { color: #5eead4; }
-  .st-closed { color: #a78bfa; }
+  .st-blocked { color: var(--danger-b); }
+  .st-done { color: #34d399; }
   .st-dropped { color: var(--text-4); }
 
   .trow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
@@ -109,11 +106,10 @@
   /* the #number trails to the end of the title line, muted (Bob) */
   .trow-num { margin-left: auto; flex-shrink: 0; font-size: 11.5px; color: var(--text-4); letter-spacing: -.01em; }
 
-  /* priority pill — only shown for high priority (P0/P1) */
-  .trow-prio { flex-shrink: 0; font-family: var(--mono); font-size: 10px; font-weight: 700;
-    padding: 1px 6px; border-radius: 5px; letter-spacing: .03em; }
-  .trow-prio.p0 { color: var(--danger-b); background: color-mix(in srgb, var(--danger) 16%, transparent); }
-  .trow-prio.p1 { color: var(--warn-b); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  /* priority — a FIELD in the meta line: P0/P1 coloured, P2/P3 muted like the rest */
+  .trow-prio { font-weight: 700; letter-spacing: .02em; color: var(--text-4); }
+  .trow-prio.p0 { color: var(--danger-b); }
+  .trow-prio.p1 { color: var(--warn-b); }
 
   /* one quiet meta sub-line, GitHub-style */
   .trow-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;

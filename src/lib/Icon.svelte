@@ -21,7 +21,7 @@
     iopen: CircleDot, iclosed: CircleCheck, fire: Flame, pulse: Activity,
     clock: Clock, shield: ShieldCheck, edit: Pencil, close: X,
     // chrome
-    more: MoreHorizontal, chevdown: ChevronDown,
+    more: MoreHorizontal, chevdown: ChevronDown, car: ChevronDown,
     chevleft: ChevronLeft, chevright: ChevronRight, search: Search, signout: LogOut,
     collapse: PanelLeftClose, expand: PanelLeft, brand: ListChecks
   };

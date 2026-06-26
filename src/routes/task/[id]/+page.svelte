@@ -505,10 +505,37 @@
         </section>
       {/if}
 
-      <!-- doc / idea: rendered prose with reader modes -->
+      {#snippet bodyEditor()}
+        <form method="POST" action="?/save" use:enhance={saveBody}>
+          <input type="hidden" name="vis_touched" value="1" />
+          <input type="hidden" name="private" value={t.visibility === 'private' ? '1' : ''} />
+          <input type="hidden" name="body" value={bodyDraft} />
+          <div class="pm-toolbar">
+            <span class="pm-tag mono">{pmStatus === 'failed' ? 'markdown · raw (editor unavailable)' : 'prosemark · paper-ink'}</span>
+            {#if pmStatus === 'loading'}<span class="pm-loading mono">loading editor…</span>{/if}
+          </div>
+          {#if pmStatus === 'failed'}
+            <textarea name="body_fallback" class="pm-surface mono" rows="12" bind:value={bodyDraft} placeholder="# The detailed plan. Drop research here before starting…"></textarea>
+          {:else}
+            <div class="pm-mount" bind:this={pmHost}></div>
+          {/if}
+          <div class="edit-actions">
+            <span class="edit-hint mono">renders as sanitized markdown on save</span>
+            <button type="button" class="btn-ghost" onclick={cancelEditBody}>Cancel</button>
+            <button type="submit" class="btn-save-sm">Save</button>
+          </div>
+        </form>
+      {/snippet}
+
+      <!-- doc / idea: rendered prose with reader modes; Edit → ProseMark (same editor as tasks) -->
       {#if isProse}
         <section class="sec">
-          <div class="sec-head"><span class="ic"><Icon name="doc" size={13} /></span><h2>{t.kind === 'idea' ? 'Idea' : 'Document'}</h2></div>
+          <div class="sec-head"><span class="ic"><Icon name="doc" size={13} /></span><h2>{t.kind === 'idea' ? 'Idea' : 'Document'}</h2>
+            {#if canWrite && !editingBody}<span class="right"><button type="button" class="edit-btn" onclick={startEditBody}>Edit</button></span>{/if}
+          </div>
+          {#if editingBody}
+            {@render bodyEditor()}
+          {:else}
           <div class="reader" class:focus>
             <div class="reader-bar">
               {#if hasHuman}
@@ -542,9 +569,10 @@
             {#if docHtml}
               <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}>{@html docHtml}</article>
             {:else}
-              <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}><p class="dim">Nothing written yet — add a body below.</p></article>
+              <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}><p class="dim">Nothing written yet — click Edit to add it.</p></article>
             {/if}
           </div>
+          {/if}
         </section>
       {/if}
 
@@ -561,29 +589,10 @@
           </div>
 
           {#if editingBody}
-            <!-- Edit mode: the real ProseMark WYSIWYM editor (lazy ESM bundle). The body value
-                 submitted to ?/save is the hidden input bound to bodyDraft; we extract the edited
-                 markdown from the live EditorView into bodyDraft on submit (syncBodyFromPM). If the
-                 bundle fails to load we fall back to the raw textarea so edits are never lost. -->
-            <form method="POST" action="?/save" use:enhance={saveBody}>
-              <input type="hidden" name="vis_touched" value="1" />
-              <input type="hidden" name="private" value={t.visibility === 'private' ? '1' : ''} />
-              <input type="hidden" name="body" value={bodyDraft} />
-              <div class="pm-toolbar">
-                <span class="pm-tag mono">{pmStatus === 'failed' ? 'markdown · raw (editor unavailable)' : 'prosemark · paper-ink'}</span>
-                {#if pmStatus === 'loading'}<span class="pm-loading mono">loading editor…</span>{/if}
-              </div>
-              {#if pmStatus === 'failed'}
-                <textarea name="body_fallback" class="pm-surface mono" rows="12" bind:value={bodyDraft} placeholder="# The detailed plan. Drop research here before starting…"></textarea>
-              {:else}
-                <div class="pm-mount" bind:this={pmHost}></div>
-              {/if}
-              <div class="edit-actions">
-                <span class="edit-hint mono">renders as sanitized markdown on save</span>
-                <button type="button" class="btn-ghost" onclick={cancelEditBody}>Cancel</button>
-                <button type="submit" class="btn-save-sm">Save</button>
-              </div>
-            </form>
+            <!-- Edit mode: the real ProseMark WYSIWYM editor (shared bodyEditor snippet, used by
+                 both tasks here and docs/ideas in the reader above). Falls back to a raw textarea
+                 if the lazy ESM bundle fails, so edits are never lost. -->
+            {@render bodyEditor()}
           {:else if data.bodyHtml}
             <div class="bodycard read"><article class="prose body-prose">{@html data.bodyHtml}</article></div>
           {:else if canWrite}
