@@ -22,8 +22,10 @@
 	/* text — primary → quaternary zinc scale */
 	--text-1: #fafafa;
 	--text-2: #c9c9d1;
-	--text-3: #969aa3;
-	--text-4: #8a8a94;
+	/* --text-3/-4 lifted to clear WCAG AAA (7:1) against the lightest surface (--surface-2);
+	   t3≈8:1, t4≈7:1 so the t2>t3>t4 hierarchy survives the bump (Bob: design system = AAA). */
+	--text-3: #aaaeb5;
+	--text-4: #a4a4ac;
 
 	/* accent (amber — the design's default brand colour; tweakable per user) */
 	--accent: #f59e0b;
@@ -72,8 +74,9 @@
 	--border-sub: #ebebee;
 	--text-1: #18181b;
 	--text-2: #3f3f46;
-	--text-3: #5c5c64;
-	--text-4: #83838c;
+	/* AAA (7:1) vs the darkest surface (--surface-2): t3≈8:1, t4≈7:1, hierarchy preserved. */
+	--text-3: #4a4a50;
+	--text-4: #505055;
 	/* accent must be RE-DARKENED for light mode: the dark theme's --accent-b (#fbbf24,
 	   pale amber) is unreadable on a light bg, and .prose uses --accent-b for h2 / links /
 	   inline-code — that was the "light mode gallery docs broken" bug. amber-600/700 hit AA. */
@@ -131,6 +134,14 @@
 html,
 body {
 	height: 100%;
+}
+/* Progressive enhancement (Bob): lets size transitions animate to/from intrinsic
+   keywords (auto, max-content) instead of the max-width-to-a-magic-number hack.
+   Chromium ships it; Firefox/Safari are catching up — where it's unsupported the
+   existing max-width fallbacks keep collapses smooth, so it degrades cleanly on
+   Gecko/WebKit (Alice's on Fennec). */
+:root {
+	interpolate-size: allow-keywords;
 }
 body {
 	/* the design's @container app(...) rules query this; the original #root carried it */
