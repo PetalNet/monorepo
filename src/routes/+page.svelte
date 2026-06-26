@@ -71,21 +71,34 @@
   // Thin filled-area sparkline. preserveAspectRatio="none" stretches X, so the line uses
   // a non-scaling stroke (uniform 1.6px) and there's no end-dot — that's what made the old
   // marker render as a stretched ellipse (Bob: "momentum is still ugly").
-  const SPK_BASE = 25, SPK_TOP = 4;
+  const SPK_BASE = 25, SPK_TOP = 4, SPK_VH = 28;
   const spark = $derived.by(() => {
     const s = g.momentum.series ?? [];
-    if (!s.length) return { line: '', area: '' };
+    if (!s.length) return { line: '', area: '', pts: [] };
     const max = Math.max(1, ...s.map((d) => d.n));
     const n = s.length;
     const pts = s.map((d, i) => {
       const x = n === 1 ? 50 : (i / (n - 1)) * 100;
       const y = SPK_BASE - (d.n / max) * (SPK_BASE - SPK_TOP);
-      return { x, y };
+      // yPct maps the viewBox y (0–28) to a % of the rendered box, so an HTML overlay
+      // (dot/tooltip) lines up with the SVG point under preserveAspectRatio="none".
+      return { x, y, yPct: (y / SPK_VH) * 100, n: d.n, day: d.day };
     });
     const line = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
     const x0 = pts[0].x.toFixed(1), xN = pts[pts.length - 1].x.toFixed(1);
-    return { line, area: `${line} ${xN},${SPK_BASE + 3} ${x0},${SPK_BASE + 3}` };
+    return { line, area: `${line} ${xN},${SPK_BASE + 3} ${x0},${SPK_BASE + 3}`, pts };
   });
+
+  // interactive momentum: tap/hover a day to read its count (Alice, on mobile)
+  let momActive = $state(-1);
+  const fmtDay = (day) => {
+    if (!day) return '';
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+    const yest = new Date(Date.now() - 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+    if (day === today) return 'today';
+    if (day === yest) return 'yesterday';
+    return new Date(day + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
   const momCap = $derived(
     g.momentum.closedToday > 0
       ? `${g.momentum.closedToday} closed in the last day`
@@ -169,14 +182,35 @@
     <!-- momentum -->
     <div class="gcard g-mom">
       <div class="gc-head"><span class="gc-ic"><Icon name="pulse" size={13} /></span>Momentum</div>
-      <div class="mom-top"><span class="mom-n mono">{g.momentum.closedToday}</span><span class="mom-unit">closed today</span></div>
-      <svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" role="img" aria-label="closes per day over 14 days">
-        {#if spark.area}<polygon class="spark-fill" points={spark.area} />{/if}
-        <line class="spark-base" x1="0" y1="25" x2="100" y2="25" />
-        {#if spark.line}
-          <polyline class="spark-line" points={spark.line} vector-effect="non-scaling-stroke" fill="none" />
+      <div class="mom-top">
+        <span class="mom-n mono">{momActive >= 0 ? spark.pts[momActive].n : g.momentum.closedToday}</span>
+        <span class="mom-unit">{momActive >= 0 ? `closed ${fmtDay(spark.pts[momActive].day)}` : 'closed today'}</span>
+      </div>
+      <div class="mom-chart" role="group" aria-label="Closes per day, last 14 days — tap a day for its count">
+        <svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true">
+          {#if spark.area}<polygon class="spark-fill" points={spark.area} />{/if}
+          <line class="spark-base" x1="0" y1="25" x2="100" y2="25" />
+          {#if spark.line}
+            <polyline class="spark-line" points={spark.line} vector-effect="non-scaling-stroke" fill="none" />
+          {/if}
+        </svg>
+        {#if momActive >= 0 && spark.pts[momActive]}
+          <span class="spark-rule" style="left:{spark.pts[momActive].x}%"></span>
+          <span class="spark-dot" style="left:{spark.pts[momActive].x}%; top:{spark.pts[momActive].yPct}%"></span>
         {/if}
-      </svg>
+        <!-- one hit-column per day; mouse hovers, touch taps-and-keeps (pointerleave only
+             clears for mouse, else a tap would revert instantly on finger-up) -->
+        <div class="mom-hits" onpointerleave={(e) => { if (e.pointerType === 'mouse') momActive = -1; }}>
+          {#each spark.pts as p, i}
+            <button class="mom-hit" type="button" class:on={i === momActive}
+              aria-label="{fmtDay(p.day)}: {p.n} closed"
+              onpointerenter={(e) => { if (e.pointerType === 'mouse') momActive = i; }}
+              onfocus={() => (momActive = i)}
+              onblur={() => (momActive = -1)}
+              onclick={() => (momActive = i)}></button>
+          {/each}
+        </div>
+      </div>
       <div class="mom-cap">{momCap}</div>
     </div>
 
@@ -414,10 +448,23 @@
   .g-mom .mom-n { font-variant-numeric: tabular-nums; font-size: 38px; font-weight: 600; line-height: .92;
     color: var(--accent-b); letter-spacing: -.02em; }
   .g-mom .mom-unit { font-size: 12px; color: var(--text-3); }
-  .g-mom .spark { width: 100%; height: 30px; display: block; margin-top: 1px; }
+  .g-mom .mom-chart { position: relative; margin-top: 1px; }
+  .g-mom .spark { width: 100%; height: 30px; display: block; }
   .g-mom .spark-fill { fill: var(--accent-bg); }
   .g-mom .spark-base { stroke: var(--border-sub); stroke-width: 1; }
   .g-mom .spark-line { stroke: var(--accent-b); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+  /* interactive overlay: faint column rule + a marker dot at the active day */
+  .g-mom .spark-rule { position: absolute; top: 0; bottom: 5px; width: 1px; transform: translateX(-50%);
+    background: color-mix(in srgb, var(--accent-b) 38%, transparent); pointer-events: none; }
+  .g-mom .spark-dot { position: absolute; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent-b); border: 1.5px solid var(--surface-1); transform: translate(-50%, -50%);
+    pointer-events: none; }
+  /* tap/hover columns — one per day, extended past the chart vertically for easy touch */
+  .g-mom .mom-hits { position: absolute; inset: -7px 0 -7px 0; display: flex; }
+  .g-mom .mom-hit { flex: 1; min-width: 0; padding: 0; border: 0; background: none; cursor: pointer;
+    border-radius: 3px; transition: background .1s; }
+  .g-mom .mom-hit.on { background: color-mix(in srgb, var(--accent-b) 9%, transparent); }
+  .g-mom .mom-hit:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -2px; }
   .g-mom .mom-cap { font-size: 11px; color: var(--text-4); line-height: 1.3; }
 
   .g-bl .bl-bar { display: flex; height: 13px; border-radius: 7px; overflow: hidden; background: var(--surface-3); }
