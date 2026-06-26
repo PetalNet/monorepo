@@ -1,5 +1,6 @@
 <script>
   import Icon from '$lib/Icon.svelte';
+  import TaskRow from '$lib/TaskRow.svelte';
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
 
@@ -19,26 +20,6 @@
     const mag = a < 60 ? `${a}s` : a < 3600 ? `${Math.round(a / 60)}m` : a < 86400 ? `${Math.round(a / 3600)}h` : `${Math.round(a / 86400)}d`;
     return { state: now >= ms ? 'expired' : now > ms - 300000 ? 'soon' : 'ok', label: now >= ms ? `${mag} over` : mag };
   }
-
-  function relShort(ts) {
-    if (!ts) return '';
-    const s = Math.round((Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 1000);
-    if (s < 60) return s + 's';
-    if (s < 3600) return Math.round(s / 60) + 'm';
-    if (s < 86400) return Math.round(s / 3600) + 'h';
-    if (s < 604800) return Math.round(s / 86400) + 'd';
-    return Math.round(s / 604800) + 'w';
-  }
-
-  // per-person colours (design's HUMANS/AGENTS), hashed fallback for anyone else
-  const PERSON = {
-    claude: '#fb923c', agent-a: '#8b5cf6', agent-b: '#22d3ee',
-    alice: '#fb7185', alice: '#fb7185', alice: '#fb7185',
-    bob: '#38bdf8', bob: '#38bdf8', bob: '#38bdf8'
-  };
-  const hue = (s) => { let h = 0; for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
-  const whoColor = (h) => h ? (PERSON[String(h).toLowerCase()] ?? `hsl(${hue(h)} 60% 68%)`) : null;
-  const isAgent = (h) => ['claude', 'agent-a', 'agent-b'].includes(String(h).toLowerCase());
 
   function filterUrl({ project = data.current, assignee = data.assignee } = {}) {
     const q = new URLSearchParams();
@@ -85,35 +66,22 @@
 <svelte:head><title>browse{data.current ? ' · ' + data.current : ''}</title></svelte:head>
 
 <!-- one task row + its subtasks, recursively -->
-{#snippet row(t, kind)}
-  {@const pc = whoColor(t.assignee)}
+{#snippet row(t)}
   {@const lb = leaseBadge(t)}
-  <div class="row kind-{kind} st-{t.status ?? 'todo'}" style={pc ? `--pl:${pc}` : ''}>
-    <span class="row-ic"><Icon name={kind} size={16} /></span>
-    <a class="row-main" href="/task/{t.id}">
-      <span class="row-title">{t.title}</span>
-      <span class="row-sub">
-        <span class="tasknum mono">#{t.id}</span>
-        {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
-        {#if t.priority != null}<span class="chip prio prio-{t.priority}">P{t.priority}</span>{/if}
-        {#if t.blocked_on}<span class="tag-s mono">{t.blocked_on}</span>{/if}
-        {#if t.blockers?.length}<span class="blk"><Icon name="block" size={11} /> blocked</span>{/if}
-      </span>
-    </a>
-    <span class="row-right">
-      {#if t.assignee}
-        <span class="avatar" style="width:20px;height:20px;font-size:9px;color:{pc};border-color:{pc};background:{isAgent(t.assignee) ? 'transparent' : pc + '22'};border-style:{isAgent(t.assignee) ? 'dashed' : 'solid'}">{t.assignee.charAt(0).toLowerCase()}</span>
-      {/if}
+  <TaskRow task={t} project={projName(t.project_id)}>
+    {#snippet meta()}
+      {#if t.blockers?.length}<span class="sep" aria-hidden="true">·</span><span class="blk"><Icon name="block" size={11} /> blocked</span>{/if}
+    {/snippet}
+    {#snippet actions()}
       {#if lb}<span class="lease lease-{lb.state}" title="lease {lb.label}">{lb.label}</span>{/if}
-      <span class="mono dim age">{relShort(t.created_at)}</span>
       <form method="POST" action="?/update" use:enhance>
         <input type="hidden" name="id" value={t.id} /><input type="hidden" name="status" value="done" />
         <button class="rcheck" title="Complete" aria-label="Mark task done"><Icon name="check" size={13} /></button>
       </form>
-    </span>
-  </div>
+    {/snippet}
+  </TaskRow>
   {#each t.kids ?? [] as k, i (k.id)}
-    <div class="substack" class:last={i === (t.kids.length - 1)}>{@render row(k, 'task')}</div>
+    <div class="substack" class:last={i === (t.kids.length - 1)}>{@render row(k)}</div>
   {/each}
 {/snippet}
 
@@ -216,7 +184,7 @@
       <section class="lane">
         {@render laneHead('In progress', fDoing.length, 'active', 'bolt')}
         <div class="lane-body">
-          {#each fDoing as t (t.id)}{@render row(t, t.kind ?? 'task')}{/each}
+          {#each fDoing as t (t.id)}{@render row(t)}{/each}
         </div>
       </section>
     {/if}
@@ -225,7 +193,7 @@
       <section class="lane">
         {@render laneHead('Up next', fUpNext.length, 'emerald', 'bolt')}
         <div class="lane-body">
-          {#each fUpNext as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Nothing queued. Triage an idea up here.</p>{/each}
+          {#each fUpNext as t (t.id)}{@render row(t)}{:else}<p class="lane-empty">Nothing queued. Triage an idea up here.</p>{/each}
         </div>
       </section>
     {/if}
@@ -235,19 +203,14 @@
       {@render laneHead('Inbox', fInbox.length, '', 'idea')}
       <div class="lane-body">
         {#each fInbox as t (t.id)}
-          <div class="row kind-idea st-inbox">
-            <span class="row-ic"><Icon name="idea" size={16} /></span>
-            <a class="row-main" href="/task/{t.id}">
-              <span class="row-title">{t.title}</span>
-              <span class="row-sub"><span class="tasknum mono">#{t.id}</span><span class="mono dim">captured {relShort(t.created_at)} ago{t.created_by ? ' · ' + t.created_by : ''}</span></span>
-            </a>
-            <span class="triage">
+          <TaskRow task={t} project={projName(t.project_id)} statusLabel="captured" showStatus={false}>
+            {#snippet actions()}
               <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="up"/><button class="tg up" title="Up Next">↑</button></form>
               <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="project"/><input type="hidden" name="name" value={t.title}/><button class="tg" title="Make a project">proj</button></form>
               <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="backlog"/><button class="tg" title="Backlog">↓</button></form>
               <form method="POST" action="?/triage" use:enhance><input type="hidden" name="id" value={t.id}/><input type="hidden" name="to" value="drop"/><button class="tg x" title="Dismiss">✕</button></form>
-            </span>
-          </div>
+            {/snippet}
+          </TaskRow>
         {:else}<p class="lane-empty">Inbox zero.</p>{/each}
       </div>
     </section>
@@ -257,7 +220,7 @@
     <section class="lane">
       {@render laneHead('To do', fBacklog.length, '', 'task')}
       <div class="lane-body">
-        {#each fBacklog as t (t.id)}{@render row(t, t.kind ?? 'task')}{:else}<p class="lane-empty">Backlog clear.</p>{/each}
+        {#each fBacklog as t (t.id)}{@render row(t)}{:else}<p class="lane-empty">Backlog clear.</p>{/each}
       </div>
     </section>
     {/if}
@@ -267,19 +230,12 @@
         {@render laneHead('Blocked', fBlocked.length, 'danger', 'block')}
         <div class="lane-body">
           {#each fBlocked as t (t.id)}
-            <div class="row kind-task st-blocked">
-              <span class="row-ic"><Icon name="block" size={16} /></span>
-              <a class="row-main" href="/task/{t.id}">
-                <span class="row-title">{t.title}</span>
-                <span class="row-sub">
-                  <span class="tasknum mono">#{t.id}</span>
-                  {#if projName(t.project_id)}<span class="mono dim">{projName(t.project_id)}</span>{/if}
-                  <span class="blk">blocked by</span>
-                  {#each t.blockers as b}<span class="tag-s mono">#{b.id}</span>{/each}
-                </span>
-              </a>
-              <span class="row-right"><span class="mono dim age">{relShort(t.created_at)}</span></span>
-            </div>
+            <TaskRow task={t} project={projName(t.project_id)}>
+              {#snippet meta()}
+                <span class="sep" aria-hidden="true">·</span><span class="blk">blocked by</span>
+                {#each t.blockers as b}<span class="tag-s mono">#{b.id}</span>{/each}
+              {/snippet}
+            </TaskRow>
           {/each}
         </div>
       </section>
@@ -290,11 +246,7 @@
         {@render laneHead('Docs', fDocs.length, '', 'doc')}
         <div class="lane-body">
           {#each fDocs as d (d.id)}
-            <a class="row kind-doc st-todo" href="/task/{d.id}">
-              <span class="row-ic"><Icon name="doc" size={16} /></span>
-              <span class="row-main"><span class="row-title">{d.title}</span></span>
-              <span class="row-right"><span class="tasknum mono">#{d.id}</span>{#if projName(d.project_id)}<span class="mono dim">{projName(d.project_id)}</span>{/if}</span>
-            </a>
+            <TaskRow task={d} project={projName(d.project_id)} statusLabel="doc" showTime={false} />
           {/each}
         </div>
       </section>
@@ -304,15 +256,7 @@
         {@render laneHead('Recently shipped', fDone.length, '', 'check')}
         <div class="lane-body">
           {#each fDone as t (t.id)}
-            <a class="row st-done kind-task shipped-row" href="/task/{t.id}">
-              <span class="row-ic shipped-ic"><Icon name="check" size={14} /></span>
-              <span class="row-main"><span class="row-title">{t.title}</span></span>
-              <span class="row-right">
-                <span class="tasknum mono">#{t.id}</span>
-                {#if t.assignee}{@const pc = whoColor(t.assignee)}<span class="avatar" style="width:18px;height:18px;font-size:8px;color:{pc};border-color:{pc};background:{isAgent(t.assignee) ? 'transparent' : pc + '22'};border-style:{isAgent(t.assignee) ? 'dashed' : 'solid'}">{t.assignee.charAt(0).toLowerCase()}</span>{/if}
-                <span class="mono dim age">{relShort(t.updated_at)}</span>
-              </span>
-            </a>
+            <TaskRow task={t} project={projName(t.project_id)} />
           {/each}
         </div>
       </section>
@@ -323,6 +267,13 @@
 </div>
 
 <style>
+  /* widen the board off the narrow editorial column (Bob) — detail keeps its own width */
+  .board { max-width: 1200px; }
+
+  /* flat hairline-separated rows (no gap, no cards) for the shared TaskRow lanes */
+  .lane-body { gap: 0; }
+  .lane-body > :global(* + *) { border-top: 1px solid var(--border-sub); }
+
   .page-head { margin-bottom: 18px; }
   .ph-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .ph-spacer { flex: 1; }
@@ -366,7 +317,7 @@
 
   .rcheck { width: 22px; height: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); color: transparent; display: flex; align-items: center; justify-content: center; flex: none; transition: .12s; }
   .rcheck:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
-  .row-right form { display: flex; }
+  .trow-actions form { display: flex; }
 
   /* sub-task tree: a continuous trunk down the left, an elbow tick into each child.
      consecutive .substack siblings stack their ::before lines into one unbroken trunk;
@@ -375,7 +326,10 @@
   .substack::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 1.5px; background: var(--border); }
   .substack.last::before { bottom: auto; height: 18px; }
   .substack::after { content: ''; position: absolute; left: 9px; top: 18px; width: 13px; height: 1.5px; background: var(--border); }
-  .substack :global(.row) { min-width: 0; }
+  .substack :global(.trow) { min-width: 0; }
+  .blk { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 10.5px; color: var(--danger-b); }
+  .tag-s { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); background: var(--surface-3); padding: 1px 6px; border-radius: 5px; }
+  .sep { opacity: .55; }
 
   .q-answer { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
   .q-opt, .q-submit-sm { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-1); border-radius: var(--radius); padding: 6px 13px; cursor: pointer; transition: .12s; }
@@ -388,7 +342,6 @@
   .row.kind-question { align-items: flex-start; }
   .row.kind-question .row-ic { padding-top: 2px; }
 
-  .triage { display: flex; gap: 5px; align-items: center; flex: none; }
   .tg { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border-sub); background: var(--surface-2); color: var(--text-3); border-radius: var(--radius-sm); padding: 4px 8px; cursor: pointer; transition: .12s; min-width: 26px; }
   .tg:hover { color: var(--text-1); border-color: var(--border); }
   .tg.up:hover { color: var(--accent-b); border-color: var(--accent-ln); }
@@ -402,9 +355,6 @@
 
   /* recently-shipped lane */
   .lane-done { opacity: .85; }
-  .shipped-row { text-decoration: none; }
-  .shipped-ic { color: var(--accent); }
-  .shipped-row .row-title { text-decoration: line-through; text-decoration-color: var(--text-4); }
 
   .foot { font-size: 12px; text-align: center; margin-top: 36px; }
 

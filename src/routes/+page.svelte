@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import { goto, invalidateAll } from '$app/navigation';
   import Icon from '$lib/Icon.svelte';
+  import TaskRow from '$lib/TaskRow.svelte';
   import { humanizeTool } from '$lib/tool.js';
 
   let { data } = $props();
@@ -128,10 +129,6 @@
 
 <svelte:head><title>tasks · desk</title></svelte:head>
 
-{#snippet prioChip(p)}
-  {#if p != null}<span class="prio prio-{p}">P{p}</span>{/if}
-{/snippet}
-
 <div class="screen cockpit">
 
   <!-- HUD header -->
@@ -242,18 +239,7 @@
         </div>
         <div class="list">
           {#each data.onFire as t (t.id)}
-            <a class="row" href="/task/{t.id}">
-              <span class="row-ic"><Icon name="fire" size={16} /></span>
-              <div class="row-main">
-                <span class="row-title">{t.title}</span>
-                <span class="row-sub">
-                  <span class="tasknum mono">#{t.id}</span>
-                  {@render prioChip(t.priority)}
-                  {#if projName(t.project_id)}<span class="dim mono">{projName(t.project_id)}</span>{/if}
-                </span>
-              </div>
-              <span class="row-right">{#if t.status === 'doing'}<span class="fire-tag mono">in progress</span>{/if}</span>
-            </a>
+            <TaskRow task={t} project={projName(t.project_id)} />
           {/each}
         </div>
       </section>
@@ -292,19 +278,9 @@
                 </span>
               </div>
             {:else}
-              <a class="row" href="/task/{t.id}">
-                <span class="row-ic"><Icon name="task" size={16} /></span>
-                <div class="row-main">
-                  <span class="row-title">{t.title}</span>
-                  <span class="row-sub">
-                    <span class="tasknum mono">#{t.id}</span>
-                    {@render prioChip(t.priority)}
-                    {#if projName(t.project_id)}<span class="dim mono">{projName(t.project_id)}</span>{/if}
-                    <span class="dim mono">assigned to you</span>
-                  </span>
-                </div>
-                <span class="row-right"><span class="act act-review">Open</span></span>
-              </a>
+              <TaskRow task={t} project={projName(t.project_id)}>
+                {#snippet actions()}<a class="act act-review" href="/task/{t.id}">Open</a>{/snippet}
+              </TaskRow>
             {/if}
           {/each}
         </div>
@@ -350,18 +326,7 @@
         </div>
         <div class="list">
           {#each data.inbox as t (t.id)}
-            <a class="row" href="/task/{t.id}">
-              <span class="row-ic"><Icon name="idea" size={16} /></span>
-              <div class="row-main">
-                <span class="row-title">{t.title}</span>
-                <span class="row-sub">
-                  <span class="tasknum mono">#{t.id}</span>
-                  {@render prioChip(t.priority)}
-                  {#if projName(t.project_id)}<span class="dim mono">{projName(t.project_id)}</span>{/if}
-                </span>
-              </div>
-              <span class="row-right"><span class="act act-review">Triage</span></span>
-            </a>
+            <TaskRow task={t} project={projName(t.project_id)} statusLabel="captured" />
           {/each}
         </div>
       </section>
@@ -403,7 +368,7 @@
 </div>
 
 <style>
-  .cockpit { max-width: 760px; }
+  .cockpit { max-width: 1200px; }
 
   /* HUD header */
   .ckhead { margin-bottom: 8px; }
@@ -510,7 +475,7 @@
   .list > * + * { border-top: 1px solid var(--border-sub); }
 
   .row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
-    padding: 13px 6px; background: none; border: 0; border-radius: var(--radius);
+    padding: 13px 6px; background: none; border: 0; border-radius: 0;
     transition: background .12s; text-decoration: none; }
   .row:hover { background: var(--surface-1); }
   .row-ic { color: var(--text-3); display: flex; align-items: center; }
@@ -522,13 +487,6 @@
   .row-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .row.row-q { align-items: flex-start; }
   .row.row-q .row-ic { padding-top: 2px; }
-
-  .prio { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
-    text-transform: uppercase; letter-spacing: .03em; }
-  .prio-0 { background: var(--danger-bg, rgba(220,38,38,.16)); color: var(--danger-b); }
-  .prio-1 { background: var(--warn-bg, rgba(234,179,8,.16)); color: var(--warn-b); }
-  .prio-2 { background: var(--info-bg, rgba(59,130,246,.16)); color: var(--info-b); }
-  .prio-3 { background: var(--surface-2); color: var(--text-3); }
 
   /* NEEDS YOU: violet cue (carried by the row icon, not a side stripe) + action pills */
   .lane-you .row-ic { color: var(--violet-b); }
@@ -546,11 +504,9 @@
   .lane-fire .lane-count { background: var(--danger-bg, rgba(220,38,38,.16)); color: var(--danger-b); }
   .lane-fire .lane-ic svg { animation: ember 2.6s ease-in-out infinite; }
   @keyframes ember { 0%, 100% { opacity: .85; } 50% { opacity: 1; } }
-  .lane-fire .row-ic { color: var(--danger-b); }
-  .fire-tag { font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-4); }
 
   /* IN FLIGHT — flat rows (task-499), same hairline-separated list as the others */
-  .agent { display: flex; flex-direction: column; gap: 6px; padding: 13px 6px; border-radius: var(--radius);
+  .agent { display: flex; flex-direction: column; gap: 6px; padding: 13px 6px; border-radius: 0;
     transition: background .12s; }
   .agent:hover { background: var(--surface-1); }
   .ag-top { display: flex; align-items: center; gap: 8px; }
