@@ -28,18 +28,9 @@ export async function handle({ event, resolve }) {
   }
   // production + /s/ public share: no identity required; event.locals.user intentionally left
   // unset — the share route resolves strictly by token, never by user.
-  // Skin: paper-and-ink is now the DEFAULT skin (Bob: "finish flipping over to DS").
-  // Tag <html class="skin-paper-ink"> so the skin CSS activates. Escape hatch:
-  // TASKS_SKIN=none falls back to the old dark-zinc/amber look; any other value
-  // selects that named skin.
-  const raw = (process.env.TASKS_SKIN ?? 'paper-ink').trim();
-  const skin = raw === 'none' ? '' : raw;
-  const res = await resolve(
-    event,
-    skin
-      ? { transformPageChunk: ({ html }) => html.replace('<html lang="en">', `<html lang="en" class="skin-${skin}">`) }
-      : undefined
-  );
+  // Theme: paper-and-ink IS the base theme now (the only theme — legacy dark-zinc/amber
+  // dropped, Bob). No skin class to tag; the tokens live unconditionally in app.css.
+  const res = await resolve(event);
   // defense-in-depth headers (sanitizer is the primary XSS line; these harden the rest).
   // Use the no-clobber form: a route may legitimately need to relax a header for itself
   // (e.g. the gallery raw-artifact endpoint frames its own same-origin sandbox iframe, so

@@ -117,8 +117,7 @@
     border-radius: var(--radius); text-decoration: none; white-space: nowrap;
     color: #1a1205; background: var(--accent);
     font-size: 13px; font-weight: 650; transition: background .14s; }
-  :global(html.skin-paper-ink[data-theme='light']) .new-btn,
-  :global(html.skin-paper-ink [data-theme='light']) .new-btn { color: #fff; }
+  :global([data-theme='light']) .new-btn { color: #fff; }
   .new-btn :global(svg) { flex-shrink: 0; }
   .new-btn:hover { background: var(--accent-b); }
   /* collapsed: the icon stays exactly where it was (same margin + padding); only the label
