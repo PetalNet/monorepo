@@ -731,14 +731,19 @@ export const defaultProjectId = () => ensureProject(DEFAULT_PROJECT);
 
 export function createTask(t) {
   const kind = t.kind ?? 'task';
+  // INVARIANT (Bob, corrected repeatedly — do NOT let this regress again): a real TASK must have a
+  // parent project. Enforced HERE, the single helper every create path funnels through (web /new,
+  // MCP file, triage, subtask), so no UI layer can quietly re-introduce project-less tasks. Ideas,
+  // docs and questions may be project-less pre-triage; only kind='task' is gated.
+  const _pid = (t.project_id && typeof t.project_id === 'object') ? t.project_id.id : (t.project_id ?? null);
+  if (kind === 'task' && !_pid) throw new Error('A task must have a parent project (project_id is required).');
   const r = db.prepare(
     `INSERT INTO tasks (project_id,kind,title,body,status,priority,up_next,rank,parent_id,created_by,
        owner_machine,suggested_agent,effort,parallel_group)
      VALUES (@project_id,@kind,@title,@body,@status,@priority,@up_next,@rank,@parent_id,@created_by,
        @owner_machine,@suggested_agent,@effort,@parallel_group)`
   ).run({
-    // tolerate a project row being passed instead of its id (caught via dogfood)
-    project_id: (t.project_id && typeof t.project_id === 'object') ? t.project_id.id : (t.project_id ?? null),
+    project_id: _pid,
     kind,
     title: t.title,
     body: t.body ?? '',
@@ -793,6 +798,13 @@ export const updateTask = db.transaction((id, patch) => {
   // Guard: status='blocked' requires >=1 live blocker. No-op (with a clear return) otherwise.
   if (patch.status === 'blocked' && unfinishedBlockers(id).length === 0) {
     return { ok: false, reason: 'no_blockers', message: 'Cannot set blocked: add at least one unfinished blocker first.' };
+  }
+  // INVARIANT (Bob): a TASK must have a parent project. Block any update that turns this into a
+  // kind=task while it has no project — e.g. triaging a project-less inbox idea straight to a task.
+  // Mirrors the createTask guard so the triage path can't sneak a project-less task in either.
+  if (patch.kind === 'task') {
+    const pid = ('project_id' in patch) ? patch.project_id : db.prepare('SELECT project_id FROM tasks WHERE id=?').get(id)?.project_id;
+    if (!pid) return { ok: false, reason: 'no_project', message: 'Cannot make this a task without a parent project — set a project first.' };
   }
   db.prepare(`UPDATE tasks SET ${cols.map((c) => `${c}=@${c}`).join(',')}, updated_at=datetime('now') WHERE id=@id`).run({ id, ...patch });
   log(id, 'update', patch);

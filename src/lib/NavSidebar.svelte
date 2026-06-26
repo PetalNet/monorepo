@@ -39,7 +39,7 @@
 
 <aside class="nav" class:collapsed>
   <a class="brand" href="/" aria-label="tasks home">
-    <span class="brand-mark"><Icon name="brand" size={20} strokeWidth={2} /></span>
+    <span class="brand-mark"><Icon name="brand" size={18} strokeWidth={1.9} /></span>
     <span class="wordmark">tasks</span>
   </a>
 
@@ -90,7 +90,7 @@
     width: var(--w); flex-shrink: 0;
     height: 100dvh; box-sizing: border-box;
     display: flex; flex-direction: column; gap: 2px;
-    padding: 12px 12px 12px;
+    padding: 0 12px 12px;
     background: var(--surface-1);
     border-right: 1px solid var(--border-sub); border-radius: 0;
     transition: width .26s cubic-bezier(.4,0,.2,1);
@@ -98,8 +98,11 @@
   }
   .nav.collapsed { --w: 68px; padding-left: 10px; padding-right: 10px; }
 
-  .brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 12px; text-decoration: none; min-width: 0; }
-  .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0;
+  /* brand row = a 56px header, content vertically centered, so the logomark lines up EXACTLY with
+     the top bar's row across the sidebar/main seam (Bob: "not aligned at all" — was a too-big
+     logomark + lopsided padding). */
+  .brand { display: flex; align-items: center; gap: 9px; height: 56px; padding: 0 8px; text-decoration: none; min-width: 0; }
+  .brand-mark { display: grid; place-items: center; width: 22px; height: 22px; flex-shrink: 0;
     color: var(--accent-b); }
   .wordmark { font-weight: 750; font-size: 18px; letter-spacing: -.01em; color: var(--text-1);
     white-space: nowrap; transition: opacity .16s; }
@@ -107,7 +110,7 @@
   .collapsed .wordmark { opacity: 0; width: 0; }
 
   /* primary action — SOLID accent fill so it's clearly distinct from the active-tab tint */
-  .new-btn { display: flex; align-items: center; gap: 10px; margin: 0 2px 10px; padding: 9px 11px;
+  .new-btn { display: flex; align-items: center; gap: 10px; overflow: hidden; margin: 0 2px 10px; padding: 9px 11px;
     border-radius: var(--radius); text-decoration: none; white-space: nowrap;
     color: #1a1205; background: var(--accent);
     font-size: 13px; font-weight: 650; transition: background .14s; }
@@ -117,8 +120,9 @@
   .new-btn:hover { background: var(--accent-b); }
   /* collapsed: 34×34 centered square — 18px icon + 8px padding all round, matching the
      expanded rows' vertical padding so icons don't change size/box on collapse (Bob) */
+  .new-btn .lbl { max-width: 160px; overflow: hidden; transition: opacity .11s ease, max-width .24s cubic-bezier(.4,0,.2,1); }
   .collapsed .new-btn { justify-content: center; gap: 0; width: 34px; height: 34px; padding: 0; margin: 0 auto 10px; }
-  .collapsed .new-btn .lbl { display: none; }
+  .collapsed .new-btn .lbl { opacity: 0; max-width: 0; }
 
   .groups { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden;
     margin: 0 -2px; padding: 0 2px; }
@@ -126,16 +130,18 @@
     text-transform: uppercase; letter-spacing: .12em; color: var(--text-4); white-space: nowrap; }
   .collapsed .grp-label { opacity: 0; height: 1px; margin: 8px 8px; padding: 0; background: var(--border-sub); overflow: hidden; }
 
-  .item { display: flex; align-items: center; gap: 11px;
+  .item { display: flex; align-items: center; gap: 11px; overflow: hidden;
     padding: 8px 11px; border-radius: var(--radius); text-decoration: none; white-space: nowrap;
     color: var(--text-3); font-size: 13.5px; font-weight: 500; transition: background .14s, color .14s; }
   .item :global(svg) { flex-shrink: 0; }
   .item:hover { background: var(--surface-2); color: var(--text-1); }
   /* single highlight: the pill fill + the icon picks up accent — no second tile background */
   .item.on { background: var(--accent-bg); color: var(--accent-b); font-weight: 600; }
-  .item .lbl { transition: opacity .16s; }
+  /* collapse: the label FADES fast then its width collapses while the rail narrows — no instant
+     display:none snap (Bob: "the text disappears and the box slides, not this jarring whatever"). */
+  .item .lbl { max-width: 140px; overflow: hidden; transition: opacity .11s ease, max-width .24s cubic-bezier(.4,0,.2,1); }
   .collapsed .item { justify-content: center; gap: 0; width: 34px; height: 34px; padding: 0; margin: 0 auto; }
-  .collapsed .item .lbl { display: none; }
+  .collapsed .item .lbl { opacity: 0; max-width: 0; }
 
   /* FOOT: live Fleet — full roster, the sidebar's bottom anchor (clickable → /fleet) */
   .fleet { display: block; margin-top: 8px; padding: 11px 9px 4px; border-top: 1px solid var(--border-sub);

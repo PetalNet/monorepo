@@ -1,7 +1,7 @@
 <script>
   import Icon from '$lib/Icon.svelte';
   import { enhance } from '$app/forms';
-  let { data } = $props();
+  let { data, form } = $props();
   let kind = $state('task');
   const KIND_ICON = { task: 'task', doc: 'doc', question: 'question' };
 </script>
@@ -26,13 +26,15 @@
 
   <form method="POST" action="?/create" use:enhance class="nf">
     <input type="hidden" name="kind" value={kind} />
+    {#if form?.error}<p class="nf-err">{form.error}</p>{/if}
     <input class="title-in" name="title" autocomplete="off" required
            placeholder={kind === 'question' ? 'The question…' : kind === 'doc' ? 'Doc title…' : 'Task title…'} />
 
     <div class="nf-grid">
       <label class="afield">
-        <span class="af-lbl">project</span>
-        <input name="project" list="projs" placeholder="(none)" />
+        <span class="af-lbl">project{#if kind === 'task'} <span class="req">*</span>{/if}</span>
+        <input name="project" list="projs" required={kind === 'task'}
+               placeholder={kind === 'task' ? 'search or add a project…' : '(optional)'} />
         <datalist id="projs">{#each data.projects as p}<option value={p.name}></option>{/each}</datalist>
       </label>
       {#if kind === 'task'}
@@ -98,6 +100,9 @@
   .nf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 18px; }
   .afield { display: flex; flex-direction: column; gap: 6px; }
   .af-lbl { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+  .af-lbl .req { color: var(--danger, #e0533d); }
+  .nf-err { margin: 14px 0 0; padding: 9px 12px; border-radius: var(--radius); font-size: 13px;
+    color: var(--danger, #e0533d); background: color-mix(in srgb, var(--danger, #e0533d) 12%, transparent); }
 
   .nf-sec { margin-top: 22px; }
 
