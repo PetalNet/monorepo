@@ -4,11 +4,11 @@
   import Icon from '$lib/Icon.svelte';
   import TaskRow from '$lib/TaskRow.svelte';
   import { humanizeTool } from '$lib/tool.js';
-  import { displayName } from '$lib/people.js';
+  import { displayName, projectName } from '$lib/people.js';
 
   let { data } = $props();
 
-  const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
+  const projName = projectName(data.projects);
 
   // who's signed in → greeting ('there' is the dev-fallback greeting label)
   const me = $derived(String(data.me || 'dev').toLowerCase());

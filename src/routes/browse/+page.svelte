@@ -3,10 +3,11 @@
   import TaskRow from '$lib/TaskRow.svelte';
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
+  import { projectName } from '$lib/people.js';
 
   let { data } = $props();
 
-  const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
+  const projName = projectName(data.projects);
 
   // Compact lease badge for in-progress rows. lease_expires_at now ships (only
   // claim_token is scrubbed); snapshot at render, refreshes on reload/nav.

@@ -1,14 +1,13 @@
 <script>
   import Icon from '$lib/Icon.svelte';
+  import { projectName, whoColor } from '$lib/people.js';
   let { data } = $props();
   let tab = $state('open');
 
-  const PERSON = { claude:'#fb923c', agent-a:'#8b5cf6', agent-b:'#22d3ee', alice:'#fb7185', alice:'#fb7185', bob:'#38bdf8', bob:'#38bdf8', codex:'#a3e635', agent-d:'#f472b6', agent-e:'#facc15', web:'#94a3b8' };
+  // whoColor single-sourced from $lib/people (this page's falsy fallback is the default 'var(--text-3)').
   const AGENTS = ['claude', 'agent-a', 'agent-b', 'codex', 'agent-d', 'agent-e'];
-  const hue = (s) => { let h = 0; for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
-  const whoColor = (h) => h ? (PERSON[String(h).toLowerCase()] ?? `hsl(${hue(h)} 60% 68%)`) : 'var(--text-3)';
   const isAgent = (h) => AGENTS.includes(String(h).toLowerCase());
-  const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
+  const projName = projectName(data.projects);
 
   function relShort(ts) {
     if (!ts) return '';

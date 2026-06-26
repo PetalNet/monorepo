@@ -2,8 +2,9 @@
   import Icon from '$lib/Icon.svelte';
   import TaskRow from '$lib/TaskRow.svelte';
   import { enhance } from '$app/forms';
+  import { projectName } from '$lib/people.js';
   let { data } = $props();
-  const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
+  const projName = projectName(data.projects);
 
   function relShort(ts) {
     if (!ts) return '';
