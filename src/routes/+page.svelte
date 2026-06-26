@@ -60,8 +60,10 @@
     const max = Math.max(1, ...s.map((d) => d.n));
     const n = s.length;
     const pts = s.map((d, i) => {
-      const x = n === 1 ? 50 : (i / (n - 1)) * 100;
-      const y = 28 - (d.n / max) * 24;          // baseline ~28, top ~4
+      // inset 4 units each side + a 25/4 baseline so the end-dot (r=3) is never
+      // clipped at the right edge or below the baseline (Bob: "spark-dot gets cropped off")
+      const x = n === 1 ? 50 : 4 + (i / (n - 1)) * 92;
+      const y = 25 - (d.n / max) * 21;          // baseline 25, top 4
       return { x, y };
     });
     return {
@@ -158,7 +160,7 @@
       <div class="gc-head"><span class="gc-ic"><Icon name="pulse" size={13} /></span>Momentum</div>
       <div class="mom-top"><span class="mom-n mono">{g.momentum.closedToday}</span><span class="mom-unit">closed today</span></div>
       <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="closes per day over 14 days">
-        <line x1="0" y1="28" x2="100" y2="28" stroke="var(--border)" stroke-width="1.2" />
+        <line x1="0" y1="25" x2="100" y2="25" stroke="var(--border)" stroke-width="1.2" />
         {#if spark.points}
           <polyline points={spark.points} fill="none" stroke="var(--accent-b)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
           {#if spark.dot}<circle class="spark-dot" cx={spark.dot.x} cy={spark.dot.y} r="3" />{/if}
@@ -428,7 +430,7 @@
   .g-mom .mom-n { font-variant-numeric: tabular-nums; font-size: 38px; font-weight: 600; line-height: .92;
     color: var(--accent-b); letter-spacing: -.02em; }
   .g-mom .mom-unit { font-size: 12px; color: var(--text-3); }
-  .g-mom .spark { width: 100%; height: 30px; display: block; }
+  .g-mom .spark { width: 100%; height: 30px; display: block; overflow: visible; }
   .g-mom .spark-dot { fill: var(--accent-b); filter: drop-shadow(0 0 5px var(--accent-ln)); animation: sparkpulse 2.4s ease-in-out infinite; }
   @keyframes sparkpulse { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
   .g-mom .mom-cap { font-size: 11px; color: var(--violet-b); line-height: 1.3; }

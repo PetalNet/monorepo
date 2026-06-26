@@ -75,9 +75,6 @@
             <button class="acct-item" role="menuitem" onclick={toggleTheme}>
               <Icon name="moon" size={16} /> Toggle theme
             </button>
-            <a class="acct-item" role="menuitem" href="/fleet" onclick={() => (acctOpen = false)}>
-              <Icon name="bolt" size={16} /> Fleet
-            </a>
           </div>
         {/if}
       </div>
@@ -108,11 +105,16 @@
 <style>
   /* ── shell layout ─────────────────────────────────────── */
   .app { height: 100dvh; display: flex; overflow: hidden; }
-  .main { flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; height: 100dvh; }
+  /* the page is the ONLY scroller — contain overscroll so the bounce doesn't chain up
+     and drag the sticky top bar with it (Bob: "only the page itself should overscroll") */
+  .main { flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; height: 100dvh;
+    overscroll-behavior: contain; }
 
-  /* desktop top bar — holds the sidebar toggle + the current section */
+  /* desktop top bar — holds the sidebar toggle + global search + account.
+     height + vertical center match the sidebar brand/logomark row (no curve — squared chrome) */
   .topbar-d { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 6px;
-    height: 48px; padding: 0 16px; background: color-mix(in srgb, var(--surface-1) 86%, transparent);
+    height: 56px; padding: 0 16px; border-radius: 0;
+    background: color-mix(in srgb, var(--surface-1) 86%, transparent);
     backdrop-filter: blur(8px); border-bottom: 1px solid var(--border-sub); }
   .tb-toggle { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius);
     color: var(--text-3); transition: background .14s, color .14s; }

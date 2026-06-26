@@ -57,6 +57,17 @@ const ROSTER = (() => {
 // status → sort weight (working first, then alive/idle, then offline last)
 const RANK = { working: 0, alive: 1, idle: 2, offline: 3 };
 
+// Normalize a host label to ONE canonical form. The live lifecycle hooks report
+// agent-a's host as "dot14", while the roster + UI use ".14" — unify on ".14" so the
+// same machine never renders two ways (Bob: "both @dot14 and @.14"). Any "dotN" → ".N".
+function normHost(h) {
+  if (!h) return null;
+  const s = String(h).trim();
+  if (!s) return null;
+  const m = /^dot(\d+)$/i.exec(s);
+  return m ? `.${m[1]}` : s;
+}
+
 function ageMs(iso) {
   const t = iso ? new Date(iso).getTime() : NaN;
   return Number.isFinite(t) ? Math.max(0, Date.now() - t) : Infinity;
@@ -109,7 +120,7 @@ export function getFleet(me) {
     const focus = focusByAgent[f.handle] ?? [];
     return {
       handle: f.handle,
-      host: f.host || null,
+      host: normHost(f.host),
       status,
       reported, // last status it actually wrote (for the offline tooltip)
       offline: stale,
@@ -129,7 +140,7 @@ export function getFleet(me) {
     if (present.has(r.handle)) continue;
     agents.push({
       handle: r.handle,
-      host: r.host || null,
+      host: normHost(r.host),
       status: 'offline',
       reported: null,
       offline: true,
