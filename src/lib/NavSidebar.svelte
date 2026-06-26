@@ -50,7 +50,6 @@
 
   <nav class="groups" aria-label="Main navigation">
     {#each groups as g}
-      {#if g.label}<p class="grp-label">{g.label}</p>{/if}
       {#each g.items as item}
         {@const on = isActive(item.id)}
         <a class="item" class:on href={item.href} aria-current={on ? 'page' : undefined}>
@@ -69,7 +68,7 @@
       <span class="lbl">Fleet</span>
       <span class="fleet-n" class:live={working > 0}>{working ? `${working} working` : `${online}/${agents.length}`}</span>
     </div>
-    {#if !collapsed && agents.length}
+    {#if agents.length}
       <div class="fleet-list">
         {#each agents as a}
           <span class="fa" class:off={a.offline} title="{a.handle}{a.host ? ` · ${a.host}` : ''} · {a.offline ? (a.never_seen ? 'never reported' : 'offline') : a.status}{a.current_tool ? ` · ${humanizeTool(a.current_tool)}` : ''}">
@@ -131,17 +130,6 @@
 
   .groups { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden;
     margin: 0 -2px; padding: 0 2px; }
-  /* fixed height + margins in BOTH states so collapse never shifts the items below
-     (Bob: "the library text disappears, that's a bit of a shift"). On collapse the
-     text fades to transparent and a centered hairline takes its place — same footprint. */
-  .grp-label { margin: 14px 0 4px; padding: 0 11px; height: 13px; line-height: 13px;
-    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em;
-    color: var(--text-4); white-space: nowrap; overflow: hidden; position: relative;
-    transition: color .15s ease; }
-  .collapsed .grp-label { color: transparent; }
-  .collapsed .grp-label::after { content: ''; position: absolute; left: 10px; right: 10px;
-    top: 50%; height: 1px; margin-top: -0.5px; background: var(--border-sub); }
-
   .item { display: flex; align-items: center; gap: 11px; overflow: hidden;
     padding: 8px 11px; border-radius: var(--radius); text-decoration: none; white-space: nowrap;
     color: var(--text-3); font-size: 13.5px; font-weight: 500; transition: background .14s, color .14s; }
@@ -166,10 +154,14 @@
   .fleet-head .fleet-n { margin-left: auto; font-family: var(--mono); font-size: 10.5px;
     letter-spacing: 0; text-transform: none; font-weight: 500; color: var(--text-4); }
   .fleet-head .fleet-n.live { color: var(--violet); }
-  /* bolt stays put on collapse — only the label + count hide */
-  .collapsed .fleet-head { gap: 0; }
-  .collapsed .fleet-head .lbl, .collapsed .fleet-head .fleet-n { display: none; }
-  .fleet-list { display: flex; flex-direction: column; gap: 0; margin-top: 7px; }
+  /* bolt stays put on collapse; label + count fade + clip with the rail (consistent) */
+  .fleet-head .lbl, .fleet-head .fleet-n { transition: opacity .15s ease; }
+  .collapsed .fleet-head .lbl, .collapsed .fleet-head .fleet-n { opacity: 0; }
+  /* roster clips/fades + collapses its height on collapse — same .2s as the rail (Bob) */
+  .fleet-list { display: flex; flex-direction: column; gap: 0; margin-top: 7px;
+    overflow: hidden; max-height: 360px;
+    transition: max-height .2s cubic-bezier(.4, 0, .2, 1), opacity .2s ease, margin-top .2s ease; }
+  .collapsed .fleet-list { max-height: 0; opacity: 0; margin-top: 0; }
   .fa { display: flex; align-items: center; gap: 8px; padding: 4px 3px; font-size: 12.5px; color: var(--text-2);
     min-width: 0; }
   .fa.off { color: var(--text-4); }
