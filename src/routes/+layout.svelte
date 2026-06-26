@@ -7,6 +7,7 @@
   import NavSidebar from '$lib/NavSidebar.svelte';
   import Icon from '$lib/Icon.svelte';
   import SearchBox from '$lib/SearchBox.svelte';
+  import { displayName } from '$lib/people.js';
   let { children, data } = $props();
 
   // sidebar collapse — persisted
@@ -15,9 +16,8 @@
   $effect(() => { try { localStorage.setItem('tasks-nav-collapsed', collapsed ? '1' : '0'); } catch {} });
 
   // who's signed in (Authentik -> locals.user -> data.user)
-  const WHO = { alice: 'Alice', alice: 'Alice', bob: 'Bob', bob: 'Bob', bob: 'Bob', dev: 'dev' };
   const me = $derived(String(data.user || 'dev').toLowerCase());
-  const whoName = $derived(WHO[me] ?? (me.charAt(0).toUpperCase() + me.slice(1)));
+  const whoName = $derived(displayName(me));
 
   const path = $derived($page.url.pathname);
   const isActive = (n) => {

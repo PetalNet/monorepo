@@ -6,6 +6,7 @@
   import Icon from '$lib/Icon.svelte';
   import { rankTasks, highlightChunks } from '$lib/fuzzy.js';
   import { statusClass, kindIcon } from '$lib/status.js';
+  import { who } from '$lib/people.js';
 
   let { value = '' } = $props();
 
@@ -22,8 +23,6 @@
   const MAX_RECENTS = 6;
 
   // LEFT indicator: kind icon tinted by status — shared with TaskRow via $lib/status.js
-  const WHO = { alice: 'Alice', alice: 'Alice', bob: 'Bob', bob: 'Bob', bob: 'Bob', dev: 'dev' };
-  const who = (a) => (a ? (WHO[String(a).toLowerCase()] ?? a) : '');
 
   const results = $derived(query.trim() ? rankTasks(query, index, 8) : []);
   const showRecents = $derived(open && !query.trim() && recents.length > 0);

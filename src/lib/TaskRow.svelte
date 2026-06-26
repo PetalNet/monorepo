@@ -9,6 +9,7 @@
   // separators; the row only owns a square (un-rounded) hover wash.
   import Icon from '$lib/Icon.svelte';
   import { statusClass, kindIcon } from '$lib/status.js';
+  import { who } from '$lib/people.js';
 
   let {
     task,                       // { id, title, kind, status, priority, project_id, assignee, created_at, updated_at, ... }
@@ -25,8 +26,6 @@
     meta: metaSnippet = undefined // optional extra meta snippet appended to the sub-line
   } = $props();
 
-  const WHO = { alice: 'Alice', alice: 'Alice', bob: 'Bob', bob: 'Bob', bob: 'Bob', dev: 'dev' };
-  const who = (a) => (a ? (WHO[String(a).toLowerCase()] ?? a) : '');
 
   function rel(ts) {
     if (!ts) return '';

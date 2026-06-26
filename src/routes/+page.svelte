@@ -4,15 +4,15 @@
   import Icon from '$lib/Icon.svelte';
   import TaskRow from '$lib/TaskRow.svelte';
   import { humanizeTool } from '$lib/tool.js';
+  import { displayName } from '$lib/people.js';
 
   let { data } = $props();
 
   const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
 
-  // who's signed in → greeting
-  const WHO = { alice: 'Alice', alice: 'Alice', bob: 'Bob', bob: 'Bob', bob: 'Bob', dev: 'there' };
+  // who's signed in → greeting ('there' is the dev-fallback greeting label)
   const me = $derived(String(data.me || 'dev').toLowerCase());
-  const whoName = $derived(WHO[me] ?? (me.charAt(0).toUpperCase() + me.slice(1)));
+  const whoName = $derived(displayName(me, 'there'));
 
   // time-of-day greeting + live clock — the desk shows live data, so it ticks every second
   let now = $state(new Date());
@@ -487,7 +487,6 @@
   .g-ring .ring-bg { fill: none; stroke: var(--surface-3); stroke-width: 9; }
   .g-ring .ring-seg { fill: none; stroke-width: 9; stroke-linecap: butt; }
   .g-ring .ring-ctr-n { font-variant-numeric: tabular-nums; font-size: 24px; font-weight: 600; fill: var(--text-1); }
-  .g-ring .ring-ctr-l { font-size: 7px; letter-spacing: .1em; text-transform: uppercase; fill: var(--text-4); }
   .g-ring .ring-legend { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .g-ring .ring-key { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-3); }
   .g-ring .ring-key .sw { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }

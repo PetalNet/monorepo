@@ -1223,7 +1223,7 @@
   .rt-field { display: flex; flex-direction: column; gap: 4px; }
   .rt-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-4); }
   .rt-val { font-size: 12.5px; color: var(--text-3); }
-  .edit-form input, .edit-form textarea, .edit-form select {
+  .edit-form input, .edit-form textarea {
     width: 100%; font: inherit; font-size: 13px; color: var(--text-1); background: var(--surface-2);
     border: 1px solid var(--border-sub); border-radius: var(--radius-sm); padding: 8px 10px; outline: none; resize: vertical;
   }
