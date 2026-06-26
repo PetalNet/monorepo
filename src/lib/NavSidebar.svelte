@@ -110,7 +110,7 @@
   .collapsed .wordmark { opacity: 0; width: 0; }
 
   /* primary action — SOLID accent fill so it's clearly distinct from the active-tab tint */
-  .new-btn { display: flex; align-items: center; gap: 10px; overflow: hidden; margin: 0 2px 10px; padding: 9px 11px;
+  .new-btn { display: flex; align-items: center; gap: 10px; overflow: hidden; margin: 10px 2px; padding: 9px 11px;
     border-radius: var(--radius); text-decoration: none; white-space: nowrap;
     color: #1a1205; background: var(--accent);
     font-size: 13px; font-weight: 650; transition: background .14s; }
