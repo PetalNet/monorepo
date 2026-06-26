@@ -96,18 +96,21 @@
     transition: width .26s cubic-bezier(.4,0,.2,1);
     overflow: hidden; position: relative; z-index: 6;
   }
-  .nav.collapsed { --w: 68px; padding-left: 10px; padding-right: 10px; }
+  /* collapsed keeps the SAME left/right padding as expanded so every icon's x is identical
+     in both states — only the rail width + labels animate, icons never slide (Bob). */
+  .nav.collapsed { --w: 68px; }
 
   /* brand row = a 56px header, content vertically centered, so the logomark lines up EXACTLY with
      the top bar's row across the sidebar/main seam (Bob: "not aligned at all" — was a too-big
      logomark + lopsided padding). */
-  .brand { display: flex; align-items: center; gap: 9px; height: 56px; padding: 0 8px; text-decoration: none; min-width: 0; }
+  .brand { display: flex; align-items: center; gap: 9px; height: 56px; padding: 0 9px; text-decoration: none; min-width: 0; }
   .brand-mark { display: grid; place-items: center; width: 22px; height: 22px; flex-shrink: 0;
     color: var(--accent-b); }
   .wordmark { font-weight: 750; font-size: 18px; letter-spacing: -.01em; color: var(--text-1);
-    white-space: nowrap; transition: opacity .16s; }
-  .collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; gap: 0; }
-  .collapsed .wordmark { opacity: 0; width: 0; }
+    white-space: nowrap; overflow: hidden;
+    transition: opacity .11s ease, max-width .24s cubic-bezier(.4,0,.2,1); max-width: 120px; }
+  /* collapsed: brand-mark stays put (no recenter); only the wordmark collapses */
+  .collapsed .wordmark { opacity: 0; max-width: 0; }
 
   /* primary action — SOLID accent fill so it's clearly distinct from the active-tab tint */
   .new-btn { display: flex; align-items: center; gap: 10px; overflow: hidden; margin: 10px 2px; padding: 9px 11px;
@@ -118,10 +121,10 @@
   :global(html.skin-paper-ink [data-theme='light']) .new-btn { color: #fff; }
   .new-btn :global(svg) { flex-shrink: 0; }
   .new-btn:hover { background: var(--accent-b); }
-  /* collapsed: 34×34 centered square — 18px icon + 8px padding all round, matching the
-     expanded rows' vertical padding so icons don't change size/box on collapse (Bob) */
+  /* collapsed: the icon stays exactly where it was (same margin + padding); only the label
+     collapses and the rail narrows — the button never recenters, so the icon never moves (Bob) */
   .new-btn .lbl { max-width: 160px; overflow: hidden; transition: opacity .11s ease, max-width .24s cubic-bezier(.4,0,.2,1); }
-  .collapsed .new-btn { justify-content: center; gap: 0; width: 34px; height: 34px; padding: 0; margin: 0 auto 10px; }
+  .collapsed .new-btn { gap: 0; }
   .collapsed .new-btn .lbl { opacity: 0; max-width: 0; }
 
   .groups { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden;
@@ -140,11 +143,12 @@
   /* collapse: the label FADES fast then its width collapses while the rail narrows — no instant
      display:none snap (Bob: "the text disappears and the box slides, not this jarring whatever"). */
   .item .lbl { max-width: 140px; overflow: hidden; transition: opacity .11s ease, max-width .24s cubic-bezier(.4,0,.2,1); }
-  .collapsed .item { justify-content: center; gap: 0; width: 34px; height: 34px; padding: 0; margin: 0 auto; }
+  /* icon pinned: keep base padding/gap, only the label collapses — no recenter, no slide */
+  .collapsed .item { gap: 0; }
   .collapsed .item .lbl { opacity: 0; max-width: 0; }
 
   /* FOOT: live Fleet — full roster, the sidebar's bottom anchor (clickable → /fleet) */
-  .fleet { display: block; margin-top: 8px; padding: 11px 9px 4px; border-top: 1px solid var(--border-sub);
+  .fleet { display: block; margin-top: 8px; padding: 11px 11px 4px; border-top: 1px solid var(--border-sub);
     text-decoration: none; color: var(--text-3); transition: color .14s; }
   .fleet:hover { color: var(--text-1); }
   .fleet:hover .fleet-head .lbl { color: var(--text-1); }
@@ -155,8 +159,8 @@
   .fleet-head .fleet-n { margin-left: auto; font-family: var(--mono); font-size: 10.5px;
     letter-spacing: 0; text-transform: none; font-weight: 500; color: var(--text-4); }
   .fleet-head .fleet-n.live { color: var(--violet); }
-  .collapsed .fleet { text-align: center; padding-left: 0; padding-right: 0; }
-  .collapsed .fleet-head { justify-content: center; }
+  /* bolt stays put on collapse — only the label + count hide */
+  .collapsed .fleet-head { gap: 0; }
   .collapsed .fleet-head .lbl, .collapsed .fleet-head .fleet-n { display: none; }
   .fleet-list { display: flex; flex-direction: column; gap: 0; margin-top: 7px; }
   .fa { display: flex; align-items: center; gap: 8px; padding: 4px 3px; font-size: 12.5px; color: var(--text-2);
