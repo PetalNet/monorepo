@@ -1,6 +1,6 @@
 <script>
   import { enhance } from '$app/forms';
-  import { goto } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import Icon from '$lib/Icon.svelte';
   import { humanizeTool } from '$lib/tool.js';
 
@@ -18,6 +18,18 @@
   $effect(() => {
     const id = setInterval(() => { now = new Date(); }, 1000);
     return () => clearInterval(id);
+  });
+  // Live desk data: re-fetch the load every minute, ON the minute. invalidateAll() re-runs the
+  // server loads and updates `data` reactively — NOT a page reload, so typing/scroll aren't
+  // disrupted and an offline blip just fails quietly (Bob). Aligned to the wall-clock minute.
+  $effect(() => {
+    let interval;
+    const refresh = () => invalidateAll().catch(() => {});
+    const timeout = setTimeout(() => {
+      refresh();
+      interval = setInterval(refresh, 60_000);
+    }, 60_000 - (Date.now() % 60_000));
+    return () => { clearTimeout(timeout); if (interval) clearInterval(interval); };
   });
   const greetWord = $derived(now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening');
   const clock = $derived(now.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase() + ' ' +
