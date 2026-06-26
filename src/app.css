@@ -285,17 +285,18 @@ button {
 .trail-lbl.violet { color:var(--violet-b); }
 .trail-arrow { color:var(--text-4); display:flex; }
 
-/* ── feed row (the calm card) ───────────────────────────────── */
-.list, .lane-body { display:flex; flex-direction:column; gap:5px; }
+/* ── feed row (flat, hairline-separated — task-499 "all cards shall die";
+ *    no per-row box, no rounded hover wash, no side-stripe; state is cued by
+ *    the row icon's colour, mirroring the shared TaskRow) ── */
+.list, .lane-body { display:flex; flex-direction:column; gap:0; }
+.list > * + *, .lane-body > * + * { border-top:1px solid var(--border-sub); }
 .row { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; width:100%;
-  padding:var(--rpad); background:var(--surface-1); border:1px solid var(--border-sub); border-radius:var(--radius);
-  transition:.12s; }
-.row:hover { border-color:var(--border); background:var(--surface-2); }
+  padding:12px 8px; background:none; border:0; border-radius:0;
+  transition:background .12s; }
+.row:hover { background:var(--surface-1); }
 .row-ic { color:var(--text-3); display:flex; align-items:center; padding-top:1px; }
 .row.kind-question .row-ic { color:var(--violet-b); }
-.row.st-doing { border-color:var(--accent-ln); }
-.row.st-blocked { border-left:3px solid var(--danger); }
-.row.needs-human { border-left:3px solid var(--pl,#5eead4); }
+.row.st-blocked .row-ic { color:var(--danger-b); }
 .row.st-done { opacity:.6; }
 .row.st-done:hover { opacity:1; }
 .row-main { min-width:0; display:flex; flex-direction:column; gap:5px; }
@@ -337,7 +338,7 @@ button {
   border:1px dashed var(--border); margin-top:2px; }
 .more:hover { color:var(--text-1); border-color:var(--text-4); }
 .sticky-note { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:var(--radius);
-  background:repeating-linear-gradient(135deg,rgba(251,191,36,.05) 0 10px,transparent 10px 20px),var(--surface-1);
+  background:var(--surface-1);
   border:1px dashed rgba(251,191,36,.4); font-size:13px; color:var(--text-2); cursor:default; }
 .sn-ic { color:#fbbf24; display:flex; }
 .sn-go { margin-left:auto; color:var(--text-4); }

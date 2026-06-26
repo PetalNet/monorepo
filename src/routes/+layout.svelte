@@ -115,10 +115,11 @@
 
   /* desktop top bar — holds the sidebar toggle + global search + account.
      height + vertical center match the sidebar brand/logomark row (no curve — squared chrome) */
+  /* solid chrome — the bar sits above the scroller (content never passes under it),
+     so a translucent blur is pure decoration (glass tell — Bob's /impeccable) */
   .topbar-d { flex-shrink: 0; z-index: 5; display: flex; align-items: center; gap: 6px;
     height: 56px; padding: 0 16px; border-radius: 0;
-    background: color-mix(in srgb, var(--surface-1) 86%, transparent);
-    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border-sub); }
+    background: var(--surface-1); border-bottom: 1px solid var(--border-sub); }
   .tb-toggle { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius);
     color: var(--text-3); transition: background .14s, color .14s; }
   .tb-toggle:hover { background: var(--surface-2); color: var(--text-1); }

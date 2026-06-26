@@ -213,15 +213,21 @@
 
   /* swimlanes: a column of per-agent cards */
   .swimlanes { display: flex; flex-direction: column; gap: 12px; }
+  /* agent identity is carried by the avatar + name, not a side-stripe (the #1
+     AI-UI tell — Bob's /impeccable) */
   .swim {
     background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-lg);
-    padding: 11px 12px; border-left: 3px solid var(--c);
+    padding: 11px 12px;
   }
-  .swim.has-expired { border-color: var(--danger); border-left-color: var(--danger); }
+  .swim.has-expired { border-color: var(--danger); }
   .swim-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 9px; }
   .swim-name { font-size: 13px; color: var(--text-1); font-weight: 600; }
   .swim-counts { font-size: 11px; }
-  .swim-body { display: flex; flex-direction: column; gap: 5px; }
+  /* flat rows inside the swim card: hairline-separated, hover lifts to surface-2
+     (surface-1 would be invisible against the card) */
+  .swim-body { display: flex; flex-direction: column; gap: 0; }
+  .swim-body > :global(* + *) { border-top: 1px solid var(--border-sub); }
+  .swim-body :global(.row:hover) { background: var(--surface-2); }
 
   .lease-pill {
     font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .04em;

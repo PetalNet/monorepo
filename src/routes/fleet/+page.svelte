@@ -155,12 +155,13 @@
     padding: 13px 16px;
     background: var(--surface-1);
     border: 1px solid var(--border-sub);
-    border-left: 2px solid var(--c);
     border-radius: var(--radius);
     transition: border-color .2s, background .2s;
   }
-  .agent:hover { background: var(--surface-2); border-color: var(--border); border-left-color: var(--c); }
-  .agent.offline { opacity: .58; border-left-color: var(--text-4); }
+  /* agent identity is carried by the status dot + coloured status word, not a
+     side-stripe (the #1 AI-UI tell — Bob's /impeccable) */
+  .agent:hover { background: var(--surface-2); border-color: var(--border); }
+  .agent.offline { opacity: .58; }
   .agent.offline:hover { opacity: .78; }
 
   /* status dot — the one bold element. working pulses; others are quiet. */
