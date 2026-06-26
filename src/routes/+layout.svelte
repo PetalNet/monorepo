@@ -6,6 +6,7 @@
   // import Stickies from '$lib/Stickies.svelte';
   import NavSidebar from '$lib/NavSidebar.svelte';
   import Icon from '$lib/Icon.svelte';
+  import SearchBox from '$lib/SearchBox.svelte';
   let { children, data } = $props();
 
   // sidebar collapse — persisted
@@ -56,10 +57,7 @@
         <Icon name={collapsed ? 'expand' : 'collapse'} size={18} />
       </button>
 
-      <form class="tb-search" action="/search" method="GET" role="search">
-        <Icon name="search" size={16} />
-        <input name="q" type="search" value={q} placeholder="Search tasks…" aria-label="Search tasks" autocomplete="off" />
-      </form>
+      <SearchBox value={q} />
 
       <div class="tb-acct">
         <button class="acct-btn" class:open={acctOpen} onclick={() => (acctOpen = !acctOpen)} aria-haspopup="menu" aria-expanded={acctOpen} aria-label="Account menu">
@@ -124,17 +122,7 @@
     color: var(--text-3); transition: background .14s, color .14s; }
   .tb-toggle:hover { background: var(--surface-2); color: var(--text-1); }
 
-  /* global search — the bar's centerpiece (submits to /browse?q=) */
-  .tb-search { flex: 1 1 auto; max-width: 440px; display: flex; align-items: center; gap: 8px;
-    height: 34px; padding: 0 11px; border-radius: var(--radius);
-    background: var(--surface-2); border: 1px solid var(--border-sub); color: var(--text-4);
-    transition: border-color .14s, background .14s; }
-  .tb-search:focus-within { border-color: var(--accent); background: var(--surface-1); color: var(--text-3); }
-  .tb-search :global(svg) { flex-shrink: 0; }
-  .tb-search input { flex: 1; min-width: 0; height: 100%; background: none; border: none; outline: none;
-    font-family: inherit; font-size: 13px; color: var(--text-1); }
-  .tb-search input::placeholder { color: var(--text-4); }
-  .tb-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+  /* global search is the <SearchBox> component (task-506) — its own scoped styles */
 
   /* account — moved up from the sidebar foot (Bob) */
   .tb-acct { margin-left: auto; position: relative; flex-shrink: 0; }

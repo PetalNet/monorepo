@@ -570,6 +570,18 @@ export const searchTasks = (q, me) => {
       LIMIT 60`
   ).all(params);
 };
+
+// Lightweight client-side search index — the WHOLE visible corpus (id/title/state/
+// project/assignee), fetched once on first focus and fuzzy-ranked in the browser for
+// instant typeahead. Visibility-gated; capped so a runaway corpus can't blow the payload.
+export const searchIndex = (me) => db.prepare(
+  `SELECT t.id, t.title, t.kind, t.status, t.priority, t.assignee, t.updated_at,
+          (SELECT name FROM projects p WHERE p.id = t.project_id) AS project
+     FROM tasks t
+    WHERE t.status != 'dropped' ${vis(me)}
+    ORDER BY (t.status='done') ASC, t.updated_at DESC
+    LIMIT 2000`
+).all(me ? { me } : {});
 // who's actively on something right now (incl. subtasks) — feeds the live agent rail
 export const activeLeases = (me) => db.prepare(`SELECT id, title, assignee, project_id FROM tasks WHERE status='doing' AND assignee IS NOT NULL AND assignee!='' ${vis(me)} ORDER BY updated_at DESC`).all(me ? { me } : {});
 // flat GitHub-style issues list — every actionable item (not docs) + its comment count, for the /issues view
