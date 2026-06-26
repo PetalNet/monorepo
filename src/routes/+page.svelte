@@ -14,10 +14,10 @@
   const me = $derived(String(data.me || 'dev').toLowerCase());
   const whoName = $derived(displayName(me, 'there'));
 
-  // time-of-day greeting + live clock — the desk shows live data, so it ticks every second
+  // time-of-day greeting — only needs hour granularity, so tick once a minute
   let now = $state(new Date());
   $effect(() => {
-    const id = setInterval(() => { now = new Date(); }, 1000);
+    const id = setInterval(() => { now = new Date(); }, 60_000);
     return () => clearInterval(id);
   });
   // Live desk data: re-fetch the load every minute, ON the minute. invalidateAll() re-runs the
@@ -33,14 +33,9 @@
     return () => { clearTimeout(timeout); if (interval) clearInterval(interval); };
   });
   const greetWord = $derived(now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening');
-  const clock = $derived(now.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase() + ' ' +
-    now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }));
 
   const hud = $derived(data.hud ?? { needsYou: 0, onFire: 0, working: 0 });
   const g = $derived(data.graphs ?? { momentum: { closedToday: 0, series: [] }, backlog: { total: 0, byPriority: {} }, focus: { needsYou: 0, onFire: 0, inFlight: 0, total: 0 } });
-
-  // lab health phrase keyed to on-fire count
-  const labState = $derived(hud.onFire > 0 ? `${hud.onFire} on fire` : 'lab nominal');
 
   // ── live fleet: handle → telemetry, to enrich the IN FLIGHT lane ──
   const fleetByHandle = $derived(Object.fromEntries((data.fleet?.agents ?? []).map((a) => [a.handle, a])));
@@ -146,11 +141,6 @@
 
   <!-- HUD header -->
   <header class="ckhead">
-    <div class="ck-eyebrow">
-      <span class="live"></span>
-      <span>your desk · {labState}</span>
-      <span class="when mono">{clock}</span>
-    </div>
     <h1 class="greet">{greetWord}, <em>{whoName}</em></h1>
     <div class="statline">
       <div class="stat you"><span class="n mono">{hud.needsYou}</span><span class="l">need you</span></div>
@@ -269,7 +259,6 @@
         <div class="lane-head">
           <span class="lane-ic"><Icon name="fire" size={15} /></span>
           <h2>On fire</h2><span class="lane-count">{data.onFire.length}</span>
-          <span class="lane-sub">open P0s</span>
         </div>
         <div class="list">
           {#each data.onFire as t (t.id)}
@@ -285,7 +274,6 @@
         <div class="lane-head">
           <span class="lane-ic"><Icon name="question" size={15} /></span>
           <h2>Needs you</h2><span class="lane-count">{data.needsYou.length}</span>
-          <span class="lane-sub">decisions you owe + tasks on you</span>
         </div>
         <div class="list">
           {#each data.needsYou as t (t.id)}
@@ -327,7 +315,6 @@
         <div class="lane-head">
           <span class="lane-ic"><Icon name="pulse" size={15} /></span>
           <h2>In flight</h2><span class="lane-count">{data.inFlight.length}</span>
-          <span class="lane-sub">what's moving right now</span>
         </div>
         <div class="list">
           {#each data.inFlight as t (t.id)}
@@ -356,7 +343,6 @@
         <div class="lane-head">
           <span class="lane-ic"><Icon name="inbox" size={15} /></span>
           <h2>Inbox</h2><span class="lane-count">{data.inbox.length}</span>
-          <span class="lane-sub">captured ideas waiting to be triaged</span>
         </div>
         <div class="list">
           {#each data.inbox as t (t.id)}
@@ -397,8 +383,6 @@
     <span class="bz-txt"><b>Browse all tasks</b><span>{g.backlog.total} open across every lane &amp; project</span></span>
     <span class="bz-go"><Icon name="arrow" size={18} /></span>
   </a>
-
-  <div class="foot mono dim">SQLite-backed · your desk</div>
 </div>
 
 <style>
@@ -406,11 +390,6 @@
 
   /* HUD header */
   .ckhead { margin-bottom: 8px; }
-  .ck-eyebrow { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10.5px;
-    text-transform: uppercase; letter-spacing: .16em; color: var(--text-4); margin-bottom: 10px; }
-  .ck-eyebrow .live { width: 6px; height: 6px; border-radius: 50%; background: var(--violet-b);
-    animation: ckpulse 1.8s infinite; }
-  .ck-eyebrow .when { margin-left: auto; color: var(--text-4); letter-spacing: .08em; }
   .ckhead .greet { font-size: clamp(24px, 4vw, 30px); font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
   .ckhead .greet em { font-style: normal; color: var(--accent-b); }
   .statline { margin-top: 13px; display: flex; align-items: stretch; gap: 0; flex-wrap: wrap;
@@ -509,7 +488,6 @@
   .lane-head h2 { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); }
   .lane-ic { display: flex; color: var(--text-3); }
   .lane-count { font-family: var(--mono); font-size: 11px; color: var(--text-3); background: var(--surface-2); padding: 1px 8px; border-radius: 10px; }
-  .lane-sub { font-size: 11.5px; color: var(--text-4); margin-left: 2px; }
 
   .lane-you .lane-head h2, .lane-you .lane-ic { color: var(--violet-b); }
   .lane-fire .lane-head h2, .lane-fire .lane-ic { color: var(--danger-b); }
@@ -594,8 +572,6 @@
   .browse .bz-txt b { font-size: 14px; font-weight: 600; color: var(--text-1); }
   .browse .bz-txt span { font-size: 12px; color: var(--text-4); }
   .browse .bz-go { margin-left: auto; color: var(--text-4); display: flex; }
-
-  .foot { font-size: 11.5px; text-align: center; margin-top: 34px; }
 
   @keyframes ckpulse { 50% { opacity: .4; } }
 

@@ -263,8 +263,6 @@
       </section>
     {/if}
   </div>
-
-  <div class="foot mono dim">SQLite-backed · tasks · docs · questions · agents</div>
 </div>
 
 <style>
@@ -356,8 +354,6 @@
 
   /* recently-shipped lane */
   .lane-done { opacity: .85; }
-
-  .foot { font-size: 12px; text-align: center; margin-top: 36px; }
 
   @media (max-width: 560px) {
     .triage form:nth-child(2) .tg { display: none; }

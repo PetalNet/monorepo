@@ -194,8 +194,6 @@
       </section>
     {/if}
   </div>
-
-  <div class="foot mono dim">live leases · SQLite-backed · {data.lanes.reduce((n, l) => n + l.tasks.length, 0)} in flight</div>
 </div>
 
 <style>
@@ -250,5 +248,4 @@
   .lane-done { opacity: .9; }
   .lane-empty { color: var(--text-4); font-size: 13px; padding: 4px 2px; }
   .back { cursor: pointer; }
-  .foot { font-size: 12px; text-align: center; margin-top: 36px; }
 </style>

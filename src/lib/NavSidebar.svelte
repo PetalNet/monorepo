@@ -93,7 +93,8 @@
     padding: 0 12px 12px;
     background: var(--surface-1);
     border-right: 1px solid var(--border-sub); border-radius: 0;
-    transition: width .26s cubic-bezier(.4,0,.2,1);
+    /* the rail width changes INSTANTLY on collapse — animating width (a layout prop) reflowed
+       the whole main column every frame (Bob). Only label opacity animates now (compositor). */
     overflow: hidden; position: relative; z-index: 6;
   }
   /* collapsed keeps the SAME left/right padding as expanded so every icon's x is identical
@@ -108,7 +109,7 @@
     color: var(--accent-b); }
   .wordmark { font-weight: 750; font-size: 18px; letter-spacing: -.01em; color: var(--text-1);
     white-space: nowrap; overflow: hidden;
-    transition: opacity .11s ease, max-width .24s cubic-bezier(.4,0,.2,1); max-width: 120px; }
+    transition: opacity .11s ease; max-width: 120px; }
   /* collapsed: brand-mark stays put (no recenter); only the wordmark collapses */
   .collapsed .wordmark { opacity: 0; max-width: 0; }
 
@@ -122,7 +123,7 @@
   .new-btn:hover { background: var(--accent-b); }
   /* collapsed: the icon stays exactly where it was (same margin + padding); only the label
      collapses and the rail narrows — the button never recenters, so the icon never moves (Bob) */
-  .new-btn .lbl { max-width: 160px; overflow: hidden; transition: opacity .11s ease, max-width .24s cubic-bezier(.4,0,.2,1); }
+  .new-btn .lbl { max-width: 160px; overflow: hidden; transition: opacity .11s ease; }
   .collapsed .new-btn { gap: 0; }
   .collapsed .new-btn .lbl { opacity: 0; max-width: 0; }
 
@@ -146,9 +147,8 @@
   .item:hover { background: var(--surface-2); color: var(--text-1); }
   /* single highlight: the pill fill + the icon picks up accent — no second tile background */
   .item.on { background: var(--accent-bg); color: var(--accent-b); font-weight: 600; }
-  /* collapse: the label FADES fast then its width collapses while the rail narrows — no instant
-     display:none snap (Bob: "the text disappears and the box slides, not this jarring whatever"). */
-  .item .lbl { max-width: 140px; overflow: hidden; transition: opacity .11s ease, max-width .24s cubic-bezier(.4,0,.2,1); }
+  /* collapse: only the label opacity animates; max-width changes instantly (no layout animation). */
+  .item .lbl { max-width: 140px; overflow: hidden; transition: opacity .11s ease; }
   /* icon pinned: keep base padding/gap, only the label collapses — no recenter, no slide */
   .collapsed .item { gap: 0; }
   .collapsed .item .lbl { opacity: 0; max-width: 0; }
