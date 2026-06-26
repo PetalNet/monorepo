@@ -30,6 +30,30 @@ export const STALE_MS = 90_000;
 // canonical statuses we render dots for
 const KNOWN_STATUS = new Set(['working', 'alive', 'idle']);
 
+// Canonical agent roster — the known fleet. Agents that aren't currently writing a
+// fleet/<handle>.json heartbeat still appear (greyed, offline) so the cockpit shows the
+// WHOLE fleet, not just whoever happens to be reporting (Bob: "the rest of them exist").
+// A live file always wins over its roster stub; a live agent NOT in this list still shows
+// (forward-compatible). Override the default list with TASKS_FLEET_ROSTER (CSV of
+// `handle:host`) — no code change needed.
+const ROSTER = (() => {
+  const env = (process.env.TASKS_FLEET_ROSTER || '').trim();
+  const base = env
+    ? env.split(',').map((s) => s.trim()).filter(Boolean).map((pair) => {
+        const [handle, host] = pair.split(':');
+        return { handle: handle.toLowerCase(), host: host || null };
+      })
+    : [
+        { handle: 'agent-a', host: '.14' },
+        { handle: 'agent-b', host: 'example-host' },
+        { handle: 'agent-c', host: 'example-host' },
+        { handle: 'codex', host: '.14' },
+        { handle: 'agent-d', host: '.14' },
+        { handle: 'agent-e', host: '.14' }
+      ];
+  return base;
+})();
+
 // status → sort weight (working first, then alive/idle, then offline last)
 const RANK = { working: 0, alive: 1, idle: 2, offline: 3 };
 
@@ -97,6 +121,27 @@ export function getFleet(me) {
       started_at: f.started_at || null
     };
   });
+
+  // Fold in roster members that aren't currently reporting → greyed offline stubs, so the
+  // cockpit shows the whole known fleet, not just whoever wrote a file (Bob). Live files win.
+  const present = new Set(agents.map((a) => a.handle));
+  for (const r of ROSTER) {
+    if (present.has(r.handle)) continue;
+    agents.push({
+      handle: r.handle,
+      host: r.host || null,
+      status: 'offline',
+      reported: null,
+      offline: true,
+      current_tool: null,
+      updated_at: null,
+      age_ms: null,
+      session_id: null,
+      focus: focusByAgent[r.handle] ?? [],
+      started_at: null,
+      never_seen: true // roster stub: this agent has never written a heartbeat
+    });
+  }
 
   agents.sort((a, b) => {
     const r = (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9);

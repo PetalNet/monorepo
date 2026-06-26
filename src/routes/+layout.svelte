@@ -25,21 +25,10 @@
     if (n === 'new') return p.startsWith('/new');
     return false;
   };
-  // section name for the top bar
-  const section = $derived.by(() => {
-    const p = path;
-    if (p === '/') return 'Desk';
-    if (p.startsWith('/browse') || p.startsWith('/board')) return 'Browse';
-    if (p.startsWith('/task')) return 'Task';
-    if (p.startsWith('/fleet')) return 'Fleet';
-    if (p.startsWith('/issues')) return 'Issues';
-    if (p.startsWith('/docs')) return 'Docs';
-    if (p.startsWith('/gallery')) return 'Gallery';
-    if (p.startsWith('/projects') || p.startsWith('/project/')) return 'Projects';
-    if (p.startsWith('/new')) return 'New task';
-    if (p.startsWith('/inbox')) return 'Inbox';
-    return 'tasks';
-  });
+
+  // top-bar account menu + global search (the bar is now useful, not a section-name parrot)
+  let acctOpen = $state(false);
+  const q = $derived($page.url.searchParams.get('q') ?? '');
 
   function toggleTheme() {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
@@ -50,7 +39,7 @@
 
 <div class="app">
   <!-- DESKTOP SIDEBAR — Nexus-style grouped nav, collapses to an icon rail -->
-  <NavSidebar {me} {whoName} bind:collapsed fleet={data.fleet} onToggleTheme={toggleTheme} />
+  <NavSidebar bind:collapsed fleet={data.fleet} />
 
   <!-- MOBILE topbar -->
   <header class="topbar">
@@ -59,12 +48,39 @@
   </header>
 
   <main class="main">
-    <!-- DESKTOP top bar — sidebar toggle + section (Nexus-style) -->
+    <!-- DESKTOP top bar — toggle · global search · account menu (no section-name parrot) -->
     <header class="topbar-d">
       <button class="tb-toggle" onclick={() => (collapsed = !collapsed)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand' : 'Collapse'}>
         <Icon name={collapsed ? 'expand' : 'collapse'} size={18} />
       </button>
-      <span class="tb-title">{section}</span>
+
+      <form class="tb-search" action="/search" method="GET" role="search">
+        <Icon name="search" size={16} />
+        <input name="q" type="search" value={q} placeholder="Search tasks…" aria-label="Search tasks" autocomplete="off" />
+      </form>
+
+      <div class="tb-acct">
+        <button class="acct-btn" class:open={acctOpen} onclick={() => (acctOpen = !acctOpen)} aria-haspopup="menu" aria-expanded={acctOpen} aria-label="Account menu">
+          <span class="avatar acct-av">{whoName.charAt(0)}</span>
+          <span class="acct-nm">{whoName}</span>
+          <Icon name="chevdown" size={15} />
+        </button>
+        {#if acctOpen}
+          <button class="acct-bd" aria-label="Close menu" tabindex="-1" onclick={() => (acctOpen = false)}></button>
+          <div class="acct-menu" role="menu">
+            <div class="acct-id">
+              <span class="avatar acct-av lg">{whoName.charAt(0)}</span>
+              <span class="acct-who"><span class="nm">{whoName}</span><span class="sub mono">@{me}</span></span>
+            </div>
+            <button class="acct-item" role="menuitem" onclick={toggleTheme}>
+              <Icon name="moon" size={16} /> Toggle theme
+            </button>
+            <a class="acct-item" role="menuitem" href="/fleet" onclick={() => (acctOpen = false)}>
+              <Icon name="bolt" size={16} /> Fleet
+            </a>
+          </div>
+        {/if}
+      </div>
     </header>
     {@render children()}
   </main>
@@ -101,7 +117,42 @@
   .tb-toggle { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius);
     color: var(--text-3); transition: background .14s, color .14s; }
   .tb-toggle:hover { background: var(--surface-2); color: var(--text-1); }
-  .tb-title { font-size: 13px; font-weight: 600; color: var(--text-2); letter-spacing: -.005em; }
+
+  /* global search — the bar's centerpiece (submits to /browse?q=) */
+  .tb-search { flex: 1 1 auto; max-width: 440px; display: flex; align-items: center; gap: 8px;
+    height: 34px; padding: 0 11px; border-radius: var(--radius);
+    background: var(--surface-2); border: 1px solid var(--border-sub); color: var(--text-4);
+    transition: border-color .14s, background .14s; }
+  .tb-search:focus-within { border-color: var(--accent); background: var(--surface-1); color: var(--text-3); }
+  .tb-search :global(svg) { flex-shrink: 0; }
+  .tb-search input { flex: 1; min-width: 0; height: 100%; background: none; border: none; outline: none;
+    font-family: inherit; font-size: 13px; color: var(--text-1); }
+  .tb-search input::placeholder { color: var(--text-4); }
+  .tb-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+  /* account — moved up from the sidebar foot (Bob) */
+  .tb-acct { margin-left: auto; position: relative; flex-shrink: 0; }
+  .acct-btn { display: flex; align-items: center; gap: 8px; padding: 4px 7px 4px 4px; border-radius: var(--radius);
+    color: var(--text-1); transition: background .14s; }
+  .acct-btn:hover, .acct-btn.open { background: var(--surface-2); }
+  .acct-av { width: 26px; height: 26px; font-size: 12px;
+    color: var(--accent-b); background: var(--accent-bg); border-color: var(--accent); }
+  .acct-nm { font-size: 13px; font-weight: 600; }
+  .acct-btn :global(svg) { color: var(--text-4); }
+  .acct-bd { position: fixed; inset: 0; z-index: 30; background: transparent; }
+  .acct-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 31; min-width: 208px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    box-shadow: 0 10px 30px -8px rgba(0,0,0,.28); padding: 6px; display: flex; flex-direction: column; gap: 1px; }
+  .acct-id { display: flex; align-items: center; gap: 10px; padding: 8px 8px 11px;
+    border-bottom: 1px solid var(--border-sub); margin-bottom: 5px; }
+  .acct-av.lg { width: 34px; height: 34px; font-size: 14px; }
+  .acct-who { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+  .acct-who .nm { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+  .acct-who .sub { font-size: 11px; color: var(--text-4); }
+  .acct-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 9px;
+    border-radius: var(--radius); font-size: 13px; color: var(--text-2); text-decoration: none; }
+  .acct-item:hover { background: var(--surface-2); color: var(--text-1); }
+  .acct-item :global(svg) { color: var(--text-4); flex-shrink: 0; }
 
   /* mobile chrome hidden on desktop */
   .topbar, .tabbar, .sheet, .sheet-bd { display: none; }
