@@ -93,13 +93,16 @@
     padding: 0 12px 12px;
     background: var(--surface-1);
     border-right: 1px solid var(--border-sub); border-radius: 0;
-    /* the rail width changes INSTANTLY on collapse — animating width (a layout prop) reflowed
-       the whole main column every frame (Bob). Only label opacity animates now (compositor). */
+    /* GCal-style smooth collapse: animate the rail WIDTH with overflow:hidden so the labels are
+       CLIPPED (not squished/reflowed) as it narrows — that's the whole trick to it looking smooth
+       (Bob's reference). Icons stay pinned; labels just fade + clip, nothing inside relayouts. */
+    transition: width .2s cubic-bezier(.4, 0, .2, 1);
     overflow: hidden; position: relative; z-index: 6;
   }
   /* collapsed keeps the SAME left/right padding as expanded so every icon's x is identical
      in both states — only the rail width + labels animate, icons never slide (Bob). */
   .nav.collapsed { --w: 68px; }
+  @media (prefers-reduced-motion: reduce) { .nav { transition: none; } }
 
   /* brand row = a 56px header, content vertically centered, so the logomark lines up EXACTLY with
      the top bar's row across the sidebar/main seam (Bob: "not aligned at all" — was a too-big
@@ -110,8 +113,8 @@
   .wordmark { font-weight: 750; font-size: 18px; letter-spacing: -.01em; color: var(--text-1);
     white-space: nowrap; overflow: hidden;
     transition: opacity .11s ease; max-width: 120px; }
-  /* collapsed: brand-mark stays put (no recenter); only the wordmark collapses */
-  .collapsed .wordmark { opacity: 0; max-width: 0; }
+  /* collapsed: brand-mark stays put; the wordmark fades + clips (overflow), no box-collapse */
+  .collapsed .wordmark { opacity: 0; }
 
   /* primary action — SOLID accent fill so it's clearly distinct from the active-tab tint */
   .new-btn { display: flex; align-items: center; gap: 10px; overflow: hidden; margin: 10px 2px; padding: 9px 11px;
@@ -124,8 +127,7 @@
   /* collapsed: the icon stays exactly where it was (same margin + padding); only the label
      collapses and the rail narrows — the button never recenters, so the icon never moves (Bob) */
   .new-btn .lbl { max-width: 160px; overflow: hidden; transition: opacity .11s ease; }
-  .collapsed .new-btn { gap: 0; }
-  .collapsed .new-btn .lbl { opacity: 0; max-width: 0; }
+  .collapsed .new-btn .lbl { opacity: 0; }
 
   .groups { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden;
     margin: 0 -2px; padding: 0 2px; }
@@ -149,9 +151,8 @@
   .item.on { background: var(--accent-bg); color: var(--accent-b); font-weight: 600; }
   /* collapse: only the label opacity animates; max-width changes instantly (no layout animation). */
   .item .lbl { max-width: 140px; overflow: hidden; transition: opacity .11s ease; }
-  /* icon pinned: keep base padding/gap, only the label collapses — no recenter, no slide */
-  .collapsed .item { gap: 0; }
-  .collapsed .item .lbl { opacity: 0; max-width: 0; }
+  /* icon pinned: keep base padding/gap; label fades + clips via overflow (no box-collapse) */
+  .collapsed .item .lbl { opacity: 0; }
 
   /* FOOT: live Fleet — full roster, the sidebar's bottom anchor (clickable → /fleet) */
   .fleet { display: block; margin-top: 8px; padding: 11px 11px 4px; border-top: 1px solid var(--border-sub);

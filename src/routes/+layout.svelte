@@ -1,6 +1,5 @@
 <script>
   import '../app.css';
-  import { tick } from 'svelte';
   import { page } from '$app/stores';
   // Stickies removed from render (task-499, Bob: overlay blocked inspect-element).
   // Component left in place so it's reversible — re-add the import + <Stickies /> to restore.
@@ -13,31 +12,8 @@
 
   // sidebar collapse — persisted
   let collapsed = $state(false);
-  let mainEl;
   $effect(() => { try { collapsed = localStorage.getItem('tasks-nav-collapsed') === '1'; } catch {} });
   $effect(() => { try { localStorage.setItem('tasks-nav-collapsed', collapsed ? '1' : '0'); } catch {} });
-
-  // Sidebar collapse without animating a layout property (Bob). The rail width snaps
-  // instantly (no width transition); we FLIP the main column so it *slides* into the
-  // reclaimed space via transform (compositor-only). The .app background matches the rail
-  // surface, so the transient gap reads as the rail smoothly narrowing rather than a jump.
-  function toggleNav() {
-    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    if (reduce || !mainEl) { collapsed = !collapsed; return; }
-    const first = mainEl.getBoundingClientRect().left;
-    collapsed = !collapsed;
-    tick().then(() => {
-      const dx = first - mainEl.getBoundingClientRect().left;
-      if (!dx) return;
-      mainEl.style.transition = 'none';
-      mainEl.style.transform = `translateX(${dx}px)`;
-      void mainEl.getBoundingClientRect();           // force the inverted frame
-      mainEl.style.transition = 'transform .26s cubic-bezier(.4,0,.2,1)';
-      mainEl.style.transform = '';
-      const done = () => { mainEl.style.transition = ''; mainEl.removeEventListener('transitionend', done); };
-      mainEl.addEventListener('transitionend', done);
-    });
-  }
 
   // who's signed in (Authentik -> locals.user -> data.user)
   const me = $derived(String(data.user || 'dev').toLowerCase());
@@ -74,10 +50,10 @@
     <button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"><Icon name="moon" size={18} /></button>
   </header>
 
-  <main class="main" bind:this={mainEl}>
+  <main class="main">
     <!-- DESKTOP top bar — toggle · global search · account menu (no section-name parrot) -->
     <header class="topbar-d">
-      <button class="tb-toggle" onclick={toggleNav} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand' : 'Collapse'}>
+      <button class="tb-toggle" onclick={() => (collapsed = !collapsed)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand' : 'Collapse'}>
         <Icon name={collapsed ? 'expand' : 'collapse'} size={18} />
       </button>
 
@@ -128,9 +104,7 @@
 
 <style>
   /* ── shell layout ─────────────────────────────────────── */
-  /* rail-surface bg so the transient gap during the FLIP collapse reads as the rail
-     narrowing (the main column slides over it via transform — no layout animation). */
-  .app { height: 100dvh; display: flex; overflow: hidden; background: var(--surface-1); }
+  .app { height: 100dvh; display: flex; overflow: hidden; }
   /* shell column: a FIXED top bar + a SEPARATE inner scroller, so the bar never moves on
      overscroll (Bob: "only the page itself should overscroll" — sticky-inside-the-scroller
      still rubber-banded with the bounce; taking the bar out of the scroller is the real fix). */
