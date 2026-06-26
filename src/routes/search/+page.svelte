@@ -12,14 +12,8 @@
 <svelte:head><title>{data.q ? `“${data.q}” · search` : 'Search'} · tasks</title></svelte:head>
 
 <div class="wrap">
-  <form class="search" action="/search" method="GET" role="search">
-    <Icon name="search" size={18} />
-    <input name="q" type="search" value={data.q} placeholder="Search tasks by title or body…"
-           aria-label="Search tasks" autocomplete="off" autofocus />
-  </form>
-
   {#if !data.q}
-    <p class="hint">Type a query above to search every task you can see — by title or body.</p>
+    <p class="hint">Use the search bar above to search every task you can see — by title or body.</p>
   {:else}
     <p class="count">{data.results.length}{data.results.length === 60 ? '+' : ''}
       result{data.results.length === 1 ? '' : 's'} for <b>“{data.q}”</b></p>
@@ -54,24 +48,14 @@
 <style>
   .wrap { max-width: 760px; margin: 0 auto; padding: 22px 20px 64px; }
 
-  .search { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 15px;
-    border-radius: var(--radius-lg); background: var(--surface-1); border: 1px solid var(--border-sub);
-    color: var(--text-4); transition: border-color .14s; }
-  .search:focus-within { border-color: var(--accent); color: var(--text-3); }
-  .search :global(svg) { flex-shrink: 0; }
-  .search input { flex: 1; min-width: 0; height: 100%; background: none; border: none; outline: none;
-    font-family: inherit; font-size: 15.5px; color: var(--text-1); }
-  .search input::placeholder { color: var(--text-4); }
-  .search input::-webkit-search-cancel-button { -webkit-appearance: none; }
-
   .hint { margin: 22px 2px; color: var(--text-4); font-size: 14px; }
-  .count { margin: 20px 2px 10px; color: var(--text-3); font-size: 13px; }
+  .count { margin: 4px 2px 12px; color: var(--text-3); font-size: 13px; }
   .count b { color: var(--text-1); font-weight: 600; }
 
   /* flat result rows — dividers, not nested cards */
   .results { list-style: none; margin: 0; padding: 0; }
   .results li + li { border-top: 1px solid var(--border-sub); }
-  .row { display: flex; align-items: center; gap: 12px; padding: 12px 8px; text-decoration: none;
+  .row { display: flex; align-items: center; gap: 14px; padding: 16px 12px; text-decoration: none;
     border-radius: var(--radius); transition: background .12s; }
   .row:hover { background: var(--surface-1); }
   .row.done { opacity: .62; }

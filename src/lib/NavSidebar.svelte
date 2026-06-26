@@ -89,9 +89,9 @@
     width: var(--w); flex-shrink: 0;
     height: 100dvh; box-sizing: border-box;
     display: flex; flex-direction: column; gap: 2px;
-    padding: 16px 12px 12px;
+    padding: 12px 12px 12px;
     background: var(--surface-1);
-    border-right: 1px solid var(--border-sub);
+    border-right: 1px solid var(--border-sub); border-radius: 0;
     transition: width .26s cubic-bezier(.4,0,.2,1);
     overflow: hidden; position: relative; z-index: 6;
   }
@@ -114,7 +114,9 @@
   :global(html.skin-paper-ink [data-theme='light']) .new-btn { color: #fff; }
   .new-btn :global(svg) { flex-shrink: 0; }
   .new-btn:hover { background: var(--accent-b); }
-  .collapsed .new-btn { justify-content: center; padding-left: 0; padding-right: 0; }
+  /* collapsed: 34×34 centered square — 18px icon + 8px padding all round, matching the
+     expanded rows' vertical padding so icons don't change size/box on collapse (Bob) */
+  .collapsed .new-btn { justify-content: center; gap: 0; width: 34px; height: 34px; padding: 0; margin: 0 auto 10px; }
   .collapsed .new-btn .lbl { display: none; }
 
   .groups { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden;
@@ -131,7 +133,7 @@
   /* single highlight: the pill fill + the icon picks up accent — no second tile background */
   .item.on { background: var(--accent-bg); color: var(--accent-b); font-weight: 600; }
   .item .lbl { transition: opacity .16s; }
-  .collapsed .item { justify-content: center; padding-left: 0; padding-right: 0; gap: 0; }
+  .collapsed .item { justify-content: center; gap: 0; width: 34px; height: 34px; padding: 0; margin: 0 auto; }
   .collapsed .item .lbl { display: none; }
 
   /* FOOT: live Fleet — full roster, the sidebar's bottom anchor (clickable → /fleet) */
