@@ -129,9 +129,16 @@
 
   .groups { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden;
     margin: 0 -2px; padding: 0 2px; }
-  .grp-label { margin: 14px 0 4px; padding: 0 11px; font-size: 10px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .12em; color: var(--text-4); white-space: nowrap; }
-  .collapsed .grp-label { opacity: 0; height: 1px; margin: 8px 8px; padding: 0; background: var(--border-sub); overflow: hidden; }
+  /* fixed height + margins in BOTH states so collapse never shifts the items below
+     (Bob: "the library text disappears, that's a bit of a shift"). On collapse the
+     text fades to transparent and a centered hairline takes its place — same footprint. */
+  .grp-label { margin: 14px 0 4px; padding: 0 11px; height: 13px; line-height: 13px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--text-4); white-space: nowrap; overflow: hidden; position: relative;
+    transition: color .15s ease; }
+  .collapsed .grp-label { color: transparent; }
+  .collapsed .grp-label::after { content: ''; position: absolute; left: 10px; right: 10px;
+    top: 50%; height: 1px; margin-top: -0.5px; background: var(--border-sub); }
 
   .item { display: flex; align-items: center; gap: 11px; overflow: hidden;
     padding: 8px 11px; border-radius: var(--radius); text-decoration: none; white-space: nowrap;
