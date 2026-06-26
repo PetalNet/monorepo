@@ -45,7 +45,7 @@ catalogs:
     knip: ^6.16.1
     oxlint: ^1.67.0
     postcss: ^8.4.49
-    prisma: ^5.22.0
+    prisma: ^7.0.0
     svelte-check: ^4.3.5
     typescript: ^6.0.3
     typescript-eslint: ^8.60.0
@@ -68,7 +68,7 @@ catalogs:
   prod:
     "@libsql/client": ^0.17.0
     "@modelcontextprotocol/sdk": ^1.29.0
-    "@prisma/client": ^5.22.0
+    "@prisma/client": ^7.0.0
     "@sveltejs/kit": ^2.50.1
     bcryptjs: ^2.4.3
     date-fns: ^4.1.0
