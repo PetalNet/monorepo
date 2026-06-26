@@ -1,7 +1,9 @@
 <script>
   import '../app.css';
   import { page } from '$app/stores';
-  import Stickies from '$lib/Stickies.svelte';
+  // Stickies removed from render (task-499, Bob: overlay blocked inspect-element).
+  // Component left in place so it's reversible — re-add the import + <Stickies /> to restore.
+  // import Stickies from '$lib/Stickies.svelte';
   import NavSidebar from '$lib/NavSidebar.svelte';
   import Icon from '$lib/Icon.svelte';
   let { children, data } = $props();
@@ -79,7 +81,7 @@
         {/if}
       </div>
     </header>
-    {@render children()}
+    <div class="main-scroll">{@render children()}</div>
   </main>
 
   <!-- MOBILE bottom tab bar + More sheet -->
@@ -100,19 +102,20 @@
   </nav>
 </div>
 
-<Stickies />
+<!-- <Stickies /> — removed (task-499); component retained in $lib for easy restore -->
 
 <style>
   /* ── shell layout ─────────────────────────────────────── */
   .app { height: 100dvh; display: flex; overflow: hidden; }
-  /* the page is the ONLY scroller — contain overscroll so the bounce doesn't chain up
-     and drag the sticky top bar with it (Bob: "only the page itself should overscroll") */
-  .main { flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; height: 100dvh;
-    overscroll-behavior: contain; }
+  /* shell column: a FIXED top bar + a SEPARATE inner scroller, so the bar never moves on
+     overscroll (Bob: "only the page itself should overscroll" — sticky-inside-the-scroller
+     still rubber-banded with the bounce; taking the bar out of the scroller is the real fix). */
+  .main { flex: 1; min-width: 0; min-height: 0; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  .main-scroll { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 
   /* desktop top bar — holds the sidebar toggle + global search + account.
      height + vertical center match the sidebar brand/logomark row (no curve — squared chrome) */
-  .topbar-d { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 6px;
+  .topbar-d { flex-shrink: 0; z-index: 5; display: flex; align-items: center; gap: 6px;
     height: 56px; padding: 0 16px; border-radius: 0;
     background: color-mix(in srgb, var(--surface-1) 86%, transparent);
     backdrop-filter: blur(8px); border-bottom: 1px solid var(--border-sub); }

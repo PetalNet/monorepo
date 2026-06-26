@@ -55,8 +55,8 @@
   /* flat result rows — dividers, not nested cards */
   .results { list-style: none; margin: 0; padding: 0; }
   .results li + li { border-top: 1px solid var(--border-sub); }
-  .row { display: flex; align-items: center; gap: 14px; padding: 16px 12px; text-decoration: none;
-    border-radius: var(--radius); transition: background .12s; }
+  .row { display: flex; align-items: center; gap: 14px; padding: 19px 12px; text-decoration: none;
+    background: none; border: 0; border-radius: var(--radius); transition: background .12s; }
   .row:hover { background: var(--surface-1); }
   .row.done { opacity: .62; }
   .row.done .title { text-decoration: line-through; text-decoration-color: var(--text-4); }

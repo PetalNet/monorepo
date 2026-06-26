@@ -1275,7 +1275,7 @@ export function boardCounts(me) {
   // INNER JOIN + vis() so the count never includes closures of tasks this viewer can't see. (review)
   const closes = db.prepare(
     `SELECT e.data AS data FROM events e JOIN tasks t ON t.id = e.task_id
-      WHERE e.type='closed' AND e.at >= datetime('now','start of day')
+      WHERE e.type='closed' AND date(e.at,'localtime') = date('now','localtime')
         ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ''}`
   ).all(me ? { me } : {});
   for (const c of closes) {
@@ -1391,18 +1391,22 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
   });
 
   // GRAPHS — momentum (closes/day incl today), backlog (open by priority), focus donut.
-  // momentum: 14-day window of 'closed' events, bucketed by UTC day. Visibility-gated.
+  // momentum: 14-day window of 'closed' events, bucketed by LOCAL (America/Chicago, set via
+  // the container TZ) day — UTC bucketing rolled evening-Central closes into the next day, so
+  // "closed today" read 0 after ~7pm local (the "I did 4 things but it said nothing" bug). Visibility-gated.
   const closeRows = db.prepare(
-    `SELECT date(e.at) AS day, COUNT(*) AS n
+    `SELECT date(e.at,'localtime') AS day, COUNT(*) AS n
        FROM events e JOIN tasks t ON t.id = e.task_id
-      WHERE e.type='closed' AND e.at >= datetime('now','-13 days','start of day')
+      WHERE e.type='closed' AND date(e.at,'localtime') >= date('now','localtime','-13 days')
         ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ''}
-      GROUP BY date(e.at)`
+      GROUP BY date(e.at,'localtime')`
   ).all(meArgs);
   const byDay = new Map(closeRows.map((r) => [r.day, r.n]));
+  // Build the 14 day-keys in the SAME local zone so they match the SQL local-date buckets.
+  const localDay = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
   const series = [];
   for (let i = 13; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    const d = localDay(Date.now() - i * 86400000);
     series.push({ day: d, n: byDay.get(d) ?? 0 });
   }
   const closedToday = series[series.length - 1].n;
