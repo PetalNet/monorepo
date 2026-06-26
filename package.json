@@ -6,7 +6,8 @@
     "dev": "vite dev",
     "build": "vite build",
     "start": "node build",
-    "preview": "node build"
+    "preview": "node build",
+    "test:guards": "node scripts/guard-public-share.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",
