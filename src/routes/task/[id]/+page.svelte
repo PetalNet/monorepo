@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import Icon from '$lib/Icon.svelte';
   import { projectName, whoColor } from '$lib/people.js';
+  import ProseMark from '$lib/ProseMark.svelte';
   let { data } = $props();
   const t = $derived(data.task);
 
@@ -152,62 +153,19 @@
   let editingBody = $state(false);
   let bodyDraft = $state('');            // textarea value (fallback editor + the submitted value)
   function startEditBody() { bodyDraft = t.body ?? ''; editingBody = true; }
-  function cancelEditBody() { editingBody = false; teardownPM(); }
+  function cancelEditBody() { editingBody = false; }
 
-  // ── ProseMark body editor (lazy ESM, exactly like the design-system site) ──
-  // The bundle is heavy (~860KB) so it is NEVER statically imported — it's dynamically
-  // imported only when the user opens edit mode, then createProseMark(el, md) mounts a real
-  // CodeMirror-based WYSIWYM editor. We extract the edited markdown via the returned
-  // EditorView's `view.state.doc.toString()` (the bundle's own showRead() does the same).
-  // If the bundle fails to load, we fall back to the plain <textarea> so edits NEVER drop.
-  let pmHost = $state(null);     // div ProseMark mounts into
-  let pmView = null;             // the EditorView createProseMark returns
-  let pmStatus = $state('idle'); // 'idle' | 'loading' | 'ready' | 'failed'
-  let _pmPromise = null;
-  function loadProseMark() {
-    // @vite-ignore + a runtime-built specifier: this is a static asset served from /static,
-    // NOT a bundled module — Rollup must not try to resolve/bundle it at build time.
-    const url = '/vendor/' + 'prosemark.bundle.js';
-    if (!_pmPromise) _pmPromise = import(/* @vite-ignore */ url).then((m) => m.createProseMark);
-    return _pmPromise;
-  }
-  function teardownPM() {
-    try { pmView?.destroy?.(); } catch {}
-    pmView = null;
-    pmStatus = 'idle';
-  }
-  // mount ProseMark whenever the host div appears in edit mode (and we don't already have a view)
-  $effect(() => {
-    if (!editingBody || !pmHost || pmView || pmStatus === 'failed') return;
-    pmStatus = 'loading';
-    let cancelled = false;
-    loadProseMark()
-      .then((createProseMark) => {
-        if (cancelled || !pmHost) return;
-        pmView = createProseMark(pmHost, bodyDraft ?? '');
-        pmStatus = 'ready';
-      })
-      .catch((e) => { console.error('ProseMark mount failed', e); pmStatus = 'failed'; });
-    return () => { cancelled = true; };
-  });
-  // Pull the edited markdown out of ProseMark via the EditorView's state.doc.toString()
-  // (the bundle's own showRead() extracts identically). Returns the current markdown, or
-  // null when ProseMark isn't the active editor (failed → textarea path handles its own value).
-  function extractPMMarkdown() {
-    if (pmStatus === 'ready' && pmView) {
-      try { return pmView.state.doc.toString(); } catch (e) { console.error('ProseMark extract failed', e); }
-    }
-    return null;
-  }
+  // ── ProseMark body editor — the pixel-identical design-system component. It encapsulates the
+  //    lazy ~860KB bundle load, the CodeMirror WYSIWYM mount, read/edit modes, the heading "#"
+  //    marker, and markdown sync (pmRef.sync() returns the live doc). Falls back internally.
+  let pmRef = $state(null);   // bound ProseMark instance
   // Submit handler: write the editor's CURRENT markdown straight onto the outgoing FormData.
-  // We must mutate formData synchronously here (NOT rely on a reactive bind:value flush) — enhance
-  // serializes the form the instant submit fires, before Svelte flushes DOM updates, so a hidden
-  // input bound to a $state set in this callback would still carry the stale value. Setting
-  // formData directly is what actually persists the edit (the anti-facade fix).
+  // Mutate formData synchronously (NOT via a reactive bind flush) — enhance serializes the form
+  // the instant submit fires, before Svelte flushes DOM updates; the direct set persists the edit.
   const saveBody = ({ formData }) => {
-    const md = extractPMMarkdown();
+    const md = pmRef?.sync();
     if (md != null) { bodyDraft = md; formData.set('body', md); }
-    return async ({ update }) => { await update(); editingBody = false; teardownPM(); };
+    return async ({ update }) => { await update(); editingBody = false; };
   };
 
   let speaking = $state(false);
@@ -508,16 +466,7 @@
         <form method="POST" action="?/save" use:enhance={saveBody}>
           <input type="hidden" name="vis_touched" value="1" />
           <input type="hidden" name="private" value={t.visibility === 'private' ? '1' : ''} />
-          <input type="hidden" name="body" value={bodyDraft} />
-          <div class="pm-toolbar">
-            <span class="pm-tag mono">{pmStatus === 'failed' ? 'markdown · raw (editor unavailable)' : 'prosemark · paper-ink'}</span>
-            {#if pmStatus === 'loading'}<span class="pm-loading mono">loading editor…</span>{/if}
-          </div>
-          {#if pmStatus === 'failed'}
-            <textarea name="body_fallback" class="pm-surface mono" rows="12" bind:value={bodyDraft} placeholder="# The detailed plan. Drop research here before starting…"></textarea>
-          {:else}
-            <div class="pm-mount" bind:this={pmHost}></div>
-          {/if}
+          <ProseMark bind:this={pmRef} bind:value={bodyDraft} name="body" start="edit" />
           <div class="edit-actions">
             <span class="edit-hint mono">renders as sanitized markdown on save</span>
             <button type="button" class="btn-ghost" onclick={cancelEditBody}>Cancel</button>
@@ -975,49 +924,7 @@
   }
   .body-empty:hover { border-color: var(--accent-ln); color: var(--text-2); }
 
-  /* edit mode (simple markdown toggle — ProseMark WYSIWYG is a follow-up) */
-  .pm-toolbar {
-    display: flex; align-items: center; padding: 7px 11px; background: var(--surface-2);
-    border: 1px solid var(--border); border-bottom: none; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  }
-  .pm-tag { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-4); }
-  .pm-surface {
-    width: 100%; min-height: 200px; background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 0 0 var(--radius-lg) var(--radius-lg); padding: 16px 18px; font-size: 13px; line-height: 1.6;
-    color: var(--text-1); outline: none; resize: vertical;
-  }
-  .pm-surface:focus { border-color: var(--accent-ln); }
-  .pm-loading { margin-left: auto; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-4); }
-
-  /* ── ProseMark editor surface (lazy CodeMirror bundle) ──
-     The bundle generates .cm-* nodes; Svelte scopes styles, so these are :global() and
-     theme the editor with the tasks tokens. Geometry (14px/1.6, 18/20 padding) mirrors the
-     design-system read-view CSS (.pm-rendered, lines 565-577) so editor ⇄ rendered markdown
-     stay visually consistent. */
-  .pm-mount {
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 0 0 var(--radius-lg) var(--radius-lg); overflow: hidden; min-height: 220px;
-    --pm-code-background-color: var(--surface-2);
-  }
-  .pm-mount :global(.cm-editor) { font: 14px/1.6 var(--sans); color: var(--text-1); background: var(--surface-1); }
-  .pm-mount :global(.cm-editor.cm-focused) { outline: none; }
-  .pm-mount :global(.cm-scroller) { font-family: var(--sans); font-size: 14px; line-height: 1.6; }
-  .pm-mount :global(.cm-content) { padding: 18px 20px; caret-color: var(--accent-b); max-width: none; font-size: 14px; line-height: 1.6; }
-  .pm-mount :global(.cm-line) { padding: 0; line-height: 1.6; }
-  .pm-mount :global(.cm-gutters) { display: none; }
-  .pm-mount :global(.cm-cursor) { border-left-color: var(--accent-b); }
-  .pm-mount :global(.cm-activeLine), .pm-mount :global(.cm-activeLineGutter) { background: transparent; }
-  .pm-mount :global(.cm-selectionBackground), .pm-mount :global(.cm-content ::selection) { background: var(--accent-bg) !important; }
-  .pm-mount :global(.cm-focused .cm-selectionBackground) { background: var(--accent-bg) !important; }
-  .pm-mount :global(.cm-inline-code), .pm-mount :global(code), .pm-mount :global(.cm-monospace) { font-family: var(--mono); font-size: 12.5px; }
-  .pm-mount :global(.cm-inline-code) { background: var(--surface-2); border-radius: var(--radius-sm); padding: 1px 4px; }
-  .pm-mount :global(.cm-rendered-link), .pm-mount :global(.cm-url), .pm-mount :global(.cm-link) { color: var(--accent-b); }
-  .pm-mount :global(.cm-blockquote-line) { color: var(--text-1); }
-  .pm-mount :global(.cm-rendered-list-mark) { color: var(--accent-b); }
-  .pm-mount :global(.cm-fenced-code-line) { box-shadow: -12px 0 0 0 var(--surface-2), 12px 0 0 0 var(--surface-2); }
-  .pm-mount :global(.cm-fenced-code-line.cm-soft-indent-line) { padding-inline-start: 0 !important; text-indent: 0 !important; }
-  .pm-mount :global(.cm-code-block-info) { margin-top: 4px; margin-right: 8px; }
-  .pm-mount :global(.cm-code-block-lang-container), .pm-mount :global(.cm-code-block-copy-button) { color: var(--accent-b); }
+  /* edit mode: the ProseMark editor surface + all .cm-* theming now live inside ProseMark.svelte */
   .edit-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 12px; }
   .edit-hint { margin-right: auto; font-size: 10.5px; color: var(--text-4); }
   .btn-ghost {
