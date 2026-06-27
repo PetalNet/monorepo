@@ -2,7 +2,7 @@
   import { enhance } from '$app/forms';
   import Icon from '$lib/Icon.svelte';
   import { projectName, whoColor } from '$lib/people.js';
-  import ProseMark from '$lib/ProseMark.svelte';
+  import ProseMark, { preloadProseMark } from '$lib/ProseMark.svelte';
   let { data } = $props();
   const t = $derived(data.task);
 
@@ -466,7 +466,7 @@
         <form method="POST" action="?/save" use:enhance={saveBody}>
           <input type="hidden" name="vis_touched" value="1" />
           <input type="hidden" name="private" value={t.visibility === 'private' ? '1' : ''} />
-          <ProseMark bind:this={pmRef} bind:value={bodyDraft} name="body" start="edit" />
+          <ProseMark bind:this={pmRef} bind:value={bodyDraft} name="body" />
           <div class="edit-actions">
             <span class="edit-hint mono">renders as sanitized markdown on save</span>
             <button type="button" class="btn-ghost" onclick={cancelEditBody}>Cancel</button>
@@ -479,7 +479,7 @@
       {#if isProse}
         <section class="sec">
           <div class="sec-head"><span class="ic"><Icon name="doc" size={13} /></span><h2>{t.kind === 'idea' ? 'Idea' : 'Document'}</h2>
-            {#if canWrite && !editingBody}<span class="right"><button type="button" class="edit-btn" onclick={startEditBody}>Edit</button></span>{/if}
+            {#if canWrite && !editingBody}<span class="right"><button type="button" class="edit-btn" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>Edit</button></span>{/if}
           </div>
           {#if editingBody}
             {@render bodyEditor()}
@@ -532,7 +532,7 @@
             <span class="ic"><Icon name="doc" size={13} /></span>
             <h2>Description</h2>
             {#if canWrite && !editingBody}
-              <span class="right"><button type="button" class="edit-btn" onclick={startEditBody}>Edit</button></span>
+              <span class="right"><button type="button" class="edit-btn" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>Edit</button></span>
             {/if}
           </div>
 
@@ -544,7 +544,7 @@
           {:else if data.bodyHtml}
             <div class="bodycard read"><article class="prose body-prose">{@html data.bodyHtml}</article></div>
           {:else if canWrite}
-            <button type="button" class="body-empty" onclick={startEditBody}>No description yet — click to add the plan.</button>
+            <button type="button" class="body-empty" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>No description yet — click to add the plan.</button>
           {:else}
             <div class="bodycard read"><p class="dim">No description.</p></div>
           {/if}
