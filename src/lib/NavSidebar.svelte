@@ -97,6 +97,8 @@
        (Bob's reference). Icons stay pinned; labels just fade + clip, nothing inside relayouts. */
     transition: width .2s cubic-bezier(.4, 0, .2, 1);
     overflow: hidden; position: relative; z-index: 6;
+    /* contain layout so the collapse reflow physically can't escape the rail (Bob) */
+    contain: layout;
   }
   /* collapsed keeps the SAME left/right padding as expanded so every icon's x is identical
      in both states — only the rail width + labels animate, icons never slide (Bob). */

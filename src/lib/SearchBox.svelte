@@ -2,6 +2,7 @@
   // Top-bar instant search (task-506) — Nexus-style typeahead: fuzzy-rank the whole
   // visible corpus locally and surface a live preview dropdown right under the bar.
   // ↑/↓ to move, Enter to open (or see all results), Esc to dismiss, ⌘/Ctrl-K to focus.
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import Icon from '$lib/Icon.svelte';
   import { rankTasks, highlightChunks } from '$lib/fuzzy.js';
@@ -18,6 +19,14 @@
   let loading = $state(false);
   let inputEl = $state(null);
   let recents = $state(loadRecents());
+
+  // platform-aware shortcut glyph: ⌘ on Mac, ⌃ (Ctrl) elsewhere. SSR-safe — defaults to ⌃,
+  // flips on mount where navigator exists (the handler already accepts both meta + ctrl).
+  let modGlyph = $state('⌃');
+  onMount(() => {
+    const p = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent;
+    if (/mac/i.test(p)) modGlyph = '⌘';
+  });
 
   const STORAGE_KEY = 'tasks:recent-searches';
   const MAX_RECENTS = 6;
@@ -127,7 +136,7 @@
       oninput={onInput}
       onkeydown={onKeydown}
     />
-    <kbd class="sb-kbd">⌘K</kbd>
+    <kbd class="sb-kbd">{modGlyph}K</kbd>
   </div>
 
   {#if showPanel}
@@ -191,7 +200,7 @@
     font: inherit; font-size: 13.5px; color: var(--text-1); }
   .sb-field input::placeholder { color: var(--text-4); }
   .sb-field input::-webkit-search-cancel-button { -webkit-appearance: none; }
-  .sb-kbd { flex-shrink: 0; font-family: var(--mono); font-size: 10.5px; color: var(--text-4);
+  .sb-kbd { flex-shrink: 0; font-family: var(--mono); color: var(--text-4);
     padding: 1px 5px; border: 1px solid var(--border-sub); border-radius: 5px; line-height: 1.5; }
   .sb-field:focus-within .sb-kbd { display: none; }
 
