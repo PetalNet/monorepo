@@ -1,6 +1,7 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import remarkRehype from 'remark-rehype';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeStringify from 'rehype-stringify';
@@ -154,6 +155,12 @@ const schema = {
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
+  // Treat a single newline as a hard line break (GitHub-comment semantics). Bodies,
+  // docs, ideas and comments are typed in a form where people EXPECT their line breaks
+  // to survive; plain markdown collapses a lone "\n" into a space, which read as the
+  // app "eating whitespace". Runs after gfm, before rehype, so the breaks are real
+  // mdast nodes that still go through sanitize.
+  .use(remarkBreaks)
   .use(remarkRehype)
   .use(rehypeWikilinks)
   .use(rehypeSanitize, schema)
