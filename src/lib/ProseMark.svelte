@@ -15,13 +15,12 @@
 </script>
 
 <script>
-  // ── ProseMark editor — PIXEL-PORT of the PetalNet design-system editor ──
-  // A single WYSIWYM markdown surface on CodeMirror 6 (@prosemark/core): markdown
-  // renders inline as you type, only the active line shows its raw "#"/marks. There
-  // is deliberately NO read/preview pane here — the task page already renders the
-  // SAVED body through the real `.prose` pipeline (server md.js -> bodyHtml), so the
-  // non-editing view IS the pixel-identical preview. A second in-editor renderer would
-  // only diverge from it. This component is edit-only; the parent owns read.
+  // ── ProseMark editor — a WYSIWYM markdown surface (CodeMirror 6 / @prosemark/core)
+  // themed to render LINE-FOR-LINE like the saved task body. The task page already shows
+  // the saved body through the real `.prose` pipeline (server md.js -> bodyHtml); this
+  // editor is styled to match that .prose render (same font, sizes, heading colors, card)
+  // so flipping into edit mode doesn't shift the text — only the active line reveals its
+  // raw "#"/marks. There is NO read/preview pane here; the parent owns the saved render.
   let { value = $bindable(''), name = '' } = $props();
 
   let mountEl = $state(null);   // div ProseMark mounts the EditorView into
@@ -38,7 +37,7 @@
       status = 'ready';
     } catch (e) {
       status = 'failed';
-      mountEl.innerHTML = '<div style="padding:18px 20px;color:var(--text-mute);font-size:13px">Editor failed to load.</div>';
+      mountEl.innerHTML = '<div style="padding:18px 20px;color:var(--text-3);font-size:13px">Editor failed to load.</div>';
       console.error('ProseMark mount failed', e);
     }
   }
@@ -58,94 +57,81 @@
 </script>
 
 <div class="pm-shell" id="pm-shell">
-  <div class="pm-bar">
-    <span class="pm-ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg></span>
-    <span class="pm-label">Editor</span>
-  </div>
   <div class="pm-pane" id="pm-edit"><div id="pm-mount" bind:this={mountEl}></div></div>
   {#if name}<input type="hidden" {name} value={value} />{/if}
 </div>
 
 <style>
-  /* ── Self-hosted Geist (mirrors the ds site / fontless output) ─────────── */
-  :global(.pm-fontface) {} /* anchor */
-  @font-face { font-family: 'Geist'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/geist-latin-400-normal.woff2') format('woff2'); }
-  @font-face { font-family: 'Geist'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/geist-latin-500-normal.woff2') format('woff2'); }
-  @font-face { font-family: 'Geist'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/geist-latin-600-normal.woff2') format('woff2'); }
-  @font-face { font-family: 'Geist Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/geist-mono-latin-400-normal.woff2') format('woff2'); }
-  @font-face { font-family: 'Geist Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/geist-mono-latin-500-normal.woff2') format('woff2'); }
-  @font-face { font-family: 'Geist Fallback'; src: local('Arial'); size-adjust: 121.8125%; ascent-override: 82.5039%; descent-override: 24.2176%; line-gap-override: 0%; }
-  @font-face { font-family: 'Geist Mono Fallback'; src: local('Courier New'), local('Courier'); size-adjust: 99.9833%; ascent-override: 100.5168%; descent-override: 29.5049%; line-gap-override: 0%; }
-
-  /* ── token island: the editor is a faithful petal / paper-ink surface,
-     self-contained so it renders pixel-identical to the ds reference
-     regardless of the host app's (amber) theme. Light by default; dark under
-     [data-theme='dark'] mirrors the ds dark tokens. ──────────────────────── */
+  /* The editor is a .bodycard-equivalent surface: it inherits the APP tokens (so colors
+     theme-switch with the app, not a separate island) and its rendered markdown is themed
+     to match the saved `.prose` render. The CodeMirror WYSIWYM output uses GENERATED
+     highlight classes for headings/strong (ͼq=h1, ͼr=h2, ͼx=strong) — these are pinned to
+     the vendored static/vendor/prosemark.bundle.js; re-derive them if that bundle is ever
+     rebuilt/replaced. Everything else targets stable .cm-* structural classes. */
   :global(.pm-shell) {
-    --bg: #ffffff; --surface: #f6f5f3; --elev: #fbfaf9;
-    --rule: #ececea; --rule-strong: #d9d7d3;
-    --text: #161412; --text-mute: #645f59; --text-soft: #97928b;
-    --petal: #bc5638; --on-petal: #ffffff;
-    --petal-soft: color-mix(in srgb, var(--petal) 11%, transparent);
-    --petal-wash: color-mix(in srgb, var(--petal) 5.5%, transparent);
-    --petal-hover: color-mix(in srgb, var(--petal) 86%, #000);
-    --danger: #c5374b;
-    --font-sans: 'Geist', 'Geist Fallback', system-ui, -apple-system, sans-serif;
-    --font-mono: 'Geist Mono', 'Geist Mono Fallback', ui-monospace, monospace;
-    --radius: 0.75rem; --radius-sm: 0.5rem; --radius-xs: 0.125rem;
-    --s2: 0.5rem;
-    --t: 160ms cubic-bezier(.2, 0, 0, 1);
+    /* bundle-read knobs -> app tokens */
+    --pm-link-color: var(--accent-b);
+    --pm-cursor-color: var(--accent);
+    --pm-header-mark-color: var(--text-4);
+    --pm-muted-color: var(--text-3);
+    --pm-code-font: var(--mono);
+    --pm-code-background-color: var(--surface-2);
+    --pm-code-btn-background-color: var(--surface-2);
+    --pm-code-btn-hover-background-color: var(--surface-3);
+    --pm-blockquote-vertical-line-background-color: var(--accent);
+    --pm-syntax-keyword: var(--accent-b); --pm-syntax-string: var(--text-1); --pm-syntax-comment: var(--text-4);
+    --pm-syntax-atom: var(--accent-b); --pm-syntax-literal: var(--text-1); --pm-syntax-link: var(--accent-b);
+    --pm-syntax-class-name: var(--text-1); --pm-syntax-definition-property: var(--text-1);
+    --pm-syntax-definition-variable: var(--text-1); --pm-syntax-local-variable: var(--text-1);
+    --pm-syntax-special-variable-macro: var(--text-1); --pm-syntax-type-namespace: var(--text-3);
+    --pm-syntax-regexp: var(--text-1); --pm-syntax-invalid: #c5374b;
+    /* card == .bodycard */
+    background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-lg);
+    overflow: hidden; outline: 0; transition: box-shadow 160ms, border-color 160ms;
   }
-  :global([data-theme='dark'] .pm-shell) {
-    --bg: #0d0c0b; --surface: #161413; --elev: #1d1b19;
-    --rule: #262321; --rule-strong: #36322f;
-    --text: #ece8e3; --text-mute: #9a938b; --text-soft: #645e57;
-    --petal: #e2725b; --on-petal: #0d0c0b;
-    --petal-soft: color-mix(in srgb, var(--petal) 15%, transparent);
-    --petal-hover: color-mix(in srgb, var(--petal) 86%, #000);
-  }
+  :global(.pm-shell:has(.cm-editor.cm-focused)) { border-color: var(--accent-ln); box-shadow: 0 0 0 2px var(--accent-bg); }
 
-  /* ── ProseMark editor themed to spec (verbatim from the ds site) ───────── */
-  :global(.pm-shell) {
-    --pm-link-color: var(--petal); --pm-cursor-color: var(--petal);
-    --pm-header-mark-color: var(--text-soft); --pm-muted-color: var(--text-mute);
-    --pm-code-font: var(--font-mono); --pm-code-background-color: var(--surface);
-    --pm-code-btn-background-color: var(--surface); --pm-code-btn-hover-background-color: var(--elev);
-    --pm-blockquote-vertical-line-background-color: var(--rule-strong);
-    --pm-syntax-keyword: var(--petal); --pm-syntax-string: var(--text); --pm-syntax-comment: var(--text-soft);
-    --pm-syntax-atom: var(--petal); --pm-syntax-literal: var(--text); --pm-syntax-link: var(--petal);
-    --pm-syntax-class-name: var(--text); --pm-syntax-definition-property: var(--text);
-    --pm-syntax-definition-variable: var(--text); --pm-syntax-local-variable: var(--text);
-    --pm-syntax-special-variable-macro: var(--text); --pm-syntax-type-namespace: var(--text-mute);
-    --pm-syntax-regexp: var(--text); --pm-syntax-invalid: var(--danger);
-    border-radius: var(--radius); background: var(--bg); overflow: hidden;
-    box-shadow: inset 0 0 0 1px var(--rule-strong); outline: 0;
-    transition: box-shadow var(--t), background var(--t), outline-color var(--t);
-  }
-  :global(.pm-shell:has(.cm-editor.cm-focused)) { box-shadow: inset 0 0 0 1px var(--rule-strong), 0 0 0 2px var(--petal); outline: none; }
-  :global(.pm-bar) { display: flex; align-items: center; gap: var(--s2); padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--rule); background: var(--surface); transition: background var(--t), border-color var(--t); }
-  :global(.pm-bar .pm-ico) { width: 0.875rem; height: 0.875rem; color: var(--petal); display: inline-flex; }
-  :global(.pm-bar .pm-ico svg) { width: 100%; height: 100%; }
-  :global(.pm-bar .pm-label) { font: 500 0.6875rem var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--text-mute); }
-  :global(.pm-shell .cm-editor) { font: 14px/1.6 var(--font-sans); color: var(--text); background: var(--bg); }
+  /* base text == .prose (14.5px / 1.7, text-2, app sans) */
+  :global(.pm-shell .cm-editor) { font: 14.5px/1.7 var(--sans); color: var(--text-2); background: transparent; }
   :global(.pm-shell .cm-editor.cm-focused) { outline: none; }
-  :global(.pm-shell .cm-scroller) { font-family: var(--font-sans); font-size: 14px; line-height: 1.6; }
-  :global(.pm-shell .cm-content) { padding: 18px 20px; caret-color: var(--petal); max-width: none; font-size: 14px; line-height: 1.6; }
-  :global(.pm-shell .cm-line) { padding: 0; line-height: 1.6; }
-  :global(.pm-shell .cm-fenced-code-line) { box-shadow: -12px 0 0 0 var(--pm-code-background-color), 12px 0 0 0 var(--pm-code-background-color); }
-  :global(.pm-shell .cm-fenced-code-line.cm-soft-indent-line) { padding-inline-start: 0 !important; text-indent: 0 !important; }
-  :global(.pm-shell .cm-selectionBackground), :global(.pm-shell .cm-content ::selection) { background: var(--petal-soft) !important; }
-  :global(.pm-shell .cm-focused .cm-selectionBackground), :global(.pm-shell ::selection) { background: var(--petal-soft) !important; }
-  :global(.pm-shell .cm-cursor) { border-left-color: var(--petal); }
-  :global(.pm-shell .cm-activeLine), :global(.pm-shell .cm-activeLineGutter) { background: transparent; }
-  :global(.pm-shell .cm-inline-code), :global(.pm-shell code), :global(.pm-shell .cm-monospace) { font-family: var(--font-mono); font-size: 12.5px; }
-  :global(.pm-shell .cm-inline-code) { background: var(--surface); border-radius: var(--radius-xs); padding: 1px 4px; }
-  :global(.pm-shell .cm-rendered-link), :global(.pm-shell .cm-url), :global(.pm-shell .cm-link) { color: var(--petal); }
-  :global(.pm-shell .cm-blockquote-line) { color: var(--text); }
-  :global(.pm-shell .cm-rendered-list-mark) { color: var(--petal); }
+  :global(.pm-shell .cm-scroller) { font-family: var(--sans); font-size: 14.5px; line-height: 1.7; }
+  :global(.pm-shell .cm-content) { padding: 18px 20px; caret-color: var(--accent); max-width: none; color: var(--text-2); }
+  :global(.pm-shell .cm-line) { padding: 0; }
   :global(.pm-shell .cm-gutters) { display: none; }
+  :global(.pm-shell .cm-cursor) { border-left-color: var(--accent); }
+  :global(.pm-shell .cm-activeLine), :global(.pm-shell .cm-activeLineGutter) { background: transparent; }
+  :global(.pm-shell .cm-selectionBackground), :global(.pm-shell .cm-content ::selection) { background: var(--accent-bg) !important; }
+  :global(.pm-shell .cm-focused .cm-selectionBackground), :global(.pm-shell ::selection) { background: var(--accent-bg) !important; }
+
+  /* headings == .prose h1/h2/h3 (override the bundle's baked heading scale). Scope the
+     font-size to DIRECT children of .cm-line only: the rendered heading text span sits
+     directly under .cm-line, while the raw "#" marks of INACTIVE headings are nested in
+     .cm-hidden-token (which the bundle hides via font-size:0). A blanket .ͼr would re-size
+     and re-reveal those hidden marks — the active-line marks stay (they're direct children
+     and SHOULD show, like the ds editor's "# on the current line"). */
+  :global(.pm-shell .cm-line > .ͼq) { font-size: 24px !important; font-weight: 700 !important; color: var(--text-1) !important; letter-spacing: -.02em !important; }
+  :global(.pm-shell .cm-line > .ͼr) { font-size: 18px !important; font-weight: 600 !important; color: var(--accent-b) !important; letter-spacing: normal !important; }
+  :global(.pm-shell .cm-line > .ͼs) { font-size: 15px !important; font-weight: 600 !important; color: var(--text-1) !important; letter-spacing: normal !important; }
+  /* color the heading text even when nested, but never re-size hidden marks */
+  :global(.pm-shell .ͼq:not(.ͼw)) { color: var(--text-1) !important; }
+  :global(.pm-shell .ͼr:not(.ͼw)) { color: var(--accent-b) !important; }
+  :global(.pm-shell .ͼs:not(.ͼw)) { color: var(--text-1) !important; }
+  /* strong == .prose strong */
+  :global(.pm-shell .ͼx) { color: var(--text-1) !important; font-weight: 600 !important; }
+  /* .prose h2 has a full-width border-bottom rule. Only h2 lines carry a direct-child ͼr
+     text span, so :has() targets exactly those (active or not) to draw the same underline. */
+  :global(.pm-shell .cm-line:has(> .ͼr)) { border-bottom: 1px solid var(--border-sub); padding-bottom: 6px; }
+
+  /* lists / quote / inline code / links / code blocks == .prose */
+  :global(.pm-shell .cm-rendered-list-mark) { color: var(--text-2); }
+  :global(.pm-shell .cm-blockquote-line) { color: var(--text-3); font-style: italic; }
+  :global(.pm-shell .cm-inline-code), :global(.pm-shell code), :global(.pm-shell .cm-monospace) { font-family: var(--mono); font-size: 13px; }
+  :global(.pm-shell .cm-inline-code) { background: var(--surface-2); border: 1px solid var(--border-sub); border-radius: 5px; padding: 1px 6px; color: var(--accent-b); }
+  :global(.pm-shell .cm-rendered-link), :global(.pm-shell .cm-url), :global(.pm-shell .cm-link) { color: var(--accent-b); }
+  :global(.pm-shell .cm-fenced-code-line) { box-shadow: -12px 0 0 0 var(--surface-2), 12px 0 0 0 var(--surface-2); }
+  :global(.pm-shell .cm-fenced-code-line.cm-soft-indent-line) { padding-inline-start: 0 !important; text-indent: 0 !important; }
   :global(.pm-shell .cm-code-block-info) { margin-top: 4px; margin-right: 8px; }
-  :global(.pm-shell .cm-code-block-lang-container) { color: var(--petal); }
-  :global(.pm-shell .cm-code-block-copy-button) { color: var(--petal); }
-  :global(.pm-shell .cm-code-block-copy-button:hover) { color: var(--petal-hover); }
+  :global(.pm-shell .cm-code-block-lang-container) { color: var(--accent-b); }
+  :global(.pm-shell .cm-code-block-copy-button) { color: var(--accent-b); }
+  :global(.pm-shell .cm-code-block-copy-button:hover) { color: var(--accent); }
 </style>
