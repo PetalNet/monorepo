@@ -50,15 +50,8 @@
   // status → the three-bucket badge tone (open / in-progress / closed), GitHub-pill style
   const statusTone = (s) => (s === 'done' || s === 'dropped') ? 'done' : (s === 'doing' ? 'doing' : 'todo');
 
-  // ── reader modes ──────────────────────────────────────────────
-  // font scale + measure + serif + focus, persisted per-browser.
+  // ── body version + narrator ───────────────────────────────────
   const hasHuman = $derived(!!data.bodyHtmlHuman);
-  // toolbar earns its space on real docs — measure whichever body is actually shown
-  const longDoc = $derived(Math.max(t.body?.length ?? 0, t.body_alt?.length ?? 0) > 2500);
-  let font = $state(2);            // 0..4 → scale steps
-  let wide = $state(false);        // wider measure
-  let serif = $state(false);       // serif body
-  let focus = $state(false);       // dim chrome, center the column
   // default to the human version when one exists — that's the whole point.
   // initialise directly from data (not via an effect) so docHtml is correct on
   // the FIRST render — otherwise flipping it post-mount re-renders {@html} and
@@ -66,29 +59,23 @@
   let human = $state(!!data.bodyHtmlHuman); // show the plain-English rewrite
   let voice = $state('agent-a');     // TTS voice for Listen (server whitelists the key)
 
-  const FONTS = ['0.92', '1', '1.08', '1.18', '1.3'];
   const VOICES = [{ id: 'agent-a', label: 'Agent-a' }, { id: 'george', label: 'George' }, { id: 'river', label: 'River' }, { id: 'brian', label: 'Brian' }, { id: 'sarah', label: 'Sarah' }];
   const docHtml = $derived(human && hasHuman ? data.bodyHtmlHuman : data.bodyHtml);
 
-  // restore prefs once on mount, THEN allow saving — a `loaded` gate stops the save
-  // effect from firing first and clobbering stored prefs with defaults (two-effect race).
+  // restore the narrator voice once on mount, THEN allow saving — a `loaded` gate stops the
+  // save effect from clobbering the stored value with the default before the load runs.
   let loaded = $state(false);
   $effect(() => {
     if (loaded) return;
     try {
       const p = JSON.parse(localStorage.getItem('reader') || '{}');
-      if (typeof p.font === 'number') font = p.font;
-      if (typeof p.wide === 'boolean') wide = p.wide;
-      if (typeof p.serif === 'boolean') serif = p.serif;
-      if (typeof p.focus === 'boolean') focus = p.focus;
       if (typeof p.voice === 'string') voice = p.voice;
     } catch {}
     loaded = true;
   });
   $effect(() => {
-    const snap = { font, wide, serif, focus, voice };
     if (!loaded) return;
-    try { localStorage.setItem('reader', JSON.stringify(snap)); } catch {}
+    try { localStorage.setItem('reader', JSON.stringify({ voice })); } catch {}
   });
 
   // ── glossary: wrap defined terms in the rendered prose with hover cards ──
@@ -475,74 +462,45 @@
         </form>
       {/snippet}
 
-      <!-- doc / idea: rendered prose with reader modes; Edit → ProseMark (same editor as tasks) -->
-      {#if isProse}
-        <section class="sec">
-          <div class="sec-head"><span class="ic"><Icon name="doc" size={13} /></span><h2>{t.kind === 'idea' ? 'Idea' : 'Document'}</h2>
-            {#if canWrite && !editingBody}<span class="right"><button type="button" class="edit-btn" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>Edit</button></span>{/if}
-          </div>
-          {#if editingBody}
-            {@render bodyEditor()}
-          {:else}
-          <div class="reader" class:focus>
-            <div class="reader-bar">
-              {#if hasHuman}
-                <div class="seg" role="group" aria-label="Version">
-                  <button class="seg-btn" class:on={human} onclick={() => (human = true)}>plain english</button>
-                  <button class="seg-btn" class:on={!human} onclick={() => (human = false)}>technical</button>
-                </div>
-              {/if}
-              {#if longDoc}
-                <div class="rb-group">
-                  <button class="rb" title="Smaller text" disabled={font === 0} onclick={() => (font = Math.max(0, font - 1))}>A−</button>
-                  <button class="rb" title="Larger text" disabled={font === FONTS.length - 1} onclick={() => (font = Math.min(FONTS.length - 1, font + 1))}>A+</button>
-                  <button class="rb" class:on={serif} title="Serif" onclick={() => (serif = !serif)} style="font-family:Georgia,serif">A</button>
-                  <button class="rb" class:on={wide} title="Wider column" onclick={() => (wide = !wide)}><Icon name="board" size={14} /></button>
-                  <button class="rb" class:on={focus} title="Focus mode" onclick={() => (focus = !focus)}><Icon name="doc" size={14} /></button>
-                </div>
-              {/if}
-              <div class="rb-right">
-                <select class="rb voice" bind:value={voice} title="Narrator voice" aria-label="Narrator voice">
-                  {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
-                </select>
-                <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
-                  {#if loadingAudio}<span class="spin"></span>{:else}<Icon name={speaking ? 'check' : 'arrow'} size={15} />{/if}
-                  <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
-                </button>
-              </div>
-            </div>
-            {#if hasHuman && human}
-              <div class="human-note mono"><Icon name="check" size={12} /> plain-english rewrite · switch to technical for the exact source</div>
-            {/if}
-            {#if docHtml}
-              <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}>{@html docHtml}</article>
-            {:else}
-              <article class="prose font-{font}" class:wide class:serif bind:this={proseEl}><p class="dim">Nothing written yet — click Edit to add it.</p></article>
-            {/if}
-          </div>
-          {/if}
-        </section>
-      {/if}
-
-      <!-- body — rendered markdown by default, Edit → Save/Cancel toggle (tasks only;
-           docs/ideas show in the reader above, questions show context in the decision block) -->
-      {#if !isProse && !isQuestion}
+      <!-- BODY — unified for tasks, docs AND ideas (questions show context in the decision
+           block). One rendered .prose surface at the task size, with a Listen (TTS) control
+           available everywhere; Edit → the ProseMark WYSIWYM editor. The old doc/idea "reader"
+           (font scaler / serif / wide / focus column) is gone — ideas now render exactly like a
+           task, so the editor matches them too (Bob, task-518 follow-up). -->
+      {#if !isQuestion}
         <section class="sec">
           <div class="sec-head">
             <span class="ic"><Icon name="doc" size={13} /></span>
-            <h2>Description</h2>
-            {#if canWrite && !editingBody}
-              <span class="right"><button type="button" class="edit-btn" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>Edit</button></span>
+            <h2>{t.kind === 'idea' ? 'Idea' : t.kind === 'doc' ? 'Document' : 'Description'}</h2>
+            {#if !editingBody}
+              <span class="right body-tools">
+                {#if hasHuman}
+                  <div class="seg" role="group" aria-label="Version">
+                    <button class="seg-btn" class:on={human} onclick={() => (human = true)}>plain english</button>
+                    <button class="seg-btn" class:on={!human} onclick={() => (human = false)}>technical</button>
+                  </div>
+                {/if}
+                {#if docHtml}
+                  <select class="rb voice" bind:value={voice} title="Narrator voice" aria-label="Narrator voice">
+                    {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
+                  </select>
+                  <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
+                    {#if loadingAudio}<span class="spin"></span>{:else}<Icon name={speaking ? 'check' : 'arrow'} size={15} />{/if}
+                    <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
+                  </button>
+                {/if}
+                {#if canWrite}<button type="button" class="edit-btn" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>Edit</button>{/if}
+              </span>
             {/if}
           </div>
 
           {#if editingBody}
-            <!-- Edit mode: the real ProseMark WYSIWYM editor (shared bodyEditor snippet, used by
-                 both tasks here and docs/ideas in the reader above). Falls back to a raw textarea
-                 if the lazy ESM bundle fails, so edits are never lost. -->
+            <!-- Edit mode: the ProseMark WYSIWYM editor (shared bodyEditor snippet). Falls back to
+                 a raw textarea if the lazy ESM bundle fails, so edits are never lost. -->
             {@render bodyEditor()}
-          {:else if data.bodyHtml}
-            <div class="bodycard read"><article class="prose body-prose">{@html data.bodyHtml}</article></div>
+          {:else if docHtml}
+            {#if hasHuman && human}<div class="human-note mono"><Icon name="check" size={12} /> plain-english rewrite · switch to technical for the exact source</div>{/if}
+            <div class="bodycard read"><article class="prose body-prose" bind:this={proseEl}>{@html docHtml}</article></div>
           {:else if canWrite}
             <button type="button" class="body-empty" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>No description yet — click to add the plan.</button>
           {:else}
@@ -1140,11 +1098,8 @@
 
   .dim { color: var(--text-4); }
 
-  /* ── reader (doc/idea) ───────────────────────────────────── */
-  .reader { margin: 0; }
-  .reader-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
-    padding-bottom: 12px; border-bottom: 1px solid var(--border-sub); }
-  .rb-group { display: inline-flex; gap: 2px; }
+  /* ── body tools (narrator + plain-english toggle), inline in the section header ── */
+  .body-tools { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .rb { display: inline-flex; align-items: center; gap: 6px; justify-content: center; min-width: 30px; height: 30px;
     padding: 0 9px; border-radius: var(--radius); background: var(--surface-1); border: 1px solid var(--border-sub);
     color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer; transition: .12s; }
@@ -1152,7 +1107,6 @@
   .rb:disabled { opacity: .35; cursor: default; }
   .rb.on { background: var(--accent-bg); border-color: var(--accent-ln); color: var(--accent-b); }
   .rb svg { display: block; }
-  .rb-right { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
   .rb.voice { appearance: none; -webkit-appearance: none; cursor: pointer; padding: 0 9px; font-size: 12px; }
   .listen.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
   .listen .spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent-b); animation: rspin .7s linear infinite; }
@@ -1162,14 +1116,8 @@
     color: var(--text-3); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: .12s; white-space: nowrap; }
   .seg-btn.on { background: var(--accent-bg); color: var(--accent-b); }
   .seg-btn:not(.on):hover { color: var(--text-1); }
-  .human-note { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-3); margin: -4px 0 14px; }
+  .human-note { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-3); margin: 0 0 12px; }
   .human-note svg { color: var(--accent-b); }
-  .prose.font-0 { font-size: 13.6px; } .prose.font-1 { font-size: 14.8px; } .prose.font-2 { font-size: 15.5px; }
-  .prose.font-3 { font-size: 17px; } .prose.font-4 { font-size: 18.5px; }
-  .prose.wide { max-width: 820px; }
-  .prose.serif { font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
-  .prose.serif :global(code), .prose.serif :global(pre) { font-family: var(--mono); }
-  .reader.focus .prose { max-width: 680px; margin-inline: auto; }
 
   /* ── responsive: phone (sidebar drops below body, buttons stay reachable) ── */
   @media (max-width: 760px) {
