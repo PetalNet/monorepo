@@ -440,9 +440,8 @@
     pointer-events: none; }
   /* tap/hover columns — one per day, extended past the chart vertically for easy touch */
   .g-mom .mom-hits { position: absolute; inset: -7px 0 -7px 0; display: flex; }
-  .g-mom .mom-hit { flex: 1; min-width: 0; padding: 0; border: 0; background: none; cursor: pointer;
-    border-radius: 3px; transition: background .1s; }
-  .g-mom .mom-hit.on { background: color-mix(in srgb, var(--accent-b) 9%, transparent); }
+  .g-mom .mom-hit { flex: 1; min-width: 0; padding: 0; border: 0; background: none; cursor: pointer; }
+  /* no hover column fill — the line + active dot/rule are the readout (Bob: the bg was goofy) */
   .g-mom .mom-hit:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -2px; }
   .g-mom .mom-cap { font-size: 11px; color: var(--text-4); line-height: 1.3; }
 
