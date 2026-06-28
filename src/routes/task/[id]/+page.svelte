@@ -161,6 +161,8 @@
   let ttsCtrl = null;       // AbortController for the in-flight TTS fetch
   let blobUrl = null;       // revoke on stop to avoid leaking
   function readableText() {
+    // while editing the rendered prose isn't mounted — read the live editor instead
+    if (editingBody && pmRef) return (pmRef.sync() || '').replace(/\s+\n/g, '\n').trim();
     return (proseEl?.innerText || '').replace(/\s+\n/g, '\n').trim();
   }
   function stopAudio() {
@@ -450,15 +452,13 @@
       {/if}
 
       {#snippet bodyEditor()}
-        <form method="POST" action="?/save" use:enhance={saveBody}>
+        <!-- Save/Cancel live in the section header (the same slot as Edit) so nothing shifts
+             between read and edit. This form is just the editor surface; the header's Save
+             button submits it via form="bodyform". -->
+        <form id="bodyform" method="POST" action="?/save" use:enhance={saveBody}>
           <input type="hidden" name="vis_touched" value="1" />
           <input type="hidden" name="private" value={t.visibility === 'private' ? '1' : ''} />
           <ProseMark bind:this={pmRef} bind:value={bodyDraft} name="body" />
-          <div class="edit-actions">
-            <span class="edit-hint mono">renders as sanitized markdown on save</span>
-            <button type="button" class="btn-ghost" onclick={cancelEditBody}>Cancel</button>
-            <button type="submit" class="btn-save-sm">Save</button>
-          </div>
         </form>
       {/snippet}
 
@@ -472,26 +472,33 @@
           <div class="sec-head">
             <span class="ic"><Icon name="doc" size={13} /></span>
             <h2>{t.kind === 'idea' ? 'Idea' : t.kind === 'doc' ? 'Document' : 'Description'}</h2>
-            {#if !editingBody}
-              <span class="right body-tools">
-                {#if hasHuman}
-                  <div class="seg" role="group" aria-label="Version">
-                    <button class="seg-btn" class:on={human} onclick={() => (human = true)}>plain english</button>
-                    <button class="seg-btn" class:on={!human} onclick={() => (human = false)}>technical</button>
-                  </div>
+            <!-- Tools live in the header in BOTH modes so nothing flips. The voice/listen stay;
+                 the Edit button turns into Save (same slot, same style) with a Cancel beside it. -->
+            <span class="right body-tools">
+              {#if hasHuman && !editingBody}
+                <div class="seg" role="group" aria-label="Version">
+                  <button class="seg-btn" class:on={human} onclick={() => (human = true)}>plain english</button>
+                  <button class="seg-btn" class:on={!human} onclick={() => (human = false)}>technical</button>
+                </div>
+              {/if}
+              {#if docHtml}
+                <select class="rb voice" bind:value={voice} title="Narrator voice" aria-label="Narrator voice">
+                  {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
+                </select>
+                <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
+                  {#if loadingAudio}<span class="spin"></span>{:else}<Icon name={speaking ? 'check' : 'arrow'} size={15} />{/if}
+                  <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
+                </button>
+              {/if}
+              {#if canWrite}
+                {#if editingBody}
+                  <button type="button" class="edit-btn" onclick={cancelEditBody}>Cancel</button>
+                  <button type="submit" form="bodyform" class="edit-btn">Save</button>
+                {:else}
+                  <button type="button" class="edit-btn" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>Edit</button>
                 {/if}
-                {#if docHtml}
-                  <select class="rb voice" bind:value={voice} title="Narrator voice" aria-label="Narrator voice">
-                    {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
-                  </select>
-                  <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
-                    {#if loadingAudio}<span class="spin"></span>{:else}<Icon name={speaking ? 'check' : 'arrow'} size={15} />{/if}
-                    <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
-                  </button>
-                {/if}
-                {#if canWrite}<button type="button" class="edit-btn" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>Edit</button>{/if}
-              </span>
-            {/if}
+              {/if}
+            </span>
           </div>
 
           {#if editingBody}
@@ -883,8 +890,7 @@
   .body-empty:hover { border-color: var(--accent-ln); color: var(--text-2); }
 
   /* edit mode: the ProseMark editor surface + all .cm-* theming now live inside ProseMark.svelte */
-  .edit-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 12px; }
-  .edit-hint { margin-right: auto; font-size: 10.5px; color: var(--text-4); }
+  /* Save/Cancel now live in the section header (.body-tools), not a bottom action bar. */
   .btn-ghost {
     font: inherit; font-size: 13px; color: var(--text-3); background: none; border: 1px solid var(--border-sub);
     border-radius: var(--radius); padding: 8px 16px; cursor: pointer; transition: .12s;

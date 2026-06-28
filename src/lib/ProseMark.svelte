@@ -124,6 +124,10 @@
 
   /* lists / quote / inline code / links / code blocks == .prose */
   :global(.pm-shell .cm-rendered-list-mark) { color: var(--text-2); }
+  /* match .prose's list geometry: ul/ol padding-left:24px (indent) + li margin:5px 0 (gap).
+     A list item is one soft-wrapped .cm-line carrying .cm-rendered-list-mark, so shift the
+     whole item right and add inter-item spacing here (margin-inline keeps the bundle's hang). */
+  :global(.pm-shell .cm-line:has(.cm-rendered-list-mark)) { margin-inline-start: 15px; margin-top: 5px; }
   :global(.pm-shell .cm-blockquote-line) { color: var(--text-3); font-style: italic; }
   :global(.pm-shell .cm-inline-code), :global(.pm-shell code), :global(.pm-shell .cm-monospace) { font-family: var(--mono); font-size: 13px; }
   :global(.pm-shell .cm-inline-code) { background: var(--surface-2); border: 1px solid var(--border-sub); border-radius: 5px; padding: 1px 6px; color: var(--accent-b); }
