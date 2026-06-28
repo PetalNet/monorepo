@@ -138,4 +138,13 @@
   :global(.pm-shell .cm-code-block-lang-container) { color: var(--accent-b); }
   :global(.pm-shell .cm-code-block-copy-button) { color: var(--accent-b); }
   :global(.pm-shell .cm-code-block-copy-button:hover) { color: var(--accent); }
+
+  /* ── read view (server-SSR through the same CodeMirror engine) ──
+     The captured CM base CSS lays the editor out as a flex column with a height:100% scroller
+     (for a scrolling editor). A static read view has no fixed height, so that collapses it —
+     override to natural block flow, no inner scroll. Everything else (typography, ͼ highlight
+     classes, hidden marks) is shared with edit, so read == edit byte-for-byte. */
+  :global(.pm-read .cm-editor) { display: block; height: auto; }
+  :global(.pm-read .cm-scroller) { display: block; height: auto; overflow: visible; align-items: stretch; }
+  :global(.pm-read .cm-content) { display: block; }
 </style>

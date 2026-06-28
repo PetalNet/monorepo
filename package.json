@@ -21,6 +21,7 @@
     "@fontsource-variable/geist-mono": "^5.2.8",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^11.3.0",
+    "jsdom": "^29.1.1",
     "lucide-svelte": "0.469.0",
     "marked": "^18.0.4",
     "rehype-sanitize": "^6.0.0",
