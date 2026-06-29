@@ -9,3 +9,6 @@
 
 # chore(slide): oxfmt at monorepo migration
 961ba90a0b2a6ae8c52be24609d1147c1c67065e
+
+# style(matrix-bot): reformat under monorepo oxfmt
+54e4fbc79873a104a48ee3a934aa0a075d7f7a18

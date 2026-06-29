@@ -1,0 +1,14 @@
+[package]
+name = "plugin-diagnostics"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+serde_yaml.workspace = true
+
+plugin-core = { path = "../plugin-core" }
+
+[lints]
+workspace = true
