@@ -1,7 +1,10 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
+  import TaskRow from '$lib/TaskRow.svelte';
   import { enhance } from '$app/forms';
+  import { projectName } from '$lib/people.js';
   let { data } = $props();
-  const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
+  const projName = projectName(data.projects);
 
   function relShort(ts) {
     if (!ts) return '';
@@ -37,7 +40,7 @@
 
   {#if data.open.length === 0}
     <div class="caughtup">
-      <span class="cu-check"><svg width="20" height="20" aria-hidden="true"><use href="#i-check"/></svg></span>
+      <span class="cu-check"><Icon name="check" size={20} /></span>
       <span>all caught up — nothing waiting on you.</span>
     </div>
   {:else}
@@ -46,7 +49,7 @@
       <div class="list">
         {#each data.open as q (q.id)}
           <div class="row kind-question st-todo needs-human" style="--pl:var(--violet)">
-            <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-question"/></svg></span>
+            <span class="row-ic"><Icon name="question" size={16} /></span>
             <div class="row-main">
               <a class="row-title" href="/task/{q.id}">{q.title}</a>
               <span class="row-sub">
@@ -79,7 +82,7 @@
   <section class="block">
     <h2 class="block-h">notifications · both ways</h2>
     <div class="loop-soon">
-      <span class="ls-ic"><svg width="15" height="15" aria-hidden="true"><use href="#i-bolt"/></svg></span>
+      <span class="ls-ic"><Icon name="bolt" size={15} /></span>
       <div>
         <div class="ls-title">the async loop closes here next</div>
         <p class="loop-cap mono">→ matrix push when you're mentioned · → corner-inbox.jsonl write-back · cold agents read it on SessionStart</p>
@@ -90,15 +93,11 @@
   {#if data.answered.length}
     <section class="block">
       <h2 class="block-h">recently answered</h2>
-      <div class="list">
+      <div class="list answered-list">
         {#each data.answered as q (q.id)}
-          <a class="row kind-question st-done" href="/task/{q.id}">
-            <span class="row-ic done-tick"><svg width="15" height="15" aria-hidden="true"><use href="#i-check"/></svg></span>
-            <span class="row-main">
-              <span class="row-title">{q.title}</span>
-              <span class="row-sub"><span class="ans mono">→ {answerLabel(q)}</span><span class="mono dim">{relShort(q.updated_at)} ago</span></span>
-            </span>
-          </a>
+          <TaskRow task={q} project={projName(q.project_id)} showStatus={false}>
+            {#snippet meta()}<span class="ans mono">→ {answerLabel(q)}</span>{/snippet}
+          </TaskRow>
         {/each}
       </div>
     </section>
@@ -106,6 +105,11 @@
 </div>
 
 <style>
+  /* widen off the narrow editorial column (Bob) */
+  .inbox { max-width: 1200px; }
+  .answered-list { gap: 0; }
+  .answered-list > :global(.trow) + :global(.trow) { border-top: 1px solid var(--border-sub); }
+
   .loop-soon {
     display: flex; align-items: flex-start; gap: 12px; padding: 15px 16px;
     background: var(--surface-1); border: 1px dashed var(--border); border-radius: var(--radius-lg);
@@ -114,7 +118,6 @@
   .ls-title { font-size: 13.5px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
   .loop-cap { font-size: 11px; color: var(--text-4); line-height: 1.6; }
   .ans { color: var(--violet-b); }
-  .row.st-done .done-tick { color: var(--accent); }
   .row.kind-question .row-sub { margin-top: 3px; }
   .q-answer { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
   .q-answer form { display: contents; }

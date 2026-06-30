@@ -1,4 +1,4 @@
-import db, { listProjects, getProject, renameProject, setProjectVisibility, deleteProject, moveProject } from '$lib/server/db.js';
+import db, { listProjects, getProject, renameProject, setProjectVisibility, deleteProject, moveProject, archiveProject, unarchiveProject, listArchivedProjects } from '$lib/server/db.js';
 
 export function load({ locals }) {
   const me = locals.user;
@@ -6,7 +6,7 @@ export function load({ locals }) {
     ...p,
     count: db.prepare("SELECT count(*) c FROM tasks WHERE project_id=? AND status NOT IN ('done','dropped')").get(p.id).c
   }));
-  return { projects, me };
+  return { projects, archived: listArchivedProjects(), me };
 }
 
 // only act on a project the user can actually see (shared or owned)
@@ -43,6 +43,19 @@ export const actions = {
     const dest = Number(f.get('dest'));
     // move id's tasks into dest, then retire id; only projects the user can act on
     if (id && dest && id !== dest && allowed(id, locals.user) && allowed(dest, locals.user)) moveProject(id, dest);
+    return { ok: true };
+  },
+  // archive a whole project (its tasks vanish from active views, not deleted) / restore it
+  archive: async ({ request, locals }) => {
+    const f = await request.formData();
+    const p = allowed(Number(f.get('id')), locals.user);
+    if (p) archiveProject(p.name);
+    return { ok: true };
+  },
+  unarchive: async ({ request, locals }) => {
+    const f = await request.formData();
+    const name = String(f.get('name') || '');
+    if (name) unarchiveProject(name);
     return { ok: true };
   }
 };

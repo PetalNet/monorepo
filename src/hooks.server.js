@@ -4,9 +4,16 @@
 // 'dev' fallback exists ONLY for local dev where no ALLOW is configured.
 const ALLOW = (process.env.ALLOW || '').split(',').map((s) => s.trim()).filter(Boolean);
 
+// PUBLIC scoped-share exemption (/s/<token>, the #487 feature): /s/ is the ONE SSO-exempt path.
+// Traefik already strips the Authentik forward-auth middleware for PathPrefix `/s/` (see
+// /srv/traefik/dynamic/tasks.yml router `tasks-share`), so this gate must NOT re-reject a
+// /s/ request for lacking an identity. The /s/ handler (src/routes/s/[token]/+server.js) is
+// fail-closed, read-only, and token-scoped to a single artifact, so ALL access control lives there.
+// Strict exact-prefix match — exactly `/s` or `/s/…`, nothing else can ride the exemption.
+const isPublicShare = (pathname) => pathname === '/s' || pathname.startsWith('/s/');
 export async function handle({ event, resolve }) {
   const user = event.request.headers.get('x-authentik-username') || '';
-  if (ALLOW.length) {
+  if (ALLOW.length && !isPublicShare(event.url.pathname)) {
     // production: require a valid Authentik identity (fail closed — was fail-open via 'dev')
     if (!user || !ALLOW.includes(user)) {
       return new Response('Private tracker — ask Alice for access.', {
@@ -15,20 +22,15 @@ export async function handle({ event, resolve }) {
       });
     }
     event.locals.user = user;
-  } else {
+  } else if (!ALLOW.length) {
     // local dev only (no access list): permit the dev fallback identity
     event.locals.user = user || 'dev';
   }
-  // Skin: when TASKS_SKIN is set (the tasks2 container runs TASKS_SKIN=paper-ink),
-  // tag <html> so the matching skin CSS activates. Same image, runtime env-switched;
-  // unset (main tasks) = no class = default look untouched.
-  const skin = (process.env.TASKS_SKIN || '').trim();
-  const res = await resolve(
-    event,
-    skin
-      ? { transformPageChunk: ({ html }) => html.replace('<html lang="en">', `<html lang="en" class="skin-${skin}">`) }
-      : undefined
-  );
+  // production + /s/ public share: no identity required; event.locals.user intentionally left
+  // unset — the share route resolves strictly by token, never by user.
+  // Theme: paper-and-ink IS the base theme now (the only theme — legacy dark-zinc/amber
+  // dropped, Bob). No skin class to tag; the tokens live unconditionally in app.css.
+  const res = await resolve(event);
   // defense-in-depth headers (sanitizer is the primary XSS line; these harden the rest).
   // Use the no-clobber form: a route may legitimately need to relax a header for itself
   // (e.g. the gallery raw-artifact endpoint frames its own same-origin sandbox iframe, so

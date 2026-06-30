@@ -18,3 +18,15 @@ data/eleven-api-key
 
 # local board verification artifacts (screenshots) — not app source
 _board-verify/
+
+# vendored exploration artifacts (matrix-rust-sdk / wasm clones) — NOT build deps, ~62M
+matrix-rust-sdk/
+matrix-sdk-crypto-wasm/
+wasm/
+mjs/
+matrix-*.tgz
+matrix-org-*.tgz
+# generated / temp
+data/keeper-reports/
+data/fleet/codex.json
+*.bak-archive

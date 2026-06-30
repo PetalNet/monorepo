@@ -1,6 +1,7 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
   import { enhance } from '$app/forms';
-  let { data } = $props();
+  let { data, form } = $props();
   let kind = $state('task');
   const KIND_ICON = { task: 'task', doc: 'doc', question: 'question' };
 </script>
@@ -10,14 +11,14 @@
 <div class="screen newscreen">
   <header class="page-head">
     <a class="back" href="/">
-      <svg width="13" height="13" style="transform:scaleX(-1)" aria-hidden="true"><use href="#i-arrow"/></svg>
+      <span style="transform:scaleX(-1);display:inline-flex"><Icon name="arrow" size={13} /></span>
       board
     </a>
     <h1>new</h1>
     <div class="kindtabs">
       {#each ['task', 'doc', 'question'] as k}
         <button type="button" class="kindtab" class:on={kind === k} onclick={() => (kind = k)}>
-          <svg width="13" height="13" aria-hidden="true"><use href="#i-{KIND_ICON[k]}"/></svg>{k}
+          <Icon name={KIND_ICON[k]} size={13} />{k}
         </button>
       {/each}
     </div>
@@ -25,13 +26,15 @@
 
   <form method="POST" action="?/create" use:enhance class="nf">
     <input type="hidden" name="kind" value={kind} />
+    {#if form?.error}<p class="nf-err">{form.error}</p>{/if}
     <input class="title-in" name="title" autocomplete="off" required
            placeholder={kind === 'question' ? 'The question…' : kind === 'doc' ? 'Doc title…' : 'Task title…'} />
 
     <div class="nf-grid">
       <label class="afield">
-        <span class="af-lbl">project</span>
-        <input name="project" list="projs" placeholder="(none)" />
+        <span class="af-lbl">project{#if kind === 'task'} <span class="req">*</span>{/if}</span>
+        <input name="project" list="projs" required={kind === 'task'}
+               placeholder={kind === 'task' ? 'search or add a project…' : '(optional)'} />
         <datalist id="projs">{#each data.projects as p}<option value={p.name}></option>{/each}</datalist>
       </label>
       {#if kind === 'task'}
@@ -44,35 +47,35 @@
 
     {#if kind === 'task'}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>notes / plan</h2></div>
+        <div class="ds-head"><span class="ds-ic"><Icon name="doc" size={12} /></span><h2>notes / plan</h2></div>
         <textarea name="body" rows="5" placeholder="optional — drop research / the plan here"></textarea>
       </section>
-      <label class="chk mono"><input type="checkbox" name="up_next" /> <svg width="12" height="12" aria-hidden="true"><use href="#i-bolt"/></svg> up next</label>
+      <label class="chk mono"><input type="checkbox" name="up_next" /> <Icon name="bolt" size={12} /> up next</label>
     {:else if kind === 'doc'}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>body · markdown</h2></div>
+        <div class="ds-head"><span class="ds-ic"><Icon name="doc" size={12} /></span><h2>body · markdown</h2></div>
         <textarea name="body" rows="14" class="mono" placeholder="# Brief / ADR…"></textarea>
       </section>
     {:else}
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-doc"/></svg></span><h2>context · markdown</h2></div>
+        <div class="ds-head"><span class="ds-ic"><Icon name="doc" size={12} /></span><h2>context · markdown</h2></div>
         <textarea name="body" rows="5" placeholder="background for the decision"></textarea>
       </section>
       <section class="nf-sec">
-        <div class="ds-head"><span class="ds-ic"><svg width="12" height="12" aria-hidden="true"><use href="#i-question"/></svg></span><h2>options</h2><span class="ds-extra mono dim">one per line · "value | label"</span></div>
+        <div class="ds-head"><span class="ds-ic"><Icon name="question" size={12} /></span><h2>options</h2><span class="ds-extra mono dim">one per line · "value | label"</span></div>
         <textarea name="options" rows="4" class="mono" placeholder={"yes | Yes, do it\nno | No"}></textarea>
       </section>
     {/if}
 
     <div class="save-bar">
-      <label class="chk mono"><input type="checkbox" name="private" /> <svg width="12" height="12" aria-hidden="true"><use href="#i-lock"/></svg> private — only you</label>
+      <label class="chk mono"><input type="checkbox" name="private" /> <Icon name="lock" size={12} /> private — only you</label>
       <button class="save" type="submit">create {kind}</button>
     </div>
   </form>
 </div>
 
 <style>
-  .newscreen { max-width: 720px; }
+  .newscreen { max-width: 760px; }
   .page-head h1 { margin-top: 4px; }
 
   .kindtabs { display: flex; gap: 7px; margin-top: 14px; }
@@ -97,6 +100,9 @@
   .nf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 18px; }
   .afield { display: flex; flex-direction: column; gap: 6px; }
   .af-lbl { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+  .af-lbl .req { color: var(--danger, #e0533d); }
+  .nf-err { margin: 14px 0 0; padding: 9px 12px; border-radius: var(--radius); font-size: 13px;
+    color: var(--danger, #e0533d); background: color-mix(in srgb, var(--danger, #e0533d) 12%, transparent); }
 
   .nf-sec { margin-top: 22px; }
 

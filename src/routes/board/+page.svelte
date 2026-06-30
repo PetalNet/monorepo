@@ -1,7 +1,9 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
+  import { projectName, whoColor as whoColorBase } from '$lib/people.js';
   let { data } = $props();
 
-  const projName = (id) => data.projects.find((p) => p.id === id)?.name ?? '';
+  const projName = projectName(data.projects);
 
   // ── time helpers (mirror +page.svelte) ──────────────────────────────────
   function relShort(ts) {
@@ -21,15 +23,9 @@
     return s >= 0 ? `${mag} over` : `in ${mag}`;
   }
 
-  // ── per-person colours (mirror +page.svelte) ────────────────────────────
-  const PERSON = {
-    claude: '#fb923c', agent-a: '#8b5cf6', agent-b: '#22d3ee',
-    alice: '#fb7185', alice: '#fb7185', alice: '#fb7185',
-    bob: '#38bdf8', bob: '#38bdf8', bob: '#38bdf8',
-    codex: '#a3e635', agent-d: '#f472b6', agent-e: '#facc15'
-  };
-  const hue = (s) => { let h = 0; for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
-  const whoColor = (h) => h ? (PERSON[String(h).toLowerCase()] ?? `hsl(${hue(h)} 60% 68%)`) : '#94a3b8';
+  // ── per-person colours (single-sourced from $lib/people; this page's falsy-handle
+  //    fallback is '#94a3b8') ───────────────────────────────────────────────
+  const whoColor = (h) => whoColorBase(h, '#94a3b8');
   const isAgent = (h) => ['claude', 'agent-a', 'agent-b', 'codex', 'agent-d', 'agent-e'].includes(String(h).toLowerCase());
 
   const g = $derived(data.counts.global);
@@ -45,7 +41,7 @@
 
 {#snippet laneHead(title, count, accent, icon)}
   <div class="lane-head {accent ? 'lane-' + accent : ''}">
-    {#if icon}<span class="lane-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-{icon}"/></svg></span>{/if}
+    {#if icon}<span class="lane-ic"><Icon name={icon} size={14} /></span>{/if}
     <h2>{title}</h2>
     <span class="lane-count">{count}</span>
   </div>
@@ -55,7 +51,7 @@
 {#snippet miniRow(t)}
   {@const pc = whoColor(t.assignee)}
   <a class="row kind-{t.kind ?? 'task'} st-{t.status ?? 'todo'}" href="/task/{t.id}" style={t.assignee ? `--pl:${pc}` : ''}>
-    <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-{t.kind ?? 'task'}"/></svg></span>
+    <span class="row-ic"><Icon name={t.kind ?? 'task'} size={16} /></span>
     <span class="row-main">
       <span class="row-title">{t.title}</span>
       <span class="row-sub">
@@ -112,7 +108,7 @@
             <div class="swim-body">
               {#each ln.tasks as t (t.id)}
                 <a class="row kind-{t.kind ?? 'task'} st-doing" href="/task/{t.id}" style="--pl:{whoColor(ln.agent)}">
-                  <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-{t.kind ?? 'task'}"/></svg></span>
+                  <span class="row-ic"><Icon name={t.kind ?? 'task'} size={16} /></span>
                   <span class="row-main">
                     <span class="row-title">{t.title}</span>
                     <span class="row-sub">
@@ -159,7 +155,7 @@
         <div class="lane-body">
           {#each data.stale.stale as t (t.id)}
             <a class="row kind-task st-doing reap-row" href="/task/{t.id}">
-              <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-block"/></svg></span>
+              <span class="row-ic"><Icon name="block" size={16} /></span>
               <span class="row-main">
                 <span class="row-title">{t.title}</span>
                 <span class="row-sub">
@@ -182,7 +178,7 @@
         <div class="lane-body">
           {#each data.stale.closed as c (c.at + '-' + c.id)}
             <a class="row st-done kind-task closed-row" href="/task/{c.id}">
-              <span class="row-ic shipped-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-check"/></svg></span>
+              <span class="row-ic shipped-ic"><Icon name="check" size={14} /></span>
               <span class="row-main">
                 <span class="row-title">{c.title}</span>
                 {#if c.reason}<span class="row-sub close-reason">{c.reason}</span>{/if}
@@ -198,8 +194,6 @@
       </section>
     {/if}
   </div>
-
-  <div class="foot mono dim">live leases · SQLite-backed · {data.lanes.reduce((n, l) => n + l.tasks.length, 0)} in flight</div>
 </div>
 
 <style>
@@ -212,15 +206,21 @@
 
   /* swimlanes: a column of per-agent cards */
   .swimlanes { display: flex; flex-direction: column; gap: 12px; }
+  /* agent identity is carried by the avatar + name, not a side-stripe (the #1
+     AI-UI tell — Bob's /impeccable) */
   .swim {
     background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-lg);
-    padding: 11px 12px; border-left: 3px solid var(--c);
+    padding: 11px 12px;
   }
-  .swim.has-expired { border-color: var(--danger); border-left-color: var(--danger); }
+  .swim.has-expired { border-color: var(--danger); }
   .swim-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 9px; }
   .swim-name { font-size: 13px; color: var(--text-1); font-weight: 600; }
   .swim-counts { font-size: 11px; }
-  .swim-body { display: flex; flex-direction: column; gap: 5px; }
+  /* flat rows inside the swim card: hairline-separated, hover lifts to surface-2
+     (surface-1 would be invisible against the card) */
+  .swim-body { display: flex; flex-direction: column; gap: 0; }
+  .swim-body > :global(* + *) { border-top: 1px solid var(--border-sub); }
+  .swim-body :global(.row:hover) { background: var(--surface-2); }
 
   .lease-pill {
     font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
@@ -236,7 +236,7 @@
   .lease-ok { color: var(--text-4); }
   .lease-none { color: var(--text-4); }
 
-  .reap-row { border-left: 3px solid var(--danger); }
+  .reap-row .row-ic { color: var(--danger-b); }   /* cue via the block icon, not a side-stripe */
   .closed-row { text-decoration: none; }
   .closed-row .row-title { text-decoration: line-through; text-decoration-color: var(--text-4); }
   .close-reason { color: var(--text-3); font-size: 12px; line-height: 1.35; }
@@ -248,5 +248,4 @@
   .lane-done { opacity: .9; }
   .lane-empty { color: var(--text-4); font-size: 13px; padding: 4px 2px; }
   .back { cursor: pointer; }
-  .foot { font-size: 12px; text-align: center; margin-top: 36px; }
 </style>

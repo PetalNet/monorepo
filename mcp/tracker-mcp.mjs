@@ -29,7 +29,11 @@ const DB = await import("../src/lib/server/db.js");
 const db = DB.default; // the shared connection (used only for read queries below)
 const {
   createTask, updateTask, getTask, getProjectByName, ensureProject, defaultProjectId, claimNext, reapLeases, closeTask,
+  archiveProject, unarchiveProject, listArchivedProjects,
 } = DB;
+
+// archived-project exclusion (mirrors db.js NOTARCHIVED) — get_ready/up_next build raw queries here.
+const NOTARCHIVED = "AND (project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const projName = (id) => id ? (db.prepare("SELECT name FROM projects WHERE id=?").get(id)?.name || null) : null;
@@ -69,9 +73,9 @@ server.tool(
     const pf = pid ? " AND project_id=@pid" : "";
     const af = assignee ? " AND assignee=@asg" : "";
     const a = { ...(pid ? { pid } : {}), ...(assignee ? { asg: assignee } : {}) };
-    const upNext = db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND kind IN ('task','idea') AND ${ACTIVE} AND status != 'blocked'${pf}${af} ORDER BY rank, priority`).all(a);
-    const doing = db.prepare(`SELECT * FROM tasks WHERE status='doing'${pf}${af}`).all(a);
-    const questions = db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE}${pf}${af} ORDER BY priority`).all(a);
+    const upNext = db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND kind IN ('task','idea') AND ${ACTIVE} AND status != 'blocked'${pf}${af} ${NOTARCHIVED} ORDER BY rank, priority`).all(a);
+    const doing = db.prepare(`SELECT * FROM tasks WHERE status='doing'${pf}${af} ${NOTARCHIVED}`).all(a);
+    const questions = db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE}${pf}${af} ${NOTARCHIVED} ORDER BY priority`).all(a);
     return txt({
       up_next: upNext.map(shape),
       in_progress: doing.map(shape),
@@ -90,7 +94,7 @@ server.tool(
     assignee: z.string().optional().describe("Only return tasks assigned to this agent/human"),
   },
   async ({ project, capability, assignee }) => {
-    const where = ["up_next=1", ACTIVE, "status != 'blocked'", "kind IN ('task','idea')"];
+    const where = ["up_next=1", ACTIVE, "status != 'blocked'", "kind IN ('task','idea')", "(project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))"];
     const params = {};
     if (project) { where.push("project_id=@pid"); params.pid = projIdForFilter(project); }
     if (capability) { where.push("capability=@cap"); params.cap = capability; }
@@ -231,6 +235,25 @@ server.tool(
     const res = closeTask(id, { reason, by: "mcp", status });
     if (res && res.ok === false) return txt({ rejected: res });
     return txt({ closed: shape(getTask(id)) });
+  },
+);
+
+server.tool(
+  "archive_project",
+  "Archive a whole project by name: its tasks vanish from all active views (board/up-next/counts) but are NOT deleted — fully restorable. Use to close out a project.",
+  { name: z.string().min(1).describe("Project name to archive") },
+  async ({ name }) => {
+    const r = archiveProject(name);
+    return txt(r.changes ? { archived: name } : { error: `no active project named '${name}' (already archived or doesn't exist)` });
+  },
+);
+server.tool(
+  "unarchive_project",
+  "Restore a previously archived project: its tasks reappear in active views. Pass the project name.",
+  { name: z.string().min(1).describe("Project name to restore") },
+  async ({ name }) => {
+    const r = unarchiveProject(name);
+    return txt(r.changes ? { restored: name } : { error: `no project named '${name}'` });
   },
 );
 

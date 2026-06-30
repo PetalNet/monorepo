@@ -5,56 +5,61 @@
  * (--surface, --elev, --mute, --soft, --green, --amber, --red, --blue),
  * it picks up an alias mapped to the new system at the bottom. */
 
-@import '@fontsource-variable/inter';
-@import '@fontsource-variable/jetbrains-mono';
-@import './app-paper-ink.css';   /* paper/ink skin — only active under html.skin-paper-ink (tasks2) */
+/* Geist + Geist Mono self-hosted via fontsource (woff2). The single live theme is
+ * paper/ink (warm near-monochrome + one burnt-sienna accent), so its type + tokens
+ * are now the base — there is no second theme to switch between. */
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
 
 :root,
 [data-theme='dark'] {
-	/* surfaces & shape — layered zinc stack */
-	--bg: #09090b;
-	--surface-1: #101013;
-	--surface-2: #17171a;
-	--surface-3: #202024;
-	--border: #2c2c31;
-	--border-sub: #202024;
+	/* INK (dark) — the lab "paper-and-ink" design system, now the base theme.
+	 * Warm near-monochrome + one burnt-sienna accent (--petal). tasks's fuller
+	 * semantic palette is collapsed onto it: accent→petal, questions-green→success,
+	 * warn→warning, danger→danger, todo "info" → restrained warm steel. */
+	--bg: #0d0c0b;            /* warm ink */
+	--surface-1: #161413;     /* surface */
+	--surface-2: #1d1b19;     /* elev */
+	--surface-3: #262321;     /* rule-strong step */
+	--border: #262321;        /* rule */
+	--border-sub: #1d1b19;
 
-	/* text — primary → quaternary zinc scale */
-	--text-1: #fafafa;
-	--text-2: #c9c9d1;
-	--text-3: #969aa3;
-	--text-4: #8a8a94;
+	--text-1: #ece8e3;
+	--text-2: #c4beb6;        /* between text + mute */
+	/* --text-3/-4 lifted to WCAG AAA 7:1 vs the worst surface (--surface-3 #262321):
+	   t3≈8:1, t4≈7.15:1, warm hue kept, t2>t3>t4 order preserved. */
+	--text-3: #bdb9b4;        /* mute */
+	--text-4: #b2afac;        /* soft */
 
-	/* accent (amber — the design's default brand colour; tweakable per user) */
-	--accent: #f59e0b;
-	--accent-b: #fbbf24;
-	--accent-bg: rgba(245, 158, 11, 0.12);
-	--accent-ln: rgba(245, 158, 11, 0.3);
+	--accent: #e2725b;        /* petal (ink) */
+	--accent-b: #ec8a76;      /* lifted petal for links/headings on ink */
+	--accent-bg: rgba(226, 114, 91, 0.15);
+	--accent-ln: rgba(226, 114, 91, 0.34);
 
 	/* meaning-based color language */
-	/* green = questions (the typed ask) */
-	--violet: #22c55e;
-	--violet-b: #4ade80;
-	--violet-bg: rgba(34, 197, 94, 0.14);
-	--violet-ln: rgba(34, 197, 94, 0.34);
+	/* green = questions (the typed ask) → success-green, ink-tuned */
+	--violet: #4caf7d;
+	--violet-b: #6fcf9c;
+	--violet-bg: rgba(76, 175, 125, 0.14);
+	--violet-ln: rgba(76, 175, 125, 0.34);
 	/* yellow = warning / priority */
-	--warn: #eab308;
-	--warn-b: #facc15;
+	--warn: #d99520;
+	--warn-b: #e8b04a;
 	/* red = blocked / danger */
-	--danger: #dc2626;
-	--danger-b: #f87171;
-	/* blue = todo / info */
-	--info: #3b82f6;
-	--info-b: #7aa7ff;
+	--danger: #e2576b;
+	--danger-b: #ef8090;
+	/* blue = todo / info — restrained warm-leaning steel */
+	--info: #6b8aa8;
+	--info-b: #8fb0cc;
 
-	/* radius scale */
-	--radius-sm: 5px;
-	--radius: 9px;
-	--radius-lg: 13px;
+	/* radius scale (paper/ink: 8 / 12 / 16) */
+	--radius-sm: 8px;
+	--radius: 12px;
+	--radius-lg: 16px;
 
-	/* type */
-	--sans: 'Inter Variable', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-	--mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+	/* type — Geist + Geist Mono */
+	--sans: 'Geist Variable', system-ui, -apple-system, sans-serif;
+	--mono: 'Geist Mono Variable', ui-monospace, monospace;
 
 	/* density (overridden by [data-density=*]) */
 	--pad: 18px;
@@ -64,24 +69,36 @@
 }
 
 [data-theme='light'] {
-	--bg: #f7f7f8;
-	--surface-1: #ffffff;
-	--surface-2: #f4f4f5;
-	--surface-3: #e9e9ec;
-	--border: #dadade;
-	--border-sub: #ebebee;
-	--text-1: #18181b;
-	--text-2: #3f3f46;
-	--text-3: #5c5c64;
-	--text-4: #83838c;
-	/* accent must be RE-DARKENED for light mode: the dark theme's --accent-b (#fbbf24,
-	   pale amber) is unreadable on a light bg, and .prose uses --accent-b for h2 / links /
-	   inline-code — that was the "light mode gallery docs broken" bug. amber-600/700 hit AA. */
-	--accent: #d97706;
-	--accent-b: #b45309;
-	--accent-ln: rgba(180, 83, 9, 0.32);
-	--accent-bg: rgba(217, 119, 6, 0.1);
-	--violet-bg: rgba(34, 197, 94, 0.1);
+	/* PAPER (light) — warm stationery + the same burnt-sienna accent, re-darkened
+	 * for AA on white (the .prose h2/links/inline-code use --accent-b). */
+	--bg: #ffffff;            /* paper */
+	--surface-1: #fbfaf9;     /* elev (lightest card) */
+	--surface-2: #f6f5f3;     /* surface (warm stationery) */
+	--surface-3: #efeeec;
+	--border: #ececea;        /* rule */
+	--border-sub: #f0efed;
+
+	--text-1: #161412;        /* warm near-black ink */
+	--text-2: #3a3631;
+	/* AAA 7:1 vs worst paper surface (--surface-3 #efeeec): t3≈8:1, t4≈7.16:1, warm hue kept. */
+	--text-3: #4a4642;        /* mute */
+	--text-4: #504e4a;        /* soft */
+
+	--accent: #bc5638;        /* petal (paper) — AA on white */
+	--accent-b: #a14a30;      /* petal-hover, darker for link AA */
+	--accent-bg: rgba(188, 86, 56, 0.11);
+	--accent-ln: rgba(188, 86, 56, 0.3);
+
+	--violet: #2f8f5b;        /* success-green (paper) */
+	--violet-b: #267a4d;
+	--violet-bg: rgba(47, 143, 91, 0.1);
+	--violet-ln: rgba(47, 143, 91, 0.3);
+	--warn: #c77d11;          /* warning (paper) */
+	--warn-b: #a8690e;
+	--danger: #c5374b;        /* danger (paper) */
+	--danger-b: #a52d3e;
+	--info: #4a6f93;          /* steel, darkened for light AA */
+	--info-b: #3c5c7a;
 }
 
 [data-density='compact'] {
@@ -132,6 +149,14 @@ html,
 body {
 	height: 100%;
 }
+/* Progressive enhancement (Bob): lets size transitions animate to/from intrinsic
+   keywords (auto, max-content) instead of the max-width-to-a-magic-number hack.
+   Chromium ships it; Firefox/Safari are catching up — where it's unsupported the
+   existing max-width fallbacks keep collapses smooth, so it degrades cleanly on
+   Gecko/WebKit (Alice's on Fennec). */
+:root {
+	interpolate-size: allow-keywords;
+}
 body {
 	/* the design's @container app(...) rules query this; the original #root carried it */
 	container-type: inline-size;
@@ -141,7 +166,10 @@ body {
 	font-family: var(--sans);
 	font-size: 15px;
 	font-feature-settings: 'cv11', 'ss01', 'ss03';
+	font-kerning: normal;
+	text-rendering: optimizeLegibility;
 	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 a {
 	color: inherit;
@@ -184,7 +212,7 @@ button {
 .topbar, .tabbar { display:none; }
 .main { overflow-y:auto; overflow-x:hidden; height:100dvh; }
 .screen { max-width:760px; margin:0 auto; padding:30px 24px 96px; }
-.board .screen, .board.screen { max-width:780px; }
+/* board uses the standard .screen width (760) — consistent with every other page */
 
 /* sidebar */
 .sidebar { display:flex; flex-direction:column; background:var(--surface-1); border-right:1px solid var(--border-sub);
@@ -209,27 +237,34 @@ button {
 /* ── agent rail ─────────────────────────────────────────────── */
 .rail { background:var(--surface-2); border:1px solid var(--border-sub); border-radius:var(--radius-lg); padding:11px; }
 .rail-head { display:flex; align-items:center; gap:7px; font-size:10px; font-weight:600; text-transform:uppercase;
-  letter-spacing:.08em; color:var(--text-3); margin-bottom:10px; }
+  letter-spacing:.08em; color:var(--text-3); margin-bottom:10px; text-decoration:none; }
+.rail-head:hover { color:var(--text-2); }
+.rail-count { margin-left:auto; font-size:9.5px; font-weight:500; letter-spacing:.02em; text-transform:none; color:var(--text-4); }
 .rail-pulse { width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 0 var(--accent-ln);
   animation:pulse 2.4s infinite; }
 @keyframes pulse { 0%{box-shadow:0 0 0 0 var(--accent-ln);} 70%{box-shadow:0 0 0 7px transparent;} 100%{box-shadow:0 0 0 0 transparent;} }
 .rail-list { display:flex; flex-direction:column; gap:7px; }
 .rail-agent { display:flex; flex-direction:column; gap:5px; padding:9px 10px; border-radius:var(--radius);
-  background:var(--surface-1); border:1px solid var(--border-sub); transition:.12s; }
-.rail-agent:hover { border-color:var(--c); }
-.rail-agent.idle { opacity:.65; }
+  background:var(--surface-1); border:1px solid var(--border-sub); border-left:2px solid var(--c); transition:.12s; }
+.rail-agent:hover { border-color:var(--border); border-left-color:var(--c); }
+.rail-agent.idle, .rail-agent.alive { opacity:.82; }
+.rail-agent.off { opacity:.5; border-left-color:var(--text-4); }
 .ra-top { display:flex; align-items:center; gap:7px; }
 .ra-dot { width:7px; height:7px; border-radius:50%; background:var(--c); flex-shrink:0; }
-.rail-agent.working .ra-dot { box-shadow:0 0 9px var(--c); animation:pulse2 2s infinite; }
+.ra-dot.pulse { box-shadow:0 0 9px var(--c); animation:pulse2 2s infinite; }
 @keyframes pulse2 { 50%{opacity:.45;} }
 .ra-name { font-size:12px; font-weight:600; color:var(--c); }
 .ra-status { margin-left:auto; font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:.05em;
   padding:1px 6px; border-radius:5px; background:var(--surface-3); color:var(--text-3); }
-.ra-status.s-working { background:var(--accent-bg); color:var(--accent-b); }
-.ra-item { display:flex; flex-direction:column; gap:3px; }
+.ra-status.s-working { background:rgba(34,197,94,.14); color:var(--violet-b); }
+.ra-status.s-alive { color:var(--info-b); }
+.ra-age { font-family:var(--mono); font-size:9px; color:var(--text-4); flex-shrink:0; }
+.ra-item { display:flex; flex-direction:column; gap:3px; text-decoration:none; }
+.ra-tool { align-self:flex-start; font-size:10px; color:var(--text-1); padding:1px 6px; border-radius:5px;
+  background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.26); }
 .ra-title { font-size:12px; color:var(--text-2); line-height:1.35; overflow:hidden; text-overflow:ellipsis;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-.ra-lease { font-size:10px; color:var(--text-4); }
+.ra-item:hover .ra-title { color:var(--c); }
 .ra-idle { font-size:10.5px; color:var(--text-4); }
 
 /* ── page head ──────────────────────────────────────────────── */
@@ -259,8 +294,9 @@ button {
 .prio-2 { background:rgba(234,179,8,.12); color:var(--warn-b); }
 .prio-1 { background:rgba(59,130,246,.12); color:var(--info-b); }
 .prio-0 { background:var(--surface-3); color:var(--text-4); }
-.avatar { display:inline-flex; align-items:center; justify-content:center; border-radius:50%; border-width:1.5px;
-  font-family:var(--mono); font-weight:600; flex-shrink:0; line-height:1; text-transform:lowercase; }
+.avatar { display:inline-grid; place-items:center; border-radius:50%; border-width:1.5px;
+  font-family:var(--mono); font-weight:600; flex-shrink:0; line-height:1; text-transform:uppercase;
+  text-align:center; overflow:hidden; }
 .agent-badge { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px;
   padding:3px 9px 3px 7px; border-radius:20px; border:1px solid var(--c); color:var(--c); background:color-mix(in srgb,var(--c) 8%,transparent); }
 .ab-dot { width:6px; height:6px; border-radius:50%; background:var(--c); box-shadow:0 0 8px var(--c); animation:pulse2 2s infinite; }
@@ -274,17 +310,18 @@ button {
 .trail-lbl.violet { color:var(--violet-b); }
 .trail-arrow { color:var(--text-4); display:flex; }
 
-/* ── feed row (the calm card) ───────────────────────────────── */
-.list, .lane-body { display:flex; flex-direction:column; gap:5px; }
+/* ── feed row (flat, hairline-separated — task-499 "all cards shall die";
+ *    no per-row box, no rounded hover wash, no side-stripe; state is cued by
+ *    the row icon's colour, mirroring the shared TaskRow) ── */
+.list, .lane-body { display:flex; flex-direction:column; gap:0; }
+.list > * + *, .lane-body > * + * { border-top:1px solid var(--border-sub); }
 .row { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; width:100%;
-  padding:var(--rpad); background:var(--surface-1); border:1px solid var(--border-sub); border-radius:var(--radius);
-  transition:.12s; }
-.row:hover { border-color:var(--border); background:var(--surface-2); }
+  padding:12px 8px; background:none; border:0; border-radius:0;
+  transition:background .12s; }
+.row:hover { background:var(--surface-1); }
 .row-ic { color:var(--text-3); display:flex; align-items:center; padding-top:1px; }
 .row.kind-question .row-ic { color:var(--violet-b); }
-.row.st-doing { border-color:var(--accent-ln); }
-.row.st-blocked { border-left:3px solid var(--danger); }
-.row.needs-human { border-left:3px solid var(--pl,#5eead4); }
+.row.st-blocked .row-ic { color:var(--danger-b); }
 .row.st-done { opacity:.6; }
 .row.st-done:hover { opacity:1; }
 .row-main { min-width:0; display:flex; flex-direction:column; gap:5px; }
@@ -326,7 +363,7 @@ button {
   border:1px dashed var(--border); margin-top:2px; }
 .more:hover { color:var(--text-1); border-color:var(--text-4); }
 .sticky-note { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:var(--radius);
-  background:repeating-linear-gradient(135deg,rgba(251,191,36,.05) 0 10px,transparent 10px 20px),var(--surface-1);
+  background:var(--surface-1);
   border:1px dashed rgba(251,191,36,.4); font-size:13px; color:var(--text-2); cursor:default; }
 .sn-ic { color:#fbbf24; display:flex; }
 .sn-go { margin-left:auto; color:var(--text-4); }
@@ -479,6 +516,16 @@ button {
 .prose code { font-family:var(--mono); font-size:13px; background:var(--surface-2); padding:1px 6px; border-radius:5px;
   color:var(--accent-b); border:1px solid var(--border-sub); }
 .prose a { color:var(--accent-b); text-decoration:underline; text-decoration-color:var(--accent-ln); text-underline-offset:3px; }
+/* [[wikilinks]] (task-514): chip-styled inline refs. wl-task = real /task/N link;
+   wl-agent = fleet agent (inert until /fleet route exists); wl-ref = generic slug. */
+.prose .wikilink { font-size:.92em; padding:1px 7px; border-radius:5px; white-space:nowrap;
+  border:1px solid var(--border-sub); background:var(--surface-2); }
+.prose a.wl-task { color:var(--accent-b); text-decoration:none; border-color:var(--accent-ln); background:var(--accent-bg); }
+.prose a.wl-task:hover { border-color:var(--accent); }
+.prose .wl-task::before { content:"\2197"; opacity:.65; margin-right:3px; font-size:.85em; }
+.prose .wl-agent { color:var(--text-2); cursor:default; }
+.prose .wl-agent::before { content:"@"; opacity:.5; margin-right:1px; }
+.prose .wl-ref { color:var(--text-3); }
 .prose blockquote { border-left:3px solid var(--accent); padding-left:15px; color:var(--text-3); font-style:italic; }
 .prose hr { border:none; border-top:1px solid var(--border); margin:26px 0; }
 .prose table { width:100%; border-collapse:collapse; margin:14px 0; font-size:13px; display:block; overflow-x:auto; }

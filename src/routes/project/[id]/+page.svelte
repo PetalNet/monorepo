@@ -1,15 +1,11 @@
 <script>
+  import Icon from '$lib/Icon.svelte';
+  import { whoColor as whoColorBase } from '$lib/people.js';
   let { data } = $props();
 
-  // per-person colours (mirrors the board) for the assignee avatar
-  const PERSON = {
-    claude: '#fb923c', agent-a: '#8b5cf6', agent-b: '#22d3ee',
-    alice: '#fb7185', alice: '#fb7185', bob: '#38bdf8', bob: '#38bdf8',
-    codex: '#a3e635', agent-d: '#f472b6', agent-e: '#facc15', web: '#94a3b8'
-  };
+  // per-person colours single-sourced from $lib/people; this page's falsy fallback is null.
+  const whoColor = (h) => whoColorBase(h, null);
   const AGENTS = ['claude', 'agent-a', 'agent-b', 'codex', 'agent-d', 'agent-e'];
-  const hue = (s) => { let h = 0; for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
-  const whoColor = (h) => h ? (PERSON[String(h).toLowerCase()] ?? `hsl(${hue(h)} 60% 68%)`) : null;
   const isAgent = (h) => AGENTS.includes(String(h).toLowerCase());
 
   const kindIcon = (k) => k === 'idea' ? 'idea' : k === 'doc' ? 'doc' : k === 'question' ? 'question' : 'task';
@@ -47,14 +43,14 @@
 <svelte:head><title>{data.project.name} · tasks</title></svelte:head>
 
 <div class="screen project">
-  <a class="back" href="/projects"><svg width="13" height="13" aria-hidden="true"><use href="#i-arrow"/></svg> projects</a>
+  <a class="back" href="/projects"><Icon name="arrow" size={13} /> projects</a>
 
   <header class="page-head">
     <div class="ph-row">
       <h1>{data.project.name}</h1>
-      <span class="ph-tag mono"><svg width="11" height="11" style="vertical-align:-1px" aria-hidden="true"><use href="#i-lock"/></svg> {data.project.visibility}{#if data.project.owner} · {data.project.owner}{/if}</span>
+      <span class="ph-tag mono"><span style="vertical-align:-1px"><Icon name="lock" size={11} /></span> {data.project.visibility}{#if data.project.owner} · {data.project.owner}{/if}</span>
       <span class="ph-spacer"></span>
-      <a class="back" href="/?project={encodeURIComponent(data.project.name)}"><svg width="13" height="13" aria-hidden="true"><use href="#i-board"/></svg> on board</a>
+      <a class="back" href="/?project={encodeURIComponent(data.project.name)}"><Icon name="board" size={13} /> on board</a>
     </div>
     <p class="ph-sub mono">{total} item{total === 1 ? '' : 's'} · {openCount} open</p>
   </header>
@@ -64,7 +60,7 @@
       {#each lanes as lane (lane.key)}
         <section class="lane">
           <div class="lane-head">
-            <span class="lane-ic"><svg width="14" height="14" aria-hidden="true"><use href="#i-{lane.icon}"/></svg></span>
+            <span class="lane-ic"><Icon name={lane.icon} size={14} /></span>
             <h2>{lane.title}</h2>
             <span class="lane-count">{lane.items.length}</span>
           </div>
@@ -72,7 +68,7 @@
             {#each lane.items as t (t.id)}
               {@const pc = whoColor(t.assignee)}
               <a class="row kind-{t.kind} st-{t.status ?? 'todo'}" href="/task/{t.id}">
-                <span class="row-ic"><svg width="16" height="16" aria-hidden="true"><use href="#i-{kindIcon(t.kind)}"/></svg></span>
+                <span class="row-ic"><Icon name={kindIcon(t.kind)} size={16} /></span>
                 <span class="row-main">
                   <span class="row-title">{t.title}</span>
                   <span class="row-sub">
