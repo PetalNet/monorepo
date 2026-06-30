@@ -29,6 +29,7 @@ const DB = await import("../src/lib/server/db.js");
 const db = DB.default; // the shared connection (used only for read queries below)
 const {
   createTask, updateTask, getTask, getProjectByName, ensureProject, defaultProjectId, claimNext, reapLeases, closeTask,
+  archiveProject, unarchiveProject, listArchivedProjects,
 } = DB;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -231,6 +232,25 @@ server.tool(
     const res = closeTask(id, { reason, by: "mcp", status });
     if (res && res.ok === false) return txt({ rejected: res });
     return txt({ closed: shape(getTask(id)) });
+  },
+);
+
+server.tool(
+  "archive_project",
+  "Archive a whole project by name: its tasks vanish from all active views (board/up-next/counts) but are NOT deleted — fully restorable. Use to close out a project.",
+  { name: z.string().min(1).describe("Project name to archive") },
+  async ({ name }) => {
+    const r = archiveProject(name);
+    return txt(r.changes ? { archived: name } : { error: `no active project named '${name}' (already archived or doesn't exist)` });
+  },
+);
+server.tool(
+  "unarchive_project",
+  "Restore a previously archived project: its tasks reappear in active views. Pass the project name.",
+  { name: z.string().min(1).describe("Project name to restore") },
+  async ({ name }) => {
+    const r = unarchiveProject(name);
+    return txt(r.changes ? { restored: name } : { error: `no project named '${name}'` });
   },
 );
 

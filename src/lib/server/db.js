@@ -135,6 +135,29 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_artifact_shares_token ON artifact_shares(token_hash);
   CREATE INDEX IF NOT EXISTS idx_artifact_shares_slug  ON artifact_shares(slug);
+  -- mock sessions: a DECISION LAYER over the gallery (a step toward MockLab). A session poses one
+  -- or more visual questions; each option POINTS AT a gallery artifact (the design). The user opens
+  -- /mock/<token> and sees each option rendered in the SAME locked sandbox iframe the gallery uses —
+  -- but the "Choose" controls live on the OUTER, authenticated tasks page, NEVER inside the caged
+  -- iframe, so the sandbox/security model is untouched (the design can't phone home; the trusted
+  -- outer page records the pick). spec/results are small agent-authored JSON blobs. token = the
+  -- unguessable url id. Recording a choice is gated on an authenticated identity (fail-closed).
+  -- NO per-session owner/visibility gate (unlike artifacts): any ALLOW user can read/overwrite any
+  -- session by token. Intended — these are SHARED decisions between the 2 trusted users, and the
+  -- token is unguessable behind SSO. If ALLOW ever grows past alice/bob, add an owner/visibility
+  -- gate to getMockSession/recordMockChoice or this becomes a cross-tenant IDOR.
+  CREATE TABLE IF NOT EXISTS mock_sessions (
+    id          INTEGER PRIMARY KEY,
+    token       TEXT NOT NULL UNIQUE,                   -- url id (crypto base64url)
+    title       TEXT NOT NULL,
+    spec        TEXT NOT NULL,                           -- JSON {intro?, questions:[{id,prompt,note?,options:[{key,label,slug,blurb?}]}]}
+    results     TEXT NOT NULL DEFAULT '{}',              -- JSON {questionId:{choice,comment,by,at}}
+    status      TEXT NOT NULL DEFAULT 'open',            -- open | resolved
+    created_by  TEXT DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_mock_sessions_token ON mock_sessions(token);
   -- typed NON-blocking provenance links between tasks (fleet-dispatcher Phase 1). Distinct from
   -- task_blockers (which is the UNTYPED BLOCKING graph that gates UNBLOCKED eligibility): these
   -- carry a relationship TYPE and do NOT affect status/eligibility. First rel: 'discovered_from'
@@ -245,6 +268,7 @@ function ensureProjectColumns() {
   const have = new Set(db.prepare('PRAGMA table_info(projects)').all().map((c) => c.name));
   if (!have.has('owner')) db.exec("ALTER TABLE projects ADD COLUMN owner TEXT DEFAULT ''");
   if (!have.has('visibility')) db.exec("ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'shared'");
+  if (!have.has('archived_at')) db.exec("ALTER TABLE projects ADD COLUMN archived_at TEXT");
 }
 ensureProjectColumns();
 
@@ -392,6 +416,9 @@ const whoFilter = (a) => (a ? 'AND assignee=@a' : '');
 const vis = (me) => (me ? "AND (visibility='shared' OR owner=@me)" : '');
 const qargs = (p, me, a) => ({ ...(p ? { p } : {}), ...(me ? { me } : {}), ...(a ? { a } : {}) });
 const args = (p) => (p ? { p } : {});
+// archive: a project with archived_at SET is hidden from every ACTIVE task view (restorable).
+// NULL-project guard: bare `project_id NOT IN (subq)` would drop NULL-project tasks (NULL NOT IN => NULL).
+const NOTARCHIVED = "AND (project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))";
 
 export const getTask = (id) => db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
 
@@ -441,7 +468,7 @@ export function deepScrub(v) {
 // to a shared one must NOT leak its title via the relations panel (#285/#343 class). Agent/MCP/
 // internal callers pass no me and see all.
 export const blockersOf = (task_id, me) => db.prepare(
-  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id WHERE b.task_id=@task_id ${vis(me)} ORDER BY t.id`
+  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id WHERE b.task_id=@task_id ${vis(me)} ${NOTARCHIVED} ORDER BY t.id`
 ).all({ task_id, ...(me ? { me } : {}) });
 export const unfinishedBlockers = (task_id) => db.prepare(
   `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id
@@ -469,7 +496,7 @@ export function removeBlocker(task_id, blocker_id) {
 // Inverse blocking edge: tasks that THIS task blocks (i.e. rows where this is the blocker_id).
 // Complements blockersOf (tasks that block this one). Read-only; no eligibility effect.
 export const blocks = (id, me) => db.prepare(
-  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.task_id WHERE b.blocker_id=@id ${vis(me)} ORDER BY t.id`
+  `SELECT t.* FROM task_blockers b JOIN tasks t ON t.id=b.task_id WHERE b.blocker_id=@id ${vis(me)} ${NOTARCHIVED} ORDER BY t.id`
 ).all({ id, ...(me ? { me } : {}) });
 
 // --- typed NON-blocking provenance links (task_links) ---
@@ -486,11 +513,11 @@ export const removeLink = (task_id, related_id, rel = 'discovered_from') =>
   db.prepare('DELETE FROM task_links WHERE task_id=? AND related_id=? AND rel=?').run(Number(task_id), Number(related_id), rel).changes > 0;
 // discoveredFrom: the task(s) THIS one was discovered from (the parent provenance).
 export const discoveredFrom = (id, me, rel = 'discovered_from') => db.prepare(
-  `SELECT t.* FROM task_links l JOIN tasks t ON t.id=l.related_id WHERE l.task_id=@id AND l.rel=@rel ${vis(me)} ORDER BY t.id`
+  `SELECT t.* FROM task_links l JOIN tasks t ON t.id=l.related_id WHERE l.task_id=@id AND l.rel=@rel ${vis(me)} ${NOTARCHIVED} ORDER BY t.id`
 ).all({ id, rel, ...(me ? { me } : {}) });
 // discoveries: the task(s) discovered FROM this one (the inverse — the discovery tree's children).
 export const discoveries = (id, me, rel = 'discovered_from') => db.prepare(
-  `SELECT t.* FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.related_id=@id AND l.rel=@rel ${vis(me)} ORDER BY t.id`
+  `SELECT t.* FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.related_id=@id AND l.rel=@rel ${vis(me)} ${NOTARCHIVED} ORDER BY t.id`
 ).all({ id, rel, ...(me ? { me } : {}) });
 
 export const listComments = (tid) => db.prepare('SELECT * FROM comments WHERE task_id=? ORDER BY created_at').all(tid);
@@ -512,8 +539,12 @@ export function addAnnotation({ page_path, anchor_selector, anchor_snippet, anch
 export const deleteAnnotation = (id) => db.prepare('DELETE FROM annotations WHERE id=?').run(id).changes > 0;
 
 export const listProjects = (me) => db.prepare(
-  `SELECT * FROM projects ${me ? "WHERE visibility='shared' OR owner=@me" : ''} ORDER BY name`
+  `SELECT * FROM projects WHERE archived_at IS NULL ${me ? "AND (visibility='shared' OR owner=@me)" : ''} ORDER BY name`
 ).all(me ? { me } : {});
+// archive / restore a whole project: archived tasks vanish from active views (via NOTARCHIVED), nothing deleted.
+export const archiveProject = (name) => db.prepare("UPDATE projects SET archived_at=datetime('now') WHERE name=? AND archived_at IS NULL").run(name);
+export const unarchiveProject = (name) => db.prepare('UPDATE projects SET archived_at=NULL WHERE name=?').run(name);
+export const listArchivedProjects = () => db.prepare('SELECT * FROM projects WHERE archived_at IS NOT NULL ORDER BY archived_at DESC').all();
 export const getProject = (id) => db.prepare('SELECT * FROM projects WHERE id=?').get(id);
 export const renameProject = (id, name) => db.prepare('UPDATE projects SET name=? WHERE id=?').run(name, id);
 // merge a project into another: reassign its tasks to dest, then drop the now-empty source project.
@@ -540,19 +571,19 @@ export const getProjectByName = (name) => db.prepare('SELECT * FROM projects WHE
 // Distinct assignees present (for the UI filter dropdown). Honors the same visibility
 // rule as the list views: a HUMAN only sees assignees on items they're allowed to see.
 export const listAssignees = (me) => db.prepare(
-  `SELECT DISTINCT assignee FROM tasks WHERE assignee IS NOT NULL AND assignee!='' ${vis(me)} ORDER BY assignee`
+  `SELECT DISTINCT assignee FROM tasks WHERE assignee IS NOT NULL AND assignee!='' ${vis(me)} ${NOTARCHIVED} ORDER BY assignee`
 ).all(me ? { me } : {}).map((r) => r.assignee);
 
 const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of the task checklist
 
 // Top-level items per section (children render nested under their parent — work isn't flat, per Bob).
 // in-progress work gets its own lane, so pull status='doing' out of up-next / to-do
-export const doing   = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE status='doing' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, updated_at DESC`).all(qargs(p, me, a)), me);
-export const upNext  = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me, a)), me);
-export const inbox   = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY created_at DESC`).all(qargs(p, me, a));
-export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a)), me);
+export const doing   = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE status='doing' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, updated_at DESC`).all(qargs(p, me, a)), me);
+export const upNext  = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY rank, priority, updated_at DESC`).all(qargs(p, me, a)), me);
+export const inbox   = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY created_at DESC`).all(qargs(p, me, a));
+export const backlog = (p, me, a) => withKids(db.prepare(`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a)), me);
 // recently-shipped (top-level), capped — a "done" lane so the board shows momentum
-export const recentDone = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='done' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY updated_at DESC LIMIT 12`).all(qargs(p, me, a));
+export const recentDone = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE status='done' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC LIMIT 12`).all(qargs(p, me, a));
 // global title/body search (the top-bar search box). Visibility-gated like every list, open items
 // first then done, dropped excluded. LIKE wildcards in the user's term are escaped so a literal
 // '%' or '_' matches itself. Capped — this is a quick jump-to, not a report.
@@ -565,7 +596,7 @@ export const searchTasks = (q, me) => {
        FROM tasks
       WHERE status != 'dropped'
         AND (title LIKE @q ESCAPE '\\' OR body LIKE @q ESCAPE '\\')
-        ${vis(me)}
+        ${vis(me)} ${NOTARCHIVED}
       ORDER BY (status='done') ASC, priority, updated_at DESC
       LIMIT 60`
   ).all(params);
@@ -578,33 +609,33 @@ export const searchIndex = (me) => db.prepare(
   `SELECT t.id, t.title, t.kind, t.status, t.priority, t.assignee, t.updated_at,
           (SELECT name FROM projects p WHERE p.id = t.project_id) AS project
      FROM tasks t
-    WHERE t.status != 'dropped' ${vis(me)}
+    WHERE t.status != 'dropped' ${vis(me)} ${NOTARCHIVED}
     ORDER BY (t.status='done') ASC, t.updated_at DESC
     LIMIT 2000`
 ).all(me ? { me } : {});
 // who's actively on something right now (incl. subtasks) — feeds the live agent rail
-export const activeLeases = (me) => db.prepare(`SELECT id, title, assignee, project_id FROM tasks WHERE status='doing' AND assignee IS NOT NULL AND assignee!='' ${vis(me)} ORDER BY updated_at DESC`).all(me ? { me } : {});
+export const activeLeases = (me) => db.prepare(`SELECT id, title, assignee, project_id FROM tasks WHERE status='doing' AND assignee IS NOT NULL AND assignee!='' ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC`).all(me ? { me } : {});
 // flat GitHub-style issues list — every actionable item (not docs) + its comment count, for the /issues view
-export const issuesList = (me) => db.prepare(`SELECT *, (SELECT COUNT(*) FROM comments c WHERE c.task_id=tasks.id) AS ncomments FROM tasks WHERE kind != 'doc' ${vis(me)} ORDER BY priority DESC, updated_at DESC`).all(me ? { me } : {});
+export const issuesList = (me) => db.prepare(`SELECT *, (SELECT COUNT(*) FROM comments c WHERE c.task_id=tasks.id) AS ncomments FROM tasks WHERE kind != 'doc' ${vis(me)} ${NOTARCHIVED} ORDER BY priority DESC, updated_at DESC`).all(me ? { me } : {});
 // /inbox (the async hub): recently-answered questions + headline counts
-export const answeredQuestions = (me) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND answer IS NOT NULL AND answer!='' ${vis(me)} ORDER BY updated_at DESC LIMIT 8`).all(me ? { me } : {});
+export const answeredQuestions = (me) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND answer IS NOT NULL AND answer!='' ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC LIMIT 8`).all(me ? { me } : {});
 export const inboxCounts = (me) => db.prepare(`SELECT
     SUM(CASE WHEN kind='question' AND (answer IS NULL OR answer='') AND ${ACTIVE} THEN 1 ELSE 0 END) AS open,
     SUM(CASE WHEN kind='question' AND answer IS NOT NULL AND answer!='' THEN 1 ELSE 0 END) AS answered,
     SUM(CASE WHEN kind='doc' THEN 1 ELSE 0 END) AS docs,
     SUM(CASE WHEN status='doing' THEN 1 ELSE 0 END) AS doing
-  FROM tasks WHERE 1=1 ${vis(me)}`).get(me ? { me } : {});
+  FROM tasks WHERE 1=1 ${vis(me)} ${NOTARCHIVED}`).get(me ? { me } : {});
 // dedicated muted section for blocked tasks (top-level only; children render under their parent).
 // blockers are fetched in ONE batched query (was a per-row blockersOf() call = N+1). me-scoped
 // vis so a private blocker's title never leaks on the board (#285); order matches blockersOf (t.id).
 export const blockedList = (p, me, a) => {
-  const rows = db.prepare(`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a));
+  const rows = db.prepare(`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, rank, updated_at DESC`).all(qargs(p, me, a));
   if (!rows.length) return rows;
   const idp = {}; rows.forEach((r, i) => { idp['t' + i] = r.id; });
   const placeholders = rows.map((_, i) => '@t' + i).join(',');
   const edges = db.prepare(
     `SELECT b.task_id AS _owner, t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id
-      WHERE b.task_id IN (${placeholders}) ${vis(me)} ORDER BY t.id`
+      WHERE b.task_id IN (${placeholders}) ${vis(me)} ${NOTARCHIVED} ORDER BY t.id`
   ).all({ ...idp, ...(me ? { me } : {}) });
   const byOwner = new Map();
   for (const e of edges) {
@@ -615,11 +646,11 @@ export const blockedList = (p, me, a) => {
 };
 // lightweight {id,title} list of open tasks for the blocker-picker dropdown (honors visibility).
 export const blockerCandidates = (me) => db.prepare(
-  `SELECT id, title FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)} ORDER BY updated_at DESC LIMIT 500`
+  `SELECT id, title FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC LIMIT 500`
 ).all(me ? { me } : {});
 
 // --- Claude Corner merge: docs (briefs/ADRs) + questions (async decisions) ---
-export const listDocs = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY updated_at DESC`).all(qargs(p, me, a));
+export const listDocs = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC`).all(qargs(p, me, a));
 // every doc (research/briefs/ADRs) across all projects, for the /docs research library (joined → qualify cols)
 export const allDocs = (me) => db.prepare(
   `SELECT t.id, t.title, t.updated_at, t.created_by, t.project_id, p.name AS project_name
@@ -628,7 +659,7 @@ export const allDocs = (me) => db.prepare(
    ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ''}
    ORDER BY (p.name IS NULL), p.name COLLATE NOCASE, t.updated_at DESC`
 ).all(me ? { me } : {});
-export const openQuestions = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ORDER BY priority, created_at`).all(qargs(p, me, a));
+export const openQuestions = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, created_at`).all(qargs(p, me, a));
 // Answer a question: only valid for kind='question', and an empty answer is rejected (an
 // empty value would otherwise mark the question done with no recorded decision). task-302.
 export function answerQuestion(id, value) {
@@ -650,7 +681,7 @@ export function createQuestion(project_id, title, context, options, created_by =
 // the page groups it by status lane. Returns [] for an unknown/forbidden project.
 export const tasksInProject = (pid, me) => db.prepare(
   `SELECT id, title, kind, status, priority, up_next, assignee, owner, visibility, created_at, updated_at
-   FROM tasks WHERE project_id=@pid ${vis(me)} ORDER BY priority, rank, updated_at DESC`
+   FROM tasks WHERE project_id=@pid ${vis(me)} ${NOTARCHIVED} ORDER BY priority, rank, updated_at DESC`
 ).all({ pid, ...(me ? { me } : {}) });
 
 // sub-task hierarchy (beads-style breakdown). HUMAN visibility gate: pass `me` so a SHARED
@@ -665,7 +696,7 @@ export const tasksInProject = (pid, me) => db.prepare(
 // subtree assembly — one DB hit regardless of tree size/shape.
 function childMapByParent(me) {
   const rows = db.prepare(
-    `SELECT * FROM tasks WHERE parent_id IS NOT NULL AND ${ACTIVE} ${vis(me)} ORDER BY rank, priority`
+    `SELECT * FROM tasks WHERE parent_id IS NOT NULL AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED} ORDER BY rank, priority`
   ).all(me ? { me } : {});
   const m = new Map();
   for (const r of rows) {
@@ -684,7 +715,7 @@ const withKids = (rows, me) => (rows.length ? attachKids(rows, childMapByParent(
 // One task's children + descendants (the task/[id] relations panel). Same one-query model.
 export const children = (pid, me) => {
   const roots = db.prepare(
-    `SELECT * FROM tasks WHERE parent_id=@pid AND ${ACTIVE} ${vis(me)} ORDER BY rank, priority`
+    `SELECT * FROM tasks WHERE parent_id=@pid AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED} ORDER BY rank, priority`
   ).all({ pid, ...(me ? { me } : {}) });
   return roots.length ? attachKids(roots, childMapByParent(me)) : roots;
 };
@@ -694,7 +725,7 @@ export const children = (pid, me) => {
 // board's ACTIVE-only roll-up. Visibility-gated; flat (one level — the detail page links down).
 export const childrenAll = (pid, me) => db.prepare(
   `SELECT id, title, kind, status, priority, assignee FROM tasks
-   WHERE parent_id=@pid ${vis(me)} ORDER BY rank, priority, id`
+   WHERE parent_id=@pid ${vis(me)} ${NOTARCHIVED} ORDER BY rank, priority, id`
 ).all({ pid, ...(me ? { me } : {}) });
 
 // The parent row (for the "↳ part of #parent" up-link), visibility-gated so a private parent
@@ -703,7 +734,7 @@ export const parentOf = (childId, me) => {
   const c = db.prepare('SELECT parent_id FROM tasks WHERE id=?').get(childId);
   if (!c || !c.parent_id) return null;
   return db.prepare(
-    `SELECT id, title, status FROM tasks WHERE id=@pid ${vis(me)}`
+    `SELECT id, title, status FROM tasks WHERE id=@pid ${vis(me)} ${NOTARCHIVED}`
   ).get({ pid: c.parent_id, ...(me ? { me } : {}) }) || null;
 };
 
@@ -1089,6 +1120,62 @@ export function upsertArtifact({ slug, title, description = '', kind = 'markdown
   return getArtifact(slug, null);
 }
 
+// --- mock sessions (decision layer over the gallery) -----------------------
+// A session poses visual questions whose options point at gallery artifacts. The picker UI
+// (the choose buttons) lives on the OUTER authenticated tasks page; the designs stay caged in
+// the gallery sandbox. createMockSession is author-side (Agent-a); recordMockChoice is the gated
+// write the picker page calls. me is ALWAYS required to record (fail-closed).
+export function createMockSession({ title, spec, created_by = '' }) {
+  if (!title || !spec) throw new Error('mock session requires title, spec');
+  const specObj = typeof spec === 'string' ? JSON.parse(spec) : spec;
+  if (!Array.isArray(specObj.questions) || !specObj.questions.length) throw new Error('spec needs questions[]');
+  for (const q of specObj.questions) {
+    if (!q.id || !q.prompt || !Array.isArray(q.options) || !q.options.length) throw new Error('each question needs id, prompt, options[]');
+    for (const o of q.options) if (!o.key || !o.label) throw new Error('each option needs key, label');
+  }
+  const token = crypto.randomBytes(9).toString('base64url'); // 12-char url id
+  db.prepare(`INSERT INTO mock_sessions (token, title, spec, created_by) VALUES (@token,@title,@spec,@created_by)`)
+    .run({ token, title, spec: JSON.stringify(specObj), created_by });
+  return getMockSession(token);
+}
+
+export function getMockSession(token) {
+  const r = db.prepare('SELECT * FROM mock_sessions WHERE token=?').get(token);
+  if (!r) return undefined;
+  return { ...r, spec: JSON.parse(r.spec), results: JSON.parse(r.results || '{}') };
+}
+
+// Record (or update) the pick for ONE question. Validates the choice is a real option key.
+// Flips the session to 'resolved' once every question has a choice.
+// CONCURRENCY: this is a read-modify-write of the whole results JSON, safe ONLY because it is
+// fully synchronous (better-sqlite3, no await between SELECT and UPDATE). Do NOT add an await
+// inside this function or two concurrent picks become a lost-update race.
+export function recordMockChoice({ token, questionId, choice, choices, comment = '', me }) {
+  if (!me) throw new Error('not authorized');
+  const r = db.prepare('SELECT * FROM mock_sessions WHERE token=?').get(token);
+  if (!r) throw new Error('no such session');
+  const spec = JSON.parse(r.spec);
+  const q = (spec.questions || []).find((x) => x.id === questionId);
+  if (!q) throw new Error('no such question');
+  const results = JSON.parse(r.results || '{}');
+  const base = { comment: String(comment).slice(0, 2000), by: me, at: new Date().toISOString() };
+  if (q.multi) {
+    // multi-select: store the set of liked option keys (validated against real options)
+    const arr = (Array.isArray(choices) ? choices : []).filter((k) => q.options.some((o) => o.key === k));
+    results[questionId] = { ...base, choices: arr };
+  } else {
+    if (choice && !q.options.some((o) => o.key === choice)) throw new Error('invalid choice');
+    results[questionId] = { ...base, choice: choice || null };
+  }
+  const allAnswered = (spec.questions || []).every((x) => {
+    const e = results[x.id];
+    return e && (x.multi ? (e.choices && e.choices.length) : e.choice);
+  });
+  db.prepare(`UPDATE mock_sessions SET results=@results, status=@status, resolved_at=@resolved WHERE token=@token`)
+    .run({ results: JSON.stringify(results), status: allAnswered ? 'resolved' : 'open', resolved: allAnswered ? new Date().toISOString() : r.resolved_at, token });
+  return getMockSession(token);
+}
+
 // --- scoped share-links (artifact_shares) ----------------------------------
 // Threat model: a public, SSO-EXEMPT route (/s/[token]) must serve EXACTLY one artifact to an
 // unauthenticated visitor and nothing else. The whole security of that bypass rests here, so:
@@ -1209,7 +1296,7 @@ export function boardLanes(me) {
   const rows = db.prepare(
     `SELECT id, title, status, priority, project_id, assignee, claimed_by, lease_expires_at, updated_at, kind
        FROM tasks
-      WHERE status='doing' AND ${TASKISH} ${vis(me)}
+      WHERE status='doing' AND ${TASKISH} ${vis(me)} ${NOTARCHIVED}
       ORDER BY priority, updated_at DESC`
   ).all(me ? { me } : {});
   const nowMs = Date.now();
@@ -1247,7 +1334,7 @@ export function staleLog(me, { closedLimit = 15 } = {}) {
     `SELECT id, title, assignee, claimed_by, lease_expires_at, project_id, priority
        FROM tasks
       WHERE status='doing' AND lease_expires_at IS NOT NULL
-        AND lease_expires_at < datetime('now') AND ${TASKISH} ${vis(me)}
+        AND lease_expires_at < datetime('now') AND ${TASKISH} ${vis(me)} ${NOTARCHIVED}
       ORDER BY lease_expires_at ASC`
   ).all(me ? { me } : {});
   const nowMs = Date.now();
@@ -1285,7 +1372,7 @@ export function boardCounts(me) {
   // ready = unblocked actionable (todo/up-next), doing, blocked, review — grouped by claimed_by||assignee
   const rows = db.prepare(
     `SELECT status, up_next, blocked_on, claimed_by, assignee
-       FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)}`
+       FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED}`
   ).all(me ? { me } : {});
   for (const r of rows) {
     const who = (r.claimed_by || r.assignee || '').toLowerCase();
@@ -1318,7 +1405,7 @@ export const boardReady = (me, limit = 25) => db.prepare(
   `SELECT id, title, status, priority, up_next, project_id, assignee, kind
      FROM tasks
     WHERE status='todo' AND (blocked_on='' OR blocked_on IS NULL)
-      AND ${TASKISH} ${vis(me)}
+      AND ${TASKISH} ${vis(me)} ${NOTARCHIVED}
     ORDER BY up_next DESC, rank, priority LIMIT @lim`
 ).all({ lim: limit, ...(me ? { me } : {}) });
 
@@ -1334,7 +1421,7 @@ export function boardData(me) {
   // self-close). Visibility-gated for the human board (needsReview() itself is the agent path).
   const review = db.prepare(
     `SELECT id, title, status, priority, project_id, assignee, kind, updated_at
-       FROM tasks WHERE status='review' AND ${TASKISH} ${vis(me)} ORDER BY updated_at DESC`
+       FROM tasks WHERE status='review' AND ${TASKISH} ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC`
   ).all(me ? { me } : {});
   return {
     lanes: boardLanes(me),
@@ -1367,7 +1454,7 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
   const onFire = db.prepare(
     `SELECT id, title, priority, status, project_id, assignee, kind, updated_at
        FROM tasks
-      WHERE priority=0 AND ${TASKISH} AND ${ACTIVE} ${vis(me)}
+      WHERE priority=0 AND ${TASKISH} AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED}
       ORDER BY (status='doing') DESC, updated_at DESC LIMIT 12`
   ).all(meArgs);
 
@@ -1377,13 +1464,13 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
   const assigned = me ? db.prepare(
     `SELECT id, title, priority, status, project_id, assignee, kind, updated_at
        FROM tasks
-      WHERE lower(assignee)=lower(@me) AND ${TASKISH} AND ${ACTIVE} ${vis(me)}
+      WHERE lower(assignee)=lower(@me) AND ${TASKISH} AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED}
       ORDER BY priority, updated_at DESC LIMIT 12`
   ).all({ me }) : [];
   const questions = db.prepare(
     `SELECT id, title, priority, status, project_id, assignee, kind, options, updated_at
        FROM tasks
-      WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${vis(me)}
+      WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED}
       ORDER BY priority, created_at LIMIT 12`
   ).all(meArgs);
   const seen = new Set();
@@ -1396,7 +1483,7 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
   const inFlight = db.prepare(
     `SELECT id, title, priority, status, project_id, assignee, claimed_by, kind, updated_at
        FROM tasks
-      WHERE status='doing' AND ${TASKISH} ${vis(me)}
+      WHERE status='doing' AND ${TASKISH} ${vis(me)} ${NOTARCHIVED}
       ORDER BY updated_at DESC LIMIT 12`
   ).all(meArgs);
 
@@ -1438,7 +1525,7 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
   // backlog: open (active) task counts by priority bucket
   const blRows = db.prepare(
     `SELECT priority, COUNT(*) AS n
-       FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)}
+       FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED}
       GROUP BY priority`
   ).all(meArgs);
   const byPriority = { 0: 0, 1: 0, 2: 0, 3: 0 };
@@ -1458,6 +1545,36 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
     hud: { needsYou: needsYou.length, onFire: onFire.length, working: workingAgents },
     generatedAt: new Date().toISOString()
   };
+}
+
+// --- fleet-terminal audit log (#547). Rows are WRITTEN by server.js's ws proxy (term_audit on
+// connect/disconnect; term_audit_input = rw keystroke capture). The schema is mirrored here so the
+// admin-only /fleet/audit read never trips over a missing table before any session has opened. ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS term_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, mode TEXT,
+    connect_ts INTEGER, disconnect_ts INTEGER, client_ip TEXT, user_agent TEXT);
+  CREATE TABLE IF NOT EXISTS term_audit_input (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, ts INTEGER, data TEXT);
+  CREATE INDEX IF NOT EXISTS idx_term_audit_input_session ON term_audit_input(session_id);`);
+
+const _termSessions = db.prepare(`
+  SELECT a.id, a.user, a.mode, a.connect_ts, a.disconnect_ts, a.client_ip, a.user_agent,
+         COALESCE(SUM(LENGTH(i.data)), 0) AS input_chars
+  FROM term_audit a LEFT JOIN term_audit_input i ON i.session_id = a.id
+  GROUP BY a.id ORDER BY a.connect_ts DESC LIMIT ?`);
+const _termInput = db.prepare('SELECT data FROM term_audit_input WHERE session_id=? ORDER BY ts, id');
+const _termOne = db.prepare('SELECT * FROM term_audit WHERE id=?');
+
+// ADMIN-ONLY (gated in the route): session list, or the full keystroke transcript for one rw
+// session. The transcript is deliberately sensitive — accountability for a root-equivalent shell.
+export function getTermAudit({ sessionId = null, limit = 200 } = {}) {
+  if (sessionId != null) {
+    const session = _termOne.get(sessionId);
+    if (!session) return { session: null, input: '' };
+    return { session, input: _termInput.all(sessionId).map((r) => r.data).join('') };
+  }
+  return { sessions: _termSessions.all(limit) };
 }
 
 export default db;
