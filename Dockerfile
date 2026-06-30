@@ -18,5 +18,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
+COPY --from=build /app/server.js ./
 EXPOSE 8896
-CMD ["node", "build"]
+# custom server: SvelteKit handler + the fleet-terminal ws proxy (ws can't live in a +server route)
+CMD ["node", "server.js"]

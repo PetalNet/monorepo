@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { humanizeTool } from '$lib/tool.js';
+  import FleetTerminal from '$lib/FleetTerminal.svelte';
 
   let { data } = $props();
 
@@ -131,9 +132,21 @@
       {/each}
     </ul>
   {/if}
+
+  <section class="term-section">
+    <div class="term-head">
+      <h2>live session</h2>
+      <span class="term-sub">agent-a · .14 — read-only{#if data.isAdmin}, or Interact to drive it{/if}</span>
+    </div>
+    <FleetTerminal canWrite={data.isAdmin} />
+  </section>
 </div>
 
 <style>
+  .term-section { margin-top: 28px; }
+  .term-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .term-head h2 { font-size: 13px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); margin: 0; }
+  .term-sub { font-size: 12px; color: var(--text-4); }
   .fleet-screen { max-width: 760px; }
   .fleet-head { margin-bottom: 22px; }
   .fh-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
