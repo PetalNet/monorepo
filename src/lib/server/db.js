@@ -747,7 +747,7 @@ export const taskEvents = (tid) => db.prepare(
 ).all(tid);
 
 // The agent query (MCP get_ready, phase 2): actionable, unblocked, up-next first then by manual rank.
-export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ORDER BY up_next DESC, rank, priority`).all(args(p));
+export const ready = (p) => db.prepare(`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ${NOTARCHIVED} ORDER BY up_next DESC, rank, priority`).all(args(p));
 
 // append to the end of the Up Next order — scoped to ACTIVE rows so a closed (done/dropped)
 // task's stale rank can't push the next item's rank arbitrarily high and break manual ordering (task-323).
@@ -1249,7 +1249,7 @@ export function agentQueue(handle) {
   const agent = getAgent(h);
   const assigned = db.prepare(
     `SELECT * FROM tasks WHERE lower(assignee)=@h AND status IN ('todo','doing','blocked')
-       AND ${TASKISH} ORDER BY status, priority, rank`
+       AND ${TASKISH} ${NOTARCHIVED} ORDER BY status, priority, rank`
   ).all({ h });
   // claimable only if the agent exists and is active (inactive owns its assigned but claims nothing).
   let claimable = [];
@@ -1267,6 +1267,7 @@ export function agentQueue(handle) {
           AND (assignee='' OR assignee IS NULL)
           AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))
           ${capPred}
+          ${NOTARCHIVED}
         ORDER BY rank, priority`
     ).all(args);
   }
@@ -1276,7 +1277,7 @@ export function agentQueue(handle) {
 }
 
 // Tasks awaiting the lead's verification.
-export const needsReview = () => db.prepare("SELECT * FROM tasks WHERE status='review' ORDER BY updated_at DESC").all();
+export const needsReview = () => db.prepare(`SELECT * FROM tasks WHERE status='review' ${NOTARCHIVED} ORDER BY updated_at DESC`).all();
 
 // --- /board: the fleet at a glance (fleet-dispatcher Phase 2, #242) -----------
 // One aggregate so the board does a single load with no N+1. Everything respects

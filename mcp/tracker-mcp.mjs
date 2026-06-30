@@ -32,6 +32,9 @@ const {
   archiveProject, unarchiveProject, listArchivedProjects,
 } = DB;
 
+// archived-project exclusion (mirrors db.js NOTARCHIVED) — get_ready/up_next build raw queries here.
+const NOTARCHIVED = "AND (project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))";
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 const projName = (id) => id ? (db.prepare("SELECT name FROM projects WHERE id=?").get(id)?.name || null) : null;
 // Resolve a project NAME to an id, AUTO-CREATING on first reference — for WRITE paths
@@ -70,9 +73,9 @@ server.tool(
     const pf = pid ? " AND project_id=@pid" : "";
     const af = assignee ? " AND assignee=@asg" : "";
     const a = { ...(pid ? { pid } : {}), ...(assignee ? { asg: assignee } : {}) };
-    const upNext = db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND kind IN ('task','idea') AND ${ACTIVE} AND status != 'blocked'${pf}${af} ORDER BY rank, priority`).all(a);
-    const doing = db.prepare(`SELECT * FROM tasks WHERE status='doing'${pf}${af}`).all(a);
-    const questions = db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE}${pf}${af} ORDER BY priority`).all(a);
+    const upNext = db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND kind IN ('task','idea') AND ${ACTIVE} AND status != 'blocked'${pf}${af} ${NOTARCHIVED} ORDER BY rank, priority`).all(a);
+    const doing = db.prepare(`SELECT * FROM tasks WHERE status='doing'${pf}${af} ${NOTARCHIVED}`).all(a);
+    const questions = db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE}${pf}${af} ${NOTARCHIVED} ORDER BY priority`).all(a);
     return txt({
       up_next: upNext.map(shape),
       in_progress: doing.map(shape),
@@ -91,7 +94,7 @@ server.tool(
     assignee: z.string().optional().describe("Only return tasks assigned to this agent/human"),
   },
   async ({ project, capability, assignee }) => {
-    const where = ["up_next=1", ACTIVE, "status != 'blocked'", "kind IN ('task','idea')"];
+    const where = ["up_next=1", ACTIVE, "status != 'blocked'", "kind IN ('task','idea')", "(project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))"];
     const params = {};
     if (project) { where.push("project_id=@pid"); params.pid = projIdForFilter(project); }
     if (capability) { where.push("capability=@cap"); params.cap = capability; }
