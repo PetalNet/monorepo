@@ -4,6 +4,9 @@
   // (~860KB) is never statically imported, so it can't gate first paint.
   let _pmPromise = null;
   function loadProseMark() {
+    // TEMP rollback to the vendored bundle — the npm import threw "oa is not a
+    // function" at runtime (CM version/dedup mismatch); debugging the npm path in
+    // dev before re-deploying it (task-532).
     const url = '/vendor/' + 'prosemark.bundle.js';
     if (!_pmPromise) _pmPromise = import(/* @vite-ignore */ url).then((m) => m.createProseMark);
     return _pmPromise;
@@ -124,6 +127,9 @@
 
   /* lists / quote / inline code / links / code blocks == .prose */
   :global(.pm-shell .cm-rendered-list-mark) { color: var(--text-2); }
+  /* GFM task-list checkboxes: theme to the app accent so edit matches the read
+     view's coral checkbox (Bob — "you can totally theme the editor checkboxes"). */
+  :global(.pm-shell input[type="checkbox"]) { accent-color: var(--accent); }
   /* match .prose's list geometry: ul/ol padding-left:24px (indent) + li margin:5px 0 (gap).
      A list item is one soft-wrapped .cm-line carrying .cm-rendered-list-mark, so shift the
      whole item right and add inter-item spacing here (margin-inline keeps the bundle's hang). */

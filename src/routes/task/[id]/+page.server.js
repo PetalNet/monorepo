@@ -1,5 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import { renderMd } from '$lib/server/md.js';
+import { renderPm } from '$lib/server/pm-render.js';
 import { getTask, listComments, children, childrenAll, parentOf, taskEvents, listProjects, updateTask, addComment, answerQuestion, canWrite, deepScrub, blockersOf, blocks, discoveredFrom, discoveries, closeTask } from '$lib/server/db.js';
 
 // IDOR guard — a human may only mutate a task they can write (shared, or own private).
@@ -49,8 +50,9 @@ export function load({ params, locals }) {
   } catch { opts = []; }
   return deepScrub({
     task,
-    bodyHtml: renderMd(task.body),
-    bodyHtmlHuman: renderMd(task.body_alt),
+    // body read view uses the ProseMark-matched renderer (read == edit, line-for-line).
+    bodyHtml: renderPm(task.body),
+    bodyHtmlHuman: renderPm(task.body_alt),
     // glossary lives in the humanized body_alt when present (sync-safe — the
     // Corner→tasks mirror overwrites body but never touches body_alt), else body
     glossary: parseGlossary(task.body_alt || task.body),

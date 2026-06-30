@@ -4,8 +4,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
-COPY package.json pnpm-workspace.yaml ./
-RUN pnpm install --no-frozen-lockfile
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 # pnpm skips install scripts by default — force the native better-sqlite3 build.
 RUN cd "$(find node_modules/.pnpm -type d -path '*/better-sqlite3' | grep -v '/node_modules/better-sqlite3/node_modules' | head -1)" && npm run install
 COPY . .

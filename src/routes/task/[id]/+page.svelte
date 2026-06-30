@@ -417,7 +417,7 @@
         <section class="sec" bind:this={answersEl}>
           <div class="sec-head"><span class="ic"><Icon name="question" size={13} /></span><h2>Decision</h2></div>
 
-          {#if data.bodyHtml}<div class="bodycard read"><div class="prose">{@html data.bodyHtml}</div></div>{/if}
+          {#if data.bodyHtml}<div class="bodycard read"><div class="pm-rendered">{@html data.bodyHtml}</div></div>{/if}
 
           {#if t.answer}
             <div class="q-done">
@@ -507,7 +507,7 @@
             {@render bodyEditor()}
           {:else if docHtml}
             {#if hasHuman && human}<div class="human-note mono"><Icon name="check" size={12} /> plain-english rewrite · switch to technical for the exact source</div>{/if}
-            <div class="bodycard read"><article class="prose body-prose" bind:this={proseEl}>{@html docHtml}</article></div>
+            <div class="bodycard read"><article class="pm-rendered" bind:this={proseEl}>{@html docHtml}</article></div>
           {:else if canWrite}
             <button type="button" class="body-empty" onclick={startEditBody} onmouseenter={preloadProseMark} onfocus={preloadProseMark} ontouchstart={preloadProseMark}>No description yet — click to add the plan.</button>
           {:else}
@@ -879,9 +879,43 @@
 
   /* body card — rendered markdown */
   .bodycard { background: var(--surface-1); border: 1px solid var(--border-sub); border-radius: var(--radius-lg); padding: 18px 20px; }
-  .body-prose { margin: 0; }
-  .body-prose :global(> :first-child) { margin-top: 0; }
-  .body-prose :global(> :last-child) { margin-bottom: 0; }
+  /* ── read view == edit view ──────────────────────────────────────────────
+     The body read view (server/pm-render.js) is laid out to match the ProseMark
+     editor (src/lib/ProseMark.svelte) line-for-line, so read↔edit is shift-free.
+     Metrics MIRROR the editor's .cm-* CSS exactly: 14.5px/1.7, h 24/18/15px, h2
+     underline, list 15px indent + 5px gap. Inter-block gaps come from the
+     renderer's inline margin-top:calc(N * --pm-lh) (blank-line × line-height);
+     :global() is required because the markup is injected via {@html}. */
+  .pm-rendered { margin: 0; font: 14.5px/1.7 var(--sans); color: var(--text-2); --pm-lh: 24.65px; overflow-wrap: anywhere; }
+  .pm-rendered :global(h1),
+  .pm-rendered :global(h2),
+  .pm-rendered :global(h3),
+  .pm-rendered :global(p),
+  .pm-rendered :global(ul),
+  .pm-rendered :global(pre),
+  .pm-rendered :global(blockquote) { margin: 0; }
+  .pm-rendered :global(h1) { font-size: 24px; font-weight: 700; color: var(--text-1); letter-spacing: -.02em; line-height: 1.7; }
+  .pm-rendered :global(h2) { font-size: 18px; font-weight: 600; color: var(--accent-b); line-height: 1.7; border-bottom: 1px solid var(--border-sub); padding-bottom: 6px; }
+  .pm-rendered :global(h3) { font-size: 15px; font-weight: 600; color: var(--text-1); line-height: 1.7; }
+  .pm-rendered :global(strong) { color: var(--text-1); font-weight: 600; }
+  .pm-rendered :global(em) { font-style: italic; }
+  .pm-rendered :global(a) { color: var(--accent-b); text-decoration: underline; text-underline-offset: 2px; }
+  .pm-rendered :global(a.wikilink) { text-decoration: none; }
+  .pm-rendered :global(code) { font-family: var(--mono); font-size: 13px; background: var(--surface-2); border: 1px solid var(--border-sub); border-radius: 5px; padding: 1px 6px; color: var(--accent-b); }
+  .pm-rendered :global(ul) { padding: 0; list-style: none; }
+  .pm-rendered :global(li) { position: relative; margin-inline-start: 38px; margin-top: 5px; }
+  .pm-rendered :global(li::before) { content: "•"; position: absolute; margin-left: -18px; color: var(--text-2); }
+  .pm-rendered :global(li.pm-task) { margin-inline-start: 0; }
+  .pm-rendered :global(li.pm-task::before) { content: none; }
+  .pm-rendered :global(li.pm-task > input[type="checkbox"]) { margin: 0 7px 0 -16px; vertical-align: -2px; accent-color: var(--accent); }
+  .pm-rendered :global(li.pm-done) { color: var(--text-3); }
+  .pm-rendered :global(blockquote) { color: var(--text-3); font-style: italic; border-left: 3px solid var(--accent); padding-left: 12px; }
+  .pm-rendered :global(pre) { font-family: var(--mono); font-size: 13px; background: var(--surface-2); border: 1px solid var(--border-sub); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+  .pm-rendered :global(pre code) { background: none; border: 0; padding: 0; color: var(--text-2); }
+  .pm-rendered :global(.cm-code-block-info) { display: flex; justify-content: flex-end; gap: 10px; align-items: center; margin-bottom: 4px; }
+  .pm-rendered :global(.cm-code-block-lang-container) { color: var(--accent-b); font-size: 11px; }
+  .pm-rendered :global(.cm-code-block-copy-button) { background: none; border: 0; padding: 0; color: var(--accent-b); cursor: pointer; }
+  .pm-rendered :global(.pm-trailing-blank) { margin: 0; }
   .body-empty {
     width: 100%; text-align: left; font: inherit; font-size: 13.5px; color: var(--text-4);
     background: var(--surface-1); border: 1px dashed var(--border); border-radius: var(--radius-lg);
