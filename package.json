@@ -1,0 +1,12 @@
+{
+  "name": "janet-manager",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Janet's terminal manager — supervises a persistent Claude Code session (auto-resume, Matrix control) with canary-deploy + auto-rollback.",
+  "bin": { "janet-manager": "./manager.js" },
+  "scripts": {
+    "healthcheck": "node healthcheck.mjs",
+    "deploy": "node deploy.mjs"
+  }
+}
