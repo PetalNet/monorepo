@@ -952,12 +952,15 @@ export function verifyTask(id, ok) {
     : { verification_status: 'rejected', status: 'todo', claimed_by: '', claim_token: '', lease_expires_at: null });
 }
 
-// Release expired leases back to todo so the lead can reassign.
-export function reapLeases() {
+// Release expired leases back to todo so the lead can reassign. Optional claimed_by
+// filter (agent-API): a scoped bearer token may only reap leases IT holds — same
+// statement, same predicate, just narrowed to one worker (no divergent second path).
+export function reapLeases({ claimed_by = null } = {}) {
   return db.prepare(
     `UPDATE tasks SET status='todo', claimed_by='', claim_token='', lease_expires_at=NULL, updated_at=datetime('now')
-     WHERE status='doing' AND lease_expires_at IS NOT NULL AND lease_expires_at < datetime('now')`
-  ).run().changes;
+     WHERE status='doing' AND lease_expires_at IS NOT NULL AND lease_expires_at < datetime('now')
+       ${claimed_by ? 'AND claimed_by=@cb' : ''}`
+  ).run(claimed_by ? { cb: claimed_by } : {}).changes;
 }
 
 // --- agent registry + ENFORCED lane/capability routing (fleet-dispatcher, #212) ---
@@ -1235,6 +1238,82 @@ export const listArtifactShares = (slug) => db.prepare(
 export const revokeArtifactShare = (id, slug) => db.prepare(
   'UPDATE artifact_shares SET revoked=1 WHERE id=@id AND slug=@slug'
 ).run({ id: Number(id), slug }).changes > 0;
+
+// --- agent bearer tokens (agent-API: POST /api/agent/rpc) -------------------
+// Threat model mirrors artifact_shares: an SSO-EXEMPT route authenticated purely by a
+// bearer token, over a tracker holding sensitive P0 findings. So:
+//   * token = 32 crypto-random bytes → base64url; returned ONCE at mint, NEVER persisted.
+//   * only sha256(token) hex is stored (UNIQUE, indexed) — a DB read-out yields hashes,
+//     not working credentials.
+//   * scope_assignee / scope_projects confine the token to its lane: the RPC endpoint
+//     (src/lib/server/agent-api.js) refuses to read or write ANY task outside
+//     (assignee AND project-set) scope. NULL scope column = unrestricted on that axis.
+//   * revoked_at kills a token permanently; verifyAgentToken is fail-closed
+//     (unknown/revoked/empty → null, never a partial identity).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agent_tokens (
+    id             INTEGER PRIMARY KEY,
+    agent_name     TEXT NOT NULL,            -- 'agent-b'
+    token_sha256   TEXT NOT NULL UNIQUE,     -- hex sha256 of the plaintext token; PLAINTEXT NEVER STORED
+    scope_assignee TEXT,                     -- if set: agent may only see/act on tasks with this assignee
+    scope_projects TEXT,                     -- if set: CSV of project NAMES the agent may see/act on
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at   TEXT,
+    revoked_at     TEXT
+  );
+`);
+
+// Mint a token for one agent. scope_projects accepts an array or a CSV string; stored as
+// CSV. A scope that was SUPPLIED but normalizes to empty is rejected (a typo'd
+// `--projects ""` must not silently mint an UNSCOPED token — fail closed, not open).
+export function mintAgentToken({ agent_name, scope_assignee = null, scope_projects = null } = {}) {
+  const name = String(agent_name ?? '').trim();
+  if (!name) throw new Error('mintAgentToken requires agent_name');
+  let projectsCsv = null;
+  if (scope_projects != null) {
+    const list = (Array.isArray(scope_projects) ? scope_projects : String(scope_projects).split(','))
+      .map((s) => String(s).trim()).filter(Boolean);
+    if (!list.length) throw new Error('scope_projects was supplied but empty — refusing to mint an unscoped token');
+    projectsCsv = list.join(',');
+  }
+  const assignee = scope_assignee != null ? String(scope_assignee).trim() : null;
+  if (scope_assignee != null && !assignee) throw new Error('scope_assignee was supplied but empty — refusing to mint an unscoped token');
+  const token = crypto.randomBytes(32).toString('base64url'); // 256-bit secret, shown ONCE
+  const r = db.prepare(
+    `INSERT INTO agent_tokens (agent_name, token_sha256, scope_assignee, scope_projects)
+       VALUES (@agent_name, @token_sha256, @scope_assignee, @scope_projects)`
+  ).run({ agent_name: name, token_sha256: sha256hex(token), scope_assignee: assignee, scope_projects: projectsCsv });
+  return { id: Number(r.lastInsertRowid), token };
+}
+
+// Resolve a RAW bearer token to its identity + scope. FAIL CLOSED: returns null for a
+// missing/non-string/unknown/revoked token — never a partial match. On a hit, stamps
+// last_used_at (usage audit trail). scope_projects is returned as a parsed array (or null).
+export function verifyAgentToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const row = db.prepare(
+    'SELECT * FROM agent_tokens WHERE token_sha256=? AND revoked_at IS NULL'
+  ).get(sha256hex(token));
+  if (!row) return null;
+  db.prepare("UPDATE agent_tokens SET last_used_at=datetime('now') WHERE id=?").run(row.id);
+  return {
+    agent_name: row.agent_name,
+    scope_assignee: row.scope_assignee || null,
+    scope_projects: row.scope_projects
+      ? row.scope_projects.split(',').map((s) => s.trim()).filter(Boolean)
+      : null
+  };
+}
+
+// Revoke by numeric id (one token) or by agent_name (ALL of that agent's live tokens —
+// the incident-response path: "kill everything agent-b holds"). Idempotent; returns count.
+export function revokeAgentToken(idOrName) {
+  const byId = Number.isInteger(idOrName) || /^\d+$/.test(String(idOrName));
+  return db.prepare(
+    `UPDATE agent_tokens SET revoked_at=datetime('now')
+      WHERE revoked_at IS NULL AND ${byId ? 'id=@v' : 'agent_name=@v'}`
+  ).run({ v: byId ? Number(idOrName) : String(idOrName) }).changes;
+}
 
 // An agent's own queue (for the SessionStart hook + the cockpit) — now LANE-AWARE. Returns the
 // tasks this agent is responsible for OR may opportunistically pick up, in two buckets:
