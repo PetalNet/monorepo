@@ -11,9 +11,18 @@ const ALLOW = (process.env.ALLOW || '').split(',').map((s) => s.trim()).filter(B
 // fail-closed, read-only, and token-scoped to a single artifact, so ALL access control lives there.
 // Strict exact-prefix match — exactly `/s` or `/s/…`, nothing else can ride the exemption.
 const isPublicShare = (pathname) => pathname === '/s' || pathname.startsWith('/s/');
+
+// AGENT-API exemption (/api/agent/rpc): same rationale as /s/ — Traefik must ALSO strip the
+// Authentik forward-auth middleware for PathPrefix('/api/agent/') (Agent-a adds the `tasks-agent`
+// router), and this gate must not re-403 the identity-less request. Safe because the endpoint
+// (src/routes/api/agent/rpc/+server.js) is FAIL-CLOSED by bearer token: no valid unrevoked
+// token → 401, and a scoped token is confined to its own assignee/project lane. Same strict
+// exact-prefix match as /s/; event.locals.user is intentionally left unset on this path —
+// the endpoint resolves identity by token, never by header.
+const isAgentApi = (pathname) => pathname === '/api/agent' || pathname.startsWith('/api/agent/');
 export async function handle({ event, resolve }) {
   const user = event.request.headers.get('x-authentik-username') || '';
-  if (ALLOW.length && !isPublicShare(event.url.pathname)) {
+  if (ALLOW.length && !isPublicShare(event.url.pathname) && !isAgentApi(event.url.pathname)) {
     // production: require a valid Authentik identity (fail closed — was fail-open via 'dev')
     if (!user || !ALLOW.includes(user)) {
       return new Response('Private tracker — ask Alice for access.', {
