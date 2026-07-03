@@ -225,16 +225,36 @@ t('close: out-of-scope → 404; missing reason → 422 rejected (why-ledger enfo
   assert.equal(r.body.rejected.reason, 'reason_required');
   assert.notEqual(getTask(MINE).status, 'done');
 });
+t('update: terminal/doing statuses are refused — must route through close/claim', () => {
+  const c = mk('status-guard task', { project_id: scoutlab, assignee: 'agent-b' });
+  for (const status of ['done', 'dropped', 'doing']) {
+    assert.equal(rpc(agent-b.token, 'update', { id: c, status }).status, 400, `update status=${status} rejected`);
+  }
+  assert.equal(getTask(c).status, 'todo', 'task status unchanged by the rejected updates');
+  assert.equal(rpc(agent-b.token, 'update', { id: c, status: 'review' }).status, 200); // safe transition still works
+  assert.equal(getTask(c).status, 'review');
+});
+t('shape: parent_id is withheld when the parent is out of scope, kept when in scope', () => {
+  const oosChild = createTask({ title: 'child of secret', kind: 'task', project_id: scoutlab, parent_id: SECRET });
+  updateTask(oosChild, { assignee: 'agent-b' });
+  const inChild = createTask({ title: 'child of MINE', kind: 'task', project_id: scoutlab, parent_id: MINE });
+  updateTask(inChild, { assignee: 'agent-b' });
+  const a = rpc(agent-b.token, 'get', { id: oosChild });
+  assert.equal(a.status, 200);
+  assert.equal(a.body.task.parent_id, undefined, 'out-of-scope parent id is NOT leaked (no existence oracle)');
+  const b = rpc(agent-b.token, 'get', { id: inChild });
+  assert.equal(b.body.task.parent_id, MINE, 'in-scope parent id is preserved');
+});
 
 // ── 6. claim: confined to scope by construction ──────────────────────────────
-t('claim: grabs the in-scope task, never the better-ranked P0 secret', () => {
-  const r = rpc(agent-b.token, 'claim', {});
+t('claim: grabs the in-scope task, never the better-ranked P0 secret; worker is pinned', () => {
+  const r = rpc(agent-b.token, 'claim', { worker: 'agent-a' }); // forged worker must be ignored
   assert.equal(r.status, 200);
   assert.equal(r.body.claimed?.id, MINE);
   assert.ok(r.body.token, 'claim token returned');
   const row = getTask(MINE);
   assert.equal(row.status, 'doing');
-  assert.equal(row.claimed_by, 'agent-b');
+  assert.equal(row.claimed_by, 'agent-b', 'claimed_by is the token identity, not the forged worker arg');
   assert.ok(db.prepare("SELECT 1 FROM events WHERE task_id=? AND type='claim'").get(MINE), "canonical 'claim' event exists");
   assert.equal(getTask(SECRET).status, 'todo', 'secret untouched');
 });
@@ -337,6 +357,14 @@ t('audit log lines are written and NEVER contain a plaintext token', () => {
   for (const tok of [agent-b, full, projOnly, asgOnly]) {
     assert.ok(!all.includes(tok.token), 'plaintext token absent from logs');
   }
+});
+t('unknown op is NOT echoed into logs — an op set to the token value never leaks it', () => {
+  const before = logLines.length;
+  const r = rpc(agent-b.token, agent-b.token); // op === the bearer token string
+  assert.equal(r.status, 400);
+  const added = logLines.slice(before).join('\n');
+  assert.ok(!added.includes(agent-b.token), 'the caller-controlled op value (a token) is not written to logs');
+  assert.ok(added.includes('unknown-op len='), 'unknown op is logged as a length, not its content');
 });
 
 // ── report ────────────────────────────────────────────────────────────────────

@@ -33,10 +33,14 @@ import crypto from 'node:crypto';
 const NOTARCHIVED = "AND (project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))";
 const ACTIVE = "status NOT IN ('done','dropped')";
 const projName = (id) => id ? (db.prepare('SELECT name FROM projects WHERE id=?').get(id)?.name || null) : null;
-const shape = (t) => t && ({
+const shape = (t, scope) => t && ({
   id: t.id, title: t.title, kind: t.kind, status: t.status, priority: t.priority,
   up_next: !!t.up_next, rank: t.rank, project: projName(t.project_id),
-  body: t.body || undefined, parent_id: t.parent_id || undefined,
+  body: t.body || undefined,
+  // parent_id is WITHHELD unless the parent is itself in the caller's scope — otherwise a
+  // legit in-scope child leaks the existence + id of an out-of-scope parent (adversarial
+  // review F1). No scope passed (unscoped token) → always include.
+  parent_id: (t.parent_id && (!scope || inScope(getTask(t.parent_id), scope))) ? t.parent_id : undefined,
   assignee: t.assignee || undefined, blocked_on: t.blocked_on || undefined,
   result_summary: t.result_summary || undefined,
 });
@@ -119,7 +123,12 @@ function readScope(scope, args) {
 
 // ── per-op arg validation ────────────────────────────────────────────────────
 const isInt = (v) => Number.isInteger(v);
-const STATUSES = new Set(['inbox', 'todo', 'doing', 'blocked', 'review', 'done', 'dropped']);
+// `update` may only set NON-TERMINAL, NON-'doing' statuses: 'done'/'dropped' MUST route
+// through `close` (mandatory why-ledger reason + 'closed' event) and 'doing' through
+// `claim` (atomic lease + claim token + 'claim' audit). Otherwise a bearer agent bypasses
+// those invariants on its own in-scope task (codex review). todo/inbox/blocked/review are
+// safe direct transitions (blocked still hits updateTask's blocked-guard).
+const UPDATE_STATUSES = new Set(['inbox', 'todo', 'blocked', 'review']);
 // update: EXPLICIT allowlist mirroring the MCP update tool. Never pass caller keys
 // straight to updateTask — its PATCHABLE set includes server-only columns
 // (claim_token, owner, visibility, kind, parent_id) a bearer agent must not touch.
@@ -142,8 +151,8 @@ const ops = {
     return {
       status: 200,
       body: {
-        up_next: mine(upNext).map(shape),
-        in_progress: mine(doing).map(shape),
+        up_next: mine(upNext).map((x) => shape(x, scope)),
+        in_progress: mine(doing).map((x) => shape(x, scope)),
         open_questions: mine(questions).map((t) => ({ id: t.id, title: t.title, options: t.options || null })),
       }
     };
@@ -160,7 +169,7 @@ const ops = {
       `SELECT * FROM tasks WHERE up_next=1 AND ${ACTIVE} AND status != 'blocked' AND kind IN ('task','idea')
         ${f.where}${capf} ${NOTARCHIVED} ORDER BY rank, priority LIMIT 1`
     ).get(params);
-    return { status: 200, body: { task: (t && inScope(t, scope)) ? shape(t) : null } };
+    return { status: 200, body: { task: (t && inScope(t, scope)) ? shape(t, scope) : null } };
   },
 
   // one task by id — out-of-scope and nonexistent are INDISTINGUISHABLE (generic 404).
@@ -168,7 +177,7 @@ const ops = {
     if (!isInt(args.id)) return bad('bad_request');
     const t = getTask(args.id);
     if (!inScope(t, scope)) return notFound();
-    return { status: 200, body: { task: shape(t) } };
+    return { status: 200, body: { task: shape(t, scope) } };
   },
 
   // atomic claim via canonical claimNext, constrained so it can NEVER grab out-of-scope
@@ -176,7 +185,7 @@ const ops = {
   // A multi-project scope claims per-project in scope order (claimNext takes one
   // project_id) — each attempt is individually atomic.
   claim(scope, args, tok) {
-    const worker = args.worker != null ? String(args.worker) : tok.agent_name;
+    const worker = tok.agent_name; // PINNED to the token identity — a bearer agent can't forge claimed_by (codex review); args.worker is ignored
     const asg = effectiveAssignee(scope, args);
     if (asg.empty) return { status: 200, body: { claimed: null } };
     const proj = effectiveProjectIds(scope, args);
@@ -192,7 +201,7 @@ const ops = {
           updateTask(r.id, { status: 'todo' });
           return { status: 200, body: { claimed: null } };
         }
-        return { status: 200, body: { claimed: shape(r), token: r.claim_token } };
+        return { status: 200, body: { claimed: shape(r, scope), token: r.claim_token } };
       }
     }
     return { status: 200, body: { claimed: null } };
@@ -211,7 +220,7 @@ const ops = {
       if (!UPDATE_FIELDS.has(k)) return bad('bad_request'); // unknown field → reject, don't ignore
       clean[k] = v;
     }
-    if ('status' in clean && !STATUSES.has(clean.status)) return bad('bad_request');
+    if ('status' in clean && !UPDATE_STATUSES.has(clean.status)) return bad('bad_request');
     if ('priority' in clean && !(isInt(clean.priority) && clean.priority >= 0 && clean.priority <= 3)) return bad('bad_request');
     if ('up_next' in clean) clean.up_next = clean.up_next ? 1 : 0;
     // scope-pinning: the post-state must remain in scope.
@@ -225,7 +234,7 @@ const ops = {
     if (!Object.keys(clean).length) return bad('bad_request');
     const res = updateTask(args.id, clean);
     if (res && res.ok === false) return { status: 422, body: { rejected: res } }; // e.g. blocked-guard
-    return { status: 200, body: { updated: shape(getTask(args.id)) } };
+    return { status: 200, body: { updated: shape(getTask(args.id), scope) } };
   },
 
   // close an in-scope task via canonical closeTask (mandatory reason — the why-ledger).
@@ -237,7 +246,7 @@ const ops = {
     if (args.result_summary !== undefined) updateTask(args.id, { result_summary: String(args.result_summary) });
     const res = closeTask(args.id, { reason: args.reason, by: `agent:${tok.agent_name}`, status });
     if (res && res.ok === false) return { status: 422, body: { rejected: res } }; // e.g. reason_required
-    return { status: 200, body: { closed: shape(getTask(args.id)) } };
+    return { status: 200, body: { closed: shape(getTask(args.id), scope) } };
   },
 
   // file a new task FORCED INTO scope — a scoped token can never create out-of-lane work.
@@ -292,7 +301,7 @@ const ops = {
     const assignee = scope.assignee != null ? scope.assignee
       : (args.assignee != null ? String(args.assignee) : null);
     if (assignee) updateTask(id, { assignee }); // canonical helper (createTask has no assignee column)
-    return { status: 201, body: { filed: shape(getTask(id)) } };
+    return { status: 201, body: { filed: shape(getTask(id), scope) } };
   },
 
   // crash recovery, confined: only leases THIS agent_name holds are reaped (canonical
@@ -325,7 +334,7 @@ export function handleAgentRpc({ authorization, rawBody } = {}) {
   const op = parsed?.op;
   const args = (parsed?.args && typeof parsed.args === 'object' && !Array.isArray(parsed.args)) ? parsed.args : {};
   if (typeof op !== 'string' || !OPS.has(op)) {
-    console.log(`[agent-api] ${tok.agent_name} ${typeof op === 'string' ? op : '(no-op)'} -> err unknown_op`);
+    console.log(`[agent-api] ${tok.agent_name} (unknown-op len=${typeof op === 'string' ? op.length : 0}) -> err unknown_op`);
     return { status: 400, body: { error: 'unknown_op' } };
   }
 
