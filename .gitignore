@@ -28,5 +28,6 @@ matrix-*.tgz
 matrix-org-*.tgz
 # generated / temp
 data/keeper-reports/
-data/fleet/codex.json
+# per-agent fleet heartbeats (runtime-written; agent-a/codex/agent-b/...)
+data/fleet/*.json
 *.bak-archive
