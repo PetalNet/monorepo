@@ -1,0 +1,22 @@
+[package]
+name = "agent-manager"
+version = "0.1.0"
+edition = "2021"
+description = "Supervisor for a persistent Claude Code agent session in tmux: spawn/resume, crash backoff, rate-limit wait, Matrix control channel, healthcheck."
+license = "MIT"
+# NOTE: final home is PetalNet/monorepo (apps/agent-manager per FABLE-SPEC-canary-deploy.md).
+# This directory is the staging port; do not publish/push from here.
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# ureq 2.x pinned deliberately (3.x changed the API). tls = rustls.
+ureq = { version = "2.10", default-features = false, features = ["tls", "json"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+signal-hook = "0.3"
+libc = "0.2"
+
+[profile.release]
+lto = true
+strip = true

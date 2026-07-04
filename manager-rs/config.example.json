@@ -1,0 +1,25 @@
+{
+  "creds_path": "~/.claude/shared/AGENT-account.json",
+  "control_room": "!yourControlRoomId:example.org",
+  "agent_name": "agent",
+  "work_dir": "~",
+  "state_path": "~/.claude/shared/AGENT-session-state.json",
+  "rate_limit_hook_path": "~/.claude/shared/AGENT-rate-limit.json",
+  "model_override_path": "~/.claude/shared/AGENT-model",
+  "exit_code_path": "~/.claude/shared/AGENT-exit-code",
+  "heartbeat_path": "~/.claude/shared/AGENT-manager-heartbeat.json",
+  "sessions_dir": "~/.claude/sessions",
+  "tmux_session": "AGENT-claude",
+  "pane_tag": "AGENT-manager",
+  "claude_bin": "claude",
+  "claude_args": [
+    "--dangerously-skip-permissions",
+    "--dangerously-load-development-channels", "server:claude-matrix-channel",
+    "--remote-control",
+    "--name", "Agent"
+  ],
+  "path_prepend": "~/.local/bin",
+  "kill_agent_on_shutdown": true,
+  "tmux_width": 220,
+  "tmux_height": 50
+}
