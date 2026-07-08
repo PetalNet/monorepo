@@ -1,0 +1,33 @@
+# Define clusters of rooms to relay between.
+# Each cluster lists room IDs or aliases. Messages in one room
+# will be forwarded to the other rooms in the same cluster.
+
+## Global defaults (can be overridden per-cluster)
+# dev_mode: false         # enable dev-mode gating for this instance
+# dev_id: your-dev-id     # identifier used for !devid.command and @devid.mention
+# reupload_media: true    # download remote media and reupload before sending
+# caption_media:  true    # send a caption like "Name: sent an image"
+# backfill_limit: 12      # on startup, relay up to this many missed recent messages per source room (max 25)
+
+clusters:
+  - name: sample-pair
+    rooms:
+      - "!roomIdA:example.org" # or "#aliasA:example.org"
+      - "!roomIdB:example.org" # or "#aliasB:example.org"
+    # Optional overrides for this cluster
+    # reupload_media: true
+    # caption_media: true
+    # backfill_limit: 12
+
+plugins:
+  - id: ai
+    # provider: "gemini" # or "openai" (default)
+    # model: "gemini-2.5-flash"
+    # pii_redaction: true # Redact sensitive data (emails, IPs, phones) before sending to LLM
+    # mcp_servers:        # `mcp-servers` also accepted
+    #   time:
+    #     command: "./courier"
+    #     args: ["--mcp-server", "time"]
+    #   websearch:
+    #     command: npx
+    #     args: ["-y", "@guhcostan/web-search-mcp"]

@@ -1,0 +1,54 @@
+# NOTE ON RENAMING: "courier" is a placeholder service name. To rename the
+# project, see README.md § Renaming — the name appears only in crate names
+# (courier, courier-*), the `service_name` module in crates/courier/src/, and
+# the Docker/systemd deploy files.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/courier"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15"
+futures-util = "0.3"
+matrix-sdk = { version = "0.14", default-features = false, features = ["anyhow", "e2e-encryption", "sqlite", "rustls-tls"] }
+mime = "0.3"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rpassword = "7"
+serde = "1"
+serde_json = "1"
+serde_yaml = "0.9"
+time = { version = "0.3", features = ["formatting", "macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "process", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4"] }
+
+courier-core = { path = "crates/courier-core" }
+courier-relay = { path = "crates/courier-relay" }
+courier-plugins = { path = "crates/courier-plugins" }
+courier-ai = { path = "crates/courier-ai" }
+
+[workspace.lints.rust]
+future-incompatible = "warn"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+nursery = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+clone_on_ref_ptr = "warn"
+std_instead_of_core = "warn"
+str_to_string = "warn"
+unused_trait_names = "warn"
+wildcard_enum_match_arm = "warn"
+
+too_many_lines = "allow"
+cognitive-complexity = "allow"
