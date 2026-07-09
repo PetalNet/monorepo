@@ -1,0 +1,8 @@
+-- 0001_init.sql — Point server initial schema (stub).
+--
+-- Postgres-only. PostGIS-ready: enable it here when spatial columns land, e.g.
+--   CREATE EXTENSION IF NOT EXISTS postgis;
+--
+-- Real tables (accounts, devices, MLS key packages, location shares, federation
+-- peers) are defined in later wayfinder tickets. Intentionally empty for now so
+-- `sqlx migrate` has a baseline to build on.

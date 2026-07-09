@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ghost Mode — UI Concepts</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #e0e0e8;
+    font-family: 'Inter', system-ui, sans-serif;
+    padding: 2rem;
+  }
+
+  h1 {
+    font-size: 2rem;
+    font-weight: 900;
+    color: #fff;
+    text-align: center;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    text-align: center;
+    color: #888;
+    font-size: 0.9rem;
+    margin-bottom: 3rem;
+  }
+
+  .concepts {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .concept {
+    background: #12121a;
+    border: 1px solid #1e1e2e;
+    border-radius: 24px;
+    overflow: hidden;
+  }
+
+  .concept-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid #1e1e2e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .concept-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #3F51FF;
+  }
+
+  .concept-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  /* ============= Phone Frame ============= */
+  .phone {
+    margin: 1.25rem auto;
+    width: 260px;
+    background: #0d0d14;
+    border-radius: 28px;
+    border: 2px solid #1a1a28;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  }
+
+  .phone-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.4rem 1rem;
+    font-size: 0.55rem;
+    font-weight: 600;
+    color: #666;
+  }
+
+  .phone-screen {
+    padding: 0 0.75rem 1rem;
+  }
+
+  .screen-title {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: #fff;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .ghost-emoji { font-size: 1rem; }
+
+  /* ============= Concept A: Quick Timers ============= */
+  .ghost-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.7rem 0.85rem;
+    background: #16162a;
+    border-radius: 14px;
+    margin-bottom: 0.5rem;
+  }
+
+  .ghost-toggle-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .ghost-toggle-sub {
+    font-size: 0.55rem;
+    color: #666;
+    margin-top: 0.15rem;
+  }
+
+  .toggle {
+    width: 36px;
+    height: 20px;
+    background: #2a2a3e;
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+  }
+
+  .toggle.on {
+    background: #3F51FF;
+  }
+
+  .toggle::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    top: 2px;
+    left: 2px;
+    transition: 0.2s;
+  }
+
+  .toggle.on::after {
+    left: 18px;
+  }
+
+  .timer-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.35rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .timer-btn {
+    padding: 0.5rem 0.3rem;
+    background: #1a1a2e;
+    border: 1px solid #252540;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: #bbb;
+    cursor: pointer;
+  }
+
+  .timer-btn.active {
+    background: rgba(63, 81, 255, 0.15);
+    border-color: #3F51FF;
+    color: #7B8BFF;
+  }
+
+  .timer-btn .timer-val {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: #fff;
+    display: block;
+    margin-bottom: 0.1rem;
+  }
+
+  .timer-btn.active .timer-val { color: #7B8BFF; }
+
+  .timer-custom {
+    padding: 0.55rem;
+    background: #1a1a2e;
+    border: 1px solid #252540;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: #666;
+    margin-bottom: 0.5rem;
+  }
+
+  /* ============= Concept B: Weekly Schedule ============= */
+  .week-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.25rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .day-col {
+    text-align: center;
+  }
+
+  .day-label {
+    font-size: 0.5rem;
+    font-weight: 700;
+    color: #555;
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+  }
+
+  .day-bar {
+    height: 80px;
+    background: #1a1a2e;
+    border-radius: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .day-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, rgba(63, 81, 255, 0.4), rgba(63, 81, 255, 0.15));
+    border-radius: 6px;
+    border: 1px solid rgba(63, 81, 255, 0.3);
+  }
+
+  .day-bar.weekend .day-fill {
+    background: linear-gradient(to top, rgba(139, 92, 246, 0.4), rgba(139, 92, 246, 0.15));
+    border-color: rgba(139, 92, 246, 0.3);
+  }
+
+  .schedule-rule {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.65rem;
+    background: #16162a;
+    border-radius: 10px;
+    margin-bottom: 0.35rem;
+  }
+
+  .rule-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .rule-text {
+    font-size: 0.6rem;
+    font-weight: 500;
+    color: #bbb;
+    flex: 1;
+  }
+
+  .rule-time {
+    font-size: 0.55rem;
+    font-weight: 600;
+    color: #666;
+  }
+
+  .add-rule {
+    text-align: center;
+    padding: 0.45rem;
+    border: 1px dashed #252540;
+    border-radius: 10px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: #444;
+    cursor: pointer;
+  }
+
+  /* ============= Concept C: Per-Group ============= */
+  .group-ghost-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.7rem;
+    background: #16162a;
+    border-radius: 12px;
+    margin-bottom: 0.35rem;
+  }
+
+  .group-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+  }
+
+  .group-ghost-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .group-ghost-name {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .group-ghost-schedule {
+    font-size: 0.5rem;
+    color: #666;
+    margin-top: 0.1rem;
+  }
+
+  .group-ghost-schedule.active {
+    color: #7B8BFF;
+  }
+
+  .mini-toggle {
+    width: 30px;
+    height: 16px;
+    background: #2a2a3e;
+    border-radius: 8px;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .mini-toggle.on { background: #3F51FF; }
+
+  .mini-toggle::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    top: 2px;
+    left: 2px;
+  }
+
+  .mini-toggle.on::after { left: 16px; }
+
+  .group-ghost-badge {
+    font-size: 0.45rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .badge-ghost {
+    background: rgba(63, 81, 255, 0.15);
+    color: #7B8BFF;
+  }
+
+  .badge-visible {
+    background: rgba(0, 255, 136, 0.1);
+    color: #00FF88;
+  }
+
+  .badge-scheduled {
+    background: rgba(255, 183, 0, 0.1);
+    color: #FFB700;
+  }
+
+  /* ============= Concept D: Smart Rules ============= */
+  .rule-card {
+    padding: 0.6rem 0.75rem;
+    background: #16162a;
+    border-radius: 12px;
+    margin-bottom: 0.35rem;
+    border-left: 3px solid transparent;
+  }
+
+  .rule-card.active { border-left-color: #3F51FF; }
+  .rule-card.location { border-left-color: #00FF88; }
+  .rule-card.battery { border-left-color: #FFB700; }
+  .rule-card.time { border-left-color: #FF3B8B; }
+
+  .rule-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+  }
+
+  .rule-card-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .rule-card-icon {
+    font-size: 0.75rem;
+  }
+
+  .rule-card-desc {
+    font-size: 0.55rem;
+    color: #777;
+    line-height: 1.4;
+  }
+
+  .rule-card-condition {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-top: 0.3rem;
+    padding: 0.2rem 0.5rem;
+    background: rgba(63, 81, 255, 0.1);
+    border-radius: 6px;
+    font-size: 0.5rem;
+    font-weight: 600;
+    color: #7B8BFF;
+  }
+
+  .add-rule-card {
+    padding: 0.75rem;
+    border: 1px dashed #252540;
+    border-radius: 12px;
+    text-align: center;
+    cursor: pointer;
+  }
+
+  .add-rule-card .plus {
+    font-size: 1.2rem;
+    font-weight: 300;
+    color: #333;
+    display: block;
+  }
+
+  .add-rule-card span {
+    font-size: 0.55rem;
+    color: #444;
+    font-weight: 600;
+  }
+
+  /* Description */
+  .concept-desc {
+    padding: 1rem 1.25rem;
+    border-top: 1px solid #1e1e2e;
+    font-size: 0.7rem;
+    line-height: 1.6;
+    color: #777;
+  }
+
+  @media (max-width: 700px) {
+    .concepts { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>👻 Ghost Mode Schedules</h1>
+<p class="subtitle">Four UI concepts — tap your favorite direction</p>
+
+<div class="concepts">
+
+  <!-- ============= CONCEPT A ============= -->
+  <div class="concept">
+    <div class="concept-header">
+      <div>
+        <div class="concept-label">Concept A</div>
+        <div class="concept-name">Quick Timers</div>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="phone-status">
+        <span>9:41</span>
+        <span>●●●● 5G</span>
+      </div>
+      <div class="phone-screen">
+        <div class="screen-title"><span class="ghost-emoji">👻</span> Ghost Mode</div>
+
+        <div class="ghost-toggle-row">
+          <div>
+            <div class="ghost-toggle-label">Go Ghost</div>
+            <div class="ghost-toggle-sub">Invisible to everyone</div>
+          </div>
+          <div class="toggle on"></div>
+        </div>
+
+        <div style="font-size: 0.55rem; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.08em; margin: 0.6rem 0 0.35rem; padding-left: 0.2rem;">Ghost for...</div>
+
+        <div class="timer-grid">
+          <div class="timer-btn active">
+            <span class="timer-val">1h</span>
+            one hour
+          </div>
+          <div class="timer-btn">
+            <span class="timer-val">4h</span>
+            four hours
+          </div>
+          <div class="timer-btn">
+            <span class="timer-val">🌙</span>
+            until morning
+          </div>
+          <div class="timer-btn">
+            <span class="timer-val">📅</span>
+            until tomorrow
+          </div>
+          <div class="timer-btn">
+            <span class="timer-val">🏠</span>
+            until I leave
+          </div>
+          <div class="timer-btn">
+            <span class="timer-val">∞</span>
+            indefinite
+          </div>
+        </div>
+
+        <div class="timer-custom">⏱ Custom time...</div>
+
+        <div style="font-size: 0.5rem; color: #444; text-align: center; padding: 0.2rem;">Ghost expires in <span style="color: #7B8BFF; font-weight: 700;">58 min</span></div>
+      </div>
+    </div>
+    <div class="concept-desc">
+      Extends the existing ghost toggle with quick duration buttons. Minimal UI — feels like setting a timer. "Until I leave" uses your current place geofence.
+    </div>
+  </div>
+
+  <!-- ============= CONCEPT B ============= -->
+  <div class="concept">
+    <div class="concept-header">
+      <div>
+        <div class="concept-label">Concept B</div>
+        <div class="concept-name">Weekly Schedule</div>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="phone-status">
+        <span>9:41</span>
+        <span>●●●● 5G</span>
+      </div>
+      <div class="phone-screen">
+        <div class="screen-title"><span class="ghost-emoji">👻</span> Ghost Schedule</div>
+
+        <div class="week-grid">
+          <div class="day-col">
+            <div class="day-label">M</div>
+            <div class="day-bar"><div class="day-fill" style="height: 38%; bottom: 25%;"></div></div>
+          </div>
+          <div class="day-col">
+            <div class="day-label">T</div>
+            <div class="day-bar"><div class="day-fill" style="height: 38%; bottom: 25%;"></div></div>
+          </div>
+          <div class="day-col">
+            <div class="day-label">W</div>
+            <div class="day-bar"><div class="day-fill" style="height: 38%; bottom: 25%;"></div></div>
+          </div>
+          <div class="day-col">
+            <div class="day-label">T</div>
+            <div class="day-bar"><div class="day-fill" style="height: 38%; bottom: 25%;"></div></div>
+          </div>
+          <div class="day-col">
+            <div class="day-label">F</div>
+            <div class="day-bar"><div class="day-fill" style="height: 38%; bottom: 25%;"></div></div>
+          </div>
+          <div class="day-col">
+            <div class="day-label">S</div>
+            <div class="day-bar weekend"><div class="day-fill" style="height: 100%;"></div></div>
+          </div>
+          <div class="day-col">
+            <div class="day-label">S</div>
+            <div class="day-bar weekend"><div class="day-fill" style="height: 100%;"></div></div>
+          </div>
+        </div>
+
+        <div class="schedule-rule">
+          <div class="rule-dot" style="background: #3F51FF;"></div>
+          <div class="rule-text">Mon–Fri</div>
+          <div class="rule-time">9:00 AM – 5:00 PM</div>
+        </div>
+
+        <div class="schedule-rule">
+          <div class="rule-dot" style="background: #8B5CF6;"></div>
+          <div class="rule-text">Weekends</div>
+          <div class="rule-time">All day</div>
+        </div>
+
+        <div class="schedule-rule">
+          <div class="rule-dot" style="background: #00FF88;"></div>
+          <div class="rule-text">Mon–Fri late</div>
+          <div class="rule-time">10:00 PM – 7:00 AM</div>
+        </div>
+
+        <div class="add-rule">+ Add schedule</div>
+      </div>
+    </div>
+    <div class="concept-desc">
+      Visual weekly calendar shows ghost windows. Blue bars = ghost hours. Tap a day to edit. Multiple overlapping schedules supported. Clean Do Not Disturb energy.
+    </div>
+  </div>
+
+  <!-- ============= CONCEPT C ============= -->
+  <div class="concept">
+    <div class="concept-header">
+      <div>
+        <div class="concept-label">Concept C</div>
+        <div class="concept-name">Per-Group Ghost</div>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="phone-status">
+        <span>9:41</span>
+        <span>●●●● 5G</span>
+      </div>
+      <div class="phone-screen">
+        <div class="screen-title"><span class="ghost-emoji">👻</span> Visibility</div>
+
+        <div class="group-ghost-item">
+          <div class="group-avatar" style="background: #3F51FF;">F</div>
+          <div class="group-ghost-info">
+            <div class="group-ghost-name">Family</div>
+            <div class="group-ghost-schedule active">Always visible</div>
+          </div>
+          <div class="group-ghost-badge badge-visible">VISIBLE</div>
+        </div>
+
+        <div class="group-ghost-item">
+          <div class="group-avatar" style="background: #FF6B35;">W</div>
+          <div class="group-ghost-info">
+            <div class="group-ghost-name">Work</div>
+            <div class="group-ghost-schedule">Ghost after 6 PM</div>
+          </div>
+          <div class="group-ghost-badge badge-scheduled">6PM–9AM</div>
+        </div>
+
+        <div class="group-ghost-item">
+          <div class="group-avatar" style="background: #8B5CF6;">C</div>
+          <div class="group-ghost-info">
+            <div class="group-ghost-name">College Friends</div>
+            <div class="group-ghost-schedule">Ghost weekdays</div>
+          </div>
+          <div class="group-ghost-badge badge-scheduled">M–F</div>
+        </div>
+
+        <div class="group-ghost-item">
+          <div class="group-avatar" style="background: #FF3B8B;">E</div>
+          <div class="group-ghost-info">
+            <div class="group-ghost-name">Ex's group</div>
+            <div class="group-ghost-schedule">Always ghost</div>
+          </div>
+          <div class="group-ghost-badge badge-ghost">GHOST</div>
+        </div>
+
+        <div class="group-ghost-item" style="opacity: 0.5;">
+          <div class="group-avatar" style="background: #00D4FF;">S</div>
+          <div class="group-ghost-info">
+            <div class="group-ghost-name">Sarah (direct)</div>
+            <div class="group-ghost-schedule">Follows global</div>
+          </div>
+          <div class="mini-toggle on"></div>
+        </div>
+
+        <div style="font-size: 0.5rem; color: #444; text-align: center; padding: 0.5rem 0 0.2rem;">Tap a group to edit its ghost schedule</div>
+      </div>
+    </div>
+    <div class="concept-desc">
+      Each group/person has its own ghost rule. Family always sees you. Work ghosts after hours. Badges show current state at a glance. Maximum control, zero UI clutter.
+    </div>
+  </div>
+
+  <!-- ============= CONCEPT D ============= -->
+  <div class="concept">
+    <div class="concept-header">
+      <div>
+        <div class="concept-label">Concept D</div>
+        <div class="concept-name">Smart Rules</div>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="phone-status">
+        <span>9:41</span>
+        <span>●●●● 5G</span>
+      </div>
+      <div class="phone-screen">
+        <div class="screen-title"><span class="ghost-emoji">👻</span> Ghost Rules</div>
+
+        <div class="rule-card active">
+          <div class="rule-card-header">
+            <div class="rule-card-title"><span class="rule-card-icon">📍</span> At Work</div>
+            <div class="mini-toggle on"></div>
+          </div>
+          <div class="rule-card-desc">Go ghost when I arrive at the office</div>
+          <div class="rule-card-condition">📍 Within "Office" zone → 👻 Ghost for Work, College</div>
+        </div>
+
+        <div class="rule-card location">
+          <div class="rule-card-header">
+            <div class="rule-card-title"><span class="rule-card-icon">🏠</span> Home Chill</div>
+            <div class="mini-toggle on"></div>
+          </div>
+          <div class="rule-card-desc">Ghost from everyone except Family when home</div>
+          <div class="rule-card-condition">📍 At "Home" → 👻 All except Family</div>
+        </div>
+
+        <div class="rule-card battery">
+          <div class="rule-card-header">
+            <div class="rule-card-title"><span class="rule-card-icon">🪫</span> Low Battery</div>
+            <div class="mini-toggle on"></div>
+          </div>
+          <div class="rule-card-desc">Save power by going ghost</div>
+          <div class="rule-card-condition">🔋 Below 15% → 👻 All groups</div>
+        </div>
+
+        <div class="rule-card time">
+          <div class="rule-card-header">
+            <div class="rule-card-title"><span class="rule-card-icon">🌙</span> Sleep Mode</div>
+            <div class="mini-toggle"></div>
+          </div>
+          <div class="rule-card-desc">Auto-ghost during sleeping hours</div>
+          <div class="rule-card-condition">🕐 11 PM – 7 AM → 👻 All except Family</div>
+        </div>
+
+        <div class="add-rule-card">
+          <span class="plus">+</span>
+          <span>New Rule</span>
+        </div>
+      </div>
+    </div>
+    <div class="concept-desc">
+      iOS Focus Mode energy. Combine location, time, battery, and per-group targeting. Rules stack and the most restrictive wins. Power-user nirvana.
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
