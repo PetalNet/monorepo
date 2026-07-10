@@ -139,5 +139,72 @@ ownership model, the fence rationale, and a cross-contract flow diagram.
 | D27 | A card claiming `principal_command` from a non-principal is delivered demoted to `defer` (not dropped) | the message still reaches the inbox digest — enforcement should remove the interrupt privilege, not the content |
 | D28 | Per-method RPC payload schemas, agents-registry row, and doorman wire framing declared out of scope | they belong to N2.1/N1.4; N0.1 pins the envelope and shared shapes only |
 
-## Phase 4 — validation
-(see below)
+## Phase 4 — validation results
+
+Tooling: **python3 + jsonschema 4.10.3, already installed on the host** — no npm install,
+no builds (D29). Validator committed as `docs/contracts/validate.py` (reproducible:
+`python3 docs/contracts/validate.py`).
+
+**Result: ALL 38 CHECKS PASSED, first run, zero fixes needed.**
+
+- 6/6 schemas parse as JSON.
+- 6/6 schemas pass the draft 2020-12 metaschema (`Draft202012Validator.check_schema`).
+- 26 instance checks: canonical positive examples validate (including the Windows
+  null-tmux heartbeat, a legacy no-version session-state, the cross-file
+  task-card→leasePublic `$ref`, and all five RPC envelope types) and deliberately broken
+  instances are rejected (missing fence, claim_token on a card, producer-written `offline`,
+  non-canonical handle, bad interrupt_policy, typo'd config key, request-without-method,
+  response-without-in_reply_to, missing schema_version on heartbeat).
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D29 | Validate with the host's existing python3-jsonschema; skip ajv | brief demands a LIGHT tool; jsonschema 4.10.3 was already present, npm install forbidden-adjacent |
+| D30 | `format:` keywords (uuid/date-time/uri) are annotative, not enforced, in these runs | JSON Schema 2020-12 makes format annotation-only by default; enforcement is a per-validator opt-in — noted so nobody assumes format is a hard gate |
+| D31 | Committed validate.py alongside the schemas | validation results should be reproducible at review time; it is a spec-checking script, not service code |
+
+## Phase 5 — Final summary
+
+**Deliverables produced (all on branch `docs/N0.1-contracts`, committed locally, NOT pushed):**
+- `docs/contracts/CONTRACTS.md` — the human-readable spec (8 contracts, producers/consumers,
+  versioning rules, interrupt model, ownership model, flows).
+- `docs/contracts/schemas/{session-state, fleet-event, task-card, queue-lease,
+  backchannel-rpc, manager-config}.schema.json` — six JSON Schema 2020-12 files
+  (session-state also carries heartbeat + channelLock; queue-lease also carries leasePublic).
+- `docs/contracts/DECISIONS.md` — this log: 31 decisions D1–D31, each with a rationale.
+- `docs/contracts/validate.py` — the light validator; 38/38 checks green.
+
+**§0 compliance:** zero service code written; zero builds run (no cargo/npm build/nixos-rebuild);
+no live config touched; no service restarted; work confined to a new branch; nothing pushed;
+no PR opened. All reads were plain file reads + sqlite3 SELECTs on tasks.db.
+
+**All LOCKED decisions honored:** schema_version everywhere (D5/D6/D25); OS-neutral,
+Windows-first-class (D9, nullable tmux fields, validated); doorman sole backchannel with a
+transport-agnostic envelope that also rides the Matrix floor (D20–D23); tracker as source of
+truth with required task-card task_id + task_id ties on events/RPC (D11/D16); the 3-class
+interrupt_policy enum with dispatcher-enforced honor conditions (D17/D27); channel
+ownership/lockout modeled and healthcheckable (D10).
+
+## OPEN QUESTIONS FOR PARKER
+
+1. **Noise NK vs XK.** The doorman design gallery doc says Noise **NK**; the DAG plan and the
+   N0.1 brief's LOCKED section say **XK** (XK also authenticates the *initiator's* static key
+   to the responder, which is what per-agent identity wants). The envelope doesn't care, but
+   N1.4 must pick one. Which is canonical? (Suspect XK is intended and the gallery doc's "NK"
+   is the typo — but the gallery doc is the *designed* artifact, so confirm.)
+2. **Interrupt demotion vs rejection (D27).** A non-principal card claiming
+   `principal_command` is demoted to `defer` and still delivered. If you'd rather it be
+   rejected/flagged as a spoof attempt (security-event, not mail), say so — it's a one-line
+   contract change.
+3. **Heartbeat `schema` → `schema_version` rename (D6).** The rename happens with the rewrite
+   manager. Should the rewrite ALSO write the old `schema: 1` key during a transition window
+   so the deployed healthcheck/canary keeps working against a new manager, or do
+   manager+healthcheck always ship as one unit (they're one binary today — I assumed yes)?
+4. **Card lease projection (D19).** Task-cards carry only `leasePublic`; the claim_token
+   travels solely in the direct claim response. If any flow needs the dispatcher to hand a
+   token to a *pre-assigned* worker via a card, that breaks the secrecy rule — flag it now.
+5. **Fleet-event `task_id` (D11).** Producers (lifecycle hooks) need to know the claimed task
+   to write it. If hooks can't cheaply know it, the cockpit keeps deriving focus from
+   activeLeases() and task_id stays null — acceptable, or should the box agent inject
+   TASK_ID into the hook environment as part of N2.3?
+6. **`lease_seconds` variability (D15).** Schema allows non-1800 leases (long builds).
+   Tracker-side support (claim accepting a duration, capped?) is an N2.1 API decision.
