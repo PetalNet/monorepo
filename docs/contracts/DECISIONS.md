@@ -98,4 +98,33 @@ code, no builds, no live changes. Every pick-and-log choice lands here with a ra
 | D3 | Treat `data/fleet/<handle>.json` as a *snapshot* contract fed by lifecycle *events*; schema models the event, snapshot = latest event | matches what the hooks actually write and what fleet.js actually reads |
 
 ## Phase 2 — Schema drafting decisions
-(recorded after drafting; see below)
+
+Six files under `docs/contracts/schemas/`, all JSON Schema draft 2020-12.
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D4 | `$id` base URI `https://schemas.petalnet.lab/contracts/v1/…` | need stable, resolvable-later ids for cross-file `$ref`; `.lab` makes clear it's not a public host |
+| D5 | `schema_version` is an integer, pinned with `const` per schema revision; absence = the pre-contract legacy version | LOCKED versioning requirement; `const` makes validators reject wrong-version instances instead of silently passing |
+| D6 | Heartbeat contract is `schema_version: 2`; v1 ≙ the live shape whose key is `schema: 1`. v2 = rename to the fleet-standard key + add optional `handle` + `channel_lock` | the deployed field name `schema` collides with the fleet standard; treating live as v1 gives a clean migration story instead of two version fields |
+| D7 | Heartbeat keeps epoch-seconds timestamps; all NEW contracts use RFC 3339 UTC strings | healthcheck freshness math is epoch arithmetic and the shape is deployed — no gratuitous churn; everything new matches what fleet files/SQLite-adjacent JS already do (ISO strings) |
+| D8 | `sessionId` stays camelCase in session-state | explicit manager.js rollback-compatibility comment in state.rs; renaming buys nothing and breaks rollback |
+| D9 | `tmux_session`/`pane_id` kept by name but nullable/optional; consumers must not require them | OS-neutrality (LOCKED, Windows first-class) without inventing an untested "workspace" abstraction tonight |
+| D10 | Channel ownership modeled as `$defs/channelLock` {state: held\|released\|lockout, owner, acquired_at_epoch, contender} embedded in the heartbeat | LOCKED single-owner requirement; the heartbeat is the manager's already-existing status surface, so the lock state becomes healthcheckable for free (Focus-squat race visibility) |
+| D11 | Fleet event: schema models the EVENT; the snapshot file is defined as "the latest event". Added `event` (which hook) + `task_id` (spawn-from-task tie); producers must write canonical host ('.N') and lowercase handle; `offline` is consumer-derived, never written | matches what hooks actually write today; moves the dotN/handle normalization from consumer to producer contract; LOCKED task-id tie |
+| D12 | `additionalProperties`: false everywhere EXCEPT fleet-event (true) | config is deny-unknown by existing design; state/lease/card/RPC are single-producer contracts where drift is the enemy; fleet events have many producers on many machines feeding one consumer — unknown fields must be skippable |
+| D13 | Queue lease adds a REQUIRED monotonic `fence` (per-task, incremented per (re)claim; store rejects stale-fence writes) | dispatcher-review §4: lease expiry ≠ proof the worker stopped; fencing is the accepted fix (Kleppmann), and the ~/.claude/queue prototype already validated the pattern locally |
+| D14 | `claim_token` stays a server-minted uuid SECRET; schema also defines `leasePublic` (token-scrubbed projection) as the only form that may leave the server | mirrors db.js SECRET_COLS scrubbing — codifying it stops a future consumer from ever shipping the token to a browser |
+| D15 | Lease duration surfaced as `lease_seconds` default 1800 | today's hard-coded `+30 minutes`, made explicit so renewals/heavier tasks can vary it without schema change |
+| D16 | task-card: `task_id` REQUIRED (cards about new work are created after the dispatcher files the task); `sender_class` {principal\|agent\|system} stamped server-side | LOCKED tracker-is-source-of-truth/spawn-from-task; interrupt enforcement needs principal-ness the recipient can trust, and the dispatcher's roster — not the sender's claim — is the authority |
+| D17 | `interrupt_policy` enum: `defer` (default) \| `principal_command` \| `safety` \| `task_clarification`; the three non-defer values are exactly the LOCKED interrupt classes, with honor conditions (principal_command ⇐ sender_class=principal; task_clarification ⇐ task_id matches the active lease) | models "only 3 things interrupt Janet" as data the dispatcher can enforce, not prose |
+| D18 | task-card priority = integer 0..3, 0 highest | same scale + direction as tasks.priority — one convention, no mapping bugs |
+| D19 | Card embeds `leasePublic` by cross-file `$ref`, never a claim_token | tokens travel only in the direct claim response to the worker |
+| D20 | RPC envelope: `type` ∈ request\|response\|event\|heartbeat\|error; `id` doubles as the idempotency key; receivers de-dup on id | the doorman design requires caller-side idempotent retry after redial/resume — that only works if the envelope pins an idempotency key |
+| D21 | Envelope carries NO session-resume/auth fields | resume + auth are transport-layer (Noise keypair, edge slot re-attach) per the design doc; keeping them out lets the identical envelope ride the Matrix floor |
+| D22 | Conditional requirements via `allOf`/`if-then`: request/event ⇒ method; response/error ⇒ in_reply_to (+ error object) | keeps one envelope schema instead of five near-duplicates |
+| D23 | `error.retryable` boolean + stable snake_case `error.code` | the caller's retry loop needs a machine answer to "may I resend this id?" |
+| D24 | manager-config schema mirrors RawConfig exactly, `additionalProperties: false`, required = {creds_path, control_room}; defaults documented with `default` keywords; `$defs/matrixCreds` included | it IS the deny-unknown contract already enforced by serde; creds file shape included because config points at it |
+| D25 | config `schema_version` optional (absence = 1) | the LIVE binary denies unknown fields, so requiring it would make every current config invalid; it becomes writable from the first rewrite release |
+
+## Phase 3 — CONTRACTS.md
+(see below)

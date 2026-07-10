@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.petalnet.lab/contracts/v1/queue-lease.schema.json",
+  "title": "Queue lease (atomic claim / lease / reap)",
+  "description": "The lease a worker holds on a tracker task, as it crosses any API/MCP/backchannel boundary. Semantics (from tasks db.js, which is the single writer): a claim is ONE atomic guarded UPDATE (status todo→doing + claimed_by + claim_token + lease_expires_at) so two workers can never win the same task; the default lease is 30 minutes; reap returns expired 'doing' leases to 'todo' and clears all lease fields; ANY transition out of 'doing' clears the lease. Only the lease holder (claimed_by + claim_token) may report. New in v1: `fence` — lease expiry does not prove the old worker stopped, so every (re)claim increments a per-task monotonic fence and the store MUST reject writes carrying a stale fence (dispatcher-review §4 correction). Top-level schema = the full server-side lease; $defs/leasePublic is the browser-safe projection (claim_token is a capability secret and is scrubbed from anything viewer-bound).",
+  "$ref": "#/$defs/lease",
+  "$defs": {
+    "lease": {
+      "type": "object",
+      "properties": {
+        "schema_version": { "const": 1 },
+        "task_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Tracker task id (tasks.id)."
+        },
+        "worker": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "description": "Canonical lowercase handle of the claiming agent (tasks column claimed_by). Capability/lane eligibility is looked up server-side in the agents registry, never trusted from the caller."
+        },
+        "claim_token": {
+          "type": "string",
+          "format": "uuid",
+          "description": "SECRET lease capability, minted server-side at claim time (crypto.randomUUID()). Authenticates report/renew/release. MUST never be sent to browsers or logged."
+        },
+        "fence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Monotonic per-task fencing token, incremented on every successful (re)claim. Every write performed under this lease MUST carry it; the store rejects writes whose fence is below the task's current fence, so a delayed/zombie worker cannot commit after reap+reclaim."
+        },
+        "granted_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 UTC — when this claim won."
+        },
+        "lease_expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 UTC — after this instant the lease is reapable (doing→todo, lease fields cleared). Canonical wire form is RFC 3339 even though the SQLite store keeps 'YYYY-MM-DD HH:MM:SS' UTC internally."
+        },
+        "lease_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1800,
+          "description": "Lease duration granted; renewals extend lease_expires_at by this much."
+        }
+      },
+      "required": ["schema_version", "task_id", "worker", "claim_token", "fence", "lease_expires_at"],
+      "additionalProperties": false
+    },
+    "leasePublic": {
+      "type": "object",
+      "description": "Viewer-safe projection: everything except claim_token (knowing worker/expiry enables no action without the token; the cockpit uses them for swimlanes and lease countdowns).",
+      "properties": {
+        "schema_version": { "const": 1 },
+        "task_id": { "type": "integer", "minimum": 1 },
+        "worker": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "fence": { "type": "integer", "minimum": 0 },
+        "granted_at": { "type": "string", "format": "date-time" },
+        "lease_expires_at": { "type": "string", "format": "date-time" },
+        "lease_seconds": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["schema_version", "task_id", "worker", "lease_expires_at"],
+      "additionalProperties": false
+    }
+  }
+}
