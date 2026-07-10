@@ -127,4 +127,17 @@ Six files under `docs/contracts/schemas/`, all JSON Schema draft 2020-12.
 | D25 | config `schema_version` optional (absence = 1) | the LIVE binary denies unknown fields, so requiring it would make every current config invalid; it becomes writable from the first rewrite release |
 
 ## Phase 3 — CONTRACTS.md
+
+Wrote `docs/contracts/CONTRACTS.md`: per-contract purpose/fields/producers/consumers, the
+global rules (versioning + bump rules, OS-neutrality, RFC 3339, canonical identity forms,
+tracker ties, claim_token secrecy), the interrupt_policy enforcement table, the channel-lock
+ownership model, the fence rationale, and a cross-contract flow diagram.
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D26 | Version-bump rule: additive-optional = same version; rename/remove/retype/enum-meaning/required-set change = bump + migration note | gives producers room to grow without a bump treadmill while making breaking drift impossible to do silently |
+| D27 | A card claiming `principal_command` from a non-principal is delivered demoted to `defer` (not dropped) | the message still reaches the inbox digest — enforcement should remove the interrupt privilege, not the content |
+| D28 | Per-method RPC payload schemas, agents-registry row, and doorman wire framing declared out of scope | they belong to N2.1/N1.4; N0.1 pins the envelope and shared shapes only |
+
+## Phase 4 — validation
 (see below)
