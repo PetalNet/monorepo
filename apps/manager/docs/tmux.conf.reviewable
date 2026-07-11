@@ -1,0 +1,43 @@
+# ═══════════════════════════════════════════════════════════════════════
+# NOT APPLIED — SPEC ONLY (N1.2). Do not install by hand.
+# Target: janet-nix `modules/home/tmux.nix` embeds this file verbatim as
+# the host tmux.conf. Review pairing: docs/tmux-host-config.md explains
+# every line and the version pin (tmux 3.4).
+# ═══════════════════════════════════════════════════════════════════════
+
+# ── contract the agent-manager harness RELIES on ─────────────────────────
+
+# Pane death IS exit detection: the manager's liveness poll treats "pane id
+# no longer listed" as the agent process exiting. remain-on-exit would keep
+# dead panes listed and make a crashed agent look alive forever. Off is the
+# tmux default; pinned here so a convenience tweak can't break supervision.
+set-window-option -g remain-on-exit off
+
+# The manager tags its pane with the user option @agent_manager_owner
+# (needs tmux >= 3.0; host pin is 3.4). No conf needed — recorded so nobody
+# "cleans up" the option namespace: user options are the ownership anchor.
+
+# ── sane values the brief pins (shared human + agent session) ────────────
+
+# Escape-sequence disambiguation wait. The default 500ms makes every Esc
+# press in a TUI (Claude Code included) feel broken; 10ms is enough for
+# modern terminals to deliver complete sequences.
+set-option -s escape-time 10
+
+# Multiple clients attach at different sizes (human ssh, fleet-term ro/rw
+# web terminals). Size each WINDOW to the smallest client actually viewing
+# it, instead of clamping the whole session to the smallest client.
+set-window-option -g aggressive-resize on
+
+# Scrollback the manager's capture-pane and humans can actually use,
+# bounded so a chatty agent can't grow server memory without limit.
+set-option -g history-limit 50000
+
+# ── quality of life for the humans co-habiting the session ───────────────
+
+# True-color output for agent TUIs over the common outer terminals.
+set-option -g default-terminal "tmux-256color"
+set-option -as terminal-features ",xterm-256color:RGB"
+
+# Pass focus events through to TUIs that redraw on focus.
+set-option -g focus-events on

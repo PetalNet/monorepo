@@ -194,7 +194,13 @@ impl Supervisor {
         self.set_state(AgentState::Stopped);
         if let Some(p) = self.pane_id.take() {
             if self.cfg.kill_agent_on_shutdown {
-                self.tmux.kill_pane(&p);
+                // Unlike stop/restart, nothing self-heals after shutdown —
+                // an unconfirmed kill means the agent may still be running.
+                if !self.tmux.kill_pane(&p) {
+                    self.log(&format!(
+                        "WARN: could not confirm kill of pane {p} (already gone, not provably ours, or tmux unreachable)"
+                    ));
+                }
             } else {
                 self.log(&format!(
                     "leaving agent pane {p} running (kill_agent_on_shutdown=false); next manager boot will adopt it"
@@ -271,10 +277,10 @@ impl Supervisor {
             // own window. If somehow a stale tagged pane exists here, the
             // find_tagged_pane() above would have adopted it, so there is
             // none to clean up.
-            let untagged = self.tmux.panes().len();
-            if untagged > 0 {
+            let existing = self.tmux.panes().len();
+            if existing > 0 {
                 self.log(&format!(
-                    "session '{}' already exists with {untagged} pane(s) (none ours) — spawning agent in a new window",
+                    "session '{}' already exists with {existing} pane(s) — spawning agent in a new window",
                     self.cfg.tmux_session
                 ));
             }
@@ -302,14 +308,19 @@ impl Supervisor {
             }
         };
 
-        if !self.tmux.tag_pane(&pane) {
+        if let Err(e) = self.tmux.tag_pane(&pane) {
             // Without the tag we cannot prove ownership later; treat as a
             // failed spawn (kill what we just started so it can't leak).
+            // The classified cause matters: an agent that dies at startup
+            // (bad claude_bin/work_dir) loses the race with the tag and
+            // used to be misreported as "tmux >= 3.0 required".
             self.log(&format!(
-                "FAILED to tag pane {pane}; killing it and backing off"
+                "FAILED to tag pane {pane}: {e}; killing it and backing off"
             ));
             self.tmux.kill_pane(&pane);
-            self.send("agent spawn failed: could not tag pane (tmux >= 3.0 required)".into());
+            self.send(format!(
+                "agent spawn failed: could not prove pane ownership: {e}"
+            ));
             self.started_at = None;
             self.handle_exit(1);
             return;
@@ -329,7 +340,11 @@ impl Supervisor {
 
         // Auto-accept startup prompts, off-thread (JS parity: async IIFE).
         // Pane-id targeting makes a stale accepter harmless: if the pane
-        // dies, capture/send hit a missing id and the thread exits.
+        // dies, capture/send hit a missing id and the thread exits. (Ids
+        // are unique only within one server's lifetime; the accepter's 1s
+        // pane_alive gate exits it long before any respawn — earliest at
+        // the 5s backoff floor — could see a reused id on a new server.
+        // Keep those constants on that side of each other.)
         let tmux = self.tmux.clone();
         let shutdown = Arc::clone(&self.shutdown);
         std::thread::Builder::new()
