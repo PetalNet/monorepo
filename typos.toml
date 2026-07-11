@@ -7,6 +7,9 @@ extend-exclude = [
 	# University names/domains read as typos (DeVry, oru.edu, etc.).
 	"apps/collegemap/src/lib/college*.ts",
 	"apps/collegemap/src/lib/colleges.json",
+	# Vendored design references (client UI spec + pixel-close mockup) — kept
+	# byte-faithful to the gallery source, not our prose to correct.
+	"apps/point/docs/design/**",
 ]
 
 [default.extend-words]
