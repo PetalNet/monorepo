@@ -32,7 +32,8 @@ const MAX_KEY_PACKAGE_BYTES: usize = 2048;
 const MAX_UPLOAD_BATCH: usize = 5;
 const MAX_STORED_UNCONSUMED: i64 = 20;
 /// Welcome/commit payloads grow with group size; 256KB is far beyond v1 needs.
-const MAX_MLS_PAYLOAD_BYTES: usize = 256 * 1024;
+/// `pub(super)` so the federation inbox can reuse the same ceiling.
+pub(super) const MAX_MLS_PAYLOAD_BYTES: usize = 256 * 1024;
 /// Cap explicit commit fan-out lists.
 const MAX_COMMIT_RECIPIENTS: usize = 256;
 /// Ceiling on a recipient's unprocessed mailbox: a client that never acks (or
@@ -269,7 +270,7 @@ pub async fn key_count(State(state): State<AppState>, user: AuthUser) -> ApiResu
 // welcome / commit mailbox
 // ---------------------------------------------------------------------------
 
-fn validate_group_id(group_id: &str) -> Result<(), AppError> {
+pub(super) fn validate_group_id(group_id: &str) -> Result<(), AppError> {
     if group_id.is_empty() || group_id.len() > 128 {
         return Err(AppError::BadRequest("invalid group_id".into()));
     }
@@ -279,7 +280,7 @@ fn validate_group_id(group_id: &str) -> Result<(), AppError> {
 /// Insert one mailbox row inside `tx`, enforcing the per-recipient backlog cap
 /// first. Returns the new id + created_at so the caller can live-push AFTER the
 /// transaction commits (a push before commit could race a rollback).
-async fn insert_mailbox(
+pub(super) async fn insert_mailbox(
     tx: &mut Transaction<'_, Postgres>,
     sender: &str,
     recipient: &str,
@@ -314,7 +315,7 @@ async fn insert_mailbox(
 /// Live-push a stored mailbox row to the recipient's connections (best effort;
 /// zero connections is fine — it's in the mailbox for the next poll).
 #[allow(clippy::too_many_arguments)]
-fn push_mailbox(
+pub(super) fn push_mailbox(
     state: &AppState,
     id: Uuid,
     created_at: DateTime<Utc>,
