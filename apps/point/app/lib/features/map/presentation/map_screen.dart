@@ -7,7 +7,9 @@ import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/people/people_controller.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/api/models.dart';
+import 'package:point_app/theme/presence_tokens.dart';
 import 'package:point_app/theme/theme_x.dart';
 import 'package:point_app/widgets/person_row.dart';
 
@@ -32,10 +34,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     super.dispose();
   }
 
+  Person _withLiveFix(Person p, PeerFix fix) {
+    final lat = (fix.data['lat'] as num?)?.toDouble();
+    final lon = (fix.data['lon'] as num?)?.toDouble();
+    if (lat == null || lon == null) return p;
+    return Person(
+      userId: p.userId,
+      displayName: p.displayName,
+      // A fix just arrived → they're live.
+      presence: PresenceState.live,
+      subtitle: p.subtitle,
+      distanceLabel: p.distanceLabel,
+      lat: lat,
+      lon: lon,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final people = ref.watch(peopleControllerProvider).value ?? const <Person>[];
-    final located = people.where((p) => p.hasLocation).toList();
+    // Live decrypted peer positions (H2): merge the freshest coordinate per
+    // shared peer into their Person so their marker actually moves.
+    final live = ref.watch(livePresenceProvider);
+    final located = [
+      for (final p in people)
+        if (live[p.userId] case final fix?)
+          _withLiveFix(p, fix)
+        else if (p.hasLocation)
+          p,
+    ];
     final center = located.isNotEmpty
         ? LatLng(located.first.lat!, located.first.lon!)
         : MapScreen._fallbackCenter;

@@ -113,6 +113,9 @@ impl PointMls {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, PointCrypto> {
-        self.inner.lock().expect("mls mutex poisoned")
+        // Recover from a poisoned mutex (a panic deep in openmls on malformed
+        // input) instead of aborting every future call across the FFI boundary
+        // — a bad frame should fail this call, not brick the identity.
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 }

@@ -40,6 +40,11 @@ class RelayController {
 
   /// Server ids of peers we currently share with (their pairwise groups).
   final Set<String> _shareTargets = {};
+
+  /// Targets whose group formation is in flight — prevents a re-entrant
+  /// `setShareTargets` from double-claiming KeyPackages / overwriting the group
+  /// (M2). Cleared when formation finishes.
+  final Set<String> _forming = {};
   final _peerFixes = StreamController<PeerFix>.broadcast();
 
   /// Decrypted peer fixes for the presence/map layer.
@@ -51,12 +56,16 @@ class RelayController {
     _session = session;
     final api = _ref.read(apiProvider);
     final crypto = _ref.read(cryptoServiceProvider);
-    await crypto.init(session.userId);
+    final initResult = await crypto.init(session.userId);
 
-    // Top up the one-time KeyPackage pool (multi-KP; GO-bar #4).
+    // Top up the one-time KeyPackage pool (multi-KP; GO-bar #4). On a re-key
+    // (wiped state) the server still lists our OLD packages whose private
+    // halves are gone, so we must force a fresh pool regardless of the count —
+    // otherwise peers claim stale packages and silently can't reach us (H1).
     try {
+      final forceReprovision = initResult == MlsInit.wiped;
       final count = await api.keyCount(session.token);
-      if (count.available < _poolFloor) {
+      if (forceReprovision || count.available < _poolFloor) {
         final pool = [
           for (var i = 0; i < _poolFloor; i++)
             base64Encode(await crypto.generateKeyPackage()),
@@ -103,6 +112,10 @@ class RelayController {
     // Only the lexicographically-smaller party creates the group, so both
     // sides don't each build a rival group for the same pair.
     if (session.userId.compareTo(target) >= 0) return;
+    // In-flight guard: the check above and the claim below straddle an await,
+    // so without this a re-entrant setShareTargets would claim two KeyPackages
+    // and overwrite the group mid-formation (M2 — MLS desync).
+    if (!_forming.add(target)) return;
     final api = _ref.read(apiProvider);
     try {
       final claim = await api.claimKeyPackage(session.token, target);
@@ -116,6 +129,8 @@ class RelayController {
       );
     } on Object catch (e) {
       if (kDebugMode) debugPrint('form share group with $target failed: $e');
+    } finally {
+      _forming.remove(target);
     }
   }
 
@@ -130,7 +145,9 @@ class RelayController {
       'speed': fix.speed,
       'timestamp': fix.timestampMs,
     }));
-    for (final target in _shareTargets) {
+    // Snapshot: setShareTargets can mutate the set across the encrypt await
+    // (M3 — ConcurrentModificationError).
+    for (final target in _shareTargets.toList()) {
       final gid = CryptoService.pairwiseGroupId(session.userId, target);
       if (!crypto.hasGroup(gid)) continue; // group forms at share-accept time
       try {
@@ -231,6 +248,25 @@ final relayControllerProvider = Provider<RelayController>((ref) {
   ref.onDispose(() => unawaited(c.dispose()));
   return c;
 });
+
+/// Latest decrypted position per peer, fed by the relay's `peerFixes` (H2 — the
+/// receive path now terminates somewhere the map watches, not a dead stream).
+/// Keyed by peer user id.
+class LivePresence extends Notifier<Map<String, PeerFix>> {
+  @override
+  Map<String, PeerFix> build() {
+    final sub = _ref().peerFixes.listen((fix) {
+      state = {...state, fix.userId: fix};
+    });
+    ref.onDispose(sub.cancel);
+    return const {};
+  }
+
+  RelayController _ref() => ref.read(relayControllerProvider);
+}
+
+final livePresenceProvider =
+    NotifierProvider<LivePresence, Map<String, PeerFix>>(LivePresence.new);
 
 /// Persists the relay queue in secure storage, namespaced per user.
 class _SecureRelayStore implements RelayStore {

@@ -262,3 +262,36 @@ LocationService fix per share through the durable queue, and decrypts inbound br
 `PeerFix`es. Wired to sign-in + the People list. `.so` binaries are gitignored (rebuild via
 `rust/build-android.sh`); the flutter CI job only analyzes/tests (no APK), so the generated Dart
 bindings are committed and the native build stays local/dev.
+
+## 2026-07-11 — D-020 · M2 adversarial-review fixes (crypto/relay)
+
+The M2 review confirmed the design solid (one-time KP consumption, reconnect hygiene, transport
+security, per-identity storage namespacing, dart-layer decrypt fail-safe) but found real issues,
+fixed before merge (E2E-crypto-critical, verified directly):
+
+- **M5 (security — ratchet reuse):** every mutating CryptoService method (incl. encrypt/decrypt,
+  which advance the ratchet) now runs under a single async lock, so `mutate → export → write` is
+  atomic and strictly ordered — concurrent encrypts can never persist a rewound ratchet (which
+  could risk AEAD generation reuse on the next restore).
+- **M7 (fail-safe):** the Rust bridge recovers a poisoned mutex (`unwrap_or_else(into_inner)`)
+  instead of aborting the process on a malformed frame — a bad input fails that call, not the
+  identity.
+- **H1 (silent identity wipe → server pool brick):** `init` now returns a typed `MlsInit`
+  (restored/created/wiped); on a `wiped` restore the relay force-uploads a FRESH KeyPackage pool
+  regardless of the server count, so peers can't claim stale (private-half-gone) packages and
+  silently fail to reach us.
+- **H2 (dead receive path):** decrypted peer fixes now feed a `livePresenceProvider` that the map
+  watches — inbound locations actually move the markers instead of terminating in an unlistened
+  stream.
+- **M2 (double group-formation):** an in-flight guard serializes `_ensureShareGroup` per target so
+  a re-entrant `setShareTargets` can't claim two KeyPackages / overwrite the group (MLS desync).
+- **M3 (concurrent-modification):** `_onLocalFix` snapshots the target set before the encrypt await.
+
+Re-verified on-device after the fixes: the share E2E still passes (SHARE ✓) and 28 tests green.
+
+Deferred as tracked follow-ups (real, not NO-GO blockers): M4 (a stale mid-session token loops the
+reconnect — needs a token-refresh path; today the app re-inits on sign-in), M6 (the durable-queue
+boundary is `sink.add`, not an app-level ack — bounded impact for superseded fixes), M1 (the
+larger-id party can't broadcast until the smaller-id peer's client forms the group — needs an
+either-party-after-grace fallback), M8 (RelayController-level + concurrency/reload tests). Logged
+here so they're legible.
