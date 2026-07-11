@@ -15,3 +15,6 @@ f1b35cd857764894ecc515e6ae4cb62da51501fd
 
 # style(manager): cargo fmt at migration
 db8744b99f65923894a2bad2aa34c6c6b103c638
+
+# apps/point first oxfmt pass (2026-07-11)
+a7d1bae5f6dc6b03dbbe0cbfd7f63153a3bf4a1c
