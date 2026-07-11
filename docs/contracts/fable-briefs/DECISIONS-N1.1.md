@@ -115,6 +115,49 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
   loaded box. Uptime back-dating via `Instant::checked_sub` (no clock refactor needed).
 - 21/21 tests green.
 
+## DIRECTIVE UPDATE (2026-07-10, mid-run) — re-plan
+
+Parker + Eli's `DIRECTIVE-N1.1-UPDATE.md` supersedes the branch-only/no-merge rules:
+target is now the monorepo (`/home/docker/Monorepo`, matrix-bot migration precedent),
+tests must pass in an isolated container via a build→test→fix loop, Sol (GPT-5.6 via
+`/usr/bin/codex`) must review before merge, then self-merge LOCALLY (GitHub unreachable —
+push stays pending for a human). Build-budget caps + never-touch-live rules still apply.
+Phases 1–4 above are unchanged and committed; they are the migration source.
+
+### Migration ground truth (read before planning)
+- Precedent (docs/MIGRATION.md + `migrate-matrix-bot` branch): clone source → `git mv` into
+  `apps/<dest>/` → commit → add clone as remote → `merge --allow-unrelated-histories` →
+  flatten nesting → cleanup commits in order (cruft drop; oxfmt reformat as its OWN commit +
+  `.git-blame-ignore-revs`; lint/check fixes separate) → record in the Migrated list.
+- Rust-app conventions (matrix-bot's Migrated entry): NO `package.json` (pnpm workspace
+  globs `apps/*` — a package.json would drag the app into vp/knip/oxlint), `Cargo.lock`
+  kept for `--locked`, `rust-toolchain.toml` pin, validation is Cargo-native
+  (`fmt --check`, `clippy -D warnings`, `build --locked`, `test`), oxfmt owns `.toml`/`.md`.
+- Monorepo `main` == `origin/main` (b17c3592, slide tip); `migrate-matrix-bot` is ahead of
+  main and NOT locally merged (it awaits its own GitHub PR). Nothing on this host runs from
+  the Monorepo checkout (ps/systemd audit clean); its worktree is clean on migrate-matrix-bot.
+- Host: rustup 1.96.0 (fmt+clippy present), docker 29.6 (no local rust image — pull needed),
+  codex-cli 0.133.0 at /usr/bin/codex.
+
+### Re-plan decisions
+| # | Decision | Rationale |
+|---|----------|-----------|
+| N11 | Finish original Phase 5 (release build + summary) on janet-manager FIRST, then migrate | the directive calls my N1.1 work "the source that gets migrated in" — the source branch should be complete and green per its own brief |
+| N12 | Monorepo work happens in a `git worktree` on new branch `migrate-manager`, branched from `main` | zero disturbance to the existing `migrate-matrix-bot` checkout (never-touch rule); basing on main avoids self-merging matrix-bot's unmerged branch as a side effect (not mine to merge); the MIGRATION.md list will conflict trivially with matrix-bot's entry at some future merge — human-resolvable, logged |
+| N13 | Import the FULL janet-manager history (precedent: history-preserving merge), then flatten `manager-rs/*` → `apps/manager/` | matches "flatten redundant nesting" (app/web → web); `git log --follow` keeps walking |
+| N14 | Cleanup drops `package.json` + `manager.js`; keeps `docs/contracts/` under apps/manager | package.json is MANDATORY to drop (workspace glob) and its bin/scripts point at the JS manager = standalone cruft; manager.js is the superseded baseline, retrievable from imported history; the contracts are the N0.1 source of truth the app implements — they ride along where history lands them |
+| N15 | Keep `flake.nix`/`nix/`/`flake.lock` | build tooling (dream2nix, build-verified 8c7b9df), not per-app deploy cruft; invisible to JS tooling; NOT nix-built this run unless cargo build has succeeded (§0) |
+| N16 | Add `rust-toolchain.toml` pinning 1.96 | precedent pins matrix-bot to its CI toolchain; the manager's validated toolchain is host 1.96 (no CI existed); rustup already has 1.96 → no download |
+| N17 | Container = `rust:1.96-slim` (pull; docker hub egress expected — crates.io works, only github doesn't resolve), `--cpus=2`, `CARGO_BUILD_JOBS=2`, fresh container CARGO_HOME, source mounted read-only, `CARGO_TARGET_DIR` inside the container | isolated clean-env proof per directive §2 within §0 budget caps; read-only mount keeps root-owned files out of the worktree. Fallback if hub unreachable: `cargo vendor` + a local base image — will log if taken |
+| N18 | Loop = container run of `cargo fmt --check && clippy -D warnings && build --locked --release && test` until green | directive §3; this is exactly the matrix-bot validation set; the release build inside the container also satisfies the original brief's release-build deliverable in the final target |
+| N19 | Sol review: `codex exec` non-interactively over the `main..migrate-manager` diff; address feedback in the loop; re-review if substantial; outcome logged here | directive §4 verbatim |
+| N20 | After Sol passes: `git merge --no-ff migrate-manager` into local `main` (standard-merge per journal); DO NOT push; log "push pending — human" | directive §5; MIGRATION.md says standard-merged, not squashed |
+
+### Execution order (updated)
+P5 (source complete) → M1 import+flatten → M2 cleanup/tooling commits → M3 container
+build-test loop → M4 Sol review (+fixes) → M5 record in MIGRATION.md, local merge to main,
+final summary + open questions, stop.
+
 ### Plan (phases 2–5)
 1. **P2** `state.rs`: Heartbeat v2 struct (+ `ChannelLock`), `supervisor.rs::write_heartbeat`
    emits v2 (+handle+stub lock); `health.rs` reads v2, tolerates v1 with a note; unit tests
