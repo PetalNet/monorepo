@@ -233,3 +233,32 @@ lives. Recommendation: a field soak on a SIM'd family handset, walking/driving, 
 moving-cadence drain and confirm the "beats Life360" claim under motion. The engine design (5-layer:
 accel wake-gate → adaptive GPS cadence → stillness ramp-down → cheap network heartbeat → ghost
 hard-stop) is the right shape for it; the parked numbers above are already best-in-class.
+
+## 2026-07-11 — D-019 · M2 clears the NO-GO: MLS durability, durable relay, reliable sharing (verified on-device)
+
+The three NO-GO reliability fixes, all built and hardware-verified on the lab phone (SM-S135DL):
+
+- **GO-bar #2 — MLS state durability.** The lifted point-core MLS engine is bridged to Flutter via
+  flutter_rust_bridge (`apps/point/app/rust`, the `point_mls` crate → per-ABI `.so` via cargo-ndk).
+  `CryptoService` exports the full MLS state after every mutation (create/add/welcome/commit/
+  encrypt/decrypt — the ratchet advances on encrypt/decrypt too) into secure storage and restores
+  on boot. On-device proof: Alice forms a group with Bob, exports her 38 740-byte state, is
+  restarted via `restore()`, and Bob still decrypts what the restored Alice encrypts.
+- **GO-bar #3 — durable WS outbound queue + jitter.** `RelayQueue` persists outbound (pre-encrypted)
+  fixes across restarts, bounded, evicting stale same-audience items first. `ReconnectPolicy` is
+  exponential + full jitter and resets ONLY on a proven-healthy `auth.ok` (fixing the legacy
+  reset-on-open bug). `WsService` does auth-as-first-message and flushes the queue only once healthy.
+  18 unit tests.
+- **GO-bar #4 — reliable direct sharing + one-time multi-KeyPackage.** Clients upload a POOL of
+  KeyPackages; the server consumes one per claim (M0). On-device proof against a live server: two
+  users, share → accept → claim ONE of the pool (asserted non-last-resort) → pairwise MLS group →
+  Welcome relay → encrypted fix over the durable queue → decrypt to the exact fix; DB confirmed
+  1-of-3 consumed and `location_updates` ciphertext-only.
+
+`RelayController` assembles these into the shipping app: on sign-in it inits MLS, tops up the
+KeyPackage pool, opens the durable WS, drains pending Welcomes; it forms the pairwise group with
+each newly-shared peer (smaller-id party creates, to avoid rival groups), encrypts every
+LocationService fix per share through the durable queue, and decrypts inbound broadcasts into
+`PeerFix`es. Wired to sign-in + the People list. `.so` binaries are gitignored (rebuild via
+`rust/build-android.sh`); the flutter CI job only analyzes/tests (no APK), so the generated Dart
+bindings are committed and the native build stays local/dev.

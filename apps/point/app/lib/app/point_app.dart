@@ -11,8 +11,10 @@ import 'package:point_app/features/device_link/presentation/device_link_screen.d
 import 'package:point_app/features/ghost/presentation/ghost_screen.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
+import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/profile/presentation/profile_screen.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
@@ -144,21 +146,33 @@ class _PointAppState extends ConsumerState<PointApp>
     // Auth-driven routing WITHOUT resetting the router (D-015): flip the stack
     // via `router.set` on the one app-lifetime router instead of swapping the
     // MaterialApp. The shell + its per-branch state are never torn down.
-    ref.listen(authControllerProvider, (prev, next) {
-      next.whenData((session) {
-        if (session != null) {
-          // GO-bar #1: actually start the battery engine on sign-in (requests
-          // location permission, then runs the accel wake-gate + adaptive GPS).
-          // Ghost state then drives share/hard-stop. Without this the engine
-          // only ran under the soak harness, never the shipping app.
-          ref.read(locationServiceProvider).start();
-          _config.router.set(const [MainShell()]);
-        } else {
-          ref.read(locationServiceProvider).setSharing(sharing: false);
-          _config.router.set(const [LoginRoute()]);
-        }
+    ref
+      ..listen(authControllerProvider, (prev, next) {
+        next.whenData((session) {
+          if (session != null) {
+            // GO-bar #1: start the battery engine on sign-in (requests location
+            // permission, then runs the accel wake-gate + adaptive GPS). Ghost
+            // then drives share/hard-stop. Without this the engine only ran
+            // under the soak harness, never the shipping app.
+            ref.read(locationServiceProvider).start();
+            // M2: bring up the MLS relay (durable WS, KeyPackage pool,
+            // encrypted fixes through the durable queue).
+            ref.read(relayControllerProvider).start(session);
+            _config.router.set(const [MainShell()]);
+          } else {
+            ref.read(locationServiceProvider).setSharing(sharing: false);
+            ref.read(relayControllerProvider).stop();
+            _config.router.set(const [LoginRoute()]);
+          }
+        });
+      })
+      // Feed the relay who we share with, so it forms the MLS group with each
+      // (claim KP -> group -> Welcome) and encrypts fixes to them.
+      ..listen(peopleControllerProvider, (prev, next) {
+        final ids =
+            next.value?.map((p) => p.userId).toList() ?? const <String>[];
+        ref.read(relayControllerProvider).setShareTargets(ids);
       });
-    });
 
     final appearance = ref.watch(appearanceProvider);
     return MaterialApp.router(
