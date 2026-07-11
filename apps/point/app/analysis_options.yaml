@@ -8,6 +8,8 @@ analyzer:
   exclude:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
+    # flutter_rust_bridge generated bindings — not ours to lint.
+    - "lib/src/rust/**"
 
 linter:
   rules:
