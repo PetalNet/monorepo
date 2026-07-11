@@ -1,56 +1,117 @@
-//! Point server — minimal axum + Postgres skeleton.
-//!
-//! Point is a self-hostable, E2E-encrypted, federatable location-sharing network
-//! ("Matrix for location"). This binary is the home-server: it terminates plain
-//! HTTP (Traefik terminates TLS in front of it), speaks to a single Postgres
-//! (PostGIS-ready) database, and exposes the federation + client APIs. This
-//! initial skeleton only serves `/health`; the real surface lands in later
-//! wayfinder tickets.
+//! Point home-server: self-hostable, E2E-encrypted (MLS), federatable
+//! location sharing. The server relays and stores ciphertext + routing
+//! metadata only — it can never read a location.
 
-use std::env;
+mod api;
+mod auth;
+mod authz;
+mod config;
+mod error;
+mod state;
+mod ws;
+
 use std::net::SocketAddr;
+use std::sync::Arc;
 
-use axum::{routing::get, Json, Router};
-use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 
-#[tokio::main]
-async fn main() {
-    // Fail fast on a weak or missing signing secret — a short JWT secret is a
-    // silent security hole, so we refuse to boot without a real one.
-    let jwt_secret = env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set (generate 32+ random chars)");
-    if jwt_secret.len() < 32 {
-        panic!("JWT_SECRET must be at least 32 characters (got {})", jwt_secret.len());
+use crate::config::Config;
+use crate::state::AppState;
+use crate::ws::hub::Hub;
+
+fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "point_server=info,tower_http=info".into()),
+        )
+        .init();
+
+    // Honest boot: this panics loudly on missing/weak JWT_SECRET, DATABASE_URL, DOMAIN.
+    let config = Config::from_env();
+
+    // Glitchtip (Sentry-compatible). Must init before the tokio runtime starts.
+    let _sentry_guard = config.glitchtip_dsn.as_deref().map(|dsn| {
+        sentry::init((
+            dsn,
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                ..Default::default()
+            },
+        ))
+    });
+    if _sentry_guard.is_some() {
+        tracing::info!("error reporting enabled (Glitchtip)");
+    } else {
+        tracing::warn!("GLITCHTIP_DSN not set — error reporting disabled");
     }
 
-    let database_url =
-        env::var("DATABASE_URL").expect("DATABASE_URL must be set (postgres://...)");
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime")
+        .block_on(run(config));
+}
 
+async fn run(config: Config) {
     let pool = PgPoolOptions::new()
         .max_connections(10)
-        .connect(&database_url)
+        .connect(&config.database_url)
         .await
         .expect("failed to connect to Postgres");
 
-    let app = Router::new()
-        .route("/health", get(health))
-        .with_state(pool);
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("database migration failed");
 
-    let listen = env::var("LISTEN").unwrap_or_else(|_| "0.0.0.0:8330".to_string());
-    let addr: SocketAddr = listen
+    let state = AppState {
+        pool: pool.clone(),
+        config: Arc::new(config.clone()),
+        hub: Arc::new(Hub::default()),
+    };
+
+    // Periodic cleanup: expired live fixes, expired temp shares, >30d history.
+    tokio::spawn(cleanup_task(pool.clone()));
+
+    let app = api::router(state.clone());
+
+    let addr: SocketAddr = config
+        .listen
         .parse()
-        .unwrap_or_else(|e| panic!("invalid LISTEN address {listen:?}: {e}"));
-
-    println!("point-server listening on http://{addr}");
+        .unwrap_or_else(|e| panic!("invalid LISTEN address {:?}: {e}", config.listen));
+    tracing::info!("point-server listening on http://{addr} (domain {})", config.domain);
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("failed to bind LISTEN address");
-    axum::serve(listener, app)
-        .await
-        .expect("server error");
+    axum::serve(listener, app).await.expect("server error");
 }
 
-async fn health() -> Json<Value> {
-    Json(json!({ "ok": true }))
+const HISTORY_RETENTION_DAYS: i32 = 30;
+
+async fn cleanup_task(pool: sqlx::PgPool) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    loop {
+        interval.tick().await;
+        let res: Result<(), sqlx::Error> = async {
+            sqlx::query(
+                "DELETE FROM location_updates
+                 WHERE created_at + make_interval(secs => ttl_seconds) < now()",
+            )
+            .execute(&pool)
+            .await?;
+            sqlx::query("DELETE FROM temporary_shares WHERE expires_at < now()")
+                .execute(&pool)
+                .await?;
+            sqlx::query("DELETE FROM location_history WHERE created_at < now() - make_interval(days => $1)")
+                .bind(HISTORY_RETENTION_DAYS)
+                .execute(&pool)
+                .await?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = res {
+            tracing::error!(error = %e, "cleanup task failed");
+        }
+    }
 }
