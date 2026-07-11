@@ -135,8 +135,12 @@ impl MatrixClient {
             ),
         };
         let http_timeout = Duration::from_millis(timeout_ms + 15_000);
-        let (status, body) =
-            self.request("GET", &format!("/_matrix/client/v3/sync{qs}"), None, http_timeout);
+        let (status, body) = self.request(
+            "GET",
+            &format!("/_matrix/client/v3/sync{qs}"),
+            None,
+            http_timeout,
+        );
         let next = body.get("next_batch").and_then(|v| v.as_str());
         if status == 0 || next.is_none() {
             return Err(());
@@ -160,7 +164,11 @@ impl MatrixClient {
                 e.get("type").and_then(|t| t.as_str()) == Some("m.room.message")
                     && e.get("sender").and_then(|s| s.as_str()) != Some(self.user_id.as_str())
             })
-            .filter_map(|e| e.get("content").and_then(|c| c.get("body")).and_then(|b| b.as_str()))
+            .filter_map(|e| {
+                e.get("content")
+                    .and_then(|c| c.get("body"))
+                    .and_then(|b| b.as_str())
+            })
             .map(str::trim)
             .filter(|s| s.starts_with('!'))
             .map(|s| s[1..].to_lowercase().trim().to_string())

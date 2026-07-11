@@ -100,7 +100,15 @@ impl Tmux {
     }
 
     pub fn tag_pane(&self, pane_id: &str) -> bool {
-        run(&["set-option", "-p", "-t", pane_id, TAG_OPTION, &self.tag_value]).0 == 0
+        run(&[
+            "set-option",
+            "-p",
+            "-t",
+            pane_id,
+            TAG_OPTION,
+            &self.tag_value,
+        ])
+        .0 == 0
     }
 
     /// Create the session detached, running `cmd` in its first pane; returns
@@ -108,13 +116,25 @@ impl Tmux {
     pub fn new_session_with_cmd(&self, cmd: &str, w: u32, h: u32) -> Result<String, String> {
         let (ws, hs) = (w.to_string(), h.to_string());
         let (code, out) = run(&[
-            "new-session", "-d", "-s", &self.session, "-x", &ws, "-y", &hs,
-            "-P", "-F", "#{pane_id}", cmd,
+            "new-session",
+            "-d",
+            "-s",
+            &self.session,
+            "-x",
+            &ws,
+            "-y",
+            &hs,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            cmd,
         ]);
         if code == 0 && out.starts_with('%') {
             Ok(out)
         } else {
-            Err(format!("tmux new-session failed (code {code}, out {out:?})"))
+            Err(format!(
+                "tmux new-session failed (code {code}, out {out:?})"
+            ))
         }
     }
 
@@ -123,7 +143,14 @@ impl Tmux {
     /// human's focus isn't yanked.
     pub fn new_window_with_cmd(&self, cmd: &str) -> Result<String, String> {
         let (code, out) = run(&[
-            "new-window", "-d", "-t", &self.starget(), "-P", "-F", "#{pane_id}", cmd,
+            "new-window",
+            "-d",
+            "-t",
+            &self.starget(),
+            "-P",
+            "-F",
+            "#{pane_id}",
+            cmd,
         ]);
         if code == 0 && out.starts_with('%') {
             Ok(out)

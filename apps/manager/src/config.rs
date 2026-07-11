@@ -117,12 +117,13 @@ impl Config {
     /// the config file's work_dir, which wins over $HOME (JS parity:
     /// `process.argv[2] || os.homedir()`).
     pub fn load(work_dir_arg: Option<&str>) -> Result<Config, String> {
-        let cfg_path = std::env::var(CONFIG_ENV)
-            .map_err(|_| format!("{CONFIG_ENV} is not set (must point at the manager config JSON)"))?;
+        let cfg_path = std::env::var(CONFIG_ENV).map_err(|_| {
+            format!("{CONFIG_ENV} is not set (must point at the manager config JSON)")
+        })?;
         let text = std::fs::read_to_string(&cfg_path)
             .map_err(|e| format!("cannot read config {cfg_path}: {e}"))?;
-        let raw: RawConfig = serde_json::from_str(&text)
-            .map_err(|e| format!("bad config {cfg_path}: {e}"))?;
+        let raw: RawConfig =
+            serde_json::from_str(&text).map_err(|e| format!("bad config {cfg_path}: {e}"))?;
         let home = home_dir()?;
 
         let shared = |name: &str| home.join(".claude/shared").join(name);
@@ -196,11 +197,9 @@ mod tests {
 
     #[test]
     fn example_config_deserializes() {
-        let text = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/config.example.json"
-        ))
-        .unwrap();
+        let text =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/config.example.json"))
+                .unwrap();
         let raw: RawConfig = serde_json::from_str(&text).unwrap();
         assert_eq!(raw.creds_path, "~/.claude/shared/AGENT-account.json");
         assert!(raw.control_room.starts_with('!'));

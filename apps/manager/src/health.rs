@@ -104,8 +104,10 @@ pub fn run(cfg: &Config, opts: &HealthOpts) -> i32 {
                 // tmux_session is nullable by contract (non-tmux platforms);
                 // consumers must not require it — skip the pane assert then.
                 match (&hb.tmux_session, &hb.pane_id) {
-                    (None, _) => notes
-                        .push("no tmux_session in heartbeat (non-tmux platform) — pane check skipped".into()),
+                    (None, _) => notes.push(
+                        "no tmux_session in heartbeat (non-tmux platform) — pane check skipped"
+                            .into(),
+                    ),
                     (Some(ts), Some(p)) => {
                         let tmux = Tmux::new(ts, &cfg.pane_tag);
                         if tmux.pane_alive(p) {

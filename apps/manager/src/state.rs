@@ -61,13 +61,20 @@ impl SessionState {
         if let Err(e) = s.save(path) {
             // Non-fatal, same as JS (it would have thrown; we prefer to keep
             // supervising with an in-memory id and complain loudly).
-            eprintln!("[manager] WARN: cannot persist session state to {}: {e}", path.display());
+            eprintln!(
+                "[manager] WARN: cannot persist session state to {}: {e}",
+                path.display()
+            );
         }
         s
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        write_file_atomic(path, serde_json::to_string(self).unwrap().as_bytes(), Some(0o600))
+        write_file_atomic(
+            path,
+            serde_json::to_string(self).unwrap().as_bytes(),
+            Some(0o600),
+        )
     }
 }
 
@@ -188,7 +195,10 @@ mod tests {
             serde_json::from_str(r#"{"sessionId": "11111111-2222-4333-8444-555555555555"}"#)
                 .unwrap();
         assert_eq!(s.schema_version, 1);
-        assert!(s.bootstrapped, "legacy file implies an already-running session => resume");
+        assert!(
+            s.bootstrapped,
+            "legacy file implies an already-running session => resume"
+        );
     }
 
     #[test]
@@ -200,8 +210,14 @@ mod tests {
 
         let on_disk: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(on_disk["schema_version"], 1, "producers must write the version");
-        assert!(on_disk.get("sessionId").is_some(), "camelCase on disk (manager.js rollback)");
+        assert_eq!(
+            on_disk["schema_version"], 1,
+            "producers must write the version"
+        );
+        assert!(
+            on_disk.get("sessionId").is_some(),
+            "camelCase on disk (manager.js rollback)"
+        );
         assert_eq!(on_disk["bootstrapped"], false);
 
         let back = SessionState::load_or_create(&path);
@@ -214,8 +230,11 @@ mod tests {
     #[test]
     fn session_state_loads_legacy_file_from_disk() {
         let path = scratch("session-state-legacy.json");
-        std::fs::write(&path, r#"{"sessionId": "11111111-2222-4333-8444-555555555555"}"#)
-            .unwrap();
+        std::fs::write(
+            &path,
+            r#"{"sessionId": "11111111-2222-4333-8444-555555555555"}"#,
+        )
+        .unwrap();
         let s = SessionState::load_or_create(&path);
         assert_eq!(s.session_id, "11111111-2222-4333-8444-555555555555");
         assert_eq!(s.schema_version, 1);
@@ -254,14 +273,16 @@ mod tests {
         // Optional-absent fields are omitted, not null (additionalProperties
         // is false in the contract; omit-when-absent is the conforming shape).
         assert!(!v["channel_lock"].as_object().unwrap().contains_key("owner"));
-        assert!(!v["channel_lock"].as_object().unwrap().contains_key("contender"));
+        assert!(!v["channel_lock"]
+            .as_object()
+            .unwrap()
+            .contains_key("contender"));
     }
 
     #[test]
     fn heartbeat_v2_round_trips() {
         let hb = v2_heartbeat();
-        let back: Heartbeat =
-            serde_json::from_str(&serde_json::to_string(&hb).unwrap()).unwrap();
+        let back: Heartbeat = serde_json::from_str(&serde_json::to_string(&hb).unwrap()).unwrap();
         assert_eq!(back.schema_version, 2);
         assert_eq!(back.handle.as_deref(), Some("janet"));
         assert_eq!(back.channel_lock, Some(ChannelLock::stub_held()));

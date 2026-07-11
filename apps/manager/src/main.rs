@@ -61,12 +61,21 @@ fn run_manager(work_dir_arg: Option<&str>) {
     let creds = cfg.load_creds().unwrap_or_else(|e| die(&e));
     let session = SessionState::load_or_create(&cfg.state_path);
 
-    println!("[manager] agent-manager {} starting", env!("CARGO_PKG_VERSION"));
+    println!(
+        "[manager] agent-manager {} starting",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("[manager] agent: {}", cfg.agent_name);
-    println!("[manager] session: {} (bootstrapped={})", session.session_id, session.bootstrapped);
+    println!(
+        "[manager] session: {} (bootstrapped={})",
+        session.session_id, session.bootstrapped
+    );
     println!("[manager] work dir: {}", cfg.work_dir.display());
     println!("[manager] control room: {}", cfg.control_room);
-    println!("[manager] tmux session: {} (pane tag: {})", cfg.tmux_session, cfg.pane_tag);
+    println!(
+        "[manager] tmux session: {} (pane tag: {})",
+        cfg.tmux_session, cfg.pane_tag
+    );
     println!("[manager] commands: start | stop | restart | status | kill session | /compact /context /cost /status");
 
     // Graceful-shutdown flags: either signal flips `shutdown`; `sigterm`
@@ -88,8 +97,11 @@ fn run_manager(work_dir_arg: Option<&str>) {
     let sync_client = matrix::MatrixClient::new(&creds, &cfg.control_room);
 
     let (matrix_tx, sender_handle) = matrix::spawn_sender(send_client);
-    let cmd_rx =
-        matrix::spawn_command_loop(sync_client, Arc::clone(&shutdown), Arc::clone(&last_sync_ok));
+    let cmd_rx = matrix::spawn_command_loop(
+        sync_client,
+        Arc::clone(&shutdown),
+        Arc::clone(&last_sync_ok),
+    );
 
     // Boot announcement (JS parity).
     let sid8: String = session.session_id.chars().take(8).collect();

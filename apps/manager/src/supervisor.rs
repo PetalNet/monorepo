@@ -180,7 +180,11 @@ impl Supervisor {
             std::thread::sleep(TICK);
         }
 
-        let reason = if self.sigterm.load(Ordering::SeqCst) { "SIGTERM" } else { "SIGINT" };
+        let reason = if self.sigterm.load(Ordering::SeqCst) {
+            "SIGTERM"
+        } else {
+            "SIGINT"
+        };
         self.graceful_shutdown(reason);
     }
 
@@ -197,7 +201,10 @@ impl Supervisor {
                 ));
             }
         }
-        self.send(format!("{} manager stopped ({reason})", self.cfg.agent_name));
+        self.send(format!(
+            "{} manager stopped ({reason})",
+            self.cfg.agent_name
+        ));
         self.write_heartbeat();
         // matrix_tx is dropped when `self` drops; main joins the sender
         // thread, which flushes the queue (bounded by per-send timeouts).
@@ -298,7 +305,9 @@ impl Supervisor {
         if !self.tmux.tag_pane(&pane) {
             // Without the tag we cannot prove ownership later; treat as a
             // failed spawn (kill what we just started so it can't leak).
-            self.log(&format!("FAILED to tag pane {pane}; killing it and backing off"));
+            self.log(&format!(
+                "FAILED to tag pane {pane}; killing it and backing off"
+            ));
             self.tmux.kill_pane(&pane);
             self.send("agent spawn failed: could not tag pane (tmux >= 3.0 required)".into());
             self.started_at = None;
@@ -332,11 +341,17 @@ impl Supervisor {
     /// JS parity: remove any Claude session lock naming our session id so
     /// reuse doesn't fail with "already in use".
     fn clean_stale_session_locks(&self) {
-        let Ok(entries) = std::fs::read_dir(&self.cfg.sessions_dir) else { return };
+        let Ok(entries) = std::fs::read_dir(&self.cfg.sessions_dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
-            let Ok(text) = std::fs::read_to_string(&p) else { continue };
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+            let Ok(text) = std::fs::read_to_string(&p) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
             if v.get("sessionId").and_then(|s| s.as_str()) == Some(self.session.session_id.as_str())
             {
                 let _ = std::fs::remove_file(&p);
@@ -347,7 +362,9 @@ impl Supervisor {
     // ── liveness / exit ───────────────────────────────────────────────────
 
     fn poll_liveness(&mut self) {
-        let Some(pane) = self.pane_id.clone() else { return };
+        let Some(pane) = self.pane_id.clone() else {
+            return;
+        };
         if self.tmux.pane_alive(&pane) {
             return;
         }
@@ -368,16 +385,26 @@ impl Supervisor {
     /// prefer to parse defensively. Unparseable => treated as plain crash.
     fn check_rate_limit_hook_file(&mut self) {
         let path = &self.cfg.rate_limit_hook_path;
-        let Ok(text) = std::fs::read_to_string(path) else { return };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return;
+        };
         let _ = std::fs::remove_file(path);
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            return;
+        };
         let Some(raw) = v.get("resetAt") else { return };
         match parse_reset_at(raw) {
             Some(reset) => {
                 self.rate_limit_reset = Some(reset);
-                self.log(&format!("rate limit from hook — reset at {}", reset.to_rfc3339()));
+                self.log(&format!(
+                    "rate limit from hook — reset at {}",
+                    reset.to_rfc3339()
+                ));
             }
-            None => self.log(&format!("WARN: unparseable resetAt in {}: {text:?}", path.display())),
+            None => self.log(&format!(
+                "WARN: unparseable resetAt in {}: {text:?}",
+                path.display()
+            )),
         }
     }
 
@@ -399,7 +426,9 @@ impl Supervisor {
             let wait_min = (wait.as_secs() + 30) / 60;
             let local = reset.with_timezone(&Local).format("%H:%M:%S");
             self.log(&format!("rate limit — waiting {wait_min}m"));
-            self.send(format!("rate limited — resuming at {local} ({wait_min} min)"));
+            self.send(format!(
+                "rate limited — resuming at {local} ({wait_min} min)"
+            ));
             self.crash_count = 0;
             self.crash_backoff = BACKOFF_START;
             self.set_state(AgentState::Waiting);
@@ -550,7 +579,9 @@ impl Supervisor {
             return;
         }
         match self.pane_id.clone() {
-            None => self.send(format!("no live session — can't send {slash} (start one first)")),
+            None => self.send(format!(
+                "no live session — can't send {slash} (start one first)"
+            )),
             Some(p) => {
                 self.tmux.send_keys(&p, &[cmd, "Enter"]);
                 self.send(format!("sent {cmd} to the live session"));
@@ -669,8 +700,7 @@ mod tests {
     use std::sync::mpsc::channel;
 
     fn scratch_dir() -> std::path::PathBuf {
-        let d = std::env::temp_dir()
-            .join(format!("agent-manager-sup-test-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("agent-manager-sup-test-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -736,7 +766,10 @@ mod tests {
         assert_eq!(sup.crash_count, 0, "rate limit is not a crash");
         assert_eq!(sup.crash_backoff, BACKOFF_START);
         assert!(sup.rate_limit_reset.is_none(), "reset is consumed");
-        assert_eq!(sup.pending_resume.as_ref().unwrap().kind, ResumeKind::RateLimit);
+        assert_eq!(
+            sup.pending_resume.as_ref().unwrap().kind,
+            ResumeKind::RateLimit
+        );
         // wait ≈ 5min + 15s grace
         let d = pending_delay(&sup);
         assert!(
@@ -811,10 +844,16 @@ mod tests {
 
         sup.handle_exit(1);
 
-        assert_eq!(sup.crash_count, 1, "counter restarts after a long-lived session");
+        assert_eq!(
+            sup.crash_count, 1,
+            "counter restarts after a long-lived session"
+        );
         assert_eq!(sup.state, AgentState::Crashed);
         let d = pending_delay(&sup);
-        assert!(d <= BACKOFF_START, "backoff restarts at {BACKOFF_START:?}, got {d:?}");
+        assert!(
+            d <= BACKOFF_START,
+            "backoff restarts at {BACKOFF_START:?}, got {d:?}"
+        );
     }
 
     #[test]
@@ -829,7 +868,10 @@ mod tests {
 
         sup.handle_exit(1);
 
-        assert_eq!(sup.crash_count, 6, "no counter reset without a measured uptime");
+        assert_eq!(
+            sup.crash_count, 6,
+            "no counter reset without a measured uptime"
+        );
     }
 
     #[test]
@@ -841,7 +883,11 @@ mod tests {
 
         sup.handle_exit(0);
 
-        assert_eq!(sup.state, AgentState::Stopped, "intentional stop stays stopped");
+        assert_eq!(
+            sup.state,
+            AgentState::Stopped,
+            "intentional stop stays stopped"
+        );
         assert!(sup.pending_resume.is_none(), "no resume is scheduled");
         assert!(
             sup.rate_limit_reset.is_none(),
@@ -862,13 +908,31 @@ mod tests {
             (json!("2026-07-10T14:00:00+02:00"), Some(rfc)),
             (json!("  2026-07-10T12:00:00Z  "), Some(rfc)), // trimmed
             // epoch seconds / milliseconds, number and string
-            (json!(1_750_000_000), DateTime::from_timestamp(1_750_000_000, 0)),
-            (json!("1750000000"), DateTime::from_timestamp(1_750_000_000, 0)),
-            (json!(1_750_000_000_123_i64), DateTime::from_timestamp_millis(1_750_000_000_123)),
-            (json!("1750000000123"), DateTime::from_timestamp_millis(1_750_000_000_123)),
+            (
+                json!(1_750_000_000),
+                DateTime::from_timestamp(1_750_000_000, 0),
+            ),
+            (
+                json!("1750000000"),
+                DateTime::from_timestamp(1_750_000_000, 0),
+            ),
+            (
+                json!(1_750_000_000_123_i64),
+                DateTime::from_timestamp_millis(1_750_000_000_123),
+            ),
+            (
+                json!("1750000000123"),
+                DateTime::from_timestamp_millis(1_750_000_000_123),
+            ),
             // millis-vs-secs heuristic boundary (10^12)
-            (json!(999_999_999_999_i64), DateTime::from_timestamp(999_999_999_999, 0)),
-            (json!(1_000_000_000_000_i64), DateTime::from_timestamp_millis(1_000_000_000_000)),
+            (
+                json!(999_999_999_999_i64),
+                DateTime::from_timestamp(999_999_999_999, 0),
+            ),
+            (
+                json!(1_000_000_000_000_i64),
+                DateTime::from_timestamp_millis(1_000_000_000_000),
+            ),
             // garbage
             (json!("soon"), None),
             (json!("12.5"), None),
