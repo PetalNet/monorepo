@@ -207,3 +207,15 @@ final summary + open questions, stop.
   github.com doesn't).
 - N21: from here decisions log in THIS copy (apps/manager/…/DECISIONS-N1.1.md) — it is the
   migrated artifact; janet-manager gets a final pointer commit at the end.
+
+## M3 — Isolated container validation (green)
+
+- `rust:1.96-slim` (pulled fresh), `--cpus=2`, `CARGO_BUILD_JOBS=2`, source mounted
+  READ-ONLY, target dir + CARGO_HOME inside the container (clean env; toolchain pin
+  honored — rustup pulled 1.96.1 default profile in-container).
+- Loop iteration 1: `cargo fmt --check` OK, `clippy --all-targets --locked -D warnings`
+  OK, `cargo test --locked` **21/21**, `cargo build --locked --release` OK
+  (`agent-manager 0.1.0`). Re-ran the test step under `set -euo pipefail` after noticing
+  the first run's piping could mask a test failure — explicitly verified green.
+- Loop converged in one iteration; cached named volume `manager-n11-target` kept for
+  cheap re-runs if Sol review forces changes.
