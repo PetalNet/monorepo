@@ -1,0 +1,18 @@
+[package]
+name = "point_mls"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+
+# flutter_rust_bridge bridge crate: exposes the lifted point-core MLS engine
+# (../../core) to the Flutter client so E2E crypto + MLS state durability run
+# on-device. Built to a per-ABI .so via cargo-ndk (Android). Standalone
+# workspace so it isn't pulled into the apps/point server workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.12.0"
+point-core = { path = "../../core" }

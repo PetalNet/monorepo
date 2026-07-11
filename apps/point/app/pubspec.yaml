@@ -25,6 +25,7 @@ dependencies:
   geolocator: ^14.0.3
   sensors_plus: ^7.1.0
   path_provider: ^2.1.6
+  flutter_rust_bridge: 2.12.0
   # dynamic_color is intentionally NOT a dependency: the spec locks dynamic_color
   # OFF (fixed monochrome, no Material You wallpaper hues) — D-015.
 

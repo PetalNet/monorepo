@@ -233,3 +233,65 @@ lives. Recommendation: a field soak on a SIM'd family handset, walking/driving, 
 moving-cadence drain and confirm the "beats Life360" claim under motion. The engine design (5-layer:
 accel wake-gate → adaptive GPS cadence → stillness ramp-down → cheap network heartbeat → ghost
 hard-stop) is the right shape for it; the parked numbers above are already best-in-class.
+
+## 2026-07-11 — D-019 · M2 clears the NO-GO: MLS durability, durable relay, reliable sharing (verified on-device)
+
+The three NO-GO reliability fixes, all built and hardware-verified on the lab phone (SM-S135DL):
+
+- **GO-bar #2 — MLS state durability.** The lifted point-core MLS engine is bridged to Flutter via
+  flutter_rust_bridge (`apps/point/app/rust`, the `point_mls` crate → per-ABI `.so` via cargo-ndk).
+  `CryptoService` exports the full MLS state after every mutation (create/add/welcome/commit/
+  encrypt/decrypt — the ratchet advances on encrypt/decrypt too) into secure storage and restores
+  on boot. On-device proof: Alice forms a group with Bob, exports her 38 740-byte state, is
+  restarted via `restore()`, and Bob still decrypts what the restored Alice encrypts.
+- **GO-bar #3 — durable WS outbound queue + jitter.** `RelayQueue` persists outbound (pre-encrypted)
+  fixes across restarts, bounded, evicting stale same-audience items first. `ReconnectPolicy` is
+  exponential + full jitter and resets ONLY on a proven-healthy `auth.ok` (fixing the legacy
+  reset-on-open bug). `WsService` does auth-as-first-message and flushes the queue only once healthy.
+  18 unit tests.
+- **GO-bar #4 — reliable direct sharing + one-time multi-KeyPackage.** Clients upload a POOL of
+  KeyPackages; the server consumes one per claim (M0). On-device proof against a live server: two
+  users, share → accept → claim ONE of the pool (asserted non-last-resort) → pairwise MLS group →
+  Welcome relay → encrypted fix over the durable queue → decrypt to the exact fix; DB confirmed
+  1-of-3 consumed and `location_updates` ciphertext-only.
+
+`RelayController` assembles these into the shipping app: on sign-in it inits MLS, tops up the
+KeyPackage pool, opens the durable WS, drains pending Welcomes; it forms the pairwise group with
+each newly-shared peer (smaller-id party creates, to avoid rival groups), encrypts every
+LocationService fix per share through the durable queue, and decrypts inbound broadcasts into
+`PeerFix`es. Wired to sign-in + the People list. `.so` binaries are gitignored (rebuild via
+`rust/build-android.sh`); the flutter CI job only analyzes/tests (no APK), so the generated Dart
+bindings are committed and the native build stays local/dev.
+
+## 2026-07-11 — D-020 · M2 adversarial-review fixes (crypto/relay)
+
+The M2 review confirmed the design solid (one-time KP consumption, reconnect hygiene, transport
+security, per-identity storage namespacing, dart-layer decrypt fail-safe) but found real issues,
+fixed before merge (E2E-crypto-critical, verified directly):
+
+- **M5 (security — ratchet reuse):** every mutating CryptoService method (incl. encrypt/decrypt,
+  which advance the ratchet) now runs under a single async lock, so `mutate → export → write` is
+  atomic and strictly ordered — concurrent encrypts can never persist a rewound ratchet (which
+  could risk AEAD generation reuse on the next restore).
+- **M7 (fail-safe):** the Rust bridge recovers a poisoned mutex (`unwrap_or_else(into_inner)`)
+  instead of aborting the process on a malformed frame — a bad input fails that call, not the
+  identity.
+- **H1 (silent identity wipe → server pool brick):** `init` now returns a typed `MlsInit`
+  (restored/created/wiped); on a `wiped` restore the relay force-uploads a FRESH KeyPackage pool
+  regardless of the server count, so peers can't claim stale (private-half-gone) packages and
+  silently fail to reach us.
+- **H2 (dead receive path):** decrypted peer fixes now feed a `livePresenceProvider` that the map
+  watches — inbound locations actually move the markers instead of terminating in an unlistened
+  stream.
+- **M2 (double group-formation):** an in-flight guard serializes `_ensureShareGroup` per target so
+  a re-entrant `setShareTargets` can't claim two KeyPackages / overwrite the group (MLS desync).
+- **M3 (concurrent-modification):** `_onLocalFix` snapshots the target set before the encrypt await.
+
+Re-verified on-device after the fixes: the share E2E still passes (SHARE ✓) and 28 tests green.
+
+Deferred as tracked follow-ups (real, not NO-GO blockers): M4 (a stale mid-session token loops the
+reconnect — needs a token-refresh path; today the app re-inits on sign-in), M6 (the durable-queue
+boundary is `sink.add`, not an app-level ack — bounded impact for superseded fixes), M1 (the
+larger-id party can't broadcast until the smaller-id peer's client forms the group — needs an
+either-party-after-grace fallback), M8 (RelayController-level + concurrency/reload tests). Logged
+here so they're legible.
