@@ -299,9 +299,12 @@ fn server_down_every_query_degrades_calmly_and_spawn_starts_the_server() {
     assert!(!t.send_keys("%0", &["x", "Enter"]));
     assert_eq!(t.capture("%0"), "");
     assert!(!t.kill_pane("%0"));
+    let err = t
+        .new_window_with_cmd("sleep 300")
+        .expect_err("new-window cannot start a server");
     assert!(
-        t.new_window_with_cmd("sleep 300").is_err(),
-        "new-window cannot start a server"
+        err.contains("server not running"),
+        "spawn error names the cause; got: {err}"
     );
 
     // new_session_with_cmd is the one call that BOOTS the server.
@@ -336,9 +339,15 @@ fn session_up_pane_gone_is_distinguishable_from_session_gone() {
     assert_eq!(t.capture(&ours), "", "capture of a dead pane is empty");
     assert!(!t.kill_pane(&ours));
 
-    // And a duplicate new-session on a live name fails cleanly (the
-    // supervisor's spawn path routes this into new_window instead).
-    assert!(t.new_session_with_cmd("sleep 300", 80, 24).is_err());
+    // And a duplicate new-session on a live name fails cleanly, naming the
+    // cause (the supervisor's spawn path routes this into new_window).
+    let err = t
+        .new_session_with_cmd("sleep 300", 80, 24)
+        .expect_err("duplicate session must fail");
+    assert!(
+        err.contains("duplicate session"),
+        "spawn error carries tmux's stderr; got: {err}"
+    );
 }
 
 #[test]
