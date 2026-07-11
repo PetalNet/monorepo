@@ -259,7 +259,7 @@ final summary + open questions, stop.
   via the REST API (no gh CLI on host); auth via the repo's existing credential helper.
 - CI loop (4 iterations to green, all reproduced/verified locally before each push):
   1. `typos`: real typos fixed (validate.py's deliberate unknown-key fixture renamed
-     `contrl_room` → `xcontrol_room`, semantics intact — validate.py re-run green) plus
+     to `xcontrol_room`, semantics intact — validate.py re-run green) plus
      dictionary rewords (unparsable, skew, SELECT queries). `check` (eslint/markdown):
      languages on bare code fences; backticked bracket text parsed as link labels.
   2. `vp fmt --check`: oxfmt pass over the hand-edited docs.
