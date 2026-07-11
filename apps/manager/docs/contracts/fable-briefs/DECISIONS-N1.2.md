@@ -155,3 +155,49 @@ commit so no commit on the branch carries a red test.
 | D7 | Test file includes the module via `#[path = "../src/tmux.rs"]` | the crate is bin-only; integration tests can't link a bin. Alternatives: lib+bin split (crate restructure — over-building a LIGHT node) vs path-include (zero production change, same source compiled). Chose path-include; revisit if a later node needs a lib target |
 | D8 | Raw test-side tmux calls also use `=<session>:` targets | same exact-match discipline as the layer; a bare `=name` pane-target is rejected by tmux 3.6a (`can't find pane`) |
 | D9 | `#[allow(dead_code)]` on `with_socket` (bin never calls it) and on the included test module | keeps `clippy -D warnings` green on both targets without loosening crate-wide lints |
+
+## M3 — failure-mode hardening
+
+Scope held to the gaps M1/M2 exposed; no signatures, no call-site changes.
+
+- G1 closed: `run()` captures stderr (`Exec {code, out, err}`);
+  `new_session_with_cmd` / `new_window_with_cmd` errors now name the
+  distinguished cause via `describe_failure()` — binary missing (exec
+  error), server not running (`no server running` / `error connecting to`
+  — the latter is what 3.6a actually emits for a dead private socket;
+  caught by the server-down test), session/pane not found, other (exit
+  code + stderr). The supervisor's existing "SPAWN FAILED: {e}" log line
+  now carries the cause with zero supervisor changes.
+- G2 documented as contract: `capture()` returns `""` for dead AND blank
+  panes; callers gate on `pane_alive` (the auto-accept loop already does).
+- G3 closed: every public fn's doc comment states behavior per failure
+  mode; module header gained a "Failure modes (contract)" section.
+- Two integration tests strengthened to assert the classified messages
+  (server-down ⇒ "server not running"; duplicate session ⇒ tmux's
+  "duplicate session" stderr preserved).
+- NOT hardened (logged as out of scope): a live "tmux binary missing"
+  test would need process-global PATH mutation (racy under parallel
+  tests); the exec-failure branch is covered by code inspection and the
+  classifier's `exec failed:` arm. tmux < 3.0 behavior is asserted by
+  design (tag_pane false ⇒ spawn-fail path, unit-level) — no pre-3.0
+  binary is installed anywhere in the fleet to test against.
+
+## M4 — declarative host spec (NOT APPLIED)
+
+`docs/tmux-host-config.md` + `docs/tmux.conf.reviewable`:
+
+- One-version rule: host tmux pinned **3.4**, and the pin is COUPLED to
+  the fleet-term container base (Alpine 3.20 ships tmux 3.4; its
+  containerized client attaches to the host server socket — protocol
+  mismatch breaks the web terminal). Upgrades are atomic across both.
+- Conf pins `remain-on-exit off` explicitly: pane death IS the manager's
+  exit detection; a convenience tweak flipping it would make crashed
+  agents look alive forever. Plus the brief's trio: escape-time 10,
+  aggressive-resize on, history-limit 50000; true-color + focus-events
+  for the humans.
+- Socket contract for N1.7: `/tmp/tmux-1000/default`, uid 1000 / 0700
+  dir, session `janet-claude`, tmp-sweeper exemption requirement.
+- tmux.nix content includes a build-time assertion on the 3.4 pin;
+  ttyd.nix content mirrors the container pair (loopback-only, ro
+  auto-start, rw opt-in), with the containerized pair staying
+  authoritative until janet-nix decides otherwise.
