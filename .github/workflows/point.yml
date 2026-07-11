@@ -74,6 +74,9 @@ jobs:
         if: steps.check.outputs.present == 'true'
         with:
           channel: stable
+          # Pin to the version the client is built + verified against (kaisel
+          # 0.22.0 needs Dart 3.10+; this ships Dart 3.12).
+          flutter-version: 3.44.6
       - name: flutter pub get
         if: steps.check.outputs.present == 'true'
         run: flutter pub get
