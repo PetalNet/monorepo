@@ -22,7 +22,10 @@ class AuthController extends AsyncNotifier<Session?> {
 
   @override
   Future<Session?> build() async {
-    ref.onDispose(loggedIn.dispose);
+    // `loggedIn` is a lifetime field captured once by the kaisel guard, so it
+    // must survive any `build()` re-run — do NOT tie its disposal to a single
+    // build. (Provider disposal of an app-lifetime auth controller is a no-op
+    // in practice; the notifier field is cheap.)
     final restored = await ref.read(sessionStoreProvider).read();
     loggedIn.value = restored != null;
     return restored;

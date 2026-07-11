@@ -56,7 +56,7 @@ class _PointAppState extends ConsumerState<PointApp>
       initial: const SplashRoute(),
       guards: [_authGuard(loggedIn)],
       pageWrapper: _pageWrapper,
-      builder: _buildPage,
+      builder: _pageForRoute,
     );
   }
 
@@ -101,7 +101,7 @@ class _PointAppState extends ConsumerState<PointApp>
     };
   }
 
-  Widget _buildPage(BuildContext context, AppRoute route) {
+  Widget _pageForRoute(BuildContext context, AppRoute route) {
     return switch (route) {
       SplashRoute() => const SplashScreen(),
       LoginRoute() => const LoginScreen(),
@@ -146,9 +146,17 @@ class _PointAppState extends ConsumerState<PointApp>
     // MaterialApp. The shell + its per-branch state are never torn down.
     ref.listen(authControllerProvider, (prev, next) {
       next.whenData((session) {
-        _config.router.set(session != null
-            ? const [MainShell()]
-            : const [LoginRoute()]);
+        if (session != null) {
+          // GO-bar #1: actually start the battery engine on sign-in (requests
+          // location permission, then runs the accel wake-gate + adaptive GPS).
+          // Ghost state then drives share/hard-stop. Without this the engine
+          // only ran under the soak harness, never the shipping app.
+          ref.read(locationServiceProvider).start();
+          _config.router.set(const [MainShell()]);
+        } else {
+          ref.read(locationServiceProvider).setSharing(sharing: false);
+          _config.router.set(const [LoginRoute()]);
+        }
       });
     });
 

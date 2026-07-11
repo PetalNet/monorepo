@@ -14,18 +14,31 @@ import 'package:point_app/widgets/person_row.dart';
 /// Map + presence (mockup screen 1): a monochrome basemap with presence markers
 /// (form, not color), a recenter action, a ghost entry, and a draggable sheet
 /// of nearby people. Only the marker layer rebuilds on presence change.
-class MapScreen extends ConsumerWidget {
+class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
 
   static const _fallbackCenter = LatLng(38.627, -90.199);
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends ConsumerState<MapScreen> {
+  final _mapController = MapController();
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final people = ref.watch(peopleControllerProvider).value ?? const <Person>[];
     final located = people.where((p) => p.hasLocation).toList();
     final center = located.isNotEmpty
         ? LatLng(located.first.lat!, located.first.lon!)
-        : _fallbackCenter;
+        : MapScreen._fallbackCenter;
 
     return Scaffold(
       appBar: AppBar(
@@ -45,7 +58,7 @@ class MapScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.my_location),
             tooltip: 'Recenter',
-            onPressed: () {},
+            onPressed: () => _mapController.move(center, 13),
           ),
         ],
       ),
@@ -57,6 +70,7 @@ class MapScreen extends ConsumerWidget {
             child: ColoredBox(color: context.colors.surface),
           ),
           FlutterMap(
+            mapController: _mapController,
             options: MapOptions(
               initialCenter: center,
               interactionOptions: const InteractionOptions(

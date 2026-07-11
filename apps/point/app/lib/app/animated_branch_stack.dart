@@ -76,6 +76,9 @@ class _AnimatedBranchStackState extends State<AnimatedBranchStack>
     final dy = entering ? (1 - t) * 8.0 : 0.0;
     return IgnorePointer(
       ignoring: !isActive,
+      // Bare Opacity (not AnimatedOpacity) is correct here: the value is driven
+      // by our own AnimationController inside an AnimatedBuilder, so an implicit
+      // animation on top would double-animate.
       child: Opacity(
         opacity: opacity.clamp(0, 1),
         child: Transform.translate(

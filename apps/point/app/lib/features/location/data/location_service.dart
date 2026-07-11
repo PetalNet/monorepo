@@ -57,6 +57,7 @@ class LocationService {
   Timer? _stillnessTimer;
   Timer? _heartbeatTimer;
   LocationActivity _appliedActivity = LocationActivity.idle;
+  EnginePlan? _appliedGpsPlan;
   Fix? _lastFix;
 
   static const _motionThreshold = 1.2; // m/s^2 over gravity baseline
@@ -74,9 +75,14 @@ class LocationService {
         perm == LocationPermission.whileInUse;
   }
 
-  /// Start the engine (call once sharing begins).
+  bool _started = false;
+
+  /// Start the engine (idempotent — safe to call on every sign-in). Requests
+  /// location permission once, then runs the plan.
   Future<void> start() async {
+    if (_started) return;
     if (!await ensurePermission()) return;
+    _started = true;
     _apply();
   }
 
@@ -133,10 +139,13 @@ class LocationService {
   }
 
   void _startGps(EnginePlan plan) {
-    // Reconfigure only when the activity (and thus cadence) actually changed —
-    // reopening the stream on every fix would defeat the battery savings.
-    if (_gpsSub != null && _appliedActivity == plan.activity) return;
+    // Reconfigure when the effective GPS plan changed — NOT just the activity.
+    // Foreground↔background keeps the activity `active` but changes the interval
+    // (2s ↔ 12s), so we must reopen the stream on an interval/accuracy change or
+    // the background cadence never takes effect.
+    if (_gpsSub != null && _appliedGpsPlan == plan) return;
     _stopGps();
+    _appliedGpsPlan = plan;
     final settings = _androidSettings(plan);
     _gpsSub = Geolocator.getPositionStream(locationSettings: settings)
         .listen(_onPosition, onError: (Object e) {
@@ -253,6 +262,7 @@ class LocationService {
   void _stopGps() {
     _gpsSub?.cancel();
     _gpsSub = null;
+    _appliedGpsPlan = null;
   }
 
   void _stopAccel() {
