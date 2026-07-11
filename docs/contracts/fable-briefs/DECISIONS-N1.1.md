@@ -83,6 +83,19 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
 - Tests (state.rs): v2 contract shape (no `schema` key, omit-when-absent optionals), v2
   round-trip, legacy v1 parse, null tmux fields parse. `cargo check` clean; 4/4 green.
 
+## Phase 3 — Config + session-state conformance (implemented)
+
+- `config.rs`: `RawConfig.schema_version: Option<u32>` — accepted, ignored (N10). Tests pin
+  the schema semantics *as serde behavior*: example config parses, required set is exactly
+  {creds_path, control_room} (each missing key errors by name), a typo'd key fails with
+  "unknown field", schema_version accepted. In-process JSON-Schema validation deliberately
+  NOT added (brief: conformance = serde behavior tests; no new deps).
+- `state.rs`: `SessionState.schema_version` default 1, always serialized (N9);
+  `SESSION_STATE_SCHEMA_VERSION` const. Tests: legacy no-version/no-bootstrapped file
+  defaults (1 / true), fresh save→disk shape (schema_version written, `sessionId` camelCase,
+  bootstrapped=false)→load round-trip, and a from-disk legacy-file load. Test scratch files
+  live under the OS temp dir, never `~/.claude/shared/` (N8). 11/11 tests green.
+
 ### Plan (phases 2–5)
 1. **P2** `state.rs`: Heartbeat v2 struct (+ `ChannelLock`), `supervisor.rs::write_heartbeat`
    emits v2 (+handle+stub lock); `health.rs` reads v2, tolerates v1 with a note; unit tests

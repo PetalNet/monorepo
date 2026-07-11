@@ -18,6 +18,11 @@ pub const CONFIG_ENV: &str = "AGENT_MANAGER_CONFIG";
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawConfig {
+    /// Contract version (manager-config.schema.json, const 1). Accepted so
+    /// contract-stamped configs load; absence = 1; otherwise unused.
+    #[allow(dead_code)]
+    schema_version: Option<u32>,
+
     // ── required ──────────────────────────────────────────────────────────
     /// Matrix credentials JSON: { homeserver, access_token, user_id, ... }.
     /// (Same file the JS manager read: e.g. ~/.claude/shared/janet-account.json)
@@ -178,5 +183,63 @@ impl Config {
             .map_err(|e| format!("cannot read creds {}: {e}", self.creds_path.display()))?;
         serde_json::from_str(&text)
             .map_err(|e| format!("bad creds {}: {e}", self.creds_path.display()))
+    }
+}
+
+/// Conformance tests against docs/contracts/schemas/manager-config.schema.json:
+/// serde IS the enforcement mechanism for this contract, so the tests pin
+/// serde's behavior to the schema's semantics (required set, deny-unknown,
+/// optional schema_version).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn example_config_deserializes() {
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config.example.json"
+        ))
+        .unwrap();
+        let raw: RawConfig = serde_json::from_str(&text).unwrap();
+        assert_eq!(raw.creds_path, "~/.claude/shared/AGENT-account.json");
+        assert!(raw.control_room.starts_with('!'));
+    }
+
+    #[test]
+    fn required_set_is_exactly_creds_path_and_control_room() {
+        let minimal = r#"{"creds_path": "~/c.json", "control_room": "!room:example.org"}"#;
+        assert!(serde_json::from_str::<RawConfig>(minimal).is_ok());
+
+        let missing_creds = r#"{"control_room": "!room:example.org"}"#;
+        let e = serde_json::from_str::<RawConfig>(missing_creds).unwrap_err();
+        assert!(e.to_string().contains("creds_path"), "{e}");
+
+        let missing_room = r#"{"creds_path": "~/c.json"}"#;
+        let e = serde_json::from_str::<RawConfig>(missing_room).unwrap_err();
+        assert!(e.to_string().contains("control_room"), "{e}");
+    }
+
+    #[test]
+    fn typoed_key_fails_loudly() {
+        // deny_unknown_fields: misconfiguration must be visible at boot.
+        let typo = r#"{
+            "creds_path": "~/c.json",
+            "control_room": "!room:example.org",
+            "hartbeat_path": "~/oops.json"
+        }"#;
+        let e = serde_json::from_str::<RawConfig>(typo).unwrap_err();
+        assert!(e.to_string().contains("unknown field"), "{e}");
+    }
+
+    #[test]
+    fn schema_version_key_is_accepted_and_ignored() {
+        let v = r#"{
+            "schema_version": 1,
+            "creds_path": "~/c.json",
+            "control_room": "!room:example.org"
+        }"#;
+        let raw: RawConfig = serde_json::from_str(v).unwrap();
+        assert_eq!(raw.schema_version, Some(1));
     }
 }

@@ -8,6 +8,14 @@ fn default_true() -> bool {
     true
 }
 
+/// Current session-state contract version
+/// (docs/contracts/schemas/session-state.schema.json).
+pub const SESSION_STATE_SCHEMA_VERSION: u32 = 1;
+
+fn default_session_state_version() -> u32 {
+    SESSION_STATE_SCHEMA_VERSION
+}
+
 /// The session-state file. On-disk key is `sessionId` (camelCase) for
 /// drop-in compatibility with the file the JS manager wrote — a rollback to
 /// manager.js keeps working (it ignores the extra `bootstrapped` key).
@@ -21,6 +29,11 @@ fn default_true() -> bool {
 /// TRUE: that session has been running already, so resume is correct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
+    /// Contract version; absent (legacy manager.js / manager-rs v0 file)
+    /// means 1. Producers must write it (contract rule 0.1) — rollback-safe,
+    /// manager.js ignores extra keys.
+    #[serde(default = "default_session_state_version")]
+    pub schema_version: u32,
     #[serde(rename = "sessionId")]
     pub session_id: String,
     #[serde(default = "default_true")]
@@ -30,6 +43,7 @@ pub struct SessionState {
 impl SessionState {
     pub fn fresh() -> SessionState {
         SessionState {
+            schema_version: SESSION_STATE_SCHEMA_VERSION,
             session_id: uuid::Uuid::new_v4().to_string(),
             bootstrapped: false,
         }
@@ -158,6 +172,56 @@ pub fn epoch_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Scratch path under the OS temp dir — tests must never touch the live
+    /// shared state directory (~/.claude/shared).
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("agent-manager-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    #[test]
+    fn session_state_legacy_file_defaults() {
+        // A manager.js-era file: no schema_version, no bootstrapped.
+        let s: SessionState =
+            serde_json::from_str(r#"{"sessionId": "11111111-2222-4333-8444-555555555555"}"#)
+                .unwrap();
+        assert_eq!(s.schema_version, 1);
+        assert!(s.bootstrapped, "legacy file implies an already-running session => resume");
+    }
+
+    #[test]
+    fn session_state_save_load_round_trip() {
+        let path = scratch("session-state-roundtrip.json");
+        let s = SessionState::fresh();
+        assert!(!s.bootstrapped);
+        s.save(&path).unwrap();
+
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(on_disk["schema_version"], 1, "producers must write the version");
+        assert!(on_disk.get("sessionId").is_some(), "camelCase on disk (manager.js rollback)");
+        assert_eq!(on_disk["bootstrapped"], false);
+
+        let back = SessionState::load_or_create(&path);
+        assert_eq!(back.session_id, s.session_id);
+        assert_eq!(back.schema_version, 1);
+        assert!(!back.bootstrapped);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn session_state_loads_legacy_file_from_disk() {
+        let path = scratch("session-state-legacy.json");
+        std::fs::write(&path, r#"{"sessionId": "11111111-2222-4333-8444-555555555555"}"#)
+            .unwrap();
+        let s = SessionState::load_or_create(&path);
+        assert_eq!(s.session_id, "11111111-2222-4333-8444-555555555555");
+        assert_eq!(s.schema_version, 1);
+        assert!(s.bootstrapped);
+        std::fs::remove_file(&path).ok();
+    }
 
     fn v2_heartbeat() -> Heartbeat {
         Heartbeat {
