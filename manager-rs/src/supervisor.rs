@@ -372,18 +372,7 @@ impl Supervisor {
         let _ = std::fs::remove_file(path);
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { return };
         let Some(raw) = v.get("resetAt") else { return };
-        let parsed: Option<DateTime<Utc>> = match raw {
-            serde_json::Value::String(s) => {
-                let s = s.trim();
-                DateTime::parse_from_rfc3339(s)
-                    .map(|d| d.with_timezone(&Utc))
-                    .ok()
-                    .or_else(|| s.parse::<i64>().ok().and_then(epoch_to_utc))
-            }
-            serde_json::Value::Number(n) => n.as_i64().and_then(epoch_to_utc),
-            _ => None,
-        };
-        match parsed {
+        match parse_reset_at(raw) {
             Some(reset) => {
                 self.rate_limit_reset = Some(reset);
                 self.log(&format!("rate limit from hook — reset at {}", reset.to_rfc3339()));
@@ -611,6 +600,22 @@ fn epoch_to_utc(n: i64) -> Option<DateTime<Utc>> {
     }
 }
 
+/// Pure parse of the hook file's `resetAt` value: RFC 3339 string, epoch
+/// seconds, or epoch milliseconds (as string or number).
+fn parse_reset_at(raw: &serde_json::Value) -> Option<DateTime<Utc>> {
+    match raw {
+        serde_json::Value::String(s) => {
+            let s = s.trim();
+            DateTime::parse_from_rfc3339(s)
+                .map(|d| d.with_timezone(&Utc))
+                .ok()
+                .or_else(|| s.parse::<i64>().ok().and_then(epoch_to_utc))
+        }
+        serde_json::Value::Number(n) => n.as_i64().and_then(epoch_to_utc),
+        _ => None,
+    }
+}
+
 /// JS parity: the async auto-accepter for Claude Code's startup prompts.
 /// 30 attempts, 1s apart; every send targets OUR pane id explicitly.
 fn auto_accept_prompts(tmux: Tmux, pane: String, shutdown: Arc<AtomicBool>) {
@@ -648,5 +653,273 @@ fn auto_accept_prompts(tmux: Tmux, pane: String, shutdown: Arc<AtomicBool>) {
             tmux.send_keys(&pane, &["", "Enter"]);
             channel = true;
         }
+    }
+}
+
+/// State-machine tests. handle_exit / check_rate_limit_hook_file never touch
+/// tmux or the network (Matrix sends land in an mpsc we hold the receiver
+/// for), so a Supervisor built on a throwaway Config exercises the real
+/// transitions. Scratch files live under the OS temp dir — never the live
+/// shared state directory.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use serde_json::json;
+    use std::sync::mpsc::channel;
+
+    fn scratch_dir() -> std::path::PathBuf {
+        let d = std::env::temp_dir()
+            .join(format!("agent-manager-sup-test-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// `tag` keeps per-test files distinct (tests run in parallel).
+    fn test_supervisor(tag: &str) -> (Supervisor, Receiver<String>) {
+        let dir = scratch_dir();
+        let cfg = Config {
+            creds_path: dir.join("creds.json"),
+            control_room: "!test:example.org".into(),
+            agent_name: "janet".into(),
+            work_dir: dir.clone(),
+            state_path: dir.join(format!("{tag}-state.json")),
+            rate_limit_hook_path: dir.join(format!("{tag}-rate-limit.json")),
+            model_override_path: None,
+            exit_code_path: dir.join(format!("{tag}-exit-code")),
+            heartbeat_path: dir.join(format!("{tag}-heartbeat.json")),
+            sessions_dir: dir.join("sessions"),
+            tmux_session: "agent-manager-test-no-such-session".into(),
+            pane_tag: "agent-manager-test".into(),
+            claude_bin: "false".into(),
+            claude_args: vec![],
+            path_prepend: String::new(),
+            kill_agent_on_shutdown: true,
+            tmux_width: 80,
+            tmux_height: 24,
+        };
+        let (matrix_tx, matrix_rx) = channel();
+        let (_cmd_tx, cmd_rx) = channel();
+        let sup = Supervisor::new(
+            cfg,
+            SessionState::fresh(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            matrix_tx,
+            cmd_rx,
+            Arc::new(AtomicU64::new(0)),
+        );
+        (sup, matrix_rx)
+    }
+
+    fn pending_delay(sup: &Supervisor) -> Duration {
+        sup.pending_resume
+            .as_ref()
+            .expect("a resume should be pending")
+            .at
+            .saturating_duration_since(Instant::now())
+    }
+
+    // ── handle_exit: rate-limit path ─────────────────────────────────────
+
+    #[test]
+    fn rate_limit_exit_waits_until_reset_and_clears_crash_counters() {
+        let (mut sup, rx) = test_supervisor("rl-future");
+        sup.state = AgentState::Running;
+        sup.crash_count = 7;
+        sup.crash_backoff = Duration::from_secs(80);
+        sup.rate_limit_reset = Some(Utc::now() + chrono::Duration::minutes(5));
+
+        sup.handle_exit(1);
+
+        assert_eq!(sup.state, AgentState::Waiting);
+        assert_eq!(sup.crash_count, 0, "rate limit is not a crash");
+        assert_eq!(sup.crash_backoff, BACKOFF_START);
+        assert!(sup.rate_limit_reset.is_none(), "reset is consumed");
+        assert_eq!(sup.pending_resume.as_ref().unwrap().kind, ResumeKind::RateLimit);
+        // wait ≈ 5min + 15s grace
+        let d = pending_delay(&sup);
+        assert!(
+            d > Duration::from_secs(300) && d <= Duration::from_secs(316),
+            "unexpected wait {d:?}"
+        );
+        assert!(rx.try_recv().unwrap().contains("rate limited"));
+    }
+
+    #[test]
+    fn rate_limit_reset_in_the_past_still_waits_the_60s_floor() {
+        let (mut sup, _rx) = test_supervisor("rl-past");
+        sup.state = AgentState::Running;
+        sup.rate_limit_reset = Some(Utc::now() - chrono::Duration::hours(1));
+
+        sup.handle_exit(1);
+
+        assert_eq!(sup.state, AgentState::Waiting);
+        // wait = max(past, 60s) + 15s grace
+        let d = pending_delay(&sup);
+        assert!(
+            d > Duration::from_secs(70) && d <= Duration::from_secs(76),
+            "unexpected wait {d:?}"
+        );
+    }
+
+    // ── handle_exit: crash path ──────────────────────────────────────────
+
+    #[test]
+    fn quick_crash_backoff_doubles_caps_and_stops_at_max_crashes() {
+        let (mut sup, rx) = test_supervisor("crash-loop");
+        sup.state = AgentState::Running;
+
+        // Expected retry delay per consecutive quick crash: doubling from 5s,
+        // capped at 30min. (MAX_CRASHES is 10 — this table is all 10.)
+        let expected_delays: [u64; 10] = [5, 10, 20, 40, 80, 160, 320, 640, 1280, 1800];
+        for (i, want) in expected_delays.iter().enumerate() {
+            sup.started_at = Some(Instant::now()); // uptime ~0 => quick crash
+            sup.handle_exit(1);
+            assert_eq!(sup.crash_count, i as u32 + 1);
+            assert_eq!(sup.state, AgentState::Crashed);
+            let d = pending_delay(&sup);
+            let want = Duration::from_secs(*want);
+            assert!(
+                d <= want && d > want - Duration::from_secs(1),
+                "crash #{}: delay {d:?}, want ~{want:?}",
+                i + 1
+            );
+        }
+
+        // Crash 11 exceeds MAX_CRASHES: give up, wait for a human 'start'.
+        sup.started_at = Some(Instant::now());
+        sup.handle_exit(1);
+        assert_eq!(sup.state, AgentState::Stopped);
+        assert_eq!(sup.crash_count, MAX_CRASHES + 1);
+
+        let msgs: Vec<String> = rx.try_iter().collect();
+        assert_eq!(msgs.len(), 11);
+        assert!(msgs[..10].iter().all(|m| m.contains("crashed")));
+        assert!(msgs[10].contains("stopped after 11 crashes"));
+    }
+
+    #[test]
+    fn long_uptime_resets_crash_counter_and_backoff() {
+        let (mut sup, _rx) = test_supervisor("crash-longup");
+        sup.state = AgentState::Running;
+        sup.crash_count = 5;
+        sup.crash_backoff = Duration::from_secs(80);
+        // Uptime > QUICK_CRASH (60s): the session was healthy, start over.
+        sup.started_at = Instant::now().checked_sub(Duration::from_secs(120));
+        assert!(sup.started_at.is_some());
+
+        sup.handle_exit(1);
+
+        assert_eq!(sup.crash_count, 1, "counter restarts after a long-lived session");
+        assert_eq!(sup.state, AgentState::Crashed);
+        let d = pending_delay(&sup);
+        assert!(d <= BACKOFF_START, "backoff restarts at {BACKOFF_START:?}, got {d:?}");
+    }
+
+    #[test]
+    fn spawn_failure_counts_as_quick_crash_even_after_long_uptime() {
+        // start_claude clears started_at before routing a spawn failure into
+        // handle_exit — uptime defaults to 0, so a permanently-broken tmux
+        // cannot keep resetting the counter and hot-loop forever.
+        let (mut sup, _rx) = test_supervisor("crash-spawnfail");
+        sup.state = AgentState::Starting;
+        sup.crash_count = 5;
+        sup.started_at = None;
+
+        sup.handle_exit(1);
+
+        assert_eq!(sup.crash_count, 6, "no counter reset without a measured uptime");
+    }
+
+    #[test]
+    fn stopped_state_swallows_exit_and_clears_leaked_rate_limit_reset() {
+        let (mut sup, rx) = test_supervisor("stopped");
+        sup.state = AgentState::Stopped;
+        sup.crash_count = 3;
+        sup.rate_limit_reset = Some(Utc::now() + chrono::Duration::minutes(5));
+
+        sup.handle_exit(0);
+
+        assert_eq!(sup.state, AgentState::Stopped, "intentional stop stays stopped");
+        assert!(sup.pending_resume.is_none(), "no resume is scheduled");
+        assert!(
+            sup.rate_limit_reset.is_none(),
+            "a reset dropped during the stop must not mis-schedule the next recovery"
+        );
+        assert_eq!(sup.crash_count, 3, "untouched");
+        assert!(rx.try_recv().is_err(), "no Matrix chatter");
+    }
+
+    // ── rate-limit hook file ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_reset_at_accepts_all_documented_forms() {
+        let rfc = Utc.with_ymd_and_hms(2026, 7, 10, 12, 0, 0).unwrap();
+        let table: &[(serde_json::Value, Option<DateTime<Utc>>)] = &[
+            // RFC 3339, UTC and offset forms
+            (json!("2026-07-10T12:00:00Z"), Some(rfc)),
+            (json!("2026-07-10T14:00:00+02:00"), Some(rfc)),
+            (json!("  2026-07-10T12:00:00Z  "), Some(rfc)), // trimmed
+            // epoch seconds / milliseconds, number and string
+            (json!(1_750_000_000), DateTime::from_timestamp(1_750_000_000, 0)),
+            (json!("1750000000"), DateTime::from_timestamp(1_750_000_000, 0)),
+            (json!(1_750_000_000_123_i64), DateTime::from_timestamp_millis(1_750_000_000_123)),
+            (json!("1750000000123"), DateTime::from_timestamp_millis(1_750_000_000_123)),
+            // millis-vs-secs heuristic boundary (10^12)
+            (json!(999_999_999_999_i64), DateTime::from_timestamp(999_999_999_999, 0)),
+            (json!(1_000_000_000_000_i64), DateTime::from_timestamp_millis(1_000_000_000_000)),
+            // garbage
+            (json!("soon"), None),
+            (json!("12.5"), None),
+            (json!(12.5), None), // non-integer number
+            (json!(true), None),
+            (json!(null), None),
+            (json!(["2026-07-10T12:00:00Z"]), None),
+        ];
+        for (raw, want) in table {
+            assert_eq!(&parse_reset_at(raw), want, "input: {raw}");
+        }
+    }
+
+    #[test]
+    fn hook_file_is_consumed_and_sets_the_reset() {
+        let (mut sup, _rx) = test_supervisor("hook-ok");
+        let path = sup.cfg.rate_limit_hook_path.clone();
+        std::fs::write(&path, r#"{"resetAt": "2026-07-10T12:00:00Z"}"#).unwrap();
+
+        sup.check_rate_limit_hook_file();
+
+        assert!(!path.exists(), "hook file is consumed (deleted) on read");
+        assert_eq!(
+            sup.rate_limit_reset,
+            Some(Utc.with_ymd_and_hms(2026, 7, 10, 12, 0, 0).unwrap())
+        );
+    }
+
+    #[test]
+    fn hook_file_garbage_is_consumed_but_sets_nothing() {
+        // Unparseable resetAt => WARN and treat the exit as a plain crash.
+        for (tag, contents) in [
+            ("hook-notjson", "not json at all"),
+            ("hook-badvalue", r#"{"resetAt": "tomorrowish"}"#),
+            ("hook-nokey", r#"{"reset": "2026-07-10T12:00:00Z"}"#),
+        ] {
+            let (mut sup, _rx) = test_supervisor(tag);
+            let path = sup.cfg.rate_limit_hook_path.clone();
+            std::fs::write(&path, contents).unwrap();
+
+            sup.check_rate_limit_hook_file();
+
+            assert!(!path.exists(), "{tag}: file still consumed");
+            assert!(sup.rate_limit_reset.is_none(), "{tag}: no reset set");
+        }
+    }
+
+    #[test]
+    fn missing_hook_file_is_a_noop() {
+        let (mut sup, _rx) = test_supervisor("hook-missing");
+        sup.check_rate_limit_hook_file();
+        assert!(sup.rate_limit_reset.is_none());
     }
 }

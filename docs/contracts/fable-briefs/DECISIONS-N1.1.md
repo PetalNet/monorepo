@@ -96,6 +96,25 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
   bootstrapped=false)→load round-trip, and a from-disk legacy-file load. Test scratch files
   live under the OS temp dir, never `~/.claude/shared/` (N8). 11/11 tests green.
 
+## Phase 4 — State-machine tests (implemented)
+
+- Refactor stayed at the N7 minimum: `parse_reset_at(&Value)` extracted from
+  `check_rate_limit_hook_file`; nothing else moved. No supervisor redesign, no trait mocks —
+  `handle_exit`/`check_rate_limit_hook_file` already touch neither tmux nor the network, so
+  the tests build a real Supervisor on a throwaway Config (all-pub fields) with the Matrix
+  mpsc receiver held for message asserts (same-module `#[cfg(test)]` gives field access).
+- Coverage: rate-limit exit (wait ≈ reset+15s grace, counters cleared, RateLimit resume,
+  Matrix message), past-reset 60s floor, 10-crash doubling table [5,10,…,1280,1800] with
+  cap + crash-11 MAX_CRASHES stop + message transcript, long-uptime counter reset,
+  spawn-failure (started_at=None) counting as quick crash, Stopped-state early-return
+  clearing a leaked rate-limit reset, `parse_reset_at` 15-case table (RFC3339 ± offset,
+  secs/millis × string/number, the 10^12 heuristic boundary, garbage), hook-file
+  consume-on-read semantics (valid, garbage×3, missing).
+- Timing asserts use ±1s windows on `pending_resume.at` (via `saturating_duration_since`)
+  rather than clock mocks — the delays under test are ≥5s, so the windows are safe on any
+  loaded box. Uptime back-dating via `Instant::checked_sub` (no clock refactor needed).
+- 21/21 tests green.
+
 ### Plan (phases 2–5)
 1. **P2** `state.rs`: Heartbeat v2 struct (+ `ChannelLock`), `supervisor.rs::write_heartbeat`
    emits v2 (+handle+stub lock); `health.rs` reads v2, tolerates v1 with a note; unit tests
