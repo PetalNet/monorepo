@@ -135,6 +135,93 @@ class PointApi {
     return GhostState.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
+  // --- MLS delivery (GO-bar #4: reliable sharing, one-time KeyPackages) ------
+
+  /// Upload a pool of one-time KeyPackages (base64) + optionally the last-resort
+  /// one. Uploading a POOL (not a single package) is the client half of the
+  /// fix for the legacy single-KeyPackage silent-member-drop.
+  Future<void> uploadKeyPackages(
+    String token,
+    List<String> keyPackages, {
+    String? lastResort,
+  }) async {
+    final r = await _client.post(
+      _u('/api/mls/keys'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'key_packages': keyPackages,
+        if (lastResort != null) 'last_resort': lastResort,
+      }),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  /// Consume ONE of a target's KeyPackages (POST is non-idempotent by design).
+  /// Returns the base64 package + whether it was the last-resort fallback.
+  Future<({String keyPackage, bool lastResort})> claimKeyPackage(
+    String token,
+    String targetUserId,
+  ) async {
+    final r = await _client.post(
+      _u('/api/mls/keys/$targetUserId/claim'),
+      headers: _headers(token),
+      body: '{}',
+    );
+    if (r.statusCode != 200) _fail(r);
+    final v = jsonDecode(r.body) as Map<String, dynamic>;
+    return (
+      keyPackage: v['key_package'] as String,
+      lastResort: v['last_resort'] as bool? ?? false,
+    );
+  }
+
+  /// Non-consuming probe of the local pool (for replenish logic).
+  Future<({int available, bool hasLastResort})> keyCount(String token) async {
+    final r =
+        await _client.get(_u('/api/mls/keys/count'), headers: _headers(token));
+    if (r.statusCode != 200) _fail(r);
+    final v = jsonDecode(r.body) as Map<String, dynamic>;
+    return (
+      available: v['available'] as int? ?? 0,
+      hasLastResort: v['has_last_resort'] as bool? ?? false,
+    );
+  }
+
+  Future<void> sendWelcome(
+    String token, {
+    required String recipientId,
+    required String groupId,
+    required String payload,
+  }) async {
+    final r = await _client.post(
+      _u('/api/mls/welcome'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'recipient_id': recipientId,
+        'group_id': groupId,
+        'payload': payload,
+      }),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  /// Pending welcome/commit messages for the signed-in user.
+  Future<List<Map<String, dynamic>>> mlsMessages(String token) async {
+    final r =
+        await _client.get(_u('/api/mls/messages'), headers: _headers(token));
+    if (r.statusCode != 200) _fail(r);
+    return (jsonDecode(r.body) as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<void> ackMlsMessage(String token, String id) async {
+    final r = await _client.post(
+      _u('/api/mls/messages/$id/ack'),
+      headers: _headers(token),
+      body: '{}',
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
   void close() => _client.close();
 }
 
