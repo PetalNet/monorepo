@@ -9,6 +9,7 @@ pub mod ghost;
 pub mod groups;
 pub mod history;
 pub mod invites;
+pub mod mls;
 pub mod oidc;
 pub mod rate_limit;
 pub mod shares;
@@ -17,6 +18,8 @@ pub mod shares;
 mod tests;
 #[cfg(test)]
 mod tests_sharing;
+#[cfg(test)]
+mod tests_ws_mls;
 
 use std::sync::Arc;
 
@@ -93,7 +96,17 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ghost/targets", put(ghost::set_ghost_target))
         // history
         .route("/api/history", delete(history::delete_my_history))
-        .route("/api/history/{user_id}", get(history::get_history));
+        .route("/api/history/{user_id}", get(history::get_history))
+        // MLS delivery service (ciphertext-only)
+        .route("/api/mls/keys", post(mls::upload_keys))
+        .route("/api/mls/keys/count", get(mls::key_count))
+        .route("/api/mls/keys/{user_id}", get(mls::fetch_key))
+        .route("/api/mls/welcome", post(mls::send_welcome))
+        .route("/api/mls/commit", post(mls::send_commit))
+        .route("/api/mls/messages", get(mls::pending_messages))
+        .route("/api/mls/messages/{id}/ack", post(mls::ack_message))
+        // live location stream (auth is the first WS message, D-011)
+        .route("/ws", get(crate::ws::ws_handler));
 
     // OIDC routes exist only when configured (decision 17): otherwise 404.
     if state.config.oidc.is_some() {

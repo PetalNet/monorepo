@@ -10,7 +10,5 @@ use crate::ws::hub::Hub;
 pub struct AppState {
     pub pool: PgPool,
     pub config: Arc<Config>,
-    // Read by the WS/location wave (M0 wave B).
-    #[allow(dead_code)]
     pub hub: Arc<Hub>,
 }

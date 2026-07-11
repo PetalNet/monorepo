@@ -4,8 +4,6 @@
 
 mod api;
 mod auth;
-// The authz gate is consumed by the WS/location wave (M0 wave B).
-#[allow(dead_code)]
 mod authz;
 mod config;
 mod db;
