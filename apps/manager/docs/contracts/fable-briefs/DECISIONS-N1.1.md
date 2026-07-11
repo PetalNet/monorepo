@@ -189,3 +189,21 @@ final summary + open questions, stop.
    Commit.
 4. **P5** `CARGO_BUILD_JOBS=2 nice -n19 cargo check` / `cargo test` / one
    `cargo build --release`; final summary + open questions here. Commit.
+
+## M1+M2 — Monorepo import + cleanup (implemented)
+
+- Import per precedent: relocate commit in a source clone (`git mv` ALL contents incl. the
+  root `.gitignore` — first merge attempt conflicted on it, aborted, amended, re-merged),
+  `merge --allow-unrelated-histories` into worktree branch `migrate-manager` (from `main`),
+  flatten `manager-rs/*` → `apps/manager/`.
+- Cleanup commits in journal order: cruft drop (package.json — MANDATORY, `apps/*` pnpm
+  glob — plus superseded manager.js; both retrievable from imported history), toolchain pin
+  (1.96), `vp fmt` reformat (own commit + blame-ignore; needed Node 26 via nvm — the repo
+  gates on `^26`, default node is 25), `cargo fmt` reformat (own commit + blame-ignore —
+  the source was never rustfmt-enforced; 100% mechanical).
+- Secrets audit across ALL source blobs (token/key patterns): clean.
+- `cargo clippy --all-targets -- -D warnings`: clean on first run — no lint-fix commit
+  needed. rustup fetched 1.96.1 components for the pin (rust-lang CDN resolves; only
+  github.com doesn't).
+- N21: from here decisions log in THIS copy (apps/manager/…/DECISIONS-N1.1.md) — it is the
+  migrated artifact; janet-manager gets a final pointer commit at the end.
