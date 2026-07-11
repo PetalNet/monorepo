@@ -235,3 +235,22 @@ ids `%N` can't contain spaces; split on first space; id must start with
 (F1) also re-verified OK on 3.4.
 
 Second container run: full gate green (transcript summary below).
+
+### M5 transcript summary (final green run)
+
+- Image `rust:1.96-slim` (rustc 1.96.1 after in-container rustup sync of
+  the 1.96 pin), tmux **3.5a** (apt, Debian trixie), `--cpus=2`,
+  read-only source mount.
+- fmt --check: OK. clippy --all-targets --locked -D warnings: OK.
+- `cargo test --locked`: 21/21 unit (10 IT correctly ignored without the
+  env gate).
+- `N12_TMUX_IT=1 cargo test --locked --test tmux_it -- --ignored`:
+  **10/10** on the container's own tmux server (fully isolated from the
+  host).
+- `cargo build --locked --release`: OK (28.7s).
+- Also ran under `--test-threads=1` during F2 diagnosis (same result
+  pattern — F2 was not a race).
+- Cross-version matrix: 3.4 via `alpine:3.20` (CLI-level: space format +
+  `=name:` verified), 3.5a full suite, 3.6a full suite on host.
+- §0: host load gauged before each container run (≤1.5 on 8 cores);
+  builds capped at 2 jobs / 2 cpus, nice -n19 on host runs.
