@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-point}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-point}
+      POSTGRES_DB: ${POSTGRES_DB:-point}
+    volumes:
+      - point-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-point}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  point-server:
+    # Build context is the repo root so the Cargo workspace (root Cargo.toml +
+    # core/ + server/) is available; the Dockerfile lives under server/.
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://point:point@postgres:5432/point}
+      JWT_SECRET: ${JWT_SECRET:?set a 32+ char random JWT_SECRET in .env}
+      DOMAIN: ${DOMAIN:?set DOMAIN to this server's public hostname in .env}
+      OPEN_REGISTRATION: ${OPEN_REGISTRATION:-false}
+      GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
+      LISTEN: ${LISTEN:-0.0.0.0:8330}
+    # Plain HTTP — Traefik (or your reverse proxy) terminates TLS. No in-binary TLS.
+    expose:
+      - "8330"
+    ports:
+      - "8330:8330"
+    restart: unless-stopped
+
+volumes:
+  point-pgdata:

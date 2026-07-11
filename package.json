@@ -51,7 +51,8 @@
 	},
 	"typesync": {
 		"ignoreProjects": [
-			"apps/manager"
+			"apps/manager",
+			"apps/point"
 		]
 	}
 }

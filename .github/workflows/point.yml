@@ -1,0 +1,89 @@
+name: point
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/point/**", ".github/workflows/point.yml"]
+  pull_request:
+    paths: ["apps/point/**", ".github/workflows/point.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: rust (fmt, clippy, build, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/point
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: point
+          POSTGRES_PASSWORD: point
+          POSTGRES_DB: point_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U point"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://point:point@localhost:5432/point_test
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: "1.96"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: apps/point
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo build --workspace --locked
+      - run: cargo test --workspace --locked
+
+  flutter:
+    name: flutter (analyze, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Check for Flutter project
+        id: check
+        run: |
+          if [ -f apps/point/app/pubspec.yaml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "apps/point/app has no Flutter project yet (lands in M1) — skipping honestly."
+          fi
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        if: steps.check.outputs.present == 'true'
+        with:
+          channel: stable
+      - name: flutter pub get
+        if: steps.check.outputs.present == 'true'
+        run: flutter pub get
+        working-directory: apps/point/app
+      - name: flutter analyze
+        if: steps.check.outputs.present == 'true'
+        run: flutter analyze
+        working-directory: apps/point/app
+      - name: flutter test
+        if: steps.check.outputs.present == 'true'
+        run: |
+          if [ -d test ]; then flutter test; else echo "no tests yet"; fi
+        working-directory: apps/point/app

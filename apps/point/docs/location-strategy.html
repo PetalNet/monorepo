@@ -1,0 +1,1106 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Point — Location Strategy v3</title>
+		<style>
+			@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+			}
+			body {
+				background: #0a0a0f;
+				color: #e0e0e8;
+				font-family: "Inter", system-ui, sans-serif;
+				padding: 2rem;
+				max-width: 1500px;
+				margin: 0 auto;
+			}
+			h1 {
+				font-size: 2.2rem;
+				font-weight: 900;
+				color: #fff;
+				margin-bottom: 0.3rem;
+			}
+			.subtitle {
+				color: #888;
+				font-size: 0.85rem;
+				margin-bottom: 2.5rem;
+			}
+			h2 {
+				font-size: 1.3rem;
+				font-weight: 800;
+				color: #3f51ff;
+				margin: 3rem 0 1rem;
+			}
+			h3 {
+				font-size: 0.85rem;
+				font-weight: 700;
+				color: #555;
+				margin: 2rem 0 0.6rem;
+				text-transform: uppercase;
+				letter-spacing: 0.1em;
+			}
+
+			.hero {
+				background: linear-gradient(135deg, #0f0f1a 0%, #12121f 50%, #0a0a15 100%);
+				border: 1px solid #3f51ff20;
+				border-radius: 20px;
+				padding: 2rem;
+				margin-bottom: 2rem;
+			}
+			.hero-stats {
+				display: grid;
+				grid-template-columns: repeat(4, 1fr);
+				gap: 1rem;
+				margin-top: 1.5rem;
+			}
+			.hero-stat {
+				text-align: center;
+				padding: 1rem;
+				background: #0a0a1240;
+				border-radius: 12px;
+				border: 1px solid #1a1a2840;
+			}
+			.hero-stat .val {
+				font-size: 1.8rem;
+				font-weight: 900;
+				color: #3f51ff;
+			}
+			.hero-stat .label {
+				font-size: 0.65rem;
+				color: #666;
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+				margin-top: 0.3rem;
+			}
+			.hero-stat.green .val {
+				color: #00ff88;
+			}
+			.hero-stat.gold .val {
+				color: #ffb700;
+			}
+
+			.principle {
+				background: #12121a;
+				border: 1px solid #1e1e2e;
+				border-radius: 14px;
+				padding: 1.2rem 1.4rem;
+				margin-bottom: 0.6rem;
+			}
+			.principle strong {
+				color: #fff;
+			}
+			.principle p {
+				color: #999;
+				font-size: 0.8rem;
+				line-height: 1.6;
+				margin-top: 0.3rem;
+			}
+
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				font-size: 0.72rem;
+				margin-bottom: 1.5rem;
+			}
+			th,
+			td {
+				padding: 0.55rem 0.7rem;
+				text-align: left;
+				border-bottom: 1px solid #1a1a28;
+			}
+			th {
+				background: #12121a;
+				color: #555;
+				font-weight: 700;
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+				font-size: 0.6rem;
+			}
+			td {
+				color: #ccc;
+			}
+			tr:hover td {
+				background: #13131d;
+			}
+
+			.off {
+				color: #444;
+				font-weight: 700;
+			}
+			.sleep {
+				color: #555;
+				font-weight: 600;
+			}
+			.lazy {
+				color: #ffb700;
+				font-weight: 600;
+			}
+			.active {
+				color: #00d4ff;
+				font-weight: 600;
+			}
+			.live {
+				color: #00ff88;
+				font-weight: 700;
+			}
+
+			.tag {
+				display: inline-block;
+				font-size: 0.5rem;
+				font-weight: 800;
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+				padding: 0.1rem 0.35rem;
+				border-radius: 3px;
+				vertical-align: middle;
+				margin-left: 0.3rem;
+			}
+			.tag-new {
+				background: #3f51ff20;
+				color: #7b8bff;
+			}
+			.tag-research {
+				background: #00ff8815;
+				color: #00ff88;
+			}
+
+			.layer {
+				background: #12121a;
+				border: 1px solid #1e1e2e;
+				border-radius: 16px;
+				padding: 1.5rem;
+				margin: 1rem 0;
+			}
+			.layer h4 {
+				font-weight: 800;
+				font-size: 0.95rem;
+				margin-bottom: 0.8rem;
+			}
+			.layer-row {
+				display: flex;
+				gap: 0.8rem;
+				align-items: flex-start;
+				padding: 0.6rem 0;
+				border-bottom: 1px solid #1a1a28;
+			}
+			.layer-row:last-child {
+				border-bottom: none;
+			}
+			.layer-num {
+				font-weight: 900;
+				color: #3f51ff;
+				font-size: 0.75rem;
+				flex-shrink: 0;
+				width: 20px;
+			}
+			.layer-text {
+				font-size: 0.78rem;
+				color: #bbb;
+				line-height: 1.5;
+			}
+			.layer-text strong {
+				color: #fff;
+			}
+			.layer-text code {
+				background: #1a1a2e;
+				padding: 0.1rem 0.35rem;
+				border-radius: 4px;
+				font-size: 0.7rem;
+				color: #7b8bff;
+			}
+
+			.compare {
+				display: grid;
+				grid-template-columns: 1fr 1fr 1fr;
+				gap: 1rem;
+				margin: 1rem 0;
+			}
+			.compare-card {
+				background: #12121a;
+				border: 1px solid #1e1e2e;
+				border-radius: 14px;
+				padding: 1rem 1.2rem;
+			}
+			.compare-card h4 {
+				font-size: 0.85rem;
+				font-weight: 800;
+				margin-bottom: 0.6rem;
+			}
+			.compare-card.point {
+				border-color: #3f51ff30;
+			}
+			.compare-card.point h4 {
+				color: #3f51ff;
+			}
+			.compare-card.l360 h4 {
+				color: #7c3aed;
+			}
+			.compare-card.find h4 {
+				color: #34c759;
+			}
+			.cr {
+				display: flex;
+				justify-content: space-between;
+				padding: 0.25rem 0;
+				font-size: 0.7rem;
+				border-bottom: 1px solid #1a1a2810;
+			}
+			.cr:last-child {
+				border-bottom: none;
+			}
+			.cr-l {
+				color: #888;
+			}
+			.cr-v {
+				font-weight: 700;
+			}
+
+			.callout {
+				border-radius: 10px;
+				padding: 0.9rem 1rem;
+				margin: 0.8rem 0;
+				font-size: 0.75rem;
+				line-height: 1.5;
+			}
+			.callout strong {
+				color: #fff;
+			}
+			.callout-blue {
+				background: #3f51ff08;
+				border: 1px solid #3f51ff20;
+				color: #7b8bff;
+			}
+			.callout-green {
+				background: #00ff8808;
+				border: 1px solid #00ff8820;
+				color: #00ff88;
+			}
+			.callout-gold {
+				background: #ffb70008;
+				border: 1px solid #ffb70020;
+				color: #ffb700;
+			}
+
+			.pipeline {
+				display: grid;
+				grid-template-columns: repeat(5, 1fr);
+				gap: 0.5rem;
+				margin: 1rem 0;
+			}
+			.pipe-step {
+				background: #12121a;
+				border: 1px solid #1e1e2e;
+				border-radius: 12px;
+				padding: 0.8rem;
+				text-align: center;
+			}
+			.pipe-step .num {
+				font-size: 1.2rem;
+				font-weight: 900;
+				color: #3f51ff;
+			}
+			.pipe-step .name {
+				font-size: 0.65rem;
+				font-weight: 700;
+				color: #fff;
+				margin: 0.3rem 0;
+			}
+			.pipe-step .desc {
+				font-size: 0.55rem;
+				color: #888;
+				line-height: 1.3;
+			}
+
+			.footer {
+				color: #333;
+				font-size: 0.6rem;
+				text-align: center;
+				margin-top: 3rem;
+				padding-top: 1rem;
+				border-top: 1px solid #1a1a28;
+			}
+
+			@media (max-width: 900px) {
+				.hero-stats {
+					grid-template-columns: repeat(2, 1fr);
+				}
+				.compare {
+					grid-template-columns: 1fr;
+				}
+				.pipeline {
+					grid-template-columns: 1fr;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Point Location Engine v3</h1>
+		<p class="subtitle">
+			Research-backed. Sensor-fused. Learns your places. Beats Life360 on battery AND accuracy.
+		</p>
+
+		<div class="hero">
+			<p style="color: #aaa; font-size: 0.85rem; line-height: 1.6">
+				Five layers of intelligence deliver sub-3-second updates in the foreground while using less
+				than half of Life360's battery. The system learns your daily patterns, auto-creates hidden
+				zones, fuses GPS with low-power sensors, and only wakes expensive hardware when something
+				actually needs it.
+			</p>
+			<div class="hero-stats">
+				<div class="hero-stat">
+					<div class="val">2s</div>
+					<div class="label">Foreground GPS</div>
+				</div>
+				<div class="hero-stat green">
+					<div class="val">&lt;5%</div>
+					<div class="label">Battery / Day</div>
+				</div>
+				<div class="hero-stat gold">
+					<div class="val">86%</div>
+					<div class="label">Fewer GPS Wakes</div>
+				</div>
+				<div class="hero-stat">
+					<div class="val">0</div>
+					<div class="label">GPS When Still</div>
+				</div>
+			</div>
+		</div>
+
+		<h2>The Five Layers</h2>
+
+		<div class="pipeline">
+			<div class="pipe-step">
+				<div class="num">1</div>
+				<div class="name">Sensor Gate</div>
+				<div class="desc">Accelerometer decides if GPS turns on. 5mW vs 300mW.</div>
+			</div>
+			<div class="pipe-step">
+				<div class="num">2</div>
+				<div class="name">Zone Awareness</div>
+				<div class="desc">Auto-learned places suppress GPS when you're somewhere known.</div>
+			</div>
+			<div class="pipe-step">
+				<div class="num">3</div>
+				<div class="name">Activity Adaptive</div>
+				<div class="desc">Walking, driving, stationary each get tuned cadence.</div>
+			</div>
+			<div class="pipe-step">
+				<div class="num">4</div>
+				<div class="name">Demand Driven</div>
+				<div class="desc">GPS fires only when someone actually looks at you.</div>
+			</div>
+			<div class="pipe-step">
+				<div class="num">5</div>
+				<div class="name">Batched Relay</div>
+				<div class="desc">Fixes accumulated locally, flushed in compressed bursts.</div>
+			</div>
+		</div>
+
+		<h2>Layer 1: Sensor Gate <span class="tag tag-research">Research-Backed</span></h2>
+
+		<div class="layer">
+			<h4>The accelerometer is 60x cheaper than GPS. Use it as a gatekeeper.</h4>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>GPS hardware stays OFF by default.</strong> The accelerometer (5-10mW) watches for
+					motion. Only when it detects significant movement does GPS (200-300mW) power on. People
+					are stationary 80%+ of the day.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Android:</strong> <code>TYPE_SIGNIFICANT_MOTION</code> sensor —
+					hardware-accelerated, fires once on movement, costs zero battery. Same mechanism Google
+					Maps uses.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>iOS:</strong> <code>CMMotionActivityManager</code> for activity classification at
+					near-zero cost.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Hysteresis:</strong> 10s sustained movement before waking GPS. 30s no movement
+					before killing GPS. Prevents thrashing.
+				</div>
+			</div>
+		</div>
+
+		<div class="callout callout-green">
+			<strong>Why:</strong> A GPS fix costs ~300mJ. An accelerometer read costs ~5mJ. By gating GPS,
+			we eliminate 80%+ of wasted fixes. Life360 polls GPS on a fixed timer regardless.
+		</div>
+
+		<h2>Layer 2: Auto Hidden Zones <span class="tag tag-new">NEW</span></h2>
+
+		<div class="layer">
+			<h4 style="color: #ffb700">
+				Learn where users spend time. When they're there, GPS is unnecessary.
+			</h4>
+			<div class="layer-row">
+				<div class="layer-num">1</div>
+				<div class="layer-text">
+					<strong>Detect frequent locations.</strong> 3+ visits of 30+ min at same spot (100m) =
+					learned zone. Typical: home, work, school, gym.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">2</div>
+				<div class="layer-text">
+					<strong>Inside a zone: GPS off.</strong> Report zone center. WiFi/cell fingerprint
+					confirms presence (100x less than GPS).
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">3</div>
+				<div class="layer-text">
+					<strong>Exit detection:</strong> WiFi BSSID changes + accelerometer = you left. GPS wakes
+					immediately. OS geofence registered for reliability.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">4</div>
+				<div class="layer-text">
+					<strong>Privacy:</strong> Zones stored <strong>only on-device</strong>. Never uploaded.
+					Never shared. Not in MLS payload. Pure battery optimization.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">5</div>
+				<div class="layer-text">
+					<strong>Refinement:</strong> Radius shrinks with confidence. 30 days unvisited = pruned.
+					User can view/delete in settings.
+				</div>
+			</div>
+		</div>
+
+		<div class="callout callout-gold">
+			<strong>Impact:</strong> Average person spends 80% of their day in 2-3 locations. With
+			auto-zones, GPS is off 80% of the day. Single biggest battery win.
+		</div>
+
+		<h2>Layer 3: Activity-Adaptive Tracking</h2>
+
+		<h3>Foreground (App Open)</h3>
+		<table>
+			<thead>
+				<tr>
+					<th>Activity</th>
+					<th>GPS</th>
+					<th>Dist Filter</th>
+					<th>Relay</th>
+					<th>Notes</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Driving (&gt;5 m/s)</td>
+					<td class="live">2s</td>
+					<td>0m</td>
+					<td class="active">5s</td>
+					<td>Full speed. Every fix. Butter-smooth.</td>
+				</tr>
+				<tr>
+					<td>Walking (1-5 m/s)</td>
+					<td class="live">2s</td>
+					<td>0m</td>
+					<td class="active">3s</td>
+					<td>Same GPS. Faster relay for detail.</td>
+				</tr>
+				<tr>
+					<td>Still (in zone)</td>
+					<td class="off">OFF</td>
+					<td>—</td>
+					<td class="off">—</td>
+					<td>Zone covers. WiFi/cell confirms.</td>
+				</tr>
+				<tr>
+					<td>Still (no zone)</td>
+					<td class="off">OFF after 2min</td>
+					<td>—</td>
+					<td class="off">last fix held</td>
+					<td>Ramp: 2s→10s→off. Server has pos.</td>
+				</tr>
+				<tr>
+					<td>Viewing self on map</td>
+					<td class="live">2s</td>
+					<td>0m</td>
+					<td class="active">5s</td>
+					<td>60fps interpolated rendering.</td>
+				</tr>
+				<tr>
+					<td>Following someone</td>
+					<td class="active">5s (own)</td>
+					<td>2m</td>
+					<td class="active">5s</td>
+					<td>Nudge them. Own tracking relaxed.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h3>Background (App Not Visible)</h3>
+		<table>
+			<thead>
+				<tr>
+					<th>Activity</th>
+					<th>GPS</th>
+					<th>Dist Filter</th>
+					<th>Relay</th>
+					<th>Notes</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Driving</td>
+					<td class="active">10s</td>
+					<td>25m</td>
+					<td class="lazy">Batched every 30s</td>
+					<td>Accumulate locally, single burst.</td>
+				</tr>
+				<tr>
+					<td>Walking</td>
+					<td class="lazy">15s</td>
+					<td>10m</td>
+					<td class="lazy">Batched every 30s</td>
+					<td>10m filter skips pocket jitter.</td>
+				</tr>
+				<tr>
+					<td>Still (in zone)</td>
+					<td class="off">OFF</td>
+					<td>—</td>
+					<td class="off">—</td>
+					<td>Zero battery. WiFi confirms.</td>
+				</tr>
+				<tr>
+					<td>Still (no zone)</td>
+					<td class="off">OFF after 30s</td>
+					<td>—</td>
+					<td class="off">—</td>
+					<td>Fast kill. Accelerometer watches.</td>
+				</tr>
+				<tr>
+					<td>Sleeping (extended)</td>
+					<td class="off">OFF</td>
+					<td>—</td>
+					<td class="sleep">20min heartbeat</td>
+					<td>Single fix each. Near-zero.</td>
+				</tr>
+				<tr>
+					<td>App killed</td>
+					<td class="off">OFF</td>
+					<td>—</td>
+					<td class="off">nudge/FCM only</td>
+					<td>OS geofence can relaunch.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h3>Special States</h3>
+		<table>
+			<thead>
+				<tr>
+					<th>State</th>
+					<th>GPS</th>
+					<th>Relay</th>
+					<th>Battery</th>
+					<th>Notes</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Ghost mode</td>
+					<td class="off">OFF</td>
+					<td class="off">BLOCKED</td>
+					<td class="live">0%</td>
+					<td>Total silence. Server drops too.</td>
+				</tr>
+				<tr>
+					<td>Battery &lt;15%</td>
+					<td class="sleep">significant-change</td>
+					<td class="sleep">on-change only</td>
+					<td class="live">~0%</td>
+					<td>Auto-triggered.</td>
+				</tr>
+				<tr>
+					<td>Someone views you (bg)</td>
+					<td class="live">one-shot</td>
+					<td class="live">instant</td>
+					<td class="live">negligible</td>
+					<td>FCM wake → fix → relay → sleep.</td>
+				</tr>
+				<tr>
+					<td>Multiple viewers</td>
+					<td>deduplicated</td>
+					<td>max 1/15s</td>
+					<td class="live">= 1 viewer</td>
+					<td>One fix serves all.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h2>Layer 4: Demand-Driven Updates</h2>
+
+		<div class="layer">
+			<h4>Don't poll constantly. Only send fresh data when someone wants it.</h4>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Nudge:</strong> Tap someone's marker → their device wakes GPS → one fix → sent
+					back. &lt;5s. Cost: one fix (~300mJ = nothing).
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Adaptive rate:</strong> Sustained viewing: nudge 15s if moving, 45s if recent,
+					2min if stale.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Nobody watching + still = absolute zero.</strong> This is where we crush Life360.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>App killed:</strong> FCM/UP wakes → one fix → relay → sleep. ~2s total wake.
+				</div>
+			</div>
+		</div>
+
+		<h2>Layer 5: Batched Network Relay <span class="tag tag-research">Research-Backed</span></h2>
+
+		<div class="layer">
+			<h4>The radio costs 5-10x more than GPS. Batch fixes, send once.</h4>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Foreground:</strong> Relay on timer (3-5s). WS stays open — no radio wake cost.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Background:</strong> Accumulate fixes locally. Flush every 30s or on 5+ fixes.
+					Single compressed burst.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>WiFi opportunism:</strong> Flush immediately on WiFi. Less cost than cellular.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Compression:</strong> Delta-encode. Typical update &lt;100 bytes. Daily total
+					&lt;500KB.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">→</div>
+				<div class="layer-text">
+					<strong>Server interpolation:</strong> Kalman filter between sparse bg fixes. Viewers see
+					smooth movement from 10-15s data.
+				</div>
+			</div>
+		</div>
+
+		<h2>Auto Zone Detection</h2>
+
+		<div class="layer">
+			<h4 style="color: #ffb700">The phone learns your patterns. You never configure anything.</h4>
+			<div class="layer-row">
+				<div class="layer-num">1</div>
+				<div class="layer-text">
+					<strong>Dwell detection.</strong> Same location (100m) for 30+ min → recorded as dwell
+					event. Local only.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">2</div>
+				<div class="layer-text">
+					<strong>Cluster → zone.</strong> 3+ dwells at same cluster → learned zone. Radius: 150m
+					initial → 50m refined.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">3</div>
+				<div class="layer-text">
+					<strong>OS geofence.</strong> Top-5 zones get registered geofences. Survive app kill. Fire
+					exit events reliably.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">4</div>
+				<div class="layer-text">
+					<strong>WiFi fingerprint.</strong> Same BSSIDs = still in zone. Cheap confirmation without
+					GPS.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">5</div>
+				<div class="layer-text">
+					<strong>Pruning.</strong> 30 days unvisited → confidence drops → deleted. Stays current.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">6</div>
+				<div class="layer-text">
+					<strong>Privacy.</strong> <strong>Never leaves the device.</strong> Not in server DB, not
+					in MLS payload, not in shared data.
+				</div>
+			</div>
+		</div>
+
+		<h2>State Transitions</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>From</th>
+					<th>To</th>
+					<th>Trigger</th>
+					<th>GPS Action</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td class="off">SLEEPING</td>
+					<td class="active">ACTIVE</td>
+					<td>Accelerometer motion</td>
+					<td>ON at 2s (fg) / 10-15s (bg)</td>
+				</tr>
+				<tr>
+					<td class="off">SLEEPING</td>
+					<td class="off">SLEEPING</td>
+					<td>Nudge from viewer</td>
+					<td>One-shot → sleep</td>
+				</tr>
+				<tr>
+					<td class="off">SLEEPING</td>
+					<td class="off">SLEEPING</td>
+					<td>20min heartbeat</td>
+					<td>One-shot if moved &gt;50m</td>
+				</tr>
+				<tr>
+					<td class="off">IN ZONE</td>
+					<td class="active">ACTIVE</td>
+					<td>Geofence exit / WiFi change</td>
+					<td>ON immediately</td>
+				</tr>
+				<tr>
+					<td class="off">IN ZONE</td>
+					<td class="off">IN ZONE</td>
+					<td>WiFi confirms BSSIDs</td>
+					<td>OFF</td>
+				</tr>
+				<tr>
+					<td class="active">ACTIVE</td>
+					<td class="live">FAST</td>
+					<td>Speed &gt;5m/s × 3 fixes</td>
+					<td>Tighten to 2s</td>
+				</tr>
+				<tr>
+					<td class="live">FAST</td>
+					<td class="active">ACTIVE</td>
+					<td>Speed &lt;2m/s × 5 fixes</td>
+					<td>Relax to walk cadence</td>
+				</tr>
+				<tr>
+					<td class="active">ACTIVE</td>
+					<td class="off">SLEEPING</td>
+					<td>No move 30s (bg) / 2min (fg)</td>
+					<td>OFF</td>
+				</tr>
+				<tr>
+					<td class="active">ACTIVE</td>
+					<td class="off">IN ZONE</td>
+					<td>Enter known zone + still</td>
+					<td>OFF + geofence registered</td>
+				</tr>
+				<tr>
+					<td>App opened</td>
+					<td class="live">ACTIVE</td>
+					<td>User opens app</td>
+					<td>ON at 2s, 0m filter</td>
+				</tr>
+				<tr>
+					<td>App backgrounded</td>
+					<td>varies</td>
+					<td>User leaves</td>
+					<td>Reduce if moving, off if still</td>
+				</tr>
+				<tr>
+					<td>Any</td>
+					<td class="off">GHOST</td>
+					<td>Ghost mode</td>
+					<td>OFF, blocked</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h2>Rendering Pipeline</h2>
+		<div class="layer">
+			<div class="layer-row">
+				<div class="layer-num">1</div>
+				<div class="layer-text">
+					<strong>GPS fix arrives</strong> → store as <code>targetPosition</code>. Marker doesn't
+					jump.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">2</div>
+				<div class="layer-text">
+					<strong>Every 16ms (60fps)</strong> → lerp toward target at 30%/frame. Smooth glide.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">3</div>
+				<div class="layer-text">
+					<strong>Other people</strong> → same pipeline. WS pushes become targets. Even 15s bg fixes
+					look smooth.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">4</div>
+				<div class="layer-text">
+					<strong>Trails</strong> → Catmull-Rom spline. Smooth curves from sparse data.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">5</div>
+				<div class="layer-text">
+					<strong>Camera</strong> → follows lerped pos via <code>moveCamera</code>. Only when
+					following someone. Free pan otherwise.
+				</div>
+			</div>
+			<div class="layer-row">
+				<div class="layer-num">6</div>
+				<div class="layer-text">
+					<strong>Stale markers</strong> → &gt;5min: dim 50%. &gt;1hr: "last seen" label. Ghost:
+					vanish.
+				</div>
+			</div>
+		</div>
+
+		<h2>Point v3 vs Competition</h2>
+
+		<div class="compare">
+			<div class="compare-card point">
+				<h4>Point v3</h4>
+				<div class="cr">
+					<span class="cr-l">Battery/day</span
+					><span class="cr-v" style="color: #00ff88">&lt;5%</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Foreground</span><span class="cr-v" style="color: #00ff88">2s</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Background moving</span
+					><span class="cr-v" style="color: #00d4ff">10-15s</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Background still</span
+					><span class="cr-v" style="color: #00ff88">OFF</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">At known place</span
+					><span class="cr-v" style="color: #00ff88">OFF (auto-zone)</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Viewer latency</span
+					><span class="cr-v" style="color: #00ff88">&lt;5s nudge</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Data/day</span
+					><span class="cr-v" style="color: #00ff88">&lt;500KB</span>
+				</div>
+			</div>
+			<div class="compare-card l360">
+				<h4>Life360</h4>
+				<div class="cr">
+					<span class="cr-l">Battery/day</span><span class="cr-v" style="color: #ff6b35">~10%</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Foreground</span><span class="cr-v" style="color: #ffb700">~15s</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Background moving</span
+					><span class="cr-v" style="color: #ff6b35">3-5 min</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Background still</span
+					><span class="cr-v" style="color: #ff6b35">3-5 min (polls)</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">At known place</span
+					><span class="cr-v" style="color: #ffb700">User geofence</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Viewer latency</span
+					><span class="cr-v" style="color: #ff6b35">15-60s</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Data/day</span><span class="cr-v" style="color: #ffb700">~1-2MB</span>
+				</div>
+			</div>
+			<div class="compare-card find">
+				<h4>Find My</h4>
+				<div class="cr">
+					<span class="cr-l">Battery/day</span
+					><span class="cr-v" style="color: #00ff88">~3-5%</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Foreground</span><span class="cr-v" style="color: #ffb700">~60s</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Background moving</span
+					><span class="cr-v" style="color: #ffb700">1-15 min</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Background still</span
+					><span class="cr-v" style="color: #00ff88">Significant-change</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">At known place</span
+					><span class="cr-v" style="color: #ffb700">BLE mesh</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Viewer latency</span
+					><span class="cr-v" style="color: #ffb700">1-15 min</span>
+				</div>
+				<div class="cr">
+					<span class="cr-l">Data/day</span><span class="cr-v" style="color: #00ff88">Minimal</span>
+				</div>
+			</div>
+		</div>
+
+		<div class="callout callout-green">
+			<strong>Point beats Life360 on every metric.</strong> 7x faster foreground. 20x faster
+			background. Half the battery. Zero drain when still. Auto-zones they don't have. And we don't
+			sell the data.
+		</div>
+
+		<h2>Power Budget</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>Daily Pattern</th>
+					<th>GPS Fixes</th>
+					<th>Net Bursts</th>
+					<th>Battery</th>
+					<th>Life360</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Desk job (mostly home/office)</td>
+					<td class="live">~260</td>
+					<td class="live">~50</td>
+					<td class="live">~2-3%</td>
+					<td style="color: #ff6b35">8-12%</td>
+				</tr>
+				<tr>
+					<td>Mixed (commute+errands+home)</td>
+					<td class="active">~1500</td>
+					<td class="active">~200</td>
+					<td class="active">~4-5%</td>
+					<td style="color: #ff6b35">12-18%</td>
+				</tr>
+				<tr>
+					<td>Active all day (delivery)</td>
+					<td class="lazy">~5000</td>
+					<td class="lazy">~500</td>
+					<td class="lazy">~7-9%</td>
+					<td style="color: #ff6b35">15-25%</td>
+				</tr>
+				<tr>
+					<td>Overnight (8hr sleep)</td>
+					<td class="live">~24</td>
+					<td class="live">~24</td>
+					<td class="live">&lt;0.3%</td>
+					<td style="color: #ff6b35">3-5%</td>
+				</tr>
+			</tbody>
+		</table>
+		<p style="color: #555; font-size: 0.6rem; margin-top: 0.3rem">
+			GPS fix ≈ 300mJ, network burst ≈ 200mJ, 4000mAh ≈ 57,600J.
+		</p>
+
+		<h2>Implementation Priority</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>P</th>
+					<th>Feature</th>
+					<th>Battery Impact</th>
+					<th>Status</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td class="live">P0</td>
+					<td>Accelerometer gate</td>
+					<td class="live">Huge — 80% fewer wakes</td>
+					<td>To build</td>
+				</tr>
+				<tr>
+					<td class="live">P0</td>
+					<td>Activity-adaptive intervals</td>
+					<td class="active">Large</td>
+					<td class="live">Done (v2)</td>
+				</tr>
+				<tr>
+					<td class="active">P1</td>
+					<td>Auto hidden zones</td>
+					<td class="live">Huge — GPS off at home/work</td>
+					<td>To build</td>
+				</tr>
+				<tr>
+					<td class="active">P1</td>
+					<td>Batched background relay</td>
+					<td class="active">Large — fewer radio wakes</td>
+					<td>To build</td>
+				</tr>
+				<tr>
+					<td class="lazy">P2</td>
+					<td>WiFi fingerprint zones</td>
+					<td class="active">Medium</td>
+					<td>To build</td>
+				</tr>
+				<tr>
+					<td class="lazy">P2</td>
+					<td>Server interpolation</td>
+					<td class="lazy">Indirect</td>
+					<td>To build</td>
+				</tr>
+				<tr>
+					<td class="sleep">P3</td>
+					<td>Delta compression</td>
+					<td class="sleep">Small</td>
+					<td>To build</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<div class="footer">
+			Point Location Engine v3 — Based on Life360 docs, HyperTrack research, Arrivo study (86% fewer
+			wakes),<br />
+			GNSS power studies, Android/iOS platform guidelines, and deep research analysis.
+		</div>
+	</body>
+</html>

@@ -1,0 +1,18 @@
+# Rust build artifacts
+target/
+
+# Flutter client build output
+/app/build/
+
+# Secrets
+.env
+
+# Local databases
+*.db
+*.db-journal
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
