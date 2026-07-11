@@ -47,6 +47,6 @@ openidconnect = { version = "4", default-features = false, features = ["reqwest"
 point-core = { path = "../core" }
 
 [dev-dependencies]
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
