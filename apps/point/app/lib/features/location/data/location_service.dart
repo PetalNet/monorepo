@@ -221,6 +221,9 @@ class LocationService {
         final p = await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.low,
+            // Fail fast instead of spinning if a fix can't be had (measured:
+            // an unbounded request burns CPU when location is unavailable).
+            timeLimit: Duration(seconds: 20),
           ),
         );
         _emit(p);
