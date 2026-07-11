@@ -46,6 +46,10 @@ pub async fn delete_account(
         .bind(&user.user_id)
         .execute(&state.pool)
         .await?;
+    // Tear down any live WS the deleted account still holds: the token check
+    // only runs at connect, so an already-open socket would otherwise survive
+    // deletion (M11 / D-011 parity).
+    state.hub.close_user(&user.user_id);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -77,6 +81,12 @@ pub async fn change_password(
     .bind(&user.user_id)
     .execute(&state.pool)
     .await?;
+
+    // Close every live WS for this user: their old-token sockets are now
+    // revoked (password_changed_at moved forward) and the token check only runs
+    // at connect, so an open socket would otherwise linger (M11 / D-011). The
+    // caller reconnects with the fresh token below.
+    state.hub.close_user(&user.user_id);
 
     // Fresh token so the caller's own session survives the revocation.
     let token = auth::create_token(&state.config.jwt_secret, &user.user_id, user.is_admin)?;

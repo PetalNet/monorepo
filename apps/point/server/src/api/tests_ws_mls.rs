@@ -101,14 +101,26 @@ async fn key_package_fetch_consumes_one_time(pool: PgPool) {
     assert_eq!(v["unconsumed"], 3);
     assert_eq!(v["has_last_resort"], true);
 
-    let path = format!("/api/mls/keys/{}", uid("alice"));
-    let (status, first) = send(&app, "GET", &path, Some(&bob), None).await;
+    // Probe (GET) is non-consuming: it reports the pool without draining it.
+    let probe_path = format!("/api/mls/keys/{}", uid("alice"));
+    let (status, probe) = send(&app, "GET", &probe_path, Some(&bob), None).await;
+    assert_eq!(status, StatusCode::OK, "{probe}");
+    assert_eq!(probe["available"], 3);
+    assert_eq!(probe["has_last_resort"], true);
+
+    // Claim (POST) consumes one.
+    let path = format!("/api/mls/keys/{}/claim", uid("alice"));
+    let (status, first) = send(&app, "POST", &path, Some(&bob), None).await;
     assert_eq!(status, StatusCode::OK, "{first}");
     assert_eq!(first["last_resort"], false);
     assert_eq!(first["remaining"], 2);
 
-    // Second fetch: a DIFFERENT package — the first was consumed, never re-served.
-    let (status, second) = send(&app, "GET", &path, Some(&bob), None).await;
+    // The probe still doesn't consume — it now sees 2 left, no drain of its own.
+    let (_, probe) = send(&app, "GET", &probe_path, Some(&bob), None).await;
+    assert_eq!(probe["available"], 2);
+
+    // Second claim: a DIFFERENT package — the first was consumed, never re-served.
+    let (status, second) = send(&app, "POST", &path, Some(&bob), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(second["last_resort"], false);
     assert_eq!(second["remaining"], 1);
@@ -134,14 +146,14 @@ async fn key_package_exhaustion_falls_back_to_last_resort_unconsumed(pool: PgPoo
     let (status, _) = upload_keys(&app, &alice, &["kp-only"], Some("kp-lr")).await;
     assert_eq!(status, StatusCode::OK);
 
-    let path = format!("/api/mls/keys/{}", uid("alice"));
-    let (_, v) = send(&app, "GET", &path, Some(&bob), None).await;
+    let path = format!("/api/mls/keys/{}/claim", uid("alice"));
+    let (_, v) = send(&app, "POST", &path, Some(&bob), None).await;
     assert_eq!(v["last_resort"], false);
     assert_eq!(v["remaining"], 0);
 
     // Pool dry: the last-resort package is served, repeatedly, never consumed.
     for _ in 0..2 {
-        let (status, v) = send(&app, "GET", &path, Some(&bob), None).await;
+        let (status, v) = send(&app, "POST", &path, Some(&bob), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["last_resort"], true);
         assert_eq!(v["key_package"], b64(b"kp-lr"));
@@ -158,8 +170,8 @@ async fn key_package_exhaustion_falls_back_to_last_resort_unconsumed(pool: PgPoo
     seed_share(&pool, &uid("bob"), &uid("carol")).await;
     let (status, _) = send(
         &app,
-        "GET",
-        &format!("/api/mls/keys/{}", uid("carol")),
+        "POST",
+        &format!("/api/mls/keys/{}/claim", uid("carol")),
         Some(&bob),
         None,
     )
@@ -175,25 +187,24 @@ async fn key_package_fetch_requires_relationship(pool: PgPool) {
     let (status, _) = upload_keys(&app, &alice, &["kp-0"], None).await;
     assert_eq!(status, StatusCode::OK);
 
-    // No relationship -> 404, indistinguishable from "no such user".
-    let (status, _) = send(
-        &app,
-        "GET",
-        &format!("/api/mls/keys/{}", uid("alice")),
-        Some(&carol),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    let (status, _) = send(
-        &app,
-        "GET",
-        &format!("/api/mls/keys/{}", uid("nobody")),
-        Some(&carol),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    // No relationship -> 404 on both probe (GET) and claim (POST),
+    // indistinguishable from "no such user".
+    for (method, target) in [
+        ("GET", uid("alice")),
+        ("POST", format!("{}/claim", uid("alice"))),
+        ("GET", uid("nobody")),
+        ("POST", format!("{}/claim", uid("nobody"))),
+    ] {
+        let (status, _) = send(
+            &app,
+            method,
+            &format!("/api/mls/keys/{target}"),
+            Some(&carol),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{method} {target}");
+    }
 
     // Nothing was consumed by the denied fetches.
     let n = count(
@@ -742,10 +753,31 @@ async fn ws_group_fanout_respects_sharing_flag(pool: PgPool) {
         .await
         .unwrap();
     ws_send(&mut alice_ws, fix("hidden")).await;
-    assert!(
-        recv_frame(&mut bob_ws, 400).await.is_none(),
-        "sharing=false member must not reach the group"
+
+    // Sentinel over a SEPARATE, always-allowed channel: a direct user share.
+    // Frames are ordered per connection, so if the group "hidden" fix had
+    // leaked it would arrive BEFORE this user-addressed sentinel — asserting
+    // the sentinel (recipient_type "user") is bob's next broadcast proves the
+    // group drop deterministically, with no silence timeout and no racy
+    // re-enable of the group's sharing flag.
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+    ws_send(
+        &mut alice_ws,
+        json!({
+            "type": "location.update",
+            "recipient_type": "user",
+            "recipient_id": uid("bob"),
+            "blob": b64(b"sentinel"),
+            "timestamp": 1,
+        }),
+    )
+    .await;
+    let frame = expect_frame(&mut bob_ws, "location.broadcast", 2000).await;
+    assert_eq!(
+        frame["recipient_type"], "user",
+        "a sharing=false group fix leaked ahead of the sentinel"
     );
+    assert_eq!(frame["blob"], b64(b"sentinel"));
 }
 
 #[sqlx::test]
@@ -785,10 +817,6 @@ async fn ws_batch_update_stores_history_broadcasts_newest_only(pool: PgPool) {
     let frame = expect_frame(&mut bob_ws, "location.broadcast", 2000).await;
     assert_eq!(frame["blob"], b64(b"fix-newest"));
     assert_eq!(frame["timestamp"], 3000);
-    assert!(
-        recv_frame(&mut bob_ws, 300).await.is_none(),
-        "older batch fixes must not be broadcast"
-    );
 
     // ...and the live table, while history keeps every allowed fix. The
     // denied audience (carol) left no trace anywhere.
@@ -808,6 +836,27 @@ async fn ws_batch_update_stores_history_broadcasts_newest_only(pool: PgPool) {
         )
         .await,
         0
+    );
+
+    // Sentinel: a fresh single fix must be bob's very next broadcast. If any
+    // older batch fix (fix-old / fix-mid) had leaked onto the wire it would be
+    // buffered ahead of this — proving "newest only" without a silence timeout.
+    ws_send(
+        &mut alice_ws,
+        json!({
+            "type": "location.update",
+            "recipient_type": "user",
+            "recipient_id": uid("bob"),
+            "blob": b64(b"sentinel"),
+            "timestamp": 5000,
+        }),
+    )
+    .await;
+    let frame = expect_frame(&mut bob_ws, "location.broadcast", 2000).await;
+    assert_eq!(
+        frame["blob"],
+        b64(b"sentinel"),
+        "only the newest batch fix should have been broadcast before the sentinel"
     );
 }
 
@@ -842,9 +891,21 @@ async fn ws_nudge_relayed_only_when_viewer_can_see_target(pool: PgPool) {
 
     let frame = expect_frame(&mut bob_ws, "location.nudge", 2000).await;
     assert_eq!(frame["from"], uid("alice"));
-    assert!(
-        recv_frame(&mut bob_ws, 300).await.is_none(),
-        "carol's nudge must never arrive"
+
+    // Sentinel: a second allowed nudge from alice must be bob's next nudge. If
+    // carol's denied nudge had leaked it would be from=carol and arrive between
+    // the two alice nudges — asserting from=alice here rules that out
+    // deterministically (frames are ordered per connection).
+    ws_send(
+        &mut alice_ws,
+        json!({ "type": "location.nudge", "target_user_id": uid("bob") }),
+    )
+    .await;
+    let frame = expect_frame(&mut bob_ws, "location.nudge", 2000).await;
+    assert_eq!(
+        frame["from"],
+        uid("alice"),
+        "carol's denied nudge must never reach bob"
     );
 }
 

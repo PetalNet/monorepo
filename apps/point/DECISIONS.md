@@ -139,3 +139,47 @@ router is **kaisel** (not go_router; pin in pubspec.lock; acceptance bar = anima
   MapLibre), Riverpod + feature-first + very_good_analysis + zero-analyzer-warnings gate, widget
   classes not `_buildX()`. nexus is an engineering reference only, not the visual target. Build via
   the Dart/Flutter MCP render→screenshot→fix loop.
+
+## 2026-07-11 — D-016 · M0 adversarial-review fixes (security + correctness) before self-merge
+
+Two adversarial review passes (security + correctness) ran against M0. The confidentiality boundary
+held (no location/history leak path found; authz gate, SQLi, JWT pinning, WS auth parity, KP
+consumption atomicity, secrets hygiene all confirmed solid, tests confirmed real not facades).
+The peripheral findings were fixed on this branch (schema fixes are in-place edits to 0001 since it
+has not shipped anywhere). Security-critical items were designed + verified by Fable directly:
+
+- **Collation (verified bug):** `user_shares.CHECK(a<b)` used the DB default collation (en_US.utf8,
+  punctuation-ignorable) while Rust orders bytewise → hyphenated username pairs (e.g. `ab-c`,`abb`)
+  hit a 23514 → 500 and the share was permanently un-creatable. Fixed: `CHECK (user_a < user_b
+COLLATE "C")` (byte-exact, matches Rust `<` on &str). Verified empirically + an end-to-end test.
+- **OIDC account takeover:** the callback mapped a mutable `preferred_username` to a local id and
+  logged into any matching row (incl. admin). Now OIDC accounts are keyed to the IdP's immutable
+  `(oidc_issuer, oidc_subject)` (new columns + unique index); login matches on that pair, never the
+  username; first-login provisions a NEW id (disambiguated on collision), never adopts an existing
+  account.
+- **KeyPackage drain via unconsented request:** `can_fetch_key_packages` no longer honors a bare
+  _pending_ share request (unilateral) — it would let a stranger drain the one-time KP pool and
+  downgrade forward secrecy. Requires accepted share / active temp share / shared group; the accept
+  flow still works because a `user_shares` row exists by then.
+- **Revocation reaches live sockets:** password change + account deletion now call
+  `Hub::close_user`, tearing down open WS sessions for a revoked token (WS previously only checked
+  the token at connect).
+- **Rate-limit hardening:** wired `into_make_service_with_connect_info` (peer IP now resolves);
+  `X-Real-IP` honored only when `TRUST_PROXY_HEADERS=true` (default off, fail-closed); added a global
+  login cap.
+- **MLS mailbox atomicity + one-time semantics:** commit fan-out is now one transaction (no partial
+  desync); KP fetch split into a non-consuming `GET` probe and a consuming `POST …/claim` (a
+  proxy-retried GET no longer silently drains the pool); per-recipient unconsumed-mailbox cap (429);
+  rate limits on claim/welcome/commit.
+- **Correctness:** live-fix write is an upsert on `(entity,type,recipient)` that rejects stale
+  timestamps (no dup "current" rows, no older-clobbers-newer); group UUIDs canonicalized
+  (lowercase) before storage/broadcast so history reads match; history pagination walks forward
+  (ASC) when a `since` cursor is given; `mls_messages.sender_id` is `ON DELETE SET NULL` (a sender
+  deleting their account no longer nukes others' undelivered welcomes); cleanup task GCs consumed
+  KeyPackages (>7d) and processed messages (>30d); bounded WS outbound channel + 30s ping / 90s idle
+  close; presence respects per-group `sharing=false`.
+
+Deferred (logged, not v1-blocking): a read endpoint for `location_updates` current fixes lands in
+M1 (the client that reads it); registration global-cap lockout (raise/scope) and L-tier timing
+niceties tracked for a later hardening pass. Full finding list:
+scratchpad `m0-review-findings.md`.

@@ -105,10 +105,16 @@ pub async fn can_view(pool: &PgPool, viewer: &str, target: &str) -> Result<bool,
 /// May `requester` fetch `target`'s MLS KeyPackages (to add them to a group)?
 ///
 /// KeyPackages are public-key material, not location data, so ghost does not
-/// gate them — but an explicit relationship is still required: an accepted
-/// share, a pending share request between the two (either direction — the
-/// accept flow needs the other side's KP to form the MLS group), an active
-/// temp share in either direction, or a shared group.
+/// gate them — but a *consented* relationship is required. We deliberately do
+/// NOT grant on a bare pending share request: a pending request is unilateral
+/// (anyone can send one to any user), so honoring it would let an unconsented
+/// stranger drain the target's one-time KeyPackage pool — forcing every real
+/// group-add onto the single last-resort package and downgrading forward
+/// secrecy (the D-007 failure mode, reintroduced via authz). The MLS group for
+/// a direct share is formed at accept time, by which point an accepted
+/// `user_shares` row exists, so the accept flow still has what it needs.
+/// Allowed: accepted share, active temp share in either direction, or a shared
+/// group.
 pub async fn can_fetch_key_packages(
     pool: &PgPool,
     requester: &str,
@@ -118,9 +124,6 @@ pub async fn can_fetch_key_packages(
         return Ok(true);
     }
     if has_user_share(pool, requester, target).await? {
-        return Ok(true);
-    }
-    if has_pending_share_request(pool, requester, target).await? {
         return Ok(true);
     }
     if has_active_temp_share(pool, requester, target).await?
@@ -163,6 +166,9 @@ async fn is_ghost_blocked(
 }
 
 async fn has_user_share(pool: &PgPool, a: &str, b: &str) -> Result<bool, sqlx::Error> {
+    // Byte-exact ordering, matching the `COLLATE "C"` CHECK on user_shares — a
+    // Rust `<` on &str is a bytewise compare, so this and the stored canonical
+    // order always agree regardless of the database's default collation (D-016).
     let (lo, hi) = if a < b { (a, b) } else { (b, a) };
     let row: Option<(i32,)> =
         sqlx::query_as("SELECT 1 FROM user_shares WHERE user_a = $1 AND user_b = $2")
@@ -181,21 +187,6 @@ async fn has_active_temp_share(pool: &PgPool, from: &str, to: &str) -> Result<bo
     )
     .bind(from)
     .bind(to)
-    .fetch_optional(pool)
-    .await?;
-    Ok(row.is_some())
-}
-
-async fn has_pending_share_request(pool: &PgPool, a: &str, b: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<(i32,)> = sqlx::query_as(
-        "SELECT 1 FROM share_requests
-         WHERE status = 'pending'
-           AND ((from_user_id = $1 AND to_user_id = $2)
-             OR (from_user_id = $2 AND to_user_id = $1))
-         LIMIT 1",
-    )
-    .bind(a)
-    .bind(b)
     .fetch_optional(pool)
     .await?;
     Ok(row.is_some())

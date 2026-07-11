@@ -17,6 +17,12 @@ export default defineConfig({
 		sortTailwindcss: true,
 		jsdoc: true,
 		// package.json sorting is owned by eslint-plugin-package-json.
-		ignorePatterns: ["**/package.json", "pnpm-lock.yaml"],
+		// apps/point/docs/design: vendored design references (the client UI spec
+		// + the pixel-close mockup target) — kept byte-faithful, not reformatted.
+		ignorePatterns: [
+			"**/package.json",
+			"pnpm-lock.yaml",
+			"apps/point/docs/design/**",
+		],
 	},
 });

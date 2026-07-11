@@ -30,6 +30,7 @@ pub(super) fn test_state(pool: PgPool, open_registration: bool) -> AppState {
             jwt_secret: "unit-test-secret-0123456789abcdef".into(),
             domain: DOMAIN.into(),
             open_registration,
+            trusted_proxy: false,
             glitchtip_dsn: None,
             oidc: None,
         }),

@@ -25,9 +25,17 @@ CREATE TABLE users (
     ghost_active        BOOLEAN NOT NULL DEFAULT FALSE, -- global ghost kill-switch (server-enforced)
     visibility_mode     TEXT NOT NULL DEFAULT 'normal', -- Focus-style modes: schema slot, no v1 surface
     password_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(), -- JWT revocation floor (iat < this => reject)
+    -- OIDC binding: an OIDC-provisioned account is keyed to the IdP's immutable
+    -- (issuer, subject), NOT to a mutable username. Login looks accounts up by
+    -- this pair so a self-assignable `preferred_username` can never adopt an
+    -- existing local/admin account (D-016). NULL for password/local accounts.
+    oidc_issuer         TEXT,
+    oidc_subject        TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX users_oidc_identity ON users (oidc_issuer, oidc_subject)
+    WHERE oidc_issuer IS NOT NULL;
 
 -- person + item first-class; v1 creates exactly one 'person' entity per user.
 CREATE TABLE entities (
@@ -66,14 +74,20 @@ CREATE TABLE share_requests (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (from_user_id, to_user_id)
 );
+CREATE INDEX share_requests_incoming ON share_requests (to_user_id, status);
 
--- Accepted, permanent, bidirectional shares. Canonical ordering: user_a < user_b.
+-- Accepted, permanent, bidirectional shares. Canonical ordering: user_a < user_b
+-- under the byte-exact "C" collation. This MUST match the ordering the server
+-- computes in Rust (which is bytewise); the database's default collation
+-- (e.g. en_US.utf8) treats punctuation as ignorable, so a naive `user_a < user_b`
+-- CHECK would reject valid pairs like ('ab-c@d','abb@d') that Rust orders the
+-- other way — see DECISIONS D-016.
 CREATE TABLE user_shares (
     user_a     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user_b     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_a, user_b),
-    CHECK (user_a < user_b)
+    CHECK (user_a < user_b COLLATE "C")
 );
 
 -- Directional, expiring shares. to_user_id targets a user; link_token supports
@@ -163,10 +177,14 @@ CREATE INDEX key_packages_pool ON key_packages (user_id, created_at)
 CREATE UNIQUE INDEX key_packages_one_last_resort ON key_packages (user_id) WHERE is_last_resort;
 
 -- Welcome/Commit relay mailbox (opaque MLS payloads).
+-- sender_id is ON DELETE SET NULL, not CASCADE: if the sender deletes their
+-- account, other members' still-undelivered Welcome/Commit rows must survive —
+-- dropping them would permanently desync everyone who hadn't yet applied the
+-- commit (D-016).
 CREATE TABLE mls_messages (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    sender_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sender_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     message_type TEXT NOT NULL CHECK (message_type IN ('welcome', 'commit')),
     group_id     TEXT NOT NULL,                  -- server-side share/group id (routing only)
     payload      BYTEA NOT NULL,                 -- opaque serialized MLS message
@@ -179,7 +197,10 @@ CREATE INDEX mls_messages_pending ON mls_messages (recipient_id, processed, crea
 -- Location (ciphertext-only)
 -- ---------------------------------------------------------------------------
 
--- Current/live fixes, one row per (sender entity, audience). TTL-reaped.
+-- Current/live fixes, exactly one row per (sender entity, audience). TTL-reaped.
+-- The unique constraint lets delivery upsert (ON CONFLICT) so two of the
+-- sender's devices racing the same audience can't create duplicate "current"
+-- rows, and a stale fix can be rejected instead of clobbering a newer one (D-016).
 CREATE TABLE location_updates (
     id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     sender_entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
@@ -188,7 +209,8 @@ CREATE TABLE location_updates (
     encrypted_blob   BYTEA NOT NULL,             -- opaque MLS ciphertext
     client_timestamp BIGINT NOT NULL,            -- sender-claimed epoch millis (opaque metadata)
     ttl_seconds      INTEGER NOT NULL DEFAULT 300,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (sender_entity_id, recipient_type, recipient_id)
 );
 CREATE INDEX location_updates_recipient ON location_updates (recipient_type, recipient_id, created_at DESC);
 CREATE INDEX location_updates_created ON location_updates (created_at);

@@ -239,6 +239,119 @@ async fn share_request_rate_limit(pool: PgPool) {
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 }
 
+/// End-to-end proof of the `COLLATE "C"` path (D-016): usernames whose byte
+/// order differs from en_US collation (which treats '-' as ignorable) must
+/// still request → accept → appear in GET /api/shares. "ab-c@..." sorts BEFORE
+/// "abb@..." bytewise ('-' 0x2D < 'b' 0x62) but AFTER under en_US — if the
+/// server's Rust ordering and the DB CHECK disagreed, the accept INSERT would
+/// violate the CHECK and 500.
+#[sqlx::test]
+async fn share_collation_hyphen_underscore_end_to_end(pool: PgPool) {
+    let app = app(&pool, true);
+    let abc = user(&pool, "ab-c").await;
+    let abb = user(&pool, "abb").await;
+
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&abc),
+        Some(json!({ "to_user_id": uid("abb") })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&abb), None).await;
+    let request_id = incoming[0]["id"].as_str().unwrap().to_string();
+    let (status, v) = send(
+        &app,
+        "POST",
+        &format!("/api/shares/requests/{request_id}/accept"),
+        Some(&abb),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "accept across the collation boundary: {v}"
+    );
+
+    // Both directions list the share (the row survived the CHECK).
+    let (_, shares) = send(&app, "GET", "/api/shares", Some(&abc), None).await;
+    assert_eq!(shares[0]["user_id"], uid("abb"));
+    let (_, shares) = send(&app, "GET", "/api/shares", Some(&abb), None).await;
+    assert_eq!(shares[0]["user_id"], uid("ab-c"));
+    assert_eq!(count(&pool, "SELECT COUNT(*) FROM user_shares").await, 1);
+}
+
+/// After a share is severed, a fresh request must reopen a pending row the
+/// target can see — unshare is reversible (H2). The old bug treated any
+/// historical request row (accepted/rejected) as "already requested" and
+/// silently no-op'd forever.
+#[sqlx::test]
+async fn reshare_after_delete_creates_fresh_pending(pool: PgPool) {
+    let app = app(&pool, true);
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+
+    // request -> accept -> share.
+    send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&alice),
+        Some(json!({ "to_user_id": uid("bob") })),
+    )
+    .await;
+    let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&bob), None).await;
+    let req_id = incoming[0]["id"].as_str().unwrap().to_string();
+    send(
+        &app,
+        "POST",
+        &format!("/api/shares/requests/{req_id}/accept"),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(count(&pool, "SELECT COUNT(*) FROM user_shares").await, 1);
+
+    // Sever it: the share AND the request row (now 'accepted') are cleared.
+    let (status, _) = send(
+        &app,
+        "DELETE",
+        &format!("/api/shares/{}", uid("bob")),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(count(&pool, "SELECT COUNT(*) FROM user_shares").await, 0);
+    assert_eq!(count(&pool, "SELECT COUNT(*) FROM share_requests").await, 0);
+
+    // Re-request: a fresh pending row exists and bob sees it again.
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&alice),
+        Some(json!({ "to_user_id": uid("bob") })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT COUNT(*) FROM share_requests WHERE status = 'pending'",
+        )
+        .await,
+        1
+    );
+    let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&bob), None).await;
+    assert_eq!(incoming.as_array().unwrap().len(), 1);
+    assert_eq!(incoming[0]["from_user_id"], uid("alice"));
+}
+
 // ---------------------------------------------------------------------------
 // temporary shares
 // ---------------------------------------------------------------------------
@@ -974,6 +1087,59 @@ async fn history_scoped_to_viewer_audiences(pool: PgPool) {
     assert_eq!(v["deleted"], 4);
     let (_, rows) = send(&app, "GET", &path, Some(&alice), None).await;
     assert_eq!(rows.as_array().unwrap().len(), 0);
+}
+
+/// A client walking a large window forward by advancing `since` to the last
+/// timestamp it saw must eventually see EVERY row, never skipping the middle
+/// (M8). With since>0 the server returns the oldest rows above the cursor in
+/// ascending order; repeated small pages cover the whole trail.
+#[sqlx::test]
+async fn history_forward_walk_pages_everything(pool: PgPool) {
+    let app = app(&pool, true);
+    let _alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+
+    let alice_entity = person_entity(&pool, &uid("alice")).await;
+    let all_ts = [1000_i64, 2000, 3000, 4000, 5000];
+    for ts in all_ts {
+        insert_history(&pool, alice_entity, "user", &uid("bob"), ts, b"fix").await;
+    }
+
+    // bob (viewer) walks alice's (target) history, scoped to his own audience.
+    let path = format!("/api/history/{}", uid("alice"));
+    // Walk forward from a cursor below the first row (since>0 => ascending).
+    let mut since = 1_i64;
+    let mut seen: Vec<i64> = Vec::new();
+    for _ in 0..10 {
+        let (status, rows) = send(
+            &app,
+            "GET",
+            &format!("{path}?since={since}&limit=2"),
+            Some(&bob),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let rows = rows.as_array().unwrap();
+        if rows.is_empty() {
+            break;
+        }
+        // Each page is ascending and strictly beyond the cursor.
+        let page: Vec<i64> = rows
+            .iter()
+            .map(|r| r["client_timestamp"].as_i64().unwrap())
+            .collect();
+        assert!(
+            page.windows(2).all(|w| w[0] < w[1]),
+            "page not ascending: {page:?}"
+        );
+        assert!(page[0] > since, "page did not advance past the cursor");
+        since = *page.last().unwrap();
+        seen.extend(page);
+    }
+    // Every row surfaced exactly once, in order, across the pages.
+    assert_eq!(seen, all_ts, "forward walk missed or duplicated rows");
 }
 
 // ---------------------------------------------------------------------------

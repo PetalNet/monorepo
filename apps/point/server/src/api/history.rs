@@ -20,7 +20,9 @@ const MAX_LIMIT: i64 = 1000;
 
 #[derive(Deserialize)]
 pub struct HistoryQuery {
-    /// Epoch millis; only rows with a later client_timestamp are returned.
+    /// Epoch millis; only rows with a strictly later client_timestamp are
+    /// returned. A client walks a large window forward by repeatedly advancing
+    /// `since` to the max client_timestamp it has seen.
     pub since: Option<i64>,
     pub limit: Option<i64>,
 }
@@ -45,7 +47,14 @@ pub async fn get_history(
     }
 
     let own = user.user_id == target;
-    let rows: Vec<(Vec<u8>, i64, String, String)> = sqlx::query_as(
+    // First sync (since==0) returns the newest rows (DESC) so a client sees its
+    // most recent locations immediately. A paging client that passes since>0
+    // gets the OLDEST rows above the cursor (ASC), so repeatedly advancing
+    // `since` to the last-seen timestamp walks forward through the whole window
+    // without ever skipping the middle (M8). The order token is a fixed literal,
+    // never user input.
+    let order = if since > 0 { "ASC" } else { "DESC" };
+    let sql = format!(
         "SELECT lh.encrypted_blob, lh.client_timestamp, lh.recipient_type, lh.recipient_id
          FROM location_history lh
          JOIN entities e ON e.id = lh.entity_id
@@ -58,16 +67,17 @@ pub async fn get_history(
                         FROM group_members gv
                         JOIN group_members gt ON gt.group_id = gv.group_id
                         WHERE gv.user_id = $4 AND gt.user_id = $1 AND gt.sharing)))
-         ORDER BY lh.client_timestamp DESC
-         LIMIT $5",
-    )
-    .bind(&target)
-    .bind(since)
-    .bind(own)
-    .bind(&user.user_id)
-    .bind(limit)
-    .fetch_all(&state.pool)
-    .await?;
+         ORDER BY lh.client_timestamp {order}
+         LIMIT $5"
+    );
+    let rows: Vec<(Vec<u8>, i64, String, String)> = sqlx::query_as(&sql)
+        .bind(&target)
+        .bind(since)
+        .bind(own)
+        .bind(&user.user_id)
+        .bind(limit)
+        .fetch_all(&state.pool)
+        .await?;
 
     let out = rows
         .into_iter()

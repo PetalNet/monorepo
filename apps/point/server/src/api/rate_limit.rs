@@ -51,21 +51,39 @@ impl RateLimiter {
     }
 }
 
-/// Best-effort client address for rate-limit keying: `X-Real-IP` (set by the
-/// reverse proxy), else the peer address extension, else a shared bucket —
-/// degrading to a shared bucket is the fail-closed direction for a limiter.
+/// Whether the reverse-proxy client-IP header (`X-Real-IP`) may be trusted,
+/// threaded into every request via an `Extension` layer set from `Config`.
+/// Absent extension is treated as `false` (fail closed: don't trust headers).
+#[derive(Clone, Copy)]
+pub struct TrustProxy(pub bool);
+
+/// Best-effort client address for rate-limit keying. When the server is behind
+/// a trusted reverse proxy, honor `X-Real-IP`; otherwise ALWAYS use the peer
+/// `SocketAddr` (an unproxied server must never let a client spoof its own
+/// rate-limit bucket via a header). Missing peer info degrades to a shared
+/// bucket — the fail-closed direction for a limiter.
 pub struct ClientIp(pub String);
 
 impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
     type Rejection = Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Infallible> {
-        let ip = parts
-            .headers
-            .get("x-real-ip")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+        let trust_proxy = parts
+            .extensions
+            .get::<TrustProxy>()
+            .map(|t| t.0)
+            .unwrap_or(false);
+        let header_ip = if trust_proxy {
+            parts
+                .headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        } else {
+            None
+        };
+        let ip = header_ip
             .or_else(|| {
                 parts
                     .extensions

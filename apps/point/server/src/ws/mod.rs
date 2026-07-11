@@ -7,7 +7,8 @@
 pub mod hub;
 
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
@@ -19,7 +20,8 @@ use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 use crate::auth;
@@ -41,6 +43,14 @@ const MAX_LOCATION_BLOB_BYTES: usize = 16 * 1024;
 const MAX_BATCH_ITEMS: usize = 50;
 /// Inbound frame cap: a full 50-item batch of max-size blobs in base64.
 const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
+/// Per-connection outbound buffer. Bounded so a slow/dead reader can't grow
+/// server memory without bound; overflow drops that connection's frame (M4).
+const OUTBOUND_CHANNEL_CAP: usize = 256;
+/// Server keepalive: send a Ping this often...
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+/// ...and drop the connection if no inbound frame (Pong included) arrives for
+/// this long — reaps half-open sockets that would otherwise leak (M3).
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// GET /ws — upgrade after the browser-origin guard. A present Origin header
 /// must match this server (or a localhost dev origin); a missing Origin
@@ -119,9 +129,10 @@ async fn handle_socket(state: AppState, mut socket: WebSocket) {
     };
     let user_id = user.user_id;
 
-    let (tx, mut rx) = mpsc::unbounded_channel::<hub::Outbound>();
+    let (tx, mut rx) = mpsc::channel::<hub::Outbound>(OUTBOUND_CHANNEL_CAP);
     let reply = tx.clone();
-    let conn_id = state.hub.add_connection(&user_id, tx);
+    let close = Arc::new(Notify::new());
+    let conn_id = state.hub.add_connection(&user_id, tx, close.clone());
 
     let (mut sink, mut stream) = socket.split();
     let ok = json!({ "type": "auth.ok", "user_id": user_id }).to_string();
@@ -133,28 +144,64 @@ async fn handle_socket(state: AppState, mut socket: WebSocket) {
     // Presence: online, to everyone entitled to see the sender's presence.
     broadcast_presence(&state, &user_id, true, None, None).await;
 
-    let writer = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            if sink.send(Message::Text(msg.into())).await.is_err() {
-                break;
-            }
-        }
-    });
-
+    // One select loop owns both directions plus keepalive + forced-close, so a
+    // single task drives the socket (no orphaned writer to abort). `sink` is
+    // written from at most one branch per iteration.
     let mut limiter = ConnLimiter::default();
-    while let Some(Ok(msg)) = stream.next().await {
-        match msg {
-            Message::Text(text) => {
-                handle_frame(&state, &user_id, &mut limiter, &reply, text.as_str()).await;
+    let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_activity = Instant::now();
+    loop {
+        tokio::select! {
+            // Outbound: hub-delivered frames.
+            out = rx.recv() => {
+                match out {
+                    Some(msg) => {
+                        if sink.send(Message::Text(msg.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break, // all senders dropped
+                }
             }
-            Message::Close(_) => break,
-            // Ping/pong are answered by the transport; binary frames ignored.
-            _ => {}
+            // Inbound: client frames.
+            inbound = stream.next() => {
+                match inbound {
+                    Some(Ok(msg)) => {
+                        last_activity = Instant::now();
+                        match msg {
+                            Message::Text(text) => {
+                                handle_frame(&state, &user_id, &mut limiter, &reply, text.as_str())
+                                    .await;
+                            }
+                            Message::Ping(p) => {
+                                if sink.send(Message::Pong(p)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Message::Close(_) => break,
+                            // Pong (activity already recorded) / binary ignored.
+                            _ => {}
+                        }
+                    }
+                    _ => break, // stream closed or errored
+                }
+            }
+            // Keepalive: ping periodically; reap a socket gone silent too long.
+            _ = heartbeat.tick() => {
+                if last_activity.elapsed() > HEARTBEAT_TIMEOUT {
+                    break;
+                }
+                if sink.send(Message::Ping(Vec::new().into())).await.is_err() {
+                    break;
+                }
+            }
+            // Forced close (revocation): the hub asked this socket to shut.
+            _ = close.notified() => break,
         }
     }
 
     state.hub.remove_connection(&user_id, conn_id);
-    writer.abort();
     // Presence: offline — but only once the user's LAST device is gone.
     if !state.hub.is_online(&user_id) {
         broadcast_presence(&state, &user_id, false, None, None).await;
@@ -196,7 +243,7 @@ async fn handle_frame(
     state: &AppState,
     sender: &str,
     limiter: &mut ConnLimiter,
-    reply: &UnboundedSender<String>,
+    reply: &Sender<String>,
     text: &str,
 ) {
     let Ok(frame) = serde_json::from_str::<Frame>(text) else {
@@ -231,24 +278,28 @@ async fn handle_frame(
     }
 }
 
-fn send_error(reply: &UnboundedSender<String>, error: &str) {
-    let _ = reply.send(json!({ "type": "error", "error": error }).to_string());
+fn send_error(reply: &Sender<String>, error: &str) {
+    // Non-blocking: a full outbound buffer just drops the error frame (the
+    // connection is already struggling; the heartbeat will reap it if stuck).
+    let _ = reply.try_send(json!({ "type": "error", "error": error }).to_string());
 }
 
 // ---------------------------------------------------------------------------
 // location.update / location.batch_update
 // ---------------------------------------------------------------------------
 
-async fn on_location_update(
-    state: &AppState,
-    sender: &str,
-    reply: &UnboundedSender<String>,
-    frame: Frame,
-) {
+async fn on_location_update(state: &AppState, sender: &str, reply: &Sender<String>, frame: Frame) {
     let (Some(rtype), Some(rid), Some(blob_b64)) =
         (frame.recipient_type, frame.recipient_id, frame.blob)
     else {
         send_error(reply, "invalid frame");
+        return;
+    };
+    // Canonicalize the audience id (M9): a group uuid is stored/broadcast in its
+    // lowercase canonical form so history reads (which compare against
+    // group_id::text) always match. Unknown kind / malformed uuid -> silent drop.
+    let Some(rid) = canonical_recipient_id(&rtype, &rid) else {
+        tracing::debug!(sender, "location.update dropped (bad recipient)");
         return;
     };
     let Some(blob) = decode_blob(&blob_b64) else {
@@ -279,12 +330,7 @@ async fn on_location_update(
     broadcast_fix(state, sender, &rtype, &rid, &blob_b64, ts, &recipients);
 }
 
-async fn on_batch_update(
-    state: &AppState,
-    sender: &str,
-    reply: &UnboundedSender<String>,
-    frame: Frame,
-) {
+async fn on_batch_update(state: &AppState, sender: &str, reply: &Sender<String>, frame: Frame) {
     let Some(items) = frame.blobs else {
         send_error(reply, "invalid frame");
         return;
@@ -303,7 +349,13 @@ async fn on_batch_update(
     let mut newest: HashMap<(String, String), (i64, String)> = HashMap::new();
 
     for item in items {
-        let key = (item.recipient_type.clone(), item.recipient_id.clone());
+        // Canonicalize the audience id (M9) before it becomes a cache key or is
+        // stored/broadcast; a bad group uuid / unknown kind drops just this item.
+        let Some(rid) = canonical_recipient_id(&item.recipient_type, &item.recipient_id) else {
+            tracing::debug!(sender, "batch item dropped (bad recipient)");
+            continue;
+        };
+        let key = (item.recipient_type.clone(), rid);
         if !authz_cache.contains_key(&key) {
             let decision = allowed_recipients(&state.pool, sender, &key.0, &key.1).await;
             authz_cache.insert(key.clone(), decision);
@@ -346,6 +398,19 @@ async fn on_batch_update(
 fn decode_blob(b64: &str) -> Option<Vec<u8>> {
     let blob = BASE64.decode(b64).ok()?;
     (!blob.is_empty() && blob.len() <= MAX_LOCATION_BLOB_BYTES).then_some(blob)
+}
+
+/// Canonical routing id for an audience. A `group` recipient must be a valid
+/// uuid, normalized to its lowercase canonical string so it matches the
+/// `group_id::text` history reads compare against (M9). A `user` recipient is
+/// passed through. Any other kind (or a malformed group uuid) yields `None`,
+/// which callers treat as a silent drop.
+fn canonical_recipient_id(rtype: &str, rid: &str) -> Option<String> {
+    match rtype {
+        "user" => Some(rid.to_string()),
+        "group" => Uuid::parse_str(rid).ok().map(|u| u.to_string()),
+        _ => None,
+    }
 }
 
 /// Who may receive this fix? `None` = drop (deny, unknown audience kind, or a
@@ -402,7 +467,10 @@ async fn sender_entity(pool: &PgPool, user_id: &str) -> Option<Uuid> {
     }
 }
 
-/// Replace the live fix for (sender entity, audience): one current row each.
+/// Upsert the live fix for (sender entity, audience): exactly one current row
+/// each. A single INSERT ... ON CONFLICT keeps it atomic (no DELETE+INSERT
+/// window two racing devices could both fall into) and the `WHERE` guard means
+/// a stale fix (older client_timestamp) can never clobber a newer one — M10.
 async fn store_live_fix(
     pool: &PgPool,
     entity: Uuid,
@@ -411,21 +479,17 @@ async fn store_live_fix(
     blob: &[u8],
     ts: i64,
 ) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    sqlx::query(
-        "DELETE FROM location_updates
-         WHERE sender_entity_id = $1 AND recipient_type = $2 AND recipient_id = $3",
-    )
-    .bind(entity)
-    .bind(rtype)
-    .bind(rid)
-    .execute(&mut *tx)
-    .await?;
     sqlx::query(
         "INSERT INTO location_updates
              (sender_entity_id, recipient_type, recipient_id, encrypted_blob,
               client_timestamp, ttl_seconds)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (sender_entity_id, recipient_type, recipient_id)
+         DO UPDATE SET encrypted_blob = EXCLUDED.encrypted_blob,
+                       client_timestamp = EXCLUDED.client_timestamp,
+                       ttl_seconds = EXCLUDED.ttl_seconds,
+                       created_at = now()
+         WHERE EXCLUDED.client_timestamp > location_updates.client_timestamp",
     )
     .bind(entity)
     .bind(rtype)
@@ -433,9 +497,9 @@ async fn store_live_fix(
     .bind(blob)
     .bind(ts)
     .bind(LIVE_FIX_TTL_SECS)
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await
+    .execute(pool)
+    .await
+    .map(|_| ())
 }
 
 async fn insert_history(
@@ -535,7 +599,7 @@ async fn presence_audience(pool: &PgPool, user_id: &str) -> Result<Vec<String>, 
              SELECT other.user_id AS aud
              FROM group_members mine
              JOIN group_members other ON other.group_id = mine.group_id
-             WHERE mine.user_id = $1 AND other.user_id <> $1
+             WHERE mine.user_id = $1 AND other.user_id <> $1 AND mine.sharing
              UNION
              SELECT CASE WHEN user_a = $1 THEN user_b ELSE user_a END
              FROM user_shares WHERE user_a = $1 OR user_b = $1
@@ -558,7 +622,7 @@ async fn presence_audience(pool: &PgPool, user_id: &str) -> Result<Vec<String>, 
 /// The viewer asks the target's devices to wake and send a fresh fix. Allowed
 /// only when the VIEWER may currently see the TARGET (can_view). Deny/error =
 /// silent drop. (FCM wake for offline targets lands in M1, D-012.)
-async fn on_nudge(state: &AppState, sender: &str, reply: &UnboundedSender<String>, frame: Frame) {
+async fn on_nudge(state: &AppState, sender: &str, reply: &Sender<String>, frame: Frame) {
     let Some(target) = frame.target_user_id else {
         send_error(reply, "invalid frame");
         return;

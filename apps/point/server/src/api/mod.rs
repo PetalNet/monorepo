@@ -100,7 +100,9 @@ pub fn router(state: AppState) -> Router {
         // MLS delivery service (ciphertext-only)
         .route("/api/mls/keys", post(mls::upload_keys))
         .route("/api/mls/keys/count", get(mls::key_count))
-        .route("/api/mls/keys/{user_id}", get(mls::fetch_key))
+        // GET is a non-consuming probe; POST .../claim atomically consumes one.
+        .route("/api/mls/keys/{user_id}", get(mls::probe_key))
+        .route("/api/mls/keys/{user_id}/claim", post(mls::claim_key))
         .route("/api/mls/welcome", post(mls::send_welcome))
         .route("/api/mls/commit", post(mls::send_commit))
         .route("/api/mls/messages", get(mls::pending_messages))
@@ -115,7 +117,11 @@ pub fn router(state: AppState) -> Router {
             .route("/api/oidc/callback", get(oidc::callback));
     }
 
-    router.layer(Extension(limiter)).with_state(state)
+    let trust_proxy = rate_limit::TrustProxy(state.config.trusted_proxy);
+    router
+        .layer(Extension(trust_proxy))
+        .layer(Extension(limiter))
+        .with_state(state)
 }
 
 async fn health() -> Json<Value> {

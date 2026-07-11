@@ -7,20 +7,24 @@
 //! account exists (same rule as history).
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::Json;
+use axum::{Extension, Json};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::authz;
 use crate::error::{ApiResult, AppError};
 use crate::state::AppState;
+
+use super::rate_limit::RateLimiter;
 
 /// Legacy caps kept: ≤2KB per decoded package, ≤5 per upload. The stored pool
 /// cap is raised 10 → 20 since packages are now actually consumed (D-007).
@@ -31,6 +35,15 @@ const MAX_STORED_UNCONSUMED: i64 = 20;
 const MAX_MLS_PAYLOAD_BYTES: usize = 256 * 1024;
 /// Cap explicit commit fan-out lists.
 const MAX_COMMIT_RECIPIENTS: usize = 256;
+/// Ceiling on a recipient's unprocessed mailbox: a client that never acks (or
+/// a hostile sender) can't grow it without bound. New welcome/commit rows are
+/// refused with 429 once the backlog hits this.
+const MAX_UNPROCESSED_PER_RECIPIENT: i64 = 500;
+
+/// Per-user write/claim budgets (fixed 60s windows, shared limiter).
+const MLS_CLAIM_PER_MINUTE: u32 = 60;
+const MLS_WELCOME_PER_MINUTE: u32 = 60;
+const MLS_COMMIT_PER_MINUTE: u32 = 30;
 
 fn decode_b64(s: &str, max: usize, what: &str) -> Result<Vec<u8>, AppError> {
     let bytes = BASE64
@@ -139,16 +152,49 @@ pub async fn upload_keys(
     })))
 }
 
-/// GET /api/mls/keys/{user_id} — fetch ONE of the target's KeyPackages,
-/// atomically consuming it (D-007). When the pool is dry, the last-resort
-/// package is returned WITHOUT being consumed. `remaining` tells the owner's
-/// peers nothing they can't already infer, and tells clients when to nudge a
-/// replenish.
-pub async fn fetch_key(
+/// GET /api/mls/keys/{user_id} — NON-consuming probe of the target's pool.
+/// Same authz gate as claim (unknown/no-relationship targets are the same
+/// 404), but nothing is consumed: a client can safely poll this. Returns the
+/// count of available one-time packages and whether a last-resort exists so
+/// the caller knows whether a subsequent claim will burn a one-time package or
+/// fall back. (M7: the consuming fetch is now POST .../claim, so a plain GET —
+/// or a retry/proxy replay — can never silently drain the pool.)
+pub async fn probe_key(
     State(state): State<AppState>,
     user: AuthUser,
     Path(target): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    let target = target.trim().to_lowercase();
+    if !authz::can_fetch_key_packages(&state.pool, &user.user_id, &target).await? {
+        return Err(AppError::NotFound);
+    }
+    let (available, has_last_resort): (i64, bool) = sqlx::query_as(
+        "SELECT
+             (SELECT COUNT(*) FROM key_packages
+              WHERE user_id = $1 AND consumed_at IS NULL AND NOT is_last_resort),
+             EXISTS(SELECT 1 FROM key_packages WHERE user_id = $1 AND is_last_resort)",
+    )
+    .bind(&target)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(Json(json!({
+        "available": available,
+        "has_last_resort": has_last_resort,
+    })))
+}
+
+/// POST /api/mls/keys/{user_id}/claim — claim ONE of the target's KeyPackages,
+/// atomically consuming it (D-007). When the pool is dry, the last-resort
+/// package is returned WITHOUT being consumed. `remaining` tells the owner's
+/// peers nothing they can't already infer, and tells clients when to nudge a
+/// replenish.
+pub async fn claim_key(
+    State(state): State<AppState>,
+    Extension(limiter): Extension<Arc<RateLimiter>>,
+    user: AuthUser,
+    Path(target): Path<String>,
+) -> ApiResult<Json<Value>> {
+    limiter.check(&format!("mls_claim:{}", user.user_id), MLS_CLAIM_PER_MINUTE)?;
     let target = target.trim().to_lowercase();
     // Fail-closed gate; unknown targets come back "not allowed" -> same 404.
     if !authz::can_fetch_key_packages(&state.pool, &user.user_id, &target).await? {
@@ -230,16 +276,27 @@ fn validate_group_id(group_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Store one mailbox row and live-push it to the recipient's connections.
-async fn store_and_push(
-    state: &AppState,
+/// Insert one mailbox row inside `tx`, enforcing the per-recipient backlog cap
+/// first. Returns the new id + created_at so the caller can live-push AFTER the
+/// transaction commits (a push before commit could race a rollback).
+async fn insert_mailbox(
+    tx: &mut Transaction<'_, Postgres>,
     sender: &str,
     recipient: &str,
     message_type: &str,
     group_id: &str,
     payload: &[u8],
-) -> Result<Uuid, AppError> {
-    let (id, created_at): (Uuid, DateTime<Utc>) = sqlx::query_as(
+) -> Result<(Uuid, DateTime<Utc>), AppError> {
+    let (pending,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM mls_messages WHERE recipient_id = $1 AND NOT processed",
+    )
+    .bind(recipient)
+    .fetch_one(&mut **tx)
+    .await?;
+    if pending >= MAX_UNPROCESSED_PER_RECIPIENT {
+        return Err(AppError::TooManyRequests);
+    }
+    let row: (Uuid, DateTime<Utc>) = sqlx::query_as(
         "INSERT INTO mls_messages (recipient_id, sender_id, message_type, group_id, payload)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, created_at",
@@ -249,8 +306,24 @@ async fn store_and_push(
     .bind(message_type)
     .bind(group_id)
     .bind(payload)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut **tx)
     .await?;
+    Ok(row)
+}
+
+/// Live-push a stored mailbox row to the recipient's connections (best effort;
+/// zero connections is fine — it's in the mailbox for the next poll).
+#[allow(clippy::too_many_arguments)]
+fn push_mailbox(
+    state: &AppState,
+    id: Uuid,
+    created_at: DateTime<Utc>,
+    sender: &str,
+    recipient: &str,
+    message_type: &str,
+    group_id: &str,
+    payload: &[u8],
+) {
     let push = json!({
         "type": "mls.message",
         "id": id,
@@ -262,7 +335,6 @@ async fn store_and_push(
     })
     .to_string();
     state.hub.send_to_user(recipient, &push);
-    Ok(id)
 }
 
 #[derive(Deserialize)]
@@ -278,9 +350,14 @@ pub struct WelcomeBody {
 /// recipient are the same 404.
 pub async fn send_welcome(
     State(state): State<AppState>,
+    Extension(limiter): Extension<Arc<RateLimiter>>,
     user: AuthUser,
     Json(body): Json<WelcomeBody>,
 ) -> ApiResult<Json<Value>> {
+    limiter.check(
+        &format!("mls_welcome:{}", user.user_id),
+        MLS_WELCOME_PER_MINUTE,
+    )?;
     validate_group_id(&body.group_id)?;
     let payload = decode_b64(&body.payload, MAX_MLS_PAYLOAD_BYTES, "payload")?;
     let recipient = body.recipient_id.trim().to_lowercase();
@@ -295,8 +372,9 @@ pub async fn send_welcome(
         return Err(AppError::NotFound);
     }
 
-    let id = store_and_push(
-        &state,
+    let mut tx = state.pool.begin().await?;
+    let (id, created_at) = insert_mailbox(
+        &mut tx,
         &user.user_id,
         &recipient,
         "welcome",
@@ -304,6 +382,17 @@ pub async fn send_welcome(
         &payload,
     )
     .await?;
+    tx.commit().await?;
+    push_mailbox(
+        &state,
+        id,
+        created_at,
+        &user.user_id,
+        &recipient,
+        "welcome",
+        &body.group_id,
+        &payload,
+    );
     Ok(Json(json!({ "id": id, "ok": true })))
 }
 
@@ -323,9 +412,14 @@ pub struct CommitBody {
 /// the MLS group.
 pub async fn send_commit(
     State(state): State<AppState>,
+    Extension(limiter): Extension<Arc<RateLimiter>>,
     user: AuthUser,
     Json(body): Json<CommitBody>,
 ) -> ApiResult<Json<Value>> {
+    limiter.check(
+        &format!("mls_commit:{}", user.user_id),
+        MLS_COMMIT_PER_MINUTE,
+    )?;
     validate_group_id(&body.group_id)?;
     let payload = decode_b64(&body.payload, MAX_MLS_PAYLOAD_BYTES, "payload")?;
 
@@ -386,8 +480,36 @@ pub async fn send_commit(
         }
     };
 
+    // Fan-out is atomic (M1): every recipient's mailbox row is inserted in ONE
+    // transaction. If any insert fails (including the backlog cap tripping),
+    // the whole commit rolls back — a partially-delivered commit would desync
+    // the MLS group. Live pushes happen only after the commit succeeds.
+    let mut tx = state.pool.begin().await?;
+    let mut inserted: Vec<(String, Uuid, DateTime<Utc>)> = Vec::with_capacity(recipients.len());
     for r in &recipients {
-        store_and_push(&state, &user.user_id, r, "commit", &body.group_id, &payload).await?;
+        let (id, created_at) = insert_mailbox(
+            &mut tx,
+            &user.user_id,
+            r,
+            "commit",
+            &body.group_id,
+            &payload,
+        )
+        .await?;
+        inserted.push((r.clone(), id, created_at));
+    }
+    tx.commit().await?;
+    for (r, id, created_at) in &inserted {
+        push_mailbox(
+            &state,
+            *id,
+            *created_at,
+            &user.user_id,
+            r,
+            "commit",
+            &body.group_id,
+            &payload,
+        );
     }
     Ok(Json(json!({ "ok": true, "delivered": recipients.len() })))
 }

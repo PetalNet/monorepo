@@ -171,12 +171,15 @@ async fn expect_silence(
                         panic!("unexpected {unwanted} frame during ghost: {v}");
                     }
                 }
-                Some(_) => {}
-                None => break,
+                Some(Ok(_)) => {}
+                // A closed/errored socket is NOT a pass: a crash or disconnect
+                // during the window would otherwise read as "ghost enforced".
+                Some(Err(e)) => panic!("socket errored during silence window: {e}"),
+                None => panic!("socket closed during silence window (not a clean ghost drop)"),
             }
         }
     };
-    // Timeout elapsing without a panic IS the pass condition.
+    // Only the timeout elapsing WITHOUT any frame (or close) is the pass.
     let _ = tokio::time::timeout(window, fut).await;
 }
 
@@ -214,8 +217,11 @@ async fn register_share_encrypt_deliver_decrypt_ghost() {
     bob.post(&format!("/api/shares/requests/{req_id}/accept"), json!({}))
         .await;
 
-    // --- MLS group formation across the real server.
-    let fetched = alice.get(&format!("/api/mls/keys/{}", bob.user_id)).await;
+    // --- MLS group formation across the real server. Claiming a KeyPackage
+    // consumes one (POST .../claim); a plain GET only probes and never drains.
+    let fetched = alice
+        .post(&format!("/api/mls/keys/{}/claim", bob.user_id), json!({}))
+        .await;
     assert_eq!(fetched["last_resort"], json!(false));
     let bob_kp = B64
         .decode(fetched["key_package"].as_str().expect("kp"))

@@ -88,7 +88,14 @@ async fn run(config: Config) {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("failed to bind LISTEN address");
-    axum::serve(listener, app).await.expect("server error");
+    // ConnectInfo makes the real peer SocketAddr available to the ClientIp
+    // extractor (rate limiting); without it every request would key "unknown".
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("server error");
 }
 
 const HISTORY_RETENTION_DAYS: i32 = 30;
@@ -111,6 +118,21 @@ async fn cleanup_task(pool: sqlx::PgPool) {
                 "DELETE FROM location_history WHERE created_at < now() - make_interval(days => $1)",
             )
             .bind(HISTORY_RETENTION_DAYS)
+            .execute(&pool)
+            .await?;
+            // Reap consumed KeyPackages and applied MLS messages so the mailbox
+            // and pool tables don't grow without bound (M6). Windows are
+            // generous: a late-joining device still finds recent material.
+            sqlx::query(
+                "DELETE FROM key_packages
+                 WHERE consumed_at IS NOT NULL AND consumed_at < now() - make_interval(days => 7)",
+            )
+            .execute(&pool)
+            .await?;
+            sqlx::query(
+                "DELETE FROM mls_messages
+                 WHERE processed AND created_at < now() - make_interval(days => 30)",
+            )
             .execute(&pool)
             .await?;
             Ok(())

@@ -70,6 +70,13 @@ pub struct ShareRequestBody {
 /// exists, already has a pending request either way, or already shares with
 /// the caller. Anything else would let a caller enumerate accounts or probe
 /// relationship state.
+///
+/// Idempotency ladder (H2): an existing accepted share, or a *pending* request
+/// in either direction, is a no-op 200. Otherwise the request is UPSERTed to
+/// pending — re-opening a prior 'rejected'/'accepted' row — so that a share
+/// that was unshared/rejected can always be requested again (the old bug was
+/// treating ANY historical row as "already requested", making unshare/reject
+/// irreversible).
 pub async fn create_request(
     State(state): State<AppState>,
     Extension(limiter): Extension<Arc<RateLimiter>>,
@@ -93,32 +100,39 @@ pub async fn create_request(
     if !user_exists(&state, &to_user).await? {
         return Ok(Json(recorded));
     }
-    // Already sharing, or a request already exists in either direction (any
-    // status — the unique index is on (from, to)): idempotent generic 200.
+    // Already sharing: idempotent generic 200, record nothing.
     if share_exists(&state, &user.user_id, &to_user).await? {
         return Ok(Json(recorded));
     }
-    let existing: Option<(i32,)> = sqlx::query_as(
+    // A pending request in EITHER direction is already an open ask: no-op 200.
+    let pending: Option<(i32,)> = sqlx::query_as(
         "SELECT 1 FROM share_requests
-         WHERE (from_user_id = $1 AND to_user_id = $2)
-            OR (from_user_id = $2 AND to_user_id = $1)
+         WHERE ((from_user_id = $1 AND to_user_id = $2)
+             OR (from_user_id = $2 AND to_user_id = $1))
+           AND status = 'pending'
          LIMIT 1",
     )
     .bind(&user.user_id)
     .bind(&to_user)
     .fetch_optional(&state.pool)
     .await?;
-    if existing.is_none() {
-        // ON CONFLICT: a concurrent duplicate is also just "recorded".
-        sqlx::query(
-            "INSERT INTO share_requests (from_user_id, to_user_id) VALUES ($1, $2)
-             ON CONFLICT (from_user_id, to_user_id) DO NOTHING",
-        )
-        .bind(&user.user_id)
-        .bind(&to_user)
-        .execute(&state.pool)
-        .await?;
+    if pending.is_some() {
+        return Ok(Json(recorded));
     }
+    // Otherwise open (or re-open) a pending request from caller to target. A
+    // prior 'rejected'/'accepted' row on this exact pair is flipped back to
+    // pending; a fresh pair inserts. ON CONFLICT keeps a concurrent duplicate
+    // idempotent too.
+    sqlx::query(
+        "INSERT INTO share_requests (from_user_id, to_user_id) VALUES ($1, $2)
+         ON CONFLICT (from_user_id, to_user_id)
+         DO UPDATE SET status = 'pending', updated_at = now()
+         WHERE share_requests.status <> 'pending'",
+    )
+    .bind(&user.user_id)
+    .bind(&to_user)
+    .execute(&state.pool)
+    .await?;
     Ok(Json(recorded))
 }
 
@@ -279,14 +293,28 @@ pub async fn delete_share(
     } else {
         (&other, &user.user_id)
     };
+    let mut tx = state.pool.begin().await?;
     let result = sqlx::query("DELETE FROM user_shares WHERE user_a = $1 AND user_b = $2")
         .bind(lo)
         .bind(hi)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
+    // Clear any share_requests rows (either direction, any status) between the
+    // pair so a future request starts from a clean slate rather than tripping
+    // over a stale 'accepted'/'rejected' row (H2).
+    sqlx::query(
+        "DELETE FROM share_requests
+         WHERE (from_user_id = $1 AND to_user_id = $2)
+            OR (from_user_id = $2 AND to_user_id = $1)",
+    )
+    .bind(&user.user_id)
+    .bind(&other)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -306,9 +334,18 @@ pub struct TempShareBody {
 /// exact same shape (fresh id, computed expiry) and nothing is recorded.
 pub async fn create_temp(
     State(state): State<AppState>,
+    Extension(limiter): Extension<Arc<RateLimiter>>,
     user: AuthUser,
     Json(body): Json<TempShareBody>,
 ) -> ApiResult<Json<Value>> {
+    // Same per-user budget as share requests: a temp share is another way to
+    // initiate a relationship, so it must be throttled to bound enumeration
+    // and spam (L4). Shared key so the two paths can't be summed to bypass it.
+    limiter.check(
+        &format!("share_request:{}", user.user_id),
+        SHARE_REQUESTS_PER_MINUTE,
+    )?;
+
     let to_user = body.to_user_id.trim().to_lowercase();
     if to_user.is_empty() || to_user == user.user_id {
         return Err(AppError::BadRequest("invalid target".into()));

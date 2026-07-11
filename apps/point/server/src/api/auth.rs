@@ -20,6 +20,10 @@ use super::rate_limit::{ClientIp, RateLimiter};
 const AUTH_PER_MINUTE: u32 = 10;
 /// register only: additional whole-server cap.
 const REGISTER_GLOBAL_PER_MINUTE: u32 = 5;
+/// login: whole-server cap on top of per-user/per-ip, so credential spraying
+/// across many usernames from one (possibly "unknown") IP bucket is still
+/// bounded. Generous — real users spread across their own per-user windows.
+const LOGIN_GLOBAL_PER_MINUTE: u32 = 100;
 
 /// Advisory-lock key serializing user creation, so two concurrent first
 /// registrations can't both observe count==0 and both become admin.
@@ -116,6 +120,7 @@ pub async fn register(
         Some(&password_hash),
         is_first_user,
         &device_name,
+        None,
     )
     .await
     {
@@ -163,6 +168,7 @@ pub async fn login(
     let user_id = normalize_login_id(&body.username, &state.config.domain);
     limiter.check(&format!("login:ip:{ip}"), AUTH_PER_MINUTE)?;
     limiter.check(&format!("login:user:{user_id}"), AUTH_PER_MINUTE)?;
+    limiter.check("login:global", LOGIN_GLOBAL_PER_MINUTE)?;
 
     let row: Option<(Option<String>, String, bool, bool)> = sqlx::query_as(
         "SELECT password_hash, display_name, is_admin, is_federated FROM users WHERE id = $1",

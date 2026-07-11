@@ -12,6 +12,11 @@ pub struct Config {
     /// every local user id.
     pub domain: String,
     pub open_registration: bool,
+    /// Trust reverse-proxy client-IP headers (`X-Real-IP`). Off by default: a
+    /// directly-exposed server must ignore attacker-spoofable headers and key
+    /// rate limits on the real peer address. Set only behind a proxy that
+    /// overwrites the header (env `TRUST_PROXY_HEADERS`).
+    pub trusted_proxy: bool,
     /// Optional Glitchtip/Sentry DSN. Absent = error reporting disabled.
     pub glitchtip_dsn: Option<String>,
     /// Optional OIDC provider (decision 17). Off unless OIDC_ENABLED=true.
@@ -71,6 +76,7 @@ impl Config {
             jwt_secret,
             domain,
             open_registration: env_bool("OPEN_REGISTRATION", false),
+            trusted_proxy: env_bool("TRUST_PROXY_HEADERS", false),
             glitchtip_dsn: env::var("GLITCHTIP_DSN").ok().filter(|s| !s.is_empty()),
             oidc,
         }

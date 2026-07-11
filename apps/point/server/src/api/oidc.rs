@@ -115,45 +115,80 @@ pub async fn callback(
         .claims(&client.id_token_verifier(), &Nonce::new(nonce))
         .map_err(|e| oidc_err("id_token verify", e))?;
 
-    let raw_username = claims
-        .preferred_username()
-        .map(|u| u.as_str().to_string())
-        .unwrap_or_else(|| claims.subject().as_str().to_string());
-    let username = map_oidc_username(&raw_username)?;
-    let user_id = format!("{username}@{}", state.config.domain);
+    // The IdP subject is the immutable identity key; preferred_username is only
+    // display material and a seed for the local id. We match accounts on
+    // (issuer, subject) — NEVER on the username — so a self-assignable
+    // preferred_username can't take over an existing local or admin account
+    // (D-016). issuer comes from our verified config, not the token.
+    let issuer = &cfg.issuer;
+    let subject = claims.subject().as_str().to_string();
 
-    let row: Option<(String, bool, bool)> =
-        sqlx::query_as("SELECT display_name, is_admin, is_federated FROM users WHERE id = $1")
-            .bind(&user_id)
-            .fetch_optional(&state.pool)
-            .await?;
-    let (display_name, is_admin) = match row {
-        // A federated shadow is another server's user; it can never log in here.
-        Some((_, _, true)) => return Err(AppError::Unauthorized),
-        Some((display_name, is_admin, false)) => (display_name, is_admin),
+    let existing: Option<(String, String, bool, bool)> = sqlx::query_as(
+        "SELECT id, display_name, is_admin, is_federated
+         FROM users WHERE oidc_issuer = $1 AND oidc_subject = $2",
+    )
+    .bind(issuer)
+    .bind(&subject)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (user_id, display_name, is_admin) = match existing {
+        // A federated shadow can never log in here (can't actually hold an OIDC
+        // binding, but fail closed regardless).
+        Some((_, _, _, true)) => return Err(AppError::Unauthorized),
+        Some((id, display_name, is_admin, false)) => (id, display_name, is_admin),
         None => {
-            // First login provisions the account, same shape as /api/register
-            // but with no password hash. Same first-user-admin bootstrap rule.
+            // First login for this IdP identity: provision a NEW account. Derive
+            // a local id from the username, but if it (or any suffix) collides
+            // with an existing account we disambiguate — we NEVER adopt someone
+            // else's row.
+            let raw_username = claims
+                .preferred_username()
+                .map(|u| u.as_str().to_string())
+                .unwrap_or_else(|| subject.clone());
+            let base = map_oidc_username(&raw_username)?;
+
             let mut tx = state.pool.begin().await?;
             sqlx::query("SELECT pg_advisory_xact_lock($1)")
                 .bind(USER_CREATE_LOCK_KEY)
                 .execute(&mut *tx)
                 .await?;
-            let (user_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
-                .fetch_one(&mut *tx)
-                .await?;
-            let is_first_user = user_count == 0;
-            db::users::create_local_user(
-                &mut tx,
-                &user_id,
-                &username,
-                None,
-                is_first_user,
-                "primary",
+
+            // Re-check under the lock in case a concurrent callback for the same
+            // subject already provisioned it.
+            let raced: Option<(String, String, bool)> = sqlx::query_as(
+                "SELECT id, display_name, is_admin
+                 FROM users WHERE oidc_issuer = $1 AND oidc_subject = $2",
             )
-            .await?;
-            tx.commit().await?;
-            (username, is_first_user)
+            .bind(issuer)
+            .bind(&subject)
+            .fetch_one(&mut *tx)
+            .await
+            .ok()
+            .map(Some)
+            .unwrap_or(None);
+            if let Some((id, display_name, is_admin)) = raced {
+                tx.commit().await?;
+                (id, display_name, is_admin)
+            } else {
+                let user_id = pick_free_user_id(&mut tx, &base, &state.config.domain).await?;
+                let (user_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+                    .fetch_one(&mut *tx)
+                    .await?;
+                let is_first_user = user_count == 0;
+                db::users::create_local_user(
+                    &mut tx,
+                    &user_id,
+                    &base,
+                    None,
+                    is_first_user,
+                    "primary",
+                    Some((issuer, &subject)),
+                )
+                .await?;
+                tx.commit().await?;
+                (user_id, base, is_first_user)
+            }
         }
     };
 
@@ -171,6 +206,31 @@ pub async fn callback(
         })),
     )
         .into_response())
+}
+
+/// Find a free local user id for a new OIDC account: `base@domain`, then
+/// `base2@domain`, `base3@domain`, … — so provisioning never collides with (or
+/// adopts) an existing account. Runs inside the caller's user-create lock.
+async fn pick_free_user_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    base: &str,
+    domain: &str,
+) -> Result<String, AppError> {
+    for n in 0..1000 {
+        let candidate = if n == 0 {
+            format!("{base}@{domain}")
+        } else {
+            format!("{base}{}@{domain}", n + 1)
+        };
+        let taken: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM users WHERE id = $1")
+            .bind(&candidate)
+            .fetch_optional(&mut **tx)
+            .await?;
+        if taken.is_none() {
+            return Ok(candidate);
+        }
+    }
+    Err(AppError::Internal("could not allocate a local id".into()))
 }
 
 fn http_client() -> Result<HttpClient, AppError> {
