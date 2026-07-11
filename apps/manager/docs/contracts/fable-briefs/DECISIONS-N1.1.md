@@ -252,3 +252,58 @@ final summary + open questions, stop.
   `origin/main` into `migrate-manager` cleanly (zero overlap with apps/manager) so the PR
   bases on current main. No gh CLI on this host → PR + CI polling + merge go through the
   GitHub REST API with the credential-helper PAT.
+
+## M5 — PR #91, CI feedback loop, merge
+
+- Pushed `migrate-manager`; opened PR #91 (https://github.com/PetalNet/monorepo/pull/91)
+  via the REST API (no gh CLI on host); auth via the repo's existing credential helper.
+- CI loop (4 iterations to green, all reproduced/verified locally before each push):
+  1. `typos`: real typos fixed (validate.py's deliberate unknown-key fixture renamed
+     `contrl_room` → `xcontrol_room`, semantics intact — validate.py re-run green) plus
+     dictionary rewords (unparsable, skew, SELECT queries). `check` (eslint/markdown):
+     languages on bare code fences; backticked bracket text parsed as link labels.
+  2. `vp fmt --check`: oxfmt pass over the hand-edited docs.
+  3. `typesync` hard-fails on a workspace dir without package.json → root package.json
+     `typesync.ignoreProjects: ["apps/manager"]`. NOTE: branch `migrate-matrix-bot` fails
+     its `check` job on the same wall (verified on its head SHA) and will need its own
+     entry when it lands — not added speculatively for a dir absent from main.
+  4. `package-json/order-properties`: eslint --fix ordering of the new key.
+- Final head: all 9 checks green (build, check, typos, link-check, zizmor ×2, CodeQL,
+  Analyze ×2). Sol review passed (M4). Merged PR #91 as a standard merge (not squash),
+  matrix-bot/slide convention.
+
+## FINAL SUMMARY (N1.1 complete)
+
+**Delivered.** The N1.1-hardened manager is merged into PetalNet/monorepo `main` as
+`apps/manager` (history-preserving). Hardening: heartbeat v2 (`schema_version: 2`,
+optional `handle`, `channel_lock` — stubbed `held`), healthcheck v1-shape tolerance +
+OS-neutral null-tmux handling, config + session-state contract conformance
+(`schema_version` fields, serde-behavior tests), 21 state-machine/conformance unit tests.
+Validation: host `cargo check`/`test`/`--release` green; isolated `rust:1.96-slim`
+container green (fmt, clippy -D warnings, test, locked release build); codex review no
+findings; monorepo CI 9/9 green.
+
+**§0 compliance.** No live config changed, no service restarted, no running binary
+touched, nothing written under `~/.claude/shared/` (the PAT was READ via the pre-existing
+credential helper, as directed). Builds capped (`CARGO_BUILD_JOBS=2`, `nice -n19`,
+`--cpus=2` in docker); load stayed below core count at every checkpoint; no `nix build`
+(cargo built first, so none was needed). The live manager still runs the old standalone
+build — deploying the monorepo build is a separate, Parker-gated canary step.
+
+**OPEN QUESTIONS FOR PARKER**
+
+1. **Sol's model.** This codex account rejects gpt-5.6 (`gpt-5.6[-codex[-max]]` all "not
+   supported with a ChatGPT account"); review ran on gpt-5.5 at high reasoning. OK, or
+   upgrade the account and re-review?
+2. **channel_lock stub.** Heartbeat writes a constant `{state: "held"}` until N1.3/N2.2
+   wire the real matrix-channel lock; healthcheck deliberately does not gate on lockout
+   yet. Confirm sequencing.
+3. **migrate-matrix-bot is red.** Its `check` job fails the same typesync wall (plus a
+   zizmor failure). It needs `"apps/matrix-bot"` in typesync.ignoreProjects at landing.
+4. **Contracts placement.** `docs/contracts/` rode into `apps/manager/`; if N1.2+ treat
+   them as fleet-wide, consider hoisting to the monorepo's `docs/` in a follow-up.
+5. **Heartbeat rename transition.** Shipped per the logged default: no dual-key write,
+   reader-side v1 tolerance only (manager+healthcheck are one binary). Confirm.
+6. **janet-manager repo.** The standalone repo's `feat/N1.1-manager-core` (the migration
+   source) exists only locally; archive/push it at your discretion — the monorepo now owns
+   the code.
