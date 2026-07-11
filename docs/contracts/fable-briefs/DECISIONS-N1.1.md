@@ -158,6 +158,15 @@ P5 (source complete) → M1 import+flatten → M2 cleanup/tooling commits → M3
 build-test loop → M4 Sol review (+fixes) → M5 record in MIGRATION.md, local merge to main,
 final summary + open questions, stop.
 
+## Phase 5 — Source branch complete (build/test log)
+
+- `cargo check --all-targets`: clean. `cargo test`: **21/21 green**. One
+  `cargo build --release`: green in 36.6s (`agent-manager 0.1.0`, 2.6 MB stripped+lto).
+  All runs `CARGO_BUILD_JOBS=2 nice -n19`; load stayed under 8 cores throughout.
+- All five original phases committed on `feat/N1.1-manager-core`. Per the updated
+  directive this branch is now the SOURCE for the monorepo migration (phases M1–M5);
+  the final completion summary + open questions land at the end of M5.
+
 ### Plan (phases 2–5)
 1. **P2** `state.rs`: Heartbeat v2 struct (+ `ChannelLock`), `supervisor.rs::write_heartbeat`
    emits v2 (+handle+stub lock); `health.rs` reads v2, tolerates v1 with a note; unit tests
