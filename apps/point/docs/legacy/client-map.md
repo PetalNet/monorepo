@@ -1,8 +1,8 @@
 # Legacy Flutter client — deep survey (reference for the M1 rewrite)
 
-*Produced 2026-07-11 from `/home/docker/point/point/` (55 Dart files, ~17.6k LOC,
+_Produced 2026-07-11 from `/home/docker/point/point/` (55 Dart files, ~17.6k LOC,
 hooks_riverpod 3.x). Corrections to the brief's premises are flagged — the rewrite plans from
-what the code actually is.*
+what the code actually is._
 
 ## 1. The god-object
 
@@ -12,7 +12,7 @@ cache (SharedPreferences, 30s debounce), GPS fix handling, activity→cadence ma
 (active=3s, fast=5s periodic relay), MLS encrypt+send (single + batch), zone learning feed,
 zone enter/exit + synthetic zone-center relay, 10-min zone heartbeat, geofence eval (circle +
 ray-cast polygon), ghost gating (its own `isGhostMode` flag), viewing/nudge scheduler
-(15s/45s/2min adaptive), WS message handling (location.broadcast, presence.*, nudge), geo math.
+(15s/45s/2min adaptive), WS message handling (location.broadcast, presence.\*, nudge), geo math.
 Dependents: home_screen (orchestrator), map_view, place_creation_screen, person_history_screen,
 person_detail_sheet.
 
@@ -44,6 +44,7 @@ crypto — matches the spec's target decomposition.
 
 `home_screen.dart:32` HAS `WidgetsBindingObserver` wired (addObserver/didChangeAppLifecycleState
 → appOpened/appBackgrounded + setBackgrounded). The genuinely-unwired hooks are:
+
 - **`LocationService.enterGhost()`/`exitGhost()` — zero call sites.** Ghost only suppresses
   relay; GPS+accel keep burning battery while "ghosted." Rewrite: GhostService drives the
   engine.
@@ -108,6 +109,6 @@ v1 = plain on/off: single GhostService, persisted, drives both server flag and t
 ## 9. Rewrite call-outs (ranked)
 
 1. MLS zero persistence (GO-bar #2). 2. Ghost never stops the engine + dual ghost state
-(GO-bar #6). 3. WS backoff bug + no jitter + RAM-only buffer (GO-bar #3). 4. Single-KeyPackage
-starvation (GO-bar #4). 5. God-object seams per §1 (GO-bar #5). 6. Learned zones plaintext at
-rest. 7. shareItem /api prefix (v1.5, fix in passing).
+   (GO-bar #6). 3. WS backoff bug + no jitter + RAM-only buffer (GO-bar #3). 4. Single-KeyPackage
+   starvation (GO-bar #4). 5. God-object seams per §1 (GO-bar #5). 6. Learned zones plaintext at
+   rest. 7. shareItem /api prefix (v1.5, fix in passing).

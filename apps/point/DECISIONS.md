@@ -1,8 +1,8 @@
 # Point v1 — Decision log (build-time)
 
-*Every non-obvious call Fable makes during the build, grounded in the spec. The 18 product
+_Every non-obvious call Fable makes during the build, grounded in the spec. The 18 product
 decisions are locked in `point-rebuild-decisions.md` and are not relitigated here — this file is
-implementation calls only. Newest at the bottom.*
+implementation calls only. Newest at the bottom._
 
 ## 2026-07-11 — D-001 · Keep the seeded core crate's durability extensions (it is not byte-identical to legacy)
 

@@ -8,14 +8,17 @@
 ---
 
 ## Phase 1: Accelerometer Gate (P0)
+
 **Impact: Eliminates 80% of GPS wakes. Biggest battery win.**
 
 ### Files:
+
 - **MODIFY** `location_service.dart` — Add accelerometer listener, gate GPS behind motion detection
 - **MODIFY** `AndroidManifest.xml` — Add `BODY_SENSORS` and `ACTIVITY_RECOGNITION` permissions
 - **MODIFY** `pubspec.yaml` — Add `sensors_plus` package for accelerometer access
 
 ### Implementation:
+
 1. Add `_accelerometerSubscription` to LocationService
 2. On service init, start listening to `TYPE_SIGNIFICANT_MOTION` (Android) or accelerometer stream
 3. Gate `_startContinuousGps()` — only call if accelerometer confirms motion
@@ -24,6 +27,7 @@
 6. Hysteresis: require 10s sustained motion before wake, 30s sustained stillness before sleep
 
 ### Tests:
+
 - Verify GPS stays OFF when phone is on desk
 - Verify GPS wakes within 3s of picking up phone and walking
 - Verify no false wakes from pocket vibration
@@ -33,13 +37,16 @@
 ---
 
 ## Phase 2: Auto Hidden Zones (P1)
+
 **Impact: GPS off at home/work/school — 80% of user's day.**
 
 ### New Files:
+
 - **CREATE** `lib/services/zone_learning_service.dart` — Dwell detection, clustering, zone management
 - **CREATE** `lib/models/learned_zone.dart` — Zone data model with confidence, radius, WiFi fingerprint
 
 ### Modified Files:
+
 - **MODIFY** `location_provider.dart` — Check zones before relay, suppress GPS in-zone
 - **MODIFY** `location_service.dart` — Register OS geofences for top zones, zone exit → wake GPS
 - **MODIFY** `providers.dart` — Add zoneLearningServiceProvider
@@ -48,6 +55,7 @@
 - **MODIFY** `config.dart` — Add zone learning enable/disable toggle
 
 ### Implementation:
+
 1. **ZoneLearningService** class:
    - `_dwellEvents: List<DwellEvent>` — timestamped location+duration records
    - `_learnedZones: List<LearnedZone>` — promoted clusters
@@ -55,8 +63,8 @@
    - If same location (100m) for 30+ min → record dwell event
    - If 3+ dwells at same cluster → promote to LearnedZone
    - Persist to SharedPreferences (JSON)
-   
 2. **LearnedZone** model:
+
    ```dart
    class LearnedZone {
      String id;
@@ -70,10 +78,10 @@
    }
    ```
 
-3. **Zone check in location_provider._onPosition()**:
+3. **Zone check in location_provider.\_onPosition()**:
    - If position is inside any learned zone with confidence > 50 → set `inZone = true`
    - If `inZone`: skip relay (zone center already on server), stop GPS after 60s
-   - On zone exit (position > zone.radius * 1.2): wake GPS immediately
+   - On zone exit (position > zone.radius \* 1.2): wake GPS immediately
 
 4. **OS geofence registration**:
    - Top 5 zones by confidence → register with Android GeofencingClient / iOS CLCircularRegion
@@ -85,6 +93,7 @@
    - Master toggle: "Auto-learn places" on/off
 
 ### Tests:
+
 - Stay at GPS point for 35 min → dwell recorded
 - Return 3 times → zone created
 - Enter zone → GPS stops within 60s
@@ -96,12 +105,15 @@
 ---
 
 ## Phase 3: Batched Background Relay (P1)
+
 **Impact: 5-10x fewer radio wakes in background.**
 
 ### New Files:
+
 - **CREATE** `lib/services/relay_buffer.dart` — Accumulates fixes, flushes in batches
 
 ### Modified Files:
+
 - **MODIFY** `location_provider.dart` — Replace per-fix relay with buffer flush
 - **MODIFY** `ws_service.dart` — Add `sendBatchLocationUpdate()` method
 - **MODIFY** `crypto_service.dart` — Accept batch JSON for encryption
@@ -109,12 +121,14 @@
 - **MODIFY** `models/location_update.dart` — Add batch_id field
 
 ### Implementation:
+
 1. **RelayBuffer** class:
+
    ```dart
    class RelayBuffer {
      List<LocationData> _buffer = [];
      Timer? _flushTimer;
-     
+
      void add(LocationData fix); // add to buffer
      void flush(); // encrypt batch → send → clear
      void startAutoFlush(Duration interval); // 30s for background
@@ -123,7 +137,7 @@
 
 2. **Foreground relay**: unchanged — single fix every 3-5s via WS (already open, no radio cost)
 
-3. **Background relay**: 
+3. **Background relay**:
    - GPS fires at 10-15s → fix goes into `_buffer`
    - Every 30s OR when buffer has 5+ fixes → flush
    - Flush: `jsonEncode(buffer)` → encrypt → single WS or HTTP send → clear buffer
@@ -140,6 +154,7 @@
    - Typical batch: 5 positions × 100 bytes delta = 500 bytes (vs 5 × full = 2.5KB)
 
 ### Tests:
+
 - Background: verify only 1 network burst per 30s (not per fix)
 - Verify all fixes arrive in correct order on server
 - Verify viewers see smooth movement from batched data
@@ -150,18 +165,22 @@
 ---
 
 ## Phase 4: WiFi Fingerprint Zone Presence (P2)
+
 **Impact: Cheap zone confirmation without GPS.**
 
 ### New Files:
+
 - **CREATE** `lib/services/wifi_fingerprint_service.dart` — BSSID scanning, fingerprint matching
 
 ### Modified Files:
+
 - **MODIFY** `zone_learning_service.dart` — Store WiFi fingerprints per zone
 - **MODIFY** `location_service.dart` — Use WiFi fingerprint as presence confirmation
 - **MODIFY** `AndroidManifest.xml` — Add `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE` permissions
 - **MODIFY** `pubspec.yaml` — Add `network_info_plus` or `wifi_scan` package
 
 ### Implementation:
+
 1. **WiFiFingerprintService**:
    - Scan visible WiFi BSSIDs every 30s (when in/near a zone)
    - Hash top-5 BSSIDs by signal strength → 64-bit fingerprint
@@ -176,6 +195,7 @@
 3. **Cost**: WiFi scan ~200mW for 1s every 30s = ~7mW average (vs GPS at 200-300mW continuous)
 
 ### Tests:
+
 - Enter zone → WiFi confirms → GPS stays off
 - Walk to different room (same WiFi) → still confirmed
 - Leave building → WiFi mismatch → GPS wakes
@@ -185,17 +205,21 @@
 ---
 
 ## Phase 5: Server-Side Interpolation (P2)
+
 **Impact: Smooth viewer experience from sparse background fixes.**
 
 ### New Files:
+
 - **CREATE** `point-server/src/api/interpolate.rs` — Interpolation endpoint
 
 ### Modified Files:
+
 - **MODIFY** `point-server/src/api/mod.rs` — Register route
 - **MODIFY** `point-server/src/db/history.rs` — Add interpolation_source field
 - **MODIFY** `point-server/migrations/` — New migration for interpolation metadata
 
 ### Implementation:
+
 1. **GET /api/history/{user_id}/interpolated**:
    - Params: `since`, `limit`, `method` (lerp|spline), `density` (points per minute)
    - Fetch raw history points
@@ -211,6 +235,7 @@
    - Trail playback UI shows GPS fixes as dots, interpolated segments as lighter lines
 
 ### Tests:
+
 - Request interpolated history → get smooth trajectory from 15s fixes
 - Compare with raw history → verify interpolation is reasonable
 
@@ -219,14 +244,17 @@
 ---
 
 ## Phase 6: Delta Compression (P3)
+
 **Impact: ~80% smaller payloads.**
 
 ### Modified Files:
+
 - **MODIFY** `relay_buffer.dart` — Delta-encode before send
 - **MODIFY** `ws_service.dart` — Compress flag
 - **MODIFY** `point-server/src/ws/handler.rs` — Delta-decode on receive
 
 ### Implementation:
+
 1. First fix in batch: full JSON `{lat, lon, speed, battery, timestamp}`
 2. Subsequent: delta from previous `{dlat, dlon, dspeed, dt}` (4 shorts = 8 bytes)
 3. Total batch: ~50-100 bytes vs ~500 bytes uncompressed
@@ -239,7 +267,7 @@
 
 ```
 Phase 1 (Accel Gate)     ████████░░  ~2 days
-Phase 2 (Auto Zones)     ░░████████  ~3 days  
+Phase 2 (Auto Zones)     ░░████████  ~3 days
 Phase 3 (Batched Relay)  ░░░░████░░  ~1 day
 Phase 4 (WiFi FP)        ░░░░░░████  ~2 days
 Phase 5 (Server Interp)  ░░░░░░░░██  ~1 day

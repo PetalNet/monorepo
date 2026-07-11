@@ -1,9 +1,9 @@
 # Legacy point-server — deep survey (reference for the rebuild)
 
-*Produced 2026-07-11 by a read-only survey of `/home/docker/point/point-server/`. This is the
+_Produced 2026-07-11 by a read-only survey of `/home/docker/point/point-server/`. This is the
 ground-truth inventory the greenfield server design lifts from. Legacy is SQLite-only (all SQL
 needs Postgres translation: `$1` placeholders, `now()`, `ON CONFLICT`, `BOOLEAN`, `BYTEA`).
-Migrations present: 001–005, 007–016 (16 numbers, 15 files).*
+Migrations present: 001–005, 007–016 (16 numbers, 15 files)._
 
 ## 1. Auth (local accounts)
 
@@ -50,7 +50,7 @@ per-target), fail-closed on error.**
   ghost_active (014), is_federated (015, shadow rows w/ empty hash), password_changed_at (016).
 - `devices`: id, user_id, name, mls_key_package BLOB (unused — real KPs in `key_packages`),
   push_token, last_seen.
-- `groups` + `group_members` (role default member/admin; precision; schedule_*; sharing BOOL;
+- `groups` + `group_members` (role default member/admin; precision; schedule\_\*; sharing BOOL;
   notify flags). `group_invites` (code, max_uses 0=unlimited, uses, expires_at).
 - `share_requests`: from,to,status pending/accepted/rejected, UNIQUE(from,to).
 - `user_shares`: PK (user_a,user_b) canonical smaller-first. THE authz source of truth.
@@ -79,9 +79,9 @@ per-target), fail-closed on error.**
   anything else. Query-param tokens deliberately removed.
 - Hub: `DashMap<user_id, Vec<(conn_id, UnboundedSender<Vec<u8>>)>>`, multi-conn per user.
 - Inbound: location.update, location.batch_update, presence.update, location.nudge,
-  location.subscribe (noop), bridge.*, item.location, place.triggered.
+  location.subscribe (noop), bridge.\*, item.location, place.triggered.
 - Outbound: location.broadcast, location.nudge, presence.update, mls.message, notification
-  pushes (share.request/accepted/rejected/temp_created, zone.consent_*).
+  pushes (share.request/accepted/rejected/temp*created, zone.consent*\*).
 - Batch: stores every fix to history, broadcasts only the latest.
 - Per-connection rate limits (60s windows): location.update/batch 60/min, nudge 10/min,
   presence 30/min, other 120/min.

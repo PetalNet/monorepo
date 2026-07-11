@@ -1,8 +1,8 @@
 # Point v1 — Build Plan
 
-*Fable's working plan, 2026-07-11. Source of truth: `FABLE-BRIEF-point-v1.md`, `point-v1-spec.html`,
+_Fable's working plan, 2026-07-11. Source of truth: `FABLE-BRIEF-point-v1.md`, `point-v1-spec.html`,
 `point-rebuild-decisions.md` (the 18 locked decisions), `point-teardown.md`. This file tracks how the
-build is executed; `DECISIONS.md` tracks every non-obvious call.*
+build is executed; `DECISIONS.md` tracks every non-obvious call._
 
 ## Repo home
 
@@ -28,7 +28,9 @@ Turn the seeded skeleton into **Point v1**: "Matrix for location" — open, self
 ## Milestones
 
 ### M0 · Foundation (branch `m0-foundation`)
+
 Real axum + Postgres server in `server/`:
+
 - **Auth**: local accounts — Argon2id, JWT HS256 (algorithm-pinned), 7-day expiry, revocation via
   `password_changed_at`. Optional OIDC behind an env flag, **off by default**. Honest boot: refuse
   to start without ≥32-char `JWT_SECRET`.
@@ -45,7 +47,9 @@ Real axum + Postgres server in `server/`:
   fix over WS, decrypt on the receiving side; prove the DB holds only ciphertext.
 
 ### M1 · Client rewrite (branch `m1-client`)
+
 Flutter app in `app/` (Android-first), legacy internals rewritten:
+
 - Typed services replacing the 1,303-line `LocationNotifier`: `LocationStateMachine`,
   `RelayService`, `SharingService`, `GhostService`, `PresenceService` (+ `CryptoService` over
   point-core via flutter_rust_bridge).
@@ -59,6 +63,7 @@ Flutter app in `app/` (Android-first), legacy internals rewritten:
 - **Verify**: instrumented Android test / emulator run proving fixes continue when backgrounded.
 
 ### M2 · Reliability — clears NO-GO (branch `m2-reliability`)
+
 - **GO-bar #2**: MLS state durability — export_state after every mutation → secure storage;
   restore on boot (core support already exists and is tested; wire it through the client).
 - **GO-bar #3**: durable WS outbound queue (persisted, survives restart) + reconnect with jittered
@@ -68,6 +73,7 @@ Flutter app in `app/` (Android-first), legacy internals rewritten:
 - **Verify**: kill/restart mid-session tests; disconnect during fix stream loses nothing.
 
 ### M3 · Federation — fully v1 (branch `m3-federation`)
+
 - Discovery: `id@domain` → `/.well-known/point` (+ SRV fallback) → S2S endpoint.
 - Signed Ed25519 S2S inbox (lift legacy design: replay window, SSRF blocklist) carrying remote
   KeyPackage fetch + ciphertext relay.
@@ -77,6 +83,7 @@ Flutter app in `app/` (Android-first), legacy internals rewritten:
   share; assert both DBs contain only ciphertext and each side decrypts the other's fixes.
 
 ### M4 · Self-host / ship (branch `m4-ship`)
+
 - ghcr images (server; app APK artifact), honest docker-compose (Postgres + server + Traefik
   labels), real docs: stand up AND federate as a stranger.
 - Zero-knowledge recovery: recovery secret → encrypts identity/signing-key backup → server stores
@@ -84,6 +91,7 @@ Flutter app in `app/` (Android-first), legacy internals rewritten:
 - Multi-device access verified end-to-end. Glitchtip + observability confirmed.
 
 ## Toolchain notes
+
 - Rust 1.96 present. Flutter SDK not installed — install user-local at M1 start.
 - `gh` CLI installed to `~/.local/bin` for PR flow; push auth via the configured x-access-token
   remote (PAT never in commits/logs).
