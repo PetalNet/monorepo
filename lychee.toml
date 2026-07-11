@@ -1,0 +1,9 @@
+# Link-checker config (lychee). URL-pattern excludes live in `.lycheeignore`;
+# this file holds path excludes.
+#
+# apps/point/docs/design holds vendored design references — the client UI spec
+# and the pixel-close mockup, kept byte-faithful to their gallery source. Their
+# external citation links (blog posts, articles) aren't ours to keep alive, and
+# some rate-limit bots, so they're out of scope for the link gate — the same
+# vendored treatment already applied to oxfmt and typos.
+exclude_path = ["apps/point/docs/design"]
