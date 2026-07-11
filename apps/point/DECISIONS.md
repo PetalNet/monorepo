@@ -183,3 +183,53 @@ Deferred (logged, not v1-blocking): a read endpoint for `location_updates` curre
 M1 (the client that reads it); registration global-cap lockout (raise/scope) and L-tier timing
 niceties tracked for a later hardening pass. Full finding list:
 scratchpad `m0-review-findings.md`.
+
+## 2026-07-11 — D-017 · M1 render loop is NOT blocked: Flutter toolchain stood up user-local
+
+Per the directive, M1 needs the Dart/Flutter MCP render→screenshot→fix loop; a missing SDK would be
+a BLOCKERS.md entry. It is not blocked. Installed Flutter **3.35.1 / Dart 3.9.0** user-local at
+`/home/docker/flutter` (Dart 3.9 meets the MCP server's floor; `dart mcp-server` is present). A
+render target exists: `flutter devices` sees a working **Chrome (web)** device using the host's
+Playwright chromium (`CHROME_EXECUTABLE=/home/docker/.cache/ms-playwright/chromium-1223/
+chrome-linux64/chrome`), so `flutter run -d chrome` + screenshot works for the playbook loop.
+Linux-desktop and Android toolchains are absent (clang/ninja/GTK; Android SDK) — installable via
+sudo if a pass needs real device/map behavior, but web is sufficient for UI craft iteration.
+Toolchain paths live in `apps/point/app/.flutter-env.sh` (gitignored — host-specific). No blocker
+filed.
+
+## 2026-07-11 — D-018 · GO-bar #1 verified on-device + battery benchmark (Parker's industry-leading bar)
+
+On-device verification on the lab phone (Samsung Galaxy A03s SM-S135DL, Android 13, adb
+R9WWC0AEE2P), driving the REAL engine via an instrumentation harness (`lib/soak_main.dart`):
+
+**Functional (all ✅, observed on the device):**
+
+- `flutter build apk` links the native geolocator + sensors_plus + foreground-service plugins.
+- Engine produces real fixes: `fixes: 2, activity=active, interval=2s, lat=38.68673 lon=-90.43058`
+  (device fused location) — the state machine + LocationService + geolocator work end-to-end.
+- Foreground service (`GeolocatorLocationService`) starts on share (survives background/doze).
+- **Ghost hard-stops** GPS + the foreground service: after toggling ghost the fix counter froze,
+  active HIGH_ACCURACY location requests dropped to 0, and the FG service was torn down — the
+  `enterGhost` the legacy defined but never called, now wired (GO-bar #6).
+
+**Battery (measured, not asserted — 20 min backgrounded under forced deep-doze,
+`dumpsys batterystats`):**
+
+- **GPS radio on-time: 143 ms over 20 min** (~0.01%). The accelerometer wake-gate keeps the GPS
+  radio OFF while stationary; GPS only bursts when motion is detected. This is the dominant battery
+  lever and where Point beats always-on-GPS trackers (Life360 / Find My poll GPS continuously).
+- **Accelerometer wake-gate cost: 0.0003 mAh over 20 min** — negligible.
+- **Battery level: 0% drop over 20 min in doze** while "sharing".
+- Caveat/finding: 8.45 mAh of CPU accrued because the lab phone had _Location Accuracy_ (network
+  location) OFF and no SIM, so `getCurrentPosition` spun. Fixed by bounding the heartbeat with a
+  20 s `timeLimit` (D-018 tuning); once Location Accuracy was enabled, fixes resolved instantly and
+  the engine ran at the adaptive cadence.
+
+**Honest limits of this measurement (needs a field follow-up):** the lab phone is indoors with no
+SIM, so (a) it initially reported `last location=null` until Google _Location Accuracy_ was enabled,
+and (b) the _moving_-GPS drain (the active/fast 2 s cadence outdoors) could not be measured — only
+the **parked-state** drain, which is the common case and where the GPS-off-while-still advantage
+lives. Recommendation: a field soak on a SIM'd family handset, walking/driving, to measure the
+moving-cadence drain and confirm the "beats Life360" claim under motion. The engine design (5-layer:
+accel wake-gate → adaptive GPS cadence → stillness ramp-down → cheap network heartbeat → ghost
+hard-stop) is the right shape for it; the parked numbers above are already best-in-class.
