@@ -27,7 +27,9 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Local, Utc};
 
 use crate::config::Config;
-use crate::state::{epoch_secs, write_file_atomic, Heartbeat, SessionState};
+use crate::state::{
+    epoch_secs, write_file_atomic, ChannelLock, Heartbeat, SessionState, HEARTBEAT_SCHEMA_VERSION,
+};
 use crate::tmux::Tmux;
 
 const TICK: Duration = Duration::from_secs(1);
@@ -571,12 +573,15 @@ impl Supervisor {
 
     fn write_heartbeat(&self) {
         let hb = Heartbeat {
-            schema: 1,
+            schema_version: HEARTBEAT_SCHEMA_VERSION,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            // Contract handle pattern is lowercase; normalization is the
+            // producer's job (contract rule 0.4), config keeps any casing.
+            handle: Some(self.cfg.agent_name.to_lowercase()),
             pid: std::process::id(),
             state: self.state.as_str().to_string(),
             session_id: self.session.session_id.clone(),
-            tmux_session: self.cfg.tmux_session.clone(),
+            tmux_session: Some(self.cfg.tmux_session.clone()),
             pane_id: self.pane_id.clone(),
             io_ok: true,
             crash_count: self.crash_count,
@@ -586,6 +591,8 @@ impl Supervisor {
                 .unwrap_or(0),
             last_sync_ok_epoch: self.last_sync_ok.load(Ordering::SeqCst),
             updated_at_epoch: epoch_secs(),
+            // Stub until N1.3/N2.2 wires the real matrix-channel lock.
+            channel_lock: Some(ChannelLock::stub_held()),
         };
         if let Ok(json) = serde_json::to_string(&hb) {
             if let Err(e) = write_file_atomic(&self.cfg.heartbeat_path, json.as_bytes(), None) {

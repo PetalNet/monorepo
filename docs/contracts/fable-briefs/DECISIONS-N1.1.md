@@ -68,6 +68,21 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
 | N9 | `SessionState` gains `schema_version: u32` defaulting to 1 and always serialized | contract: absence = 1 on read, producers MUST write it; manager.js rollback ignores extra keys so writing it is rollback-safe |
 | N10 | `RawConfig` gains `schema_version: Option<u32>`, accepted and ignored (allow(dead_code)) | brief deliverable 2 verbatim: accept const-1 key, no behavior; validation of the value stays with the external schema validator |
 
+## Phase 2 — Heartbeat v2 + healthcheck dual-read (implemented)
+
+- `state.rs`: `Heartbeat.schema_version` (const 2 via `HEARTBEAT_SCHEMA_VERSION`, serde
+  `alias = "schema"` for v1 reads), optional `handle` + `channel_lock` (omitted when None),
+  `tmux_session` now `Option<String>`; new `ChannelLock`/`ChannelLockState` with
+  `stub_held()`. Supervisor writes handle = lowercased `agent_name`, lock stub, and
+  `Some(tmux_session)` — same commit, one binary (N1).
+- `health.rs`: deprecation note on a parsed v1 shape; note (not failure) on any other
+  unexpected version — the gate stays the five behavioral asserts, shape-version skew is
+  made visible but doesn't flip a healthy deploy red (rationale: canary gate must not fail
+  on the exact transition it exists to manage). `tmux_session: null` + state=running now
+  skips the pane assert with a note (contract: consumers must not require tmux fields).
+- Tests (state.rs): v2 contract shape (no `schema` key, omit-when-absent optionals), v2
+  round-trip, legacy v1 parse, null tmux fields parse. `cargo check` clean; 4/4 green.
+
 ### Plan (phases 2–5)
 1. **P2** `state.rs`: Heartbeat v2 struct (+ `ChannelLock`), `supervisor.rs::write_heartbeat`
    emits v2 (+handle+stub lock); `health.rs` reads v2, tolerates v1 with a note; unit tests

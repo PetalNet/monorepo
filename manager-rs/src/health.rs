@@ -19,7 +19,7 @@
 //! error.
 
 use crate::config::Config;
-use crate::state::{epoch_secs, Heartbeat};
+use crate::state::{epoch_secs, Heartbeat, HEARTBEAT_SCHEMA_VERSION};
 use crate::tmux::Tmux;
 
 pub struct HealthOpts {
@@ -63,6 +63,17 @@ pub fn run(cfg: &Config, opts: &HealthOpts) -> i32 {
             cfg.heartbeat_path.display()
         )),
         Some(hb) => {
+            // Shape tolerance, not a gate: a legacy v1 file (`schema: 1`,
+            // written by a pre-rename manager) still parses via the serde
+            // alias — note it so the skew is visible during a deploy window.
+            if hb.schema_version == 1 {
+                notes.push("heartbeat is legacy v1 shape (`schema: 1`) — deprecated, expect schema_version 2".into());
+            } else if hb.schema_version != HEARTBEAT_SCHEMA_VERSION {
+                notes.push(format!(
+                    "heartbeat schema_version {} (this binary expects {HEARTBEAT_SCHEMA_VERSION})",
+                    hb.schema_version
+                ));
+            }
             let now = epoch_secs();
             let age = now.saturating_sub(hb.updated_at_epoch);
             if age > opts.max_heartbeat_age {
@@ -90,13 +101,22 @@ pub fn run(cfg: &Config, opts: &HealthOpts) -> i32 {
             }
 
             if hb.state == "running" {
-                let tmux = Tmux::new(&hb.tmux_session, &cfg.pane_tag);
-                match &hb.pane_id {
-                    Some(p) if tmux.pane_alive(p) => {
-                        notes.push(format!("agent pane {p} alive+tagged"))
+                // tmux_session is nullable by contract (non-tmux platforms);
+                // consumers must not require it — skip the pane assert then.
+                match (&hb.tmux_session, &hb.pane_id) {
+                    (None, _) => notes
+                        .push("no tmux_session in heartbeat (non-tmux platform) — pane check skipped".into()),
+                    (Some(ts), Some(p)) => {
+                        let tmux = Tmux::new(ts, &cfg.pane_tag);
+                        if tmux.pane_alive(p) {
+                            notes.push(format!("agent pane {p} alive+tagged"));
+                        } else {
+                            failures.push(format!("agent pane {p} missing or untagged"));
+                        }
                     }
-                    Some(p) => failures.push(format!("agent pane {p} missing or untagged")),
-                    None => failures.push("state=running but heartbeat has no pane_id".into()),
+                    (Some(_), None) => {
+                        failures.push("state=running but heartbeat has no pane_id".into())
+                    }
                 }
             }
 
