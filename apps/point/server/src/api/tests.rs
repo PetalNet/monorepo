@@ -19,9 +19,9 @@ use crate::ws::hub::Hub;
 
 use super::auth::{map_oidc_username, sanitize_display_name, validate_username};
 
-const DOMAIN: &str = "test.example";
+pub(super) const DOMAIN: &str = "test.example";
 
-fn test_state(pool: PgPool, open_registration: bool) -> AppState {
+pub(super) fn test_state(pool: PgPool, open_registration: bool) -> AppState {
     AppState {
         pool,
         config: Arc::new(Config {
@@ -38,11 +38,11 @@ fn test_state(pool: PgPool, open_registration: bool) -> AppState {
 }
 
 /// Fresh router (fresh rate limiter) over shared DB state.
-fn app(pool: &PgPool, open_registration: bool) -> Router {
+pub(super) fn app(pool: &PgPool, open_registration: bool) -> Router {
     super::router(test_state(pool.clone(), open_registration))
 }
 
-async fn send(
+pub(super) async fn send(
     app: &Router,
     method: &str,
     path: &str,
@@ -71,7 +71,7 @@ async fn send(
     (status, value)
 }
 
-async fn register(
+pub(super) async fn register(
     app: &Router,
     username: &str,
     password: &str,
@@ -84,7 +84,7 @@ async fn register(
     send(app, "POST", "/api/register", None, Some(body)).await
 }
 
-async fn login(app: &Router, username: &str, password: &str) -> (StatusCode, Value) {
+pub(super) async fn login(app: &Router, username: &str, password: &str) -> (StatusCode, Value) {
     send(
         app,
         "POST",
@@ -95,7 +95,7 @@ async fn login(app: &Router, username: &str, password: &str) -> (StatusCode, Val
     .await
 }
 
-fn token_of(v: &Value) -> String {
+pub(super) fn token_of(v: &Value) -> String {
     v["token"].as_str().expect("token in response").to_string()
 }
 

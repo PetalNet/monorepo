@@ -122,7 +122,8 @@ pub async fn admin_info(State(state): State<AppState>, user: AuthUser) -> ApiRes
 }
 
 /// 8 chars of RFC-4648 base32 — unambiguous, easy to read aloud, 2^40 space.
-fn generate_invite_code() -> String {
+/// Shared with group invites (api::groups).
+pub(crate) fn generate_invite_code() -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     let mut rng = rand::thread_rng();
     (0..8)

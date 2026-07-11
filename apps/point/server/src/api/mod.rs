@@ -5,12 +5,18 @@
 
 pub mod account;
 pub mod auth;
+pub mod ghost;
+pub mod groups;
+pub mod history;
 pub mod invites;
 pub mod oidc;
 pub mod rate_limit;
+pub mod shares;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_sharing;
 
 use std::sync::Arc;
 
@@ -37,7 +43,57 @@ pub fn router(state: AppState) -> Router {
             post(invites::create_invite).get(invites::list_invites),
         )
         .route("/api/invites/{id}", delete(invites::delete_invite))
-        .route("/api/admin/info", get(invites::admin_info));
+        .route("/api/admin/info", get(invites::admin_info))
+        // shares
+        .route("/api/shares", get(shares::list_shares))
+        .route("/api/shares/request", post(shares::create_request))
+        .route("/api/shares/requests", get(shares::incoming_requests))
+        .route(
+            "/api/shares/requests/outgoing",
+            get(shares::outgoing_requests),
+        )
+        .route(
+            "/api/shares/requests/{id}/accept",
+            post(shares::accept_request),
+        )
+        .route(
+            "/api/shares/requests/{id}/reject",
+            post(shares::reject_request),
+        )
+        .route(
+            "/api/shares/temp",
+            post(shares::create_temp).get(shares::list_temp),
+        )
+        .route("/api/shares/temp/{id}", delete(shares::delete_temp))
+        .route("/api/shares/{user_id}", delete(shares::delete_share))
+        // groups
+        .route(
+            "/api/groups",
+            post(groups::create_group).get(groups::list_groups),
+        )
+        .route("/api/groups/join/{code}", post(groups::join_by_code))
+        .route(
+            "/api/groups/{id}",
+            get(groups::get_group).delete(groups::delete_group),
+        )
+        .route("/api/groups/{id}/settings", put(groups::update_settings))
+        .route("/api/groups/{id}/me", put(groups::update_my_membership))
+        .route("/api/groups/{id}/invite", post(groups::create_group_invite))
+        .route("/api/groups/{id}/members", post(groups::add_member))
+        .route(
+            "/api/groups/{id}/members/{user_id}",
+            delete(groups::remove_member),
+        )
+        .route(
+            "/api/groups/{id}/members/{user_id}/role",
+            put(groups::set_member_role),
+        )
+        // ghost
+        .route("/api/ghost", put(ghost::set_ghost).get(ghost::get_ghost))
+        .route("/api/ghost/targets", put(ghost::set_ghost_target))
+        // history
+        .route("/api/history", delete(history::delete_my_history))
+        .route("/api/history/{user_id}", get(history::get_history));
 
     // OIDC routes exist only when configured (decision 17): otherwise 404.
     if state.config.oidc.is_some() {
