@@ -28,12 +28,12 @@ cp .env.example .env
 
 Edit `.env` and set the four required values:
 
-| Variable            | What                                                        |
-|---------------------|------------------------------------------------------------|
-| `DOMAIN`            | Public hostname, e.g. `point.example.org` (bare host)      |
-| `ACME_EMAIL`        | Your email for the Let's Encrypt account                   |
-| `JWT_SECRET`        | 32+ random chars — `openssl rand -hex 32`                  |
-| `POSTGRES_PASSWORD` | A strong DB password — `openssl rand -hex 24`              |
+| Variable            | What                                                  |
+| ------------------- | ----------------------------------------------------- |
+| `DOMAIN`            | Public hostname, e.g. `point.example.org` (bare host) |
+| `ACME_EMAIL`        | Your email for the Let's Encrypt account              |
+| `JWT_SECRET`        | 32+ random chars — `openssl rand -hex 32`             |
+| `POSTGRES_PASSWORD` | A strong DB password — `openssl rand -hex 24`         |
 
 Then bring it up:
 
