@@ -30,7 +30,7 @@ Everything host-specific comes from the JSON config at `$AGENT_MANAGER_CONFIG`
 
 ## 2. On-host layout (both Scout and Janet's host)
 
-```
+```text
 ~/agent-manager/
   releases/<version>/agent-manager     # immutable unpacked releases (version = git sha or semver)
   current    -> releases/<B>/agent-manager    # symlink, what systemd runs
@@ -83,7 +83,7 @@ one full crash/backoff cycle if the build is bad).
 
 ## 5. Canary flow (Scout first, Janet only if Scout survives)
 
-```
+```text
 deploy V to Scout                      (step 3, on scout-pc over ssh)
   └─ healthcheck window (≥30 min)
        ├─ PASS ⇒ on Scout: ln -sfn releases/V/agent-manager last-good
@@ -143,7 +143,7 @@ untouched until the Rust manager has survived on Janet for a comfortable period)
 - **Liveness** — JS: `has-session` (agent death invisible while humans kept other
   panes open). Rust: "our tagged pane id exists". Stop/restart kill only our pane.
 - **Adoption** — JS adopted whenever the session existed. Rust adopts only a pane
-  carrying our tag; it never guesses at untagged panes (mis-adopting a human's nano
+  carrying our tag; it never guesses at untagged panes (wrongly adopting a human's nano
   pane is exactly the bug the panefix fought). Consequence: an agent left over from a
   manager that died before tagging is NOT re-adopted — see §7 step 4.
 - **First-boot vs resume** — restored (JS's two branches had decayed to identical
@@ -203,6 +203,6 @@ Required: `creds_path` (JSON with `homeserver`, `access_token`, `user_id`),
 (~/.claude/shared/agent-\*), `model_override_path` (unset = no --model),
 `sessions_dir` (~/.claude/sessions), `tmux_session` ("agent-claude"),
 `pane_tag` ("agent-manager"), `claude_bin` ("claude"), `claude_args`
-(["--dangerously-skip-permissions"] — lab flags like the matrix channel and --name go
+(`["--dangerously-skip-permissions"]` — lab flags like the matrix channel and --name go
 HERE), `path_prepend` (~/.local/bin), `kill_agent_on_shutdown` (true),
 `tmux_width`/`tmux_height` (220/50). Unknown keys are a boot error by design.

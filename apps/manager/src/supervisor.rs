@@ -382,7 +382,7 @@ impl Supervisor {
     /// hook writes {"resetAt": <string>}; accept RFC3339, epoch seconds, or
     /// epoch milliseconds (as string or number) — manager.js's `new
     /// Date(resetAt)` silently produced Invalid Date for numeric strings, we
-    /// prefer to parse defensively. Unparseable => treated as plain crash.
+    /// prefer to parse defensively. Unparsable => treated as plain crash.
     fn check_rate_limit_hook_file(&mut self) {
         let path = &self.cfg.rate_limit_hook_path;
         let Ok(text) = std::fs::read_to_string(path) else {
@@ -402,7 +402,7 @@ impl Supervisor {
                 ));
             }
             None => self.log(&format!(
-                "WARN: unparseable resetAt in {}: {text:?}",
+                "WARN: unparsable resetAt in {}: {text:?}",
                 path.display()
             )),
         }
@@ -413,7 +413,7 @@ impl Supervisor {
         // Intentional stop: stay stopped. (JS also checked SIGTERM/SIGINT
         // here; those route through graceful_shutdown in this port.) Clear
         // any rate-limit reset the hook file dropped during the stop —
-        // manager.js let it leak and mis-schedule the NEXT crash recovery.
+        // manager.js let it leak and skew the NEXT crash recovery.
         if self.state == AgentState::Stopped {
             self.rate_limit_reset = None;
             return;
@@ -891,7 +891,7 @@ mod tests {
         assert!(sup.pending_resume.is_none(), "no resume is scheduled");
         assert!(
             sup.rate_limit_reset.is_none(),
-            "a reset dropped during the stop must not mis-schedule the next recovery"
+            "a reset dropped during the stop must not skew the next recovery"
         );
         assert_eq!(sup.crash_count, 3, "untouched");
         assert!(rx.try_recv().is_err(), "no Matrix chatter");
@@ -963,7 +963,7 @@ mod tests {
 
     #[test]
     fn hook_file_garbage_is_consumed_but_sets_nothing() {
-        // Unparseable resetAt => WARN and treat the exit as a plain crash.
+        // Unparsable resetAt => WARN and treat the exit as a plain crash.
         for (tag, contents) in [
             ("hook-notjson", "not json at all"),
             ("hook-badvalue", r#"{"resetAt": "tomorrowish"}"#),

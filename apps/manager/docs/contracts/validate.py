@@ -108,7 +108,7 @@ cfg = {"creds_path": "~/.claude/shared/janet-account.json",
        "kill_agent_on_shutdown": True, "tmux_width": 220, "tmux_height": 50}
 v('manager-config.schema.json', cfg, True, "canonical config (today's shape, no schema_version)")
 v('manager-config.schema.json', cfg | {"schema_version": 1}, True, "rewrite config w/ schema_version")
-v('manager-config.schema.json', cfg | {"contrl_room": "!x:y"}, False, "typo'd key rejected (deny-unknown)")
+v('manager-config.schema.json', cfg | {"xcontrol_room": "!x:y"}, False, "typo'd key rejected (deny-unknown)")
 v('manager-config.schema.json', {"creds_path": "~/x.json"}, False, "missing control_room rejected")
 
 print("\nALL VALIDATION CHECKS PASSED")

@@ -33,7 +33,7 @@ code, no builds, no live changes. Every pick-and-log choice lands here with a ra
 - Optional (defaults in parens): `agent_name` ("agent"), `work_dir` (CLI arg > config > $HOME),
   `state_path`, `rate_limit_hook_path`, `model_override_path`, `exit_code_path`, `heartbeat_path`,
   `sessions_dir`, `tmux_session` ("agent-claude"), `pane_tag` ("agent-manager"),
-  `claude_bin` ("claude"), `claude_args` (["--dangerously-skip-permissions"]),
+  `claude_bin` ("claude"), `claude_args` (`["--dangerously-skip-permissions"]`),
   `path_prepend` (~/.local/bin), `kill_agent_on_shutdown` (true), `tmux_width` (220), `tmux_height` (50).
 - `~`-expansion on all path fields. No version field today.
 
@@ -184,7 +184,7 @@ backchannel-rpc, manager-config}.schema.json` — six JSON Schema 2020-12 files
 
 **§0 compliance:** zero service code written; zero builds run (no cargo/npm build/nixos-rebuild);
 no live config touched; no service restarted; work confined to a new branch; nothing pushed;
-no PR opened. All reads were plain file reads + sqlite3 SELECTs on tasks.db.
+no PR opened. All reads were plain file reads + sqlite3 SELECT queries on tasks.db.
 
 **All LOCKED decisions honored:** schema_version everywhere (D5/D6/D25); OS-neutral,
 Windows-first-class (D9, nullable tmux fields, validated); doorman sole backchannel with a

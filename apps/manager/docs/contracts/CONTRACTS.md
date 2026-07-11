@@ -168,7 +168,7 @@ release (absence = 1).
 
 ## 8. Cross-contract flows (how a unit of work moves)
 
-```
+```text
 Parker (Matrix) ──► dispatcher: files/loads tracker task ──► task-card {task_id, sender_class:principal, interrupt_policy}
                                                                   │ delivered via backchannel-rpc {type:request, method:task.dispatch, id=idempotency}
                                                                   ▼

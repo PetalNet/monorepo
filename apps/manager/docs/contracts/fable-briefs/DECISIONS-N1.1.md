@@ -51,7 +51,7 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
   Stopped + "send 'start'", else backoff 5s doubling capped 30min, state Crashed.
 - `check_rate_limit_hook_file`: consumes (reads+deletes) hook file; `resetAt` accepts
   RFC3339 string, epoch secs, epoch millis (string or number; ≥10^12 ⇒ millis heuristic via
-  `epoch_to_utc`); unparseable ⇒ WARN, treated as plain crash.
+  `epoch_to_utc`); unparsable ⇒ WARN, treated as plain crash.
 - Testability: `Supervisor` fields are private but a `#[cfg(test)] mod` inside supervisor.rs
   has module access; `Config` has all-pub fields (constructible in tests); `Tmux::new` runs
   no tmux command; `handle_exit` itself never touches tmux or the network (sends go to an
@@ -110,7 +110,7 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
   the tests build a real Supervisor on a throwaway Config (all-pub fields) with the Matrix
   mpsc receiver held for message asserts (same-module `#[cfg(test)]` gives field access).
 - Coverage: rate-limit exit (wait ≈ reset+15s grace, counters cleared, RateLimit resume,
-  Matrix message), past-reset 60s floor, 10-crash doubling table [5,10,…,1280,1800] with
+  Matrix message), past-reset 60s floor, 10-crash doubling table `[5,10,…,1280,1800]` with
   cap + crash-11 MAX_CRASHES stop + message transcript, long-uptime counter reset,
   spawn-failure (started_at=None) counting as quick crash, Stopped-state early-return
   clearing a leaked rate-limit reset, `parse_reset_at` 15-case table (RFC3339 ± offset,
