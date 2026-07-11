@@ -38,6 +38,9 @@
 		"update-ts-references": "catalog:dev",
 		"vite-plus": "catalog:dev"
 	},
+	"typesync": {
+		"ignoreProjects": ["apps/manager"]
+	},
 	"packageManager": "pnpm@11.9.0",
 	"engines": {
 		"node": "^26.0.0"
