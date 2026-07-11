@@ -14,6 +14,7 @@
 > whoever has janet-nix ports it over. Do not attempt to clone.
 
 ## §0 — How to work (fully autonomous, unattended, no human mid-run)
+
 - You are **Fable**, running alone. Brief = source of truth. Pick-and-log every free choice
   into `docs/contracts/fable-briefs/DECISIONS-N1.2.md` on your branch; never block.
 - Repo: `/home/docker/janet-manager`. New branch **`feat/N1.2-tmux-layer`** from the tip of
@@ -26,6 +27,7 @@
   nixos-rebuild, ever.
 
 ## Mission
+
 Make pane ownership a **tested, documented contract** instead of tribal knowledge: unit +
 integration tests for the tagged-pane mechanism, explicit behavior on every tmux failure
 mode (server gone, session gone, pane gone, tag clobber attempt, tmux < 3.0), and a
@@ -33,6 +35,7 @@ reviewable declarative spec for the host tmux/ttyd config (single pinned tmux ve
 the options the harness relies on) that janet-nix can adopt verbatim.
 
 ## LOCKED decisions (do not relitigate)
+
 - Identity = pane id (`%N`) + user option `@agent_manager_owner=<tag>`. NEVER the active
   pane, NEVER pane 0, NEVER pane titles (Claude Code clobbers titles via OSC), NEVER
   session-name liveness (humans keep panes open in the shared session — regression history,
@@ -45,6 +48,7 @@ the options the harness relies on) that janet-nix can adopt verbatim.
   explicitly the POSIX/tmux implementation and may be POSIX-only.
 
 ## Read first (ground truth, all local)
+
 - `manager-rs/src/tmux.rs` — the whole layer (~200 lines): Tmux, PaneInfo, spawn/tag/
   capture/send/kill plumbing. The header comment is the design doc; keep it true.
 - `manager-rs/src/supervisor.rs` — every call site (spawn, adopt via `find_tagged_pane`,
@@ -57,6 +61,7 @@ the options the harness relies on) that janet-nix can adopt verbatim.
   declarative spec must keep it working (socket path, permissions, uid 1000).
 
 ## Deliverables (branch `feat/N1.2-tmux-layer`, local commits only)
+
 1. **Integration tests** (`manager-rs/tests/tmux_it.rs`, `#[ignore]`-gated behind env var
    `N12_TMUX_IT=1` so CI-less runs stay green): on a scratch `-L` socket — spawn window,
    tag pane, find_tagged_pane finds exactly ours among decoys, pane_alive true→kill→false,
@@ -74,6 +79,7 @@ the options the harness relies on) that janet-nix can adopt verbatim.
 4. `DECISIONS-N1.2.md` — choices, findings, §0 compliance, test transcript summary.
 
 ## Phased order
+
 1. Read ground truth; enumerate current failure-mode behavior (as-is table) into DECISIONS; commit.
 2. Integration test suite on the scratch socket; commit.
 3. Hardening for gaps the tests exposed; commit.
@@ -81,6 +87,7 @@ the options the harness relies on) that janet-nix can adopt verbatim.
 5. Final DECISIONS summary + anything janet-nix needs to know; commit.
 
 ## Stack / constraints
+
 Rust tests + tmux 3.4 CLI on a private socket. No new crates. The ttyd/fleet-term container
 contract (read-only socket mount, uid 1000) is consumed by N1.7 — coordinate through the
 spec file, not by editing tasks/ from this node.

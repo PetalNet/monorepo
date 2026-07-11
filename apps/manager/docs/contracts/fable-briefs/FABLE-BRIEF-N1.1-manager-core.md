@@ -11,6 +11,7 @@
 > the dream2nix flake. Budget one `cargo build` + test cycle, parallelism-capped.
 
 ## §0 — How to work (fully autonomous, unattended, no human mid-run)
+
 - You are **Fable**, running alone. This brief is the source of truth. Never block: where it
   leaves a choice, pick the simplest defensible option and log it with a one-line rationale
   in `docs/contracts/fable-briefs/DECISIONS-N1.1.md` on your branch.
@@ -28,6 +29,7 @@
   fetch fails, vendor from the existing `Cargo.lock`/`target/` state and log it.
 
 ## Mission
+
 Make the live Rust manager the **contract-compliant supervisor core** of the rewritten
 harness: emit the v2 heartbeat (with `schema_version`, `handle`, `channel_lock`), validate
 config against the canonical schema semantics, keep every existing supervision behavior
@@ -36,6 +38,7 @@ config against the canonical schema semantics, keep every existing supervision b
 with tests so the N2.x control-plane work can build on it without fear.
 
 ## LOCKED decisions (do not relitigate)
+
 - Contracts live in `docs/contracts/schemas/` (N0.1) and are the source of truth for shapes.
   Heartbeat v2 = key rename `schema`→`schema_version` (const 2) + optional `handle` +
   optional `channel_lock`. Session-state keeps camelCase `sessionId` (manager.js rollback).
@@ -50,6 +53,7 @@ with tests so the N2.x control-plane work can build on it without fear.
   assumptions in shapes (Windows box agents are Phase-2, but the contract is now).
 
 ## Read first (ground truth, all local)
+
 - `manager-rs/src/supervisor.rs` — the state machine (tick loop, spawn/adopt, crash
   backoff, rate-limit resume, command handling). The port-notes comments flag every
   deliberate delta from manager.js; preserve them.
@@ -67,6 +71,7 @@ with tests so the N2.x control-plane work can build on it without fear.
   window is needed; write `schema_version: 2` only, and update health.rs in the same commit.
 
 ## Deliverables (branch `feat/N1.1-manager-core`, local commits only)
+
 1. **Heartbeat v2**: `state.rs::Heartbeat` renamed field (`schema_version = 2`), new
    optional `handle` (from config `agent_name`), new optional `channel_lock` (stub state
    `held` until N1.3/N2.2 wires the real matrix-channel lock through — log the stub).
@@ -87,6 +92,7 @@ with tests so the N2.x control-plane work can build on it without fear.
    Do NOT install, symlink, or restart anything.
 
 ## Phased order
+
 1. Read all ground truth; write findings + plan to DECISIONS-N1.1.md; commit.
 2. Heartbeat v2 + health.rs dual-read; commit.
 3. Config + session-state conformance (incl. schema_version fields); commit.
@@ -94,6 +100,7 @@ with tests so the N2.x control-plane work can build on it without fear.
 5. Full test/build pass; final DECISIONS summary + open questions for Parker; commit.
 
 ## Stack / constraints
+
 Rust (edition per Cargo.toml), serde/ureq/chrono/uuid, dream2nix flake already
 build-verified (commit 8c7b9df). No new heavy deps — if you feel the need for a crate not
 already in Cargo.lock, you're over-scoping (JSON Schema validation in-process is NOT

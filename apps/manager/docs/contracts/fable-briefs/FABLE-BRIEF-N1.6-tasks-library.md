@@ -10,6 +10,7 @@
 > expected.
 
 ## §0 — How to work (fully autonomous, unattended, no human mid-run)
+
 - You are **Fable**, running alone. Brief = source of truth. Pick-and-log free choices into
   `DECISIONS-N1.6.md` at the tasks repo root on your branch; never block.
 - Repo: `/home/docker/tasks`. New branch **`feat/N1.6-library-reportv2`** from `main`.
@@ -21,6 +22,7 @@
   unreachable — no new deps.
 
 ## Mission
+
 Re-port task-515: unify `/docs` (tracker docs: briefs/ADRs/research, `kind='doc'` rows) and
 `/gallery` (the artifacts table: markdown/html/interactive) into ONE Library knowledge
 surface with a kind-filter — one place to browse everything written, regardless of which
@@ -28,6 +30,7 @@ store it lives in — rebuilt cleanly on today's main (post agent-api, post FTS,
 archive), preserving every hard-won invariant main has grown since the stale branch.
 
 ## LOCKED decisions (do not relitigate)
+
 - Re-port, not merge (DAG plan). The stale branch is reference material only.
 - Both stores stay: tracker `tasks` rows with `kind='doc'` AND the `artifacts` table.
   Library is a unified VIEW over them, not a data migration (no schema unification burn
@@ -41,6 +44,7 @@ archive), preserving every hard-won invariant main has grown since the stale bra
 - `claim_token`/SECRET_COLS scrubbing applies to any task-shaped payload the Library ships.
 
 ## Read first (ground truth, all local)
+
 - The stale design: `git -C /home/docker/tasks show 8628662` (the unify commit) and
   `git diff main...feat/docs-gallery --stat` — what it changed, which parts still map.
 - `src/routes/docs/`, `src/routes/gallery/`, `src/routes/browse/` on main — today's
@@ -54,6 +58,7 @@ archive), preserving every hard-won invariant main has grown since the stale bra
 - DAG plan N1.6 line (gallery `harness-rewrite-dag-plan`).
 
 ## Deliverables (branch `feat/N1.6-library-reportv2`, local commits only)
+
 1. **`/library` route**: one listing over docs + artifacts — kind filter (doc / brief /
    research / gallery-markdown / gallery-html / interactive), project filter where
    applicable, sort by updated, FTS search hook-in, visibility-safe, archived-excluded.
@@ -69,6 +74,7 @@ archive), preserving every hard-won invariant main has grown since the stale bra
    §0 compliance.
 
 ## Phased order
+
 1. Diff-study the stale branch vs main; write the re-port audit plan; commit.
 2. Unified card model + tests; commit.
 3. `/library` route + filters + FTS; commit.
@@ -76,5 +82,6 @@ archive), preserving every hard-won invariant main has grown since the stale bra
 5. Build pass; final DECISIONS; commit.
 
 ## Stack / constraints
+
 SvelteKit + better-sqlite3, existing design-system idioms (match the current board/docs
 pages' look — no new CSS framework). No new deps. Data stays where it is.

@@ -14,6 +14,7 @@
 > stance — respect it absolutely.
 
 ## §0 — How to work (fully autonomous, unattended, no human mid-run)
+
 - You are **Fable**, running alone. Brief = source of truth. Pick-and-log free choices into
   `DECISIONS-N1.7.md` at the tasks repo root on your branch; never block.
 - Repo: `/home/docker/tasks`. New branch **`feat/N1.7-web-terminal`** from `main`, pulling
@@ -28,14 +29,15 @@
   without a logged registry-resolution check.
 
 ## Mission
+
 Ship the reviewable v1 of the embedded fleet terminal: the tasks UI shows a live (or
 read-only mirrored) agent session per fleet-cockpit row, gated by RBAC, with the ttyd
 container as the transport (hardened per Eli's isolation rules) — plus the honest,
-evidence-based migration spec for replacing ttyd with an owned ghostty-web stack (task
-591) including glyph-atlas font handling, so the replacement burn can fire the moment
+evidence-based migration spec for replacing ttyd with an owned ghostty-web stack (task 591) including glyph-atlas font handling, so the replacement burn can fire the moment
 egress is available.
 
 ## LOCKED decisions (do not relitigate)
+
 - **Container isolation (Eli):** the terminal bridge binds INSIDE the docker network only —
   never host-localhost, never a public interface; no SSRF surface from host processes. The
   host tmux socket mounts read-only wherever ttyd runs in mirror mode.
@@ -56,6 +58,7 @@ egress is available.
   branch's audit route is the seed).
 
 ## Read first (ground truth, all local)
+
 - `fleet-term/Dockerfile` + `docker-compose.fleet-term.yml` — the shipped transport and
   its isolation posture (read the header comments; they encode Eli's rules).
 - `git -C /home/docker/tasks show 68531ca` (WIP: fleet-terminal audit route + prosemark
@@ -72,6 +75,7 @@ egress is available.
 - DAG plan N1.7 line (ghostty-web, RBAC, glyph-atlas fonts).
 
 ## Deliverables (branch `feat/N1.7-web-terminal`, local commits only)
+
 1. **Terminal panel v1** in the fleet cockpit: per-agent "view session" → RBAC-gated page
    embedding the ttyd stream via an adapter module (`src/lib/server/term-adapter.js`:
    interface {openView(agent, me), grantInteractive(agent, me), close(...)}, ttyd impl
@@ -94,6 +98,7 @@ egress is available.
    (adopted/dropped per hunk), choices, §0 compliance, egress-blocked items for the launcher.
 
 ## Phased order
+
 1. Inventory WIP branch + shipped transport; hunk audit + plan → DECISIONS; commit.
 2. Adapter + RBAC + audit trail + tests (mock sessions); commit.
 3. Isolation + view-only conformance tests; commit.
@@ -102,6 +107,7 @@ egress is available.
 6. Build pass; final DECISIONS; commit.
 
 ## Stack / constraints
+
 SvelteKit + the existing fleet-term container (unbuilt tonight — treat the image as
 given), scratch tmux for tests, Authentik-derived identity. No new deps without a logged
 resolution check. The live janet session is sacred: view-only, and only through the

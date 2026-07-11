@@ -21,6 +21,7 @@
 > on a host with egress (flag to launcher).
 
 ## §0 — How to work (fully autonomous, unattended, no human mid-run)
+
 - You are **Fable**, running alone. Brief = source of truth. Pick-and-log free choices into
   `DECISIONS-N1.4.md` in the doorman repo root on your branch; never block.
 - Repo: `/home/docker/doorman` (launcher-provided) — new branch **`feat/N1.4-edge-agent`**
@@ -35,6 +36,7 @@
   schedule it early and reuse `target/` after. No nix, no docker builds.
 
 ## Mission
+
 Deliver the reviewable doorman core: **`doorman-edge`** (VPS side: accepts wss upgrades
 behind Caddy, Noise handshake, agent registry pubkey→slot→conns, yamux demux, routes
 manager→agent RPC) and **`doormand`** (agent side: 2 warm outbound wss dials, Noise auth,
@@ -44,6 +46,7 @@ loopback integration test that survives a killed connection without losing an in
 RPC (idempotent retry).
 
 ## LOCKED decisions (do not relitigate)
+
 - **Doorman is the SOLE backchannel. No Cloudflare, not even optional.** wss/443 is the
   mandatory floor transport; QUIC is an OPTIONAL opportunistic fast-path with automatic
   wss fallback (do NOT build QUIC in this burn — stub the probe interface; log it).
@@ -71,6 +74,7 @@ RPC (idempotent retry).
   Noise from snow/snowstorm (rathole pattern, Apache-2.0), yamux-rs, tokio+hyper/axum edge.
 
 ## Read first (ground truth)
+
 - Local checkout (launcher-provided) — whatever `phase-1-foundation`/`phase-2` already
   contain: inventory it FIRST and diff against this brief's deliverables; harden/extend,
   don't rewrite.
@@ -83,6 +87,7 @@ RPC (idempotent retry).
   `sqlite3 .../tasks.db "SELECT content FROM artifacts WHERE slug='fleet-manager-spec'"`.
 
 ## Deliverables (reviewable branch, local commits only)
+
 1. **Envelope crate** (`doorman-proto` or similar): serde types for the RPC envelope,
    round-trip + conformance tests against the JSON Schema's canonical/negative examples
    (mirror the instances in janet-manager `docs/contracts/validate.py`).
@@ -104,11 +109,13 @@ RPC (idempotent retry).
    (incl. XK default), §0 compliance, build log, what needs a real-VPS staging pass.
 
 ## Fallback (repo absent at fire time)
+
 Same deliverables, fresh `git init` at `/home/docker/doorman-greenfield`, and item 6 gains
 a prominent "MERGE RISK: built blind to the GitHub phase branches — reconcile before any
 deploy" banner.
 
 ## Phased order
+
 1. Inventory existing branch code (or declare fallback); findings → DECISIONS; commit.
 2. Envelope crate + conformance tests; commit.
 3. doormand core (dial/auth/mux/heartbeat/backoff); commit.
@@ -117,6 +124,7 @@ deploy" banner.
 6. Docs + final DECISIONS + staging checklist; commit.
 
 ## Stack / constraints
+
 Rust, tokio, tokio-tungstenite (or fastwebsockets), rustls + rustls-native-certs, yamux,
 snow/snowstorm, hyper/axum (edge). NO quinn/QUIC this burn. Static-linkable for the agent
 binary. If any of these crates are missing from the local cargo cache and the registry is

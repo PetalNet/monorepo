@@ -8,6 +8,7 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
 ## Phase 1 — Ground-truth findings
 
 ### Heartbeat today (`state.rs::Heartbeat`, written by `supervisor.rs::write_heartbeat`)
+
 - Key `schema: 1` (u32), plus `version`, `pid`, `state`, `session_id`, `tmux_session`
   (non-nullable String today), `pane_id` (Option), `io_ok` (hardcoded `true`), `crash_count`,
   `started_at_epoch`/`last_sync_ok_epoch`/`updated_at_epoch` (u64 secs, 0=never).
@@ -20,6 +21,7 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
   exactly the above — nothing else parses the heartbeat on this host.
 
 ### Contract target (N0.1 `session-state.schema.json#/$defs/heartbeat`, v2)
+
 - `schema_version` const 2 (rename of `schema`); required set = {schema_version, version,
   pid, state, session_id, io_ok, crash_count, started_at_epoch, last_sync_ok_epoch,
   updated_at_epoch}. `additionalProperties: false`.
@@ -29,17 +31,20 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
 - `tmux_session`/`pane_id` are `string|null` — consumers MUST NOT require them (OS-neutral).
 
 ### Session state today (`state.rs::SessionState`)
+
 - `{"sessionId": uuid, "bootstrapped": bool}`; camelCase `sessionId` LOCKED (manager.js
   rollback); absent `bootstrapped` defaults true; atomic write mode 0600. No version field.
 - Contract v1: optional `schema_version` const 1, absence = 1, "producers MUST write it".
 
 ### Config today (`config.rs::RawConfig`)
+
 - `deny_unknown_fields`; required {creds_path, control_room}; 16 optional fields with
   defaults exactly matching `manager-config.schema.json`. No `schema_version` field yet —
   the live binary would reject it (schema note says it becomes writable with this rewrite).
 - `config.example.json` parses against today's RawConfig (all keys known, no version key).
 
 ### State machine (`supervisor.rs`)
+
 - `handle_exit`: Stopped ⇒ early-return + clears leaked `rate_limit_reset`; rate-limit path
   ⇒ wait = max(reset−now, 60s) + 15s grace, clears crash counters, state Waiting, pending
   RateLimit resume; crash path ⇒ uptime > 60s resets counters, count > 10 (MAX_CRASHES) ⇒
@@ -55,18 +60,19 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
 - No tests exist anywhere in the crate today (`grep cfg(test)` — zero hits).
 
 ### Phase 1 decisions
-| # | Decision | Rationale |
-|---|----------|-----------|
-| N1 | No dual-key transition window: write `schema_version: 2` only; health.rs updated in the same commit (brief default for N0.1 open question #3) | manager + healthcheck are one binary shipping as one unit; a v1-tolerant *reader* covers the only real skew (new healthcheck binary vs old running manager) |
-| N2 | health.rs v1 tolerance via `#[serde(alias = "schema")]` on `schema_version` + a deprecation note when the parsed version is 1 | one struct, no second parse path; a v1 file (`schema: 1`) still deserializes and the note makes the legacy shape visible in healthcheck output |
-| N3 | `channel_lock` is a STUB: constant `{state: "held", acquired_at_epoch: 0}` until N1.3/N2.2 wires the real matrix-channel lock | brief mandates the stub; `held` is the only truthful value for today's single-manager deploy; 0 = unknown per schema |
-| N4 | `handle` = `agent_name` lowercased at heartbeat-write time | contract pattern requires lowercase; rule 0.4 makes normalization the producer's job; config keeps accepting any display name |
-| N5 | Heartbeat `tmux_session` becomes `Option<String>` (this manager always writes `Some`) | contract says string\|null and consumers MUST NOT require it; makes the healthcheck reader OS-neutral now, zero behavior change on this host |
-| N6 | Optional heartbeat fields serialize with `skip_serializing_if = "Option::is_none"` (handle/channel_lock; lock's owner/contender) | `additionalProperties: false` + optional = omit-when-absent is the cleanest conforming shape; avoids emitting nulls the schema only sometimes allows |
-| N7 | Refactor limited to extracting `parse_reset_at(&Value) -> Option<DateTime<Utc>>` from `check_rate_limit_hook_file` | the parse matrix (RFC3339/secs/millis/garbage) becomes a pure-function table test; file-consumption semantics still get their own test; no redesign |
-| N8 | Tests write scratch files under `std::env::temp_dir()/agent-manager-test-<pid>-…`, never `~/.claude/shared/` | REVIEWABLE-ONLY rule: the live shared state dir is untouchable, and tests must not depend on host layout |
-| N9 | `SessionState` gains `schema_version: u32` defaulting to 1 and always serialized | contract: absence = 1 on read, producers MUST write it; manager.js rollback ignores extra keys so writing it is rollback-safe |
-| N10 | `RawConfig` gains `schema_version: Option<u32>`, accepted and ignored (allow(dead_code)) | brief deliverable 2 verbatim: accept const-1 key, no behavior; validation of the value stays with the external schema validator |
+
+| #   | Decision                                                                                                                                      | Rationale                                                                                                                                                   |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N1  | No dual-key transition window: write `schema_version: 2` only; health.rs updated in the same commit (brief default for N0.1 open question #3) | manager + healthcheck are one binary shipping as one unit; a v1-tolerant _reader_ covers the only real skew (new healthcheck binary vs old running manager) |
+| N2  | health.rs v1 tolerance via `#[serde(alias = "schema")]` on `schema_version` + a deprecation note when the parsed version is 1                 | one struct, no second parse path; a v1 file (`schema: 1`) still deserializes and the note makes the legacy shape visible in healthcheck output              |
+| N3  | `channel_lock` is a STUB: constant `{state: "held", acquired_at_epoch: 0}` until N1.3/N2.2 wires the real matrix-channel lock                 | brief mandates the stub; `held` is the only truthful value for today's single-manager deploy; 0 = unknown per schema                                        |
+| N4  | `handle` = `agent_name` lowercased at heartbeat-write time                                                                                    | contract pattern requires lowercase; rule 0.4 makes normalization the producer's job; config keeps accepting any display name                               |
+| N5  | Heartbeat `tmux_session` becomes `Option<String>` (this manager always writes `Some`)                                                         | contract says string\|null and consumers MUST NOT require it; makes the healthcheck reader OS-neutral now, zero behavior change on this host                |
+| N6  | Optional heartbeat fields serialize with `skip_serializing_if = "Option::is_none"` (handle/channel_lock; lock's owner/contender)              | `additionalProperties: false` + optional = omit-when-absent is the cleanest conforming shape; avoids emitting nulls the schema only sometimes allows        |
+| N7  | Refactor limited to extracting `parse_reset_at(&Value) -> Option<DateTime<Utc>>` from `check_rate_limit_hook_file`                            | the parse matrix (RFC3339/secs/millis/garbage) becomes a pure-function table test; file-consumption semantics still get their own test; no redesign         |
+| N8  | Tests write scratch files under `std::env::temp_dir()/agent-manager-test-<pid>-…`, never `~/.claude/shared/`                                  | REVIEWABLE-ONLY rule: the live shared state dir is untouchable, and tests must not depend on host layout                                                    |
+| N9  | `SessionState` gains `schema_version: u32` defaulting to 1 and always serialized                                                              | contract: absence = 1 on read, producers MUST write it; manager.js rollback ignores extra keys so writing it is rollback-safe                               |
+| N10 | `RawConfig` gains `schema_version: Option<u32>`, accepted and ignored (allow(dead_code))                                                      | brief deliverable 2 verbatim: accept const-1 key, no behavior; validation of the value stays with the external schema validator                             |
 
 ## Phase 2 — Heartbeat v2 + healthcheck dual-read (implemented)
 
@@ -86,7 +92,7 @@ service restarts, no writes under `~/.claude/shared/`, local commits only, no pu
 ## Phase 3 — Config + session-state conformance (implemented)
 
 - `config.rs`: `RawConfig.schema_version: Option<u32>` — accepted, ignored (N10). Tests pin
-  the schema semantics *as serde behavior*: example config parses, required set is exactly
+  the schema semantics _as serde behavior_: example config parses, required set is exactly
   {creds_path, control_room} (each missing key errors by name), a typo'd key fails with
   "unknown field", schema_version accepted. In-process JSON-Schema validation deliberately
   NOT added (brief: conformance = serde behavior tests; no new deps).
@@ -125,6 +131,7 @@ push stays pending for a human). Build-budget caps + never-touch-live rules stil
 Phases 1–4 above are unchanged and committed; they are the migration source.
 
 ### Migration ground truth (read before planning)
+
 - Precedent (docs/MIGRATION.md + `migrate-matrix-bot` branch): clone source → `git mv` into
   `apps/<dest>/` → commit → add clone as remote → `merge --allow-unrelated-histories` →
   flatten nesting → cleanup commits in order (cruft drop; oxfmt reformat as its OWN commit +
@@ -140,20 +147,22 @@ Phases 1–4 above are unchanged and committed; they are the migration source.
   codex-cli 0.133.0 at /usr/bin/codex.
 
 ### Re-plan decisions
-| # | Decision | Rationale |
-|---|----------|-----------|
-| N11 | Finish original Phase 5 (release build + summary) on janet-manager FIRST, then migrate | the directive calls my N1.1 work "the source that gets migrated in" — the source branch should be complete and green per its own brief |
-| N12 | Monorepo work happens in a `git worktree` on new branch `migrate-manager`, branched from `main` | zero disturbance to the existing `migrate-matrix-bot` checkout (never-touch rule); basing on main avoids self-merging matrix-bot's unmerged branch as a side effect (not mine to merge); the MIGRATION.md list will conflict trivially with matrix-bot's entry at some future merge — human-resolvable, logged |
-| N13 | Import the FULL janet-manager history (precedent: history-preserving merge), then flatten `manager-rs/*` → `apps/manager/` | matches "flatten redundant nesting" (app/web → web); `git log --follow` keeps walking |
-| N14 | Cleanup drops `package.json` + `manager.js`; keeps `docs/contracts/` under apps/manager | package.json is MANDATORY to drop (workspace glob) and its bin/scripts point at the JS manager = standalone cruft; manager.js is the superseded baseline, retrievable from imported history; the contracts are the N0.1 source of truth the app implements — they ride along where history lands them |
-| N15 | Keep `flake.nix`/`nix/`/`flake.lock` | build tooling (dream2nix, build-verified 8c7b9df), not per-app deploy cruft; invisible to JS tooling; NOT nix-built this run unless cargo build has succeeded (§0) |
-| N16 | Add `rust-toolchain.toml` pinning 1.96 | precedent pins matrix-bot to its CI toolchain; the manager's validated toolchain is host 1.96 (no CI existed); rustup already has 1.96 → no download |
-| N17 | Container = `rust:1.96-slim` (pull; docker hub egress expected — crates.io works, only github doesn't resolve), `--cpus=2`, `CARGO_BUILD_JOBS=2`, fresh container CARGO_HOME, source mounted read-only, `CARGO_TARGET_DIR` inside the container | isolated clean-env proof per directive §2 within §0 budget caps; read-only mount keeps root-owned files out of the worktree. Fallback if hub unreachable: `cargo vendor` + a local base image — will log if taken |
-| N18 | Loop = container run of `cargo fmt --check && clippy -D warnings && build --locked --release && test` until green | directive §3; this is exactly the matrix-bot validation set; the release build inside the container also satisfies the original brief's release-build deliverable in the final target |
-| N19 | Sol review: `codex exec` non-interactively over the `main..migrate-manager` diff; address feedback in the loop; re-review if substantial; outcome logged here | directive §4 verbatim |
-| N20 | After Sol passes: `git merge --no-ff migrate-manager` into local `main` (standard-merge per journal); DO NOT push; log "push pending — human" | directive §5; MIGRATION.md says standard-merged, not squashed |
+
+| #   | Decision                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                                                                                                                      |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N11 | Finish original Phase 5 (release build + summary) on janet-manager FIRST, then migrate                                                                                                                                                          | the directive calls my N1.1 work "the source that gets migrated in" — the source branch should be complete and green per its own brief                                                                                                                                                                         |
+| N12 | Monorepo work happens in a `git worktree` on new branch `migrate-manager`, branched from `main`                                                                                                                                                 | zero disturbance to the existing `migrate-matrix-bot` checkout (never-touch rule); basing on main avoids self-merging matrix-bot's unmerged branch as a side effect (not mine to merge); the MIGRATION.md list will conflict trivially with matrix-bot's entry at some future merge — human-resolvable, logged |
+| N13 | Import the FULL janet-manager history (precedent: history-preserving merge), then flatten `manager-rs/*` → `apps/manager/`                                                                                                                      | matches "flatten redundant nesting" (app/web → web); `git log --follow` keeps walking                                                                                                                                                                                                                          |
+| N14 | Cleanup drops `package.json` + `manager.js`; keeps `docs/contracts/` under apps/manager                                                                                                                                                         | package.json is MANDATORY to drop (workspace glob) and its bin/scripts point at the JS manager = standalone cruft; manager.js is the superseded baseline, retrievable from imported history; the contracts are the N0.1 source of truth the app implements — they ride along where history lands them          |
+| N15 | Keep `flake.nix`/`nix/`/`flake.lock`                                                                                                                                                                                                            | build tooling (dream2nix, build-verified 8c7b9df), not per-app deploy cruft; invisible to JS tooling; NOT nix-built this run unless cargo build has succeeded (§0)                                                                                                                                             |
+| N16 | Add `rust-toolchain.toml` pinning 1.96                                                                                                                                                                                                          | precedent pins matrix-bot to its CI toolchain; the manager's validated toolchain is host 1.96 (no CI existed); rustup already has 1.96 → no download                                                                                                                                                           |
+| N17 | Container = `rust:1.96-slim` (pull; docker hub egress expected — crates.io works, only github doesn't resolve), `--cpus=2`, `CARGO_BUILD_JOBS=2`, fresh container CARGO_HOME, source mounted read-only, `CARGO_TARGET_DIR` inside the container | isolated clean-env proof per directive §2 within §0 budget caps; read-only mount keeps root-owned files out of the worktree. Fallback if hub unreachable: `cargo vendor` + a local base image — will log if taken                                                                                              |
+| N18 | Loop = container run of `cargo fmt --check && clippy -D warnings && build --locked --release && test` until green                                                                                                                               | directive §3; this is exactly the matrix-bot validation set; the release build inside the container also satisfies the original brief's release-build deliverable in the final target                                                                                                                          |
+| N19 | Sol review: `codex exec` non-interactively over the `main..migrate-manager` diff; address feedback in the loop; re-review if substantial; outcome logged here                                                                                   | directive §4 verbatim                                                                                                                                                                                                                                                                                          |
+| N20 | After Sol passes: `git merge --no-ff migrate-manager` into local `main` (standard-merge per journal); DO NOT push; log "push pending — human"                                                                                                   | directive §5; MIGRATION.md says standard-merged, not squashed                                                                                                                                                                                                                                                  |
 
 ### Execution order (updated)
+
 P5 (source complete) → M1 import+flatten → M2 cleanup/tooling commits → M3 container
 build-test loop → M4 Sol review (+fixes) → M5 record in MIGRATION.md, local merge to main,
 final summary + open questions, stop.
@@ -168,6 +177,7 @@ final summary + open questions, stop.
   the final completion summary + open questions land at the end of M5.
 
 ### Plan (phases 2–5)
+
 1. **P2** `state.rs`: Heartbeat v2 struct (+ `ChannelLock`), `supervisor.rs::write_heartbeat`
    emits v2 (+handle+stub lock); `health.rs` reads v2, tolerates v1 with a note; unit tests
    for serialization shape + v1/v2 parse. Commit.

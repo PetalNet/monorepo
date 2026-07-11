@@ -12,10 +12,11 @@
 >
 > **Check first:** the 2026-07-09 overnight plan already scoped an N1.3 burn. Local git
 > shows only `master` (4 commits, tip 9e2d360) — but before starting, `git -C
-> /home/docker/matrix-channel-rs branch -a && git log --oneline -5` and look for newer
+/home/docker/matrix-channel-rs branch -a && git log --oneline -5` and look for newer
 > work; if a prior burn branch exists, continue it instead of forking a duplicate.
 
 ## §0 — How to work (fully autonomous, unattended, no human mid-run)
+
 - You are **Fable**, running alone. Brief = source of truth. Pick-and-log free choices into
   `DECISIONS-N1.3.md` at the repo root of your branch; never block.
 - Repo: `/home/docker/matrix-channel-rs`. New branch **`feat/N1.3-channel-features`** from
@@ -36,6 +37,7 @@
   any feature you had to descope because it needed a new crate.
 
 ## Mission
+
 Close task-586 (+498): make the channel's E2EE storage hygiene bulletproof (no key-backup
 spam/regeneration loops — root of the 07-09 outage noise), make read receipts HONEST (a
 receipt means "the drain hook actually surfaced this message to the agent", nothing else),
@@ -44,6 +46,7 @@ see votes), and pin the whole feature surface with E2E-style tests that run with
 homeserver.
 
 ## LOCKED decisions (do not relitigate)
+
 - **Single-owner lockout is load-bearing and stays exactly as designed**: first instance
   owns lock+crypto+sync; every other instance completes the MCP handshake but opens no
   crypto, runs no sync, and answers tools with a lockout message. Never remove a lock that
@@ -62,6 +65,7 @@ homeserver.
   config-gated explicit action, never automatic.
 
 ## Read first (ground truth, all local)
+
 - `src/matrix/e2ee.rs` — bootstrap: recover-from-secret-storage, cross-signing, backup
   restore-or-create (lines ~110–141), the WARNING path when a backup exists but no local
   recovery key. The key-backup spam lives here or in its callers: characterize it FIRST
@@ -79,6 +83,7 @@ homeserver.
   this node must surface state for.
 
 ## Deliverables (branch `feat/N1.3-channel-features`, local commits only)
+
 1. **Key-backup hygiene**: boot is idempotent — an existing healthy backup + stored
    recovery key ⇒ zero writes, zero re-enables, one log line. Backup creation happens only
    when none exists; identity reset only via `allow_identity_reset`. A regression test
@@ -100,6 +105,7 @@ homeserver.
    §0 compliance, build/test log, staging-run checklist (what could NOT be proven offline).
 
 ## Phased order
+
 1. Read ground truth; characterize the key-backup spam root cause from code + any local
    debug.log evidence (read-only); write findings; commit.
 2. Key-backup hygiene + tests; commit.
@@ -109,6 +115,7 @@ homeserver.
 6. Full `cargo test` + one capped release build; final DECISIONS + staging checklist; commit.
 
 ## Stack / constraints
+
 Rust + matrix-rust-sdk (version pinned in Cargo.lock — do not bump it; a bump is a
 different, heavier task), tokio. MCP stdio server in `src/mcp/`. No new heavy deps; offline
 cargo if the registry is unreachable. The flake/crane nix packaging is out of scope.

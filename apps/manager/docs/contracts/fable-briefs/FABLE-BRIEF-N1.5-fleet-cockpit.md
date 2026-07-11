@@ -10,20 +10,22 @@
 > (vitest/node) for iteration. No `pnpm install` of heavy new deps.
 
 ## §0 — How to work (fully autonomous, unattended, no human mid-run)
+
 - You are **Fable**, running alone. Brief = source of truth. Pick-and-log free choices into
   `DECISIONS-N1.5.md` at the tasks repo root on your branch; never block.
 - Repo: `/home/docker/tasks`. New branch **`feat/N1.5-fleet-cockpit`** from `main`. Commit
   locally per phase; do NOT push; no PR.
 - **REVIEWABLE-ONLY**: the tasks app + its SQLite DB are LIVE (docker-compose; the cockpit
   is in use). Do NOT restart the container, do NOT write to `/home/docker/tasks/data/`
-  (tasks.db, fleet/*.json) — tests use a temp-dir DB via `TASKS_DB_PATH` (db.js already
-  honors it) and a temp fleet dir. Do not touch `docker-compose*.yml` behavior.
+  (tasks.db, fleet/_.json) — tests use a temp-dir DB via `TASKS_DB_PATH` (db.js already
+  honors it) and a temp fleet dir. Do not touch `docker-compose_.yml` behavior.
 - **Build budget:** vitest/node unit runs freely (light); ONE `pnpm build` (niced) at the
   end to prove the app compiles. No new heavy dependencies; registry may be unreachable
   from .14 — if `pnpm install` is needed for a new dep, it probably can't happen tonight;
   design around the existing node_modules and log anything descoped.
 
 ## Mission
+
 Make the fleet cockpit fully live and contract-clean: adopt the N0.1 `fleet-event` v1
 contract (producer-normalized handle/host, `event`, `task_id`, `schema_version`) with v0
 tolerance, close the 242 review items, and ship 243 — a per-subagent live progress stream
@@ -31,6 +33,7 @@ tolerance, close the 242 review items, and ship 243 — a per-subagent live prog
 the same zero-manual-publish hook pipeline.
 
 ## LOCKED decisions (do not relitigate)
+
 - The fleet-event contract is
   `/home/docker/janet-manager/docs/contracts/schemas/fleet-event.schema.json`: producers
   write canonical lowercase handle + canonical host ('.N', never 'dotN'), `offline` is
@@ -48,6 +51,7 @@ the same zero-manual-publish hook pipeline.
 - Visibility rules (`vis(me)`) apply to everything task-shaped the cockpit joins in.
 
 ## Read first (ground truth, all local)
+
 - `src/lib/server/fleet.js` — the whole consumer (roster, staleness, normalization, focus
   join, totals). This is what adopts the v1 contract.
 - `data/fleet/*.json` — live v0 producer output (note janet.json's `host: "dot14"` — the
@@ -56,7 +60,7 @@ the same zero-manual-publish hook pipeline.
   (the audit-event size discipline 243's stream must respect).
 - `src/routes/fleet/` — the cockpit UI v1; `src/routes/api/` — existing API surface.
 - `mjs/` (the hooks package: lib/, src/, queue.mjs history at repo root `git log --oneline
-  -- mjs/`) — the lifecycle-hook producer side that writes fleet files; this is where v1
+-- mjs/`) — the lifecycle-hook producer side that writes fleet files; this is where v1
   emission (event, task_id, schema_version, canonical host) lands. The hook that runs on
   202 (`/home/agent/.claude/hooks/fleet-event.mjs`) is deployed FROM here — you change the
   source here only; deployment to 202 is the launcher's morning step (note it in DECISIONS).
@@ -66,6 +70,7 @@ the same zero-manual-publish hook pipeline.
 - DAG plan (gallery `harness-rewrite-dag-plan`) — N1.5 scope line.
 
 ## Deliverables (branch `feat/N1.5-fleet-cockpit`, local commits only)
+
 1. **Producer v1** (hook source in this repo): emit `schema_version:1`, `event`, `task_id`
    (from the claimed task when the hook environment knows it — read the lease by
    handle via a small query helper; null otherwise), canonical handle/host. Unit tests on
@@ -87,6 +92,7 @@ the same zero-manual-publish hook pipeline.
    one final `pnpm build` result.
 
 ## Phased order
+
 1. Read ground truth + task-242 review comments; findings + plan → DECISIONS; commit.
 2. Producer v1 emission + tests; commit.
 3. Consumer v1/v0 + UI surfacing; commit.
@@ -95,6 +101,7 @@ the same zero-manual-publish hook pipeline.
 6. Test pass + single build; final DECISIONS; commit.
 
 ## Stack / constraints
+
 SvelteKit + better-sqlite3 + the existing mjs hook package. No new runtime deps. All DB
 access through db.js patterns (WAL, visibility, scrubbing). UI follows the existing fleet
 board idioms — this is a harden-and-extend, not a redesign.

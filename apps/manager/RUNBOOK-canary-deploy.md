@@ -67,6 +67,7 @@ AGENT_MANAGER_CONFIG=~/agent-manager/config.json ~/agent-manager/current healthc
 ```
 
 Asserts (exit 0 = healthy):
+
 1. heartbeat fresh (default ≤30s) and manager pid alive — process up under systemd;
 2. state `running` and the recorded tmux pane id exists **with our ownership tag**;
 3. manager's Matrix `/sync` succeeded within the last 120s — connected to Matrix.
@@ -95,6 +96,7 @@ deploy V to Scout                      (step 3, on scout-pc over ssh)
 ```
 
 Rules (from FABLE-SPEC, non-negotiable):
+
 - rollback is driven **from outside the target process** (ssh / local shell), because a
   broken manager may be too broken to talk;
 - promotion to Janet is **one deliberate restart, never a loop** — if the first
@@ -198,7 +200,7 @@ Required: `creds_path` (JSON with `homeserver`, `access_token`, `user_id`),
 `control_room`. Optional (defaults in parentheses, `~` expands):
 `agent_name` ("agent"), `work_dir` ($HOME; CLI arg wins), `state_path`,
 `rate_limit_hook_path`, `exit_code_path`, `heartbeat_path`
-(~/.claude/shared/agent-*), `model_override_path` (unset = no --model),
+(~/.claude/shared/agent-\*), `model_override_path` (unset = no --model),
 `sessions_dir` (~/.claude/sessions), `tmux_session` ("agent-claude"),
 `pane_tag` ("agent-manager"), `claude_bin` ("claude"), `claude_args`
 (["--dangerously-skip-permissions"] — lab flags like the matrix channel and --name go

@@ -1,8 +1,8 @@
 # Janet Fleet Harness — Shared Contracts (N0.1)
 
-*Branch `docs/N0.1-contracts` · Fable, overnight 2026-07-09 · REVIEWABLE SPEC ONLY — no
+_Branch `docs/N0.1-contracts` · Fable, overnight 2026-07-09 · REVIEWABLE SPEC ONLY — no
 service code, no live changes. Decisions + ground-truth findings: [DECISIONS.md](DECISIONS.md).
-Machine-readable schemas: [`schemas/`](schemas/) (JSON Schema draft 2020-12).*
+Machine-readable schemas: [`schemas/`](schemas/) (JSON Schema draft 2020-12)._
 
 This is the foundation node (N0.1) of the harness-rewrite DAG: the canonical schemas every
 component speaks — manager, box-agents, workers, the tasks tracker, and the doorman
@@ -14,10 +14,10 @@ backchannel — so they agree on one shape instead of drifting.
    current version with `const`, so a validator rejects wrong-version instances. Absence of
    the field means "the legacy pre-contract shape" (documented per contract below).
    - **Bump rules:** adding an optional field with a safe default = same version (consumers
-     must tolerate unknown *optional* additions where `additionalProperties` allows).
+     must tolerate unknown _optional_ additions where `additionalProperties` allows).
      Renaming/removing/retyping a field, changing an enum's meaning, or changing required
      fields = version bump + a migration note in this file.
-2. **OS-neutral.** No contract may *require* a POSIX-ism. tmux/pane fields are nullable;
+2. **OS-neutral.** No contract may _require_ a POSIX-ism. tmux/pane fields are nullable;
    paths appear only inside the manager's own config (which is per-host by definition);
    hosts are labels, not addresses. Box agents run on Windows as first-class citizens.
 3. **Timestamps.** New contracts use RFC 3339 UTC strings (`format: date-time`). The one
@@ -36,16 +36,16 @@ backchannel — so they agree on one shape instead of drifting.
 
 ## 1. Contract catalog
 
-| Contract | Schema | Produced by | Consumed by |
-|---|---|---|---|
-| Session state | `session-state.schema.json` | manager (one writer per agent) | manager (own restart); rollback manager.js |
-| Heartbeat | `session-state.schema.json#/$defs/heartbeat` | manager, every 1s tick | `healthcheck` subcommand; canary deploy driver; future cockpit |
-| Channel lock | `session-state.schema.json#/$defs/channelLock` | manager/matrix-channel (lock holder) | healthcheck; other would-be owners (stand-down signal) |
-| Fleet event | `fleet-event.schema.json` | every agent's lifecycle hooks (all machines) | tasks cockpit (`fleet.js`), sidebar rail; future manager control plane |
-| Task card | `task-card.schema.json` | Layer-0 bus/dispatcher (only) | recipient agents (Janet, box agents) |
-| Queue lease | `queue-lease.schema.json` | tasks tracker (single writer, atomic claim) | workers (hold/report), dispatcher (route), cockpit (`leasePublic` only) |
-| Backchannel RPC | `backchannel-rpc.schema.json` | manager ↔ box agents (both directions) | doorman edge routes it; Matrix floor carries it verbatim when doorman is blocked |
-| Manager config | `manager-config.schema.json` | operator / nix module (per host) | manager at boot (deny-unknown, fail-loud) |
+| Contract        | Schema                                         | Produced by                                  | Consumed by                                                                      |
+| --------------- | ---------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
+| Session state   | `session-state.schema.json`                    | manager (one writer per agent)               | manager (own restart); rollback manager.js                                       |
+| Heartbeat       | `session-state.schema.json#/$defs/heartbeat`   | manager, every 1s tick                       | `healthcheck` subcommand; canary deploy driver; future cockpit                   |
+| Channel lock    | `session-state.schema.json#/$defs/channelLock` | manager/matrix-channel (lock holder)         | healthcheck; other would-be owners (stand-down signal)                           |
+| Fleet event     | `fleet-event.schema.json`                      | every agent's lifecycle hooks (all machines) | tasks cockpit (`fleet.js`), sidebar rail; future manager control plane           |
+| Task card       | `task-card.schema.json`                        | Layer-0 bus/dispatcher (only)                | recipient agents (Janet, box agents)                                             |
+| Queue lease     | `queue-lease.schema.json`                      | tasks tracker (single writer, atomic claim)  | workers (hold/report), dispatcher (route), cockpit (`leasePublic` only)          |
+| Backchannel RPC | `backchannel-rpc.schema.json`                  | manager ↔ box agents (both directions)       | doorman edge routes it; Matrix floor carries it verbatim when doorman is blocked |
+| Manager config  | `manager-config.schema.json`                   | operator / nix module (per host)             | manager at boot (deny-unknown, fail-loud)                                        |
 
 ## 2. Session state + heartbeat (manager ↔ itself, healthcheck, deploys)
 
@@ -105,12 +105,12 @@ don't paraphrase), optional `capability` (lane gate) and viewer-safe `lease`.
 **`interrupt_policy` (LOCKED).** Only three things interrupt Janet mid-task; everything
 else queues into the compact inbox digest:
 
-| Value | Meaning | Honored when |
-|---|---|---|
-| `defer` *(default)* | queue for the digest; never interrupts | always |
-| `principal_command` | direct Parker/Eli command | `sender_class == principal` |
-| `safety` | a safety condition | always |
-| `task_clarification` | clarification on the ACTIVE task | `task_id` matches the recipient's current lease |
+| Value                | Meaning                                | Honored when                                    |
+| -------------------- | -------------------------------------- | ----------------------------------------------- |
+| `defer` _(default)_  | queue for the digest; never interrupts | always                                          |
+| `principal_command`  | direct Parker/Eli command              | `sender_class == principal`                     |
+| `safety`             | a safety condition                     | always                                          |
+| `task_clarification` | clarification on the ACTIVE task       | `task_id` matches the recipient's current lease |
 
 Enforcement is the **dispatcher's** job (it stamps `sender_class` and checks the honor
 conditions); the recipient may trust a delivered interrupt. A card claiming
@@ -127,7 +127,7 @@ a reason (why-ledger); verification is `verified → done` or `rejected → todo
 cleared.
 
 **New, required: `fence`** — a per-task monotonic integer incremented on every successful
-(re)claim. Lease *expiry* never proves the old worker *stopped*; every write made under a
+(re)claim. Lease _expiry_ never proves the old worker _stopped_; every write made under a
 lease carries its fence and the store rejects stale fences, so a delayed/zombie worker
 cannot commit after reap+reclaim. (Dispatcher-review §4 correction; pattern already
 validated locally in the `~/.claude/queue` prototype.)
@@ -162,8 +162,8 @@ Required: `creds_path` (→ `$defs/matrixCreds`: `homeserver`, `access_token`, `
 `control_room`. Everything else is optional with the documented defaults (agent name, paths
 for state/heartbeat/exit-code/rate-limit-hook/model-override, tmux session/pane-tag/geometry,
 `claude_bin`/`claude_args` — lab-specific flags live in config, never in code —
-`path_prepend`, `kill_agent_on_shutdown`). `schema_version` is optional *for this contract
-only*: the live binary rejects unknown keys, so it becomes writable with the first rewrite
+`path_prepend`, `kill_agent_on_shutdown`). `schema_version` is optional _for this contract
+only_: the live binary rejects unknown keys, so it becomes writable with the first rewrite
 release (absence = 1).
 
 ## 8. Cross-contract flows (how a unit of work moves)
