@@ -265,7 +265,7 @@
 
 ## Execution Order
 
-```
+```text
 Phase 1 (Accel Gate)     ████████░░  ~2 days
 Phase 2 (Auto Zones)     ░░████████  ~3 days
 Phase 3 (Batched Relay)  ░░░░████░░  ~1 day

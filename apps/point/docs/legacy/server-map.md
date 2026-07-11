@@ -122,10 +122,10 @@ per-target), fail-closed on error.**
 Auth: POST /api/register, /api/login; DELETE /api/account; PUT /api/account/password;
 POST /api/fcm/token.
 Groups: POST/GET /api/groups; GET/DELETE /api/groups/{id}; PUT .../settings; PUT .../me;
-POST .../invite; POST /api/groups/join/{code}; POST/DELETE .../members[/{id}]; PUT .../role.
+POST .../invite; POST /api/groups/join/{code}; POST/DELETE `.../members[/{id}]`; PUT .../role.
 Items (v1.5 — not lifted): POST/GET/DELETE /api/items, share/unshare.
 Shares: GET /api/shares; POST/GET /api/shares/temp; DELETE /api/shares/temp/{id};
-POST /api/shares/request; GET /api/shares/requests[/outgoing]; POST .../{id}/accept|reject;
+POST /api/shares/request; GET `/api/shares/requests[/outgoing]`; POST .../{id}/accept|reject;
 DELETE /api/shares/{user_id}.
 Zone consent (bookkeeping): request/incoming/granted/accept/reject/delete.
 Places (v1.5 — not lifted): group + personal place CRUD.

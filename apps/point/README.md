@@ -16,7 +16,7 @@ Bridges to Find My / Google / SmartThings are planned for **v2**, not now.
 
 ## Repository layout
 
-```
+```text
 core/     Lifted OpenMLS E2E crypto crate (reused from legacy point-core).
 server/   Rust (axum) home-server + Postgres (sqlx). Plain HTTP behind Traefik.
 app/      Flutter client — placeholder; rebuilt in a later wayfinder ticket.
