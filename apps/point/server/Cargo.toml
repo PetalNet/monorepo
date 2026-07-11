@@ -1,0 +1,52 @@
+[package]
+name = "point-server"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "postgres",
+    "runtime-tokio-rustls",
+    "macros",
+    "migrate",
+    "uuid",
+    "chrono",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+argon2 = "0.5"
+jsonwebtoken = "9"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures = "0.3"
+dashmap = "6"
+rand = "0.8"
+base64 = "0.22"
+hex = "0.4"
+sentry = { version = "0.34", default-features = false, features = [
+    "backtrace",
+    "contexts",
+    "panic",
+    "reqwest",
+    "rustls",
+] }
+# OIDC login (decision 17), env-flagged off by default. rustls only.
+openidconnect = { version = "4", default-features = false, features = [
+    "reqwest",
+    "rustls-tls",
+] }
+
+# The E2E MLS jewels, lifted from legacy point-core.
+point-core = { path = "../core" }
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = "0.24"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
