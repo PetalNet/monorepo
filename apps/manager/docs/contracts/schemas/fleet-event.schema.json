@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.petalnet.lab/contracts/v1/fleet-event.schema.json",
+  "title": "Fleet lifecycle event / agent status snapshot",
+  "description": "The JSON an agent's lifecycle hooks emit on SessionStart / PreToolUse / PostToolUse / Stop, which the tasks cockpit consumes. Today this is materialized as a per-agent snapshot file (data/fleet/<handle>.json) OVERWRITTEN on every event — the snapshot IS the latest event. This schema models the event; a snapshot file is simply the most recent instance. 'offline' is NEVER written by a producer: the consumer derives it from updated_at staleness (>90s today). Producers MUST write the canonical host form (see host) and a lowercase handle — normalization must stop living in the consumer.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Contract version. The live hook files (v0) omit it; consumers MUST treat absence as v0 and tolerate missing `event`/`task_id`."
+    },
+    "handle": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Canonical lowercase agent handle (e.g. 'janet'). For snapshot files the filename (<handle>.json) is authoritative and MUST match."
+    },
+    "host": {
+      "type": ["string", "null"],
+      "description": "Machine label in CANONICAL form: '.N' for lab dot-hosts (never 'dotN' — that drift forced consumer-side normalization), otherwise a plain hostname (e.g. 'scout-pc', 'windows')."
+    },
+    "event": {
+      "enum": ["session_start", "pre_tool", "post_tool", "stop"],
+      "description": "Which lifecycle hook produced this event. New in v1 (v0 files omit it); lets consumers distinguish 'agent finished a tool' from 'agent stopped'."
+    },
+    "status": {
+      "enum": ["alive", "working", "idle"],
+      "description": "Producer-reported status. 'offline' is derived by the consumer from staleness and MUST NOT be written."
+    },
+    "current_tool": {
+      "type": ["string", "null"],
+      "description": "Tool currently executing (e.g. 'Bash'); null unless status=working."
+    },
+    "task_id": {
+      "type": ["integer", "null"],
+      "description": "Tracker task the agent is currently working (spawn-from-task tie; LOCKED: every agent action ties to a task id). null when the agent holds no claimed task. New in v1. The cockpit may still join focus via activeLeases(); this field makes the tie explicit at the source."
+    },
+    "session_id": {
+      "type": ["string", "null"],
+      "description": "The agent's Claude Code session id, when known."
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC — when this agent session started."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC — when this event was written. The consumer's staleness/offline derivation keys on this field."
+    }
+  },
+  "required": ["schema_version", "handle", "status", "updated_at"],
+  "additionalProperties": true,
+  "$comment": "additionalProperties true on purpose: many producers (hooks on different machines/versions) feed one consumer; unknown extra fields must be skipped, not rejected. Contrast manager-config, which is deny-unknown."
+}

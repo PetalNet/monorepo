@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.petalnet.lab/contracts/v1/backchannel-rpc.schema.json",
+  "title": "Doorman backchannel RPC envelope",
+  "description": "The one JSON envelope for manager↔agent RPC over the doorman backchannel (wss/443 + yamux + Noise, per fleet-doorman-tunnel-design). Transport-agnostic ON PURPOSE: connection auth, session resume, and warm-connection failover are the transport layer's job (Noise handshake, edge slot re-attach); the SAME envelope also rides the Matrix never-dark floor when doorman is fully blocked. Delivery may be retried after a redial, so `id` doubles as the idempotency key: receivers MUST de-duplicate requests on id, and side-effecting handlers MUST be safe to receive the same id twice. One envelope per yamux stream message; payload framing above that is the method's business.",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique message id AND idempotency key for retried requests."
+    },
+    "type": {
+      "enum": ["request", "response", "event", "heartbeat", "error"],
+      "description": "request expects a response; response/error answer a request (in_reply_to); event is fire-and-forget (e.g. a fleet-event push); heartbeat keeps the link warm (~15–20s) and carries no payload semantics."
+    },
+    "method": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "description": "Namespaced method for requests/events, e.g. 'task.dispatch', 'agent.status', 'voice.transcribe'. Required when type=request or type=event."
+    },
+    "agent": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Canonical handle of the remote agent party (the edge routes on it; identity is PROVEN by the connection's Noise keypair — a mismatch is a routing error, not an auth mechanism)."
+    },
+    "task_id": {
+      "type": ["integer", "null"],
+      "description": "Tracker task this RPC acts for, when the call is work-related (LOCKED: agent actions tie to task ids). null for infrastructure calls (heartbeat, enrollment, status)."
+    },
+    "in_reply_to": {
+      "type": ["string", "null"],
+      "description": "id of the request being answered. Required (non-null) when type=response or type=error."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Method-specific body. Free-form at the envelope level; each method documents its own payload schema."
+    },
+    "error": {
+      "type": "object",
+      "description": "Present when type=error.",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Stable machine-readable code, e.g. 'unauthorized', 'unknown_method', 'lease_lost', 'deadline_exceeded'."
+        },
+        "message": { "type": "string" },
+        "retryable": {
+          "type": "boolean",
+          "description": "true = the caller may retry the SAME id after backoff (transient); false = retrying without change is pointless."
+        }
+      },
+      "required": ["code", "message", "retryable"],
+      "additionalProperties": false
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC send time."
+    },
+    "deadline_ms": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Caller's total-deadline hint for a request; past it the callee may abandon work and the caller reports deadline_exceeded."
+    }
+  },
+  "required": ["schema_version", "id", "type", "agent", "ts"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "request" } } },
+      "then": { "required": ["method"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "event" } } },
+      "then": { "required": ["method"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "response" } } },
+      "then": {
+        "required": ["in_reply_to"],
+        "properties": { "in_reply_to": { "type": "string" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "error" } } },
+      "then": {
+        "required": ["in_reply_to", "error"],
+        "properties": { "in_reply_to": { "type": "string" } }
+      }
+    }
+  ]
+}
