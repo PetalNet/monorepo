@@ -25,7 +25,7 @@ to the user once. It derives a key from the code with **Argon2id** (m=64 MiB,
 t=3, p=1) over a random 16-byte salt, encrypts the exported MLS state with
 **XChaCha20-Poly1305**, and uploads the blob:
 
-```
+```text
 blob = MAGIC(4) ‖ salt(16) ‖ nonce(24) ‖ XChaCha20-Poly1305(state)
 ```
 

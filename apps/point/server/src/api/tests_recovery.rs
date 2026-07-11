@@ -92,7 +92,7 @@ async fn reupload_replaces_the_backup(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn one_user_cannot_read_anothers_backup(pool: PgPool) {
+async fn one_user_cannot_read_another_users_backup(pool: PgPool) {
     let app = app(&pool, true);
     let alice = user(&pool, "alice").await;
     let bob = user(&pool, "bob").await;

@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn code_normalization_tolerates_casing_and_spacing() {
         let blob = encrypt(b"secret state", "ABCDEF-GHJKMN").unwrap();
-        // Lowercase, extra spaces, and I/L/O look-alikes map to the same key.
+        // Lowercase, extra spaces, and I/L/O look-alike glyphs map to one key.
         assert_eq!(
             decrypt(&blob, "  abcdef ghjkmn  ").unwrap(),
             b"secret state"
