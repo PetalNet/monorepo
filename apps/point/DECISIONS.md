@@ -314,3 +314,31 @@ last-resort), a cross-instance MLS group formed with point-core, the Welcome rel
 encrypted location fix relayed A→B and delivered to Bob's WS, decrypted by Bob to the exact fix —
 and **both instances' databases assert 0 plaintext-leak rows**. A cross-server share stays a green
 native-E2E relationship. `#[ignore]` (needs two live instances); the shell harness runs it.
+
+## 2026-07-11 — D-022 · M3 federation adversarial-review fixes (trust-surface hardening)
+
+Federation-trust is a security judgment I verify myself, not a subagent's final word. The M3
+review surfaced six real findings on the S2S surface; all fixed and re-verified against the
+two-instance E2E (still PASS, both servers ciphertext-only) plus the 15 federation unit tests.
+
+- **HIGH-1 SSRF pin** — the check resolved+validated the target IPs but the outbound `reqwest`
+  client then re-resolved DNS, leaving a rebind window between check and connect. `ssrf_check` now
+  returns the validated `SocketAddr`s and `build_client` pins them with `.resolve_to_addrs`, so we
+  connect to the exact vetted IPs (redirects already disabled). The advertised inbox host is
+  validated + pinned independently of the domain.
+- **HIGH-2 KeyPackage consent** — federated `mls.key_request` used a bare relationship-exists check,
+  so a lone inbound pending could drain a local user's one-time KeyPackages. Now gated on
+  `authz::can_fetch_key_packages` — the same consent the local claim path enforces. Fail-closed.
+- **HIGH-3 inbox DoS** — the inbox is anonymous until the signature verifies, and verifying costs an
+  outbound discovery fetch; an attacker could turn us into a reflected-DoS amplifier and flood
+  shadow-user/pin writes. Added a per-source-IP throttle (120/min) ahead of any outbound work.
+- **MED-1 welcome/commit gate** — federated `mls.welcome`/`mls.commit` delivery now also requires
+  `can_fetch_key_packages`, matching `key_request`.
+- **MED-2 reversed authz args** — `handle_location_update` called `can_deliver_to_user` with
+  (recipient, sender) swapped; corrected to (sender, recipient).
+- **LOW-1 TOFU race** — first-contact pin did SELECT-then-INSERT, so two concurrent first contacts
+  with different keys could both pass the "no pin yet" branch. Replaced with an atomic
+  upsert-returning that compares against the effective stored key and rejects a mismatch.
+
+Removed the now-dead `federated_relationship_exists` helper (its callers all moved to the
+`can_fetch_key_packages` consent gate).

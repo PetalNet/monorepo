@@ -20,11 +20,12 @@
 //! Every delivery decision still routes through the fail-closed `authz` gate.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::Json;
+use axum::{Extension, Json};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::Utc;
@@ -39,6 +40,13 @@ use crate::federation_keys;
 use crate::state::AppState;
 
 use super::mls::{insert_mailbox, push_mailbox, validate_group_id, MAX_MLS_PAYLOAD_BYTES};
+use super::rate_limit::{ClientIp, RateLimiter};
+
+/// Per-source-IP ceiling on inbox POSTs. The inbox is anonymous until the
+/// signature verifies (which itself costs an outbound discovery fetch), so this
+/// is the throttle that stops an attacker turning us into a reflected-DoS
+/// amplifier or flooding shadow-user/pin writes (HIGH-3).
+const INBOX_PER_MINUTE: u32 = 120;
 
 /// S2S messages must be within this many seconds of now (replay window, ±).
 const REPLAY_WINDOW_SECS: i64 = 300;
@@ -118,9 +126,17 @@ pub async fn well_known(State(state): State<AppState>) -> Json<Value> {
 /// published key → replay-window check → recipient-is-local check → dispatch.
 pub async fn inbox(
     State(state): State<AppState>,
+    Extension(limiter): Extension<Arc<RateLimiter>>,
+    ClientIp(ip): ClientIp,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> ApiResult<Json<Value>> {
+    // The inbox is unauthenticated until the signature verifies, and verifying
+    // needs an outbound discovery fetch — so throttle per source IP first, or an
+    // anonymous attacker could make us hammer arbitrary domains (reflected DoS)
+    // and flood shadow-user/pin writes (HIGH-3).
+    limiter.check(&format!("fed:inbox:{ip}"), INBOX_PER_MINUTE)?;
+
     // The signature IS the authentication. No signature / no origin = 401.
     let sig = header_str(&headers, "x-point-signature").ok_or(AppError::Unauthorized)?;
     let origin = header_str(&headers, "x-point-origin").ok_or(AppError::Unauthorized)?;
@@ -141,10 +157,9 @@ pub async fn inbox(
     }
 
     let allow_private = state.config.federation_allow_private;
-    // SSRF-check the sender domain BEFORE we make the discovery request to it.
-    ssrf_check(&sender_domain, allow_private).await?;
 
-    // Live-fetch the sender's published signing key and verify the raw bytes.
+    // Live-fetch the sender's published signing key (discover() SSRF-checks +
+    // pins the connection) and verify the raw bytes.
     let peer = discover(&sender_domain, allow_private).await?;
     if !federation_keys::verify(&peer.public_key, &body, sig) {
         tracing::warn!(sender = %sender, "federation: bad S2S signature — rejecting");
@@ -301,9 +316,13 @@ async fn handle_key_request(
     ensure_federated_user(&state.pool, sender).await?;
     tofu_pin(&state.pool, recipient, sender, &key_hash).await?;
 
-    // Consent gate: without a request/share, refuse (don't let a stranger drain
-    // the pool). Same posture as the local `can_fetch_key_packages`.
-    if !federated_relationship_exists(&state.pool, sender, recipient).await? {
+    // Consent gate — the SAME standard as the local `can_fetch_key_packages`
+    // (accepted share / active temp share / shared group). A bare *pending*
+    // request must NOT grant this: it's unilateral, so honoring it would let a
+    // hostile remote (which can mint a pending request via share.request) drain
+    // a local user's one-time KeyPackage pool — the D-007 failure mode, across
+    // federation. The legit flow accepts the share first, so this still passes.
+    if !authz::can_fetch_key_packages(&state.pool, sender, recipient).await? {
         return Err(AppError::Forbidden);
     }
 
@@ -370,6 +389,14 @@ async fn handle_mls_relay(
     // The mailbox row references the sender by id; ensure the shadow exists.
     ensure_federated_user(&state.pool, sender).await?;
 
+    // Consent gate (matches the local send_welcome/commit path): only relay MLS
+    // group material from a remote the recipient actually has a relationship
+    // with — otherwise any signed remote could inject unsolicited Welcomes and
+    // fill the mailbox.
+    if !authz::can_fetch_key_packages(&state.pool, sender, recipient).await? {
+        return Err(AppError::Forbidden);
+    }
+
     let mut tx = state.pool.begin().await?;
     let (id, created_at) =
         insert_mailbox(&mut tx, sender, recipient, kind, group_id, &blob).await?;
@@ -381,9 +408,10 @@ async fn handle_mls_relay(
 }
 
 /// `location.update`: relay a cross-server group's MLS ciphertext to the LOCAL
-/// recipient's live connections. Fail-closed: the recipient must not be ghosting
-/// the sender AND a share must exist between them
-/// (`can_deliver_to_user(recipient, sender)` is exactly that). CIPHERTEXT ONLY —
+/// recipient's live connections. Fail-closed: a fix from the remote `sender`
+/// may reach the local `recipient` only on a current relationship and when the
+/// SENDER isn't ghosting the recipient — `can_deliver_to_user(sender, recipient)`
+/// is exactly that (sender-first, matching the local WS path). CIPHERTEXT ONLY —
 /// the base64 blob is re-emitted verbatim, only decoded to bound its size.
 async fn handle_location_update(
     state: &AppState,
@@ -407,7 +435,7 @@ async fn handle_location_update(
         .unwrap_or_else(|| Utc::now().timestamp_millis());
 
     // Fail-closed authz (errors deny). No relationship / ghosting = silent drop.
-    let allowed = authz::can_deliver_to_user(&state.pool, recipient, sender).await?;
+    let allowed = authz::can_deliver_to_user(&state.pool, sender, recipient).await?;
     if allowed {
         let out = json!({
             "type": "location.broadcast",
@@ -531,13 +559,21 @@ pub async fn verify_pin(
 // S2S HTTP client (rustls) + SSRF guard
 // ---------------------------------------------------------------------------
 
-fn build_client() -> ApiResult<reqwest::Client> {
-    reqwest::Client::builder()
+/// Build a client that PINS the connection to the already-validated IPs
+/// (`addrs`), so the connector cannot re-resolve DNS to a different, internal
+/// address between our SSRF check and the connect (TOCTOU / DNS-rebinding).
+/// When `addrs` is empty (allow-private dev/test) no pin is set and normal
+/// resolution is used.
+fn build_client(pin_host: &str, addrs: &[std::net::SocketAddr]) -> ApiResult<reqwest::Client> {
+    let mut b = reqwest::Client::builder()
         .timeout(S2S_TIMEOUT)
         // Never follow redirects: a 3xx to an internal host would bypass the
-        // SSRF check we ran on the original target.
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
+        // SSRF check + pin we applied to the original target.
+        .redirect(reqwest::redirect::Policy::none());
+    if !addrs.is_empty() {
+        b = b.resolve_to_addrs(pin_host, addrs);
+    }
+    b.build()
         .map_err(|e| AppError::Internal(format!("http client: {e}")))
 }
 
@@ -548,10 +584,17 @@ fn peer_base(domain: &str, allow_private: bool) -> String {
     format!("{scheme}://{domain}")
 }
 
-/// Fetch and parse a peer's `/.well-known/point`.
+/// The bare hostname (no port) — the key reqwest resolves and we pin.
+fn host_only(domain: &str) -> &str {
+    domain.rsplit_once(':').map_or(domain, |(h, _)| h)
+}
+
+/// Fetch and parse a peer's `/.well-known/point`, pinning the connection to the
+/// SSRF-validated IPs.
 async fn discover(domain: &str, allow_private: bool) -> ApiResult<RemoteWellKnown> {
+    let addrs = ssrf_check(domain, allow_private).await?;
     let url = format!("{}/.well-known/point", peer_base(domain, allow_private));
-    let client = build_client()?;
+    let client = build_client(host_only(domain), &addrs)?;
     let resp = client.get(&url).send().await.map_err(|e| {
         tracing::warn!(domain = %domain, error = %e, "federation: discovery request failed");
         AppError::Internal("discovery failed".into())
@@ -574,19 +617,19 @@ async fn deliver(
     sig: &str,
 ) -> ApiResult<(u16, Value)> {
     let allow_private = state.config.federation_allow_private;
-    ssrf_check(remote_domain, allow_private).await?;
+    // discover() SSRF-checks + pins the discovery connection itself.
     let peer = discover(remote_domain, allow_private).await?;
 
-    // The advertised inbox host could differ from the domain — SSRF-check it too.
-    if let Some(host) = inbox_host(&peer.endpoints.inbox) {
-        ssrf_check(&host, allow_private).await?;
-    } else {
+    // The advertised inbox host could differ from the domain — SSRF-check it too
+    // and pin the POST connection to its validated IPs.
+    let Some(inbox_host) = inbox_host(&peer.endpoints.inbox) else {
         return Err(AppError::Internal(
             "peer advertised an invalid inbox URL".into(),
         ));
-    }
+    };
+    let inbox_addrs = ssrf_check(&inbox_host, allow_private).await?;
 
-    let client = build_client()?;
+    let client = build_client(host_only(&inbox_host), &inbox_addrs)?;
     let resp = client
         .post(&peer.endpoints.inbox)
         .header("x-point-signature", sig)
@@ -614,9 +657,13 @@ fn inbox_host(url: &str) -> Option<String> {
 /// Reject an outbound target that resolves to (or is) a non-public address.
 /// When `allow_private` is set (dev/test), the whole check is skipped so the
 /// integration test can reach `127.0.0.1`.
-pub async fn ssrf_check(domain: &str, allow_private: bool) -> ApiResult<()> {
+/// SSRF guard. Resolves the host and rejects if ANY resolved IP is
+/// non-public, returning the validated `SocketAddr`s so the caller can PIN the
+/// connection to exactly these (no re-resolution → no DNS-rebinding TOCTOU).
+/// Returns an empty vec in allow-private (dev/test) mode (no pin, no check).
+pub async fn ssrf_check(domain: &str, allow_private: bool) -> ApiResult<Vec<std::net::SocketAddr>> {
     if allow_private {
-        return Ok(());
+        return Ok(Vec::new());
     }
     // Strip an optional `:port`. (An IPv6 literal is caught by the denylist
     // before this could mangle it.)
@@ -625,26 +672,25 @@ pub async fn ssrf_check(domain: &str, allow_private: bool) -> ApiResult<()> {
         tracing::warn!(host = %host, "SSRF: hostname on denylist — rejecting");
         return Err(AppError::Forbidden);
     }
-    // Resolve and inspect EVERY IP (defeats DNS rebinding). Resolution failure or
-    // an empty answer denies (fail closed).
-    let mut resolved = false;
-    let addrs = tokio::net::lookup_host(format!("{host}:443"))
+    // Resolve and inspect EVERY IP. Resolution failure or an empty answer denies
+    // (fail closed).
+    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(format!("{host}:443"))
         .await
         .map_err(|e| {
             tracing::warn!(host = %host, error = %e, "SSRF: DNS resolution failed — rejecting");
             AppError::Forbidden
-        })?;
-    for addr in addrs {
-        resolved = true;
+        })?
+        .collect();
+    if addrs.is_empty() {
+        return Err(AppError::Forbidden);
+    }
+    for addr in &addrs {
         if ip_disallowed(addr.ip()) {
             tracing::warn!(host = %host, ip = %addr.ip(), "SSRF: resolved to a non-public IP — rejecting");
             return Err(AppError::Forbidden);
         }
     }
-    if !resolved {
-        return Err(AppError::Forbidden);
-    }
-    Ok(())
+    Ok(addrs)
 }
 
 /// Hostname-string denylist (independent of DNS): localhost, mDNS/`.local`,
@@ -795,68 +841,40 @@ pub async fn tofu_pin(
     remote_user_id: &str,
     key_hash: &str,
 ) -> ApiResult<()> {
-    let existing: Option<(String,)> = sqlx::query_as(
-        "SELECT key_hash FROM federation_pins WHERE local_user_id = $1 AND remote_user_id = $2",
+    // Atomically resolve the EFFECTIVE pinned key in one round-trip: insert on
+    // first contact, and on conflict return the value already stored. Doing the
+    // SELECT and INSERT as separate statements let two concurrent first-contacts
+    // with DIFFERENT keys both observe "no pin" and both return Ok — the loser's
+    // key silently disagreeing with what got stored (LOW-1). Here the loser gets
+    // the winner's row back and the compare below rejects the mismatch.
+    let (effective,): (String,) = sqlx::query_as(
+        "WITH ins AS (
+             INSERT INTO federation_pins (local_user_id, remote_user_id, key_hash)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (local_user_id, remote_user_id) DO NOTHING
+             RETURNING key_hash
+         )
+         SELECT key_hash FROM ins
+         UNION ALL
+         SELECT key_hash FROM federation_pins
+           WHERE local_user_id = $1 AND remote_user_id = $2
+         LIMIT 1",
     )
     .bind(local_user_id)
     .bind(remote_user_id)
-    .fetch_optional(pool)
+    .bind(key_hash)
+    .fetch_one(pool)
     .await?;
 
-    match existing {
-        Some((pinned,)) => {
-            if pinned != key_hash {
-                tracing::warn!(
-                    local_user_id = %local_user_id,
-                    remote_user_id = %remote_user_id,
-                    "federation: remote identity key CHANGED from the pinned value — REJECTING (forced re-verify)"
-                );
-                return Err(AppError::Forbidden);
-            }
-        }
-        None => {
-            // First contact: pin. ON CONFLICT keeps a first-contact race idempotent
-            // (both requests carry the same key on a legitimate first contact).
-            sqlx::query(
-                "INSERT INTO federation_pins (local_user_id, remote_user_id, key_hash)
-                 VALUES ($1, $2, $3)
-                 ON CONFLICT (local_user_id, remote_user_id) DO NOTHING",
-            )
-            .bind(local_user_id)
-            .bind(remote_user_id)
-            .bind(key_hash)
-            .execute(pool)
-            .await?;
-        }
+    if effective != key_hash {
+        tracing::warn!(
+            local_user_id = %local_user_id,
+            remote_user_id = %remote_user_id,
+            "federation: remote identity key CHANGED from the pinned value — REJECTING (forced re-verify)"
+        );
+        return Err(AppError::Forbidden);
     }
     Ok(())
-}
-
-/// A consented relationship between a federated sender and a local recipient:
-/// an existing share, or a pending/accepted request in either direction.
-async fn federated_relationship_exists(pool: &sqlx::PgPool, a: &str, b: &str) -> ApiResult<bool> {
-    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
-    let share: Option<(i32,)> =
-        sqlx::query_as("SELECT 1 FROM user_shares WHERE user_a = $1 AND user_b = $2")
-            .bind(lo)
-            .bind(hi)
-            .fetch_optional(pool)
-            .await?;
-    if share.is_some() {
-        return Ok(true);
-    }
-    let req: Option<(i32,)> = sqlx::query_as(
-        "SELECT 1 FROM share_requests
-         WHERE ((from_user_id = $1 AND to_user_id = $2)
-             OR (from_user_id = $2 AND to_user_id = $1))
-           AND status IN ('pending', 'accepted')
-         LIMIT 1",
-    )
-    .bind(a)
-    .bind(b)
-    .fetch_optional(pool)
-    .await?;
-    Ok(req.is_some())
 }
 
 #[cfg(test)]
