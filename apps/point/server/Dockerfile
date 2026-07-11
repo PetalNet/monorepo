@@ -1,12 +1,12 @@
 # Multi-stage build for the Point home-server.
 # Build context must be the repo ROOT (see docker-compose.yml) so the full Cargo
 # workspace — root Cargo.toml, core/ (lifted MLS crate), and server/ — is present.
-FROM rust:1-bookworm AS build
+FROM rust:1.96-bookworm AS build
 WORKDIR /build
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY core/ core/
 COPY server/ server/
-RUN cargo build --release --bin point-server
+RUN cargo build --release --locked --bin point-server
 
 FROM debian:bookworm-slim
 RUN apt-get update \

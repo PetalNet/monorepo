@@ -147,8 +147,12 @@ pub struct LoginBody {
 /// Verified on every login that can't reach a real hash (unknown user,
 /// federated shadow, OIDC-only account) so those paths cost the same as a
 /// wrong password against a real account.
-static DUMMY_HASH: LazyLock<String> =
-    LazyLock::new(|| auth::hash_password("timing-equalizer-dummy").expect("static dummy hash"));
+static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
+    // Random per-process input: this hash exists only to burn the same Argon2
+    // cost on can't-succeed logins; nothing ever verifies against it.
+    let random: [u8; 16] = rand::random();
+    auth::hash_password(&hex::encode(random)).expect("static dummy hash")
+});
 
 pub async fn login(
     State(state): State<AppState>,

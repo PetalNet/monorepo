@@ -26,6 +26,9 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://point:point@postgres:5432/point}
       JWT_SECRET: ${JWT_SECRET:?set a 32+ char random JWT_SECRET in .env}
+      DOMAIN: ${DOMAIN:?set DOMAIN to this server's public hostname in .env}
+      OPEN_REGISTRATION: ${OPEN_REGISTRATION:-false}
+      GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
       LISTEN: ${LISTEN:-0.0.0.0:8330}
     # Plain HTTP — Traefik (or your reverse proxy) terminates TLS. No in-binary TLS.
     expose:
