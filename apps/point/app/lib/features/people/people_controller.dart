@@ -1,54 +1,42 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/services/api/models.dart';
+import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/presence_tokens.dart';
 
-/// The people the signed-in user shares with.
-///
-/// Sample data for now (representative of the real share graph) so the
-/// People and Map surfaces render and can be driven in the loop.
-// TODO(fable): back with PointApi.activeShares + the live WS presence stream.
-final peopleProvider = Provider<List<Person>>((ref) {
-  return const [
-    Person(
-      userId: 'aria@point.local',
-      displayName: 'Aria',
-      presence: PresenceState.live,
-      subtitle: 'Sharing with you',
-      distanceLabel: '0.4 mi',
-      lat: 38.6272,
-      lon: -90.1990,
-    ),
-    Person(
-      userId: 'jesse@point.local',
-      displayName: 'Jesse',
+/// The people the signed-in user shares with, from the live server
+/// (`GET /api/shares`). Live presence + coordinates arrive over the WS in M2;
+/// until a fix has been received a shared person shows as `away` with no map
+/// marker, which is the honest state for a fresh relationship.
+class PeopleController extends AsyncNotifier<List<Person>> {
+  @override
+  Future<List<Person>> build() async {
+    final session = ref.watch(authControllerProvider).value;
+    if (session == null) return const [];
+    final api = ref.read(apiProvider);
+    final shares = await api.activeShares(session.token);
+    return shares.map(_personFromShare).toList();
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(build);
+  }
+
+  Person _personFromShare(Map<String, dynamic> share) {
+    final userId = share['user_id'] as String;
+    final displayName =
+        share['display_name'] as String? ?? userId.split('@').first;
+    return Person(
+      userId: userId,
+      displayName: displayName,
+      // No live presence yet (WS lands in M2); default to away, no location.
       presence: PresenceState.away,
-      subtitle: 'Away · 2.1 mi',
-      distanceLabel: '2.1 mi',
-      lat: 38.6350,
-      lon: -90.2100,
-    ),
-    Person(
-      userId: 'mom@point.local',
-      displayName: 'Mom',
-      presence: PresenceState.stale,
-      subtitle: 'Last seen 2h ago',
-      lat: 38.6200,
-      lon: -90.1850,
-    ),
-    Person(
-      userId: 'dex@point.local',
-      displayName: 'Dex',
-      presence: PresenceState.ghosted,
-      subtitle: 'Hidden · ghosting',
-    ),
-    Person(
-      userId: 'sam@point.local',
-      displayName: 'Sam',
-      presence: PresenceState.live,
-      subtitle: 'Sharing with you',
-      distanceLabel: '5.0 mi',
-      lat: 38.6400,
-      lon: -90.1700,
-    ),
-  ];
-});
+      subtitle: userId,
+    );
+  }
+}
+
+final peopleControllerProvider =
+    AsyncNotifierProvider<PeopleController, List<Person>>(
+  PeopleController.new,
+);

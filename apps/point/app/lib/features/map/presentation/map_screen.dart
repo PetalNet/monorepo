@@ -21,7 +21,7 @@ class MapScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final people = ref.watch(peopleProvider);
+    final people = ref.watch(peopleControllerProvider).value ?? const <Person>[];
     final located = people.where((p) => p.hasLocation).toList();
     final center = located.isNotEmpty
         ? LatLng(located.first.lat!, located.first.lon!)
@@ -111,7 +111,7 @@ class _NearbySheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final people = ref.watch(peopleProvider);
+    final people = ref.watch(peopleControllerProvider).value ?? const <Person>[];
     return DraggableScrollableSheet(
       initialChildSize: 0.28,
       minChildSize: 0.12,

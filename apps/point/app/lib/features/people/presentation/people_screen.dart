@@ -13,7 +13,8 @@ class PeopleScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final people = ref.watch(peopleProvider);
+    final peopleAsync = ref.watch(peopleControllerProvider);
+    final people = peopleAsync.value ?? const [];
 
     return Scaffold(
       appBar: AppBar(
