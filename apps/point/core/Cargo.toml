@@ -20,6 +20,12 @@ thiserror = "2"
 base64 = "0.22"
 rand = "0.8"
 hex = "0.4"
+# Zero-knowledge account recovery (client-side): derive a key from a user-held
+# recovery code and encrypt the exported MLS state so the server stores only
+# opaque ciphertext. See recovery.rs.
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+zeroize = "1"
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]

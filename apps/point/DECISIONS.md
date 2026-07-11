@@ -342,3 +342,39 @@ two-instance E2E (still PASS, both servers ciphertext-only) plus the 15 federati
 
 Removed the now-dead `federated_relationship_exists` helper (its callers all moved to the
 `can_fetch_key_packages` consent gate).
+
+## 2026-07-11 — D-022b · M4 ship: ghcr image, honest Traefik compose, self-host docs
+
+Point is self-hostable for real, not aspirationally. A `point-release` workflow builds and pushes
+the server image to `ghcr.io/petalnet/point-server` on a `point-v*` tag (and `:main` on server
+pushes), pinned actions + minimal `packages: write` scope to satisfy zizmor. `docker-compose.yml`
+is now a production self-host stack that PULLS that image behind Traefik (automatic Let's Encrypt
+TLS, HTTP→HTTPS redirect), with `TRUST_PROXY_HEADERS=true` so the inbox/auth rate limits key off
+the real client IP Traefik forwards. `docker-compose.build.yml` keeps the build-from-source path for
+dev. `.env.example` enumerates every knob; `docs/SELF-HOSTING.md` is a real DNS→TLS→federation→
+backup→upgrade walkthrough. The Dockerfile was verified to actually build the image (not asserted).
+
+## 2026-07-11 — D-023 · M4 zero-knowledge account recovery (server stores only ciphertext)
+
+E2E encryption means the MLS identity lives on-device — lose the phone, lose every share. Recovery
+fixes this WITHOUT weakening E2E: the device encrypts its exported MLS state under a key derived
+(Argon2id, m=64 MiB/t=3/p=1) from a 120-bit user-held recovery code and uploads the opaque blob
+(`MAGIC ‖ salt ‖ nonce ‖ XChaCha20-Poly1305(state)`). The server stores one ciphertext row per user
+(`mls_backups`, migration 0003) and CANNOT decrypt it — it never sees the code, the key, or the
+state. Wrong code / tampered blob fails closed.
+
+- Crypto in `core/src/recovery.rs` (point-core, so it's covered by the workspace CI test run): 7
+  unit tests (roundtrip, wrong-code, tamper, malformed, no-plaintext-leak, code normalization,
+  code shape). Recovery code is Crockford-base32, normalized so casing/spacing/look-alikes all
+  derive the same key.
+- Server `server/src/api/recovery.rs` + `0003_recovery.sql`: ciphertext-only PUT/GET/DELETE
+  `/api/recovery/backup`, each scoped to the authenticated user. 5 integration tests incl. per-user
+  isolation (one user can't read another's backup) and opaque byte-exact round-trip.
+- Client: FRB bridge `app/rust/src/api/recovery.rs` + `features/recovery/recovery_service.dart`
+  (enroll → cache code in secure storage → refresh; restore on a new device). Adding the cached code
+  is no new exposure — the plaintext state already sits in the same secure storage.
+
+**Verified on-device (real path, no facade):** `lib/recovery_check_main.dart` on the Galaxy A03s
+drove enroll → `PUT` to the LIVE server → simulated new device `GET` → `recoveryDecrypt` → restore →
+encrypt a fix → Bob decrypts it; a wrong code was rejected; and the server-stored blob was confirmed
+opaque (39 KB, `PTR1` magic, no MLS-state field names or group name present). PASS.

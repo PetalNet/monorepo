@@ -1,0 +1,70 @@
+name: point-release
+
+# Build and publish the Point home-server container to GHCR. Runs on a version
+# tag (point-vX.Y.Z) for a real release, and on pushes to main that touch the
+# server so `:main` always tracks the tip. Manual dispatch is available too.
+on:
+  push:
+    tags: ["point-v*"]
+    branches: [main]
+    paths:
+      - "apps/point/server/**"
+      - "apps/point/core/**"
+      - "apps/point/Cargo.toml"
+      - "apps/point/Cargo.lock"
+      - ".github/workflows/point-release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: build + push server image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96 # v5.6.1
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/point-server
+          # `point-v1.2.3` -> `1.2.3` + `1.2` + `latest`; main -> `main`.
+          tags: |
+            type=match,pattern=point-v(.*),group=1
+            type=match,pattern=point-v(\d+\.\d+)\.\d+,group=1
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/point-v') }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build + push
+        uses: docker/build-push-action@48aba3b46d1b1fec4febb7c5d0c644b249a11355 # v6.10.0
+        with:
+          # The Dockerfile COPYs the Cargo workspace from apps/point, so that is
+          # the build context (matches docker-compose.yml).
+          context: apps/point
+          file: apps/point/server/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false

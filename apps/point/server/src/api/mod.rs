@@ -13,10 +13,13 @@ pub mod invites;
 pub mod mls;
 pub mod oidc;
 pub mod rate_limit;
+pub mod recovery;
 pub mod shares;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_recovery;
 #[cfg(test)]
 mod tests_sharing;
 #[cfg(test)]
@@ -95,6 +98,12 @@ pub fn router(state: AppState) -> Router {
         // ghost
         .route("/api/ghost", put(ghost::set_ghost).get(ghost::get_ghost))
         .route("/api/ghost/targets", put(ghost::set_ghost_target))
+        .route(
+            "/api/recovery/backup",
+            put(recovery::put_backup)
+                .get(recovery::get_backup)
+                .delete(recovery::delete_backup),
+        )
         // history
         .route("/api/history", delete(history::delete_my_history))
         .route("/api/history/{user_id}", get(history::get_history))
