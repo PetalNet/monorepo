@@ -48,5 +48,10 @@
 			"onFail": "error",
 			"version": "^26.0.0"
 		}
+	},
+	"typesync": {
+		"ignoreProjects": [
+			"apps/manager"
+		]
 	}
 }

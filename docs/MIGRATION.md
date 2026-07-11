@@ -33,6 +33,20 @@ Then, the things that bit slide:
 
 ## Migrated
 
+- `janet-manager` → `apps/manager` — Rust supervisor for a persistent Claude Code
+  agent session (manager-rs, N1.1-hardened: heartbeat v2 + contract conformance +
+  state-machine tests), **not** a pnpm app. No `package.json` (pnpm/`vp`/knip ignore
+  it); oxfmt owns `.toml`/`.md`/`.json`, `cargo fmt` owns `.rs` (first-ever rustfmt
+  pass = own blame-ignored commit, ditto the oxfmt pass). Validation is Cargo-native:
+  `cargo fmt --check`, `clippy --all-targets --locked -D warnings`, `cargo build
+--locked --release`, `cargo test` (21 tests) — all verified in a clean
+  `rust:1.96-slim` container; toolchain pinned 1.96 via `rust-toolchain.toml`;
+  `Cargo.lock` kept for `--locked`. Dropped standalone cruft (`package.json` +
+  superseded `manager.js` baseline — retrievable from imported history). Kept the
+  dream2nix flake (build tooling, not deploy cruft) and `docs/contracts/` (the N0.1
+  fleet contracts this app implements). No secrets in source or history (token/key
+  pattern audit across all blobs: clean).
+
 _(populated as repos land — see issue #1 for the live checklist)_
 
 ## Excluded

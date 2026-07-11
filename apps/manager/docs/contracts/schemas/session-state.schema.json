@@ -1,0 +1,135 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.petalnet.lab/contracts/v1/session-state.schema.json",
+	"title": "Agent session state (+ manager heartbeat)",
+	"description": "Top-level schema = the durable session-state file the manager persists across restarts (today: ~/.claude/shared/agent-session-state.json, mode 0600, written atomically). The heartbeat status snapshot the manager rewrites every supervisor tick lives under $defs/heartbeat; the single-owner channel-lock state under $defs/channelLock. Field `sessionId` is deliberately camelCase for drop-in rollback compatibility with the legacy manager.js file.",
+	"$ref": "#/$defs/sessionState",
+	"$defs": {
+		"sessionState": {
+			"type": "object",
+			"properties": {
+				"schema_version": {
+					"const": 1,
+					"description": "Contract version. Legacy files (manager.js / manager-rs v0) omit it; consumers MUST treat absence as version 1. Producers MUST write it."
+				},
+				"sessionId": {
+					"type": "string",
+					"format": "uuid",
+					"description": "The Claude Code session id this agent resumes. camelCase on disk on purpose (manager.js rollback compatibility)."
+				},
+				"bootstrapped": {
+					"type": "boolean",
+					"default": true,
+					"description": "false = freshly minted id, launch with --session-id <id>; true = previously spawned, launch with --resume <id>. Absent (legacy manager.js file) MUST default to true: that session has already run, so resume is correct."
+				}
+			},
+			"required": ["sessionId"],
+			"additionalProperties": false
+		},
+		"heartbeat": {
+			"type": "object",
+			"description": "Status snapshot rewritten every supervisor tick (1s). Consumed by the `healthcheck` subcommand and the canary deploy driver: heartbeat fresh (default max 30s), pid alive, state allowed, pane alive+tagged when running, Matrix sync fresh (default max 120s). Epoch-seconds timestamps are retained from the deployed v1 shape (healthcheck freshness math is epoch arithmetic); 0 means 'never'.",
+			"properties": {
+				"schema_version": {
+					"const": 2,
+					"description": "Contract version. The live manager-rs writes this integer under the key `schema` with value 1; version 2 IS the rename to the fleet-standard `schema_version` key. Consumers during migration: accept `schema:1` as the v1 equivalent."
+				},
+				"version": {
+					"type": "string",
+					"description": "Manager build version (today: cargo package version)."
+				},
+				"handle": {
+					"type": "string",
+					"pattern": "^[a-z0-9][a-z0-9._-]*$",
+					"description": "Fleet handle of the agent this manager supervises (e.g. 'janet'). New in v2: lets one host run several managers without ambiguity."
+				},
+				"pid": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Manager process id (valid on Windows too)."
+				},
+				"state": {
+					"enum": ["starting", "running", "rate_limited", "waiting", "crashed", "stopped"],
+					"description": "Supervisor state machine state (manager-rs supervisor.rs::AgentState)."
+				},
+				"session_id": {
+					"type": "string",
+					"description": "The supervised Claude Code session id (mirrors sessionState.sessionId)."
+				},
+				"tmux_session": {
+					"type": ["string", "null"],
+					"description": "tmux session holding the agent pane. null on platforms without tmux (Windows box agents) — contracts are OS-neutral; consumers MUST NOT require it."
+				},
+				"pane_id": {
+					"type": ["string", "null"],
+					"description": "Owned (tagged) tmux pane id, e.g. '%12'. null when no live pane, or on non-tmux platforms."
+				},
+				"io_ok": {
+					"type": "boolean",
+					"description": "false = we own/monitor a pane but won't inject keys into it."
+				},
+				"crash_count": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"started_at_epoch": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Epoch seconds the agent was spawned/adopted; 0 = never."
+				},
+				"last_sync_ok_epoch": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Epoch seconds of the last successful Matrix /sync; 0 = never (healthcheck fails on 0)."
+				},
+				"updated_at_epoch": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Epoch seconds this snapshot was written; freshness gate for healthcheck."
+				},
+				"channel_lock": {
+					"$ref": "#/$defs/channelLock",
+					"description": "Single-owner Matrix channel lock state (new in v2; LOCKED requirement — the lock is load-bearing)."
+				}
+			},
+			"required": [
+				"schema_version",
+				"version",
+				"pid",
+				"state",
+				"session_id",
+				"io_ok",
+				"crash_count",
+				"started_at_epoch",
+				"last_sync_ok_epoch",
+				"updated_at_epoch"
+			],
+			"additionalProperties": false
+		},
+		"channelLock": {
+			"type": "object",
+			"description": "Expresses the single-owner Matrix channel lock (matrix-channel-rs). Exactly one process may own the channel (send/receive as the agent). 'lockout' = this process detected another owner and stood down (e.g. the Focus-squat reboot race, 2026-07-09): it MUST NOT send on the channel until the lock is re-acquired.",
+			"properties": {
+				"state": {
+					"enum": ["held", "released", "lockout"],
+					"description": "held = we own the channel; released = we cleanly gave it up; lockout = another owner detected, we stood down."
+				},
+				"owner": {
+					"type": ["string", "null"],
+					"description": "Identity currently believed to hold the channel (device/session identifier). null when unknown."
+				},
+				"acquired_at_epoch": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Epoch seconds we (or the observed owner) took the lock; 0 = unknown."
+				},
+				"contender": {
+					"type": ["string", "null"],
+					"description": "When state=lockout: the identity we observed squatting the channel, for diagnostics."
+				}
+			},
+			"required": ["state"],
+			"additionalProperties": false
+		}
+	}
+}

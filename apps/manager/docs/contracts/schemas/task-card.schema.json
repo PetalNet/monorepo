@@ -1,0 +1,89 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.petalnet.lab/contracts/v1/task-card.schema.json",
+	"title": "Task card (dispatcher → agent)",
+	"description": "The card the Layer-0 bus/dispatcher produces (from a Matrix message, a tracker transition, or a system condition) and delivers to an agent — the unit of 'you have something to look at'. LOCKED interrupt model: only three classes may interrupt Janet mid-task — a direct Parker/Eli command, a safety issue, or a clarification on the ACTIVE task. Everything else queues (interrupt_policy=defer) and reaches the agent in the compact inbox digest. The dispatcher stamps sender_class server-side; interrupt_policy=principal_command is only honored when sender_class=principal, and task_clarification only when task_id matches the recipient's currently-leased task. LOCKED tracker tie: every card carries the tracker task id it belongs to (spawn-from-task).",
+	"type": "object",
+	"properties": {
+		"schema_version": { "const": 1 },
+		"card_id": {
+			"type": "string",
+			"format": "uuid",
+			"description": "Unique card id; consumers de-duplicate on it (delivery may be retried over the backchannel)."
+		},
+		"task_id": {
+			"type": "integer",
+			"minimum": 1,
+			"description": "Tracker task this card belongs to. Required: the tracker is the source of truth and every agent action ties to a task id — a card about brand-new work is created AFTER the dispatcher files the task."
+		},
+		"sender": {
+			"type": "string",
+			"description": "Originating identity: a Matrix user id (e.g. '@parker:petalnet…') or a canonical agent handle."
+		},
+		"sender_class": {
+			"enum": ["principal", "agent", "system"],
+			"description": "Stamped by the dispatcher from its own roster, never trusted from the sender. principal = Parker/Eli; agent = a fleet member; system = dispatcher/watchdog/monitor origin."
+		},
+		"recipient": {
+			"type": "string",
+			"pattern": "^[a-z0-9][a-z0-9._-]*$",
+			"description": "Canonical lowercase handle of the agent this card is addressed to."
+		},
+		"priority": {
+			"type": "integer",
+			"minimum": 0,
+			"maximum": 3,
+			"default": 2,
+			"description": "0=P0 (highest) .. 3=P3 — same scale and direction as the tracker's tasks.priority."
+		},
+		"thread": {
+			"type": ["string", "null"],
+			"description": "Conversation thread this card belongs to (Matrix event id of the thread root, or a bus-assigned thread id). Replies MUST carry the same thread so conversations stay joined across transports."
+		},
+		"requires_reply": {
+			"type": "boolean",
+			"default": false,
+			"description": "true = the sender expects an answer card back on the same thread; the dispatcher tracks it as unanswered until one arrives."
+		},
+		"interrupt_policy": {
+			"enum": ["defer", "principal_command", "safety", "task_clarification"],
+			"default": "defer",
+			"description": "defer = queue for the inbox digest, never interrupts (the default for everything). The ONLY three interrupting classes: principal_command (direct Parker/Eli command; honored only when sender_class=principal), safety (a safety condition), task_clarification (clarification on the recipient's ACTIVE task; honored only when task_id matches its current lease)."
+		},
+		"body": {
+			"type": "string",
+			"description": "The instruction / message content, verbatim (forward, don't paraphrase)."
+		},
+		"capability": {
+			"type": ["string", "null"],
+			"description": "Capability tag the work needs (lane gate); the dispatcher only routes a card to an agent whose registry capabilities include it."
+		},
+		"lease": {
+			"$ref": "https://schemas.petalnet.lab/contracts/v1/queue-lease.schema.json#/$defs/leasePublic",
+			"description": "Present when the card accompanies/announces a claimed lease on task_id (viewer-safe projection — the claim_token travels only in the direct claim response to the worker, never on a card)."
+		},
+		"created_at": {
+			"type": "string",
+			"format": "date-time",
+			"description": "RFC 3339 UTC."
+		},
+		"expires_at": {
+			"type": ["string", "null"],
+			"format": "date-time",
+			"description": "Optional card TTL — after this the dispatcher may drop an undelivered card (e.g. a stale status ping)."
+		}
+	},
+	"required": [
+		"schema_version",
+		"card_id",
+		"task_id",
+		"sender",
+		"sender_class",
+		"recipient",
+		"priority",
+		"interrupt_policy",
+		"body",
+		"created_at"
+	],
+	"additionalProperties": false
+}

@@ -1,0 +1,113 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.petalnet.lab/contracts/v1/manager-config.schema.json",
+	"title": "Manager config (deny-unknown-fields)",
+	"description": "The manager's JSON config file, pointed at by $AGENT_MANAGER_CONFIG (manager-rs config.rs::RawConfig). additionalProperties is FALSE by contract: the process is harness-critical, so a typo'd key must fail loudly at boot, never silently fall back to a default. Publish-agnostic: nothing host-specific is compiled into the binary; every path/hostname/room id arrives here. All *_path/dir fields accept '~'-expansion. NOTE: the live manager-rs binary rejects unknown keys, so `schema_version` becomes writable only from the first rewrite release that knows the field — until then configs simply omit it (absence = version 1).",
+	"type": "object",
+	"properties": {
+		"schema_version": {
+			"const": 1,
+			"description": "Contract version. Absence = 1 (pre-rewrite configs cannot carry it because the current binary denies unknown fields)."
+		},
+		"creds_path": {
+			"type": "string",
+			"description": "Path to the Matrix credentials JSON — see $defs/matrixCreds."
+		},
+		"control_room": {
+			"type": "string",
+			"pattern": "^!.+:.+$",
+			"description": "Matrix room ID the manager reports to and takes !commands from."
+		},
+		"agent_name": {
+			"type": "string",
+			"default": "agent",
+			"description": "Display name used in manager status messages (e.g. 'janet')."
+		},
+		"work_dir": {
+			"type": "string",
+			"description": "Directory the agent session starts in. CLI arg overrides this; default $HOME."
+		},
+		"state_path": {
+			"type": "string",
+			"description": "Session-state JSON (session-state.schema.json). Default ~/.claude/shared/agent-session-state.json."
+		},
+		"rate_limit_hook_path": {
+			"type": "string",
+			"description": "Rate-limit hook drop file ({\"resetAt\": …}) written by a Claude hook; consumed (deleted) on agent exit. Default ~/.claude/shared/agent-rate-limit.json."
+		},
+		"model_override_path": {
+			"type": "string",
+			"description": "Optional model-override file; non-empty contents => '--model <contents>' appended to the agent command."
+		},
+		"exit_code_path": {
+			"type": "string",
+			"description": "File the in-tmux shell writes the agent's exit code to. Default ~/.claude/shared/agent-exit-code."
+		},
+		"heartbeat_path": {
+			"type": "string",
+			"description": "Heartbeat JSON the manager rewrites every tick (session-state.schema.json#/$defs/heartbeat). Default ~/.claude/shared/agent-manager-heartbeat.json."
+		},
+		"sessions_dir": {
+			"type": "string",
+			"description": "Claude session-lock directory; stale locks naming our session id are removed before spawn. Default ~/.claude/sessions."
+		},
+		"tmux_session": {
+			"type": "string",
+			"default": "agent-claude",
+			"description": "tmux session name the agent pane lives in (POSIX hosts; a Windows manager ignores tmux_* fields)."
+		},
+		"pane_tag": {
+			"type": "string",
+			"default": "agent-manager",
+			"description": "Value of the @agent_manager_owner pane user-option that marks OUR pane (stable-pane ownership; never target the active pane)."
+		},
+		"claude_bin": {
+			"type": "string",
+			"default": "claude",
+			"description": "Claude Code binary (name or absolute path)."
+		},
+		"claude_args": {
+			"type": "array",
+			"items": { "type": "string" },
+			"default": ["--dangerously-skip-permissions"],
+			"description": "Full argument list for the agent process — lab-specific flags live HERE, not in code. --model/--resume/--session-id are appended by the manager."
+		},
+		"path_prepend": {
+			"type": "string",
+			"description": "Prepended to PATH inside the agent shell. Default ~/.local/bin."
+		},
+		"kill_agent_on_shutdown": {
+			"type": "boolean",
+			"default": true,
+			"description": "true (JS-manager parity) = kill the agent pane on manager shutdown. false = leave the agent running and re-adopt on next manager boot (blipless deploys; less battle-tested)."
+		},
+		"tmux_width": {
+			"type": "integer",
+			"minimum": 1,
+			"default": 220,
+			"description": "Size of a freshly created detached tmux session."
+		},
+		"tmux_height": {
+			"type": "integer",
+			"minimum": 1,
+			"default": 50
+		}
+	},
+	"required": ["creds_path", "control_room"],
+	"additionalProperties": false,
+	"$defs": {
+		"matrixCreds": {
+			"type": "object",
+			"description": "The credentials file creds_path points at (e.g. ~/.claude/shared/janet-account.json). The manager reads exactly these three keys; extra keys are tolerated (the file is shared with other tools).",
+			"properties": {
+				"homeserver": { "type": "string", "format": "uri" },
+				"access_token": { "type": "string" },
+				"user_id": {
+					"type": "string",
+					"pattern": "^@.+:.+$"
+				}
+			},
+			"required": ["homeserver", "access_token", "user_id"]
+		}
+	}
+}
