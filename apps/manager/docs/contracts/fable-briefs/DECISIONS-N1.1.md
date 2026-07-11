@@ -219,3 +219,36 @@ final summary + open questions, stop.
   the first run's piping could mask a test failure — explicitly verified green.
 - Loop converged in one iteration; cached named volume `manager-n11-target` kept for
   cheap re-runs if Sol review forces changes.
+
+## M4 — Sol review (PASSED, with a model caveat)
+
+- First attempt was invalid and discarded: `-s read-only` broke codex's inner bubblewrap
+  sandbox in this container (config.toml documents this; the container itself is the
+  isolation boundary), so the model fell back to its GitHub MCP connector and reviewed the
+  WRONG target (flagged a root Dockerfile that exists on no local branch). Lesson logged:
+  run codex with its configured sandbox here, and disable the github plugin for local
+  reviews.
+- N22: Sol's stated model (GPT-5.6) is NOT available to this codex account — `gpt-5.6`,
+  `gpt-5.6-codex`, `gpt-5.6-codex-max` all rejected ("not supported when using Codex with a
+  ChatGPT account"). Ran the review on the configured default **gpt-5.5 at high reasoning**
+  instead — the strongest reviewer this box can produce; flagged to Parker as an open
+  question (is gpt-5.5 acceptable as "Sol" here, or does the account need an upgrade?).
+- Verdict (`codex exec review --base main`, local-only, high reasoning): **"I did not find
+  any discrete, actionable bugs in the changes. The Rust crate builds and its tests pass,
+  and the Nix package targets evaluated successfully during review."** It independently
+  rebuilt/tested the crate and verified the claude CLI flags the supervisor passes
+  (--resume/--session-id/--remote-control/--name) against the installed binary. No
+  findings to address → no re-review needed.
+
+## DIRECTIVE CORRECTION (Parker, mid-run) — merge flow update
+
+- GitHub DOES resolve from this host (verified: `git ls-remote` against PetalNet/monorepo
+  works; the earlier "no GitHub" note was stale — it dated from the N0.1 run). The
+  local-only self-merge plan (N20) is superseded.
+- New flow: PUSH `migrate-manager` to origin so CI runs; do NOT merge until Sol passes
+  (done, above) AND CI is green; follow the matrix-bot PR/merge convention (standard
+  merge, not squash — MIGRATION.md). Push auth = the repo's existing credential helper.
+- N23: local `main` was stale vs `origin/main` (renovate dep/CI bumps only); merged
+  `origin/main` into `migrate-manager` cleanly (zero overlap with apps/manager) so the PR
+  bases on current main. No gh CLI on this host → PR + CI polling + merge go through the
+  GitHub REST API with the credential-helper PAT.
