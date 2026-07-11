@@ -12,7 +12,7 @@
 **Exactly one tmux version on the host, pinned: 3.4.** Why 3.4 and why
 one:
 
-- The manager requires **tmux ≥ 3.0** (pane *user options* carry the
+- The manager requires **tmux ≥ 3.0** (pane _user options_ carry the
   `@agent_manager_owner` ownership tag; a tmux without them is a failed
   spawn, never degraded operation — locked N1.2 decision).
 - tmux client and server must speak the same protocol; mixed versions on
@@ -31,12 +31,12 @@ module's nixpkgs input on a revision that ships it); do not track
 
 ## 2. Socket contract (fleet-term consumer, N1.7)
 
-| Item | Value | Why |
-|---|---|---|
-| Server socket | `/tmp/tmux-1000/default` | tmux default for uid 1000; both ttyd containers hard-code it |
-| Socket dir owner/mode | uid 1000, `0700` (tmux default) | containers run `USER 1000:1000` and bind-mount `/tmp/tmux-1000` — same-uid access, no group/world opening |
-| Shared session name | `janet-claude` | ro view: `tmux -S /tmp/tmux-1000/default attach -r -t janet-claude`; rw: same without `-r` |
-| tmpfiles / cleanup | `/tmp/tmux-1000` must be exempt from tmp sweepers | a swept socket kills every attached client and orphans the server |
+| Item                  | Value                                             | Why                                                                                                       |
+| --------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Server socket         | `/tmp/tmux-1000/default`                          | tmux default for uid 1000; both ttyd containers hard-code it                                              |
+| Socket dir owner/mode | uid 1000, `0700` (tmux default)                   | containers run `USER 1000:1000` and bind-mount `/tmp/tmux-1000` — same-uid access, no group/world opening |
+| Shared session name   | `janet-claude`                                    | ro view: `tmux -S /tmp/tmux-1000/default attach -r -t janet-claude`; rw: same without `-r`                |
+| tmpfiles / cleanup    | `/tmp/tmux-1000` must be exempt from tmp sweepers | a swept socket kills every attached client and orphans the server                                         |
 
 Constraints the manager adds on top:
 
@@ -46,7 +46,7 @@ Constraints the manager adds on top:
 - Respawns go into a **new window**; only the manager's own tagged pane
   is ever killed. Nothing in the host config may set `remain-on-exit on`
   (see the conf file — it would defeat exit detection).
-- Session names must not be prefix-ambiguous *by policy* (the layer now
+- Session names must not be prefix-ambiguous _by policy_ (the layer now
   pins exact-name targeting — `=name:` — but sibling sessions like
   `janet-claude-scratch` remain confusing for humans; prefer distinct
   names).
@@ -76,7 +76,7 @@ Constraints the manager adds on top:
 
 ## 4. `modules/home/ttyd.nix` — content to adopt
 
-The current live consumers are the *containerized* ttyd pair in the tasks
+The current live consumers are the _containerized_ ttyd pair in the tasks
 stack (`docker-compose.fleet-term.yml`, reachable only on the tasks docker
 network). If/when janet-nix also wants host-level ttyd services, this is
 the contract; otherwise the module can stay empty and defer to the

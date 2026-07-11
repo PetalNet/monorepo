@@ -51,9 +51,9 @@ container-tested, adversarial + codex review, self-merge after gates).
    error from empty pane). Public fn signatures stay; call sites stay.
    Every public fn gets doc comments stating its behavior per failure mode.
 4. **M4 — declarative host spec** `apps/manager/docs/tmux-host-config.md`
-   + `apps/manager/docs/tmux.conf.reviewable` (+ ttyd module spec in the
-   same doc), pinned tmux version, the options the harness relies on, the
-   fleet-term socket contract. Marked NOT APPLIED / spec-only.
+   - `apps/manager/docs/tmux.conf.reviewable` (+ ttyd module spec in the
+     same doc), pinned tmux version, the options the harness relies on, the
+     fleet-term socket contract. Marked NOT APPLIED / spec-only.
 5. **M5 — container validation**: `rust:1.96-slim` + pinned tmux from
    Debian (version logged), `--cpus=2`, `CARGO_BUILD_JOBS=2`, source
    mounted read-only, CARGO_HOME/target inside the container;
@@ -82,14 +82,14 @@ container-tested, adversarial + codex review, self-merge after gates).
 
 ### M0 decisions
 
-| #  | Decision | Rationale |
-|----|----------|-----------|
-| D1 | Test target path is `apps/manager/tests/tmux_it.rs` (not `manager-rs/tests/`) | post-migration layout; directive's path is stale, confirmed by tree + N1.1 log |
-| D2 | Add an optional private socket field to `Tmux` (constructor `Tmux::new` unchanged, extra constructor for tests) | the struct hardcodes the default server; integration tests MUST point it at the scratch socket. Additive; zero call-site changes — the brief's "no API redesign" holds |
-| D3 | Per-test scratch sockets `n12test-<pid>-<label>` instead of one shared `n12test` | cargo runs tests in parallel threads; a shared server would cross-couple tests and a shared kill would race. Still inside the brief's private-socket namespace |
-| D4 | Tests double-gated: `#[ignore]` + skip-unless `N12_TMUX_IT=1` | brief requires CI-less runs stay green; plain `cargo test` never spawns tmux servers |
-| D5 | No Rust job added to monorepo CI | N1.1's logged convention (Cargo-native validation, container proof); adding CI infra is out of scope for a LIGHT node — flagged in Open questions instead |
-| D6 | Host spec pins tmux **3.4** (what the live host runs per the brief) even though this dev host has 3.6a | the spec describes the LIVE host contract; 3.4 satisfies the ≥3.0 user-option requirement |
+| #   | Decision                                                                                                        | Rationale                                                                                                                                                              |
+| --- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Test target path is `apps/manager/tests/tmux_it.rs` (not `manager-rs/tests/`)                                   | post-migration layout; directive's path is stale, confirmed by tree + N1.1 log                                                                                         |
+| D2  | Add an optional private socket field to `Tmux` (constructor `Tmux::new` unchanged, extra constructor for tests) | the struct hardcodes the default server; integration tests MUST point it at the scratch socket. Additive; zero call-site changes — the brief's "no API redesign" holds |
+| D3  | Per-test scratch sockets `n12test-<pid>-<label>` instead of one shared `n12test`                                | cargo runs tests in parallel threads; a shared server would cross-couple tests and a shared kill would race. Still inside the brief's private-socket namespace         |
+| D4  | Tests double-gated: `#[ignore]` + skip-unless `N12_TMUX_IT=1`                                                   | brief requires CI-less runs stay green; plain `cargo test` never spawns tmux servers                                                                                   |
+| D5  | No Rust job added to monorepo CI                                                                                | N1.1's logged convention (Cargo-native validation, container proof); adding CI infra is out of scope for a LIGHT node — flagged in Open questions instead              |
+| D6  | Host spec pins tmux **3.4** (what the live host runs per the brief) even though this dev host has 3.6a          | the spec describes the LIVE host contract; 3.4 satisfies the ≥3.0 user-option requirement                                                                              |
 
 ## M1 — as-is failure-mode behavior (before hardening)
 
@@ -97,14 +97,14 @@ Enumerated by reading `run()` + each public fn; verified by the M2 tests.
 `run()` shells out to `tmux`, returns `(exit_code, stdout)`; **stderr is
 discarded** (printed nowhere), exec failure ⇒ `(-1, "")` + one eprintln.
 
-| Failure mode | session_alive | panes / find_tagged_pane | pane_alive | tag_pane | new_session_with_cmd | new_window_with_cmd | send_keys | capture | kill_pane |
-|---|---|---|---|---|---|---|---|---|---|
-| tmux binary missing | false | empty / None | false | false | Err (code -1, empty out) | Err (code -1) | false | `""` | false |
-| server not running | false | empty / None | false | false | **Ok — starts the server** (correct) | Err (code 1) | false | `""` | false |
-| session gone (server up) | false | empty / None | false | false | Ok (recreates) | Err | false | `""` | false |
-| pane gone (session up) | true | listed w/o our pane / None | false | false | Err (duplicate session) | Ok | false | `""` | false |
-| tag clobbered (other value) | true | listed, foreign tag / None | **false** (by design: id AND tag) | true (would re-clobber) | — | — | true | works | true |
-| tmux < 3.0 (no user options) | true | tag column empty | false | **false ⇒ spawn-fail path** (locked: failed spawn, not degraded) | Ok | Ok | true | works | true |
+| Failure mode                 | session_alive | panes / find_tagged_pane   | pane_alive                        | tag_pane                                                         | new_session_with_cmd                 | new_window_with_cmd | send_keys | capture | kill_pane |
+| ---------------------------- | ------------- | -------------------------- | --------------------------------- | ---------------------------------------------------------------- | ------------------------------------ | ------------------- | --------- | ------- | --------- |
+| tmux binary missing          | false         | empty / None               | false                             | false                                                            | Err (code -1, empty out)             | Err (code -1)       | false     | `""`    | false     |
+| server not running           | false         | empty / None               | false                             | false                                                            | **Ok — starts the server** (correct) | Err (code 1)        | false     | `""`    | false     |
+| session gone (server up)     | false         | empty / None               | false                             | false                                                            | Ok (recreates)                       | Err                 | false     | `""`    | false     |
+| pane gone (session up)       | true          | listed w/o our pane / None | false                             | false                                                            | Err (duplicate session)              | Ok                  | false     | `""`    | false     |
+| tag clobbered (other value)  | true          | listed, foreign tag / None | **false** (by design: id AND tag) | true (would re-clobber)                                          | —                                    | —                   | true      | works   | true      |
+| tmux < 3.0 (no user options) | true          | tag column empty           | false                             | **false ⇒ spawn-fail path** (locked: failed spawn, not degraded) | Ok                                   | Ok                  | true      | works   | true      |
 
 Gaps this table exposes (candidates for M3, pending test confirmation):
 
@@ -126,7 +126,7 @@ Drop-guard cleanup verified by a dedicated test (killing one scratch server
 leaves a sibling running; nothing leaks after the suite — checked by
 enumerating `/tmp/tmux-1000/n12test-*` post-run). Coverage: decoy panes
 (untagged, foreign-tag, extra window), kill→dead→session-death, send/capture
-round-trip (arithmetic-expansion trick so captured *output* is proven, not
+round-trip (arithmetic-expansion trick so captured _output_ is proven, not
 echoed input), untagged never matches, two managers in one session don't
 collide, tag clobber ⇒ treated dead ⇒ re-tag restores, exact-name targeting,
 server-down matrix, session-up/pane-gone matrix.
@@ -150,11 +150,11 @@ commit so no commit on the branch carries a red test.
 
 ### M2 decisions
 
-| #  | Decision | Rationale |
-|----|----------|-----------|
-| D7 | Test file includes the module via `#[path = "../src/tmux.rs"]` | the crate is bin-only; integration tests can't link a bin. Alternatives: lib+bin split (crate restructure — over-building a LIGHT node) vs path-include (zero production change, same source compiled). Chose path-include; revisit if a later node needs a lib target |
-| D8 | Raw test-side tmux calls also use `=<session>:` targets | same exact-match discipline as the layer; a bare `=name` pane-target is rejected by tmux 3.6a (`can't find pane`) |
-| D9 | `#[allow(dead_code)]` on `with_socket` (bin never calls it) and on the included test module | keeps `clippy -D warnings` green on both targets without loosening crate-wide lints |
+| #   | Decision                                                                                    | Rationale                                                                                                                                                                                                                                                              |
+| --- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D7  | Test file includes the module via `#[path = "../src/tmux.rs"]`                              | the crate is bin-only; integration tests can't link a bin. Alternatives: lib+bin split (crate restructure — over-building a LIGHT node) vs path-include (zero production change, same source compiled). Chose path-include; revisit if a later node needs a lib target |
+| D8  | Raw test-side tmux calls also use `=<session>:` targets                                     | same exact-match discipline as the layer; a bare `=name` pane-target is rejected by tmux 3.6a (`can't find pane`)                                                                                                                                                      |
+| D9  | `#[allow(dead_code)]` on `with_socket` (bin never calls it) and on the included test module | keeps `clippy -D warnings` green on both targets without loosening crate-wide lints                                                                                                                                                                                    |
 
 ## M3 — failure-mode hardening
 
@@ -219,11 +219,11 @@ sanitizes control characters in list-command output to `_`, fusing both
 columns into one token (`%0_n12-mgr-primary`) — tag never matches, so
 `find_tagged_pane`/`pane_alive` are ALWAYS negative. Verified matrix:
 
-| tmux | tab-separated | space-separated |
-|---|---|---|
-| 3.4 (Alpine 3.20 — **the live-host pin**) | BROKEN (`_` fused) | OK |
-| 3.5a (Debian trixie) | BROKEN | OK |
-| 3.6a (dev host, nix) | works — which is why host tests passed | OK |
+| tmux                                      | tab-separated                          | space-separated |
+| ----------------------------------------- | -------------------------------------- | --------------- |
+| 3.4 (Alpine 3.20 — **the live-host pin**) | BROKEN (`_` fused)                     | OK              |
+| 3.5a (Debian trixie)                      | BROKEN                                 | OK              |
+| 3.6a (dev host, nix)                      | works — which is why host tests passed | OK              |
 
 **Implication worth relaying:** on the pinned live version 3.4 the old
 format never read tags back — a manager on 3.4 could not adopt its pane
