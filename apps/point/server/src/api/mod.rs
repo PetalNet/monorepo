@@ -5,6 +5,7 @@
 
 pub mod account;
 pub mod auth;
+pub mod federation;
 pub mod ghost;
 pub mod groups;
 pub mod history;
@@ -108,7 +109,13 @@ pub fn router(state: AppState) -> Router {
         .route("/api/mls/messages", get(mls::pending_messages))
         .route("/api/mls/messages/{id}/ack", post(mls::ack_message))
         // live location stream (auth is the first WS message, D-011)
-        .route("/ws", get(crate::ws::ws_handler));
+        .route("/ws", get(crate::ws::ws_handler))
+        // federation (M3): discovery + inbox are unauthenticated (the Ed25519
+        // signature IS the S2S auth); send/verify are driven by the local user.
+        .route("/.well-known/point", get(federation::well_known))
+        .route("/federation/inbox", post(federation::inbox))
+        .route("/api/federation/send", post(federation::send))
+        .route("/api/federation/verify", post(federation::verify_pin));
 
     // OIDC routes exist only when configured (decision 17): otherwise 404.
     if state.config.oidc.is_some() {

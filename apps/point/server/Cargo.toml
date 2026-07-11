@@ -29,6 +29,13 @@ dashmap = "6"
 rand = "0.8"
 base64 = "0.22"
 hex = "0.4"
+sha2 = "0.10"
+# Federation (M3): per-instance Ed25519 signing key + outbound signed S2S HTTP.
+ed25519-dalek = "2"
+reqwest = { version = "0.12", default-features = false, features = [
+	"json",
+	"rustls-tls",
+] }
 sentry = { version = "0.34", default-features = false, features = [
 	"backtrace",
 	"contexts",
@@ -43,7 +50,6 @@ openidconnect = { version = "4", default-features = false, features = ["reqwest"
 point-core = { path = "../core" }
 
 [dev-dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio-tungstenite = "0.24"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"

@@ -8,6 +8,7 @@ mod authz;
 mod config;
 mod db;
 mod error;
+mod federation_keys;
 mod state;
 mod ws;
 
@@ -66,10 +67,17 @@ async fn run(config: Config) {
         .await
         .expect("database migration failed");
 
+    // Load (or, on first boot, generate + persist) this instance's Ed25519
+    // federation signing key. Its public half is published via /.well-known/point.
+    let server_signing_key = federation_keys::load_or_generate(&pool)
+        .await
+        .expect("failed to load/generate the server signing key");
+
     let state = AppState {
         pool: pool.clone(),
         config: Arc::new(config.clone()),
         hub: Arc::new(Hub::default()),
+        server_signing_key: Arc::new(server_signing_key),
     };
 
     // Periodic cleanup: expired live fixes, expired temp shares, >30d history.

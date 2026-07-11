@@ -29,12 +29,17 @@ pub(super) fn test_state(pool: PgPool, open_registration: bool) -> AppState {
             listen: "127.0.0.1:0".into(),
             jwt_secret: "unit-test-secret-0123456789abcdef".into(),
             domain: DOMAIN.into(),
+            public_url: format!("https://{DOMAIN}"),
+            federation_allow_private: false,
             open_registration,
             trusted_proxy: false,
             glitchtip_dsn: None,
             oidc: None,
         }),
         hub: Arc::new(Hub::default()),
+        // A fixed deterministic key is fine for tests: nothing here relies on
+        // key persistence (the load/generate path is tested separately).
+        server_signing_key: Arc::new(ed25519_dalek::SigningKey::from_bytes(&[42u8; 32])),
     }
 }
 

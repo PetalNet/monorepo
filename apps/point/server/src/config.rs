@@ -11,6 +11,15 @@ pub struct Config {
     /// Public domain this home-server federates under; the `@domain` suffix of
     /// every local user id.
     pub domain: String,
+    /// This instance's own public https base (env `PUBLIC_URL`), e.g.
+    /// `https://point.example.org`. Advertised in `/.well-known/point` so peers
+    /// know where to POST our inbox. Defaults to `https://{domain}` if unset.
+    pub public_url: String,
+    /// Escape hatch for the cross-instance integration test: when true, the
+    /// outbound S2S SSRF guard is skipped and S2S uses plain http (so a peer at
+    /// `127.0.0.1:PORT` is reachable). Default false — NEVER enable in prod
+    /// (env `FEDERATION_ALLOW_PRIVATE`).
+    pub federation_allow_private: bool,
     pub open_registration: bool,
     /// Trust reverse-proxy client-IP headers (`X-Real-IP`). Off by default: a
     /// directly-exposed server must ignore attacker-spoofable headers and key
@@ -70,11 +79,18 @@ impl Config {
             None
         };
 
+        let public_url = env::var("PUBLIC_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("https://{domain}"));
+
         Self {
             database_url,
             listen: env::var("LISTEN").unwrap_or_else(|_| "0.0.0.0:8330".to_string()),
             jwt_secret,
             domain,
+            public_url,
+            federation_allow_private: env_bool("FEDERATION_ALLOW_PRIVATE", false),
             open_registration: env_bool("OPEN_REGISTRATION", false),
             trusted_proxy: env_bool("TRUST_PROXY_HEADERS", false),
             glitchtip_dsn: env::var("GLITCHTIP_DSN").ok().filter(|s| !s.is_empty()),
