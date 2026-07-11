@@ -329,3 +329,24 @@ tmux 3.4 on every PR.
 5. **Rust CI job scope**: manager-rust runs on every PR (no path
    filter), matching how the other jobs behave. If monorepo CI time ever
    matters, add path filters repo-wide in one pass.
+
+## M7 — merge gates + self-merge
+
+All directive §6 gates passed before merge:
+
+1. **CI green** on PR #94 — 12 checks including the new `manager-rust`
+   job, which ran fmt/clippy/unit + the full tmux integration suite on
+   the runner's tmux 3.4 (the live-host pin).
+2. **Both reviews addressed** — codex (gpt-5.5 high; 7 findings, all
+   responded to above; delta re-pass returned NO NEW FINDINGS) and the
+   adversarial subagent (10 findings, all responded to above).
+3. **Container-tested** — `scripts/container-validate.sh` green on the
+   final code (rust:1.96-slim, tmux 3.5a): fmt, clippy -D warnings,
+   22 unit + 12 integration tests, release build.
+
+Merging `feat/N1.2-tmux-layer` into `main` with a standard
+history-preserving merge (matrix-bot/manager convention, not squash),
+self-merged per the 2026-07-11 directive. §0 held throughout: all tmux
+traffic on private `n12test-*`/container sockets, the live `janet-claude`
+session untouched, builds capped at 2 jobs, nice -n19, load gauged
+before every heavy step.
