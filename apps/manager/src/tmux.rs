@@ -26,6 +26,10 @@ pub const TAG_OPTION: &str = "@agent_manager_owner";
 pub struct Tmux {
     pub session: String,
     pub tag_value: String,
+    /// Private socket name (`tmux -L <name>`); `None` targets the default
+    /// server. Production always uses `None`; integration tests point this
+    /// at a scratch server so they can never touch the live one.
+    socket: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,39 +38,63 @@ pub struct PaneInfo {
     pub tag: String,
 }
 
-fn run(args: &[&str]) -> (i32, String) {
-    match Command::new("tmux").args(args).output() {
-        Ok(out) => (
-            out.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        ),
-        Err(e) => {
-            eprintln!("[manager] tmux exec failed ({args:?}): {e}");
-            (-1, String::new())
-        }
-    }
-}
-
 impl Tmux {
     pub fn new(session: &str, tag_value: &str) -> Tmux {
         Tmux {
             session: session.to_string(),
             tag_value: tag_value.to_string(),
+            socket: None,
         }
     }
 
+    /// Like `new`, but every tmux call goes to the private socket
+    /// `tmux -L <socket>` instead of the default server. Only the
+    /// integration tests construct this (hence the allow): production code
+    /// must stay on the default server, tests must never be.
+    #[allow(dead_code)]
+    pub fn with_socket(session: &str, tag_value: &str, socket: &str) -> Tmux {
+        Tmux {
+            session: session.to_string(),
+            tag_value: tag_value.to_string(),
+            socket: Some(socket.to_string()),
+        }
+    }
+
+    fn run(&self, args: &[&str]) -> (i32, String) {
+        let mut cmd = Command::new("tmux");
+        if let Some(s) = &self.socket {
+            cmd.arg("-L").arg(s);
+        }
+        match cmd.args(args).output() {
+            Ok(out) => (
+                out.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ),
+            Err(e) => {
+                eprintln!("[manager] tmux exec failed ({args:?}): {e}");
+                (-1, String::new())
+            }
+        }
+    }
+
+    /// Exact-match session target. The trailing `:` is load-bearing: a bare
+    /// `=name` only exact-matches in `has-session`; in target-window/pane
+    /// positions (`list-panes -s`, `new-window`) tmux still falls back to
+    /// prefix matching, so without the `:` those could silently resolve to
+    /// e.g. `janet-claude-experiments` when `janet-claude` is gone
+    /// (observed on tmux 3.6a; covered by the exact-name integration test).
     fn starget(&self) -> String {
-        format!("={}", self.session)
+        format!("={}:", self.session)
     }
 
     pub fn session_alive(&self) -> bool {
-        run(&["has-session", "-t", &self.starget()]).0 == 0
+        self.run(&["has-session", "-t", &self.starget()]).0 == 0
     }
 
     /// All panes in our session, across all windows.
     pub fn panes(&self) -> Vec<PaneInfo> {
         let fmt = format!("#{{pane_id}}\t#{{{}}}", TAG_OPTION);
-        let (code, out) = run(&["list-panes", "-s", "-t", &self.starget(), "-F", &fmt]);
+        let (code, out) = self.run(&["list-panes", "-s", "-t", &self.starget(), "-F", &fmt]);
         if code != 0 {
             return Vec::new();
         }
@@ -100,7 +128,7 @@ impl Tmux {
     }
 
     pub fn tag_pane(&self, pane_id: &str) -> bool {
-        run(&[
+        self.run(&[
             "set-option",
             "-p",
             "-t",
@@ -115,7 +143,7 @@ impl Tmux {
     /// the new pane id.
     pub fn new_session_with_cmd(&self, cmd: &str, w: u32, h: u32) -> Result<String, String> {
         let (ws, hs) = (w.to_string(), h.to_string());
-        let (code, out) = run(&[
+        let (code, out) = self.run(&[
             "new-session",
             "-d",
             "-s",
@@ -142,7 +170,7 @@ impl Tmux {
     /// a NEW window instead of nuking their session. `-d` so an attached
     /// human's focus isn't yanked.
     pub fn new_window_with_cmd(&self, cmd: &str) -> Result<String, String> {
-        let (code, out) = run(&[
+        let (code, out) = self.run(&[
             "new-window",
             "-d",
             "-t",
@@ -163,17 +191,17 @@ impl Tmux {
     pub fn send_keys(&self, pane_id: &str, keys: &[&str]) -> bool {
         let mut args = vec!["send-keys", "-t", pane_id];
         args.extend_from_slice(keys);
-        run(&args).0 == 0
+        self.run(&args).0 == 0
     }
 
     pub fn capture(&self, pane_id: &str) -> String {
-        run(&["capture-pane", "-p", "-t", pane_id]).1
+        self.run(&["capture-pane", "-p", "-t", pane_id]).1
     }
 
     /// Kill ONLY our pane. If it is the last pane the session dies with it
     /// (same net effect as the JS manager's kill-session); if humans have
     /// other panes, theirs survive.
     pub fn kill_pane(&self, pane_id: &str) -> bool {
-        run(&["kill-pane", "-t", pane_id]).0 == 0
+        self.run(&["kill-pane", "-t", pane_id]).0 == 0
     }
 }

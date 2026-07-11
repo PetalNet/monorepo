@@ -117,3 +117,41 @@ Gaps this table exposes (candidates for M3, pending test confirmation):
   on `pane_alive` first; must be documented as a contract.
 - G3: no fn documents its per-failure-mode behavior; the table above was
   archaeology. Doc comments required (brief deliverable 2).
+
+## M2 — integration tests (+ one fix the tests forced)
+
+10 tests in `apps/manager/tests/tmux_it.rs`, double-gated (`#[ignore]` +
+`N12_TMUX_IT=1`), one scratch server per test (`-L n12test-<pid>-<label>`),
+Drop-guard cleanup verified by a dedicated test (killing one scratch server
+leaves a sibling running; nothing leaks after the suite — checked by
+enumerating `/tmp/tmux-1000/n12test-*` post-run). Coverage: decoy panes
+(untagged, foreign-tag, extra window), kill→dead→session-death, send/capture
+round-trip (arithmetic-expansion trick so captured *output* is proven, not
+echoed input), untagged never matches, two managers in one session don't
+collide, tag clobber ⇒ treated dead ⇒ re-tag restores, exact-name targeting,
+server-down matrix, session-up/pane-gone matrix.
+
+### Finding F1 (real bug, fixed): `=session` still prefix-matches outside has-session
+
+Observed on tmux 3.6a while writing the exact-name test: with only
+`n12it-longer` alive, `has-session -t '=n12it'` correctly fails, **but
+`list-panes -s -t '=n12it'` lists the longer session's panes and
+`new-window -t '=n12it'` creates a window IN the longer session** (exit 0).
+The `=` exact guard the header comment relies on only holds in
+target-session positions; in target-window/pane positions tmux falls back
+to prefix matching. Worst production case: exact session dead but e.g.
+`janet-claude-experiments` alive ⇒ the manager could list/adopt a pane in,
+or spawn the agent into, a stranger's session. Fix (one line, inside the
+layer, no call-site change): `starget()` now yields `=<session>:` — the
+trailing `:` pins target-window/pane resolution to the exact session in
+every command; verified for `has-session`, `list-panes -s`, `new-window`
+on 3.6a, and by the (previously red) exact-name test. Folded into the M2
+commit so no commit on the branch carries a red test.
+
+### M2 decisions
+
+| #  | Decision | Rationale |
+|----|----------|-----------|
+| D7 | Test file includes the module via `#[path = "../src/tmux.rs"]` | the crate is bin-only; integration tests can't link a bin. Alternatives: lib+bin split (crate restructure — over-building a LIGHT node) vs path-include (zero production change, same source compiled). Chose path-include; revisit if a later node needs a lib target |
+| D8 | Raw test-side tmux calls also use `=<session>:` targets | same exact-match discipline as the layer; a bare `=name` pane-target is rejected by tmux 3.6a (`can't find pane`) |
+| D9 | `#[allow(dead_code)]` on `with_socket` (bin never calls it) and on the included test module | keeps `clippy -D warnings` green on both targets without loosening crate-wide lints |
