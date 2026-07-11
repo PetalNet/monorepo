@@ -460,6 +460,24 @@ pub async fn send(
         return Err(AppError::BadRequest("unknown message_type".into()));
     }
 
+    // When WE initiate a cross-server share, record the outbound pending
+    // locally (ensuring the remote shadow exists for the FK), so the peer's
+    // later `share.accept` passes our anti-forgery check. Mirrors what the
+    // remote does on receiving our share.request.
+    if body.message_type == "share.request" {
+        ensure_federated_user(&state.pool, &recipient).await?;
+        sqlx::query(
+            "INSERT INTO share_requests (from_user_id, to_user_id) VALUES ($1, $2)
+             ON CONFLICT (from_user_id, to_user_id)
+             DO UPDATE SET status = 'pending', updated_at = now()
+             WHERE share_requests.status <> 'pending'",
+        )
+        .bind(&user.user_id)
+        .bind(&recipient)
+        .execute(&state.pool)
+        .await?;
+    }
+
     let msg = FederatedMessage {
         sender: user.user_id.clone(),
         recipient,

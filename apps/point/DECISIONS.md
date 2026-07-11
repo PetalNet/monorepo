@@ -295,3 +295,22 @@ boundary is `sink.add`, not an app-level ack — bounded impact for superseded f
 larger-id party can't broadcast until the smaller-id peer's client forms the group — needs an
 either-party-after-grace fallback), M8 (RelayController-level + concurrency/reload tests). Logged
 here so they're legible.
+
+## 2026-07-11 — D-021 · M3 federation proven: honest cross-instance E2E, ciphertext-only
+
+Federation is fully v1 (decision 15): a user on instance A shares E2E with a user on instance B,
+both servers relaying ciphertext only. Built on the M0 server: per-instance Ed25519 key, well-known
+discovery, a signed S2S inbox that verifies over the EXACT received bytes (canonical — fixes the
+legacy serde-reserialize fragility), DNS-resolution SSRF (rejects any resolved private/loopback IP,
+defeating rebinding), replay window, and TOFU-pin with loud key-change rejection (the muscle the
+legacy skeleton lacked). The initiate side (`/api/federation/send` for `share.request`) records the
+local outbound pending so the peer's `share.accept` passes anti-forgery — completing the flow via
+the real API, not a test shortcut.
+
+**The honest proof** (`server/tests/{run-federation-e2e.sh,federation_e2e.rs}`): two full instances
+on separate DBs/ports; alice@A and bob@B; a live cross-server share (`share.request` → accept →
+`share.accept`), a remote KeyPackage fetch over the signed inbox (one-time consumed, not
+last-resort), a cross-instance MLS group formed with point-core, the Welcome relayed A→B, an
+encrypted location fix relayed A→B and delivered to Bob's WS, decrypted by Bob to the exact fix —
+and **both instances' databases assert 0 plaintext-leak rows**. A cross-server share stays a green
+native-E2E relationship. `#[ignore]` (needs two live instances); the shell harness runs it.
