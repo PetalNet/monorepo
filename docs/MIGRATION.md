@@ -47,6 +47,16 @@ Then, the things that bit slide:
   fleet contracts this app implements). No secrets in source or history (token/key
   pattern audit across all blobs: clean).
 
+- `point` → `apps/point` — "Matrix for location": Rust home-server (axum+Postgres) +
+  lifted OpenMLS `core` crate + Flutter client placeholder, **not** a pnpm app (no
+  `package.json`; own Cargo workspace like `apps/manager`). Imported mid-build from
+  `PetalNet/point` (Fable's v1 build retargeted here by directive, 2026-07-11) with
+  full history: seed → M0 scaffolding → wave-A auth. Toolchain pinned 1.96 via
+  `rust-toolchain.toml`; validation Cargo-native in `.github/workflows/point.yml`
+  (path-filtered: fmt/clippy/build/test vs a Postgres 16 service; Flutter analyze
+  activates when `apps/point/app` gains a pubspec). Keeps its AGPL-3.0 LICENSE.
+  Source repo stays up (vestigial). Build log: `apps/point/PLAN.md` + `DECISIONS.md`.
+
 _(populated as repos land — see issue #1 for the live checklist)_
 
 ## Excluded

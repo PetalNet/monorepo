@@ -4,6 +4,12 @@
 `point-rebuild-decisions.md` (the 18 locked decisions), `point-teardown.md`. This file tracks how the
 build is executed; `DECISIONS.md` tracks every non-obvious call.*
 
+## Repo home
+
+**Point lives in `PetalNet/monorepo` at `apps/point`** (Parker-approved retarget, D-013).
+Branch for the v1 build: `feat/point-v1`; PR into monorepo `main`; CI is
+`.github/workflows/point.yml`. The old `PetalNet/point` repo is vestigial.
+
 ## Mission (one line)
 
 Turn the seeded skeleton into **Point v1**: "Matrix for location" — open, self-hostable, MLS-E2E,

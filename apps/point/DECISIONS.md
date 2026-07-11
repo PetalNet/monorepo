@@ -96,3 +96,29 @@ live location stream. The rebuild runs the same full validation on both paths.
 `fcm_tokens` schema ships in M0, but the FCM wake-push sender lands with M1 (when a client
 exists to wake). Nudges to offline users queue/no-op until then. Keeps M0 honest — no
 untestable push code.
+
+## 2026-07-11 — D-013 · Repo retarget: Point moves into PetalNet/monorepo at apps/point
+
+Parker-approved directive (DIRECTIVE-POINT-MONOREPO.md) reverses decision 18's "own repo" call:
+Point now lives in `PetalNet/monorepo` at `apps/point`. Migration followed the documented
+`apps/manager` precedent (docs/MIGRATION.md): contents `git mv`-ed to `apps/point/` in the source
+clone, merged with `--allow-unrelated-histories` so full history (seed → M0 scaffolding → wave A)
+survives `git log --follow`. Adaptations: monorepo Rust conventions (pinned `rust-toolchain.toml`
+1.96 like apps/manager; apps/point stays its own Cargo workspace, not a pnpm package); CI is a
+minimal path-filtered `.github/workflows/point.yml` (Rust fmt/clippy/build/test vs a real
+Postgres service + Flutter analyze gated on the app existing) — conventional base only, Eli owns
+CI optimization; SHA-pinned actions to satisfy zizmor. Point keeps its AGPL-3.0 LICENSE at
+`apps/point/LICENSE` (app-level license, monorepo default doesn't override it). The old
+`PetalNet/point` repo is vestigial — left as-is with the pre-migration branches pushed.
+Everything else (spec, GO-bar, M0→M4, review discipline, BLOCKERS escalation) is unchanged.
+
+## 2026-07-11 — D-014 · M1 client will be built against the Flutter playbook
+
+`/home/docker/point-fable/flutter-playbook.md` is the UI craft bar for the client: official Dart
+MCP server wired day one (render→see→fix loop via `flutter run -d chrome`; no blind Dart),
+Material 3 + `ColorScheme.fromSeed` + `dynamic_color`, Riverpod pinned, widget classes (never
+`_buildX()` helpers), zero-analyzer-warnings gate, alchemist goldens for stable primitives
+(presence dot, ghost toggle, QR frame), feature-first layout, a CLAUDE.md rules file in
+`apps/point/app`. Flutter SDK is not on this host: at M1 start I attempt a user-local SDK
+install; if the render loop can't be stood up, that's a BLOCKERS.md entry per the directive —
+not a license to write the client blind.
