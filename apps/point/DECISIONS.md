@@ -122,3 +122,20 @@ Material 3 + `ColorScheme.fromSeed` + `dynamic_color`, Riverpod pinned, widget c
 `apps/point/app`. Flutter SDK is not on this host: at M1 start I attempt a user-local SDK
 install; if the render loop can't be stood up, that's a BLOCKERS.md entry per the directive —
 not a license to write the client blind.
+
+## 2026-07-11 — D-015 · Client UI design LOCKED; final spec staged in-repo, supersedes direction doc
+
+Parker+Eli signed off the final client UI (`POINT-UI-SPEC-FINAL.md`). Staged into
+`apps/point/docs/design/` (UI-SPEC-FINAL.md, design-direction.md, flutter-playbook.md, and
+mockups.final.html = the pixel-close visual target) so M1 builds against them in-tree. Where the
+final spec and the earlier `design-direction.md` disagree, **the final spec wins** — notably:
+router is **kaisel** (not go_router; pin in pubspec.lock; acceptance bar = animated adaptive shell
+
+- auth-change-without-router-reset, login outside the shell); typeface is **Schibsted Grotesk**
+  self-hosted (not Inter/Geist); the ghost/"you're sharing" signal is **inverse fill + label with NO
+  pulse/ripple** (the direction doc's pulse is removed per Parker). Also locked: M3 fromSeed
+  monochrome variant, **dynamic_color OFF**, zero hue in v1 (color reserved for bridges via an unused
+  `BridgeAccent` extension), presence encoded by FORM not color, provider-agnostic maps (Google +
+  MapLibre), Riverpod + feature-first + very_good_analysis + zero-analyzer-warnings gate, widget
+  classes not `_buildX()`. nexus is an engineering reference only, not the visual target. Build via
+  the Dart/Flutter MCP render→screenshot→fix loop.
