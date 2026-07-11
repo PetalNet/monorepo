@@ -1,4 +1,5 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 
@@ -18,6 +19,9 @@ class GhostController extends AsyncNotifier<GhostState> {
   Future<void> setSharing({required bool sharing}) async {
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
+    // Drive the battery engine: ghost hard-stops GPS + the foreground service
+    // (GO-bar #6 — the enterGhost/exitGhost the legacy defined but never wired).
+    ref.read(locationServiceProvider).setSharing(sharing: sharing);
     // Optimistic: reflect the new state immediately.
     state = AsyncData(GhostState(active: !sharing));
     state = await AsyncValue.guard(

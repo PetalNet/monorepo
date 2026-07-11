@@ -9,6 +9,7 @@ import 'package:point_app/features/auth/presentation/login_screen.dart';
 import 'package:point_app/features/auth/presentation/splash_screen.dart';
 import 'package:point_app/features/device_link/presentation/device_link_screen.dart';
 import 'package:point_app/features/ghost/presentation/ghost_screen.dart';
+import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/profile/presentation/profile_screen.dart';
@@ -39,12 +40,17 @@ class PointApp extends ConsumerStatefulWidget {
   ConsumerState<PointApp> createState() => _PointAppState();
 }
 
-class _PointAppState extends ConsumerState<PointApp> {
+class _PointAppState extends ConsumerState<PointApp>
+    with WidgetsBindingObserver {
   late final KaiselRouterConfig<AppRoute> _config;
 
   @override
   void initState() {
     super.initState();
+    // GO-bar #1: actually wire the app-lifecycle → background hooks the legacy
+    // defined but never called. Without this the battery engine never learns
+    // it's been backgrounded and location silently stops.
+    WidgetsBinding.instance.addObserver(this);
     final loggedIn = ref.read(authControllerProvider.notifier).loggedIn;
     _config = KaiselRouterConfig<AppRoute>(
       initial: const SplashRoute(),
@@ -52,6 +58,27 @@ class _PointAppState extends ConsumerState<PointApp> {
       pageWrapper: _pageWrapper,
       builder: _buildPage,
     );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final engine = ref.read(locationServiceProvider);
+    switch (state) {
+      case AppLifecycleState.resumed:
+        engine.onForeground();
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        engine.onBackground();
+      case AppLifecycleState.inactive:
+        break;
+    }
   }
 
   /// Backstop guard for deep links: any authed route while signed out becomes
