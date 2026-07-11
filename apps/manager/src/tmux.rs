@@ -147,8 +147,15 @@ impl Tmux {
     /// is gone, the server is down, or tmux is missing — dead reads, never
     /// errors. On tmux < 3.0 panes are listed but the tag column is always
     /// empty (user options unsupported), so nothing ever matches ownership.
+    ///
+    /// The id/tag separator is a SPACE, not a tab: tmux >= 3.5 sanitizes
+    /// control characters in list output to `_`, which fused the old
+    /// tab-separated columns into one token and made every tag unreadable
+    /// (caught by the containerized test run on 3.5a). Pane ids (`%N`)
+    /// never contain spaces, so splitting on the first space is exact; the
+    /// tag keeps any spaces it might contain.
     pub fn panes(&self) -> Vec<PaneInfo> {
-        let fmt = format!("#{{pane_id}}\t#{{{}}}", TAG_OPTION);
+        let fmt = format!("#{{pane_id}} #{{{}}}", TAG_OPTION);
         let e = self.run(&["list-panes", "-s", "-t", &self.starget(), "-F", &fmt]);
         if !e.ok() {
             return Vec::new();
@@ -156,9 +163,9 @@ impl Tmux {
         e.out
             .lines()
             .filter_map(|l| {
-                let mut it = l.splitn(2, '\t');
+                let mut it = l.splitn(2, ' ');
                 let id = it.next()?.trim();
-                if id.is_empty() {
+                if id.is_empty() || !id.starts_with('%') {
                     return None;
                 }
                 Some(PaneInfo {

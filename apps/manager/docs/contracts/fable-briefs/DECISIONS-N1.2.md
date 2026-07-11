@@ -201,3 +201,37 @@ Scope held to the gaps M1/M2 exposed; no signatures, no call-site changes.
   ttyd.nix content mirrors the container pair (loopback-only, ro
   auto-start, rw opt-in), with the containerized pair staying
   authoritative until janet-nix decides otherwise.
+
+## M5 — container validation
+
+Gate: `rust:1.96-slim` (Debian trixie, tmux **3.5a** from apt), `--cpus=2`,
+`CARGO_BUILD_JOBS=2`, source mounted read-only (copied to `/work`),
+CARGO_HOME/target inside the container. Steps: fmt --check, clippy
+`-D warnings`, `cargo test --locked`, `N12_TMUX_IT=1 cargo test --locked
+--test tmux_it -- --ignored`, `cargo build --locked --release`.
+
+### Finding F2 (real bug, fixed; container-only catch): tab separator dies on tmux 3.4/3.5
+
+First container run: 5/10 integration tests red on tmux 3.5a — every
+positive tag-readback failed. Root cause: `panes()` asked for
+`#{pane_id}\t#{@agent_manager_owner}` and split on TAB, but tmux
+sanitizes control characters in list-command output to `_`, fusing both
+columns into one token (`%0_n12-mgr-primary`) — tag never matches, so
+`find_tagged_pane`/`pane_alive` are ALWAYS negative. Verified matrix:
+
+| tmux | tab-separated | space-separated |
+|---|---|---|
+| 3.4 (Alpine 3.20 — **the live-host pin**) | BROKEN (`_` fused) | OK |
+| 3.5a (Debian trixie) | BROKEN | OK |
+| 3.6a (dev host, nix) | works — which is why host tests passed | OK |
+
+**Implication worth relaying:** on the pinned live version 3.4 the old
+format never read tags back — a manager on 3.4 could not adopt its pane
+and its liveness poll would read its own pane as dead 5s after spawn
+(kill/respawn backoff loop). The dev host's 3.6a masked this; only the
+container run surfaced it. Fix: separator is now a single SPACE (pane
+ids `%N` can't contain spaces; split on first space; id must start with
+`%`), verified green on 3.4 / 3.5a / 3.6a. `=<session>:` exact targeting
+(F1) also re-verified OK on 3.4.
+
+Second container run: full gate green (transcript summary below).
