@@ -4,6 +4,8 @@
 **/.svelte-kit/
 **/coverage/
 **/target/
+**/.dart_tool/
+**/.flutter-plugins-dependencies
 *.log
 .env
 .env.*

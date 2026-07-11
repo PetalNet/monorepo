@@ -6,6 +6,7 @@ The client's design is **LOCKED**: `../docs/design/UI-SPEC-FINAL.md` (authoritat
 (`../docs/design/flutter-playbook.md`). Do not relitigate locked decisions.
 
 ## Non-negotiables
+
 - **Flutter 3.44.6 / Dart 3.12** (pinned via the repo `rust-toolchain`-equivalent expectation;
   the CI uses `subosito/flutter-action` stable). **Zero `flutter analyze` warnings** is a gate —
   run it before you look at pixels.
@@ -29,6 +30,7 @@ The client's design is **LOCKED**: `../docs/design/UI-SPEC-FINAL.md` (authoritat
   28 top-radius. Elevation is tonal — no drop-shadow spray.
 
 ## Craft rules (grep-enforced)
+
 - Widget **classes**, never `Widget _buildX()` helper methods.
 - `const` on every eligible widget. No hardcoded `Color(0x…)`/`Colors.x`/raw `fontSize:` in leaf
   widgets — pull from `Theme.of(context)` / `TextTheme` / the theme extensions.
@@ -37,11 +39,13 @@ The client's design is **LOCKED**: `../docs/design/UI-SPEC-FINAL.md` (authoritat
 - `ListView.builder` for lists, never a `Column` of many rows. Dispose controllers/subscriptions.
 
 ## Layout
+
 Feature-first: `lib/features/<feature>/{data,domain,presentation}`; shared design system in
 `lib/theme/`, shared widgets in `lib/widgets/`, service/provider wiring in `lib/services/` +
 `lib/providers.dart`. The server API base + WS live in `lib/services/api/`.
 
 ## Validate
+
 `flutter analyze` (zero warnings) → `flutter test` (incl. alchemist goldens for the stable
 primitives: presence dot, ghost toggle, QR frame) → drive it (`flutter run -d chrome`) and
 screenshot against the mockup.

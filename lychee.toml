@@ -6,4 +6,8 @@
 # external citation links (blog posts, articles) aren't ours to keep alive, and
 # some rate-limit bots, so they're out of scope for the link gate — the same
 # vendored treatment already applied to oxfmt and typos.
-exclude_path = ["apps/point/docs/design"]
+exclude_path = [
+	"apps/point/docs/design",
+	# Flutter-generated web bootstrap (boilerplate index.html/manifest, not ours).
+	"apps/point/app/web",
+]
