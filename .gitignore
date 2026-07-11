@@ -3,6 +3,7 @@
 **/build/
 **/.svelte-kit/
 **/coverage/
+**/target/
 *.log
 .env
 .env.*
