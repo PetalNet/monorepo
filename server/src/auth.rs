@@ -146,7 +146,9 @@ impl FromRequestParts<AppState> for AuthUser {
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .ok_or(AppError::Unauthorized)?;
-        let token = header.strip_prefix("Bearer ").ok_or(AppError::Unauthorized)?;
+        let token = header
+            .strip_prefix("Bearer ")
+            .ok_or(AppError::Unauthorized)?;
         validate_token(state, token).await
     }
 }

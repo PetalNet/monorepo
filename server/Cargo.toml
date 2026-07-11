@@ -36,6 +36,11 @@ sentry = { version = "0.34", default-features = false, features = [
     "reqwest",
     "rustls",
 ] }
+# OIDC login (decision 17), env-flagged off by default. rustls only.
+openidconnect = { version = "4", default-features = false, features = [
+    "reqwest",
+    "rustls-tls",
+] }
 
 # The E2E MLS jewels, lifted from legacy point-core.
 point-core = { path = "../core" }
@@ -43,3 +48,5 @@ point-core = { path = "../core" }
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio-tungstenite = "0.24"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

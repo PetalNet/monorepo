@@ -4,8 +4,11 @@
 
 mod api;
 mod auth;
+// The authz gate is consumed by the WS/location wave (M0 wave B).
+#[allow(dead_code)]
 mod authz;
 mod config;
+mod db;
 mod error;
 mod state;
 mod ws;
@@ -80,7 +83,10 @@ async fn run(config: Config) {
         .listen
         .parse()
         .unwrap_or_else(|e| panic!("invalid LISTEN address {:?}: {e}", config.listen));
-    tracing::info!("point-server listening on http://{addr} (domain {})", config.domain);
+    tracing::info!(
+        "point-server listening on http://{addr} (domain {})",
+        config.domain
+    );
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("failed to bind LISTEN address");
@@ -103,10 +109,12 @@ async fn cleanup_task(pool: sqlx::PgPool) {
             sqlx::query("DELETE FROM temporary_shares WHERE expires_at < now()")
                 .execute(&pool)
                 .await?;
-            sqlx::query("DELETE FROM location_history WHERE created_at < now() - make_interval(days => $1)")
-                .bind(HISTORY_RETENTION_DAYS)
-                .execute(&pool)
-                .await?;
+            sqlx::query(
+                "DELETE FROM location_history WHERE created_at < now() - make_interval(days => $1)",
+            )
+            .bind(HISTORY_RETENTION_DAYS)
+            .execute(&pool)
+            .await?;
             Ok(())
         }
         .await;

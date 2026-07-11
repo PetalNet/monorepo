@@ -153,13 +153,12 @@ async fn is_ghost_blocked(
     if is_globally_ghosted(pool, sender).await? {
         return Ok(true);
     }
-    let row: Option<(i32,)> = sqlx::query_as(
-        "SELECT 1 FROM ghost_targets WHERE user_id = $1 AND target_user_id = $2",
-    )
-    .bind(sender)
-    .bind(recipient)
-    .fetch_optional(pool)
-    .await?;
+    let row: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM ghost_targets WHERE user_id = $1 AND target_user_id = $2")
+            .bind(sender)
+            .bind(recipient)
+            .fetch_optional(pool)
+            .await?;
     Ok(row.is_some())
 }
 
@@ -174,11 +173,7 @@ async fn has_user_share(pool: &PgPool, a: &str, b: &str) -> Result<bool, sqlx::E
     Ok(row.is_some())
 }
 
-async fn has_active_temp_share(
-    pool: &PgPool,
-    from: &str,
-    to: &str,
-) -> Result<bool, sqlx::Error> {
+async fn has_active_temp_share(pool: &PgPool, from: &str, to: &str) -> Result<bool, sqlx::Error> {
     let row: Option<(i32,)> = sqlx::query_as(
         "SELECT 1 FROM temporary_shares
          WHERE from_user_id = $1 AND to_user_id = $2 AND expires_at > now()
@@ -191,11 +186,7 @@ async fn has_active_temp_share(
     Ok(row.is_some())
 }
 
-async fn has_pending_share_request(
-    pool: &PgPool,
-    a: &str,
-    b: &str,
-) -> Result<bool, sqlx::Error> {
+async fn has_pending_share_request(pool: &PgPool, a: &str, b: &str) -> Result<bool, sqlx::Error> {
     let row: Option<(i32,)> = sqlx::query_as(
         "SELECT 1 FROM share_requests
          WHERE status = 'pending'

@@ -16,7 +16,10 @@ pub struct Hub {
 impl Hub {
     pub fn add_connection(&self, user_id: &str, tx: UnboundedSender<Outbound>) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.conns.entry(user_id.to_string()).or_default().push((id, tx));
+        self.conns
+            .entry(user_id.to_string())
+            .or_default()
+            .push((id, tx));
         id
     }
 
@@ -48,6 +51,9 @@ impl Hub {
     }
 
     pub fn is_online(&self, user_id: &str) -> bool {
-        self.conns.get(user_id).map(|v| !v.is_empty()).unwrap_or(false)
+        self.conns
+            .get(user_id)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
     }
 }

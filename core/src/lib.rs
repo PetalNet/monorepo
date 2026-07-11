@@ -31,15 +31,23 @@ mod tests {
         // Restored Alice can still encrypt and Bob can decrypt.
         let msg = b"location after restart";
         let ct = alice2.encrypt(&gid, msg).unwrap();
-        let bob_gid: Vec<u8> = bob.export_state()
-            .map(|s| serde_json::from_slice::<crate::crypto::PointCryptoState>(&s).unwrap().group_ids)
+        let bob_gid: Vec<u8> = bob
+            .export_state()
+            .map(|s| {
+                serde_json::from_slice::<crate::crypto::PointCryptoState>(&s)
+                    .unwrap()
+                    .group_ids
+            })
             .unwrap_or_default()
             .first()
             .map(|hex_id| hex::decode(hex_id).unwrap())
             .unwrap_or_default();
         let pt = bob.decrypt(&bob_gid, &ct).unwrap();
         assert_eq!(pt, msg);
-        println!("State export/restore roundtrip ✓ ({} bytes state)", state.len());
+        println!(
+            "State export/restore roundtrip ✓ ({} bytes state)",
+            state.len()
+        );
     }
 
     #[test]
@@ -88,7 +96,11 @@ mod tests {
         let decrypted = String::from_utf8(plaintext).unwrap();
         assert_eq!(decrypted, location);
 
-        println!("Plaintext: {} bytes, Ciphertext: {} bytes", location.len(), ciphertext.len());
+        println!(
+            "Plaintext: {} bytes, Ciphertext: {} bytes",
+            location.len(),
+            ciphertext.len()
+        );
         println!("Decrypted: {}", decrypted);
     }
 
@@ -113,7 +125,11 @@ mod tests {
         let bob_kp = bob.generate_key_package().unwrap();
         let charlie_kp = charlie.generate_key_package().unwrap();
 
-        println!("[Server] Stored key packages: bob={}B, charlie={}B", bob_kp.len(), charlie_kp.len());
+        println!(
+            "[Server] Stored key packages: bob={}B, charlie={}B",
+            bob_kp.len(),
+            charlie_kp.len()
+        );
 
         // --- Step 2: Alice creates "Family" group ---
         let gid = alice.create_group(b"family-group-uuid-1234").unwrap();
@@ -122,8 +138,11 @@ mod tests {
 
         // --- Step 3: Alice adds Bob (simulating server relay) ---
         let add_bob = alice.add_member(&gid, &bob_kp).unwrap();
-        println!("[Server] Relaying Welcome ({}B) to Bob, Commit ({}B) to group",
-            add_bob.welcome.len(), add_bob.commit.len());
+        println!(
+            "[Server] Relaying Welcome ({}B) to Bob, Commit ({}B) to group",
+            add_bob.welcome.len(),
+            add_bob.commit.len()
+        );
 
         // Server stores these as opaque blobs — cannot read them
         assert!(!String::from_utf8_lossy(&add_bob.welcome).contains("alice"));
@@ -145,7 +164,8 @@ mod tests {
         println!("[Charlie] Joined group via Welcome, 3 members");
 
         // --- Step 5: Alice sends location to group ---
-        let alice_loc = r#"{"lat":38.627,"lon":-90.199,"speed":12.5,"battery":85,"timestamp":1712345678}"#;
+        let alice_loc =
+            r#"{"lat":38.627,"lon":-90.199,"speed":12.5,"battery":85,"timestamp":1712345678}"#;
         let ct = alice.encrypt(&gid, alice_loc.as_bytes()).unwrap();
 
         // SERVER ZERO-KNOWLEDGE CHECK: The ciphertext must not contain ANY plaintext
@@ -155,7 +175,10 @@ mod tests {
         assert!(!ct_str.contains("12.5"), "Server can see speed!");
         assert!(!ct_str.contains("85"), "Server can see battery!");
         assert!(!ct_str.contains("1712345678"), "Server can see timestamp!");
-        println!("[Server] Relaying encrypted blob ({}B) — CANNOT read contents ✓", ct.len());
+        println!(
+            "[Server] Relaying encrypted blob ({}B) — CANNOT read contents ✓",
+            ct.len()
+        );
 
         // Bob decrypts
         let bob_pt = bob.decrypt(&bob_gid, &ct).unwrap();
@@ -168,13 +191,20 @@ mod tests {
         println!("[Charlie] Decrypted Alice's location ✓");
 
         // --- Step 6: Bob sends location back ---
-        let bob_loc = r#"{"lat":38.713,"lon":-90.427,"speed":0,"battery":42,"timestamp":1712345700}"#;
+        let bob_loc =
+            r#"{"lat":38.713,"lon":-90.427,"speed":0,"battery":42,"timestamp":1712345700}"#;
         let bob_ct = bob.encrypt(&bob_gid, bob_loc.as_bytes()).unwrap();
 
         let bob_ct_str = String::from_utf8_lossy(&bob_ct);
-        assert!(!bob_ct_str.contains("38.713"), "Server can see Bob's latitude!");
+        assert!(
+            !bob_ct_str.contains("38.713"),
+            "Server can see Bob's latitude!"
+        );
         assert!(!bob_ct_str.contains("42"), "Server can see Bob's battery!");
-        println!("[Server] Relaying Bob's encrypted blob ({}B) — CANNOT read ✓", bob_ct.len());
+        println!(
+            "[Server] Relaying Bob's encrypted blob ({}B) — CANNOT read ✓",
+            bob_ct.len()
+        );
 
         let alice_sees_bob = alice.decrypt(&gid, &bob_ct).unwrap();
         assert_eq!(String::from_utf8(alice_sees_bob).unwrap(), bob_loc);
@@ -208,7 +238,10 @@ mod tests {
 
         // --- Step 8: Multiple rapid location updates (ratchet forward secrecy) ---
         for i in 0..10 {
-            let loc = format!(r#"{{"lat":38.627,"lon":-90.199,"timestamp":{}}}"#, 1712345700 + i);
+            let loc = format!(
+                r#"{{"lat":38.627,"lon":-90.199,"timestamp":{}}}"#,
+                1712345700 + i
+            );
             let ct = alice.encrypt(&gid, loc.as_bytes()).unwrap();
             let pt = bob.decrypt(&bob_gid, &ct).unwrap();
             assert_eq!(String::from_utf8(pt).unwrap(), loc);

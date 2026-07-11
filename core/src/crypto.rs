@@ -4,9 +4,9 @@ use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::{MemoryStorage, RustCrypto};
 use openmls_traits::OpenMlsProvider;
-use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize};
 
 use crate::errors::{PointCryptoError, Result};
 use crate::types::*;
@@ -29,9 +29,15 @@ impl OpenMlsProvider for PointProvider {
     type RandProvider = RustCrypto;
     type StorageProvider = MemoryStorage;
 
-    fn storage(&self) -> &MemoryStorage { &self.storage }
-    fn crypto(&self) -> &RustCrypto { &self.crypto }
-    fn rand(&self) -> &RustCrypto { &self.crypto }
+    fn storage(&self) -> &MemoryStorage {
+        &self.storage
+    }
+    fn crypto(&self) -> &RustCrypto {
+        &self.crypto
+    }
+    fn rand(&self) -> &RustCrypto {
+        &self.crypto
+    }
 }
 
 impl PointProvider {
@@ -40,7 +46,8 @@ impl PointProvider {
         use std::io::{Read, Seek, SeekFrom};
         let tmp = tempfile::tempfile()
             .map_err(|e| PointCryptoError::Mls(format!("tempfile create: {e}")))?;
-        self.storage.save_to_file(&tmp)
+        self.storage
+            .save_to_file(&tmp)
             .map_err(|e| PointCryptoError::Mls(format!("storage save: {e}")))?;
         let mut tmp = tmp;
         tmp.seek(SeekFrom::Start(0))
@@ -60,7 +67,8 @@ impl PointProvider {
             .map_err(|e| PointCryptoError::Mls(format!("tempfile write: {e}")))?;
         tmp.seek(SeekFrom::Start(0))
             .map_err(|e| PointCryptoError::Mls(format!("tempfile seek: {e}")))?;
-        self.storage.load_from_file(&tmp)
+        self.storage
+            .load_from_file(&tmp)
             .map_err(|e| PointCryptoError::Mls(format!("storage load: {e}")))
     }
 }
@@ -101,7 +109,8 @@ impl PointCrypto {
 
         let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())
             .map_err(|e| PointCryptoError::Mls(format!("{e:?}")))?;
-        signer.store(provider.storage())
+        signer
+            .store(provider.storage())
             .map_err(|e| PointCryptoError::Mls(format!("{e:?}")))?;
 
         let credential = BasicCredential::new(identity.as_bytes().to_vec());
@@ -136,7 +145,8 @@ impl PointCrypto {
             provider.storage(),
             &signer_pub,
             CIPHERSUITE.signature_algorithm(),
-        ).ok_or_else(|| PointCryptoError::Mls("signer not found in restored storage".into()))?;
+        )
+        .ok_or_else(|| PointCryptoError::Mls("signer not found in restored storage".into()))?;
 
         let credential = BasicCredential::new(state.identity.as_bytes().to_vec());
         let credential_with_key = CredentialWithKey {
@@ -151,9 +161,13 @@ impl PointCrypto {
                 .map_err(|e| PointCryptoError::Mls(format!("decode group id: {e}")))?;
             let group_id = GroupId::from_slice(&gid_bytes);
             match MlsGroup::load(provider.storage(), &group_id) {
-                Ok(Some(g)) => { groups.insert(gid_bytes, g); }
+                Ok(Some(g)) => {
+                    groups.insert(gid_bytes, g);
+                }
                 Ok(None) => {
-                    tracing_warn(format!("group {hex_id} not found in restored storage — skipping"));
+                    tracing_warn(format!(
+                        "group {hex_id} not found in restored storage — skipping"
+                    ));
                 }
                 Err(e) => {
                     tracing_warn(format!("group {hex_id} load error: {e:?} — skipping"));
@@ -175,9 +189,7 @@ impl PointCrypto {
     /// process_welcome, process_commit).
     pub fn export_state(&self) -> Result<Vec<u8>> {
         let storage_json = self.provider.export_storage()?;
-        let group_ids: Vec<String> = self.groups.keys()
-            .map(|k| hex::encode(k))
-            .collect();
+        let group_ids: Vec<String> = self.groups.keys().map(hex::encode).collect();
         let state = PointCryptoState {
             identity: self.identity.clone(),
             storage_json,
@@ -199,7 +211,8 @@ impl PointCrypto {
             .map_err(|e| PointCryptoError::KeyPackage(format!("{e:?}")))?;
 
         let kp: KeyPackage = kp_bundle.key_package().clone();
-        let serialized = kp.tls_serialize_detached()
+        let serialized = kp
+            .tls_serialize_detached()
             .map_err(|e| PointCryptoError::Serialization(format!("{e:?}")))?;
         Ok(serialized)
     }
@@ -224,28 +237,41 @@ impl PointCrypto {
         Ok(gid)
     }
 
-    pub fn add_member(&mut self, group_id: &[u8], key_package_bytes: &[u8]) -> Result<AddMemberResult> {
-        let group = self.groups.get_mut(group_id)
+    pub fn add_member(
+        &mut self,
+        group_id: &[u8],
+        key_package_bytes: &[u8],
+    ) -> Result<AddMemberResult> {
+        let group = self
+            .groups
+            .get_mut(group_id)
             .ok_or_else(|| PointCryptoError::GroupNotFound(hex::encode(group_id)))?;
 
         let kp_in = KeyPackageIn::tls_deserialize_exact(key_package_bytes)
             .map_err(|e| PointCryptoError::KeyPackage(format!("{e:?}")))?;
-        let kp: KeyPackage = kp_in.validate(self.provider.crypto(), ProtocolVersion::Mls10)
+        let kp: KeyPackage = kp_in
+            .validate(self.provider.crypto(), ProtocolVersion::Mls10)
             .map_err(|e| PointCryptoError::KeyPackage(format!("Validate: {e:?}")))?;
 
         let (commit_msg, welcome_msg, _group_info) = group
             .add_members(&self.provider, &self.signer, &[kp])
             .map_err(|e| PointCryptoError::Mls(format!("Add member: {e:?}")))?;
 
-        group.merge_pending_commit(&self.provider)
+        group
+            .merge_pending_commit(&self.provider)
             .map_err(|e| PointCryptoError::Mls(format!("Merge: {e:?}")))?;
 
-        let commit_bytes = commit_msg.tls_serialize_detached()
+        let commit_bytes = commit_msg
+            .tls_serialize_detached()
             .map_err(|e| PointCryptoError::Serialization(format!("{e:?}")))?;
-        let welcome_bytes = welcome_msg.tls_serialize_detached()
+        let welcome_bytes = welcome_msg
+            .tls_serialize_detached()
             .map_err(|e| PointCryptoError::Serialization(format!("{e:?}")))?;
 
-        Ok(AddMemberResult { welcome: welcome_bytes, commit: commit_bytes })
+        Ok(AddMemberResult {
+            welcome: welcome_bytes,
+            commit: commit_bytes,
+        })
     }
 
     pub fn process_welcome(&mut self, welcome_bytes: &[u8]) -> Result<Vec<u8>> {
@@ -272,10 +298,13 @@ impl PointCrypto {
     }
 
     pub fn encrypt(&mut self, group_id: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
-        let group = self.groups.get_mut(group_id)
+        let group = self
+            .groups
+            .get_mut(group_id)
             .ok_or_else(|| PointCryptoError::GroupNotFound(hex::encode(group_id)))?;
 
-        let msg = group.create_message(&self.provider, &self.signer, plaintext)
+        let msg = group
+            .create_message(&self.provider, &self.signer, plaintext)
             .map_err(|e| PointCryptoError::Mls(format!("Encrypt: {e:?}")))?;
 
         msg.tls_serialize_detached()
@@ -283,49 +312,63 @@ impl PointCrypto {
     }
 
     pub fn decrypt(&mut self, group_id: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
-        let group = self.groups.get_mut(group_id)
+        let group = self
+            .groups
+            .get_mut(group_id)
             .ok_or_else(|| PointCryptoError::GroupNotFound(hex::encode(group_id)))?;
 
         let msg_in = MlsMessageIn::tls_deserialize_exact(ciphertext)
             .map_err(|e| PointCryptoError::Serialization(format!("{e:?}")))?;
 
-        let protocol_msg = msg_in.try_into_protocol_message()
+        let protocol_msg = msg_in
+            .try_into_protocol_message()
             .map_err(|_| PointCryptoError::DecryptionFailed)?;
 
-        let processed = group.process_message(&self.provider, protocol_msg)
+        let processed = group
+            .process_message(&self.provider, protocol_msg)
             .map_err(|e| PointCryptoError::Mls(format!("Decrypt: {e:?}")))?;
 
         match processed.into_content() {
             ProcessedMessageContent::ApplicationMessage(app) => Ok(app.into_bytes()),
             ProcessedMessageContent::StagedCommitMessage(commit) => {
-                group.merge_staged_commit(&self.provider, *commit)
+                group
+                    .merge_staged_commit(&self.provider, *commit)
                     .map_err(|e| PointCryptoError::Mls(format!("Merge: {e:?}")))?;
-                Err(PointCryptoError::InvalidState("Commit, not app message".into()))
+                Err(PointCryptoError::InvalidState(
+                    "Commit, not app message".into(),
+                ))
             }
             _ => Err(PointCryptoError::DecryptionFailed),
         }
     }
 
     pub fn process_commit(&mut self, group_id: &[u8], commit_bytes: &[u8]) -> Result<()> {
-        let group = self.groups.get_mut(group_id)
+        let group = self
+            .groups
+            .get_mut(group_id)
             .ok_or_else(|| PointCryptoError::GroupNotFound(hex::encode(group_id)))?;
 
         let msg_in = MlsMessageIn::tls_deserialize_exact(commit_bytes)
             .map_err(|e| PointCryptoError::Serialization(format!("{e:?}")))?;
 
-        let protocol_msg = msg_in.try_into_protocol_message()
+        let protocol_msg = msg_in
+            .try_into_protocol_message()
             .map_err(|_| PointCryptoError::Mls("Not a protocol message".into()))?;
 
-        let processed = group.process_message(&self.provider, protocol_msg)
+        let processed = group
+            .process_message(&self.provider, protocol_msg)
             .map_err(|e| PointCryptoError::Mls(format!("Process commit: {e:?}")))?;
 
         match processed.into_content() {
             ProcessedMessageContent::StagedCommitMessage(commit) => {
-                group.merge_staged_commit(&self.provider, *commit)
+                group
+                    .merge_staged_commit(&self.provider, *commit)
                     .map_err(|e| PointCryptoError::Mls(format!("Merge commit: {e:?}")))?;
                 Ok(())
             }
-            _ => Err(PointCryptoError::InvalidState("Expected commit message".into())),
+            _ => Err(PointCryptoError::InvalidState(
+                "Expected commit message".into(),
+            )),
         }
     }
 
@@ -334,7 +377,9 @@ impl PointCrypto {
     }
 
     pub fn group_member_count(&self, group_id: &[u8]) -> Result<usize> {
-        let group = self.groups.get(group_id)
+        let group = self
+            .groups
+            .get(group_id)
             .ok_or_else(|| PointCryptoError::GroupNotFound(hex::encode(group_id)))?;
         Ok(group.members().count())
     }

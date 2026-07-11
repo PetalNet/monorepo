@@ -31,8 +31,9 @@ impl Config {
     /// Load from env. Panics with a clear message on invalid security-critical
     /// config — an unbootable server beats a silently insecure one.
     pub fn from_env() -> Self {
-        let jwt_secret = env::var("JWT_SECRET")
-            .expect("JWT_SECRET must be set (generate 32+ random chars, e.g. `openssl rand -hex 32`)");
+        let jwt_secret = env::var("JWT_SECRET").expect(
+            "JWT_SECRET must be set (generate 32+ random chars, e.g. `openssl rand -hex 32`)",
+        );
         assert!(
             jwt_secret.len() >= 32,
             "JWT_SECRET must be at least 32 characters (got {}); refusing to boot",
@@ -56,8 +57,9 @@ impl Config {
                     .expect("OIDC_ENABLED=true requires OIDC_CLIENT_ID"),
                 client_secret: env::var("OIDC_CLIENT_SECRET")
                     .expect("OIDC_ENABLED=true requires OIDC_CLIENT_SECRET"),
-                public_url: env::var("PUBLIC_URL")
-                    .expect("OIDC_ENABLED=true requires PUBLIC_URL (e.g. https://point.example.org)"),
+                public_url: env::var("PUBLIC_URL").expect(
+                    "OIDC_ENABLED=true requires PUBLIC_URL (e.g. https://point.example.org)",
+                ),
             })
         } else {
             None
