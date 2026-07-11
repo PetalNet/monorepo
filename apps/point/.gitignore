@@ -16,3 +16,6 @@ target/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local build-host toolchain helper (host-specific paths, not portable)
+app/.flutter-env.sh

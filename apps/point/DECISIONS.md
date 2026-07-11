@@ -183,3 +183,16 @@ Deferred (logged, not v1-blocking): a read endpoint for `location_updates` curre
 M1 (the client that reads it); registration global-cap lockout (raise/scope) and L-tier timing
 niceties tracked for a later hardening pass. Full finding list:
 scratchpad `m0-review-findings.md`.
+
+## 2026-07-11 — D-017 · M1 render loop is NOT blocked: Flutter toolchain stood up user-local
+
+Per the directive, M1 needs the Dart/Flutter MCP render→screenshot→fix loop; a missing SDK would be
+a BLOCKERS.md entry. It is not blocked. Installed Flutter **3.35.1 / Dart 3.9.0** user-local at
+`/home/docker/flutter` (Dart 3.9 meets the MCP server's floor; `dart mcp-server` is present). A
+render target exists: `flutter devices` sees a working **Chrome (web)** device using the host's
+Playwright chromium (`CHROME_EXECUTABLE=/home/docker/.cache/ms-playwright/chromium-1223/
+chrome-linux64/chrome`), so `flutter run -d chrome` + screenshot works for the playbook loop.
+Linux-desktop and Android toolchains are absent (clang/ninja/GTK; Android SDK) — installable via
+sudo if a pass needs real device/map behavior, but web is sufficient for UI craft iteration.
+Toolchain paths live in `apps/point/app/.flutter-env.sh` (gitignored — host-specific). No blocker
+filed.
