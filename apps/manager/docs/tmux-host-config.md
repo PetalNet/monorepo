@@ -15,9 +15,13 @@ one:
 - The manager requires **tmux ≥ 3.0** (pane _user options_ carry the
   `@agent_manager_owner` ownership tag; a tmux without them is a failed
   spawn, never degraded operation — locked N1.2 decision).
-- tmux client and server must speak the same protocol; mixed versions on
-  one socket produce "server version is too old/newer than client"
-  failures that look like manager bugs.
+- Mixed tmux client/server versions on one socket have historically
+  produced "server version is too old/newer than client" failures, and
+  version-dependent behavior skew is real even when the connection works
+  (3.4/3.5 sanitize control characters in list output where 3.6 does not
+  — that skew hid a live bug, F2 in DECISIONS-N1.2). The manager's own
+  CLI tolerates 3.4–3.6 (validated), but ONE pinned version removes the
+  whole class.
 - The fleet-term containers (`tasks/fleet-term`, Alpine 3.20) attach
   their **containerized tmux client to the HOST server socket** —
   Alpine 3.20 ships tmux 3.4, so the host pin and the container base

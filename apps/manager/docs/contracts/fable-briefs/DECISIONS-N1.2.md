@@ -106,6 +106,12 @@ discarded** (printed nowhere), exec failure ⇒ `(-1, "")` + one eprintln.
 | tag clobbered (other value)  | true          | listed, foreign tag / None | **false** (by design: id AND tag) | true (would re-clobber)                                          | —                                    | —                   | true      | works   | true      |
 | tmux < 3.0 (no user options) | true          | tag column empty           | false                             | **false ⇒ spawn-fail path** (locked: failed spawn, not degraded) | Ok                                   | Ok                  | true      | works   | true      |
 
+This table predates the M3/M6 hardening (tag_pane now returns a
+classified `Result`, kill_pane has an ownership guard). The `tmux < 3.0`
+row is asserted by design, not executed — no pre-3.0 binary exists
+anywhere in the fleet to test against (M6/A3). All other rows are
+exercised by the M2 tests.
+
 Gaps this table exposes (candidates for M3, pending test confirmation):
 
 - G1: all error paths are silent to the caller beyond `false`/`Err(code)`;
@@ -254,3 +260,72 @@ Second container run: full gate green (transcript summary below).
   `=name:` verified), 3.5a full suite, 3.6a full suite on host.
 - §0: host load gauged before each container run (≤1.5 on 8 cores);
   builds capped at 2 jobs / 2 cpus, nice -n19 on host runs.
+
+## M6 — reviews, PR #94, and the review-driven fix cycle
+
+PR: PetalNet/monorepo#94. CI was green pre-review (11 checks, incl.
+CodeQL; the only failure ever was `vp fmt` on two new markdown files).
+
+### Reviews run
+
+- **codex** (`/usr/bin/codex exec`, model **gpt-5.5, reasoning=high** —
+  this account rejects gpt-5.6, as the directive predicted). First
+  attempt could not read anything: codex's bubblewrap sandbox cannot
+  create user namespaces on this host (`bwrap: loopback: Failed
+RTM_NEWADDR`) and it correctly refused to invent findings. Re-ran with
+  the full diff + post-change tmux.rs + unchanged supervisor.rs/health.rs
+  piped via stdin, shell forbidden. 7 findings.
+- **Adversarial subagent** over the branch (read-only; own `n12adv-*`
+  scratch sockets, cleaned). 10 findings + a "checked, fine" list that
+  independently re-verified F1 empirically and confirmed no drift vs the
+  fleet-term consumer contract.
+
+### Findings → responses (fixes are in the "review: ..." commit)
+
+| #     | Finding                                                                                                            | Response                                                                                                                                                                                                                                                                  |
+| ----- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1/C2 | send_keys/capture trust a raw pane id (id reuse across server restarts)                                            | Documented as an explicit caveat on both fns + module header; both callers gate on pane_alive (verified). No recheck inside: ms-level TOCTOU remains regardless, and the accepter polls 1s                                                                                |
+| C3    | kill_pane destructive with a stale id                                                                              | **Fixed**: kill guard — id must be listed in OUR exact session with our tag or no tag (untagged allowed so failed-tag spawn cleanup still works). Residuals documented. Tests: refuses foreign-tagged + unknown id, still kills untagged in-session                       |
+| C4    | supervisor collapses transient tmux failure into "crash"                                                           | No change; the design self-heals — respawn begins with find_tagged_pane, which re-adopts the still-live pane once tmux recovers (adversarial review independently confirmed). Cost: one crash count + one message. Logged below as an open question for a supervisor node |
+| C5    | exact-name test wouldn't catch a starget() revert                                                                  | Moot: a revert makes `short.panes()` non-empty on 3.5/3.6 and the existing assert fails; bare-`-t` prefix hazard is asserted. Strengthened anyway: new_window error must name "session not found" (also covers A7)                                                        |
+| C6    | one-version doc overstated client/server lockstep                                                                  | **Fixed**: reworded — historical hard failures + behavior skew (F2!) justify the single pin; manager CLI tolerance 3.4–3.6 stated                                                                                                                                         |
+| C7    | "error connecting to" over-classified as server-not-running                                                        | **Fixed**: message now names socket path/permission as a possible cause; test updated                                                                                                                                                                                     |
+| A1    | tag_pane discards the classified cause — a fast-dying agent was misreported as "tmux >= 3.0 required", every retry | **Fixed** (bug-forced call-site change, per brief rule): `tag_pane -> Result<(), String>` with describe_failure(); supervisor logs+sends the real cause. New IT: tag after instant pane death names a real cause                                                          |
+| A2a   | no Rust job in monorepo CI — "CI green" proved nothing about this branch                                           | **Fixed**: added `manager-rust` CI job (fmt, clippy -D warnings, unit tests, N12_TMUX_IT=1 integration tests on the runner's tmux; ubuntu-latest ships tmux 3.4 — the live pin — so the suite now runs on 3.4 in CI, closing A8c too). Supersedes decision D5             |
+| A2b   | `--ignored` without the env var silently reported 10 green no-op tests                                             | **Fixed**: require_it! now FAILS loudly; plain `cargo test` still never spawns tmux (`#[ignore]`)                                                                                                                                                                         |
+| A2c   | DECISIONS referenced an "Open questions" section that didn't exist                                                 | **Fixed**: section added below                                                                                                                                                                                                                                            |
+| A3    | tmux < 3.0 behavior stated as tested contract but never executed                                                   | **Fixed** (honesty over coverage): module header + M1 table now mark the < 3.0 rows "asserted by design, not executed — no pre-3.0 binary exists in the fleet". Not adding a 2.x container to a LIGHT node                                                                |
+| A4    | clobbered tag ⇒ duplicate agent on one session id; clean_stale_session_locks removes the live agent's lock         | Documented as a known limitation (open question below). The locked design ("not provably ours ⇒ respawn") accepts this; requires a hostile/buggy actor with tmux access                                                                                                   |
+| A5    | kill_pane false conflates "already dead" with "unreachable"; graceful_shutdown ignored it                          | **Fixed**: doc states both meanings; graceful_shutdown now logs a WARN when the kill cannot be confirmed (the one path with no self-heal)                                                                                                                                 |
+| A6    | code comment said tab sanitization is ">= 3.5" but 3.4 (the live pin) is affected                                  | **Fixed**: comment now says 3.4 AND 3.5, names 3.6a as the masking version                                                                                                                                                                                                |
+| A7    | describe_failure: 3 of 5 arms untested                                                                             | **Fixed**: pure unit test in tmux.rs covers every arm incl. exec-failure (no PATH mutation needed); exact-name IT asserts the session-not-found arm end-to-end                                                                                                            |
+| A8    | container gate + leak check not reproducible from the repo; "verified green on 3.4" overstated                     | **Fixed**: `scripts/container-validate.sh` committed (the exact M5 gate); F2 wording corrected below; leak check acknowledged as a manual step. The new CI job runs the full suite on 3.4 mechanically                                                                    |
+| A9    | spawn-path log claimed "(none ours)" — TOCTOU-stale                                                                | **Fixed**: log reworded to what is actually known                                                                                                                                                                                                                         |
+| A10   | adopt path spawns no auto-accept thread (agent adopted mid-prompt hangs)                                           | Pre-existing supervisor behavior, out of N1.2 scope; open question below                                                                                                                                                                                                  |
+
+**Correction to M5/F2 wording** (per A8c): 3.4 was verified at the tmux
+CLI level (space format + `=name:` exact targeting, via alpine:3.20)
+during this run — the full Rust suite ran on 3.5a (container) and 3.6a
+(host). With the new CI job the full suite now also runs on ubuntu's
+tmux 3.4 on every PR.
+
+### Open questions (for Janet / later nodes)
+
+1. **Supervisor liveness robustness** (C4): one transient tmux CLI
+   failure marks the agent crashed (self-heals via adopt, but costs a
+   crash count + Matrix noise). A retry-once-before-declaring-dead in
+   poll_liveness would remove the noise. Supervisor node scope.
+2. **Clobbered-tag duplicate agent** (A4): if something overwrites our
+   pane tag, the old agent keeps running and we respawn a second one on
+   the same session id (and clean_stale_session_locks deletes the live
+   agent's lock on the way). Accepting for now — requires tmux-level
+   interference inside the trust boundary. Worth a supervisor-level
+   guard (e.g. compare pane PID trees) only if it ever actually happens.
+3. **Adopt path never auto-accepts** (A10): a manager restart that
+   adopts an agent still sitting at a startup prompt leaves the prompt
+   unanswered. Supervisor node scope.
+4. **tmux < 3.0 rows remain asserted-not-executed** (A3): acceptable
+   while nothing in the fleet runs pre-3.0; revisit only if that changes.
+5. **Rust CI job scope**: manager-rust runs on every PR (no path
+   filter), matching how the other jobs behave. If monorepo CI time ever
+   matters, add path filters repo-wide in one pass.

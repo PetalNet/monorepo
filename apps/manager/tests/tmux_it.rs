@@ -1,7 +1,9 @@
 //! Integration tests for the tmux pane-ownership layer (N1.2).
 //!
 //! Double-gated so ordinary `cargo test` / CI-less runs never spawn a tmux
-//! server: every test is `#[ignore]` AND skips unless `N12_TMUX_IT=1`. Run:
+//! server: every test is `#[ignore]`, and a test body reached via
+//! `--ignored` FAILS unless `N12_TMUX_IT=1` is set (a silent skip would
+//! report 10 green tests that exercised nothing). Run:
 //!
 //!   N12_TMUX_IT=1 cargo test --test tmux_it -- --ignored
 //!
@@ -30,13 +32,18 @@ fn it_enabled() -> bool {
     std::env::var("N12_TMUX_IT").ok().as_deref() == Some("1")
 }
 
-/// Every test starts with this; keeps the env gate in one place.
+/// Every test starts with this. Reaching a test body at all means someone
+/// passed `--ignored` — asking for this suite — so a missing env var FAILS
+/// loudly rather than silently reporting 10 green tests that exercised
+/// nothing (plain `cargo test` never gets here; `#[ignore]` covers it).
 macro_rules! require_it {
     () => {
-        if !it_enabled() {
-            eprintln!("skipping: set N12_TMUX_IT=1 to run tmux integration tests");
-            return;
-        }
+        assert!(
+            it_enabled(),
+            "tmux integration tests were invoked (--ignored) without N12_TMUX_IT=1; \
+             refusing to fake a pass. Set N12_TMUX_IT=1 (tests use private scratch \
+             tmux servers only) or drop --ignored."
+        );
     };
 }
 
@@ -101,7 +108,7 @@ fn spawn_tagged(t: &Tmux) -> String {
         .new_session_with_cmd("sleep 300", 80, 24)
         .expect("new_session_with_cmd");
     assert!(pane.starts_with('%'), "pane id shape: {pane:?}");
-    assert!(t.tag_pane(&pane), "tag_pane");
+    t.tag_pane(&pane).expect("tag_pane");
     pane
 }
 
@@ -173,7 +180,7 @@ fn send_keys_capture_round_trip() {
     let pane = t
         .new_session_with_cmd("sh", 80, 24)
         .expect("interactive sh pane");
-    assert!(t.tag_pane(&pane));
+    t.tag_pane(&pane).expect("tag_pane");
 
     // The output line is "rt:42"; the *typed* line contains the arithmetic
     // expansion, so matching "rt:42" proves we captured output, not input.
@@ -212,7 +219,7 @@ fn second_manager_tag_value_does_not_collide() {
 
     let pane_a = spawn_tagged_for(&a);
     let pane_b = b.new_window_with_cmd("sleep 300").expect("b's window");
-    assert!(b.tag_pane(&pane_b));
+    b.tag_pane(&pane_b).expect("tag_pane b");
 
     assert_eq!(a.find_tagged_pane(), Some(pane_a.clone()));
     assert_eq!(b.find_tagged_pane(), Some(pane_b.clone()));
@@ -247,9 +254,81 @@ fn clobbered_tag_means_pane_is_no_longer_ours() {
     assert!(!t.pane_alive(&pane), "clobbered tag = not ours");
     assert_eq!(t.find_tagged_pane(), None);
 
-    // Re-tagging (what a fresh spawn does) restores ownership.
-    assert!(t.tag_pane(&pane));
+    // The kill guard refuses a pane we can no longer prove is ours…
+    assert!(!t.kill_pane(&pane), "kill of a foreign-tagged pane refused");
+    let (c, listed) = s.raw(&[
+        "list-panes",
+        "-s",
+        "-t",
+        &format!("={SESSION}:"),
+        "-F",
+        "#{pane_id}",
+    ]);
+    assert_eq!(c, 0);
+    assert!(
+        listed.contains(&pane),
+        "refused kill must leave the pane alive"
+    );
+
+    // …and re-tagging (what a fresh spawn does) restores ownership + kill.
+    t.tag_pane(&pane).expect("tag_pane");
     assert!(t.pane_alive(&pane));
+    assert!(t.kill_pane(&pane), "our own tagged pane is killable");
+}
+
+#[test]
+#[ignore]
+fn kill_guard_refuses_unknown_ids_but_allows_untagged_cleanup() {
+    require_it!();
+    let s = Scratch::new("killguard");
+    let t = s.tmux(SESSION, TAG);
+    spawn_tagged(&t);
+
+    // An id that exists nowhere (e.g. stale across a server restart) is
+    // refused without touching tmux's kill at all.
+    assert!(!t.kill_pane("%99"), "unknown id refused");
+
+    // An UNTAGGED pane in our exact session is killable: this is the spawn
+    // path cleaning up a pane whose tagging itself failed (documented
+    // residual of the ownership guard).
+    let (c, untagged) = s.raw(&[
+        "split-window",
+        "-d",
+        "-P",
+        "-F",
+        "#{pane_id}",
+        "-t",
+        &format!("={SESSION}:"),
+    ]);
+    assert_eq!(c, 0);
+    assert!(t.kill_pane(&untagged), "untagged in-session pane killable");
+    assert!(
+        wait_until(Duration::from_secs(5), || t.panes().len() == 1),
+        "cleanup kill took effect"
+    );
+}
+
+#[test]
+#[ignore]
+fn tagging_a_pane_that_died_at_startup_reports_the_cause() {
+    require_it!();
+    let s = Scratch::new("fastdeath");
+    let t = s.tmux(SESSION, TAG);
+    // The agent command exits immediately (bad binary / bad work_dir class
+    // of failure): the pane — here the whole scratch server, it was the
+    // only pane — is gone before the tag lands.
+    let pane = t.new_session_with_cmd("true", 80, 24).expect("spawn");
+    assert!(
+        wait_until(Duration::from_secs(5), || !t.session_alive()),
+        "instant-exit pane takes the scratch server down"
+    );
+    let err = t.tag_pane(&pane).expect_err("tag after pane death");
+    assert!(
+        err.contains("cannot connect to tmux server")
+            || err.contains("pane/window not found")
+            || err.contains("session not found"),
+        "tag failure names a real cause (not a generic bool): {err}"
+    );
 }
 
 // ── session targeting ────────────────────────────────────────────────────
@@ -270,9 +349,12 @@ fn exact_name_targeting_never_prefix_matches() {
         "`=name` must not match the longer session"
     );
     assert!(short.panes().is_empty(), "no cross-session pane listing");
+    let err = short
+        .new_window_with_cmd("sleep 300")
+        .expect_err("new_window must not land in the longer session");
     assert!(
-        short.new_window_with_cmd("sleep 300").is_err(),
-        "new_window must not land in the longer session"
+        err.contains("session not found"),
+        "classifier names the exact-match miss: {err}"
     );
 
     // Sanity: bare -t WOULD prefix-match — this is exactly why starget()
@@ -295,7 +377,7 @@ fn server_down_every_query_degrades_calmly_and_spawn_starts_the_server() {
     assert!(t.panes().is_empty());
     assert_eq!(t.find_tagged_pane(), None);
     assert!(!t.pane_alive("%0"));
-    assert!(!t.tag_pane("%0"));
+    assert!(t.tag_pane("%0").is_err());
     assert!(!t.send_keys("%0", &["x", "Enter"]));
     assert_eq!(t.capture("%0"), "");
     assert!(!t.kill_pane("%0"));
@@ -303,14 +385,14 @@ fn server_down_every_query_degrades_calmly_and_spawn_starts_the_server() {
         .new_window_with_cmd("sleep 300")
         .expect_err("new-window cannot start a server");
     assert!(
-        err.contains("server not running"),
+        err.contains("cannot connect to tmux server"),
         "spawn error names the cause; got: {err}"
     );
 
     // new_session_with_cmd is the one call that BOOTS the server.
     let pane = t.new_session_with_cmd("sleep 300", 80, 24).expect("boot");
     assert!(t.session_alive());
-    assert!(t.tag_pane(&pane));
+    t.tag_pane(&pane).expect("tag_pane");
     assert_eq!(t.find_tagged_pane(), Some(pane));
 }
 
