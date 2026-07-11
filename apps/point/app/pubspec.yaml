@@ -1,0 +1,44 @@
+name: point_app
+description: "Point — Matrix for location. E2E-encrypted, federatable location sharing."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.10.0
+
+# Locked client stack (apps/point/docs/design/UI-SPEC-FINAL.md, D-015):
+# Riverpod state, kaisel router (PINNED — pre-1.0, do not `pub upgrade` on a
+# whim), Material 3 monochrome, self-hosted Schibsted Grotesk (no web fetch),
+# provider-agnostic maps (Google + MapLibre/flutter_map).
+dependencies:
+  flutter:
+    sdk: flutter
+  hooks_riverpod: ^3.3.2
+  flutter_hooks: ^0.21.3+1
+  kaisel: 0.22.0 # PINNED exact — animated branched shell + auth-without-reset.
+  flutter_secure_storage: ^10.3.1
+  web_socket_channel: ^3.0.3
+  http: ^1.2.2
+  qr_flutter: ^4.1.0
+  flutter_map: ^8.3.1
+  latlong2: ^0.10.1
+  # dynamic_color is intentionally NOT a dependency: the spec locks dynamic_color
+  # OFF (fixed monochrome, no Material You wallpaper hues) — D-015.
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  very_good_analysis: ^9.0.0
+  alchemist: ^0.12.1
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Schibsted Grotesk
+      fonts:
+        - asset: assets/fonts/SchibstedGrotesk.ttf
+        - asset: assets/fonts/SchibstedGrotesk-Italic.ttf
+          style: italic
+    - family: JetBrains Mono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf

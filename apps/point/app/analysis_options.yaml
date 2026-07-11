@@ -1,0 +1,21 @@
+# very_good_analysis (D-015 lock) — stricter than flutter_lints; the
+# zero-analyzer-warnings gate runs against this. Doc-comment lints are relaxed
+# on the app package (per the design-direction note) so codegen isn't forced to
+# document every public member of an app (vs a published library).
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    # This is an app, not a published library API — don't require doc comments
+    # on every public member. The slop-tell lints (const-correctness, no
+    # BuildContext-across-await, etc.) stay on hard.
+    public_member_api_docs: false
+    lines_longer_than_80_chars: false
+    # pubspec is grouped by role (SDK, locked stack) with explanatory comments,
+    # which is more legible than strict alphabetical for this app.
+    sort_pub_dependencies: false
