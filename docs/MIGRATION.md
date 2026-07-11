@@ -39,7 +39,7 @@ Then, the things that bit slide:
   it); oxfmt owns `.toml`/`.md`/`.json`, `cargo fmt` owns `.rs` (first-ever rustfmt
   pass = own blame-ignored commit, ditto the oxfmt pass). Validation is Cargo-native:
   `cargo fmt --check`, `clippy --all-targets --locked -D warnings`, `cargo build
-  --locked --release`, `cargo test` (21 tests) — all verified in a clean
+--locked --release`, `cargo test` (21 tests) — all verified in a clean
   `rust:1.96-slim` container; toolchain pinned 1.96 via `rust-toolchain.toml`;
   `Cargo.lock` kept for `--locked`. Dropped standalone cruft (`package.json` +
   superseded `manager.js` baseline — retrievable from imported history). Kept the

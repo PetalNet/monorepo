@@ -208,9 +208,9 @@ ownership/lockout modeled and healthcheckable (D10).
    manager. Should the rewrite ALSO write the old `schema: 1` key during a transition window
    so the deployed healthcheck/canary keeps working against a new manager, or do
    manager+healthcheck always ship as one unit (they're one binary today — I assumed yes)?
-4. **Card lease projection (D19).** Task-cards carry only `leasePublic`; the claim_token
+4. **Card lease projection (D19).** Task-cards carry only `leasePublic`; the claim*token
    travels solely in the direct claim response. If any flow needs the dispatcher to hand a
-   token to a _pre-assigned_ worker via a card, that breaks the secrecy rule — flag it now.
+   token to a \_pre-assigned* worker via a card, that breaks the secrecy rule — flag it now.
 5. **Fleet-event `task_id` (D11).** Producers (lifecycle hooks) need to know the claimed task
    to write it. If hooks can't cheaply know it, the cockpit keeps deriving focus from
    activeLeases() and task_id stays null — acceptable, or should the box agent inject
