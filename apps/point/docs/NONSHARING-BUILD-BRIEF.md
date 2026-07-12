@@ -52,6 +52,7 @@ half-set-up app.
 
 **The privacy fork (on the why screen):** one plain-language choice (not two technical dropdowns) that sets
 map + notification transport together; fine-tunable later in Settings.
+
 - **Private by default** → self-hosted/OSM map + UnifiedPush notifications.
 - **Convenient** → proxied vector map + FCM. (NOT Google — see Wave C.)
 - If Private: **guide them through the UnifiedPush distributor setup** (show ntfy + options, walk the
@@ -64,6 +65,7 @@ distributor setup.
 ## Wave B — The Me / Settings tab
 
 Settings is NOT a separate destination — it merges with the You tab into the third nav tab.
+
 - **Surface:** borderless me-header (photo-dot, name, @handle·server; tap → identity editor for name +
   photo-dot), a hairline, then the ghost/go-dark toggle as the one live control, then the category list.
 - **Privacy** — map provider (lives here; deep-link target from Look & feel), who-can-add-me, go-dark default.
@@ -85,10 +87,11 @@ map-provider has one home (Privacy) with a working deep-link from Look & feel; i
 Wire the choice from the Privacy setting + onboarding fork through to the render. **Do NOT try to make
 Google "a little private"** — half-neutering a surveillance company is a lie that gives false comfort. Each
 tier is what it says.
+
 - **Self-hosted OSM (default, max private)** — MapLibre/flutter_map with the existing monochrome style,
   tiles from the home-server's own tileserver (below). Map data never leaves your people's servers.
-- **Proxied vector provider (clean + convenient)** — Protomaps or Stadia, requests routed *through the
-  Point server* so the provider only ever sees the server, never the user. Real privacy, still polished.
+- **Proxied vector provider (clean + convenient)** — Protomaps or Stadia, requests routed _through the
+  Point server_ so the provider only ever sees the server, never the user. Real privacy, still polished.
   This is the "convenient" default, not Google.
 - **Google (honest opt-in, or deferred)** — offered only if the user digs for it in Privacy, labeled
   plainly: "Best detail. Google sees where you look. Not private." App talks to Google directly (their
@@ -107,6 +110,7 @@ tileserver service + docs.
 
 Nothing delivers today (client has only an FCM hook, server a token endpoint). This was Parker's original
 miss — he got no push for a share request. Build the real transport.
+
 - **UnifiedPush primary** — client registers with the user's distributor; self-host **ntfy** for the
   default UP endpoint. Server pushes an encrypted wake (distributor sees "wake Point", not who/where).
 - **FCM fallback** — a path/flavor for the convenient choice or no-distributor users.
@@ -122,6 +126,7 @@ in Settings works; FCM path delivers for the convenient choice; go-dark stays si
 ## Wave E — Account recovery UX
 
 Surface the existing zero-knowledge recovery, honestly. If the phrase is lost, nobody restores the account.
+
 - **Set-up in onboarding** (Wave A), right after account, before the location ask. A recovery phrase the
   user saves (write down / password manager), gated on a "stored it somewhere safe" confirm.
 - **Recover on a new device** — "Recover account" → server + phrase → keys restored → back in.
