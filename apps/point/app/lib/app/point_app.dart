@@ -277,8 +277,14 @@ class _PointAppState extends ConsumerState<PointApp>
     // MaterialApp. The shell + its per-branch state are never torn down.
     ref
       ..listen(authControllerProvider, (prev, next) {
+        // Session-lifecycle side effects run only when the session IDENTITY
+        // changes. Same-account re-emissions (a display-name update) must not
+        // restart the relay or re-route; that stacked duplicate WS/fix
+        // subscriptions and could double-process MLS messages.
+        final prevId = prev?.value?.userId;
         next.whenData((session) {
           if (session != null) {
+            if (session.userId == prevId) return;
             // Only an explicit login/register counts as a NEW session for the
             // go-dark-default policy (a cold-start restore must never override
             // a live sharing choice). The controller flags it, because both
@@ -298,6 +304,7 @@ class _PointAppState extends ConsumerState<PointApp>
             // the shell (with any held deep-link invite).
             unawaited(continueOnboarding(ref, _config.router));
           } else {
+            if (prevId == null) return; // already signed out; nothing to tear down
             ref.read(locationServiceProvider).setSharing(sharing: false);
             ref.read(relayControllerProvider).stop();
             // An invite held for the previous account must not leak into

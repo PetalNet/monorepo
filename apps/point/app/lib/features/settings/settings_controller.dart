@@ -48,12 +48,21 @@ class SettingsController extends Notifier<AppSettings> {
     }
   }
 
-  Future<void> update(AppSettings Function(AppSettings) change) async {
-    // Serialize behind the initial load: an update racing it would otherwise
-    // fork from the DEFAULTS and persist them over every saved setting.
-    await _loaded.future;
-    state = change(state);
-    await _storage.write(key: _key, value: jsonEncode(state.toJson()));
+  Future<void> _writeTail = Future<void>.value();
+
+  Future<void> update(AppSettings Function(AppSettings) change) {
+    // Serialize behind the initial load (an update racing it would fork from
+    // the DEFAULTS and persist them over every saved setting) AND behind any
+    // in-flight write (two racing updates would last-writer-win the whole
+    // blob, dropping the earlier change from disk).
+    final task = _writeTail.then((_) async {
+      await _loaded.future;
+      state = change(state);
+      await _storage.write(key: _key, value: jsonEncode(state.toJson()));
+    });
+    // The chain survives a failed write; the failure still reaches the caller.
+    _writeTail = task.then((_) {}, onError: (Object _) {});
+    return task;
   }
 
   /// Apply the onboarding privacy fork: one plain-language choice sets the
