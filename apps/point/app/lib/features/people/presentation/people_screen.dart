@@ -4,7 +4,6 @@ import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/people/people_presence.dart';
-import 'package:point_app/features/people/presentation/share_sheet.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -36,7 +35,7 @@ class PeopleScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.person_add_alt),
             tooltip: 'Add person',
-            onPressed: () => ShareSheet.show(context),
+            onPressed: () => context.push(const AddPersonRoute()),
           ),
         ],
       ),
@@ -197,7 +196,7 @@ class _EmptyPeople extends StatelessWidget {
             ),
             SizedBox(height: context.space.xl),
             FilledButton.icon(
-              onPressed: () => ShareSheet.show(context),
+              onPressed: () => context.push(const AddPersonRoute()),
               icon: const Icon(Icons.person_add_alt),
               label: const Text('Add a person'),
             ),
