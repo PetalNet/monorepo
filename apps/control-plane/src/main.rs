@@ -88,10 +88,25 @@ fn run(cfg: Config) -> Result<(), String> {
         cfg.pool_tokens
     );
 
+    // Discipline needs a REAL lease lookup (codex P1: an event's task_id is
+    // not lease state); without a tracker path the pass is disabled.
+    let discipline_tracker: Option<dispatcher::tracker::SqliteTracker> = match &cfg.tracker_db_path
+    {
+        Some(p) => Some(dispatcher::tracker::SqliteTracker::open(p)?),
+        None => {
+            eprintln!("control-plane: no tracker_db_path — discipline pass disabled");
+            None
+        }
+    };
+
     let mut usages: BTreeMap<String, Usage> = BTreeMap::new();
     let mut tiers: BTreeMap<String, Tier> = BTreeMap::new();
     let mut nagged: BTreeMap<String, i64> = BTreeMap::new();
     let mut last_actions: BTreeMap<String, Action> = BTreeMap::new();
+    // handle → (last seen status, epoch it ENTERED that status) — the
+    // working-grace timer keys on the transition, not session start (codex P2).
+    let mut status_since: BTreeMap<String, (String, i64)> = BTreeMap::new();
+    let mut fleet_sequential = false;
     let mut last_governance = Instant::now();
 
     loop {
@@ -106,8 +121,26 @@ fn run(cfg: Config) -> Result<(), String> {
 
         if last_governance.elapsed() >= Duration::from_secs(cfg.governance_interval_secs) {
             last_governance = Instant::now();
-            governance_pass(&governor, &usages, &tiers, &transport, &mut last_actions)?;
-            discipline_pass(&cfg, &discipline, &registry, &transport, &mut nagged)?;
+            governance_pass(
+                &governor,
+                &usages,
+                &mut tiers,
+                &registry,
+                &transport,
+                &mut last_actions,
+                &mut fleet_sequential,
+            )?;
+            if let Some(tracker) = &discipline_tracker {
+                discipline_pass(
+                    &cfg,
+                    &discipline,
+                    &registry,
+                    tracker,
+                    &transport,
+                    &mut nagged,
+                    &mut status_since,
+                )?;
+            }
         }
 
         if processed == 0 {
@@ -178,9 +211,12 @@ fn handle_envelope(
                     report.handle, envelope.agent
                 ));
             }
-            let first_seen = registry.get(&report.handle, now)?.is_none();
             registry.report(&report, now)?;
-            if first_seen {
+            // Grant whenever the agent holds no LIVE lease — this covers
+            // first sight, natural expiry, AND a control-plane restart
+            // (codex P1: grants are in-memory; a restart must re-grant, not
+            // strand every known agent on Red/Pause forever).
+            if !governor.has_live_grant(&report.handle, now) {
                 match governor.grant(
                     &report.handle,
                     cfg.default_grant_tokens,
@@ -199,8 +235,16 @@ fn handle_envelope(
         Some("usage.report") => {
             let payload = envelope.payload.ok_or("usage.report without payload")?;
             let usage: Usage = serde_json::from_value(payload).map_err(|e| e.to_string())?;
-            usages.insert(envelope.agent.clone(), usage);
-            tiers.entry(envelope.agent).or_insert(Tier::Opus);
+            // The agent's manager self-reports its CURRENT tier — trust that
+            // over any stale assumption (codex P1: a Haiku agent must never
+            // receive a downgrade-to-Sonnet "upgrade"). Opus only as the
+            // never-reported fallback.
+            if let Some(tier) = usage.tier {
+                tiers.insert(envelope.agent.clone(), tier);
+            } else {
+                tiers.entry(envelope.agent.clone()).or_insert(Tier::Opus);
+            }
+            usages.insert(envelope.agent, usage);
             Ok(())
         }
         other => Err(format!("unhandled method {other:?}")),
@@ -214,9 +258,11 @@ fn handle_envelope(
 fn governance_pass(
     governor: &Governor,
     usages: &BTreeMap<String, Usage>,
-    tiers: &BTreeMap<String, Tier>,
+    tiers: &mut BTreeMap<String, Tier>,
+    registry: &Registry,
     transport: &dyn CardTransport,
     last_actions: &mut BTreeMap<String, Action>,
+    fleet_sequential: &mut bool,
 ) -> Result<(), String> {
     let now = now_epoch();
     for (agent, usage) in usages {
@@ -227,41 +273,86 @@ fn governance_pass(
         if action == Action::None || unchanged {
             continue;
         }
-        let envelope = Envelope {
-            schema_version: RPC_SCHEMA_VERSION,
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: EnvelopeType::Event,
-            method: Some("governance.action".into()),
-            agent: agent.clone(),
-            task_id: None,
-            in_reply_to: None,
-            payload: Some(serde_json::to_value(&action).map_err(|e| e.to_string())?),
-            error: None,
-            ts: now_rfc3339(),
-            deadline_ms: None,
-        };
-        envelope.validate()?;
-        transport.deliver(&envelope)?;
+        deliver_event(
+            transport,
+            agent,
+            "governance.action",
+            serde_json::to_value(&action).map_err(|e| e.to_string())?,
+        )?;
+        // Track the tier we just instructed, so a persisting yellow steps
+        // down one tier per decision change instead of re-targeting Sonnet
+        // forever (the agent's next usage.report confirms or corrects).
+        if let Action::Downgrade { to } = &action {
+            tiers.insert(agent.clone(), *to);
+        }
         eprintln!("control-plane: {agent} → {action:?}");
     }
-    let mode = governor.fleet_mode(usages, now);
-    if mode == control_plane::governance::FleetMode::Sequential {
-        glitchtip::capture_message("cascade detected: fleet → sequential mode", "warning");
-        eprintln!("control-plane: CASCADE — fleet sequential");
+
+    // Cascade: fleet mode is APPLIED, not just logged (codex P1) — an
+    // edge-triggered fleet.mode event goes to every alive agent, both when
+    // sequential engages and when it releases.
+    let sequential =
+        governor.fleet_mode(usages, now) == control_plane::governance::FleetMode::Sequential;
+    if sequential != *fleet_sequential {
+        *fleet_sequential = sequential;
+        let mode = if sequential { "sequential" } else { "parallel" };
+        if sequential {
+            glitchtip::capture_message("cascade detected: fleet → sequential mode", "warning");
+        }
+        eprintln!("control-plane: fleet mode → {mode}");
+        for entry in registry.all(now)? {
+            if entry.liveness != control_plane::registry::Liveness::Down {
+                deliver_event(
+                    transport,
+                    &entry.handle,
+                    "fleet.mode",
+                    serde_json::json!({ "mode": mode }),
+                )?;
+            }
+        }
     }
     Ok(())
 }
 
+fn deliver_event(
+    transport: &dyn CardTransport,
+    agent: &str,
+    method: &str,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    let envelope = Envelope {
+        schema_version: RPC_SCHEMA_VERSION,
+        id: uuid::Uuid::new_v4().to_string(),
+        kind: EnvelopeType::Event,
+        method: Some(method.into()),
+        agent: agent.to_string(),
+        task_id: None,
+        in_reply_to: None,
+        payload: Some(payload),
+        error: None,
+        ts: now_rfc3339(),
+        deadline_ms: None,
+    };
+    envelope.validate()?;
+    transport.deliver(&envelope)
+}
+
 /// Read fleet-event snapshots (data/fleet/<handle>.json layout), check
-/// discipline, and nag via a defer card request to the dispatcher's ingest
-/// (as a system sender). Each agent is nagged at most once per hour.
+/// discipline against the TRACKER's lease state (never the event's own
+/// task_id — codex P1), and nag. Each agent is nagged at most once per hour.
+/// The working-grace timer keys on the alive/idle→working TRANSITION we
+/// observe, not the session's started_at (codex P2).
+#[allow(clippy::too_many_arguments)]
 fn discipline_pass(
     cfg: &Config,
     discipline: &Discipline,
     registry: &Registry,
+    tracker: &dispatcher::tracker::SqliteTracker,
     transport: &dyn CardTransport,
     nagged: &mut BTreeMap<String, i64>,
+    status_since: &mut BTreeMap<String, (String, i64)>,
 ) -> Result<(), String> {
+    use dispatcher::tracker::Tracker as _;
     let Some(dir) = &cfg.fleet_events_dir else {
         return Ok(());
     };
@@ -285,19 +376,20 @@ fn discipline_pass(
             continue;
         }
         let status = event["status"].as_str().unwrap_or("alive").to_string();
-        let started = event["started_at"]
-            .as_str()
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|t| t.timestamp())
-            .unwrap_or(now);
-        // The tracker lease join arrives with real tracker wiring; the event's
-        // own task_id is the v1 signal.
+        // Grace timer: when did we first SEE this agent in its current status?
+        let since = match status_since.get(&handle) {
+            Some((prev, since)) if *prev == status => *since,
+            _ => {
+                status_since.insert(handle.clone(), (status.clone(), now));
+                now
+            }
+        };
         let activity = AgentActivity {
             handle: handle.clone(),
             status,
             event_task_id: event["task_id"].as_i64(),
-            working_since_epoch: started,
-            active_lease: event["task_id"].as_i64(),
+            working_since_epoch: since,
+            active_lease: tracker.active_lease(&handle)?,
         };
         if let Some(violation) = discipline.check(&activity, now) {
             let last = nagged.get(&handle).copied().unwrap_or(0);

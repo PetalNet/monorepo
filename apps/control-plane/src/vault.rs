@@ -56,7 +56,10 @@ impl FileVault {
         if !is_valid_cred_name(name) {
             return Err(format!("invalid credential name {name:?}"));
         }
-        Ok(self.dir.join(format!("{}.json", name.replace(':', "__"))))
+        // ':' → '+' is INJECTIVE: '+' is outside the credential-name charset,
+        // so distinct names can never collide on disk (codex P1 — the old
+        // "__" encoding collided with legitimate underscores).
+        Ok(self.dir.join(format!("{}.json", name.replace(':', "+"))))
     }
 }
 
@@ -95,7 +98,7 @@ impl CredStore for FileVault {
             let p = entry.path();
             if p.extension().and_then(|e| e.to_str()) == Some("json") {
                 if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                    names.push(stem.replace("__", ":"));
+                    names.push(stem.replace('+', ":"));
                 }
             }
         }
@@ -155,8 +158,26 @@ mod tests {
         v.put(&cred("agent:janet:matrix")).unwrap();
         let dir_mode = std::fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777;
         assert_eq!(dir_mode, 0o700);
-        let file = dir.path().join("agent__janet__matrix.json");
+        let file = dir.path().join("agent+janet+matrix.json");
         let mode = std::fs::metadata(file).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    /// Codex P1 regression: underscore-bearing names must never collide.
+    #[test]
+    fn underscore_names_do_not_collide() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = FileVault::open(dir.path()).unwrap();
+        let mut a = cred("agent:a__b:c");
+        a.secret = "secret-a".into();
+        let mut b = cred("agent:a:b__c");
+        b.secret = "secret-b".into();
+        v.put(&a).unwrap();
+        v.put(&b).unwrap();
+        assert_eq!(v.get("agent:a__b:c").unwrap().unwrap().secret, "secret-a");
+        assert_eq!(v.get("agent:a:b__c").unwrap().unwrap().secret, "secret-b");
+        let names = v.list().unwrap();
+        assert!(names.contains(&"agent:a__b:c".to_string()));
+        assert!(names.contains(&"agent:a:b__c".to_string()));
     }
 }

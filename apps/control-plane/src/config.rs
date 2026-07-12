@@ -13,6 +13,11 @@ pub struct Config {
     pub db_path: PathBuf,
     /// Credential vault directory (0700; files 0600).
     pub vault_dir: PathBuf,
+    /// Tracker DB for the discipline pass's REAL lease lookups (a fleet
+    /// event's task_id is not lease state). Absent = discipline disabled.
+    /// Points at temp/disposable DBs during dev — never the live tracker.
+    #[serde(default)]
+    pub tracker_db_path: Option<PathBuf>,
     /// Inbound envelope spool dir (agent.capacity, usage.report, …).
     #[serde(default)]
     pub ingest_dir: Option<PathBuf>,

@@ -66,6 +66,10 @@ pub struct Usage {
     pub rate_limit_hits: u32,
     /// Epoch secs of the most recent rate-limit hit (0 = none).
     pub last_rate_limited_epoch: i64,
+    /// The model tier the agent is CURRENTLY running (self-reported; the
+    /// agent's manager knows). None = not reported this window.
+    #[serde(default)]
+    pub tier: Option<Tier>,
 }
 
 /// A budget grant is a LEASE (CP8): unspent budget returns to the pool at
@@ -99,6 +103,15 @@ impl Governor {
             cascade_window_secs: 300,
             grants: BTreeMap::new(),
         }
+    }
+
+    /// Does this agent hold an unexpired budget grant? (Restart recovery:
+    /// the caller re-grants when this is false — codex P1.)
+    pub fn has_live_grant(&self, agent: &str, now_epoch: i64) -> bool {
+        self.grants
+            .get(agent)
+            .map(|g| g.expires_epoch > now_epoch)
+            .unwrap_or(false)
     }
 
     /// Tokens not currently granted out (expired grants return to the pool —
@@ -219,6 +232,7 @@ mod tests {
             tokens_spent: 10,
             rate_limit_hits: 1,
             last_rate_limited_epoch: 5,
+            tier: None,
         };
         assert_eq!(g.light("janet", &hit, 10), Light::Red);
         // No grant = red.
@@ -299,6 +313,7 @@ mod tests {
                     tokens_spent: 0,
                     rate_limit_hits: 1,
                     last_rate_limited_epoch: hit_at,
+                    tier: None,
                 },
             );
         }
