@@ -91,7 +91,7 @@ services:
   # docs/SELF-HOSTING.md "Maps". Then set in .env:
   #   TILES_URL=https://$DOMAIN/tiles/styles/point-dark/{z}/{x}/{y}.png
   tileserver:
-    image: maptiler/tileserver-gl:v5.3.1
+    image: maptiler/tileserver-gl:v5.6.0@sha256:3a9ccdb24820b6814c8119bcc8a4376c39867cb0ffe69d62919ef898b90c2427
     profiles: ["tiles"]
     command: ["--config", "/data/config.json", "--public_url", "https://${DOMAIN}/tiles/"]
     volumes:
