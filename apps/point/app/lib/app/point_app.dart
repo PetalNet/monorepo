@@ -75,7 +75,8 @@ class _PointAppState extends ConsumerState<PointApp>
     // Invite deep links (point://add/<handle> and .../add/<handle>): the link
     // the app was launched from, plus any received while running.
     unawaited(_appLinks.getInitialLink().then((uri) {
-      if (uri != null) _onInviteLink(uri);
+      if (!mounted || uri == null) return;
+      _onInviteLink(uri);
     }));
     _linkSub = _appLinks.uriLinkStream.listen(_onInviteLink);
   }

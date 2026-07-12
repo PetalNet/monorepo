@@ -39,5 +39,5 @@ String normalizeHandle(String raw, {required String selfDomain}) {
   final s = raw.trim();
   if (s.isEmpty) return s;
   if (s.contains('@')) return s.toLowerCase();
-  return '${s.toLowerCase()}@$selfDomain';
+  return '${s.toLowerCase()}@${selfDomain.toLowerCase()}';
 }
