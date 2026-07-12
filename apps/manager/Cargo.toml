@@ -14,7 +14,7 @@ serde_json = "1"
 ureq = { version = "2.10", default-features = false, features = ["tls", "json"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-signal-hook = "0.3"
+signal-hook = "0.4"
 libc = "0.2"
 
 [profile.release]
