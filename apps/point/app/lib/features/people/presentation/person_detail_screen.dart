@@ -7,7 +7,9 @@ import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/people_presence.dart';
+import 'package:point_app/features/people/presentation/temp_share_sheet.dart';
 import 'package:point_app/features/people/requests_controller.dart';
+import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -56,6 +58,8 @@ class PersonDetailScreen extends ConsumerWidget {
                   SizedBox(height: context.space.md),
                   _StatusLine(person: person),
                   SizedBox(height: context.space.xl),
+                  _TempShareTile(person: person),
+                  SizedBox(height: context.space.md),
                   _HideFromTile(person: person),
                   SizedBox(height: context.space.md),
                   _StopSharingTile(person: person),
@@ -224,6 +228,69 @@ class _HideFromTile extends ConsumerWidget {
         ),
         contentPadding: EdgeInsets.symmetric(horizontal: context.space.lg),
         shape: RoundedRectangleBorder(borderRadius: context.radii.brMd),
+      ),
+    );
+  }
+}
+
+/// Start (or, if one is running, show + stop) a one-way temporary share to this
+/// person.
+class _TempShareTile extends ConsumerWidget {
+  const _TempShareTile({required this.person});
+  final Person person;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final temp = ref.watch(outgoingTempsProvider)[person.userId];
+    if (temp != null) {
+      return Material(
+        color: context.colors.surfaceContainerHigh,
+        borderRadius: context.radii.brMd,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: context.space.lg,
+            vertical: context.space.md,
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.arrow_forward, color: context.colors.onSurface),
+              SizedBox(width: context.space.md),
+              Expanded(
+                child: Text(
+                  'Sharing until ${clockHm(temp.expiresAt.millisecondsSinceEpoch)}',
+                  style: context.text.titleMedium,
+                ),
+              ),
+              TextButton(
+                onPressed: () => ref
+                    .read(tempSharesControllerProvider.notifier)
+                    .stop(temp.id),
+                child: const Text('Stop'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Material(
+      color: context.colors.surfaceContainerHigh,
+      borderRadius: context.radii.brMd,
+      child: InkWell(
+        onTap: () => TempShareSheet.show(context, person),
+        borderRadius: context.radii.brMd,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: context.space.lg,
+            vertical: context.space.md,
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.schedule, color: context.colors.onSurface),
+              SizedBox(width: context.space.md),
+              Text('Share temporarily', style: context.text.titleMedium),
+            ],
+          ),
+        ),
       ),
     );
   }

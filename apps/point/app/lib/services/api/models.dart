@@ -75,6 +75,30 @@ class ShareRequest {
   String get fromHandle => fromUserId.split('@').first;
 }
 
+/// A temporary, one-way live-location share: `fromUserId` pushes their location
+/// to `toUserId` until [expiresAt], then it auto-stops. Direction is the whole
+/// point — the recipient sees the sharer, not vice-versa.
+class TempShare {
+  const TempShare({
+    required this.id,
+    required this.fromUserId,
+    required this.toUserId,
+    required this.expiresAt,
+  });
+
+  factory TempShare.fromJson(Map<String, dynamic> json) => TempShare(
+        id: json['id'] as String,
+        fromUserId: json['from_user_id'] as String,
+        toUserId: json['to_user_id'] as String,
+        expiresAt: DateTime.parse(json['expires_at'] as String),
+      );
+
+  final String id;
+  final String fromUserId;
+  final String toUserId;
+  final DateTime expiresAt;
+}
+
 /// The signed-in user's own ghost/broadcast state: the global kill-switch plus
 /// the per-person hide set (user ids I'm hidden from).
 class GhostState {

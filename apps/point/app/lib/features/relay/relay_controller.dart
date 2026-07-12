@@ -9,6 +9,7 @@ import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/requests_controller.dart';
+import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:point_app/features/relay/ws_service.dart';
 import 'package:point_app/services/api/models.dart';
@@ -96,24 +97,35 @@ class RelayController {
   /// Track who we share with; for any new target we don't yet have a group
   /// with, form one (claim their KeyPackage → create the pairwise group → add
   /// them → relay the Welcome). Idempotent — skips groups that already exist.
-  Future<void> setShareTargets(Iterable<String> userIds) async {
+  ///
+  /// [forceInitiate] are targets I must form the group with UNCONDITIONALLY —
+  /// one-way temp-share recipients. The usual lexicographic tie-break only makes
+  /// sense for a MUTUAL share (both sides list each other, so the smaller always
+  /// initiates); a one-way temp is asymmetric — only the sharer lists the peer,
+  /// so if I'm the larger id and defer, no one ever forms the group and the
+  /// recipient silently gets nothing.
+  Future<void> setShareTargets(
+    Iterable<String> userIds, {
+    Set<String> forceInitiate = const {},
+  }) async {
     _shareTargets
       ..clear()
       ..addAll(userIds);
     for (final target in userIds) {
-      await _ensureShareGroup(target);
+      await _ensureShareGroup(target, force: forceInitiate.contains(target));
     }
   }
 
-  Future<void> _ensureShareGroup(String target) async {
+  Future<void> _ensureShareGroup(String target, {bool force = false}) async {
     final session = _session;
     if (session == null) return;
     final crypto = _ref.read(cryptoServiceProvider);
     final gid = CryptoService.pairwiseGroupId(session.userId, target);
     if (crypto.hasGroup(gid)) return;
-    // Only the lexicographically-smaller party creates the group, so both
-    // sides don't each build a rival group for the same pair.
-    if (session.userId.compareTo(target) >= 0) return;
+    // Mutual shares: only the lexicographically-smaller party creates the group
+    // so both don't build rival groups. A one-way temp target ([force]) has no
+    // rival initiator, so I must form it regardless of id ordering.
+    if (!force && session.userId.compareTo(target) >= 0) return;
     // In-flight guard: the check above and the claim below straddle an await,
     // so without this a re-entrant setShareTargets would claim two KeyPackages
     // and overwrite the group mid-formation (M2 — MLS desync).
@@ -179,12 +191,16 @@ class RelayController {
         // Refresh both so the pinned request clears and the new person appears
         // (the relay's setShareTargets then forms the MLS group with them).
         _refreshSharing();
+      case 'share.temp_created':
+        // Someone started a temp share to me (or the server confirmed mine).
+        unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
     }
   }
 
   void _refreshSharing() {
     unawaited(_ref.read(peopleControllerProvider.notifier).refresh());
     unawaited(_ref.read(requestsControllerProvider.notifier).refresh());
+    unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
   }
 
   Future<void> _onBroadcast(Map<String, dynamic> msg) async {
