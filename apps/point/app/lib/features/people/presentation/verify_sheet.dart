@@ -118,7 +118,7 @@ class _VerifySheetState extends ConsumerState<VerifySheet> {
                       ],
                     )
                   : PillButton(
-                      label: 'They match — mark verified',
+                      label: 'They match. Mark verified',
                       onPressed: () async {
                         await ref
                             .read(verificationProvider.notifier)

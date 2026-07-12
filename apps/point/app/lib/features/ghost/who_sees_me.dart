@@ -79,7 +79,7 @@ class WhoSeesMeBar extends ConsumerWidget {
                 SizedBox(width: context.space.md),
                 Expanded(
                   child: Text(
-                    dark ? "You're dark — no one sees you" : _label(n),
+                    dark ? "You're dark. No one sees you." : _label(n),
                     style: context.text.titleMedium?.copyWith(
                       color: dark ? context.colors.surface : ink,
                     ),

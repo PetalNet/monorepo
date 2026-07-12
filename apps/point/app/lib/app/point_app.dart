@@ -38,7 +38,6 @@ import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
-import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/services/server_config.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -278,13 +277,15 @@ class _PointAppState extends ConsumerState<PointApp>
     // MaterialApp. The shell + its per-branch state are never torn down.
     ref
       ..listen(authControllerProvider, (prev, next) {
-        // A fresh SIGN-IN transitions from data(null); a cold-start restore
-        // transitions from loading. Only the former is a new session for the
-        // go-dark-default policy.
-        final freshSignIn = prev is AsyncData<Session?> && prev.value == null;
         next.whenData((session) {
           if (session != null) {
-            if (freshSignIn) {
+            // Only an explicit login/register counts as a NEW session for the
+            // go-dark-default policy (a cold-start restore must never override
+            // a live sharing choice). The controller flags it, because both
+            // sign-in and restore arrive here from AsyncLoading.
+            if (ref
+                .read(authControllerProvider.notifier)
+                .consumeExplicitSignIn()) {
               unawaited(_applyGoDarkDefault());
             }
             // M2: bring up the MLS relay (durable WS, KeyPackage pool,

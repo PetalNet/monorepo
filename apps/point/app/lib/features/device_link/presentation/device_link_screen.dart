@@ -43,7 +43,7 @@ class DeviceLinkScreen extends StatelessWidget {
                   ),
                   SizedBox(height: context.space.sm),
                   Text(
-                    'Your identity stays on your devices — the server never '
+                    'Your identity stays on your devices. The server never '
                     'adds a device for you.',
                     textAlign: TextAlign.center,
                     style: context.text.bodyMedium

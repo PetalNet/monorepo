@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:point_app/features/me/me_profile_provider.dart';
 import 'package:point_app/features/me/presentation/settings_widgets.dart';
 import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/haptics.dart';
@@ -49,6 +50,8 @@ class _PrivacySettingsScreenState extends ConsumerState<PrivacySettingsScreen> {
     setState(() => _whoCanAddMe = value);
     try {
       await ref.read(apiProvider).updatePrivacy(session.token, value);
+      // Anything watching the profile (the invite-blocked note) follows.
+      ref.invalidate(meProfileProvider);
     } on Object {
       // The server didn't take it: show the truth, not the wish.
       if (mounted) setState(() => _whoCanAddMe = before);

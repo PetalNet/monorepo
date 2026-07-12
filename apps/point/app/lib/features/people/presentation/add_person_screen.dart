@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:point_app/features/me/me_profile_provider.dart';
 import 'package:point_app/features/people/invite.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/services/api/point_api.dart';
@@ -117,6 +118,7 @@ class _AddPersonScreenState extends ConsumerState<AddPersonScreen> {
                   ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
             SizedBox(height: context.space.lg),
+            const _InviteBlockedNote(),
             if (myId.isNotEmpty) _InviteCard(userId: myId),
           ],
         ),
@@ -229,6 +231,43 @@ class _InviteCard extends StatelessWidget {
           label: const Text('Copy invite link'),
         ),
       ],
+    );
+  }
+}
+
+/// Honest warning when the owner's own privacy setting would swallow the
+/// invites they hand out: "Who can add you: No one" silently drops every
+/// inbound request, including ones from this QR.
+class _InviteBlockedNote extends ConsumerWidget {
+  const _InviteBlockedNote();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final me = ref.watch(meProfileProvider).value;
+    if (me == null || me.whoCanAddMe == 'anyone') {
+      return const SizedBox.shrink();
+    }
+    final blocked = me.whoCanAddMe == 'nobody';
+    return Padding(
+      padding: EdgeInsets.only(bottom: context.space.lg),
+      child: Container(
+        padding: EdgeInsets.all(context.space.md),
+        decoration: BoxDecoration(
+          color: context.colors.surfaceContainer,
+          borderRadius: context.radii.brSm,
+        ),
+        child: Text(
+          blocked
+              ? 'Your privacy setting is "No one", so requests from this '
+                    'invite will not reach you. Loosen it under Privacy '
+                    'first.'
+              : 'Your privacy setting only allows people on your server, so '
+                    'this invite will not work across servers.',
+          style: context.text.bodySmall?.copyWith(
+            color: context.colors.onSurfaceVariant,
+          ),
+        ),
+      ),
     );
   }
 }
