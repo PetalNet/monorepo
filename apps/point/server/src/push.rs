@@ -110,7 +110,7 @@ async fn send_unifiedpush(endpoint: &str, body: &[u8], allow_private: bool) {
     let host = match url_host(endpoint) {
         Some(h) => h,
         None => {
-            tracing::warn!("push: unparseable UnifiedPush endpoint");
+            tracing::warn!("push: unparsable UnifiedPush endpoint");
             return;
         }
     };
