@@ -69,7 +69,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -779931484;
+  int get rustContentHash => -1994066408;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -129,6 +129,11 @@ abstract class RustLibApi extends BaseApi {
   });
 
   PointMls crateApiCryptoPointMlsRestore({required List<int> state});
+
+  Future<String> crateApiCryptoPointMlsSafetyNumber({
+    required PointMls that,
+    required List<int> groupId,
+  });
 
   String crateApiRecoveryGenerateRecoveryCode();
 
@@ -554,12 +559,50 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<String> crateApiCryptoPointMlsSafetyNumber({
+    required PointMls that,
+    required List<int> groupId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPointMls(
+            that,
+            serializer,
+          );
+          sse_encode_list_prim_u_8_loose(groupId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 12,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiCryptoPointMlsSafetyNumberConstMeta,
+        argValues: [that, groupId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCryptoPointMlsSafetyNumberConstMeta =>
+      const TaskConstMeta(
+        debugName: "PointMls_safety_number",
+        argNames: ["that", "groupId"],
+      );
+
+  @override
   String crateApiRecoveryGenerateRecoveryCode() {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 12)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -589,7 +632,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_list_prim_u_8_loose(blob, serializer);
           sse_encode_String(recoveryCode, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -619,7 +662,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_list_prim_u_8_loose(state, serializer);
           sse_encode_String(recoveryCode, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 15)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -1012,4 +1055,11 @@ class PointMlsImpl extends RustOpaque implements PointMls {
       .instance
       .api
       .crateApiCryptoPointMlsProcessWelcome(that: this, welcome: welcome);
+
+  /// A Signal-style safety number for a pairwise group — both members compute
+  /// the same value from their sorted identity keys, for out-of-band verify.
+  Future<String> safetyNumber({required List<int> groupId}) => RustLib
+      .instance
+      .api
+      .crateApiCryptoPointMlsSafetyNumber(that: this, groupId: groupId);
 }

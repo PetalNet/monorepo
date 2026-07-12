@@ -3,11 +3,13 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:point_app/features/crypto/verification.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/presentation/temp_share_sheet.dart';
+import 'package:point_app/features/people/presentation/verify_sheet.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/services/api/models.dart';
@@ -59,6 +61,8 @@ class PersonDetailScreen extends ConsumerWidget {
                   _StatusLine(person: person),
                   SizedBox(height: context.space.xl),
                   _TempShareTile(person: person),
+                  SizedBox(height: context.space.md),
+                  _VerifyTile(person: person),
                   SizedBox(height: context.space.md),
                   _HideFromTile(person: person),
                   SizedBox(height: context.space.md),
@@ -193,6 +197,47 @@ class _StatusLine extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Optional out-of-band key verification (spec 08). Shows a check once verified.
+class _VerifyTile extends ConsumerWidget {
+  const _VerifyTile({required this.person});
+  final Person person;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final verified =
+        ref.watch(verificationProvider).contains(person.userId);
+    return Material(
+      color: context.colors.surfaceContainerHigh,
+      borderRadius: context.radii.brMd,
+      child: InkWell(
+        onTap: () => VerifySheet.show(context, person),
+        borderRadius: context.radii.brMd,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: context.space.lg,
+            vertical: context.space.md,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                verified ? Icons.verified_user : Icons.shield_outlined,
+                color: context.colors.onSurface,
+              ),
+              SizedBox(width: context.space.md),
+              Text(
+                verified ? 'Verified' : 'Verify ${person.displayName}',
+                style: context.text.titleMedium,
+              ),
+              const Spacer(),
+              Icon(Icons.chevron_right, color: context.colors.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

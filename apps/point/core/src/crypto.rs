@@ -383,6 +383,51 @@ impl PointCrypto {
             .ok_or_else(|| PointCryptoError::GroupNotFound(hex::encode(group_id)))?;
         Ok(group.members().count())
     }
+
+    /// A Signal-style safety number for out-of-band verification: SHA-256 over
+    /// the group's member signature (identity) public keys, sorted so both
+    /// parties compute the SAME value, rendered as decimal groups. It's derived
+    /// from identity keys (not the epoch secret), so it's stable and detects a
+    /// substituted key — the point of verification. Both sides comparing the
+    /// same number confirms no man-in-the-middle.
+    pub fn safety_number(&self, group_id: &[u8]) -> Result<String> {
+        use sha2::{Digest, Sha256};
+        let group = self
+            .groups
+            .get(group_id)
+            .ok_or_else(|| PointCryptoError::GroupNotFound(hex::encode(group_id)))?;
+        let mut keys: Vec<Vec<u8>> = group
+            .members()
+            .map(|m| m.signature_key.as_slice().to_vec())
+            .collect();
+        if keys.len() < 2 {
+            return Err(PointCryptoError::InvalidState(
+                "safety number needs both members in the group".into(),
+            ));
+        }
+        keys.sort();
+        let mut hasher = Sha256::new();
+        // Concatenation without a length prefix is unambiguous here because every
+        // key is a fixed-size Ed25519 public key (the cipher suite is pinned). A
+        // variable-length key type would need explicit framing.
+        for k in &keys {
+            hasher.update(k);
+        }
+        let digest = hasher.finalize();
+        // 8 groups of 5 decimal digits from the 32-byte digest — glanceable.
+        let groups: Vec<String> = digest
+            .chunks(4)
+            .take(8)
+            .map(|c| {
+                let mut v = 0u32;
+                for &b in c {
+                    v = v.wrapping_shl(8) | u32::from(b);
+                }
+                format!("{:05}", v % 100_000)
+            })
+            .collect();
+        Ok(groups.join(" "))
+    }
 }
 
 fn tracing_warn(msg: String) {

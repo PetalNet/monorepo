@@ -2104,6 +2104,7 @@ dependencies = [
  "rand 0.8.7",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "zeroize",

@@ -150,6 +150,12 @@ class CryptoService {
         return pt;
       });
 
+  /// A Signal-style safety number for the pairwise group with a peer — both
+  /// sides compute the same value from their identity keys, for optional
+  /// out-of-band verification. Throws if the group isn't formed yet.
+  Future<String> safetyNumber(Uint8List groupId) =>
+      _locked(() async => _require.safetyNumber(groupId: groupId));
+
   /// The current MLS state as an opaque blob — the input to a zero-knowledge
   /// recovery backup (it is encrypted under the user's recovery code BEFORE it
   /// ever leaves the device). Snapshotted under the lock for a consistent read.
