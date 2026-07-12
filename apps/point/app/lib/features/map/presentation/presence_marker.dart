@@ -67,21 +67,28 @@ class _LabelPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: context.space.sm,
-        vertical: context.space.xxs,
-      ),
-      decoration: BoxDecoration(
-        color: context.colors.surfaceContainer,
-        borderRadius: BorderRadius.circular(context.radii.full),
-      ),
-      child: Text(
-        text,
-        style: context.text.labelSmall?.copyWith(
-          fontFamily: AppTheme.monoFamily,
-          letterSpacing: 0,
-          color: context.colors.onSurfaceVariant,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 92),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: context.space.sm,
+          vertical: context.space.xxs,
+        ),
+        decoration: BoxDecoration(
+          color: context.colors.surfaceContainer,
+          borderRadius: BorderRadius.circular(context.radii.full),
+        ),
+        child: Text(
+          text,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: context.text.labelSmall?.copyWith(
+            fontFamily: AppTheme.monoFamily,
+            letterSpacing: 0,
+            color: context.colors.onSurfaceVariant,
+          ),
         ),
       ),
     );
