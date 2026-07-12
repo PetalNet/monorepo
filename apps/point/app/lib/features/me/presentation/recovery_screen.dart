@@ -22,7 +22,7 @@ class RecoveryScreen extends ConsumerStatefulWidget {
   ConsumerState<RecoveryScreen> createState() => _RecoveryScreenState();
 }
 
-enum _State { loading, phrase, notEnrolled, error }
+enum _State { loading, phrase, notEnrolled, existsElsewhere, error }
 
 class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
   _State _state = _State.loading;
@@ -38,26 +38,50 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
   }
 
   Future<void> _load() async {
-    final session = await ref.read(authControllerProvider.future);
-    if (session == null) return;
     try {
-      final cached =
-          await ref.read(recoveryServiceProvider).cachedCode(session.userId);
+      final session = await ref.read(authControllerProvider.future);
+      if (session == null || !mounted) return;
+      final recovery = ref.read(recoveryServiceProvider);
+      final existing = await ref
+          .read(apiProvider)
+          .getRecoveryBackup(session.token);
+      final cached = await recovery.cachedCode(session.userId);
       if (!mounted) return;
-      setState(() {
-        if (cached != null) {
-          _words = codeToWords(cached);
-          _state = _State.phrase;
-        } else {
-          _state = _State.notEnrolled;
+
+      if (cached != null) {
+        // We hold the code for this account. If the server backup went missing
+        // (a failed first upload, a deleted row), quietly re-upload before
+        // showing words the user will trust their account to.
+        if (existing == null &&
+            !await recovery.refreshBackup(session.token, session.userId)) {
+          if (mounted) setState(() => _state = _State.error);
+          return;
         }
-      });
+        if (mounted) {
+          setState(() {
+            _words = codeToWords(cached);
+            _state = _State.phrase;
+          });
+        }
+        return;
+      }
+      // No local code. If a backup exists on the server, this account already
+      // has a phrase from another device — do NOT silently overwrite it; enroll
+      // is gated behind an honest confirm below.
+      if (mounted) {
+        setState(
+          () => _state = existing != null
+              ? _State.existsElsewhere
+              : _State.notEnrolled,
+        );
+      }
     } on Object {
       if (mounted) setState(() => _state = _State.error);
     }
   }
 
   Future<void> _enroll() async {
+    if (_busy) return;
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
     setState(() {
@@ -82,22 +106,29 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
   }
 
   Future<void> _refreshBackup() async {
+    if (_busy) return;
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
     setState(() {
       _busy = true;
       _note = null;
     });
-    final ok = await ref
-        .read(recoveryServiceProvider)
-        .refreshBackup(session.token, session.userId);
-    if (mounted) {
-      setState(() {
-        _busy = false;
-        _note = ok
-            ? 'Backup updated.'
-            : 'Could not update the backup. Try again.';
-      });
+    var ok = false;
+    try {
+      ok = await ref
+          .read(recoveryServiceProvider)
+          .refreshBackup(session.token, session.userId);
+    } on Object {
+      ok = false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _note = ok
+              ? 'Backup updated.'
+              : 'Could not update the backup. Try again.';
+        });
+      }
     }
   }
 
@@ -120,8 +151,43 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
           ),
           _State.error => const _Message(
             title: 'Recovery unavailable',
-            body: 'Could not load your recovery state. Check the connection '
-                'and reopen this screen.',
+            body:
+                'Could not load your recovery state. Reopen this screen to '
+                'try again.',
+          ),
+          _State.existsElsewhere => ListView(
+            padding: EdgeInsets.all(context.space.xl),
+            children: [
+              Text(
+                'This account has a phrase',
+                style: context.text.headlineMedium,
+              ),
+              SizedBox(height: context.space.md),
+              Text(
+                'A recovery backup is already saved on your server, from '
+                'another device. This device does not hold the phrase, so it '
+                'cannot show it here. Enter it on a fresh install to restore, '
+                'or create a new phrase, which replaces the old one.',
+                style: context.text.bodyLarge?.copyWith(
+                  color: context.colors.onSurfaceVariant,
+                ),
+              ),
+              if (_note != null) ...[
+                SizedBox(height: context.space.md),
+                Text(
+                  _note!,
+                  style: context.text.bodySmall?.copyWith(
+                    color: context.colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              SizedBox(height: context.space.xl),
+              PillButton(
+                label: 'Create a new phrase',
+                loading: _busy,
+                onPressed: _busy ? null : () => unawaited(_replaceExisting()),
+              ),
+            ],
           ),
           _State.notEnrolled => ListView(
             padding: EdgeInsets.all(context.space.xl),
@@ -204,7 +270,9 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Replace my phrase'),
-                subtitle: const Text('Generate a new one; the old stops working.'),
+                subtitle: const Text(
+                  'Generate a new one; the old stops working.',
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _busy ? null : () => unawaited(_replace()),
               ),
@@ -224,11 +292,29 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
     );
   }
 
+  /// Enroll a fresh phrase when the account already has a backup from another
+  /// device: gated on an honest confirm because the old phrase stops working.
+  Future<void> _replaceExisting() async {
+    if (_busy) return;
+    final sure = await ConfirmSheet.show(
+      context,
+      title: 'Replace the existing phrase?',
+      body:
+          'Your account already has a recovery phrase saved from another '
+          'device. A new one replaces it, and the old words stop working.',
+      primaryLabel: 'Create a new phrase',
+      secondaryLabel: 'Cancel',
+    );
+    if (!sure || !mounted) return;
+    await _enroll();
+  }
+
   Future<void> _replace() async {
     final sure = await ConfirmSheet.show(
       context,
       title: 'Replace your phrase?',
-      body: 'You get a new phrase and the old one stops working. Save the new '
+      body:
+          'You get a new phrase and the old one stops working. Save the new '
           'words somewhere safe right away.',
       primaryLabel: 'Replace it',
       secondaryLabel: 'Keep the current one',
