@@ -6,6 +6,7 @@ import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
+import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
@@ -52,7 +53,10 @@ class PeopleScreen extends ConsumerWidget {
                     if (requests.isNotEmpty)
                       _RequestsSection(requests: requests),
                     if (temps.isNotEmpty)
-                      _TempSection(temps: temps.values.toList(), people: people),
+                      _TempSection(
+                        temps: temps.values.toList(),
+                        people: people,
+                      ),
                     if ((requests.isNotEmpty || temps.isNotEmpty) &&
                         people.isNotEmpty)
                       Divider(
@@ -91,8 +95,9 @@ class _RequestsSection extends StatelessWidget {
           ),
           child: Text(
             'REQUESTS',
-            style: context.text.labelMedium
-                ?.copyWith(color: context.colors.onSurfaceVariant),
+            style: context.text.labelMedium?.copyWith(
+              color: context.colors.onSurfaceVariant,
+            ),
           ),
         ),
         for (final r in requests) _RequestRow(request: r),
@@ -108,7 +113,8 @@ class _TempSection extends ConsumerWidget {
   final List<TempShare> temps;
   final List<Person> people;
 
-  String _name(String userId) => people
+  String _name(String userId) =>
+      people
           .where((p) => p.userId == userId)
           .map((p) => p.displayName)
           .firstOrNull ??
@@ -128,8 +134,9 @@ class _TempSection extends ConsumerWidget {
           ),
           child: Text(
             'SHARING TEMPORARILY',
-            style: context.text.labelMedium
-                ?.copyWith(color: context.colors.onSurfaceVariant),
+            style: context.text.labelMedium?.copyWith(
+              color: context.colors.onSurfaceVariant,
+            ),
           ),
         ),
         for (final t in temps)
@@ -140,8 +147,11 @@ class _TempSection extends ConsumerWidget {
             ),
             child: Row(
               children: [
-                Icon(Icons.arrow_forward,
-                    size: 20, color: context.colors.onSurface),
+                Icon(
+                  Icons.arrow_forward,
+                  size: 20,
+                  color: context.colors.onSurface,
+                ),
                 SizedBox(width: context.space.md),
                 Expanded(
                   child: Column(
@@ -151,9 +161,10 @@ class _TempSection extends ConsumerWidget {
                       SizedBox(height: context.space.xxs),
                       Text(
                         'Sees you until '
-                        '${clockHm(t.expiresAt.millisecondsSinceEpoch)}',
-                        style: context.text.bodySmall
-                            ?.copyWith(color: context.colors.onSurfaceVariant),
+                        '${clockHm(t.expiresAt.millisecondsSinceEpoch, format: ref.watch(settingsProvider.select((s) => s.timeFormat)))}',
+                        style: context.text.bodySmall?.copyWith(
+                          color: context.colors.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -267,8 +278,9 @@ class _EmptyPeople extends StatelessWidget {
             Text(
               'Add someone to start sharing your location.',
               textAlign: TextAlign.center,
-              style: context.text.bodyMedium
-                  ?.copyWith(color: context.colors.onSurfaceVariant),
+              style: context.text.bodyMedium?.copyWith(
+                color: context.colors.onSurfaceVariant,
+              ),
             ),
             SizedBox(height: context.space.xl),
             FilledButton.icon(

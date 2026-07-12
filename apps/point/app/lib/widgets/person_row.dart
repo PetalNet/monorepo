@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
-import 'package:point_app/widgets/initials_avatar.dart';
+import 'package:point_app/widgets/photo_dot.dart';
 import 'package:point_app/widgets/presence_dot.dart';
 
 /// A person list row (mockup screens 1 + 3): avatar · name (bold) · status
@@ -24,7 +24,7 @@ class PersonRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            InitialsAvatar(name: person.displayName),
+            PhotoDot(userId: person.userId, name: person.displayName, size: 44),
             SizedBox(width: context.space.lg),
             Expanded(
               child: Column(

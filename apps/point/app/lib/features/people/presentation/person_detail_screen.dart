@@ -17,7 +17,7 @@ import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/presence_tokens.dart';
 import 'package:point_app/theme/theme_x.dart';
-import 'package:point_app/widgets/initials_avatar.dart';
+import 'package:point_app/widgets/photo_dot.dart';
 import 'package:point_app/widgets/presence_dot.dart';
 
 /// One person's detail (spec 06/08): a map focused on them (or a calm
@@ -32,7 +32,8 @@ class PersonDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final people = ref.watch(peopleWithPresenceProvider);
-    final person = people.where((p) => p.userId == userId).firstOrNull ??
+    final person =
+        people.where((p) => p.userId == userId).firstOrNull ??
         Person(
           userId: userId,
           displayName: userId.split('@').first,
@@ -94,8 +95,9 @@ class _FocusMap extends StatelessWidget {
           child: Center(
             child: Text(
               'No recent location',
-              style: context.text.bodyMedium
-                  ?.copyWith(color: context.colors.onSurfaceVariant),
+              style: context.text.bodyMedium?.copyWith(
+                color: context.colors.onSurfaceVariant,
+              ),
             ),
           ),
         ),
@@ -151,7 +153,7 @@ class _IdentityHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        InitialsAvatar(name: person.displayName, size: 52),
+        PhotoDot(userId: person.userId, name: person.displayName, size: 52),
         SizedBox(width: context.space.md),
         Expanded(
           child: Column(
@@ -192,8 +194,9 @@ class _StatusLine extends StatelessWidget {
             person.subtitle.isEmpty ? 'Sharing' : person.subtitle,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: context.text.bodyMedium
-                ?.copyWith(color: context.colors.onSurfaceVariant),
+            style: context.text.bodyMedium?.copyWith(
+              color: context.colors.onSurfaceVariant,
+            ),
           ),
         ),
       ],
@@ -208,8 +211,7 @@ class _VerifyTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final verified =
-        ref.watch(verificationProvider).contains(person.userId);
+    final verified = ref.watch(verificationProvider).contains(person.userId);
     return Material(
       color: context.colors.surfaceContainerHigh,
       borderRadius: context.radii.brMd,
@@ -262,14 +264,17 @@ class _HideFromTile extends ConsumerWidget {
         onChanged: (v) => ref
             .read(ghostControllerProvider.notifier)
             .setHiddenFrom(person.userId, hidden: v),
-        title: Text('Hide from ${person.displayName}',
-            style: context.text.titleMedium),
+        title: Text(
+          'Hide from ${person.displayName}',
+          style: context.text.titleMedium,
+        ),
         subtitle: Text(
           hidden
               ? 'They see your last-known only. No one is told.'
               : "They can see your live location while you're sharing.",
-          style: context.text.bodySmall
-              ?.copyWith(color: context.colors.onSurfaceVariant),
+          style: context.text.bodySmall?.copyWith(
+            color: context.colors.onSurfaceVariant,
+          ),
         ),
         contentPadding: EdgeInsets.symmetric(horizontal: context.space.lg),
         shape: RoundedRectangleBorder(borderRadius: context.radii.brMd),

@@ -100,6 +100,17 @@ pub async fn create_request(
     if !user_exists(&state, &to_user).await? {
         return Ok(Json(recorded));
     }
+    // Target does not accept inbound asks: the same pretend-success, so the
+    // setting itself cannot be probed (Wave B, who_can_add_me). Local
+    // requests are same-server by construction, so only 'nobody' blocks here;
+    // the federated inbox enforces 'same_server' too.
+    let gate: Option<(String,)> = sqlx::query_as("SELECT who_can_add_me FROM users WHERE id = $1")
+        .bind(&to_user)
+        .fetch_optional(&state.pool)
+        .await?;
+    if matches!(gate, Some((ref v,)) if v == "nobody") {
+        return Ok(Json(recorded));
+    }
     // Already sharing: idempotent generic 200, record nothing.
     if share_exists(&state, &user.user_id, &to_user).await? {
         return Ok(Json(recorded));

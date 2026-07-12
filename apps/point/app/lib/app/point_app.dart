@@ -11,9 +11,17 @@ import 'package:point_app/app/shell_chrome.dart';
 import 'package:point_app/features/auth/presentation/login_screen.dart';
 import 'package:point_app/features/auth/presentation/splash_screen.dart';
 import 'package:point_app/features/device_link/presentation/device_link_screen.dart';
+import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/ghost/presentation/ghost_screen.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
+import 'package:point_app/features/me/presentation/about_screen.dart';
+import 'package:point_app/features/me/presentation/account_screen.dart';
+import 'package:point_app/features/me/presentation/identity_screen.dart';
+import 'package:point_app/features/me/presentation/look_feel_screen.dart';
+import 'package:point_app/features/me/presentation/me_screen.dart';
+import 'package:point_app/features/me/presentation/notifications_settings_screen.dart';
+import 'package:point_app/features/me/presentation/privacy_settings_screen.dart';
 import 'package:point_app/features/onboarding/onboarding_flow.dart';
 import 'package:point_app/features/onboarding/onboarding_gate.dart';
 import 'package:point_app/features/onboarding/presentation/distributor_guide_screen.dart';
@@ -26,29 +34,15 @@ import 'package:point_app/features/people/presentation/add_person_screen.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/people/presentation/person_detail_screen.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
-import 'package:point_app/features/profile/presentation/profile_screen.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
+import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/haptics.dart';
+import 'package:point_app/features/settings/settings_controller.dart';
+import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/services/server_config.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
-
-/// The app appearance (light / dark / pure-black). Persisted in M4; held in
-/// memory for now, driven from Profile.
-final appearanceProvider = NotifierProvider<AppearanceController, Appearance>(
-  AppearanceController.new,
-);
-
-enum Appearance { light, dark, pureBlack }
-
-class AppearanceController extends Notifier<Appearance> {
-  @override
-  Appearance build() => Appearance.dark;
-  // A method (not a setter) reads more naturally at the call site
-  // (`.select(Appearance.dark)`) for this small enum control.
-  // ignore: use_setters_to_change_properties
-  void select(Appearance a) => state = a;
-}
 
 class PointApp extends ConsumerStatefulWidget {
   const PointApp({super.key});
@@ -131,6 +125,16 @@ class _PointAppState extends ConsumerState<PointApp>
     }
   }
 
+  /// Privacy setting "start each sign-in dark": a NEW session begins with
+  /// sharing off until the user flips it, applied only when the setting says
+  /// so and only on a real sign-in (never a restore, which would override a
+  /// live choice on every launch).
+  Future<void> _applyGoDarkDefault() async {
+    final settings = await ref.read(settingsProvider.notifier).loaded;
+    if (!settings.goDarkDefault || !mounted) return;
+    await ref.read(ghostControllerProvider.notifier).setSharing(sharing: false);
+  }
+
   /// The signed-out stack. A fresh install (no server ever chosen) starts at
   /// the server-pick step; a device with a choice starts at sign-in, with
   /// server pick one "back" behind it.
@@ -172,6 +176,19 @@ class _PointAppState extends ConsumerState<PointApp>
     };
   }
 
+  /// The Look & feel motion setting, resolved against the OS accessibility
+  /// flag when set to follow the system. Read at transition/switch time.
+  bool get _reducedMotion => switch (ref.read(settingsProvider).motion) {
+    MotionPreference.reduced => true,
+    MotionPreference.full => false,
+    MotionPreference.system =>
+      WidgetsBinding
+          .instance
+          .platformDispatcher
+          .accessibilityFeatures
+          .disableAnimations,
+  };
+
   /// Route-pair transitions (the acceptance-bar `pageWrapper`): full-screen
   /// modals (Ghost, Device-link) slide up; everything else fades.
   Page<Object?> _pageWrapper(KaiselPageWrapperContext<AppRoute> ctx) {
@@ -179,8 +196,18 @@ class _PointAppState extends ConsumerState<PointApp>
       GhostRoute() ||
       DeviceLinkRoute() ||
       PersonDetailRoute() ||
-      AddPersonRoute() => _SlideUpPage(key: ctx.key, child: ctx.child),
-      _ => _FadePage(key: ctx.key, child: ctx.child),
+      AddPersonRoute() ||
+      SettingsPrivacyRoute() ||
+      SettingsLookRoute() ||
+      SettingsNotificationsRoute() ||
+      SettingsAccountRoute() ||
+      SettingsAboutRoute() ||
+      IdentityRoute() => _SlideUpPage(
+        key: ctx.key,
+        reduced: _reducedMotion,
+        child: ctx.child,
+      ),
+      _ => _FadePage(key: ctx.key, reduced: _reducedMotion, child: ctx.child),
     };
   }
 
@@ -193,6 +220,12 @@ class _PointAppState extends ConsumerState<PointApp>
       OnboardingPrivacyRoute() => const PrivacyForkScreen(),
       OnboardingDistributorRoute() => const DistributorGuideScreen(),
       OnboardingLocationRoute() => const LocationPermissionScreen(),
+      SettingsPrivacyRoute() => const PrivacySettingsScreen(),
+      SettingsLookRoute() => const LookFeelScreen(),
+      SettingsNotificationsRoute() => const NotificationsSettingsScreen(),
+      SettingsAccountRoute() => const AccountScreen(),
+      SettingsAboutRoute() => const AboutScreen(),
+      IdentityRoute() => const IdentityScreen(),
       GhostRoute() => const GhostScreen(),
       DeviceLinkRoute() => const DeviceLinkScreen(),
       PersonDetailRoute(:final userId) => PersonDetailScreen(userId: userId),
@@ -213,19 +246,26 @@ class _PointAppState extends ConsumerState<PointApp>
               PeopleRoot() => const PeopleScreen(),
             },
           ),
-          KaiselBranchSpec<ProfileRoute>(
-            initial: const ProfileRoot(),
+          KaiselBranchSpec<MeRoute>(
+            initial: const MeRoot(),
             builder: (context, route) => switch (route) {
-              ProfileRoot() => const ProfileScreen(),
+              MeRoot() => const MeScreen(),
             },
           ),
         ],
         branchContentBuilder: (context, active, branches, _) =>
-            AnimatedBranchStack(activeBranch: active, branches: branches),
+            AnimatedBranchStack(
+              activeBranch: active,
+              branches: branches,
+              reduced: _reducedMotion,
+            ),
         chromeBuilder: (context, active, content, switchBranch) => ShellChrome(
           activeBranch: active,
           branchContent: content,
-          onSwitch: switchBranch,
+          onSwitch: (branch) {
+            Haptics.tick(ref);
+            switchBranch(branch);
+          },
         ),
       ),
     };
@@ -238,8 +278,15 @@ class _PointAppState extends ConsumerState<PointApp>
     // MaterialApp. The shell + its per-branch state are never torn down.
     ref
       ..listen(authControllerProvider, (prev, next) {
+        // A fresh SIGN-IN transitions from data(null); a cold-start restore
+        // transitions from loading. Only the former is a new session for the
+        // go-dark-default policy.
+        final freshSignIn = prev is AsyncData<Session?> && prev.value == null;
         next.whenData((session) {
           if (session != null) {
+            if (freshSignIn) {
+              unawaited(_applyGoDarkDefault());
+            }
             // M2: bring up the MLS relay (durable WS, KeyPackage pool,
             // encrypted fixes through the durable queue). The location engine
             // deliberately does NOT start here: its permission ask belongs to
@@ -270,7 +317,8 @@ class _PointAppState extends ConsumerState<PointApp>
             .setShareTargets(next.all, forceInitiate: next.tempOnly);
       });
 
-    final appearance = ref.watch(appearanceProvider);
+    final appearance = ref.watch(settingsProvider.select((s) => s.appearance));
+    final textScale = ref.watch(settingsProvider.select((s) => s.textScale));
     return MaterialApp.router(
       title: 'Point',
       debugShowCheckedModeBanner: false,
@@ -281,20 +329,34 @@ class _PointAppState extends ConsumerState<PointApp>
       themeMode: appearance == Appearance.light
           ? ThemeMode.light
           : ThemeMode.dark,
+      // The app text-size setting COMPOSES with the OS scale: the OS scaler
+      // applies first, then ours, so an accessibility choice is respected.
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: _ComposedScaler(
+            MediaQuery.textScalerOf(context),
+            textScale,
+          ),
+        ),
+        child: child ?? const SizedBox.shrink(),
+      ),
       routerConfig: _config,
     );
   }
 }
 
 class _FadePage extends Page<Object?> {
-  const _FadePage({required this.child, super.key});
+  const _FadePage({required this.child, this.reduced = false, super.key});
   final Widget child;
+  final bool reduced;
 
   @override
   Route<Object?> createRoute(BuildContext context) {
     return PageRouteBuilder<Object?>(
       settings: this,
-      transitionDuration: const Duration(milliseconds: 220),
+      transitionDuration: reduced
+          ? Duration.zero
+          : const Duration(milliseconds: 220),
       pageBuilder: (_, _, _) => child,
       transitionsBuilder: (_, animation, _, child) =>
           FadeTransition(opacity: animation, child: child),
@@ -303,15 +365,20 @@ class _FadePage extends Page<Object?> {
 }
 
 class _SlideUpPage extends Page<Object?> {
-  const _SlideUpPage({required this.child, super.key});
+  const _SlideUpPage({required this.child, this.reduced = false, super.key});
   final Widget child;
+  final bool reduced;
 
   @override
   Route<Object?> createRoute(BuildContext context) {
     return PageRouteBuilder<Object?>(
       settings: this,
-      transitionDuration: const Duration(milliseconds: 320),
-      reverseTransitionDuration: const Duration(milliseconds: 260),
+      transitionDuration: reduced
+          ? Duration.zero
+          : const Duration(milliseconds: 320),
+      reverseTransitionDuration: reduced
+          ? Duration.zero
+          : const Duration(milliseconds: 260),
       pageBuilder: (_, _, _) => child,
       transitionsBuilder: (_, animation, _, child) {
         final curved = CurvedAnimation(
@@ -349,4 +416,19 @@ class BrandDot extends StatelessWidget {
       ),
     );
   }
+}
+
+/// OS text scale first, then the app's own multiplier on top.
+class _ComposedScaler extends TextScaler {
+  const _ComposedScaler(this._system, this._app);
+  final TextScaler _system;
+  final double _app;
+
+  @override
+  double scale(double fontSize) => _system.scale(fontSize) * _app;
+
+  @override
+  // The base class still requires the deprecated member to be implemented.
+  // ignore: deprecated_member_use
+  double get textScaleFactor => _system.textScaleFactor * _app;
 }

@@ -220,6 +220,17 @@ async fn handle_share_request(
     ensure_federated_user(&state.pool, sender).await?;
     tofu_pin(&state.pool, recipient, sender, &key_hash).await?;
 
+    // Recipient's who_can_add_me gate (Wave B): a federated ask is blocked by
+    // both 'nobody' and 'same_server'. Silent ok, mirroring the local
+    // endpoint's anti-enumeration behavior.
+    let gate: Option<(String,)> = sqlx::query_as("SELECT who_can_add_me FROM users WHERE id = $1")
+        .bind(recipient)
+        .fetch_optional(&state.pool)
+        .await?;
+    if matches!(gate, Some((ref v,)) if v != "anyone") {
+        return Ok(json!({ "ok": true }));
+    }
+
     // Idempotent pending request sender -> recipient (mirrors the local share
     // request UPSERT ladder: re-open a prior rejected/accepted row).
     sqlx::query(

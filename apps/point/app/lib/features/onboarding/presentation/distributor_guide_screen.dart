@@ -64,7 +64,14 @@ class _DistributorGuideScreenState extends ConsumerState<DistributorGuideScreen>
   Future<void> _finish() async {
     await ref.read(settingsProvider.notifier).markTransportChosen();
     if (!mounted) return;
-    await continueOnboarding(ref, context.router<AppRoute>());
+    final router = context.router<AppRoute>();
+    // Opened from Settings (the shell is beneath us): just close. During
+    // onboarding the shell is not in the stack, so continue the flow.
+    if (router.stack.any((r) => r is MainShell)) {
+      await context.pop();
+      return;
+    }
+    await continueOnboarding(ref, router);
   }
 
   Future<void> _skip() async {

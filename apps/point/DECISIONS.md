@@ -418,3 +418,29 @@ Implementation calls:
   screen pushes the background upgrade with honest steps + an Open-settings shortcut, and
   celebrates the `always` state. Holding the shell hostage for `always` would punish the
   cautious with a dead app.
+
+## 2026-07-12 — D-025 · Wave B Me tab: server-enforced who-can-add-me, honest settings wiring
+
+- **who_can_add_me is server-side** (`users` column, migration 0004) because inbound share
+  requests must be blocked at creation, not hidden by the client. Values `anyone | same_server |
+  nobody`; enforcement is **silent-drop** on both the local endpoint and the federated inbox,
+  matching the existing anti-enumeration design (a blocked requester sees the same generic ok as
+  a nonexistent target, so the setting cannot be probed). `same_server` only bites at the
+  federation inbox — local asks are same-server by construction.
+- **The photo-dot is a real profile avatar** (server-stored, <=128 KiB, magic-byte-sniffed
+  jpeg/png/webp), served only through `authz::can_view_profile`: everything the KeyPackage
+  consent gate allows plus a pending request in either direction (you see who is asking; the
+  asked can see you while deciding). 404 for strangers = 404 for no-avatar, so the gate leaks
+  nothing. Client center-crops/scales to 256px JPEG in an isolate before upload.
+- **Every Look & feel setting is wired to something observable the moment it ships**, per the
+  no-facades rule: theme drives MaterialApp, text size composes ON TOP of the OS scaler (never
+  replaces an accessibility choice), reduce-motion zeroes the route transitions and the shell's
+  branch cross-fade (following the OS flag in `system` mode), haptics gate a small two-level
+  helper (impact on state-changing controls, ticks on selections), units/time-format feed the
+  people rows ("dark since", temp expiry, and a NEW real distance-from-you label the marker
+  previously stubbed with 'away').
+- **"Start each sign-in dark" applies to fresh sign-ins only,** never cold-start restores: a
+  restore reasserting ghost would silently override a live sharing choice on every launch.
+- **Google's map tier is deferred** (allowed by the brief: "fine to defer"): the Privacy sheet
+  ships the two honest tiers; a third opt-in row lands when a Google build flavor exists to back
+  it. No row is shown that does nothing.

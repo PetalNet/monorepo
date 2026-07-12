@@ -62,6 +62,34 @@ final class DeviceLinkRoute extends AppRoute {
   const DeviceLinkRoute();
 }
 
+/// Settings sub-screens (Wave B): each category heavy enough to drill into
+/// gets its own full-screen route over the shell. Simple settings stay inline
+/// on the category screen.
+final class SettingsPrivacyRoute extends AppRoute {
+  const SettingsPrivacyRoute();
+}
+
+final class SettingsLookRoute extends AppRoute {
+  const SettingsLookRoute();
+}
+
+final class SettingsNotificationsRoute extends AppRoute {
+  const SettingsNotificationsRoute();
+}
+
+final class SettingsAccountRoute extends AppRoute {
+  const SettingsAccountRoute();
+}
+
+final class SettingsAboutRoute extends AppRoute {
+  const SettingsAboutRoute();
+}
+
+/// The identity editor: display name + photo-dot.
+final class IdentityRoute extends AppRoute {
+  const IdentityRoute();
+}
+
 /// One person's detail: a map focused on them + their share controls. Presented
 /// over the shell; identified by user id (the screen reads live presence).
 final class PersonDetailRoute extends AppRoute {
@@ -87,7 +115,13 @@ bool routeRequiresAuth(AppRoute r) =>
     r is OnboardingRecoveryRoute ||
     r is OnboardingPrivacyRoute ||
     r is OnboardingDistributorRoute ||
-    r is OnboardingLocationRoute;
+    r is OnboardingLocationRoute ||
+    r is SettingsPrivacyRoute ||
+    r is SettingsLookRoute ||
+    r is SettingsNotificationsRoute ||
+    r is SettingsAccountRoute ||
+    r is SettingsAboutRoute ||
+    r is IdentityRoute;
 
 // --- Shell branches: each tab has its own sealed route type ---------------
 
@@ -107,10 +141,10 @@ final class PeopleRoot extends PeopleRoute {
   const PeopleRoot();
 }
 
-sealed class ProfileRoute extends KaiselRoute {
-  const ProfileRoute();
+sealed class MeRoute extends KaiselRoute {
+  const MeRoute();
 }
 
-final class ProfileRoot extends ProfileRoute {
-  const ProfileRoot();
+final class MeRoot extends MeRoute {
+  const MeRoot();
 }

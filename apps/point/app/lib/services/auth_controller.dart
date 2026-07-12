@@ -68,6 +68,17 @@ class AuthController extends AsyncNotifier<Session?> {
     if (state.hasError) loggedIn.value = false;
   }
 
+  /// Reflect a server-accepted display-name change in the live session and
+  /// the persisted one (the /api/account/profile call happens in the identity
+  /// editor; this records its result).
+  Future<void> updateDisplayName(String displayName) async {
+    final current = state.value;
+    if (current == null) return;
+    final next = current.copyWith(displayName: displayName);
+    await ref.read(sessionStoreProvider).write(next);
+    state = AsyncData(next);
+  }
+
   Future<void> logout() async {
     await ref.read(sessionStoreProvider).clear();
     loggedIn.value = false;
@@ -75,5 +86,6 @@ class AuthController extends AsyncNotifier<Session?> {
   }
 }
 
-final authControllerProvider =
-    AsyncNotifierProvider<AuthController, Session?>(AuthController.new);
+final authControllerProvider = AsyncNotifierProvider<AuthController, Session?>(
+  AuthController.new,
+);

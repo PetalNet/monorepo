@@ -29,6 +29,9 @@ dependencies:
   app_links: ^7.2.1
   unifiedpush: ^6.2.0
   url_launcher: ^6.3.2
+  image_picker: ^1.2.3
+  package_info_plus: ^10.2.0
+  image: ^4.8.0
   # dynamic_color is intentionally NOT a dependency: the spec locks dynamic_color
   # OFF (fixed monochrome, no Material You wallpaper hues) — D-015.
 
