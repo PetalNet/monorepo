@@ -81,7 +81,8 @@ impl Client {
         let kps: Vec<String> = (0..5)
             .map(|_| B64.encode(mls.generate_key_package().unwrap()))
             .collect();
-        self.post("/api/mls/keys", json!({ "key_packages": kps })).await;
+        self.post("/api/mls/keys", json!({ "key_packages": kps }))
+            .await;
     }
 }
 
