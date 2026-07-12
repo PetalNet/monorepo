@@ -470,3 +470,36 @@ nobody`; enforcement is **silent-drop** on both the local endpoint and the feder
   then drove BOTH tiers on the A03s (self-hosted tiles from our own PMTiles, and the same map through
   the server's `/api/tiles` proxy), switching provider live in Settings. SELF-HOSTING.md gains a Maps
   section with the three-command setup.
+
+## 2026-07-12 — D-027 · Wave D notifications: transport-agnostic wake, UnifiedPush proven, FCM scaffolded
+
+- **Push registration is transport-agnostic** (migration 0005 replaces `fcm_tokens` with
+  `push_endpoints (user_id, transport, endpoint)`, carrying the old FCM tokens forward). One row per
+  device; `POST /api/push/register` takes `{transport: unifiedpush|fcm, endpoint}` and
+  `/api/push/unregister` drops one. A UnifiedPush endpoint must be https (fail-closed at
+  registration: the server POSTs the wake to it, so a bogus/plain-http value would be undeliverable
+  or an SSRF foothold).
+- **The wake is contentless on the wire.** The UnifiedPush body the distributor relays is EMPTY —
+  it learns nothing, not who, not where, not even the coarse event category. (The brief said
+  "encrypted wake"; true webpush payload encryption needs a per-endpoint key exchange, so v1 takes
+  the simpler road that gives the same privacy: send no content at all. The `kind` tag survives only
+  for FCM's data field, where Google already handles delivery, and for server logs.) The client
+  refreshes its request + people surfaces on any wake, so it never needs the category to act. Delivery is best-effort, fire-and-forget (spawned), and only fires when the recipient is
+  OFFLINE (no live WS) — an online device already got the WS nudge. Wired at local share-request
+  creation, share accept, and the federated inbound request. **v1 notification set by construction:**
+  only share_request + share_accepted ever wake; go-dark, passive moves, and being-viewed send
+  nothing, so they are silent because no wake exists, not because a flag suppresses one.
+- **UnifiedPush is fully delivered and proven end-to-end.** Client `PushService` registers with the
+  user's distributor, uploads the endpoint, and refreshes the request/people surfaces on a wake.
+  On-device proof (A03s + ntfy → ntfy.sh): Point registered and its `https://ntfy.sh/up...` endpoint
+  landed in `push_endpoints`; the app was force-stopped (offline); a second account's share request
+  made the server POST a wake to the endpoint; ntfy delivered it to Point's UnifiedPush connector
+  (`NtfyUpRaiseFg: Sending msg for dev.petalcat.point_app`); on relaunch the pending request was
+  there.
+- **FCM is transport-agnostic on the server, scaffolded on the device.** The sender posts a data-only
+  HTTP v1 message when `FCM_PROJECT_ID` + `FCM_ACCESS_TOKEN` are configured (an operator running the
+  convenient tier supplies a token refresher; the private path needs none). The client registration
+  path exists (`PushService.registerFcm`), but the device FCM token comes from the Firebase SDK,
+  which a convenient-tier build flavor (google-services.json + firebase_messaging) provides — a
+  documented fast-follow, not faked in the base build. The private default is the one delivering in
+  v1.2.0.

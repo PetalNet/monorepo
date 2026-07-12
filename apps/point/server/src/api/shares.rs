@@ -144,6 +144,21 @@ pub async fn create_request(
     .bind(&to_user)
     .execute(&state.pool)
     .await?;
+
+    // Tell the recipient there's a request waiting. An online device refreshes
+    // its pinned-requests list from the WS nudge; an offline one is woken by
+    // push so it can pull the request (the wake carries no who/where).
+    let notify = json!({ "type": "share.request", "from_user_id": user.user_id }).to_string();
+    if state.hub.is_online(&to_user) {
+        state.hub.send_to_user(&to_user, &notify);
+    } else {
+        tokio::spawn(crate::push::wake_user(
+            state.pool.clone(),
+            to_user.clone(),
+            crate::push::Wake::new("share_request"),
+            state.config.federation_allow_private,
+        ));
+    }
     Ok(Json(recorded))
 }
 
@@ -237,6 +252,17 @@ pub async fn accept_request(
     let to_accepter = json!({ "type": "share.accepted", "user_id": from_user }).to_string();
     state.hub.send_to_user(&from_user, &to_requester);
     state.hub.send_to_user(&user.user_id, &to_accepter);
+    // The requester (the one who's been waiting) gets a push if they're not
+    // online to hear the WS notify. "someone accepted and started sharing" is
+    // in the v1 notification set.
+    if !state.hub.is_online(&from_user) {
+        tokio::spawn(crate::push::wake_user(
+            state.pool.clone(),
+            from_user.clone(),
+            crate::push::Wake::new("share_accepted"),
+            state.config.federation_allow_private,
+        ));
+    }
 
     Ok(Json(json!({ "ok": true, "user_id": from_user })))
 }

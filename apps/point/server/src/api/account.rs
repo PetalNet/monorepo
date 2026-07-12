@@ -101,27 +101,72 @@ pub async fn change_password(
 }
 
 #[derive(Deserialize)]
-pub struct FcmTokenBody {
-    pub token: String,
+pub struct RegisterPushBody {
+    /// "unifiedpush" | "fcm".
+    pub transport: String,
+    /// The UnifiedPush endpoint URL, or the FCM registration token.
+    pub endpoint: String,
 }
 
-pub async fn register_fcm_token(
+/// POST /api/push/register — register (or refresh) a device's push endpoint,
+/// transport-agnostic (Wave D). Replaces the old FCM-only token endpoint.
+pub async fn register_push(
     State(state): State<AppState>,
     user: AuthUser,
-    Json(body): Json<FcmTokenBody>,
+    Json(body): Json<RegisterPushBody>,
 ) -> ApiResult<Json<Value>> {
-    let token = body.token.trim();
-    if token.is_empty() || token.len() > 4096 {
-        return Err(AppError::BadRequest("invalid token".into()));
+    let transport = body.transport.as_str();
+    if !matches!(transport, "unifiedpush" | "fcm") {
+        return Err(AppError::BadRequest(
+            "transport must be unifiedpush or fcm".into(),
+        ));
     }
+    let endpoint = body.endpoint.trim();
+    if endpoint.is_empty() || endpoint.len() > 4096 {
+        return Err(AppError::BadRequest("invalid endpoint".into()));
+    }
+    // A UnifiedPush endpoint must be an https URL: the server POSTs the wake to
+    // it, so a plain-http or bogus value would either fail to deliver or (worse)
+    // be an SSRF foothold. Fail closed at registration.
+    if transport == "unifiedpush" && !endpoint.starts_with("https://") {
+        return Err(AppError::BadRequest(
+            "unifiedpush endpoint must be an https URL".into(),
+        ));
+    }
+    // One transport per user at a time (a device picks one): registering a
+    // fresh endpoint clears the user's other endpoints of the SAME kind is not
+    // wanted — multiple devices each keep their own. We only replace an exact
+    // duplicate. To switch transport, the client unregisters first (below).
     sqlx::query(
-        "INSERT INTO fcm_tokens (user_id, token) VALUES ($1, $2)
-         ON CONFLICT (user_id, token) DO UPDATE SET updated_at = now()",
+        "INSERT INTO push_endpoints (user_id, transport, endpoint) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, endpoint)
+         DO UPDATE SET transport = EXCLUDED.transport, updated_at = now()",
     )
     .bind(&user.user_id)
-    .bind(token)
+    .bind(transport)
+    .bind(endpoint)
     .execute(&state.pool)
     .await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct UnregisterPushBody {
+    pub endpoint: String,
+}
+
+/// POST /api/push/unregister — drop one of my endpoints (transport switch,
+/// distributor removed, sign-out on a device).
+pub async fn unregister_push(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<UnregisterPushBody>,
+) -> ApiResult<Json<Value>> {
+    sqlx::query("DELETE FROM push_endpoints WHERE user_id = $1 AND endpoint = $2")
+        .bind(&user.user_id)
+        .bind(body.endpoint.trim())
+        .execute(&state.pool)
+        .await?;
     Ok(Json(json!({ "ok": true })))
 }
 

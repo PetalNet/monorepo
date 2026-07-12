@@ -257,7 +257,16 @@ async fn handle_share_request(
     .await?;
 
     let notify = json!({ "type": "share.request", "from_user_id": sender }).to_string();
-    state.hub.send_to_user(recipient, &notify);
+    if state.hub.is_online(recipient) {
+        state.hub.send_to_user(recipient, &notify);
+    } else {
+        tokio::spawn(crate::push::wake_user(
+            state.pool.clone(),
+            recipient.to_string(),
+            crate::push::Wake::new("share_request"),
+            state.config.federation_allow_private,
+        ));
+    }
     Ok(json!({ "ok": true }))
 }
 
@@ -318,7 +327,18 @@ async fn handle_share_accept(
     tx.commit().await?;
 
     let notify = json!({ "type": "share.accepted", "user_id": sender }).to_string();
-    state.hub.send_to_user(recipient, &notify);
+    if state.hub.is_online(recipient) {
+        state.hub.send_to_user(recipient, &notify);
+    } else {
+        // The local requester is offline: wake them, symmetric with the local
+        // accept path and the federated request path.
+        tokio::spawn(crate::push::wake_user(
+            state.pool.clone(),
+            recipient.to_string(),
+            crate::push::Wake::new("share_accepted"),
+            state.config.federation_allow_private,
+        ));
+    }
     Ok(json!({ "ok": true }))
 }
 

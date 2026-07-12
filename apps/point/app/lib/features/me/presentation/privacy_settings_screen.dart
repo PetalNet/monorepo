@@ -118,11 +118,18 @@ class _PrivacySettingsScreenState extends ConsumerState<PrivacySettingsScreen> {
               context.space.lg,
               context.space.md,
             ),
-            child: Text(
-              tileSourceDescription(ref.watch(tileSourceProvider)),
-              style: context.text.bodySmall?.copyWith(
-                color: context.colors.onSurfaceVariant,
-              ),
+            child: Builder(
+              builder: (context) {
+                final source = ref.watch(tileSourceProvider);
+                return Text(
+                  source == null
+                      ? 'Checking what your server offers.'
+                      : tileSourceDescription(source),
+                  style: context.text.bodySmall?.copyWith(
+                    color: context.colors.onSurfaceVariant,
+                  ),
+                );
+              },
             ),
           ),
           const Divider(),

@@ -436,50 +436,6 @@ async fn account_deletion_requires_password_and_cascades(pool: PgPool) {
     assert_eq!((users, entities, devices), (0, 0, 0));
 }
 
-#[sqlx::test]
-async fn fcm_token_upserts(pool: PgPool) {
-    let app = app(&pool, true);
-    let (_, v) = register(&app, "alice", "password1", None).await;
-    let token = token_of(&v);
-
-    for _ in 0..2 {
-        let (status, _) = send(
-            &app,
-            "POST",
-            "/api/fcm/token",
-            Some(&token),
-            Some(json!({ "token": "fcm-token-1" })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-    }
-    let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM fcm_tokens")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(rows, 1);
-
-    let (status, _) = send(
-        &app,
-        "POST",
-        "/api/fcm/token",
-        Some(&token),
-        Some(json!({ "token": "" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-
-    let (status, _) = send(
-        &app,
-        "POST",
-        "/api/fcm/token",
-        None,
-        Some(json!({ "token": "fcm-token-1" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-}
-
 // ---------------------------------------------------------------------------
 // rate limiting
 // ---------------------------------------------------------------------------
@@ -1056,4 +1012,84 @@ async fn tile_proxy_streams_validates_and_gates(pool: PgPool) {
     );
     let (status, _) = send(&untyped, "GET", "/api/tiles/3/1/2", Some(&alice), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------
+// Wave D: transport-agnostic push registration
+// ---------------------------------------------------------------------------
+
+#[sqlx::test]
+async fn push_register_is_transport_agnostic(pool: PgPool) {
+    let app = app(&pool, true);
+    let (_, alice) = register(&app, "alice", "password-1", None).await;
+    let alice = token_of(&alice);
+
+    // UnifiedPush: an https endpoint registers.
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/push/register",
+        Some(&alice),
+        Some(json!({ "transport": "unifiedpush", "endpoint": "https://ntfy.example/up/abc" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // A plain-http UnifiedPush endpoint is refused (SSRF / undeliverable).
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/push/register",
+        Some(&alice),
+        Some(json!({ "transport": "unifiedpush", "endpoint": "http://ntfy.example/up/abc" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // FCM: any non-empty token registers (no URL scheme requirement).
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/push/register",
+        Some(&alice),
+        Some(json!({ "transport": "fcm", "endpoint": "fcm-token-xyz" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // An unknown transport is a 400.
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/push/register",
+        Some(&alice),
+        Some(json!({ "transport": "apns", "endpoint": "whatever" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Both endpoints are stored for the user.
+    let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM push_endpoints WHERE user_id = $1")
+        .bind(format!("alice@{DOMAIN}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 2);
+
+    // Unregister drops one.
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/push/unregister",
+        Some(&alice),
+        Some(json!({ "endpoint": "fcm-token-xyz" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM push_endpoints WHERE user_id = $1")
+        .bind(format!("alice@{DOMAIN}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
 }
