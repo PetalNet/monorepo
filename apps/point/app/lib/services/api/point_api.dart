@@ -101,6 +101,26 @@ class PointApi {
     if (r.statusCode != 200) _fail(r);
   }
 
+  /// Decline an incoming share request (404 if not the addressee / not pending).
+  Future<void> rejectRequest(String token, String id) async {
+    final r = await _client.post(
+      _u('/api/shares/requests/$id/reject'),
+      headers: _headers(token),
+      body: '{}',
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  /// Stop sharing with a person: removes the mutual share (and clears any
+  /// pending request rows between the pair, server-side).
+  Future<void> deleteShare(String token, String userId) async {
+    final r = await _client.delete(
+      _u('/api/shares/$userId'),
+      headers: _headers(token),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
   Future<void> createTempShare(
     String token,
     String toUserId,

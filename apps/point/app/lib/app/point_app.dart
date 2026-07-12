@@ -13,6 +13,7 @@ import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
+import 'package:point_app/features/people/presentation/person_detail_screen.dart';
 import 'package:point_app/features/profile/presentation/profile_screen.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -97,7 +98,7 @@ class _PointAppState extends ConsumerState<PointApp>
   /// modals (Ghost, Device-link) slide up; everything else fades.
   Page<Object?> _pageWrapper(KaiselPageWrapperContext<AppRoute> ctx) {
     return switch (ctx.route) {
-      GhostRoute() || DeviceLinkRoute() =>
+      GhostRoute() || DeviceLinkRoute() || PersonDetailRoute() =>
         _SlideUpPage(key: ctx.key, child: ctx.child),
       _ => _FadePage(key: ctx.key, child: ctx.child),
     };
@@ -109,6 +110,7 @@ class _PointAppState extends ConsumerState<PointApp>
       LoginRoute() => const LoginScreen(),
       GhostRoute() => const GhostScreen(),
       DeviceLinkRoute() => const DeviceLinkScreen(),
+      PersonDetailRoute(:final userId) => PersonDetailScreen(userId: userId),
       MainShell() => KaiselBranchedShell.specs(
           branches: [
             KaiselBranchSpec<MapRoute>(
@@ -169,8 +171,10 @@ class _PointAppState extends ConsumerState<PointApp>
       // Feed the relay who we share with, so it forms the MLS group with each
       // (claim KP -> group -> Welcome) and encrypts fixes to them.
       ..listen(peopleControllerProvider, (prev, next) {
-        final ids =
-            next.value?.map((p) => p.userId).toList() ?? const <String>[];
+        // Only act on a resolved list. A transient loading state (no retained
+        // value) would otherwise clear every encrypt-target for a round-trip.
+        if (!next.hasValue) return;
+        final ids = next.value!.map((p) => p.userId).toList();
         ref.read(relayControllerProvider).setShareTargets(ids);
       });
 

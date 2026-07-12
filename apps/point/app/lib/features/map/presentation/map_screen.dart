@@ -9,11 +9,9 @@ import 'package:point_app/features/location/self_location_provider.dart';
 import 'package:point_app/features/map/presentation/person_map_sheet.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/map/presentation/self_marker.dart';
-import 'package:point_app/features/people/people_controller.dart';
-import 'package:point_app/features/relay/relay_controller.dart';
+import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
-import 'package:point_app/theme/presence_tokens.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// Map + presence (spec 07): a monochrome basemap centered on YOU, all active
@@ -43,21 +41,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void _moveTo(LatLng point) =>
       _mapController.move(point, MapScreen._neighborhoodZoom);
 
-  Person _withLiveFix(Person p, PeerFix fix) {
-    final lat = (fix.data['lat'] as num?)?.toDouble();
-    final lon = (fix.data['lon'] as num?)?.toDouble();
-    if (lat == null || lon == null) return p;
-    return Person(
-      userId: p.userId,
-      displayName: p.displayName,
-      presence: PresenceState.live,
-      subtitle: p.subtitle,
-      distanceLabel: p.distanceLabel,
-      lat: lat,
-      lon: lon,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final self = ref.watch(selfLocationProvider).value;
@@ -72,15 +55,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       }
     });
 
-    final people = ref.watch(peopleControllerProvider).value ?? const <Person>[];
-    final live = ref.watch(livePresenceProvider);
-    final located = [
-      for (final p in people)
-        if (live[p.userId] case final fix?)
-          _withLiveFix(p, fix)
-        else if (p.hasLocation)
-          p,
-    ];
+    // Only people with a live/known coordinate plot; dark/location-off don't.
+    final located =
+        ref.watch(peopleWithPresenceProvider).where((p) => p.hasLocation).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -182,6 +159,7 @@ class _PeopleMarkers extends StatelessWidget {
                 context,
                 person: p,
                 onFocus: () => onFocus(LatLng(p.lat!, p.lon!)),
+                onOpenDetail: () => context.push(PersonDetailRoute(p.userId)),
               ),
               child: PresenceMarker(person: p),
             ),

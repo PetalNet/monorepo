@@ -31,10 +31,20 @@ final class DeviceLinkRoute extends AppRoute {
   const DeviceLinkRoute();
 }
 
+/// One person's detail: a map focused on them + their share controls. Presented
+/// over the shell; identified by user id (the screen reads live presence).
+final class PersonDetailRoute extends AppRoute {
+  const PersonDetailRoute(this.userId);
+  final String userId;
+}
+
 /// Routes that require a signed-in session. The guard redirects any stack
 /// containing one of these to [LoginRoute] when signed out.
 bool routeRequiresAuth(AppRoute r) =>
-    r is MainShell || r is GhostRoute || r is DeviceLinkRoute;
+    r is MainShell ||
+    r is GhostRoute ||
+    r is DeviceLinkRoute ||
+    r is PersonDetailRoute;
 
 // --- Shell branches: each tab has its own sealed route type ---------------
 

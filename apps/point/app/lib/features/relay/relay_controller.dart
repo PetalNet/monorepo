@@ -7,6 +7,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
+import 'package:point_app/features/people/people_controller.dart';
+import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:point_app/features/relay/ws_service.dart';
 import 'package:point_app/services/api/models.dart';
@@ -172,7 +174,17 @@ class RelayController {
         await _onBroadcast(msg);
       case 'mls.message':
         await _onMlsMessage(msg);
+      case 'share.accepted':
+        // A request either party sent was accepted → the shares list changed.
+        // Refresh both so the pinned request clears and the new person appears
+        // (the relay's setShareTargets then forms the MLS group with them).
+        _refreshSharing();
     }
+  }
+
+  void _refreshSharing() {
+    unawaited(_ref.read(peopleControllerProvider.notifier).refresh());
+    unawaited(_ref.read(requestsControllerProvider.notifier).refresh());
   }
 
   Future<void> _onBroadcast(Map<String, dynamic> msg) async {
