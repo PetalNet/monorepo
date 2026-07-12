@@ -51,6 +51,7 @@
 	},
 	"typesync": {
 		"ignoreProjects": [
+			"apps/box-agent",
 			"apps/control-plane",
 			"apps/dispatcher",
 			"apps/manager",
