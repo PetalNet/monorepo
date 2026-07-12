@@ -39,9 +39,34 @@ class LocationService {
   LocationService({
     EngineConfig config = const EngineConfig(),
     this.heartbeat = const Duration(minutes: 15),
-  }) : _machine = LocationStateMachine(config: config);
+    Future<LocationPermission> Function()? checkPermission,
+    Future<LocationPermission> Function()? requestPermission,
+    Stream<Position> Function(LocationSettings)? positionStream,
+    Future<Position> Function(LocationSettings)? currentPosition,
+    Stream<AccelerometerEvent> Function()? accelStream,
+  })  : _machine = LocationStateMachine(config: config),
+        _checkPermission = checkPermission ?? Geolocator.checkPermission,
+        _requestPermission = requestPermission ?? Geolocator.requestPermission,
+        _positionStream = positionStream ?? _geolocatorStream,
+        _currentPosition = currentPosition ?? _geolocatorCurrent,
+        _accelStream = accelStream ?? accelerometerEventStream;
+
+  static Stream<Position> _geolocatorStream(LocationSettings settings) =>
+      Geolocator.getPositionStream(locationSettings: settings);
+
+  static Future<Position> _geolocatorCurrent(LocationSettings settings) =>
+      Geolocator.getCurrentPosition(locationSettings: settings);
 
   final LocationStateMachine _machine;
+
+  // Platform seams, injectable so the acquisition path itself is testable
+  // headless (the v1.2 regression shipped because only the pure state machine
+  // had coverage — the engine wiring around it did not).
+  final Future<LocationPermission> Function() _checkPermission;
+  final Future<LocationPermission> Function() _requestPermission;
+  final Stream<Position> Function(LocationSettings) _positionStream;
+  final Future<Position> Function(LocationSettings) _currentPosition;
+  final Stream<AccelerometerEvent> Function() _accelStream;
 
   /// While stationary (idle/sleeping) GPS is OFF for battery, but a cheap
   /// low-accuracy (network/fused) fix on this cadence keeps presence fresh so a
@@ -67,9 +92,9 @@ class LocationService {
   EnginePlan get plan => _machine.plan;
 
   Future<bool> ensurePermission() async {
-    var perm = await Geolocator.checkPermission();
+    var perm = await _checkPermission();
     if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
+      perm = await _requestPermission();
     }
     return perm == LocationPermission.always ||
         perm == LocationPermission.whileInUse;
@@ -78,11 +103,16 @@ class LocationService {
   bool _started = false;
 
   /// Start the engine (idempotent — safe to call on every sign-in). Requests
-  /// location permission once, then runs the plan.
+  /// location permission once, then runs the plan. Starting with the app open
+  /// behaves like a foreground resume: jump to active for a prompt first fix
+  /// (the map's initial centering and self-marker hang off it) instead of
+  /// waiting out motion or the first heartbeat.
   Future<void> start() async {
-    if (_started) return;
-    if (!await ensurePermission()) return;
-    _started = true;
+    if (!_started) {
+      if (!await ensurePermission()) return;
+      _started = true;
+    }
+    if (_machine.foreground) _machine.onForeground();
     _apply();
   }
 
@@ -106,6 +136,10 @@ class LocationService {
 
   /// Reconcile real sensors with the current [EnginePlan].
   void _apply() {
+    // Before start() clears the permission gate, lifecycle/sharing events may
+    // only update the machine — never touch the sensors (a pre-grant apply
+    // would poke the location plugin before onboarding has earned the ask).
+    if (!_started) return;
     final plan = _machine.plan;
 
     if (!plan.gpsEnabled) {
@@ -134,6 +168,11 @@ class LocationService {
         _stopAccel();
         _stopHeartbeat();
         _startGps(plan);
+        // Acquisition bound: a GPS that cannot fix (indoors, stalled
+        // provider) must not pin high-power active forever — with no fix to
+        // re-arm the stillness window, ramp down and let the heartbeat /
+        // motion wake carry it (v1.2.1 review).
+        if (_stillnessTimer?.isActive != true) _armStillness();
     }
     _appliedActivity = plan.activity;
   }
@@ -147,8 +186,8 @@ class LocationService {
     _stopGps();
     _appliedGpsPlan = plan;
     final settings = _androidSettings(plan);
-    _gpsSub = Geolocator.getPositionStream(locationSettings: settings)
-        .listen(_onPosition, onError: (Object e) {
+    _gpsSub = _positionStream(settings).listen(_onPosition,
+        onError: (Object e) {
       if (kDebugMode) debugPrint('gps error: $e');
     });
   }
@@ -202,7 +241,7 @@ class LocationService {
 
   void _startAccel() {
     if (_accelSub != null) return;
-    _accelSub = accelerometerEventStream().listen((e) {
+    _accelSub = _accelStream().listen((e) {
       // Magnitude minus gravity ~ motion. A sustained bump wakes GPS.
       final magnitude =
           (e.x * e.x + e.y * e.y + e.z * e.z) - (9.81 * 9.81);
@@ -223,18 +262,22 @@ class LocationService {
 
   void _startHeartbeat() {
     if (_heartbeatTimer != null) return;
-    _heartbeatTimer = Timer.periodic(heartbeat, (_) async {
+    _heartbeatTimer = Timer.periodic(heartbeat, (timer) async {
       // Cheap fix while parked: low accuracy uses network/fused, not the GPS
       // radio, so it costs a fraction of a real GPS lock.
       try {
-        final p = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
+        final p = await _currentPosition(
+          const LocationSettings(
             accuracy: LocationAccuracy.low,
             // Fail fast instead of spinning if a fix can't be had (measured:
             // an unbounded request burns CPU when location is unavailable).
             timeLimit: Duration(seconds: 20),
           ),
         );
+        // Ghost (or dispose) can land while the request is in flight, and a
+        // hard stop only cancels FUTURE ticks — a fix must never leak out
+        // past go-dark (safety-critical; v1.2.1 review).
+        if (!timer.isActive || !_machine.plan.gpsEnabled) return;
         _emit(p);
       } on Object catch (e) {
         if (kDebugMode) debugPrint('heartbeat fix error: $e');

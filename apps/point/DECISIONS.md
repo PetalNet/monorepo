@@ -503,3 +503,79 @@ nobody`; enforcement is **silent-drop** on both the local endpoint and the feder
   which a convenient-tier build flavor (google-services.json + firebase_messaging) provides — a
   documented fast-follow, not faked in the base build. The private default is the one delivering in
   v1.2.0.
+
+## 2026-07-12 — D-028 · v1.2.1: the signed-out hard-stop must not outlive the sign-out (tracker 721)
+
+The v1.2 location regression root-caused, not guessed: `_onAuth`'s signed-out branch hard-stops the
+battery engine (`setSharing(false)` → machine → ghost), and NOTHING on the next sign-in lifted it —
+`start()` faithfully applies whatever plan the machine holds, and a ghost plan is "everything off."
+So every fresh install (whose very first auth resolution is signed-out, by design, to route to
+server-pick) and every sign-out → sign-in in one process ran the engine ghosted until a full process
+restart: no self-marker, dead recenter, zero rows in `location_history`/`location_updates`. The
+on-device evidence matched to the minute (A03s: janet's rows begin four minutes after the 21:11 UTC
+process restart, then clean 15-minute heartbeats). Calls made:
+
+- **Session establishment is ONE sequence** (`_establishSession` → `establishSessionEngineState`):
+  reset the engine to sharing, then apply the go-dark default (explicit sign-ins only), then run the
+  launch gate that may `start()` the engine. The old code fired go-dark and the gate as independent
+  unawaited futures — the reset-vs-go-dark order was a coin flip; now it cannot race and the
+  privacy-critical "start each sign-in dark" always wins over the reset.
+- **`start()` behaves like a foreground resume** when the app is open: jump the machine to `active`
+  for a prompt first fix. Before, a cold start sat `idle` (GPS off) until motion or the first
+  15-minute heartbeat — the map's "centers on YOU" moment hung on an accelerometer bump.
+- **`_apply()` gates on `_started`**: pre-permission lifecycle/sharing events now only update the
+  machine, never the sensors — no location-plugin pokes before onboarding has earned the ask.
+- **The engine's platform seams are injectable** (permission checks, position stream/current-fix,
+  accelerometer), because the regression shipped exactly where coverage stopped: the pure state
+  machine was tested, the engine wiring around it was not. `test/location_engine_session_test.dart`
+  now drives the acquisition path headless (start → fixes out, the wedge, ghost stays a hard stop,
+  denied permission touches nothing, stillness → heartbeat) plus the session-establishment wiring
+  (leftover hard-stop cleared; go-dark default honored on explicit sign-in; restores never trample a
+  live choice) — wired into the existing `flutter test` CI gate.
+- **Server-side ghost on restore stays display-only** (unchanged from v1.1): a restored session
+  starts the engine sharing even if another device set ghost; the server enforces suppression. Noted
+  here so it reads as a known call, not an oversight.
+
+### D-028 · review round (codex, adversarial)
+
+The codex pass surfaced two safety-critical holes (both latent since v1.1, both fixed here because
+this is exactly the code being certified) and a battery hazard the new foreground nudge widened:
+
+- **In-flight heartbeat past ghost:** the hard stop cancels future ticks, not the awaited
+  `getCurrentPosition` — its completion emitted a fix AFTER go-dark. Now the tick re-checks
+  `timer.isActive && plan.gpsEnabled` after the await; a late fix is dropped. Test: goes dark while
+  the request is in flight → nothing emitted.
+- **Same-user auth refresh could re-establish:** the identity guard keyed off the listener's `prev`
+  value, so a `loading → data(same user)` refresh would re-run establishment and lift a live ghost.
+  The app now tracks `_establishedUserId` (cleared on teardown) and the whole `_onAuth` decision is
+  the pure `sessionTransition()` (lib/app/session_transition.dart) — headless-tested for: first
+  resolution establishes, same-user refresh/re-emission skips (ghost preserved), sign-out tears
+  down + repeat skips, and sign-out → sign-in of the SAME account re-establishes (the wedge).
+- **No-fix acquisition pin:** `active` with a GPS stream that never fixes (indoors) held high-power
+  GPS forever — the stillness window only armed on fixes. `_apply()` now arms it when entering the
+  moving branch, so a fixless active ramps down to idle/heartbeat and motion re-promotes. Test:
+  active + 31s of silence → idle, GPS off.
+
+### D-028 · adversarial round (review subagent, on top of the codex round)
+
+Verdict was "core fix sound, no critical leak" plus three majors, all addressed:
+
+- **Routing could hang on the go-dark write:** `_establishSession` awaited `setGhost` (no client
+  timeout) before routing — a stalled socket after login left the user on the login screen forever.
+  Now the whole engine-establish step is bounded (8s) and fail-open like the launch gate: the engine
+  goes dark synchronously inside, so proceeding on timeout/error is the safe direction.
+- **Ghost rollback could resume broadcasting:** on a failed `setGhost`, the rollback restored
+  `previous.isSharing` — where `previous` could be the never-confirmed signed-out placeholder, and
+  even a CONFIRMED "sharing" baseline is wrong to restore when the failed ask was go-dark. The
+  rollback is now fail-closed (`previous.isSharing && sharing`), and the controller tracks whether
+  its state was ever server-confirmed. A go-dark-default sign-in with a flaky server now stays dark.
+  Test: failed go-dark write → engine stays dark.
+- **The wedge's load-bearing line was unpinned:** deleting `_establishedUserId = null` on teardown
+  would re-introduce the exact v1.2 wedge with every test green. The identity lifecycle now lives in
+  `SessionTracker` (session_transition.dart), and a sequence test (establish → refresh-skip →
+  teardown → SAME-account re-establish) fails if the clear is removed. Residue, accepted: the thin
+  `_onAuth`/`_establishSession` glue (tracker wired to listener; establish-before-gate ordering) is
+  still only readable, not pumped — a full `PointApp` widget harness is out of scope for a point fix.
+- Minors: background cold starts seed the engine from the real lifecycle state (no foreground-cadence
+  GPS behind a dark screen on a push wake); pre-start lifecycle/sharing events are pinned to never
+  touch the sensors.

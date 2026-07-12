@@ -7,11 +7,23 @@ import 'package:point_app/services/auth_controller.dart';
 /// (no timers/rules). Reads the current state from the server and flips it,
 /// with an optimistic update so the safety-critical control feels instant.
 class GhostController extends AsyncNotifier<GhostState> {
+  /// Whether [state] holds a server-CONFIRMED value. The signed-out build
+  /// returns a placeholder, and a rollback baseline must never be an
+  /// unconfirmed reading: rolling a failed go-dark back to a placeholder's
+  /// "sharing" would silently flip a user who asked for dark into
+  /// broadcasting (v1.2.1 review).
+  bool _confirmed = false;
+
   @override
   Future<GhostState> build() async {
     final session = ref.watch(authControllerProvider).value;
-    if (session == null) return const GhostState(active: false);
-    return ref.read(apiProvider).getGhost(session.token);
+    if (session == null) {
+      _confirmed = false;
+      return const GhostState(active: false);
+    }
+    final confirmed = await ref.read(apiProvider).getGhost(session.token);
+    _confirmed = true;
+    return confirmed;
   }
 
   /// `sharing == true` means ghost OFF (broadcasting). The server stores the
@@ -26,9 +38,12 @@ class GhostController extends AsyncNotifier<GhostState> {
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
     final engine = ref.read(locationServiceProvider);
-    // Last state the server actually confirmed; fall back to the ghosted
-    // (safer) reading if we've never confirmed one.
-    final previous = state.value ?? const GhostState(active: true);
+    // Last state the server actually CONFIRMED; fall back to the ghosted
+    // (safer) reading if we've never confirmed one — including when the
+    // current value is only the signed-out placeholder.
+    final previous = _confirmed && state.value != null
+        ? state.value!
+        : const GhostState(active: true);
 
     // Drive the engine + reflect the intent optimistically — preserving the
     // per-person hide set (a global toggle must not wipe it).
@@ -38,14 +53,19 @@ class GhostController extends AsyncNotifier<GhostState> {
     try {
       final confirmed =
           await ref.read(apiProvider).setGhost(session.token, active: !sharing);
+      _confirmed = true;
       state = AsyncData(confirmed);
     } on Object {
-      // Roll the engine + the display back to the last confirmed state so the
-      // three never silently diverge on the one safety-critical control. The
-      // toggle visibly snaps back, signalling the failure without throwing into
-      // the fire-and-forget tap handler.
-      engine.setSharing(sharing: previous.isSharing);
-      state = AsyncData(previous);
+      // Roll back FAIL-CLOSED (v1.2.1 review): the engine may land on
+      // "broadcasting" only when the last CONFIRMED state was sharing AND
+      // sharing is what was being asked for. A failed go-dark must never
+      // resume broadcasting against the user's ask, and an unconfirmed
+      // placeholder must never masquerade as a "sharing" baseline. The
+      // display mirrors the ENGINE (what actually leaves the device), so it
+      // still snaps back visibly when a go-light fails.
+      final safeSharing = previous.isSharing && sharing;
+      engine.setSharing(sharing: safeSharing);
+      state = AsyncData(previous.copyWith(active: !safeSharing));
     }
   }
 

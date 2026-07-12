@@ -7,12 +7,13 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/animated_branch_stack.dart';
 import 'package:point_app/app/routes.dart';
+import 'package:point_app/app/session_transition.dart';
 import 'package:point_app/app/shell_chrome.dart';
 import 'package:point_app/features/auth/presentation/login_screen.dart';
 import 'package:point_app/features/auth/presentation/splash_screen.dart';
 import 'package:point_app/features/device_link/presentation/device_link_screen.dart';
-import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/ghost/presentation/ghost_screen.dart';
+import 'package:point_app/features/location/engine_session.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/me/presentation/about_screen.dart';
@@ -66,6 +67,14 @@ class _PointAppState extends ConsumerState<PointApp>
     // defined but never called. Without this the battery engine never learns
     // it's been backgrounded and location silently stops.
     WidgetsBinding.instance.addObserver(this);
+    // A background cold start (push wake) may never receive a lifecycle
+    // event before the launch gate runs start(); seed the engine with the
+    // real state so the foreground fresh-fix nudge doesn't run GPS at the
+    // foreground cadence behind a turned-off screen (v1.2.1 review).
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
+      ref.read(locationServiceProvider).onBackground();
+    }
     // Wire the UnifiedPush receiver callbacks once, at startup.
     unawaited(ref.read(pushServiceProvider).init());
     final loggedIn = ref.read(authControllerProvider.notifier).loggedIn;
@@ -132,14 +141,33 @@ class _PointAppState extends ConsumerState<PointApp>
     }
   }
 
-  /// Privacy setting "start each sign-in dark": a NEW session begins with
-  /// sharing off until the user flips it, applied only when the setting says
-  /// so and only on a real sign-in (never a restore, which would override a
-  /// live choice on every launch).
-  Future<void> _applyGoDarkDefault() async {
-    final settings = await ref.read(settingsProvider.notifier).loaded;
-    if (!settings.goDarkDefault || !mounted) return;
-    await ref.read(ghostControllerProvider.notifier).setSharing(sharing: false);
+  /// Session establishment for a just-signed-in (or restored) account: reset
+  /// the engine's sharing state (clearing any signed-out hard-stop), apply
+  /// the go-dark default for an explicit sign-in, THEN run the launch gate,
+  /// which starts the engine once set-up is complete.
+  Future<void> _establishSession() async {
+    // Only an explicit login/register counts as a NEW session for the
+    // go-dark-default policy (a cold-start restore must never override a
+    // live sharing choice). The controller flags it, because both sign-in
+    // and restore arrive here from AsyncLoading.
+    final explicit =
+        ref.read(authControllerProvider.notifier).consumeExplicitSignIn();
+    try {
+      // Bounded: the go-dark server write has no client timeout, and routing
+      // must never hang on it (or on broken settings storage) — the engine
+      // already went dark synchronously inside, so proceeding is the safe
+      // direction, same fail-open shape as the launch gate (v1.2.1 review).
+      await establishSessionEngineState(
+        ref,
+        explicitSignIn: explicit,
+      ).timeout(const Duration(seconds: 8));
+    } on Object catch (e) {
+      if (kDebugMode) debugPrint('session engine establish failed: $e');
+    }
+    if (!mounted) return;
+    // Launch gate: resume the first incomplete required step, or open the
+    // shell (with any held deep-link invite).
+    await continueOnboarding(ref, _config.router);
   }
 
   /// The signed-out stack. A fresh install (no server ever chosen) starts at
@@ -280,26 +308,23 @@ class _PointAppState extends ConsumerState<PointApp>
     };
   }
 
+  /// The established-identity lifecycle (see [SessionTracker]): a
+  /// `loading → data(same user)` refresh must never re-establish (that would
+  /// reset the engine's sharing state and could lift a live ghost choice),
+  /// while a sign-out → sign-in of the same account must (the v1.2 wedge).
+  final _sessions = SessionTracker();
+
   /// Auth-driven routing + session lifecycle, invoked by the `listenManual`
   /// registered in initState (fireImmediately, so it also handles the value
   /// auth ALREADY holds when the app starts). Kept off the build-method
   /// `ref.listen`, which never fires for an already-resolved provider.
+  /// The decision + identity tracking are [SessionTracker] — pure and tested.
   void _onAuth(AsyncValue<Session?>? prev, AsyncValue<Session?> next) {
-    // Session-lifecycle side effects run only when the session IDENTITY
-    // changes. Same-account re-emissions (a display-name update) must not
-    // restart the relay or re-route; that stacked duplicate WS/fix
-    // subscriptions and could double-process MLS messages.
-    final prevId = prev?.value?.userId;
-    next.whenData((session) {
-      if (session != null) {
-        if (session.userId == prevId) return;
-        // Only an explicit login/register counts as a NEW session for the
-        // go-dark-default policy (a cold-start restore must never override a
-        // live sharing choice). The controller flags it, because both sign-in
-        // and restore arrive here from AsyncLoading.
-        if (ref.read(authControllerProvider.notifier).consumeExplicitSignIn()) {
-          unawaited(_applyGoDarkDefault());
-        }
+    switch (_sessions.onEmission(prev, next)) {
+      case SessionTransition.skip:
+        return;
+      case SessionTransition.establish:
+        final session = next.value!;
         // Wave D: register this device's wake transport (UnifiedPush endpoint
         // -> server) so offline share requests/accepts reach it.
         unawaited(ref.read(pushServiceProvider).sync());
@@ -309,14 +334,11 @@ class _PointAppState extends ConsumerState<PointApp>
         // location step, and `continueOnboarding` starts it once the gate is
         // clear.
         ref.read(relayControllerProvider).start(session);
-        // Launch gate: resume the first incomplete required step, or open the
-        // shell (with any held deep-link invite).
-        unawaited(continueOnboarding(ref, _config.router));
-      } else {
-        // Skip a REPEAT signed-out emission, but not the initial resolution to
-        // signed-out (prev is null/loading on the fireImmediately call and on
-        // a fresh install), which must still route to server-pick.
-        if (prev != null && prev.hasValue && prev.value == null) return;
+        // Engine sharing state, go-dark default, then the launch gate — ONE
+        // sequence, so the engine can never start against a stale hard-stop
+        // or race the go-dark default (the v1.2 location regression).
+        unawaited(_establishSession());
+      case SessionTransition.teardown:
         ref.read(locationServiceProvider).setSharing(sharing: false);
         ref.read(relayControllerProvider).stop();
         // Drop this device's push registration for the account LEAVING (prev
@@ -326,8 +348,7 @@ class _PointAppState extends ConsumerState<PointApp>
         // account signs in next.
         ref.read(pendingInviteProvider.notifier).take();
         unawaited(_routeSignedOut());
-      }
-    });
+    }
   }
 
   @override
