@@ -51,6 +51,7 @@
 	},
 	"typesync": {
 		"ignoreProjects": [
+			"apps/dispatcher",
 			"apps/manager",
 			"apps/point"
 		]
