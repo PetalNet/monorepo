@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:point_app/app/config.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
@@ -12,6 +11,7 @@ import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:point_app/features/relay/ws_service.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
+import 'package:point_app/services/server_config.dart';
 
 final cryptoServiceProvider = Provider<CryptoService>((_) => CryptoService());
 
@@ -78,7 +78,7 @@ class RelayController {
 
     // Durable WS (survives disconnect; jittered reconnect).
     final ws = WsService(
-      wsUrl: _wsUrlFor(AppConfig.serverBaseUrl),
+      wsUrl: _wsUrlFor(_ref.read(serverUrlProvider)),
       queue: RelayQueue(store: _SecureRelayStore(session.userId)),
     );
     _ws = ws;

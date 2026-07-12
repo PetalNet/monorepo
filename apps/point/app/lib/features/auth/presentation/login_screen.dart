@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/services/auth_controller.dart';
+import 'package:point_app/services/server_config.dart';
 import 'package:point_app/theme/theme_x.dart';
 import 'package:point_app/widgets/pill_button.dart';
 
@@ -17,12 +18,24 @@ class LoginScreen extends HookConsumerWidget {
     final password = useTextEditingController();
     final invite = useTextEditingController();
     final displayName = useTextEditingController();
+    final server = useTextEditingController();
+
+    // Keep the server field in sync with the active/persisted choice until the
+    // user edits it (the provider only changes on load or on an explicit set).
+    final serverUrl = ref.watch(serverUrlProvider);
+    useEffect(() {
+      server.text = serverUrl;
+      return null;
+    }, [serverUrl]);
 
     final auth = ref.watch(authControllerProvider);
     final busy = auth.isLoading;
     final error = auth.hasError ? auth.error.toString() : null;
 
     Future<void> submit() async {
+      // Apply + persist the chosen home-server BEFORE authenticating, so the API
+      // client and WS relay target it.
+      await ref.read(serverUrlProvider.notifier).set(server.text);
       final ctrl = ref.read(authControllerProvider.notifier);
       if (registering.value) {
         await ctrl.register(
@@ -75,6 +88,12 @@ class LoginScreen extends HookConsumerWidget {
                   SizedBox(height: context.space.md),
                   _Field(controller: invite, label: 'Invite code (if required)'),
                 ],
+                SizedBox(height: context.space.md),
+                _Field(
+                  controller: server,
+                  label: 'Point server',
+                  keyboardType: TextInputType.url,
+                ),
                 if (error != null) ...[
                   SizedBox(height: context.space.md),
                   Text(
@@ -114,17 +133,22 @@ class _Field extends StatelessWidget {
     required this.controller,
     required this.label,
     this.obscure = false,
+    this.keyboardType,
   });
 
   final TextEditingController controller;
   final String label;
   final bool obscure;
+  final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       obscureText: obscure,
+      keyboardType: keyboardType,
+      autocorrect: false,
+      enableSuggestions: false,
       style: context.text.bodyLarge,
       decoration: InputDecoration(
         labelText: label,

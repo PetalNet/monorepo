@@ -1,13 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:point_app/app/config.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/api/point_api.dart';
+import 'package:point_app/services/server_config.dart';
 import 'package:point_app/services/session_store.dart';
 
-/// The configured home-server client.
+/// The configured home-server client. Rebuilds (closing the old client) whenever
+/// the user changes the server on the login/register screen.
 final apiProvider = Provider<PointApi>((ref) {
-  final api = PointApi(baseUrl: AppConfig.serverBaseUrl);
+  final api = PointApi(baseUrl: ref.watch(serverUrlProvider));
   ref.onDispose(api.close);
   return api;
 });
