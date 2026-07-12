@@ -21,6 +21,17 @@ final sessionStoreProvider = Provider<SessionStore>((_) => SessionStore());
 class AuthController extends AsyncNotifier<Session?> {
   final ValueNotifier<bool> loggedIn = ValueNotifier<bool>(false);
 
+  bool _explicitSignIn = false;
+
+  /// True exactly once after a login/register (never a cold-start restore):
+  /// the sign-in listener consumes it to apply new-session policies like
+  /// go-dark-default.
+  bool consumeExplicitSignIn() {
+    final v = _explicitSignIn;
+    _explicitSignIn = false;
+    return v;
+  }
+
   @override
   Future<Session?> build() async {
     // `loggedIn` is a lifetime field captured once by the kaisel guard, so it
@@ -40,6 +51,7 @@ class AuthController extends AsyncNotifier<Session?> {
     state = await AsyncValue.guard(() async {
       final s = await api.login(username: username, password: password);
       await ref.read(sessionStoreProvider).write(s);
+      _explicitSignIn = true;
       loggedIn.value = true;
       return s;
     });
@@ -62,10 +74,22 @@ class AuthController extends AsyncNotifier<Session?> {
         inviteCode: inviteCode,
       );
       await ref.read(sessionStoreProvider).write(s);
+      _explicitSignIn = true;
       loggedIn.value = true;
       return s;
     });
     if (state.hasError) loggedIn.value = false;
+  }
+
+  /// Reflect a server-accepted display-name change in the live session and
+  /// the persisted one (the /api/account/profile call happens in the identity
+  /// editor; this records its result).
+  Future<void> updateDisplayName(String displayName) async {
+    final current = state.value;
+    if (current == null) return;
+    final next = current.copyWith(displayName: displayName);
+    await ref.read(sessionStoreProvider).write(next);
+    state = AsyncData(next);
   }
 
   Future<void> logout() async {
@@ -75,5 +99,6 @@ class AuthController extends AsyncNotifier<Session?> {
   }
 }
 
-final authControllerProvider =
-    AsyncNotifierProvider<AuthController, Session?>(AuthController.new);
+final authControllerProvider = AsyncNotifierProvider<AuthController, Session?>(
+  AuthController.new,
+);

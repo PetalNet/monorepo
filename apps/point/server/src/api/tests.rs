@@ -743,3 +743,199 @@ async fn keypackage_replace_drops_stale_pool(pool: PgPool) {
     let (_, count) = send(&app, "GET", "/api/mls/keys/count", Some(&alice), None).await;
     assert_eq!(count["count"], 1);
 }
+
+// ---------------------------------------------------------------------------
+// Wave B: profile, privacy (who_can_add_me), avatar
+// ---------------------------------------------------------------------------
+
+#[sqlx::test]
+async fn profile_update_sanitizes_and_persists(pool: PgPool) {
+    let app = app(&pool, true);
+    let (_, alice) = register(&app, "alice", "password-1", None).await;
+    let alice = token_of(&alice);
+
+    let (status, v) = send(
+        &app,
+        "PUT",
+        "/api/account/profile",
+        Some(&alice),
+        Some(json!({ "display_name": "  <b>Alice</b> P. " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["display_name"], "bAlice/b P.");
+
+    let (_, me) = send(&app, "GET", "/api/me", Some(&alice), None).await;
+    assert_eq!(me["display_name"], "bAlice/b P.");
+
+    // Nothing-left-after-sanitizing is a 400, not an empty name.
+    let (status, _) = send(
+        &app,
+        "PUT",
+        "/api/account/profile",
+        Some(&alice),
+        Some(json!({ "display_name": "\u{202E}\u{200B}" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test]
+async fn who_can_add_me_nobody_silently_drops_requests(pool: PgPool) {
+    let app = app(&pool, true);
+    let (_, alice) = register(&app, "alice", "password-1", None).await;
+    let alice = token_of(&alice);
+    let (_, bob) = register(&app, "bob", "password-1", None).await;
+    let bob = token_of(&bob);
+
+    let (status, v) = send(
+        &app,
+        "PUT",
+        "/api/account/privacy",
+        Some(&alice),
+        Some(json!({ "who_can_add_me": "nobody" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["who_can_add_me"], "nobody");
+
+    // Bob's ask returns the same generic ok as any other outcome...
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&bob),
+        Some(json!({ "to_user_id": format!("alice@{DOMAIN}") })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    // ...but nothing lands in Alice's inbox.
+    let (_, reqs) = send(&app, "GET", "/api/shares/requests", Some(&alice), None).await;
+    assert_eq!(reqs.as_array().map(Vec::len), Some(0));
+
+    // Alice can still initiate outward: 'nobody' gates inbound only.
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&alice),
+        Some(json!({ "to_user_id": format!("bob@{DOMAIN}") })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, reqs) = send(&app, "GET", "/api/shares/requests", Some(&bob), None).await;
+    assert_eq!(reqs.as_array().map(Vec::len), Some(1));
+
+    // Bad value is an honest 400.
+    let (status, _) = send(
+        &app,
+        "PUT",
+        "/api/account/privacy",
+        Some(&alice),
+        Some(json!({ "who_can_add_me": "friends" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test]
+async fn avatar_roundtrip_is_relationship_gated(pool: PgPool) {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let app = app(&pool, true);
+    let (_, alice) = register(&app, "alice", "password-1", None).await;
+    let alice = token_of(&alice);
+    let (_, bob) = register(&app, "bob", "password-1", None).await;
+    let bob = token_of(&bob);
+    let (_, mallory) = register(&app, "mallory", "password-1", None).await;
+    let mallory = token_of(&mallory);
+
+    // A tiny valid PNG header + payload (magic bytes are what the server sniffs).
+    let png: Vec<u8> = [
+        &[0x89u8, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A][..],
+        &[0u8; 32][..],
+    ]
+    .concat();
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/account/avatar",
+        Some(&alice),
+        Some(json!({ "data": b64.encode(&png), "mime": "image/png" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, me) = send(&app, "GET", "/api/me", Some(&alice), None).await;
+    assert_eq!(me["has_avatar"], true);
+
+    // Mime/bytes mismatch and oversize are rejected.
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/account/avatar",
+        Some(&alice),
+        Some(json!({ "data": b64.encode(&png), "mime": "image/jpeg" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let big = [&png[..], &vec![0u8; 128 * 1024][..]].concat();
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/account/avatar",
+        Some(&alice),
+        Some(json!({ "data": b64.encode(&big), "mime": "image/png" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // A stranger sees 404; a pending requester may look; self always may.
+    let (status, _) = send(
+        &app,
+        "GET",
+        &format!("/api/users/alice@{DOMAIN}/avatar"),
+        Some(&mallory),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = send(
+        &app,
+        "GET",
+        &format!("/api/users/alice@{DOMAIN}/avatar"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, _) = send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&bob),
+        Some(json!({ "to_user_id": format!("alice@{DOMAIN}") })),
+    )
+    .await;
+    let (status, _) = send(
+        &app,
+        "GET",
+        &format!("/api/users/alice@{DOMAIN}/avatar"),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Delete returns to the monogram (404 even for self).
+    let (status, _) = send(&app, "DELETE", "/api/account/avatar", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = send(
+        &app,
+        "GET",
+        &format!("/api/users/alice@{DOMAIN}/avatar"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

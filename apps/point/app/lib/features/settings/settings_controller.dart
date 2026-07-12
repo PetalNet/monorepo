@@ -20,7 +20,6 @@ class SettingsController extends Notifier<AppSettings> {
   static const _key = 'point.settings';
 
   final Completer<void> _loaded = Completer<void>();
-  bool _touched = false;
 
   /// Resolves once the persisted settings are in [state] (or confirmed
   /// absent). After this, synchronous reads are trustworthy.
@@ -38,9 +37,7 @@ class SettingsController extends Notifier<AppSettings> {
   Future<void> _load() async {
     try {
       final raw = await _storage.read(key: _key);
-      // An explicit change that landed while the read was in flight wins over
-      // the stale persisted blob.
-      if (raw != null && !_touched) {
+      if (raw != null) {
         state = AppSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
       }
     } on Object {
@@ -51,10 +48,21 @@ class SettingsController extends Notifier<AppSettings> {
     }
   }
 
-  Future<void> update(AppSettings Function(AppSettings) change) async {
-    _touched = true;
-    state = change(state);
-    await _storage.write(key: _key, value: jsonEncode(state.toJson()));
+  Future<void> _writeTail = Future<void>.value();
+
+  Future<void> update(AppSettings Function(AppSettings) change) {
+    // Serialize behind the initial load (an update racing it would fork from
+    // the DEFAULTS and persist them over every saved setting) AND behind any
+    // in-flight write (two racing updates would last-writer-win the whole
+    // blob, dropping the earlier change from disk).
+    final task = _writeTail.then((_) async {
+      await _loaded.future;
+      state = change(state);
+      await _storage.write(key: _key, value: jsonEncode(state.toJson()));
+    });
+    // The chain survives a failed write; the failure still reaches the caller.
+    _writeTail = task.then((_) {}, onError: (Object _) {});
+    return task;
   }
 
   /// Apply the onboarding privacy fork: one plain-language choice sets the

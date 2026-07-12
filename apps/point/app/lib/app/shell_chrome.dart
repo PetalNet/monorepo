@@ -20,7 +20,7 @@ class ShellChrome extends StatelessWidget {
   static const List<(IconData, IconData, String)> _destinations = [
     (Icons.near_me_outlined, Icons.near_me, 'Map'),
     (Icons.people_alt_outlined, Icons.people_alt, 'People'),
-    (Icons.person_outline, Icons.person, 'You'),
+    (Icons.person_outline, Icons.person, 'Me'),
   ];
 
   @override

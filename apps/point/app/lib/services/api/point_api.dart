@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:point_app/services/api/models.dart';
@@ -95,6 +96,71 @@ class PointApi {
     );
     if (r.statusCode != 200) _fail(r);
     return Session.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
+  }
+
+  // --- Profile / privacy (Wave B: the Me tab) ------------------------------
+
+  /// The signed-in user's full profile row.
+  Future<MeProfile> getMe(String token) async {
+    final r = await _client.get(_u('/api/me'), headers: _headers(token));
+    if (r.statusCode != 200) _fail(r);
+    return MeProfile.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
+  }
+
+  /// Change my display name; returns the server-sanitized result.
+  Future<String> updateProfile(String token, String displayName) async {
+    final r = await _client.put(
+      _u('/api/account/profile'),
+      headers: _headers(token),
+      body: jsonEncode({'display_name': displayName}),
+    );
+    if (r.statusCode != 200) _fail(r);
+    final v = jsonDecode(r.body) as Map<String, dynamic>;
+    return v['display_name'] as String;
+  }
+
+  /// Who may open a share request to me: anyone | same_server | nobody.
+  Future<void> updatePrivacy(String token, String whoCanAddMe) async {
+    final r = await _client.put(
+      _u('/api/account/privacy'),
+      headers: _headers(token),
+      body: jsonEncode({'who_can_add_me': whoCanAddMe}),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  /// Set my photo-dot (jpeg/png/webp bytes, <=128 KiB).
+  Future<void> uploadAvatar(
+    String token,
+    List<int> bytes, {
+    required String mime,
+  }) async {
+    final r = await _client.post(
+      _u('/api/account/avatar'),
+      headers: _headers(token),
+      body: jsonEncode({'data': base64Encode(bytes), 'mime': mime}),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  Future<void> deleteAvatar(String token) async {
+    final r = await _client.delete(
+      _u('/api/account/avatar'),
+      headers: _headers(token),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  /// A person's photo-dot bytes, or null when they have none (or the server
+  /// gates it: strangers see the same 404 as no-avatar).
+  Future<Uint8List?> fetchAvatar(String token, String userId) async {
+    final r = await _client.get(
+      _u('/api/users/$userId/avatar'),
+      headers: _headers(token),
+    );
+    if (r.statusCode == 404) return null;
+    if (r.statusCode != 200) _fail(r);
+    return r.bodyBytes;
   }
 
   // --- Sharing / people ---------------------------------------------------

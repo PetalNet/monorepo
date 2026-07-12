@@ -217,6 +217,21 @@ async fn handle_share_request(
         AppError::BadRequest("share.request: missing/invalid identity_key".into())
     })?;
 
+    // Recipient gate FIRST, before any pin/shadow-row writes: a nonexistent
+    // recipient and a blocked one must be indistinguishable from outside
+    // (both the same generic ok), or the difference becomes an existence
+    // oracle. who_can_add_me (Wave B): a federated ask is blocked by both
+    // 'nobody' and 'same_server'.
+    let gate: Option<(String,)> =
+        sqlx::query_as("SELECT who_can_add_me FROM users WHERE id = $1 AND NOT is_federated")
+            .bind(recipient)
+            .fetch_optional(&state.pool)
+            .await?;
+    match gate {
+        Some((ref v,)) if v == "anyone" => {}
+        _ => return Ok(json!({ "ok": true })),
+    }
+
     ensure_federated_user(&state.pool, sender).await?;
     tofu_pin(&state.pool, recipient, sender, &key_hash).await?;
 

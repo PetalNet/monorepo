@@ -44,6 +44,13 @@ pub fn router(state: AppState) -> Router {
         .route("/api/me", get(account::me))
         .route("/api/account", delete(account::delete_account))
         .route("/api/account/password", put(account::change_password))
+        .route("/api/account/profile", put(account::update_profile))
+        .route("/api/account/privacy", put(account::update_privacy))
+        .route(
+            "/api/account/avatar",
+            post(account::upload_avatar).delete(account::delete_avatar),
+        )
+        .route("/api/users/{user_id}/avatar", get(account::get_user_avatar))
         .route("/api/fcm/token", post(account::register_fcm_token))
         .route(
             "/api/invites",

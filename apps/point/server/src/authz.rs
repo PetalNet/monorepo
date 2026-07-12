@@ -225,3 +225,31 @@ async fn shares_group_with_target_broadcasting(
     .await?;
     Ok(row.is_some())
 }
+
+/// May `requester` view `target`'s profile surface (today: the avatar)?
+///
+/// Everything `can_fetch_key_packages` allows, plus a PENDING share request
+/// in either direction: you get to see who is asking before you answer, and
+/// the person you asked can see you while deciding. Fail-closed like every
+/// gate in this module.
+pub async fn can_view_profile(
+    pool: &PgPool,
+    requester: &str,
+    target: &str,
+) -> Result<bool, sqlx::Error> {
+    if can_fetch_key_packages(pool, requester, target).await? {
+        return Ok(true);
+    }
+    let pending: Option<(i32,)> = sqlx::query_as(
+        "SELECT 1 FROM share_requests
+         WHERE ((from_user_id = $1 AND to_user_id = $2)
+             OR (from_user_id = $2 AND to_user_id = $1))
+           AND status = 'pending'
+         LIMIT 1",
+    )
+    .bind(requester)
+    .bind(target)
+    .fetch_optional(pool)
+    .await?;
+    Ok(pending.is_some())
+}

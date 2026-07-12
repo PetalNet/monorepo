@@ -8,11 +8,15 @@ class AnimatedBranchStack extends StatefulWidget {
   const AnimatedBranchStack({
     required this.activeBranch,
     required this.branches,
+    this.reduced = false,
     super.key,
   });
 
   final int activeBranch;
   final List<Widget> branches;
+
+  /// Reduce-motion: swap branches with no cross-fade (state still survives).
+  final bool reduced;
 
   @override
   State<AnimatedBranchStack> createState() => _AnimatedBranchStackState();
@@ -34,7 +38,11 @@ class _AnimatedBranchStackState extends State<AnimatedBranchStack>
     if (widget.activeBranch != _current) {
       _previous = _current;
       _current = widget.activeBranch;
-      _controller.forward(from: 0);
+      if (widget.reduced) {
+        _controller.value = 1;
+      } else {
+        _controller.forward(from: 0);
+      }
     }
   }
 
@@ -53,8 +61,7 @@ class _AnimatedBranchStackState extends State<AnimatedBranchStack>
         return Stack(
           fit: StackFit.expand,
           children: [
-            for (var i = 0; i < widget.branches.length; i++)
-              _branch(i, t),
+            for (var i = 0; i < widget.branches.length; i++) _branch(i, t),
           ],
         );
       },

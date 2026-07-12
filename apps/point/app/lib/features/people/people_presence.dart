@@ -1,6 +1,11 @@
+import 'package:geolocator/geolocator.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:point_app/features/location/data/location_service.dart';
+import 'package:point_app/features/location/self_location_provider.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
+import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/presence_tokens.dart';
@@ -21,12 +26,35 @@ String relativeSince(int epochMillis, {DateTime? now}) {
   return '${delta.inDays}d';
 }
 
-/// Local wall-clock `HH:MM` (24h, tabular) for a "dark since" line.
-String clockHm(int epochMillis) {
+/// Local wall-clock time for a "dark since" line, honoring the clock-format
+/// setting: `16:05` (24h, tabular) or `4:05 pm`.
+String clockHm(int epochMillis, {TimeFormat format = TimeFormat.h24}) {
   final t = DateTime.fromMillisecondsSinceEpoch(epochMillis);
-  final h = t.hour.toString().padLeft(2, '0');
   final m = t.minute.toString().padLeft(2, '0');
-  return '$h:$m';
+  if (format == TimeFormat.h24) {
+    return '${t.hour.toString().padLeft(2, '0')}:$m';
+  }
+  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  final suffix = t.hour < 12 ? 'am' : 'pm';
+  return '$h:$m $suffix';
+}
+
+/// A distance from you, in the units you chose. Short ranges keep a finer
+/// grain (`420 ft` / `310 m`), long ones round.
+String formatDistance(double meters, DistanceUnits units) {
+  switch (units) {
+    case DistanceUnits.miles:
+      final mi = meters / 1609.344;
+      if (mi < 0.095) return '${(meters * 3.28084).round()} ft';
+      // 9.95+ would render '10.0': hand it to the whole-number branch.
+      if (mi < 9.95) return '${mi.toStringAsFixed(1)} mi';
+      return '${mi.round()} mi';
+    case DistanceUnits.kilometers:
+      if (meters < 950) return '${meters.round()} m';
+      final km = meters / 1000;
+      if (km < 9.95) return '${km.toStringAsFixed(1)} km';
+      return '${km.round()} km';
+  }
 }
 
 /// A 30-second heartbeat so staleness (→ dark) and relative-time labels
@@ -45,20 +73,28 @@ final presenceClockProvider = StreamProvider<DateTime>(
 /// - stale fix (older than [darkAfter]) ⇒ `stale` = DARK: frozen last-known
 ///   coordinate retained but "Dark since HH:MM"; the map won't plot them live;
 /// - no fix ⇒ unchanged (accepted-but-not-yet-located, or long dark).
-Person mergePresence(Person p, PeerFix? fix, {String? selfDomain, DateTime? now}) {
+Person mergePresence(
+  Person p,
+  PeerFix? fix, {
+  String? selfDomain,
+  DateTime? now,
+  TimeFormat timeFormat = TimeFormat.h24,
+}) {
   if (fix == null) return p;
   final lat = (fix.data['lat'] as num?)?.toDouble();
   final lon = (fix.data['lon'] as num?)?.toDouble();
   final ts = (fix.data['timestamp'] as num?)?.toInt();
   if (lat == null || lon == null) return p;
   final at = now ?? DateTime.now();
-  final dark = ts != null &&
+  final dark =
+      ts != null &&
       at.difference(DateTime.fromMillisecondsSinceEpoch(ts)) > darkAfter;
   final domain = p.userId.contains('@') ? p.userId.split('@').last : null;
-  final federated = domain != null && selfDomain != null && domain != selfDomain;
+  final federated =
+      domain != null && selfDomain != null && domain != selfDomain;
   final String subtitle;
   if (dark) {
-    subtitle = 'Dark since ${clockHm(ts)}';
+    subtitle = 'Dark since ${clockHm(ts, format: timeFormat)}';
   } else {
     final ago = ts != null ? relativeSince(ts, now: at) : 'now';
     subtitle = federated ? '${p.userId} · $ago' : 'Sharing · $ago';
@@ -81,10 +117,45 @@ final peopleWithPresenceProvider = Provider<List<Person>>((ref) {
   final live = ref.watch(livePresenceProvider);
   final now = ref.watch(presenceClockProvider).value ?? DateTime.now();
   final self = ref.watch(authControllerProvider).value?.userId;
-  final selfDomain =
-      self != null && self.contains('@') ? self.split('@').last : null;
+  final selfDomain = self != null && self.contains('@')
+      ? self.split('@').last
+      : null;
+  final units = ref.watch(settingsProvider.select((s) => s.units));
+  final timeFormat = ref.watch(settingsProvider.select((s) => s.timeFormat));
+  final selfFix = ref.watch(selfLocationProvider).value;
   return [
     for (final p in people)
-      mergePresence(p, live[p.userId], selfDomain: selfDomain, now: now),
+      _withDistance(
+        mergePresence(
+          p,
+          live[p.userId],
+          selfDomain: selfDomain,
+          now: now,
+          timeFormat: timeFormat,
+        ),
+        selfFix,
+        units,
+      ),
   ];
 });
+
+/// Attach "how far from me" once a person AND self are both located. Pure
+/// presentation: the label re-derives per settings change.
+Person _withDistance(Person p, Fix? selfFix, DistanceUnits units) {
+  if (selfFix == null || !p.hasLocation) return p;
+  final meters = Geolocator.distanceBetween(
+    selfFix.lat,
+    selfFix.lon,
+    p.lat!,
+    p.lon!,
+  );
+  return Person(
+    userId: p.userId,
+    displayName: p.displayName,
+    presence: p.presence,
+    subtitle: p.subtitle,
+    distanceLabel: formatDistance(meters, units),
+    lat: p.lat,
+    lon: p.lon,
+  );
+}

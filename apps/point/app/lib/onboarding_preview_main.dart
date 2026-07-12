@@ -1,8 +1,18 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/auth/presentation/login_screen.dart';
+import 'package:point_app/features/ghost/ghost_controller.dart';
+import 'package:point_app/features/me/presentation/about_screen.dart';
+import 'package:point_app/features/me/presentation/account_screen.dart';
+import 'package:point_app/features/me/presentation/identity_screen.dart';
+import 'package:point_app/features/me/presentation/look_feel_screen.dart';
+import 'package:point_app/features/me/presentation/me_screen.dart';
+import 'package:point_app/features/me/presentation/notifications_settings_screen.dart';
+import 'package:point_app/features/me/presentation/privacy_settings_screen.dart';
 import 'package:point_app/features/onboarding/presentation/distributor_guide_screen.dart';
 import 'package:point_app/features/onboarding/presentation/location_permission_screen.dart';
 import 'package:point_app/features/onboarding/presentation/privacy_fork_screen.dart';
@@ -31,6 +41,13 @@ void main() {
       'privacy' => const PrivacyForkScreen(),
       'distributor' => const DistributorGuideScreen(),
       'location' => const LocationPermissionScreen(),
+      'me' => const MeScreen(),
+      'privacy-settings' => const PrivacySettingsScreen(),
+      'look' => const LookFeelScreen(),
+      'notifications' => const NotificationsSettingsScreen(),
+      'account' => const AccountScreen(),
+      'about' => const AboutScreen(),
+      'identity' => const IdentityScreen(),
       _ => const ServerPickScreen(),
     },
   );
@@ -39,6 +56,7 @@ void main() {
       overrides: [
         authControllerProvider.overrideWith(_Auth.new),
         recoveryServiceProvider.overrideWith(_FakeRecovery.new),
+        ghostControllerProvider.overrideWith(_FakeGhost.new),
         apiProvider.overrideWith((ref) => _FakeApi()),
       ],
       child: MaterialApp.router(
@@ -71,6 +89,12 @@ class _FakeRecovery extends RecoveryService {
       '4WPNVJ-M3H1KD-8XQ2TS-5RGZC9';
 }
 
+/// Broadcasting, no network.
+class _FakeGhost extends GhostController {
+  @override
+  Future<GhostState> build() async => const GhostState(active: false);
+}
+
 /// No network in the preview: the recovery screen's backup probe sees a
 /// stored backup so the cached-phrase path renders.
 class _FakeApi extends PointApi {
@@ -80,4 +104,16 @@ class _FakeApi extends PointApi {
   Future<({String blobBase64, String updatedAt})?> getRecoveryBackup(
     String token,
   ) async => (blobBase64: '', updatedAt: '');
+
+  @override
+  Future<MeProfile> getMe(String token) async => const MeProfile(
+    userId: 'parker@point.petalcat.dev',
+    displayName: 'Parker H',
+    whoCanAddMe: 'anyone',
+    hasAvatar: false,
+    ghostActive: false,
+  );
+
+  @override
+  Future<Uint8List?> fetchAvatar(String token, String userId) async => null;
 }

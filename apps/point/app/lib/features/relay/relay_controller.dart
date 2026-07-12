@@ -56,6 +56,14 @@ class RelayController {
   static const _poolFloor = 5;
 
   Future<void> start(Session session) async {
+    // Defensive idempotence: a repeat start for the same session is a no-op,
+    // and a different session tears the old stack down first. Without this a
+    // re-entrant start stacks WS/fix subscriptions and double-processes MLS
+    // messages.
+    if (_ws != null) {
+      if (_session?.userId == session.userId) return;
+      await stop();
+    }
     _session = session;
     final api = _ref.read(apiProvider);
     final crypto = _ref.read(cryptoServiceProvider);
