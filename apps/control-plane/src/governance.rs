@@ -105,6 +105,16 @@ impl Governor {
         }
     }
 
+    /// Drop expired grant records so the map doesn't grow without bound as
+    /// agents come and go (adversarial-review #4). Returns how many were
+    /// pruned. `pool_available` already ignores expired grants, so this is
+    /// pure memory hygiene, not a semantic change.
+    pub fn prune_expired(&mut self, now_epoch: i64) -> usize {
+        let before = self.grants.len();
+        self.grants.retain(|_, g| g.expires_epoch > now_epoch);
+        before - self.grants.len()
+    }
+
     /// Does this agent hold an unexpired budget grant? (Restart recovery:
     /// the caller re-grants when this is false — codex P1.)
     pub fn has_live_grant(&self, agent: &str, now_epoch: i64) -> bool {
@@ -195,8 +205,11 @@ impl Governor {
         let recent = usages
             .values()
             .filter(|u| {
-                u.last_rate_limited_epoch > 0
-                    && now_epoch - u.last_rate_limited_epoch <= self.cascade_window_secs
+                let age = now_epoch - u.last_rate_limited_epoch;
+                // age >= 0 rejects future timestamps (clock skew / spoof), so
+                // a bogus future epoch can't count as "recent" forever
+                // (adversarial-review #6).
+                u.last_rate_limited_epoch > 0 && age >= 0 && age <= self.cascade_window_secs
             })
             .count();
         if recent >= self.cascade_agents {
@@ -300,6 +313,35 @@ mod tests {
             "old grant still held after refusal"
         );
         assert_eq!(g.light("a", &usage(0), 50), Light::Green, "grant survived");
+    }
+
+    #[test]
+    fn prune_expired_reclaims_grant_slots() {
+        let mut g = Governor::new(100_000);
+        g.grant("a", 60_000, 100, 0).unwrap();
+        g.grant("b", 30_000, 1000, 0).unwrap();
+        // At t=150 a's [0,100) lease is expired; prune drops exactly it.
+        assert_eq!(g.prune_expired(150), 1);
+        assert!(!g.has_live_grant("a", 150));
+        assert!(g.has_live_grant("b", 150));
+    }
+
+    #[test]
+    fn future_rate_limit_epoch_does_not_trip_cascade() {
+        let g = Governor::new(1_000_000);
+        let mut usages = BTreeMap::new();
+        for agent in ["a", "b", "c"] {
+            usages.insert(
+                agent.to_string(),
+                Usage {
+                    tokens_spent: 0,
+                    rate_limit_hits: 1,
+                    last_rate_limited_epoch: 10_000, // far in the future vs now=100
+                    tier: None,
+                },
+            );
+        }
+        assert_eq!(g.fleet_mode(&usages, 100), FleetMode::Parallel);
     }
 
     #[test]

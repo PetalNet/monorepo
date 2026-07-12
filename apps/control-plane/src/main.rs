@@ -53,7 +53,13 @@ fn main() {
 fn run(cfg: Config) -> Result<(), String> {
     let registry = Registry::open(&cfg.db_path)?;
     let vault = FileVault::open(&cfg.vault_dir)?;
-    let _authority = TokenAuthority { store: &vault }; // exercised via RPC methods as they land
+    // The token authority is constructed but not yet consulted per-envelope:
+    // the ingest spool has no place to carry a token, so envelope `agent` is
+    // self-asserted until the doorman backchannel (N1.4) authenticates the
+    // connection and delivers a token to verify here. Until then the spool
+    // dir is the trust boundary (must be OS-protected local), and #1's
+    // canonical-handle gate bounds the blast radius. (adversarial-review #3)
+    let _authority = TokenAuthority { store: &vault };
     let mut governor = Governor::new(cfg.pool_tokens);
     let discipline = Discipline {
         grace_secs: cfg.discipline_grace_secs,
@@ -121,10 +127,11 @@ fn run(cfg: Config) -> Result<(), String> {
 
         if last_governance.elapsed() >= Duration::from_secs(cfg.governance_interval_secs) {
             last_governance = Instant::now();
+            governor.prune_expired(now_epoch()); // memory hygiene (adversarial-review #4)
             governance_pass(
                 &governor,
                 &usages,
-                &mut tiers,
+                &tiers,
                 &registry,
                 &transport,
                 &mut last_actions,
@@ -182,9 +189,11 @@ fn ingest_pass(
             }
         }
         if !failed.is_empty() {
+            // Kept for human triage (rare); everything else is deleted so the
+            // ingest dir doesn't grow without bound (adversarial-review #5).
             let _ = std::fs::write(path.with_extension("failed"), failed.join("\n") + "\n");
         }
-        let _ = std::fs::rename(&working, path.with_extension("done"));
+        let _ = std::fs::remove_file(&working);
     }
     Ok(processed)
 }
@@ -199,6 +208,18 @@ fn handle_envelope(
 ) -> Result<(), String> {
     let envelope: Envelope = serde_json::from_str(line).map_err(|e| e.to_string())?;
     envelope.validate()?;
+    // The envelope agent flows into governance/registry keys and (via
+    // governance actions) into a SpoolTransport filename. Reject a
+    // non-canonical handle HERE so a crafted usage.report can't poison
+    // governance and crash the loop on the next tick (adversarial-review #1).
+    // NOTE: until doorman authenticates the connection (CP11), the ingest
+    // spool is a trust boundary — `agent` is self-asserted, not proven; the
+    // spool dir must be an OS-protected local directory. TokenAuthority
+    // (vault-backed) is the mechanism that will verify parties once the
+    // backchannel carries a token.
+    if !dispatcher::card::is_canonical_handle(&envelope.agent) {
+        return Err(format!("non-canonical envelope agent {:?}", envelope.agent));
+    }
     let now = now_epoch();
     match envelope.method.as_deref() {
         Some("agent.capacity") => {
@@ -258,7 +279,7 @@ fn handle_envelope(
 fn governance_pass(
     governor: &Governor,
     usages: &BTreeMap<String, Usage>,
-    tiers: &mut BTreeMap<String, Tier>,
+    tiers: &BTreeMap<String, Tier>,
     registry: &Registry,
     transport: &dyn CardTransport,
     last_actions: &mut BTreeMap<String, Action>,
@@ -266,26 +287,49 @@ fn governance_pass(
 ) -> Result<(), String> {
     let now = now_epoch();
     for (agent, usage) in usages {
+        // Trust the agent's self-reported tier only (set from usage.report);
+        // do NOT ratchet it from our own emitted downgrades, or a yellow↔green
+        // oscillation would walk it Opus→Sonnet→Haiku and never recover
+        // (adversarial-review #2). Opus is the never-reported fallback.
         let tier = tiers.get(agent).copied().unwrap_or(Tier::Opus);
         let action = governor.decide(agent, usage, tier, now);
-        let unchanged = last_actions.get(agent) == Some(&action);
+        let previous = last_actions.get(agent).cloned();
+        if last_actions.get(agent) == Some(&action) {
+            continue; // edge-triggered: no change, no re-emit
+        }
         last_actions.insert(agent.clone(), action.clone());
-        if action == Action::None || unchanged {
+
+        // Recovery is an EDGE too: a non-None → None transition must tell the
+        // manager to lift its override / un-pause (adversarial-review #2 —
+        // otherwise a downgraded or paused agent stays that way forever).
+        if action == Action::None {
+            if matches!(previous, Some(p) if p != Action::None) {
+                if let Err(e) = deliver_event(
+                    transport,
+                    agent,
+                    "governance.action",
+                    serde_json::json!({ "action": "restore" }),
+                ) {
+                    eprintln!("control-plane: restore delivery for {agent} failed: {e}");
+                } else {
+                    eprintln!("control-plane: {agent} → restore (recovered to green)");
+                }
+            }
             continue;
         }
-        deliver_event(
-            transport,
-            agent,
-            "governance.action",
-            serde_json::to_value(&action).map_err(|e| e.to_string())?,
-        )?;
-        // Track the tier we just instructed, so a persisting yellow steps
-        // down one tier per decision change instead of re-targeting Sonnet
-        // forever (the agent's next usage.report confirms or corrects).
-        if let Action::Downgrade { to } = &action {
-            tiers.insert(agent.clone(), *to);
+
+        // A single delivery failure must not abort the whole governance loop
+        // (adversarial-review #1): log and move on.
+        match serde_json::to_value(&action) {
+            Ok(payload) => {
+                if let Err(e) = deliver_event(transport, agent, "governance.action", payload) {
+                    eprintln!("control-plane: action delivery for {agent} failed: {e}");
+                } else {
+                    eprintln!("control-plane: {agent} → {action:?}");
+                }
+            }
+            Err(e) => eprintln!("control-plane: could not encode action for {agent}: {e}"),
         }
-        eprintln!("control-plane: {agent} → {action:?}");
     }
 
     // Cascade: fleet mode is APPLIED, not just logged (codex P1) — an

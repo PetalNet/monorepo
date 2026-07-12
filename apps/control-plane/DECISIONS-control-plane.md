@@ -26,3 +26,31 @@ discipline) and DAG N2.2 ("Manager as control plane").
 
 Branch-only in the backend-fable monorepo clone; no live service/config/DB touched;
 tests on temp dirs/DBs; build caps CARGO_BUILD_JOBS=2 + nice.
+
+## Review round (2026-07-12): codex + adversarial findings, all fixed
+
+Codex (Sol) P1s, all fixed with tests: grants lost on restart → re-grant whenever an agent
+has no live lease (`has_live_grant`); phantom Haiku→Sonnet "upgrade" → tier is self-reported
+in usage.report, never assumed; discipline trusted the event's own task_id as lease state →
+real tracker lease lookup (`tracker_db_path`; pass disabled without it) + working-grace timer
+keyed on the observed status transition, not session start; vault filename `:`→`__` collided
+with legitimate underscores → injective `:`→`+`; cascade fleet mode only logged → applied as
+edge-triggered `fleet.mode` events on engage AND release.
+
+Adversarial review, all fixed:
+| Finding | Fix |
+|---|---|
+| MAJOR: non-canonical `envelope.agent` in usage.report poisoned governance and crashed the loop via SpoolTransport's handle rejection (DoS) | canonical-handle gate at the top of handle_envelope; governance_pass logs-and-continues per agent instead of `?`-aborting. Verified: a hostile line is refused to `.failed` and the daemon survives |
+| MAJOR: governance was one-way — a downgraded/paused agent was never told to recover, and yellow↔green oscillation ratcheted the tier down forever | recovery is an edge: non-None→None emits a `restore` action; the emitted-downgrade self-mutation of `tiers` was removed (tier comes only from the agent's self-report) |
+| MAJOR: envelope identity self-asserted; TokenAuthority dead code | documented as the doorman-deferred trust boundary (CP11/N1.4) at the construction site and the ingest gate; blast radius bounded by the canonical-handle gate |
+| MINOR: unbounded grant map | `prune_expired` each governance tick |
+| MINOR: ingest `.done`/`.working` files accumulated | `.working` deleted after processing; only rare `.failed` kept for triage |
+| MINOR: future rate-limit epoch counted as "recent" forever | `age >= 0` clamp in fleet_mode |
+| MINOR: vault tmp file briefly umask-readable before chmod | temp file opened `mode(0o600)` up front |
+
+Residual (accepted): per-agent in-memory maps (usages/tiers/nagged/status_since) and the
+SQLite capacity table key on agent handle and aren't swept for long-dead agents; with the
+canonical-handle gate the key space is the bounded real fleet, and eviction of down agents
+is follow-up hygiene. Daemon glue (handle_envelope/governance_pass) has no in-proc test yet
+— the decision logic under it is unit-tested; the DoS + recovery paths were verified by
+driving the real binary.

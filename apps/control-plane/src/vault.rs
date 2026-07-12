@@ -79,12 +79,24 @@ impl CredStore for FileVault {
         let path = self.path_for(&cred.name)?;
         let tmp = path.with_extension("tmp");
         let body = serde_json::to_string_pretty(cred).map_err(|e| e.to_string())?;
-        std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
+        // Create the temp file 0600 UP FRONT so the plaintext secret is never
+        // briefly umask-readable (adversarial-review #7).
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&tmp)
                 .map_err(|e| e.to_string())?;
+            f.write_all(body.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
         }
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
     }
