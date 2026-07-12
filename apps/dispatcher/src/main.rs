@@ -53,7 +53,7 @@ fn main() {
 fn run(cfg: Config) -> Result<(), String> {
     let board = Board::open(&cfg.db_path).map_err(|e| e.to_string())?;
 
-    let mut roster = Roster::new(cfg.principals.clone());
+    let mut roster = Roster::new(cfg.principals.clone(), cfg.system_senders.clone());
     let tracker: Option<SqliteTracker> = match &cfg.tracker_db_path {
         Some(p) => {
             let t = SqliteTracker::open(p)?;
@@ -235,7 +235,9 @@ fn digest_pass(
         if !roster.is_active_agent(&recipient) {
             continue;
         }
-        let deferred = board.deferred_for(&recipient).map_err(|e| e.to_string())?;
+        let deferred = board
+            .deferred_for(&recipient, now_ms())
+            .map_err(|e| e.to_string())?;
         if deferred.is_empty() {
             continue;
         }

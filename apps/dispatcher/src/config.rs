@@ -22,6 +22,10 @@ pub struct Config {
     /// Matrix user ids treated as principals (Parker/Eli).
     #[serde(default)]
     pub principals: Vec<String>,
+    /// Identities allowed to carry sender_class=system (allowlist, exactly
+    /// like principals — never derived from the sender string).
+    #[serde(default)]
+    pub system_senders: Vec<String>,
     /// Agent registry JSON (array of {handle, capabilities[], active}).
     /// Optional when tracker_db_path is set (the agents table is used).
     #[serde(default)]

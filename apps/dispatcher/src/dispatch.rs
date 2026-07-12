@@ -51,6 +51,11 @@ pub struct InboundMessage {
     pub needs: BTreeSet<String>,
     #[serde(default)]
     pub reply_to: Option<String>,
+    /// Producer-stable idempotency key (e.g. the Matrix event id). When set,
+    /// a replay of the same message — crash recovery, redelivery — is a
+    /// no-op instead of a duplicate task + card.
+    #[serde(default)]
+    pub dedupe_key: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -65,6 +70,8 @@ pub enum Routed {
     InterruptPending { card_id: String },
     /// Queued for the digest / the wanted board.
     Queued { card_id: String, demoted: bool },
+    /// The message's dedupe_key was already processed; nothing was written.
+    Duplicate { card_id: String },
 }
 
 pub struct Dispatcher<'a> {
@@ -98,6 +105,55 @@ impl<'a> Dispatcher<'a> {
 
         let sender_class = self.roster.classify(&msg.sender);
 
+        // Enforce the interrupt model BEFORE any side effect (adversarial-
+        // review #3: a refused card must not have filed a task or posted a
+        // card). For brand-new work (task_id=None) the honor check uses a
+        // sentinel that can never match an active lease — a task that
+        // doesn't exist yet can't be the one being clarified.
+        let active_lease = match (&msg.recipient, self.tracker) {
+            (Some(recipient), Some(t)) => t.active_lease(recipient)?,
+            _ => None,
+        };
+        let enforcement = policy::enforce(
+            msg.interrupt_policy,
+            sender_class,
+            msg.task_id.unwrap_or(-1),
+            active_lease,
+        );
+        if enforcement.demoted {
+            crate::glitchtip::capture_message(
+                &format!(
+                    "interrupt demoted: sender={} requested={:?} class={:?} task={:?}",
+                    msg.sender, msg.interrupt_policy, sender_class, msg.task_id
+                ),
+                "warning",
+            );
+        }
+        let will_interrupt = policy::interrupts(enforcement.effective);
+        if will_interrupt {
+            // Interrupts are addressed by definition (there is someone to
+            // interrupt), and must target a known, active fleet member — an
+            // unknown handle would spool into a dead file forever. Checked
+            // before file_task/post so refusal has zero side effects.
+            let Some(recipient) = &msg.recipient else {
+                return Err("interrupt message has no recipient — refused".into());
+            };
+            if !self.roster.is_active_agent(recipient) {
+                return Err(format!(
+                    "interrupt targets unknown/inactive agent {recipient:?} — refused"
+                ));
+            }
+        }
+
+        // Idempotent replay: if this producer key was already dispatched,
+        // do nothing (checked before file_task so replays don't duplicate
+        // tracker tasks either — adversarial-review #2).
+        if let Some(key) = &msg.dedupe_key {
+            if let Some(card_id) = self.board.dedupe_lookup(key)? {
+                return Ok(Routed::Duplicate { card_id });
+            }
+        }
+
         // Spawn-from-task: resolve or file the tracker task FIRST.
         let task_id = match msg.task_id {
             Some(id) => id,
@@ -116,24 +172,7 @@ impl<'a> Dispatcher<'a> {
             },
         };
 
-        // Enforce the interrupt model against the RECIPIENT's active lease.
-        let active_lease = match (&msg.recipient, self.tracker) {
-            (Some(recipient), Some(t)) => t.active_lease(recipient)?,
-            _ => None,
-        };
-        let enforcement =
-            policy::enforce(msg.interrupt_policy, sender_class, task_id, active_lease);
-        if enforcement.demoted {
-            crate::glitchtip::capture_message(
-                &format!(
-                    "interrupt demoted: sender={} requested={:?} class={:?} task={}",
-                    msg.sender, msg.interrupt_policy, sender_class, task_id
-                ),
-                "warning",
-            );
-        }
-
-        let card_id = self.board.post(
+        let card_id = match self.board.post_deduped(
             &NewCard {
                 task_id,
                 sender: msg.sender.clone(),
@@ -149,23 +188,16 @@ impl<'a> Dispatcher<'a> {
                 parent_id: None,
             },
             now_ms,
-        )?;
-
-        if policy::interrupts(enforcement.effective) {
-            // Interrupts are addressed by definition (there is someone to
-            // interrupt); a pool-work interrupt is a contract violation.
-            let Some(recipient) = &msg.recipient else {
-                return Err(format!(
-                    "interrupt card {card_id} has no recipient — refusing"
-                ));
-            };
-            // An interrupt must target a known, active fleet member — an
-            // unknown handle would spool into a dead file forever.
-            if !self.roster.is_active_agent(recipient) {
-                return Err(format!(
-                    "interrupt card {card_id} targets unknown/inactive agent {recipient:?} — refusing"
-                ));
+            msg.dedupe_key.as_deref(),
+        )? {
+            crate::board::PostOutcome::Posted(id) => id,
+            // Lost a race with a concurrent dispatch of the same message.
+            crate::board::PostOutcome::Duplicate(id) => {
+                return Ok(Routed::Duplicate { card_id: id })
             }
+        };
+
+        if will_interrupt {
             // Wake rate limit (DP10): a throttled interrupt still goes out —
             // after the advised wait + jitter, not never.
             if let Err(wait) = self.wake_bucket.try_take(now_ms) {
@@ -300,7 +332,10 @@ mod tests {
     }
 
     fn roster() -> Roster {
-        let mut r = Roster::new(vec!["@parker:petalnet.example".to_string()]);
+        let mut r = Roster::new(
+            vec!["@parker:petalnet.example".to_string()],
+            vec!["system:watchdog".to_string()],
+        );
         r.upsert_agent(crate::roster::AgentEntry {
             handle: "janet".into(),
             capabilities: BTreeSet::new(),
@@ -321,6 +356,7 @@ mod tests {
             interrupt_policy: policy,
             needs: BTreeSet::new(),
             reply_to: None,
+            dedupe_key: None,
         }
     }
 
@@ -375,7 +411,7 @@ mod tests {
         assert_eq!(card["sender_class"], "principal");
         assert_eq!(card["interrupt_policy"], "principal_command");
         // Delivered interrupts don't reappear in the digest.
-        assert!(board.deferred_for("janet").unwrap().is_empty());
+        assert!(board.deferred_for("janet", 0).unwrap().is_empty());
     }
 
     #[test]
@@ -404,7 +440,7 @@ mod tests {
         let card = board.get(&card_id).unwrap().unwrap();
         assert_eq!(card.interrupt_policy, InterruptPolicy::Defer);
         assert_eq!(card.sender_class, SenderClass::Agent);
-        assert_eq!(board.deferred_for("janet").unwrap().len(), 1);
+        assert_eq!(board.deferred_for("janet", 0).unwrap().len(), 1);
     }
 
     #[test]
@@ -506,7 +542,40 @@ mod tests {
     }
 
     #[test]
-    fn interrupt_to_unknown_agent_is_refused() {
+    fn dedupe_replay_is_a_noop_for_task_and_card() {
+        let board = Board::open_in_memory().unwrap();
+        let r = roster();
+        let t = FakeTracker {
+            active: None,
+            filed: Mutex::new(vec![]),
+        };
+        let tx = CapturingTransport::default();
+        let mut d = dispatcher(&board, &r, &t, &tx);
+        let mut m = msg("@parker:petalnet.example", InterruptPolicy::Defer);
+        m.task_id = None;
+        m.dedupe_key = Some("$evt42".into());
+        let first = d.dispatch(&m, 0, "2026-07-12T11:00:00Z").unwrap();
+        let Routed::Queued { card_id, .. } = &first else {
+            panic!("{first:?}")
+        };
+        // Crash-recovery replay of the same line.
+        let replay = d.dispatch(&m, 100, "2026-07-12T11:00:01Z").unwrap();
+        assert_eq!(
+            replay,
+            Routed::Duplicate {
+                card_id: card_id.clone()
+            }
+        );
+        assert_eq!(t.filed.lock().unwrap().len(), 1, "exactly one task filed");
+        assert_eq!(
+            board.deferred_for("janet", 200).unwrap().len(),
+            1,
+            "one card"
+        );
+    }
+
+    #[test]
+    fn interrupt_to_unknown_agent_is_refused_with_zero_side_effects() {
         let board = Board::open_in_memory().unwrap();
         let r = roster();
         let t = FakeTracker {
@@ -520,7 +589,15 @@ mod tests {
             InterruptPolicy::PrincipalCommand,
         );
         m.recipient = Some("ghost-agent".into());
+        m.task_id = None; // brand-new work — refusal must not file it
         let err = d.dispatch(&m, 0, "2026-07-12T11:00:00Z").unwrap_err();
+        // Adversarial-review #3: refusal happens BEFORE side effects.
+        assert!(t.filed.lock().unwrap().is_empty(), "no task filed");
+        assert!(
+            board.undelivered_interrupts().unwrap().is_empty(),
+            "no orphan card"
+        );
+        assert!(board.distinct_deferred_recipients().unwrap().is_empty());
         assert!(err.contains("unknown/inactive"), "{err}");
     }
 

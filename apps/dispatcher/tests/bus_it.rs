@@ -17,7 +17,7 @@ use dispatcher::tracker::{SqliteTracker, Tracker};
 use dispatcher::wake::TokenBucket;
 
 fn test_roster() -> Roster {
-    let mut r = Roster::new(vec!["@parker:petalnet.example".to_string()]);
+    let mut r = Roster::new(vec!["@parker:petalnet.example".to_string()], vec![]);
     for handle in ["janet", "box-a", "box-b"] {
         r.upsert_agent(AgentEntry {
             handle: handle.into(),
@@ -61,6 +61,7 @@ fn end_to_end_interrupt_reaches_the_spool() {
         interrupt_policy: InterruptPolicy::PrincipalCommand,
         needs: BTreeSet::new(),
         reply_to: None,
+        dedupe_key: Some("$matrix-event-abc123".into()),
     };
     let routed = d.dispatch(&msg, 1_000, "2026-07-12T12:00:00Z").unwrap();
 
@@ -234,21 +235,48 @@ fn pull_workers_and_digest_cover_the_board() {
 
     // janet's addressed card also surfaces to janet in pull mode — but here it
     // goes out via the digest instead.
-    let deferred = board.deferred_for("janet").unwrap();
+    let deferred = board.deferred_for("janet", 0).unwrap();
     assert_eq!(deferred.len(), 1);
     let d = digest::build("janet", &deferred, 10);
     assert_eq!(d.items.len(), 1);
     assert!(digest::render_text(&d).contains("tidy the logs"));
     board.mark_delivered(&d.included_card_ids, 12_000).unwrap();
     assert!(
-        board.deferred_for("janet").unwrap().is_empty(),
+        board.deferred_for("janet", 0).unwrap().is_empty(),
         "digest marks delivered"
     );
     assert_eq!(board.distinct_deferred_recipients().unwrap().len(), 0);
 
-    // The gpu card is still waiting for capacity: park it, then wake on capacity change.
+    // The gpu card has no eligible agent right now: PARK it (blocked-evals
+    // style), verify it stops surfacing even to a capable worker, then wake
+    // it on a capacity-change event and claim it through the real pull path.
+    let gpu_provides: BTreeSet<String> = ["gpu".to_string()].into_iter().collect();
     let gpu_card = board
-        .surface("box-a", &["gpu".to_string()].into_iter().collect(), 20_000)
+        .surface("box-a", &gpu_provides, 20_000)
+        .unwrap()
         .unwrap();
-    assert!(gpu_card.is_some(), "a gpu-capable worker would see it");
+    board.park(&gpu_card.card_id, 20_000).unwrap();
+    assert!(
+        board
+            .surface("box-a", &gpu_provides, 21_000)
+            .unwrap()
+            .is_none(),
+        "parked cards never surface"
+    );
+    assert_eq!(
+        board.wake_parked(22_000).unwrap(),
+        1,
+        "capacity change wakes it"
+    );
+    let woken = board
+        .surface("box-a", &gpu_provides, 23_000)
+        .unwrap()
+        .unwrap();
+    assert_eq!(woken.card_id, gpu_card.card_id);
+    let claimed = board
+        .claim(&woken.card_id, "box-a", 60_000, 23_000)
+        .unwrap();
+    board
+        .complete(&claimed.card_id, "box-a", claimed.fence, Some("ok"), 24_000)
+        .unwrap();
 }

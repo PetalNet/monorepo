@@ -30,13 +30,21 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Default)]
 pub struct Roster {
     principals: BTreeSet<String>,
+    /// Identities allowed to carry sender_class=system. Config-provided,
+    /// exactly like principals — NEVER derived from the sender string
+    /// (adversarial-review #4: "system:" prefixes are attacker-choosable).
+    system_senders: BTreeSet<String>,
     agents: BTreeMap<String, AgentEntry>,
 }
 
 impl Roster {
-    pub fn new(principals: impl IntoIterator<Item = String>) -> Self {
+    pub fn new(
+        principals: impl IntoIterator<Item = String>,
+        system_senders: impl IntoIterator<Item = String>,
+    ) -> Self {
         Roster {
             principals: principals.into_iter().collect(),
+            system_senders: system_senders.into_iter().collect(),
             agents: BTreeMap::new(),
         }
     }
@@ -73,13 +81,14 @@ impl Roster {
         Ok(n)
     }
 
-    /// Stamp the sender class from OUR roster. A sender that is neither a
-    /// principal nor a registered agent is classed `agent` (an unknown outside
-    /// identity gets no interrupt privilege and no system authority).
+    /// Stamp the sender class from OUR roster. Principal and system are both
+    /// config allowlists; everything else — including unknown identities and
+    /// senders CLAIMING a system-ish name — is classed `agent` (no interrupt
+    /// privilege, no system authority).
     pub fn classify(&self, sender: &str) -> SenderClass {
         if self.principals.contains(sender) {
             SenderClass::Principal
-        } else if sender == "dispatcher" || sender.starts_with("system:") {
+        } else if self.system_senders.contains(sender) {
             SenderClass::System
         } else {
             SenderClass::Agent
@@ -115,10 +124,13 @@ mod tests {
     use super::*;
 
     fn roster() -> Roster {
-        let mut r = Roster::new(vec![
-            "@parker:petalnet.example".to_string(),
-            "@eli:petalnet.example".to_string(),
-        ]);
+        let mut r = Roster::new(
+            vec![
+                "@parker:petalnet.example".to_string(),
+                "@eli:petalnet.example".to_string(),
+            ],
+            vec!["dispatcher".to_string(), "system:watchdog".to_string()],
+        );
         r.upsert_agent(AgentEntry {
             handle: "janet".into(),
             capabilities: ["matrix-write", "code"]
@@ -136,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn principals_come_from_config_only() {
+    fn principals_and_system_come_from_config_only() {
         let r = roster();
         assert_eq!(
             r.classify("@parker:petalnet.example"),
@@ -144,8 +156,13 @@ mod tests {
         );
         assert_eq!(r.classify("@mallory:evil.example"), SenderClass::Agent);
         assert_eq!(r.classify("janet"), SenderClass::Agent);
+        // Allowlisted system identities classify as system…
         assert_eq!(r.classify("dispatcher"), SenderClass::System);
         assert_eq!(r.classify("system:watchdog"), SenderClass::System);
+        // …but a system-LOOKING name that isn't allowlisted is just an agent
+        // (the prefix is attacker-choosable; the allowlist is not).
+        assert_eq!(r.classify("system:evil"), SenderClass::Agent);
+        assert_eq!(r.classify("system:"), SenderClass::Agent);
     }
 
     #[test]
@@ -178,7 +195,7 @@ mod tests {
                ('ghost', 'code', 0);",
         )
         .unwrap();
-        let mut r = Roster::new(vec![]);
+        let mut r = Roster::new(vec![], vec![]);
         assert_eq!(r.load_agents_from_db(&conn).unwrap(), 2);
         let needs: BTreeSet<String> = ["matrix-write".to_string()].into();
         assert!(r.provides_all("janet", &needs));

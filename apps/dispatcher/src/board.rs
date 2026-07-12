@@ -59,6 +59,14 @@ pub struct BoardCard {
     pub created_at_ms: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PostOutcome {
+    Posted(String),
+    /// The dedupe key was already processed; the existing card id is returned
+    /// and nothing was written.
+    Duplicate(String),
+}
+
 /// What to post: the dispatcher-facing subset (ids/fences are the board's).
 #[derive(Debug, Clone)]
 pub struct NewCard {
@@ -147,8 +155,14 @@ impl Board {
                 parent_id        TEXT,
                 result           TEXT,
                 delivered        INTEGER NOT NULL DEFAULT 0,
+                addressed        INTEGER NOT NULL DEFAULT 0,
                 created_at_ms    INTEGER NOT NULL,
                 updated_at_ms    INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS processed (
+                dedupe_key   TEXT PRIMARY KEY,
+                card_id      TEXT NOT NULL,
+                processed_at_ms INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_cards_surface ON cards (state, priority, created_at_ms);
             CREATE INDEX IF NOT EXISTS idx_cards_lease ON cards (state, lease_expires_at_ms);
@@ -162,13 +176,73 @@ impl Board {
     }
 
     pub fn post(&self, new: &NewCard, now_ms: i64) -> Result<String> {
+        match self.post_deduped(new, now_ms, None)? {
+            PostOutcome::Posted(id) => Ok(id),
+            PostOutcome::Duplicate(_) => unreachable!("no dedupe key given"),
+        }
+    }
+
+    /// Was a message with this producer dedupe key already dispatched? Used
+    /// as the pre-side-effect check so a crash-recovery replay doesn't file a
+    /// second tracker task either.
+    pub fn dedupe_lookup(&self, key: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT card_id FROM processed WHERE dedupe_key=?1",
+                params![key],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(BoardError::from)
+    }
+
+    /// Post a card, atomically recording the producer's dedupe key with it —
+    /// a crash-recovery replay of the same message becomes a no-op instead of
+    /// a duplicate card (adversarial-review #2).
+    pub fn post_deduped(
+        &self,
+        new: &NewCard,
+        now_ms: i64,
+        dedupe_key: Option<&str>,
+    ) -> Result<PostOutcome> {
+        if dedupe_key.is_some() {
+            self.conn
+                .execute_batch("BEGIN IMMEDIATE")
+                .map_err(BoardError::from)?;
+        }
+        let result = self.post_inner(new, now_ms, dedupe_key);
+        if dedupe_key.is_some() {
+            match &result {
+                Ok(_) => self
+                    .conn
+                    .execute_batch("COMMIT")
+                    .map_err(BoardError::from)?,
+                Err(_) => {
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                }
+            }
+        }
+        result
+    }
+
+    fn post_inner(
+        &self,
+        new: &NewCard,
+        now_ms: i64,
+        dedupe_key: Option<&str>,
+    ) -> Result<PostOutcome> {
+        if let Some(key) = dedupe_key {
+            if let Some(existing) = self.dedupe_lookup(key)? {
+                return Ok(PostOutcome::Duplicate(existing));
+            }
+        }
         let card_id = uuid::Uuid::new_v4().to_string();
         let needs_json = serde_json::to_string(&new.needs).expect("btreeset serializes");
         self.conn.execute(
             "INSERT INTO cards (card_id, task_id, sender, sender_class, recipient, priority,
                 thread, requires_reply, interrupt_policy, body, needs, state, reply_to,
-                parent_id, created_at_ms, updated_at_ms)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'posted',?12,?13,?14,?14)",
+                parent_id, addressed, created_at_ms, updated_at_ms)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'posted',?12,?13,?14,?15,?15)",
             params![
                 card_id,
                 new.task_id,
@@ -183,10 +257,17 @@ impl Board {
                 needs_json,
                 new.reply_to,
                 new.parent_id,
+                new.recipient.is_some() as i64,
                 now_ms
             ],
         )?;
-        Ok(card_id)
+        if let Some(key) = dedupe_key {
+            self.conn.execute(
+                "INSERT INTO processed (dedupe_key, card_id, processed_at_ms) VALUES (?1,?2,?3)",
+                params![key, card_id, now_ms],
+            )?;
+        }
+        Ok(PostOutcome::Posted(card_id))
     }
 
     /// The pull-mode surfacing query: best `posted` card this worker is
@@ -314,8 +395,12 @@ impl Board {
                 dead.push(id);
                 continue;
             }
+            // Requeue. A POOL card (addressed=0) must lose the recipient the
+            // claim stamped on it, or it stays stuck to the dead claimer and
+            // never surfaces to anyone else (adversarial-review #1).
             let n = self.conn.execute(
                 "UPDATE cards SET state='posted', claimed_by=NULL, lease_expires_at_ms=NULL,
+                        recipient=CASE WHEN addressed=1 THEN recipient ELSE NULL END,
                         reaps=reaps+1, updated_at_ms=?2
                  WHERE card_id=?1 AND state='claimed' AND lease_expires_at_ms < ?2",
                 params![id, now_ms],
@@ -350,7 +435,9 @@ impl Board {
     }
 
     /// Deferred, not-yet-delivered cards for one recipient — digest input.
-    pub fn deferred_for(&self, recipient: &str) -> Result<Vec<BoardCard>> {
+    /// Ordered by the SAME aging score as `surface` so a capped digest can't
+    /// starve old low-priority cards (adversarial-review #5 / DP11).
+    pub fn deferred_for(&self, recipient: &str, now_ms: i64) -> Result<Vec<BoardCard>> {
         let mut stmt = self.conn.prepare(
             "SELECT card_id, task_id, sender, sender_class, recipient, priority, thread,
                     requires_reply, interrupt_policy, body, needs, state, claimed_by,
@@ -358,9 +445,10 @@ impl Board {
              FROM cards
              WHERE recipient=?1 AND interrupt_policy='defer'
                AND state IN ('posted','claimed') AND delivered=0
-             ORDER BY priority ASC, created_at_ms ASC",
+             ORDER BY (3.0 - priority) + ?2 * ((?3 - created_at_ms) / 60000.0) DESC,
+                      created_at_ms ASC",
         )?;
-        let rows = stmt.query_map(params![recipient], row_to_card)?;
+        let rows = stmt.query_map(params![recipient, self.aging_k, now_ms], row_to_card)?;
         rows.map(|r| r.map_err(BoardError::from)).collect()
     }
 
@@ -560,6 +648,87 @@ mod tests {
         b.complete(&id, "worker-b", fresh.fence, Some("ok"), 8000)
             .unwrap();
         assert_eq!(b.get(&id).unwrap().unwrap().state, "done");
+    }
+
+    /// Adversarial-review #1 regression: the REALISTIC pull path. A pool
+    /// card's claimer dies; after reap the card must surface to OTHER
+    /// workers (the claim-stamped recipient is cleared), and repeated
+    /// surface→claim→reap cycles still reach dead-letter.
+    #[test]
+    fn reaped_pool_card_surfaces_to_other_workers() {
+        let b = Board::open_in_memory().unwrap();
+        b.post(&new_card(1, &[]), 0).unwrap();
+        // worker-a surfaces + claims, then dies (lease expires).
+        let seen = b.surface("worker-a", &provides(&[]), 100).unwrap().unwrap();
+        b.claim(&seen.card_id, "worker-a", 1000, 100).unwrap();
+        let (requeued, _) = b.reap(5000).unwrap();
+        assert_eq!(requeued.len(), 1);
+        // ANOTHER worker must see it through the real surface path.
+        let reclaimed = b.surface("worker-b", &provides(&[]), 6000).unwrap();
+        let reclaimed = reclaimed.expect("pool card must re-surface to other workers");
+        assert_eq!(reclaimed.card_id, seen.card_id);
+        assert_eq!(reclaimed.recipient, None, "claim-stamped recipient cleared");
+        // And the dead-letter path still works via surface→claim cycles.
+        b.claim(&reclaimed.card_id, "worker-b", 1000, 6000).unwrap();
+        b.reap(10_000).unwrap(); // reap #2
+        let again = b
+            .surface("worker-c", &provides(&[]), 11_000)
+            .unwrap()
+            .unwrap();
+        b.claim(&again.card_id, "worker-c", 1000, 11_000).unwrap();
+        let (requeued, dead) = b.reap(20_000).unwrap(); // reap #3 = max
+        assert!(requeued.is_empty());
+        assert_eq!(dead, vec![seen.card_id]);
+    }
+
+    /// An ADDRESSED card keeps its recipient across reap (it was addressed
+    /// by the dispatcher, not stamped by a claim).
+    #[test]
+    fn reaped_addressed_card_keeps_recipient() {
+        let b = Board::open_in_memory().unwrap();
+        let mut c = new_card(1, &[]);
+        c.recipient = Some("janet".into());
+        let id = b.post(&c, 0).unwrap();
+        b.claim(&id, "janet", 1000, 0).unwrap();
+        b.reap(5000).unwrap();
+        let card = b.get(&id).unwrap().unwrap();
+        assert_eq!(card.state, "posted");
+        assert_eq!(card.recipient.as_deref(), Some("janet"));
+    }
+
+    #[test]
+    fn dedupe_key_makes_post_idempotent() {
+        let b = Board::open_in_memory().unwrap();
+        let first = b.post_deduped(&new_card(1, &[]), 0, Some("$evt1")).unwrap();
+        let PostOutcome::Posted(id) = &first else {
+            panic!("{first:?}")
+        };
+        let replay = b
+            .post_deduped(&new_card(1, &[]), 50, Some("$evt1"))
+            .unwrap();
+        assert_eq!(replay, PostOutcome::Duplicate(id.clone()));
+        assert_eq!(b.dedupe_lookup("$evt1").unwrap(), Some(id.clone()));
+        assert_eq!(b.dedupe_lookup("$evt2").unwrap(), None);
+        // Exactly one card exists.
+        assert!(b.surface("w", &provides(&[]), 100).unwrap().is_some());
+        b.claim(id, "w", 1000, 100).unwrap();
+        assert!(b.surface("w", &provides(&[]), 100).unwrap().is_none());
+    }
+
+    /// Adversarial-review #5 regression: the digest input honors aging, so a
+    /// capped digest can't starve an old P3 behind a stream of fresh P1s.
+    #[test]
+    fn deferred_for_orders_by_aging_score() {
+        let b = Board::open_in_memory().unwrap();
+        let mut old_p3 = new_card(3, &[]);
+        old_p3.recipient = Some("janet".into());
+        let old_id = b.post(&old_p3, 0).unwrap();
+        let mut fresh_p1 = new_card(1, &[]);
+        fresh_p1.recipient = Some("janet".into());
+        b.post(&fresh_p1, 90 * 60_000).unwrap();
+        // 91 minutes in: the P3 card's age term (≈4.5) beats P1's base 2.0.
+        let deferred = b.deferred_for("janet", 91 * 60_000).unwrap();
+        assert_eq!(deferred[0].card_id, old_id, "aged P3 outranks fresh P1");
     }
 
     #[test]
