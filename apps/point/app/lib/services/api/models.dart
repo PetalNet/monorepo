@@ -75,15 +75,31 @@ class ShareRequest {
   String get fromHandle => fromUserId.split('@').first;
 }
 
-/// The signed-in user's own ghost/broadcast state.
+/// The signed-in user's own ghost/broadcast state: the global kill-switch plus
+/// the per-person hide set (user ids I'm hidden from).
 class GhostState {
-  const GhostState({required this.active});
+  const GhostState({required this.active, this.hiddenFrom = const {}});
 
-  factory GhostState.fromJson(Map<String, dynamic> json) =>
-      GhostState(active: json['active'] as bool? ?? false);
+  factory GhostState.fromJson(Map<String, dynamic> json) => GhostState(
+        active: json['active'] as bool? ?? false,
+        hiddenFrom: {
+          for (final t in (json['targets'] as List<dynamic>? ?? const []))
+            t as String,
+        },
+      );
 
-  /// Ghost ON = not sharing (dark). Ghost OFF = broadcasting.
+  /// Ghost ON = not sharing with anyone (dark). Ghost OFF = broadcasting.
   final bool active;
 
+  /// User ids I've individually gone dark to (per-person hide).
+  final Set<String> hiddenFrom;
+
   bool get isSharing => !active;
+
+  bool isHiddenFrom(String userId) => hiddenFrom.contains(userId);
+
+  GhostState copyWith({bool? active, Set<String>? hiddenFrom}) => GhostState(
+        active: active ?? this.active,
+        hiddenFrom: hiddenFrom ?? this.hiddenFrom,
+      );
 }

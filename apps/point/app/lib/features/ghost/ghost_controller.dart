@@ -30,9 +30,10 @@ class GhostController extends AsyncNotifier<GhostState> {
     // (safer) reading if we've never confirmed one.
     final previous = state.value ?? const GhostState(active: true);
 
-    // Drive the engine + reflect the intent optimistically.
+    // Drive the engine + reflect the intent optimistically — preserving the
+    // per-person hide set (a global toggle must not wipe it).
     engine.setSharing(sharing: sharing);
-    state = AsyncData(GhostState(active: !sharing));
+    state = AsyncData(previous.copyWith(active: !sharing));
 
     try {
       final confirmed =
@@ -44,6 +45,28 @@ class GhostController extends AsyncNotifier<GhostState> {
       // toggle visibly snaps back, signalling the failure without throwing into
       // the fire-and-forget tap handler.
       engine.setSharing(sharing: previous.isSharing);
+      state = AsyncData(previous);
+    }
+  }
+
+  /// Per-person hide: go dark to (or reveal to) a single person. Optimistic,
+  /// rolling back the set on a server failure.
+  Future<void> setHiddenFrom(String userId, {required bool hidden}) async {
+    final session = ref.read(authControllerProvider).value;
+    if (session == null) return;
+    final previous = state.value ?? const GhostState(active: false);
+    final next = {...previous.hiddenFrom};
+    if (hidden) {
+      next.add(userId);
+    } else {
+      next.remove(userId);
+    }
+    state = AsyncData(previous.copyWith(hiddenFrom: next));
+    try {
+      await ref
+          .read(apiProvider)
+          .setGhostTarget(session.token, userId, ghosted: hidden);
+    } on Object {
       state = AsyncData(previous);
     }
   }
