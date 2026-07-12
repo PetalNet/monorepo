@@ -8,7 +8,7 @@ import 'package:point_app/services/api/models.dart';
 /// (session lives in the auth controller, not here).
 class PointApi {
   PointApi({required this.baseUrl, http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   /// e.g. `https://point.petalcat.dev` or `http://10.0.2.2:8330` in dev.
   final String baseUrl;
@@ -17,9 +17,9 @@ class PointApi {
   Uri _u(String path) => Uri.parse('$baseUrl$path');
 
   Map<String, String> _headers([String? token]) => {
-        'content-type': 'application/json',
-        if (token != null) 'authorization': 'Bearer $token',
-      };
+    'content-type': 'application/json',
+    if (token != null) 'authorization': 'Bearer $token',
+  };
 
   Never _fail(http.Response r) {
     String message;
@@ -29,6 +29,37 @@ class PointApi {
       message = 'request failed (${r.statusCode})';
     }
     throw ApiException(message, r.statusCode);
+  }
+
+  /// Confirm [origin] speaks the Point protocol: fetch `/.well-known/point`
+  /// and return the domain it advertises. Throws [ApiException] when the host
+  /// is unreachable or not a Point server. Static because it runs BEFORE a
+  /// server is chosen (the server-pick step), against an arbitrary origin.
+  static Future<String> probe(String origin) async {
+    final client = http.Client();
+    try {
+      final r = await client
+          .get(Uri.parse('$origin/.well-known/point'))
+          .timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) {
+        throw ApiException(
+          'no Point server found there (${r.statusCode})',
+          r.statusCode,
+        );
+      }
+      final v = jsonDecode(r.body) as Map<String, dynamic>;
+      final domain = v['domain'] as String?;
+      if (domain == null || domain.isEmpty) {
+        throw const ApiException('no Point server found there', 200);
+      }
+      return domain;
+    } on ApiException {
+      rethrow;
+    } on Object {
+      throw const ApiException('could not reach that server', 0);
+    } finally {
+      client.close();
+    }
   }
 
   // --- Auth ---------------------------------------------------------------
@@ -75,8 +106,10 @@ class PointApi {
   }
 
   Future<List<ShareRequest>> incomingRequests(String token) async {
-    final r =
-        await _client.get(_u('/api/shares/requests'), headers: _headers(token));
+    final r = await _client.get(
+      _u('/api/shares/requests'),
+      headers: _headers(token),
+    );
     if (r.statusCode != 200) _fail(r);
     return (jsonDecode(r.body) as List<dynamic>)
         .map((e) => ShareRequest.fromJson(e as Map<String, dynamic>))
@@ -140,7 +173,10 @@ class PointApi {
   /// Active temporary shares involving me (both the ones I'm pushing and the
   /// ones being pushed to me), soonest-to-expire first.
   Future<List<TempShare>> listTempShares(String token) async {
-    final r = await _client.get(_u('/api/shares/temp'), headers: _headers(token));
+    final r = await _client.get(
+      _u('/api/shares/temp'),
+      headers: _headers(token),
+    );
     if (r.statusCode != 200) _fail(r);
     return (jsonDecode(r.body) as List<dynamic>)
         .map((e) => TempShare.fromJson(e as Map<String, dynamic>))
@@ -194,10 +230,14 @@ class PointApi {
   /// Upload a pool of one-time KeyPackages (base64) + optionally the last-resort
   /// one. Uploading a POOL (not a single package) is the client half of the
   /// fix for the legacy single-KeyPackage silent-member-drop.
+  /// [replace] drops the caller's unconsumed pool first — required whenever
+  /// the MLS identity changed (recovery restore / re-key), so peers can never
+  /// claim a package whose private half is gone.
   Future<void> uploadKeyPackages(
     String token,
     List<String> keyPackages, {
     String? lastResort,
+    bool replace = false,
   }) async {
     final r = await _client.post(
       _u('/api/mls/keys'),
@@ -205,6 +245,7 @@ class PointApi {
       body: jsonEncode({
         'key_packages': keyPackages,
         if (lastResort != null) 'last_resort': lastResort,
+        if (replace) 'replace': true,
       }),
     );
     if (r.statusCode != 200) _fail(r);
@@ -231,12 +272,15 @@ class PointApi {
 
   /// Non-consuming probe of the local pool (for replenish logic).
   Future<({int available, bool hasLastResort})> keyCount(String token) async {
-    final r =
-        await _client.get(_u('/api/mls/keys/count'), headers: _headers(token));
+    final r = await _client.get(
+      _u('/api/mls/keys/count'),
+      headers: _headers(token),
+    );
     if (r.statusCode != 200) _fail(r);
     final v = jsonDecode(r.body) as Map<String, dynamic>;
     return (
-      available: v['available'] as int? ?? 0,
+      // The server serializes the pool level as `count`.
+      available: v['count'] as int? ?? 0,
       hasLastResort: v['has_last_resort'] as bool? ?? false,
     );
   }
@@ -261,8 +305,10 @@ class PointApi {
 
   /// Pending welcome/commit messages for the signed-in user.
   Future<List<Map<String, dynamic>>> mlsMessages(String token) async {
-    final r =
-        await _client.get(_u('/api/mls/messages'), headers: _headers(token));
+    final r = await _client.get(
+      _u('/api/mls/messages'),
+      headers: _headers(token),
+    );
     if (r.statusCode != 200) _fail(r);
     return (jsonDecode(r.body) as List<dynamic>).cast<Map<String, dynamic>>();
   }
@@ -294,8 +340,10 @@ class PointApi {
   Future<({String blobBase64, String updatedAt})?> getRecoveryBackup(
     String token,
   ) async {
-    final r =
-        await _client.get(_u('/api/recovery/backup'), headers: _headers(token));
+    final r = await _client.get(
+      _u('/api/recovery/backup'),
+      headers: _headers(token),
+    );
     if (r.statusCode == 404) return null;
     if (r.statusCode != 200) _fail(r);
     final v = jsonDecode(r.body) as Map<String, dynamic>;

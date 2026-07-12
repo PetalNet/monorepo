@@ -24,7 +24,7 @@ import 'package:point_app/src/rust/api/recovery.dart' as rust;
 /// and it never does.
 class RecoveryService {
   RecoveryService(this._ref, {FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   final Ref _ref;
   final FlutterSecureStorage _storage;
@@ -34,6 +34,10 @@ class RecoveryService {
   /// Whether a recovery code has been enrolled on THIS device.
   Future<bool> isEnrolled() async =>
       (await _storage.read(key: _codeKey)) != null;
+
+  /// The locally-cached recovery code, if this device has enrolled (used to
+  /// re-show the phrase; it never leaves the device).
+  Future<String?> cachedCode() => _storage.read(key: _codeKey);
 
   /// Generate a fresh recovery code, cache it locally, and upload a first
   /// encrypted backup. Returns the code to show the user exactly once — it is

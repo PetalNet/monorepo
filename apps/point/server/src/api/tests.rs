@@ -622,3 +622,100 @@ fn display_name_sanitizer_rules() {
     assert_eq!(sanitize_display_name(&"z".repeat(100)).len(), 64);
     assert_eq!(sanitize_display_name("\u{FEFF}\u{2066}"), "");
 }
+
+// ---------------------------------------------------------------------------
+// KeyPackage pool: replace-on-rekey semantics
+// ---------------------------------------------------------------------------
+
+/// Upload a batch of opaque KeyPackages for `token`, optionally replacing the
+/// existing pool (the client's identity changed) and/or the last-resort slot.
+async fn upload_kps(
+    app: &Router,
+    token: &str,
+    count: usize,
+    tag: &str,
+    replace: bool,
+    last_resort: Option<&str>,
+) -> (StatusCode, Value) {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let mut body = json!({
+        "key_packages": (0..count)
+            .map(|i| b64.encode(format!("kp-{tag}-{i}")))
+            .collect::<Vec<_>>(),
+        "replace": replace,
+    });
+    if let Some(lr) = last_resort {
+        body["last_resort"] = json!(b64.encode(lr));
+    }
+    send(app, "POST", "/api/mls/keys", Some(token), Some(body)).await
+}
+
+#[sqlx::test]
+async fn keypackage_replace_drops_stale_pool(pool: PgPool) {
+    let app = app(&pool, true);
+    let (_, alice) = register(&app, "alice", "password-1", None).await;
+    let alice = token_of(&alice);
+
+    // Old identity: 3 regular packages + a last resort.
+    let (status, _) = upload_kps(&app, &alice, 3, "old", false, Some("lr-old")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, count) = send(&app, "GET", "/api/mls/keys/count", Some(&alice), None).await;
+    assert_eq!(count["count"], 3);
+    assert_eq!(count["has_last_resort"], true);
+
+    // Re-key with replace: the stale pool AND the stale last resort go away.
+    let (status, body) = upload_kps(&app, &alice, 2, "new", true, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["has_last_resort"], false);
+    let (_, count) = send(&app, "GET", "/api/mls/keys/count", Some(&alice), None).await;
+    assert_eq!(count["count"], 2);
+    assert_eq!(count["has_last_resort"], false);
+
+    // A claimer only ever sees fresh-identity packages.
+    let (_, bob) = register(&app, "bob", "password-1", None).await;
+    let bob = token_of(&bob);
+    let (_, _) = send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&bob),
+        Some(json!({ "to_user_id": format!("alice@{DOMAIN}") })),
+    )
+    .await;
+    // Accept so bob is allowed to claim (consent gate).
+    let (_, reqs) = send(&app, "GET", "/api/shares/requests", Some(&alice), None).await;
+    let req_id = reqs[0]["id"].as_str().unwrap().to_string();
+    let (status, _) = send(
+        &app,
+        "POST",
+        &format!("/api/shares/requests/{req_id}/accept"),
+        Some(&alice),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let (status, claimed) = send(
+        &app,
+        "POST",
+        &format!("/api/mls/keys/alice@{DOMAIN}/claim"),
+        Some(&bob),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let kp = b64
+        .decode(claimed["key_package"].as_str().unwrap())
+        .unwrap();
+    assert!(String::from_utf8(kp).unwrap().starts_with("kp-new-"));
+
+    // Replace does not touch consumed rows (history stays consistent): after
+    // the claim, 1 remains; replacing with 1 fresh yields exactly 1.
+    let (status, _) = upload_kps(&app, &alice, 1, "newer", true, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, count) = send(&app, "GET", "/api/mls/keys/count", Some(&alice), None).await;
+    assert_eq!(count["count"], 1);
+}

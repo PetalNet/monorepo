@@ -11,7 +11,7 @@ import 'package:point_app/app/config.dart';
 /// `/api`. The API client and WS relay append their own paths.
 class ServerUrlNotifier extends Notifier<String> {
   ServerUrlNotifier([FlutterSecureStorage? storage])
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _storage;
   static const _key = 'point.server_url';
@@ -26,6 +26,14 @@ class ServerUrlNotifier extends Notifier<String> {
   Future<void> _load() async {
     final saved = await _storage.read(key: _key);
     if (saved != null && saved.isNotEmpty) state = saved;
+  }
+
+  /// Whether a server has ever been explicitly chosen on this device. A fresh
+  /// install starts the signed-out flow at the server-pick step; a device
+  /// with a choice starts at sign-in (server pick one step back).
+  Future<bool> hasSavedChoice() async {
+    final saved = await _storage.read(key: _key);
+    return saved != null && saved.isNotEmpty;
   }
 
   /// Normalize, apply, and persist a server origin. An empty value resets to the
@@ -52,5 +60,6 @@ class ServerUrlNotifier extends Notifier<String> {
   }
 }
 
-final serverUrlProvider =
-    NotifierProvider<ServerUrlNotifier, String>(ServerUrlNotifier.new);
+final serverUrlProvider = NotifierProvider<ServerUrlNotifier, String>(
+  ServerUrlNotifier.new,
+);

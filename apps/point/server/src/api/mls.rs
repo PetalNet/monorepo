@@ -67,6 +67,12 @@ pub struct UploadKeysBody {
     /// THE last-resort package: at most one per user, replaced on re-upload,
     /// returned (never consumed) only when the regular pool is dry.
     pub last_resort: Option<String>,
+    /// When true, drop my unconsumed regular pool before inserting: the
+    /// caller's MLS identity changed (recovery restore / re-key), so every
+    /// stored package's private half is gone and a peer claiming one would
+    /// silently fail to reach them.
+    #[serde(default)]
+    pub replace: bool,
 }
 
 /// POST /api/mls/keys — top up my one-time KeyPackage pool and/or replace my
@@ -104,6 +110,15 @@ pub async fn upload_keys(
     if me.is_none() {
         return Err(AppError::Unauthorized); // mid-request account deletion
     }
+    if body.replace {
+        sqlx::query(
+            "DELETE FROM key_packages
+             WHERE user_id = $1 AND consumed_at IS NULL AND NOT is_last_resort",
+        )
+        .bind(&user.user_id)
+        .execute(&mut *tx)
+        .await?;
+    }
     let (stored,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM key_packages
          WHERE user_id = $1 AND consumed_at IS NULL AND NOT is_last_resort",
@@ -120,6 +135,14 @@ pub async fn upload_keys(
         sqlx::query("INSERT INTO key_packages (user_id, key_package) VALUES ($1, $2)")
             .bind(&user.user_id)
             .bind(kp)
+            .execute(&mut *tx)
+            .await?;
+    }
+    if body.replace && last_resort.is_none() {
+        // Identity replaced but no new last-resort supplied: the old one is
+        // just as stale as the regular pool. Drop it rather than hand it out.
+        sqlx::query("DELETE FROM key_packages WHERE user_id = $1 AND is_last_resort")
+            .bind(&user.user_id)
             .execute(&mut *tx)
             .await?;
     }

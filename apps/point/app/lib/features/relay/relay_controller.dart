@@ -66,14 +66,19 @@ class RelayController {
     // halves are gone, so we must force a fresh pool regardless of the count —
     // otherwise peers claim stale packages and silently can't reach us (H1).
     try {
-      final forceReprovision = initResult == MlsInit.wiped;
-      final count = await api.keyCount(session.token);
-      if (forceReprovision || count.available < _poolFloor) {
-        final pool = [
-          for (var i = 0; i < _poolFloor; i++)
-            base64Encode(await crypto.generateKeyPackage()),
-        ];
-        await api.uploadKeyPackages(session.token, pool);
+      if (initResult == MlsInit.wiped) {
+        // Wiped local state = new identity; every server-stored package is
+        // stale (private halves gone). Replace the pool, don't top it up (H1).
+        await reprovisionKeyPackages();
+      } else {
+        final count = await api.keyCount(session.token);
+        if (count.available < _poolFloor) {
+          final pool = [
+            for (var i = 0; i < _poolFloor; i++)
+              base64Encode(await crypto.generateKeyPackage()),
+          ];
+          await api.uploadKeyPackages(session.token, pool);
+        }
       }
     } on Object catch (e) {
       if (kDebugMode) debugPrint('keypackage top-up failed: $e');
@@ -92,6 +97,24 @@ class RelayController {
 
     // Relay each local fix, encrypted per share.
     _fixSub = _ref.read(locationServiceProvider).fixes.listen(_onLocalFix);
+  }
+
+  /// Replace the server-side KeyPackage pool with a fresh one from the
+  /// CURRENT crypto identity. Called after any identity replacement (wiped
+  /// local state, a recovery restore, or enrolling fresh over an old backup):
+  /// packages minted by the previous identity are unusable, and a peer
+  /// claiming one would silently never reach us.
+  Future<void> reprovisionKeyPackages() async {
+    final session = _session;
+    if (session == null) return;
+    final crypto = _ref.read(cryptoServiceProvider);
+    final pool = [
+      for (var i = 0; i < _poolFloor; i++)
+        base64Encode(await crypto.generateKeyPackage()),
+    ];
+    await _ref
+        .read(apiProvider)
+        .uploadKeyPackages(session.token, pool, replace: true);
   }
 
   /// Track who we share with; for any new target we don't yet have a group
@@ -153,12 +176,14 @@ class RelayController {
     final ws = _ws;
     if (session == null || ws == null) return;
     final crypto = _ref.read(cryptoServiceProvider);
-    final payload = utf8.encode(jsonEncode({
-      'lat': fix.lat,
-      'lon': fix.lon,
-      'speed': fix.speed,
-      'timestamp': fix.timestampMs,
-    }));
+    final payload = utf8.encode(
+      jsonEncode({
+        'lat': fix.lat,
+        'lon': fix.lon,
+        'speed': fix.speed,
+        'timestamp': fix.timestampMs,
+      }),
+    );
     // Snapshot: setShareTargets can mutate the set across the encrypt await
     // (M3 — ConcurrentModificationError).
     for (final target in _shareTargets.toList()) {

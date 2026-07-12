@@ -378,3 +378,43 @@ state. Wrong code / tampered blob fails closed.
 drove enroll → `PUT` to the LIVE server → simulated new device `GET` → `recoveryDecrypt` → restore →
 encrypt a fix → Bob decrypts it; a wrong code was rejected; and the server-stored blob was confirmed
 opaque (39 KB, `PTR1` magic, no MLS-state field names or group name present). PASS.
+
+## 2026-07-12 — D-024 · Wave A onboarding: launch gate, word-phrase recovery, replace-pool rekey
+
+The non-sharing build wave (NONSHARING-BUILD-BRIEF.md) starts with the resumable first-run.
+Implementation calls:
+
+- **Launch gate is client-side, per-account for recovery, device-level for the fork.** The gate
+  (`onboarding_gate.dart`) computes the first incomplete required step (recovery saved →
+  transport chosen → location granted) on every sign-in, every app open, and every foreground
+  resume while in the shell. "Recovery saved" is a per-`userId` flag in secure storage (a second
+  account on the same device gets its own recovery step); the privacy-fork settings are
+  device-level (`point.settings`). Location is re-checked live from the platform, so revoking it
+  in Android settings re-gates on the next open — the brief's "denying location forces the
+  permission screen on next open" without any stored state to go stale.
+- **The recovery phrase is a presentation-layer encoding of the EXISTING 120-bit code.** The
+  locked Eli copy says "These words", so the client shows 12 words instead of 24 base32 symbols:
+  a 1024-word list (even-indexed BIP-39 English) carries 10 bits per word, each word = exactly
+  two Crockford symbols (`index = hi<<5 | lo`), lossless both ways (`recovery_words.dart`,
+  roundtrip-tested). The crypto layer still only ever sees the base32 code — zero change to
+  `point_core::recovery`, and legacy codes stay valid restore input (`parseRecoveryInput`
+  accepts either).
+- **KeyPackage upload gains `replace` (server + client) because identity replacement orphans the
+  pool.** Restoring a backup over a fresh sign-in identity (or enrolling fresh over an old
+  backup) leaves server-stored KeyPackages whose private halves no longer exist; a peer claiming
+  one silently can never reach the user. `POST /api/mls/keys` with `replace: true` drops the
+  unconsumed pool (and a stale last-resort when none is supplied) in the same transaction as the
+  fresh insert. The relay's wiped-state path (H1) now uses it too, instead of stacking a fresh
+  pool on top of stale packages. Covered by `keypackage_replace_drops_stale_pool`.
+- **Found + fixed while wiring the gate: the client read the pool level from `available` but the
+  server serializes `count`,** so every sign-in "topped up" 5 more packages until the 20 cap.
+  Client now reads `count`.
+- **The privacy fork's private path only marks the transport chosen after the distributor guide
+  exits** (found-distributor Continue, or the explicit skip sheet that says what skipping means).
+  Killing the app mid-guide resumes at the fork; there is no code path that flips a private
+  choice to FCM.
+- **The location step gates on foreground permission but teaches "Allow all the time".**
+  Foreground grant is what the engine needs to run at all (matches `LocationService`); the
+  screen pushes the background upgrade with honest steps + an Open-settings shortcut, and
+  celebrates the `always` state. Holding the shell hostage for `always` would punish the
+  cautious with a dead app.

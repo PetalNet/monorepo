@@ -16,6 +16,37 @@ final class LoginRoute extends AppRoute {
   const LoginRoute();
 }
 
+/// First-run step 1: choose (or confirm) the home server before the account
+/// screen. Signed-out stacks keep it beneath [LoginRoute] so "back" from
+/// login lands here.
+final class ServerPickRoute extends AppRoute {
+  const ServerPickRoute();
+}
+
+/// Onboarding step: show + save the recovery phrase (gated on a stored-it
+/// confirm). Also offers restore when the account already has a backup.
+final class OnboardingRecoveryRoute extends AppRoute {
+  const OnboardingRecoveryRoute();
+}
+
+/// Onboarding step: the privacy story + the one plain-language fork that sets
+/// map + notification transport together.
+final class OnboardingPrivacyRoute extends AppRoute {
+  const OnboardingPrivacyRoute();
+}
+
+/// The UnifiedPush distributor walk-through, pushed from the privacy fork
+/// when the private path needs a distributor set up.
+final class OnboardingDistributorRoute extends AppRoute {
+  const OnboardingDistributorRoute();
+}
+
+/// Onboarding step: the location permission ask ("allow all the time"), shown
+/// only while not yet granted.
+final class OnboardingLocationRoute extends AppRoute {
+  const OnboardingLocationRoute();
+}
+
 /// The authed home: an animated adaptive branched shell (Map · People · You).
 final class MainShell extends AppRoute {
   const MainShell();
@@ -52,7 +83,11 @@ bool routeRequiresAuth(AppRoute r) =>
     r is GhostRoute ||
     r is DeviceLinkRoute ||
     r is PersonDetailRoute ||
-    r is AddPersonRoute;
+    r is AddPersonRoute ||
+    r is OnboardingRecoveryRoute ||
+    r is OnboardingPrivacyRoute ||
+    r is OnboardingDistributorRoute ||
+    r is OnboardingLocationRoute;
 
 // --- Shell branches: each tab has its own sealed route type ---------------
 
