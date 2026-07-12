@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn typoed_key_fails_loudly() {
         let err = serde_json::from_str::<Config>(
-            r#"{"db_path": "/tmp/board.db", "reap_intervall_secs": 10}"#,
+            r#"{"db_path": "/tmp/board.db", "xreap_interval_secs": 10}"#,
         )
         .unwrap_err();
         assert!(err.to_string().contains("unknown field"), "{err}");

@@ -13,7 +13,7 @@
 //!   └──(reaps ≥ max)──▶ dead   (dead-letter, human triage)
 //! ```
 //!
-//! Correctness rules, all enforced as single guarded UPDATEs (SQLite
+//! Correctness rules, all enforced as single guarded UPDATE statements (SQLite
 //! single-statement atomicity = the CAS):
 //! - A claim can only win from `posted`; exactly one winner.
 //! - Every write under a lease carries (worker, fence); a stale fence is
