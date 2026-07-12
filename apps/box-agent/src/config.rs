@@ -59,6 +59,19 @@ impl Config {
         if cfg.worker_cmd.is_empty() {
             return Err("worker_cmd must not be empty".into());
         }
+        if cfg.max_workers == 0 {
+            return Err(
+                "max_workers must be >= 1 (a zero cap accepts work it can never run)".into(),
+            );
+        }
+        // The agent's own responses/capacity events carry agent=handle and land
+        // in <dir>/<handle>.outbox.jsonl. If inbox and outbox are the same dir,
+        // the agent would consume its own output (adversarial-review #14).
+        if cfg.inbox_dir == cfg.outbox_dir {
+            return Err(
+                "inbox_dir and outbox_dir must differ (else the agent eats its own outbox)".into(),
+            );
+        }
         Ok(cfg)
     }
 }
@@ -101,6 +114,17 @@ mod tests {
                 "inbox_dir": "/tmp/in", "outbox_dir": "/tmp/out"}"#,
         );
         assert!(Config::load(&p).unwrap_err().contains("worker_cmd"));
+    }
+
+    #[test]
+    fn zero_max_workers_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = write(
+            dir.path(),
+            r#"{"handle": "box-a", "worker_cmd": ["true"], "db_path": "/tmp/ba.db",
+                "inbox_dir": "/tmp/in", "outbox_dir": "/tmp/out", "max_workers": 0}"#,
+        );
+        assert!(Config::load(&p).unwrap_err().contains("max_workers"));
     }
 
     #[test]

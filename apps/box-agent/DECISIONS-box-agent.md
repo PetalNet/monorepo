@@ -23,3 +23,39 @@ spawns/supervises disposable workers, advertises capacity, and emits fleet event
 
 Branch-only; no live services touched; tests spawn disposable child processes
 (`sh -c` equivalents via argv) and temp dirs/DBs only; build caps respected.
+
+## Review round (2026-07-12): codex + adversarial findings, all fixed
+
+The reviews converged on one root cause and a set of worker-robustness gaps.
+
+Root cause (codex P1 ×3 / adversarial critical #1+#2): the box-agent deduped and
+consumed work BEFORE it was durably accepted, so a crash, a full slot queue, or a failed
+spawn lost the card silently. Fixed by making a **durable `pending` table the source of
+truth**: a task card is written there (idempotent on card_id — this IS the card dedup) the
+moment it's accepted; the worker pool is driven FROM the table; a row is deleted only after
+its response is delivered. A restart reloads pending and re-runs unfinished work. The spool
+is taken to a `.working` file and committed (deleted) only after every line is durably
+recorded; a crash re-reads it, and fresh envelopes appended meanwhile are folded in rather
+than clobbered (adversarial #2). Verified end-to-end and by a durability integration test.
+
+Other fixes, all tested:
+| Finding | Fix |
+|---|---|
+| adversarial #3: interrupt cap bypass = fork-bomb | interrupts bypass the SOFT slot cap but not an absolute `hard_ceiling` |
+| #6: hung worker starves a slot forever | per-worker deadline (pool budget ∧ card `expires_at`); breach → kill + timeout response |
+| #4: one delivery failure killed the daemon | per-item deliver-with-retry; failures logged, loop never exits on IO |
+| #5: failed cards → caller hangs | malformed task.dispatch gets an `Error` envelope (in*reply_to set); transient spawn failure just retries from pending |
+| #9: `{body}` substitution corrupted the verbatim body | single-pass fill; tokens inside the body are not re-substituted |
+| #10: card could choose the program / inject options | argv[0] is never substituted; FLEET_BODY env preferred |
+| #12: try_wait error orphaned the child (zombie) | keep the worker running on a transient try_wait error |
+| #13: promised output tail didn't exist | stdout+stderr captured to a temp file, bounded tail on the response |
+| #11: seen table grew unbounded | hourly prune past a 24h retention (pending rows never pruned) |
+| #14: no shutdown / inbox==outbox self-consumption | SIGTERM/SIGINT → Stop event + kill workers; config rejects inbox_dir == outbox_dir; max_workers >= 1 |
+| #8: misleading env/placeholder test | replaced with tests that assert the filled placeholders and FLEET*\* env |
+
+Residual (accepted): the O_APPEND-to-renamed-inode spool race (adversarial #7) is a narrow
+window inherent to the file-spool v1 transport; the fold-in reclaim reduces it and the
+doorman backchannel (N1.4) replaces the spool with an authenticated stream. The box-agent
+trusts a delivered card's `interrupt_policy` (the dispatcher already enforces the honor
+conditions and demotes spoofs); the hard ceiling bounds the blast radius until doorman
+authenticates the sender.

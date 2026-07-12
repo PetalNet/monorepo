@@ -12,9 +12,10 @@ serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tempfile = "3"
+signal-hook = "0.3"
 
 [dev-dependencies]
-tempfile = "3"
 
 [profile.release]
 lto = true
