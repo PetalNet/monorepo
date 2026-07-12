@@ -1,0 +1,14 @@
+# Development override: build point-server from source instead of pulling the
+# published GHCR image. Use with the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+#
+# The build context is this directory (apps/point) so the Cargo workspace — root
+# Cargo.toml, core/ (the lifted MLS crate), and server/ — is available to the
+# multi-stage Dockerfile.
+services:
+  point-server:
+    image: point-server:local
+    build:
+      context: .
+      dockerfile: server/Dockerfile

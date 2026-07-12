@@ -222,6 +222,44 @@ class PointApi {
     if (r.statusCode != 200) _fail(r);
   }
 
+  // --- Zero-knowledge recovery backup ---------------------------------------
+
+  /// Store (or replace) the caller's encrypted MLS-state backup. [blobBase64] is
+  /// the opaque recovery ciphertext, base64-encoded — the server only ever holds
+  /// bytes it cannot decrypt.
+  Future<void> putRecoveryBackup(String token, String blobBase64) async {
+    final r = await _client.put(
+      _u('/api/recovery/backup'),
+      headers: _headers(token),
+      body: jsonEncode({'blob': blobBase64}),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  /// Fetch the caller's encrypted backup (base64), or null if none is stored.
+  Future<({String blobBase64, String updatedAt})?> getRecoveryBackup(
+    String token,
+  ) async {
+    final r =
+        await _client.get(_u('/api/recovery/backup'), headers: _headers(token));
+    if (r.statusCode == 404) return null;
+    if (r.statusCode != 200) _fail(r);
+    final v = jsonDecode(r.body) as Map<String, dynamic>;
+    return (
+      blobBase64: v['blob'] as String,
+      updatedAt: v['updated_at'] as String? ?? '',
+    );
+  }
+
+  /// Delete the caller's backup (e.g. before rotating the recovery code).
+  Future<void> deleteRecoveryBackup(String token) async {
+    final r = await _client.delete(
+      _u('/api/recovery/backup'),
+      headers: _headers(token),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
   void close() => _client.close();
 }
 

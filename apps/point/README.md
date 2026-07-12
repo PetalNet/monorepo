@@ -25,19 +25,25 @@ docs/     Strategy, ghost-mode concepts, implementation plan, locked decisions.
 
 ## Self-host quickstart
 
+Point a DNS record for your domain at a Docker host with ports 80/443 open, then:
+
 ```sh
 cp .env.example .env
-# Edit .env and set a strong JWT_SECRET (32+ random chars), e.g.:
-#   openssl rand -hex 32
-docker compose up
+# Set DOMAIN, ACME_EMAIL, JWT_SECRET (openssl rand -hex 32), POSTGRES_PASSWORD.
+docker compose up -d
 ```
 
-The server listens on `:8330` (plain HTTP; put Traefik or another reverse proxy
-in front to terminate TLS). Health check:
+The stack pulls the published server image from GHCR and stands up Traefik (with
+automatic Let's Encrypt TLS), point-server, and Postgres. Health check:
 
 ```sh
-curl http://localhost:8330/health   # -> {"ok":true}
+curl https://your.domain/health   # -> {"ok":true}
 ```
+
+Full walkthrough — DNS, TLS, federation, bring-your-own-proxy, backups, upgrades,
+account recovery — in [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md). To build
+the server from source instead of pulling, add the
+`docker-compose.build.yml` override.
 
 ## Decisions
 

@@ -1,9 +1,48 @@
+# Point home-server — production self-host stack.
+#
+#   Traefik (TLS termination + ACME)  ──►  point-server  ──►  Postgres
+#
+# This pulls the published server image from GHCR — no build toolchain needed on
+# the host. To build from source instead (development), add the override:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up
+#
+# First run:
+#   1. cp .env.example .env  &&  edit it (DOMAIN, ACME_EMAIL, JWT_SECRET, passwords)
+#   2. Point an A/AAAA record for $DOMAIN at this host (ports 80 + 443 open)
+#   3. docker compose up -d
+# Traefik obtains a Let's Encrypt cert for $DOMAIN automatically on first request.
+#
+# Don't want Traefik? Delete the `traefik` service + the point-server `labels:`
+# block and put your own reverse proxy in front of point-server:8330 (it speaks
+# plain HTTP by design — TLS is always terminated at the proxy).
+
 services:
+  traefik:
+    image: traefik:v3.2
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # Redirect all plain HTTP to HTTPS.
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?set ACME_EMAIL in .env}
+      - --certificatesresolvers.le.acme.storage=/acme/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-acme:/acme
+    restart: unless-stopped
+
   postgres:
     image: postgres:16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-point}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-point}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-point}
     volumes:
       - point-pgdata:/var/lib/postgresql/data
@@ -15,27 +54,31 @@ services:
       retries: 10
 
   point-server:
-    # Build context is the repo root so the Cargo workspace (root Cargo.toml +
-    # core/ + server/) is available; the Dockerfile lives under server/.
-    build:
-      context: .
-      dockerfile: server/Dockerfile
+    image: ghcr.io/petalnet/point-server:${POINT_VERSION:-latest}
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://point:point@postgres:5432/point}
+      DATABASE_URL: postgres://${POSTGRES_USER:-point}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-point}
       JWT_SECRET: ${JWT_SECRET:?set a 32+ char random JWT_SECRET in .env}
       DOMAIN: ${DOMAIN:?set DOMAIN to this server's public hostname in .env}
+      PUBLIC_URL: ${PUBLIC_URL:-https://${DOMAIN}}
       OPEN_REGISTRATION: ${OPEN_REGISTRATION:-false}
+      # Behind Traefik: honor the X-Real-Ip Traefik sets so rate limits key off
+      # the real client, not the proxy. Drop this if you expose 8330 directly.
+      TRUST_PROXY_HEADERS: "true"
       GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
-      LISTEN: ${LISTEN:-0.0.0.0:8330}
-    # Plain HTTP — Traefik (or your reverse proxy) terminates TLS. No in-binary TLS.
+      LISTEN: 0.0.0.0:8330
     expose:
       - "8330"
-    ports:
-      - "8330:8330"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.point.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.point.entrypoints=websecure
+      - traefik.http.routers.point.tls.certresolver=le
+      - traefik.http.services.point.loadbalancer.server.port=8330
     restart: unless-stopped
 
 volumes:
   point-pgdata:
+  traefik-acme:

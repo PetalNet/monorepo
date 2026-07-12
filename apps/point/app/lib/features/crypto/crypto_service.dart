@@ -149,4 +149,20 @@ class CryptoService {
         await _persistUnlocked();
         return pt;
       });
+
+  /// The current MLS state as an opaque blob — the input to a zero-knowledge
+  /// recovery backup (it is encrypted under the user's recovery code BEFORE it
+  /// ever leaves the device). Snapshotted under the lock for a consistent read.
+  Future<Uint8List> exportRawState() =>
+      _locked(() async => _require.exportState());
+
+  /// Replace this identity's MLS state from a recovery blob (already decrypted
+  /// on a new device) and persist it as the durable state. After this the
+  /// restored identity can decrypt the groups it was a member of.
+  Future<void> restoreFromState(String identity, Uint8List state) =>
+      _locked(() async {
+        _identity = identity;
+        _mls = PointMls.restore(state: state);
+        await _persistUnlocked();
+      });
 }

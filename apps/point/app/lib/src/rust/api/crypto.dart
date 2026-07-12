@@ -3,16 +3,13 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
+import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'package:point_app/src/rust/frb_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `lock`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<PointMls>>
 abstract class PointMls implements RustOpaqueInterface {
-  /// Fresh identity — generates a new signing key and empty state.
-  factory PointMls({required String identity}) =>
-      RustLib.instance.api.crateApiCryptoPointMlsNew(identity: identity);
   Future<AddMemberResult> addMember({
     required List<int> groupId,
     required List<int> keyPackage,
@@ -41,6 +38,10 @@ abstract class PointMls implements RustOpaqueInterface {
 
   bool hasGroup({required List<int> groupId});
 
+  /// Fresh identity — generates a new signing key and empty state.
+  factory PointMls({required String identity}) =>
+      RustLib.instance.api.crateApiCryptoPointMlsNew(identity: identity);
+
   /// Apply a Commit (membership change) to an existing group.
   Future<void> processCommit({
     required List<int> groupId,
@@ -58,12 +59,13 @@ abstract class PointMls implements RustOpaqueInterface {
 
 /// Welcome (for the new member) + Commit (for existing members) from an add.
 class AddMemberResult {
+  final Uint8List welcome;
+  final Uint8List commit;
+
   const AddMemberResult({
     required this.welcome,
     required this.commit,
   });
-  final Uint8List welcome;
-  final Uint8List commit;
 
   @override
   int get hashCode => welcome.hashCode ^ commit.hashCode;

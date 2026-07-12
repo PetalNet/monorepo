@@ -3,20 +3,21 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/crypto.dart';
+import 'api/recovery.dart';
 import 'dart:async';
 import 'dart:convert';
-
-import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'package:point_app/src/rust/api/crypto.dart';
-import 'package:point_app/src/rust/frb_generated.dart';
-import 'package:point_app/src/rust/frb_generated.io.dart'
+import 'frb_generated.dart';
+import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 /// Main entrypoint of the Rust API
 class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
-  RustLib._();
   @internal
   static final instance = RustLib._();
+
+  RustLib._();
 
   /// Initialize flutter_rust_bridge
   static Future<void> init({
@@ -68,13 +69,14 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -237460773;
+  int get rustContentHash => -779931484;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
         stem: 'point_mls',
         ioDirectory: 'rust/target/release/',
         webPrefix: 'pkg/',
+        wasmBindgenName: 'wasm_bindgen',
       );
 }
 
@@ -127,6 +129,18 @@ abstract class RustLibApi extends BaseApi {
   });
 
   PointMls crateApiCryptoPointMlsRestore({required List<int> state});
+
+  String crateApiRecoveryGenerateRecoveryCode();
+
+  Uint8List crateApiRecoveryRecoveryDecrypt({
+    required List<int> blob,
+    required String recoveryCode,
+  });
+
+  Uint8List crateApiRecoveryRecoveryEncrypt({
+    required List<int> state,
+    required String recoveryCode,
+  });
 
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_PointMls;
@@ -181,8 +195,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsAddMemberConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_add_member',
-        argNames: ['that', 'groupId', 'keyPackage'],
+        debugName: "PointMls_add_member",
+        argNames: ["that", "groupId", "keyPackage"],
       );
 
   @override
@@ -219,8 +233,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsCreateGroupConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_create_group',
-        argNames: ['that', 'groupId'],
+        debugName: "PointMls_create_group",
+        argNames: ["that", "groupId"],
       );
 
   @override
@@ -259,8 +273,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsDecryptConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_decrypt',
-        argNames: ['that', 'groupId', 'ciphertext'],
+        debugName: "PointMls_decrypt",
+        argNames: ["that", "groupId", "ciphertext"],
       );
 
   @override
@@ -299,8 +313,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsEncryptConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_encrypt',
-        argNames: ['that', 'groupId', 'plaintext'],
+        debugName: "PointMls_encrypt",
+        argNames: ["that", "groupId", "plaintext"],
       );
 
   @override
@@ -335,8 +349,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsExportStateConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_export_state',
-        argNames: ['that'],
+        debugName: "PointMls_export_state",
+        argNames: ["that"],
       );
 
   @override
@@ -371,8 +385,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsGenerateKeyPackageConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_generate_key_package',
-        argNames: ['that'],
+        debugName: "PointMls_generate_key_package",
+        argNames: ["that"],
       );
 
   @override
@@ -404,8 +418,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsHasGroupConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_has_group',
-        argNames: ['that', 'groupId'],
+        debugName: "PointMls_has_group",
+        argNames: ["that", "groupId"],
       );
 
   @override
@@ -430,8 +444,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   TaskConstMeta get kCrateApiCryptoPointMlsNewConstMeta => const TaskConstMeta(
-    debugName: 'PointMls_new',
-    argNames: ['identity'],
+    debugName: "PointMls_new",
+    argNames: ["identity"],
   );
 
   @override
@@ -470,8 +484,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsProcessCommitConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_process_commit',
-        argNames: ['that', 'groupId', 'commit'],
+        debugName: "PointMls_process_commit",
+        argNames: ["that", "groupId", "commit"],
       );
 
   @override
@@ -508,8 +522,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsProcessWelcomeConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_process_welcome',
-        argNames: ['that', 'welcome'],
+        debugName: "PointMls_process_welcome",
+        argNames: ["that", "welcome"],
       );
 
   @override
@@ -535,8 +549,93 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCryptoPointMlsRestoreConstMeta =>
       const TaskConstMeta(
-        debugName: 'PointMls_restore',
-        argNames: ['state'],
+        debugName: "PointMls_restore",
+        argNames: ["state"],
+      );
+
+  @override
+  String crateApiRecoveryGenerateRecoveryCode() {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 12)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRecoveryGenerateRecoveryCodeConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRecoveryGenerateRecoveryCodeConstMeta =>
+      const TaskConstMeta(
+        debugName: "generate_recovery_code",
+        argNames: [],
+      );
+
+  @override
+  Uint8List crateApiRecoveryRecoveryDecrypt({
+    required List<int> blob,
+    required String recoveryCode,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(blob, serializer);
+          sse_encode_String(recoveryCode, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRecoveryRecoveryDecryptConstMeta,
+        argValues: [blob, recoveryCode],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRecoveryRecoveryDecryptConstMeta =>
+      const TaskConstMeta(
+        debugName: "recovery_decrypt",
+        argNames: ["blob", "recoveryCode"],
+      );
+
+  @override
+  Uint8List crateApiRecoveryRecoveryEncrypt({
+    required List<int> state,
+    required String recoveryCode,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(state, serializer);
+          sse_encode_String(recoveryCode, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRecoveryRecoveryEncryptConstMeta,
+        argValues: [state, recoveryCode],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRecoveryRecoveryEncryptConstMeta =>
+      const TaskConstMeta(
+        debugName: "recovery_encrypt",
+        argNames: ["state", "recoveryCode"],
       );
 
   RustArcIncrementStrongCountFnType
@@ -667,15 +766,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   String sse_decode_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    final inner = sse_decode_list_prim_u_8_strict(deserializer);
+    var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
   }
 
   @protected
   AddMemberResult sse_decode_add_member_result(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    final var_welcome = sse_decode_list_prim_u_8_strict(deserializer);
-    final var_commit = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_welcome = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_commit = sse_decode_list_prim_u_8_strict(deserializer);
     return AddMemberResult(welcome: var_welcome, commit: var_commit);
   }
 
@@ -688,14 +787,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    final len_ = sse_decode_i_32(deserializer);
+    var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
   }
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    final len_ = sse_decode_i_32(deserializer);
+    var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
   }
 
@@ -755,7 +854,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_usize((self as PointMlsImpl).frbInternalSseEncode(), serializer);
+    sse_encode_usize(
+      (self as PointMlsImpl).frbInternalSseEncode(move: null),
+      serializer,
+    );
   }
 
   @protected
@@ -836,7 +938,7 @@ class PointMlsImpl extends RustOpaque implements PointMls {
   PointMlsImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
     : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
 
-  static final RustArcStaticData<dynamic> _kStaticData = RustArcStaticData(
+  static final _kStaticData = RustArcStaticData(
     rustArcIncrementStrongCount:
         RustLib.instance.api.rust_arc_increment_strong_count_PointMls,
     rustArcDecrementStrongCount:
