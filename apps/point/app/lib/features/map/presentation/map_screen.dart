@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/location/self_location_provider.dart';
+import 'package:point_app/features/map/map_tiles.dart';
 import 'package:point_app/features/map/presentation/person_map_sheet.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/map/presentation/self_marker.dart';
@@ -102,20 +103,33 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
             children: [
-              TileLayer(
-                urlTemplate:
-                    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
-                retinaMode: RetinaMode.isHighDensity(context),
-                userAgentPackageName: 'dev.petalcat.point',
-                tileBuilder: (context, child, tile) => child,
-              ),
+              _BasemapLayer(),
               _PeopleMarkers(people: located, onFocus: _moveTo),
               if (selfPoint != null) _SelfMarkerLayer(point: selfPoint),
             ],
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The basemap, resolved from the Privacy map-provider choice against what
+/// the connected server offers (Wave C). Watching the source means switching
+/// the setting re-renders the map live.
+class _BasemapLayer extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final source = ref.watch(tileSourceProvider);
+    return TileLayer(
+      key: ValueKey(source.urlTemplate),
+      urlTemplate: source.urlTemplate,
+      subdomains: source.subdomains,
+      retinaMode: source.retina && RetinaMode.isHighDensity(context),
+      userAgentPackageName: 'dev.petalcat.point',
+      // flutter_map injects its User-Agent into this map: hand it a mutable
+      // copy, never the const from the provider.
+      tileProvider: NetworkTileProvider(headers: Map.of(source.headers)),
     );
   }
 }

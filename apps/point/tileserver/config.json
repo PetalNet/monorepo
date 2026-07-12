@@ -1,0 +1,19 @@
+{
+	"options": {
+		"paths": {
+			"root": "",
+			"styles": "styles",
+			"fonts": "fonts",
+			"pmtiles": "data"
+		}
+	},
+	"styles": {
+		"point-dark": {
+			"style": "point-dark/style.json",
+			"tilejson": { "bounds": [-180, -85.0511, 180, 85.0511] }
+		}
+	},
+	"data": {
+		"basemap": { "pmtiles": "basemap.pmtiles" }
+	}
+}

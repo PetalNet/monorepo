@@ -77,6 +77,52 @@ Requirements for your instance to be federatable:
 - `PUBLIC_URL` correct (defaults to `https://$DOMAIN`; only set it if peers reach
   you at a different URL).
 
+## Maps
+
+The app offers three honest map tiers; your instance decides which are on the
+menu. Each is exactly what it says. No tier pretends a tracking provider is
+"a little private."
+
+**Self-hosted tiles (max private).** The bundled `tileserver` service renders
+OpenStreetMap data from a single PMTiles file on your disk, in Point's
+monochrome style. Map data never leaves your server. One-time setup:
+
+```sh
+# 1. The pmtiles CLI (single static binary): https://github.com/protomaps/go-pmtiles
+# 2. Extract your region from the latest Protomaps build (~tens of MB for a
+#    metro area, ~GBs for a continent). Find bounds at https://boundingbox.klokantech.com
+pmtiles extract https://build.protomaps.com/$(date -u -d yesterday +%Y%m%d).pmtiles \
+  tileserver/data/basemap.pmtiles --bbox=-90.75,38.35,-89.90,38.95
+
+# 3. Label fonts (any release of the OpenMapTiles font pack):
+mkdir -p tileserver/fonts && curl -L https://github.com/openmaptiles/fonts/releases/download/v2.0/v2.0.zip \
+  -o /tmp/fonts.zip && unzip -q /tmp/fonts.zip -d tileserver/fonts
+
+# 4. Bring it up and advertise it:
+docker compose --profile tiles up -d
+```
+
+Then set in `.env` and restart the server:
+
+```
+TILES_URL=https://$DOMAIN/tiles/styles/point-dark/{z}/{x}/{y}.png
+```
+
+The server advertises this in `/.well-known/point`; apps connected to your
+instance render their "your own server" map from it. Without it, that choice
+falls back to a public OpenStreetMap mirror and the app says so.
+
+**Proxied provider (convenient).** Set `TILE_UPSTREAM` to a commercial tile
+URL with your API key baked in (Stadia and Protomaps API work well and have
+free tiers). Your server fetches tiles on members' behalf: the provider sees
+one server IP and one key, never a user, a device, or an account. Unset =
+the app's proxied choice falls back to the public mirror.
+
+**Google (not offered here).** Google's terms forbid proxying its tiles, so
+it cannot be cleaned; if it ever ships it will be as an explicit, labeled
+opt-in in the app that talks to Google directly. Nothing on the server side
+involves Google.
+
 ## Bring your own reverse proxy
 
 Traefik is a convenience, not a requirement. To use Caddy/nginx/an existing

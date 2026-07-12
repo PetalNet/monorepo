@@ -32,6 +32,8 @@ pub(super) fn test_state(pool: PgPool, open_registration: bool) -> AppState {
             public_url: format!("https://{DOMAIN}"),
             federation_allow_private: false,
             open_registration,
+            tiles_url: None,
+            tile_upstream: None,
             trusted_proxy: false,
             glitchtip_dsn: None,
             oidc: None,
@@ -937,5 +939,95 @@ async fn avatar_roundtrip_is_relationship_gated(pool: PgPool) {
         None,
     )
     .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------
+// Wave C: the proxied tile tier
+// ---------------------------------------------------------------------------
+
+/// Router with a tile upstream configured (the convenient tier).
+fn app_with_tile_upstream(pool: &PgPool, upstream_template: &str) -> Router {
+    let mut state = test_state(pool.clone(), true);
+    let mut config = (*state.config).clone();
+    config.tile_upstream = Some(upstream_template.to_string());
+    state.config = Arc::new(config);
+    super::router(state)
+}
+
+/// A minimal in-process tile upstream: serves a PNG-magic body for any
+/// /t/{z}/{x}/{y} path, plus a /html path that lies about being a tile.
+async fn spawn_fake_upstream() -> String {
+    use axum::routing::get;
+    let router = Router::new()
+        .route(
+            "/t/{z}/{x}/{y}",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "image/png")],
+                    vec![0x89u8, b'P', b'N', b'G', 1, 2, 3, 4],
+                )
+            }),
+        )
+        .route(
+            "/html/{z}/{x}/{y}",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "text/html")],
+                    "<html>not a tile</html>".to_string(),
+                )
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    format!("http://{addr}")
+}
+
+#[sqlx::test]
+async fn tile_proxy_streams_validates_and_gates(pool: PgPool) {
+    let upstream = spawn_fake_upstream().await;
+
+    // No upstream configured: the route answers 404, honestly absent.
+    let bare = app(&pool, true);
+    let (_, alice) = register(&bare, "alice", "password-1", None).await;
+    let alice = token_of(&alice);
+    let (status, _) = send(&bare, "GET", "/api/tiles/3/1/2", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let app = app_with_tile_upstream(&pool, &format!("{upstream}/t/{{z}}/{{x}}/{{y}}"));
+
+    // Auth required: this is a member service, not an open proxy.
+    let (status, _) = send(&app, "GET", "/api/tiles/3/1/2", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // Happy path: bytes stream through with the image content type.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/tiles/3/1/2")
+        .header("authorization", format!("Bearer {alice}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
+        Some("image/png")
+    );
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&bytes[..4], &[0x89, b'P', b'N', b'G']);
+
+    // Tile math: x/y beyond 2^z is an honest 400, never an upstream fetch.
+    let (status, _) = send(&app, "GET", "/api/tiles/3/9/2", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // A non-image upstream response never leaves the proxy.
+    let html = app_with_tile_upstream(&pool, &format!("{upstream}/html/{{z}}/{{x}}/{{y}}"));
+    let (status, _) = send(&html, "GET", "/api/tiles/3/1/2", Some(&alice), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }

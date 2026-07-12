@@ -104,12 +104,20 @@ pub async fn well_known(State(state): State<AppState>) -> Json<Value> {
         "{}/federation/inbox",
         state.config.public_url.trim_end_matches('/')
     );
+    // The map endpoints (Wave C): `tiles` is the instance's OWN tileserver
+    // (max-private tier, template URL); `tile_proxy` says whether this server
+    // proxies an upstream provider for the convenient tier.
+    let mut endpoints = json!({ "inbox": inbox, "keys": inbox });
+    if let Some(tiles) = &state.config.tiles_url {
+        endpoints["tiles"] = json!(tiles);
+    }
+    endpoints["tile_proxy"] = json!(state.config.tile_upstream.is_some());
     Json(json!({
         "domain": state.config.domain,
         "version": 1,
         "federation": true,
         "public_key": federation_keys::public_key_hex(&state.server_signing_key),
-        "endpoints": { "inbox": inbox, "keys": inbox },
+        "endpoints": endpoints,
     }))
 }
 

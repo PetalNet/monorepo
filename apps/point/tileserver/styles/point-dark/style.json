@@ -1,0 +1,163 @@
+{
+	"version": 8,
+	"name": "Point Dark",
+	"metadata": {
+		"description": "Point's monochrome pure-black basemap for self-hosted Protomaps PMTiles. Presence by form, zero hue: greys only."
+	},
+	"sources": {
+		"protomaps": { "type": "vector", "url": "mbtiles://{basemap}" }
+	},
+	"glyphs": "{fontstack}/{range}.pbf",
+	"layers": [
+		{ "id": "background", "type": "background", "paint": { "background-color": "#0e0e0e" } },
+		{
+			"id": "earth",
+			"type": "fill",
+			"source": "protomaps",
+			"source-layer": "earth",
+			"paint": { "fill-color": "#0e0e0e" }
+		},
+		{
+			"id": "landuse",
+			"type": "fill",
+			"source": "protomaps",
+			"source-layer": "landuse",
+			"paint": { "fill-color": "#121212" }
+		},
+		{
+			"id": "natural",
+			"type": "fill",
+			"source": "protomaps",
+			"source-layer": "natural",
+			"paint": { "fill-color": "#111311" }
+		},
+		{
+			"id": "water",
+			"type": "fill",
+			"source": "protomaps",
+			"source-layer": "water",
+			"paint": { "fill-color": "#060708" }
+		},
+		{
+			"id": "buildings",
+			"type": "fill",
+			"source": "protomaps",
+			"source-layer": "buildings",
+			"minzoom": 13,
+			"paint": { "fill-color": "#171717" }
+		},
+		{
+			"id": "roads-minor",
+			"type": "line",
+			"source": "protomaps",
+			"source-layer": "roads",
+			"filter": ["in", "kind", "minor_road", "other", "path"],
+			"minzoom": 12,
+			"paint": {
+				"line-color": "#242424",
+				"line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 16, 2.5]
+			}
+		},
+		{
+			"id": "roads-medium",
+			"type": "line",
+			"source": "protomaps",
+			"source-layer": "roads",
+			"filter": ["in", "kind", "medium_road"],
+			"paint": {
+				"line-color": "#2e2e2e",
+				"line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.6, 16, 4]
+			}
+		},
+		{
+			"id": "roads-major",
+			"type": "line",
+			"source": "protomaps",
+			"source-layer": "roads",
+			"filter": ["in", "kind", "major_road"],
+			"paint": {
+				"line-color": "#3a3a3a",
+				"line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.8, 16, 6]
+			}
+		},
+		{
+			"id": "roads-highway",
+			"type": "line",
+			"source": "protomaps",
+			"source-layer": "roads",
+			"filter": ["in", "kind", "highway"],
+			"paint": {
+				"line-color": "#4a4a4a",
+				"line-width": ["interpolate", ["linear"], ["zoom"], 6, 1, 16, 8]
+			}
+		},
+		{
+			"id": "transit",
+			"type": "line",
+			"source": "protomaps",
+			"source-layer": "transit",
+			"minzoom": 12,
+			"paint": { "line-color": "#1e1e1e", "line-width": 1, "line-dasharray": [3, 3] }
+		},
+		{
+			"id": "boundaries",
+			"type": "line",
+			"source": "protomaps",
+			"source-layer": "boundaries",
+			"paint": { "line-color": "#333333", "line-width": 0.8, "line-dasharray": [2, 2] }
+		},
+		{
+			"id": "water-label",
+			"type": "symbol",
+			"source": "protomaps",
+			"source-layer": "water",
+			"minzoom": 10,
+			"layout": {
+				"text-field": ["get", "name"],
+				"text-font": ["Noto Sans Regular"],
+				"text-size": 11
+			},
+			"paint": { "text-color": "#4d5257", "text-halo-color": "#060708", "text-halo-width": 1 }
+		},
+		{
+			"id": "roads-label",
+			"type": "symbol",
+			"source": "protomaps",
+			"source-layer": "roads",
+			"minzoom": 13,
+			"layout": {
+				"symbol-placement": "line",
+				"text-field": ["get", "name"],
+				"text-font": ["Noto Sans Regular"],
+				"text-size": 10
+			},
+			"paint": { "text-color": "#6a6a6a", "text-halo-color": "#0e0e0e", "text-halo-width": 1 }
+		},
+		{
+			"id": "places-locality",
+			"type": "symbol",
+			"source": "protomaps",
+			"source-layer": "places",
+			"filter": ["in", "kind", "locality", "neighbourhood", "neighborhood"],
+			"layout": {
+				"text-field": ["get", "name"],
+				"text-font": ["Noto Sans Regular"],
+				"text-size": 12
+			},
+			"paint": { "text-color": "#8f8f8f", "text-halo-color": "#0e0e0e", "text-halo-width": 1.2 }
+		},
+		{
+			"id": "places-major",
+			"type": "symbol",
+			"source": "protomaps",
+			"source-layer": "places",
+			"filter": ["in", "kind", "city", "town", "region", "country"],
+			"layout": {
+				"text-field": ["get", "name"],
+				"text-font": ["Noto Sans Bold"],
+				"text-size": 14
+			},
+			"paint": { "text-color": "#a8a8a8", "text-halo-color": "#0e0e0e", "text-halo-width": 1.4 }
+		}
+	]
+}

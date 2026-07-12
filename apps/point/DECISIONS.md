@@ -444,3 +444,29 @@ nobody`; enforcement is **silent-drop** on both the local endpoint and the feder
 - **Google's map tier is deferred** (allowed by the brief: "fine to defer"): the Privacy sheet
   ships the two honest tiers; a third opt-in row lands when a Google build flavor exists to back
   it. No row is shown that does nothing.
+
+## 2026-07-12 — D-026 · Wave C maps: three honest tiers, tile endpoint in /.well-known, self-host tileserver
+
+- **The map provider choice resolves against what the connected server ADVERTISES**, not a hardcoded
+  URL. `/.well-known/point` gains `endpoints.tiles` (the instance's own tileserver template, if it
+  runs one) and `endpoints.tile_proxy` (bool: does this server proxy an upstream). The client's
+  `tileSourceProvider` maps the Privacy setting to a renderable source: self-hosted → the advertised
+  tiles URL, else a public OSM mirror (honestly labeled); proxied → `/api/tiles/{z}/{x}/{y}` on the
+  Point server when it proxies, else the same public mirror. Switching the setting re-renders the map
+  live (the TileLayer keys off the resolved template). Google is deferred (brief allows it): no row
+  ships that does nothing, and the Privacy sheet says plainly why a surveillance provider can't be
+  "cleaned".
+- **The proxied tier is a real member service, not an open proxy.** `GET /api/tiles/{z}/{x}/{y}`
+  requires auth, rate-limits per user (600/min — a pan/zoom burst is dozens of tiles), validates the
+  tile coordinate against 2^z before any upstream fetch, refuses non-image upstream responses, caps
+  the body at 2 MiB, and disables redirects on the outbound client. The provider only ever sees the
+  server's IP + key. Wired only when `TILE_UPSTREAM` is set. Covered by
+  `tile_proxy_streams_validates_and_gates`.
+- **The self-hosted tileserver is a real bundle, verified end to end.** `apps/point/tileserver/`
+  ships a tileserver-gl config + Point's monochrome pure-black MapLibre style (greys only, presence
+  by form); the compose stack gains an optional `tileserver` service behind a `--profile tiles` gate,
+  Traefik-routed at `/tiles/`. Verified on this host: extracted a 53 MB St. Louis PMTiles from the
+  Protomaps daily build, ran tileserver-gl v5.3.1 against it, and rendered Point's dark basemap —
+  then drove BOTH tiers on the A03s (self-hosted tiles from our own PMTiles, and the same map through
+  the server's `/api/tiles` proxy), switching provider live in Settings. SELF-HOSTING.md gains a Maps
+  section with the three-command setup.

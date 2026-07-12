@@ -15,6 +15,7 @@ pub mod oidc;
 pub mod rate_limit;
 pub mod recovery;
 pub mod shares;
+pub mod tiles;
 
 #[cfg(test)]
 mod tests;
@@ -52,6 +53,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/users/{user_id}/avatar", get(account::get_user_avatar))
         .route("/api/fcm/token", post(account::register_fcm_token))
+        .route("/api/tiles/{z}/{x}/{y}", get(tiles::get_tile))
         .route(
             "/api/invites",
             post(invites::create_invite).get(invites::list_invites),

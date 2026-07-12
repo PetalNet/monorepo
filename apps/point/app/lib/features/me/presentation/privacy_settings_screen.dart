@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:point_app/features/map/map_tiles.dart';
 import 'package:point_app/features/me/me_profile_provider.dart';
 import 'package:point_app/features/me/presentation/settings_widgets.dart';
 import 'package:point_app/features/settings/app_settings.dart';
@@ -109,6 +110,20 @@ class _PrivacySettingsScreenState extends ConsumerState<PrivacySettingsScreen> {
                     .update((s) => s.copyWith(mapProvider: v)),
               );
             },
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              context.space.lg,
+              0,
+              context.space.lg,
+              context.space.md,
+            ),
+            child: Text(
+              tileSourceDescription(ref.watch(tileSourceProvider)),
+              style: context.text.bodySmall?.copyWith(
+                color: context.colors.onSurfaceVariant,
+              ),
+            ),
           ),
           const Divider(),
           const SettingsSection('Sharing'),
