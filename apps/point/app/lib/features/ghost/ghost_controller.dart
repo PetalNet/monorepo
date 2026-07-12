@@ -30,9 +30,10 @@ class GhostController extends AsyncNotifier<GhostState> {
     // (safer) reading if we've never confirmed one.
     final previous = state.value ?? const GhostState(active: true);
 
-    // Drive the engine + reflect the intent optimistically.
+    // Drive the engine + reflect the intent optimistically — preserving the
+    // per-person hide set (a global toggle must not wipe it).
     engine.setSharing(sharing: sharing);
-    state = AsyncData(GhostState(active: !sharing));
+    state = AsyncData(previous.copyWith(active: !sharing));
 
     try {
       final confirmed =

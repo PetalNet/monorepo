@@ -179,10 +179,14 @@ class _StatusLine extends StatelessWidget {
       children: [
         PresenceDot(state: person.presence, size: 14),
         SizedBox(width: context.space.sm),
-        Text(
-          person.subtitle.isEmpty ? 'Sharing' : person.subtitle,
-          style: context.text.bodyMedium
-              ?.copyWith(color: context.colors.onSurfaceVariant),
+        Expanded(
+          child: Text(
+            person.subtitle.isEmpty ? 'Sharing' : person.subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.text.bodyMedium
+                ?.copyWith(color: context.colors.onSurfaceVariant),
+          ),
         ),
       ],
     );
