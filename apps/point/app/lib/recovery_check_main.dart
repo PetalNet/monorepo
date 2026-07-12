@@ -99,9 +99,9 @@ Future<String> _run() async {
     final ptAfter = utf8.decode(await bob.decrypt(groupId: bobGid, ciphertext: ctAfter));
     if (ptAfter != msg) return 'FAIL: post-recovery decrypt ($ptAfter)';
 
-    return 'PASS recovery: enroll→upload→[new device]→fetch→decrypt→restore→'
-        'encrypt→Bob decrypts. Wrong code rejected. Server saw only ciphertext '
-        '(${blob.length}B blob, code "${code.substring(0, 6)}…").';
+    return 'PASS recovery: enroll → upload → [new device] → fetch → decrypt → '
+        'restore → encrypt → Bob decrypts. Wrong code rejected. Server saw only '
+        'ciphertext (${blob.length}B blob, code "${code.substring(0, 6)}…").';
   } on Object catch (e) {
     return 'FAIL: $e';
   } finally {

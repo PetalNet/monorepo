@@ -17,7 +17,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::rngs::OsRng;
-use rand::RngCore;
+use rand::{Rng, RngCore};
 use zeroize::Zeroize;
 
 const MAGIC: &[u8; 4] = b"PTR1";
@@ -60,10 +60,10 @@ fn derive_key(code: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
 /// Encrypt an exported MLS state blob under `recovery_code`. Output is the
 /// server-opaque backup blob.
 pub fn encrypt(state: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
-    let mut salt = [0u8; SALT_LEN];
-    let mut nonce = [0u8; NONCE_LEN];
-    OsRng.fill_bytes(&mut salt);
-    OsRng.fill_bytes(&mut nonce);
+    // Generate the random array directly (no zero-init buffer) so both the code
+    // and static analysis see fresh CSPRNG bytes as the salt/nonce source.
+    let salt: [u8; SALT_LEN] = OsRng.gen();
+    let nonce: [u8; NONCE_LEN] = OsRng.gen();
 
     let mut key = derive_key(recovery_code, &salt)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|e| e.to_string())?;
