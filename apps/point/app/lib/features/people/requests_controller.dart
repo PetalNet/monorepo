@@ -15,8 +15,11 @@ class RequestsController extends AsyncNotifier<List<ShareRequest>> {
     return ref.read(apiProvider).incomingRequests(session.token);
   }
 
+  /// Re-fetch WITHOUT flashing through `AsyncLoading` — the previous value stays
+  /// put until the new one resolves, so the pinned section doesn't blank and the
+  /// share-target listener never sees a transient null (which would drop
+  /// outbound fixes for a round-trip).
   Future<void> refresh() async {
-    state = const AsyncLoading();
     state = await AsyncValue.guard(build);
   }
 

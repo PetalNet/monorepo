@@ -53,6 +53,31 @@ void main() {
       const fix = PeerFix(userId: 'eli@point.dev', data: {'speed': 1});
       expect(mergePresence(away, fix).hasLocation, isFalse);
     });
+
+    test('same-server live person → plain status (no @server)', () {
+      final fix = PeerFix(userId: 'eli@point.dev', data: {
+        'lat': 1.0,
+        'lon': 2.0,
+        'timestamp': ago(const Duration(minutes: 3)),
+      });
+      final merged = mergePresence(away, fix, selfDomain: 'point.dev', now: now);
+      expect(merged.subtitle, 'Sharing · 3m');
+    });
+
+    test('cross-server live person → @server shown quiet in status', () {
+      const mara = Person(
+        userId: 'mara@fieldstone.social',
+        displayName: 'Mara',
+        presence: PresenceState.away,
+      );
+      final fix = PeerFix(userId: 'mara@fieldstone.social', data: {
+        'lat': 1.0,
+        'lon': 2.0,
+        'timestamp': ago(const Duration(minutes: 3)),
+      });
+      final merged = mergePresence(mara, fix, selfDomain: 'point.dev', now: now);
+      expect(merged.subtitle, 'mara@fieldstone.social · 3m');
+    });
   });
 
   group('ShareRequest.fromJson', () {

@@ -171,8 +171,10 @@ class _PointAppState extends ConsumerState<PointApp>
       // Feed the relay who we share with, so it forms the MLS group with each
       // (claim KP -> group -> Welcome) and encrypts fixes to them.
       ..listen(peopleControllerProvider, (prev, next) {
-        final ids =
-            next.value?.map((p) => p.userId).toList() ?? const <String>[];
+        // Only act on a resolved list. A transient loading state (no retained
+        // value) would otherwise clear every encrypt-target for a round-trip.
+        if (!next.hasValue) return;
+        final ids = next.value!.map((p) => p.userId).toList();
         ref.read(relayControllerProvider).setShareTargets(ids);
       });
 

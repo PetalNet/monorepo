@@ -50,6 +50,11 @@ class PeopleScreen extends ConsumerWidget {
                   children: [
                     if (requests.isNotEmpty)
                       _RequestsSection(requests: requests),
+                    if (requests.isNotEmpty && people.isNotEmpty)
+                      Divider(
+                        height: context.space.xl,
+                        color: context.colors.outline.withValues(alpha: 0.4),
+                      ),
                     for (final p in people)
                       PersonRow(
                         person: p,
@@ -87,10 +92,6 @@ class _RequestsSection extends StatelessWidget {
           ),
         ),
         for (final r in requests) _RequestRow(request: r),
-        Divider(
-          height: context.space.xl,
-          color: context.colors.outline.withValues(alpha: 0.4),
-        ),
       ],
     );
   }
@@ -149,9 +150,9 @@ class _RequestRowState extends ConsumerState<_RequestRow> {
             ),
           ),
           if (_busy)
-            const Padding(
-              padding: EdgeInsets.all(8),
-              child: SizedBox(
+            Padding(
+              padding: EdgeInsets.all(context.space.sm),
+              child: const SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(strokeWidth: 2),

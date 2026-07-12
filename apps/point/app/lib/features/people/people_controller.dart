@@ -17,8 +17,10 @@ class PeopleController extends AsyncNotifier<List<Person>> {
     return shares.map(_personFromShare).toList();
   }
 
+  /// Re-fetch WITHOUT flashing through `AsyncLoading` — keeps the previous list
+  /// visible and, critically, keeps `.value` non-null so the share-target
+  /// listener never briefly sees `[]` and stops encrypting to everyone.
   Future<void> refresh() async {
-    state = const AsyncLoading();
     state = await AsyncValue.guard(build);
   }
 
