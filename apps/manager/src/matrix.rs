@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -132,13 +132,9 @@ impl MatrixClient {
         }
     }
 
-    pub fn send_text(&self, text: &str) -> bool {
-        matches!(self.send_text_result(text), SendOutcome::Sent)
-    }
-
-    /// Like [`send_text`](Self::send_text) but classifies the failure so the
-    /// sender loop can self-heal on a token rotation (the outbound half of the
-    /// creds hot-reload — otherwise the channel goes one-way after a rotation).
+    /// Send a message to the control room, classifying the failure so the
+    /// sender loop can self-heal on a token rotation (otherwise the channel
+    /// goes one-way after a rotation).
     pub fn send_text_result(&self, text: &str) -> SendOutcome {
         let txn = self.txn.fetch_add(1, Ordering::SeqCst);
         let path = format!(
@@ -168,6 +164,23 @@ impl MatrixClient {
     /// `!restart-broken` root cause). Returns true if the token actually
     /// changed.
     pub fn reload_token(&mut self, creds: &MatrixCreds) -> bool {
+        // Token-only rotation is the supported case. If the reloaded creds
+        // disagree on homeserver/user_id, warn — a stale user_id would break
+        // the self-message filter in sync() (the manager could execute its own
+        // `!` commands); those fields aren't hot-swapped here (adversarial
+        // review #6). No secret is logged.
+        if creds.user_id != self.user_id {
+            eprintln!(
+                "[manager/matrix] WARNING: reloaded creds user_id changed ({} -> {}); not hot-applied — restart to adopt",
+                self.user_id, creds.user_id
+            );
+        }
+        let reloaded_hs = creds.homeserver.trim_end_matches('/');
+        if reloaded_hs != self.homeserver {
+            eprintln!(
+                "[manager/matrix] WARNING: reloaded creds homeserver changed; not hot-applied — restart to adopt"
+            );
+        }
         if creds.access_token != self.token {
             self.token = creds.access_token.clone();
             true
@@ -267,25 +280,33 @@ where
     let handle = std::thread::Builder::new()
         .name("matrix-send".into())
         .spawn(move || {
-            let mut last_reload = 0u64;
+            // Bound a creds-read storm when a burst of queued messages all fail
+            // auth: attempt a reload at most once per interval (Instant, so an
+            // NTP step can't wedge it — adversarial-review #5). This is an
+            // ATTEMPT gate, not a success-charge, so it never strands recovery.
+            let mut last_reload: Option<Instant> = None;
             for msg in rx {
                 match client.send_text_result(&msg) {
                     SendOutcome::Sent => {}
                     SendOutcome::AuthFailed => {
-                        // Reload creds (rate-limited) and retry the message once.
-                        let now = epoch_secs();
+                        let due = last_reload
+                            .map(|t| t.elapsed() >= RELOAD_MIN_INTERVAL)
+                            .unwrap_or(true);
                         let mut retried = false;
-                        if let Some(reload) = &reload_creds {
-                            if now.saturating_sub(last_reload) >= RELOAD_COOLDOWN_SECS {
-                                last_reload = now;
-                                if let Ok(creds) = reload() {
-                                    if client.reload_token(&creds)
-                                        && client.send_text(&msg)
-                                    {
-                                        retried = true;
-                                        eprintln!("[manager/matrix] send auth failed; reloaded token and re-sent");
+                        if let Some(reload) = reload_creds.as_ref().filter(|_| due) {
+                            last_reload = Some(Instant::now());
+                            match reload() {
+                                Ok(creds) if client.reload_token(&creds) => {
+                                    match client.send_text_result(&msg) {
+                                        SendOutcome::Sent => {
+                                            retried = true;
+                                            eprintln!("[manager/matrix] send auth failed; reloaded token and re-sent");
+                                        }
+                                        _ => eprintln!("[manager/matrix] reloaded token but re-send still failed (dropped): {msg:?}"),
                                     }
                                 }
+                                Ok(_) => {} // token unchanged — file not updated yet
+                                Err(e) => eprintln!("[manager/matrix] send auth failed; creds reload failed: {e}"),
                             }
                         }
                         if !retried {
@@ -302,18 +323,18 @@ where
     (tx, handle)
 }
 
-/// Minimum seconds between creds-reload attempts, so a persistently-bad token
-/// doesn't hammer the creds file / homeserver on every failed sync.
-const RELOAD_COOLDOWN_SECS: u64 = 30;
+/// Minimum time between the sender's creds-reload attempts (bounds a read storm
+/// on a burst of queued messages; NOT a recovery-delaying cooldown).
+const RELOAD_MIN_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Inbound command loop: initial drain, then 30s long-polls. Transport
 /// failures back off 5s. `last_sync_ok` (epoch secs) feeds the heartbeat.
 ///
 /// `reload_creds` is the self-heal seam: on an AUTH failure (rotated/expired
-/// token) the loop calls it to fetch the latest creds (the control-plane token
-/// authority rewrites the creds file), and if the token changed it recovers
-/// without a manager restart — the `!restart-broken` root cause. Reloads are
-/// rate-limited; `None` disables the behavior (parity with the old loop).
+/// token) the loop re-reads the creds file (the control-plane token authority
+/// rewrites it on rotation) and, if the token changed, recovers WITHOUT a
+/// manager restart — the `!restart-broken` root cause. `None` disables the
+/// behavior (parity with the old loop).
 pub fn spawn_command_loop<R>(
     mut client: MatrixClient,
     shutdown: Arc<AtomicBool>,
@@ -327,7 +348,6 @@ where
     std::thread::Builder::new()
         .name("matrix-sync".into())
         .spawn(move || {
-            let mut last_reload = 0u64;
             // Startup drain (JS parity: matrixSync(0) before the loop).
             if client.sync(0).is_ok() {
                 last_sync_ok.store(epoch_secs(), Ordering::SeqCst);
@@ -343,25 +363,27 @@ where
                         }
                     }
                     Err(SyncError::Auth) => {
-                        // Self-heal: reload creds and swap the token (rate-limited).
-                        let now = epoch_secs();
+                        // Self-heal: reload creds and swap the token. Reload on
+                        // EVERY auth failure — the 5s sync backoff already paces
+                        // the (cheap, local) creds read, so there's no need for
+                        // a long cooldown that would strand the manager for its
+                        // full duration when the creds file lags the token
+                        // revocation (adversarial-review #2). A token swap
+                        // retries immediately; otherwise back off 5s and the
+                        // next auth failure re-reads — catching the file the
+                        // moment it updates.
                         if let Some(reload) = &reload_creds {
-                            if now.saturating_sub(last_reload) >= RELOAD_COOLDOWN_SECS {
-                                last_reload = now;
-                                match reload() {
-                                    Ok(creds) if client.reload_token(&creds) => {
-                                        eprintln!(
-                                            "[manager/matrix] auth failed; reloaded a NEW token from creds — retrying"
-                                        );
-                                        continue; // retry immediately with the fresh token
-                                    }
-                                    Ok(_) => eprintln!(
-                                        "[manager/matrix] auth failed but creds token unchanged — backing off"
-                                    ),
-                                    Err(e) => eprintln!(
-                                        "[manager/matrix] auth failed and creds reload failed: {e}"
-                                    ),
+                            match reload() {
+                                Ok(creds) if client.reload_token(&creds) => {
+                                    eprintln!(
+                                        "[manager/matrix] auth failed; reloaded a NEW token from creds — retrying"
+                                    );
+                                    continue; // retry immediately with the fresh token
                                 }
+                                Ok(_) => {} // token unchanged (file not updated yet) — back off
+                                Err(e) => eprintln!(
+                                    "[manager/matrix] auth failed and creds reload failed: {e}"
+                                ),
                             }
                         }
                         std::thread::sleep(Duration::from_secs(5));

@@ -1,12 +1,14 @@
-//! SCRATCH TEST (adversarial review) — delete after running.
+//! Integration test for the Matrix creds hot-reload sync loop (self-heal).
 //!
-//! Proves the reload-cooldown recovery-latency behavior of the sync loop when
-//! the token authority revokes the old token BEFORE the creds file carries
-//! the new one (a realistic rotation ordering): the loop charges the 30s
-//! cooldown on the "token unchanged" reload, so even though the fresh token
-//! is available ~1s later, the manager stays deaf for the full cooldown.
+//! Drives the real `spawn_command_loop` against a local HTTP stub that returns
+//! 401 M_UNKNOWN_TOKEN until the bearer token is the rotated value. Proves:
+//!  - the loop recovers PROMPTLY after the creds file catches up (no 30s
+//!    cooldown outage — adversarial-review #2), even when the file lags the
+//!    revocation by one reload, and
+//!  - it does not hammer the homeserver while the token is bad.
 //!
-//! Also counts homeserver hits to confirm there is no busy-loop.
+//! The stub responds immediately (no long-poll); the test exits the moment the
+//! loop heals, so post-heal syncs don't accumulate.
 
 #[path = "../src/config.rs"]
 #[allow(dead_code)]
@@ -34,7 +36,8 @@ fn creds(hs: &str, token: &str) -> MatrixCreds {
     }
 }
 
-/// Minimal HTTP stub: 401 M_UNKNOWN_TOKEN unless the bearer token is "good".
+/// Minimal HTTP stub: 200 with a next_batch when the bearer token is "good",
+/// else 401 M_UNKNOWN_TOKEN. Counts requests.
 fn spawn_stub(hits: Arc<AtomicU64>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -44,7 +47,6 @@ fn spawn_stub(hits: Arc<AtomicU64>) -> String {
             hits.fetch_add(1, Ordering::SeqCst);
             let mut buf = [0u8; 4096];
             let mut req = Vec::new();
-            // read until end of headers (GET /sync has no body)
             loop {
                 match s.read(&mut buf) {
                     Ok(0) => break,
@@ -62,6 +64,11 @@ fn spawn_stub(hits: Arc<AtomicU64>) -> String {
                 .lines()
                 .any(|l| l.eq_ignore_ascii_case("authorization: bearer good"));
             let (status, body) = if authed {
+                // Simulate the real server honoring the long-poll timeout so
+                // post-heal syncs are paced (a real /sync blocks up to 30s);
+                // otherwise the loop would sync back-to-back in the test's
+                // heal-detection window and inflate the hit count.
+                std::thread::sleep(Duration::from_millis(500));
                 ("200 OK", r#"{"next_batch":"s1"}"#)
             } else {
                 (
@@ -80,18 +87,19 @@ fn spawn_stub(hits: Arc<AtomicU64>) -> String {
 }
 
 #[test]
-fn rotation_with_file_lag_recovery_takes_a_full_cooldown() {
+fn sync_loop_recovers_promptly_after_a_lagging_token_rotation() {
     let hits = Arc::new(AtomicU64::new(0));
     let hs = spawn_stub(Arc::clone(&hits));
 
-    // Manager booted with the (now revoked) old token.
+    // Booted with the revoked token.
     let client = matrix::MatrixClient::new(&creds(&hs, "revoked"), "!room:example");
     let shutdown = Arc::new(AtomicBool::new(false));
     let last_sync_ok = Arc::new(AtomicU64::new(0));
 
-    // Creds file contents over time: the authority revoked the old token
-    // first; the file still holds it on the FIRST reload (write lag ~1 reload),
-    // and holds the fresh token on every reload after that.
+    // The creds file LAGS: the first reload still returns the old token (the
+    // authority revoked it but hasn't rewritten the file yet); every reload
+    // after that returns the fresh token. This is the case the old cooldown
+    // logic turned into a 30s outage.
     let reload_calls = Arc::new(AtomicU64::new(0));
     let rc = Arc::clone(&reload_calls);
     let hs2 = hs.clone();
@@ -108,32 +116,34 @@ fn rotation_with_file_lag_recovery_takes_a_full_cooldown() {
         Some(reload),
     );
 
-    // Wait for the loop to heal (last_sync_ok becomes nonzero), up to 60s.
+    // Heal = last_sync_ok becomes nonzero.
     let mut healed_after = None;
-    while start.elapsed() < Duration::from_secs(60) {
+    while start.elapsed() < Duration::from_secs(30) {
         if last_sync_ok.load(Ordering::SeqCst) != 0 {
             healed_after = Some(start.elapsed());
             break;
         }
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(100));
     }
     shutdown.store(true, Ordering::SeqCst);
 
-    let healed = healed_after.expect("sync loop never healed within 60s");
-    let reloads = reload_calls.load(Ordering::SeqCst);
+    let healed = healed_after.expect("sync loop never healed within 30s");
     let total_hits = hits.load(Ordering::SeqCst);
-    eprintln!("healed after {healed:?}; creds reloads: {reloads}; homeserver hits: {total_hits}");
-
-    // No busy-loop: with 5s backoff, <= ~2 hits per 5s window pre-heal.
-    assert!(
-        total_hits < 25,
-        "sync loop hammered the homeserver: {total_hits} hits"
+    eprintln!(
+        "healed after {healed:?}; creds reloads: {}; homeserver hits: {total_hits}",
+        reload_calls.load(Ordering::SeqCst)
     );
-    // The fresh token was available from the SECOND reload (~5s in), but the
-    // cooldown was charged on the unchanged-token reload, so recovery takes
-    // the full RELOAD_COOLDOWN_SECS. This assertion documents that latency.
+
+    // PROMPT recovery: the fresh token is available on the 2nd reload (~one 5s
+    // backoff after boot), and the loop must adopt it then — NOT after a 30s
+    // cooldown. Allow generous slack for a loaded CI box but well under 30s.
     assert!(
-        healed >= Duration::from_secs(28),
-        "expected recovery to be delayed by the burned cooldown; healed in {healed:?}"
+        healed < Duration::from_secs(20),
+        "recovery should be prompt after the file catches up, not cooldown-delayed; healed in {healed:?}"
+    );
+    // No hammering while the token is bad: ~1 sync per 5s backoff pre-heal.
+    assert!(
+        total_hits < 15,
+        "sync loop hammered the homeserver: {total_hits} hits"
     );
 }
