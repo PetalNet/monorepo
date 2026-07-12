@@ -48,7 +48,11 @@ class _VerifySheetState extends ConsumerState<VerifySheet> {
     // Await the resolved session so this works even if opened before auth has
     // finished restoring.
     final me = (await ref.read(authControllerProvider.future))?.userId;
-    if (me == null || !mounted) return;
+    if (!mounted) return;
+    if (me == null) {
+      setState(() => _error = 'Sign in to verify.');
+      return;
+    }
     final gid = CryptoService.pairwiseGroupId(me, widget.person.userId);
     try {
       final n = await ref.read(cryptoServiceProvider).safetyNumber(gid);

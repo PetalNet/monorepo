@@ -22,7 +22,9 @@ class VerificationController extends Notifier<Set<String>> {
   Future<void> _load() async {
     final raw = await _storage.read(key: _key);
     if (raw != null) {
-      state = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
+      // Merge (not replace) so a markVerified that landed during the async read
+      // isn't clobbered.
+      state = {...state, ...(jsonDecode(raw) as List<dynamic>).cast<String>()};
     }
   }
 

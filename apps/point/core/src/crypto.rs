@@ -407,6 +407,9 @@ impl PointCrypto {
         }
         keys.sort();
         let mut hasher = Sha256::new();
+        // Concatenation without a length prefix is unambiguous here because every
+        // key is a fixed-size Ed25519 public key (the cipher suite is pinned). A
+        // variable-length key type would need explicit framing.
         for k in &keys {
             hasher.update(k);
         }
