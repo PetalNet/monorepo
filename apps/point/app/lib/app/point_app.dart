@@ -22,6 +22,7 @@ import 'package:point_app/features/me/presentation/look_feel_screen.dart';
 import 'package:point_app/features/me/presentation/me_screen.dart';
 import 'package:point_app/features/me/presentation/notifications_settings_screen.dart';
 import 'package:point_app/features/me/presentation/privacy_settings_screen.dart';
+import 'package:point_app/features/me/presentation/recovery_screen.dart';
 import 'package:point_app/features/onboarding/onboarding_flow.dart';
 import 'package:point_app/features/onboarding/onboarding_gate.dart';
 import 'package:point_app/features/onboarding/presentation/distributor_guide_screen.dart';
@@ -204,7 +205,8 @@ class _PointAppState extends ConsumerState<PointApp>
       SettingsNotificationsRoute() ||
       SettingsAccountRoute() ||
       SettingsAboutRoute() ||
-      IdentityRoute() => _SlideUpPage(
+      IdentityRoute() ||
+      RecoveryRoute() => _SlideUpPage(
         key: ctx.key,
         reduced: _reducedMotion,
         child: ctx.child,
@@ -228,6 +230,7 @@ class _PointAppState extends ConsumerState<PointApp>
       SettingsAccountRoute() => const AccountScreen(),
       SettingsAboutRoute() => const AboutScreen(),
       IdentityRoute() => const IdentityScreen(),
+      RecoveryRoute() => const RecoveryScreen(),
       GhostRoute() => const GhostScreen(),
       DeviceLinkRoute() => const DeviceLinkScreen(),
       PersonDetailRoute(:final userId) => PersonDetailScreen(userId: userId),
