@@ -27,8 +27,11 @@ class WhoSeesMe {
 }
 
 final whoSeesMeProvider = Provider<WhoSeesMe>((ref) {
+  // Until the ghost state is confirmed, assume DARK — never tell someone they're
+  // visible when we haven't confirmed they are (the safety-critical default,
+  // matching GhostController).
   final ghost =
-      ref.watch(ghostControllerProvider).value ?? const GhostState(active: false);
+      ref.watch(ghostControllerProvider).value ?? const GhostState(active: true);
   final people = ref.watch(peopleControllerProvider).value ?? const <Person>[];
   return WhoSeesMe(dark: ghost.active, people: people, ghost: ghost);
 });
@@ -37,7 +40,12 @@ final whoSeesMeProvider = Provider<WhoSeesMe>((ref) {
 /// strip, one tap from the full who-sees-me list. This is what earns the
 /// always-on location permission — you always see who's watching.
 class WhoSeesMeBar extends ConsumerWidget {
-  const WhoSeesMeBar({super.key});
+  const WhoSeesMeBar({this.bottomSafe = false, super.key});
+
+  /// True when this bar is the terminal bottom element (the expanded/rail
+  /// layout) and must consume the system bottom inset itself; false when it's
+  /// stacked above a NavigationBar that already does.
+  final bool bottomSafe;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -47,12 +55,16 @@ class WhoSeesMeBar extends ConsumerWidget {
     final ink = context.colors.onSurface;
     return Material(
       color: dark ? ink : context.colors.surfaceContainerHigh,
-      child: InkWell(
-        onTap: () => WhoSeesMeSheet.show(context),
-        child: SafeArea(
-          top: false,
-          bottom: false,
-          child: Padding(
+      child: Semantics(
+        button: true,
+        label: dark ? "You're dark. No one sees you." : 'Visible to $n people',
+        hint: 'Opens who can see you',
+        child: InkWell(
+          onTap: () => WhoSeesMeSheet.show(context),
+          child: SafeArea(
+            top: false,
+            bottom: bottomSafe,
+            child: Padding(
             padding: EdgeInsets.symmetric(
               horizontal: context.space.lg,
               vertical: context.space.md,
@@ -81,6 +93,7 @@ class WhoSeesMeBar extends ConsumerWidget {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

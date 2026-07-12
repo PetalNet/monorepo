@@ -30,8 +30,9 @@ class ShellChrome extends StatelessWidget {
 
     if (expanded) {
       return Scaffold(
-        // The who-sees-me strip spans the full bottom on wide layouts.
-        bottomNavigationBar: const WhoSeesMeBar(),
+        // The who-sees-me strip spans the full bottom on wide layouts; as the
+        // terminal bar it consumes the system bottom inset itself.
+        bottomNavigationBar: const WhoSeesMeBar(bottomSafe: true),
         body: Row(
           children: [
             NavigationRail(
