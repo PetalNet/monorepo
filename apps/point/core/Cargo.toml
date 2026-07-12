@@ -25,7 +25,7 @@ sha2 = "0.11"
 # recovery code and encrypt the exported MLS state so the server stores only
 # opaque ciphertext. See recovery.rs.
 argon2 = "0.5"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 zeroize = "1"
 
 [lib]
