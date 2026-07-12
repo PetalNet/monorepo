@@ -82,6 +82,26 @@ void main() {
     expect(await gate.firstIncomplete(_session), OnboardingStep.location);
   });
 
+  test('the gate awaits persisted settings on a cold start', () async {
+    // Regression (review H1): a finished account whose settings were still
+    // loading must not be re-gated into the privacy fork.
+    FlutterSecureStorage.setMockInitialValues({
+      'point.settings':
+          '{"map_provider":"proxied","transport":"fcm",'
+          '"fcm_fallback":true,"transport_chosen":true}',
+    });
+    final freshContainer = ProviderContainer();
+    addTearDown(freshContainer.dispose);
+    final freshGate = OnboardingGate(
+      _dummyRef(freshContainer),
+      locationCheck: () async => true,
+    );
+    await freshGate.markRecoverySaved(_session.userId);
+    // First read of settingsProvider happens INSIDE the gate call, exactly
+    // like a cold app start.
+    expect(await freshGate.firstIncomplete(_session), isNull);
+  });
+
   test('the privacy fork writes the right tiers', () async {
     final settings = container.read(settingsProvider.notifier);
 

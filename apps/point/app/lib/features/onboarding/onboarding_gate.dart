@@ -51,9 +51,10 @@ class OnboardingGate {
   /// complete and the shell may open.
   Future<OnboardingStep?> firstIncomplete(Session session) async {
     if (!await recoverySaved(session.userId)) return OnboardingStep.recovery;
-    if (!_ref.read(settingsProvider).transportChosen) {
-      return OnboardingStep.privacy;
-    }
+    // Await the persisted settings: a synchronous read on a cold start races
+    // the storage load and would re-gate a finished account into the fork.
+    final settings = await _ref.read(settingsProvider.notifier).loaded;
+    if (!settings.transportChosen) return OnboardingStep.privacy;
     if (!await locationGranted()) return OnboardingStep.location;
     return null;
   }

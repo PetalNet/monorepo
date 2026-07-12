@@ -103,7 +103,15 @@ String parseRecoveryInput(String raw) {
       .toList();
   final looksLikeWords =
       words.length > 1 && words.every((w) => RegExp(r'^[a-z]+$').hasMatch(w));
-  if (looksLikeWords) return wordsToCode(words);
+  if (looksLikeWords) {
+    try {
+      return wordsToCode(words);
+    } on FormatException {
+      // Not words after all. A legacy code typed with spaces between its
+      // groups (all-letter groups look word-shaped) still normalizes below;
+      // the Rust side is equally space-tolerant.
+    }
+  }
   final bare = normalizeCode(raw);
   if (bare.length == 24) return formatCode(bare);
   throw const FormatException(

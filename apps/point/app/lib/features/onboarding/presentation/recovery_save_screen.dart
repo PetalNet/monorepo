@@ -13,7 +13,7 @@ import 'package:point_app/features/recovery/recovery_words.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/theme_x.dart';
-import 'package:point_app/widgets/pill_button.dart';
+import 'package:point_app/widgets/confirm_sheet.dart';
 import 'package:point_app/widgets/tonal_field.dart';
 
 /// Onboarding: save the recovery phrase (locked copy). A brand-new account
@@ -55,21 +55,33 @@ class _RecoverySaveScreenState extends ConsumerState<RecoverySaveScreen> {
     if (session == null) return;
     final recovery = ref.read(recoveryServiceProvider);
     try {
-      // Already enrolled on this device: just re-show the phrase.
-      final cached = await recovery.cachedCode();
+      final api = ref.read(apiProvider);
+      final existing = await api.getRecoveryBackup(session.token);
+      // Already enrolled on this device (for THIS account): re-show the
+      // phrase. If the server backup went missing (a failed first upload, a
+      // deleted row), quietly re-upload before showing words the user will
+      // trust their account to.
+      final cached = await recovery.cachedCode(session.userId);
       if (cached != null) {
+        if (existing == null &&
+            !await recovery.refreshBackup(session.token, session.userId)) {
+          _show(
+            _Mode.error,
+            error:
+                'Could not reach your server. Check the connection and retry.',
+          );
+          return;
+        }
         _show(_Mode.words, words: codeToWords(cached));
         return;
       }
       // A backup already on the server means this account has a phrase from
       // another device: offer restore before anything destructive.
-      final api = ref.read(apiProvider);
-      final existing = await api.getRecoveryBackup(session.token);
       if (existing != null) {
         _show(_Mode.restoreChoice);
         return;
       }
-      await _enroll(session.token);
+      await _enroll(session.token, session.userId);
     } on Object {
       _show(
         _Mode.error,
@@ -78,8 +90,10 @@ class _RecoverySaveScreenState extends ConsumerState<RecoverySaveScreen> {
     }
   }
 
-  Future<void> _enroll(String token) async {
-    final code = await ref.read(recoveryServiceProvider).enroll(token);
+  Future<void> _enroll(String token, String identity) async {
+    final code = await ref
+        .read(recoveryServiceProvider)
+        .enroll(token, identity);
     _show(_Mode.words, words: codeToWords(code));
   }
 
@@ -93,11 +107,16 @@ class _RecoverySaveScreenState extends ConsumerState<RecoverySaveScreen> {
   }
 
   Future<void> _confirmSaved() async {
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (context) => const _SavedConfirmSheet(),
+    final saved = await ConfirmSheet.show(
+      context,
+      title: 'Stored somewhere safe?',
+      body:
+          'If these words are lost, no one can bring the account back. '
+          'Not even us.',
+      primaryLabel: 'Yes, it is saved',
+      secondaryLabel: 'Not yet',
     );
-    if (saved != true || !mounted) return;
+    if (!saved || !mounted) return;
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
     await ref.read(onboardingGateProvider).markRecoverySaved(session.userId);
@@ -115,16 +134,22 @@ class _RecoverySaveScreenState extends ConsumerState<RecoverySaveScreen> {
     final relay = ref.read(relayControllerProvider);
     try {
       final code = parseRecoveryInput(_phraseInput.text);
-      // Quiesce the relay while the identity underneath it is swapped.
+      // Quiesce the relay while the identity underneath it is swapped, and
+      // ALWAYS bring it back: a wrong phrase (the common typo case) must not
+      // leave the session with a dead relay.
       await relay.stop();
-      final ok = await ref
-          .read(recoveryServiceProvider)
-          .restore(
-            token: session.token,
-            identity: session.userId,
-            code: code,
-          );
-      await relay.start(session);
+      final bool ok;
+      try {
+        ok = await ref
+            .read(recoveryServiceProvider)
+            .restore(
+              token: session.token,
+              identity: session.userId,
+              code: code,
+            );
+      } finally {
+        await relay.start(session);
+      }
       if (!ok) {
         setState(() => _error = 'No backup found for this account.');
         return;
@@ -152,16 +177,22 @@ class _RecoverySaveScreenState extends ConsumerState<RecoverySaveScreen> {
   /// Start over with a fresh phrase, replacing the old backup. Gated on an
   /// honest confirm because the old phrase stops working.
   Future<void> _startFresh() async {
-    final sure = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (context) => const _ReplaceBackupSheet(),
+    final sure = await ConfirmSheet.show(
+      context,
+      title: 'Replace the old backup?',
+      body:
+          'You get a new phrase and the old one stops working. Your '
+          'people stay, but encrypted history from the old device does '
+          'not come along.',
+      primaryLabel: 'Replace it',
+      secondaryLabel: 'Go back',
     );
-    if (sure != true || !mounted) return;
+    if (!sure || !mounted) return;
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
     setState(() => _busy = true);
     try {
-      await _enroll(session.token);
+      await _enroll(session.token, session.userId);
       // The fresh identity replaces the old device's now-orphaned pool.
       await ref.read(relayControllerProvider).reprovisionKeyPackages();
     } on Object {
@@ -316,95 +347,6 @@ class _WordGrid extends StatelessWidget {
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-/// The stored-it-somewhere-safe gate beneath "I saved it."
-class _SavedConfirmSheet extends StatelessWidget {
-  const _SavedConfirmSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          context.space.xl,
-          context.space.md,
-          context.space.xl,
-          context.space.xl,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Stored somewhere safe?', style: context.text.headlineSmall),
-            SizedBox(height: context.space.md),
-            Text(
-              'If these words are lost, no one can bring the account back. '
-              'Not even us.',
-              style: context.text.bodyMedium?.copyWith(
-                color: context.colors.onSurfaceVariant,
-              ),
-            ),
-            SizedBox(height: context.space.xl),
-            PillButton(
-              label: 'Yes, it is saved',
-              onPressed: () => Navigator.of(context).pop(true),
-            ),
-            SizedBox(height: context.space.xs),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Not yet'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Honest confirm before replacing an existing backup with a fresh phrase.
-class _ReplaceBackupSheet extends StatelessWidget {
-  const _ReplaceBackupSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          context.space.xl,
-          context.space.md,
-          context.space.xl,
-          context.space.xl,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Replace the old backup?', style: context.text.headlineSmall),
-            SizedBox(height: context.space.md),
-            Text(
-              'You get a new phrase and the old one stops working. Your '
-              'people stay, but encrypted history from the old device does '
-              'not come along.',
-              style: context.text.bodyMedium?.copyWith(
-                color: context.colors.onSurfaceVariant,
-              ),
-            ),
-            SizedBox(height: context.space.xl),
-            PillButton(
-              label: 'Replace it',
-              onPressed: () => Navigator.of(context).pop(true),
-            ),
-            SizedBox(height: context.space.xs),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Go back'),
-            ),
-          ],
-        ),
       ),
     );
   }

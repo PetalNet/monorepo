@@ -45,9 +45,9 @@ void main() {
     });
 
     test('word matching ignores case and padding', () {
-      final words = codeToWords('ZZZZZZ-ZZZZZZ-ZZZZZZ-ZZZZZZ')
-          .map((w) => '  ${w.toUpperCase()} ')
-          .toList();
+      final words = codeToWords(
+        'ZZZZZZ-ZZZZZZ-ZZZZZZ-ZZZZZZ',
+      ).map((w) => '  ${w.toUpperCase()} ').toList();
       expect(wordsToCode(words), 'ZZZZZZ-ZZZZZZ-ZZZZZZ-ZZZZZZ');
     });
 
@@ -93,6 +93,16 @@ void main() {
       expect(
         parseRecoveryInput('0123AB-CDEF01-234567-89ABCD'),
         '0123AB-CDEF01-234567-89ABCD',
+      );
+    });
+
+    test('accepts a legacy code split by spaces, even all-letter groups', () {
+      // Regression (review): 'ABCDEF GHJKMN PQRSTV WXYZAB' is word-shaped
+      // (four alphabetic groups) but is really a 24-symbol code; the Rust
+      // normalizer accepts it, so the client must too.
+      expect(
+        parseRecoveryInput('ABCDEF GHJKMN PQRSTV WXYZAB'),
+        'ABCDEF-GHJKMN-PQRSTV-WXYZAB',
       );
     });
 

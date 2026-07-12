@@ -42,3 +42,11 @@ android {
 flutter {
     source = "../.."
 }
+
+// The UnifiedPush connector's WebPush layer pulls the JVM `tink` jar while
+// flutter_secure_storage pulls `tink-android`; both ship the same classes and
+// Gradle refuses the duplicate. tink-android is the Android packaging of the
+// same library, so keep it and drop the JVM jar everywhere.
+configurations.all {
+    exclude(group = "com.google.crypto.tink", module = "tink")
+}

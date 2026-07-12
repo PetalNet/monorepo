@@ -137,6 +137,9 @@ class _PointAppState extends ConsumerState<PointApp>
   Future<void> _routeSignedOut() async {
     final picked = await ref.read(serverUrlProvider.notifier).hasSavedChoice();
     if (!mounted) return;
+    // A sign-in that landed while the storage read was in flight wins; this
+    // stale signed-out stack must not clobber it.
+    if (ref.read(authControllerProvider).value != null) return;
     await _config.router.set([
       const ServerPickRoute(),
       if (picked) const LoginRoute(),
@@ -249,6 +252,9 @@ class _PointAppState extends ConsumerState<PointApp>
           } else {
             ref.read(locationServiceProvider).setSharing(sharing: false);
             ref.read(relayControllerProvider).stop();
+            // An invite held for the previous account must not leak into
+            // whichever account signs in next.
+            ref.read(pendingInviteProvider.notifier).take();
             unawaited(_routeSignedOut());
           }
         });

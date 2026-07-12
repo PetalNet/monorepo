@@ -101,9 +101,9 @@ class _DistributorGuideScreenState extends ConsumerState<DistributorGuideScreen>
         ),
         SizedBox(height: context.space.lg),
         Text(
-          'Any UnifiedPush distributor works. Your server never learns '
-          'which one you use, and the distributor only ever sees "wake '
-          'Point", never who or where you are.',
+          'Any UnifiedPush distributor works. It only ever carries a plain '
+          'wake-up ping, so it never learns who your people are or where '
+          'anyone is.',
           style: context.text.bodySmall?.copyWith(
             color: context.colors.onSurfaceVariant,
           ),

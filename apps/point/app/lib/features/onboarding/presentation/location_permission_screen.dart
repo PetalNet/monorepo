@@ -84,13 +84,24 @@ class _LocationPermissionScreenState
     final always = _permission == LocationPermission.always;
     final foreverDenied = _permission == LocationPermission.deniedForever;
 
-    final (primaryLabel, onPrimary) = switch ((_granted, foreverDenied)) {
-      (true, _) => ('Done', _done),
-      (false, true) => (
+    // One state, one primary: full grant finishes; a while-in-use grant leads
+    // with the settings upgrade (Continue anyway beneath); a hard deny can
+    // only be fixed in settings; otherwise ask.
+    final (primaryLabel, onPrimary) = switch ((
+      _granted,
+      always,
+      foreverDenied,
+    )) {
+      (true, true, _) => ('Done', _done),
+      (true, false, _) => (
         'Open settings',
         () => unawaited(Geolocator.openAppSettings()),
       ),
-      (false, false) => ('Allow location', _request),
+      (false, _, true) => (
+        'Open settings',
+        () => unawaited(Geolocator.openAppSettings()),
+      ),
+      (false, _, false) => ('Allow location', _request),
     };
 
     return OnboardingScaffold(
@@ -126,14 +137,6 @@ class _LocationPermissionScreenState
             'Allow all the time.',
             style: context.text.bodySmall?.copyWith(
               color: context.colors.onSurfaceVariant,
-            ),
-          ),
-          SizedBox(height: context.space.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              onPressed: () => unawaited(Geolocator.openAppSettings()),
-              child: const Text('Open settings'),
             ),
           ),
         ] else if (!_granted)

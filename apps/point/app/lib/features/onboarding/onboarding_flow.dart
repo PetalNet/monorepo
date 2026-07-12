@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/routes.dart';
@@ -42,7 +43,21 @@ Future<void> continueOnboarding(
 ) async {
   final session = ref.read(authControllerProvider).value;
   if (session == null) return;
-  final step = await ref.read(onboardingGateProvider).firstIncomplete(session);
+  OnboardingStep? step;
+  try {
+    step = await ref.read(onboardingGateProvider).firstIncomplete(session);
+  } on Object catch (e) {
+    // A broken platform channel (storage, permissions) must never strand the
+    // app on the splash with no route out. Fall through to the shell; the
+    // foreground re-gate retries the checks on the next resume.
+    if (kDebugMode) debugPrint('onboarding gate failed open: $e');
+    step = null;
+  }
+  // The checks above await; if the account changed underneath (sign-out, or
+  // a different sign-in), this continuation is stale and must not route.
+  if (ref.read(authControllerProvider).value?.userId != session.userId) {
+    return;
+  }
   switch (step) {
     case OnboardingStep.recovery:
       await router.set(const [OnboardingRecoveryRoute()]);
@@ -51,7 +66,11 @@ Future<void> continueOnboarding(
     case OnboardingStep.location:
       await router.set(const [OnboardingLocationRoute()]);
     case null:
-      await ref.read(locationServiceProvider).start();
+      try {
+        await ref.read(locationServiceProvider).start();
+      } on Object catch (e) {
+        if (kDebugMode) debugPrint('location engine start failed: $e');
+      }
       final invite = ref.read(pendingInviteProvider.notifier).take();
       await router.set([
         const MainShell(),

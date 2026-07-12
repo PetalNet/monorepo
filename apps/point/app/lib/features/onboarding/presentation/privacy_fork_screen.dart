@@ -18,17 +18,24 @@ class PrivacyForkScreen extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final private = useState(true);
+    final busy = useState(false);
 
     Future<void> submit() async {
+      if (busy.value) return;
+      busy.value = true;
       final settings = ref.read(settingsProvider.notifier);
       // The private path only counts as chosen once the distributor guide
       // finishes, so killing the app mid-guide resumes right here.
       await settings.applyPrivacyFork(private: private.value);
       if (!context.mounted) return;
-      if (private.value) {
-        await context.push(const OnboardingDistributorRoute());
-      } else {
-        await continueOnboarding(ref, context.router<AppRoute>());
+      try {
+        if (private.value) {
+          await context.push(const OnboardingDistributorRoute());
+        } else {
+          await continueOnboarding(ref, context.router<AppRoute>());
+        }
+      } finally {
+        busy.value = false;
       }
     }
 

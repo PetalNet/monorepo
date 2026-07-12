@@ -10,6 +10,7 @@ import 'package:point_app/features/onboarding/presentation/recovery_save_screen.
 import 'package:point_app/features/onboarding/presentation/server_pick_screen.dart';
 import 'package:point_app/features/recovery/recovery_service.dart';
 import 'package:point_app/services/api/models.dart';
+import 'package:point_app/services/api/point_api.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
 
@@ -38,6 +39,7 @@ void main() {
       overrides: [
         authControllerProvider.overrideWith(_Auth.new),
         recoveryServiceProvider.overrideWith(_FakeRecovery.new),
+        apiProvider.overrideWith((ref) => _FakeApi()),
       ],
       child: MaterialApp.router(
         debugShowCheckedModeBanner: false,
@@ -53,11 +55,11 @@ void main() {
 class _Auth extends AuthController {
   @override
   Future<Session?> build() async => const Session(
-        userId: 'parker@point.petalcat.dev',
-        token: 'preview-token',
-        displayName: 'Parker H',
-        isAdmin: false,
-      );
+    userId: 'parker@point.petalcat.dev',
+    token: 'preview-token',
+    displayName: 'Parker H',
+    isAdmin: false,
+  );
 }
 
 /// Deterministic phrase, no network, no Rust bridge.
@@ -65,5 +67,17 @@ class _FakeRecovery extends RecoveryService {
   _FakeRecovery(super.ref);
 
   @override
-  Future<String?> cachedCode() async => '4WPNVJ-M3H1KD-8XQ2TS-5RGZC9';
+  Future<String?> cachedCode(String identity) async =>
+      '4WPNVJ-M3H1KD-8XQ2TS-5RGZC9';
+}
+
+/// No network in the preview: the recovery screen's backup probe sees a
+/// stored backup so the cached-phrase path renders.
+class _FakeApi extends PointApi {
+  _FakeApi() : super(baseUrl: 'http://preview.invalid');
+
+  @override
+  Future<({String blobBase64, String updatedAt})?> getRecoveryBackup(
+    String token,
+  ) async => (blobBase64: '', updatedAt: '');
 }
