@@ -24,32 +24,42 @@ import 'package:point_app/src/rust/api/recovery.dart' as rust;
 /// and it never does.
 class RecoveryService {
   RecoveryService(this._ref, {FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   final Ref _ref;
   final FlutterSecureStorage _storage;
 
-  static const _codeKey = 'point.recovery.code';
+  /// The cached code is namespaced per identity: a second account on the same
+  /// device must never be shown (or silently reuse) the first account's
+  /// phrase.
+  static String _codeKey(String identity) => 'point.recovery.code.$identity';
 
-  /// Whether a recovery code has been enrolled on THIS device.
-  Future<bool> isEnrolled() async =>
-      (await _storage.read(key: _codeKey)) != null;
+  /// Whether a recovery code for [identity] has been enrolled on THIS device.
+  Future<bool> isEnrolled(String identity) async =>
+      (await _storage.read(key: _codeKey(identity))) != null;
 
-  /// Generate a fresh recovery code, cache it locally, and upload a first
-  /// encrypted backup. Returns the code to show the user exactly once — it is
-  /// the only thing that can recover the account, and it is never sent anywhere.
-  Future<String> enroll(String token) async {
+  /// The locally-cached recovery code, if this device has enrolled (used to
+  /// re-show the phrase; it never leaves the device).
+  Future<String?> cachedCode(String identity) =>
+      _storage.read(key: _codeKey(identity));
+
+  /// Generate a fresh recovery code, upload a first encrypted backup, and only
+  /// then cache the code locally. Returns the code to show the user — it is
+  /// the only thing that can recover the account, and it is never sent
+  /// anywhere. Upload-before-cache matters: a cached code with no backup
+  /// behind it would let the user confirm a phrase that restores nothing.
+  Future<String> enroll(String token, String identity) async {
     final code = rust.generateRecoveryCode();
-    await _storage.write(key: _codeKey, value: code);
     await _backupWithCode(token, code);
+    await _storage.write(key: _codeKey(identity), value: code);
     return code;
   }
 
   /// Re-encrypt and upload the current MLS state under the already-enrolled
   /// code. No-op (returns false) if this device has never enrolled. Call after
   /// state-changing events so the backup doesn't drift behind the live epoch.
-  Future<bool> refreshBackup(String token) async {
-    final code = await _storage.read(key: _codeKey);
+  Future<bool> refreshBackup(String token, String identity) async {
+    final code = await _storage.read(key: _codeKey(identity));
     if (code == null) return false;
     try {
       await _backupWithCode(token, code);
@@ -95,13 +105,14 @@ class RecoveryService {
     }
 
     await _ref.read(cryptoServiceProvider).restoreFromState(identity, state);
-    await _storage.write(key: _codeKey, value: code);
+    await _storage.write(key: _codeKey(identity), value: code);
     return true;
   }
 
   /// Forget the locally-cached recovery code (backups stop refreshing until
   /// re-enrolled). Does not touch the server-side backup.
-  Future<void> forgetLocalCode() => _storage.delete(key: _codeKey);
+  Future<void> forgetLocalCode(String identity) =>
+      _storage.delete(key: _codeKey(identity));
 }
 
 /// A recovery attempt failed in a way the user can act on (wrong code / corrupt

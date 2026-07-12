@@ -1,7 +1,7 @@
 name: point_app
 description: "Point — Matrix for location. E2E-encrypted, federatable location sharing."
 publish_to: "none"
-version: 1.0.2+4
+version: 1.2.0+5
 
 environment:
   sdk: ^3.10.0
@@ -27,6 +27,8 @@ dependencies:
   path_provider: ^2.1.6
   flutter_rust_bridge: 2.12.0
   app_links: ^7.2.1
+  unifiedpush: ^6.2.0
+  url_launcher: ^6.3.2
   # dynamic_color is intentionally NOT a dependency: the spec locks dynamic_color
   # OFF (fixed monochrome, no Material You wallpaper hues) — D-015.
 

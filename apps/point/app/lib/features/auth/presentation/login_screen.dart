@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:kaisel/kaisel.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/services/server_config.dart';
 import 'package:point_app/theme/theme_x.dart';
 import 'package:point_app/widgets/pill_button.dart';
+import 'package:point_app/widgets/tonal_field.dart';
 
 /// Sign-in / register, OUTSIDE the shell (D-015). Bold monochrome: big
-/// Schibsted headline, tonal fields, a full-width pill primary.
+/// Schibsted headline, tonal fields, a full-width pill primary. The home
+/// server was chosen one step back (server pick); a quiet row here says
+/// which one and offers the way back.
 class LoginScreen extends HookConsumerWidget {
   const LoginScreen({super.key});
 
@@ -18,31 +22,23 @@ class LoginScreen extends HookConsumerWidget {
     final password = useTextEditingController();
     final invite = useTextEditingController();
     final displayName = useTextEditingController();
-    final server = useTextEditingController();
 
-    // Keep the server field in sync with the active/persisted choice until the
-    // user edits it (the provider only changes on load or on an explicit set).
     final serverUrl = ref.watch(serverUrlProvider);
-    useEffect(() {
-      server.text = serverUrl;
-      return null;
-    }, [serverUrl]);
+    final serverHost = Uri.tryParse(serverUrl)?.host ?? serverUrl;
 
     final auth = ref.watch(authControllerProvider);
     final busy = auth.isLoading;
     final error = auth.hasError ? auth.error.toString() : null;
 
     Future<void> submit() async {
-      // Apply + persist the chosen home-server BEFORE authenticating, so the API
-      // client and WS relay target it.
-      await ref.read(serverUrlProvider.notifier).set(server.text);
       final ctrl = ref.read(authControllerProvider.notifier);
       if (registering.value) {
         await ctrl.register(
           username: username.text.trim(),
           password: password.text,
-          displayName:
-              displayName.text.trim().isEmpty ? null : displayName.text.trim(),
+          displayName: displayName.text.trim().isEmpty
+              ? null
+              : displayName.text.trim(),
           inviteCode: invite.text.trim().isEmpty ? null : invite.text.trim(),
         );
       } else {
@@ -79,27 +75,34 @@ class LoginScreen extends HookConsumerWidget {
                   style: context.text.displaySmall,
                 ),
                 SizedBox(height: context.space.xl),
-                _Field(controller: username, label: 'Username'),
+                TonalField(controller: username, label: 'Username'),
                 SizedBox(height: context.space.md),
-                _Field(controller: password, label: 'Password', obscure: true),
+                TonalField(
+                  controller: password,
+                  label: 'Password',
+                  obscure: true,
+                ),
                 if (registering.value) ...[
                   SizedBox(height: context.space.md),
-                  _Field(controller: displayName, label: 'Display name (optional)'),
+                  TonalField(
+                    controller: displayName,
+                    label: 'Display name (optional)',
+                  ),
                   SizedBox(height: context.space.md),
-                  _Field(controller: invite, label: 'Invite code (if required)'),
+                  TonalField(
+                    controller: invite,
+                    label: 'Invite code (if required)',
+                  ),
                 ],
                 SizedBox(height: context.space.md),
-                _Field(
-                  controller: server,
-                  label: 'Point server',
-                  keyboardType: TextInputType.url,
-                ),
+                _ServerRow(host: serverHost, busy: busy),
                 if (error != null) ...[
                   SizedBox(height: context.space.md),
                   Text(
                     error,
-                    style: context.text.bodySmall
-                        ?.copyWith(color: context.colors.onSurfaceVariant),
+                    style: context.text.bodySmall?.copyWith(
+                      color: context.colors.onSurfaceVariant,
+                    ),
                   ),
                 ],
                 SizedBox(height: context.space.xl),
@@ -128,43 +131,60 @@ class LoginScreen extends HookConsumerWidget {
   }
 }
 
-class _Field extends StatelessWidget {
-  const _Field({
-    required this.controller,
-    required this.label,
-    this.obscure = false,
-    this.keyboardType,
-  });
-
-  final TextEditingController controller;
-  final String label;
-  final bool obscure;
-  final TextInputType? keyboardType;
+/// The chosen home server, one tap from changing it (pops back to the
+/// server-pick step beneath this screen).
+class _ServerRow extends StatelessWidget {
+  const _ServerRow({required this.host, required this.busy});
+  final String host;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      obscureText: obscure,
-      keyboardType: keyboardType,
-      autocorrect: false,
-      enableSuggestions: false,
-      style: context.text.bodyLarge,
-      decoration: InputDecoration(
-        labelText: label,
-        filled: true,
-        fillColor: context.colors.surfaceContainer,
-        border: OutlineInputBorder(
+    return Semantics(
+      button: true,
+      label: 'Server $host. Change server.',
+      child: Material(
+        color: context.colors.surfaceContainer,
+        borderRadius: context.radii.brSm,
+        child: InkWell(
+          onTap: busy ? null : () => context.pop(),
           borderRadius: context.radii.brSm,
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: context.radii.brSm,
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: context.radii.brSm,
-          borderSide: BorderSide(color: context.colors.onSurface, width: 1.5),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: context.space.lg,
+              vertical: context.space.md,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'SERVER',
+                        style: context.text.labelSmall?.copyWith(
+                          color: context.colors.onSurfaceVariant,
+                        ),
+                      ),
+                      SizedBox(height: context.space.xs / 2),
+                      Text(
+                        host,
+                        style: context.text.bodyLarge?.copyWith(
+                          fontFamily: 'JetBrains Mono',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  'Change',
+                  style: context.text.labelLarge?.copyWith(
+                    color: context.colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

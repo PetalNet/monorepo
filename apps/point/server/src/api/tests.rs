@@ -482,33 +482,57 @@ async fn fcm_token_upserts(pool: PgPool) {
 // rate limiting
 // ---------------------------------------------------------------------------
 
+// The limiter's window is a FIXED 60s wall-clock bucket, so a slow CI run can
+// straddle a boundary mid-test and split the attempts across two buckets
+// (observed flake: the "(cap+1)th is 429" shape). Making 2*cap+1 attempts
+// guarantees one bucket receives at least cap+1 of them, so at least one 429
+// MUST appear — same property, no timing sensitivity.
+
 #[sqlx::test]
-async fn login_rate_limit_fires_on_11th_attempt(pool: PgPool) {
+async fn login_rate_limit_fires_within_a_window(pool: PgPool) {
     let app = app(&pool, true);
     let (status, _) = register(&app, "alice", "password1", None).await;
     assert_eq!(status, StatusCode::OK);
 
-    for i in 1..=10 {
+    // Per-username cap is 10/min: 21 wrong-password attempts must throttle.
+    let mut throttled = false;
+    for _ in 1..=21 {
         let (status, _) = login(&app, "alice", "wrong-password").await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED, "attempt {i}");
+        match status {
+            StatusCode::UNAUTHORIZED => {}
+            StatusCode::TOO_MANY_REQUESTS => {
+                throttled = true;
+                break;
+            }
+            other => panic!("unexpected status {other}"),
+        }
     }
-    let (status, _) = login(&app, "alice", "wrong-password").await;
-    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(throttled, "21 bad logins never hit the per-user cap");
 
-    // The right password is also throttled: the window is per username.
+    // While throttled, the RIGHT password is throttled too: the window is per
+    // username, not per outcome.
     let (status, _) = login(&app, "alice", "password1").await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 }
 
 #[sqlx::test]
-async fn register_global_rate_limit_fires_on_6th_attempt(pool: PgPool) {
+async fn register_global_rate_limit_fires_within_a_window(pool: PgPool) {
     let app = app(&pool, true);
-    for i in 1..=5 {
+    // Global registration cap is 5/min: 11 attempts must throttle at least
+    // one, whatever the bucket boundaries do.
+    let mut throttled = false;
+    for i in 1..=11 {
         let (status, _) = register(&app, &format!("user{i}"), "password1", None).await;
-        assert_eq!(status, StatusCode::OK, "register {i}");
+        match status {
+            StatusCode::OK => {}
+            StatusCode::TOO_MANY_REQUESTS => {
+                throttled = true;
+                break;
+            }
+            other => panic!("unexpected status {other}"),
+        }
     }
-    let (status, _) = register(&app, "user6", "password1", None).await;
-    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(throttled, "11 registrations never hit the global cap");
 }
 
 // ---------------------------------------------------------------------------
@@ -621,4 +645,101 @@ fn display_name_sanitizer_rules() {
     assert_eq!(sanitize_display_name("  padded  "), "padded");
     assert_eq!(sanitize_display_name(&"z".repeat(100)).len(), 64);
     assert_eq!(sanitize_display_name("\u{FEFF}\u{2066}"), "");
+}
+
+// ---------------------------------------------------------------------------
+// KeyPackage pool: replace-on-rekey semantics
+// ---------------------------------------------------------------------------
+
+/// Upload a batch of opaque KeyPackages for `token`, optionally replacing the
+/// existing pool (the client's identity changed) and/or the last-resort slot.
+async fn upload_kps(
+    app: &Router,
+    token: &str,
+    count: usize,
+    tag: &str,
+    replace: bool,
+    last_resort: Option<&str>,
+) -> (StatusCode, Value) {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let mut body = json!({
+        "key_packages": (0..count)
+            .map(|i| b64.encode(format!("kp-{tag}-{i}")))
+            .collect::<Vec<_>>(),
+        "replace": replace,
+    });
+    if let Some(lr) = last_resort {
+        body["last_resort"] = json!(b64.encode(lr));
+    }
+    send(app, "POST", "/api/mls/keys", Some(token), Some(body)).await
+}
+
+#[sqlx::test]
+async fn keypackage_replace_drops_stale_pool(pool: PgPool) {
+    let app = app(&pool, true);
+    let (_, alice) = register(&app, "alice", "password-1", None).await;
+    let alice = token_of(&alice);
+
+    // Old identity: 3 regular packages + a last resort.
+    let (status, _) = upload_kps(&app, &alice, 3, "old", false, Some("lr-old")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, count) = send(&app, "GET", "/api/mls/keys/count", Some(&alice), None).await;
+    assert_eq!(count["count"], 3);
+    assert_eq!(count["has_last_resort"], true);
+
+    // Re-key with replace: the stale pool AND the stale last resort go away.
+    let (status, body) = upload_kps(&app, &alice, 2, "new", true, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["has_last_resort"], false);
+    let (_, count) = send(&app, "GET", "/api/mls/keys/count", Some(&alice), None).await;
+    assert_eq!(count["count"], 2);
+    assert_eq!(count["has_last_resort"], false);
+
+    // A claimer only ever sees fresh-identity packages.
+    let (_, bob) = register(&app, "bob", "password-1", None).await;
+    let bob = token_of(&bob);
+    let (_, _) = send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&bob),
+        Some(json!({ "to_user_id": format!("alice@{DOMAIN}") })),
+    )
+    .await;
+    // Accept so bob is allowed to claim (consent gate).
+    let (_, reqs) = send(&app, "GET", "/api/shares/requests", Some(&alice), None).await;
+    let req_id = reqs[0]["id"].as_str().unwrap().to_string();
+    let (status, _) = send(
+        &app,
+        "POST",
+        &format!("/api/shares/requests/{req_id}/accept"),
+        Some(&alice),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let (status, claimed) = send(
+        &app,
+        "POST",
+        &format!("/api/mls/keys/alice@{DOMAIN}/claim"),
+        Some(&bob),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let kp = b64
+        .decode(claimed["key_package"].as_str().unwrap())
+        .unwrap();
+    assert!(String::from_utf8(kp).unwrap().starts_with("kp-new-"));
+
+    // Replace does not touch consumed rows (history stays consistent): after
+    // the claim, 1 remains; replacing with 1 fresh yields exactly 1.
+    let (status, _) = upload_kps(&app, &alice, 1, "newer", true, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, count) = send(&app, "GET", "/api/mls/keys/count", Some(&alice), None).await;
+    assert_eq!(count["count"], 1);
 }

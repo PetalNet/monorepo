@@ -69,5 +69,12 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- UnifiedPush distributor discovery (Android 11+ package visibility):
+             without this, getDistributors() cannot see installed distributors
+             like ntfy, and the private-notifications guide would always read
+             "none found". -->
+        <intent>
+            <action android:name="org.unifiedpush.android.distributor.REGISTER"/>
+        </intent>
     </queries>
 </manifest>
