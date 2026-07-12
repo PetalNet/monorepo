@@ -50,7 +50,7 @@ void main() {
     });
 
     test('fix without coordinates → unchanged', () {
-      final fix = PeerFix(userId: 'eli@point.dev', data: const {'speed': 1});
+      const fix = PeerFix(userId: 'eli@point.dev', data: {'speed': 1});
       expect(mergePresence(away, fix).hasLocation, isFalse);
     });
   });
