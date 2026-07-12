@@ -104,7 +104,7 @@ docker compose --profile tiles up -d
 
 Then set in `.env` and restart the server:
 
-```
+```sh
 TILES_URL=https://$DOMAIN/tiles/styles/point-dark/{z}/{x}/{y}.png
 ```
 
