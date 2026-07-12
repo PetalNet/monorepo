@@ -45,9 +45,14 @@ fn matrix_errcode(body: &Value) -> Option<&str> {
     body.get("errcode").and_then(|v| v.as_str())
 }
 
-/// Is this response an authentication failure (a bad/rotated token)?
+/// Is this response an authentication failure (a bad/rotated token) that a
+/// creds reload could heal? Matrix signals a bad access token with **401
+/// M_UNKNOWN_TOKEN** (incl. soft-logout). A bare 403 is *authorization*
+/// (M_FORBIDDEN — wrong room/permission), which a token swap can't fix, so we
+/// deliberately do NOT treat 403 as auth: reloading there would be a pointless
+/// creds re-read on every forbidden call.
 fn is_auth_failure(status: u16, body: &Value) -> bool {
-    status == 401 || status == 403 || matrix_errcode(body) == Some("M_UNKNOWN_TOKEN")
+    status == 401 || matrix_errcode(body) == Some("M_UNKNOWN_TOKEN")
 }
 
 /// Percent-encode for URL path/query components (RFC 3986 unreserved kept).
@@ -407,10 +412,12 @@ mod tests {
 
     #[test]
     fn auth_failure_classification() {
-        // 401 / 403 / M_UNKNOWN_TOKEN are auth failures (reload+retry).
+        // 401 and M_UNKNOWN_TOKEN are token failures a reload can heal.
         assert!(is_auth_failure(401, &Value::Null));
-        assert!(is_auth_failure(403, &Value::Null));
         assert!(is_auth_failure(200, &json!({"errcode": "M_UNKNOWN_TOKEN"})));
+        // A bare 403 is authorization (M_FORBIDDEN), NOT a bad token — a token
+        // swap can't fix it, so don't classify it as auth.
+        assert!(!is_auth_failure(403, &json!({"errcode": "M_FORBIDDEN"})));
         // A soft-logout 401 body still classifies as auth.
         assert!(is_auth_failure(
             401,
