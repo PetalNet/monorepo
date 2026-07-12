@@ -977,6 +977,19 @@ async fn spawn_fake_upstream() -> String {
                     "<html>not a tile</html>".to_string(),
                 )
             }),
+        )
+        .route(
+            "/huge/{z}/{x}/{y}",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "image/png")],
+                    vec![0u8; 4 * 1024 * 1024],
+                )
+            }),
+        )
+        .route(
+            "/nocontenttype/{z}/{x}/{y}",
+            get(|| async { vec![1u8, 2, 3, 4] }),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -1029,5 +1042,18 @@ async fn tile_proxy_streams_validates_and_gates(pool: PgPool) {
     // A non-image upstream response never leaves the proxy.
     let html = app_with_tile_upstream(&pool, &format!("{upstream}/html/{{z}}/{{x}}/{{y}}"));
     let (status, _) = send(&html, "GET", "/api/tiles/3/1/2", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // A declared-oversize tile is rejected (not buffered).
+    let huge = app_with_tile_upstream(&pool, &format!("{upstream}/huge/{{z}}/{{x}}/{{y}}"));
+    let (status, _) = send(&huge, "GET", "/api/tiles/3/1/2", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // An upstream that omits Content-Type is not optimistically served.
+    let untyped = app_with_tile_upstream(
+        &pool,
+        &format!("{upstream}/nocontenttype/{{z}}/{{x}}/{{y}}"),
+    );
+    let (status, _) = send(&untyped, "GET", "/api/tiles/3/1/2", Some(&alice), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }

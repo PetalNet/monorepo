@@ -8,6 +8,8 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use tokio::sync::Semaphore;
+
 use axum::extract::{Path, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
@@ -29,6 +31,17 @@ const TILE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A tile is a small raster; 2 MiB is generous headroom.
 const MAX_TILE_BYTES: usize = 2 * 1024 * 1024;
+
+/// Instance-wide ceiling on tiles being fetched from the upstream at once.
+/// Bounds the blast radius of a slow upstream: extra requests wait briefly for
+/// a slot rather than each pinning a connection for the full timeout. Well
+/// above a few users panning; far below "one account ties up everything".
+const MAX_CONCURRENT_UPSTREAM: usize = 32;
+
+fn upstream_slots() -> &'static Semaphore {
+    static SLOTS: OnceLock<Semaphore> = OnceLock::new();
+    SLOTS.get_or_init(|| Semaphore::new(MAX_CONCURRENT_UPSTREAM))
+}
 
 fn tile_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -65,6 +78,12 @@ pub async fn get_tile(
         .replace("{x}", &x.to_string())
         .replace("{y}", &y.to_string());
 
+    // Hold a global slot for the whole upstream round-trip; if all are taken
+    // (a slow upstream backing up), give up fast rather than queue unbounded.
+    let _slot = upstream_slots()
+        .try_acquire()
+        .map_err(|_| AppError::TooManyRequests)?;
+
     let resp = tile_client()
         .get(&url)
         .send()
@@ -73,23 +92,40 @@ pub async fn get_tile(
     if !resp.status().is_success() {
         return Err(AppError::NotFound);
     }
-    let content_type = resp
+    // Content type must be DECLARED and an image: a missing header no longer
+    // gets an optimistic default, so an upstream can't relay unlabeled bytes.
+    let content_type = match resp
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("image/png")
-        .to_string();
-    // Only image payloads leave this proxy, whatever the upstream says.
-    if !content_type.starts_with("image/") {
-        return Err(AppError::NotFound);
+    {
+        Some(ct) if ct.starts_with("image/") => ct.to_string(),
+        _ => return Err(AppError::NotFound),
+    };
+    // A declared oversize is rejected before the body is read.
+    if let Some(len) = resp.content_length() {
+        if len > MAX_TILE_BYTES as u64 {
+            return Err(AppError::NotFound);
+        }
     }
-    let bytes = resp
-        .bytes()
+    // Stream with a hard cap so a lying/chunked upstream can't force an
+    // unbounded allocation: stop the moment we exceed the ceiling.
+    let mut resp = resp;
+    let mut buf: Vec<u8> = Vec::with_capacity(64 * 1024);
+    while let Some(chunk) = resp
+        .chunk()
         .await
-        .map_err(|_| AppError::BadRequest("tile upstream failed".into()))?;
-    if bytes.is_empty() || bytes.len() > MAX_TILE_BYTES {
+        .map_err(|_| AppError::BadRequest("tile upstream failed".into()))?
+    {
+        if buf.len() + chunk.len() > MAX_TILE_BYTES {
+            return Err(AppError::NotFound);
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    if buf.is_empty() {
         return Err(AppError::NotFound);
     }
+    let bytes = buf;
 
     Ok((
         [
