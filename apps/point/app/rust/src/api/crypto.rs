@@ -112,6 +112,12 @@ impl PointMls {
         self.lock().has_group(&group_id)
     }
 
+    /// A Signal-style safety number for a pairwise group — both members compute
+    /// the same value from their sorted identity keys, for out-of-band verify.
+    pub fn safety_number(&self, group_id: Vec<u8>) -> Result<String, String> {
+        self.lock().safety_number(&group_id).map_err(|e| e.to_string())
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, PointCrypto> {
         // Recover from a poisoned mutex (a panic deep in openmls on malformed
         // input) instead of aborting every future call across the FFI boundary

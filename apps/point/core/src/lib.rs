@@ -52,6 +52,32 @@ mod tests {
     }
 
     #[test]
+    fn safety_number_matches_between_peers_and_is_stable() {
+        let mut alice = PointCrypto::new("alice@point.dev").unwrap();
+        let mut bob = PointCrypto::new("bob@point.dev").unwrap();
+        let bob_kp = bob.generate_key_package().unwrap();
+        let gid = alice.create_group(b"safety-number-test").unwrap();
+        let add = alice.add_member(&gid, &bob_kp).unwrap();
+        let bob_gid = bob.process_welcome(&add.welcome).unwrap();
+
+        let a = alice.safety_number(&gid).unwrap();
+        let b = bob.safety_number(&bob_gid).unwrap();
+        // Both parties in the same un-MITM'd group derive the SAME number.
+        assert_eq!(a, b);
+        // 8 groups of 5 digits, stable across calls.
+        assert_eq!(a.split(' ').count(), 8);
+        assert_eq!(a, alice.safety_number(&gid).unwrap());
+
+        // A different pair yields a different number.
+        let mut carol = PointCrypto::new("carol@point.dev").unwrap();
+        let carol_kp = carol.generate_key_package().unwrap();
+        let gid2 = alice.create_group(b"other-pair").unwrap();
+        let add2 = alice.add_member(&gid2, &carol_kp).unwrap();
+        carol.process_welcome(&add2.welcome).unwrap();
+        assert_ne!(a, alice.safety_number(&gid2).unwrap());
+    }
+
+    #[test]
     fn test_key_package_generation() {
         let crypto = PointCrypto::new("alice@point.petalcat.dev").unwrap();
         let kp = crypto.generate_key_package().unwrap();

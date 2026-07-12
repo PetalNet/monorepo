@@ -55,6 +55,10 @@ abstract class PointMls implements RustOpaqueInterface {
   /// the caller should fall back to `new()` and re-join via Welcome/Commit.
   static PointMls restore({required List<int> state}) =>
       RustLib.instance.api.crateApiCryptoPointMlsRestore(state: state);
+
+  /// A Signal-style safety number for a pairwise group — both members compute
+  /// the same value from their sorted identity keys, for out-of-band verify.
+  Future<String> safetyNumber({required List<int> groupId});
 }
 
 /// Welcome (for the new member) + Commit (for existing members) from an add.
