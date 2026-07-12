@@ -13,6 +13,7 @@ import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
+import 'package:point_app/features/people/presentation/person_detail_screen.dart';
 import 'package:point_app/features/profile/presentation/profile_screen.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -97,7 +98,7 @@ class _PointAppState extends ConsumerState<PointApp>
   /// modals (Ghost, Device-link) slide up; everything else fades.
   Page<Object?> _pageWrapper(KaiselPageWrapperContext<AppRoute> ctx) {
     return switch (ctx.route) {
-      GhostRoute() || DeviceLinkRoute() =>
+      GhostRoute() || DeviceLinkRoute() || PersonDetailRoute() =>
         _SlideUpPage(key: ctx.key, child: ctx.child),
       _ => _FadePage(key: ctx.key, child: ctx.child),
     };
@@ -109,6 +110,7 @@ class _PointAppState extends ConsumerState<PointApp>
       LoginRoute() => const LoginScreen(),
       GhostRoute() => const GhostScreen(),
       DeviceLinkRoute() => const DeviceLinkScreen(),
+      PersonDetailRoute(:final userId) => PersonDetailScreen(userId: userId),
       MainShell() => KaiselBranchedShell.specs(
           branches: [
             KaiselBranchSpec<MapRoute>(

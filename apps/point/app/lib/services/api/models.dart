@@ -61,13 +61,18 @@ class ShareRequest {
   factory ShareRequest.fromJson(Map<String, dynamic> json) => ShareRequest(
         id: json['id'] as String,
         fromUserId: json['from_user_id'] as String,
-        fromDisplayName:
-            json['display_name'] as String? ?? json['from_user_id'] as String,
+        // The server serializes the requester's name as `from_display_name`.
+        fromDisplayName: json['from_display_name'] as String? ??
+            json['display_name'] as String? ??
+            (json['from_user_id'] as String).split('@').first,
       );
 
   final String id;
   final String fromUserId;
   final String fromDisplayName;
+
+  /// The bare local name (before `@domain`).
+  String get fromHandle => fromUserId.split('@').first;
 }
 
 /// The signed-in user's own ghost/broadcast state.
