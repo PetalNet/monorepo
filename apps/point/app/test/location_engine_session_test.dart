@@ -146,6 +146,18 @@ void main() {
       await h.close();
     });
 
+    test('pre-start lifecycle/sharing events never touch the sensors', () async {
+      final h = _Harness();
+      // Before start() clears the permission gate, foreground/sharing events
+      // may only update the machine — no plugin pokes before onboarding has
+      // earned the ask.
+      h.service.onForeground();
+      h.service.setSharing(sharing: true);
+      expect(h.gps.hasListener, isFalse);
+      expect(h.accel.hasListener, isFalse);
+      await h.close();
+    });
+
     test('stationary send loop: stillness ramps down, heartbeat keeps fixes '
         'flowing', () {
       fakeAsync((async) {
@@ -301,6 +313,33 @@ void main() {
         SessionTransition.skip,
       );
     });
+
+    test('SessionTracker sequence: teardown CLEARS the identity so the same '
+        'account re-establishes (deleting the clear = the wedge returns)', () {
+      final tracker = SessionTracker();
+      const signedIn = AsyncData<Session?>(janet);
+      const signedOut = AsyncData<Session?>(null);
+
+      expect(
+        tracker.onEmission(const AsyncLoading<Session?>(), signedIn),
+        SessionTransition.establish,
+      );
+      // Same-user refresh mid-session: never re-establish (ghost preserved).
+      expect(
+        tracker.onEmission(const AsyncLoading<Session?>(), signedIn),
+        SessionTransition.skip,
+      );
+      expect(
+        tracker.onEmission(signedIn, signedOut),
+        SessionTransition.teardown,
+      );
+      // THE WEDGE: the SAME account signing back in must establish again —
+      // this fails if teardown stops clearing the tracked identity.
+      expect(
+        tracker.onEmission(signedOut, signedIn),
+        SessionTransition.establish,
+      );
+    });
   });
 
   group('establishSessionEngineState', () {
@@ -374,6 +413,16 @@ void main() {
       expect(engine.plan.gpsEnabled, isTrue);
       expect(api.ghostSetTo, isNull);
     });
+
+    testWidgets('a FAILED go-dark write never rolls the engine back to '
+        'broadcasting (fail-closed)', (tester) async {
+      final (_, ref) = await pump(tester, goDarkDefault: true);
+      api.failSetGhost = true;
+      await establishSessionEngineState(ref, explicitSignIn: true);
+      // The user asked to start dark; the server write failing must leave
+      // the engine dark, not silently resume broadcasting.
+      expect(engine.plan.gpsEnabled, isFalse);
+    });
   });
 }
 
@@ -391,6 +440,7 @@ class _FakeAuth extends AuthController {
 
 class _FakeApi implements PointApi {
   bool? ghostSetTo;
+  bool failSetGhost = false;
 
   @override
   Future<GhostState> getGhost(String token) async =>
@@ -398,6 +448,7 @@ class _FakeApi implements PointApi {
 
   @override
   Future<GhostState> setGhost(String token, {required bool active}) async {
+    if (failSetGhost) throw Exception('server unreachable');
     ghostSetTo = active;
     return GhostState(active: active);
   }

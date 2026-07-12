@@ -16,6 +16,36 @@ enum SessionTransition {
   skip,
 }
 
+/// Owns the established-identity lifecycle around [sessionTransition]: an
+/// [SessionTransition.establish] records the identity, a
+/// [SessionTransition.teardown] CLEARS it. The clearing is load-bearing —
+/// without it, a sign-out → sign-in of the same account is mistaken for a
+/// re-emission and skipped, which is exactly the v1.2 wedge (engine left
+/// hard-stopped). Kept out of the widget so the sequence is testable.
+class SessionTracker {
+  String? _establishedUserId;
+
+  SessionTransition onEmission(
+    AsyncValue<Session?>? prev,
+    AsyncValue<Session?> next,
+  ) {
+    final transition = sessionTransition(
+      establishedUserId: _establishedUserId,
+      prev: prev,
+      next: next,
+    );
+    switch (transition) {
+      case SessionTransition.establish:
+        _establishedUserId = next.value!.userId;
+      case SessionTransition.teardown:
+        _establishedUserId = null;
+      case SessionTransition.skip:
+        break;
+    }
+    return transition;
+  }
+}
+
 /// The session-lifecycle decision `_onAuth` makes for an auth emission —
 /// pure, so the ghost-preserving skip rules are testable headless (D-028).
 ///

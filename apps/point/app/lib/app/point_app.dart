@@ -67,6 +67,14 @@ class _PointAppState extends ConsumerState<PointApp>
     // defined but never called. Without this the battery engine never learns
     // it's been backgrounded and location silently stops.
     WidgetsBinding.instance.addObserver(this);
+    // A background cold start (push wake) may never receive a lifecycle
+    // event before the launch gate runs start(); seed the engine with the
+    // real state so the foreground fresh-fix nudge doesn't run GPS at the
+    // foreground cadence behind a turned-off screen (v1.2.1 review).
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
+      ref.read(locationServiceProvider).onBackground();
+    }
     // Wire the UnifiedPush receiver callbacks once, at startup.
     unawaited(ref.read(pushServiceProvider).init());
     final loggedIn = ref.read(authControllerProvider.notifier).loggedIn;
@@ -144,7 +152,18 @@ class _PointAppState extends ConsumerState<PointApp>
     // and restore arrive here from AsyncLoading.
     final explicit =
         ref.read(authControllerProvider.notifier).consumeExplicitSignIn();
-    await establishSessionEngineState(ref, explicitSignIn: explicit);
+    try {
+      // Bounded: the go-dark server write has no client timeout, and routing
+      // must never hang on it (or on broken settings storage) — the engine
+      // already went dark synchronously inside, so proceeding is the safe
+      // direction, same fail-open shape as the launch gate (v1.2.1 review).
+      await establishSessionEngineState(
+        ref,
+        explicitSignIn: explicit,
+      ).timeout(const Duration(seconds: 8));
+    } on Object catch (e) {
+      if (kDebugMode) debugPrint('session engine establish failed: $e');
+    }
     if (!mounted) return;
     // Launch gate: resume the first incomplete required step, or open the
     // shell (with any held deep-link invite).
@@ -289,29 +308,23 @@ class _PointAppState extends ConsumerState<PointApp>
     };
   }
 
-  /// The identity the app last ESTABLISHED a session for (null after a
-  /// teardown). Tracked independently of the listener's `prev` value: a
+  /// The established-identity lifecycle (see [SessionTracker]): a
   /// `loading → data(same user)` refresh must never re-establish (that would
   /// reset the engine's sharing state and could lift a live ghost choice),
   /// while a sign-out → sign-in of the same account must (the v1.2 wedge).
-  String? _establishedUserId;
+  final _sessions = SessionTracker();
 
   /// Auth-driven routing + session lifecycle, invoked by the `listenManual`
   /// registered in initState (fireImmediately, so it also handles the value
   /// auth ALREADY holds when the app starts). Kept off the build-method
   /// `ref.listen`, which never fires for an already-resolved provider.
-  /// The decision itself is [sessionTransition] — pure and tested.
+  /// The decision + identity tracking are [SessionTracker] — pure and tested.
   void _onAuth(AsyncValue<Session?>? prev, AsyncValue<Session?> next) {
-    switch (sessionTransition(
-      establishedUserId: _establishedUserId,
-      prev: prev,
-      next: next,
-    )) {
+    switch (_sessions.onEmission(prev, next)) {
       case SessionTransition.skip:
         return;
       case SessionTransition.establish:
         final session = next.value!;
-        _establishedUserId = session.userId;
         // Wave D: register this device's wake transport (UnifiedPush endpoint
         // -> server) so offline share requests/accepts reach it.
         unawaited(ref.read(pushServiceProvider).sync());
@@ -326,7 +339,6 @@ class _PointAppState extends ConsumerState<PointApp>
         // or race the go-dark default (the v1.2 location regression).
         unawaited(_establishSession());
       case SessionTransition.teardown:
-        _establishedUserId = null;
         ref.read(locationServiceProvider).setSharing(sharing: false);
         ref.read(relayControllerProvider).stop();
         // Drop this device's push registration for the account LEAVING (prev

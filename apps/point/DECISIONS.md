@@ -555,3 +555,27 @@ this is exactly the code being certified) and a battery hazard the new foregroun
   GPS forever — the stillness window only armed on fixes. `_apply()` now arms it when entering the
   moving branch, so a fixless active ramps down to idle/heartbeat and motion re-promotes. Test:
   active + 31s of silence → idle, GPS off.
+
+### D-028 · adversarial round (review subagent, on top of the codex round)
+
+Verdict was "core fix sound, no critical leak" plus three majors, all addressed:
+
+- **Routing could hang on the go-dark write:** `_establishSession` awaited `setGhost` (no client
+  timeout) before routing — a stalled socket after login left the user on the login screen forever.
+  Now the whole engine-establish step is bounded (8s) and fail-open like the launch gate: the engine
+  goes dark synchronously inside, so proceeding on timeout/error is the safe direction.
+- **Ghost rollback could resume broadcasting:** on a failed `setGhost`, the rollback restored
+  `previous.isSharing` — where `previous` could be the never-confirmed signed-out placeholder, and
+  even a CONFIRMED "sharing" baseline is wrong to restore when the failed ask was go-dark. The
+  rollback is now fail-closed (`previous.isSharing && sharing`), and the controller tracks whether
+  its state was ever server-confirmed. A go-dark-default sign-in with a flaky server now stays dark.
+  Test: failed go-dark write → engine stays dark.
+- **The wedge's load-bearing line was unpinned:** deleting `_establishedUserId = null` on teardown
+  would re-introduce the exact v1.2 wedge with every test green. The identity lifecycle now lives in
+  `SessionTracker` (session_transition.dart), and a sequence test (establish → refresh-skip →
+  teardown → SAME-account re-establish) fails if the clear is removed. Residue, accepted: the thin
+  `_onAuth`/`_establishSession` glue (tracker wired to listener; establish-before-gate ordering) is
+  still only readable, not pumped — a full `PointApp` widget harness is out of scope for a point fix.
+- Minors: background cold starts seed the engine from the real lifecycle state (no foreground-cadence
+  GPS behind a dark screen on a push wake); pre-start lifecycle/sharing events are pinned to never
+  touch the sensors.
