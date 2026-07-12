@@ -388,6 +388,33 @@ class PointApi {
     if (r.statusCode != 200) _fail(r);
   }
 
+  // --- Push notification transport (Wave D) --------------------------------
+
+  /// Register (or refresh) this device's push endpoint. [transport] is
+  /// `unifiedpush` or `fcm`; [endpoint] is the distributor URL or FCM token.
+  Future<void> registerPush(
+    String token, {
+    required String transport,
+    required String endpoint,
+  }) async {
+    final r = await _client.post(
+      _u('/api/push/register'),
+      headers: _headers(token),
+      body: jsonEncode({'transport': transport, 'endpoint': endpoint}),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  /// Drop one of my push endpoints (transport switch, distributor removed).
+  Future<void> unregisterPush(String token, String endpoint) async {
+    final r = await _client.post(
+      _u('/api/push/unregister'),
+      headers: _headers(token),
+      body: jsonEncode({'endpoint': endpoint}),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
   // --- Zero-knowledge recovery backup ---------------------------------------
 
   /// Store (or replace) the caller's encrypted MLS-state backup. [blobBase64] is

@@ -52,7 +52,8 @@ pub fn router(state: AppState) -> Router {
             post(account::upload_avatar).delete(account::delete_avatar),
         )
         .route("/api/users/{user_id}/avatar", get(account::get_user_avatar))
-        .route("/api/fcm/token", post(account::register_fcm_token))
+        .route("/api/push/register", post(account::register_push))
+        .route("/api/push/unregister", post(account::unregister_push))
         .route("/api/tiles/{z}/{x}/{y}", get(tiles::get_tile))
         .route(
             "/api/invites",

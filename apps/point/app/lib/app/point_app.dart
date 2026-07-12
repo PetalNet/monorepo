@@ -34,6 +34,7 @@ import 'package:point_app/features/people/presentation/add_person_screen.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/people/presentation/person_detail_screen.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
+import 'package:point_app/features/push/push_service.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/haptics.dart';
@@ -63,6 +64,8 @@ class _PointAppState extends ConsumerState<PointApp>
     // defined but never called. Without this the battery engine never learns
     // it's been backgrounded and location silently stops.
     WidgetsBinding.instance.addObserver(this);
+    // Wire the UnifiedPush receiver callbacks once, at startup.
+    unawaited(ref.read(pushServiceProvider).init());
     final loggedIn = ref.read(authControllerProvider.notifier).loggedIn;
     _config = KaiselRouterConfig<AppRoute>(
       initial: const SplashRoute(),
@@ -294,6 +297,9 @@ class _PointAppState extends ConsumerState<PointApp>
                 .consumeExplicitSignIn()) {
               unawaited(_applyGoDarkDefault());
             }
+            // Wave D: register this device's wake transport (UnifiedPush
+            // endpoint -> server) so offline share requests/accepts reach it.
+            unawaited(ref.read(pushServiceProvider).sync());
             // M2: bring up the MLS relay (durable WS, KeyPackage pool,
             // encrypted fixes through the durable queue). The location engine
             // deliberately does NOT start here: its permission ask belongs to
@@ -307,12 +313,20 @@ class _PointAppState extends ConsumerState<PointApp>
             if (prevId == null) return; // already signed out; nothing to tear down
             ref.read(locationServiceProvider).setSharing(sharing: false);
             ref.read(relayControllerProvider).stop();
+            // Drop this device's push registration for the account leaving.
+            unawaited(ref.read(pushServiceProvider).teardown());
             // An invite held for the previous account must not leak into
             // whichever account signs in next.
             ref.read(pendingInviteProvider.notifier).take();
             unawaited(_routeSignedOut());
           }
         });
+      })
+      // Wave D: re-register when the notification transport setting changes.
+      ..listen(settingsProvider.select((s) => s.transport), (prev, next) {
+        if (prev != null && prev != next) {
+          unawaited(ref.read(pushServiceProvider).sync());
+        }
       })
       // Feed the relay who we share with — ongoing shares AND active outgoing
       // temp targets — so it forms the MLS group with each (claim KP -> group ->

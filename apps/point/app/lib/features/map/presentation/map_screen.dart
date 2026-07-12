@@ -121,6 +121,10 @@ class _BasemapLayer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final source = ref.watch(tileSourceProvider);
+    // Null = the server's tile endpoints haven't resolved yet: render nothing
+    // (the dark surface behind shows) rather than request tiles from a public
+    // CDN before we know the private tier's real source.
+    if (source == null) return const SizedBox.shrink();
     return TileLayer(
       key: ValueKey(source.urlTemplate),
       urlTemplate: source.urlTemplate,

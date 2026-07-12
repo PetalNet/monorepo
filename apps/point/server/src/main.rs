@@ -9,6 +9,7 @@ mod config;
 mod db;
 mod error;
 mod federation_keys;
+mod push;
 mod state;
 mod ws;
 
