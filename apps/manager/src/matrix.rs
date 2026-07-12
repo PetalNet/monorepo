@@ -13,12 +13,47 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 use crate::config::MatrixCreds;
 use crate::state::epoch_secs;
+
+/// Why a `/sync` failed. `Auth` = the token is bad (rotated/expired) and a
+/// creds reload may recover; `Transport` = network/homeserver hiccup, just
+/// back off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncError {
+    Transport,
+    Auth,
+}
+
+/// Outcome of an outbound send, so the sender loop can self-heal on a token
+/// rotation instead of silently dropping every message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendOutcome {
+    Sent,
+    /// The token is bad (rotated/expired) — reload creds and retry.
+    AuthFailed,
+    /// Some other failure (transport, rate-limit, …) — drop as before.
+    Failed,
+}
+
+/// The Matrix standard error code from a response body, if present.
+fn matrix_errcode(body: &Value) -> Option<&str> {
+    body.get("errcode").and_then(|v| v.as_str())
+}
+
+/// Is this response an authentication failure (a bad/rotated token) that a
+/// creds reload could heal? Matrix signals a bad access token with **401
+/// M_UNKNOWN_TOKEN** (incl. soft-logout). A bare 403 is *authorization*
+/// (M_FORBIDDEN — wrong room/permission), which a token swap can't fix, so we
+/// deliberately do NOT treat 403 as auth: reloading there would be a pointless
+/// creds re-read on every forbidden call.
+fn is_auth_failure(status: u16, body: &Value) -> bool {
+    status == 401 || matrix_errcode(body) == Some("M_UNKNOWN_TOKEN")
+}
 
 /// Percent-encode for URL path/query components (RFC 3986 unreserved kept).
 pub fn urlenc(s: &str) -> String {
@@ -97,29 +132,72 @@ impl MatrixClient {
         }
     }
 
-    pub fn send_text(&self, text: &str) -> bool {
+    /// Send a message to the control room, classifying the failure so the
+    /// sender loop can self-heal on a token rotation (otherwise the channel
+    /// goes one-way after a rotation).
+    pub fn send_text_result(&self, text: &str) -> SendOutcome {
         let txn = self.txn.fetch_add(1, Ordering::SeqCst);
         let path = format!(
             "/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
             urlenc(&self.room),
             txn
         );
-        let (status, _) = self.request(
+        let (status, body) = self.request(
             "PUT",
             &path,
             Some(&json!({ "msgtype": "m.text", "body": text })),
             Duration::from_secs(15),
         );
-        (200..300).contains(&status)
+        if (200..300).contains(&status) {
+            SendOutcome::Sent
+        } else if is_auth_failure(status, &body) {
+            SendOutcome::AuthFailed
+        } else {
+            SendOutcome::Failed
+        }
     }
 
-    /// One /sync round. Ok(commands) on success; Err(()) on transport failure
-    /// or a response with no next_batch (caller backs off).
+    /// Replace the access token from freshly-loaded creds (self-heal: the
+    /// control-plane token authority rotates the Matrix token in the vault and
+    /// rewrites the creds file this manager reads; the sync loop calls this on
+    /// an auth failure so a rotated token recovers without a restart — the
+    /// `!restart-broken` root cause). Returns true if the token actually
+    /// changed.
+    pub fn reload_token(&mut self, creds: &MatrixCreds) -> bool {
+        // Token-only rotation is the supported case. If the reloaded creds
+        // disagree on homeserver/user_id, warn — a stale user_id would break
+        // the self-message filter in sync() (the manager could execute its own
+        // `!` commands); those fields aren't hot-swapped here (adversarial
+        // review #6). No secret is logged.
+        if creds.user_id != self.user_id {
+            eprintln!(
+                "[manager/matrix] WARNING: reloaded creds user_id changed ({} -> {}); not hot-applied — restart to adopt",
+                self.user_id, creds.user_id
+            );
+        }
+        let reloaded_hs = creds.homeserver.trim_end_matches('/');
+        if reloaded_hs != self.homeserver {
+            eprintln!(
+                "[manager/matrix] WARNING: reloaded creds homeserver changed; not hot-applied — restart to adopt"
+            );
+        }
+        if creds.access_token != self.token {
+            self.token = creds.access_token.clone();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// One /sync round. Ok(commands) on success; `Err(SyncError::Auth)` when
+    /// the token is bad (401/403/M_UNKNOWN_TOKEN — the caller may self-heal by
+    /// reloading creds); `Err(SyncError::Transport)` on a network/homeserver
+    /// failure or a response with no next_batch (caller backs off).
     ///
     /// Command extraction is JS parity: m.room.message events in the control
     /// room timeline, not sent by us, whose body starts with `!` — returned
     /// stripped of `!`, lowercased, trimmed.
-    pub fn sync(&mut self, timeout_ms: u64) -> Result<Vec<String>, ()> {
+    pub fn sync(&mut self, timeout_ms: u64) -> Result<Vec<String>, SyncError> {
         let qs = match &self.sync_token {
             Some(tok) => format!(
                 "?since={}&timeout={}&filter={}",
@@ -141,9 +219,15 @@ impl MatrixClient {
             None,
             http_timeout,
         );
+        // Distinguish an auth failure (rotated/expired token — a known-token
+        // error) from a plain transport failure, so the loop can self-heal by
+        // reloading creds only when it's actually the token that's wrong.
+        if is_auth_failure(status, &body) {
+            return Err(SyncError::Auth);
+        }
         let next = body.get("next_batch").and_then(|v| v.as_str());
         if status == 0 || next.is_none() {
-            return Err(());
+            return Err(SyncError::Transport);
         }
         self.sync_token = Some(next.unwrap().to_string());
 
@@ -180,14 +264,58 @@ impl MatrixClient {
 /// Outbound queue. The returned Sender never blocks; the thread drains it
 /// with per-request timeouts and exits when every Sender is dropped (which
 /// flushes the final shutdown message before the process exits).
-pub fn spawn_sender(client: MatrixClient) -> (Sender<String>, JoinHandle<()>) {
+///
+/// `reload_creds` is the outbound half of the self-heal: on a send that fails
+/// auth (rotated token), the sender reloads creds and retries the message once
+/// so the control channel doesn't go one-way after a rotation (rate-limited,
+/// symmetric to the sync loop). `None` disables it (old-loop parity).
+pub fn spawn_sender<R>(
+    mut client: MatrixClient,
+    reload_creds: Option<R>,
+) -> (Sender<String>, JoinHandle<()>)
+where
+    R: Fn() -> Result<MatrixCreds, String> + Send + 'static,
+{
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let handle = std::thread::Builder::new()
         .name("matrix-send".into())
         .spawn(move || {
+            // Bound a creds-read storm when a burst of queued messages all fail
+            // auth: attempt a reload at most once per interval (Instant, so an
+            // NTP step can't wedge it — adversarial-review #5). This is an
+            // ATTEMPT gate, not a success-charge, so it never strands recovery.
+            let mut last_reload: Option<Instant> = None;
             for msg in rx {
-                if !client.send_text(&msg) {
-                    eprintln!("[manager/matrix] send failed (dropped): {msg:?}");
+                match client.send_text_result(&msg) {
+                    SendOutcome::Sent => {}
+                    SendOutcome::AuthFailed => {
+                        let due = last_reload
+                            .map(|t| t.elapsed() >= RELOAD_MIN_INTERVAL)
+                            .unwrap_or(true);
+                        let mut retried = false;
+                        if let Some(reload) = reload_creds.as_ref().filter(|_| due) {
+                            last_reload = Some(Instant::now());
+                            match reload() {
+                                Ok(creds) if client.reload_token(&creds) => {
+                                    match client.send_text_result(&msg) {
+                                        SendOutcome::Sent => {
+                                            retried = true;
+                                            eprintln!("[manager/matrix] send auth failed; reloaded token and re-sent");
+                                        }
+                                        _ => eprintln!("[manager/matrix] reloaded token but re-send still failed (dropped): {msg:?}"),
+                                    }
+                                }
+                                Ok(_) => {} // token unchanged — file not updated yet
+                                Err(e) => eprintln!("[manager/matrix] send auth failed; creds reload failed: {e}"),
+                            }
+                        }
+                        if !retried {
+                            eprintln!("[manager/matrix] send failed auth (dropped): {msg:?}");
+                        }
+                    }
+                    SendOutcome::Failed => {
+                        eprintln!("[manager/matrix] send failed (dropped): {msg:?}");
+                    }
                 }
             }
         })
@@ -195,13 +323,27 @@ pub fn spawn_sender(client: MatrixClient) -> (Sender<String>, JoinHandle<()>) {
     (tx, handle)
 }
 
+/// Minimum time between the sender's creds-reload attempts (bounds a read storm
+/// on a burst of queued messages; NOT a recovery-delaying cooldown).
+const RELOAD_MIN_INTERVAL: Duration = Duration::from_secs(5);
+
 /// Inbound command loop: initial drain, then 30s long-polls. Transport
 /// failures back off 5s. `last_sync_ok` (epoch secs) feeds the heartbeat.
-pub fn spawn_command_loop(
+///
+/// `reload_creds` is the self-heal seam: on an AUTH failure (rotated/expired
+/// token) the loop re-reads the creds file (the control-plane token authority
+/// rewrites it on rotation) and, if the token changed, recovers WITHOUT a
+/// manager restart — the `!restart-broken` root cause. `None` disables the
+/// behavior (parity with the old loop).
+pub fn spawn_command_loop<R>(
     mut client: MatrixClient,
     shutdown: Arc<AtomicBool>,
     last_sync_ok: Arc<AtomicU64>,
-) -> Receiver<String> {
+    reload_creds: Option<R>,
+) -> Receiver<String>
+where
+    R: Fn() -> Result<MatrixCreds, String> + Send + 'static,
+{
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     std::thread::Builder::new()
         .name("matrix-sync".into())
@@ -220,10 +362,96 @@ pub fn spawn_command_loop(
                             }
                         }
                     }
-                    Err(()) => std::thread::sleep(Duration::from_secs(5)),
+                    Err(SyncError::Auth) => {
+                        // Self-heal: reload creds and swap the token. Reload on
+                        // EVERY auth failure — the 5s sync backoff already paces
+                        // the (cheap, local) creds read, so there's no need for
+                        // a long cooldown that would strand the manager for its
+                        // full duration when the creds file lags the token
+                        // revocation (adversarial-review #2). A token swap
+                        // retries immediately; otherwise back off 5s and the
+                        // next auth failure re-reads — catching the file the
+                        // moment it updates.
+                        if let Some(reload) = &reload_creds {
+                            match reload() {
+                                Ok(creds) if client.reload_token(&creds) => {
+                                    eprintln!(
+                                        "[manager/matrix] auth failed; reloaded a NEW token from creds — retrying"
+                                    );
+                                    continue; // retry immediately with the fresh token
+                                }
+                                Ok(_) => {} // token unchanged (file not updated yet) — back off
+                                Err(e) => eprintln!(
+                                    "[manager/matrix] auth failed and creds reload failed: {e}"
+                                ),
+                            }
+                        }
+                        std::thread::sleep(Duration::from_secs(5));
+                    }
+                    Err(SyncError::Transport) => std::thread::sleep(Duration::from_secs(5)),
                 }
             }
         })
         .expect("spawn matrix-sync thread");
     rx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn creds(token: &str) -> MatrixCreds {
+        MatrixCreds {
+            homeserver: "https://hs.example".into(),
+            access_token: token.into(),
+            user_id: "@janet:example".into(),
+        }
+    }
+
+    fn client(token: &str) -> MatrixClient {
+        MatrixClient::new(&creds(token), "!room:example")
+    }
+
+    #[test]
+    fn reload_token_swaps_only_on_change() {
+        let mut c = client("old-token");
+        // Same token: no change reported (no needless retry).
+        assert!(!c.reload_token(&creds("old-token")));
+        // Rotated token: swapped, change reported so the loop retries.
+        assert!(c.reload_token(&creds("new-token")));
+        assert_eq!(c.token, "new-token");
+        // Idempotent after the swap.
+        assert!(!c.reload_token(&creds("new-token")));
+    }
+
+    #[test]
+    fn matrix_errcode_extracts_the_standard_field() {
+        let body = json!({"errcode": "M_UNKNOWN_TOKEN", "error": "bad"});
+        assert_eq!(matrix_errcode(&body), Some("M_UNKNOWN_TOKEN"));
+        assert_eq!(matrix_errcode(&json!({})), None);
+        assert_eq!(matrix_errcode(&Value::Null), None);
+    }
+
+    #[test]
+    fn auth_failure_classification() {
+        // 401 and M_UNKNOWN_TOKEN are token failures a reload can heal.
+        assert!(is_auth_failure(401, &Value::Null));
+        assert!(is_auth_failure(200, &json!({"errcode": "M_UNKNOWN_TOKEN"})));
+        // A bare 403 is authorization (M_FORBIDDEN), NOT a bad token — a token
+        // swap can't fix it, so don't classify it as auth.
+        assert!(!is_auth_failure(403, &json!({"errcode": "M_FORBIDDEN"})));
+        // A soft-logout 401 body still classifies as auth.
+        assert!(is_auth_failure(
+            401,
+            &json!({"errcode": "M_UNKNOWN_TOKEN", "soft_logout": true})
+        ));
+        // Everything else is not an auth failure (don't reload on a 429/500/0).
+        assert!(!is_auth_failure(
+            429,
+            &json!({"errcode": "M_LIMIT_EXCEEDED"})
+        ));
+        assert!(!is_auth_failure(500, &Value::Null));
+        assert!(!is_auth_failure(0, &Value::Null));
+        assert!(!is_auth_failure(200, &Value::Null));
+    }
 }

@@ -180,10 +180,17 @@ impl Config {
     }
 
     pub fn load_creds(&self) -> Result<MatrixCreds, String> {
-        let text = std::fs::read_to_string(&self.creds_path)
-            .map_err(|e| format!("cannot read creds {}: {e}", self.creds_path.display()))?;
-        serde_json::from_str(&text)
-            .map_err(|e| format!("bad creds {}: {e}", self.creds_path.display()))
+        MatrixCreds::from_path(&self.creds_path)
+    }
+}
+
+impl MatrixCreds {
+    /// Read + parse a creds file. Separate from `Config` so the sync loop can
+    /// re-read creds on a token rotation without holding the whole config.
+    pub fn from_path(path: &std::path::Path) -> Result<MatrixCreds, String> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("cannot read creds {}: {e}", path.display()))?;
+        serde_json::from_str(&text).map_err(|e| format!("bad creds {}: {e}", path.display()))
     }
 }
 

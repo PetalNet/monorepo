@@ -96,11 +96,21 @@ fn run_manager(work_dir_arg: Option<&str>) {
     let send_client = matrix::MatrixClient::new(&creds, &cfg.control_room);
     let sync_client = matrix::MatrixClient::new(&creds, &cfg.control_room);
 
-    let (matrix_tx, sender_handle) = matrix::spawn_sender(send_client);
+    // Self-heal seam: on an auth failure BOTH the sync loop and the sender
+    // re-read the creds file (which the control-plane token authority rewrites
+    // on rotation) and swap in the fresh token without a manager restart — so
+    // the control channel recovers in both directions.
+    let sync_creds_path = cfg.creds_path.clone();
+    let send_creds_path = cfg.creds_path.clone();
+    let (matrix_tx, sender_handle) = matrix::spawn_sender(
+        send_client,
+        Some(move || crate::config::MatrixCreds::from_path(&send_creds_path)),
+    );
     let cmd_rx = matrix::spawn_command_loop(
         sync_client,
         Arc::clone(&shutdown),
         Arc::clone(&last_sync_ok),
+        Some(move || crate::config::MatrixCreds::from_path(&sync_creds_path)),
     );
 
     // Boot announcement (JS parity).
