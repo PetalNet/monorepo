@@ -19,12 +19,14 @@ use std::time::Duration;
 use serde::Serialize;
 use sqlx::PgPool;
 
-/// The wake body. Deliberately contentless beyond a type tag the client uses
-/// to decide what to refresh; NEVER a name, location, or handle.
+/// A wake is intentionally CONTENTLESS on the wire: the body the distributor
+/// relays is empty, so it learns nothing — not who, not where, not even the
+/// coarse category of the event. The [kind] is kept only for FCM's data field
+/// (Google is already trusted with delivery in that tier) and for logging; it
+/// is never put in the UnifiedPush body. The client refreshes its request and
+/// people surfaces on any wake, so it never needs the category to act.
 #[derive(Debug, Clone, Serialize)]
 pub struct Wake {
-    /// A coarse category so the client knows what to pull: `share_request`,
-    /// `share_accepted`. Not the who or the where.
     pub kind: &'static str,
 }
 
@@ -84,10 +86,9 @@ pub async fn wake_user(pool: PgPool, user_id: String, wake: Wake, allow_private:
         return;
     }
     let http = client();
-    let body = serde_json::to_vec(&wake).unwrap_or_default();
     for (transport, endpoint) in rows {
         match transport.as_str() {
-            "unifiedpush" => send_unifiedpush(&endpoint, &body, allow_private).await,
+            "unifiedpush" => send_unifiedpush(&endpoint, allow_private).await,
             "fcm" => send_fcm(&http, &endpoint, &wake).await,
             other => tracing::warn!(transport = %other, "push: unknown transport row"),
         }
@@ -102,7 +103,7 @@ pub async fn wake_user(pool: PgPool, user_id: String, wake: Wake, allow_private:
 /// IP must be public, and the connection is pinned to those exact addresses
 /// (no re-resolution → no DNS-rebinding). A user cannot register
 /// `https://169.254.169.254/...` or an internal host and make us probe it.
-async fn send_unifiedpush(endpoint: &str, body: &[u8], allow_private: bool) {
+async fn send_unifiedpush(endpoint: &str, allow_private: bool) {
     if !endpoint.starts_with("https://") {
         tracing::warn!("push: refusing non-https UnifiedPush endpoint");
         return;
@@ -137,7 +138,9 @@ async fn send_unifiedpush(endpoint: &str, body: &[u8], allow_private: bool) {
         // UnifiedPush high-priority hint (RFC 8030 urgency).
         .header("urgency", "high")
         .header("ttl", "86400")
-        .body(body.to_vec())
+        // Empty body: the distributor relays "a wake for Point" and nothing
+        // more. The client pulls the detail over its authenticated channel.
+        .body(Vec::<u8>::new())
         .send()
         .await
     {

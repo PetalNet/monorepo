@@ -479,9 +479,12 @@ nobody`; enforcement is **silent-drop** on both the local endpoint and the feder
   `/api/push/unregister` drops one. A UnifiedPush endpoint must be https (fail-closed at
   registration: the server POSTs the wake to it, so a bogus/plain-http value would be undeliverable
   or an SSRF foothold).
-- **The wake carries no who/where.** `push::wake_user` sends only a coarse `kind` tag
-  (`share_request` / `share_accepted`) so the client knows what to pull over its authenticated
-  channel. Delivery is best-effort, fire-and-forget (spawned), and only fires when the recipient is
+- **The wake is contentless on the wire.** The UnifiedPush body the distributor relays is EMPTY —
+  it learns nothing, not who, not where, not even the coarse event category. (The brief said
+  "encrypted wake"; true webpush payload encryption needs a per-endpoint key exchange, so v1 takes
+  the simpler road that gives the same privacy: send no content at all. The `kind` tag survives only
+  for FCM's data field, where Google already handles delivery, and for server logs.) The client
+  refreshes its request + people surfaces on any wake, so it never needs the category to act. Delivery is best-effort, fire-and-forget (spawned), and only fires when the recipient is
   OFFLINE (no live WS) — an online device already got the WS nudge. Wired at local share-request
   creation, share accept, and the federated inbound request. **v1 notification set by construction:**
   only share_request + share_accepted ever wake; go-dark, passive moves, and being-viewed send

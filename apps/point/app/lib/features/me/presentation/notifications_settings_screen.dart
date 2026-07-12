@@ -88,7 +88,9 @@ class _NotificationsSettingsScreenState
               (
                 NotifTransport.fcm,
                 'Google FCM',
-                'Google delivers the ping and sees that Point pinged you.',
+                'Google delivers the ping and sees that Point pinged you. '
+                    'Needs a Google build of Point; the standard build uses a '
+                    'distributor even on this choice.',
               ),
             ],
             onSelected: (v) {

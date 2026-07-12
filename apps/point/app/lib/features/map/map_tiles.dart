@@ -82,18 +82,33 @@ class ServerTileInfo {
 /// request. Riverpod surfaces the error/loading state to [tileSourceProvider].
 final serverTileInfoProvider = FutureProvider<ServerTileInfo>((ref) async {
   final origin = ref.watch(serverUrlProvider);
-  final r = await http
-      .get(Uri.parse('$origin/.well-known/point'))
-      .timeout(const Duration(seconds: 8));
-  if (r.statusCode != 200) {
-    throw StateError('well-known ${r.statusCode}');
+  // A few quick retries so a single flaky launch request doesn't leave the map
+  // dark for the whole session; a persistent failure still (correctly) resolves
+  // to "unknown" and the map shows no tiles rather than leaking to a CDN.
+  Object? lastError;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await Future<void>.delayed(Duration(seconds: attempt));
+    }
+    try {
+      final r = await http
+          .get(Uri.parse('$origin/.well-known/point'))
+          .timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) {
+        lastError = StateError('well-known ${r.statusCode}');
+        continue;
+      }
+      final v = jsonDecode(r.body) as Map<String, dynamic>;
+      final endpoints = v['endpoints'] as Map<String, dynamic>? ?? const {};
+      return ServerTileInfo(
+        tilesTemplate: endpoints['tiles'] as String?,
+        tileProxy: endpoints['tile_proxy'] as bool? ?? false,
+      );
+    } on Object catch (e) {
+      lastError = e;
+    }
   }
-  final v = jsonDecode(r.body) as Map<String, dynamic>;
-  final endpoints = v['endpoints'] as Map<String, dynamic>? ?? const {};
-  return ServerTileInfo(
-    tilesTemplate: endpoints['tiles'] as String?,
-    tileProxy: endpoints['tile_proxy'] as bool? ?? false,
-  );
+  throw StateError('well-known unreachable: $lastError');
 });
 
 /// Resolve the map provider CHOICE (Privacy setting / onboarding fork) into a

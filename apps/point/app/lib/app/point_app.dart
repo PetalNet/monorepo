@@ -313,8 +313,11 @@ class _PointAppState extends ConsumerState<PointApp>
             if (prevId == null) return; // already signed out; nothing to tear down
             ref.read(locationServiceProvider).setSharing(sharing: false);
             ref.read(relayControllerProvider).stop();
-            // Drop this device's push registration for the account leaving.
-            unawaited(ref.read(pushServiceProvider).teardown());
+            // Drop this device's push registration for the account LEAVING
+            // (prev still holds its session/token; next is already null).
+            unawaited(
+              ref.read(pushServiceProvider).teardown(prev?.value),
+            );
             // An invite held for the previous account must not leak into
             // whichever account signs in next.
             ref.read(pendingInviteProvider.notifier).take();
@@ -323,9 +326,17 @@ class _PointAppState extends ConsumerState<PointApp>
         });
       })
       // Wave D: re-register when the notification transport setting changes.
+      // Leaving UnifiedPush tears down the old distributor+server endpoint
+      // first so it isn't left live and still woken.
       ..listen(settingsProvider.select((s) => s.transport), (prev, next) {
-        if (prev != null && prev != next) {
-          unawaited(ref.read(pushServiceProvider).sync());
+        if (prev == null || prev == next) return;
+        final push = ref.read(pushServiceProvider);
+        if (prev == NotifTransport.unifiedPush &&
+            next != NotifTransport.unifiedPush) {
+          final session = ref.read(authControllerProvider).value;
+          unawaited(push.teardown(session).then((_) => push.sync()));
+        } else {
+          unawaited(push.sync());
         }
       })
       // Feed the relay who we share with — ongoing shares AND active outgoing

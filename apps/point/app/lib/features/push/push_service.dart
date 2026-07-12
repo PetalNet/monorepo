@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -7,8 +6,6 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
-import 'package:point_app/features/settings/app_settings.dart';
-import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:unifiedpush/unifiedpush.dart';
@@ -53,21 +50,24 @@ class PushService {
 
   /// Bring registration in line with the current transport setting. Called on
   /// sign-in and whenever the notification transport changes.
+  ///
+  /// UnifiedPush registration is attempted whenever a distributor is available,
+  /// EVEN on the convenient/FCM choice: a real device push beats none, and the
+  /// base build has no Firebase SDK to mint an FCM token. So a convenient-tier
+  /// user with ntfy installed still gets push (via UP); only a user with no
+  /// distributor AND no FCM flavor gets nothing — which is inherent, not a
+  /// silent failure this code introduces. A convenient-tier build flavor
+  /// (firebase_messaging + google-services.json) calls [registerFcm].
   Future<void> sync() async {
-    final settings = await _ref.read(settingsProvider.notifier).loaded;
-    if (settings.transport == NotifTransport.unifiedPush) {
-      try {
-        // Registers with the saved/default distributor; the endpoint arrives
-        // via onNewEndpoint, which uploads it.
+    try {
+      final distributors = await UnifiedPush.getDistributors();
+      if (distributors.isNotEmpty) {
         final ok = await UnifiedPush.tryUseCurrentOrDefaultDistributor();
         if (ok) await UnifiedPush.register();
-      } on Object catch (e) {
-        if (kDebugMode) debugPrint('unifiedpush register failed: $e');
       }
+    } on Object catch (e) {
+      if (kDebugMode) debugPrint('unifiedpush register failed: $e');
     }
-    // FCM: the device token comes from the Firebase SDK in a convenient-tier
-    // flavor build; that flavor calls [registerFcm] with its token. Nothing to
-    // do here in the base build.
   }
 
   /// A convenient-tier (Firebase) build calls this with its FCM token.
@@ -98,22 +98,14 @@ class PushService {
     }
   }
 
-  /// A wake arrived: pull whatever changed. The payload is a coarse kind tag
-  /// (or nothing, if a distributor stripped the body) — either way we refresh
-  /// the request/people surfaces, which is cheap and always correct.
+  /// A wake arrived. It carries no content by design, so we simply refresh the
+  /// surfaces a v1 wake can concern — pending requests and the people list —
+  /// over the authenticated API. Skipped when signed out (nothing to pull).
   Future<void> _onWake(List<int> content) async {
-    String? kind;
-    try {
-      kind = (jsonDecode(utf8.decode(content)) as Map<String, dynamic>)['kind']
-          as String?;
-    } on Object {
-      kind = null; // contentless wake; refresh everything relevant anyway.
-    }
+    if (_ref.read(authControllerProvider).value == null) return;
     unawaited(_ref.read(requestsControllerProvider.notifier).refresh());
-    if (kind == 'share_accepted' || kind == null) {
-      unawaited(_ref.read(peopleControllerProvider.notifier).refresh());
-      unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
-    }
+    unawaited(_ref.read(peopleControllerProvider.notifier).refresh());
+    unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
   }
 
   Future<void> _onUnregistered() async {
@@ -122,18 +114,22 @@ class PushService {
 
   /// Unregister from the distributor AND tell the server to forget the
   /// endpoint. Called on sign-out and on a switch away from UnifiedPush.
-  Future<void> teardown() async {
+  ///
+  /// [session] is passed explicitly because on the sign-out path the auth
+  /// controller has already emitted null; without it the server-side
+  /// unregister would be skipped and the endpoint would linger, still woken.
+  Future<void> teardown(Session? session) async {
     try {
       await UnifiedPush.unregister();
     } on Object catch (e) {
       if (kDebugMode) debugPrint('unifiedpush unregister failed: $e');
     }
-    await _clearServerEndpoint();
+    await _clearServerEndpoint(session);
   }
 
-  Future<void> _clearServerEndpoint() async {
+  Future<void> _clearServerEndpoint([Session? session]) async {
     final endpoint = await _storage.read(key: _endpointKey);
-    final session = _ref.read(authControllerProvider).value;
+    session ??= _ref.read(authControllerProvider).value;
     if (endpoint != null && session != null) {
       try {
         await _ref.read(apiProvider).unregisterPush(session.token, endpoint);
