@@ -21,6 +21,17 @@ pub struct Config {
     /// (env `FEDERATION_ALLOW_PRIVATE`).
     pub federation_allow_private: bool,
     pub open_registration: bool,
+    /// Public URL TEMPLATE of this instance's own tileserver (self-hosted OSM
+    /// tier), e.g. `https://tiles.example.org/styles/point-dark/{z}/{x}/{y}.png`.
+    /// Advertised in `/.well-known/point` as `endpoints.tiles`; the app uses it
+    /// for the max-private map. Unset = this instance runs no tileserver (env
+    /// `TILES_URL`).
+    pub tiles_url: Option<String>,
+    /// Upstream tile URL TEMPLATE for the proxied tier (env `TILE_UPSTREAM`),
+    /// e.g. a Stadia/Protomaps URL with the API key baked in. The server
+    /// fetches tiles from it on the client's behalf so the provider only ever
+    /// sees this server. Unset = the proxied tier is unavailable here.
+    pub tile_upstream: Option<String>,
     /// Trust reverse-proxy client-IP headers (`X-Real-IP`). Off by default: a
     /// directly-exposed server must ignore attacker-spoofable headers and key
     /// rate limits on the real peer address. Set only behind a proxy that
@@ -92,6 +103,10 @@ impl Config {
             public_url,
             federation_allow_private: env_bool("FEDERATION_ALLOW_PRIVATE", false),
             open_registration: env_bool("OPEN_REGISTRATION", false),
+            tiles_url: std::env::var("TILES_URL").ok().filter(|v| !v.is_empty()),
+            tile_upstream: std::env::var("TILE_UPSTREAM")
+                .ok()
+                .filter(|v| !v.is_empty()),
             trusted_proxy: env_bool("TRUST_PROXY_HEADERS", false),
             glitchtip_dsn: env::var("GLITCHTIP_DSN").ok().filter(|s| !s.is_empty()),
             oidc,
