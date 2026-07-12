@@ -133,7 +133,7 @@ mod tests {
         let p = write(
             dir.path(),
             r#"{"handle": "box-a", "worker_cmd": ["true"], "db_path": "/tmp/ba.db",
-                "inbox_dir": "/tmp/in", "outbox_dir": "/tmp/out", "max_wokers": 3}"#,
+                "inbox_dir": "/tmp/in", "outbox_dir": "/tmp/out", "totally_unknown_key": 3}"#,
         );
         assert!(Config::load(&p).unwrap_err().contains("unknown field"));
     }
