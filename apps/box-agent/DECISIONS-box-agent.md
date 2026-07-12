@@ -46,7 +46,7 @@ Other fixes, all tested:
 | #4: one delivery failure killed the daemon | per-item deliver-with-retry; failures logged, loop never exits on IO |
 | #5: failed cards → caller hangs | malformed task.dispatch gets an `Error` envelope (in*reply_to set); transient spawn failure just retries from pending |
 | #9: `{body}` substitution corrupted the verbatim body | single-pass fill; tokens inside the body are not re-substituted |
-| #10: card could choose the program / inject options | argv[0] is never substituted; FLEET_BODY env preferred |
+| #10: card could choose the program / inject options | `argv[0]` is never substituted; FLEET_BODY env preferred |
 | #12: try_wait error orphaned the child (zombie) | keep the worker running on a transient try_wait error |
 | #13: promised output tail didn't exist | stdout+stderr captured to a temp file, bounded tail on the response |
 | #11: seen table grew unbounded | hourly prune past a 24h retention (pending rows never pruned) |

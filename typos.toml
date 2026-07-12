@@ -16,3 +16,6 @@ extend-exclude = [
 # Proper nouns + identifiers that look like typos but aren't.
 Hass = "Hass"
 hass = "hass"
+# Decision-log identifiers (BA1..BA9 in apps/box-agent/DECISIONS).
+BA = "BA"
+ba = "ba"
