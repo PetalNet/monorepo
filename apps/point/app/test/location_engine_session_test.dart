@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:point_app/app/session_transition.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/domain/location_state_machine.dart';
 import 'package:point_app/features/location/engine_session.dart';
@@ -50,9 +51,12 @@ class _Harness {
       checkPermission: () async => _permission,
       requestPermission: () async => _permission,
       positionStream: (_) => gps.stream,
-      currentPosition: (_) async {
+      currentPosition: (_) {
         heartbeatRequests++;
-        return _pos();
+        final c = Completer<Position>();
+        pendingHeartbeats.add(c);
+        if (autocompleteHeartbeats) c.complete(_pos());
+        return c.future;
       },
       accelStream: () => accel.stream,
     );
@@ -64,6 +68,8 @@ class _Harness {
   final accel = StreamController<AccelerometerEvent>.broadcast(sync: true);
   final fixes = <Fix>[];
   int heartbeatRequests = 0;
+  bool autocompleteHeartbeats = true;
+  final pendingHeartbeats = <Completer<Position>>[];
   late final LocationService service;
   late final StreamSubscription<Fix> sub;
 
@@ -165,6 +171,135 @@ void main() {
         unawaited(h.close());
         async.flushMicrotasks();
       });
+    });
+
+    test('a heartbeat in flight when ghost lands must not leak the fix', () {
+      fakeAsync((async) {
+        final h = _Harness()..autocompleteHeartbeats = false;
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)) // → idle, heartbeat armed
+          ..elapse(const Duration(minutes: 15)); // heartbeat request opens
+        expect(h.pendingHeartbeats, hasLength(1));
+        final before = h.fixes.length;
+
+        // Go dark while the position request is STILL in flight…
+        h.service.setSharing(sharing: false);
+        h.pendingHeartbeats.single.complete(_pos());
+        async.flushMicrotasks();
+
+        // …and the late fix must be dropped, not emitted to the relay.
+        expect(h.fixes, hasLength(before));
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('active without a single fix ramps down instead of pinning GPS', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+        expect(h.service.activity, LocationActivity.active);
+
+        // No fix ever arrives (indoors): the acquisition window must close
+        // rather than hold high-power GPS forever.
+        async.elapse(const Duration(seconds: 31));
+        expect(h.service.activity, LocationActivity.idle);
+        expect(h.gps.hasListener, isFalse);
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+  });
+
+  group('sessionTransition (the _onAuth decision, D-028)', () {
+    const janet = Session(
+      token: 't',
+      userId: 'janet@point.petalcat.dev',
+      displayName: 'Janet',
+      isAdmin: false,
+    );
+
+    test('first resolution to a session establishes', () {
+      expect(
+        sessionTransition(
+          establishedUserId: null,
+          prev: const AsyncLoading<Session?>(),
+          next: const AsyncData<Session?>(janet),
+        ),
+        SessionTransition.establish,
+      );
+    });
+
+    test('loading → data(SAME user) refresh is a skip — never re-establish '
+        '(re-establishing could lift a live ghost choice)', () {
+      expect(
+        sessionTransition(
+          establishedUserId: janet.userId,
+          prev: const AsyncLoading<Session?>(),
+          next: const AsyncData<Session?>(janet),
+        ),
+        SessionTransition.skip,
+      );
+    });
+
+    test('same-user re-emission (display-name update) is a skip', () {
+      expect(
+        sessionTransition(
+          establishedUserId: janet.userId,
+          prev: const AsyncData<Session?>(janet),
+          next: const AsyncData<Session?>(janet),
+        ),
+        SessionTransition.skip,
+      );
+    });
+
+    test('sign-out tears down; the repeat signed-out emission skips', () {
+      expect(
+        sessionTransition(
+          establishedUserId: janet.userId,
+          prev: const AsyncData<Session?>(janet),
+          next: const AsyncData<Session?>(null),
+        ),
+        SessionTransition.teardown,
+      );
+      expect(
+        sessionTransition(
+          establishedUserId: null,
+          prev: const AsyncData<Session?>(null),
+          next: const AsyncData<Session?>(null),
+        ),
+        SessionTransition.skip,
+      );
+    });
+
+    test('THE WEDGE: sign-out → sign-in of the SAME account re-establishes '
+        '(teardown cleared the established identity)', () {
+      // After teardown, establishedUserId is null — so the same account
+      // signing back in MUST establish (lifting the signed-out hard-stop).
+      expect(
+        sessionTransition(
+          establishedUserId: null,
+          prev: const AsyncData<Session?>(null),
+          next: const AsyncData<Session?>(janet),
+        ),
+        SessionTransition.establish,
+      );
+    });
+
+    test('loading emissions are skips', () {
+      expect(
+        sessionTransition(
+          establishedUserId: janet.userId,
+          prev: const AsyncData<Session?>(janet),
+          next: const AsyncLoading<Session?>(),
+        ),
+        SessionTransition.skip,
+      );
     });
   });
 

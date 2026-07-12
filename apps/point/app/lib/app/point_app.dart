@@ -7,6 +7,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/animated_branch_stack.dart';
 import 'package:point_app/app/routes.dart';
+import 'package:point_app/app/session_transition.dart';
 import 'package:point_app/app/shell_chrome.dart';
 import 'package:point_app/features/auth/presentation/login_screen.dart';
 import 'package:point_app/features/auth/presentation/splash_screen.dart';
@@ -288,19 +289,29 @@ class _PointAppState extends ConsumerState<PointApp>
     };
   }
 
+  /// The identity the app last ESTABLISHED a session for (null after a
+  /// teardown). Tracked independently of the listener's `prev` value: a
+  /// `loading → data(same user)` refresh must never re-establish (that would
+  /// reset the engine's sharing state and could lift a live ghost choice),
+  /// while a sign-out → sign-in of the same account must (the v1.2 wedge).
+  String? _establishedUserId;
+
   /// Auth-driven routing + session lifecycle, invoked by the `listenManual`
   /// registered in initState (fireImmediately, so it also handles the value
   /// auth ALREADY holds when the app starts). Kept off the build-method
   /// `ref.listen`, which never fires for an already-resolved provider.
+  /// The decision itself is [sessionTransition] — pure and tested.
   void _onAuth(AsyncValue<Session?>? prev, AsyncValue<Session?> next) {
-    // Session-lifecycle side effects run only when the session IDENTITY
-    // changes. Same-account re-emissions (a display-name update) must not
-    // restart the relay or re-route; that stacked duplicate WS/fix
-    // subscriptions and could double-process MLS messages.
-    final prevId = prev?.value?.userId;
-    next.whenData((session) {
-      if (session != null) {
-        if (session.userId == prevId) return;
+    switch (sessionTransition(
+      establishedUserId: _establishedUserId,
+      prev: prev,
+      next: next,
+    )) {
+      case SessionTransition.skip:
+        return;
+      case SessionTransition.establish:
+        final session = next.value!;
+        _establishedUserId = session.userId;
         // Wave D: register this device's wake transport (UnifiedPush endpoint
         // -> server) so offline share requests/accepts reach it.
         unawaited(ref.read(pushServiceProvider).sync());
@@ -314,11 +325,8 @@ class _PointAppState extends ConsumerState<PointApp>
         // sequence, so the engine can never start against a stale hard-stop
         // or race the go-dark default (the v1.2 location regression).
         unawaited(_establishSession());
-      } else {
-        // Skip a REPEAT signed-out emission, but not the initial resolution to
-        // signed-out (prev is null/loading on the fireImmediately call and on
-        // a fresh install), which must still route to server-pick.
-        if (prev != null && prev.hasValue && prev.value == null) return;
+      case SessionTransition.teardown:
+        _establishedUserId = null;
         ref.read(locationServiceProvider).setSharing(sharing: false);
         ref.read(relayControllerProvider).stop();
         // Drop this device's push registration for the account LEAVING (prev
@@ -328,8 +336,7 @@ class _PointAppState extends ConsumerState<PointApp>
         // account signs in next.
         ref.read(pendingInviteProvider.notifier).take();
         unawaited(_routeSignedOut());
-      }
-    });
+    }
   }
 
   @override

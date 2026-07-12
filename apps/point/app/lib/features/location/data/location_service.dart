@@ -168,6 +168,11 @@ class LocationService {
         _stopAccel();
         _stopHeartbeat();
         _startGps(plan);
+        // Acquisition bound: a GPS that cannot fix (indoors, stalled
+        // provider) must not pin high-power active forever — with no fix to
+        // re-arm the stillness window, ramp down and let the heartbeat /
+        // motion wake carry it (v1.2.1 review).
+        if (_stillnessTimer?.isActive != true) _armStillness();
     }
     _appliedActivity = plan.activity;
   }
@@ -257,7 +262,7 @@ class LocationService {
 
   void _startHeartbeat() {
     if (_heartbeatTimer != null) return;
-    _heartbeatTimer = Timer.periodic(heartbeat, (_) async {
+    _heartbeatTimer = Timer.periodic(heartbeat, (timer) async {
       // Cheap fix while parked: low accuracy uses network/fused, not the GPS
       // radio, so it costs a fraction of a real GPS lock.
       try {
@@ -269,6 +274,10 @@ class LocationService {
             timeLimit: Duration(seconds: 20),
           ),
         );
+        // Ghost (or dispose) can land while the request is in flight, and a
+        // hard stop only cancels FUTURE ticks — a fix must never leak out
+        // past go-dark (safety-critical; v1.2.1 review).
+        if (!timer.isActive || !_machine.plan.gpsEnabled) return;
         _emit(p);
       } on Object catch (e) {
         if (kDebugMode) debugPrint('heartbeat fix error: $e');

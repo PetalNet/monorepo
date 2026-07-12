@@ -535,3 +535,23 @@ process restart, then clean 15-minute heartbeats). Calls made:
 - **Server-side ghost on restore stays display-only** (unchanged from v1.1): a restored session
   starts the engine sharing even if another device set ghost; the server enforces suppression. Noted
   here so it reads as a known call, not an oversight.
+
+### D-028 · review round (codex, adversarial)
+
+The codex pass surfaced two safety-critical holes (both latent since v1.1, both fixed here because
+this is exactly the code being certified) and a battery hazard the new foreground nudge widened:
+
+- **In-flight heartbeat past ghost:** the hard stop cancels future ticks, not the awaited
+  `getCurrentPosition` — its completion emitted a fix AFTER go-dark. Now the tick re-checks
+  `timer.isActive && plan.gpsEnabled` after the await; a late fix is dropped. Test: goes dark while
+  the request is in flight → nothing emitted.
+- **Same-user auth refresh could re-establish:** the identity guard keyed off the listener's `prev`
+  value, so a `loading → data(same user)` refresh would re-run establishment and lift a live ghost.
+  The app now tracks `_establishedUserId` (cleared on teardown) and the whole `_onAuth` decision is
+  the pure `sessionTransition()` (lib/app/session_transition.dart) — headless-tested for: first
+  resolution establishes, same-user refresh/re-emission skips (ghost preserved), sign-out tears
+  down + repeat skips, and sign-out → sign-in of the SAME account re-establishes (the wedge).
+- **No-fix acquisition pin:** `active` with a GPS stream that never fixes (indoors) held high-power
+  GPS forever — the stillness window only armed on fixes. `_apply()` now arms it when entering the
+  moving branch, so a fixless active ramps down to idle/heartbeat and motion re-promotes. Test:
+  active + 31s of silence → idle, GPS off.
