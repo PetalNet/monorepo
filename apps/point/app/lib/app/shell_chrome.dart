@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:point_app/features/ghost/who_sees_me.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// Adaptive shell chrome: a bottom [NavigationBar] on compact widths, a
@@ -29,6 +30,9 @@ class ShellChrome extends StatelessWidget {
 
     if (expanded) {
       return Scaffold(
+        // The who-sees-me strip spans the full bottom on wide layouts; as the
+        // terminal bar it consumes the system bottom inset itself.
+        bottomNavigationBar: const WhoSeesMeBar(bottomSafe: true),
         body: Row(
           children: [
             NavigationRail(
@@ -55,18 +59,26 @@ class ShellChrome extends StatelessWidget {
 
     return Scaffold(
       body: branchContent,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: activeBranch,
-        onDestinationSelected: onSwitch,
-        backgroundColor: context.colors.surface,
-        indicatorColor: context.colors.surfaceContainerHighest,
-        destinations: [
-          for (final (icon, active, label) in _destinations)
-            NavigationDestination(
-              icon: Icon(icon),
-              selectedIcon: Icon(active),
-              label: label,
-            ),
+      // The always-on who-sees-me strip sits directly above the tab bar so it's
+      // glanceable on every tab (spec 05) — one tap from the full list.
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const WhoSeesMeBar(),
+          NavigationBar(
+            selectedIndex: activeBranch,
+            onDestinationSelected: onSwitch,
+            backgroundColor: context.colors.surface,
+            indicatorColor: context.colors.surfaceContainerHighest,
+            destinations: [
+              for (final (icon, active, label) in _destinations)
+                NavigationDestination(
+                  icon: Icon(icon),
+                  selectedIcon: Icon(active),
+                  label: label,
+                ),
+            ],
+          ),
         ],
       ),
     );
