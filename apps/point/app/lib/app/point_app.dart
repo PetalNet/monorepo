@@ -11,8 +11,8 @@ import 'package:point_app/app/shell_chrome.dart';
 import 'package:point_app/features/auth/presentation/login_screen.dart';
 import 'package:point_app/features/auth/presentation/splash_screen.dart';
 import 'package:point_app/features/device_link/presentation/device_link_screen.dart';
-import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/ghost/presentation/ghost_screen.dart';
+import 'package:point_app/features/location/engine_session.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/me/presentation/about_screen.dart';
@@ -132,14 +132,22 @@ class _PointAppState extends ConsumerState<PointApp>
     }
   }
 
-  /// Privacy setting "start each sign-in dark": a NEW session begins with
-  /// sharing off until the user flips it, applied only when the setting says
-  /// so and only on a real sign-in (never a restore, which would override a
-  /// live choice on every launch).
-  Future<void> _applyGoDarkDefault() async {
-    final settings = await ref.read(settingsProvider.notifier).loaded;
-    if (!settings.goDarkDefault || !mounted) return;
-    await ref.read(ghostControllerProvider.notifier).setSharing(sharing: false);
+  /// Session establishment for a just-signed-in (or restored) account: reset
+  /// the engine's sharing state (clearing any signed-out hard-stop), apply
+  /// the go-dark default for an explicit sign-in, THEN run the launch gate,
+  /// which starts the engine once set-up is complete.
+  Future<void> _establishSession() async {
+    // Only an explicit login/register counts as a NEW session for the
+    // go-dark-default policy (a cold-start restore must never override a
+    // live sharing choice). The controller flags it, because both sign-in
+    // and restore arrive here from AsyncLoading.
+    final explicit =
+        ref.read(authControllerProvider.notifier).consumeExplicitSignIn();
+    await establishSessionEngineState(ref, explicitSignIn: explicit);
+    if (!mounted) return;
+    // Launch gate: resume the first incomplete required step, or open the
+    // shell (with any held deep-link invite).
+    await continueOnboarding(ref, _config.router);
   }
 
   /// The signed-out stack. A fresh install (no server ever chosen) starts at
@@ -293,13 +301,6 @@ class _PointAppState extends ConsumerState<PointApp>
     next.whenData((session) {
       if (session != null) {
         if (session.userId == prevId) return;
-        // Only an explicit login/register counts as a NEW session for the
-        // go-dark-default policy (a cold-start restore must never override a
-        // live sharing choice). The controller flags it, because both sign-in
-        // and restore arrive here from AsyncLoading.
-        if (ref.read(authControllerProvider.notifier).consumeExplicitSignIn()) {
-          unawaited(_applyGoDarkDefault());
-        }
         // Wave D: register this device's wake transport (UnifiedPush endpoint
         // -> server) so offline share requests/accepts reach it.
         unawaited(ref.read(pushServiceProvider).sync());
@@ -309,9 +310,10 @@ class _PointAppState extends ConsumerState<PointApp>
         // location step, and `continueOnboarding` starts it once the gate is
         // clear.
         ref.read(relayControllerProvider).start(session);
-        // Launch gate: resume the first incomplete required step, or open the
-        // shell (with any held deep-link invite).
-        unawaited(continueOnboarding(ref, _config.router));
+        // Engine sharing state, go-dark default, then the launch gate — ONE
+        // sequence, so the engine can never start against a stale hard-stop
+        // or race the go-dark default (the v1.2 location regression).
+        unawaited(_establishSession());
       } else {
         // Skip a REPEAT signed-out emission, but not the initial resolution to
         // signed-out (prev is null/loading on the fireImmediately call and on

@@ -503,3 +503,35 @@ nobody`; enforcement is **silent-drop** on both the local endpoint and the feder
   which a convenient-tier build flavor (google-services.json + firebase_messaging) provides — a
   documented fast-follow, not faked in the base build. The private default is the one delivering in
   v1.2.0.
+
+## 2026-07-12 — D-028 · v1.2.1: the signed-out hard-stop must not outlive the sign-out (tracker 721)
+
+The v1.2 location regression root-caused, not guessed: `_onAuth`'s signed-out branch hard-stops the
+battery engine (`setSharing(false)` → machine → ghost), and NOTHING on the next sign-in lifted it —
+`start()` faithfully applies whatever plan the machine holds, and a ghost plan is "everything off."
+So every fresh install (whose very first auth resolution is signed-out, by design, to route to
+server-pick) and every sign-out → sign-in in one process ran the engine ghosted until a full process
+restart: no self-marker, dead recenter, zero rows in `location_history`/`location_updates`. The
+on-device evidence matched to the minute (A03s: janet's rows begin four minutes after the 21:11 UTC
+process restart, then clean 15-minute heartbeats). Calls made:
+
+- **Session establishment is ONE sequence** (`_establishSession` → `establishSessionEngineState`):
+  reset the engine to sharing, then apply the go-dark default (explicit sign-ins only), then run the
+  launch gate that may `start()` the engine. The old code fired go-dark and the gate as independent
+  unawaited futures — the reset-vs-go-dark order was a coin flip; now it cannot race and the
+  privacy-critical "start each sign-in dark" always wins over the reset.
+- **`start()` behaves like a foreground resume** when the app is open: jump the machine to `active`
+  for a prompt first fix. Before, a cold start sat `idle` (GPS off) until motion or the first
+  15-minute heartbeat — the map's "centers on YOU" moment hung on an accelerometer bump.
+- **`_apply()` gates on `_started`**: pre-permission lifecycle/sharing events now only update the
+  machine, never the sensors — no location-plugin pokes before onboarding has earned the ask.
+- **The engine's platform seams are injectable** (permission checks, position stream/current-fix,
+  accelerometer), because the regression shipped exactly where coverage stopped: the pure state
+  machine was tested, the engine wiring around it was not. `test/location_engine_session_test.dart`
+  now drives the acquisition path headless (start → fixes out, the wedge, ghost stays a hard stop,
+  denied permission touches nothing, stillness → heartbeat) plus the session-establishment wiring
+  (leftover hard-stop cleared; go-dark default honored on explicit sign-in; restores never trample a
+  live choice) — wired into the existing `flutter test` CI gate.
+- **Server-side ghost on restore stays display-only** (unchanged from v1.1): a restored session
+  starts the engine sharing even if another device set ghost; the server enforces suppression. Noted
+  here so it reads as a known call, not an oversight.
