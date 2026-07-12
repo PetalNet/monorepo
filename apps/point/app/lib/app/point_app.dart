@@ -40,6 +40,7 @@ import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
+import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/services/server_config.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -83,6 +84,9 @@ class _PointAppState extends ConsumerState<PointApp>
       }),
     );
     _linkSub = _appLinks.uriLinkStream.listen(_onInviteLink);
+    // fireImmediately so the very first (possibly already-resolved) auth value
+    // routes the app off the splash — a build-time listen would miss it.
+    ref.listenManual(authControllerProvider, _onAuth, fireImmediately: true);
   }
 
   @override
@@ -276,58 +280,67 @@ class _PointAppState extends ConsumerState<PointApp>
     };
   }
 
+  /// Auth-driven routing + session lifecycle, invoked by the `listenManual`
+  /// registered in initState (fireImmediately, so it also handles the value
+  /// auth ALREADY holds when the app starts). Kept off the build-method
+  /// `ref.listen`, which never fires for an already-resolved provider.
+  void _onAuth(AsyncValue<Session?>? prev, AsyncValue<Session?> next) {
+    // Session-lifecycle side effects run only when the session IDENTITY
+    // changes. Same-account re-emissions (a display-name update) must not
+    // restart the relay or re-route; that stacked duplicate WS/fix
+    // subscriptions and could double-process MLS messages.
+    final prevId = prev?.value?.userId;
+    next.whenData((session) {
+      if (session != null) {
+        if (session.userId == prevId) return;
+        // Only an explicit login/register counts as a NEW session for the
+        // go-dark-default policy (a cold-start restore must never override a
+        // live sharing choice). The controller flags it, because both sign-in
+        // and restore arrive here from AsyncLoading.
+        if (ref.read(authControllerProvider.notifier).consumeExplicitSignIn()) {
+          unawaited(_applyGoDarkDefault());
+        }
+        // Wave D: register this device's wake transport (UnifiedPush endpoint
+        // -> server) so offline share requests/accepts reach it.
+        unawaited(ref.read(pushServiceProvider).sync());
+        // M2: bring up the MLS relay (durable WS, KeyPackage pool, encrypted
+        // fixes through the durable queue). The location engine deliberately
+        // does NOT start here: its permission ask belongs to the onboarding
+        // location step, and `continueOnboarding` starts it once the gate is
+        // clear.
+        ref.read(relayControllerProvider).start(session);
+        // Launch gate: resume the first incomplete required step, or open the
+        // shell (with any held deep-link invite).
+        unawaited(continueOnboarding(ref, _config.router));
+      } else {
+        // Skip a REPEAT signed-out emission, but not the initial resolution to
+        // signed-out (prev is null/loading on the fireImmediately call and on
+        // a fresh install), which must still route to server-pick.
+        if (prev != null && prev.hasValue && prev.value == null) return;
+        ref.read(locationServiceProvider).setSharing(sharing: false);
+        ref.read(relayControllerProvider).stop();
+        // Drop this device's push registration for the account LEAVING (prev
+        // still holds its session/token; next is already null).
+        unawaited(ref.read(pushServiceProvider).teardown(prev?.value));
+        // An invite held for the previous account must not leak into whichever
+        // account signs in next.
+        ref.read(pendingInviteProvider.notifier).take();
+        unawaited(_routeSignedOut());
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // Auth-driven routing WITHOUT resetting the router (D-015): flip the stack
     // via `router.set` on the one app-lifetime router instead of swapping the
     // MaterialApp. The shell + its per-branch state are never torn down.
+    // Auth-driven routing is registered in initState via `listenManual`
+    // (below) so it can `fireImmediately`: a build-time `ref.listen` never
+    // fires for the value the provider ALREADY holds, so if auth resolves to
+    // signed-out before the first build, the app would sit on the splash
+    // forever (a fresh install, exactly the case a build-time listen misses).
     ref
-      ..listen(authControllerProvider, (prev, next) {
-        // Session-lifecycle side effects run only when the session IDENTITY
-        // changes. Same-account re-emissions (a display-name update) must not
-        // restart the relay or re-route; that stacked duplicate WS/fix
-        // subscriptions and could double-process MLS messages.
-        final prevId = prev?.value?.userId;
-        next.whenData((session) {
-          if (session != null) {
-            if (session.userId == prevId) return;
-            // Only an explicit login/register counts as a NEW session for the
-            // go-dark-default policy (a cold-start restore must never override
-            // a live sharing choice). The controller flags it, because both
-            // sign-in and restore arrive here from AsyncLoading.
-            if (ref
-                .read(authControllerProvider.notifier)
-                .consumeExplicitSignIn()) {
-              unawaited(_applyGoDarkDefault());
-            }
-            // Wave D: register this device's wake transport (UnifiedPush
-            // endpoint -> server) so offline share requests/accepts reach it.
-            unawaited(ref.read(pushServiceProvider).sync());
-            // M2: bring up the MLS relay (durable WS, KeyPackage pool,
-            // encrypted fixes through the durable queue). The location engine
-            // deliberately does NOT start here: its permission ask belongs to
-            // the onboarding location step, and `continueOnboarding` starts
-            // the engine once the gate is clear.
-            ref.read(relayControllerProvider).start(session);
-            // Launch gate: resume the first incomplete required step, or open
-            // the shell (with any held deep-link invite).
-            unawaited(continueOnboarding(ref, _config.router));
-          } else {
-            if (prevId == null) return; // already signed out; nothing to tear down
-            ref.read(locationServiceProvider).setSharing(sharing: false);
-            ref.read(relayControllerProvider).stop();
-            // Drop this device's push registration for the account LEAVING
-            // (prev still holds its session/token; next is already null).
-            unawaited(
-              ref.read(pushServiceProvider).teardown(prev?.value),
-            );
-            // An invite held for the previous account must not leak into
-            // whichever account signs in next.
-            ref.read(pendingInviteProvider.notifier).take();
-            unawaited(_routeSignedOut());
-          }
-        });
-      })
       // Wave D: re-register when the notification transport setting changes.
       // Leaving UnifiedPush tears down the old distributor+server endpoint
       // first so it isn't left live and still woken.
