@@ -423,7 +423,7 @@ Implementation calls:
 
 - **who_can_add_me is server-side** (`users` column, migration 0004) because inbound share
   requests must be blocked at creation, not hidden by the client. Values `anyone | same_server |
-  nobody`; enforcement is **silent-drop** on both the local endpoint and the federated inbox,
+nobody`; enforcement is **silent-drop** on both the local endpoint and the federated inbox,
   matching the existing anti-enumeration design (a blocked requester sees the same generic ok as
   a nonexistent target, so the setting cannot be probed). `same_server` only bites at the
   federation inbox — local asks are same-server by construction.

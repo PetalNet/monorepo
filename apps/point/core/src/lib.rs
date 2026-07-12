@@ -195,12 +195,19 @@ mod tests {
             r#"{"lat":38.627,"lon":-90.199,"speed":12.5,"battery":85,"timestamp":1712345678}"#;
         let ct = alice.encrypt(&gid, alice_loc.as_bytes()).unwrap();
 
-        // SERVER ZERO-KNOWLEDGE CHECK: The ciphertext must not contain ANY plaintext
+        // SERVER ZERO-KNOWLEDGE CHECK: the ciphertext must not contain any
+        // plaintext. Markers are field-qualified: a bare short value like
+        // "85" appears in ~1KB of random lossy-decoded bytes about once every
+        // hundred runs (observed as CI flake), which says nothing about a
+        // leak. A leak would reproduce the serialized JSON, field and all.
         let ct_str = String::from_utf8_lossy(&ct);
         assert!(!ct_str.contains("38.627"), "Server can see latitude!");
         assert!(!ct_str.contains("-90.199"), "Server can see longitude!");
-        assert!(!ct_str.contains("12.5"), "Server can see speed!");
-        assert!(!ct_str.contains("85"), "Server can see battery!");
+        assert!(!ct_str.contains("\"speed\":12.5"), "Server can see speed!");
+        assert!(
+            !ct_str.contains("\"battery\":85"),
+            "Server can see battery!"
+        );
         assert!(!ct_str.contains("1712345678"), "Server can see timestamp!");
         println!(
             "[Server] Relaying encrypted blob ({}B) — CANNOT read contents ✓",
