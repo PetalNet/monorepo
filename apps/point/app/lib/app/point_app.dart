@@ -15,10 +15,10 @@ import 'package:point_app/features/ghost/presentation/ghost_screen.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/people/invite.dart';
-import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/presentation/add_person_screen.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/people/presentation/person_detail_screen.dart';
+import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/profile/presentation/profile_screen.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -209,14 +209,13 @@ class _PointAppState extends ConsumerState<PointApp>
           }
         });
       })
-      // Feed the relay who we share with, so it forms the MLS group with each
-      // (claim KP -> group -> Welcome) and encrypts fixes to them.
-      ..listen(peopleControllerProvider, (prev, next) {
-        // Only act on a resolved list. A transient loading state (no retained
-        // value) would otherwise clear every encrypt-target for a round-trip.
-        if (!next.hasValue) return;
-        final ids = next.value!.map((p) => p.userId).toList();
-        ref.read(relayControllerProvider).setShareTargets(ids);
+      // Feed the relay who we share with — ongoing shares AND active outgoing
+      // temp targets — so it forms the MLS group with each (claim KP -> group ->
+      // Welcome) and encrypts fixes to them. Null = shares still loading; skip
+      // so a transient no-value never clears the encrypt-targets.
+      ..listen(shareTargetsProvider, (prev, next) {
+        if (next == null) return;
+        ref.read(relayControllerProvider).setShareTargets(next);
       });
 
     final appearance = ref.watch(appearanceProvider);

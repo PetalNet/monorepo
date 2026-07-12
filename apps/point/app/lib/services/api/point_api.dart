@@ -137,6 +137,25 @@ class PointApi {
     if (r.statusCode != 200) _fail(r);
   }
 
+  /// Active temporary shares involving me (both the ones I'm pushing and the
+  /// ones being pushed to me), soonest-to-expire first.
+  Future<List<TempShare>> listTempShares(String token) async {
+    final r = await _client.get(_u('/api/shares/temp'), headers: _headers(token));
+    if (r.statusCode != 200) _fail(r);
+    return (jsonDecode(r.body) as List<dynamic>)
+        .map((e) => TempShare.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Stop one of MY outgoing temporary shares early.
+  Future<void> deleteTempShare(String token, String id) async {
+    final r = await _client.delete(
+      _u('/api/shares/temp/$id'),
+      headers: _headers(token),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
   // --- Ghost --------------------------------------------------------------
 
   Future<GhostState> getGhost(String token) async {

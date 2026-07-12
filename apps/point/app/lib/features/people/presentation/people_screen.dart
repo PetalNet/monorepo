@@ -5,6 +5,7 @@ import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/requests_controller.dart';
+import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
@@ -21,6 +22,7 @@ class PeopleScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final people = ref.watch(peopleWithPresenceProvider);
     final requests = ref.watch(requestsControllerProvider).value ?? const [];
+    final temps = ref.watch(outgoingTempsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -42,14 +44,17 @@ class PeopleScreen extends ConsumerWidget {
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
-          child: (people.isEmpty && requests.isEmpty)
+          child: (people.isEmpty && requests.isEmpty && temps.isEmpty)
               ? const _EmptyPeople()
               : ListView(
                   padding: EdgeInsets.only(top: context.space.sm),
                   children: [
                     if (requests.isNotEmpty)
                       _RequestsSection(requests: requests),
-                    if (requests.isNotEmpty && people.isNotEmpty)
+                    if (temps.isNotEmpty)
+                      _TempSection(temps: temps.values.toList(), people: people),
+                    if ((requests.isNotEmpty || temps.isNotEmpty) &&
+                        people.isNotEmpty)
                       Divider(
                         height: context.space.xl,
                         color: context.colors.outline.withValues(alpha: 0.4),
@@ -91,6 +96,77 @@ class _RequestsSection extends StatelessWidget {
           ),
         ),
         for (final r in requests) _RequestRow(request: r),
+      ],
+    );
+  }
+}
+
+/// The outgoing one-way temp shares, shown DISTINCTLY from ongoing (two-way)
+/// people: an out-arrow, "→ Name · until HH:MM", and a Stop.
+class _TempSection extends ConsumerWidget {
+  const _TempSection({required this.temps, required this.people});
+  final List<TempShare> temps;
+  final List<Person> people;
+
+  String _name(String userId) => people
+          .where((p) => p.userId == userId)
+          .map((p) => p.displayName)
+          .firstOrNull ??
+      userId.split('@').first;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            context.space.lg,
+            context.space.md,
+            context.space.lg,
+            context.space.sm,
+          ),
+          child: Text(
+            'SHARING TEMPORARILY',
+            style: context.text.labelMedium
+                ?.copyWith(color: context.colors.onSurfaceVariant),
+          ),
+        ),
+        for (final t in temps)
+          Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: context.space.lg,
+              vertical: context.space.sm,
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.arrow_forward,
+                    size: 20, color: context.colors.onSurface),
+                SizedBox(width: context.space.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_name(t.toUserId), style: context.text.titleMedium),
+                      SizedBox(height: context.space.xxs),
+                      Text(
+                        'Sees you until '
+                        '${clockHm(t.expiresAt.millisecondsSinceEpoch)}',
+                        style: context.text.bodySmall
+                            ?.copyWith(color: context.colors.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => ref
+                      .read(tempSharesControllerProvider.notifier)
+                      .stop(t.id),
+                  child: const Text('Stop'),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
