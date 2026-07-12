@@ -60,6 +60,9 @@ pub enum Routed {
         card_id: String,
         envelope_id: String,
     },
+    /// Honored interrupt whose delivery failed; the card sits undelivered on
+    /// the board and the daemon's redelivery pass retries it.
+    InterruptPending { card_id: String },
     /// Queued for the digest / the wanted board.
     Queued { card_id: String, demoted: bool },
 }
@@ -82,6 +85,17 @@ impl<'a> Dispatcher<'a> {
         now_ms: i64,
         now_rfc3339: &str,
     ) -> Result<Routed, String> {
+        // A recipient handle becomes a spool filename downstream: reject
+        // anything non-canonical BEFORE it reaches a path (codex P1 —
+        // `../../tmp/evil` must never leave this function).
+        if let Some(recipient) = &msg.recipient {
+            if !crate::card::is_canonical_handle(recipient) {
+                return Err(format!(
+                    "non-canonical recipient handle {recipient:?} — refused"
+                ));
+            }
+        }
+
         let sender_class = self.roster.classify(&msg.sender);
 
         // Spawn-from-task: resolve or file the tracker task FIRST.
@@ -140,11 +154,18 @@ impl<'a> Dispatcher<'a> {
         if policy::interrupts(enforcement.effective) {
             // Interrupts are addressed by definition (there is someone to
             // interrupt); a pool-work interrupt is a contract violation.
-            let Some(_recipient) = &msg.recipient else {
+            let Some(recipient) = &msg.recipient else {
                 return Err(format!(
                     "interrupt card {card_id} has no recipient — refusing"
                 ));
             };
+            // An interrupt must target a known, active fleet member — an
+            // unknown handle would spool into a dead file forever.
+            if !self.roster.is_active_agent(recipient) {
+                return Err(format!(
+                    "interrupt card {card_id} targets unknown/inactive agent {recipient:?} — refusing"
+                ));
+            }
             // Wake rate limit (DP10): a throttled interrupt still goes out —
             // after the advised wait + jitter, not never.
             if let Err(wait) = self.wake_bucket.try_take(now_ms) {
@@ -153,13 +174,24 @@ impl<'a> Dispatcher<'a> {
             let board_card = self.board.get(&card_id)?.expect("just posted");
             let wire = Board::to_task_card(&board_card, now_rfc3339)
                 .expect("interrupt cards are addressed");
-            let envelope_id = deliver_card(
+            let envelope_id = match deliver_card(
                 self.transport,
                 &wire,
                 || now_rfc3339.to_string(),
                 5,
                 |attempt| std::time::Duration::from_millis(200 * (1 << attempt.min(4))),
-            )?;
+            ) {
+                Ok(id) => id,
+                Err(e) => {
+                    // The card is durable on the board (delivered=0); the
+                    // daemon's redelivery pass retries it — never lost (codex P1).
+                    crate::glitchtip::capture_message(
+                        &format!("interrupt delivery failed, card {card_id} pending: {e}"),
+                        "error",
+                    );
+                    return Ok(Routed::InterruptPending { card_id });
+                }
+            };
             self.board
                 .mark_delivered(std::slice::from_ref(&card_id), now_ms)?;
             Ok(Routed::Interrupted {
@@ -172,6 +204,52 @@ impl<'a> Dispatcher<'a> {
                 demoted: enforcement.demoted,
             })
         }
+    }
+}
+
+impl Dispatcher<'_> {
+    /// Retry delivery of honored interrupts whose earlier delivery failed
+    /// (the cards are durable on the board with delivered=0). Returns how
+    /// many were delivered this pass. Recipients that have dropped out of
+    /// the roster are skipped (their cards stay visible on the board for
+    /// triage rather than silently vanishing).
+    pub fn redeliver_pending(&mut self, now_ms: i64, now_rfc3339: &str) -> Result<usize, String> {
+        let pending = self.board.undelivered_interrupts()?;
+        let mut delivered = 0;
+        for card in pending {
+            let Some(recipient) = card.recipient.clone() else {
+                continue;
+            };
+            if !self.roster.is_active_agent(&recipient) {
+                continue;
+            }
+            if let Err(wait) = self.wake_bucket.try_take(now_ms) {
+                std::thread::sleep(wait + full_jitter(wait));
+            }
+            let Some(wire) = Board::to_task_card(&card, now_rfc3339) else {
+                continue;
+            };
+            match deliver_card(
+                self.transport,
+                &wire,
+                || now_rfc3339.to_string(),
+                3,
+                |attempt| std::time::Duration::from_millis(200 * (1 << attempt.min(4))),
+            ) {
+                Ok(_) => {
+                    self.board
+                        .mark_delivered(std::slice::from_ref(&card.card_id), now_ms)?;
+                    delivered += 1;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "dispatcher: redelivery of {} still failing: {e}",
+                        card.card_id
+                    );
+                }
+            }
+        }
+        Ok(delivered)
     }
 }
 
@@ -403,6 +481,115 @@ mod tests {
         m.task_id = None;
         let err = d.dispatch(&m, 0, "2026-07-12T11:00:00Z").unwrap_err();
         assert!(err.contains("source of truth"), "{err}");
+    }
+
+    #[test]
+    fn non_canonical_recipient_is_refused_before_any_path() {
+        let board = Board::open_in_memory().unwrap();
+        let r = roster();
+        let t = FakeTracker {
+            active: None,
+            filed: Mutex::new(vec![]),
+        };
+        let tx = CapturingTransport::default();
+        let mut d = dispatcher(&board, &r, &t, &tx);
+        for evil in ["../../tmp/evil", "Janet", "a b", ""] {
+            let mut m = msg(
+                "@parker:petalnet.example",
+                InterruptPolicy::PrincipalCommand,
+            );
+            m.recipient = Some(evil.into());
+            let err = d.dispatch(&m, 0, "2026-07-12T11:00:00Z").unwrap_err();
+            assert!(err.contains("non-canonical"), "{evil:?}: {err}");
+        }
+        assert!(tx.delivered.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn interrupt_to_unknown_agent_is_refused() {
+        let board = Board::open_in_memory().unwrap();
+        let r = roster();
+        let t = FakeTracker {
+            active: None,
+            filed: Mutex::new(vec![]),
+        };
+        let tx = CapturingTransport::default();
+        let mut d = dispatcher(&board, &r, &t, &tx);
+        let mut m = msg(
+            "@parker:petalnet.example",
+            InterruptPolicy::PrincipalCommand,
+        );
+        m.recipient = Some("ghost-agent".into());
+        let err = d.dispatch(&m, 0, "2026-07-12T11:00:00Z").unwrap_err();
+        assert!(err.contains("unknown/inactive"), "{err}");
+    }
+
+    struct FailNTransport {
+        failures_left: AtomicU32,
+        delivered: Mutex<Vec<Envelope>>,
+    }
+
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    impl CardTransport for FailNTransport {
+        fn deliver(&self, envelope: &Envelope) -> Result<(), String> {
+            if self.failures_left.load(Ordering::SeqCst) > 0 {
+                self.failures_left.fetch_sub(1, Ordering::SeqCst);
+                return Err("transport down".into());
+            }
+            self.delivered.lock().unwrap().push(envelope.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn failed_interrupt_is_durable_and_redelivered() {
+        let board = Board::open_in_memory().unwrap();
+        let r = roster();
+        let t = FakeTracker {
+            active: None,
+            filed: Mutex::new(vec![]),
+        };
+        // Fail more times than dispatch's 5 attempts, so the first delivery
+        // exhausts and the card goes pending; the transport then recovers.
+        let tx = FailNTransport {
+            failures_left: AtomicU32::new(5),
+            delivered: Mutex::new(vec![]),
+        };
+        let mut d = Dispatcher {
+            board: &board,
+            roster: &r,
+            tracker: Some(&t),
+            transport: &tx,
+            wake_bucket: TokenBucket::new(100.0, 100.0, 0),
+            lease_ms: 60_000,
+        };
+        let routed = d
+            .dispatch(
+                &msg(
+                    "@parker:petalnet.example",
+                    InterruptPolicy::PrincipalCommand,
+                ),
+                0,
+                "2026-07-12T11:00:00Z",
+            )
+            .unwrap();
+        let Routed::InterruptPending { card_id } = routed else {
+            panic!("expected pending, got {routed:?}");
+        };
+        assert!(tx.delivered.lock().unwrap().is_empty());
+        assert_eq!(board.undelivered_interrupts().unwrap().len(), 1);
+
+        // The daemon's redelivery pass picks it up once the transport is back.
+        let n = d.redeliver_pending(1000, "2026-07-12T11:01:00Z").unwrap();
+        assert_eq!(n, 1);
+        let sent = tx.delivered.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0].payload.as_ref().unwrap()["card"]["card_id"],
+            serde_json::Value::String(card_id)
+        );
+        assert!(board.undelivered_interrupts().unwrap().is_empty());
     }
 
     #[test]

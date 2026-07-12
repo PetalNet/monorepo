@@ -69,6 +69,14 @@ fn run(cfg: Config) -> Result<(), String> {
             roster.upsert_agent(e);
         }
     }
+    // The tracker's agents table is the registry when no roster file is given
+    // (codex P1: without this, every digest recipient looked inactive).
+    if let Some(t) = &tracker {
+        match t.load_roster_into(&mut roster) {
+            Ok(n) => eprintln!("dispatcher: loaded {n} agents from the tracker registry"),
+            Err(e) => eprintln!("dispatcher: tracker registry unavailable ({e})"),
+        }
+    }
 
     let outbox = cfg
         .outbox_dir
@@ -99,10 +107,33 @@ fn run(cfg: Config) -> Result<(), String> {
         cfg.digest_interval_secs
     );
 
+    // Crash recovery: a *.working file means a previous run died mid-pass.
+    // Rename it back to *.jsonl so this pass reprocesses it. Semantics are
+    // at-least-once across a crash (already-dispatched lines re-dispatch);
+    // consumers de-duplicate per the card/envelope contracts (codex P1).
+    let entries = std::fs::read_dir(&ingest_dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("working") {
+            let back = path.with_extension("jsonl");
+            eprintln!(
+                "dispatcher: recovering interrupted ingest file {} (at-least-once)",
+                path.display()
+            );
+            let _ = std::fs::rename(&path, &back);
+        }
+    }
+
     let mut last_reap = Instant::now();
     let mut last_digest = Instant::now();
     loop {
         let processed = ingest_pass(&ingest_dir, &mut dispatcher)?;
+
+        match dispatcher.redeliver_pending(now_ms(), &now_rfc3339()) {
+            Ok(0) => {}
+            Ok(n) => eprintln!("dispatcher: redelivered {n} pending interrupt(s)"),
+            Err(e) => eprintln!("dispatcher: redelivery pass failed: {e}"),
+        }
 
         if last_reap.elapsed() >= Duration::from_secs(cfg.reap_interval_secs) {
             last_reap = Instant::now();
@@ -146,6 +177,7 @@ fn ingest_pass(dir: &Path, dispatcher: &mut Dispatcher<'_>) -> Result<usize, Str
             continue; // raced with another consumer / vanished — fine
         }
         let content = std::fs::read_to_string(&working).map_err(|e| e.to_string())?;
+        let mut failed_lines: Vec<&str> = Vec::new();
         for line in content.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -160,11 +192,28 @@ fn ingest_pass(dir: &Path, dispatcher: &mut Dispatcher<'_>) -> Result<usize, Str
                     Err(e) => {
                         glitchtip::capture_message(&format!("dispatch failed: {e}"), "error");
                         eprintln!("dispatcher: dispatch failed: {e}");
+                        failed_lines.push(line);
                     }
                 },
                 Err(e) => {
                     eprintln!("dispatcher: skipping unparsable ingest line: {e}");
+                    failed_lines.push(line);
                 }
+            }
+        }
+        // Refused/unparsable lines are preserved for triage — rename the
+        // .failed file back to .jsonl to retry after fixing the cause
+        // (codex P1: a rejected message must never silently vanish).
+        if !failed_lines.is_empty() {
+            let failed = path.with_extension("failed");
+            if let Err(e) = std::fs::write(&failed, failed_lines.join("\n") + "\n") {
+                eprintln!("dispatcher: could not write {}: {e}", failed.display());
+            } else {
+                eprintln!(
+                    "dispatcher: kept {} failed line(s) in {}",
+                    failed_lines.len(),
+                    failed.display()
+                );
             }
         }
         let done = path.with_extension("done");

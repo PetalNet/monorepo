@@ -364,6 +364,23 @@ impl Board {
         rows.map(|r| r.map_err(BoardError::from)).collect()
     }
 
+    /// Honored-interrupt cards whose delivery hasn't succeeded yet (the
+    /// dispatch attempt failed) — the daemon retries these each pass so a
+    /// transport outage never loses an interrupt (codex P1).
+    pub fn undelivered_interrupts(&self) -> Result<Vec<BoardCard>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT card_id, task_id, sender, sender_class, recipient, priority, thread,
+                    requires_reply, interrupt_policy, body, needs, state, claimed_by,
+                    lease_expires_at_ms, fence, reaps, reply_to, parent_id, result, created_at_ms
+             FROM cards
+             WHERE recipient IS NOT NULL AND interrupt_policy != 'defer'
+               AND state IN ('posted','claimed') AND delivered=0
+             ORDER BY priority ASC, created_at_ms ASC",
+        )?;
+        let rows = stmt.query_map([], row_to_card)?;
+        rows.map(|r| r.map_err(BoardError::from)).collect()
+    }
+
     /// Recipients that currently have undelivered deferred cards (digest fan-out).
     pub fn distinct_deferred_recipients(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(

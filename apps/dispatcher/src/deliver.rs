@@ -34,6 +34,15 @@ impl SpoolTransport {
 
 impl CardTransport for SpoolTransport {
     fn deliver(&self, envelope: &Envelope) -> Result<(), String> {
+        // Defense in depth: the agent handle becomes a filename. The dispatch
+        // boundary already rejects non-canonical recipients; enforce it here
+        // too so no other caller can traverse out of the spool dir.
+        if !crate::card::is_canonical_handle(&envelope.agent) {
+            return Err(format!(
+                "refusing spool delivery to non-canonical handle {:?}",
+                envelope.agent
+            ));
+        }
         std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
         let path = self.dir.join(format!("{}.outbox.jsonl", envelope.agent));
         let mut line = serde_json::to_string(envelope).map_err(|e| e.to_string())?;
@@ -162,6 +171,25 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("after 3 attempts"), "{err}");
         assert_eq!(t.calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn spool_refuses_non_canonical_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = SpoolTransport::new(dir.path().to_path_buf());
+        let mut c = card();
+        c.recipient = "../../etc/passwd".into();
+        let card_json = serde_json::to_value(&c).unwrap();
+        let env = Envelope::task_dispatch(
+            &c.recipient,
+            c.task_id,
+            card_json,
+            "2026-07-12T11:00:00Z".into(),
+        );
+        let err = t.deliver(&env).unwrap_err();
+        assert!(err.contains("non-canonical"), "{err}");
+        // Nothing escaped the spool dir (the dir itself stays empty).
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[test]

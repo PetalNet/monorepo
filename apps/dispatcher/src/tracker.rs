@@ -64,6 +64,16 @@ impl SqliteTracker {
     }
 }
 
+impl SqliteTracker {
+    /// Load the tracker's `agents` registry into the roster (the registry is
+    /// read-only to us; the tracker owns it).
+    pub fn load_roster_into(&self, roster: &mut crate::roster::Roster) -> Result<usize, String> {
+        roster
+            .load_agents_from_db(&self.conn)
+            .map_err(|e| e.to_string())
+    }
+}
+
 impl Tracker for SqliteTracker {
     fn file_task(
         &self,
