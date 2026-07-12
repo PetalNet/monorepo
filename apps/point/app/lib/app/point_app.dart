@@ -215,7 +215,9 @@ class _PointAppState extends ConsumerState<PointApp>
       // so a transient no-value never clears the encrypt-targets.
       ..listen(shareTargetsProvider, (prev, next) {
         if (next == null) return;
-        ref.read(relayControllerProvider).setShareTargets(next);
+        ref
+            .read(relayControllerProvider)
+            .setShareTargets(next.all, forceInitiate: next.tempOnly);
       });
 
     final appearance = ref.watch(appearanceProvider);

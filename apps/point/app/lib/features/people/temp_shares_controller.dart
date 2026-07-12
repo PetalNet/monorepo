@@ -15,7 +15,12 @@ class TempSharesController extends AsyncNotifier<List<TempShare>> {
   }
 
   Future<void> refresh() async {
-    state = await AsyncValue.guard(build);
+    // Keep the last good list on a transient failure — a failed refresh (which
+    // fires on unrelated WS events / create / stop) must NOT collapse .value to
+    // null, which would drop active temp targets out of the relay's encrypt set.
+    final prev = state.value;
+    final next = await AsyncValue.guard(build);
+    state = next.hasValue ? next : AsyncData(prev ?? const []);
   }
 
   /// Start a one-way temp share: [toUserId] sees my location for [minutes].
@@ -71,15 +76,21 @@ final outgoingTempsProvider = Provider<Map<String, TempShare>>((ref) {
   return myOutgoingTemps(all, me, now);
 });
 
-/// Everyone I should be encrypting + relaying my location to: ongoing shares
-/// PLUS active outgoing temp targets. Null while the shares list is still
-/// loading, so the relay never clears its targets on a transient no-value.
-final shareTargetsProvider = Provider<List<String>?>((ref) {
+/// Everyone I should relay my location to. `all` = ongoing shares ∪ active
+/// outgoing temp targets. `tempOnly` = temp targets that are NOT also ongoing
+/// shares — the relay must form the MLS group with these unconditionally (a
+/// one-way temp is asymmetric; the recipient never initiates). Null while the
+/// shares list is loading, so the relay never clears targets on a transient
+/// no-value.
+typedef ShareTargets = ({List<String> all, Set<String> tempOnly});
+
+final shareTargetsProvider = Provider<ShareTargets?>((ref) {
   final peopleAsync = ref.watch(peopleControllerProvider);
   if (!peopleAsync.hasValue) return null;
-  final temps = ref.watch(outgoingTempsProvider);
-  return computeShareTargets(
-    peopleAsync.value!.map((p) => p.userId).toList(),
-    temps.keys,
+  final ongoing = peopleAsync.value!.map((p) => p.userId).toSet();
+  final temps = ref.watch(outgoingTempsProvider).keys.toSet();
+  return (
+    all: computeShareTargets(ongoing.toList(), temps),
+    tempOnly: temps.difference(ongoing),
   );
 });

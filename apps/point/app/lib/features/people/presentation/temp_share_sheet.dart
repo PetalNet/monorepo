@@ -43,35 +43,57 @@ class _TempShareSheetState extends ConsumerState<TempShareSheet> {
     if (session == null) return;
     setState(() => _busy = true);
     final name = widget.person.displayName;
+
+    // Step 1: create the temp share. If THIS fails, nothing happened — surface
+    // it and keep the sheet open so the user can retry without a duplicate.
     try {
       await ref
           .read(tempSharesControllerProvider.notifier)
           .share(widget.person.userId, minutes: _minutes);
-      // "Both ways" can't create the other direction on their behalf, so it
-      // asks them to share back (a real ongoing share request they accept).
-      if (_bothWays) {
-        await ref
-            .read(apiProvider)
-            .sendShareRequest(session.token, widget.person.userId);
-      }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_bothWays
-              ? 'Sharing with $name; asked them to share back'
-              : '$name can see you for ${_label(_minutes)}'),
-        ),
-      );
-      await context.pop();
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.message)));
         setState(() => _busy = false);
       }
+      return;
     } on Object {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Couldn't start the share.")),
+        );
+        setState(() => _busy = false);
+      }
+      return;
     }
+
+    // Step 2: the temp IS live now. "Both ways" additionally asks them to share
+    // back — a real ongoing request. If only THIS fails, the temp still stands,
+    // so report the partial outcome rather than a total failure (and never
+    // re-run step 1, which would duplicate the temp).
+    var askedBack = _bothWays;
+    if (_bothWays) {
+      try {
+        await ref
+            .read(apiProvider)
+            .sendShareRequest(session.token, widget.person.userId);
+      } on Object {
+        askedBack = false;
+      }
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _bothWays
+              ? (askedBack
+                  ? 'Sharing with $name; asked them to share back'
+                  : "Sharing with $name; couldn't ask them to share back")
+              : '$name can see you for ${_label(_minutes)}',
+        ),
+      ),
+    );
+    await context.pop();
   }
 
   String _label(int m) => _options.firstWhere((o) => o.$1 == m).$2;
