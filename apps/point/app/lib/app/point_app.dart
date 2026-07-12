@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -11,7 +14,9 @@ import 'package:point_app/features/device_link/presentation/device_link_screen.d
 import 'package:point_app/features/ghost/presentation/ghost_screen.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
+import 'package:point_app/features/people/invite.dart';
 import 'package:point_app/features/people/people_controller.dart';
+import 'package:point_app/features/people/presentation/add_person_screen.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/people/presentation/person_detail_screen.dart';
 import 'package:point_app/features/profile/presentation/profile_screen.dart';
@@ -46,6 +51,12 @@ class PointApp extends ConsumerStatefulWidget {
 class _PointAppState extends ConsumerState<PointApp>
     with WidgetsBindingObserver {
   late final KaiselRouterConfig<AppRoute> _config;
+  final AppLinks _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSub;
+
+  /// An invite handle captured from a deep link while signed out — opened once
+  /// the session restores/signs in.
+  String? _pendingInvite;
 
   @override
   void initState() {
@@ -61,12 +72,30 @@ class _PointAppState extends ConsumerState<PointApp>
       pageWrapper: _pageWrapper,
       builder: _pageForRoute,
     );
+    // Invite deep links (point://add/<handle> and .../add/<handle>): the link
+    // the app was launched from, plus any received while running.
+    unawaited(_appLinks.getInitialLink().then((uri) {
+      if (uri != null) _onInviteLink(uri);
+    }));
+    _linkSub = _appLinks.uriLinkStream.listen(_onInviteLink);
   }
 
   @override
   void dispose() {
+    unawaited(_linkSub?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _onInviteLink(Uri uri) {
+    final handle = handleFromInvite(uri);
+    if (handle == null || handle.isEmpty) return;
+    // Only open the add flow once signed in; otherwise hold it until auth.
+    if (ref.read(authControllerProvider).value != null) {
+      _config.router.set([const MainShell(), AddPersonRoute(prefillHandle: handle)]);
+    } else {
+      _pendingInvite = handle;
+    }
   }
 
   @override
@@ -98,7 +127,10 @@ class _PointAppState extends ConsumerState<PointApp>
   /// modals (Ghost, Device-link) slide up; everything else fades.
   Page<Object?> _pageWrapper(KaiselPageWrapperContext<AppRoute> ctx) {
     return switch (ctx.route) {
-      GhostRoute() || DeviceLinkRoute() || PersonDetailRoute() =>
+      GhostRoute() ||
+      DeviceLinkRoute() ||
+      PersonDetailRoute() ||
+      AddPersonRoute() =>
         _SlideUpPage(key: ctx.key, child: ctx.child),
       _ => _FadePage(key: ctx.key, child: ctx.child),
     };
@@ -111,6 +143,8 @@ class _PointAppState extends ConsumerState<PointApp>
       GhostRoute() => const GhostScreen(),
       DeviceLinkRoute() => const DeviceLinkScreen(),
       PersonDetailRoute(:final userId) => PersonDetailScreen(userId: userId),
+      AddPersonRoute(:final prefillHandle) =>
+        AddPersonScreen(prefillHandle: prefillHandle),
       MainShell() => KaiselBranchedShell.specs(
           branches: [
             KaiselBranchSpec<MapRoute>(
@@ -160,7 +194,13 @@ class _PointAppState extends ConsumerState<PointApp>
             // M2: bring up the MLS relay (durable WS, KeyPackage pool,
             // encrypted fixes through the durable queue).
             ref.read(relayControllerProvider).start(session);
-            _config.router.set(const [MainShell()]);
+            // Open a deep-link invite captured before sign-in, else the shell.
+            final invite = _pendingInvite;
+            _pendingInvite = null;
+            _config.router.set([
+              const MainShell(),
+              if (invite != null) AddPersonRoute(prefillHandle: invite),
+            ]);
           } else {
             ref.read(locationServiceProvider).setSharing(sharing: false);
             ref.read(relayControllerProvider).stop();

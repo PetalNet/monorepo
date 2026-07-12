@@ -38,13 +38,21 @@ final class PersonDetailRoute extends AppRoute {
   final String userId;
 }
 
+/// Add a person by handle or invite. [prefillHandle] is set when the screen is
+/// opened from a tapped invite link (`point://add/<handle>`).
+final class AddPersonRoute extends AppRoute {
+  const AddPersonRoute({this.prefillHandle});
+  final String? prefillHandle;
+}
+
 /// Routes that require a signed-in session. The guard redirects any stack
 /// containing one of these to [LoginRoute] when signed out.
 bool routeRequiresAuth(AppRoute r) =>
     r is MainShell ||
     r is GhostRoute ||
     r is DeviceLinkRoute ||
-    r is PersonDetailRoute;
+    r is PersonDetailRoute ||
+    r is AddPersonRoute;
 
 // --- Shell branches: each tab has its own sealed route type ---------------
 
