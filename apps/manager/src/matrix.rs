@@ -29,9 +29,25 @@ pub enum SyncError {
     Auth,
 }
 
+/// Outcome of an outbound send, so the sender loop can self-heal on a token
+/// rotation instead of silently dropping every message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendOutcome {
+    Sent,
+    /// The token is bad (rotated/expired) — reload creds and retry.
+    AuthFailed,
+    /// Some other failure (transport, rate-limit, …) — drop as before.
+    Failed,
+}
+
 /// The Matrix standard error code from a response body, if present.
 fn matrix_errcode(body: &Value) -> Option<&str> {
     body.get("errcode").and_then(|v| v.as_str())
+}
+
+/// Is this response an authentication failure (a bad/rotated token)?
+fn is_auth_failure(status: u16, body: &Value) -> bool {
+    status == 401 || status == 403 || matrix_errcode(body) == Some("M_UNKNOWN_TOKEN")
 }
 
 /// Percent-encode for URL path/query components (RFC 3986 unreserved kept).
@@ -112,19 +128,32 @@ impl MatrixClient {
     }
 
     pub fn send_text(&self, text: &str) -> bool {
+        matches!(self.send_text_result(text), SendOutcome::Sent)
+    }
+
+    /// Like [`send_text`](Self::send_text) but classifies the failure so the
+    /// sender loop can self-heal on a token rotation (the outbound half of the
+    /// creds hot-reload — otherwise the channel goes one-way after a rotation).
+    pub fn send_text_result(&self, text: &str) -> SendOutcome {
         let txn = self.txn.fetch_add(1, Ordering::SeqCst);
         let path = format!(
             "/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
             urlenc(&self.room),
             txn
         );
-        let (status, _) = self.request(
+        let (status, body) = self.request(
             "PUT",
             &path,
             Some(&json!({ "msgtype": "m.text", "body": text })),
             Duration::from_secs(15),
         );
-        (200..300).contains(&status)
+        if (200..300).contains(&status) {
+            SendOutcome::Sent
+        } else if is_auth_failure(status, &body) {
+            SendOutcome::AuthFailed
+        } else {
+            SendOutcome::Failed
+        }
     }
 
     /// Replace the access token from freshly-loaded creds (self-heal: the
@@ -175,7 +204,7 @@ impl MatrixClient {
         // Distinguish an auth failure (rotated/expired token — a known-token
         // error) from a plain transport failure, so the loop can self-heal by
         // reloading creds only when it's actually the token that's wrong.
-        if status == 401 || status == 403 || matrix_errcode(&body) == Some("M_UNKNOWN_TOKEN") {
+        if is_auth_failure(status, &body) {
             return Err(SyncError::Auth);
         }
         let next = body.get("next_batch").and_then(|v| v.as_str());
@@ -217,14 +246,50 @@ impl MatrixClient {
 /// Outbound queue. The returned Sender never blocks; the thread drains it
 /// with per-request timeouts and exits when every Sender is dropped (which
 /// flushes the final shutdown message before the process exits).
-pub fn spawn_sender(client: MatrixClient) -> (Sender<String>, JoinHandle<()>) {
+///
+/// `reload_creds` is the outbound half of the self-heal: on a send that fails
+/// auth (rotated token), the sender reloads creds and retries the message once
+/// so the control channel doesn't go one-way after a rotation (rate-limited,
+/// symmetric to the sync loop). `None` disables it (old-loop parity).
+pub fn spawn_sender<R>(
+    mut client: MatrixClient,
+    reload_creds: Option<R>,
+) -> (Sender<String>, JoinHandle<()>)
+where
+    R: Fn() -> Result<MatrixCreds, String> + Send + 'static,
+{
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let handle = std::thread::Builder::new()
         .name("matrix-send".into())
         .spawn(move || {
+            let mut last_reload = 0u64;
             for msg in rx {
-                if !client.send_text(&msg) {
-                    eprintln!("[manager/matrix] send failed (dropped): {msg:?}");
+                match client.send_text_result(&msg) {
+                    SendOutcome::Sent => {}
+                    SendOutcome::AuthFailed => {
+                        // Reload creds (rate-limited) and retry the message once.
+                        let now = epoch_secs();
+                        let mut retried = false;
+                        if let Some(reload) = &reload_creds {
+                            if now.saturating_sub(last_reload) >= RELOAD_COOLDOWN_SECS {
+                                last_reload = now;
+                                if let Ok(creds) = reload() {
+                                    if client.reload_token(&creds)
+                                        && client.send_text(&msg)
+                                    {
+                                        retried = true;
+                                        eprintln!("[manager/matrix] send auth failed; reloaded token and re-sent");
+                                    }
+                                }
+                            }
+                        }
+                        if !retried {
+                            eprintln!("[manager/matrix] send failed auth (dropped): {msg:?}");
+                        }
+                    }
+                    SendOutcome::Failed => {
+                        eprintln!("[manager/matrix] send failed (dropped): {msg:?}");
+                    }
                 }
             }
         })
@@ -338,5 +403,26 @@ mod tests {
         assert_eq!(matrix_errcode(&body), Some("M_UNKNOWN_TOKEN"));
         assert_eq!(matrix_errcode(&json!({})), None);
         assert_eq!(matrix_errcode(&Value::Null), None);
+    }
+
+    #[test]
+    fn auth_failure_classification() {
+        // 401 / 403 / M_UNKNOWN_TOKEN are auth failures (reload+retry).
+        assert!(is_auth_failure(401, &Value::Null));
+        assert!(is_auth_failure(403, &Value::Null));
+        assert!(is_auth_failure(200, &json!({"errcode": "M_UNKNOWN_TOKEN"})));
+        // A soft-logout 401 body still classifies as auth.
+        assert!(is_auth_failure(
+            401,
+            &json!({"errcode": "M_UNKNOWN_TOKEN", "soft_logout": true})
+        ));
+        // Everything else is not an auth failure (don't reload on a 429/500/0).
+        assert!(!is_auth_failure(
+            429,
+            &json!({"errcode": "M_LIMIT_EXCEEDED"})
+        ));
+        assert!(!is_auth_failure(500, &Value::Null));
+        assert!(!is_auth_failure(0, &Value::Null));
+        assert!(!is_auth_failure(200, &Value::Null));
     }
 }
