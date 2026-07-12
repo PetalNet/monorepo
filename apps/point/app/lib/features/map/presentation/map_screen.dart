@@ -12,6 +12,7 @@ import 'package:point_app/features/map/presentation/self_marker.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
+import 'package:point_app/theme/presence_tokens.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// Map + presence (spec 07): a monochrome basemap centered on YOU, all active
@@ -55,9 +56,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       }
     });
 
-    // Only people with a live/known coordinate plot; dark/location-off don't.
-    final located =
-        ref.watch(peopleWithPresenceProvider).where((p) => p.hasLocation).toList();
+    // Only currently-LIVE people plot; dark people (stale last-known) and
+    // location-off people don't get a live pin — their frozen last-known lives
+    // in People/detail.
+    final located = ref
+        .watch(peopleWithPresenceProvider)
+        .where((p) => p.presence == PresenceState.live && p.hasLocation)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(

@@ -36,17 +36,32 @@ void main() {
       expect(merged.presence, PresenceState.away);
     });
 
-    test('with fix → live, located, "Sharing · Nm"', () {
+    test('fresh fix → live, located, "Sharing · Nm"', () {
       final fix = PeerFix(userId: 'eli@point.dev', data: {
         'lat': 38.6,
         'lon': -90.2,
-        'timestamp': ago(const Duration(minutes: 5)),
+        'timestamp': ago(const Duration(minutes: 1)),
       });
       final merged = mergePresence(away, fix, now: now);
       expect(merged.presence, PresenceState.live);
       expect(merged.hasLocation, isTrue);
       expect(merged.lat, 38.6);
-      expect(merged.subtitle, 'Sharing · 5m');
+      expect(merged.subtitle, 'Sharing · 1m');
+    });
+
+    test('stale fix (> darkAfter) → DARK: frozen last-known + "Dark since"', () {
+      final darkTs = ago(const Duration(minutes: 20));
+      final fix = PeerFix(userId: 'eli@point.dev', data: {
+        'lat': 38.6,
+        'lon': -90.2,
+        'timestamp': darkTs,
+      });
+      final merged = mergePresence(away, fix, now: now);
+      expect(merged.presence, PresenceState.stale);
+      // Frozen last-known coordinate is retained (shown in People/detail).
+      expect(merged.hasLocation, isTrue);
+      expect(merged.subtitle, startsWith('Dark since '));
+      expect(merged.subtitle, 'Dark since ${clockHm(darkTs)}');
     });
 
     test('fix without coordinates → unchanged', () {

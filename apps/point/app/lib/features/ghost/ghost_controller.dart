@@ -47,6 +47,28 @@ class GhostController extends AsyncNotifier<GhostState> {
       state = AsyncData(previous);
     }
   }
+
+  /// Per-person hide: go dark to (or reveal to) a single person. Optimistic,
+  /// rolling back the set on a server failure.
+  Future<void> setHiddenFrom(String userId, {required bool hidden}) async {
+    final session = ref.read(authControllerProvider).value;
+    if (session == null) return;
+    final previous = state.value ?? const GhostState(active: false);
+    final next = {...previous.hiddenFrom};
+    if (hidden) {
+      next.add(userId);
+    } else {
+      next.remove(userId);
+    }
+    state = AsyncData(previous.copyWith(hiddenFrom: next));
+    try {
+      await ref
+          .read(apiProvider)
+          .setGhostTarget(session.token, userId, ghosted: hidden);
+    } on Object {
+      state = AsyncData(previous);
+    }
+  }
 }
 
 final ghostControllerProvider =

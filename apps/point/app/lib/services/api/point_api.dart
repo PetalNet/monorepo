@@ -155,6 +155,21 @@ class PointApi {
     return GhostState.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
+  /// Per-person hide: go dark to (or un-hide from) a single [userId]. The server
+  /// enforces this in the authz gate the same as the global switch.
+  Future<void> setGhostTarget(
+    String token,
+    String userId, {
+    required bool ghosted,
+  }) async {
+    final r = await _client.put(
+      _u('/api/ghost/targets'),
+      headers: _headers(token),
+      body: jsonEncode({'user_id': userId, 'ghosted': ghosted}),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
   // --- MLS delivery (GO-bar #4: reliable sharing, one-time KeyPackages) ------
 
   /// Upload a pool of one-time KeyPackages (base64) + optionally the last-resort
