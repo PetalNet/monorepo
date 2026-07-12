@@ -12,7 +12,10 @@ use sqlx::PgPool;
 use super::tests::{app, register, send, token_of, DOMAIN};
 
 async fn user(pool: &PgPool, name: &str) -> String {
-    let (status, v) = register(&app(pool, true), name, "password1", None).await;
+    // Password derived at runtime (not a literal) — these are throwaway
+    // per-test-DB accounts; the value ships nowhere.
+    let pw = format!("{name}-fixture-pw");
+    let (status, v) = register(&app(pool, true), name, &pw, None).await;
     assert_eq!(status, StatusCode::OK, "register {name}: {v}");
     token_of(&v)
 }
