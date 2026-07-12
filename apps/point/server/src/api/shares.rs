@@ -156,6 +156,7 @@ pub async fn create_request(
             state.pool.clone(),
             to_user.clone(),
             crate::push::Wake::new("share_request"),
+            state.config.federation_allow_private,
         ));
     }
     Ok(Json(recorded))
@@ -259,6 +260,7 @@ pub async fn accept_request(
             state.pool.clone(),
             from_user.clone(),
             crate::push::Wake::new("share_accepted"),
+            state.config.federation_allow_private,
         ));
     }
 

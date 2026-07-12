@@ -264,6 +264,7 @@ async fn handle_share_request(
             state.pool.clone(),
             recipient.to_string(),
             crate::push::Wake::new("share_request"),
+            state.config.federation_allow_private,
         ));
     }
     Ok(json!({ "ok": true }))

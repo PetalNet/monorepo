@@ -42,9 +42,32 @@ fn client() -> reqwest::Client {
         .expect("static push client config is valid")
 }
 
+/// The host (no scheme, no port) of an `https://host[:port]/...` URL.
+fn url_host(endpoint: &str) -> Option<String> {
+    let rest = endpoint.strip_prefix("https://")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    // Strip userinfo and port; leave an IPv6 literal's brackets for the
+    // denylist to catch.
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    let host = if authority.starts_with('[') {
+        authority.split(']').next().map(|h| format!("{h}]"))?
+    } else {
+        authority
+            .rsplit_once(':')
+            .map_or(authority, |(h, _)| h)
+            .to_string()
+    };
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
+}
+
 /// Wake every endpoint registered to `user_id`. Best-effort: errors are logged
 /// and swallowed. Spawned by callers so it never blocks the request path.
-pub async fn wake_user(pool: PgPool, user_id: String, wake: Wake) {
+/// `allow_private` (dev/test) skips the SSRF guard on the UnifiedPush endpoint.
+pub async fn wake_user(pool: PgPool, user_id: String, wake: Wake, allow_private: bool) {
     let rows: Result<Vec<(String, String)>, _> =
         sqlx::query_as("SELECT transport, endpoint FROM push_endpoints WHERE user_id = $1")
             .bind(&user_id)
@@ -64,7 +87,7 @@ pub async fn wake_user(pool: PgPool, user_id: String, wake: Wake) {
     let body = serde_json::to_vec(&wake).unwrap_or_default();
     for (transport, endpoint) in rows {
         match transport.as_str() {
-            "unifiedpush" => send_unifiedpush(&http, &endpoint, &body).await,
+            "unifiedpush" => send_unifiedpush(&endpoint, &body, allow_private).await,
             "fcm" => send_fcm(&http, &endpoint, &wake).await,
             other => tracing::warn!(transport = %other, "push: unknown transport row"),
         }
@@ -73,14 +96,41 @@ pub async fn wake_user(pool: PgPool, user_id: String, wake: Wake) {
 
 /// POST the opaque wake bytes to a UnifiedPush endpoint. The distributor
 /// relays them to the device; it sees only "some bytes for Point".
-async fn send_unifiedpush(http: &reqwest::Client, endpoint: &str, body: &[u8]) {
-    // UnifiedPush endpoints are always full https URLs from a distributor. A
-    // plain-http or malformed endpoint is dropped rather than fetched (an
-    // attacker who registered one can't turn us into an SSRF probe).
+///
+/// The endpoint is a URL the user registered, so it gets the SAME SSRF
+/// treatment as any outbound S2S fetch: the host is resolved, every resolved
+/// IP must be public, and the connection is pinned to those exact addresses
+/// (no re-resolution → no DNS-rebinding). A user cannot register
+/// `https://169.254.169.254/...` or an internal host and make us probe it.
+async fn send_unifiedpush(endpoint: &str, body: &[u8], allow_private: bool) {
     if !endpoint.starts_with("https://") {
         tracing::warn!("push: refusing non-https UnifiedPush endpoint");
         return;
     }
+    let host = match url_host(endpoint) {
+        Some(h) => h,
+        None => {
+            tracing::warn!("push: unparseable UnifiedPush endpoint");
+            return;
+        }
+    };
+    let addrs = match crate::api::federation::ssrf_check(&host, allow_private).await {
+        Ok(a) => a,
+        Err(_) => {
+            tracing::warn!(host = %host, "push: UnifiedPush endpoint failed SSRF check");
+            return;
+        }
+    };
+    let mut b = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none());
+    if !addrs.is_empty() {
+        b = b.resolve_to_addrs(&host, &addrs);
+    }
+    let http = match b.build() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
     match http
         .post(endpoint)
         .header("content-type", "application/json")
@@ -147,4 +197,28 @@ fn fcm_bearer() -> Option<String> {
     std::env::var("FCM_ACCESS_TOKEN")
         .ok()
         .filter(|v| !v.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::url_host;
+
+    #[test]
+    fn url_host_extracts_host() {
+        assert_eq!(
+            url_host("https://ntfy.sh/upABC?up=1").as_deref(),
+            Some("ntfy.sh")
+        );
+        assert_eq!(
+            url_host("https://ntfy.sh:8443/x").as_deref(),
+            Some("ntfy.sh")
+        );
+        assert_eq!(
+            url_host("https://user:pw@host.example/x").as_deref(),
+            Some("host.example")
+        );
+        assert_eq!(url_host("https://[::1]:443/x").as_deref(), Some("[::1]"));
+        assert_eq!(url_host("http://ntfy.sh/x"), None); // not https
+        assert_eq!(url_host("https:///x"), None); // empty host
+    }
 }
