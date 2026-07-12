@@ -49,6 +49,14 @@ class AccountScreen extends ConsumerWidget {
             onTap: () => context.push(const DeviceLinkRoute()),
           ),
           const Divider(),
+          const SettingsSection('Security'),
+          SettingsNavRow(
+            icon: Icons.vpn_key_outlined,
+            title: 'Recovery',
+            subtitle: 'Your recovery phrase and backup',
+            onTap: () => context.push(const RecoveryRoute()),
+          ),
+          const Divider(),
           const SettingsSection('Session'),
           ListTile(
             leading: Icon(Icons.logout, color: context.colors.onSurface),

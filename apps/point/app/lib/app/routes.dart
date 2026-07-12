@@ -90,6 +90,11 @@ final class IdentityRoute extends AppRoute {
   const IdentityRoute();
 }
 
+/// Account recovery, always reachable at Account -> Recovery (Wave E).
+final class RecoveryRoute extends AppRoute {
+  const RecoveryRoute();
+}
+
 /// One person's detail: a map focused on them + their share controls. Presented
 /// over the shell; identified by user id (the screen reads live presence).
 final class PersonDetailRoute extends AppRoute {
@@ -121,7 +126,8 @@ bool routeRequiresAuth(AppRoute r) =>
     r is SettingsNotificationsRoute ||
     r is SettingsAccountRoute ||
     r is SettingsAboutRoute ||
-    r is IdentityRoute;
+    r is IdentityRoute ||
+    r is RecoveryRoute;
 
 // --- Shell branches: each tab has its own sealed route type ---------------
 
