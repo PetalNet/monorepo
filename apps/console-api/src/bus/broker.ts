@@ -145,7 +145,7 @@ export class Broker {
 		}
 		// flush buffered live events with seq > boundary exactly once, then go live
 		if (sub.closed) return;
-		const flush = sub.buffer.filter((b) => b.seq > boundary).sort((a, b) => a.seq - b.seq);
+		const flush = sub.buffer.filter((b) => b.seq > boundary).toSorted((a, b) => a.seq - b.seq);
 		for (const b of flush) send(frame(spec.subId, b.seq, b.emission));
 		sub.buffer = [];
 		sub.live = true;
@@ -158,7 +158,7 @@ export class Broker {
 	}
 
 	/** Re-fence on grant change: drop subs whose new scope set no longer covers their pattern's scope. */
-	refence(connSubIds: readonly string[], newScopes: readonly string[]): void {
+	revalidateScopes(connSubIds: readonly string[], newScopes: readonly string[]): void {
 		for (const subId of connSubIds) {
 			const sub = this.#subs.get(subId);
 			if (!sub) continue;

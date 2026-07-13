@@ -189,7 +189,7 @@ export async function buildServer(services: Services, devAuth: boolean) {
 		// Re-fence live subscriptions on grant/token change (contract §4.1; sub-agent M1). Every 30s
 		// re-resolve the bearer: a revoked token closes the socket; narrowed scopes drop the affected
 		// subs (the client resyncs). Dev-header connections are not re-fenced (test-only).
-		const refenceTimer = bearer
+		const revalidateTimer = bearer
 			? setInterval(() => {
 					void (async () => {
 						try {
@@ -200,14 +200,14 @@ export async function buildServer(services: Services, devAuth: boolean) {
 								return;
 							}
 							principal = fresh;
-							services.broker.refence(connSubs, fresh.scopes);
+							services.broker.revalidateScopes(connSubs, fresh.scopes);
 						} catch {
 							/* transient DB blip: keep the connection, retry next tick */
 						}
 					})();
 				}, 30000)
 			: null;
-		if (refenceTimer) refenceTimer.unref();
+		if (revalidateTimer) revalidateTimer.unref();
 
 		socket.on("message", (data: Buffer) => {
 			void (async () => {
@@ -248,7 +248,7 @@ export async function buildServer(services: Services, devAuth: boolean) {
 			})();
 		});
 		socket.on("close", () => {
-			if (refenceTimer) clearInterval(refenceTimer);
+			if (revalidateTimer) clearInterval(revalidateTimer);
 			for (const id of connSubs) services.broker.unsubscribe(id);
 		});
 	});

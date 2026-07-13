@@ -113,7 +113,7 @@ and devAuth gates both HTTP and WS. All findings applied + regression-tested (34
   incomplete stream (P2).
 - **P1 / M2 — scrubber field coverage**: scans the WHOLE emission (action/subject/source/links/
   meta), not just dimensions/measures/body*ref; JWT floor lowered + `cbt*`/eyJ shapes added.
-- **M1 — dead `refence`**: wired a 30s WS re-resolve of the bearer — revoked token closes the
+- **M1 — dead `revalidateScopes`**: wired a 30s WS re-resolve of the bearer — revoked token closes the
   socket, narrowed scopes drop the affected subs (contract §4.1 re-fence, was implemented but
   never called).
 - **M3 — duplicate sub_id**: `return` after the error ack (no longer orphans the live sub).
