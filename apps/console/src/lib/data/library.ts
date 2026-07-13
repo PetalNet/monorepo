@@ -330,17 +330,6 @@ function mapLibraryItem(item: ApiLibraryItem, hold?: string): LibraryItemView {
 	};
 }
 
-export async function searchLiveLibrary(
-	query: string,
-	fetchFn: typeof fetch = fetch,
-): Promise<LibraryItemView[]> {
-	const envelope = await readAllPages<ApiLibraryItem>(
-		`/library/search?limit=1000&q=${encodeURIComponent(query)}`,
-		fetchFn,
-	);
-	return envelope.items.map((item) => mapLibraryItem(item));
-}
-
 /** Map the scope-filtered Rev3 read surface; optional sources fail independently and honestly. */
 export async function readLiveLibrary(fetchFn: typeof fetch = fetch): Promise<LibraryData> {
 	const [itemsResult, linksResult, holdsResult, curationResult, capabilitiesResult] =
