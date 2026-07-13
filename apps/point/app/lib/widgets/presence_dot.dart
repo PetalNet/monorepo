@@ -32,6 +32,7 @@ class PresenceDot extends StatefulWidget {
 class _PresenceDotState extends State<PresenceDot>
     with SingleTickerProviderStateMixin {
   static const _acknowledgmentDuration = Duration(milliseconds: 180);
+  static const _stateTransitionDuration = Duration(milliseconds: 180);
   static const _acknowledgmentScale = 1.06;
 
   late final AnimationController _controller;
@@ -105,7 +106,20 @@ class _PresenceDotState extends State<PresenceDot>
         dimension: widget.size,
         child: ScaleTransition(
           scale: _scale,
-          child: CustomPaint(painter: _PresencePainter(widget.state, tone)),
+          child: AnimatedSwitcher(
+            duration: _reducedMotion ? Duration.zero : _stateTransitionDuration,
+            reverseDuration: _reducedMotion
+                ? Duration.zero
+                : _stateTransitionDuration,
+            switchInCurve: Curves.easeOutQuart,
+            switchOutCurve: Curves.easeOutQuart,
+            transitionBuilder: (child, animation) =>
+                FadeTransition(opacity: animation, child: child),
+            child: CustomPaint(
+              key: ValueKey(widget.state),
+              painter: _PresencePainter(widget.state, tone),
+            ),
+          ),
         ),
       ),
     );

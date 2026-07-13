@@ -171,7 +171,7 @@ class PeopleScreen extends ConsumerWidget {
   }
 }
 
-class _PeopleBody extends StatelessWidget {
+class _PeopleBody extends ConsumerWidget {
   const _PeopleBody({
     required this.people,
     required this.requests,
@@ -203,46 +203,53 @@ class _PeopleBody extends StatelessWidget {
   final Future<void> Function() onRefresh;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
-          child: switch ((hasInitialError, isInitialLoading)) {
-            (true, _) => _PeopleUnavailable(onRetry: onRefresh),
-            (false, true) => const _PeopleLoading(),
-            _
-                when people.isEmpty &&
-                    requests.isEmpty &&
-                    outgoing.isEmpty &&
-                    outgoingTemps.isEmpty &&
-                    incomingTemps.isEmpty =>
-              _RefreshableEmptyPeople(
+          child: AnimatedSwitcher(
+            duration: _mutationTransitionDuration(context, ref),
+            switchInCurve: Curves.easeOutQuart,
+            switchOutCurve: Curves.easeOutQuart,
+            transitionBuilder: (child, animation) =>
+                FadeTransition(opacity: animation, child: child),
+            child: switch ((hasInitialError, isInitialLoading)) {
+              (true, _) => _PeopleUnavailable(onRetry: onRefresh),
+              (false, true) => const _PeopleLoading(),
+              _
+                  when people.isEmpty &&
+                      requests.isEmpty &&
+                      outgoing.isEmpty &&
+                      outgoingTemps.isEmpty &&
+                      incomingTemps.isEmpty =>
+                _RefreshableEmptyPeople(
+                  hasRefreshError: hasRefreshError,
+                  onRetry: onRefresh,
+                ),
+              _ => _PeopleList(
+                people: people,
+                requests: requests,
+                outgoing: outgoing,
+                outgoingTemps: outgoingTemps,
+                incomingTemps: incomingTemps,
+                incomingTempPeople: incomingTempPeople,
                 hasRefreshError: hasRefreshError,
+                hasAvatarError: hasAvatarError,
                 onRetry: onRefresh,
+                onRetryAvatars: onRetryAvatars,
+                onOpenRequests: onOpenRequests,
               ),
-            _ => _PeopleList(
-              people: people,
-              requests: requests,
-              outgoing: outgoing,
-              outgoingTemps: outgoingTemps,
-              incomingTemps: incomingTemps,
-              incomingTempPeople: incomingTempPeople,
-              hasRefreshError: hasRefreshError,
-              hasAvatarError: hasAvatarError,
-              onRetry: onRefresh,
-              onRetryAvatars: onRetryAvatars,
-              onOpenRequests: onOpenRequests,
-            ),
-          },
+            },
+          ),
         ),
       ),
     );
   }
 }
 
-class _PeopleList extends StatelessWidget {
+class _PeopleList extends ConsumerWidget {
   const _PeopleList({
     required this.people,
     required this.requests,
@@ -270,7 +277,8 @@ class _PeopleList extends StatelessWidget {
   final VoidCallback onOpenRequests;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final duration = _mutationTransitionDuration(context, ref);
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.only(top: context.space.sm),
@@ -281,35 +289,253 @@ class _PeopleList extends StatelessWidget {
           requests: requests,
           onOpenRequests: onOpenRequests,
         ),
-        if (outgoing.isNotEmpty)
-          _OutgoingRequestsSummary(
-            count: outgoing.length,
-            onOpenRequests: onOpenRequests,
-          ),
-        if (incomingTemps.isNotEmpty)
-          _IncomingTempSection(
-            temps: incomingTemps,
-            people: incomingTempPeople,
-          ),
-        if (outgoingTemps.isNotEmpty)
-          _TempSection(temps: outgoingTemps, people: people),
-        if ((requests.isNotEmpty ||
-                outgoing.isNotEmpty ||
-                outgoingTemps.isNotEmpty ||
-                incomingTemps.isNotEmpty) &&
-            people.isNotEmpty)
-          Divider(
-            height: context.space.xl,
-            color: context.colors.outline.withValues(alpha: 0.4),
-          ),
-        for (final person in people)
-          PersonRow(
+        _MutationSlot(
+          duration: duration,
+          stateKey: outgoing.isEmpty ? null : outgoing.length,
+          child: outgoing.isEmpty
+              ? null
+              : _OutgoingRequestsSummary(
+                  count: outgoing.length,
+                  onOpenRequests: onOpenRequests,
+                ),
+        ),
+        _MutationSlot(
+          duration: duration,
+          stateKey: incomingTemps.isEmpty ? null : 'incoming-temps',
+          child: incomingTemps.isEmpty
+              ? null
+              : _IncomingTempSection(
+                  temps: incomingTemps,
+                  people: incomingTempPeople,
+                ),
+        ),
+        _MutationSlot(
+          duration: duration,
+          stateKey: outgoingTemps.isEmpty ? null : 'outgoing-temps',
+          child: outgoingTemps.isEmpty
+              ? null
+              : _TempSection(temps: outgoingTemps, people: people),
+        ),
+        _MutationSlot(
+          duration: duration,
+          stateKey:
+              (requests.isNotEmpty ||
+                      outgoing.isNotEmpty ||
+                      outgoingTemps.isNotEmpty ||
+                      incomingTemps.isNotEmpty) &&
+                  people.isNotEmpty
+              ? 'supplemental-divider'
+              : null,
+          child:
+              (requests.isNotEmpty ||
+                      outgoing.isNotEmpty ||
+                      outgoingTemps.isNotEmpty ||
+                      incomingTemps.isNotEmpty) &&
+                  people.isNotEmpty
+              ? Divider(
+                  height: context.space.xl,
+                  color: context.colors.outline.withValues(alpha: 0.4),
+                )
+              : null,
+        ),
+        _AnimatedDiffList<Person>(
+          items: people,
+          idOf: (person) => person.userId,
+          duration: duration,
+          itemBuilder: (context, person) => PersonRow(
+            key: ValueKey('person-${person.userId}'),
             person: person,
             onTap: () => context.push(PersonDetailRoute(person.userId)),
           ),
+        ),
       ],
     );
   }
+}
+
+class _MutationSlot extends StatelessWidget {
+  const _MutationSlot({
+    required this.duration,
+    required this.stateKey,
+    required this.child,
+  });
+
+  final Duration duration;
+  final Object? stateKey;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: duration,
+      reverseDuration: duration,
+      switchInCurve: Curves.easeOutQuart,
+      switchOutCurve: Curves.easeOutQuart,
+      transitionBuilder: _buildMutationTransition,
+      child: child == null
+          ? SizedBox.shrink(key: ValueKey('empty-$stateKey'))
+          : KeyedSubtree(key: ValueKey(stateKey), child: child!),
+    );
+  }
+}
+
+Widget _buildMutationTransition(Widget child, Animation<double> animation) {
+  final eased = CurvedAnimation(parent: animation, curve: Curves.easeOutQuart);
+  return FadeTransition(
+    opacity: eased,
+    child: SizeTransition(
+      sizeFactor: eased,
+      alignment: Alignment.topCenter,
+      child: child,
+    ),
+  );
+}
+
+typedef _DiffItemBuilder<T> = Widget Function(BuildContext context, T item);
+typedef _DiffId<T> = Object Function(T item);
+
+/// A nested, non-scrolling list that preserves keyed rows long enough for
+/// semantic insertion and removal transitions. Initial rows render in place;
+/// only subsequent state changes spend the motion budget.
+class _AnimatedDiffList<T> extends StatefulWidget {
+  const _AnimatedDiffList({
+    required this.items,
+    required this.idOf,
+    required this.itemBuilder,
+    required this.duration,
+  });
+
+  final List<T> items;
+  final _DiffId<T> idOf;
+  final _DiffItemBuilder<T> itemBuilder;
+  final Duration duration;
+
+  @override
+  State<_AnimatedDiffList<T>> createState() => _AnimatedDiffListState<T>();
+}
+
+class _AnimatedDiffListState<T> extends State<_AnimatedDiffList<T>>
+    with TickerProviderStateMixin {
+  late List<_DiffEntry<T>> _entries;
+
+  @override
+  void initState() {
+    super.initState();
+    _entries = [
+      for (final item in widget.items)
+        _DiffEntry(
+          item: item,
+          controller: AnimationController(
+            vsync: this,
+            duration: widget.duration,
+            value: 1,
+          ),
+        ),
+    ];
+  }
+
+  @override
+  void didUpdateWidget(_AnimatedDiffList<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _reconcile();
+  }
+
+  void _reconcile() {
+    final existing = {
+      for (final entry in _entries) widget.idOf(entry.item): entry,
+    };
+    for (final entry in existing.values) {
+      entry.controller.duration = widget.duration;
+    }
+    final nextIds = widget.items.map(widget.idOf).toSet();
+    final next = <_DiffEntry<T>>[];
+
+    for (final item in widget.items) {
+      final id = widget.idOf(item);
+      final entry = existing[id];
+      if (entry != null) {
+        entry
+          ..item = item
+          ..exiting = false;
+        widget.duration == Duration.zero
+            ? entry.controller.value = 1
+            : entry.controller.forward();
+        next.add(entry);
+        continue;
+      }
+      final controller = AnimationController(
+        vsync: this,
+        duration: widget.duration,
+        value: widget.duration == Duration.zero ? 1 : 0,
+      );
+      next.add(_DiffEntry(item: item, controller: controller));
+      if (widget.duration != Duration.zero) controller.forward();
+    }
+
+    for (var oldIndex = 0; oldIndex < _entries.length; oldIndex++) {
+      final entry = _entries[oldIndex];
+      if (nextIds.contains(widget.idOf(entry.item))) continue;
+      if (widget.duration == Duration.zero) {
+        entry.exiting = false;
+        entry.controller.dispose();
+        continue;
+      }
+      if (!entry.exiting) {
+        entry.exiting = true;
+        entry.controller.reverse().whenCompleteOrCancel(() {
+          if (!mounted || !entry.exiting) return;
+          setState(() => _entries.remove(entry));
+          entry.controller.dispose();
+        });
+      }
+      next.insert(oldIndex.clamp(0, next.length), entry);
+    }
+
+    _entries = next;
+  }
+
+  Widget _transition(_DiffEntry<T> entry) => _buildMutationTransition(
+    IgnorePointer(
+      ignoring: entry.exiting,
+      child: ExcludeSemantics(
+        excluding: entry.exiting,
+        child: KeyedSubtree(
+          key: ValueKey(widget.idOf(entry.item)),
+          child: Builder(
+            builder: (context) => widget.itemBuilder(context, entry.item),
+          ),
+        ),
+      ),
+    ),
+    entry.controller,
+  );
+
+  @override
+  void dispose() {
+    for (final entry in _entries) {
+      entry.exiting = false;
+      entry.controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _entries.length,
+      itemBuilder: (context, index) => _transition(_entries[index]),
+    );
+  }
+}
+
+class _DiffEntry<T> {
+  _DiffEntry({required this.item, required this.controller});
+
+  T item;
+  final AnimationController controller;
+  bool exiting = false;
 }
 
 class _RefreshableEmptyPeople extends StatelessWidget {
@@ -548,15 +774,11 @@ class _AnimatedRequestsPreview extends ConsumerWidget {
       duration: _mutationTransitionDuration(context, ref),
       switchInCurve: Curves.easeOutQuart,
       switchOutCurve: Curves.easeOutQuart,
-      transitionBuilder: (child, animation) => SizeTransition(
-        sizeFactor: animation,
-        alignment: Alignment.topCenter,
-        child: child,
-      ),
+      transitionBuilder: _buildMutationTransition,
       child: requests.isEmpty
           ? const SizedBox.shrink(key: ValueKey('no-request-preview'))
           : _RequestsSection(
-              key: ValueKey(requests.map((request) => request.id).join(',')),
+              key: const ValueKey('request-preview'),
               requests: requests,
               onOpenRequests: onOpenRequests,
             ),
@@ -564,7 +786,7 @@ class _AnimatedRequestsPreview extends ConsumerWidget {
   }
 }
 
-class _RequestsSection extends StatelessWidget {
+class _RequestsSection extends ConsumerWidget {
   const _RequestsSection({
     required this.requests,
     required this.onOpenRequests,
@@ -574,7 +796,7 @@ class _RequestsSection extends StatelessWidget {
   final VoidCallback onOpenRequests;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -604,8 +826,15 @@ class _RequestsSection extends StatelessWidget {
             ],
           ),
         ),
-        for (final r in requests.take(2))
-          _RequestRow(key: ValueKey('preview-${r.id}'), request: r),
+        _AnimatedDiffList<ShareRequest>(
+          items: requests.take(2).toList(),
+          idOf: (request) => request.id,
+          duration: _mutationTransitionDuration(context, ref),
+          itemBuilder: (context, request) => _RequestRow(
+            key: ValueKey('preview-${request.id}'),
+            request: request,
+          ),
+        ),
       ],
     );
   }
@@ -662,8 +891,12 @@ class _IncomingTempSection extends ConsumerWidget {
             ),
           ),
         ),
-        for (final person in people)
-          Semantics(
+        _AnimatedDiffList<Person>(
+          items: people,
+          idOf: (person) => person.userId,
+          duration: _mutationTransitionDuration(context, ref),
+          itemBuilder: (context, person) => Semantics(
+            key: ValueKey('incoming-temp-${person.userId}'),
             button: true,
             label:
                 '${person.displayName} is temporarily sharing their location with you',
@@ -707,6 +940,7 @@ class _IncomingTempSection extends ConsumerWidget {
               onTap: () => context.push(PersonDetailRoute(person.userId)),
             ),
           ),
+        ),
       ],
     );
   }
@@ -771,8 +1005,12 @@ class _TempSection extends ConsumerWidget {
             ),
           ),
         ),
-        for (final t in temps)
-          Padding(
+        _AnimatedDiffList<TempShare>(
+          items: temps,
+          idOf: (temp) => temp.id,
+          duration: _mutationTransitionDuration(context, ref),
+          itemBuilder: (context, t) => Padding(
+            key: ValueKey('outgoing-temp-${t.id}'),
             padding: EdgeInsets.symmetric(
               horizontal: context.space.lg,
               vertical: context.space.sm,
@@ -838,6 +1076,7 @@ class _TempSection extends ConsumerWidget {
               ],
             ),
           ),
+        ),
       ],
     );
   }

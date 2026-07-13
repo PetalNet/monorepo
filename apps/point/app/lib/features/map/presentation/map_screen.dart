@@ -155,7 +155,13 @@ class _MapScreenState extends ConsumerState<MapScreen>
     final self = ref.watch(selfLocationProvider).value;
     final selfPoint = self != null ? LatLng(self.lat, self.lon) : null;
     final motions = ref.watch(livePresenceProvider);
-    final reducedMotion = _reducedMotion;
+    final motionPreference = ref.watch(
+      settingsProvider.select((settings) => settings.motion),
+    );
+    final reducedMotion =
+        motionPreference == MotionPreference.reduced ||
+        (motionPreference == MotionPreference.system &&
+            MediaQuery.disableAnimationsOf(context));
 
     // Start the camera on YOU the first time a fix lands, then never yank it.
     ref.listen(selfLocationProvider, (_, next) {
@@ -252,14 +258,11 @@ class _MapScreenState extends ConsumerState<MapScreen>
                     padding: EdgeInsets.only(top: context.space.sm),
                     child: _FollowBadge(
                       name: located
-                          .where(
-                            (person) => person.userId == _follow.userId,
-                          )
+                          .where((person) => person.userId == _follow.userId)
                           .firstOrNull
                           ?.displayName,
-                      onStop: () => setState(
-                        () => _follow = _follow.onUserGesture(),
-                      ),
+                      onStop: () =>
+                          setState(() => _follow = _follow.onUserGesture()),
                     ),
                   ),
               ],
@@ -404,7 +407,7 @@ class _SelfMarkerLayer extends ConsumerWidget {
 
 /// The sharers' marker layer — isolated so only it rebuilds on presence change.
 /// Tapping a marker opens the compact person sheet.
-class _PeopleMarkers extends StatelessWidget {
+class _PeopleMarkers extends StatefulWidget {
   const _PeopleMarkers({
     required this.people,
     required this.motions,
@@ -419,26 +422,158 @@ class _PeopleMarkers extends StatelessWidget {
   final void Function(String, LatLng) onPosition;
 
   @override
+  State<_PeopleMarkers> createState() => _PeopleMarkersState();
+}
+
+class _PeopleMarkersState extends State<_PeopleMarkers>
+    with TickerProviderStateMixin {
+  static const _transitionDuration = Duration(milliseconds: 180);
+  final _entries = <String, _MarkerEntry>{};
+
+  @override
+  void initState() {
+    super.initState();
+    for (final person in widget.people) {
+      _entries[person.userId] = _MarkerEntry(
+        person: person,
+        controller: AnimationController(
+          vsync: this,
+          duration: _transitionDuration,
+          value: 1,
+        ),
+      );
+    }
+  }
+
+  @override
+  void didUpdateWidget(_PeopleMarkers oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncRoster();
+  }
+
+  void _syncRoster() {
+    final next = {for (final person in widget.people) person.userId: person};
+
+    if (widget.reducedMotion) {
+      for (final entry in _entries.values.toList()) {
+        final person = next[entry.person.userId];
+        if (person == null) {
+          _entries.remove(entry.person.userId);
+          entry.exiting = false;
+          entry.controller.dispose();
+        } else {
+          entry
+            ..person = person
+            ..exiting = false
+            ..controller.value = 1;
+        }
+      }
+      for (final person in widget.people) {
+        _entries.putIfAbsent(
+          person.userId,
+          () => _MarkerEntry(
+            person: person,
+            controller: AnimationController(
+              vsync: this,
+              duration: _transitionDuration,
+              value: 1,
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    for (final person in widget.people) {
+      final existing = _entries[person.userId];
+      if (existing != null) {
+        existing
+          ..person = person
+          ..exiting = false;
+        if (existing.controller.value < 1) existing.controller.forward();
+        continue;
+      }
+      final controller = AnimationController(
+        vsync: this,
+        duration: _transitionDuration,
+        value: 0,
+      );
+      _entries[person.userId] = _MarkerEntry(
+        person: person,
+        controller: controller,
+      );
+      controller.forward();
+    }
+
+    for (final entry in _entries.values.toList()) {
+      if (next.containsKey(entry.person.userId) || entry.exiting) continue;
+      entry
+        ..person = _staleVersion(entry.person)
+        ..exiting = true;
+      entry.controller.reverse().whenCompleteOrCancel(() {
+        if (!mounted || !entry.exiting) return;
+        setState(() {
+          _entries.remove(entry.person.userId);
+          entry.controller.dispose();
+        });
+      });
+    }
+  }
+
+  Person _staleVersion(Person person) => Person(
+    userId: person.userId,
+    displayName: person.displayName,
+    presence: PresenceState.stale,
+    subtitle: person.subtitle,
+    distanceLabel: person.distanceLabel,
+    lat: person.lat,
+    lon: person.lon,
+    profileVersion: person.profileVersion,
+    rekeyedAt: person.rekeyedAt,
+    shareSince: person.shareSince,
+  );
+
+  @override
+  void dispose() {
+    for (final entry in _entries.values) {
+      entry.exiting = false;
+      entry.controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        for (final person in people)
+        for (final entry in _entries.values)
           _AnimatedPersonMarkerLayer(
-            person: person,
-            motion: motions[person.userId],
-            reducedMotion: reducedMotion,
-            onPosition: onPosition,
+            key: ValueKey('marker-transition-${entry.person.userId}'),
+            person: entry.person,
+            motion: widget.motions[entry.person.userId],
+            visibility: entry.controller,
+            exiting: entry.exiting,
+            reducedMotion: widget.reducedMotion,
+            onPosition: widget.onPosition,
             onTap: () => PersonMapSheet.show(
               context,
-              person: person,
-              onFocus: () => onFocus(person),
+              person: entry.person,
+              onFocus: () => widget.onFocus(entry.person),
               onOpenDetail: () =>
-                  context.push(PersonDetailRoute(person.userId)),
+                  context.push(PersonDetailRoute(entry.person.userId)),
             ),
           ),
       ],
     );
   }
+}
+
+class _MarkerEntry {
+  _MarkerEntry({required this.person, required this.controller});
+
+  Person person;
+  final AnimationController controller;
+  bool exiting = false;
 }
 
 class _AnimatedPersonMarkerLayer extends StatelessWidget {
@@ -448,10 +583,15 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
     required this.reducedMotion,
     required this.onPosition,
     required this.onTap,
+    this.exiting = false,
+    this.visibility,
+    super.key,
   });
 
   final Person person;
   final PeerMarkerMotion? motion;
+  final Animation<double>? visibility;
+  final bool exiting;
   final bool reducedMotion;
   final void Function(String, LatLng) onPosition;
   final VoidCallback onTap;
@@ -463,6 +603,27 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
     final begin = previous?.lat == null || previous?.lon == null
         ? target
         : LatLng(previous!.lat!, previous.lon!);
+    Widget marker = IgnorePointer(
+      ignoring: exiting,
+      child: ExcludeSemantics(
+        excluding: exiting,
+        child: PresenceMarker(person: person, onTap: onTap),
+      ),
+    );
+    final visibility = this.visibility;
+    if (visibility != null) {
+      final eased = CurvedAnimation(
+        parent: visibility,
+        curve: Curves.easeOutQuart,
+      );
+      marker = FadeTransition(
+        opacity: eased,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.92, end: 1).animate(eased),
+          child: marker,
+        ),
+      );
+    }
     return TweenAnimationBuilder<LatLng>(
       tween: MapLatLngTween(begin: begin, end: target),
       duration: motion?.duration(reducedMotion: reducedMotion) ?? Duration.zero,
@@ -481,7 +642,7 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
           ],
         );
       },
-      child: PresenceMarker(person: person, onTap: onTap),
+      child: marker,
     );
   }
 }
@@ -525,10 +686,7 @@ class _FollowBadge extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.near_me,
-                    color: context.colors.onInverseSurface,
-                  ),
+                  Icon(Icons.near_me, color: context.colors.onInverseSurface),
                   SizedBox(width: context.space.sm),
                   Text(
                     name == null ? 'Following' : 'Following $name',
@@ -537,10 +695,7 @@ class _FollowBadge extends StatelessWidget {
                     ),
                   ),
                   SizedBox(width: context.space.sm),
-                  Icon(
-                    Icons.close,
-                    color: context.colors.onInverseSurface,
-                  ),
+                  Icon(Icons.close, color: context.colors.onInverseSurface),
                 ],
               ),
             ),
