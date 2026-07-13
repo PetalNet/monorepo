@@ -1094,9 +1094,9 @@ class RelayController {
           session: session,
         );
 
-        // Current rows expire after five minutes. If they cannot seed this
-        // peer, ask encrypted history for a small newest-first window so a
-        // normal 15-minute heartbeat still has a frozen last-known place.
+        // Current rows are durable last-known snapshots. History remains a
+        // compatibility fallback for older servers and repairs a missing or
+        // undecryptable current row without discarding an existing cache.
         if (!accepted) {
           final history = await api.locationHistory(
             session.token,

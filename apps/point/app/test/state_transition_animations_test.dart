@@ -305,7 +305,7 @@ void main() {
   });
 
   testWidgets(
-    'fresh marker becomes dark after two hours and stays at last-known',
+    'fix past the old five-minute TTL stays mapped with dark last-known status',
     (tester) async {
       final container = _mapContainer();
       addTearDown(container.dispose);
@@ -323,7 +323,7 @@ void main() {
       expect(find.byKey(const ValueKey(PresenceState.live)), findsOneWidget);
 
       final now = DateTime(2026, 7, 13, 12);
-      final darkAt = now.subtract(const Duration(hours: 2));
+      final darkAt = now.subtract(const Duration(minutes: 16));
       final stale = mergePresence(
         _mara,
         PeerFix(

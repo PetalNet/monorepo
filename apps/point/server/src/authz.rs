@@ -80,7 +80,7 @@ pub async fn group_fanout_recipients(
     Ok(rows.into_iter().map(|(u,)| u).collect())
 }
 
-/// May `viewer` read `target`'s data (history, current fixes)?
+/// May `viewer` read `target`'s encrypted history?
 ///
 /// Requires a current relationship (accepted share, active temp share from
 /// target to viewer, or a shared group where the target broadcasts), and the
@@ -93,6 +93,31 @@ pub async fn can_view(pool: &PgPool, viewer: &str, target: &str) -> Result<bool,
     if is_ghost_blocked(pool, target, viewer).await? {
         return Ok(false);
     }
+    has_location_relationship(pool, viewer, target).await
+}
+
+/// May `viewer` fetch `target`'s frozen last-known snapshot?
+///
+/// Unlike live delivery and history, ghost state is intentionally ignored:
+/// showing the same pre-existing last-known location for a dead phone, lost
+/// signal, and deliberate ghost preserves deniability. A current sharing
+/// relationship is still mandatory, so teardown revokes access immediately.
+pub async fn can_view_last_known(
+    pool: &PgPool,
+    viewer: &str,
+    target: &str,
+) -> Result<bool, sqlx::Error> {
+    if viewer == target {
+        return Ok(true);
+    }
+    has_location_relationship(pool, viewer, target).await
+}
+
+async fn has_location_relationship(
+    pool: &PgPool,
+    viewer: &str,
+    target: &str,
+) -> Result<bool, sqlx::Error> {
     if has_user_share(pool, viewer, target).await? {
         return Ok(true);
     }

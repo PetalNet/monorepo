@@ -862,6 +862,50 @@ async fn ws_location_update_delivers_ciphertext_intact(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn current_snapshot_serves_last_known_past_legacy_five_minute_ttl(pool: PgPool) {
+    let (url, router) = spawn_ws_server_with_router(&pool).await;
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+
+    let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+    let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+    let blob = b64(b"stationary-last-known");
+    ws_send(
+        &mut alice_ws,
+        json!({
+            "type": "location.update",
+            "recipient_type": "user",
+            "recipient_id": uid("bob"),
+            "blob": blob,
+            "timestamp": 1_720_000_000_000_i64,
+        }),
+    )
+    .await;
+    expect_frame(&mut bob_ws, "location.broadcast", 2000).await;
+
+    // Model a fresh app open after the old five-minute expiry window. Aging
+    // server receipt time avoids trusting the sender-controlled sample clock.
+    sqlx::query("UPDATE location_updates SET created_at = now() - interval '6 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (status, current) = send(
+        &router,
+        "GET",
+        &format!("/api/current/{}", uid("alice")),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(current.as_array().unwrap().len(), 1);
+    assert_eq!(current[0]["encrypted_blob"], blob);
+    assert_eq!(current[0]["client_timestamp"], 1_720_000_000_000_i64);
+}
+
+#[sqlx::test]
 async fn ws_location_update_to_non_sharing_user_is_silently_dropped(pool: PgPool) {
     let url = spawn_ws_server(&pool).await;
     let alice = user(&pool, "alice").await;
@@ -914,6 +958,23 @@ async fn delete_share_notifies_both_peers_and_stops_delivery(pool: PgPool) {
             }
         }
     }
+
+    ws_send(
+        &mut alice_ws,
+        json!({
+            "type": "location.update",
+            "recipient_type": "user",
+            "recipient_id": uid("bob"),
+            "blob": b64(b"must-be-revoked"),
+            "timestamp": 41,
+        }),
+    )
+    .await;
+    expect_frame(&mut bob_ws, "location.broadcast", 2000).await;
+    assert_eq!(
+        count(&pool, "SELECT COUNT(*) FROM location_updates").await,
+        1,
+    );
 
     let (status, body) = send(
         &router,
@@ -988,6 +1049,182 @@ async fn ws_ghost_drops_location_updates(pool: PgPool) {
         count(&pool, "SELECT COUNT(*) FROM location_updates").await,
         0
     );
+}
+
+#[sqlx::test]
+async fn ghost_keeps_preexisting_last_known_available_without_accepting_new_fixes(pool: PgPool) {
+    let (url, router) = spawn_ws_server_with_router(&pool).await;
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+    let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+    let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+
+    let blob = b64(b"before-going-dark");
+    ws_send(
+        &mut alice_ws,
+        json!({
+            "type": "location.update",
+            "recipient_type": "user",
+            "recipient_id": uid("bob"),
+            "blob": blob,
+            "timestamp": 1_720_000_000_000_i64,
+        }),
+    )
+    .await;
+    expect_frame(&mut bob_ws, "location.broadcast", 2000).await;
+    sqlx::query("UPDATE users SET ghost_active = TRUE WHERE id = $1")
+        .bind(uid("alice"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (status, current) = send(
+        &router,
+        "GET",
+        &format!("/api/current/{}", uid("alice")),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(current.as_array().unwrap().len(), 1);
+    assert_eq!(current[0]["encrypted_blob"], blob);
+}
+
+#[sqlx::test]
+async fn temporary_share_revoke_purges_its_directional_last_known(pool: PgPool) {
+    let (url, router) = spawn_ws_server_with_router(&pool).await;
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    let (share_id,): (Uuid,) = sqlx::query_as(
+        "INSERT INTO temporary_shares (from_user_id, to_user_id, expires_at)
+         VALUES ($1, $2, now() + interval '1 hour') RETURNING id",
+    )
+    .bind(uid("alice"))
+    .bind(uid("bob"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (overlap_id,): (Uuid,) = sqlx::query_as(
+        "INSERT INTO temporary_shares (from_user_id, to_user_id, expires_at)
+         VALUES ($1, $2, now() + interval '2 hours') RETURNING id",
+    )
+    .bind(uid("alice"))
+    .bind(uid("bob"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+    let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+
+    ws_send(
+        &mut alice_ws,
+        json!({
+            "type": "location.update",
+            "recipient_type": "user",
+            "recipient_id": uid("bob"),
+            "blob": b64(b"temporary-last-known"),
+            "timestamp": 1,
+        }),
+    )
+    .await;
+    expect_frame(&mut bob_ws, "location.broadcast", 2000).await;
+    assert_eq!(
+        count(&pool, "SELECT COUNT(*) FROM location_updates").await,
+        1,
+    );
+
+    let (status, body) = send(
+        &router,
+        "DELETE",
+        &format!("/api/shares/temp/{share_id}"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        count(&pool, "SELECT COUNT(*) FROM location_updates").await,
+        1,
+        "an overlapping active grant still authorizes the snapshot",
+    );
+
+    let (status, body) = send(
+        &router,
+        "DELETE",
+        &format!("/api/shares/temp/{overlap_id}"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        count(&pool, "SELECT COUNT(*) FROM location_updates").await,
+        0,
+    );
+}
+
+#[sqlx::test]
+async fn group_last_known_stays_for_existing_members_but_not_late_joiners(pool: PgPool) {
+    let (url, router) = spawn_ws_server_with_router(&pool).await;
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    let charlie = user(&pool, "charlie").await;
+    let gid = seed_group(&pool, &uid("alice"), &[&uid("bob")]).await;
+    let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+    let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+    ws_send(
+        &mut alice_ws,
+        json!({
+            "type": "location.update",
+            "recipient_type": "group",
+            "recipient_id": gid,
+            "blob": b64(b"existing-member-last-known"),
+            "timestamp": 1,
+        }),
+    )
+    .await;
+    expect_frame(&mut bob_ws, "location.broadcast", 2000).await;
+
+    let current_path = format!("/api/current/{}", uid("alice"));
+    let history_path = format!("/api/history/{}", uid("alice"));
+    let (status, existing) = send(&router, "GET", &current_path, Some(&bob), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(existing.as_array().unwrap().len(), 1);
+    let (status, existing_history) = send(&router, "GET", &history_path, Some(&bob), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(existing_history.as_array().unwrap().len(), 1);
+
+    sqlx::query(
+        "INSERT INTO group_members (group_id, user_id, joined_at)
+         VALUES ($1, $2, now() + interval '1 second')",
+    )
+    .bind(gid)
+    .bind(uid("charlie"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (status, late) = send(&router, "GET", &current_path, Some(&charlie), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(late.as_array().unwrap().len(), 0);
+    let (status, late_history) = send(&router, "GET", &history_path, Some(&charlie), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(late_history.as_array().unwrap().len(), 0);
+
+    sqlx::query(
+        "UPDATE group_members SET joined_at = now() + interval '1 second'
+         WHERE group_id = $1 AND user_id = $2",
+    )
+    .bind(gid)
+    .bind(uid("alice"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (status, sender_rejoined_history) =
+        send(&router, "GET", &history_path, Some(&bob), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(sender_rejoined_history.as_array().unwrap().len(), 0);
 }
 
 #[sqlx::test]

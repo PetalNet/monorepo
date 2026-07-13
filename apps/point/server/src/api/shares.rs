@@ -567,6 +567,10 @@ pub async fn delete_share(
     .bind(&other)
     .execute(&mut *tx)
     .await?;
+    // Last-known snapshots belong to the relationship. Purge both directions
+    // atomically so a later re-share cannot resurrect pre-revocation location.
+    purge_directional_last_known(&mut tx, &user.user_id, &other).await?;
+    purge_directional_last_known(&mut tx, &other, &user.user_id).await?;
     tx.commit().await?;
 
     if matches!(super::federation::domain_of(&other), Some(domain) if !domain.eq_ignore_ascii_case(&state.config.domain))
@@ -738,6 +742,7 @@ pub async fn delete_temp(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Value>> {
+    let mut tx = state.pool.begin().await?;
     let recipient: Option<(String,)> = sqlx::query_as(
         "DELETE FROM temporary_shares
          WHERE id = $1 AND from_user_id = $2 AND to_user_id IS NOT NULL
@@ -745,11 +750,13 @@ pub async fn delete_temp(
     )
     .bind(id)
     .bind(&user.user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?;
     let Some((recipient,)) = recipient else {
         return Err(AppError::NotFound);
     };
+    purge_directional_last_known(&mut tx, &user.user_id, &recipient).await?;
+    tx.commit().await?;
 
     notify_temp_teardown(&state, TempTeardown::Removed, id, &user.user_id, &recipient);
     // Compatibility nudge for catalog-v0 clients; they already refresh temp
@@ -758,6 +765,35 @@ pub async fn delete_temp(
     state.hub.send_to_user(&recipient, &sync);
     state.hub.send_to_user(&user.user_id, &sync);
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Remove the sender's user-addressed snapshot when a directional sharing
+/// grant ends, preventing a later grant from resurrecting pre-revocation data.
+pub(crate) async fn purge_directional_last_known(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    sender: &str,
+    recipient: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "DELETE FROM location_updates lu
+         USING entities e
+         WHERE lu.sender_entity_id = e.id AND e.kind = 'person'
+           AND e.owner_id = $1 AND lu.recipient_type = 'user'
+           AND lu.recipient_id = $2
+           AND NOT EXISTS (
+               SELECT 1 FROM user_shares us
+               WHERE (us.user_a = $1 AND us.user_b = $2)
+                  OR (us.user_a = $2 AND us.user_b = $1))
+           AND NOT EXISTS (
+               SELECT 1 FROM temporary_shares ts
+               WHERE ts.from_user_id = $1 AND ts.to_user_id = $2
+                 AND ts.expires_at > now())",
+    )
+    .bind(sender)
+    .bind(recipient)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -2,13 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
+import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/people/people_controller.dart';
+import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/relay/reconnect_policy.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
@@ -16,6 +19,8 @@ import 'package:point_app/features/relay/ws_service.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/api/point_api.dart';
 import 'package:point_app/services/auth_controller.dart';
+import 'package:point_app/theme/app_theme.dart';
+import 'package:point_app/theme/presence_tokens.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 const _session = Session(
@@ -258,6 +263,66 @@ void main() {
         Duration.zero,
         reason: 'cold-start restoration must honor reduced motion by snapping',
       );
+    },
+  );
+
+  testWidgets(
+    'fresh open reconciles an aged current fix into a dark marker at last-known',
+    (tester) async {
+      final now = DateTime(2026, 7, 13, 12);
+      final timestamp = now
+          .subtract(const Duration(minutes: 16))
+          .millisecondsSinceEpoch;
+      FlutterSecureStorage.setMockInitialValues({});
+      final api = _FakeApi()
+        ..current = [
+          EncryptedCurrentFix(
+            blob: 'AA==',
+            clientTimestamp: timestamp,
+            recipientType: 'user',
+            recipientId: _session.userId,
+          ),
+        ];
+      final container = _container(
+        api,
+        _Crypto({
+          'lat': 41.88,
+          'lon': -87.63,
+          'accuracy': 18,
+          'timestamp': timestamp,
+        }),
+      );
+      await container.read(authControllerProvider.future);
+      final relay = container.read(relayControllerProvider);
+      await relay.start(_session);
+
+      final diff = await relay.reconcileCurrentFixes([_peer]);
+      final fix = container.read(livePresenceProvider)[_peer]!.target;
+      final person = mergePresence(
+        const Person(
+          userId: _peer,
+          displayName: 'Parker',
+          presence: PresenceState.away,
+        ),
+        fix,
+        now: now,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: Scaffold(body: PresenceMarker(person: person)),
+        ),
+      );
+
+      expect(diff.updatedPeers, {_peer});
+      expect(api.historyReads, 0, reason: 'durable current is authoritative');
+      expect(person.lat, 41.88);
+      expect(person.lon, -87.63);
+      expect(find.byKey(const ValueKey(PresenceState.stale)), findsOneWidget);
+      expect(find.textContaining('Parker · dark since '), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
+      await tester.pump();
     },
   );
 
