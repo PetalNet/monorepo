@@ -269,7 +269,7 @@ class _FocusMapState extends ConsumerState<_FocusMap>
     }
     _cameraFrom = _mapController.camera.center;
     _cameraTarget = point;
-    _cameraAnimation.forward(from: 0);
+    unawaited(_cameraAnimation.forward(from: 0));
   }
 
   @override
@@ -563,7 +563,7 @@ class _HideFromTile extends ConsumerWidget {
                 ? null
                 : (value) {
                     Haptics.commit(ref);
-                    _setHidden(context, ref, hidden: value);
+                    unawaited(_setHidden(context, ref, hidden: value));
                   },
             title: Text(
               'Hide from ${person.displayName}',
@@ -680,7 +680,7 @@ class _TempShareTile extends ConsumerWidget {
                         ? null
                         : () {
                             Haptics.warning(ref);
-                            _stop(context, ref, temp);
+                            unawaited(_stop(context, ref, temp));
                           },
                     child: Text(
                       busy

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -81,7 +82,7 @@ class _PresenceDotState extends State<PresenceDot>
     if (widget.state != PresenceState.live || _reducedMotion) {
       _resetAcknowledgment();
     } else if (receivedNewUpdate) {
-      _controller.forward(from: 0);
+      unawaited(_controller.forward(from: 0));
     }
   }
 

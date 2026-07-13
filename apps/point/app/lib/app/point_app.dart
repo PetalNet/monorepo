@@ -131,10 +131,12 @@ class _PointAppState extends ConsumerState<PointApp>
     // handle so it survives sign-in AND any onboarding steps in between.
     final signedIn = ref.read(authControllerProvider).value != null;
     if (signedIn && _config.router.stack.any((r) => r is MainShell)) {
-      _config.router.set([
-        const MainShell(),
-        AddPersonRoute(prefillHandle: handle),
-      ]);
+      unawaited(
+        _config.router.set([
+          const MainShell(),
+          AddPersonRoute(prefillHandle: handle),
+        ]),
+      );
     } else {
       ref.read(pendingInviteProvider.notifier).hold(handle);
     }
@@ -356,10 +358,7 @@ class _PointAppState extends ConsumerState<PointApp>
       PersonDetailRoute(:final userId) => PersonSharedElementScope(
         elements: _reducedMotion
             ? const {}
-            : const {
-                PersonSharedElement.avatar,
-                PersonSharedElement.marker,
-              },
+            : const {PersonSharedElement.avatar, PersonSharedElement.marker},
         animateMarkerOrigin: !_reducedMotion && _activeShellBranch == 0,
         child: PersonDetailScreen(userId: userId),
       ),
@@ -404,10 +403,7 @@ class _PointAppState extends ConsumerState<PointApp>
                     : const {},
                 child: branches[1],
               ),
-              PersonSharedElementScope(
-                elements: const {},
-                child: branches[2],
-              ),
+              PersonSharedElementScope(elements: const {}, child: branches[2]),
             ],
             reduced: _reducedMotion,
           );
@@ -461,7 +457,7 @@ class _PointAppState extends ConsumerState<PointApp>
         // does NOT start here: its permission ask belongs to the onboarding
         // location step, and `continueOnboarding` starts it once the gate is
         // clear.
-        ref.read(relayControllerProvider).start(session);
+        unawaited(ref.read(relayControllerProvider).start(session));
         // Engine sharing state, go-dark default, then the launch gate — ONE
         // sequence, so the engine can never start against a stale hard-stop
         // or race the go-dark default (the v1.2 location regression).
@@ -469,7 +465,7 @@ class _PointAppState extends ConsumerState<PointApp>
       case SessionTransition.teardown:
         _pendingPushDestination = null;
         ref.read(locationServiceProvider).setSharing(sharing: false);
-        ref.read(relayControllerProvider).stop();
+        unawaited(ref.read(relayControllerProvider).stop());
         // Drop this device's push registration for the account LEAVING (prev
         // still holds its session/token; next is already null).
         unawaited(ref.read(pushServiceProvider).teardown(prev?.value));
@@ -511,14 +507,16 @@ class _PointAppState extends ConsumerState<PointApp>
       // so a transient no-value never clears the encrypt-targets.
       ..listen(shareTargetsProvider, (prev, next) {
         if (next == null) return;
-        ref
-            .read(relayControllerProvider)
-            .setShareTargets(
-              next.all,
-              forceInitiate: next.tempOnly,
-              peerRekeyedAt: next.peerRekeyedAt,
-              shareSince: next.shareSince,
-            );
+        unawaited(
+          ref
+              .read(relayControllerProvider)
+              .setShareTargets(
+                next.all,
+                forceInitiate: next.tempOnly,
+                peerRekeyedAt: next.peerRekeyedAt,
+                shareSince: next.shareSince,
+              ),
+        );
       });
 
     final appearance = ref.watch(settingsProvider.select((s) => s.appearance));

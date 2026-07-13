@@ -370,13 +370,13 @@ class LocationService {
   }
 
   void _stopGps() {
-    _gpsSub?.cancel();
+    unawaited(_gpsSub?.cancel());
     _gpsSub = null;
     _appliedGpsPlan = null;
   }
 
   void _stopAccel() {
-    _accelSub?.cancel();
+    unawaited(_accelSub?.cancel());
     _accelSub = null;
   }
 

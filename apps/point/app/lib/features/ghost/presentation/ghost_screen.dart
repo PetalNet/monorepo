@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
@@ -76,9 +78,11 @@ class GhostScreen extends ConsumerWidget {
                 sharing: sharing,
                 onChanged: (nextSharing) {
                   Haptics.commit(ref);
-                  ref
-                      .read(ghostControllerProvider.notifier)
-                      .setSharing(sharing: nextSharing);
+                  unawaited(
+                    ref
+                        .read(ghostControllerProvider.notifier)
+                        .setSharing(sharing: nextSharing),
+                  );
                 },
               ),
               SizedBox(height: context.space.sm),

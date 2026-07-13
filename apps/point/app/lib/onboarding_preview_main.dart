@@ -82,7 +82,7 @@ class _Auth extends AuthController {
 
 /// Deterministic phrase, no network, no Rust bridge.
 class _FakeRecovery extends RecoveryService {
-  _FakeRecovery(super.ref);
+  _FakeRecovery(super._ref);
 
   @override
   Future<String?> cachedCode(String identity) async =>

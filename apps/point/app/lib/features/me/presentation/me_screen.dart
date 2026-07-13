@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
@@ -155,7 +157,11 @@ class _GoDarkRow extends ConsumerWidget {
       value: !sharing,
       onChanged: (goDark) {
         Haptics.impact(ref);
-        ref.read(ghostControllerProvider.notifier).setSharing(sharing: !goDark);
+        unawaited(
+          ref
+              .read(ghostControllerProvider.notifier)
+              .setSharing(sharing: !goDark),
+        );
       },
     );
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -8,14 +9,14 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 /// path, so this is the optional extra assurance layer.
 class VerificationController extends Notifier<Set<String>> {
   VerificationController([FlutterSecureStorage? storage])
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _storage;
   static const _key = 'point.verified';
 
   @override
   Set<String> build() {
-    _load();
+    unawaited(_load());
     return const {};
   }
 
@@ -43,5 +44,5 @@ class VerificationController extends Notifier<Set<String>> {
 
 final verificationProvider =
     NotifierProvider<VerificationController, Set<String>>(
-  VerificationController.new,
-);
+      VerificationController.new,
+    );
