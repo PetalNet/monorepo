@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/people/people_controller.dart';
+import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
@@ -11,7 +12,11 @@ import 'package:point_app/widgets/initials_avatar.dart';
 /// globally dark ⇒ nobody; otherwise everyone I share with except the people
 /// I've individually hidden from. This is the number the shell always shows.
 class WhoSeesMe {
-  const WhoSeesMe({required this.dark, required this.people, required this.ghost});
+  const WhoSeesMe({
+    required this.dark,
+    required this.people,
+    required this.ghost,
+  });
 
   /// I'm globally dark — visible to zero.
   final bool dark;
@@ -31,7 +36,8 @@ final whoSeesMeProvider = Provider<WhoSeesMe>((ref) {
   // visible when we haven't confirmed they are (the safety-critical default,
   // matching GhostController).
   final ghost =
-      ref.watch(ghostControllerProvider).value ?? const GhostState(active: true);
+      ref.watch(ghostControllerProvider).value ??
+      const GhostState(active: true);
   final people = ref.watch(peopleControllerProvider).value ?? const <Person>[];
   return WhoSeesMe(dark: ghost.active, people: people, ghost: ghost);
 });
@@ -65,45 +71,45 @@ class WhoSeesMeBar extends ConsumerWidget {
             top: false,
             bottom: bottomSafe,
             child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: context.space.lg,
-              vertical: context.space.md,
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  dark ? Icons.visibility_off : Icons.visibility_outlined,
-                  size: 20,
-                  color: dark ? context.colors.surface : ink,
-                ),
-                SizedBox(width: context.space.md),
-                Expanded(
-                  child: Text(
-                    dark ? "You're dark. No one sees you." : _label(n),
-                    style: context.text.titleMedium?.copyWith(
-                      color: dark ? context.colors.surface : ink,
+              padding: EdgeInsets.symmetric(
+                horizontal: context.space.lg,
+                vertical: context.space.md,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    dark ? Icons.visibility_off : Icons.visibility_outlined,
+                    size: 20,
+                    color: dark ? context.colors.surface : ink,
+                  ),
+                  SizedBox(width: context.space.md),
+                  Expanded(
+                    child: Text(
+                      dark ? "You're dark. No one sees you." : _label(n),
+                      style: context.text.titleMedium?.copyWith(
+                        color: dark ? context.colors.surface : ink,
+                      ),
                     ),
                   ),
-                ),
-                Icon(
-                  Icons.expand_less,
-                  size: 20,
-                  color: dark ? context.colors.surface : ink,
-                ),
-              ],
+                  Icon(
+                    Icons.expand_less,
+                    size: 20,
+                    color: dark ? context.colors.surface : ink,
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
         ),
       ),
     );
   }
 
   String _label(int n) => switch (n) {
-        0 => 'No one can see you',
-        1 => 'Visible to 1 person',
-        _ => 'Visible to $n people',
-      };
+    0 => 'No one can see you',
+    1 => 'Visible to 1 person',
+    _ => 'Visible to $n people',
+  };
 }
 
 /// The full who-sees-me control (spec 05): a prominent global go-dark, then the
@@ -113,11 +119,11 @@ class WhoSeesMeSheet extends ConsumerWidget {
   const WhoSeesMeSheet({super.key});
 
   static Future<void> show(BuildContext context) => showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (_) => const WhoSeesMeSheet(),
-      );
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => const WhoSeesMeSheet(),
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -140,8 +146,9 @@ class WhoSeesMeSheet extends ConsumerWidget {
               who.dark
                   ? "You're dark. No location is leaving your device."
                   : '${who.visibleCount} of ${who.people.length} people you share with.',
-              style: context.text.bodyMedium
-                  ?.copyWith(color: context.colors.onSurfaceVariant),
+              style: context.text.bodyMedium?.copyWith(
+                color: context.colors.onSurfaceVariant,
+              ),
             ),
             SizedBox(height: context.space.lg),
             const _GoDarkButton(),
@@ -164,13 +171,14 @@ class WhoSeesMeSheet extends ConsumerWidget {
   }
 
   Widget _empty(BuildContext context) => Padding(
-        padding: EdgeInsets.symmetric(vertical: context.space.xl),
-        child: Text(
-          'No one yet.',
-          style: context.text.bodyMedium
-              ?.copyWith(color: context.colors.onSurfaceVariant),
-        ),
-      );
+    padding: EdgeInsets.symmetric(vertical: context.space.xl),
+    child: Text(
+      'No one yet.',
+      style: context.text.bodyMedium?.copyWith(
+        color: context.colors.onSurfaceVariant,
+      ),
+    ),
+  );
 }
 
 /// The prominent global kill switch: go dark to everyone (or resume).
@@ -188,9 +196,12 @@ class _GoDarkButton extends ConsumerWidget {
         borderRadius: context.radii.brLg,
         child: InkWell(
           borderRadius: context.radii.brLg,
-          onTap: () => ref
-              .read(ghostControllerProvider.notifier)
-              .setSharing(sharing: dark),
+          onTap: () {
+            Haptics.commit(ref);
+            ref
+                .read(ghostControllerProvider.notifier)
+                .setSharing(sharing: dark);
+          },
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: context.space.lg),
             child: Row(
@@ -226,9 +237,12 @@ class _ViewerRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return SwitchListTile(
       value: visible,
-      onChanged: (v) => ref
-          .read(ghostControllerProvider.notifier)
-          .setHiddenFrom(person.userId, hidden: !v),
+      onChanged: (v) {
+        Haptics.commit(ref);
+        ref
+            .read(ghostControllerProvider.notifier)
+            .setHiddenFrom(person.userId, hidden: !v);
+      },
       secondary: InitialsAvatar(name: person.displayName),
       title: Text(person.displayName, style: context.text.titleMedium),
       subtitle: Text(

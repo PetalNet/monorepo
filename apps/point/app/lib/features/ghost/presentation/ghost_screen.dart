@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/me/presentation/settings_widgets.dart';
+import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/theme/theme_x.dart';
 import 'package:point_app/widgets/ghost_toggle.dart';
 
@@ -73,9 +74,12 @@ class GhostScreen extends ConsumerWidget {
               SizedBox(height: context.space.xxl),
               GhostToggle(
                 sharing: sharing,
-                onChanged: (nextSharing) => ref
-                    .read(ghostControllerProvider.notifier)
-                    .setSharing(sharing: nextSharing),
+                onChanged: (nextSharing) {
+                  Haptics.commit(ref);
+                  ref
+                      .read(ghostControllerProvider.notifier)
+                      .setSharing(sharing: nextSharing);
+                },
               ),
               SizedBox(height: context.space.sm),
               Text(
