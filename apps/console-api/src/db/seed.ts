@@ -31,6 +31,13 @@ const GRANTS: readonly GrantSeed[] = [
 	{ subject: "eli", relation: "owner", object: "user:eli" },
 	{ subject: "tier:owner", relation: "owner", object: "fleet" },
 	{ subject: "tier:moderator", relation: "operator", object: "fleet" },
+	{ subject: "system:console-api", relation: "editor", object: "fleet" },
+	{ subject: "bridge:fleet", relation: "editor", object: "fleet" },
+	{ subject: "bridge:manager", relation: "editor", object: "fleet" },
+	{ subject: "bridge:dispatcher", relation: "editor", object: "fleet" },
+	{ subject: "bridge:control-plane", relation: "editor", object: "fleet" },
+	{ subject: "bridge:hosts", relation: "editor", object: "fleet" },
+	{ subject: "bridge:system-outbox", relation: "editor", object: "fleet" },
 ];
 
 // Producer registrations: default-deny; each bridge/executor gets exactly the prefixes it may emit.

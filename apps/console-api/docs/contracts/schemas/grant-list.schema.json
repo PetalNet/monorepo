@@ -1,0 +1,17 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/grant-list.schema.json",
+	"title": "Current grants on an owned object",
+	"type": "object",
+	"required": ["schema_version", "object", "zookie", "items"],
+	"additionalProperties": false,
+	"properties": {
+		"schema_version": { "const": 1 },
+		"object": { "type": "string" },
+		"zookie": { "type": "string" },
+		"items": {
+			"type": "array",
+			"items": { "$ref": "scope-grant.schema.json" }
+		}
+	}
+}

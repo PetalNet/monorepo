@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { buildServices, type Services } from "../src/app.ts";
 import { AssistantCompilerError, type AssistantCompiler } from "../src/assistant/compiler.ts";
 import { ask } from "../src/assistant/engine.ts";
+import { resolveBearer, sha256 } from "../src/auth/principal.ts";
 import { Bridge } from "../src/bridge/index.ts";
 import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
 import { Appender } from "../src/bus/appender.ts";
@@ -124,6 +125,13 @@ beforeAll(async () => {
 	await admin`insert into producer_registrations (subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)
 		values ('test:emitter', ${admin.json(["console-api", "bridge"])}, ${admin.json(["host", "iso", "test", "audit"])}, ${admin.json(["fleet", "user:*", "agent:*"])}, 'p0')
 		on conflict (subject) do nothing`;
+	await admin`insert into grants (subject, relation, object, granted_by)
+		select 'test:emitter', 'editor', scope, 'test'
+		from unnest(array['fleet', 'user:eli', 'user:parker', 'user:secret', 'user:public']) as scope`;
+	await admin`insert into grants (subject, relation, object, granted_by) values
+		('tester', 'editor', 'fleet', 'test'),
+		('binding-user', 'editor', 'fleet', 'test'),
+		('author', 'editor', 'user:public', 'test')`;
 	await admin.end();
 	services = await buildServices(
 		{
@@ -812,6 +820,235 @@ describe("RLS scope isolation", () => {
 			select: [{ field: "subject" }],
 		});
 		expect(none.rows).toHaveLength(0);
+	});
+});
+
+describe("Phase 3 ReBAC control plane", () => {
+	it("grants and revokes item visibility through the owner-gated idempotent API", async () => {
+		const itemId = `dash_${randomBytes(12).toString("hex")}`;
+		const object = `item:${itemId}`;
+		await services.db.writer`
+			insert into items_min (id, kind, title, scope, created_by, payload)
+			values (${itemId}, 'artifact', 'Shared investigation', 'fleet', 'parker', ${services.db.writer.json(
+				{
+					schema_version: 1,
+					layout: {},
+					panels: [{ schema_version: 2, type: "text", title: "Shared", prose: "Scoped shell" }],
+					query_refs: [],
+					branch: null,
+					time: null,
+				},
+			)})`;
+		const token = `phase3_${randomBytes(18).toString("base64url")}`;
+		await services.db.admin`insert into api_tokens (token_sha256, subject, kind, tiers, lanes)
+			values (${sha256(token)}, 'rebac-viewer', 'human', '[]', '["viewer"]')`;
+		const ownerHeaders = {
+			"x-dev-principal": JSON.stringify({
+				kind: "human",
+				id: "parker",
+				tiers: [],
+				lanes: ["admin"],
+				scopes: ["fleet"],
+			}),
+		};
+		const server = await buildServer(services, true);
+		try {
+			const before = await resolveBearer(services.db.admin, token);
+			expect(before?.scopes).not.toContain(object);
+			const invalidWindow = await server.inject({
+				method: "POST",
+				url: "/api/v1/grants",
+				headers: ownerHeaders,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					action: "grant",
+					subject: "rebac-viewer",
+					relation: "viewer",
+					object,
+					invalid_at: "2020-01-01T00:00:00.000Z",
+				},
+			});
+			expect(invalidWindow.statusCode).toBe(400);
+			await expect(
+				services.db.admin`insert into grants
+					(subject, relation, object, valid_at, invalid_at, granted_by)
+					values ('invalid-window', 'viewer', 'fleet', now(), now() - interval '1 second', 'test')`,
+			).rejects.toThrow(/grants_valid_window|check constraint/);
+			let resolveNotification!: (zookie: string) => void;
+			const notified = new Promise<string>((resolve) => {
+				resolveNotification = resolve;
+			});
+			const stopWatching = services.onGrantChange(resolveNotification);
+			const requestId = randomUUID();
+			const body = {
+				schema_version: 1,
+				id: requestId,
+				action: "grant",
+				subject: "rebac-viewer",
+				relation: "viewer",
+				object,
+			};
+			const granted = await server.inject({
+				method: "POST",
+				url: "/api/v1/grants",
+				headers: ownerHeaders,
+				payload: body,
+			});
+			expect(granted.statusCode, granted.body).toBe(200);
+			expect(granted.json()).toMatchObject({
+				action: "granted",
+				grant: { object, zookie: expect.any(String) },
+			});
+			expect(
+				await Promise.race([
+					notified,
+					new Promise<never>((_resolve, reject) =>
+						setTimeout(() => reject(new Error("grant notification timed out")), 2_000),
+					),
+				]),
+			).toBe(granted.json().grant.zookie);
+			stopWatching();
+			const retry = await server.inject({
+				method: "POST",
+				url: "/api/v1/grants",
+				headers: ownerHeaders,
+				payload: body,
+			});
+			expect(retry.json()).toEqual(granted.json());
+			const drift = await server.inject({
+				method: "POST",
+				url: "/api/v1/grants",
+				headers: ownerHeaders,
+				payload: { ...body, relation: "editor" },
+			});
+			expect(drift.statusCode).toBe(409);
+			expect(drift.json().error.code).toBe("id_reused");
+
+			const visible = await server.inject({
+				method: "GET",
+				url: `/api/v1/dashboards/${itemId}`,
+				headers: { authorization: `Bearer ${token}` },
+			});
+			expect(visible.statusCode, visible.body).toBe(200);
+			const listed = await server.inject({
+				method: "GET",
+				url: `/api/v1/grants?object=${encodeURIComponent(object)}`,
+				headers: ownerHeaders,
+			});
+			expect(listed.json()).toMatchObject({
+				object,
+				zookie: expect.any(String),
+				items: [{ subject: "rebac-viewer" }],
+			});
+			const deniedList = await server.inject({
+				method: "GET",
+				url: `/api/v1/grants?object=${encodeURIComponent(object)}`,
+				headers: { authorization: `Bearer ${token}` },
+			});
+			expect(deniedList.statusCode).toBe(403);
+
+			const revoked = await server.inject({
+				method: "POST",
+				url: "/api/v1/grants",
+				headers: ownerHeaders,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					action: "revoke",
+					subject: "rebac-viewer",
+					relation: "viewer",
+					object,
+				},
+			});
+			expect(revoked.json()).toMatchObject({
+				action: "revoked",
+				revoked_count: 1,
+				zookie: expect.any(String),
+			});
+			const hidden = await server.inject({
+				method: "GET",
+				url: `/api/v1/dashboards/${itemId}`,
+				headers: { authorization: `Bearer ${token}` },
+			});
+			expect(hidden.statusCode).toBe(404);
+			const after = await resolveBearer(services.db.admin, token);
+			expect(BigInt(after!.zookie)).toBeGreaterThan(BigInt(before!.zookie));
+			await Promise.all(
+				["a", "b", "c", "d"].map(
+					(suffix) => services.db.admin`
+						insert into grants (subject, relation, object, granted_by)
+						values (${`parallel-${suffix}`}, 'viewer', ${`restricted:parallel-${suffix}`}, 'test')`,
+				),
+			);
+			const fence = await services.db.admin<{ head: string; row_max: string }[]>`
+				select s.zookie::text as head, max(g.zookie)::text as row_max
+				from grant_set_state s cross join grants g where s.singleton group by s.zookie`;
+			expect(fence[0]?.head).toBe(fence[0]?.row_max);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("gives agents only their intrinsic private scope and requires editor grants to emit elsewhere", async () => {
+		const agent = `agent:test-${randomBytes(4).toString("hex")}`;
+		const token = `phase3_${randomBytes(18).toString("base64url")}`;
+		await services.db.admin`insert into api_tokens (token_sha256, subject, kind, tiers, lanes)
+			values (${sha256(token)}, ${agent}, 'agent', '[]', '["viewer"]')`;
+		await services.db.admin`insert into producer_registrations
+			(subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)
+			values (${agent}, '["bridge"]', '["test"]', '["agent:*"]', 'warn')`;
+		const principal = await resolveBearer(services.db.admin, token);
+		expect(principal?.scopes).toEqual([agent]);
+		const server = await buildServer(services, true);
+		try {
+			const deniedWrite = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers: { authorization: `Bearer ${token}` },
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					title: "No implicit write",
+					scope: agent,
+					panels: [{ schema_version: 2, type: "text", title: "Private", prose: "Private" }],
+				},
+			});
+			expect(deniedWrite.statusCode).toBe(403);
+			const ownerOnly = await server.inject({
+				method: "GET",
+				url: `/api/v1/grants?object=${encodeURIComponent(agent)}`,
+				headers: { authorization: `Bearer ${token}` },
+			});
+			expect(ownerOnly.statusCode).toBe(403);
+		} finally {
+			await server.close();
+		}
+		await expect(services.db.app`select subject from grants limit 1`).rejects.toThrow(
+			/permission denied/,
+		);
+		expect(
+			await services.emit(
+				principal!,
+				emission({
+					type: "test.agent_private",
+					source: { service: "bridge", host: null, agent: agent.slice(6) },
+					scope: agent,
+				}),
+				300,
+			),
+		).toMatchObject({ ok: true });
+		expect(
+			await services.emit(
+				principal!,
+				emission({
+					type: "test.agent_private",
+					source: { service: "bridge", host: null, agent: agent.slice(6) },
+					scope: "fleet",
+				}),
+				300,
+			),
+		).toMatchObject({ ok: false, code: "scope_denied" });
 	});
 });
 

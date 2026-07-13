@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 
 import { OpenAiCompatibleAssistantCompiler, type AssistantCompiler } from "./assistant/compiler.ts";
+import { resolveScopes } from "./auth/principal.ts";
 import { Appender, type AppendResult } from "./bus/appender.ts";
 import { Broker } from "./bus/broker.ts";
 import { makeReplay } from "./bus/replay.ts";
@@ -36,7 +37,12 @@ export interface Services {
 	readonly assistant: AssistantCompiler | null;
 	/** Process-local key only in dev; production must supply CONSOLE_API_CURSOR_SECRET. */
 	readonly cursorSecret: string;
-	emit(producerSubject: string, raw: unknown, bytes: number): Promise<EmitOutcome>;
+	onGrantChange(listener: (zookie: string) => void): () => void;
+	emit(
+		producer: string | { readonly id: string; readonly tiers: readonly string[] },
+		raw: unknown,
+		bytes: number,
+	): Promise<EmitOutcome>;
 	close(): Promise<void>;
 }
 
@@ -48,6 +54,10 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 	if (opts?.migrate !== false) await migrate(db.admin);
 	await assertRuntimeRolesHardened(db, env.devAuth);
 	const broker = new Broker(makeReplay(db.app));
+	const grantListeners = new Set<(zookie: string) => void>();
+	const grantListen = await db.admin.listen("console_grants_changed", (zookie) => {
+		for (const listener of grantListeners) listener(zookie);
+	});
 	// initialize the bus head from the lake so a post-restart `since:0` subscribe replays persisted
 	// history (not just events appended by THIS process) — codex N1a P1.
 	const headRow = await db.admin<
@@ -72,7 +82,13 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		projector.onEvent(seq, e, receivedAt);
 	});
 
-	async function emit(producerSubject: string, raw: unknown, bytes: number): Promise<EmitOutcome> {
+	async function emit(
+		producer: string | { readonly id: string; readonly tiers: readonly string[] },
+		raw: unknown,
+		bytes: number,
+	): Promise<EmitOutcome> {
+		const producerSubject = typeof producer === "string" ? producer : producer.id;
+		const producerTiers = typeof producer === "string" ? [] : producer.tiers;
 		const parsed = parseEmission(raw, bytes);
 		if (!parsed.ok || !parsed.emission)
 			return {
@@ -94,6 +110,19 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 				ok: false,
 				code: "unregistered_producer",
 				message: `no emit registration for ${producerSubject}`,
+			};
+		const editable = await resolveScopes(
+			db.admin,
+			producerSubject,
+			producerTiers,
+			["editor", "operator", "owner"],
+			false,
+		);
+		if (!editable.scopes.includes(e.scope))
+			return {
+				ok: false,
+				code: "scope_denied",
+				message: "producer lacks an editor grant for the emission scope",
 			};
 		const authz = authorizeEmission(reg, e);
 		if (!authz.ok)
@@ -125,9 +154,14 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		tracker,
 		assistant,
 		cursorSecret,
+		onGrantChange(listener) {
+			grantListeners.add(listener);
+			return () => grantListeners.delete(listener);
+		},
 		emit,
 		async close() {
 			tracker?.close();
+			await grantListen.unlisten();
 			await db.close();
 		},
 	};

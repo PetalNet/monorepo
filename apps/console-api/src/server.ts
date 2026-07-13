@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { buildServices, type Services } from "./app.ts";
 import { ask } from "./assistant/engine.ts";
+import { GrantError, grantMutationSchema, listGrants, mutateGrant } from "./auth/grants.ts";
 import { resolveBearer, devPrincipal, type Principal } from "./auth/principal.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
 import { DashboardError, listDashboards, loadDashboard, saveDashboard } from "./dashboard/store.ts";
@@ -205,11 +206,53 @@ export async function buildServer(
 		};
 	});
 
+	// --- ReBAC grants ---------------------------------------------------------------------------
+	app.get("/api/v1/grants", { preHandler: auth }, async (req, reply) => {
+		const principal = req.principal as Principal;
+		const object = (req.query as { object?: string }).object;
+		if (!object)
+			return reply.code(400).send({
+				error: {
+					code: "bad_object",
+					message: "object query parameter is required",
+					retryable: false,
+				},
+			});
+		try {
+			return await listGrants(services.db.writer, principal, object);
+		} catch (error) {
+			if (!(error instanceof GrantError)) throw error;
+			return reply.code(error.code === "grant_denied" ? 403 : 400).send({
+				error: { code: error.code, message: error.message, retryable: false },
+			});
+		}
+	});
+
+	app.post("/api/v1/grants", { preHandler: auth }, async (req, reply) => {
+		const parsed = grantMutationSchema.safeParse(req.body);
+		if (!parsed.success)
+			return reply.code(400).send({
+				error: {
+					code: "bad_grant",
+					message: parsed.error.issues[0]?.message ?? "invalid grant",
+					retryable: false,
+				},
+			});
+		try {
+			return await mutateGrant(services.db, req.principal as Principal, parsed.data);
+		} catch (error) {
+			if (!(error instanceof GrantError)) throw error;
+			return reply
+				.code(error.code === "grant_denied" ? 403 : error.code === "bad_grant" ? 400 : 409)
+				.send({ error: { code: error.code, message: error.message, retryable: false } });
+		}
+	});
+
 	// --- emit ------------------------------------------------------------------------------------
 	app.post("/api/v1/emit", { preHandler: auth }, async (req, reply) => {
 		const p = req.principal as Principal;
 		const bytes = Buffer.byteLength(JSON.stringify(req.body ?? {}));
-		const outcome = await services.emit(p.id, req.body, bytes);
+		const outcome = await services.emit(p, req.body, bytes);
 		if (!outcome.ok) {
 			const rateLimited =
 				outcome.code === "emit_rate_limited" || outcome.code === "new_type_rate_limited";
@@ -242,7 +285,7 @@ export async function buildServer(
 		const results = [];
 		for (const item of body) {
 			const bytes = Buffer.byteLength(JSON.stringify(item));
-			const outcome = await services.emit(p.id, item, bytes);
+			const outcome = await services.emit(p, item, bytes);
 			results.push(
 				outcome.ok
 					? { seq: outcome.seq, duplicate: outcome.duplicate ?? false }
@@ -628,25 +671,46 @@ export async function buildServer(
 			}
 		})();
 
-		// Re-fence live subscriptions on grant/token change (contract §4.1; sub-agent M1). Every 30s
-		// re-resolve the bearer: a revoked token closes the socket; narrowed scopes drop the affected
-		// subs (the client resyncs). Dev-header connections are not re-fenced (test-only).
+		// LISTEN/NOTIFY makes grant changes re-fence immediately. The 30s check remains as a recovery
+		// path for token revocation and a notification connection blip.
+		let refreshing = false;
+		let refreshAgain = false;
+		const refreshPrincipal = async (): Promise<void> => {
+			if (!bearer) return;
+			if (refreshing) {
+				refreshAgain = true;
+				return;
+			}
+			refreshing = true;
+			try {
+				const fresh = await resolveBearer(services.db.admin, bearer);
+				if (!fresh) {
+					for (const id of connSubs) services.broker.unsubscribe(id);
+					socket.close();
+					return;
+				}
+				principal = fresh;
+				services.broker.revalidateScopes(connSubs, fresh.scopes);
+			} catch {
+				/* transient DB blip: keep the connection, retry on the fallback timer */
+			} finally {
+				refreshing = false;
+				if (refreshAgain && socket.readyState === socket.OPEN) {
+					refreshAgain = false;
+					void refreshPrincipal();
+				}
+			}
+		};
+		const stopGrantWatch = bearer
+			? services.onGrantChange(() => {
+					principal = null;
+					services.broker.revalidateScopes(connSubs, []);
+					void refreshPrincipal();
+				})
+			: null;
 		const revalidateTimer = bearer
 			? setInterval(() => {
-					void (async () => {
-						try {
-							const fresh = await resolveBearer(services.db.admin, bearer);
-							if (!fresh) {
-								for (const id of connSubs) services.broker.unsubscribe(id);
-								socket.close();
-								return;
-							}
-							principal = fresh;
-							services.broker.revalidateScopes(connSubs, fresh.scopes);
-						} catch {
-							/* transient DB blip: keep the connection, retry next tick */
-						}
-					})();
+					void refreshPrincipal();
 				}, 30000)
 			: null;
 		if (revalidateTimer) revalidateTimer.unref();
@@ -691,6 +755,7 @@ export async function buildServer(
 		});
 		socket.on("close", () => {
 			if (revalidateTimer) clearInterval(revalidateTimer);
+			stopGrantWatch?.();
 			for (const id of connSubs) services.broker.unsubscribe(id);
 		});
 	});

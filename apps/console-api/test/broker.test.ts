@@ -89,4 +89,15 @@ describe("broker cutover", () => {
 		await new Promise((r) => setTimeout(r, 20));
 		expect(frames.filter((f) => f["kind"] === "event")).toHaveLength(0);
 	});
+
+	it("fails closed before an event can race a grant-change revalidation", async () => {
+		const broker = new Broker(async () => {});
+		const frames: Record<string, unknown>[] = [];
+		await broker.subscribe(spec("grant-race"), (frame) => frames.push(frame));
+		broker.revalidateScopes(["grant-race"], []);
+		broker.onEvent(1, ev(1));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(frames.some((frame) => frame["kind"] === "resync_required")).toBe(true);
+		expect(frames.filter((frame) => frame["kind"] === "event")).toHaveLength(0);
+	});
 });
