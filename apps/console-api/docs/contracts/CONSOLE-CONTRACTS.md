@@ -668,9 +668,10 @@ session runtime is live in Phase 5 (2026-07-13):
   returns the caller's current manager session state, window layout, and last selected context.
 - The manager receives a rotating 15-minute credential for the Streamable-HTTP-style JSON-RPC MCP
   endpoint at `POST /api/v1/assistant/mcp`; it never receives the user's browser/API credential.
-  Every tool call re-resolves the principal's current ReBAC scopes. The six tools are
+  Every tool call re-resolves the principal's current ReBAC scopes. The seven tools are
   `stats.query`, `viz.render`, `text.surface`, `window.arrange`, `dashboard.manage`
-  (save/load/set-home), and `context.receive`; each binds the existing query, render, or Library
+  (save/load/set-home), `context.receive`, and `library.surface` (browse, search, visible-item drill,
+  and reviewable curation); each binds the existing query, render, or Library
   implementation, while window/context state is durably held in the per-user session registry.
   Mutating dashboard calls pass through the same propose-not-commit policy as the public dashboard
   route; `set_home` includes a UUID `request_id` for proposal/idempotency fencing.

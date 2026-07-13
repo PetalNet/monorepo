@@ -3770,7 +3770,7 @@ describe("roster + executors (N1b-2, lake half)", () => {
 });
 
 describe("Phase 5 per-user Claude Code manager seam", () => {
-	it("keeps one scoped session per principal and exposes six real MCP tools plus context", async () => {
+	it("keeps one scoped session per principal and exposes seven real MCP tools plus context", async () => {
 		const managerCalls: { path: string; body: Record<string, unknown> }[] = [];
 		let toolToken = "";
 		const toolTokens = new Map<string, string>();
@@ -3873,6 +3873,7 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 				"window.arrange",
 				"dashboard.manage",
 				"context.receive",
+				"library.surface",
 			]);
 			const arranged = await server.inject({
 				method: "POST",
@@ -3889,6 +3890,21 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 				},
 			});
 			expect(arranged.json().result.isError).not.toBe(true);
+			const libraryView = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/mcp",
+				headers: { authorization: `Bearer ${toolToken}` },
+				payload: {
+					jsonrpc: "2.0",
+					id: 21,
+					method: "tools/call",
+					params: { name: "library.surface", arguments: { action: "view", view: "graph" } },
+				},
+			});
+			expect(libraryView.json().result.structuredContent).toMatchObject({
+				surface: "library",
+				intent: { view: "graph" },
+			});
 			const missingContextValue = await server.inject({
 				method: "POST",
 				url: "/api/v1/assistant/mcp",
