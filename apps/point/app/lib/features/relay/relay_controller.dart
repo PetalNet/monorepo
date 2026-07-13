@@ -342,6 +342,10 @@ class RelayController {
     }
     _sessionEpoch++;
     _session = session;
+    // Last-known people must become available before any crypto or network
+    // initialization can stall. LivePresence receives these as neutral,
+    // age-labelled cached fixes and the authoritative sync reconciles later.
+    await _loadFixCache(session.userId);
     final generationReady = Completer<void>();
     _identityGenerationReady = generationReady.future;
     final api = _ref.read(apiProvider);
@@ -391,7 +395,6 @@ class RelayController {
     }
 
     // Durable WS (survives disconnect; jittered reconnect).
-    await _loadFixCache(session.userId);
     final wsUrl = _wsUrlFor(_ref.read(serverUrlProvider));
     final queue = RelayQueue(store: _SecureRelayStore(session.userId));
     final ws =

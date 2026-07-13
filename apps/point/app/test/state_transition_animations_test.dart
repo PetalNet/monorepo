@@ -115,19 +115,23 @@ ProviderContainer _peopleContainer() => ProviderContainer(
   ],
 );
 
-ProviderContainer _mapContainer() => ProviderContainer(
-  overrides: [
-    peopleWithPresenceProvider.overrideWith(
-      (ref) => ref.watch(_peopleSourceProvider),
-    ),
-    incomingTempPeopleProvider.overrideWithValue(const []),
-    livePresenceProvider.overrideWith(_EmptyLivePresence.new),
-    relayHealthProvider.overrideWith(_HealthyRelay.new),
-    selfLocationProvider.overrideWith((ref) => const Stream.empty()),
-    serverTileInfoProvider.overrideWith((ref) async => const ServerTileInfo()),
-    tileSourceProvider.overrideWithValue(null),
-  ],
-);
+ProviderContainer _mapContainer({bool tileFailure = false}) =>
+    ProviderContainer(
+      overrides: [
+        peopleWithPresenceProvider.overrideWith(
+          (ref) => ref.watch(_peopleSourceProvider),
+        ),
+        incomingTempPeopleProvider.overrideWithValue(const []),
+        livePresenceProvider.overrideWith(_EmptyLivePresence.new),
+        relayHealthProvider.overrideWith(_HealthyRelay.new),
+        selfLocationProvider.overrideWith((ref) => const Stream.empty()),
+        serverTileInfoProvider.overrideWith((ref) async {
+          if (tileFailure) throw StateError('offline');
+          return const ServerTileInfo();
+        }),
+        tileSourceProvider.overrideWithValue(null),
+      ],
+    );
 
 double _rowOpacity(WidgetTester tester, String userId) {
   final row = find.byKey(ValueKey('person-$userId'));
@@ -181,6 +185,27 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('failed map discovery never covers a cached person marker', (
+    tester,
+  ) async {
+    final container = _mapContainer(tileFailure: true);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const MapScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Map unavailable'), findsOneWidget);
+    expect(find.byType(PresenceMarker), findsOneWidget);
   });
 
   testWidgets('reduced motion snaps presence form changes', (tester) async {

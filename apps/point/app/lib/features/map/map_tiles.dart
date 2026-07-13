@@ -70,7 +70,16 @@ const TileSource kHostedFallback = TileSource(
 
 /// What the connected server advertises in /.well-known/point.
 class ServerTileInfo {
-  const ServerTileInfo({this.tilesTemplate, this.tileProxy = false});
+  const ServerTileInfo({
+    this.origin,
+    this.tilesTemplate,
+    this.tileProxy = false,
+  });
+
+  /// The server this discovery belongs to. Keeping it with the value lets a
+  /// same-server refresh retain tiles without ever reusing them after the user
+  /// switches homeservers. Null is reserved for test/preview fixtures.
+  final String? origin;
   final String? tilesTemplate;
   final bool tileProxy;
 }
@@ -101,6 +110,7 @@ final serverTileInfoProvider = FutureProvider<ServerTileInfo>((ref) async {
       final v = jsonDecode(r.body) as Map<String, dynamic>;
       final endpoints = v['endpoints'] as Map<String, dynamic>? ?? const {};
       return ServerTileInfo(
+        origin: origin,
         tilesTemplate: endpoints['tiles'] as String?,
         tileProxy: endpoints['tile_proxy'] as bool? ?? false,
       );
@@ -121,12 +131,13 @@ final serverTileInfoProvider = FutureProvider<ServerTileInfo>((ref) async {
 final tileSourceProvider = Provider<TileSource?>((ref) {
   final choice = ref.watch(settingsProvider.select((s) => s.mapProvider));
   final infoAsync = ref.watch(serverTileInfoProvider);
-  // Unresolved (loading OR error): render no tiles rather than leak. The map
-  // presentation watches the AsyncValue itself so these states stay distinct.
-  if (infoAsync.isLoading || infoAsync.hasError) return null;
+  // AsyncValue retains the previous successful value during a refresh. Use it
+  // only for the same homeserver: cached tiles remain visible without ever
+  // crossing the privacy boundary when the configured server changes.
   final info = infoAsync.value;
   if (info == null) return null;
   final origin = ref.watch(serverUrlProvider);
+  if (info.origin != null && info.origin != origin) return null;
   final token = ref.watch(authControllerProvider).value?.token;
 
   switch (choice) {

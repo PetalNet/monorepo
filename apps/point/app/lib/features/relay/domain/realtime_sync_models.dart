@@ -1,6 +1,8 @@
 enum RealtimeSyncReason {
+  sessionEstablished,
   wsAuthenticated,
   appResumed,
+  networkRegained,
   pushWake,
   manualRefresh,
   peopleTabActivated,

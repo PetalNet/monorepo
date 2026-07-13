@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:point_app/app/app_recovery_coordinator.dart';
 import 'package:point_app/features/map/map_tiles.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/me/avatar_provider.dart';
@@ -73,8 +76,25 @@ class _SignedInAuth extends AuthController {
   );
 }
 
+class _ControllableAuth extends AuthController {
+  @override
+  Future<Session?> build() async => null;
+
+  void emitSignedIn() {
+    state = const AsyncData(
+      Session(
+        token: 'token',
+        userId: 'eli@point.dev',
+        displayName: 'Eli',
+        isAdmin: false,
+      ),
+    );
+  }
+}
+
 class _RecordingSync implements RealtimeSyncCoordinator {
   int calls = 0;
+  final reasons = <RealtimeSyncReason>[];
 
   @override
   Stream<RealtimeSyncDiff> get diffs => const Stream.empty();
@@ -85,14 +105,44 @@ class _RecordingSync implements RealtimeSyncCoordinator {
   @override
   Future<RealtimeSyncDiff> syncNow(RealtimeSyncReason reason) async {
     calls++;
+    reasons.add(reason);
+    return RealtimeSyncDiff(reason: reason, mailbox: const MailboxDrainDiff());
+  }
+}
+
+class _RecordingRecovery implements AppRecoveryCoordinator {
+  int mapRetries = 0;
+  final reasons = <RealtimeSyncReason>[];
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  Future<RealtimeSyncDiff> recover(RealtimeSyncReason reason) async {
+    reasons.add(reason);
     return RealtimeSyncDiff(
       reason: reason,
       mailbox: const MailboxDrainDiff(),
     );
   }
+
+  @override
+  Future<RealtimeSyncDiff> sessionEstablished() =>
+      recover(RealtimeSyncReason.sessionEstablished);
+
+  @override
+  Future<RealtimeSyncDiff> appResumed() =>
+      recover(RealtimeSyncReason.appResumed);
+
+  @override
+  void retryMapNow() => mapRetries++;
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   test('failed refresh retains last-good people and recovers', () async {
     final container = ProviderContainer(
       retry: _noRetry,
@@ -179,9 +229,7 @@ void main() {
           requestsControllerProvider.overrideWith(_EmptyRequests.new),
           outgoingRequestsControllerProvider.overrideWith(_FailingOutgoing.new),
           outgoingTempsProvider.overrideWithValue(const {}),
-          avatarProvider(
-            'mara@point.dev',
-          ).overrideWith((ref) async => null),
+          avatarProvider('mara@point.dev').overrideWith((ref) async => null),
           realtimeSyncCoordinatorProvider.overrideWithValue(sync),
         ],
         child: MaterialApp(
@@ -198,9 +246,7 @@ void main() {
     expect(find.textContaining('Showing what is available'), findsOneWidget);
   });
 
-  testWidgets('map reload drops stale tiles and exposes retry on error', (
-    tester,
-  ) async {
+  test('map refresh retains the same-server last-known source', () async {
     var attempts = 0;
     final refresh = Completer<ServerTileInfo>();
     final container = ProviderContainer(
@@ -219,13 +265,52 @@ void main() {
     );
     addTearDown(container.dispose);
 
+    await container.read(serverTileInfoProvider.future);
+    final lastKnown = container.read(tileSourceProvider);
+    expect(lastKnown, isNotNull);
+
+    container.invalidate(serverTileInfoProvider);
+    expect(
+      container.read(tileSourceProvider),
+      lastKnown,
+      reason: 'refresh must not blank a privacy-safe same-server source',
+    );
+
+    refresh.completeError(StateError('private discovery failed'));
+    await expectLater(
+      container.read(serverTileInfoProvider.future),
+      throwsStateError,
+    );
+    expect(container.read(tileSourceProvider), lastKnown);
+  });
+
+  testWidgets('first map failure stays nonblocking and exposes retry now', (
+    tester,
+  ) async {
+    final recovery = _RecordingRecovery();
+    final container = ProviderContainer(
+      retry: _noRetry,
+      overrides: [
+        serverTileInfoProvider.overrideWith(
+          (ref) async => throw StateError('private discovery failed'),
+        ),
+        appRecoveryCoordinatorProvider.overrideWithValue(recovery),
+      ],
+    );
+    addTearDown(container.dispose);
+
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
           theme: AppTheme.dark(pureBlack: true),
           home: const Scaffold(
-            body: Stack(children: [MapAvailabilityOverlay()]),
+            body: Stack(
+              children: [
+                Center(child: Text('Cached marker')),
+                MapAvailabilityOverlay(),
+              ],
+            ),
           ),
         ),
       ),
@@ -233,26 +318,202 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Loading map'), findsNothing);
-    expect(container.read(tileSourceProvider), isNotNull);
-
-    container.invalidate(serverTileInfoProvider);
-    await tester.pump();
-    expect(find.text('Loading map'), findsOneWidget);
-    expect(container.read(tileSourceProvider), isNull);
-
-    refresh.completeError(StateError('https://private.example failed'));
-    await tester.pump();
-    await tester.pump();
-
     expect(find.text('Map unavailable'), findsOneWidget);
-    expect(find.textContaining('private.example'), findsNothing);
+    expect(find.text('Retrying automatically'), findsOneWidget);
+    expect(find.text('Cached marker'), findsOneWidget);
     expect(container.read(tileSourceProvider), isNull);
-    final attemptsBeforeRetry = attempts;
 
-    await tester.tap(find.text('Retry'));
+    await tester.tap(find.text('Retry now'));
     await tester.pump();
-    expect(attempts, greaterThan(attemptsBeforeRetry));
+    expect(recovery.mapRetries, 1);
+  });
+
+  test(
+    'session open and resume fetch data and failed map discovery automatically',
+    () async {
+      var tileAttempts = 0;
+      final sync = _RecordingSync();
+      final container = ProviderContainer(
+        retry: _noRetry,
+        overrides: [
+          authControllerProvider.overrideWith(_SignedInAuth.new),
+          connectivityChangesProvider.overrideWithValue(const Stream.empty()),
+          realtimeSyncCoordinatorProvider.overrideWithValue(sync),
+          mapRecoveryBackoffProvider.overrideWithValue(const [
+            Duration(milliseconds: 1),
+          ]),
+          serverTileInfoProvider.overrideWith((ref) async {
+            tileAttempts++;
+            if (tileAttempts == 1) {
+              throw StateError('offline');
+            }
+            return const ServerTileInfo(
+              tilesTemplate: 'https://private.example/{z}/{x}/{y}',
+            );
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authControllerProvider.future);
+      final recovery = container.read(appRecoveryCoordinatorProvider);
+
+      await recovery.sessionEstablished();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await container.read(serverTileInfoProvider.future);
+      await recovery.appResumed();
+
+      expect(tileAttempts, 2);
+      expect(sync.reasons, [
+        RealtimeSyncReason.sessionEstablished,
+        RealtimeSyncReason.appResumed,
+      ]);
+    },
+  );
+
+  testWidgets('app binding recovers an already-restored session', (
+    tester,
+  ) async {
+    final recovery = _RecordingRecovery();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_SignedInAuth.new),
+          appRecoveryCoordinatorProvider.overrideWithValue(recovery),
+        ],
+        child: const AppRecoveryBinding(child: SizedBox.shrink()),
+      ),
+    );
+    await tester.pump();
+
+    expect(recovery.reasons, [RealtimeSyncReason.sessionEstablished]);
+  });
+
+  testWidgets('app binding recovers explicit sign-in and foreground resume', (
+    tester,
+  ) async {
+    final recovery = _RecordingRecovery();
+    late _ControllableAuth auth;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_ControllableAuth.new),
+          appRecoveryCoordinatorProvider.overrideWithValue(recovery),
+        ],
+        child: Consumer(
+          builder: (context, ref, _) {
+            auth =
+                ref.read(authControllerProvider.notifier) as _ControllableAuth;
+            return const AppRecoveryBinding(child: SizedBox.shrink());
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    auth.emitSignedIn();
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(recovery.reasons, [
+      RealtimeSyncReason.sessionEstablished,
+      RealtimeSyncReason.appResumed,
+    ]);
+  });
+
+  test(
+    'offline-to-online regain retries data and failed map discovery',
+    () async {
+      final connectivity =
+          StreamController<List<ConnectivityResult>>.broadcast();
+      addTearDown(connectivity.close);
+      var tileAttempts = 0;
+      final sync = _RecordingSync();
+      final container = ProviderContainer(
+        retry: _noRetry,
+        overrides: [
+          authControllerProvider.overrideWith(_SignedInAuth.new),
+          connectivityChangesProvider.overrideWithValue(connectivity.stream),
+          realtimeSyncCoordinatorProvider.overrideWithValue(sync),
+          mapRecoveryBackoffProvider.overrideWithValue(const [
+            Duration(hours: 1),
+          ]),
+          serverTileInfoProvider.overrideWith((ref) async {
+            tileAttempts++;
+            if (tileAttempts == 1) throw StateError('offline');
+            return const ServerTileInfo(
+              tilesTemplate: 'https://private.example/{z}/{x}/{y}',
+            );
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authControllerProvider.future);
+      final recovery = container.read(appRecoveryCoordinatorProvider);
+
+      await recovery.sessionEstablished();
+      await expectLater(
+        container.read(serverTileInfoProvider.future),
+        throwsStateError,
+      );
+      // Some platforms may not deliver an initial `none` snapshot. The first
+      // connected event must still be enough to recover a cold-open failure.
+      connectivity.add(const [ConnectivityResult.wifi]);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await container.read(serverTileInfoProvider.future);
+
+      expect(tileAttempts, 2);
+      expect(sync.reasons, [
+        RealtimeSyncReason.sessionEstablished,
+        RealtimeSyncReason.networkRegained,
+      ]);
+    },
+  );
+
+  test('tile backoff never restarts an in-flight discovery', () async {
+    final hanging = Completer<ServerTileInfo>();
+    var tileAttempts = 0;
+    final container = ProviderContainer(
+      retry: _noRetry,
+      overrides: [
+        authControllerProvider.overrideWith(_SignedInAuth.new),
+        connectivityChangesProvider.overrideWithValue(const Stream.empty()),
+        realtimeSyncCoordinatorProvider.overrideWithValue(_RecordingSync()),
+        mapRecoveryBackoffProvider.overrideWithValue(const [
+          Duration(milliseconds: 1),
+        ]),
+        serverTileInfoProvider.overrideWith((ref) async {
+          tileAttempts++;
+          if (tileAttempts == 1) throw StateError('offline');
+          return hanging.future;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authControllerProvider.future);
+    final recovery = container.read(appRecoveryCoordinatorProvider);
+
+    await recovery.sessionEstablished();
+    await expectLater(
+      container.read(serverTileInfoProvider.future),
+      throwsStateError,
+    );
+    recovery.retryMapNow();
+    final inFlight = container.read(serverTileInfoProvider.future);
+    for (var i = 0; i < 20 && tileAttempts < 2; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(tileAttempts, 2);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(
+      tileAttempts,
+      2,
+      reason: 'loading discovery must not be invalidated',
+    );
+
+    hanging.complete(const ServerTileInfo());
+    await inFlight;
   });
 
   testWidgets('avatar failure is visible and retryable beside the fallback', (
@@ -313,9 +574,6 @@ void main() {
       container.read(avatarProvider('mara@point.dev').future),
       throwsA(isA<http.ClientException>()),
     );
-    expect(
-      container.read(avatarProvider('mara@point.dev')).hasError,
-      isTrue,
-    );
+    expect(container.read(avatarProvider('mara@point.dev')).hasError, isTrue);
   });
 }
