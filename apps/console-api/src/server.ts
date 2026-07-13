@@ -1313,14 +1313,23 @@ export async function buildServer(
 		if (!outcome.ok) {
 			const rateLimited =
 				outcome.code === "emit_rate_limited" || outcome.code === "new_type_rate_limited";
-			reply.code(outcome.code === "unregistered_producer" ? 403 : rateLimited ? 429 : 400);
+			const appendFailed = outcome.code === "append_failed";
+			reply.code(
+				outcome.code === "unregistered_producer"
+					? 403
+					: rateLimited
+						? 429
+						: appendFailed
+							? 503
+							: 400,
+			);
 			const retryAfterS = outcome.retryAfterS ?? (outcome.code === "emit_rate_limited" ? 60 : 3600);
 			if (rateLimited) reply.header("retry-after", String(retryAfterS));
 			return reply.send({
 				error: {
 					code: outcome.code,
 					message: outcome.message,
-					retryable: rateLimited,
+					retryable: rateLimited || appendFailed,
 					...(rateLimited ? { retry_after_s: retryAfterS } : {}),
 				},
 			});
@@ -1351,7 +1360,9 @@ export async function buildServer(
 								code: outcome.code,
 								message: outcome.message,
 								retryable:
-									outcome.code === "emit_rate_limited" || outcome.code === "new_type_rate_limited",
+									outcome.code === "emit_rate_limited" ||
+									outcome.code === "new_type_rate_limited" ||
+									outcome.code === "append_failed",
 								...(outcome.retryAfterS ? { retry_after_s: outcome.retryAfterS } : {}),
 							},
 						},
@@ -1953,7 +1964,7 @@ export async function buildServer(
 if (import.meta.url === `file://${process.argv[1]}`) {
 	const env = loadEnv();
 	const monitor = initExceptionMonitor(env.glitchtipDsn);
-	const services = await buildServices(env);
+	const services = await buildServices(env, { monitor });
 	const server = await buildServer(services, env.devAuth, monitor, env.browserAuth);
 	await server.listen({ host: env.host, port: env.port });
 	process.stdout.write(`console-api listening on ${env.host}:${String(env.port)}\n`);
