@@ -46,6 +46,7 @@ import {
 	readLibraryItem,
 	searchLibraryPaletteItems,
 	saveDashboard,
+	setHomeDashboard,
 } from "./dashboard/store.ts";
 import { withScopes } from "./db/pool.ts";
 import { loadEnv } from "./env.ts";
@@ -59,6 +60,7 @@ import {
 	type ExceptionMonitor,
 } from "./observability.ts";
 import { rankPaletteCandidates, type PaletteCandidate } from "./palette/search.ts";
+import { branchQuery } from "./query/branch.ts";
 import { readQueryRecord } from "./query/history.ts";
 import { runStructured, QueryError, type QueryRequest } from "./query/structured.ts";
 import { searchEntity } from "./reads/entities.ts";
@@ -70,6 +72,7 @@ import { materializePanel } from "./render/engine.ts";
 import type { PanelSpecV2 } from "./render/types.ts";
 import {
 	dashboardSaveSchema,
+	investigationBranchSchema,
 	renderRequestSchema,
 	selectedMarkSchema,
 } from "./render/validation.ts";
@@ -2017,6 +2020,73 @@ export async function buildServer(
 			throw error;
 		}
 	});
+	app.post("/api/v1/investigations/branches", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const parsed = investigationBranchSchema.safeParse(req.body);
+		if (!parsed.success)
+			return reply.code(400).send({
+				error: {
+					code: "bad_investigation_branch",
+					message: "invalid investigation branch",
+					retryable: false,
+				},
+			});
+		const input = parsed.data;
+		const record = await readQueryRecord(services.db.app, p.scopes, input.panel.query_ref);
+		if (!record)
+			return reply.code(404).send({
+				error: { code: "query_not_found", message: "parent query ref not found", retryable: false },
+			});
+		try {
+			const filtered = await runStructured(
+				services.db.app,
+				p.scopes,
+				branchQuery(record.request, input.selected_mark.field, input.selected_mark.value),
+			);
+			const dashboard = dashboardSaveSchema.parse({
+				schema_version: 1,
+				id: input.id,
+				title: input.title,
+				...(input.scope ? { scope: input.scope } : {}),
+				panels: [
+					{
+						schema_version: 2,
+						type: input.panel.type,
+						title: input.panel.title,
+						description: "Investigation branch · filtered replay as the current viewer",
+						query_ref: filtered.query_ref,
+					},
+				],
+				branch: {
+					parent_dashboard_id: input.parent_dashboard_id,
+					parent_question: input.parent_question,
+					filters: { [input.selected_mark.field]: input.selected_mark.value },
+					selected_mark: { ...input.selected_mark, query_ref: filtered.query_ref },
+					assumptions: [],
+				},
+			});
+			const targetScope = dashboardTargetScope(p, dashboard.scope);
+			if (!targetScope || !p.scopes.includes(targetScope))
+				throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
+			const proposed = await maybePropose(
+				p,
+				"dashboard.save",
+				input.id,
+				dashboard,
+				targetScope,
+				"editor",
+			);
+			if (proposed) return proposed;
+			return await saveDashboard(services.db, p, dashboard);
+		} catch (error) {
+			if (error instanceof ProposalError) return proposalFailure(reply, error);
+			if (error instanceof DashboardError || error instanceof QueryError)
+				return reply
+					.code(error instanceof DashboardError && error.code === "scope_denied" ? 403 : 400)
+					.send({ error: { code: error.code, message: error.message, retryable: false } });
+			throw error;
+		}
+	});
 	app.get("/api/v1/dashboards", { preHandler: auth }, async (req, reply) => {
 		const p = req.principal as Principal;
 		const query = req.query as { limit?: string; cursor?: string };
@@ -2046,6 +2116,38 @@ export async function buildServer(
 				error: { code: "dashboard_not_found", message: "dashboard not found", retryable: false },
 			});
 		return dashboard;
+	});
+	app.post("/api/v1/dashboards/:dashboardId/home", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const { dashboardId } = req.params as { dashboardId: string };
+		const parsed = z.object({ id: z.string().uuid() }).strict().safeParse(req.body);
+		if (!parsed.success || !/^dash_[A-Za-z0-9_-]{8,40}$/.test(dashboardId))
+			return reply.code(400).send({
+				error: {
+					code: "bad_dashboard",
+					message: "invalid dashboard pin request",
+					retryable: false,
+				},
+			});
+		try {
+			const proposed = await maybePropose(
+				p,
+				"dashboard.set_home",
+				parsed.data.id,
+				{ id: dashboardId },
+				`user:${p.id}`,
+				"owner",
+			);
+			if (proposed) return proposed;
+			return await setHomeDashboard(services.db.writer, p, dashboardId);
+		} catch (error) {
+			if (error instanceof ProposalError) return proposalFailure(reply, error);
+			if (error instanceof DashboardError)
+				return reply
+					.code(error.code === "scope_denied" ? 403 : 404)
+					.send({ error: { code: error.code, message: error.message, retryable: false } });
+			throw error;
+		}
 	});
 
 	// --- Rev3 Library: one scope-filtered item/link store + the fleet capability registry ------

@@ -10,6 +10,8 @@
 	import { opDef } from "$lib/api/ops";
 	import { isStale, lagSeconds } from "$lib/data/observability";
 	import type { QueryResult } from "$lib/api/types";
+	import InvestigationGraph, { type InvestigationSeed } from "./InvestigationGraph.svelte";
+	import { getInvestigationGraph } from "./investigations.remote";
 
 	let { data } = $props();
 	const a = $derived(data.accounting);
@@ -22,13 +24,19 @@
 	let autoViz = $state<{ type: string; result: QueryResult | null; loading: boolean; error: boolean } | null>(null);
 	let peekDialog = $state<HTMLDialogElement | null>(null);
 	let handledStat = $state<string | null>(null);
+	let investigationSeed = $state<InvestigationSeed | null>(null);
+	let investigationInitialId = $state<string | null>(null);
+	const investigationQuery = getInvestigationGraph();
+	const recentInvestigations = $derived(
+		(investigationQuery.current ?? [])
+			.filter(({ parentId }) => parentId === null)
+			.toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+			.slice(0, 3),
+	);
 	const filteredCatalog = $derived(a.catalog.filter((entry) => entry.type.toLowerCase().includes(filter.toLowerCase())));
 	const behind = $derived(Object.values(a.queries).some((q) => isStale(q, nowMs)));
 	const freshnessLag = $derived(lagSeconds(a.queries.freshness, nowMs));
-	const renderOp = opDef("viz.render")!;
-	const saveOp = opDef("dashboard.save")!;
 	const loadOp = opDef("dashboard.load")!;
-	const deleteOp = opDef("dashboard.delete")!;
 	const snoozeOp = opDef("signal.snooze")!;
 
 	$effect(() => {
@@ -84,6 +92,25 @@
 			view = views[(views.indexOf(view) + 1) % views.length];
 		}
 		if (e.key === "f" && !(e.target instanceof HTMLInputElement)) document.querySelector<HTMLInputElement>("#catalog-filter")?.focus();
+	}
+	function investigateEmitter(row: unknown[]) {
+		if (!a.queries.emitters?.query_ref) return;
+		investigationInitialId = null;
+		const scope = String(row[0] ?? "selected scope");
+		investigationSeed = {
+			title: `Why did ${scope} event volume stand out?`,
+			queryRef: a.queries.emitters.query_ref,
+			panelTitle: "Top emitters, 24h",
+			panelType: "bar",
+			selectedField: "scope",
+			selectedValue: scope,
+		};
+		view = "investigation";
+	}
+	function openInvestigation(id: string) {
+		investigationInitialId = id;
+		investigationSeed = null;
+		view = "investigation";
 	}
 	$effect(() => {
 		const statistic = page.url.searchParams.get("stat");
@@ -146,7 +173,7 @@
 				</article>
 				<article class="panel emitters" class:stale={isStale(a.queries.emitters, nowMs)}>
 					<header><div><h2>Top emitters, 24h</h2><p>Grouped by visible scope</p></div></header>
-					{#if a.queries.emitters?.rows.length}<table><thead><tr>{#each a.queries.emitters.columns as c}<th>{c.name}</th>{/each}</tr></thead><tbody>{#each a.queries.emitters.rows.slice(0, 4) as row}<tr>{#each row as cell}<td>{typeof cell === "number" ? cell.toLocaleString() : String(cell)}</td>{/each}</tr>{/each}</tbody></table>{:else}<div class="query-empty">No emitter rows in your scope.</div>{/if}
+					{#if a.queries.emitters?.rows.length}<table><thead><tr>{#each a.queries.emitters.columns as c}<th>{c.name}</th>{/each}<th><span class="sr-only">Action</span></th></tr></thead><tbody>{#each a.queries.emitters.rows.slice(0, 4) as row}<tr>{#each row as cell}<td>{typeof cell === "number" ? cell.toLocaleString() : String(cell)}</td>{/each}<td><button class="investigate" onclick={() => investigateEmitter(row)} disabled={!a.queries.emitters?.query_ref}><Icon name="git-branch" size={12}/>Investigate</button></td></tr>{/each}</tbody></table>{:else}<div class="query-empty">No emitter rows in your scope.</div>{/if}
 					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.emitters)}</span>{#if a.queries.emitters}<button onclick={() => peek = { title: "Top emitters", result: a.queries.emitters! }}>Show the math.</button>{/if}</footer>
 				</article>
 			</div>
@@ -155,10 +182,10 @@
 			<section class="saved"><div class="strip"><h2>Saved dashboards</h2><a href="/library?kind=artifact">All saved</a></div>
 				{#if a.dashboards.length}<div class="tiles">{#each a.dashboards.slice(0, 3) as d}<a href="/observability?dashboard={d.id}"><b>{d.title}</b><span>{d.panel_count} panels{d.is_home ? " · home" : ""}</span></a>{/each}</div>{:else}<p class="empty">No saved dashboards. Ask a question and keep what comes back.</p>{/if}
 			</section>
-			<section class="investigations"><div class="strip"><h2>Recent investigations</h2><span>Bearimy view</span></div>{#if a.isMock}
-				<button onclick={() => view = "investigation"}><Icon name="git-branch" size={14}/><b>Why did token burn spike Tuesday</b><span>janet · 7 nodes · 2h</span></button>
-				<button onclick={() => view = "investigation"}><Icon name="git-branch" size={14}/><b>Disk creep on .12</b><span>you · 3 nodes · 2d</span></button>
-			{:else}<p class="empty">No investigations yet. Library graph reads are unavailable.</p>{/if}
+			<section class="investigations"><div class="strip"><h2>Recent investigations</h2><span>Bearimy view</span></div>{#if recentInvestigations.length}
+				{#each recentInvestigations as investigation}<button onclick={() => openInvestigation(investigation.id)}><Icon name="git-branch" size={14}/><b>{investigation.title}</b><span>{investigation.createdBy ?? "unknown"} · {investigation.panelCount}p · {age(investigation.updatedAt)}</span></button>{/each}
+			{:else if !investigationQuery.current}<p class="empty">Loading investigation history.</p>
+			{:else}<p class="empty">No investigations yet.</p>{/if}
 			</section>
 		</main>
 		<aside class="rail">
@@ -170,20 +197,7 @@
 		</aside>
 	</div>
 {:else if view === "investigation"}
-	{#if !a.isMock}<div class="empty investigation-empty">No investigations yet. Saved Bearimy nodes will appear when the Library graph projection is available.</div>{:else}
-	<div class="investigation-view">
-		<aside class="tree"><div class="strip"><h2 title="Oh, the Time Knife. We've all seen it.">Investigation</h2><span>7 nodes</span></div>
-			<button class="active"><code>1</code><span>Why did token burn spike Tuesday</span><small>3 · 2h</small></button>
-			<button class="depth"><code>2</code><span>Which agents changed?</span><small>2 · 2h</small></button>
-			<button class="depth"><code>3</code><span>Compare by host</span><small>2 · 1h</small></button>
-			<button class="depth"><code>4</code><span>Tuesday deploy window</span><small>1 · 1h</small></button>
-			<button class="depth"><code>5</code><span>Outside health scope</span><i title="Refused"></i></button>
-		</aside>
-		<main><div class="nodebar"><span>Token spike <b>/ root question</b></span><div><OpButton def={renderOp} args={{ panel: { schema_version: 2, type: "bar", title: "Token burn by agent", query_ref: "qry_mock_investigation" } }} lanes={a.lanes} executorLive={a.executors.consoleApi}/><OpButton def={saveOp} args={{ title: "Why did token burn spike Tuesday", panels: [] }} lanes={a.lanes} executorLive={a.executors.library}/><OpButton def={deleteOp} args={{ id: "mock-node-1" }} lanes={a.lanes} executorLive={a.executors.library}/></div></div>
-			<div class="node-panels"><article class="panel"><header><div><h2>Token burn by agent</h2><p>Tuesday · selected mark: terra</p></div></header><div class="bars"><i style="--w:78%"></i><i style="--w:54%"></i><i style="--w:31%"></i></div><footer><Icon name="receipt-text" size={12}/>mock fixture · 3 rows · not live {#if a.queries.queries}<button onclick={() => peek = { title: "Token burn by agent", result: a.queries.queries! }}>Show the math.</button>{/if}</footer></article><article class="refusal"><h2>Can't answer: private health</h2><p>Outside your scope. Try “Compare fleet token burn with deploy windows.”</p><b>No chart, no guess.</b></article></div>
-		</main>
-	</div>
-	{/if}
+	<InvestigationGraph seed={investigationSeed} initialId={investigationInitialId} onseeded={() => investigationSeed = null}/>
 {:else}
 	<section class="catalog-full"><div class="strip"><h2>Statistics catalog</h2><span>{filteredCatalog.length} visible types</span></div><label><Icon name="search" size={14}/><input id="catalog-filter" bind:value={filter} placeholder="Filter statistics" aria-label="Filter statistics"/></label>{#each filteredCatalog as entry}<button onclick={() => catalogOpen(entry.type)}><code>{entry.type}</code><span>{Object.keys(entry.dimensions).length} dimensions · {Object.keys(entry.measures).length} measures</span><time>{age(entry.last_emit)}</time><Icon name="chevron-right" size={14}/></button>{/each}</section>
 {/if}
@@ -196,7 +210,7 @@
 	.sign{display:flex;align-items:center;min-height:40px;gap:var(--s-3)}.identity{display:flex;align-items:baseline;gap:var(--s-3);min-width:0}.identity h1{font:400 1.25rem var(--sign)}.identity>span{font:400 .875rem var(--sign);color:var(--jade-text)}.identity small{font:400 .75rem var(--mono);color:var(--text-3)}.identity small.behind{color:var(--danger-text)}:global(.view-segments){margin-inline-start:auto}
 	.notice{display:flex;gap:var(--s-2);align-items:center;margin-top:var(--s-2);padding:var(--s-2) var(--s-3);background:var(--warn-soft);color:var(--warn-text);border-radius:var(--r-xs);font-size:.75rem}.crack{display:flex;justify-content:space-between;align-items:center;gap:var(--s-3);background:var(--danger-soft);border-radius:var(--r-xs);padding:var(--s-3);margin-top:var(--s-2)}.crack>div{display:flex;align-items:center;gap:var(--s-2)}.crack b{color:var(--danger-text);font-size:.875rem}.crack span{font-size:.75rem;color:var(--text-2)}.obs-grid{display:grid;grid-template-columns:minmax(0,1fr) 344px;gap:var(--s-3);padding:var(--s-3) 0 104px}.obs-main{min-width:0;display:flex;flex-direction:column;gap:var(--s-4)}.vitals{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--s-3)}.panel{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-3);min-height:200px;display:flex;flex-direction:column;min-width:0}.panel.stale{position:relative;background:linear-gradient(135deg,var(--s1) 0 88%,var(--s3) 88%)}.panel.stale::after{content:"stale";position:absolute;right:var(--s-2);bottom:var(--s-1);font:500 .6875rem var(--mono);color:var(--warn-text)}.chart-panel{grid-column:span 7}.freshness{grid-column:span 5}.queries{grid-column:span 4}.emitters{grid-column:span 8}.panel header{display:flex;justify-content:space-between;gap:var(--s-2)}.panel h2,.strip h2{font:500 .84375rem var(--sans)}.panel header p{font-size:.6875rem;color:var(--text-3);margin-top:var(--s-1)}.queried,.stalled{font:500 .6875rem var(--mono);color:var(--jade-text)}.stalled{color:var(--warn-text)}.chart{width:100%;height:96px;margin:auto 0}.chart line{stroke:var(--rule);stroke-width:1}.chart polyline{fill:none;stroke:var(--petal);stroke-width:2;stroke-linejoin:round}.panel footer{margin-top:auto;padding-top:var(--s-2);border-top:1px solid var(--rule);display:flex;align-items:center;gap:var(--s-2);font:400 .6875rem var(--mono);color:var(--text-3)}.panel footer button{margin-inline-start:auto;border:0;background:none;color:var(--petal-text);font-weight:500}.stat{display:flex;align-items:baseline;gap:var(--s-2);margin:auto 0}.stat b{font:500 1.75rem var(--mono);text-decoration:underline;text-decoration-color:var(--jade);text-underline-offset:5px}.stat span,.proof,.late{font-size:.75rem;color:var(--text-3)}.proof{color:var(--jade-text)}.late{color:var(--warn-text)}table{width:100%;border-collapse:collapse;margin:var(--s-2) 0;font:400 .75rem var(--mono)}th{text-align:left;color:var(--text-3);font-weight:500}td,th{padding:4px var(--s-1);border-bottom:1px solid var(--rule)}td:not(:first-child),th:not(:first-child){text-align:right}.query-empty,.empty{color:var(--text-3);font-size:.75rem;margin:auto 0}.strip{display:flex;align-items:baseline;gap:var(--s-2);min-height:24px}.strip span,.strip a{font-size:.6875rem;color:var(--text-3)}.strip a{margin-inline-start:auto;color:var(--petal-text)}.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s-3);margin-top:var(--s-2)}.tiles a{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-2) var(--s-3);text-decoration:none;color:var(--text)}.tiles a:hover{background:var(--s2)}.tiles b{display:block;font-size:.8125rem}.tiles span{font:400 .6875rem var(--mono);color:var(--text-3)}.investigations>button{width:100%;border:0;background:none;display:flex;align-items:center;gap:var(--s-2);min-height:40px;padding:0 var(--s-2);color:var(--text-2);border-radius:var(--r-xs)}.investigations>button:hover{background:var(--s2)}.investigations b{font-size:.8125rem;color:var(--text)}.investigations>button span{margin-inline-start:auto;font:400 .6875rem var(--mono);color:var(--text-3)}.investigations>.empty{padding:var(--s-2)}.auto-viz{min-height:168px}.skeleton{height:64px;margin:auto 0;background:var(--s3);border-radius:var(--r-xs)}
 	.rail{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-3);align-self:start}.rail label,.catalog-full label{display:flex;align-items:center;gap:var(--s-2);background:var(--s2);border-radius:var(--r-sm);min-height:32px;padding:0 var(--s-2);margin:var(--s-2) 0}.rail label:focus-within,.catalog-full label:focus-within{box-shadow:0 0 0 2px var(--petal)}.rail input,.catalog-full input{border:0;background:none;outline:none;min-width:0;width:100%;color:var(--text);font-size:.75rem}.rail>button{border:0;background:none;width:100%;min-height:32px;display:flex;align-items:center;gap:var(--s-2);padding:0 var(--s-2);border-radius:var(--r-xs);color:var(--text-2)}.rail>button:hover{background:var(--s2)}.rail>button.active{background:var(--petal-soft);color:var(--petal-text)}.rail>button>i{width:6px;height:6px;border-radius:50%;background:var(--jade);flex:none}.rail>button>i.idle{background:var(--text-3)}.rail code{font-size:.6875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rail button span{font:500 .6875rem var(--mono);text-transform:uppercase;color:var(--text-3)}.rail time{margin-inline-start:auto;font:400 .6875rem var(--mono);color:var(--text-3)}.rail-note{font-size:.6875rem;color:var(--text-3);margin:var(--s-2)}
-	.investigation-view{display:grid;grid-template-columns:280px 1fr;gap:var(--s-3);padding:var(--s-3) 0 104px}.tree{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-2);align-self:start}.tree>button{border:0;background:none;width:100%;min-height:32px;display:flex;align-items:center;gap:var(--s-2);padding:0 var(--s-2);color:var(--text-2);border-radius:var(--r-xs);font-size:.75rem}.tree>button.active{background:var(--petal-soft);color:var(--petal-text)}.tree .depth{padding-inline-start:var(--s-4)}.tree button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tree small{margin-inline-start:auto;color:var(--text-3)}.tree button i{margin-inline-start:auto;width:6px;height:6px;background:var(--warn-dot);border-radius:50%}.nodebar{display:flex;align-items:center;justify-content:space-between;min-height:32px;font:400 .6875rem var(--mono);color:var(--text-3)}.peek footer button{border:0;background:var(--s2);color:var(--text-2);border-radius:var(--r-xs);padding:var(--s-1) var(--s-2);margin-inline-start:var(--s-2)}.node-panels{display:grid;grid-template-columns:2fr 1fr;gap:var(--s-3);margin-top:var(--s-3)}.bars{display:flex;flex-direction:column;gap:var(--s-2);margin:var(--s-4) 0}.bars i{height:12px;width:var(--w);background:var(--petal);border-radius:var(--r-xs)}.refusal{background:var(--warn-soft);border-radius:var(--r-xs);padding:var(--s-3);min-height:200px}.refusal h2{color:var(--warn-text);font-size:.875rem}.refusal p{font-size:.8125rem;color:var(--text-2);margin:var(--s-3) 0}.refusal b{font-size:.75rem}.catalog-full{max-width:920px;padding:var(--s-3) 0 104px}.catalog-full>button{border:0;background:none;width:100%;display:grid;grid-template-columns:1fr 220px 60px 16px;gap:var(--s-3);align-items:center;text-align:left;min-height:40px;padding:0 var(--s-2);color:var(--text-2);border-radius:var(--r-xs)}.catalog-full>button:hover{background:var(--s2)}.catalog-full>button span,.catalog-full time{font:400 .6875rem var(--mono);color:var(--text-3)}
-	.peek h2{font-size:.875rem}.peek h3{font:500 .6875rem var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin:var(--s-3) 0 var(--s-1)}.peek p{font-size:.8125rem}.peek pre{background:var(--s3);border-radius:var(--r-xs);padding:var(--s-2);font:400 .6875rem var(--mono);overflow:auto}.peek footer{border-top:1px solid var(--rule);padding-top:var(--s-2);margin-top:var(--s-3);text-align:right}.mono{font-family:var(--mono)!important;color:var(--text-3)}.investigation-empty{padding:var(--s-6) 0}
-	@media(max-width:900px){.obs-grid{grid-template-columns:1fr}.rail{display:none}.chart-panel,.freshness,.queries,.emitters{grid-column:span 12}}@media(max-width:767px){.sign{align-items:flex-start;flex-direction:column;height:auto}.identity small,:global(.view-segments){display:none}.crack{align-items:flex-start;flex-direction:column}.obs-grid{padding-bottom:104px}.vitals,.investigations{display:none}.tiles{grid-template-columns:1fr}.saved{margin-top:var(--s-2)}.investigation-view{display:block}.tree{display:none}.node-panels{grid-template-columns:1fr}.catalog-full>button{grid-template-columns:1fr 56px 16px}.catalog-full>button span{display:none}}
+	.peek footer button,.investigate{border:0;background:var(--s2);color:var(--text-2);border-radius:var(--r-sm);padding:var(--s-1) var(--s-2);margin-inline-start:var(--s-2);min-height:32px}.investigate{display:inline-flex;align-items:center;gap:var(--s-1);background:var(--petal-soft);color:var(--petal-text);font:500 .6875rem var(--sans)}.catalog-full{max-width:920px;padding:var(--s-3) 0 104px}.catalog-full>button{border:0;background:none;width:100%;display:grid;grid-template-columns:1fr 220px 60px 16px;gap:var(--s-3);align-items:center;text-align:left;min-height:40px;padding:0 var(--s-2);color:var(--text-2);border-radius:var(--r-xs)}.catalog-full>button:hover{background:var(--s2)}.catalog-full>button span,.catalog-full time{font:400 .6875rem var(--mono);color:var(--text-3)}
+	.peek h2{font-size:.875rem}.peek h3{font:500 .6875rem var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin:var(--s-3) 0 var(--s-1)}.peek p{font-size:.8125rem}.peek pre{background:var(--s3);border-radius:var(--r-xs);padding:var(--s-2);font:400 .6875rem var(--mono);overflow:auto}.peek footer{border-top:1px solid var(--rule);padding-top:var(--s-2);margin-top:var(--s-3);text-align:right}.mono{font-family:var(--mono)!important;color:var(--text-3)}
+	@media(max-width:900px){.obs-grid{grid-template-columns:1fr}.rail{display:none}.chart-panel,.freshness,.queries,.emitters{grid-column:span 12}}@media(max-width:767px){.sign{align-items:flex-start;flex-direction:column;height:auto}.identity small,:global(.view-segments){display:none}.crack{align-items:flex-start;flex-direction:column}.obs-grid{padding-bottom:104px}.vitals,.investigations{display:none}.tiles{grid-template-columns:1fr}.saved{margin-top:var(--s-2)}.catalog-full>button{grid-template-columns:1fr 56px 16px}.catalog-full>button span{display:none}}
 </style>

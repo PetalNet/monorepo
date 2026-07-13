@@ -213,6 +213,8 @@ function iso(value: string | Date): string {
 }
 
 function itemEnvelope(row: ItemRow): Record<string, unknown> {
+	const parentDashboardId = row.payload.branch?.["parent_dashboard_id"];
+	const parentQuestion = row.payload.branch?.["parent_question"];
 	return {
 		schema_version: 1,
 		id: row.id,
@@ -224,6 +226,9 @@ function itemEnvelope(row: ItemRow): Record<string, unknown> {
 		responsible_human: row.responsible_human,
 		updated_at: iso(row.updated_at),
 		panel_count: row.payload.panels.length,
+		is_investigation: row.payload.branch !== null,
+		parent_id: typeof parentDashboardId === "string" ? parentDashboardId : null,
+		parent_question: typeof parentQuestion === "string" ? parentQuestion : null,
 		payload: row.payload,
 	};
 }

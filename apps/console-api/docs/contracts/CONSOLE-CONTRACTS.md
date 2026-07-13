@@ -250,7 +250,9 @@ Dashboards and investigation nodes are durable scoped Library data:
   A query that cannot execute there makes the save `query_not_shareable`. Vega artifacts and
   result-derived narration are cleared, and raw SelectedMark `datum`/`value` are stripped before
   persistence. Panel intent, rebound refs, layout, time range, and safe branch lineage remain data.
-- `GET /api/v1/dashboards` returns the normal read envelope of visible list projections. `limit` is
+- `GET /api/v1/dashboards` returns the normal read envelope of visible list projections. Investigation
+  rows expose `is_investigation`, `parent_id`, and `parent_question`, so clients can lay out the
+  GraphNode tree without fetching or leaking saved panel payloads. `limit` is
   1–1000 and `next_cursor` is an authenticated opaque `(updated_at,id)` continuation retaining the
   database's full timestamp precision; forged or invalid cursors are 400. Production requires
   `CONSOLE_API_CURSOR_SECRET`; rotating it intentionally invalidates outstanding cursors.
@@ -259,10 +261,17 @@ Dashboards and investigation nodes are durable scoped Library data:
   ref/render artifact; a now-invisible panel is an explicit per-panel refusal. The item itself is 404
   when its scope is not visible. Text `{{stat:query_ref#column[agg]}}` bindings are likewise re-run;
   `render.bindings[]` carries each fresh ref/value or an explicit `refused` status.
+- `POST /api/v1/dashboards/{id}/home` accepts a mutation UUID and exposes the canonical
+  `dashboard.set_home` operation for first-party Remote Functions. It remains owner-only and follows
+  propose-not-commit policy before changing the caller's pinned home artifact.
 
 The branch block is the investigation tree edge: `parent_dashboard_id`, `parent_question`, filters,
 SelectedMark-complete context, and assumptions. Sharing is scope/ReBAC sharing, never copied query
 results; Phase 3 extends the subject-specific grant path without changing these L4 shapes.
+`POST /api/v1/investigations/branches` resolves the parent query ref as the caller, injects the
+SelectedMark field/value into the stored structured query, executes it, and saves the child with the
+filtered query ref plus safe filter intent. A child can therefore never masquerade an unfiltered parent
+result as drill-through evidence.
 
 ### 3.2 The statistics catalog — `GET /api/v1/catalog`
 
