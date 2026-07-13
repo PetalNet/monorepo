@@ -467,6 +467,25 @@ class PointApi {
         .toList();
   }
 
+  /// Newest authorized encrypted history rows for a peer. This is the
+  /// cold-start fallback after the five-minute current-fix row has expired.
+  Future<List<EncryptedCurrentFix>> locationHistory(
+    String token,
+    String userId, {
+    int since = 0,
+    int limit = 20,
+  }) async {
+    final encoded = Uri.encodeComponent(userId);
+    final r = await _client.get(
+      _u('/api/history/$encoded?since=$since&limit=$limit'),
+      headers: _headers(token),
+    );
+    if (r.statusCode != 200) _fail(r);
+    return (jsonDecode(r.body) as List<dynamic>)
+        .map((e) => EncryptedCurrentFix.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   // --- Push notification transport (Wave D) --------------------------------
 
   /// Register (or refresh) this device's push endpoint. [transport] is
