@@ -152,7 +152,7 @@ async fn synthetic_b_tracks_a_live() {
     // 4. Connect B's WebSocket and authenticate.
     let ws_url = format!("{}/ws", base.replacen("http", "ws", 1));
     let (mut sock, _) = tokio_tungstenite::connect_async(&ws_url).await.expect("ws");
-    sock.send(Message::Text(
+    sock.send(Message::text(
         json!({ "type": "auth", "token": bob.token }).to_string(),
     ))
     .await
