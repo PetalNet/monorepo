@@ -121,9 +121,12 @@ export function mockCockpit(scene: Scene): CockpitData {
 			: verdict === "cant_verify"
 				? "Bus silent."
 				: verdict === "needs_you"
-					? needsNew === 1
-						? "Mostly fine. One thing needs you."
-						: `Mostly fine. ${needsNew} things need you.`
+					? needsNew === 0
+						? // Everything acked, nothing new — held, not "0 need you".
+							`Mostly fine. ${needsHeld} held, nothing new.`
+						: needsNew === 1
+							? "Mostly fine. One thing needs you."
+							: `Mostly fine. ${needsNew} things need you.`
 					: null;
 
 	const badges: NavBadges = {
