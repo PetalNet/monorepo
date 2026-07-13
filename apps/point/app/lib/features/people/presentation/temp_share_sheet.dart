@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
+import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/api/point_api.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -41,6 +42,7 @@ class _TempShareSheetState extends ConsumerState<TempShareSheet> {
   Future<void> _start() async {
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
+    Haptics.commit(ref);
     setState(() => _busy = true);
     final name = widget.person.displayName;
 
@@ -52,8 +54,9 @@ class _TempShareSheetState extends ConsumerState<TempShareSheet> {
           .share(widget.person.userId, minutes: _minutes);
     } on ApiException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
         setState(() => _busy = false);
       }
       return;
@@ -87,8 +90,8 @@ class _TempShareSheetState extends ConsumerState<TempShareSheet> {
         content: Text(
           _bothWays
               ? (askedBack
-                  ? 'Sharing with $name; asked them to share back'
-                  : "Sharing with $name; couldn't ask them to share back")
+                    ? 'Sharing with $name; asked them to share back'
+                    : "Sharing with $name; couldn't ask them to share back")
               : '$name can see you for ${_label(_minutes)}',
         ),
       ),
@@ -113,8 +116,10 @@ class _TempShareSheetState extends ConsumerState<TempShareSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Share with $name for a while',
-                style: context.text.headlineSmall),
+            Text(
+              'Share with $name for a while',
+              style: context.text.headlineSmall,
+            ),
             SizedBox(height: context.space.md),
             _DirectionCard(name: name, bothWays: _bothWays),
             SizedBox(height: context.space.xl),
@@ -127,19 +132,27 @@ class _TempShareSheetState extends ConsumerState<TempShareSheet> {
                   ChoiceChip(
                     label: Text(label),
                     selected: _minutes == m,
-                    onSelected: (_) => setState(() => _minutes = m),
+                    onSelected: (_) {
+                      if (_minutes == m) return;
+                      Haptics.selection(ref);
+                      setState(() => _minutes = m);
+                    },
                   ),
               ],
             ),
             SizedBox(height: context.space.lg),
             SwitchListTile(
               value: _bothWays,
-              onChanged: (v) => setState(() => _bothWays = v),
+              onChanged: (v) {
+                Haptics.selection(ref);
+                setState(() => _bothWays = v);
+              },
               title: const Text('Both ways'),
               subtitle: Text(
                 'Also ask $name to share their location with you.',
-                style: context.text.bodySmall
-                    ?.copyWith(color: context.colors.onSurfaceVariant),
+                style: context.text.bodySmall?.copyWith(
+                  color: context.colors.onSurfaceVariant,
+                ),
               ),
               contentPadding: EdgeInsets.zero,
             ),

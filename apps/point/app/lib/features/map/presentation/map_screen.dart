@@ -13,6 +13,7 @@ import 'package:point_app/features/map/presentation/self_marker.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -195,7 +196,12 @@ class _MapScreenState extends ConsumerState<MapScreen>
       floatingActionButton: FloatingActionButton.small(
         heroTag: 'recenter',
         tooltip: 'Recenter on me',
-        onPressed: selfPoint == null ? null : () => _moveTo(selfPoint),
+        onPressed: selfPoint == null
+            ? null
+            : () {
+                Haptics.selection(ref);
+                _moveTo(selfPoint);
+              },
         child: const Icon(Icons.my_location),
       ),
       body: Stack(
@@ -220,10 +226,13 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 people: located,
                 motions: motions,
                 reducedMotion: reducedMotion,
-                onFocus: (person) => _moveTo(
-                  LatLng(person.lat!, person.lon!),
-                  followUserId: person.userId,
-                ),
+                onFocus: (person) {
+                  Haptics.selection(ref);
+                  _moveTo(
+                    LatLng(person.lat!, person.lon!),
+                    followUserId: person.userId,
+                  );
+                },
                 onPosition: _onMarkerPosition,
               ),
               if (selfPoint != null) _SelfMarkerLayer(point: selfPoint),

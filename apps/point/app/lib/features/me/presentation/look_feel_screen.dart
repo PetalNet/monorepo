@@ -87,8 +87,8 @@ class LookFeelScreen extends ConsumerWidget {
               ),
             ],
             onSelected: (v) {
+              Haptics.preview(ref, v);
               unawaited(notifier.update((s) => s.copyWith(haptics: v)));
-              Haptics.impact(ref);
             },
           ),
           const Divider(),

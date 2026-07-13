@@ -14,6 +14,7 @@ import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -405,9 +406,12 @@ class _HideFromTile extends ConsumerWidget {
       ),
       child: SwitchListTile(
         value: hidden,
-        onChanged: (v) => ref
-            .read(ghostControllerProvider.notifier)
-            .setHiddenFrom(person.userId, hidden: v),
+        onChanged: (v) {
+          Haptics.commit(ref);
+          ref
+              .read(ghostControllerProvider.notifier)
+              .setHiddenFrom(person.userId, hidden: v);
+        },
         title: Text(
           'Hide from ${person.displayName}',
           style: context.text.titleMedium,
@@ -456,9 +460,10 @@ class _TempShareTile extends ConsumerWidget {
                 ),
               ),
               TextButton(
-                onPressed: () => ref
-                    .read(tempSharesControllerProvider.notifier)
-                    .stop(temp.id),
+                onPressed: () {
+                  Haptics.warning(ref);
+                  ref.read(tempSharesControllerProvider.notifier).stop(temp.id);
+                },
                 child: const Text('Stop'),
               ),
             ],
@@ -510,7 +515,10 @@ class _StopSharingTile extends ConsumerWidget {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () {
+              Haptics.warning(ref);
+              Navigator.of(ctx).pop(true);
+            },
             child: const Text('Stop sharing'),
           ),
         ],

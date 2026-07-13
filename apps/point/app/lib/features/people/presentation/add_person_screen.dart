@@ -6,6 +6,7 @@ import 'package:point_app/features/me/me_profile_provider.dart';
 import 'package:point_app/features/people/invite.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/people/requests_controller.dart';
+import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/services/api/point_api.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -398,17 +399,20 @@ class _InviteCardState extends State<InviteCard> {
         SizedBox(height: context.space.sm),
         SizedBox(
           width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: link));
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Invite link copied')),
-                );
-              }
-            },
-            icon: const Icon(Icons.copy),
-            label: const Text('Copy invite link'),
+          child: Consumer(
+            builder: (context, ref, _) => OutlinedButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: link));
+                if (context.mounted) {
+                  Haptics.commit(ref);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Invite link copied')),
+                  );
+                }
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy invite link'),
+            ),
           ),
         ),
       ],

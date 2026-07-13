@@ -9,6 +9,7 @@ import 'package:point_app/app/shell_chrome.dart';
 import 'package:point_app/features/ghost/who_sees_me.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/people/requests_controller.dart';
+import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/api/point_api.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -40,6 +41,12 @@ class _MutableRequests extends RequestsController {
   ];
 
   void clear() => state = const AsyncData([]);
+}
+
+class _RecordingHaptics {
+  final cues = <HapticCue>[];
+
+  void play(HapticCue cue) => cues.add(cue);
 }
 
 void main() {
@@ -184,6 +191,7 @@ void main() {
     tester,
   ) async {
     var declined = false;
+    final haptics = _RecordingHaptics();
     final response = Completer<http.Response>();
     final api = PointApi(
       baseUrl: 'https://point.dev',
@@ -212,6 +220,7 @@ void main() {
         overrides: [
           authControllerProvider.overrideWith(_SignedInAuth.new),
           apiProvider.overrideWithValue(api),
+          hapticFeedbackDriverProvider.overrideWithValue(haptics.play),
         ],
         child: MaterialApp(
           theme: AppTheme.dark(pureBlack: true),
@@ -224,6 +233,7 @@ void main() {
     await tester.tap(find.byTooltip('Decline'));
     await tester.pump();
     expect(find.text('Declined'), findsOneWidget);
+    expect(haptics.cues, [HapticCue.warning]);
 
     response.complete(http.Response('{"ok":true}', 200));
     await tester.pumpAndSettle();

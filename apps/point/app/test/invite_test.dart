@@ -270,13 +270,15 @@ void main() {
   });
 
   group('native share state', () {
-    Widget host(InviteShareCallback onShare) => MaterialApp(
-      theme: AppTheme.dark(pureBlack: true),
-      home: Scaffold(
-        body: SingleChildScrollView(
-          child: InviteCard(
-            userId: 'eli@self-hosted.example',
-            onShare: onShare,
+    Widget host(InviteShareCallback onShare) => ProviderScope(
+      child: MaterialApp(
+        theme: AppTheme.dark(pureBlack: true),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: InviteCard(
+              userId: 'eli@self-hosted.example',
+              onShare: onShare,
+            ),
           ),
         ),
       ),

@@ -10,6 +10,7 @@ import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
 import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
+import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/api/point_api.dart';
@@ -584,9 +585,10 @@ class _TempSection extends ConsumerWidget {
                   ),
                 ),
                 TextButton(
-                  onPressed: () => ref
-                      .read(tempSharesControllerProvider.notifier)
-                      .stop(t.id),
+                  onPressed: () {
+                    Haptics.warning(ref);
+                    ref.read(tempSharesControllerProvider.notifier).stop(t.id);
+                  },
                   child: const Text('Stop'),
                 ),
               ],
@@ -1078,30 +1080,36 @@ class _RequestRowState extends ConsumerState<_RequestRow> {
             IconButton(
               tooltip: 'Decline',
               icon: const Icon(Icons.close),
-              onPressed: () => _run(
-                complete: 'Declined',
-                refreshPeople: false,
-                action: () async {
-                  if (session == null) return;
-                  await ref
-                      .read(apiProvider)
-                      .rejectRequest(session.token, r.id);
-                },
-              ),
+              onPressed: () {
+                Haptics.warning(ref);
+                _run(
+                  complete: 'Declined',
+                  refreshPeople: false,
+                  action: () async {
+                    if (session == null) return;
+                    await ref
+                        .read(apiProvider)
+                        .rejectRequest(session.token, r.id);
+                  },
+                );
+              },
             ),
             IconButton.filled(
               tooltip: 'Accept',
               icon: const Icon(Icons.check),
-              onPressed: () => _run(
-                complete: 'Accepted',
-                refreshPeople: true,
-                action: () async {
-                  if (session == null) return;
-                  await ref
-                      .read(apiProvider)
-                      .acceptRequest(session.token, r.id);
-                },
-              ),
+              onPressed: () {
+                Haptics.commit(ref);
+                _run(
+                  complete: 'Accepted',
+                  refreshPeople: true,
+                  action: () async {
+                    if (session == null) return;
+                    await ref
+                        .read(apiProvider)
+                        .acceptRequest(session.token, r.id);
+                  },
+                );
+              },
             ),
           ],
         ],
