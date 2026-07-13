@@ -51,9 +51,18 @@ async function json<T>(res: Response): Promise<T> {
 	return (await res.json()) as T;
 }
 
-/** GET /api/v1/me — the caller's Principal + display/grant name (session chip). */
+/**
+ * GET /api/v1/me — the caller's Principal + display/grant name (session chip). `credentials:
+ * "include"` so the browser sends the Authentik session cookie to console-api even cross-origin
+ * (the human forwardAuth flow, §1.2); without it a cross-origin console-api never sees the session
+ * and every human falls to the offline principal. The API side owns the matching credentialed CORS
+ * (BLOCKERS).
+ */
 export async function readMe(fetchFn: typeof fetch = fetch): Promise<Me> {
-	const res = await fetchFn(`${base()}/me`, { headers: { accept: "application/json" } });
+	const res = await fetchFn(`${base()}/me`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
 	return json<Me>(res);
 }
 
@@ -81,6 +90,7 @@ export async function runOp(
 	const res = await (opts.fetchFn ?? fetch)(`${base()}/op`, {
 		method: "POST",
 		headers: { "content-type": "application/json", accept: "application/json" },
+		credentials: "include", // send the Authentik session for command authz (§1.2)
 		body: JSON.stringify({ op, id, args, dry_run: opts.dry_run ?? false }),
 	});
 	return json<OpResult>(res);
