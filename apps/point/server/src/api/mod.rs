@@ -60,6 +60,7 @@ pub fn router(state: AppState) -> Router {
             post(invites::create_invite).get(invites::list_invites),
         )
         .route("/api/invites/{id}", delete(invites::delete_invite))
+        .route("/add/{user_id}", get(invites::peer_invite_landing))
         .route("/api/admin/info", get(invites::admin_info))
         // shares
         .route("/api/shares", get(shares::list_shares))
