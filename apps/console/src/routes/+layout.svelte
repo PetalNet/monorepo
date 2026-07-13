@@ -13,7 +13,7 @@
 
 	// Deterministic quick-nav (foundations §3.6): `g` then a surface key jumps
 	// surfaces, never routing through the assistant (no LLM in the emergency
-	// path). `/` focuses the ask box (handled by the surface that owns the dock).
+	// path). The shell owns `/`, so its advertised behavior is route-independent.
 	let awaitingG = $state(false);
 	let gTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -22,8 +22,22 @@
 		return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
 	}
 
+	async function focusAsk() {
+		let ask = document.querySelector<HTMLInputElement>('input[aria-label="Ask Janet"]:not(:disabled)');
+		if (!ask) {
+			await goto("/");
+			ask = document.querySelector<HTMLInputElement>('input[aria-label="Ask Janet"]:not(:disabled)');
+		}
+		ask?.focus();
+	}
+
 	function onKey(e: KeyboardEvent) {
 		if (isTyping(e.target)) return;
+		if (e.key === "/") {
+			e.preventDefault();
+			void focusAsk();
+			return;
+		}
 		if (awaitingG) {
 			const entry = visibleNav(data.me.lanes).find((n) => n.key === e.key.toLowerCase());
 			awaitingG = false;

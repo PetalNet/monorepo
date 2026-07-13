@@ -202,6 +202,9 @@
 	.filter input:focus {
 		outline: none;
 	}
+	.filter:focus-within {
+		box-shadow: 0 0 0 2px var(--petal);
+	}
 	.strip-wrap {
 		margin-top: var(--s-3);
 	}
