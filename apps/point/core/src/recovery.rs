@@ -16,8 +16,7 @@
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use rand::rngs::OsRng;
-use rand::{Rng, RngCore};
+use rand::RngExt;
 use zeroize::Zeroize;
 
 const MAGIC: &[u8; 4] = b"PTR1";
@@ -62,8 +61,8 @@ fn derive_key(code: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
 pub fn encrypt(state: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
     // Generate the random array directly (no zero-init buffer) so both the code
     // and static analysis see fresh CSPRNG bytes as the salt/nonce source.
-    let salt: [u8; SALT_LEN] = OsRng.gen();
-    let nonce: [u8; NONCE_LEN] = OsRng.gen();
+    let salt: [u8; SALT_LEN] = rand::random();
+    let nonce: [u8; NONCE_LEN] = rand::random();
 
     let mut key = derive_key(recovery_code, &salt)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|e| e.to_string())?;
@@ -106,7 +105,7 @@ pub fn decrypt(blob: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
 pub fn generate_code() -> String {
     const ALPHA: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     let mut raw = [0u8; 15]; // 120 bits -> exactly 24 base32 symbols
-    OsRng.fill_bytes(&mut raw);
+    rand::rng().fill(&mut raw);
 
     let mut out = String::with_capacity(24 + 3);
     let mut acc = 0u32;

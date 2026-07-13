@@ -10,7 +10,6 @@
 //! The private key (a 32-byte seed) never leaves the DB row and is never logged.
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-use rand::RngCore;
 use sqlx::PgPool;
 
 /// Load the persisted signing key, generating + persisting one on first boot.
@@ -27,8 +26,7 @@ pub async fn load_or_generate(pool: &PgPool) -> Result<SigningKey, sqlx::Error> 
     let seed_bytes = match existing {
         Some((b,)) => b,
         None => {
-            let mut seed = [0u8; 32];
-            rand::rngs::OsRng.fill_bytes(&mut seed);
+            let seed: [u8; 32] = rand::random();
             let signing = SigningKey::from_bytes(&seed);
             let public = signing.verifying_key().to_bytes();
             sqlx::query(
@@ -98,8 +96,7 @@ mod tests {
     use super::*;
 
     fn test_key() -> SigningKey {
-        let mut seed = [7u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut seed);
+        let seed: [u8; 32] = rand::random();
         SigningKey::from_bytes(&seed)
     }
 
