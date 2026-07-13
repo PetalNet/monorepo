@@ -5,7 +5,7 @@
 	import { hueForHandle, initial } from "$lib/util";
 	import BudgetLight from "./BudgetLight.svelte";
 	import Countdown from "./Countdown.svelte";
-	import Icon from "./Icon.svelte";
+	import IconButton from "./IconButton.svelte";
 	import OpButton from "./OpButton.svelte";
 	import StatusPill from "./StatusPill.svelte";
 
@@ -65,9 +65,7 @@
 	</div>
 	<div class="lease"><Countdown expiresAt={row.lease_expires_at ?? null} {now} /></div>
 	<div class="overflow">
-		<button class="ov-btn" aria-label="Actions for {row.handle}" onclick={() => (menuOpen = !menuOpen)}>
-			<Icon name="ellipsis" size={16} />
-		</button>
+		<IconButton name="ellipsis" label="Actions for {row.handle}" onclick={() => (menuOpen = !menuOpen)} />
 		{#if menuOpen}
 			<div class="menu" role="menu">
 				{#if restart}
@@ -158,21 +156,6 @@
 		position: relative;
 		display: flex;
 		justify-content: flex-end;
-	}
-	.ov-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 28px;
-		border: 0;
-		border-radius: var(--r-sm);
-		background: transparent;
-		color: var(--text-3);
-		cursor: pointer;
-	}
-	.ov-btn:hover {
-		background: var(--s3);
 	}
 	.menu {
 		position: absolute;
