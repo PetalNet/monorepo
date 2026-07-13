@@ -55,7 +55,7 @@ catalogs:
     typesync: ^0.14.3
     update-ts-references: ^6.0.0
     vite: ^8.0.0
-    vitest: ^3.2.4
+    vitest: ^4.0.0
     # Exact-pinned (not ^) so it stays in lockstep with the CI-installed vp
     # (.github/workflows/ci.yml setup-vp version). Renovate bumps both together.
     vite-plus: 0.2.4
