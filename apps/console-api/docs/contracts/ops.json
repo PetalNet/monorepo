@@ -51,6 +51,11 @@
 						"minimum": 60,
 						"maximum": 604800,
 						"default": 3600
+					},
+					"restore": {
+						"type": "boolean",
+						"default": false,
+						"description": "End an active automatic storm mute for this pattern."
 					}
 				},
 				"additionalProperties": false
@@ -626,7 +631,7 @@
 				"additionalProperties": false
 			},
 			"effect": "timed per-user mute (Quiet 1h), auto-expires, visibly listed; storm auto-mute uses this attributed to system:bus",
-			"emits": ["signal.snoozed"],
+			"emits": ["signal.snoozed", "subscription.changed"],
 			"undo": true,
 			"testable": "disposable",
 			"phase": 1

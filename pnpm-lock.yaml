@@ -352,6 +352,9 @@ importers:
       tailwindcss:
         specifier: catalog:prod
         version: 4.3.1
+      zod:
+        specifier: catalog:prod
+        version: 4.4.3
     devDependencies:
       '@playwright/test':
         specifier: catalog:dev

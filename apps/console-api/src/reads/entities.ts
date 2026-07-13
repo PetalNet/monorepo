@@ -127,6 +127,7 @@ export async function readTypedEntity(
 			"owner",
 			"updated_by",
 			"updated_at",
+			"storm",
 		])
 			if (row.state[key] !== undefined) item[key] = row.state[key];
 		return item;

@@ -75,6 +75,9 @@ const OPS = {
 					"type": "integer",
 					"minimum": 60,
 					"maximum": 604800
+				},
+				"restore": {
+					"type": "boolean"
 				}
 			},
 			"additionalProperties": false

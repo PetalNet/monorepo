@@ -8,8 +8,10 @@ const e2e = process.env.CONSOLE_E2E === "1";
 /** @type {import("@sveltejs/kit").Config} */
 const config = {
 	preprocess: vitePreprocess(),
+	compilerOptions: { experimental: { async: true } },
 	kit: {
 		adapter: adapter(),
+		experimental: { remoteFunctions: true },
 		csp: {
 			mode: "auto",
 			directives: {

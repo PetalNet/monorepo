@@ -5,7 +5,7 @@
 	"description": "Persisted per-owner subscription driving the Signals feed, digests, and off-console delivery. Agent-malleable config: subscription.set/remove are ordinary audited ops; the UI menu and an agent edit the same store. Escalation per /task/709: interrupt reserved for p0/safety/principal-command.",
 	"type": "object",
 	"required": ["schema_version", "pattern", "tier", "owner"],
-	"additionalProperties": false,
+	"additionalProperties": true,
 	"properties": {
 		"schema_version": { "const": 1 },
 		"pattern": {
@@ -41,6 +41,33 @@
 			"description": "Principal id this subscription belongs to (per-user/per-agent)."
 		},
 		"updated_by": { "type": ["string", "null"] },
-		"updated_at": { "type": ["string", "null"], "format": "date-time" }
+		"updated_at": { "type": ["string", "null"], "format": "date-time" },
+		"storm": {
+			"type": ["object", "null"],
+			"description": "System-authored timed override when this scope exceeded the signal-storm threshold.",
+			"additionalProperties": false,
+			"required": [
+				"active",
+				"event_count",
+				"threshold",
+				"window_started_at",
+				"muted_at",
+				"expires_at",
+				"previous_tier",
+				"muted_by"
+			],
+			"properties": {
+				"active": { "type": "boolean" },
+				"event_count": { "type": "integer", "minimum": 0 },
+				"threshold": { "type": "integer", "minimum": 1 },
+				"window_started_at": { "type": "string", "format": "date-time" },
+				"muted_at": { "type": "string", "format": "date-time" },
+				"expires_at": { "type": "string", "format": "date-time" },
+				"previous_tier": { "const": "feed" },
+				"muted_by": { "const": "system:bus" },
+				"undone_at": { "type": "string", "format": "date-time" },
+				"undone_by": { "type": "string" }
+			}
+		}
 	}
 }
