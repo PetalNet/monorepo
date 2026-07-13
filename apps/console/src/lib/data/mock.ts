@@ -12,6 +12,7 @@ import type {
 	FleetItem,
 	Me,
 	RegistryItem,
+	RosterItem,
 } from "$lib/api/types";
 
 const now = Date.now();
@@ -286,6 +287,150 @@ export const comms: CommsEvent[] = [
 	},
 	{ id: "c2", method: "comms.rpc", sender: "dispatcher", recipient: "fleet", ts: iso(2_000) },
 ];
+
+// The Agents surface reads /roster (a server-side join). One row per agent.
+export const roster: RosterItem[] = [
+	{
+		handle: "hopper-3",
+		host: ".15",
+		status: "working",
+		current_tool: "WebFetch",
+		task_id: 731,
+		task_title: "doorman enrollment test",
+		heartbeat_state: "rate_limited",
+		crash_count: 0,
+		channel_lock_state: "held",
+		autonomy: "ask",
+		lane: "operator",
+		light: "yellow",
+		tokens_spent: 612_000,
+		tier: "sonnet",
+		lease_expires_at: new Date(now + 4 * 60_000).toISOString(),
+		fence: 2,
+		workers_active: 0,
+		updated_at: iso(8_000),
+		observed_at: iso(6_000),
+		fleet_updated_at: iso(8_000),
+		started_at: iso(2_700_000),
+		registry_last_seen_epoch: epoch(8),
+	},
+	{
+		handle: "janet",
+		host: ".202",
+		status: "working",
+		current_tool: "Bash",
+		task_id: 712,
+		task_title: "console frontend",
+		heartbeat_state: "running",
+		crash_count: 0,
+		channel_lock_state: "held",
+		autonomy: "auto",
+		lane: "admin",
+		light: "green",
+		tokens_spent: 380_000,
+		tier: "opus",
+		lease_expires_at: new Date(now + 22 * 60_000).toISOString(),
+		fence: 1,
+		workers_active: 2,
+		updated_at: iso(6_000),
+		observed_at: iso(5_000),
+		fleet_updated_at: iso(6_000),
+		started_at: iso(3_600_000),
+		registry_last_seen_epoch: epoch(6),
+	},
+	{
+		handle: "carson-2",
+		host: ".14",
+		status: "working",
+		current_tool: "Edit",
+		task_id: 718,
+		task_title: "library backfill",
+		heartbeat_state: "running",
+		crash_count: 3,
+		channel_lock_state: "held",
+		autonomy: "auto",
+		lane: "operator",
+		light: "green",
+		tokens_spent: 214_000,
+		tier: "sonnet",
+		lease_expires_at: new Date(now + 18 * 60_000).toISOString(),
+		fence: 4,
+		workers_active: 1,
+		updated_at: iso(9_000),
+		observed_at: iso(8_000),
+		fleet_updated_at: iso(9_000),
+		started_at: iso(5_400_000),
+		registry_last_seen_epoch: epoch(9),
+	},
+	{
+		handle: "point-fable",
+		host: ".14",
+		status: "idle",
+		current_tool: null,
+		task_id: null,
+		task_title: null,
+		heartbeat_state: "running",
+		crash_count: 0,
+		channel_lock_state: "released",
+		autonomy: "auto",
+		lane: "operator",
+		light: "green",
+		tokens_spent: 96_000,
+		tier: "sonnet",
+		lease_expires_at: null,
+		fence: null,
+		workers_active: 0,
+		updated_at: iso(22_000),
+		observed_at: iso(21_000),
+		fleet_updated_at: iso(22_000),
+		started_at: iso(7_200_000),
+		registry_last_seen_epoch: epoch(22),
+	},
+	{
+		// Registry stub: known to the capacity registry, no fleet/heartbeat row.
+		// Rendered in Idle, never hidden.
+		handle: "derek",
+		host: "mc34",
+		status: null,
+		current_tool: null,
+		task_id: null,
+		task_title: null,
+		heartbeat_state: null,
+		crash_count: null,
+		channel_lock_state: null,
+		autonomy: "readonly",
+		lane: "viewer",
+		light: null,
+		tokens_spent: null,
+		tier: null,
+		lease_expires_at: null,
+		fence: null,
+		workers_active: 0,
+		updated_at: iso(240_000),
+		observed_at: iso(239_000),
+		fleet_updated_at: null,
+		started_at: null,
+		registry_last_seen_epoch: epoch(240),
+	},
+];
+
+/** Fleet-wide governance summary for the FleetStrip (/task/716). */
+export interface FleetSummary {
+	tokensSpent: number;
+	tokensGranted: number;
+	mode: "parallel" | "sequential";
+	modeReason: string | null;
+	disciplineOffTask: number;
+	disciplineNote: string | null;
+}
+export const fleetSummary: FleetSummary = {
+	tokensSpent: 1_420_000,
+	tokensGranted: 2_200_000,
+	mode: "parallel",
+	modeReason: null,
+	disciplineOffTask: 0,
+	disciplineNote: null,
+};
 
 export interface SavedDashboard {
 	id: string;

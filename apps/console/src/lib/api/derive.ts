@@ -4,7 +4,7 @@
  * health. This is the shell's subset; each surface adds the derivations it needs (severity→label,
  * incident collapse, heartbeat freshness) when it lands.
  */
-import type { AttentionGrade, AttentionItem, FleetItem, RegistryItem } from "./types";
+import type { AttentionGrade, AttentionItem, FleetItem, RegistryItem, RosterItem } from "./types";
 
 // Freshness windows (foundations §8, seconds).
 const WINDOW = {
@@ -80,6 +80,72 @@ export function healthVerdict(h: HealthInputs): HealthVerdict {
 	if (!busFresh || !fleetFresh) return "cant_verify";
 	if (h.activeAttentionCount > 0) return "needs_you";
 	return "fine";
+}
+
+// Roster (GET /roster) derivations — the Agents surface. Presence merges the
+// fleet status with the heartbeat state and staleness; a gone-quiet resident
+// counts as down, never alive (§7), while keeping its lane slot.
+export type RosterState =
+	| "working"
+	| "alive"
+	| "idle"
+	| "rate_limited"
+	| "waiting"
+	| "crashed"
+	| "stopped"
+	| "paused"
+	| "gone_quiet";
+export type RosterLane = "needs" | "working" | "idle";
+
+export function rosterState(row: RosterItem, now = Date.now()): RosterState {
+	if (row.autonomy === "paused") return "paused";
+	const hb = row.heartbeat_state;
+	if (hb === "crashed") return "crashed";
+	if (hb === "stopped") return "stopped";
+	if (hb === "rate_limited") return "rate_limited";
+	if (hb === "waiting") return "waiting";
+	// gone-quiet is derived from the FLEET clock (never the join time), §6.2.
+	const fleetClock = row.fleet_updated_at ?? row.updated_at;
+	if (row.status && ageS(fleetClock, now) > WINDOW.fleetSnapshot) return "gone_quiet";
+	if (row.status === "working") return "working";
+	if (row.status === "idle") return "idle";
+	if (row.status === "alive") return "alive";
+	// No fleet row (registry stub): liveness from the capacity clock.
+	if (row.registry_last_seen_epoch != null) {
+		return ageEpochS(row.registry_last_seen_epoch, now) > WINDOW.registryDown
+			? "gone_quiet"
+			: "idle";
+	}
+	return "idle";
+}
+
+/** Down = gone-quiet ∪ crashed/stopped (§3.1 health zone). */
+export function isRosterDown(state: RosterState): boolean {
+	return state === "gone_quiet" || state === "crashed" || state === "stopped";
+}
+
+/** Lane assignment: needs-you states float to the top lane (§2). */
+export function rosterLane(state: RosterState): RosterLane {
+	if (isRosterDown(state) || state === "rate_limited" || state === "waiting") return "needs";
+	if (state === "working") return "working";
+	return "idle";
+}
+
+export type Tone = "good" | "warn" | "danger" | "info" | "idle";
+export function rosterTone(state: RosterState): Tone {
+	switch (state) {
+		case "working":
+		case "alive":
+			return "good";
+		case "rate_limited":
+		case "waiting":
+			return "warn";
+		case "crashed":
+		case "stopped":
+			return "danger";
+		default:
+			return "idle";
+	}
 }
 
 /** Human-facing "Ns" / "Nm" / "Nh" age. */
