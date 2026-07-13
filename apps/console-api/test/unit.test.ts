@@ -8,6 +8,7 @@ import { matchPattern } from "../src/bus/broker.ts";
 import { parseEmission, type Emission } from "../src/emission.ts";
 import { authorizeEmission, type ProducerRegistration } from "../src/ingest/authz.ts";
 import { scrubEmission } from "../src/ingest/scrubber.ts";
+import { materializePanel, selectPanelType } from "../src/render/engine.ts";
 
 function emission(over: Partial<Emission> = {}): Emission {
 	return {
@@ -162,5 +163,105 @@ describe("assistant compiler boundary", () => {
 				server.close((error) => (error ? reject(error) : resolve())),
 			);
 		}
+	});
+});
+
+describe("renderer-agnostic graph output", () => {
+	it("selects charts from dimension × measure × cardinality", () => {
+		const result = {
+			schema_version: 1 as const,
+			columns: [
+				{ name: "zone", type: "string" },
+				{ name: "latency", type: "number" },
+			],
+			rows: [
+				["north", 12],
+				["south", 18],
+			],
+			row_count: 2,
+			execution_ms: 1,
+			freshness: { source: "lake", observed_at: new Date().toISOString(), window_s: null },
+			query_ref: "q_chart",
+		};
+		expect(selectPanelType(result)).toMatchObject({
+			type: "bar",
+			x: "zone",
+			y: "latency",
+		});
+		const crowded = {
+			...result,
+			rows: Array.from({ length: 21 }, (_, index) => [`zone-${String(index)}`, index]),
+			row_count: 21,
+		};
+		expect(selectPanelType(crowded).type).toBe("table");
+	});
+
+	it("generates Vega-Lite forecast data without renderer code", () => {
+		const result = {
+			schema_version: 1 as const,
+			columns: [
+				{ name: "bucket", type: "string" },
+				{ name: "cpu", type: "number" },
+			],
+			rows: [
+				["2026-07-12T00:00:00.000Z", 30],
+				["2026-07-11T00:00:00.000Z", 20],
+				["2026-07-10T00:00:00.000Z", 10],
+			],
+			row_count: 3,
+			execution_ms: 1,
+			freshness: { source: "lake", observed_at: new Date().toISOString(), window_s: null },
+			query_ref: "q_forecast",
+		};
+		const output = materializePanel(
+			{
+				schema_version: 2,
+				type: "line",
+				title: "CPU trend",
+				query_ref: "q_forecast",
+				encoding: { x: "bucket", y: "cpu" },
+				forecast: { strategy: "linear", horizon: 2, confidence: "high" },
+			},
+			result,
+		);
+		expect(output.render).toMatchObject({
+			renderer: "vega-lite",
+			forecast_strategy: "linear",
+		});
+		const data = output.render.spec?.["data"] as { values: Record<string, unknown>[] };
+		expect(data.values).toHaveLength(5);
+		expect(data.values[0]?.["bucket"]).toBe("2026-07-10T00:00:00.000Z");
+		expect(data.values.at(-1)).toMatchObject({ __series: "forecast" });
+		expect(Date.parse(String(data.values.at(-1)?.["bucket"]))).toBeGreaterThan(
+			Date.parse("2026-07-12T00:00:00.000Z"),
+		);
+
+		const numeric = materializePanel(
+			{
+				schema_version: 2,
+				type: "line",
+				title: "Numeric trend",
+				query_ref: "q_numeric",
+				encoding: { x: "step", y: "value" },
+				forecast: { strategy: "drift", horizon: 1 },
+			},
+			{
+				...result,
+				columns: [
+					{ name: "step", type: "number" },
+					{ name: "value", type: "number" },
+				],
+				rows: [
+					[3, 30],
+					[1, 10],
+					[2, 20],
+				],
+				query_ref: "q_numeric",
+			},
+		);
+		const layers = numeric.render.spec?.["layer"] as {
+			encoding: { x: { type: string } };
+		}[];
+		expect(layers.map((layer) => layer.encoding.x.type)).toEqual(["quantitative", "quantitative"]);
 	});
 });

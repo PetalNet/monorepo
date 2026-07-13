@@ -497,6 +497,7 @@ export async function prepareStructured(
 			);
 		}
 	}
+	if (req.time?.bucket && orderParts.length === 0) orderParts.push("bucket asc");
 
 	// coerce limit to a sane positive int so a non-numeric/negative value is a clean 400, not a raw
 	// Postgres 500 (sub-agent L1)

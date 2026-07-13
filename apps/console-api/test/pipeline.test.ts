@@ -827,6 +827,7 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 					host: "127.0.0.1",
 					port: 0,
 					devAuth: false,
+					cursorSecret: "test-cursor-secret",
 					glitchtipDsn: null,
 					trackerDbPath: null,
 				},
@@ -845,6 +846,7 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 				host: "127.0.0.1",
 				port: 0,
 				devAuth: false,
+				cursorSecret: "test-cursor-secret",
 				glitchtipDsn: null,
 				trackerDbPath: null,
 			},
@@ -864,6 +866,7 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 					host: "127.0.0.1",
 					port: 0,
 					devAuth: false,
+					cursorSecret: "test-cursor-secret",
 					glitchtipDsn: null,
 					trackerDbPath: null,
 				},
@@ -1230,6 +1233,319 @@ describe("structured query", () => {
 			`show ${type}`,
 		);
 		expect(result.status).toBe("refused");
+	});
+
+	it("saves scoped investigation state and replays panels as the viewer", async () => {
+		const query = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "events",
+			select: [{ field: "seq", agg: "count", as: "events" }],
+		});
+		const server = await buildServer(services, true);
+		const fleet = {
+			"x-dev-principal": JSON.stringify({
+				kind: "human",
+				id: "tester",
+				scopes: ["fleet"],
+				lanes: ["viewer"],
+			}),
+		};
+		try {
+			const mutationId = randomUUID();
+			const payload = {
+				schema_version: 1,
+				id: mutationId,
+				title: "Fleet investigation",
+				scope: "fleet",
+				panels: [
+					{
+						schema_version: 2,
+						type: "stat",
+						title: "Events",
+						query_ref: query.query_ref,
+						encoding: { value: "events" },
+					},
+				],
+				branch: {
+					parent_dashboard_id: null,
+					parent_question: "How many events?",
+					filters: { scope: "fleet" },
+					selected_mark: {
+						element_kind: "stat",
+						field: "events",
+						query_ref: query.query_ref,
+						datum: { events: 99 },
+					},
+					assumptions: ["fleet scope"],
+				},
+			};
+			const saved = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers: fleet,
+				payload,
+			});
+			expect(saved.statusCode, saved.body).toBe(200);
+			const id = saved.json().id as string;
+			expect(saved.json().payload.panels[0].query_ref).not.toBe(query.query_ref);
+			expect(saved.json().payload.branch.selected_mark).not.toHaveProperty("datum");
+			const retry = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers: fleet,
+				payload,
+			});
+			expect(retry.json().id).toBe(id);
+			const reused = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers: fleet,
+				payload: { ...payload, title: "Changed" },
+			});
+			expect(reused.statusCode).toBe(400);
+			expect(reused.json().error.code).toBe("id_reused");
+			const loaded = await server.inject({
+				method: "GET",
+				url: `/api/v1/dashboards/${id}`,
+				headers: fleet,
+			});
+			expect(loaded.statusCode).toBe(200);
+			expect(loaded.json().payload.branch.parent_question).toBe("How many events?");
+			expect(loaded.json().materialized_panels[0]).toMatchObject({
+				panel: { type: "stat" },
+				render: { renderer: "native", data_query_ref: expect.stringMatching(/^q_/) },
+			});
+			const hidden = await server.inject({
+				method: "GET",
+				url: `/api/v1/dashboards/${id}`,
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "outsider",
+						scopes: ["user:outsider"],
+						lanes: ["viewer"],
+					}),
+				},
+			});
+			expect(hidden.statusCode).toBe(404);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("refuses to save a query into a broader dashboard scope", async () => {
+		const type = `test.private_${randomBytes(4).toString("hex")}`;
+		await services.emit(
+			"test:emitter",
+			emission({ type, scope: "user:secret", measures: { value: 7 } }),
+			300,
+		);
+		const query = await runStructured(services.db.app, ["user:secret"], {
+			schema_version: 1,
+			mode: "structured",
+			from: type,
+			select: [{ field: "value", agg: "avg", as: "secret" }],
+		});
+		const server = await buildServer(services, true);
+		try {
+			const response = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "author",
+						scopes: ["user:secret", "user:public"],
+						lanes: ["viewer"],
+					}),
+				},
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					title: "Unsafe",
+					scope: "user:public",
+					panels: [
+						{
+							schema_version: 2,
+							type: "stat",
+							title: "Secret",
+							query_ref: query.query_ref,
+							narrative: "secret: 7",
+						},
+					],
+				},
+			});
+			expect(response.statusCode).toBe(400);
+			expect(response.json().error.code).toBe("query_not_shareable");
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("resolves saved text stat bindings as the viewer and paginates dashboards", async () => {
+		const query = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "events",
+			select: [{ field: "seq", agg: "count", as: "events" }],
+		});
+		const server = await buildServer(services, true);
+		const headers = {
+			"x-dev-principal": JSON.stringify({
+				kind: "human",
+				id: "binding-user",
+				scopes: ["fleet"],
+				lanes: ["viewer"],
+			}),
+		};
+		try {
+			const saved = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					title: "Bound prose",
+					scope: "fleet",
+					panels: [
+						{
+							schema_version: 2,
+							type: "text",
+							title: "Summary",
+							prose: `Visible events: {{stat:${query.query_ref}#events[count]}}`,
+						},
+					],
+				},
+			});
+			expect(saved.statusCode, saved.body).toBe(200);
+			const loaded = await server.inject({
+				method: "GET",
+				url: `/api/v1/dashboards/${String(saved.json().id)}`,
+				headers,
+			});
+			expect(loaded.json().materialized_panels[0].render.bindings[0]).toMatchObject({
+				column: "events",
+				status: "resolved",
+				query_ref: expect.stringMatching(/^q_/),
+			});
+			const another = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					title: "Second page",
+					scope: "fleet",
+					panels: [
+						{
+							schema_version: 2,
+							type: "text",
+							title: "Notes",
+							prose: "No bound statistics.",
+						},
+					],
+				},
+			});
+			expect(another.statusCode, another.body).toBe(200);
+			const cursorHigh = `dash_${randomBytes(12).toString("hex")}`;
+			const cursorLow = `dash_${randomBytes(12).toString("hex")}`;
+			const cursorPayload = {
+				schema_version: 1,
+				layout: {},
+				panels: [{ schema_version: 2, type: "text", title: "Cursor", prose: "Cursor" }],
+				query_refs: [],
+				branch: null,
+				time: null,
+			};
+			await services.db.writer`
+				insert into items_min (id, kind, title, scope, created_by, payload, updated_at)
+				values
+					(${cursorHigh}, 'artifact', 'Cursor high', 'fleet', 'binding-user', ${services.db.writer.json(cursorPayload)}, '2099-01-01T00:00:00.123456Z'),
+					(${cursorLow}, 'artifact', 'Cursor low', 'fleet', 'binding-user', ${services.db.writer.json(cursorPayload)}, '2099-01-01T00:00:00.123455Z')`;
+			const storedCursorRows = await services.db.admin<{ id: string; updated_at: string }[]>`
+				select id, updated_at::text as updated_at from items_min
+				where id in (${cursorHigh}, ${cursorLow}) order by updated_at desc`;
+			expect(storedCursorRows).toEqual([
+				{ id: cursorHigh, updated_at: "2099-01-01 00:00:00.123456+00" },
+				{ id: cursorLow, updated_at: "2099-01-01 00:00:00.123455+00" },
+			]);
+			const first = await server.inject({
+				method: "GET",
+				url: "/api/v1/dashboards?limit=1",
+				headers,
+			});
+			expect(first.json().truncated).toBe(true);
+			expect(first.json().next_cursor).toEqual(expect.any(String));
+			expect(first.json().items[0].id).toBe(cursorHigh);
+			const [cursorPayloadPart] = String(first.json().next_cursor).split(".");
+			const decodedCursor = JSON.parse(
+				Buffer.from(String(cursorPayloadPart), "base64url").toString("utf8"),
+			) as { position: string };
+			expect(decodedCursor.position).toContain(".123456");
+			const forged = await server.inject({
+				method: "GET",
+				url: `/api/v1/dashboards?limit=1&cursor=${encodeURIComponent(`${String(cursorPayloadPart)}.invalid`)}`,
+				headers,
+			});
+			expect(forged.statusCode).toBe(400);
+			const second = await server.inject({
+				method: "GET",
+				url: `/api/v1/dashboards?limit=1&cursor=${encodeURIComponent(String(first.json().next_cursor))}`,
+				headers,
+			});
+			expect(second.statusCode).toBe(200);
+			expect(
+				second.json().items[0].id,
+				JSON.stringify({ cursorHigh, cursorLow, first: first.json(), second: second.json() }),
+			).toBe(cursorLow);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("replays query refs through the chart render API", async () => {
+		const query = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "events",
+			select: [{ field: "seq", agg: "count", as: "events" }],
+			group_by: ["severity"],
+		});
+		const server = await buildServer(services, true);
+		try {
+			const response = await server.inject({
+				method: "POST",
+				url: "/api/v1/render",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "tester",
+						scopes: ["fleet"],
+						lanes: ["viewer"],
+					}),
+				},
+				payload: {
+					query_ref: query.query_ref,
+					panel: {
+						schema_version: 2,
+						type: "bar",
+						title: "Events by severity",
+						query_ref: query.query_ref,
+						encoding: { x: "severity", y: "events" },
+					},
+				},
+			});
+			expect(response.statusCode).toBe(200);
+			expect(response.json()).toMatchObject({
+				panel: { type: "bar" },
+				render: { renderer: "vega-lite", selection_reason: expect.stringContaining("categorical") },
+			});
+		} finally {
+			await server.close();
+		}
 	});
 });
 

@@ -190,10 +190,57 @@ scopes or no matching caller-visible semantics produces an explicit refusal with
 Successful answers contain grounded plain prose, top-level follow-up `suggestions`, PanelSpec v2
 with `query_ref`, the query result, retrieval refs, and `shown_sql` (server-compiled placeholder SQL
 and caller-visible params). Refusals return HTTP 200 with `status: "refused"`, a refusal panel, and
-null result/SQL. Missing compiler
-configuration (`CONSOLE_ASSISTANT_LLM_URL` + `CONSOLE_ASSISTANT_LLM_MODEL`, optional API key) is a
+null result/SQL. Missing compiler configuration (`CONSOLE_ASSISTANT_LLM_URL` +
+`CONSOLE_ASSISTANT_LLM_MODEL`, optional API key) is a
 retryable 503; malformed questions are 400. Existing GlitchTip/Sentry exception capture covers this
 route without request bodies, prompts, model responses, or bearer data.
+
+### 3.1.2 Render + investigation replay — L4
+
+L4 is live (2026-07-13). Successful `/ask` panels include a `render` artifact. The server selects
+the safe default chart from column semantics and observed cardinality: one numeric measure → stat,
+time × measure → line, categorical dimension × measure with at most 20 values → bar, two measures
+→ scatter, otherwise table. The selection reason is carried with the artifact; renderers do not
+reimplement this policy. Chart artifacts are Vega-Lite v6 JSON with inline data. Stat/table/text and
+refusal panels use `renderer: "native"` and a null Vega spec.
+
+Line panels may carry a bounded `forecast` block. The backend implements deterministic linear,
+drift, moving-average, exponential-smoothing, and seasonal-naive strategies. `auto` chooses only
+from those methods; forecast points and confidence bands are explicit data in the Vega-Lite spec,
+and `forecast_strategy` records the actual method used. Forecasting falls back to the ordinary
+historical line when there are fewer than three numeric points or the x axis is neither temporal nor
+numeric; it never invents a model result. Points are normalized into ascending x order before
+fitting, numeric x axes remain Vega-Lite `quantitative`, and bucketed structured queries default to
+`bucket asc` when the caller supplies no order.
+
+`POST /api/v1/render` (`schemas/render-request.schema.json`) resolves the supplied `query_ref` under
+the caller's RLS scopes, re-runs the stored structured request as that caller, and returns
+`schemas/materialized-panel.schema.json`. A missing or invisible ref is the same 404. The stored
+query, not client SQL or cached rows, is the replay source.
+
+Dashboards and investigation nodes are durable scoped Library data:
+
+- `POST /api/v1/dashboards` accepts `schemas/dashboard-save.schema.json`, including
+  `schema_version: 1` and a client-minted mutation UUID. Retries by principal + UUID return the same
+  item; body drift is `id_reused`. Every source query ref must already be visible to the caller, and
+  the target scope must be one of the caller's current scopes. Before commit, every data panel and
+  text stat binding is re-run under **only** that target scope and rebound to the target-scoped ref.
+  A query that cannot execute there makes the save `query_not_shareable`. Vega artifacts and
+  result-derived narration are cleared, and raw SelectedMark `datum`/`value` are stripped before
+  persistence. Panel intent, rebound refs, layout, time range, and safe branch lineage remain data.
+- `GET /api/v1/dashboards` returns the normal read envelope of visible list projections. `limit` is
+  1–1000 and `next_cursor` is an authenticated opaque `(updated_at,id)` continuation retaining the
+  database's full timestamp precision; forged or invalid cursors are 400. Production requires
+  `CONSOLE_API_CURSOR_SECRET`; rotating it intentionally invalidates outstanding cursors.
+- `GET /api/v1/dashboards/{id}` returns `schemas/dashboard-detail.schema.json`: the saved payload
+  plus `materialized_panels`. Every data panel re-runs as the viewer and gets a fresh query
+  ref/render artifact; a now-invisible panel is an explicit per-panel refusal. The item itself is 404
+  when its scope is not visible. Text `{{stat:query_ref#column[agg]}}` bindings are likewise re-run;
+  `render.bindings[]` carries each fresh ref/value or an explicit `refused` status.
+
+The branch block is the investigation tree edge: `parent_dashboard_id`, `parent_question`, filters,
+SelectedMark-complete context, and assumptions. Sharing is scope/ReBAC sharing, never copied query
+results; Phase 3 extends the subject-specific grant path without changing these L4 shapes.
 
 ### 3.2 The statistics catalog — `GET /api/v1/catalog`
 
