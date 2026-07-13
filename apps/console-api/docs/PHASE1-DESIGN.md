@@ -7,12 +7,12 @@ architect lens folded into codex — see DECISIONS-PHASE1.md). Contract (merged,
 
 ## 1. Node breakdown (each: build → PR → codex + adversarial review → merge; SERIAL where noted)
 
-| Node | Delivers | Touches |
-| ---- | -------- | ------- |
-| **N1a — service core + lake + bus** | console-api skeleton (Fastify, auth→Principal, /health, /me), lake DDL + **ordered** migrations (§3), emission ingest (`/emit`, `/emit/batch`) with emit-authz matrix + secret scrubber + **transactional dedup** (§5), serialized appender, WS bus (**exact-cutover** design §4), `stats.query` structured mode + `/catalog`, self-instrumentation + Glitchtip. **Includes the bootstrap seed migration + first-token CLI (§7)** — nothing can emit or be administered without it. | new app only |
-| **N1b — bridges + typed reads** | per-box bridge binary (`console-bridge`, Rust, ureq/glitchtip.rs pattern; UUIDv5 ids, durable cursors, gap/unreachable emissions), .14-local tails (system-outbox, tracker events, dispatcher read-only poll), **the command-completion outbox tail** (§6 — the loop N1c's verification needs), all typed entity reads incl. `/roster` `/executors` `/workers` | new app + new tool crate |
-| **N1c — command plane + Rust inlets** (depends on N1b's completion tail) | op router (lane∩authz, template resolution, **transactional two-phase ledger** §6, dedup, dry_run, undo), tracker op path (**signed principal assertion** §8 + the tracker patch), dispatcher ops (spool), **manager `agent.command` inlet + result outbox** (§8, config+example+schema), **control-plane persistence + governance/fleet command path** (§8), **box-agent restore + `service.*`/`updates.*`/`host.*` argv-exec methods** (§8) | manager, control-plane, box-agent, **tracker** (scoped patches, rollback notes per PR) |
-| **N1d — attention + subscriptions + delivery** | attention store + 8 creation rules + incident collapse/damping, standing subscriptions + server-assembled digests, delivery ops (Matrix via a **custody-pinned** bot token §8, receipts, cocoon, send-time grant re-check), `lake.disk.watermark` + ingest-lag emitters, SQL query mode (RO-role hardening §3), fleet.mode live-canary runbook | new app + config |
+| Node                                                                     | Delivers                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Touches                                                                                |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **N1a — service core + lake + bus**                                      | console-api skeleton (Fastify, auth→Principal, /health, /me), lake DDL + **ordered** migrations (§3), emission ingest (`/emit`, `/emit/batch`) with emit-authz matrix + secret scrubber + **transactional dedup** (§5), serialized appender, WS bus (**exact-cutover** design §4), `stats.query` structured mode + `/catalog`, self-instrumentation + Glitchtip. **Includes the bootstrap seed migration + first-token CLI (§7)** — nothing can emit or be administered without it. | new app only                                                                           |
+| **N1b — bridges + typed reads**                                          | per-box bridge binary (`console-bridge`, Rust, ureq/glitchtip.rs pattern; UUIDv5 ids, durable cursors, gap/unreachable emissions), .14-local tails (system-outbox, tracker events, dispatcher read-only poll), **the command-completion outbox tail** (§6 — the loop N1c's verification needs), all typed entity reads incl. `/roster` `/executors` `/workers`                                                                                                                      | new app + new tool crate                                                               |
+| **N1c — command plane + Rust inlets** (depends on N1b's completion tail) | op router (lane∩authz, template resolution, **transactional two-phase ledger** §6, dedup, dry_run, undo), tracker op path (**signed principal assertion** §8 + the tracker patch), dispatcher ops (spool), **manager `agent.command` inlet + result outbox** (§8, config+example+schema), **control-plane persistence + governance/fleet command path** (§8), **box-agent restore + `service.*`/`updates.*`/`host.*` argv-exec methods** (§8)                                       | manager, control-plane, box-agent, **tracker** (scoped patches, rollback notes per PR) |
+| **N1d — attention + subscriptions + delivery**                           | attention store + 8 creation rules + incident collapse/damping, standing subscriptions + server-assembled digests, delivery ops (Matrix via a **custody-pinned** bot token §8, receipts, cocoon, send-time grant re-check), `lake.disk.watermark` + ingest-lag emitters, SQL query mode (RO-role hardening §3), fleet.mode live-canary runbook                                                                                                                                      | new app + config                                                                       |
 
 **Ordering (corrected):** N1a → N1b → N1c → N1d, strictly serial on the completion loop
 (N1c's end-to-end op verification observes completions ingested by N1b). Within a node, sub-PRs
@@ -68,6 +68,7 @@ meta JSONB` — TimescaleDB hypertable on `received_at`; retention by type-class
 events** (M2).
 
 **One ordered migration, no window (M1, codex P1):**
+
 1. `CREATE ROLE console_migrator` (owns objects), `console_app` (non-BYPASSRLS runtime role),
    `console_ro` (read-only SQL mode).
 2. create each base table → `ALTER TABLE … ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY`.
@@ -77,21 +78,22 @@ events** (M2).
 4. `REVOKE ALL … FROM console_ro; GRANT SELECT` on the scoped views only.
 5. views created `WITH (security_invoker = on)` AFTER their base policies exist.
 6. assert no `dblink`/`postgres_fdw`/`file_fdw` extension present.
-CI (extends §9): every base table has RLS enabled+forced; every view is `security_invoker`;
-`console_ro` cannot read a row outside a set scope (isolation test).
+   CI (extends §9): every base table has RLS enabled+forced; every view is `security_invoker`;
+   `console_ro` cannot read a row outside a set scope (isolation test).
 
 ## 4. Bus: appender + exact WS cutover
 
 The appender is one async queue; a single writer assigns `seq` only after the row commits, and
 fan-out reads happen strictly post-commit in `seq` order (no assignment/commit race). WS
 subscribe cutover (codex P1):
+
 1. register a live buffer for the sub BEFORE reading any boundary (buffers post-`b` events).
 2. capture `b = committed seq head` (the appender's last committed seq).
 3. `ack {replay_through_seq: b}`; replay lake rows `seq <= b` matching pattern∩scope.
 4. flush the live buffer for `seq > b` exactly once (dedup against replay by seq), then stream live.
-Grant change → re-fence: drop the sub's scope snapshot, re-resolve, tear down subs whose scope
-narrowed. `since` below retention → `resync_required {oldest_seq}`. Bounded per-sub queue;
-overflow → `gap {from_seq,to_seq,reason:backpressure}`, client heals via `since`.
+   Grant change → re-fence: drop the sub's scope snapshot, re-resolve, tear down subs whose scope
+   narrowed. `since` below retention → `resync_required {oldest_seq}`. Bounded per-sub queue;
+   overflow → `gap {from_seq,to_seq,reason:backpressure}`, client heals via `since`.
 
 ## 5. Emission dedup (transactional, codex P1)
 
@@ -122,6 +124,7 @@ attempted-without-completion (never "ran").
 ## 7. Bootstrap / seeding (codex P0, security H3) — the chicken-and-egg break
 
 A `seed` migration + a one-shot CLI, run once at deploy, out of band:
+
 - migration inserts: `owner` grant for `parker` on `fleet` + `user:parker`; `moderator` for
   `eli`; per-agent `operator` grants on `agent:<self>`; the `producer_registrations` rows for
   each bridge/executor (source identity + allowed type-prefixes incl. delegated completion
@@ -143,7 +146,7 @@ A `seed` migration + a one-shot CLI, run once at deploy, out of band:
   **`channel.reclaim` NOT in this node** (lock is a stub, `state.rs`) — deferred with the real
   lock work.
 - **control-plane**: concrete migration for `usage, grants, tiers, last_actions, status_since,
-  fleet_mode` (persist all governance state, not just usage/grants, so edge-trigger suppression
+fleet_mode` (persist all governance state, not just usage/grants, so edge-trigger suppression
   survives restart — codex P1) + rehydrate-on-boot; a DISTINCT authenticated command inlet for
   `governance.*`/`fleet.mode` (the existing inlet only takes `agent.capacity`/`usage.report`),
   same spool-perms discipline. DROP tables = rollback.
@@ -161,8 +164,8 @@ A `seed` migration + a one-shot CLI, run once at deploy, out of band:
 
 **Spool trust boundary (security H1):** every command spool + outbox dir is `0700`, owned by
 the console-api service user, never group/world-writable — documented per inlet. This is the
-control against a forged action envelope (the completion-emit rule stops a forged *completion*,
-not a forged *action*); it is explicitly the doorman precondition, stated as residual trust.
+control against a forged action envelope (the completion-emit rule stops a forged _completion_,
+not a forged _action_); it is explicitly the doorman precondition, stated as residual trust.
 Allowlist + token-custody files (box-agent allowlist, Matrix bot token, glitchtip DSN) are
 service-user-owned `0600`/root `0644`, never agent-writable (H4/M3), via
 `/home/docker/.claude/shared/` like the existing token/DSN convention.

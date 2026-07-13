@@ -51,7 +51,7 @@ inlet handles only `agent.capacity`/`usage.report` (`main.rs:1`).
   dispatch; retry of an accepted op returns the recorded result, never redispatches.
 - **RLS/RO-role ordering** (codex P1, security M1): §3 — one ordered migration (table → RLS
   enable+force + policy → RO role REVOKE then GRANT SELECT → security_invoker views); `SET
-  LOCAL app.scopes` GUC discipline; non-BYPASSRLS runtime role; CI isolation test + RLS-forced
+LOCAL app.scopes` GUC discipline; non-BYPASSRLS runtime role; CI isolation test + RLS-forced
   assertion on every base table.
 - **body_ref/blob scope** (security M2): §3 — blobs RLS-scoped like events; delivery `*_ref`
   caller-scoped.
@@ -59,9 +59,36 @@ inlet handles only `agent.capacity`/`usage.report` (`main.rs:1`).
   allowlist service-user-owned, never agent-writable; test harness fails closed if
   `TASKS_DB_PATH` is unset/live; test-only Matrix token+room.
 - **Test matrix** (codex P2): §9 — catalog-driven per-op coverage (testable field = checklist)
-  + the contract-critical negatives/races (replay concurrency, id_reused, intent-fail
-  fail-closed, executor-death, re-fence, RLS isolation, emits[] forgery, forged spool).
+  - the contract-critical negatives/races (replay concurrency, id_reused, intent-fail
+    fail-closed, executor-death, re-fence, RLS isolation, emits[] forgery, forged spool).
+
+## N1a build — service core + lake + bus + bootstrap
+
+Built + tested on a disposable TimescaleDB container (the brief's temp-DB rule; never live Janet).
+29 tests green (17 unit + 4 broker + 8 db-backed): emission validation, secret scrubber,
+emit-authz (source/namespace/scope/severity denials), exact WS replay→live cutover, buffer flush,
+gap-on-backpressure, scope guard, emit + transactional dedup, RLS scope isolation (parker can't
+see eli; empty scope → nothing), honest query refusal. Typecheck + eslint + knip (both modes) +
+fmt all clean.
+
+**Deviation from the P0 stack pin — recorded, not silent:** the pin named Drizzle ORM; N1a uses
+**raw postgres-js** for the DB layer. Why: the ordered security migration (roles → RLS
+enable+force → policy → RO REVOKE/GRANT → security_invoker views) and the per-transaction
+`SET LOCAL app.scopes` GUC the RLS policy reads are load-bearing and order-sensitive; Drizzle's
+schema generator does not cleanly express policy ordering, FORCE RLS, or GUC-driven policies, so a
+hand-authored SQL migration is clearer and auditable — it IS the security boundary. postgres-js
+gives the parameterized queries + transaction control the appender/withScopes need. The contract
+and wire shapes are unaffected (zod validates the wire; the DB layer is an implementation detail);
+Drizzle can return for typed table models later if it earns its place.
+
+**Deferred within N1a (honest, noted in code):** `events` stays a plain Postgres table in N1a; the
+TimescaleDB hypertable conversion + continuous aggregates + retention policies move to N1d (where
+lake.disk.watermark + retention live) — a hypertable's unique index must include the partition
+column, which fights the global `id`-unique that clean `ON CONFLICT (id)` dedup needs, so the
+conversion belongs with the retention work (via an emission_ids dedup gate). The extension is
+created in the migration so N1d only adds the conversion. SQL query mode, `/graph`, and the
+command/library planes are N1c–N1d + Phase 2 per the DAG.
 
 ### Next
-Build N1a (service core + lake + bus + bootstrap). PR → codex + adversarial review → merge,
-then N1b.
+
+PR N1a → codex + adversarial review → merge, then N1b (bridges + typed reads + completion tail).
