@@ -67,9 +67,10 @@ pub fn encrypt(state: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
     let mut key = derive_key(recovery_code, &salt)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|e| e.to_string())?;
     key.zeroize();
+    let nonce = XNonce::try_from(nonce.as_slice()).map_err(|e| e.to_string())?;
 
     let ct = cipher
-        .encrypt(XNonce::from_slice(&nonce), state)
+        .encrypt(&nonce, state)
         .map_err(|_| "recovery encrypt failed".to_string())?;
 
     let mut out = Vec::with_capacity(HEADER_LEN + ct.len());
@@ -93,9 +94,10 @@ pub fn decrypt(blob: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
     let mut key = derive_key(recovery_code, salt)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|e| e.to_string())?;
     key.zeroize();
+    let nonce = XNonce::try_from(nonce).map_err(|e| e.to_string())?;
 
     cipher
-        .decrypt(XNonce::from_slice(nonce), ct)
+        .decrypt(&nonce, ct)
         .map_err(|_| "recovery decrypt failed (wrong code or corrupt backup)".to_string())
 }
 
