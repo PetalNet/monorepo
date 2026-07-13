@@ -23,10 +23,10 @@
 	}
 
 	async function focusAsk() {
-		let ask = document.querySelector<HTMLInputElement>('input[aria-label="Ask Janet"]:not(:disabled)');
+		let ask = document.querySelector<HTMLInputElement>("input[data-global-ask]:not(:disabled)");
 		if (!ask) {
 			await goto("/");
-			ask = document.querySelector<HTMLInputElement>('input[aria-label="Ask Janet"]:not(:disabled)');
+			ask = document.querySelector<HTMLInputElement>("input[data-global-ask]:not(:disabled)");
 		}
 		ask?.focus();
 	}

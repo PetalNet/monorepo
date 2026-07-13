@@ -30,6 +30,31 @@ function bodyFor(path, method, requestBody = null) {
 		return { lake: "ok", seq_head: 42, bridges: [{ observed_at: observedAt }], ws_clients: 1 };
 	if (path === "/api/v1/attention" || path === "/api/v1/roster" || path === "/api/v1/dashboards")
 		return envelope([]);
+	if (
+		path === "/api/v1/library/items" ||
+		path === "/api/v1/library/links" ||
+		path === "/api/v1/library/holds" ||
+		path === "/api/v1/library/curation" ||
+		path === "/api/v1/library/capabilities"
+	)
+		return envelope([]);
+	if (path === "/api/v1/library/search")
+		return envelope([
+			{
+				id: "library-search-result",
+				kind: "doc",
+				title: "Retry discipline",
+				scope: "lab",
+				project: "fleet",
+				status: "verified-shared",
+				protection: "open",
+				confidence: 0.91,
+				properties: { body: "Bounded retries with jitter." },
+				version: 2,
+				updated_at: observedAt,
+				provenance: { created_by_agent: "carson-2", handed_off_to_agent: null },
+			},
+		]);
 	if (path === "/api/v1/edge/registry") return envelope([]);
 	if (path === "/api/v1/edge/sessions")
 		return envelope([
@@ -82,8 +107,12 @@ function bodyFor(path, method, requestBody = null) {
 			schema_version: 1,
 			session_id: "session-test",
 			message_id: "assistant-test",
-			content: "Contract answer.",
-			tool_results: [],
+			content: requestBody?.message?.includes("Show me the graph")
+				? "I opened the dependency graph."
+				: "Contract answer.",
+			tool_results: requestBody?.message?.includes("Show me the graph")
+				? [{ schema_version: 1, surface: "library", intent: { view: "graph" } }]
+				: [],
 		};
 	if (path === "/api/v1/assistant/context" && method === "POST")
 		return { schema_version: 1, message_id: "context-test", content: "Context accepted." };

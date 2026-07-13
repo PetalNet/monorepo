@@ -5,8 +5,11 @@ import { ProposalError, proposeMutation, type TrackerProposalWriter } from "../a
 import { shouldProposeMutation } from "../auth/tiers.ts";
 import {
 	dashboardTargetScope,
+	listLibraryCuration,
+	listLibraryItems,
 	loadDashboard,
 	materializeTextPanel,
+	readLibraryItem,
 	saveDashboard,
 	setHomeDashboard,
 } from "../dashboard/store.ts";
@@ -76,6 +79,29 @@ const contextSchema = z
 		}),
 	})
 	.strict();
+
+const librarySurfaceSchema = z.discriminatedUnion("action", [
+	z
+		.object({
+			action: z.literal("view"),
+			view: z.enum(["desk", "graph", "kanban", "table"]),
+		})
+		.strict(),
+	z
+		.object({
+			action: z.literal("search"),
+			query: z.string().trim().min(1).max(500),
+			kind: z
+				.enum(["task", "project", "doc", "artifact", "research", "fact", "decision", "how-to"])
+				.optional(),
+			limit: z.number().int().min(1).max(100).default(20),
+		})
+		.strict(),
+	z.object({ action: z.literal("open"), item_id: z.string().min(1).max(256) }).strict(),
+	z
+		.object({ action: z.literal("curation"), limit: z.number().int().min(1).max(100).default(20) })
+		.strict(),
+]);
 
 const TOOLS = [
 	{
@@ -157,6 +183,26 @@ const TOOLS = [
 					},
 					additionalProperties: false,
 				},
+			},
+			additionalProperties: false,
+		},
+	},
+	{
+		name: "library.surface",
+		description:
+			"Drive the caller's Library surface: switch a browse view, run scope-filtered search, open a visible item, or show reviewable curation. Returns a library UI intent for the console.",
+		inputSchema: {
+			type: "object",
+			required: ["action"],
+			properties: {
+				action: { enum: ["view", "search", "open", "curation"] },
+				view: { enum: ["desk", "graph", "kanban", "table"] },
+				query: { type: "string", minLength: 1, maxLength: 500 },
+				kind: {
+					enum: ["task", "project", "doc", "artifact", "research", "fact", "decision", "how-to"],
+				},
+				limit: { type: "integer", minimum: 1, maximum: 100 },
+				item_id: { type: "string", minLength: 1, maxLength: 256 },
 			},
 			additionalProperties: false,
 		},
@@ -288,6 +334,36 @@ async function callTool(
 		  updated_at = now() where principal_id = ${principal.id}`;
 		return { schema_version: 1, accepted: true };
 	}
+	if (name === "library.surface") {
+		const parsed = librarySurfaceSchema.parse(args);
+		let intent: Record<string, unknown>;
+		let data: Record<string, unknown> | null = null;
+		if (parsed.action === "view") intent = { view: parsed.view };
+		else if (parsed.action === "search") {
+			intent = { view: "table", query: parsed.query };
+			data = await listLibraryItems(db.app, principal.scopes, services.cursorSecret, {
+				query: parsed.query,
+				...(parsed.kind ? { kind: parsed.kind } : {}),
+				limit: parsed.limit,
+			});
+		} else if (parsed.action === "open") {
+			const item = await readLibraryItem(db.app, principal.scopes, parsed.item_id);
+			if (!item) throw new Error("library_item_not_found");
+			intent = { view: "table", item_id: parsed.item_id };
+			data = item;
+		} else {
+			intent = { view: "desk", focus: "curation" };
+			data = await listLibraryCuration(db.app, principal.scopes, services.cursorSecret, {
+				limit: parsed.limit,
+			});
+		}
+		await db.writer`
+			update assistant_sessions
+			set window_layout = jsonb_set(window_layout, '{library}', ${db.writer.json(intent as never)}::jsonb, true),
+			    updated_at = now()
+			where principal_id = ${principal.id}`;
+		return { schema_version: 1, surface: "library", intent, data };
+	}
 	throw new Error("unknown_tool");
 }
 
@@ -359,6 +435,7 @@ export async function handleAssistantMcp(
 
 export interface AssistantToolServices {
 	readonly db: Db;
+	readonly cursorSecret: string;
 	readonly trackerProposals: TrackerProposalWriter | null;
 	readonly trackerProposalLookup: TrackerProposalLookup | null;
 }
