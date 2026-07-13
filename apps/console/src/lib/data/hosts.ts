@@ -4,8 +4,14 @@
  * substrate; a spatial view layers on later with no re-wiring (/task/690). Mock mode joins
  * fixtures; live joins /box-updates + /roster + /registry.
  */
-import { isRosterDown, rosterState } from "$lib/api/derive";
-import type { BoxUpdateItem, RosterItem } from "$lib/api/types";
+import {
+	isRosterDown,
+	livenessFromEpoch,
+	livenessFromIso,
+	rosterState,
+	type Liveness,
+} from "$lib/api/derive";
+import type { BoxUpdateItem, RegistryItem, RosterItem } from "$lib/api/types";
 
 import * as mock from "./mock";
 
@@ -20,6 +26,35 @@ export interface HostView {
 	updateStatus: BoxUpdateItem["status"];
 	securityCritical: number;
 	rebootRequired: boolean;
+	/** True when nothing is owed AND nothing is stale — the positive-evidence quiet. */
+	quiet: boolean;
+}
+
+/**
+ * Freshest liveness across a host's own signals: its box-update collection and the
+ * capacity-registry last-seen of any resident. A stale collection on an agentless box (no
+ * residents) makes the host DOWN, never silently up.
+ */
+function hostLiveness(
+	boxUpdatedAt: string,
+	regRows: RegistryItem[],
+	anyResidentDown: boolean,
+	now: number,
+): HostLiveness {
+	const signals: Liveness[] = [livenessFromIso(boxUpdatedAt, now)];
+	for (const r of regRows) {
+		const l = livenessFromEpoch(r.last_seen_epoch, now);
+		if (l) signals.push(l);
+	}
+	// The freshest signal wins (any live source proves the box answers).
+	const best = signals.includes("alive")
+		? "alive"
+		: signals.includes("suspect")
+			? "suspect"
+			: "down";
+	if (best === "down") return "down";
+	if (best === "suspect" || anyResidentDown) return "degraded";
+	return "up";
 }
 
 export interface HostsData {
@@ -31,17 +66,24 @@ export interface HostsData {
 // Container counts per box (as-built inventory; a Phase-1 read replaces this).
 const CONTAINERS: Record<string, number> = { ".202": 14, ".14": 9, ".15": 6, mc34: 3 };
 
-function assemble(boxUpdates: BoxUpdateItem[], roster: RosterItem[], now: number): HostsData {
+function assemble(
+	boxUpdates: BoxUpdateItem[],
+	roster: RosterItem[],
+	registry: RegistryItem[],
+	now: number,
+): HostsData {
 	const hosts: HostView[] = boxUpdates.map((b) => {
 		const onBox = roster.filter((r) => r.host === b.hostname);
+		const regRows = registry.filter((r) => r.host === b.hostname);
 		const anyDown = onBox.some((r) => isRosterDown(rosterState(r, now)));
 		const workersUp = onBox.filter((r) => rosterState(r, now) === "working").length;
-		const liveness: HostLiveness =
-			b.status === "error_collecting" || anyDown
-				? "degraded"
-				: (b.security_critical_count ?? 0) > 0
-					? "degraded"
-					: "up";
+		const secCrit = b.security_critical_count ?? 0;
+		let liveness = hostLiveness(b.updated_at, regRows, anyDown, now);
+		if (liveness === "up" && (secCrit > 0 || b.status === "error_collecting"))
+			liveness = "degraded";
+		// Quiet = up AND up-to-date: the positive-evidence "everything is fine" line
+		// must never contradict a card showing pending/overdue updates.
+		const quiet = liveness === "up" && b.status === "up_to_date";
 		return {
 			host: b.hostname,
 			liveness,
@@ -49,8 +91,9 @@ function assemble(boxUpdates: BoxUpdateItem[], roster: RosterItem[], now: number
 			workersUp,
 			containers: CONTAINERS[b.hostname] ?? 0,
 			updateStatus: b.status,
-			securityCritical: b.security_critical_count ?? 0,
+			securityCritical: secCrit,
 			rebootRequired: b.reboot_required === 1,
+			quiet,
 		};
 	});
 	return {
@@ -69,5 +112,5 @@ export function liveEmptyHosts(): HostsData {
 }
 
 export function mockHosts(): HostsData {
-	return assemble(mock.boxUpdates, mock.roster, Date.now());
+	return assemble(mock.boxUpdates, mock.roster, mock.registry, Date.now());
 }

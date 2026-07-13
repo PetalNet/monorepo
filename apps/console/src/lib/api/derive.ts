@@ -35,11 +35,24 @@ export function fleetPresence(item: FleetItem, now = Date.now()): Presence {
 
 /** Registry liveness, the 90/300 control-plane constants. */
 export type Liveness = "alive" | "suspect" | "down";
-export function registryLiveness(item: RegistryItem, now = Date.now()): Liveness {
-	const age = ageEpochS(item.last_seen_epoch, now);
-	if (age > WINDOW.registryDown) return "down";
-	if (age > WINDOW.registrySuspect) return "suspect";
+function livenessFromAge(ageSec: number): Liveness {
+	if (ageSec > WINDOW.registryDown) return "down";
+	if (ageSec > WINDOW.registrySuspect) return "suspect";
 	return "alive";
+}
+export function registryLiveness(item: RegistryItem, now = Date.now()): Liveness {
+	return livenessFromAge(ageEpochS(item.last_seen_epoch, now));
+}
+/** Liveness from an epoch-seconds last-seen (90/300s); null when unknown. */
+export function livenessFromEpoch(
+	epoch: number | null | undefined,
+	now = Date.now(),
+): Liveness | null {
+	return epoch == null ? null : livenessFromAge(ageEpochS(epoch, now));
+}
+/** Liveness from an RFC 3339 last-update timestamp (90/300s). */
+export function livenessFromIso(ts: string, now = Date.now()): Liveness {
+	return livenessFromAge(ageS(ts, now));
 }
 
 // Attention ordering: severity-first, newest within grade (§4.4). Acked items

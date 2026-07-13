@@ -18,8 +18,10 @@
 	const tone = $derived(
 		host.liveness === "down" ? "danger" : host.liveness === "degraded" ? "warn" : "good",
 	);
+	// Windows represent RESIDENTS, lit for the active workers among them (capped);
+	// container count lives in the meter text, not the window row.
 	const windows = $derived(
-		Array.from({ length: Math.max(host.containers, 1) }, (_, i) => i < host.workersUp),
+		Array.from({ length: Math.min(host.residents.length, 12) }, (_, i) => i < host.workersUp),
 	);
 </script>
 

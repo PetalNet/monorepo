@@ -16,7 +16,7 @@
 			? h.hosts.filter((x) => x.host.toLowerCase().includes(filter.trim().toLowerCase()))
 			: h.hosts,
 	);
-	const allQuiet = $derived(h.connected && h.hosts.every((x) => x.liveness === "up"));
+	const allQuiet = $derived(h.connected && h.hosts.length > 0 && h.hosts.every((x) => x.quiet));
 </script>
 
 <div class="util">
