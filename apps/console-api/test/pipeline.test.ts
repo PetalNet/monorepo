@@ -2960,45 +2960,88 @@ describe("current_state projection (N1b)", () => {
 		expect(asUser.items.map((i) => i["subject"])).not.toContain("aggbox"); // flat model: no fleet grant, no rows
 	});
 
-	it("bridge.source.unreachable marks the entity dark (positive down-evidence)", async () => {
-		await services.emit(
+	it("marks every entity from a dark bridge source unreachable and clears them on recovery", async () => {
+		const suffix = randomBytes(4).toString("hex");
+		const source = `fleet-${suffix}`;
+		const affected = [`dark-a-${suffix}`, `dark-b-${suffix}`];
+		const unaffected = `healthy-${suffix}`;
+		let available = true;
+		const bridge = new Bridge(
+			services.db.writer,
+			(subject, event, bytes) => services.emit(subject, event, bytes),
+			{
+				adapters: [
+					{
+						source,
+						producerSubject: "bridge:fleet",
+						poll(cursor, now) {
+							if (!available) throw new Error("source unavailable");
+							return {
+								cursor: "healthy",
+								emissions:
+									cursor === ""
+										? affected.map((subject) =>
+												emission({
+													type: "fleet.event.stop",
+													ts: now,
+													source: { service: "bridge", host: ".10", agent: subject },
+													subject,
+													subject_kind: "agent",
+													dimensions: { status: "idle" },
+												}),
+											)
+										: [],
+							};
+						},
+					},
+				],
+			},
+		);
+
+		await bridge.pollOnce("2026-07-13T00:00:00Z");
+		for (const subject of affected) await waitProjected("fleet", subject, 1);
+		const other = await services.emit(
 			"bridge:fleet",
-			{
-				schema_version: 1,
-				id: randomUUID(),
+			emission({
 				type: "fleet.event.stop",
-				ts: new Date().toISOString(),
-				source: { service: "bridge", host: ".10", agent: "darkbox" },
-				subject: "darkbox",
+				source: { service: "bridge", host: ".11", agent: unaffected },
+				subject: unaffected,
 				subject_kind: "agent",
-				severity: "info",
-				scope: "fleet",
 				dimensions: { status: "idle" },
-			},
-			300,
+				meta: { bridge_source: { kind: "bridge_source", id: `other-${suffix}` } },
+			}),
+			400,
 		);
-		await waitProjected("fleet", "darkbox", 1);
-		await services.emit(
-			"bridge:hosts",
-			{
-				schema_version: 1,
-				id: randomUUID(),
-				type: "bridge.source.unreachable",
-				ts: new Date().toISOString(),
-				source: { service: "bridge", host: ".10", agent: null },
-				subject: "darkbox",
-				severity: "warn",
-				scope: "fleet",
-			},
-			300,
-		);
+		await waitProjected("fleet", unaffected, other.seq as number);
+
+		available = false;
+		await bridge.pollOnce("2026-07-13T00:00:05Z");
 		for (let i = 0; i < 50; i++) {
-			const r = await services.db
-				.admin`select unreachable_since from current_state where kind='fleet' and subject='darkbox'`;
-			if (r[0]?.["unreachable_since"]) return;
-			await new Promise((res) => setTimeout(res, 20));
+			const rows = await services.db.admin<
+				{ subject: string; unreachable_since: string | null }[]
+			>`select subject, unreachable_since from current_state
+			  where subject in ${services.db.admin(affected.concat(unaffected))}`;
+			if (
+				affected.every(
+					(subject) => rows.find((row) => row.subject === subject)?.unreachable_since,
+				) &&
+				rows.find((row) => row.subject === unaffected)?.unreachable_since === null
+			)
+				break;
+			if (i === 49) throw new Error("affected source rows never became unreachable");
+			await new Promise((resolve) => setTimeout(resolve, 20));
 		}
-		throw new Error("unreachable_since never set");
+
+		available = true;
+		await bridge.pollOnce("2026-07-13T00:00:10Z");
+		for (let i = 0; i < 50; i++) {
+			const rows = await services.db.admin<{ unreachable_since: string | null }[]>`
+				select unreachable_since from current_state where subject in ${services.db.admin(affected)}`;
+			if (rows.length === affected.length && rows.every((row) => row.unreachable_since === null))
+				return;
+			if (i === 49) throw new Error("recovered source rows stayed unreachable");
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
 	});
 
 	it("serves every BR-008 typed read from its scoped projection with contract-valid shapes", async () => {

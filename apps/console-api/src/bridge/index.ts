@@ -118,6 +118,16 @@ export class Bridge {
 		};
 	}
 
+	#tagSource(source: string, emission: Emission): Emission {
+		return {
+			...emission,
+			meta: {
+				...emission.meta,
+				bridge_source: { kind: "bridge_source", id: source },
+			},
+		};
+	}
+
 	#control(source: string, type: string, ts: string, severity: Emission["severity"]): Emission {
 		return {
 			schema_version: 1,
@@ -128,6 +138,7 @@ export class Bridge {
 			subject: source,
 			severity,
 			scope: "fleet",
+			meta: { bridge_source: { kind: "bridge_source", id: source } },
 		};
 	}
 
@@ -175,7 +186,8 @@ export class Bridge {
 				this.#gap(adapter.source, ref, loss.reason, now),
 			);
 		}
-		for (const e of batch.emissions) {
+		for (const raw of batch.emissions) {
+			const e = this.#tagSource(adapter.source, raw);
 			const r = await this.#emit(adapter.producerSubject, e, Buffer.byteLength(JSON.stringify(e)));
 			if (r.ok) continue;
 			if (["invalid_emission", "payload_too_large", "secret_detected"].includes(r.code ?? "")) {
@@ -230,7 +242,8 @@ export class Bridge {
 			await this.#quarantine(source, ref, null, loss.reason);
 			await this.#emitOne(SYSTEM_OUTBOX_PRODUCER, this.#gap(source, ref, loss.reason, now));
 		}
-		for (const e of result.emissions) {
+		for (const raw of result.emissions) {
+			const e = this.#tagSource(source, raw);
 			const r = await this.#emit(SYSTEM_OUTBOX_PRODUCER, e, Buffer.byteLength(JSON.stringify(e)));
 			if (r.ok) continue;
 			// Record-level validation/scrubber failures are poison records, not source outages. Keep no
