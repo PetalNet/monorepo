@@ -78,6 +78,7 @@ pub fn router(state: AppState) -> Router {
             "/api/shares/requests/{id}/reject",
             post(shares::reject_request),
         )
+        .route("/api/shares/requests/{id}", delete(shares::cancel_request))
         .route(
             "/api/shares/temp",
             post(shares::create_temp).get(shares::list_temp),

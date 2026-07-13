@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/features/me/me_profile_provider.dart';
 import 'package:point_app/features/people/invite.dart';
+import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/services/api/point_api.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -33,6 +34,7 @@ class _AddPersonScreenState extends ConsumerState<AddPersonScreen> {
   );
   bool _busy = false;
   String? _error;
+  String? _sentTarget;
 
   @override
   void dispose() {
@@ -59,24 +61,43 @@ class _AddPersonScreenState extends ConsumerState<AddPersonScreen> {
     });
     try {
       await ref.read(apiProvider).sendShareRequest(session.token, target);
-      await ref.read(requestsControllerProvider.notifier).refresh();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Request sent to $target')),
-      );
-      await context.pop();
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = e.message;
+        });
+      }
+      return;
     } on Object {
-      if (mounted) setState(() => _error = 'Could not send the request.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = 'Could not send the request.';
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _sentTarget = target;
+    });
+    try {
+      await ref.read(outgoingRequestsControllerProvider.notifier).refresh();
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sent. Pull to refresh requests.')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final myId = ref.watch(authControllerProvider).value?.userId ?? '';
+    final sentTarget = _sentTarget;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Add a person'),
@@ -85,46 +106,125 @@ class _AddPersonScreenState extends ConsumerState<AddPersonScreen> {
           onPressed: () => context.pop(),
         ),
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.all(context.space.xl),
-          children: [
-            Text('By handle', style: context.text.titleMedium),
-            SizedBox(height: context.space.sm),
-            _HandleField(
-              controller: _handle,
-              onSubmitted: _busy ? null : (_) => _send(),
-            ),
-            if (_error != null) ...[
-              SizedBox(height: context.space.sm),
-              Text(
-                _error!,
-                style: context.text.bodySmall?.copyWith(
-                  color: context.colors.onSurfaceVariant,
+      body: sentTarget != null
+          ? _RequestedState(
+              target: sentTarget,
+              onDone: () => context.pop(),
+              onViewRequests: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const RequestsScreen(),
                 ),
               ),
-            ],
-            SizedBox(height: context.space.lg),
-            PillButton(
-              label: 'Send request',
-              loading: _busy,
-              onPressed: _busy ? null : _send,
-            ),
-            SizedBox(height: context.space.xxl),
-            const _OrDivider(),
-            SizedBox(height: context.space.xxl),
-            Text('Your invite', style: context.text.titleMedium),
-            SizedBox(height: context.space.xs),
-            Text(
-              'Let someone scan or tap this to add you.',
-              style: context.text.bodyMedium?.copyWith(
-                color: context.colors.onSurfaceVariant,
+            )
+          : SafeArea(
+              child: ListView(
+                padding: EdgeInsets.all(context.space.xl),
+                children: [
+                  Text('By handle', style: context.text.titleMedium),
+                  SizedBox(height: context.space.sm),
+                  _HandleField(
+                    controller: _handle,
+                    onSubmitted: _busy ? null : (_) => _send(),
+                  ),
+                  if (_error != null) ...[
+                    SizedBox(height: context.space.sm),
+                    Text(
+                      _error!,
+                      style: context.text.bodySmall?.copyWith(
+                        color: context.colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  SizedBox(height: context.space.lg),
+                  PillButton(
+                    label: 'Send request',
+                    loading: _busy,
+                    onPressed: _busy ? null : _send,
+                  ),
+                  SizedBox(height: context.space.xxl),
+                  const _OrDivider(),
+                  SizedBox(height: context.space.xxl),
+                  Text('Your invite', style: context.text.titleMedium),
+                  SizedBox(height: context.space.xs),
+                  Text(
+                    'Let someone scan or tap this to add you.',
+                    style: context.text.bodyMedium?.copyWith(
+                      color: context.colors.onSurfaceVariant,
+                    ),
+                  ),
+                  SizedBox(height: context.space.lg),
+                  const _InviteBlockedNote(),
+                  if (myId.isNotEmpty) InviteCard(userId: myId),
+                ],
               ),
             ),
-            SizedBox(height: context.space.lg),
-            const _InviteBlockedNote(),
-            if (myId.isNotEmpty) InviteCard(userId: myId),
-          ],
+    );
+  }
+}
+
+class _RequestedState extends StatelessWidget {
+  const _RequestedState({
+    required this.target,
+    required this.onDone,
+    required this.onViewRequests,
+  });
+
+  final String target;
+  final VoidCallback onDone;
+  final VoidCallback onViewRequests;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Padding(
+            padding: EdgeInsets.all(context.space.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.schedule,
+                  color: context.colors.onSurface,
+                ),
+                SizedBox(height: context.space.lg),
+                Text('Requested', style: context.text.headlineSmall),
+                SizedBox(height: context.space.sm),
+                Text(
+                  target,
+                  textAlign: TextAlign.center,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontFamily: AppTheme.monoFamily,
+                    color: context.colors.onSurfaceVariant,
+                  ),
+                ),
+                SizedBox(height: context.space.sm),
+                Text(
+                  'Pending',
+                  style: context.text.labelLarge?.copyWith(
+                    color: context.colors.onSurface,
+                  ),
+                ),
+                SizedBox(height: context.space.xl),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: onViewRequests,
+                    child: const Text('View requests'),
+                  ),
+                ),
+                SizedBox(height: context.space.sm),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: onDone,
+                    child: const Text('Done'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

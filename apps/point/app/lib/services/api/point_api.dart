@@ -178,7 +178,9 @@ class PointApi {
     );
     if (r.statusCode != 200) _fail(r);
     return (jsonDecode(r.body) as List<dynamic>)
-        .map((e) => ShareRequest.fromJson(e as Map<String, dynamic>))
+        .map(
+          (e) => IncomingRequestRecord.fromJson(e as Map<String, dynamic>),
+        )
         .toList();
   }
 
@@ -189,7 +191,9 @@ class PointApi {
     );
     if (r.statusCode != 200) _fail(r);
     return (jsonDecode(r.body) as List<dynamic>)
-        .map((e) => OutgoingShareRequest.fromJson(e as Map<String, dynamic>))
+        .map(
+          (e) => OutgoingRequestRecord.fromJson(e as Map<String, dynamic>),
+        )
         .toList();
   }
 
@@ -221,6 +225,15 @@ class PointApi {
       _u('/api/shares/requests/$id/reject'),
       headers: _headers(token),
       body: '{}',
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  /// Withdraw one of the signed-in user's pending outgoing requests.
+  Future<void> cancelRequest(String token, String id) async {
+    final r = await _client.delete(
+      _u('/api/shares/requests/$id'),
+      headers: _headers(token),
     );
     if (r.statusCode != 200) _fail(r);
   }
@@ -502,6 +515,91 @@ class PointApi {
   }
 
   void close() => _client.close();
+}
+
+/// Server-backed request records carry the lifecycle timestamp used by the
+/// Requests surface. The domain models predate that field, so these typed API
+/// records preserve their public contracts while making the timestamp
+/// available to clients that understand the richer response.
+abstract interface class TimestampedRequest {
+  DateTime get createdAt;
+}
+
+abstract interface class ExpirableRequest {
+  bool get isExpired;
+}
+
+final class IncomingRequestRecord extends ShareRequest
+    implements TimestampedRequest {
+  const IncomingRequestRecord({
+    required super.id,
+    required super.fromUserId,
+    required super.fromDisplayName,
+    required this.createdAt,
+  });
+
+  factory IncomingRequestRecord.fromJson(Map<String, dynamic> json) {
+    final request = ShareRequest.fromJson(json);
+    return IncomingRequestRecord(
+      id: request.id,
+      fromUserId: request.fromUserId,
+      fromDisplayName: request.fromDisplayName,
+      createdAt: DateTime.parse(json['created_at'] as String).toUtc(),
+    );
+  }
+
+  @override
+  final DateTime createdAt;
+}
+
+final class OutgoingRequestRecord extends OutgoingShareRequest
+    implements ExpirableRequest, TimestampedRequest {
+  const OutgoingRequestRecord({
+    required super.id,
+    required super.toUserId,
+    required super.toDisplayName,
+    required this.createdAt,
+    required this.isExpired,
+  });
+
+  factory OutgoingRequestRecord.fromJson(Map<String, dynamic> json) {
+    final request = OutgoingShareRequest.fromJson(json);
+    final createdAt = DateTime.parse(json['created_at'] as String).toUtc();
+    return OutgoingRequestRecord(
+      id: request.id,
+      toUserId: request.toUserId,
+      toDisplayName: request.toDisplayName,
+      createdAt: createdAt,
+      isExpired:
+          json['expired'] as bool? ??
+          createdAt.add(const Duration(days: 30)).isBefore(DateTime.now()),
+    );
+  }
+
+  @override
+  final DateTime createdAt;
+
+  @override
+  final bool isExpired;
+}
+
+extension IncomingRequestTimestamp on ShareRequest {
+  DateTime? get createdAt => switch (this) {
+    final TimestampedRequest request => request.createdAt,
+    _ => null,
+  };
+}
+
+extension OutgoingRequestTimestamp on OutgoingShareRequest {
+  DateTime? get createdAt => switch (this) {
+    final TimestampedRequest request => request.createdAt,
+    _ => null,
+  };
+
+  bool get isExpired => switch (this) {
+    final ExpirableRequest request => request.isExpired,
+    _ => false,
+  };
 }
 
 class ApiException implements Exception {
