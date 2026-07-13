@@ -1,0 +1,12 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/assistant-message.schema.json",
+	"title": "Per-user dashboard assistant message",
+	"type": "object",
+	"required": ["id", "message"],
+	"additionalProperties": false,
+	"properties": {
+		"id": { "type": "string", "format": "uuid" },
+		"message": { "type": "string", "minLength": 1, "maxLength": 100000, "pattern": "\\S" }
+	}
+}

@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { buildServices, type Services } from "../src/app.ts";
 import { AssistantCompilerError, type AssistantCompiler } from "../src/assistant/compiler.ts";
 import { ask } from "../src/assistant/engine.ts";
+import { AssistantRuntime, ClaudeCodeAssistantManager } from "../src/assistant/runtime.ts";
 import { resolveBearer, sha256 } from "../src/auth/principal.ts";
 import { TrackerProposalWriter } from "../src/auth/proposals.ts";
 import { Bridge } from "../src/bridge/index.ts";
@@ -2344,6 +2345,268 @@ describe("roster + executors (N1b-2, lake half)", () => {
 			| { liveness: string }
 			| undefined;
 		expect(mgr?.liveness).toBe("alive"); // fresh heartbeat -> manager class alive
+	});
+});
+
+describe("Phase 5 per-user Claude Code manager seam", () => {
+	it("keeps one scoped session per principal and exposes six real MCP tools plus context", async () => {
+		const managerCalls: { path: string; body: Record<string, unknown> }[] = [];
+		let toolToken = "";
+		const toolTokens = new Map<string, string>();
+		const receipts = new Map<string, Record<string, unknown>>();
+		const manager = createHttpServer((request, response) => {
+			let text = "";
+			request.setEncoding("utf8");
+			request.on("data", (chunk) => {
+				text += chunk;
+			});
+			request.on("end", () => {
+				const body = JSON.parse(text) as Record<string, unknown>;
+				managerCalls.push({ path: request.url ?? "", body });
+				if (request.url === "/v1/sessions/ensure") {
+					const principalId = String((body["principal"] as { id?: unknown }).id ?? "unknown");
+					const token = String((body["mcp"] as { bearer_token?: unknown }).bearer_token ?? "");
+					toolTokens.set(principalId, token);
+					if (principalId === "runtime-user") toolToken = token;
+					response.writeHead(200, { "content-type": "application/json" });
+					response.end(JSON.stringify({ session_id: `claude-session-${principalId}` }));
+					return;
+				}
+				if (request.url?.endsWith("/messages/lookup")) {
+					const receipt = receipts.get(String(body["message_id"]));
+					response.writeHead(receipt ? 200 : 404, { "content-type": "application/json" });
+					response.end(JSON.stringify(receipt ?? { error: "not_found" }));
+					return;
+				}
+				const receipt = {
+					message_id: `reply-${String(body["message_id"])}`,
+					content: body["kind"] === "context" ? "Context received." : "I can use the tools.",
+					tool_results: [],
+				};
+				receipts.set(String(body["message_id"]), receipt);
+				if (body["content"] === "Ambiguous manager response") {
+					response.destroy();
+					return;
+				}
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(JSON.stringify(receipt));
+			});
+		});
+		await new Promise<void>((resolve) => manager.listen(0, "127.0.0.1", resolve));
+		const address = manager.address();
+		if (!address || typeof address === "string") throw new Error("manager did not bind");
+		const runtime = new AssistantRuntime(
+			services.db.writer,
+			new ClaudeCodeAssistantManager({
+				url: `http://127.0.0.1:${String(address.port)}`,
+				token: "manager-test-token",
+				publicConsoleUrl: "http://console.test",
+			}),
+		);
+		const server = await buildServer({ ...services, assistantRuntime: runtime }, true);
+		await services.db.admin`
+			insert into api_tokens (token_sha256, subject, kind, tiers, lanes)
+			values (${sha256(`runtime-user-${randomUUID()}`)}, 'runtime-user', 'human', '["owner"]', '["viewer"]')`;
+		const headers = {
+			"x-dev-principal": JSON.stringify({
+				kind: "human",
+				id: "runtime-user",
+				tiers: ["owner"],
+				lanes: ["viewer"],
+				scopes: ["fleet"],
+			}),
+		};
+		const messageId = randomUUID();
+		try {
+			const whitespace = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/messages",
+				headers,
+				payload: { id: randomUUID(), message: "   \n\t" },
+			});
+			expect(whitespace.statusCode).toBe(400);
+			const sent = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/messages",
+				headers,
+				payload: { id: messageId, message: "Arrange a fleet overview." },
+			});
+			expect(sent.statusCode, sent.body).toBe(200);
+			expect(sent.json()).toMatchObject({
+				schema_version: 1,
+				session_id: "claude-session-runtime-user",
+				content: "I can use the tools.",
+			});
+			expect(toolToken.length).toBeGreaterThan(32);
+			const listed = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/mcp",
+				headers: { authorization: `Bearer ${toolToken}` },
+				payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+			});
+			expect(listed.statusCode, listed.body).toBe(200);
+			expect(listed.json().result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+				"stats.query",
+				"viz.render",
+				"text.surface",
+				"window.arrange",
+				"dashboard.manage",
+				"context.receive",
+			]);
+			const arranged = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/mcp",
+				headers: { authorization: `Bearer ${toolToken}` },
+				payload: {
+					jsonrpc: "2.0",
+					id: 2,
+					method: "tools/call",
+					params: {
+						name: "window.arrange",
+						arguments: { ops: [{ verb: "place", panel_index: 0, layout: { x: 0, y: 0 } }] },
+					},
+				},
+			});
+			expect(arranged.json().result.isError).not.toBe(true);
+			const missingContextValue = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/mcp",
+				headers: { authorization: `Bearer ${toolToken}` },
+				payload: {
+					jsonrpc: "2.0",
+					id: 20,
+					method: "tools/call",
+					params: { name: "context.receive", arguments: { payload: { element_kind: "bar" } } },
+				},
+			});
+			expect(missingContextValue.json().result.isError).toBe(true);
+			const contextId = randomUUID();
+			const context = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/context",
+				headers,
+				payload: {
+					id: contextId,
+					payload: { element_kind: "bar", field: "host", value: "box-1", datum: { host: "box-1" } },
+				},
+			});
+			expect(context.statusCode, context.body).toBe(200);
+			expect(context.json().content).toBe("Context received.");
+			const current = await server.inject({
+				method: "GET",
+				url: "/api/v1/assistant/session",
+				headers,
+			});
+			expect(current.json().session).toMatchObject({
+				session_id: "claude-session-runtime-user",
+				state: "ready",
+				window_layout: { ops: [expect.objectContaining({ verb: "place" })] },
+				last_context: { element_kind: "bar", field: "host", value: "box-1" },
+			});
+			const retry = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/messages",
+				headers,
+				payload: { id: messageId, message: "Arrange a fleet overview." },
+			});
+			expect(retry.json()).toEqual(sent.json());
+			expect(managerCalls.filter(({ path }) => path.endsWith("/messages"))).toHaveLength(2);
+			const contextConflict = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/context",
+				headers,
+				payload: { id: contextId, payload: { element_kind: "bar", value: "box-2" } },
+			});
+			expect(contextConflict.statusCode).toBe(409);
+			const afterConflict = await server.inject({
+				method: "GET",
+				url: "/api/v1/assistant/session",
+				headers,
+			});
+			expect(afterConflict.json().session.last_context.value).toBe("box-1");
+
+			const ambiguous = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/messages",
+				headers,
+				payload: { id: randomUUID(), message: "Ambiguous manager response" },
+			});
+			expect(ambiguous.statusCode, ambiguous.body).toBe(200);
+			expect(ambiguous.json().content).toBe("I can use the tools.");
+
+			await services.db.admin`
+				update tiers set default_relations = '["editor"]' where name = 'collaborator'`;
+			await services.db.admin`
+				insert into grants (subject, relation, object, granted_by)
+				values ('tier:collaborator', 'editor', 'fleet', 'test')`;
+			await services.db.admin`
+				insert into api_tokens (token_sha256, subject, kind, tiers, lanes)
+				values (${sha256(`runtime-collaborator-${randomUUID()}`)}, 'runtime-collaborator', 'human', '["collaborator"]', '["viewer"]')`;
+			const collaboratorHeaders = {
+				"x-dev-principal": JSON.stringify({
+					kind: "human",
+					id: "runtime-collaborator",
+					tiers: ["collaborator"],
+					lanes: ["viewer"],
+					scopes: ["fleet"],
+				}),
+			};
+			await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/messages",
+				headers: collaboratorHeaders,
+				payload: { id: randomUUID(), message: "Prepare a dashboard suggestion." },
+			});
+			const collaboratorToken = toolTokens.get("runtime-collaborator");
+			expect(collaboratorToken).toBeTruthy();
+			const proposedSave = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/mcp",
+				headers: { authorization: `Bearer ${String(collaboratorToken)}` },
+				payload: {
+					jsonrpc: "2.0",
+					id: 3,
+					method: "tools/call",
+					params: {
+						name: "dashboard.manage",
+						arguments: {
+							action: "save",
+							dashboard: {
+								schema_version: 1,
+								id: randomUUID(),
+								title: "Must be proposed",
+								scope: "fleet",
+								panels: [{ schema_version: 2, type: "text", title: "Note", prose: "Review." }],
+							},
+						},
+					},
+				},
+			});
+			expect(proposedSave.json().result).toMatchObject({ isError: true });
+			expect(proposedSave.body).toContain("tracker_unavailable");
+			const committed = await services.db.admin<{ n: number }[]>`
+				select count(*)::int as n from items_min where created_by = 'runtime-collaborator'`;
+			expect(committed[0]?.n).toBe(0);
+			await services.db
+				.admin`update tiers set default_relations = '["viewer"]' where name = 'collaborator'`;
+			await services.db.admin`
+				delete from grants where subject = 'tier:collaborator' and relation = 'editor' and object = 'fleet'`;
+
+			await services.db
+				.admin`update api_tokens set revoked_at = now() where subject = 'runtime-user'`;
+			const revoked = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/mcp",
+				headers: { authorization: `Bearer ${toolToken}` },
+				payload: { jsonrpc: "2.0", id: 4, method: "tools/list" },
+			});
+			expect(revoked.statusCode).toBe(401);
+		} finally {
+			await server.close();
+			await new Promise<void>((resolve, reject) =>
+				manager.close((error) => (error ? reject(error) : resolve())),
+			);
+		}
 	});
 });
 

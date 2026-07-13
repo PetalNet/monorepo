@@ -75,7 +75,7 @@ const panelSpecSchema = z
 			});
 	});
 
-const selectedMarkSchema = z
+export const selectedMarkSchema = z
 	.object({
 		element_kind: z.string().min(1).max(100),
 		field: z.string().max(200).optional(),

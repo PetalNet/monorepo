@@ -342,7 +342,7 @@ function nativePanel(panel: PanelSpecV2): MaterializedPanel {
 	return { schema_version: 1, panel: rendered, result: null, render };
 }
 
-async function materializeTextPanel(
+export async function materializeTextPanel(
 	app: Sql,
 	scopes: readonly string[],
 	panel: PanelSpecV2,
@@ -431,4 +431,28 @@ export async function loadDashboard(
 		}
 	}
 	return { ...itemEnvelope(row), materialized_panels: materialized };
+}
+
+export async function setHomeDashboard(
+	writer: Sql,
+	principal: Principal,
+	id: string,
+): Promise<Record<string, unknown>> {
+	const rows = await writer<ItemRow[]>`
+		select id, title, scope, is_home, created_by, responsible_human, payload, updated_at
+		from items_min where id = ${id} and kind = 'artifact' and payload ? 'panels'`;
+	const target = rows[0];
+	if (!target || !principal.scopes.includes(target.scope))
+		throw new DashboardError("dashboard_not_found", "dashboard not found");
+	if (
+		target.created_by !== principal.id ||
+		!(await canMutateScope(writer, principal, target.scope))
+	)
+		throw new DashboardError("scope_denied", "only the dashboard owner may set it as home");
+	await writer.begin(async (tx) => {
+		await tx`update items_min set is_home = false
+		  where kind = 'artifact' and payload ? 'panels' and created_by = ${principal.id}`;
+		await tx`update items_min set is_home = true, updated_at = now() where id = ${id}`;
+	});
+	return { schema_version: 1, id, is_home: true };
 }
