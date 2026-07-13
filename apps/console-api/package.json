@@ -14,6 +14,7 @@
 		"build": "tsc -b",
 		"start": "node ./dist/server.js",
 		"test": "vitest run",
+		"test:release-acceptance": "vitest run test/release-acceptance.test.ts",
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
