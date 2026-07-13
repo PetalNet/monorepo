@@ -8,7 +8,7 @@ import { matchPattern } from "../src/bus/broker.ts";
 import { parseEmission, type Emission } from "../src/emission.ts";
 import { authorizeEmission, type ProducerRegistration } from "../src/ingest/authz.ts";
 import { scrubEmission } from "../src/ingest/scrubber.ts";
-import { materializePanel, selectPanelType } from "../src/render/engine.ts";
+import { materializePanel } from "../src/render/engine.ts";
 
 function emission(over: Partial<Emission> = {}): Emission {
 	return {
@@ -183,17 +183,26 @@ describe("renderer-agnostic graph output", () => {
 			freshness: { source: "lake", observed_at: new Date().toISOString(), window_s: null },
 			query_ref: "q_chart",
 		};
-		expect(selectPanelType(result)).toMatchObject({
+		expect(
+			materializePanel(
+				{ schema_version: 2, type: "table", title: "Auto", query_ref: result.query_ref },
+				result,
+			).panel,
+		).toMatchObject({
 			type: "bar",
-			x: "zone",
-			y: "latency",
+			encoding: { x: "zone", y: "latency" },
 		});
 		const crowded = {
 			...result,
 			rows: Array.from({ length: 21 }, (_, index) => [`zone-${String(index)}`, index]),
 			row_count: 21,
 		};
-		expect(selectPanelType(crowded).type).toBe("table");
+		expect(
+			materializePanel(
+				{ schema_version: 2, type: "table", title: "Auto", query_ref: result.query_ref },
+				crowded,
+			).panel.type,
+		).toBe("table");
 	});
 
 	it("generates Vega-Lite forecast data without renderer code", () => {

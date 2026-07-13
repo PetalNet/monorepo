@@ -44,7 +44,7 @@ function looksTemporal(name: string, values: readonly unknown[]): boolean {
 	);
 }
 
-export function selectPanelType(result: QueryResult): {
+function selectPanelType(result: QueryResult): {
 	type: PanelType;
 	x?: string;
 	y?: string;
