@@ -174,6 +174,28 @@ expose only their declared pseudo-fields; dynamic type fields require querying t
 The request schema reserves `rate`, `fill: zero|previous`, and `coverage`, but this build refuses
 those honestly (`bad_agg`/`unsupported_fill`/`unsupported_coverage`) rather than fabricating data.
 
+### 3.1a Cost pairwise comparison — `POST /api/v1/cost/compare`
+
+Runs as the caller over `usage_events` and `model_pricing`; request and response are
+`schemas/cost-comparison-request.schema.json` and `schemas/cost-comparison-result.schema.json`.
+Those sources are the BR-033 AgentsView mirror views required by the Cost dashboard. Until they are
+registered, callers with the fleet-wide grant fall through to AgentsView's deployed pairwise API;
+narrower callers fail closed rather than reading the meter's unscoped global store. The local
+adapter defaults to `http://127.0.0.1:8098/api/v1` with its deployed `localhost:8080` Host allowlist;
+`CONSOLE_COST_METER_URL`, `CONSOLE_COST_METER_HOST`, and optional
+`CONSOLE_COST_METER_TOKEN` override that seam atomically. `usage_events` must expose `cost_status`
+and `cost_source` so reported and computed partitions aggregate separately. Any truncated source
+read fails as `comparison_incomplete` rather than returning a partial delta. The deployed fallback
+accepts only local-midnight ledger windows because its exhaustive aggregate API has calendar-day
+granularity; it never widens an arbitrary timestamp interval.
+The two values must be distinct members of one supported dimension (`agent`, `model`, or `project`)
+and share one requested time window. The API returns both sides plus right-minus-left deltas and
+right/left ratios for total cost, tokens, sessions, cost per session, tokens per session, and each
+token kind. A ratio is `null` when the left baseline is zero. Cost follows the ledger law per row:
+reported cost wins when present; otherwise the four token kinds are priced against the live price
+book. Both source references are returned with receipt metadata: literal query, cost source,
+rows/timing/freshness, matched model rates, price-table version, and digest.
+
 ### 3.1.1 Dashboard compiler — `POST /api/v1/ask`
 
 L3 is live (2026-07-13). The strict request is `schemas/ask-request.schema.json`; the response is

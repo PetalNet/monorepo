@@ -1,4 +1,20 @@
 import type { GovernanceItem, GovernancePool } from "$lib/api/types";
+import type {
+	CostComparisonMetricKey,
+	CostComparisonResult,
+	CostComparisonSide,
+	CostDimension,
+} from "@petalnet/types";
+
+export type {
+	CostComparisonMetric,
+	CostComparisonMetricKey,
+	CostComparisonReceipt,
+	CostComparisonRequest,
+	CostComparisonResult,
+	CostComparisonSide,
+	CostDimension,
+} from "@petalnet/types";
 
 export interface DailyCost {
 	day: string;
@@ -41,6 +57,202 @@ export interface PriceRow {
 	write: number | null;
 	read: number;
 	unpricedTokens?: number;
+}
+
+const comparisonSeeds: Record<
+	CostDimension,
+	Record<string, Omit<CostComparisonSide, "value" | "cost_per_session" | "tokens_per_session">>
+> = {
+	agent: {
+		"carson-2": {
+			cost: 14.02,
+			tokens: 7_080_000,
+			sessions: 2,
+			input_tokens: 420_000,
+			output_tokens: 240_000,
+			cache_creation_tokens: 320_000,
+			cache_read_tokens: 6_100_000,
+		},
+		janet: {
+			cost: 9.77,
+			tokens: 5_280_000,
+			sessions: 3,
+			input_tokens: 310_000,
+			output_tokens: 170_000,
+			cache_creation_tokens: 0,
+			cache_read_tokens: 4_800_000,
+		},
+		"point-fable": {
+			cost: 8.91,
+			tokens: 4_300_000,
+			sessions: 4,
+			input_tokens: 260_000,
+			output_tokens: 140_000,
+			cache_creation_tokens: 0,
+			cache_read_tokens: 3_900_000,
+		},
+		codex: {
+			cost: 4.1,
+			tokens: 1_205_000,
+			sessions: 2,
+			input_tokens: 150_000,
+			output_tokens: 55_000,
+			cache_creation_tokens: 0,
+			cache_read_tokens: 1_000_000,
+		},
+	},
+	model: {
+		"claude-opus-4-8": {
+			cost: 27.3,
+			tokens: 15_200_000,
+			sessions: 8,
+			input_tokens: 740_000,
+			output_tokens: 410_000,
+			cache_creation_tokens: 610_000,
+			cache_read_tokens: 13_440_000,
+		},
+		"claude-fable-5": {
+			cost: 7.6,
+			tokens: 4_580_000,
+			sessions: 5,
+			input_tokens: 260_000,
+			output_tokens: 140_000,
+			cache_creation_tokens: 280_000,
+			cache_read_tokens: 3_900_000,
+		},
+		"gpt-5.5": {
+			cost: 2.6,
+			tokens: 1_205_000,
+			sessions: 2,
+			input_tokens: 150_000,
+			output_tokens: 55_000,
+			cache_creation_tokens: 0,
+			cache_read_tokens: 1_000_000,
+		},
+		"claude-haiku-4-5": {
+			cost: 2.1,
+			tokens: 2_440_000,
+			sessions: 6,
+			input_tokens: 190_000,
+			output_tokens: 90_000,
+			cache_creation_tokens: 160_000,
+			cache_read_tokens: 2_000_000,
+		},
+		"claude-sonnet-5": {
+			cost: 1.6,
+			tokens: 1_340_000,
+			sessions: 4,
+			input_tokens: 120_000,
+			output_tokens: 70_000,
+			cache_creation_tokens: 150_000,
+			cache_read_tokens: 1_000_000,
+		},
+	},
+	project: {
+		"Lab Console": {
+			cost: 19.8,
+			tokens: 10_300_000,
+			sessions: 9,
+			input_tokens: 680_000,
+			output_tokens: 350_000,
+			cache_creation_tokens: 370_000,
+			cache_read_tokens: 8_900_000,
+		},
+		"Library backfill": {
+			cost: 12.3,
+			tokens: 7_100_000,
+			sessions: 7,
+			input_tokens: 420_000,
+			output_tokens: 220_000,
+			cache_creation_tokens: 260_000,
+			cache_read_tokens: 6_200_000,
+		},
+		"Neighborhood infra": {
+			cost: 6.1,
+			tokens: 3_410_000,
+			sessions: 5,
+			input_tokens: 260_000,
+			output_tokens: 150_000,
+			cache_creation_tokens: 200_000,
+			cache_read_tokens: 2_800_000,
+		},
+	},
+};
+
+export function mockCostComparison(
+	dimension: CostDimension,
+	leftValue: string,
+	rightValue: string,
+): CostComparisonResult {
+	const side = (value: string): CostComparisonSide => {
+		const seed = comparisonSeeds[dimension][value] ?? {
+			cost: 0,
+			tokens: 0,
+			sessions: 0,
+			input_tokens: 0,
+			output_tokens: 0,
+			cache_creation_tokens: 0,
+			cache_read_tokens: 0,
+		};
+		return {
+			value,
+			...seed,
+			cost_per_session: seed.sessions === 0 ? 0 : seed.cost / seed.sessions,
+			tokens_per_session: seed.sessions === 0 ? 0 : seed.tokens / seed.sessions,
+		};
+	};
+	const left = side(leftValue);
+	const right = side(rightValue);
+	const keys: CostComparisonMetricKey[] = [
+		"cost",
+		"tokens",
+		"sessions",
+		"cost_per_session",
+		"tokens_per_session",
+		"input_tokens",
+		"output_tokens",
+		"cache_creation_tokens",
+		"cache_read_tokens",
+	];
+	return {
+		schema_version: 1,
+		dimension,
+		left,
+		right,
+		metrics: keys.map((key) => ({
+			key,
+			left: left[key],
+			right: right[key],
+			delta: right[key] - left[key],
+			ratio: left[key] === 0 ? null : right[key] / left[key],
+		})),
+		query_ref: "fixture:cost-pairwise",
+		pricing_query_ref: "fixture:price-book",
+		observed_at: new Date().toISOString(),
+		receipt: {
+			source: "agentsview",
+			scope: `${dimension}: ${leftValue} ↔ ${rightValue}`,
+			query: `GET /usage/pairwise-comparison?left_dimension=${dimension}&left_value=${encodeURIComponent(leftValue)}&right_dimension=${dimension}&right_value=${encodeURIComponent(rightValue)}`,
+			row_count: left.sessions + right.sessions,
+			session_count: left.sessions + right.sessions,
+			execution_ms: 18,
+			cost_source: "computed",
+			pricing: {
+				source: "fixture",
+				table_version: "2026-07-13T14:00:59Z",
+				digest: "sha256:fixture-price-book",
+				effective_row_count: 5,
+				models: [leftValue, rightValue].map((model) => ({
+					model,
+					matched_pattern: model,
+					input_per_mtok: 5,
+					output_per_mtok: 25,
+					cache_creation_per_mtok: 6.25,
+					cache_read_per_mtok: 0.5,
+				})),
+			},
+		},
+	};
 }
 
 const expires = (hours: number) => Math.floor(Date.now() / 1000) + hours * 3600;

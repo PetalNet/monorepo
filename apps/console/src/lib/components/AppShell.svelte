@@ -104,6 +104,12 @@
 		menu = null;
 	}
 
+	function runContextAction(target: HTMLElement) {
+		const contributor = target.closest<HTMLElement>("[data-context-action]");
+		menu = null;
+		contributor?.dispatchEvent(new Event("contextaction"));
+	}
+
 	async function onAsk(question: string) {
 		progress = "Janet is working.";
 		try {
@@ -148,7 +154,8 @@
 {#if menu}
 	<div bind:this={menuEl} class="context-menu" style:left={`${menu.x}px`} style:top={`${menu.y}px`} role="menu" aria-label="Element actions" tabindex="-1">
 		<button type="button" role="menuitem" onclick={() => askAbout(menu!.target)}><Icon name="sparkles" size={16} />Ask about this</button>
-		<button type="button" role="menuitem" onclick={() => copyValue(menu!.target)}>Copy value</button>
+		{#if menu.target.closest("[data-context-action]")}<button type="button" role="menuitem" onclick={() => runContextAction(menu!.target)}><Icon name="columns-2" size={16} />{menu.target.closest<HTMLElement>("[data-context-action]")?.dataset.contextAction}</button>{/if}
+		<button type="button" role="menuitem" onclick={() => copyValue(menu!.target)}><Icon name="copy" size={16} />Copy value</button>
 	</div>
 {/if}
 <Snackbar />

@@ -343,6 +343,9 @@ importers:
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.3(@typescript-eslint/types@8.61.1))
+      '@petalnet/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@sentry/sveltekit':
         specifier: catalog:prod
         version: 10.65.0(@sveltejs/kit@2.66.0(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(encoding@0.1.13)(rollup@4.62.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
@@ -398,6 +401,9 @@ importers:
       '@fastify/websocket':
         specifier: catalog:prod
         version: 11.3.0
+      '@petalnet/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@sentry/node':
         specifier: catalog:prod
         version: 10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))

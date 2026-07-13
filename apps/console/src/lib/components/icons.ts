@@ -13,6 +13,8 @@ import CircleHelp from "@lucide/svelte/icons/circle-help";
 import CircleX from "@lucide/svelte/icons/circle-x";
 import Clock from "@lucide/svelte/icons/clock";
 import Coins from "@lucide/svelte/icons/coins";
+import Columns2 from "@lucide/svelte/icons/columns-2";
+import Copy from "@lucide/svelte/icons/copy";
 import DoorClosed from "@lucide/svelte/icons/door-closed";
 import DoorOpen from "@lucide/svelte/icons/door-open";
 import Ellipsis from "@lucide/svelte/icons/ellipsis";
@@ -46,6 +48,7 @@ import Quote from "@lucide/svelte/icons/quote";
 import Radio from "@lucide/svelte/icons/radio";
 import RadioTower from "@lucide/svelte/icons/radio-tower";
 import ReceiptText from "@lucide/svelte/icons/receipt-text";
+import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 import ScrollText from "@lucide/svelte/icons/scroll-text";
 import Search from "@lucide/svelte/icons/search";
 import Send from "@lucide/svelte/icons/send";
@@ -90,6 +93,8 @@ export const ICONS = {
 	"circle-x": CircleX,
 	clock: Clock,
 	coins: Coins,
+	"columns-2": Columns2,
+	copy: Copy,
 	"door-closed": DoorClosed,
 	"door-open": DoorOpen,
 	ellipsis: Ellipsis,
@@ -123,6 +128,7 @@ export const ICONS = {
 	radio: Radio,
 	"radio-tower": RadioTower,
 	"receipt-text": ReceiptText,
+	"refresh-cw": RefreshCw,
 	"scroll-text": ScrollText,
 	search: Search,
 	send: Send,
