@@ -48,6 +48,11 @@ class RelayController {
   /// `setShareTargets` from double-claiming KeyPackages / overwriting the group
   /// (M2). Cleared when formation finishes.
   final Set<String> _forming = {};
+  final Map<String, DateTime> _peerRekeyedAt = {};
+  final Map<String, DateTime> _shareSince = {};
+  DateTime? _selfRekeyedAt;
+  Future<void>? _identityGenerationReady;
+  bool _generationRetryScheduled = false;
   final _peerFixes = StreamController<PeerFix>.broadcast();
 
   /// Decrypted peer fixes for the presence/map layer.
@@ -65,6 +70,8 @@ class RelayController {
       await stop();
     }
     _session = session;
+    final generationReady = Completer<void>();
+    _identityGenerationReady = generationReady.future;
     final api = _ref.read(apiProvider);
     final crypto = _ref.read(cryptoServiceProvider);
     final initResult = await crypto.init(session.userId);
@@ -74,9 +81,10 @@ class RelayController {
     // halves are gone, so we must force a fresh pool regardless of the count —
     // otherwise peers claim stale packages and silently can't reach us (H1).
     try {
-      if (initResult == MlsInit.wiped) {
-        // Wiped local state = new identity; every server-stored package is
-        // stale (private halves gone). Replace the pool, don't top it up (H1).
+      if (initResult != MlsInit.restored) {
+        // Created can mean a genuinely new account OR an existing account on
+        // a fresh install. In both cases this device has a new MLS identity;
+        // every server-stored package from an older install is unusable.
         await reprovisionKeyPackages();
       } else {
         final count = await api.keyCount(session.token);
@@ -88,8 +96,17 @@ class RelayController {
           await api.uploadKeyPackages(session.token, pool);
         }
       }
+      // Both sides compare identity generations to select exactly one rekey
+      // initiator: the older identity consumes the newer identity's package.
+      _selfRekeyedAt = (await api.keyCount(session.token)).rekeyedAt;
     } on Object catch (e) {
       if (kDebugMode) debugPrint('keypackage top-up failed: $e');
+    } finally {
+      // setShareTargets can race session startup. Never choose a formation
+      // direction until our own generation lookup has finished, or a newly
+      // registered lexicographically-smaller user can initiate the rival group
+      // before learning that its identity is the newer one.
+      generationReady.complete();
     }
 
     // Durable WS (survives disconnect; jittered reconnect).
@@ -138,30 +155,67 @@ class RelayController {
   Future<void> setShareTargets(
     Iterable<String> userIds, {
     Set<String> forceInitiate = const {},
+    Map<String, DateTime> peerRekeyedAt = const {},
+    Map<String, DateTime> shareSince = const {},
   }) async {
     _shareTargets
       ..clear()
       ..addAll(userIds);
+    _peerRekeyedAt
+      ..clear()
+      ..addAll(peerRekeyedAt);
+    _shareSince
+      ..clear()
+      ..addAll(shareSince);
     for (final target in userIds) {
-      await _ensureShareGroup(target, force: forceInitiate.contains(target));
+      await _ensureShareGroup(
+        target,
+        force: forceInitiate.contains(target),
+        rekeyedAt: peerRekeyedAt[target],
+        shareSince: shareSince[target],
+      );
     }
   }
 
-  Future<void> _ensureShareGroup(String target, {bool force = false}) async {
+  Future<void> _ensureShareGroup(
+    String target, {
+    bool force = false,
+    DateTime? rekeyedAt,
+    DateTime? shareSince,
+  }) async {
+    await _identityGenerationReady;
     final session = _session;
     if (session == null) return;
+    final api = _ref.read(apiProvider);
+    if (_selfRekeyedAt == null) {
+      try {
+        _selfRekeyedAt = (await api.keyCount(session.token)).rekeyedAt;
+      } on Object {
+        _scheduleGenerationRetry();
+        return;
+      }
+    }
     final crypto = _ref.read(cryptoServiceProvider);
     final gid = CryptoService.pairwiseGroupId(session.userId, target);
-    if (crypto.hasGroup(gid)) return;
-    // Mutual shares: only the lexicographically-smaller party creates the group
-    // so both don't build rival groups. A one-way temp target ([force]) has no
-    // rival initiator, so I must form it regardless of id ordering.
-    if (!force && session.userId.compareTo(target) >= 0) return;
+    final handled = await _readHandledFormation(session.userId, target);
+    final shouldInitiate = shouldInitiatePairwiseGroup(
+      selfUserId: session.userId,
+      peerUserId: target,
+      hasGroup: crypto.hasGroup(gid),
+      peerRekeyedAt: rekeyedAt,
+      selfRekeyedAt: _selfRekeyedAt,
+      shareSince: shareSince,
+      handledPeerRekeyedAt: handled.peerRekeyedAt,
+      handledShareSince: handled.shareSince,
+      forceInitiate: force,
+    );
+    // One authority selects formation/rekey direction. Reapplying the old
+    // username gate here vetoed the generation decision for petalcat > janet.
+    if (!shouldInitiate) return;
     // In-flight guard: the check above and the claim below straddle an await,
     // so without this a re-entrant setShareTargets would claim two KeyPackages
     // and overwrite the group mid-formation (M2 — MLS desync).
     if (!_forming.add(target)) return;
-    final api = _ref.read(apiProvider);
     try {
       final claim = await api.claimKeyPackage(session.token, target);
       await crypto.createGroup(gid);
@@ -171,6 +225,12 @@ class RelayController {
         recipientId: target,
         groupId: utf8.decode(gid),
         payload: base64Encode(add.welcome),
+      );
+      await _writeHandledFormation(
+        session.userId,
+        target,
+        peerRekeyedAt: rekeyedAt,
+        shareSince: shareSince,
       );
     } on Object catch (e) {
       if (kDebugMode) debugPrint('form share group with $target failed: $e');
@@ -224,6 +284,25 @@ class RelayController {
         // Refresh both so the pinned request clears and the new person appears
         // (the relay's setShareTargets then forms the MLS group with them).
         _refreshSharing();
+      case 'peer.rekeyed':
+        // Pull the authoritative generation marker; the deterministic
+        // initiator will replace the stale group and emit a fresh Welcome.
+        _refreshSharing();
+      case 'share.removed':
+        final peer = msg['user_id'] as String?;
+        if (peer != null) {
+          // Stop encrypting immediately, and remove both the accepted-person
+          // row and cached fix before the refresh round-trip finishes.
+          removeRelayTarget(
+            peer,
+            targets: _shareTargets,
+            peerRekeyedAt: _peerRekeyedAt,
+            shareSince: _shareSince,
+          );
+          _ref.read(peopleControllerProvider.notifier).removeLocally(peer);
+          _ref.read(livePresenceProvider.notifier).remove(peer);
+        }
+        _refreshSharing();
       case 'share.temp_created':
         // Someone started a temp share to me (or the server confirmed mine).
         unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
@@ -234,6 +313,15 @@ class RelayController {
     unawaited(_ref.read(peopleControllerProvider.notifier).refresh());
     unawaited(_ref.read(requestsControllerProvider.notifier).refresh());
     unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
+  }
+
+  void _scheduleGenerationRetry() {
+    if (_generationRetryScheduled) return;
+    _generationRetryScheduled = true;
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      _generationRetryScheduled = false;
+      if (_session != null) _refreshSharing();
+    });
   }
 
   Future<void> _onBroadcast(Map<String, dynamic> msg) async {
@@ -280,6 +368,17 @@ class RelayController {
     try {
       await crypto.processWelcome(base64Decode(m['payload'] as String));
       await api.ackMlsMessage(session.token, m['id'] as String);
+      final sender = m['sender_id'] as String?;
+      final generation = sender == null ? null : _peerRekeyedAt[sender];
+      final since = sender == null ? null : _shareSince[sender];
+      if (sender != null) {
+        await _writeHandledFormation(
+          session.userId,
+          sender,
+          peerRekeyedAt: generation,
+          shareSince: since,
+        );
+      }
     } on Object catch (e) {
       if (kDebugMode) debugPrint('apply welcome failed: $e');
     }
@@ -294,6 +393,11 @@ class RelayController {
     _ws = null;
     _session = null;
     _shareTargets.clear();
+    _peerRekeyedAt.clear();
+    _shareSince.clear();
+    _selfRekeyedAt = null;
+    _identityGenerationReady = null;
+    _generationRetryScheduled = false;
   }
 
   Future<void> dispose() async {
@@ -302,6 +406,109 @@ class RelayController {
   }
 
   String _wsUrlFor(String base) => '${base.replaceFirst('http', 'ws')}/ws';
+}
+
+/// True when this client is responsible for replacing a stale pairwise group.
+/// Mutual shares have one deterministic initiator; one-way temporary shares
+/// force the sharer to initiate because the recipient has no outbound target.
+bool shouldInitiatePairwiseGroup({
+  required String selfUserId,
+  required String peerUserId,
+  required bool hasGroup,
+  required DateTime? peerRekeyedAt,
+  required DateTime? selfRekeyedAt,
+  required DateTime? shareSince,
+  required DateTime? handledPeerRekeyedAt,
+  required DateTime? handledShareSince,
+  bool forceInitiate = false,
+}) {
+  final peerChanged =
+      peerRekeyedAt != null &&
+      (handledPeerRekeyedAt == null ||
+          peerRekeyedAt.isAfter(handledPeerRekeyedAt));
+  final shareChanged =
+      shareSince != null &&
+      (handledShareSince == null || shareSince.isAfter(handledShareSince));
+  if (forceInitiate) return !hasGroup || peerChanged || shareChanged;
+  if (hasGroup && !peerChanged && !shareChanged) return false;
+
+  // Without our own generation, choosing by username can race a peer that did
+  // load the generations and selected itself. Fail closed; a later sharing
+  // refresh retries after key-count succeeds.
+  if (selfRekeyedAt == null) return false;
+
+  // The side with the older identity must consume the newer side's CURRENT
+  // package. This is the task-726 acceptance tell (fresh Janet KP consumed),
+  // and prevents a newly installed device racing its peer with a rival group.
+  if (peerChanged) {
+    if (selfRekeyedAt.isBefore(peerRekeyedAt)) return true;
+    if (selfRekeyedAt.isAfter(peerRekeyedAt)) return false;
+  }
+
+  // Migration backfill gives existing peers an equal generation. Preserve the
+  // established deterministic tie-break so exactly one side heals the group.
+  return selfUserId.compareTo(peerUserId) < 0;
+}
+
+/// Mutates the relay's live audience state in the same turn as a
+/// `share.removed` frame, before any network refresh can race another fix.
+void removeRelayTarget(
+  String peer, {
+  required Set<String> targets,
+  required Map<String, DateTime> peerRekeyedAt,
+  required Map<String, DateTime> shareSince,
+}) {
+  targets.remove(peer);
+  peerRekeyedAt.remove(peer);
+  shareSince.remove(peer);
+}
+
+Map<String, PeerFix> withoutPeerFix(
+  Map<String, PeerFix> fixes,
+  String userId,
+) => {...fixes}..remove(userId);
+
+const _formationMarkerPrefix = 'point.mls.pair-formation.';
+
+typedef _HandledFormation = ({
+  DateTime? peerRekeyedAt,
+  DateTime? shareSince,
+});
+
+Future<_HandledFormation> _readHandledFormation(
+  String self,
+  String peer,
+) async {
+  const storage = FlutterSecureStorage();
+  final values = await Future.wait([
+    storage.read(key: '$_formationMarkerPrefix$self.$peer.peer'),
+    storage.read(key: '$_formationMarkerPrefix$self.$peer.share'),
+  ]);
+  return (
+    peerRekeyedAt: DateTime.tryParse(values[0] ?? ''),
+    shareSince: DateTime.tryParse(values[1] ?? ''),
+  );
+}
+
+Future<void> _writeHandledFormation(
+  String self,
+  String peer, {
+  required DateTime? peerRekeyedAt,
+  required DateTime? shareSince,
+}) async {
+  const storage = FlutterSecureStorage();
+  await Future.wait([
+    if (peerRekeyedAt != null)
+      storage.write(
+        key: '$_formationMarkerPrefix$self.$peer.peer',
+        value: peerRekeyedAt.toUtc().toIso8601String(),
+      ),
+    if (shareSince != null)
+      storage.write(
+        key: '$_formationMarkerPrefix$self.$peer.share',
+        value: shareSince.toUtc().toIso8601String(),
+      ),
+  ]);
 }
 
 final relayControllerProvider = Provider<RelayController>((ref) {
@@ -324,6 +531,11 @@ class LivePresence extends Notifier<Map<String, PeerFix>> {
   }
 
   RelayController _ref() => ref.read(relayControllerProvider);
+
+  void remove(String userId) {
+    if (!state.containsKey(userId)) return;
+    state = withoutPeerFix(state, userId);
+  }
 }
 
 final livePresenceProvider =
