@@ -45,7 +45,7 @@ async fn seed_share(pool: &PgPool, a: &str, b: &str) {
         .unwrap();
 }
 
-async fn count(pool: &PgPool, sql: &str) -> i64 {
+async fn count(pool: &PgPool, sql: &'static str) -> i64 {
     let (n,): (i64,) = sqlx::query_as(sql).fetch_one(pool).await.unwrap();
     n
 }
