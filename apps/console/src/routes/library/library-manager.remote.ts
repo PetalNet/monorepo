@@ -65,6 +65,21 @@ const statusResultSchema = z.object({
 		.optional(),
 });
 export type LibraryStatusResult = z.infer<typeof statusResultSchema>;
+const reviewSchema = z
+	.object({
+		proposal_id: z.string().min(1),
+		decision: z.enum(["under-review", "promoted", "rejected"]),
+		reason: z.string().trim().min(1).max(500),
+	})
+	.strict();
+const reviewResultSchema = z.object({
+	proposal_id: z.string(),
+	capability: z.string(),
+	version: z.string(),
+	state: z.string(),
+	reviewed_by: z.string(),
+});
+export type LibraryReviewResult = z.infer<typeof reviewResultSchema>;
 
 export interface LibraryManagerResult {
 	schema_version: 1;
@@ -309,6 +324,29 @@ export const updateLibraryStatus = command(
 		void getLibrarySurface().refresh();
 		const parsed = statusResultSchema.safeParse(result.result);
 		if (!parsed.success) error(502, "Library returned an invalid status receipt");
+		return parsed.data;
+	},
+);
+
+/** Privileged curation stays on the audited op plane; the UI cannot promote directly. */
+export const reviewLibraryCapability = command(
+	reviewSchema,
+	async (input): Promise<LibraryReviewResult> => {
+		const result = await apiJson<OpResult>("/op", {
+			method: "POST",
+			headers: forwardedHeaders(true),
+			body: JSON.stringify({
+				schema_version: 1,
+				id: crypto.randomUUID(),
+				op: "library.capability.review",
+				args: { proposal_id: input.proposal_id, decision: input.decision },
+				reason: input.reason,
+				dry_run: false,
+			}),
+		});
+		const parsed = reviewResultSchema.safeParse(result.result);
+		if (!parsed.success) error(502, "Library returned an invalid review receipt");
+		void getLibrarySurface().refresh();
 		return parsed.data;
 	},
 );

@@ -3616,7 +3616,7 @@ describe("structured query", () => {
 			  observed_at = excluded.observed_at, seq = excluded.seq`;
 		await services.db.admin`
 			insert into grants (subject, relation, object, granted_by)
-			values ('binding-user', 'editor', ${`item:${visibleId}`}, 'test')`;
+			values ('binding-user', 'editor', ${`item:${visibleId}`}, 'test'), ('binding-user', 'owner', 'fleet', 'test')`;
 		const server = await buildServer(services, true);
 		const headers = {
 			"x-dev-principal": JSON.stringify({
@@ -3775,6 +3775,104 @@ describe("structured query", () => {
 			expect(unsignedCapability.json()).toMatchObject({
 				error: { code: "capability_artifact_invalid" },
 			});
+			const agentHeaders = {
+				"x-dev-principal": JSON.stringify({
+					kind: "agent",
+					id: "agent:reflector",
+					scopes: ["fleet"],
+					lanes: ["viewer"],
+				}),
+			};
+			const proposed = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers: agentHeaders,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "library.capability.propose",
+					args: {
+						capability: "skill.agent-reflection",
+						title: "Agent reflection",
+						version: "1.0.0",
+						scope: "fleet",
+						artifact_base64: Buffer.from('{"name":"skill.agent-reflection"}').toString("base64"),
+					},
+					reason: "Captured a reusable reflection workflow",
+					dry_run: false,
+				},
+			});
+			expect(proposed.statusCode, proposed.body).toBe(200);
+			expect(proposed.json()).toMatchObject({
+				ok: true,
+				result: { capability: "skill.agent-reflection", state: "proposed" },
+			});
+			const proposalId = String(proposed.json().result.proposal_id);
+			const beforePromotion = await server.inject({
+				method: "GET",
+				url: "/api/v1/library/capabilities",
+				headers,
+			});
+			expect(beforePromotion.json().items).not.toEqual(
+				expect.arrayContaining([expect.objectContaining({ capability: "skill.agent-reflection" })]),
+			);
+			const agentPromote = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers: agentHeaders,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "library.capability.review",
+					args: { proposal_id: proposalId, decision: "promoted" },
+					reason: "self approve",
+					dry_run: false,
+				},
+			});
+			expect(agentPromote.statusCode).toBe(403);
+			const adminHeaders = {
+				"x-dev-principal": JSON.stringify({
+					kind: "human",
+					id: "binding-user",
+					scopes: ["fleet", "user:binding-user"],
+					lanes: ["viewer", "admin"],
+				}),
+			};
+			const promoted = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers: adminHeaders,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "library.capability.review",
+					args: { proposal_id: proposalId, decision: "promoted" },
+					reason: "Artifact and provenance reviewed",
+					dry_run: false,
+				},
+			});
+			expect(promoted.statusCode, promoted.body).toBe(200);
+			expect(promoted.json()).toMatchObject({
+				ok: true,
+				result: {
+					capability: "skill.agent-reflection",
+					state: "promoted",
+					reviewed_by: "binding-user",
+				},
+			});
+			const afterPromotion = await server.inject({
+				method: "GET",
+				url: "/api/v1/library/capabilities",
+				headers,
+			});
+			expect(afterPromotion.json().items).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						capability: "skill.agent-reflection",
+						provider: `proposal:${proposalId}`,
+					}),
+				]),
+			);
 
 			const editorHeaders = {
 				"x-dev-principal": JSON.stringify({

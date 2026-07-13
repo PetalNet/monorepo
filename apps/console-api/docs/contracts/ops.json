@@ -1240,6 +1240,50 @@
 			"phase": 2
 		},
 		{
+			"op": "library.capability.propose",
+			"lane": "viewer",
+			"authz": { "rule": "self" },
+			"executor": "library",
+			"requires_reason": true,
+			"args": {
+				"type": "object",
+				"required": ["capability", "title", "version", "scope", "artifact_base64"],
+				"properties": {
+					"capability": { "type": "string", "minLength": 1, "maxLength": 128 },
+					"title": { "type": "string", "minLength": 1, "maxLength": 160 },
+					"version": { "type": "string", "minLength": 1, "maxLength": 64 },
+					"scope": { "type": "string" },
+					"artifact_base64": { "type": "string", "maxLength": 1398104 }
+				},
+				"additionalProperties": false
+			},
+			"effect": "stage an agent-authored capability artifact for human review; never publishes registry evidence",
+			"emits": ["library.capability.proposed"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "library.capability.review",
+			"lane": "admin",
+			"human_only": true,
+			"requires_reason": true,
+			"authz": { "rule": "grant", "relation": "owner", "scope_any": ["${target.scope}"] },
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["proposal_id", "decision"],
+				"properties": {
+					"proposal_id": { "type": "string" },
+					"decision": { "enum": ["under-review", "promoted", "rejected"] }
+				},
+				"additionalProperties": false
+			},
+			"effect": "record privileged review provenance; promotion alone publishes the artifact to the registry",
+			"emits": ["library.capability.reviewed"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
 			"op": "library.link.add",
 			"lane": "editor",
 			"authz": {

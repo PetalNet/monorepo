@@ -738,6 +738,13 @@ const STATEMENTS: readonly string[] = [
 	   run_id            text,
 	   proposed_at       timestamptz not null default now()
 	 )`,
+	`alter table library_curation add column if not exists capability text`,
+	`alter table library_curation add column if not exists version text`,
+	`alter table library_curation add column if not exists sha256 text`,
+	`alter table library_curation add column if not exists proposed_by text`,
+	`alter table library_curation add column if not exists reviewed_by text`,
+	`alter table library_curation add column if not exists reviewed_at timestamptz`,
+	`alter table library_curation add column if not exists review_reason text`,
 	`drop view if exists items_min`,
 	`create view items_min with (security_invoker = true) as
 	 select id, kind, title, scope, is_home, created_by, responsible_human, payload, updated_at
