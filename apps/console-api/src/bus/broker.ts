@@ -18,11 +18,16 @@ export interface SubscribeSpec {
 
 export type SendFrame = (frame: Record<string, unknown>) => void;
 
-/** Replay lake rows seq in (since, through] matching pattern∩scope∩filter, in seq order. */
+/**
+ * Replay lake rows seq in (since, through] matching pattern∩scope∩filter, in seq order, invoking
+ * `onRow` for each. MUST paginate internally through the full range (no silent truncation) and
+ * throw on failure, so subscribe can resync rather than go live on an incomplete replay.
+ */
 export type ReplayFn = (
 	spec: SubscribeSpec,
 	throughSeq: number,
-) => Promise<{ seq: number; emission: Emission }[]>;
+	onRow: (seq: number, e: Emission) => void,
+) => Promise<void>;
 
 const SEV_ORDER = ["debug", "info", "warn", "danger", "p0"];
 const QUEUE_MAX = 1000;
@@ -74,6 +79,14 @@ export class Broker {
 		return this.#head;
 	}
 
+	/**
+	 * Initialize the head from the lake's MAX(seq) at boot, so a post-restart `since:0` subscribe
+	 * replays persisted history rather than skipping it (codex N1a P1).
+	 */
+	setHead(seq: number): void {
+		if (seq > this.#head) this.#head = seq;
+	}
+
 	/** Called by the appender post-commit, in seq order. */
 	onEvent(seq: number, e: Emission): void {
 		if (seq > this.#head) this.#head = seq;
@@ -88,7 +101,8 @@ export class Broker {
 	}
 
 	async subscribe(spec: SubscribeSpec, send: SendFrame): Promise<void> {
-		if (this.#subs.has(spec.subId))
+		if (this.#subs.has(spec.subId)) {
+			// reject WITHOUT overwriting the live subscription (would orphan it — sub-agent M3)
 			send({
 				schema_version: 1,
 				kind: "ack",
@@ -96,6 +110,8 @@ export class Broker {
 				replay_through_seq: this.#head,
 				error: { code: "sub_id_in_use", message: "sub_id already active", retryable: false },
 			});
+			return;
+		}
 		const sub: Sub = {
 			spec,
 			send,
@@ -112,9 +128,11 @@ export class Broker {
 		const boundary = this.#head;
 		send({ schema_version: 1, kind: "ack", sub_id: spec.subId, replay_through_seq: boundary });
 		try {
-			const rows = await this.#replay(spec, boundary);
-			for (const row of rows) send(frame(spec.subId, row.seq, row.emission));
+			await this.#replay(spec, boundary, (seq, e) => {
+				send(frame(spec.subId, seq, e));
+			});
 		} catch (err) {
+			// incomplete replay: resync, do NOT go live on a known-incomplete stream (codex N1a P2)
 			send({
 				schema_version: 1,
 				kind: "resync_required",
@@ -122,6 +140,8 @@ export class Broker {
 				oldest_seq: boundary,
 				message: String(err),
 			});
+			this.unsubscribe(spec.subId);
+			return;
 		}
 		// flush buffered live events with seq > boundary exactly once, then go live
 		if (sub.closed) return;

@@ -89,6 +89,42 @@ conversion belongs with the retention work (via an emission_ids dedup gate). The
 created in the migration so N1d only adds the conversion. SQL query mode, `/graph`, and the
 command/library planes are N1c–N1d + Phase 2 per the DAG.
 
+## N1a code review round (post-build, pre-merge)
+
+Reviewers: **codex** (REVISE — 1 P0, 4 P1, 2 P2) + an **adversarial security sub-agent**
+(APPROVE-WITH-FIXES — 1 HIGH, 5 MED, 3 LOW). Both independently confirmed the hard parts are
+right: no SQL injection (every field IDENT_RE/whitelist-gated, values parameterized), the
+serialized appender is commit-ordered + exactly-once + rejection-safe, the replay→live cutover
+has no drop/dup window, RLS is genuinely fail-closed (`ANY(string_to_array(NULL,','))` → no rows),
+and devAuth gates both HTTP and WS. All findings applied + regression-tested (34 tests green):
+
+- **P0 / H1 — RLS bypass via config fallback**: `APP_DATABASE_URL`→`DATABASE_URL` + `openDb`
+  app→admin aliasing meant a missing env silently ran every scoped read as the superuser. Fix:
+  `assertRuntimeRolesHardened` at boot — outside devAuth the app URL must be distinct and its role
+  `NOSUPERUSER NOBYPASSRLS` (verified via `pg_roles`), else refuse to start. Tested both the
+  refuse and the boot-with-real-role paths.
+- **P1 — appender relied on superuser bypass to write**: added a non-superuser `console_writer`
+  role with INSERT policies (`WITH CHECK true`) + a see-all SELECT policy (for dedup); the appender
+  runs as `console_writer`, not the superuser. All roles `NOSUPERUSER NOBYPASSRLS`.
+- **P1 — broker head zero after restart**: `setHead(MAX(events.seq))` at boot so a `since:0`
+  subscribe replays persisted history, not just this-process events. Tested with a fresh broker.
+- **P1 — replay silently truncated at 10k**: replay streams via `onRow` and paginates the whole
+  `(since, boundary]` range; on failure it emits `resync_required` and does NOT go live on an
+  incomplete stream (P2).
+- **P1 / M2 — scrubber field coverage**: scans the WHOLE emission (action/subject/source/links/
+  meta), not just dimensions/measures/body*ref; JWT floor lowered + `cbt*`/eyJ shapes added.
+- **M1 — dead `refence`**: wired a 30s WS re-resolve of the bearer — revoked token closes the
+  socket, narrowed scopes drop the affected subs (contract §4.1 re-fence, was implemented but
+  never called).
+- **M3 — duplicate sub_id**: `return` after the error ack (no longer orphans the live sub).
+- **M4 — scope-tag GUC injection**: `resolveScopes`/`devPrincipal` validate every scope against the
+  anchored `SCOPE_RE`; `withScopes` rejects any comma-bearing tag — the invariant is now
+  load-bearing, not just asserted.
+- **M5 — WS auth unhandled rejection**: `resolveBearer` wrapped in try/catch, socket closed on
+  auth error.
+- **L1 — query limit coercion** (clean 400, not a raw 500); **L3 — catalog** intersects observed
+  scopes with the caller's grant.
+
 ### Next
 
-PR N1a → codex + adversarial review → merge, then N1b (bridges + typed reads + completion tail).
+Push N1a → PR → CI green → merge, then N1b (bridges + typed reads + completion tail).

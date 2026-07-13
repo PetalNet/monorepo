@@ -14,13 +14,19 @@ import type { Sql } from "./pool.ts";
 const STATEMENTS: readonly string[] = [
 	`create extension if not exists timescaledb cascade`,
 
-	// --- runtime roles (cluster-global; NOLOGIN groups the app/ro login roles inherit) --------
+	// --- runtime roles (cluster-global; all NOSUPERUSER NOBYPASSRLS so RLS actually binds) -----
+	//   console_app    — caller-scoped reads (RLS filters to app.scopes)
+	//   console_ro     — read-only SQL mode
+	//   console_writer — the appender: inserts any scope + sees all rows (for dedup), NOT superuser
 	`do $$ begin
 	   if not exists (select 1 from pg_roles where rolname = 'console_app') then
-	     create role console_app nologin;
+	     create role console_app nologin nosuperuser nobypassrls;
 	   end if;
 	   if not exists (select 1 from pg_roles where rolname = 'console_ro') then
-	     create role console_ro nologin;
+	     create role console_ro nologin nosuperuser nobypassrls;
+	   end if;
+	   if not exists (select 1 from pg_roles where rolname = 'console_writer') then
+	     create role console_writer nologin nosuperuser nobypassrls;
 	   end if;
 	 end $$`,
 
@@ -131,31 +137,44 @@ const STATEMENTS: readonly string[] = [
 	`alter table blobs enable row level security`,
 	`alter table blobs force row level security`,
 
-	// SELECT policy: a row is visible iff its scope is in the per-transaction app.scopes GUC.
-	// INSERT policy: the appender (running as owner/admin) writes any scope — the durable scope
-	// tag is what reads filter on; scope authorization already happened at the emit door.
+	// SELECT policy: a caller sees a row iff its scope is in the per-transaction app.scopes GUC.
+	// Unset GUC → string_to_array(NULL,',') → NULL → scope = ANY(NULL) → NULL → row excluded
+	// (fail-closed). console_writer (the appender) sees ALL rows so dedup can find any id, and may
+	// INSERT any scope — scope authorization already happened at the emit door; the durable scope
+	// tag is what caller reads filter on.
 	`do $$ begin
 	   if not exists (select 1 from pg_policies where tablename='events' and policyname='events_scope_select') then
 	     create policy events_scope_select on events for select to console_app, console_ro
 	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
 	   end if;
+	   if not exists (select 1 from pg_policies where tablename='events' and policyname='events_writer_all') then
+	     create policy events_writer_all on events to console_writer using (true) with check (true);
+	   end if;
 	   if not exists (select 1 from pg_policies where tablename='edges' and policyname='edges_scope_select') then
 	     create policy edges_scope_select on edges for select to console_app, console_ro
 	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='edges' and policyname='edges_writer_all') then
+	     create policy edges_writer_all on edges to console_writer using (true) with check (true);
 	   end if;
 	   if not exists (select 1 from pg_policies where tablename='blobs' and policyname='blobs_scope_select') then
 	     create policy blobs_scope_select on blobs for select to console_app, console_ro
 	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
 	   end if;
+	   if not exists (select 1 from pg_policies where tablename='blobs' and policyname='blobs_writer_all') then
+	     create policy blobs_writer_all on blobs to console_writer using (true) with check (true);
+	   end if;
 	 end $$`,
 
-	// --- RO role: strictly SELECT on events only (SQL mode) ------------------------------------
+	// --- grants -------------------------------------------------------------------------------
 	`revoke all on all tables in schema public from console_ro`,
-	`grant usage on schema public to console_app, console_ro`,
+	`grant usage on schema public to console_app, console_ro, console_writer`,
 	`grant select on events to console_ro`,
-	// console_app: scoped reads across the read surface + inserts on the ingest tables.
+	// console_app: scoped reads across the read surface.
 	`grant select on events, edges, blobs, semantic_registry, grants, producer_registrations, tiers, api_tokens to console_app`,
-	`grant insert, update on semantic_registry to console_app`,
+	`grant insert, update, select on semantic_registry to console_app, console_writer`,
+	// console_writer: the appender (non-superuser) — insert events/edges/blobs, see all for dedup.
+	`grant insert, select on events, edges, blobs to console_writer`,
 ];
 
 export interface MigrateOpts {
@@ -165,6 +184,7 @@ export interface MigrateOpts {
 	 */
 	readonly appPassword?: string;
 	readonly roPassword?: string;
+	readonly writerPassword?: string;
 }
 
 export async function migrate(admin: Sql, opts?: MigrateOpts): Promise<void> {
@@ -178,5 +198,9 @@ export async function migrate(admin: Sql, opts?: MigrateOpts): Promise<void> {
 	if (opts?.roPassword)
 		await admin.unsafe(
 			`alter role console_ro login password '${opts.roPassword.replace(/'/g, "''")}'`,
+		);
+	if (opts?.writerPassword)
+		await admin.unsafe(
+			`alter role console_writer login password '${opts.writerPassword.replace(/'/g, "''")}'`,
 		);
 }

@@ -146,12 +146,15 @@ export async function buildServer(services: Services, devAuth: boolean) {
 	app.get("/api/v1/catalog", { preHandler: auth }, async (req) => {
 		const p = req.principal as Principal;
 		if (p.scopes.length === 0) return { schema_version: 1, items: [] };
-		const rows = await services.db.app`
+		const rows = await services.db.app<{ scopes: string[]; [k: string]: unknown }[]>`
 			select type, first_seen, last_emit, dimensions, measures, scopes, emit_count
 			from semantic_registry
 			where scopes ?| ${services.db.app.array(p.scopes as string[])}
 			order by type`;
-		return { schema_version: 1, items: rows };
+		// intersect observed scopes with the caller's grant so a viewer can't learn a type was also
+		// seen in a scope they lack (sub-agent L3)
+		const items = rows.map((r) => ({ ...r, scopes: r.scopes.filter((s) => p.scopes.includes(s)) }));
+		return { schema_version: 1, items };
 	});
 
 	// --- bus WS ----------------------------------------------------------------------------------
@@ -162,11 +165,15 @@ export async function buildServer(services: Services, devAuth: boolean) {
 		const send = (frame: Record<string, unknown>): void => {
 			if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
 		};
+		const bearer = authz?.startsWith("Bearer ") ? authz.slice(7) : null;
 		const ready = (async () => {
-			if (authz?.startsWith("Bearer "))
-				principal = await resolveBearer(services.db.admin, authz.slice(7));
-			else if (devAuth && typeof req.headers["x-dev-principal"] === "string")
-				principal = devPrincipal(req.headers["x-dev-principal"]);
+			try {
+				if (bearer) principal = await resolveBearer(services.db.admin, bearer);
+				else if (devAuth && typeof req.headers["x-dev-principal"] === "string")
+					principal = devPrincipal(req.headers["x-dev-principal"]);
+			} catch {
+				principal = null;
+			}
 			if (!principal) {
 				send({
 					schema_version: 1,
@@ -178,6 +185,29 @@ export async function buildServer(services: Services, devAuth: boolean) {
 				socket.close();
 			}
 		})();
+
+		// Re-fence live subscriptions on grant/token change (contract §4.1; sub-agent M1). Every 30s
+		// re-resolve the bearer: a revoked token closes the socket; narrowed scopes drop the affected
+		// subs (the client resyncs). Dev-header connections are not re-fenced (test-only).
+		const refenceTimer = bearer
+			? setInterval(() => {
+					void (async () => {
+						try {
+							const fresh = await resolveBearer(services.db.admin, bearer);
+							if (!fresh) {
+								for (const id of connSubs) services.broker.unsubscribe(id);
+								socket.close();
+								return;
+							}
+							principal = fresh;
+							services.broker.refence(connSubs, fresh.scopes);
+						} catch {
+							/* transient DB blip: keep the connection, retry next tick */
+						}
+					})();
+				}, 30000)
+			: null;
+		if (refenceTimer) refenceTimer.unref();
 
 		socket.on("message", (data: Buffer) => {
 			void (async () => {
@@ -218,6 +248,7 @@ export async function buildServer(services: Services, devAuth: boolean) {
 			})();
 		});
 		socket.on("close", () => {
+			if (refenceTimer) clearInterval(refenceTimer);
 			for (const id of connSubs) services.broker.unsubscribe(id);
 		});
 	});

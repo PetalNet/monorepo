@@ -5,7 +5,7 @@ import { Appender, type AppendResult } from "./bus/appender.ts";
 import { Broker } from "./bus/broker.ts";
 import { makeReplay } from "./bus/replay.ts";
 import { migrate } from "./db/migrate.ts";
-import { openDb, type Db } from "./db/pool.ts";
+import { openDb, assertRuntimeRolesHardened, type Db } from "./db/pool.ts";
 import { parseEmission } from "./emission.ts";
 import type { Env } from "./env.ts";
 import { authorizeEmission } from "./ingest/authz.ts";
@@ -31,8 +31,15 @@ export interface Services {
 export async function buildServices(env: Env, opts?: { migrate?: boolean }): Promise<Services> {
 	const db = openDb(env);
 	if (opts?.migrate !== false) await migrate(db.admin);
+	await assertRuntimeRolesHardened(db, env.devAuth);
 	const broker = new Broker(makeReplay(db.app));
-	const appender = new Appender(db.admin, (seq, e) => {
+	// initialize the bus head from the lake so a post-restart `since:0` subscribe replays persisted
+	// history (not just events appended by THIS process) — codex N1a P1.
+	const headRow = await db.admin<
+		{ n: string }[]
+	>`select coalesce(max(seq), 0)::bigint as n from events`;
+	broker.setHead(Number(headRow[0]?.n ?? 0));
+	const appender = new Appender(db.writer, (seq, e) => {
 		broker.onEvent(seq, e);
 	});
 

@@ -14,6 +14,11 @@ export interface Db {
 	readonly admin: Sql;
 	readonly app: Sql;
 	readonly ro: Sql;
+	/**
+	 * The appender's connection (console_writer, non-superuser): inserts any scope, sees all for
+	 * dedup.
+	 */
+	readonly writer: Sql;
 	close(): Promise<void>;
 }
 
@@ -27,16 +32,38 @@ export function openDb(env: Env): Db {
 		env.roDatabaseUrl === env.appDatabaseUrl
 			? app
 			: postgres(env.roDatabaseUrl, { max: 4, onnotice: () => {} });
+	const writer =
+		env.writerDatabaseUrl === env.databaseUrl
+			? admin
+			: postgres(env.writerDatabaseUrl, { max: 4, onnotice: () => {} });
 	return {
 		admin,
 		app,
 		ro,
+		writer,
 		async close() {
-			await admin.end({ timeout: 5 });
-			if (app !== admin) await app.end({ timeout: 5 });
-			if (ro !== app && ro !== admin) await ro.end({ timeout: 5 });
+			const all = new Set([admin, app, ro, writer]);
+			for (const c of all) await c.end({ timeout: 5 });
 		},
 	};
+}
+
+/**
+ * Fail-closed guard against the RLS-bypass footgun (codex N1a P0): outside dev/test the caller
+ * connection MUST be a distinct, non-superuser, non-BYPASSRLS role — otherwise every "scoped" read
+ * silently runs as the superuser and RLS does nothing. Called at boot.
+ */
+export async function assertRuntimeRolesHardened(db: Db, devAuth: boolean): Promise<void> {
+	if (devAuth) return;
+	if (db.app === db.admin)
+		throw new Error(
+			"APP_DATABASE_URL must be a distinct non-superuser role in prod (RLS bypass otherwise)",
+		);
+	const rows = await db.app<{ rolsuper: boolean; rolbypassrls: boolean }[]>`
+		select rolsuper, rolbypassrls from pg_roles where rolname = current_user`;
+	const r = rows[0];
+	if (!r || r.rolsuper || r.rolbypassrls)
+		throw new Error("console app role must be NOSUPERUSER NOBYPASSRLS (RLS bypass otherwise)");
 }
 
 /**
@@ -49,8 +76,11 @@ export async function withScopes<T>(
 	scopes: readonly string[],
 	fn: (tx: Sql) => Promise<T>,
 ): Promise<T> {
+	// Defense-in-depth: a comma in a scope tag would split into a phantom scope in the GUC, which the
+	// RLS policy splits on ','. Scopes are already SCOPE_RE-validated upstream (no comma possible);
+	// this guard makes the invariant load-bearing at the boundary, not just asserted (sub-agent M4).
+	if (scopes.some((s) => s.includes(","))) throw new Error("scope tag must not contain a comma");
 	return sql.begin(async (tx) => {
-		// scope tags are validated (SCOPE_RE) before reaching here; still pass as a bound value.
 		await tx`select set_config('app.scopes', ${scopes.join(",")}, true)`;
 		return fn(tx as Sql);
 	}) as Promise<T>;

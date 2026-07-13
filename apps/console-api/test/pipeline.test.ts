@@ -17,8 +17,10 @@ interface TempDb {
 	adminUrl: string;
 	appUrl: string;
 	roUrl: string;
+	writerUrl: string;
 	appPassword: string;
 	roPassword: string;
+	writerPassword: string;
 	stop(): Promise<void>;
 }
 
@@ -27,6 +29,7 @@ async function startTempDb(): Promise<TempDb> {
 	const pw = "testpw";
 	const appPassword = "apppw";
 	const roPassword = "ropw";
+	const writerPassword = "writerpw";
 	await exec("docker", [
 		"run",
 		"-d",
@@ -68,8 +71,10 @@ async function startTempDb(): Promise<TempDb> {
 		adminUrl,
 		appUrl: `postgres://console_app:${appPassword}@${host}:${String(port)}/postgres`,
 		roUrl: `postgres://console_ro:${roPassword}@${host}:${String(port)}/postgres`,
+		writerUrl: `postgres://console_writer:${writerPassword}@${host}:${String(port)}/postgres`,
 		appPassword,
 		roPassword,
+		writerPassword,
 		async stop() {
 			await exec("docker", ["rm", "-f", name]).catch(() => undefined);
 		},
@@ -97,7 +102,11 @@ function emission(over: Partial<Emission> = {}): Emission {
 beforeAll(async () => {
 	temp = await startTempDb();
 	const admin = postgres(temp.adminUrl, { onnotice: () => {} });
-	await migrate(admin, { appPassword: temp.appPassword, roPassword: temp.roPassword });
+	await migrate(admin, {
+		appPassword: temp.appPassword,
+		roPassword: temp.roPassword,
+		writerPassword: temp.writerPassword,
+	});
 	await seedBootstrap(admin);
 	// a test producer that may emit the test types into the scopes these tests exercise
 	await admin`insert into producer_registrations (subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)
@@ -109,6 +118,7 @@ beforeAll(async () => {
 			databaseUrl: temp.adminUrl,
 			appDatabaseUrl: temp.appUrl,
 			roDatabaseUrl: temp.roUrl,
+			writerDatabaseUrl: temp.writerUrl,
 			host: "127.0.0.1",
 			port: 0,
 			devAuth: true,
@@ -203,6 +213,81 @@ describe("RLS scope isolation", () => {
 			select: [{ field: "subject" }],
 		});
 		expect(none.rows).toHaveLength(0);
+	});
+});
+
+describe("RLS-bypass hardening (codex N1a P0)", () => {
+	it("refuses to boot in prod-auth when the app URL collapses to the superuser", async () => {
+		await expect(
+			buildServices(
+				{
+					databaseUrl: temp.adminUrl,
+					appDatabaseUrl: temp.adminUrl, // == admin (superuser) — the footgun
+					roDatabaseUrl: temp.adminUrl,
+					writerDatabaseUrl: temp.adminUrl,
+					host: "127.0.0.1",
+					port: 0,
+					devAuth: false,
+					glitchtipDsn: null,
+				},
+				{ migrate: false },
+			),
+		).rejects.toThrow(/distinct non-superuser|NOSUPERUSER/);
+	});
+
+	it("boots in prod-auth with a real non-superuser app role", async () => {
+		const svc = await buildServices(
+			{
+				databaseUrl: temp.adminUrl,
+				appDatabaseUrl: temp.appUrl,
+				roDatabaseUrl: temp.roUrl,
+				writerDatabaseUrl: temp.writerUrl,
+				host: "127.0.0.1",
+				port: 0,
+				devAuth: false,
+				glitchtipDsn: null,
+			},
+			{ migrate: false },
+		);
+		await svc.close();
+	});
+});
+
+describe("post-restart replay (codex N1a P1)", () => {
+	it("a fresh broker replays persisted history from the lake, not just new events", async () => {
+		const r = await services.emit(
+			"test:emitter",
+			emission({ type: "test.restart", scope: "fleet", subject: "before", measures: {} }),
+			200,
+		);
+		expect(r.ok).toBe(true);
+		// a SECOND services instance = a fresh broker with head 0 until initialized from the lake
+		const svc2 = await buildServices(
+			{
+				databaseUrl: temp.adminUrl,
+				appDatabaseUrl: temp.appUrl,
+				roDatabaseUrl: temp.roUrl,
+				writerDatabaseUrl: temp.writerUrl,
+				host: "127.0.0.1",
+				port: 0,
+				devAuth: true,
+				glitchtipDsn: null,
+			},
+			{ migrate: false },
+		);
+		try {
+			const frames: Record<string, unknown>[] = [];
+			await svc2.broker.subscribe(
+				{ subId: "r1", pattern: "test.*", since: 0, scopes: ["fleet"] },
+				(f) => frames.push(f),
+			);
+			const subjects = frames
+				.filter((f) => f["kind"] === "event")
+				.map((f) => (f["emission"] as Emission).subject);
+			expect(subjects).toContain("before"); // replayed from the lake despite a zero in-memory head
+		} finally {
+			await svc2.close();
+		}
 	});
 });
 

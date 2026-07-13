@@ -11,6 +11,11 @@ export interface Env {
 	readonly appDatabaseUrl: string;
 	/** Read-only SQL-mode connection (role console_ro). Falls back to appDatabaseUrl in dev. */
 	readonly roDatabaseUrl: string;
+	/**
+	 * The appender's writer connection (role console_writer, non-superuser). Falls back to
+	 * databaseUrl in dev.
+	 */
+	readonly writerDatabaseUrl: string;
 	readonly host: string;
 	readonly port: number;
 	/**
@@ -33,6 +38,7 @@ export function loadEnv(): Env {
 		databaseUrl,
 		appDatabaseUrl: process.env["APP_DATABASE_URL"] ?? databaseUrl,
 		roDatabaseUrl: process.env["RO_DATABASE_URL"] ?? process.env["APP_DATABASE_URL"] ?? databaseUrl,
+		writerDatabaseUrl: process.env["WRITER_DATABASE_URL"] ?? databaseUrl,
 		host: process.env["CONSOLE_API_HOST"] ?? "127.0.0.1",
 		port: Number(process.env["CONSOLE_API_PORT"] ?? "8080"),
 		devAuth: process.env["CONSOLE_API_DEV_AUTH"] === "1",

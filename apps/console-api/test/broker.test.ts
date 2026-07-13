@@ -27,11 +27,11 @@ const spec = (subId: string, since?: number): SubscribeSpec => ({
 
 describe("broker cutover", () => {
 	it("replays <= boundary then streams live > boundary, exactly once", async () => {
-		// replay returns the two historical events (seq 1,2)
-		const broker = new Broker(async () => [
-			{ seq: 1, emission: ev(1) },
-			{ seq: 2, emission: ev(2) },
-		]);
+		// replay streams the two historical events (seq 1,2)
+		const broker = new Broker(async (_spec, _through, onRow) => {
+			onRow(1, ev(1));
+			onRow(2, ev(2));
+		});
 		broker.onEvent(1, ev(1));
 		broker.onEvent(2, ev(2)); // head is now 2 (the boundary)
 		const frames: Record<string, unknown>[] = [];
@@ -52,9 +52,9 @@ describe("broker cutover", () => {
 		const gate = new Promise<void>((res) => {
 			releaseReplay = res;
 		});
-		const broker = new Broker(async () => {
+		const broker = new Broker(async (_spec, _through, onRow) => {
 			await gate; // hold replay open
-			return [{ seq: 1, emission: ev(1) }];
+			onRow(1, ev(1));
 		});
 		broker.onEvent(1, ev(1)); // head = 1 (boundary)
 		const frames: Record<string, unknown>[] = [];
@@ -69,7 +69,7 @@ describe("broker cutover", () => {
 	});
 
 	it("emits a gap frame under backpressure instead of dropping silently", async () => {
-		const broker = new Broker(async () => []);
+		const broker = new Broker(async () => {});
 		const frames: Record<string, unknown>[] = [];
 		await broker.subscribe(spec("s3"), (f) => frames.push(f)); // live immediately (no since)
 		for (let i = 1; i <= 1500; i++) broker.onEvent(i, ev(i)); // overflow QUEUE_MAX=1000
@@ -80,7 +80,7 @@ describe("broker cutover", () => {
 	});
 
 	it("does not deliver events outside the subscriber scope", async () => {
-		const broker = new Broker(async () => []);
+		const broker = new Broker(async () => {});
 		const frames: Record<string, unknown>[] = [];
 		await broker.subscribe({ subId: "s4", pattern: "*", scopes: ["user:parker"] }, (f) =>
 			frames.push(f),

@@ -7,10 +7,12 @@ import type { Emission } from "../emission.ts";
 // Token-shaped: long opaque high-entropy strings and the known lab token prefixes.
 const TOKEN_SHAPES: readonly RegExp[] = [
 	/\bclaim_token\b/i,
-	/^bearer\s+/i,
+	/bearer\s+[A-Za-z0-9._-]/i,
 	/\bghp_[A-Za-z0-9]{20,}/,
 	/\bsk-[A-Za-z0-9]{20,}/,
-	/[A-Za-z0-9_-]{40,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, // JWT-ish
+	/\bcbt_[A-Za-z0-9_-]{20,}/, // console-api bearer prefix
+	/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/, // JWT (eyJ header)
+	/[A-Za-z0-9_-]{40,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, // long JWT-ish
 ];
 const SECRET_KEYS = new Set([
 	"claim_token",
@@ -48,18 +50,14 @@ function scan(value: unknown, path: string): string | null {
 	return null;
 }
 
-/** Reject an emission whose dimensions/measures/meta/body_ref carry a secret. */
+/**
+ * Reject an emission that carries a secret ANYWHERE a string could hide (sub-agent M2): action,
+ * subject, source.*, dimensions, measures, links, meta, body_ref. Scanning the whole envelope is
+ * safe — the structurally-constrained fields (type, scope, severity, uuid id, ts) never match a
+ * token shape, and a secret in `action` or a `links[].to.id` matters as much as one in a dimension.
+ * Fail-loud: a producer putting a secret on the bus is a bug to surface, not to silently strip.
+ */
 export function scrubEmission(e: Emission): ScrubResult {
-	for (const [field, val] of [
-		["dimensions", e.dimensions],
-		["measures", e.measures],
-		["meta", e.meta],
-	] as const) {
-		if (val === undefined) continue;
-		const hit = scan(val, field);
-		if (hit) return { ok: false, where: hit };
-	}
-	if (e.body_ref && TOKEN_SHAPES.some((re) => re.test(e.body_ref as string)))
-		return { ok: false, where: "body_ref" };
-	return { ok: true };
+	const hit = scan(e, "emission");
+	return hit ? { ok: false, where: hit } : { ok: true };
 }

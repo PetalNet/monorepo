@@ -52,6 +52,19 @@ describe("secret scrubber", () => {
 	it("passes a clean emission", () => {
 		expect(scrubEmission(emission({ dimensions: { link_id: "b" } })).ok).toBe(true);
 	});
+	it("rejects a secret in the top-level action field", () => {
+		expect(
+			scrubEmission(
+				emission({ action: "curl -H 'Authorization: Bearer sk-0123456789012345678901'" }),
+			).ok,
+		).toBe(false);
+	});
+	it("rejects a bare JWT in a link id", () => {
+		const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N";
+		expect(
+			scrubEmission(emission({ links: [{ rel: "runs_on", to: { kind: "host", id: jwt } }] })).ok,
+		).toBe(false);
+	});
 });
 
 describe("emit authorization", () => {

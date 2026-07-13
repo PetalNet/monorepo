@@ -222,7 +222,14 @@ export async function runStructured(
 		orderParts.push(`${alias} ${o.dir === "desc" ? "desc" : "asc"}`);
 	}
 
-	const limit = Math.min(req.limit ?? 1000, 100000);
+	// coerce limit to a sane positive int so a non-numeric/negative value is a clean 400, not a raw
+	// Postgres 500 (sub-agent L1)
+	const rawLimit = Number(req.limit ?? 1000);
+	if (req.limit != null && !Number.isFinite(rawLimit))
+		throw new QueryError("bad_limit", "limit must be a number");
+	const limit = Number.isFinite(rawLimit)
+		? Math.min(Math.max(1, Math.floor(rawLimit)), 100000)
+		: 1000;
 	let sqlText = `select ${selects.join(", ")} from events`;
 	if (whereParts.length) sqlText += ` where ${whereParts.join(" and ")}`;
 	if (groupExprs.length) sqlText += ` group by ${groupExprs.join(", ")}`;

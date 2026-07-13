@@ -50,34 +50,41 @@ function rowToEmission(r: EventRow): Emission {
 }
 
 const SEV_ORDER = ["debug", "info", "warn", "danger", "p0"];
+const PAGE = 5000;
 
 export function makeReplay(app: Sql) {
 	return async function replay(
 		spec: SubscribeSpec,
 		throughSeq: number,
-	): Promise<{ seq: number; emission: Emission }[]> {
+		onRow: (seq: number, e: Emission) => void,
+	): Promise<void> {
+		// Paginate the WHOLE (since, through] range in seq order inside ONE scoped transaction — no
+		// silent truncation (codex N1a P1). RLS filters to the subscriber's scopes; pattern/filter
+		// are applied here for the globs SQL can't express.
 		const since = spec.since ?? 0;
-		const rows = await withScopes(app, spec.scopes, async (tx) => {
-			// SQL-side type prefilter for exact/prefix patterns; JS handles the rest.
-			if (spec.pattern !== "*" && !spec.pattern.startsWith("*.")) {
-				const like = spec.pattern.endsWith(".*") ? `${spec.pattern.slice(0, -1)}%` : spec.pattern;
-				return tx<EventRow[]>`select * from events where seq > ${since} and seq <= ${throughSeq}
-					and (type = ${like} or type like ${like}) order by seq asc limit 10000`;
+		const usePrefilter = spec.pattern !== "*" && !spec.pattern.startsWith("*.");
+		const like = spec.pattern.endsWith(".*") ? `${spec.pattern.slice(0, -1)}%` : spec.pattern;
+		const f = spec.filter;
+		await withScopes(app, spec.scopes, async (tx) => {
+			let cursor = since;
+			for (;;) {
+				const rows = usePrefilter
+					? await tx<EventRow[]>`select * from events where seq > ${cursor} and seq <= ${throughSeq}
+							and (type = ${like} or type like ${like}) order by seq asc limit ${PAGE}`
+					: await tx<EventRow[]>`select * from events where seq > ${cursor} and seq <= ${throughSeq}
+							order by seq asc limit ${PAGE}`;
+				if (rows.length === 0) break;
+				for (const r of rows) {
+					cursor = Number(r.seq);
+					if (!matchPattern(spec.pattern, r.type)) continue;
+					if (f?.severity_gte && SEV_ORDER.indexOf(r.severity) < SEV_ORDER.indexOf(f.severity_gte))
+						continue;
+					if (f?.source_service && r.source_service !== f.source_service) continue;
+					if (f?.subject && r.subject !== f.subject) continue;
+					onRow(Number(r.seq), rowToEmission(r));
+				}
+				if (rows.length < PAGE) break;
 			}
-			return tx<
-				EventRow[]
-			>`select * from events where seq > ${since} and seq <= ${throughSeq} order by seq asc limit 10000`;
 		});
-		const out: { seq: number; emission: Emission }[] = [];
-		for (const r of rows) {
-			if (!matchPattern(spec.pattern, r.type)) continue;
-			const f = spec.filter;
-			if (f?.severity_gte && SEV_ORDER.indexOf(r.severity) < SEV_ORDER.indexOf(f.severity_gte))
-				continue;
-			if (f?.source_service && r.source_service !== f.source_service) continue;
-			if (f?.subject && r.subject !== f.subject) continue;
-			out.push({ seq: Number(r.seq), emission: rowToEmission(r) });
-		}
-		return out;
 	};
 }

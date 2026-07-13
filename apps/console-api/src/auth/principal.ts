@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 
 import type { Sql } from "../db/pool.ts";
+import { SCOPE_RE } from "../scope.ts";
 
 export interface Principal {
 	readonly kind: "human" | "agent" | "system";
@@ -46,9 +47,10 @@ async function resolveScopes(
 	const scopes = new Set<string>();
 	let zookie = 0;
 	for (const r of rows) {
-		// only scope-tag objects are readable scopes (item:/op: objects gate ops, not reads)
-		if (/^(user:|agent:|project:|restricted:)/.test(r.object) || r.object === "fleet")
-			scopes.add(r.object);
+		// Only well-formed scope-tag objects are readable scopes (item:/op: objects gate ops, not
+		// reads). SCOPE_RE is ANCHORED, so a malformed grant object with an embedded comma cannot
+		// inject a phantom scope into the app.scopes GUC (sub-agent M4).
+		if (SCOPE_RE.test(r.object)) scopes.add(r.object);
 		zookie = Math.max(zookie, Number(r.zookie));
 	}
 	return { scopes: [...scopes], zookie };
@@ -76,7 +78,8 @@ export function devPrincipal(json: string): Principal | null {
 			id: p.id,
 			tiers: p.tiers ?? [],
 			lanes: p.lanes ?? [],
-			scopes: p.scopes ?? [],
+			// SCOPE_RE-validated so a dev header cannot inject a comma into the GUC (sub-agent M4)
+			scopes: (p.scopes ?? []).filter((s) => SCOPE_RE.test(s)),
 			zookie: p.zookie ?? 1,
 		};
 	} catch {
