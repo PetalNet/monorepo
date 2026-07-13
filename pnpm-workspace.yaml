@@ -24,6 +24,8 @@ minimumReleaseAgeExclude:
 allowBuilds:
   "@prisma/client": true
   "@prisma/engines": true
+  # Source-map upload CLI only; runtime error capture works without its binary.
+  "@sentry/cli": false
   better-sqlite3: true
   esbuild: true
   prisma: true
@@ -68,11 +70,16 @@ catalogs:
 
   prod:
     "@fastify/websocket": ^11.2.0
+    "@fontsource/geist-mono": ^5.2.8
+    "@fontsource/geist-sans": ^5.2.5
     "@libsql/client": ^0.17.0
+    "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
     "@prisma/client": ^5.22.0
+    "@sentry/sveltekit": ^10.63.0
     "@sveltejs/kit": ^2.50.1
     bcryptjs: ^2.4.3
+    daisyui: ^5.6.13
     date-fns: ^4.1.0
     drizzle-orm: ^0.45.1
     fastify: ^5.6.1
