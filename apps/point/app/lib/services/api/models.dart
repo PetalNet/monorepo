@@ -94,6 +94,51 @@ class ShareRequest {
   String get fromHandle => fromUserId.split('@').first;
 }
 
+/// A pending request sent by the signed-in user.
+class OutgoingShareRequest {
+  const OutgoingShareRequest({
+    required this.id,
+    required this.toUserId,
+    required this.toDisplayName,
+  });
+
+  factory OutgoingShareRequest.fromJson(Map<String, dynamic> json) =>
+      OutgoingShareRequest(
+        id: json['id'] as String,
+        toUserId: json['to_user_id'] as String,
+        toDisplayName:
+            json['to_display_name'] as String? ??
+            (json['to_user_id'] as String).split('@').first,
+      );
+
+  final String id;
+  final String toUserId;
+  final String toDisplayName;
+}
+
+/// Opaque MLS ciphertext returned by the authoritative current-fix snapshot.
+class EncryptedCurrentFix {
+  const EncryptedCurrentFix({
+    required this.blob,
+    required this.clientTimestamp,
+    required this.recipientType,
+    required this.recipientId,
+  });
+
+  factory EncryptedCurrentFix.fromJson(Map<String, dynamic> json) =>
+      EncryptedCurrentFix(
+        blob: json['encrypted_blob'] as String,
+        clientTimestamp: json['client_timestamp'] as int,
+        recipientType: json['recipient_type'] as String,
+        recipientId: json['recipient_id'] as String,
+      );
+
+  final String blob;
+  final int clientTimestamp;
+  final String recipientType;
+  final String recipientId;
+}
+
 /// A temporary, one-way live-location share: `fromUserId` pushes their location
 /// to `toUserId` until [expiresAt], then it auto-stops. Direction is the whole
 /// point — the recipient sees the sharer, not vice-versa.

@@ -445,6 +445,61 @@ async fn welcome_and_ack_flow(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn poison_mailbox_row_can_be_quarantined_without_ack(pool: PgPool) {
+    let app = app(&pool, true);
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    let carol = user(&pool, "carol").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+
+    let (_, sent) = send(
+        &app,
+        "POST",
+        "/api/mls/welcome",
+        Some(&alice),
+        Some(json!({
+            "recipient_id": uid("bob"),
+            "group_id": "g1",
+            "payload": b64(b"poison"),
+        })),
+    )
+    .await;
+    let id = sent["id"].as_str().unwrap();
+    let path = format!("/api/mls/messages/{id}/quarantine");
+
+    let (status, _) = send(
+        &app,
+        "POST",
+        &path,
+        Some(&carol),
+        Some(json!({ "reason": "crypto_rejected" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = send(
+        &app,
+        "POST",
+        &path,
+        Some(&bob),
+        Some(json!({ "reason": "crypto_rejected" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, pending) = send(&app, "GET", "/api/mls/messages", Some(&bob), None).await;
+    assert!(pending.as_array().unwrap().is_empty());
+    let row: (bool, bool, String) = sqlx::query_as(
+        "SELECT processed, quarantined_at IS NOT NULL, quarantine_reason
+         FROM mls_messages WHERE id = $1",
+    )
+    .bind(Uuid::parse_str(id).unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row, (false, true, "crypto_rejected".to_string()));
+}
+
+#[sqlx::test]
 async fn commit_fans_out_to_group_and_explicit_recipients(pool: PgPool) {
     let app = app(&pool, true);
     let alice = user(&pool, "alice").await;
@@ -689,7 +744,7 @@ async fn ws_origin_guard(pool: PgPool) {
 
 #[sqlx::test]
 async fn ws_location_update_delivers_ciphertext_intact(pool: PgPool) {
-    let url = spawn_ws_server(&pool).await;
+    let (url, router) = spawn_ws_server_with_router(&pool).await;
     let alice = user(&pool, "alice").await;
     let bob = user(&pool, "bob").await;
     seed_share(&pool, &uid("alice"), &uid("bob")).await;
@@ -727,6 +782,20 @@ async fn ws_location_update_delivers_ciphertext_intact(pool: PgPool) {
         count(&pool, "SELECT COUNT(*) FROM location_history").await,
         1
     );
+
+    // The deliberately missed-frame recovery path pulls the same opaque fix
+    // from the authenticated current snapshot.
+    let (status, current) = send(
+        &router,
+        "GET",
+        &format!("/api/current/{}", uid("alice")),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(current[0]["encrypted_blob"], blob);
+    assert_eq!(current[0]["client_timestamp"], 1_720_000_000_000_i64);
 
     // A second fix REPLACES the live row for this audience (history grows).
     ws_send(

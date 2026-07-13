@@ -14,13 +14,18 @@ class TempSharesController extends AsyncNotifier<List<TempShare>> {
     return ref.read(apiProvider).listTempShares(session.token);
   }
 
-  Future<void> refresh() async {
+  Future<List<TempShare>> refresh() async {
     // Keep the last good list on a transient failure — a failed refresh (which
     // fires on unrelated WS events / create / stop) must NOT collapse .value to
     // null, which would drop active temp targets out of the relay's encrypt set.
     final prev = state.value;
     final next = await AsyncValue.guard(build);
-    state = next.hasValue ? next : AsyncData(prev ?? const []);
+    if (next.hasValue) {
+      state = next;
+      return next.value!;
+    }
+    state = AsyncData(prev ?? const []);
+    Error.throwWithStackTrace(next.error!, next.stackTrace!);
   }
 
   /// Start a one-way temp share: [toUserId] sees my location for [minutes].

@@ -26,6 +26,15 @@ class GhostController extends AsyncNotifier<GhostState> {
     return confirmed;
   }
 
+  Future<GhostState> refresh() async {
+    final session = ref.read(authControllerProvider).value;
+    if (session == null) return const GhostState(active: false);
+    final confirmed = await ref.read(apiProvider).getGhost(session.token);
+    _confirmed = true;
+    state = AsyncData(confirmed);
+    return confirmed;
+  }
+
   /// `sharing == true` means ghost OFF (broadcasting). The server stores the
   /// ghost flag, so we send `active = !sharing`.
   ///
@@ -51,8 +60,9 @@ class GhostController extends AsyncNotifier<GhostState> {
     state = AsyncData(previous.copyWith(active: !sharing));
 
     try {
-      final confirmed =
-          await ref.read(apiProvider).setGhost(session.token, active: !sharing);
+      final confirmed = await ref
+          .read(apiProvider)
+          .setGhost(session.token, active: !sharing);
       _confirmed = true;
       state = AsyncData(confirmed);
     } on Object {

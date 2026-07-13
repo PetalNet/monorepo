@@ -19,8 +19,15 @@ class RequestsController extends AsyncNotifier<List<ShareRequest>> {
   /// put until the new one resolves, so the pinned section doesn't blank and the
   /// share-target listener never sees a transient null (which would drop
   /// outbound fixes for a round-trip).
-  Future<void> refresh() async {
-    state = await AsyncValue.guard(build);
+  Future<List<ShareRequest>> refresh() async {
+    final previous = state.value ?? const <ShareRequest>[];
+    final next = await AsyncValue.guard(build);
+    if (next.hasValue) {
+      state = next;
+      return next.value!;
+    }
+    state = AsyncData(previous);
+    Error.throwWithStackTrace(next.error!, next.stackTrace!);
   }
 
   Future<void> accept(ShareRequest request) async {
@@ -42,5 +49,32 @@ class RequestsController extends AsyncNotifier<List<ShareRequest>> {
 
 final requestsControllerProvider =
     AsyncNotifierProvider<RequestsController, List<ShareRequest>>(
-  RequestsController.new,
-);
+      RequestsController.new,
+    );
+
+class OutgoingRequestsController
+    extends AsyncNotifier<List<OutgoingShareRequest>> {
+  @override
+  Future<List<OutgoingShareRequest>> build() async {
+    final session = ref.watch(authControllerProvider).value;
+    if (session == null) return const [];
+    return ref.read(apiProvider).outgoingRequests(session.token);
+  }
+
+  Future<List<OutgoingShareRequest>> refresh() async {
+    final previous = state.value ?? const <OutgoingShareRequest>[];
+    final next = await AsyncValue.guard(build);
+    if (next.hasValue) {
+      state = next;
+      return next.value!;
+    }
+    state = AsyncData(previous);
+    Error.throwWithStackTrace(next.error!, next.stackTrace!);
+  }
+}
+
+final outgoingRequestsControllerProvider =
+    AsyncNotifierProvider<
+      OutgoingRequestsController,
+      List<OutgoingShareRequest>
+    >(OutgoingRequestsController.new);

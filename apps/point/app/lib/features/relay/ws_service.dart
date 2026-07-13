@@ -6,6 +6,10 @@ import 'package:point_app/features/relay/reconnect_policy.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+/// Observable transport state. Only [authenticated] is healthy enough to
+/// start authoritative catch-up; a TCP/WebSocket open alone is not.
+enum WsConnectionState { disconnected, connecting, authenticated }
+
 /// The live location transport (GO-bar #3). Auth is the FIRST message, never in
 /// the URL. Outbound fixes go through the durable [RelayQueue] so a disconnect
 /// or a killed process never drops location; reconnect uses jittered backoff
@@ -18,9 +22,9 @@ class WsService {
     required RelayQueue queue,
     ReconnectPolicy? policy,
     WebSocketChannel Function(Uri)? connect,
-  })  : _queue = queue,
-        _policy = policy ?? ReconnectPolicy(),
-        _connect = connect ?? WebSocketChannel.connect;
+  }) : _queue = queue,
+       _policy = policy ?? ReconnectPolicy(),
+       _connect = connect ?? WebSocketChannel.connect;
 
   final String wsUrl;
   final RelayQueue _queue;
@@ -33,11 +37,17 @@ class WsService {
   String? _token;
   bool _authed = false;
   bool _disposed = false;
+  int _connectionEpoch = 0;
 
   final _incoming = StreamController<Map<String, dynamic>>.broadcast();
+  final _connectionStates = StreamController<WsConnectionState>.broadcast();
 
   /// Server → client frames (location.broadcast, presence.update, mls.message…).
   Stream<Map<String, dynamic>> get incoming => _incoming.stream;
+
+  /// Emits every socket transition, including every successful re-auth. The
+  /// relay uses this durable boundary to reconcile state after missed frames.
+  Stream<WsConnectionState> get connectionStates => _connectionStates.stream;
 
   bool get isConnected => _authed;
 
@@ -50,17 +60,19 @@ class WsService {
   void _open() {
     if (_disposed) return;
     _authed = false;
+    final epoch = ++_connectionEpoch;
+    _connectionStates.add(WsConnectionState.connecting);
     try {
       final channel = _connect(Uri.parse(wsUrl));
       _channel = channel;
       // Auth as the first frame.
       channel.sink.add(jsonEncode({'type': 'auth', 'token': _token}));
       _sub = channel.stream.listen(
-        _onFrame,
-        onDone: _onClosed,
+        (raw) => _onFrame(raw, epoch),
+        onDone: () => _onClosed(epoch),
         onError: (Object e) {
           if (kDebugMode) debugPrint('ws error: $e');
-          _onClosed();
+          _onClosed(epoch);
         },
         cancelOnError: true,
       );
@@ -70,7 +82,8 @@ class WsService {
     }
   }
 
-  void _onFrame(dynamic raw) {
+  void _onFrame(dynamic raw, int epoch) {
+    if (epoch != _connectionEpoch || _disposed) return;
     final Map<String, dynamic> msg;
     try {
       msg = jsonDecode(raw as String) as Map<String, dynamic>;
@@ -81,14 +94,17 @@ class WsService {
       // Proven healthy: NOW reset the backoff and flush the durable queue.
       _authed = true;
       _policy.onConnected();
+      _connectionStates.add(WsConnectionState.authenticated);
       unawaited(_flush());
       return;
     }
     _incoming.add(msg);
   }
 
-  void _onClosed() {
+  void _onClosed(int epoch) {
+    if (epoch != _connectionEpoch || _disposed) return;
     _authed = false;
+    _connectionStates.add(WsConnectionState.disconnected);
     _sub?.cancel();
     _sub = null;
     _channel = null;
@@ -133,9 +149,11 @@ class WsService {
 
   Future<void> dispose() async {
     _disposed = true;
+    _connectionEpoch++;
     _reconnectTimer?.cancel();
     await _sub?.cancel();
     await _channel?.sink.close();
     await _incoming.close();
+    await _connectionStates.close();
   }
 }

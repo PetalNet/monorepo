@@ -343,7 +343,8 @@ pub(super) async fn insert_mailbox(
     payload: &[u8],
 ) -> Result<(Uuid, DateTime<Utc>), AppError> {
     let (pending,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM mls_messages WHERE recipient_id = $1 AND NOT processed",
+        "SELECT COUNT(*) FROM mls_messages
+         WHERE recipient_id = $1 AND NOT processed AND quarantined_at IS NULL",
     )
     .bind(recipient)
     .fetch_one(&mut **tx)
@@ -581,7 +582,7 @@ pub async fn pending_messages(
     let rows: Vec<MailboxRow> = sqlx::query_as(
         "SELECT id, message_type, group_id, sender_id, payload, created_at
          FROM mls_messages
-         WHERE recipient_id = $1 AND NOT processed
+         WHERE recipient_id = $1 AND NOT processed AND quarantined_at IS NULL
          ORDER BY created_at, id",
     )
     .bind(&user.user_id)
@@ -612,12 +613,51 @@ pub async fn ack_message(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Value>> {
-    let result =
-        sqlx::query("UPDATE mls_messages SET processed = TRUE WHERE id = $1 AND recipient_id = $2")
-            .bind(id)
-            .bind(&user.user_id)
-            .execute(&state.pool)
-            .await?;
+    let result = sqlx::query(
+        "UPDATE mls_messages SET processed = TRUE
+             WHERE id = $1 AND recipient_id = $2 AND quarantined_at IS NULL",
+    )
+    .bind(id)
+    .bind(&user.user_id)
+    .execute(&state.pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct QuarantineBody {
+    /// Content-free diagnostic category. Never accept exception text or MLS
+    /// bytes: the server only needs an operator-visible poison classification.
+    pub reason: String,
+}
+
+/// POST /api/mls/messages/{id}/quarantine — remove a proven poison row from
+/// the active mailbox without pretending it was cryptographically applied.
+/// The row remains for diagnosis and can never consume active-backlog capacity.
+pub async fn quarantine_message(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<QuarantineBody>,
+) -> ApiResult<Json<Value>> {
+    let reason = body.reason.trim();
+    if reason.is_empty() || reason.len() > 64 || !reason.is_ascii() {
+        return Err(AppError::BadRequest("invalid quarantine reason".into()));
+    }
+    let result = sqlx::query(
+        "UPDATE mls_messages
+         SET quarantined_at = now(), quarantine_reason = $3
+         WHERE id = $1 AND recipient_id = $2
+           AND NOT processed AND quarantined_at IS NULL",
+    )
+    .bind(id)
+    .bind(&user.user_id)
+    .bind(reason)
+    .execute(&state.pool)
+    .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
