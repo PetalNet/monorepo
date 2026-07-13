@@ -18,6 +18,8 @@ import type {
 	CatalogEntry,
 	DashboardItem,
 	ExecutorItem,
+	EdgeRegistryItem,
+	EdgeSessionItem,
 	Me,
 	OpResult,
 	ReadEnvelope,
@@ -146,6 +148,25 @@ export async function readDashboards(
 		credentials: "include",
 	});
 	return json<ReadEnvelope<DashboardItem>>(res);
+}
+
+export async function readEdgeRegistry(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<EdgeRegistryItem>> {
+	const res = await fetchFn(`${base()}/edge/registry?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<EdgeRegistryItem>>(res);
+}
+export async function readEdgeSessions(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<EdgeSessionItem>> {
+	const res = await fetchFn(`${base()}/edge/sessions?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<EdgeSessionItem>>(res);
 }
 
 /**

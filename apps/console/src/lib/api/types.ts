@@ -185,6 +185,39 @@ export interface DashboardItem extends Extra {
 	scope: string;
 }
 
+export interface EdgeRegistryItem extends Extra {
+	pubkey_fp: string;
+	handle?: string | null;
+	host?: string | null;
+	state: "pending" | "enrolled" | "revoked";
+	requested_handle?: string | null;
+	source_ip?: string | null;
+	first_seen_at?: string | null;
+	enrolled_at?: string | null;
+	enrolled_by?: string | null;
+	last_seen_at?: string | null;
+}
+export interface EdgeLink extends Extra {
+	link_id: string;
+	role: "primary" | "standby";
+	state: "active" | "warm" | "down";
+	rtt_ms?: number | null;
+	established_at: string;
+	last_flap_at?: string | null;
+	flap_count_24h: number;
+}
+export interface EdgeSessionItem extends Extra {
+	session_id: string;
+	handle: string;
+	host: string;
+	state: "open" | "resuming" | "floor" | "closed";
+	established_at: string;
+	resumes_count: number;
+	last_seen_at: string;
+	handshakes_clean_count?: number | null;
+	links: EdgeLink[];
+}
+
 // ---- attention (GET /attention, section 5.3) ----
 export type AttentionGrade = "p0" | "blocker" | "review" | "artifact";
 export interface FixOp extends Extra {
