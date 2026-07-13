@@ -75,6 +75,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ],
         ),
         actions: [
+          const ViewPeopleListButton(),
           IconButton(
             icon: const Icon(Icons.visibility_off_outlined),
             tooltip: 'Go dark',
@@ -110,6 +111,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A non-map route to the same people represented by map markers.
+///
+/// Keeping this action in the map chrome makes the alternative discoverable
+/// to screen-reader and switch-access users without requiring map gestures.
+class ViewPeopleListButton extends StatelessWidget {
+  const ViewPeopleListButton({super.key});
+
+  static const _peopleBranchIndex = 1;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.people_alt_outlined),
+      tooltip: 'View people list',
+      onPressed: () => context.shell().switchTo(_peopleBranchIndex),
     );
   }
 }
@@ -173,18 +193,17 @@ class _PeopleMarkers extends StatelessWidget {
         for (final p in people)
           Marker(
             point: LatLng(p.lat!, p.lon!),
-            width: 96,
-            height: 72,
+            width: 144,
+            height: 92,
             alignment: Alignment.topCenter,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            child: PresenceMarker(
+              person: p,
               onTap: () => PersonMapSheet.show(
                 context,
                 person: p,
                 onFocus: () => onFocus(LatLng(p.lat!, p.lon!)),
                 onOpenDetail: () => context.push(PersonDetailRoute(p.userId)),
               ),
-              child: PresenceMarker(person: p),
             ),
           ),
       ],
