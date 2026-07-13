@@ -5,15 +5,13 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/me/presentation/settings_widgets.dart';
-import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/push/push_service.dart';
 import 'package:point_app/features/settings/haptics.dart';
-import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/theme/theme_x.dart';
 import 'package:unifiedpush/unifiedpush.dart';
 
-/// Notifications: the transport, its fallback, and the honest list of what
-/// notifies at all. Delivery itself lands in Wave D; the choices here are the
-/// contract it reads.
+/// Notifications: the transport this build can actually register, its live
+/// delivery health, and the honest list of what notifies at all.
 class NotificationsSettingsScreen extends ConsumerStatefulWidget {
   const NotificationsSettingsScreen({super.key});
 
@@ -26,6 +24,7 @@ class _NotificationsSettingsScreenState
     extends ConsumerState<NotificationsSettingsScreen>
     with WidgetsBindingObserver {
   List<String> _distributors = const [];
+  bool _testingNotification = false;
 
   @override
   void initState() {
@@ -56,9 +55,7 @@ class _NotificationsSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(settingsProvider);
-    final notifier = ref.read(settingsProvider.notifier);
-    final up = settings.transport == NotifTransport.unifiedPush;
+    final push = ref.watch(pushServiceProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -73,63 +70,59 @@ class _NotificationsSettingsScreenState
       body: ListView(
         children: [
           const SettingsSection('Transport'),
-          SettingsChoiceRow<NotifTransport>(
-            title: 'Delivery',
-            value: settings.transport,
-            sheetBody:
-                'How a wake-up ping reaches this phone when Point is '
-                'closed. The ping never carries who or where.',
-            options: const [
-              (
-                NotifTransport.unifiedPush,
-                'UnifiedPush',
-                'Through a distributor app you control. Private.',
-              ),
-              (
-                NotifTransport.fcm,
-                'Google FCM',
-                'Google delivers the ping and sees that Point pinged you. '
-                    'Needs a Google build of Point; the standard build uses a '
-                    'distributor even on this choice.',
-              ),
-            ],
-            onSelected: (v) {
-              Haptics.tick(ref);
-              unawaited(
-                notifier.update(
-                  (s) => s.copyWith(transport: v, transportChosen: true),
-                ),
-              );
-            },
+          const ListTile(
+            title: Text('Delivery'),
+            subtitle: Text(
+              'UnifiedPush · wake-up pings contain no who or where',
+            ),
+            trailing: Icon(Icons.check),
           ),
-          if (up) ...[
-            ListTile(
-              title: const Text('Distributor'),
+          Semantics(
+            enabled: false,
+            child: const ListTile(
+              enabled: false,
+              title: Text('Google FCM'),
               subtitle: Text(
-                _distributors.isEmpty
-                    ? 'None installed yet'
-                    : _label(_distributors.first),
+                'Not included in this build. Point will not save it as a '
+                'delivery choice.',
               ),
-              trailing: Icon(
-                Icons.chevron_right,
-                color: context.colors.onSurfaceVariant,
-              ),
-              onTap: () => context.push(const OnboardingDistributorRoute()),
             ),
-            SettingsToggleRow(
-              title: 'Fall back to Google',
-              subtitle:
-                  'If no distributor is available, use FCM instead of '
-                  'staying silent. Never switched without you.',
-              value: settings.fcmFallback,
-              onChanged: (v) {
-                Haptics.tick(ref);
-                unawaited(
-                  notifier.update((s) => s.copyWith(fcmFallback: v)),
-                );
-              },
+          ),
+          ListTile(
+            title: const Text('Distributor'),
+            subtitle: Text(
+              _distributors.isEmpty
+                  ? 'None installed — background delivery is off'
+                  : _label(_distributors.first),
             ),
-          ],
+            trailing: Icon(
+              Icons.chevron_right,
+              color: context.colors.onSurfaceVariant,
+            ),
+            onTap: () => context.push(const OnboardingDistributorRoute()),
+          ),
+          const Divider(),
+          const SettingsSection('Delivery health'),
+          ValueListenableBuilder<PushDeliveryHealth>(
+            valueListenable: push.deliveryHealth,
+            builder: (context, health, _) => ListTile(
+              title: const Text('Registered transport'),
+              subtitle: Text(_healthLabel(context, health)),
+            ),
+          ),
+          ListTile(
+            title: const Text('Test notification'),
+            subtitle: const Text(
+              'Sends a private test through this phone’s notification channel',
+            ),
+            trailing: _testingNotification
+                ? const Icon(Icons.hourglass_top)
+                : const Icon(Icons.notifications_none),
+            enabled: !_testingNotification,
+            onTap: _testingNotification
+                ? null
+                : () => unawaited(_sendTest(push)),
+          ),
           const Divider(),
           const SettingsSection('What notifies'),
           const ListTile(
@@ -168,5 +161,40 @@ class _NotificationsSettingsScreenState
     if (pkg.contains('sunup')) return 'Sunup';
     if (pkg.contains('nextpush')) return 'NextPush';
     return pkg.split('.').last;
+  }
+
+  Future<void> _sendTest(PushService push) async {
+    Haptics.tick(ref);
+    setState(() => _testingNotification = true);
+    final shown = await push.sendTestNotification();
+    if (!mounted) return;
+    setState(() => _testingNotification = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          shown
+              ? 'Test notification sent'
+              : 'Could not send a test notification',
+        ),
+      ),
+    );
+  }
+
+  static String _healthLabel(BuildContext context, PushDeliveryHealth health) {
+    if (health.isLoading) return 'Checking…';
+    if (!health.isAvailable) return 'Status unavailable';
+    if (!health.isRegistered) return 'Not registered · No endpoint synced';
+    final transport = switch (health.registeredTransport) {
+      'unifiedpush' => 'UnifiedPush',
+      'fcm' => 'Google FCM',
+      _ => 'Unknown transport',
+    };
+    final syncedAt = health.syncedAt;
+    if (syncedAt == null) return '$transport · Sync time unavailable';
+    final date = MaterialLocalizations.of(context).formatMediumDate(syncedAt);
+    final time = MaterialLocalizations.of(
+      context,
+    ).formatTimeOfDay(TimeOfDay.fromDateTime(syncedAt));
+    return '$transport · Last endpoint sync $date at $time';
   }
 }

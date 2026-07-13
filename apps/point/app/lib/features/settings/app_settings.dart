@@ -27,6 +27,16 @@ enum NotifTransport {
   );
 }
 
+/// Push capabilities compiled into this app package.
+///
+/// The standard Point client deliberately ships without Google Services or
+/// `firebase_messaging`, so it must never persist FCM as though it were a
+/// working transport. A future Firebase flavor should replace this constant
+/// only as part of wiring token acquisition end to end.
+abstract final class PushBuildCapabilities {
+  static const supportsFcm = false;
+}
+
 /// The app appearance. Dark is the default; pure black is the OLED variant.
 enum Appearance {
   light,
@@ -88,8 +98,8 @@ enum TimeFormat {
 class AppSettings {
   const AppSettings({
     this.mapProvider = MapProviderChoice.selfHosted,
-    this.transport = NotifTransport.unifiedPush,
-    this.fcmFallback = false,
+    NotifTransport transport = NotifTransport.unifiedPush,
+    bool fcmFallback = false,
     this.transportChosen = false,
     this.appearance = Appearance.dark,
     this.motion = MotionPreference.system,
@@ -98,21 +108,37 @@ class AppSettings {
     this.timeFormat = TimeFormat.h12,
     this.textScale = 1.0,
     this.goDarkDefault = false,
-  });
+    this.needsPushMigration = false,
+  }) : transport =
+           !PushBuildCapabilities.supportsFcm && transport == NotifTransport.fcm
+           ? NotifTransport.unifiedPush
+           : transport,
+       fcmFallback = PushBuildCapabilities.supportsFcm && fcmFallback;
 
-  factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
-    mapProvider: MapProviderChoice.parse(json['map_provider'] as String?),
-    transport: NotifTransport.parse(json['transport'] as String?),
-    fcmFallback: json['fcm_fallback'] as bool? ?? false,
-    transportChosen: json['transport_chosen'] as bool? ?? false,
-    appearance: Appearance.parse(json['appearance'] as String?),
-    motion: MotionPreference.parse(json['motion'] as String?),
-    haptics: HapticsLevel.parse(json['haptics'] as String?),
-    units: DistanceUnits.parse(json['units'] as String?),
-    timeFormat: TimeFormat.parse(json['time_format'] as String?),
-    textScale: (json['text_scale'] as num?)?.toDouble() ?? 1.0,
-    goDarkDefault: json['go_dark_default'] as bool? ?? false,
-  );
+  factory AppSettings.fromJson(Map<String, dynamic> json) {
+    final requestedTransport = NotifTransport.parse(
+      json['transport'] as String?,
+    );
+    const supportsFcm = PushBuildCapabilities.supportsFcm;
+    final unsupportedFcm =
+        requestedTransport == NotifTransport.fcm && !supportsFcm;
+    return AppSettings(
+      mapProvider: MapProviderChoice.parse(json['map_provider'] as String?),
+      transport: unsupportedFcm
+          ? NotifTransport.unifiedPush
+          : requestedTransport,
+      fcmFallback: supportsFcm && (json['fcm_fallback'] as bool? ?? false),
+      transportChosen: json['transport_chosen'] as bool? ?? false,
+      appearance: Appearance.parse(json['appearance'] as String?),
+      motion: MotionPreference.parse(json['motion'] as String?),
+      haptics: HapticsLevel.parse(json['haptics'] as String?),
+      units: DistanceUnits.parse(json['units'] as String?),
+      timeFormat: TimeFormat.parse(json['time_format'] as String?),
+      textScale: (json['text_scale'] as num?)?.toDouble() ?? 1.0,
+      goDarkDefault: json['go_dark_default'] as bool? ?? false,
+      needsPushMigration: unsupportedFcm,
+    );
+  }
 
   /// The rendered basemap tier. One home: Privacy settings (deep-linked from
   /// Look & feel).
@@ -142,6 +168,12 @@ class AppSettings {
   /// Start each fresh sign-in dark: sharing only begins when the user says so.
   final bool goDarkDefault;
 
+  /// An old or attempted FCM choice was normalized by this non-Firebase build.
+  /// PushService uses this transient flag to revoke any legacy registration.
+  /// It is intentionally not serialized; the next normal settings write
+  /// persists the already-normalized transport without racing that controller.
+  final bool needsPushMigration;
+
   Map<String, dynamic> toJson() => {
     'map_provider': mapProvider.name,
     'transport': transport.name,
@@ -168,19 +200,30 @@ class AppSettings {
     TimeFormat? timeFormat,
     double? textScale,
     bool? goDarkDefault,
-  }) => AppSettings(
-    mapProvider: mapProvider ?? this.mapProvider,
-    transport: transport ?? this.transport,
-    fcmFallback: fcmFallback ?? this.fcmFallback,
-    transportChosen: transportChosen ?? this.transportChosen,
-    appearance: appearance ?? this.appearance,
-    motion: motion ?? this.motion,
-    haptics: haptics ?? this.haptics,
-    units: units ?? this.units,
-    timeFormat: timeFormat ?? this.timeFormat,
-    textScale: textScale ?? this.textScale,
-    goDarkDefault: goDarkDefault ?? this.goDarkDefault,
-  );
+    bool? needsPushMigration,
+  }) {
+    final requestedTransport = transport ?? this.transport;
+    const supportsFcm = PushBuildCapabilities.supportsFcm;
+    final unsupportedFcm =
+        requestedTransport == NotifTransport.fcm && !supportsFcm;
+    return AppSettings(
+      mapProvider: mapProvider ?? this.mapProvider,
+      transport: unsupportedFcm
+          ? NotifTransport.unifiedPush
+          : requestedTransport,
+      fcmFallback: supportsFcm && (fcmFallback ?? this.fcmFallback),
+      transportChosen: transportChosen ?? this.transportChosen,
+      appearance: appearance ?? this.appearance,
+      motion: motion ?? this.motion,
+      haptics: haptics ?? this.haptics,
+      units: units ?? this.units,
+      timeFormat: timeFormat ?? this.timeFormat,
+      textScale: textScale ?? this.textScale,
+      goDarkDefault: goDarkDefault ?? this.goDarkDefault,
+      needsPushMigration:
+          (needsPushMigration ?? this.needsPushMigration) || unsupportedFcm,
+    );
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -195,7 +238,8 @@ class AppSettings {
       other.units == units &&
       other.timeFormat == timeFormat &&
       other.textScale == textScale &&
-      other.goDarkDefault == goDarkDefault;
+      other.goDarkDefault == goDarkDefault &&
+      other.needsPushMigration == needsPushMigration;
 
   @override
   int get hashCode => Object.hash(
@@ -210,5 +254,6 @@ class AppSettings {
     timeFormat,
     textScale,
     goDarkDefault,
+    needsPushMigration,
   );
 }
