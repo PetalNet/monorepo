@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
@@ -3539,6 +3539,25 @@ describe("structured query", () => {
 		const visibleId = `lib_${randomBytes(12).toString("hex")}`;
 		const targetId = `lib_${randomBytes(12).toString("hex")}`;
 		const hiddenId = `lib_${randomBytes(12).toString("hex")}`;
+		const capabilityId = `lib_${randomBytes(12).toString("hex")}`;
+		const capabilityBlobId = `blob_${randomBytes(12).toString("hex")}`;
+		const hiddenCapabilityId = `lib_${randomBytes(12).toString("hex")}`;
+		const hiddenCapabilityBlobId = `blob_${randomBytes(12).toString("hex")}`;
+		const unsignedCapabilityId = `lib_${randomBytes(12).toString("hex")}`;
+		const capabilityBundle = Buffer.from(
+			JSON.stringify({
+				schema_version: 1,
+				entrypoint: "SKILL.md",
+				files: [
+					{
+						path: "SKILL.md",
+						mode: 420,
+						content_b64: Buffer.from("# Fleet retry discipline\n").toString("base64"),
+					},
+				],
+			}),
+		);
+		const capabilityDigest = createHash("sha256").update(capabilityBundle).digest("hex");
 		await services.db.writer`
 			insert into library_items
 			  (id, entity_id, kind, title, scope, project, status, properties, created_by,
@@ -3548,8 +3567,29 @@ describe("structured query", () => {
 			   'verified-shared', ${services.db.writer.json({ body: "bounded retry with jitter" })}, 'janet', 'binding-user', 'semi'),
 			  (${targetId}, ${targetId}, 'doc', 'Library item model', 'fleet', 'console',
 			   'verified-shared', ${services.db.writer.json({ body: "one item and typed links" })}, 'janet', 'binding-user', 'semi'),
+			  (${capabilityId}, ${capabilityId}, 'artifact', 'Fleet retry skill', 'fleet', 'registry',
+			   'verified-shared', ${services.db.writer.json({ artifact_type: "capability", capability: "skill.fleet-retry", capability_kind: "skill", version: "1.2.0", sha256: capabilityDigest })}, 'janet', 'binding-user', 'semi'),
 			  (${hiddenId}, ${hiddenId}, 'doc', 'Private book', 'user:secret', 'secret',
 			   'draft', ${services.db.writer.json({ body: "must not leak" })}, 'janet', 'secret', 'full')`;
+		await services.db.writer`
+			update library_items set body_ref = ${capabilityBlobId} where id = ${capabilityId}`;
+		await services.db.writer`
+			insert into library_items
+			  (id, entity_id, kind, title, scope, project, status, body_ref, properties)
+			values (${unsignedCapabilityId}, ${unsignedCapabilityId}, 'artifact', 'Unsigned skill',
+			  'fleet', 'registry', 'verified-shared', ${capabilityBlobId},
+			  ${services.db.writer.json({ artifact_type: "capability", capability: "skill.unsigned", capability_kind: "skill", version: "1.0.0" })})`;
+		await services.db.writer`
+			insert into blobs (id, scope, bytes) values (${capabilityBlobId}, 'fleet', ${capabilityBundle})`;
+		await services.db.writer`
+			insert into library_items
+			  (id, entity_id, kind, title, scope, project, status, body_ref, properties)
+			values (${hiddenCapabilityId}, ${hiddenCapabilityId}, 'artifact', 'Secret skill',
+			  'user:secret', 'registry', 'verified-shared', ${hiddenCapabilityBlobId},
+			  ${services.db.writer.json({ artifact_type: "capability", capability: "skill.secret", capability_kind: "skill", version: "1.0.0", sha256: capabilityDigest })})`;
+		await services.db.writer`
+			insert into blobs (id, scope, bytes)
+			values (${hiddenCapabilityBlobId}, 'user:secret', ${capabilityBundle})`;
 		await services.db.writer`
 			insert into library_links (from_id, to_id, rel_type, reason, scope)
 			values (${visibleId}, ${targetId}, 'references', 'Uses the Rev3 model', 'fleet')`;
@@ -3564,8 +3604,14 @@ describe("structured query", () => {
 		await services.db.writer`
 			insert into current_state (kind, subject, scope, state, observed_at, seq)
 			values ('registry', 'agent:library-test', 'fleet',
-			  ${services.db.writer.json({ provides: ["kb.search", "mcp.library"], host: ".14", transport: "mcp" })},
+			  ${services.db.writer.json({ provides: ["kb.search", "mcp.library", "skill.fleet-retry", "skill.unsigned"], host: ".14", transport: "mcp" })},
 			  now(), 990001)
+			on conflict (kind, subject) do update set state = excluded.state,
+			  observed_at = excluded.observed_at, seq = excluded.seq`;
+		await services.db.writer`
+			insert into current_state (kind, subject, scope, state, observed_at, seq)
+			values ('registry', 'agent:secret-library', 'user:secret',
+			  ${services.db.writer.json({ provides: ["skill.secret"] })}, now(), 990002)
 			on conflict (kind, subject) do update set state = excluded.state,
 			  observed_at = excluded.observed_at, seq = excluded.seq`;
 		await services.db.admin`
@@ -3683,6 +3729,52 @@ describe("structured query", () => {
 			expect(secondCapabilityPage.json().items[0].capability).not.toBe(
 				firstCapabilityPage.json().items[0].capability,
 			);
+			const acquired = await server.inject({
+				method: "POST",
+				url: "/api/v1/library/capabilities/skill.fleet-retry/acquire",
+				headers,
+				payload: { provider: "agent:library-test" },
+			});
+			expect(acquired.statusCode, acquired.body).toBe(200);
+			expect(acquired.json()).toMatchObject({
+				schema_version: 1,
+				capability: "skill.fleet-retry",
+				kind: "skill",
+				version: "1.2.0",
+				provider: "agent:library-test",
+				scope: "fleet",
+				integrity: { algorithm: "sha256", digest: capabilityDigest },
+				artifact: {
+					media_type: "application/vnd.petalnet.capability-bundle+json",
+					encoding: "base64",
+				},
+				provenance: { library_item_id: capabilityId, created_by_agent: "janet" },
+			});
+			expect(Buffer.from(acquired.json().artifact.data, "base64")).toEqual(capabilityBundle);
+			const absent = await server.inject({
+				method: "POST",
+				url: "/api/v1/library/capabilities/skill.not-visible/acquire",
+				headers,
+				payload: {},
+			});
+			expect(absent.statusCode).toBe(404);
+			const hiddenCapability = await server.inject({
+				method: "POST",
+				url: "/api/v1/library/capabilities/skill.secret/acquire",
+				headers,
+				payload: { provider: "agent:secret-library" },
+			});
+			expect(hiddenCapability.statusCode).toBe(404);
+			const unsignedCapability = await server.inject({
+				method: "POST",
+				url: "/api/v1/library/capabilities/skill.unsigned/acquire",
+				headers,
+				payload: { provider: "agent:library-test" },
+			});
+			expect(unsignedCapability.statusCode).toBe(422);
+			expect(unsignedCapability.json()).toMatchObject({
+				error: { code: "capability_artifact_invalid" },
+			});
 
 			const editorHeaders = {
 				"x-dev-principal": JSON.stringify({

@@ -71,6 +71,7 @@ import { readRoster, readExecutors } from "./reads/roster.ts";
 import { registerEntityReadRoutes } from "./reads/routes.ts";
 import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
 import type { TrackerReader } from "./reads/tracker.ts";
+import { acquireCapability, CapabilityAcquisitionError } from "./registry/acquisition.ts";
 import { materializePanel } from "./render/engine.ts";
 import type { PanelSpecV2 } from "./render/types.ts";
 import {
@@ -2636,6 +2637,47 @@ export async function buildServer(
 			}),
 		);
 	});
+	app.post(
+		"/api/v1/library/capabilities/:capability/acquire",
+		{ preHandler: auth },
+		async (req, reply) => {
+			const principal = req.principal as Principal;
+			const { capability } = req.params as { capability: string };
+			const body = z
+				.object({ provider: z.string().optional() })
+				.strict()
+				.safeParse(req.body ?? {});
+			if (!body.success)
+				return reply.code(400).send({
+					error: {
+						code: "bad_capability",
+						message: "invalid capability acquisition request",
+						retryable: false,
+					},
+				});
+			try {
+				return await acquireCapability(
+					services.db.app,
+					principal.scopes,
+					capability,
+					body.data.provider,
+				);
+			} catch (error) {
+				if (error instanceof CapabilityAcquisitionError) {
+					const status =
+						error.code === "bad_capability"
+							? 400
+							: error.code === "capability_not_found"
+								? 404
+								: 422;
+					return reply.code(status).send({
+						error: { code: error.code, message: error.message, retryable: false },
+					});
+				}
+				throw error;
+			}
+		},
+	);
 
 	// --- catalog ---------------------------------------------------------------------------------
 	app.get("/api/v1/catalog", { preHandler: auth }, async (req, reply) => {

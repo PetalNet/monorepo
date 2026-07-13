@@ -627,6 +627,27 @@ full Rev3 (CRDT prose, curation autonomy) remains its own effort. Tasks stay tra
 project in read-only; consumers never see the migration seam. Item `source_url`/`body_ref`
 are validated at render/refetch time (no `javascript:`/internal-URL execution — Phase 2).
 
+### 6.1 Capability acquisition (BR-034)
+
+`GET /api/v1/library/capabilities` remains the discovery inventory projected from the
+scope-filtered `current_state(kind='registry')`. `POST
+/api/v1/library/capabilities/:capability/acquire` accepts the optional exact `provider` and returns
+the runnable artifact only when all three scope-protected records agree: the registry provider
+currently advertises the capability, a `verified-shared` Library `artifact` in the same scope has
+`properties.artifact_type = capability`, and its `body_ref` resolves to a blob in that scope.
+Missing or out-of-scope records are indistinguishable (`404 capability_not_found`). Draft,
+orphaned, malformed, oversized, or digest-mismatched artifacts fail closed.
+
+The response is pinned by `schemas/entities/capability-acquisition.schema.json` and carries
+`{capability, kind(skill|tool), version, provider, scope, integrity:
+{algorithm:sha256,digest}, artifact:{media_type,encoding:base64,bytes,data}, provenance}`. The blob
+is a bounded v1 JSON bundle with one relative `entrypoint` and 1–64 files of `{path, mode(0644|0755),
+content_b64}` totaling at most 2 MiB. `console-api-acquire` is the thin agent loader: it authenticates
+with the agent bearer, re-verifies SHA-256 and the full manifest locally, rejects traversal and
+duplicate paths, publishes an immutable version directory, then atomically switches the managed
+skill/tool pointer under the agent's `CODEX_HOME` (or explicit `--root`). Console-api never writes
+into an agent runtime.
+
 ## 7. ReBAC scope + permission levels
 
 ### 7.1 Scope tags — as before (`user: | agent: | project: | fleet | restricted:`), flat (Rule 11).
