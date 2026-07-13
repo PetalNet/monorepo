@@ -128,3 +128,87 @@ and devAuth gates both HTTP and WS. All findings applied + regression-tested (34
 ### Next
 
 Push N1a → PR → CI green → merge, then N1b (bridges + typed reads + completion tail).
+
+## N1b design review round (PHASE1B-DESIGN.md, pre-code)
+
+Reviewers: **codex** (REVISE — 3 P0, 2 P1, 1 P2) + **adversarial sub-agent** (REVISE — 3 HIGH, 6
+MED, 3 LOW). Both converge on the load-bearing gaps; all applied to the design before code:
+
+- **Projection key (sub-agent H1, critical)**: `(subject_kind, subject)` would collapse
+  fleet/heartbeat/registry/governance onto one row (all have `subject_kind=agent, subject=handle`).
+  Fixed: PK `(kind, subject)` where `kind` is the projection-map bucket, not the emission field.
+- **Projector crash-durability (both P0/M1)**: seq-guard alone isn't crash-safe (fan-out is
+  un-awaited, in-process). Added a durable `projection_checkpoint` + boot lake-replay to head
+  (like the broker's setHead) before serving reads; atomic seq-guarded upsert.
+- **Tracker read authz (both P0/H2)**: lake RLS can't reach tracker rows. Pinned a visibility→scope
+  mapping (project→project:P, private+owner→user:U, shared→fleet) applied console-side over a
+  broad service-token read, filtered by caller scopes; leasePublic in the read path; unfiltered
+  direct SQLite rejected.
+- **Executor-signed completions (both P0/H3)**: a delegated bridge registration only relocates
+  trust to outbox-dir write access (forgeable). Fixed: executors Ed25519-sign result envelopes,
+  console-api verifies vs a registered pubkey + enforces executor↔signer identity, bridge
+  relay-only — a compromised bridge/poisoned outbox cannot forge a completion.
+- **Aggregate scope + invariance (sub-agent M2/M3)**: aggregate-backing types stamped the
+  aggregate scope (`fleet`) so a fleet-granted viewer sees `/fleet`; scope invariant per
+  `(kind,subject)`, projector rejects+alarms on change (no silent visibility flip).
+- **Roster null ambiguity (sub-agent M4)**: per-source `visibility` marker so a null field is
+  "no row" vs "not yours", never rendered as "no data"; documented mixed-source, not atomic.
+- **Bridge outbox state machine (both P1/M5)**: pending→accepted, durable id+payload before POST,
+  cursor advances only after 202, batch checkpoints last-contiguous-accepted; corrected the
+  contract's "transactional" wording to checkpoint-after-accept.
+- **Snapshot content-hash (sub-agent M6)**: must include the producer's monotonic `updated_at`;
+  same-content re-transition is inherently unrecoverable (stated honestly, not a claimed gap).
+- **Freshness (both P1/L1)**: `current_state.observed_at` = lake `received_at` (fan-out signature
+  widened to carry it); producer `updated_at` kept in `state` for the skew-proof derivation;
+  `unreachable_since` carries dead-box positive evidence.
+- **current_state RLS (codex P2)**: FORCE RLS + scoped policy + console_writer write role (mirrors
+  events). **L3**: forward-ref that N1d's hypertable conversion must move dedup to the emission_ids
+  gate atomically or exactly-once regresses.
+
+### Next
+
+Build N1b (projector + current_state + typed reads + tracker mapping + roster/executors +
+completion-signature verify), then the `console-bridge` Rust crate. PR → codex + adversarial
+review → merge.
+
+## N1b-1 code review round (codex, the required reviewer)
+
+Per the updated process (Parker: codex-only, no Claude board), codex (gpt-5.6-terra) reviewed
+N1b-1: **REVISE** — 2 P0, 4 P1, 1 P2. It confirmed RLS enable/force, scoped read path,
+policy/grant ordering, writer-only checkpoint, bound SQL params, and the received_at fan-out are
+correct. All findings applied + tested (39 green):
+
+- **P0 — projector live-apply concurrency**: fire-and-forget applies could advance the checkpoint
+  past an unfinished seq (crash → permanently skip it). Fixed: serialized the live path through a
+  `#tail` promise chain (like the appender) and the checkpoint advances CONTIGUOUSLY
+  (`where through_seq = seq-1`), so a gap never advances past it.
+- **P0 — console_writer as read role bypasses scope**: `console_writer` holds a `using(true)`
+  policy; if the app connected as it, scoped reads would see every row. Fixed:
+  `assertRuntimeRolesHardened` now rejects the app role being `console_writer` or a member of it
+  (must be `console_app`); tested.
+- **P1 — scope conflict applied new state under old scope**: added `current_state.scope =
+excluded.scope` to the update predicate so a mismatched-scope event is a no-op (state never
+  applied under the wrong scope), with a separate mismatch alarm.
+- **P1 — aggregate scope not enforced**: the projector now rejects a non-`fleet` scope for
+  aggregate kinds (fleet/heartbeat/registry/governance/card/box_update/edge); the aggregate-
+  emitting bridge registrations tightened to `fleet`-only (defense in depth).
+- **P1 — checkpoint ownership**: pg advisory lock around boot replay + monotonic checkpoint writes
+  (`where through_seq < cursor`).
+- **P1 — unreachable no seq guard**: `bridge.source.unreachable` only marks a row dark when its
+  last state is not newer (`and seq <= ${seq}`), so a delayed old signal can't re-dark a healthy
+  entity.
+- **P2 — limit NaN**: `readEntity` coerces a non-numeric limit to the default (clean, no 500).
+
+### Next
+
+N1b-2: tracker HTTP reader + /tasks /leases /agents /roster /executors + console-bridge crate.
+
+### N1b-1 codex re-review
+
+Codex re-review of the fixes: both **P0 confirmed resolved** (serialized projector + contiguous
+checkpoint; console_writer read-role rejected), and all four P1 + the P2 confirmed resolved. Two
+follow-ups it raised, fixed same-round: (P1) `pg_advisory_lock` is session-scoped but `#writer` is
+a pool — replaced with a transaction-scoped `pg_advisory_xact_lock` (auto-released, pool-safe),
+replay threads the tx handle; (P2) the `#tail` chain was unbounded — added a bounded in-flight
+queue (`#MAX_PENDING`) that drops a live apply under backpressure with an alarm, which is safe
+because the checkpoint only advances contiguously so a later replay refills the gap.

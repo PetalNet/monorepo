@@ -10,6 +10,7 @@ import { migrate } from "../src/db/migrate.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
 import { runStructured } from "../src/query/structured.ts";
+import { readEntity } from "../src/reads/entities.ts";
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -251,6 +252,24 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 		);
 		await svc.close();
 	});
+
+	it("refuses in prod-auth when the app URL is console_writer (writer bypasses scope)", async () => {
+		await expect(
+			buildServices(
+				{
+					databaseUrl: temp.adminUrl,
+					appDatabaseUrl: temp.writerUrl, // console_writer has a using(true) policy — must be rejected
+					roDatabaseUrl: temp.roUrl,
+					writerDatabaseUrl: temp.writerUrl,
+					host: "127.0.0.1",
+					port: 0,
+					devAuth: false,
+					glitchtipDsn: null,
+				},
+				{ migrate: false },
+			),
+		).rejects.toThrow(/console_app|writer/);
+	});
 });
 
 describe("post-restart replay (codex N1a P1)", () => {
@@ -313,5 +332,156 @@ describe("structured query", () => {
 				time: { bucket: "5m", fill: "previous" },
 			}),
 		).rejects.toThrow(/fill/);
+	});
+});
+
+// Wait for the fire-and-forget projector to catch up to a seq for a (kind, subject).
+async function waitProjected(kind: string, subject: string, minSeq: number): Promise<void> {
+	for (let i = 0; i < 50; i++) {
+		const r = await services.db
+			.admin`select seq from current_state where kind = ${kind} and subject = ${subject}`;
+		if (r[0] && Number(r[0]["seq"]) >= minSeq) return;
+		await new Promise((res) => setTimeout(res, 20));
+	}
+	throw new Error(`projection for ${kind}/${subject} never reached seq ${String(minSeq)}`);
+}
+
+describe("current_state projection (N1b)", () => {
+	it("fleet event and heartbeat for the same handle project to TWO distinct rows (H1)", async () => {
+		const f = await services.emit(
+			"bridge:fleet",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "fleet.event.pre_tool",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".15", agent: "janet" },
+				subject: "janet",
+				subject_kind: "agent",
+				severity: "info",
+				scope: "fleet",
+				dimensions: { status: "working", current_tool: "Bash" },
+			},
+			300,
+		);
+		expect(f.ok).toBe(true);
+		const h = await services.emit(
+			"bridge:manager",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "agent.heartbeat",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".15", agent: "janet" },
+				subject: "janet",
+				subject_kind: "agent",
+				severity: "info",
+				scope: "fleet",
+				dimensions: { state: "running" },
+			},
+			300,
+		);
+		expect(h.ok).toBe(true);
+		await waitProjected("fleet", "janet", f.seq as number);
+		await waitProjected("heartbeat", "janet", h.seq as number);
+		const rows = await services.db
+			.admin`select kind, subject from current_state where subject = 'janet' order by kind`;
+		const kinds = rows.map((r) => r["kind"]);
+		expect(kinds).toContain("fleet");
+		expect(kinds).toContain("heartbeat"); // NOT collapsed onto one row
+	});
+
+	it("a lower seq never regresses a higher-seq state (seq guard)", async () => {
+		const first = await services.emit(
+			"bridge:fleet",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "fleet.event.post_tool",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".14", agent: "seqbox", agent_x: null },
+				subject: "seqbox",
+				subject_kind: "agent",
+				severity: "info",
+				scope: "fleet",
+				dimensions: { status: "idle" },
+			},
+			300,
+		);
+		await waitProjected("fleet", "seqbox", first.seq as number);
+		// directly attempt a stale upsert with a lower seq via the projector's guard shape
+		await services.db
+			.writer`insert into current_state (kind, subject, scope, state, observed_at, seq)
+			values ('fleet', 'seqbox', 'fleet', ${services.db.writer.json({ status: "STALE" })}, now(), 1)
+			on conflict (kind, subject) do update set state = excluded.state, seq = excluded.seq where excluded.seq > current_state.seq`;
+		const row = await services.db
+			.admin`select state from current_state where kind='fleet' and subject='seqbox'`;
+		const st = row[0]?.["state"] as { status: string } | undefined;
+		expect(st?.status).toBe("idle"); // stale write rejected
+	});
+
+	it("a fleet-granted caller reads /fleet (aggregate scope), a bare user grant does not", async () => {
+		await services.emit(
+			"bridge:fleet",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "fleet.event.session_start",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".12", agent: "aggbox" },
+				subject: "aggbox",
+				subject_kind: "agent",
+				severity: "info",
+				scope: "fleet",
+				dimensions: { status: "alive" },
+			},
+			300,
+		);
+		await waitProjected("fleet", "aggbox", 1);
+		const asFleet = await readEntity(services.db.app, ["fleet"], "fleet");
+		expect(asFleet.items.map((i) => i["subject"])).toContain("aggbox");
+		const asUser = await readEntity(services.db.app, ["user:nobody"], "fleet");
+		expect(asUser.items.map((i) => i["subject"])).not.toContain("aggbox"); // flat model: no fleet grant, no rows
+	});
+
+	it("bridge.source.unreachable marks the entity dark (positive down-evidence)", async () => {
+		await services.emit(
+			"bridge:fleet",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "fleet.event.stop",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".10", agent: "darkbox" },
+				subject: "darkbox",
+				subject_kind: "agent",
+				severity: "info",
+				scope: "fleet",
+				dimensions: { status: "idle" },
+			},
+			300,
+		);
+		await waitProjected("fleet", "darkbox", 1);
+		await services.emit(
+			"bridge:hosts",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "bridge.source.unreachable",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".10", agent: null },
+				subject: "darkbox",
+				severity: "warn",
+				scope: "fleet",
+			},
+			300,
+		);
+		for (let i = 0; i < 50; i++) {
+			const r = await services.db
+				.admin`select unreachable_since from current_state where kind='fleet' and subject='darkbox'`;
+			if (r[0]?.["unreachable_since"]) return;
+			await new Promise((res) => setTimeout(res, 20));
+		}
+		throw new Error("unreachable_since never set");
 	});
 });

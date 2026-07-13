@@ -11,7 +11,9 @@ export interface AppendResult {
 	readonly duplicate: boolean;
 }
 
-export type FanOut = (seq: number, e: Emission) => void;
+// receivedAt = the lake receipt time (immutable), threaded to the projector for skew-proof
+// freshness (N1b). The broker ignores it; the projector uses it as current_state.observed_at.
+export type FanOut = (seq: number, e: Emission, receivedAt: string) => void;
 
 export class Appender {
 	readonly #sql: Sql;
@@ -36,7 +38,7 @@ export class Appender {
 
 	async #doAppend(e: Emission): Promise<AppendResult> {
 		const result = await this.#sql.begin(async (tx) => {
-			const rows = await tx<{ seq: string }[]>`
+			const rows = await tx<{ seq: string; received_at: string }[]>`
 				insert into events
 					(id, type, ts, source_service, source_host, source_agent, subject, subject_kind,
 					 severity, action, task_id, scope, dimensions, measures, links, body_ref, meta)
@@ -47,12 +49,13 @@ export class Appender {
 					 ${tx.json((e.dimensions ?? {}) as never)}, ${tx.json((e.measures ?? {}) as never)},
 					 ${tx.json((e.links ?? []) as never)}, ${e.body_ref ?? null}, ${tx.json((e.meta ?? {}) as never)})
 				on conflict (id) do nothing
-				returning seq`;
+				returning seq, received_at`;
 			if (rows.length === 0) {
 				const existing = await tx<{ seq: string }[]>`select seq from events where id = ${e.id}`;
-				return { seq: Number(existing[0]?.seq), duplicate: true };
+				return { seq: Number(existing[0]?.seq), duplicate: true, receivedAt: "" };
 			}
 			const seq = Number(rows[0]?.seq);
+			const receivedAt = rows[0]?.received_at ?? new Date().toISOString();
 			// materialize edges
 			if (e.links && e.links.length > 0) {
 				const fromKind = e.subject_kind ?? "other";
@@ -72,10 +75,10 @@ export class Appender {
 					measures = semantic_registry.measures || excluded.measures,
 					scopes = case when semantic_registry.scopes @> excluded.scopes
 						then semantic_registry.scopes else semantic_registry.scopes || excluded.scopes end`;
-			return { seq, duplicate: false };
+			return { seq, duplicate: false, receivedAt };
 		});
-		if (!result.duplicate) this.#fanOut(result.seq, e);
-		return result;
+		if (!result.duplicate) this.#fanOut(result.seq, e, result.receivedAt);
+		return { seq: result.seq, duplicate: result.duplicate };
 	}
 }
 

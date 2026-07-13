@@ -11,6 +11,7 @@ import type { Env } from "./env.ts";
 import { authorizeEmission } from "./ingest/authz.ts";
 import { loadRegistration } from "./ingest/registrations.ts";
 import { scrubEmission } from "./ingest/scrubber.ts";
+import { Projector } from "./projector/index.ts";
 
 export interface EmitOutcome {
 	readonly ok: boolean;
@@ -24,6 +25,7 @@ export interface Services {
 	readonly db: Db;
 	readonly appender: Appender;
 	readonly broker: Broker;
+	readonly projector: Projector;
 	emit(producerSubject: string, raw: unknown, bytes: number): Promise<EmitOutcome>;
 	close(): Promise<void>;
 }
@@ -39,8 +41,13 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		{ n: string }[]
 	>`select coalesce(max(seq), 0)::bigint as n from events`;
 	broker.setHead(Number(headRow[0]?.n ?? 0));
-	const appender = new Appender(db.writer, (seq, e) => {
+	// projector: cursored consumer of the lake into current_state. Boot-replay to head BEFORE
+	// serving reads, then live off fan-out (N1b). Writes as console_writer (non-superuser).
+	const projector = new Projector(db.writer);
+	await projector.replayToHead();
+	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
+		projector.onEvent(seq, e, receivedAt);
 	});
 
 	async function emit(producerSubject: string, raw: unknown, bytes: number): Promise<EmitOutcome> {
@@ -82,6 +89,7 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		db,
 		appender,
 		broker,
+		projector,
 		emit,
 		async close() {
 			await db.close();

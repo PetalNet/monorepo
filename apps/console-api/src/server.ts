@@ -10,7 +10,9 @@ import { buildServices, type Services } from "./app.ts";
 import { resolveBearer, devPrincipal, type Principal } from "./auth/principal.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
 import { loadEnv } from "./env.ts";
+import type { ProjectionKind } from "./projector/index.ts";
 import { runStructured, QueryError, type QueryRequest } from "./query/structured.ts";
+import { readEntity } from "./reads/entities.ts";
 
 declare module "fastify" {
 	interface FastifyRequest {
@@ -156,6 +158,28 @@ export async function buildServer(services: Services, devAuth: boolean) {
 		const items = rows.map((r) => ({ ...r, scopes: r.scopes.filter((s) => p.scopes.includes(s)) }));
 		return { schema_version: 1, items };
 	});
+
+	// --- typed entity reads (current_state projection, N1b) --------------------------------------
+	const ENTITY_ROUTES: Record<string, ProjectionKind> = {
+		fleet: "fleet",
+		heartbeats: "heartbeat",
+		registry: "registry",
+		governance: "governance",
+		cards: "card",
+		"box-updates": "box_update",
+		workers: "worker",
+		"edge/registry": "edge",
+	};
+	for (const [path, kind] of Object.entries(ENTITY_ROUTES)) {
+		app.get(`/api/v1/${path}`, { preHandler: auth }, async (req) => {
+			const p = req.principal as Principal;
+			const q = req.query as { limit?: string; cursor?: string };
+			return readEntity(services.db.app, p.scopes, kind, {
+				limit: q.limit ? Number(q.limit) : undefined,
+				cursor: q.cursor,
+			});
+		});
+	}
 
 	// --- bus WS ----------------------------------------------------------------------------------
 	app.get("/api/v1/bus/ws", { websocket: true }, (socket, req) => {
