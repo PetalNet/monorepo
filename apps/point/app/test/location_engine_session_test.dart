@@ -46,7 +46,7 @@ Position _pos({double lat = 38.69, double lon = -90.43, double speed = 0}) =>
 
 class _Harness {
   _Harness({LocationPermission permission = LocationPermission.always})
-      : _permission = permission {
+    : _permission = permission {
     service = LocationService(
       checkPermission: () async => _permission,
       requestPermission: () async => _permission,
@@ -102,16 +102,18 @@ void main() {
       await h.close();
     });
 
-    test(
-        'THE v1.2 WEDGE: a signed-out hard-stop must not survive the next '
+    test('THE v1.2 WEDGE: a signed-out hard-stop must not survive the next '
         'session (setSharing(true) + start() delivers fixes again)', () async {
       final h = _Harness();
       // The signed-out branch hard-stops the engine…
       h.service.setSharing(sharing: false);
       // …and the next sign-in reaches start() with the machine still ghosted.
       await h.service.start();
-      expect(h.service.plan.gpsEnabled, isFalse,
-          reason: 'ghosted machine: start() alone must not override a ghost');
+      expect(
+        h.service.plan.gpsEnabled,
+        isFalse,
+        reason: 'ghosted machine: start() alone must not override a ghost',
+      );
       expect(h.fixes, isEmpty);
 
       // The fix: session establishment resets sharing before the gate runs
@@ -143,20 +145,47 @@ void main() {
       await h.service.start();
       expect(h.gps.hasListener, isFalse);
       expect(h.accel.hasListener, isFalse);
+      expect(h.service.currentHealth.status, LocationHealthStatus.blocked);
+      expect(
+        h.service.currentHealth.failure,
+        LocationHealthFailure.permissionDenied,
+      );
       await h.close();
     });
 
-    test('pre-start lifecycle/sharing events never touch the sensors', () async {
+    test('health recovers from a GPS failure after a fresh fix', () async {
       final h = _Harness();
-      // Before start() clears the permission gate, foreground/sharing events
-      // may only update the machine — no plugin pokes before onboarding has
-      // earned the ask.
-      h.service.onForeground();
-      h.service.setSharing(sharing: true);
-      expect(h.gps.hasListener, isFalse);
-      expect(h.accel.hasListener, isFalse);
+      await h.service.start();
+      expect(h.service.currentHealth.status, LocationHealthStatus.acquiring);
+
+      h.gps.addError(StateError('provider unavailable'));
+      await Future<void>.delayed(Duration.zero);
+      expect(h.service.currentHealth.status, LocationHealthStatus.blocked);
+      expect(h.service.currentHealth.failure, LocationHealthFailure.gps);
+
+      final recovered = _pos();
+      h.gps.add(recovered);
+      await Future<void>.delayed(Duration.zero);
+      expect(h.service.currentHealth.status, LocationHealthStatus.live);
+      expect(h.service.currentHealth.failure, isNull);
+      expect(h.service.currentHealth.lastFixAt, recovered.timestamp);
       await h.close();
     });
+
+    test(
+      'pre-start lifecycle/sharing events never touch the sensors',
+      () async {
+        final h = _Harness();
+        // Before start() clears the permission gate, foreground/sharing events
+        // may only update the machine — no plugin pokes before onboarding has
+        // earned the ask.
+        h.service.onForeground();
+        h.service.setSharing(sharing: true);
+        expect(h.gps.hasListener, isFalse);
+        expect(h.accel.hasListener, isFalse);
+        await h.close();
+      },
+    );
 
     test('stationary send loop: stillness ramps down, heartbeat keeps fixes '
         'flowing', () {
@@ -384,24 +413,33 @@ void main() {
       return (tester, ref);
     }
 
-    testWidgets('clears a leftover signed-out hard-stop on session restore',
-        (tester) async {
+    testWidgets('clears a leftover signed-out hard-stop on session restore', (
+      tester,
+    ) async {
       final (_, ref) = await pump(tester);
       engine.setSharing(sharing: false); // the signed-out hard-stop
       await establishSessionEngineState(ref, explicitSignIn: false);
-      expect(engine.plan.gpsEnabled, isTrue,
-          reason: 'the wedge: a restored session must not inherit the '
-              "previous sign-out's ghost");
+      expect(
+        engine.plan.gpsEnabled,
+        isTrue,
+        reason:
+            'the wedge: a restored session must not inherit the '
+            "previous sign-out's ghost",
+      );
       expect(api.ghostSetTo, isNull, reason: 'no go-dark → no server write');
     });
 
-    testWidgets('explicit sign-in with go-dark default ends dark',
-        (tester) async {
+    testWidgets('explicit sign-in with go-dark default ends dark', (
+      tester,
+    ) async {
       final (_, ref) = await pump(tester, goDarkDefault: true);
       engine.setSharing(sharing: false);
       await establishSessionEngineState(ref, explicitSignIn: true);
-      expect(engine.plan.gpsEnabled, isFalse,
-          reason: 'go-dark default must win over the reset, sequenced');
+      expect(
+        engine.plan.gpsEnabled,
+        isFalse,
+        reason: 'go-dark default must win over the reset, sequenced',
+      );
       expect(api.ghostSetTo, isTrue, reason: 'ghost persisted to the server');
     });
 

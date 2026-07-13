@@ -10,6 +10,7 @@ import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
 import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/api/point_api.dart';
@@ -89,24 +90,33 @@ class PeopleScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: _PeopleBody(
-        people: people,
-        requests: requests,
-        outgoing: outgoing,
-        temps: temps.values.toList(),
-        isInitialLoading: isInitialLoading,
-        hasInitialError: hasInitialError,
-        hasRefreshError: hasRefreshError,
-        hasAvatarError: hasAvatarError,
-        onRetryAvatars: () {
-          for (final person in people) {
-            ref.invalidate(avatarProvider(person.userId));
-          }
-        },
-        onOpenRequests: openRequests,
-        onRefresh: () => ref
-            .read(realtimeSyncCoordinatorProvider)
-            .syncNow(RealtimeSyncReason.manualRefresh),
+      body: Column(
+        children: [
+          RelayHealthBanner(
+            showAction: !hasInitialError && !hasAvatarError,
+          ),
+          Expanded(
+            child: _PeopleBody(
+              people: people,
+              requests: requests,
+              outgoing: outgoing,
+              temps: temps.values.toList(),
+              isInitialLoading: isInitialLoading,
+              hasInitialError: hasInitialError,
+              hasRefreshError: hasRefreshError,
+              hasAvatarError: hasAvatarError,
+              onRetryAvatars: () {
+                for (final person in people) {
+                  ref.invalidate(avatarProvider(person.userId));
+                }
+              },
+              onOpenRequests: openRequests,
+              onRefresh: () => ref
+                  .read(realtimeSyncCoordinatorProvider)
+                  .syncNow(RealtimeSyncReason.manualRefresh),
+            ),
+          ),
+        ],
       ),
     );
   }
