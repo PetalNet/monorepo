@@ -12,6 +12,12 @@
 	import UpdateRow from "$lib/components/UpdateRow.svelte";
 	import { mockRawUpdate, type UpdateRowView } from "$lib/data/updates";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
+	import {
+		approveUpdate,
+		getUpdateApprovals,
+		revokeUpdateApproval,
+		type UpdateApproval,
+	} from "./approvals.remote";
 
 	let { data } = $props();
 	const u = $derived(data.updates);
@@ -61,13 +67,21 @@
 		),
 	);
 	const criticalCve = $derived(criticalFindings.length > 0);
-	const approve = opDef("updates.approve")!;
 	const apply = opDef("updates.apply")!;
 	const check = opDef("updates.check")!;
 	const notify = opDef("task.dispatch")!;
 	const reboot = opDef("host.reboot")!;
 	let drawerEl = $state<HTMLDialogElement | null>(null);
 	let receiptEl = $state<HTMLDialogElement | null>(null);
+	let approvals = $state<UpdateApproval[]>([]);
+	let approvalsLoading = $state(false);
+	let approvalError = $state<string | null>(null);
+	let approvalBusy = $state<string | null>(null);
+	let approvalLoad = 0;
+	const canOperate = $derived(u.lanes.includes("operator"));
+	const unapprovedPackages = $derived(
+		(raw?.packages ?? []).filter((pkg) => !approvalFor(pkg.name)).map((pkg) => pkg.name),
+	);
 
 	function recordRows(result: Awaited<ReturnType<typeof runQuery>>): Record<string, unknown>[] {
 		return result.rows.map((row) =>
@@ -131,6 +145,11 @@
 						pattern: "container.update_available",
 						since: recoveryHead ?? containerLastSeq ?? 0,
 					},
+					{
+						sub_id: "console-updates-approval-state",
+						pattern: "box.update_status_changed",
+						since: recoveryHead ?? 0,
+					},
 				],
 				(rawFrame) => {
 					const frame = rawFrame as {
@@ -144,6 +163,7 @@
 							dimensions?: Record<string, string | boolean>;
 						};
 					};
+					const changedBoxId = frame.emission?.subject;
 					if (frame.kind === "event" && frame.emission?.type === "container.update_available") {
 						const update = asContainerUpdate({
 							seq: frame.seq,
@@ -161,8 +181,17 @@
 						containerLiveAt = update.at;
 						containerHistory = "ready";
 					}
-					if (frame.kind === "gap" || frame.kind === "resync_required")
+					if (
+						frame.kind === "event" &&
+						frame.emission?.type === "box.update_status_changed" &&
+						typeof changedBoxId === "string" &&
+						selected?.boxId === changedBoxId
+					)
+						void loadApprovals(changedBoxId);
+					if (frame.kind === "gap" || frame.kind === "resync_required") {
 						void loadContainerHistory();
+						if (selected) void loadApprovals(selected.boxId);
+					}
 				},
 			);
 		})();
@@ -173,11 +202,86 @@
 	});
 
 	$effect(() => {
-		if (selected && drawerEl && !drawerEl.open) drawerEl.showModal();
-	});
-	$effect(() => {
 		if (receiptOpen && receiptEl && !receiptEl.open) receiptEl.showModal();
 	});
+	$effect(() => {
+		const boxId = selected?.boxId;
+		if (!boxId) {
+			approvalLoad += 1;
+			approvals = [];
+			approvalsLoading = false;
+			approvalError = null;
+			return;
+		}
+		void loadApprovals(boxId);
+	});
+
+	async function loadApprovals(boxId: string) {
+		const request = ++approvalLoad;
+		approvalsLoading = true;
+		approvalError = null;
+		try {
+			const next = await getUpdateApprovals({ box_id: boxId });
+			if (request === approvalLoad && selected?.boxId === boxId) approvals = next;
+		} catch (error) {
+			if (request === approvalLoad && selected?.boxId === boxId)
+				approvalError = (error as Error).message || "Approvals could not be read.";
+		} finally {
+			if (request === approvalLoad && selected?.boxId === boxId) approvalsLoading = false;
+		}
+	}
+
+	function approvalFor(packageName: string): UpdateApproval | undefined {
+		return approvals.find(
+			(approval) => approval.packages.length === 0 || approval.packages.includes(packageName),
+		);
+	}
+
+	async function approvePackages(packages: string[]) {
+		if (!selected || approvalBusy) return;
+		approvalBusy = `approve:${packages.join(",") || "all"}`;
+		approvalError = null;
+		try {
+			const boxId = selected.boxId;
+			const approved = await approveUpdate({ box_id: boxId, packages });
+			await loadApprovals(boxId);
+			const undoAction = async () => {
+				try {
+					await revokeUpdateApproval({
+						approval_id: approved.approval.approval_id,
+						box_id: boxId,
+					});
+				} finally {
+					if (selected?.boxId === boxId) await loadApprovals(boxId);
+				}
+			};
+			snackbar.push({
+				message: "updates.approve recorded · rollout remains pending",
+				op: "updates.approve",
+				tone: "good",
+				...(approved.approval.revocable ? { undo: approved.undo, onUndo: undoAction } : {}),
+			});
+		} catch (error) {
+			approvalError = (error as Error).message || "Approval could not be recorded.";
+		} finally {
+			approvalBusy = null;
+		}
+	}
+
+	async function revokeApproval(approval: UpdateApproval) {
+		if (!selected || approvalBusy) return;
+		approvalBusy = `revoke:${approval.approval_id}`;
+		approvalError = null;
+		try {
+			await revokeUpdateApproval({ approval_id: approval.approval_id, box_id: selected.boxId });
+			snackbar.push({ message: "updates.revoke applied · approval returned to pending", op: "updates.revoke", tone: "good" });
+		} catch (error) {
+			approvalError = (error as Error).message || "Approval could not be revoked.";
+		} finally {
+			if (selected) await loadApprovals(selected.boxId);
+			approvalBusy = null;
+		}
+	}
 
 	function executorLive(row: UpdateRowView): boolean {
 		return u.executorLiveHosts.includes(row.host);
@@ -191,6 +295,7 @@
 		selected = row;
 		raw = rawDetails.find((detail) => detail.box_id === row.boxId) ?? null;
 		rawError = null;
+		if (drawerEl && !drawerEl.open) drawerEl.showModal();
 		if (raw) return;
 		if (!row.pending && !row.vulns && !row.rebootRequired) return;
 		rawLoading = true;
@@ -275,7 +380,7 @@
 				{#if selected.agentless}
 					<span>notify only · no executor on this box</span>
 				{:else if selected.applyMode === "staged-approval"}
-					<OpButton def={approve} args={{ box_id: selected.boxId }} lanes={u.lanes} variant="primary" label="Approve" />
+					{#if canOperate}<button class="approval-btn primary" disabled={approvalBusy !== null || approvalsLoading || unapprovedPackages.length === 0} onclick={() => approvePackages(unapprovedPackages)}>{approvalBusy?.startsWith("approve:") ? "Approving" : "Approve pending"}</button>{/if}
 					<OpButton def={apply} args={{ box_id: selected.boxId }} lanes={u.lanes} executorLive={executorLive(selected)} />
 				{:else if selected.applyMode === "manual-notify-only"}
 					<span>Notify only. Apply is disabled by this host's mode.</span>
@@ -370,13 +475,13 @@
 	</div>
 {/if}
 
-{#if selected}
 	<dialog
 		bind:this={drawerEl}
-		class="drawer"
-		aria-label="Update detail for {selected.host}"
+		class="approval-drawer"
+		aria-label={selected ? `Update detail for ${selected.host}` : "Update detail"}
 		onclose={() => (selected = null)}
 	>
+	{#if selected}
 		<button class="close" type="button" aria-label="Close detail" onclick={() => drawerEl?.close()}>
 			<Icon name="x" size={16} />
 		</button>
@@ -394,7 +499,11 @@
 					<div>
 						<code>{pkg.name}</code><span>{pkg.from ?? "?"} → {pkg.to ?? "?"}</span>{#if pkg.security}<b>security</b>{/if}
 						{#if selected.applyMode === "staged-approval"}
-							<OpButton def={approve} args={{ box_id: selected.boxId, packages: [pkg.name] }} lanes={u.lanes} label="Approve" />
+							{#if approvalFor(pkg.name)}
+								<span class="approved-state"><Icon name="circle-check" size={13} /> approved</span>
+							{:else if canOperate}
+								<button class="approval-btn quiet-action" disabled={approvalBusy !== null || approvalsLoading} onclick={() => approvePackages([pkg.name])}>{approvalBusy === `approve:${pkg.name}` ? "Approving" : "Approve"}</button>
+							{/if}
 						{/if}
 					</div>
 				{/each}
@@ -402,9 +511,27 @@
 		{:else}
 			<p class="quiet">No package list is available for this host.</p>
 		{/if}
+		{#if selected.applyMode === "staged-approval" && approvals.length}
+			<section class="approval-ledger" aria-label="Unapplied approvals">
+				<div class="ledger-head"><span>Approved, awaiting rollout</span><small>{approvals.length} active</small></div>
+				{#each approvals as approval (approval.approval_id)}
+					<div class="approval-entry">
+						<div>
+							<strong>{approval.packages.length ? approval.packages.join(", ") : "All pending updates"}</strong>
+							<span>{approval.approved_by} · {new Date(approval.approved_at).toLocaleString()}</span>
+						</div>
+						{#if canOperate && approval.revocable}<button class="approval-btn revoke" disabled={approvalBusy !== null} onclick={() => revokeApproval(approval)}>{approvalBusy === `revoke:${approval.approval_id}` ? "Revoking" : "Revoke approval"}</button>{/if}
+					</div>
+				{/each}
+				<p>Revocation is available only until rollout begins.</p>
+			</section>
+		{/if}
+		{#if approvalError}<p class="approval-error" role="alert"><Icon name="circle-alert" size={13} /> {approvalError}</p>{/if}
 		<div class="drawer-actions">
 			{#if !selected.agentless && selected.applyMode === "staged-approval"}
-				<OpButton def={approve} args={{ box_id: selected.boxId, packages: raw?.packages.map((p) => p.name) }} lanes={u.lanes} variant="primary" label={`Approve all ${raw?.packages.length ?? selected.pending ?? ""}`} />
+				{#if canOperate && unapprovedPackages.length}
+					<button class="approval-btn primary" disabled={approvalBusy !== null || approvalsLoading} onclick={() => approvePackages(unapprovedPackages)}>{approvalBusy?.startsWith("approve:") ? "Approving" : `Approve ${unapprovedPackages.length ? `remaining ${unapprovedPackages.length}` : `all ${selected.pending ?? ""}`}`}</button>
+				{/if}
 			{/if}
 			{#if !selected.agentless && (selected.applyMode === "auto" || selected.applyMode === "staged-approval")}
 				<OpButton def={apply} args={{ box_id: selected.boxId }} lanes={u.lanes} executorLive={executorLive(selected)} />
@@ -425,8 +552,8 @@
 		{#if !selected.agentless && !executorLive(selected)}
 			<p class="disabled-reason">box-agent executor is not answering</p>
 		{/if}
+	{/if}
 	</dialog>
-{/if}
 
 {#if receiptOpen}
 	<dialog bind:this={receiptEl} class="receipt" aria-labelledby="receipt-title" onclose={() => (receiptOpen = false)}>
@@ -469,19 +596,38 @@
 	.detail-error { color: var(--danger-text); }
 	.skeletons { display: grid; gap: var(--s-2); padding: var(--s-3) 0; }
 	.skeletons i { display: block; height: 16px; width: 80%; background: var(--s2); border-radius: var(--r-xs); }
-	.drawer { position: fixed; z-index: var(--z-dialog); inset: 0 0 0 auto; width: min(420px, 92vw); max-width: none; height: 100dvh; max-height: none; margin: 0; border: 0; background: var(--s1); color: var(--text); padding: var(--s-4); box-shadow: var(--shadow-pop); overflow-y: auto; animation: drawer-in var(--dur-mid) var(--ease-standard); }
-	.drawer::backdrop, .receipt::backdrop { background: color-mix(in srgb, var(--text) 20%, transparent); }
+	.approval-drawer { position: fixed; z-index: var(--z-dialog); inset: 0 0 0 auto; width: min(420px, 92vw); max-width: none; height: 100dvh; max-height: none; margin: 0; border: 0; background: var(--s1); color: var(--text); padding: var(--s-4); box-shadow: var(--shadow-pop); overflow-y: auto; animation: drawer-in var(--dur-mid) var(--ease-standard); }
+	.approval-drawer::backdrop, .receipt::backdrop { background: color-mix(in srgb, var(--text) 20%, transparent); }
 	.close { border: 0; background: transparent; color: var(--text-2); width: 32px; height: 32px; display: grid; place-items: center; margin-inline-start: auto; cursor: pointer; }
-	.drawer h2, .receipt h2 { font: 500 .875rem var(--sans); }
+	.approval-drawer h2, .receipt h2 { font: 500 .875rem var(--sans); }
 	.drawer-meta, .disabled-reason, .no-op { color: var(--text-3); font: 400 .75rem var(--mono); margin-top: var(--s-1); }
 	.packages { margin-top: var(--s-4); }
 	.packages span { margin-inline-start: auto; font: 400 .75rem var(--mono); color: var(--text-3); }
 	.packages b { color: var(--danger-text); font: 500 .6875rem var(--mono); }
+	.approved-state { display: inline-flex; align-items: center; gap: var(--s-1); color: var(--good-text) !important; font-weight: 500 !important; }
+	.approval-ledger { margin-top: var(--s-4); background: var(--s2); border-radius: var(--r-xs); padding: var(--s-2) var(--s-3); animation: approval-change var(--dur-mid) var(--ease-standard); }
+	.ledger-head, .approval-entry { display: flex; align-items: center; gap: var(--s-2); }
+	.ledger-head { min-height: 32px; color: var(--text-2); font-size: .75rem; font-weight: 500; }
+	.ledger-head small { margin-inline-start: auto; color: var(--text-3); font: 400 .6875rem var(--mono); }
+	.approval-entry { min-height: 48px; border-top: 1px solid var(--rule); }
+	.approval-entry > div { min-width: 0; display: grid; gap: 2px; }
+	.approval-entry strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 500 .75rem var(--mono); }
+	.approval-entry span, .approval-ledger > p { color: var(--text-3); font: 400 .6875rem var(--mono); }
+	.approval-ledger > p { border-top: 1px solid var(--rule); padding-top: var(--s-2); }
+	.approval-btn { min-height: 32px; border: 0; border-radius: var(--r-sm); padding: var(--s-1) var(--s-2); background: var(--petal-soft); color: var(--petal-text); cursor: pointer; font: 500 .75rem var(--sans); transition: background var(--t), transform var(--dur-fast) var(--ease-standard), opacity var(--t); }
+	.approval-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--petal) 20%, transparent); }
+	.approval-btn:active:not(:disabled) { transform: scale(.97); }
+	.approval-btn:disabled { cursor: wait; opacity: .52; }
+	.approval-btn.primary { min-height: 40px; padding-inline: var(--s-3); background: var(--petal-fill); color: var(--on-petal); }
+	.approval-btn.revoke { flex: none; margin-inline-start: auto; background: transparent; }
+	.approval-btn.quiet-action { margin-inline-start: 0; flex: none; }
+	.approval-error { display: flex; align-items: center; gap: var(--s-1); margin-top: var(--s-2); color: var(--danger-text); font: 400 .75rem var(--mono); }
 	.receipt { position: fixed; z-index: var(--z-dialog); inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(520px, 90vw); background: var(--s1); color: var(--text); border: 0; border-radius: var(--r-lg); padding: var(--s-4); box-shadow: var(--shadow-pop); }
 	.receipt dl { display: grid; grid-template-columns: 112px 1fr; gap: var(--s-2) var(--s-3); margin-top: var(--s-3); }
 	.receipt dt { color: var(--text-3); }
 	.receipt dd { min-width: 0; overflow-wrap: anywhere; }
 	@keyframes drawer-in { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+	@keyframes approval-change { from { opacity: .72; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 	@media (max-width: 767px) {
 		.board { background: transparent; padding: 0; overflow: visible; }
 		.head { display: none; }
@@ -490,5 +636,5 @@
 		.prov { min-width: 0; }
 		.lower { display: none; }
 	}
-	@media (prefers-reduced-motion: reduce) { .drawer { animation: none; } }
+	@media (prefers-reduced-motion: reduce) { .approval-drawer, .approval-ledger { animation: none; } }
 </style>

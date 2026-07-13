@@ -26,7 +26,7 @@ type JsonSchema = Record<string, unknown> & {
 };
 type SchemaNode = JsonSchema | boolean;
 export type ConfirmKind = "none" | "soft" | "hard";
-export type OpName = "attention.ack" | "attention.snooze" | "attention.resolve" | "task.get_ready" | "task.up_next" | "task.claim" | "task.update" | "task.close" | "task.dispatch" | "agent.start" | "agent.stop" | "agent.restart" | "agent.kill_session" | "agent.autonomy" | "governance.action" | "governance.tier" | "fleet.mode" | "channel.reclaim" | "signal.snooze" | "subscription.set" | "subscription.remove" | "card.repost" | "card.park" | "stats.query" | "viz.render" | "text.surface" | "window.arrange" | "dashboard.save" | "dashboard.load" | "dashboard.set_home" | "dashboard.pin" | "dashboard.delete" | "dashboard.share" | "context.receive" | "kb.search" | "kb.research" | "library.item.create" | "library.item.update" | "library.link.add" | "library.hold" | "curation.propose" | "curation.approve" | "curation.reject" | "item.weed" | "item.merge" | "item.delete" | "promotion.request" | "promotion.approve" | "service.restart" | "service.stop" | "service.logs" | "host.probe" | "host.reboot" | "updates.check" | "updates.approve" | "updates.apply" | "edge.enroll.approve" | "edge.enroll.deny" | "edge.key.revoke" | "doorman.session.drop" | "doorman.redial" | "term.watch" | "term.attach" | "term.input" | "term.resize" | "term.scrollback" | "term.detach" | "delivery.test" | "delivery.set_target" | "delivery.resend" | "delivery.cocoon";
+export type OpName = "attention.ack" | "attention.snooze" | "attention.resolve" | "task.get_ready" | "task.up_next" | "task.claim" | "task.update" | "task.close" | "task.dispatch" | "agent.start" | "agent.stop" | "agent.restart" | "agent.kill_session" | "agent.autonomy" | "governance.action" | "governance.tier" | "fleet.mode" | "channel.reclaim" | "signal.snooze" | "subscription.set" | "subscription.remove" | "card.repost" | "card.park" | "stats.query" | "viz.render" | "text.surface" | "window.arrange" | "dashboard.save" | "dashboard.load" | "dashboard.set_home" | "dashboard.pin" | "dashboard.delete" | "dashboard.share" | "context.receive" | "kb.search" | "kb.research" | "library.item.create" | "library.item.update" | "library.link.add" | "library.hold" | "curation.propose" | "curation.approve" | "curation.reject" | "item.weed" | "item.merge" | "item.delete" | "promotion.request" | "promotion.approve" | "service.restart" | "service.stop" | "service.logs" | "host.probe" | "host.reboot" | "updates.check" | "updates.approve" | "updates.revoke" | "updates.apply" | "edge.enroll.approve" | "edge.enroll.deny" | "edge.key.revoke" | "doorman.session.drop" | "doorman.redial" | "term.watch" | "term.attach" | "term.input" | "term.resize" | "term.scrollback" | "term.detach" | "delivery.test" | "delivery.set_target" | "delivery.resend" | "delivery.cocoon";
 export interface OpDef {
 	op: OpName; verb: string; lane: Lane; executor: string; confirm: ConfirmKind;
 	undo: boolean; humanOnly: boolean; args: JsonSchema;
@@ -3157,7 +3157,8 @@ const OPS = {
 		"args": {
 			"type": "object",
 			"required": [
-				"box_id"
+				"box_id",
+				"packages"
 			],
 			"properties": {
 				"box_id": {
@@ -3165,9 +3166,36 @@ const OPS = {
 				},
 				"packages": {
 					"type": "array",
+					"minItems": 1,
+					"maxItems": 500,
+					"uniqueItems": true,
 					"items": {
-						"type": "string"
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 256
 					}
+				}
+			},
+			"additionalProperties": false
+		}
+	},
+	"updates.revoke": {
+		"op": "updates.revoke",
+		"verb": "Revoke approval",
+		"lane": "operator",
+		"executor": "console-api",
+		"confirm": "none",
+		"undo": false,
+		"humanOnly": false,
+		"args": {
+			"type": "object",
+			"required": [
+				"approval_id"
+			],
+			"properties": {
+				"approval_id": {
+					"type": "string",
+					"format": "uuid"
 				}
 			},
 			"additionalProperties": false
@@ -3753,7 +3781,11 @@ export const OP_TEST_FIXTURES = {
 		"box_id": "fixture"
 	},
 	"updates.approve": {
-		"box_id": "fixture"
+		"box_id": "fixture",
+		"packages": []
+	},
+	"updates.revoke": {
+		"approval_id": "00000000-0000-4000-8000-000000000000"
 	},
 	"updates.apply": {
 		"box_id": "fixture"

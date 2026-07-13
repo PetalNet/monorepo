@@ -5,6 +5,7 @@ let failures = new Set();
 let envelopes = [];
 let operations = [];
 let assistantMessages = [];
+let updateApprovals = [];
 const observedAt = "2026-07-13T12:00:00.000Z";
 const envelope = (items) => ({
 	schema_version: 1,
@@ -75,8 +76,38 @@ function bodyFor(path, method, requestBody = null) {
 			{ kind: "manager", liveness: "alive" },
 			{ kind: "edge", liveness: "alive" },
 			{ kind: "control-plane", liveness: "alive" },
+			{ kind: "box-agent", ref: ".14", liveness: "alive" },
 		]);
-	if (path === "/api/v1/box-updates") return envelope([]);
+	if (path === "/api/v1/box-updates")
+		return envelope([
+			{
+				box_id: "a1:14",
+				hostname: ".14",
+				source_tool: "apt",
+				agent_vs_agentless: "agent",
+				pending_updates_count: 2,
+				security_critical_count: 1,
+				vuln_count: 0,
+				reboot_required: 0,
+				last_checked_at: observedAt,
+				last_applied_at: "2026-07-12T12:00:00.000Z",
+				apply_mode: "staged-approval",
+				status: "updates_pending",
+				raw_ref: "fixture:a1:14",
+				updated_at: observedAt,
+			},
+		]);
+	if (path === "/api/v1/box-updates/a1%3A14/raw" || path === "/api/v1/box-updates/a1:14/raw")
+		return {
+			box_id: "a1:14",
+			collected_at: observedAt,
+			packages: [
+				{ name: "openssl", from: "3.0.13", to: "3.0.16", security: true },
+				{ name: "curl", from: "8.5.0", to: "8.7.1", security: false },
+			],
+			vulns: [],
+		};
+	if (path === "/api/v1/update-approvals") return envelope(updateApprovals);
 	if (path === "/api/v1/catalog") return envelope([]);
 	if (path === "/api/v1/palette/search")
 		return {
@@ -309,6 +340,7 @@ const server = createServer((request, response) => {
 			envelopes = [];
 			operations = [];
 			assistantMessages = [];
+			updateApprovals = [];
 			return response.writeHead(204).end();
 		}
 		if (url.pathname === "/__test/fail") {
@@ -338,10 +370,40 @@ const server = createServer((request, response) => {
 				}),
 			);
 		if (url.pathname === "/api/v1/op" && request.method === "POST") {
-			operations.push(JSON.parse(raw));
-			return response
-				.writeHead(200, { "content-type": "application/json" })
-				.end(JSON.stringify({ schema_version: 1, status: "accepted", undo: null }));
+			const operation = JSON.parse(raw);
+			operations.push(operation);
+			if (operation.op === "updates.approve") {
+				updateApprovals.push({
+					approval_id: operation.id,
+					box_id: operation.args.box_id,
+					packages: operation.args.packages ?? [],
+					approved_by: "parker",
+					approved_at: new Date().toISOString(),
+					revocable: true,
+					observed_at: new Date().toISOString(),
+				});
+			}
+			if (operation.op === "updates.revoke")
+				updateApprovals = updateApprovals.filter(
+					(approval) => approval.approval_id !== operation.args.approval_id,
+				);
+			return response.writeHead(200, { "content-type": "application/json" }).end(
+				JSON.stringify({
+					schema_version: 1,
+					in_reply_to: operation.id,
+					ok: true,
+					status: "applied",
+					result:
+						operation.op === "updates.approve"
+							? updateApprovals.at(-1)
+							: { approval_id: operation.args.approval_id, box_id: "a1:14" },
+					error: null,
+					undo:
+						operation.op === "updates.approve"
+							? { op: "updates.revoke", args: { approval_id: operation.id } }
+							: null,
+				}),
+			);
 		}
 		if (url.pathname === "/api/v1/assistant/messages" && request.method === "POST")
 			assistantMessages.push(JSON.parse(raw));

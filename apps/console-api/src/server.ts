@@ -248,6 +248,8 @@ const INTERNAL_OP_ADAPTERS = new Set([
 	"delivery.set_target",
 	"delivery.resend",
 	"delivery.cocoon",
+	"updates.approve",
+	"updates.revoke",
 ]);
 
 function schemaAtPointer(schema: JsonSchema, fragment: string): JsonSchema | null {
@@ -1182,7 +1184,12 @@ export async function buildServer(
 			severity: outcome === "ok" ? "info" : "danger",
 			task_id: call.task_id ?? null,
 			scope: "fleet",
-			dimensions: { op: call.op, principal: principal.id, outcome },
+			dimensions: {
+				op: call.op,
+				principal: principal.id,
+				outcome,
+				...(call.op === "updates.apply" ? { box_id: String(call.args["box_id"]) } : {}),
+			},
 			meta: { retention_class: "audit", in_reply_to: call.id, op_result: result },
 		};
 		const emitted = await services.emit(
@@ -1286,6 +1293,240 @@ export async function buildServer(
 					kind: "context",
 					content: JSON.stringify(call.args["payload"]),
 				})) as unknown as Record<string, unknown>;
+			case "updates.approve": {
+				const boxId = String(call.args["box_id"]);
+				const packages = Array.isArray(call.args["packages"])
+					? [...new Set(call.args["packages"].map(String))]
+					: [];
+				return services.db.admin.begin(async (tx) => {
+					await tx`select pg_advisory_xact_lock(hashtextextended(${`updates-box:${boxId}`}, 0))`;
+					const boxes = await tx<{ state: Record<string, unknown> }[]>`
+						select dimensions || measures || jsonb_build_object(
+						  'box_update_raw', meta->'box_update_raw'
+						) as state
+						from lake_events
+						where type = 'box.update_status_changed' and subject = ${boxId}
+						order by seq desc limit 1`;
+					const box = boxes[0]?.state;
+					if (!box)
+						throw new AssistantRuntimeError(
+							"update_not_found",
+							"the staged update is no longer available",
+							false,
+						);
+					if (box["apply_mode"] !== "staged-approval")
+						throw new AssistantRuntimeError(
+							"approval_not_staged",
+							"this host is no longer in staged approval mode",
+							false,
+						);
+					if (Number(box["pending_updates_count"] ?? 0) < 1)
+						throw new AssistantRuntimeError(
+							"approval_not_pending",
+							"these updates are no longer pending",
+							false,
+						);
+					const raw = box["box_update_raw"];
+					const rawPackages =
+						raw && typeof raw === "object" && !Array.isArray(raw)
+							? (raw as Record<string, unknown>)["packages"]
+							: null;
+					const pendingNames = new Set(
+						Array.isArray(rawPackages)
+							? rawPackages.flatMap((item) =>
+									item &&
+									typeof item === "object" &&
+									!Array.isArray(item) &&
+									typeof (item as Record<string, unknown>)["name"] === "string"
+										? [String((item as Record<string, unknown>)["name"])]
+										: [],
+								)
+							: [],
+					);
+					if (packages.length === 0 || packages.some((name) => !pendingNames.has(name)))
+						throw new AssistantRuntimeError(
+							"approval_package_stale",
+							"one or more packages are no longer present in collector evidence",
+							false,
+						);
+					const active = await tx<{ packages: string[] }[]>`
+						select coalesce(approved.meta->'packages', '[]'::jsonb) as packages
+						from lake_events approved
+						where approved.type = 'updates.approved' and approved.subject = ${boxId}
+						  and not exists (
+						    select 1 from lake_events later
+						    where (later.type in ('updates.approval_revoked', 'updates.applied')
+						      and later.dimensions->>'approval_id' = approved.dimensions->>'approval_id')
+						      or (later.type = 'box.update_status_changed'
+						        and later.seq > approved.seq and later.subject = approved.subject
+						        and (later.dimensions->>'status' = 'up_to_date' or (
+						          jsonb_typeof(later.meta->'box_update_raw'->'packages') = 'array'
+						          and exists (
+						            select 1 from jsonb_array_elements_text(approved.meta->'packages') as approved_package(name)
+						            where not exists (
+						              select 1 from jsonb_array_elements(later.meta->'box_update_raw'->'packages') pending
+						              where pending->>'name' = approved_package.name
+						            )
+						          )
+						        )))
+						  )`;
+					const alreadyApproved = new Set(active.flatMap((row) => row.packages));
+					if (packages.some((name) => alreadyApproved.has(name)))
+						throw new AssistantRuntimeError(
+							"approval_already_pending",
+							"one or more packages already have an active approval",
+							false,
+						);
+					const now = new Date().toISOString();
+					const approval = {
+						schema_version: 1 as const,
+						id: uuidv5(`updates-approved:${call.id}`),
+						type: "updates.approved",
+						ts: now,
+						source: { service: "console-api", host: null, agent: null },
+						subject: boxId,
+						subject_kind: "host" as const,
+						severity: "info" as const,
+						scope: "fleet",
+						dimensions: { approval_id: call.id, approved_by: principal.id },
+						meta: { retention_class: "audit", packages },
+					};
+					const emitted = await services.emit(
+						"system:console-api",
+						approval,
+						Buffer.byteLength(JSON.stringify(approval)),
+					);
+					if (!emitted.ok)
+						throw new AssistantRuntimeError(
+							emitted.code ?? "approval_failed",
+							"the approval could not be recorded",
+							true,
+						);
+					return {
+						approval_id: call.id,
+						box_id: boxId,
+						packages,
+						approved_by: principal.id,
+						approved_at: now,
+						revocable: true,
+					};
+				});
+			}
+			case "updates.revoke": {
+				const approvalId = String(call.args["approval_id"]);
+				return services.db.admin.begin(async (tx) => {
+					// Serialize the check-and-revoke transition. The appender commits before this
+					// transaction releases the lock, so a competing revoke observes the terminal event.
+					await tx`select pg_advisory_xact_lock(hashtextextended(${`updates-approval:${approvalId}`}, 0))`;
+					const active = await tx<
+						{
+							box_id: string;
+							packages: string[];
+							approved_at: string;
+							approved_seq: string;
+						}[]
+					>`
+						select approved.subject as box_id,
+						       coalesce(approved.meta->'packages', '[]'::jsonb) as packages,
+						       approved.ts::text as approved_at,
+						       approved.seq::text as approved_seq
+						from lake_events approved
+						where approved.type = 'updates.approved'
+						  and approved.dimensions->>'approval_id' = ${approvalId}
+						  and not exists (
+						    select 1 from lake_events later
+						    where (
+						      later.type in ('updates.approval_revoked', 'updates.applied')
+						      and later.dimensions->>'approval_id' = ${approvalId}
+						    ) or (
+						      later.seq > approved.seq and (
+						        (later.type = 'audit.op.outcome'
+						          and later.dimensions->>'op' = 'updates.apply'
+						          and later.dimensions->>'outcome' = 'ok'
+						          and later.dimensions->>'box_id' = approved.subject)
+						        or (later.type = 'box.update_status_changed'
+						          and later.subject = approved.subject
+						          and (later.dimensions->>'status' = 'up_to_date' or (
+						            jsonb_typeof(later.meta->'box_update_raw'->'packages') = 'array'
+						            and exists (
+						              select 1 from jsonb_array_elements_text(approved.meta->'packages') as approved_package(name)
+						              where not exists (
+						                select 1 from jsonb_array_elements(later.meta->'box_update_raw'->'packages') pending
+						                where pending->>'name' = approved_package.name
+						              )
+						            )
+						          )))
+						      )
+						    )
+						  )
+						limit 1`;
+					const pending = active[0];
+					if (!pending)
+						throw new AssistantRuntimeError(
+							"approval_not_pending",
+							"this approval was already revoked or applied",
+							false,
+						);
+					const now = new Date().toISOString();
+					const revoked = {
+						schema_version: 1 as const,
+						id: uuidv5(`updates-approval-revoked:${call.id}`),
+						type: "updates.approval_revoked",
+						ts: now,
+						source: { service: "console-api", host: null, agent: null },
+						subject: pending.box_id,
+						subject_kind: "host" as const,
+						severity: "info" as const,
+						scope: "fleet",
+						dimensions: { approval_id: approvalId, revoked_by: principal.id },
+						meta: { retention_class: "audit", packages: pending.packages },
+					};
+					const emitted = await services.emit(
+						"system:console-api",
+						revoked,
+						Buffer.byteLength(JSON.stringify(revoked)),
+					);
+					if (!emitted.ok)
+						throw new AssistantRuntimeError(
+							emitted.code ?? "approval_revoke_failed",
+							"the approval could not be revoked",
+							true,
+						);
+					const rolloutWon = await tx<{ terminal: boolean }[]>`
+						select exists (
+						  select 1 from lake_events later
+						  where later.seq > ${pending.approved_seq}::bigint
+						    and later.seq < ${emitted.seq as number}::bigint
+						    and (
+						      (later.type = 'updates.applied'
+						        and later.dimensions->>'approval_id' = ${approvalId})
+						      or (later.type = 'audit.op.outcome'
+						        and later.dimensions->>'op' = 'updates.apply'
+						        and later.dimensions->>'outcome' = 'ok'
+						        and later.dimensions->>'box_id' = ${pending.box_id})
+						      or (later.type = 'box.update_status_changed'
+						        and later.subject = ${pending.box_id}
+						        and (later.dimensions->>'status' = 'up_to_date' or (
+						          jsonb_typeof(later.meta->'box_update_raw'->'packages') = 'array'
+						          and exists (
+						            select 1 from jsonb_array_elements_text(${tx.json(pending.packages)}::jsonb) as approved_package(name)
+						            where not exists (
+						              select 1 from jsonb_array_elements(later.meta->'box_update_raw'->'packages') remaining
+						              where remaining->>'name' = approved_package.name
+						            )
+						          )
+						        )))
+						    )
+						) as terminal`;
+					if (rolloutWon[0]?.terminal)
+						throw new AssistantRuntimeError(
+							"approval_not_pending",
+							"rollout began before this revocation was recorded",
+							false,
+						);
+					return { approval_id: approvalId, box_id: pending.box_id, revoked_at: now };
+				});
+			}
 			case "signal.snooze": {
 				const pattern = String(call.args["type_pattern"]);
 				const rows = await services.db.admin<
@@ -1571,14 +1812,18 @@ export async function buildServer(
 			}
 		}
 		try {
+			const dispatched = await dispatchInternalOp(call, principal);
 			const success = opEnvelope(call, {
 				ok: true,
 				status: "applied",
-				result: await dispatchInternalOp(call, principal),
+				result: dispatched,
 				error: null,
 				audit_seq: auditSeq,
 				executor,
-				undo: null,
+				undo:
+					call.op === "updates.approve"
+						? { op: "updates.revoke", args: { approval_id: call.id } }
+						: null,
 			});
 			if (!isRead && !(await auditOutcome(call, principal, success, "ok")))
 				return opError(
@@ -2633,6 +2878,133 @@ export async function buildServer(
 						? "Doorman key ceremony answered its private health check"
 						: "Doorman key ceremony is not answering",
 			},
+		};
+	});
+
+	app.get("/api/v1/update-approvals", { preHandler: auth }, async (request, reply) => {
+		const principal = request.principal as Principal;
+		const query = request.query as {
+			box_id?: string;
+			limit?: string;
+			cursor?: string;
+			since?: string;
+		};
+		const boxId = query.box_id;
+		if (!boxId || boxId.length > 256)
+			return reply.code(400).send({
+				error: {
+					code: "bad_box_id",
+					message: "box_id is required",
+					retryable: false,
+				},
+			});
+		const requestedLimit = Number(query.limit ?? 200);
+		if (
+			!Number.isInteger(requestedLimit) ||
+			requestedLimit < 1 ||
+			requestedLimit > 1000 ||
+			(query.cursor && !z.string().uuid().safeParse(query.cursor).success) ||
+			(query.since && Number.isNaN(Date.parse(query.since)))
+		)
+			return reply.code(400).send({
+				error: {
+					code: "bad_pagination",
+					message: "limit, cursor, or since is invalid",
+					retryable: false,
+				},
+			});
+		const limit = requestedLimit;
+		const cursor = query.cursor ?? null;
+		const since = query.since ?? null;
+		const items = await withScopes(
+			services.db.app,
+			principal.scopes,
+			async (tx) =>
+				tx<
+					{
+						approval_id: string;
+						box_id: string;
+						packages: string[];
+						approved_by: string;
+						approved_at: string;
+						revocable: boolean;
+						observed_at: string;
+					}[]
+				>`
+					select approved.dimensions->>'approval_id' as approval_id,
+					       approved.subject as box_id,
+					       coalesce(approved.meta->'packages', '[]'::jsonb) as packages,
+					       approved.dimensions->>'approved_by' as approved_by,
+					       approved.ts::text as approved_at,
+					       true as revocable,
+					       approved.received_at::text as observed_at
+					from lake_events approved
+					where approved.type = 'updates.approved'
+					  and approved.subject = ${boxId}
+					  and (${since}::timestamptz is null or approved.received_at >= ${since}::timestamptz)
+					  and (${cursor}::uuid is null or approved.seq < coalesce((
+					    select cursor_event.seq from lake_events cursor_event
+					    where cursor_event.type = 'updates.approved'
+					      and cursor_event.dimensions->>'approval_id' = ${cursor}
+					    limit 1
+					  ), 0))
+					  and not exists (
+					    select 1 from lake_events later
+					    where (
+					      later.type in ('updates.approval_revoked', 'updates.applied')
+					      and later.dimensions->>'approval_id' = approved.dimensions->>'approval_id'
+					    ) or (
+					      later.seq > approved.seq and (
+					        (later.type = 'audit.op.outcome'
+					          and later.dimensions->>'op' = 'updates.apply'
+					          and later.dimensions->>'outcome' = 'ok'
+					          and later.dimensions->>'box_id' = approved.subject)
+					        or (later.type = 'box.update_status_changed'
+					          and later.subject = approved.subject
+					          and (later.dimensions->>'status' = 'up_to_date' or (
+					            jsonb_typeof(later.meta->'box_update_raw'->'packages') = 'array'
+					            and exists (
+					            select 1 from jsonb_array_elements_text(approved.meta->'packages') as approved_package(name)
+					              where not exists (
+					                select 1 from jsonb_array_elements(later.meta->'box_update_raw'->'packages') pending
+					              where pending->>'name' = approved_package.name
+					              )
+					            )
+					          )))
+					      )
+					    )
+					  )
+					order by approved.seq desc limit ${limit + 1}`,
+		);
+		const rowTruncated = items.length > limit;
+		const candidates = (rowTruncated ? items.slice(0, limit) : items).map((item) => ({
+			...item,
+			approved_at: new Date(item.approved_at).toISOString(),
+			observed_at: new Date(item.observed_at).toISOString(),
+		}));
+		const page: typeof candidates = [];
+		let serializedBytes = 512;
+		const responseByteCap = 1_000_000;
+		for (const item of candidates) {
+			const itemBytes = Buffer.byteLength(JSON.stringify(item)) + 1;
+			if (page.length > 0 && serializedBytes + itemBytes > responseByteCap) break;
+			page.push(item);
+			serializedBytes += itemBytes;
+		}
+		const truncated = rowTruncated || page.length < candidates.length;
+		return {
+			schema_version: 1,
+			freshness: {
+				source: "updates approval ledger",
+				observed_at: page.reduce(
+					(newest, item) => (item.observed_at > newest ? item.observed_at : newest),
+					"1970-01-01T00:00:00Z",
+				),
+				window_s: null,
+			},
+			items: page,
+			next_cursor: truncated ? (page.at(-1)?.approval_id ?? null) : null,
+			truncated,
 		};
 	});
 

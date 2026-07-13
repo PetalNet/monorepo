@@ -106,6 +106,42 @@ test("named command reaches the contract op plane", async ({ page, request }) =>
 	await expect(page.getByText("doorman.redial sent", { exact: false })).toBeVisible();
 });
 
+test("an unapplied staged approval can be revoked after it is recorded", async ({
+	page,
+	request,
+}) => {
+	await page.goto("/network");
+	await page.getByRole("link", { name: "Updates" }).click();
+	await page.waitForTimeout(1_500);
+	await page
+		.getByRole("button", { name: "Open update details for .14" })
+		.getByText(".14", { exact: true })
+		.click();
+	const drawer = page.getByRole("dialog", { name: "Update detail for .14" });
+	await expect(drawer).toBeVisible();
+	const openssl = drawer.locator(".packages > div").filter({ hasText: "openssl" });
+	await openssl.getByRole("button", { name: "Approve", exact: true }).click();
+	await expect(drawer.getByText("Approved, awaiting rollout", { exact: true })).toBeVisible();
+	await expect(openssl.getByText("approved", { exact: true })).toBeVisible();
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	await expect(drawer.getByText("Approved, awaiting rollout", { exact: true })).toHaveCount(0);
+	await expect(openssl.getByRole("button", { name: "Approve", exact: true })).toBeVisible();
+	await openssl.getByRole("button", { name: "Approve", exact: true }).click();
+	await expect(drawer.getByText("Approved, awaiting rollout", { exact: true })).toBeVisible();
+	await drawer.getByRole("button", { name: "Revoke approval" }).click();
+	await expect(drawer.getByText("Approved, awaiting rollout", { exact: true })).toHaveCount(0);
+	await expect(openssl.getByRole("button", { name: "Approve", exact: true })).toBeVisible();
+	const operations = (await (await request.get(`${contract}/__test/operations`)).json()) as {
+		op: string;
+	}[];
+	expect(operations.map(({ op }) => op)).toEqual([
+		"updates.approve",
+		"updates.revoke",
+		"updates.approve",
+		"updates.revoke",
+	]);
+});
+
 test("cost breakdown compares a live sibling through the remote function", async ({ page }) => {
 	await page.goto("/cost");
 	await page.waitForTimeout(1_500);

@@ -553,6 +553,257 @@ describe("correspondence history read", () => {
 	});
 });
 
+describe("staged update approval reversal", () => {
+	it("records an approval, exposes it after reload, and revokes it only before apply", async () => {
+		const suffix = randomBytes(5).toString("hex");
+		const principalId = `updates-operator-${suffix}`;
+		const boxId = `box-${suffix}`;
+		await services.db.admin`insert into grants (subject, relation, object, granted_by)
+			values (${principalId}, 'operator', 'fleet', 'test')`;
+		const status = await services.emit(
+			"bridge:hosts",
+			emission({
+				type: "box.update_status_changed",
+				source: { service: "bridge", host: ".14", agent: null },
+				subject: boxId,
+				subject_kind: "host",
+				dimensions: {
+					box_id: boxId,
+					hostname: ".14",
+					source_tool: "apt",
+					agent_vs_agentless: "agent",
+					status: "updates_pending",
+					apply_mode: "staged-approval",
+				},
+				measures: { pending_updates_count: 2, security_critical_count: 1 },
+				meta: {
+					box_update_raw: {
+						box_id: boxId,
+						packages: ["openssl", "curl", "linux-image"].map((name) => ({
+							name,
+							from: "1",
+							to: "2",
+							security: name === "openssl",
+						})),
+						vulns: [],
+						collected_at: new Date().toISOString(),
+					},
+				},
+			}),
+			900,
+		);
+		expect(status.ok).toBe(true);
+		await waitProjected("box_update", boxId, status.seq as number);
+
+		const server = await buildServer(services, true);
+		const headers = {
+			"content-type": "application/json",
+			"x-dev-principal": JSON.stringify({
+				kind: "human",
+				id: principalId,
+				tiers: [],
+				lanes: ["viewer", "operator"],
+				scopes: ["fleet"],
+			}),
+		};
+		try {
+			const approveId = randomUUID();
+			const approved = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: approveId,
+					op: "updates.approve",
+					args: { box_id: boxId, packages: ["openssl", "curl"] },
+					dry_run: false,
+				},
+			});
+			expect(
+				approved.statusCode,
+				`${approved.body} ${capturedServiceExceptions.at(-1)?.message ?? ""}`,
+			).toBe(200);
+			expect(approved.json()).toMatchObject({
+				ok: true,
+				result: { approval_id: approveId, box_id: boxId },
+				undo: { op: "updates.revoke", args: { approval_id: approveId } },
+			});
+			for (const [packages, code] of [
+				[["openssl"], "approval_already_pending"],
+				[["not-a-real-package"], "approval_package_stale"],
+			] as const) {
+				const rejected = await server.inject({
+					method: "POST",
+					url: "/api/v1/op",
+					headers,
+					payload: {
+						schema_version: 1,
+						id: randomUUID(),
+						op: "updates.approve",
+						args: { box_id: boxId, packages },
+						dry_run: false,
+					},
+				});
+				expect(rejected.statusCode).toBe(400);
+				expect(rejected.json().error.code).toBe(code);
+			}
+
+			const listed = await server.inject({
+				method: "GET",
+				url: `/api/v1/update-approvals?box_id=${boxId}`,
+				headers,
+			});
+			expect(listed.statusCode, listed.body).toBe(200);
+			expect(listed.json().items).toEqual([
+				expect.objectContaining({
+					approval_id: approveId,
+					box_id: boxId,
+					packages: ["openssl", "curl"],
+					approved_by: principalId,
+					observed_at: expect.any(String),
+				}),
+			]);
+			const approvalSchema = JSON.parse(
+				readFileSync(
+					new URL(
+						"../docs/contracts/schemas/entities/update-approval.schema.json",
+						import.meta.url,
+					),
+					"utf8",
+				),
+			) as Record<string, unknown>;
+			expect(validateJsonSchema(listed.json().items[0], approvalSchema, "approval")).toBeNull();
+
+			const revoked = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "updates.revoke",
+					args: { approval_id: approveId },
+					dry_run: false,
+				},
+			});
+			expect(revoked.statusCode, revoked.body).toBe(200);
+			expect(revoked.json()).toMatchObject({
+				ok: true,
+				result: { approval_id: approveId, box_id: boxId },
+			});
+			const after = await server.inject({
+				method: "GET",
+				url: `/api/v1/update-approvals?box_id=${boxId}`,
+				headers,
+			});
+			expect(after.json().items).toEqual([]);
+
+			const repeated = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "updates.revoke",
+					args: { approval_id: approveId },
+					dry_run: false,
+				},
+			});
+			expect(repeated.statusCode).toBe(400);
+			expect(repeated.json().error.code).toBe("approval_not_pending");
+
+			const approvalPayload = () => ({
+				schema_version: 1,
+				id: randomUUID(),
+				op: "updates.approve",
+				args: { box_id: boxId, packages: ["linux-image"] },
+				dry_run: false,
+			});
+			const concurrentApprovals = await Promise.all([
+				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: approvalPayload() }),
+				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: approvalPayload() }),
+			]);
+			expect(concurrentApprovals.map((response) => response.statusCode).sort()).toEqual([200, 400]);
+			const concurrentApprovalId = concurrentApprovals
+				.find((response) => response.statusCode === 200)
+				?.json().result.approval_id as string;
+			const revokePayload = () => ({
+				schema_version: 1,
+				id: randomUUID(),
+				op: "updates.revoke",
+				args: { approval_id: concurrentApprovalId },
+				dry_run: false,
+			});
+			const concurrentRevokes = await Promise.all([
+				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: revokePayload() }),
+				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: revokePayload() }),
+			]);
+			expect(concurrentRevokes.map((response) => response.statusCode).sort()).toEqual([200, 400]);
+
+			const appliedApprovalId = randomUUID();
+			const appliedApproval = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: appliedApprovalId,
+					op: "updates.approve",
+					args: { box_id: boxId, packages: ["openssl"] },
+					dry_run: false,
+				},
+			});
+			expect(appliedApproval.statusCode, appliedApproval.body).toBe(200);
+			const appliedStatus = await services.emit(
+				"bridge:hosts",
+				emission({
+					type: "box.update_status_changed",
+					source: { service: "bridge", host: ".14", agent: null },
+					subject: boxId,
+					subject_kind: "host",
+					dimensions: {
+						box_id: boxId,
+						hostname: ".14",
+						source_tool: "apt",
+						agent_vs_agentless: "agent",
+						status: "updates_pending",
+						apply_mode: "staged-approval",
+					},
+					measures: { pending_updates_count: 1, security_critical_count: 0 },
+					meta: {
+						box_update_raw: {
+							box_id: boxId,
+							packages: [{ name: "curl", from: "1", to: "2", security: false }],
+							vulns: [],
+							collected_at: new Date().toISOString(),
+						},
+					},
+				}),
+				900,
+			);
+			expect(appliedStatus.ok).toBe(true);
+			const appliedRevoke = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "updates.revoke",
+					args: { approval_id: appliedApprovalId },
+					dry_run: false,
+				},
+			});
+			expect(appliedRevoke.statusCode).toBe(400);
+			expect(appliedRevoke.json().error.code).toBe("approval_not_pending");
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 describe("terminal server gate and frame transport (BR-014)", () => {
 	const principal = {
 		kind: "human",

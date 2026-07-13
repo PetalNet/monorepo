@@ -1661,15 +1661,20 @@
 			"executor": "console-api",
 			"args": {
 				"type": "object",
-				"required": ["box_id"],
+				"required": ["box_id", "packages"],
 				"properties": {
 					"box_id": {
 						"type": "string"
 					},
 					"packages": {
 						"type": "array",
+						"minItems": 1,
+						"maxItems": 500,
+						"uniqueItems": true,
 						"items": {
-							"type": "string"
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 256
 						}
 					}
 				},
@@ -1678,6 +1683,31 @@
 			"effect": "staged-approval: record approval (console-api is the approval ledger); apply is separate; undo = revoke approval before apply",
 			"emits": ["updates.approved"],
 			"undo": true,
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "updates.revoke",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["approval_id"],
+				"properties": {
+					"approval_id": {
+						"type": "string",
+						"format": "uuid"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "revoke a staged approval only while it remains unapplied",
+			"emits": ["updates.approval_revoked"],
 			"testable": "disposable",
 			"phase": 1
 		},
