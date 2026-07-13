@@ -25,6 +25,51 @@ export interface OpDef {
 }
 
 const OPS = {
+	"stats.query": {
+		op: "stats.query",
+		verb: "Re-run",
+		lane: "viewer",
+		executor: "console-api",
+		confirm: "none",
+		undo: false,
+		humanOnly: false,
+	},
+	"viz.render": {
+		op: "viz.render",
+		verb: "Regenerate",
+		lane: "viewer",
+		executor: "console-api",
+		confirm: "none",
+		undo: false,
+		humanOnly: false,
+	},
+	"dashboard.save": {
+		op: "dashboard.save",
+		verb: "Save",
+		lane: "viewer",
+		executor: "library",
+		confirm: "none",
+		undo: false,
+		humanOnly: false,
+	},
+	"dashboard.load": {
+		op: "dashboard.load",
+		verb: "Load",
+		lane: "viewer",
+		executor: "library",
+		confirm: "none",
+		undo: false,
+		humanOnly: false,
+	},
+	"dashboard.delete": {
+		op: "dashboard.delete",
+		verb: "Delete",
+		lane: "viewer",
+		executor: "library",
+		confirm: "soft",
+		undo: true,
+		humanOnly: false,
+	},
 	"agent.restart": {
 		op: "agent.restart",
 		verb: "Restart",
