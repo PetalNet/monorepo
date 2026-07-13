@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import { OpenAiCompatibleAssistantCompiler, type AssistantCompiler } from "./assistant/compiler.ts";
 import { AssistantRuntime, ClaudeCodeAssistantManager } from "./assistant/runtime.ts";
+import { CrackAttentionReconciler } from "./attention/cracks.ts";
 import { resolveScopes } from "./auth/principal.ts";
 import { TrackerProposalWriter } from "./auth/proposals.ts";
 import { uuidv5 } from "./bridge/uuid5.ts";
@@ -178,9 +179,17 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 				})
 			: null;
 	let delivery: DeliveryService | null = null;
+	let crackAttention: CrackAttentionReconciler | null = null;
 	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
 		projector.onEvent(seq, e, receivedAt);
+		void crackAttention
+			?.enqueue(e)
+			.catch((error) =>
+				monitor.captureException(
+					sanitizedException(error, "crack attention reconciliation failed"),
+				),
+			);
 		void delivery
 			?.enqueueEmission(e)
 			.catch((error) =>
@@ -390,6 +399,10 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 			);
 	}, 30_000);
 	sourceModeOutboxTimer.unref();
+	crackAttention = new CrackAttentionReconciler(db.writer, async (emission) =>
+		emit("system:console-api", emission, Buffer.byteLength(JSON.stringify(emission))),
+	);
+	await crackAttention.reconcilePersisted();
 
 	stormDetector = new SignalStormDetector(
 		db.admin,
@@ -431,6 +444,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		async close() {
 			if (stormExpiryTimer) clearInterval(stormExpiryTimer);
 			if (sourceModeOutboxTimer) clearInterval(sourceModeOutboxTimer);
+			await crackAttention?.drain();
 			await delivery?.drain();
 			tracker?.close();
 			await grantListen.unlisten();

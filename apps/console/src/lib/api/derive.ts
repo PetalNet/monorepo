@@ -8,7 +8,6 @@ import type {
 	AttentionItem,
 	ConsoleHealth,
 	FleetItem,
-	RegistryItem,
 	RosterItem,
 	SignalSeverity,
 } from "./types";
@@ -160,9 +159,6 @@ function livenessFromAge(ageSec: number): Liveness {
 	if (ageSec > WINDOW.registryDown) return "down";
 	if (ageSec > WINDOW.registrySuspect) return "suspect";
 	return "alive";
-}
-export function registryLiveness(item: RegistryItem, now = Date.now()): Liveness {
-	return livenessFromAge(ageEpochS(item.last_seen_epoch, now));
 }
 /** Liveness from an epoch-seconds last-seen (90/300s); null when unknown. */
 export function livenessFromEpoch(

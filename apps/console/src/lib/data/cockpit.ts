@@ -11,7 +11,7 @@ import {
 	isActiveAttention,
 	type HealthVerdict,
 } from "$lib/api/derive";
-import type { AttentionItem, CommsEvent } from "$lib/api/types";
+import type { AttentionItem, CommsEvent, RosterItem } from "$lib/api/types";
 
 import * as mock from "./mock";
 
@@ -27,9 +27,38 @@ export type NavBadges = Record<string, number | "down" | "p0" | "warn" | "muted"
 
 export interface ShellHealth {
 	verdict: HealthVerdict;
-	/** Crack fact (first P0 summary) or "Bus silent Nm." for can't-verify. */
+	/** Every active P0 fact, or the reason current truth cannot be verified. */
 	stateFact: string | null;
+	/** Compact incident count + newest evidence time for the cracked hero. */
+	crackMeta?: string | null;
 	badges: NavBadges;
+}
+
+export function crackStateFact(items: readonly AttentionItem[]): string | null {
+	const facts = items
+		.filter((item) => item.grade === "p0")
+		.toSorted((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
+		.map((item) => item.summary.replace(/^Everything is not fine\.\s*/i, "").trim())
+		.filter(Boolean);
+	return facts.length > 0 ? `Everything is not fine. ${facts.join(" ")}` : null;
+}
+
+export function crackMeta(items: readonly AttentionItem[]): string | null {
+	const incidents = items.filter((item) => item.grade === "p0");
+	if (incidents.length === 0) return null;
+	const newest = incidents.reduce((latest, item) => Math.max(latest, Date.parse(item.ts)), 0);
+	const time = Number.isFinite(newest)
+		? new Date(newest).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+		: "time unknown";
+	return `${incidents.length} active ${incidents.length === 1 ? "incident" : "incidents"} · newest ${time}`;
+}
+
+export function newestCrack(items: readonly AttentionItem[]): AttentionItem | null {
+	return (
+		items
+			.filter((item) => item.grade === "p0")
+			.toSorted((a, b) => Date.parse(b.ts) - Date.parse(a.ts))[0] ?? null
+	);
 }
 
 export interface CockpitData extends ShellHealth {
@@ -47,6 +76,7 @@ export interface CockpitData extends ShellHealth {
 	};
 	attention: AttentionItem[];
 	railHosts: mock.RailHost[];
+	residents: RosterItem[];
 	comms: CommsEvent[];
 	saved: mock.SavedDashboard[];
 }
@@ -93,7 +123,7 @@ export function mockCockpit(scene: Scene): CockpitData {
 
 	const stateFact =
 		verdict === "cracked"
-			? (active[0]?.summary ?? null)
+			? crackStateFact(active)
 			: verdict === "cant_verify"
 				? "Bus silent."
 				: verdict === "needs_you"
@@ -121,10 +151,12 @@ export function mockCockpit(scene: Scene): CockpitData {
 		connected: true,
 		verdict,
 		stateFact,
+		crackMeta: crackMeta(active),
 		badges,
 		hud: { needsNew, needsHeld, inFlight, hostsUp, hostsDown: 0 },
 		attention: active,
 		railHosts: mock.railHosts,
+		residents: fleet.map((row) => ({ ...row, workers_active: row.status === "working" ? 1 : 0 })),
 		comms: mock.comms,
 		saved: mock.savedDashboards,
 	};

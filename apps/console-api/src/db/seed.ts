@@ -125,23 +125,23 @@ const REGISTRATIONS: readonly RegSeed[] = [
 	{
 		subject: "bridge:hosts",
 		services: ["bridge"],
-		prefixes: ["bridge", "host", "container", "box", "service.lifecycle"],
+		prefixes: ["bridge", "host", "container", "box", "service"],
 		scopes: ["fleet"],
 		maxSeverity: "p0",
 	},
 	{
 		subject: "bridge:box-agent",
 		services: ["bridge", "box-agent"],
-		prefixes: ["bridge", "agent.capacity", "worker", "host", "container"],
+		prefixes: ["bridge", "agent.capacity", "worker", "host", "container", "service"],
 		scopes: ["fleet"],
-		maxSeverity: "danger",
+		maxSeverity: "p0",
 	},
 	{
 		subject: "bridge:doorman",
 		services: ["bridge", "doorman"],
 		prefixes: ["bridge", "doorman", "edge"],
 		scopes: ["fleet"],
-		maxSeverity: "danger",
+		maxSeverity: "p0",
 	},
 	{
 		subject: "bridge:system-outbox",

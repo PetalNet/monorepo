@@ -62,6 +62,7 @@ export class Bridge {
 	#polling = false;
 	// Per-source liveness, for emit-on-transition (never per-poll spam during an outage).
 	readonly #dark = new Set<string>();
+	readonly #healthySeen = new Set<string>();
 
 	constructor(writer: Sql, emit: EmitFn, config: BridgeConfig) {
 		this.#writer = writer;
@@ -170,14 +171,31 @@ export class Bridge {
 					adapter.producerSubject,
 					this.#control(adapter.source, "bridge.source.unreachable", now, "warn"),
 				);
+				// The doorman spool is the edge's positive liveness source. Losing it is itself the
+				// approved P0 "doorman dark" fact, not merely generic bridge telemetry.
+				if (adapter.source === "doorman")
+					await this.#emitOne(
+						adapter.producerSubject,
+						this.#control(adapter.source, "doorman.dark", now, "p0"),
+					);
 			}
 			return;
 		}
-		if (this.#dark.delete(adapter.source))
+		const recovered = this.#dark.delete(adapter.source);
+		if (recovered) {
 			await this.#emitOne(
 				adapter.producerSubject,
 				this.#control(adapter.source, "bridge.source.recovered", now, "info"),
 			);
+		}
+		// A first healthy read after process restart is positive edge evidence. Emit it even when the
+		// in-memory dark bit was lost so a persisted pre-restart doorman P0 can heal.
+		if (adapter.source === "doorman" && (recovered || !this.#healthySeen.has(adapter.source)))
+			await this.#emitOne(
+				adapter.producerSubject,
+				this.#control(adapter.source, "doorman.recover", now, "info"),
+			);
+		this.#healthySeen.add(adapter.source);
 		for (const loss of batch.losses ?? []) {
 			const ref = sourceCursorRef(loss.cursor);
 			await this.#quarantine(adapter.source, ref, null, loss.reason);

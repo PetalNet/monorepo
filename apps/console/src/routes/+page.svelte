@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { browser } from "$app/environment";
 	import { untrack } from "svelte";
-	import { dataMode, readRoster } from "$lib/api/client";
-	import { registryLiveness } from "$lib/api/derive";
-	import type { RosterItem } from "$lib/api/types";
+	import { connectBus } from "$lib/api/client";
 	import AskDock, { type ContextPayload } from "$lib/components/AskDock.svelte";
+	import CockpitSkeleton from "$lib/components/CockpitSkeleton.svelte";
 	import Countdown from "$lib/components/Countdown.svelte";
 	import Envelope from "$lib/components/Envelope.svelte";
 	import Icon from "$lib/components/Icon.svelte";
@@ -14,11 +13,36 @@
 	import SavedDashboards from "$lib/components/SavedDashboards.svelte";
 	import SurfaceSign, { type Hud } from "$lib/components/SurfaceSign.svelte";
 	import TownHall from "$lib/components/TownHall.svelte";
-	import { fleet as mockFleet, registry as mockRegistry } from "$lib/data/mock";
+	import { newestCrack } from "$lib/data/cockpit";
 	import { clockNow } from "$lib/stores/clock.svelte";
+	import { getCockpit } from "./cockpit.remote";
+	import type { CockpitRemoteResult } from "./cockpit.remote";
 
 	let { data } = $props();
-	const c = $derived(data.cockpit);
+	const cockpitQuery = getCockpit();
+	const cockpitCacheKey = $derived(`console:cockpit:snapshot:${data.me.id}`);
+	let cachedRemote = $state<CockpitRemoteResult | null>(null);
+	let cacheLoaded = $state(false);
+	const remote = $derived.by(() => {
+		const current = cockpitQuery.current;
+		if (!current) return cachedRemote;
+		if (!cachedRemote || current.staleSources.length === 0) return current;
+		return {
+			...current,
+			cockpit: {
+				...cachedRemote.cockpit,
+				greetingName: current.cockpit.greetingName,
+				connected: current.cockpit.connected,
+				verdict: current.cockpit.verdict,
+				stateFact: current.cockpit.stateFact,
+			},
+		};
+	});
+	const c = $derived(remote?.cockpit ?? null);
+	const staleSources = $derived(remote?.staleSources ?? []);
+	const usingCached = $derived(!cockpitQuery.current && cachedRemote !== null);
+	const leadCrack = $derived(c ? newestCrack(c.attention) : null);
+	const crackLead = $derived(leadCrack?.fix_ops?.[0]);
 
 	// The ask flow: centered on a fresh cockpit; docks + generates on ask. The
 	// initial scene seeds these once (untrack: read without a reactive dep).
@@ -34,18 +58,15 @@
 	let askRef = $state<AskDock | null>(null);
 	let railView = $state<"houses" | "residents">("houses");
 	let railViewReady = $state(false);
-	let residents = $state<RosterItem[]>([]);
-	let residentsLoading = $state(false);
-	let residentsAttempted = $state(false);
-	let residentsError = $state<string | null>(null);
 	const railViewKey = $derived(`console:cockpit:rail:${data.me.id}`);
+	const residents = $derived(c?.residents ?? []);
 
 	const now = $derived(clockNow());
-	const greeting = (() => {
+	const greeting = $derived.by(() => {
 		const h = new Date().getHours();
 		const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
-		return `Good ${part}, ${c.greetingName}.`;
-	})();
+		return `Good ${part}, ${c?.greetingName ?? data.me.display_name ?? data.me.id}.`;
+	});
 	const dateStr = new Date().toLocaleDateString("en-US", {
 		weekday: "short",
 		month: "short",
@@ -55,23 +76,47 @@
 	// needs-you chip: dot graded by the max severity of the set (§2.2); count splits
 	// "N new · M held" when items are acked (§4.4).
 	const needTone = $derived(
-		c.badges["/"] === "p0"
+		c?.badges["/"] === "p0"
 			? "danger"
-			: c.badges["/"] === "warn"
+			: c?.badges["/"] === "warn"
 				? "warn"
-				: c.hud.needsNew + c.hud.needsHeld > 0
+				: (c?.hud.needsNew ?? 0) + (c?.hud.needsHeld ?? 0) > 0
 					? "info"
 					: "idle",
 	);
-	const hud = $derived<Hud[]>([
-		{
-			tone: needTone,
-			count: c.hud.needsNew,
-			label: c.hud.needsHeld > 0 ? `new · ${c.hud.needsHeld} held` : "need you",
-		},
-		{ tone: "good", count: c.hud.inFlight, label: "in flight" },
-		{ tone: "good", count: c.hud.hostsUp, label: `up · ${c.hud.hostsDown} down` },
-	]);
+	const hud = $derived<Hud[]>(
+		c
+			? [
+					{
+						tone: needTone,
+						count: c.hud.needsNew,
+						label: c.hud.needsHeld > 0 ? `new · ${c.hud.needsHeld} held` : "need you",
+					},
+					{ tone: "good", count: c.hud.inFlight, label: "in flight" },
+					{ tone: "good", count: c.hud.hostsUp, label: `up · ${c.hud.hostsDown} down` },
+				]
+			: [],
+	);
+
+	$effect(() => {
+		if (!browser) return;
+		if (!cacheLoaded) {
+			cacheLoaded = true;
+			try {
+				const raw = localStorage.getItem(cockpitCacheKey);
+				cachedRemote = raw ? (JSON.parse(raw) as CockpitRemoteResult) : null;
+			} catch {
+				cachedRemote = null;
+			}
+		}
+		const current = cockpitQuery.current;
+		if (current?.isMock === false)
+			try {
+				localStorage.setItem(cockpitCacheKey, JSON.stringify(current));
+			} catch {
+				// A denied/full cache must never take down the live cockpit.
+			}
+	});
 
 	$effect(() => {
 		if (!browser || railViewReady) return;
@@ -81,19 +126,23 @@
 	});
 
 	$effect(() => {
-		if (!browser || railView !== "residents" || residentsAttempted) return;
-		residentsAttempted = true;
-		if (dataMode() === "mock") {
-			residents = mockFleet.map((row) => ({ ...row, workers_active: row.status === "working" ? 1 : 0 }));
-			return;
-		}
-		residentsLoading = true;
-		void readRoster()
-			.then((result) => (residents = result.items))
-			.catch((error: unknown) => {
-				residentsError = error instanceof Error ? error.message : "Roster read failed";
-			})
-			.finally(() => (residentsLoading = false));
+		if (!browser || cockpitQuery.current?.isMock !== false) return;
+		let queued: ReturnType<typeof setTimeout> | null = null;
+		const disconnect = connectBus(
+			() => [{ sub_id: "console-cockpit-attention", pattern: "attention.**" }],
+			(frame) => {
+				if (frame["kind"] !== "event") return;
+				if (queued) clearTimeout(queued);
+				queued = setTimeout(() => {
+					queued = null;
+					void cockpitQuery.refresh();
+				}, 250);
+			},
+		);
+		return () => {
+			if (queued) clearTimeout(queued);
+			disconnect();
+		};
 	});
 
 	function selectRailView(next: "houses" | "residents") {
@@ -101,11 +150,8 @@
 		if (browser) localStorage.setItem(railViewKey, next);
 	}
 
-	function railTone(host: string) {
-		const reg = mockRegistry.find((r) => r.host === host);
-		if (!reg) return "idle" as const;
-		const live = registryLiveness(reg, now);
-		return live === "alive" ? ("good" as const) : live === "suspect" ? ("warn" as const) : ("danger" as const);
+	function railTone(host: { tone?: "good" | "warn" | "danger" | "idle"; dark: boolean }) {
+		return host.tone ?? (host.dark ? "danger" : "good");
 	}
 
 	async function onAsk(_q: string) {
@@ -212,21 +258,41 @@
 	<AskDock bind:this={askRef} mode="docked" {context} {progress} {transcript}
 		assistantDown={!data.connected} onask={onAsk} onclearcontext={() => (context = null)} />
 {:else}
-	<!-- All clear: a pinned home around the ask (foundations §5.5). -->
-	<SurfaceSign hero title={greeting} verdict={c.verdict} stateFact={c.stateFact} date={dateStr}
-		{hud} />
+	{#if !c}
+		<SurfaceSign hero title={greeting} date={dateStr} />
+		{#if cockpitQuery.error}
+			<div class="unverified" role="status">
+				<Icon name="circle-help" size={20} />
+				<p>Can't read the cockpit. Retrying will preserve the last known layout.</p>
+				<button type="button" onclick={() => cockpitQuery.refresh()}>Retry</button>
+			</div>
+		{:else}
+			<CockpitSkeleton />
+		{/if}
+	{:else}
+		<!-- A pinned home around the ask (foundations §5.5). -->
+		<SurfaceSign hero title={greeting} verdict={c.verdict} stateFact={c.stateFact}
+			crackMeta={c.crackMeta} {crackLead} lanes={data.me.lanes} date={dateStr} {hud} />
 
-	<AskDock bind:this={askRef} mode="centered" {context} assistantDown={!data.connected}
-		onask={onAsk} onclearcontext={() => (context = null)} />
+		<AskDock bind:this={askRef} mode="centered" {context} assistantDown={!data.connected}
+			onask={onAsk} onclearcontext={() => (context = null)} />
 
-	{#if !c.connected}
+		{#if cockpitQuery.error || staleSources.length > 0 || usingCached}
+			<div class="source-warning" role="status">
+				<Icon name="circle-help" size={16} />
+				<span>{cockpitQuery.error || usingCached ? "Live refresh pending; showing the last known cockpit." : `Waiting for ${staleSources.join(", ")}. Available evidence remains in place.`}</span>
+				<button type="button" onclick={() => cockpitQuery.refresh()}>Retry</button>
+			</div>
+		{/if}
+
+		{#if !c.connected}
 		<!-- Live, not connected: honest placeholder, never fabricated fixtures (veto #20). -->
 		<div class="unverified">
 			<Icon name="circle-help" size={20} />
 			<p>Can't verify the neighborhood. No live read or last-known snapshot is available.</p>
 			<span>Ask Janet anything — every surface is still live.</span>
 		</div>
-	{:else}
+		{:else}
 		<div class="home-grid" oncontextmenu={askAboutClick} role="presentation">
 			<div class="home-main">
 				<div id="attention" data-ask="Town Hall, the attention board">
@@ -248,14 +314,10 @@
 							<div class="house-row">
 								{#each c.railHosts as h (h.host)}
 									<div data-ask="host {h.host}">
-										<HouseTile host={h.host} workersUp={h.workersUp} tone={railTone(h.host)} dark={h.dark} />
+										<HouseTile host={h.host} workersUp={h.workersUp} tone={railTone(h)} dark={h.dark} />
 									</div>
 								{/each}
 							</div>
-						{:else if residentsLoading}
-							<div class="resident-skeleton" aria-label="Loading residents"><span></span><span></span><span></span></div>
-						{:else if residentsError}
-							<p class="rail-empty danger">Residents unavailable. {residentsError}</p>
 						{:else if residents.length === 0}
 							<p class="rail-empty">No residents yet. The neighborhood is waiting.</p>
 						{:else}
@@ -278,6 +340,7 @@
 				</RailCard>
 			</aside>
 		</div>
+		{/if}
 	{/if}
 {/if}
 
@@ -307,6 +370,29 @@
 	}
 	.unverified span {
 		font-size: 0.75rem;
+	}
+	.source-warning {
+		display: flex;
+		align-items: center;
+		gap: var(--s-2);
+		margin-top: var(--s-3);
+		padding: var(--s-2) var(--s-3);
+		border-radius: var(--r-sm);
+		background: var(--warn-soft);
+		color: var(--warn-text);
+		font-size: 0.75rem;
+	}
+	.source-warning :global(svg) { flex: none; color: var(--warn-dot); }
+	.source-warning button {
+		margin-inline-start: auto;
+		min-height: 32px;
+		border: 0;
+		border-radius: var(--r-sm);
+		padding: 0 var(--s-2);
+		background: var(--s2);
+		color: var(--text);
+		font: 500 0.75rem var(--sans);
+		cursor: pointer;
 	}
 	.home-main {
 		display: flex;
@@ -374,11 +460,7 @@
 	.resident-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--text-3); }
 	.resident-dot.working { background: var(--good-dot); }
 	.rail-empty { padding: var(--s-3) var(--s-2); font-size: 0.75rem; color: var(--text-3); }
-	.rail-empty.danger { color: var(--danger-text); background: var(--danger-soft); border-radius: var(--r-xs); }
-	.resident-skeleton { display: grid; gap: var(--s-1); }
-	.resident-skeleton span { display: block; height: 32px; border-radius: var(--r-xs); background: var(--s2); animation: resident-pulse 1.2s ease-in-out infinite alternate; }
 	@keyframes rail-crossfade { from { opacity: 0.55; } to { opacity: 1; } }
-	@keyframes resident-pulse { to { background: var(--s3); } }
 	/* generated dashboard */
 	.dash {
 		display: grid;
@@ -487,6 +569,6 @@
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.rail-view, .resident-skeleton span { animation: none; }
+		.rail-view { animation: none; }
 	}
 </style>
