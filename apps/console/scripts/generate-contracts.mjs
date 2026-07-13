@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const consoleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -11,6 +12,7 @@ const check = process.argv.includes("--check");
 
 const readJson = async (relative) =>
 	JSON.parse(await readFile(path.join(contractDir, relative), "utf8"));
+const clone = (value) => JSON.parse(JSON.stringify(value));
 
 const catalog = await readJson("ops.json");
 
@@ -312,13 +314,13 @@ const nested = [
 	],
 ];
 
-const querySchema = structuredClone(schemas.QueryResult);
+const querySchema = clone(schemas.QueryResult);
 void querySchema;
 const requestSchema = await readJson("schemas/query-request.schema.json");
 requestSchema.properties.mode = { const: "structured" };
 requestSchema.required = [...new Set([...requestSchema.required, "from"])];
 
-const generatedTypeSchemas = structuredClone(resolvedSchemas);
+const generatedTypeSchemas = clone(resolvedSchemas);
 generatedTypeSchemas.CardItem.required = generatedTypeSchemas.CardItem.required.filter(
 	(key) => key !== "delivered" && key !== "addressed",
 );

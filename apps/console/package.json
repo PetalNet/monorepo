@@ -6,9 +6,9 @@
 	"scripts": {
 		"build": "vite build",
 		"check": "node scripts/generate-contracts.mjs --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"contracts:check": "node scripts/generate-contracts.mjs --check",
 		"contracts:generate": "node scripts/generate-contracts.mjs",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"dev": "vite dev",
 		"lint": "oxlint src scripts --max-warnings=0",
 		"prepare": "svelte-kit sync || echo ''",
