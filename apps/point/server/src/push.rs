@@ -1,8 +1,8 @@
-//! Transport-agnostic push wake (Wave D). When a user is offline (no live WS),
-//! an event they'd want to know about — an incoming share request, an accept —
-//! sends a WAKE to their registered push endpoints. The wake carries no who or
-//! where: it only tells the device "a Point event is waiting", so the client
-//! wakes and pulls the detail over its authenticated channel.
+//! Transport-agnostic push wake (notification-event catalog v1). A wake is a
+//! per-device catch-up nudge, not notification copy: it carries no who or
+//! where and is sent even when another device for the user has a live WS. The
+//! client pulls authenticated state, then decides whether the resulting change
+//! is an OS notification, an in-app update, or intentionally silent.
 //!
 //! Two transports, one interface:
 //!   - UnifiedPush: POST the wake bytes to the endpoint URL the user's own
@@ -18,6 +18,72 @@ use std::time::Duration;
 
 use serde::Serialize;
 use sqlx::PgPool;
+
+/// Version of the product notification/event matrix in
+/// `docs/design/SHARING-UX-SPEC.md`. Bump this when an event's audience,
+/// delivery, privacy, or user-visible policy changes.
+pub const EVENT_CATALOG_VERSION: u8 = 1;
+
+/// Events currently emitted by the sharing and encrypted-mailbox APIs.
+///
+/// Using an enum at call sites prevents lifecycle transitions from drifting
+/// into ad-hoc wake strings. Profile and place rows are reserved in the written
+/// catalog until their owning APIs exist in this release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Event {
+    MlsMailbox,
+    ShareRequest,
+    ShareAccepted,
+    ShareRejected,
+    ShareCancelled,
+    ShareRemoved,
+    TempCreated,
+    TempRevoked,
+    TempExpired,
+    ProfileChanged,
+    PlaceArrived,
+    PlaceDeparted,
+    PresenceStale,
+    WentDark,
+}
+
+const EVENT_CATALOG: [Event; 14] = [
+    Event::MlsMailbox,
+    Event::ShareRequest,
+    Event::ShareAccepted,
+    Event::ShareRejected,
+    Event::ShareCancelled,
+    Event::ShareRemoved,
+    Event::TempCreated,
+    Event::TempRevoked,
+    Event::TempExpired,
+    Event::ProfileChanged,
+    Event::PlaceArrived,
+    Event::PlaceDeparted,
+    Event::PresenceStale,
+    Event::WentDark,
+];
+
+impl Event {
+    pub const fn wake_kind(self) -> Option<&'static str> {
+        match self {
+            Self::MlsMailbox => Some("mls_mailbox"),
+            Self::ShareRequest => Some("share_request"),
+            Self::ShareAccepted => Some("share_accepted"),
+            Self::ShareRejected => Some("share_rejected"),
+            Self::ShareCancelled => Some("share_cancelled"),
+            Self::ShareRemoved => Some("share_removed"),
+            Self::TempCreated => Some("share_temp_created"),
+            Self::TempRevoked => Some("share_temp_revoked"),
+            Self::TempExpired
+            | Self::ProfileChanged
+            | Self::PlaceArrived
+            | Self::PlaceDeparted
+            | Self::PresenceStale
+            | Self::WentDark => None,
+        }
+    }
+}
 
 /// A wake is intentionally CONTENTLESS on the wire: the body the distributor
 /// relays is empty, so it learns nothing — not who, not where, not even the
@@ -93,6 +159,21 @@ pub async fn wake_user(pool: PgPool, user_id: String, wake: Wake, allow_private:
             other => tracing::warn!(transport = %other, "push: unknown transport row"),
         }
     }
+}
+
+/// Apply catalog policy before waking a user's devices. Rows whose transition
+/// is local, reserved, or deliberately silent cannot accidentally leak a wake.
+pub async fn wake_user_for_event(pool: PgPool, user_id: String, event: Event, allow_private: bool) {
+    debug_assert!(EVENT_CATALOG.contains(&event));
+    tracing::trace!(
+        catalog_version = EVENT_CATALOG_VERSION,
+        ?event,
+        "push: applying event catalog"
+    );
+    let Some(kind) = event.wake_kind() else {
+        return;
+    };
+    wake_user(pool, user_id, Wake::new(kind), allow_private).await;
 }
 
 /// POST the opaque wake bytes to a UnifiedPush endpoint. The distributor
@@ -204,7 +285,40 @@ fn fcm_bearer() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::url_host;
+    use super::{url_host, Event, EVENT_CATALOG_VERSION};
+
+    #[test]
+    fn event_catalog_v1_has_stable_content_free_wake_kinds() {
+        assert_eq!(EVENT_CATALOG_VERSION, 1);
+        let cases = [
+            (Event::MlsMailbox, "mls_mailbox"),
+            (Event::ShareRequest, "share_request"),
+            (Event::ShareAccepted, "share_accepted"),
+            (Event::ShareRejected, "share_rejected"),
+            (Event::ShareCancelled, "share_cancelled"),
+            (Event::ShareRemoved, "share_removed"),
+            (Event::TempCreated, "share_temp_created"),
+            (Event::TempRevoked, "share_temp_revoked"),
+        ];
+
+        for (event, expected) in cases {
+            assert_eq!(event.wake_kind(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn local_reserved_and_ghost_transitions_never_emit_a_wake() {
+        for event in [
+            Event::TempExpired,
+            Event::ProfileChanged,
+            Event::PlaceArrived,
+            Event::PlaceDeparted,
+            Event::PresenceStale,
+            Event::WentDark,
+        ] {
+            assert_eq!(event.wake_kind(), None, "{event:?} must stay silent");
+        }
+    }
 
     #[test]
     fn url_host_extracts_host() {

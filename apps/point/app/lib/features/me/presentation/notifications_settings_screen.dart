@@ -126,16 +126,20 @@ class _NotificationsSettingsScreenState
           const Divider(),
           const SettingsSection('What notifies'),
           const ListTile(
-            title: Text('Someone asks to share'),
-            subtitle: Text('Notifies'),
+            title: Text('Requests and accepted shares'),
+            subtitle: Text('Notifies after a private refresh'),
           ),
           const ListTile(
-            title: Text('Someone accepts and starts sharing'),
-            subtitle: Text('Notifies'),
+            title: Text('Other sharing changes and encrypted sync'),
+            subtitle: Text('Updates quietly in the app'),
           ),
           const ListTile(
             title: Text('A temporary share expires'),
-            subtitle: Text('Shows in the app only'),
+            subtitle: Text('Ends in the app without a wake-up ping'),
+          ),
+          const ListTile(
+            title: Text('Profile and place alerts'),
+            subtitle: Text('Not available yet'),
           ),
           const ListTile(
             title: Text('Going dark, passive moves, being viewed'),

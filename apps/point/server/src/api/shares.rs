@@ -26,6 +26,13 @@ const SHARE_REQUESTS_PER_MINUTE: u32 = 30;
 /// Temp shares: 1 minute .. 7 days.
 const TEMP_SHARE_MAX_MINUTES: i64 = 10_080;
 
+/// A relationship lifecycle event always reaches both users. Keeping the
+/// audience shape pure makes multi-device fan-out regression-testable without
+/// coupling tests to the WebSocket or push transports.
+fn both_party_audience<'a>(actor: &'a str, other: &'a str) -> [&'a str; 2] {
+    [other, actor]
+}
+
 /// Precision is an opaque client-side hint (payloads are E2E-encrypted); the
 /// server only keeps it from becoming a junk-storage channel: short lowercase
 /// token, default `exact`.
@@ -164,20 +171,17 @@ pub async fn create_request(
     .execute(&state.pool)
     .await?;
 
-    // Tell the recipient there's a request waiting. An online device refreshes
-    // its pinned-requests list from the WS nudge; an offline one is woken by
-    // push so it can pull the request (the wake carries no who/where).
+    // Tell every recipient device there's a request waiting. WS and push are
+    // complementary: a live connection on one phone must not suppress
+    // catch-up on another registered device.
     let notify = json!({ "type": "share.request", "from_user_id": user.user_id }).to_string();
-    if state.hub.is_online(&to_user) {
-        state.hub.send_to_user(&to_user, &notify);
-    } else {
-        tokio::spawn(crate::push::wake_user(
-            state.pool.clone(),
-            to_user.clone(),
-            crate::push::Wake::new("share_request"),
-            state.config.federation_allow_private,
-        ));
-    }
+    state.hub.send_to_user(&to_user, &notify);
+    tokio::spawn(crate::push::wake_user_for_event(
+        state.pool.clone(),
+        to_user.clone(),
+        crate::push::Event::ShareRequest,
+        state.config.federation_allow_private,
+    ));
     Ok(Json(recorded))
 }
 
@@ -282,14 +286,13 @@ pub async fn accept_request(
     let to_accepter = json!({ "type": "share.accepted", "user_id": from_user }).to_string();
     state.hub.send_to_user(&from_user, &to_requester);
     state.hub.send_to_user(&user.user_id, &to_accepter);
-    // The requester (the one who's been waiting) gets a push if they're not
-    // online to hear the WS notify. "someone accepted and started sharing" is
-    // in the v1 notification set.
-    if !state.hub.is_online(&from_user) {
-        tokio::spawn(crate::push::wake_user(
+    // Both users' other devices must catch up too. User-visible copy is derived
+    // from the authenticated state diff, never from this contentless wake.
+    for target in [&from_user, &user.user_id] {
+        tokio::spawn(crate::push::wake_user_for_event(
             state.pool.clone(),
-            from_user.clone(),
-            crate::push::Wake::new("share_accepted"),
+            target.clone(),
+            crate::push::Event::ShareAccepted,
             state.config.federation_allow_private,
         ));
     }
@@ -360,20 +363,17 @@ pub async fn reject_request(
     })
     .to_string();
     if !remote {
-        if state.hub.is_online(&requester) {
-            state.hub.send_to_user(&requester, &notify);
-            // Older clients do not yet distinguish terminal request events,
-            // but already treat share.request as an authoritative list nudge.
-            let sync = json!({ "type": "share.request", "request_id": id }).to_string();
-            state.hub.send_to_user(&requester, &sync);
-        } else {
-            tokio::spawn(crate::push::wake_user(
-                state.pool.clone(),
-                requester,
-                crate::push::Wake::new("share_request"),
-                state.config.federation_allow_private,
-            ));
-        }
+        state.hub.send_to_user(&requester, &notify);
+        // Older clients do not yet distinguish terminal request events, but
+        // already treat share.request as an authoritative list nudge.
+        let sync = json!({ "type": "share.request", "request_id": id }).to_string();
+        state.hub.send_to_user(&requester, &sync);
+        tokio::spawn(crate::push::wake_user_for_event(
+            state.pool.clone(),
+            requester,
+            crate::push::Event::ShareRejected,
+            state.config.federation_allow_private,
+        ));
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -431,18 +431,15 @@ pub async fn cancel_request(
     })
     .to_string();
     if !remote {
-        if state.hub.is_online(&recipient) {
-            state.hub.send_to_user(&recipient, &notify);
-            let sync = json!({ "type": "share.request", "request_id": id }).to_string();
-            state.hub.send_to_user(&recipient, &sync);
-        } else {
-            tokio::spawn(crate::push::wake_user(
-                state.pool.clone(),
-                recipient,
-                crate::push::Wake::new("share_request"),
-                state.config.federation_allow_private,
-            ));
-        }
+        state.hub.send_to_user(&recipient, &notify);
+        let sync = json!({ "type": "share.request", "request_id": id }).to_string();
+        state.hub.send_to_user(&recipient, &sync);
+        tokio::spawn(crate::push::wake_user_for_event(
+            state.pool.clone(),
+            recipient,
+            crate::push::Event::ShareCancelled,
+            state.config.federation_allow_private,
+        ));
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -546,10 +543,10 @@ pub async fn delete_share(
     // Unconditional because liveness is per user, while push endpoints are per
     // device: one connected phone must not suppress teardown on another phone.
     for target in [&other, &user.user_id] {
-        tokio::spawn(crate::push::wake_user(
+        tokio::spawn(crate::push::wake_user_for_event(
             state.pool.clone(),
             target.clone(),
-            crate::push::Wake::new("share_removed"),
+            crate::push::Event::ShareRemoved,
             state.config.federation_allow_private,
         ));
     }
@@ -628,6 +625,17 @@ pub async fn create_temp(
     })
     .to_string();
     state.hub.send_to_user(&to_user, &notify);
+    state.hub.send_to_user(&user.user_id, &notify);
+    // Wake both parties unconditionally: the recipient learns about the new
+    // incoming share, while the actor's other devices add the outgoing target.
+    for target in both_party_audience(&user.user_id, &to_user) {
+        tokio::spawn(crate::push::wake_user_for_event(
+            state.pool.clone(),
+            target.to_owned(),
+            crate::push::Event::TempCreated,
+            state.config.federation_allow_private,
+        ));
+    }
 
     Ok(Json(json!({
         "id": id,
@@ -675,13 +683,55 @@ pub async fn delete_temp(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Value>> {
-    let result = sqlx::query("DELETE FROM temporary_shares WHERE id = $1 AND from_user_id = $2")
-        .bind(id)
-        .bind(&user.user_id)
-        .execute(&state.pool)
-        .await?;
-    if result.rows_affected() == 0 {
+    let recipient: Option<(String,)> = sqlx::query_as(
+        "DELETE FROM temporary_shares
+         WHERE id = $1 AND from_user_id = $2 AND to_user_id IS NOT NULL
+         RETURNING to_user_id",
+    )
+    .bind(id)
+    .bind(&user.user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((recipient,)) = recipient else {
         return Err(AppError::NotFound);
+    };
+
+    let to_recipient = json!({
+        "type": "share.temp_revoked",
+        "id": id,
+        "user_id": user.user_id,
+    })
+    .to_string();
+    let to_actor = json!({
+        "type": "share.temp_revoked",
+        "id": id,
+        "user_id": recipient,
+    })
+    .to_string();
+    state.hub.send_to_user(&recipient, &to_recipient);
+    state.hub.send_to_user(&user.user_id, &to_actor);
+    // Compatibility nudge for catalog-v0 clients; they already refresh temp
+    // state on this frame and will simply observe that the row disappeared.
+    let sync = json!({ "type": "share.temp_created" }).to_string();
+    state.hub.send_to_user(&recipient, &sync);
+    state.hub.send_to_user(&user.user_id, &sync);
+    for target in both_party_audience(&user.user_id, &recipient) {
+        tokio::spawn(crate::push::wake_user_for_event(
+            state.pool.clone(),
+            target.to_owned(),
+            crate::push::Event::TempRevoked,
+            state.config.federation_allow_private,
+        ));
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod notification_event_tests {
+    use super::both_party_audience;
+
+    #[test]
+    fn temporary_share_transitions_reach_actor_and_recipient_devices() {
+        assert_eq!(both_party_audience("alice", "bob"), ["bob", "alice"],);
+    }
 }
