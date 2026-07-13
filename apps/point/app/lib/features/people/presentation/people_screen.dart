@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/point_app.dart';
@@ -12,6 +15,7 @@ import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
 import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
+import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
@@ -26,6 +30,15 @@ import 'package:point_app/widgets/person_row.dart';
 /// the active people — avatar, name, one-line status + last-updated — each
 /// tapping through to that person's detail.
 enum _PeopleAddAction { ongoing, temporary }
+
+Duration _mutationTransitionDuration(BuildContext context, WidgetRef ref) {
+  final preference = ref.watch(settingsProvider.select((s) => s.motion));
+  final reduced =
+      preference == MotionPreference.reduced ||
+      (preference == MotionPreference.system &&
+          MediaQuery.disableAnimationsOf(context));
+  return reduced ? Duration.zero : const Duration(milliseconds: 180);
+}
 
 class PeopleScreen extends ConsumerWidget {
   const PeopleScreen({super.key});
@@ -128,9 +141,7 @@ class PeopleScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          RelayHealthBanner(
-            showAction: !hasInitialError && !hasAvatarError,
-          ),
+          RelayHealthBanner(showAction: !hasInitialError && !hasAvatarError),
           Expanded(
             child: _PeopleBody(
               people: people,
@@ -266,8 +277,10 @@ class _PeopleList extends StatelessWidget {
       children: [
         if (hasRefreshError) _PeopleRefreshError(onRetry: onRetry),
         if (hasAvatarError) _AvatarRefreshError(onRetry: onRetryAvatars),
-        if (requests.isNotEmpty)
-          _RequestsSection(requests: requests, onOpenRequests: onOpenRequests),
+        _AnimatedRequestsPreview(
+          requests: requests,
+          onOpenRequests: onOpenRequests,
+        ),
         if (outgoing.isNotEmpty)
           _OutgoingRequestsSummary(
             count: outgoing.length,
@@ -520,10 +533,42 @@ class _AvatarRefreshError extends StatelessWidget {
 }
 
 /// The pinned incoming-requests block: a labeled section of accept/decline rows.
+class _AnimatedRequestsPreview extends ConsumerWidget {
+  const _AnimatedRequestsPreview({
+    required this.requests,
+    required this.onOpenRequests,
+  });
+
+  final List<ShareRequest> requests;
+  final VoidCallback onOpenRequests;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return AnimatedSwitcher(
+      duration: _mutationTransitionDuration(context, ref),
+      switchInCurve: Curves.easeOutQuart,
+      switchOutCurve: Curves.easeOutQuart,
+      transitionBuilder: (child, animation) => SizeTransition(
+        sizeFactor: animation,
+        alignment: Alignment.topCenter,
+        child: child,
+      ),
+      child: requests.isEmpty
+          ? const SizedBox.shrink(key: ValueKey('no-request-preview'))
+          : _RequestsSection(
+              key: ValueKey(requests.map((request) => request.id).join(',')),
+              requests: requests,
+              onOpenRequests: onOpenRequests,
+            ),
+    );
+  }
+}
+
 class _RequestsSection extends StatelessWidget {
   const _RequestsSection({
     required this.requests,
     required this.onOpenRequests,
+    super.key,
   });
   final List<ShareRequest> requests;
   final VoidCallback onOpenRequests;
@@ -681,8 +726,34 @@ class _TempSection extends ConsumerWidget {
           .firstOrNull ??
       userId.split('@').first;
 
+  Future<void> _stop(
+    BuildContext context,
+    WidgetRef ref,
+    TempShare temp,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final view = View.of(context);
+    final direction = Directionality.of(context);
+    final canAnnounce = MediaQuery.supportsAnnounceOf(context);
+    final outcome = await ref
+        .read(tempSharesControllerProvider.notifier)
+        .stop(temp.id);
+    final message = switch (outcome) {
+      MutationOutcome.succeeded ||
+      MutationOutcome.succeededNeedsRefresh => 'Temporary sharing stopped.',
+      MutationOutcome.failed => 'Could not stop sharing. Try again.',
+      MutationOutcome.ignored => null,
+    };
+    if (message == null) return;
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+    if (canAnnounce) {
+      unawaited(SemanticsService.sendAnnouncement(view, message, direction));
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final mutations = ref.watch(tempShareMutationsProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -706,37 +777,64 @@ class _TempSection extends ConsumerWidget {
               horizontal: context.space.lg,
               vertical: context.space.sm,
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(
-                  Icons.arrow_forward,
-                  size: 20,
-                  color: context.colors.onSurface,
+                Row(
+                  children: [
+                    Icon(
+                      Icons.arrow_forward,
+                      size: 20,
+                      color: context.colors.onSurface,
+                    ),
+                    SizedBox(width: context.space.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _name(t.toUserId),
+                            style: context.text.titleMedium,
+                          ),
+                          SizedBox(height: context.space.xxs),
+                          Text(
+                            'Sees you until '
+                            '${clockHm(t.expiresAt.millisecondsSinceEpoch, format: ref.watch(settingsProvider.select((s) => s.timeFormat)))}',
+                            style: context.text.bodySmall?.copyWith(
+                              color: context.colors.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Haptics.warning(ref);
+                        _stop(context, ref, t);
+                      },
+                      child: Text(
+                        mutations[t.id]?.phase == TempShareMutationPhase.failed
+                            ? 'Retry'
+                            : 'Stop',
+                      ),
+                    ),
+                  ],
                 ),
-                SizedBox(width: context.space.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(_name(t.toUserId), style: context.text.titleMedium),
-                      SizedBox(height: context.space.xxs),
-                      Text(
-                        'Sees you until '
-                        '${clockHm(t.expiresAt.millisecondsSinceEpoch, format: ref.watch(settingsProvider.select((s) => s.timeFormat)))}',
+                if (mutations[t.id]?.phase == TempShareMutationPhase.failed)
+                  Semantics(
+                    liveRegion: true,
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        left: context.space.xxl + context.space.md,
+                      ),
+                      child: Text(
+                        'Could not stop sharing. Try again.',
                         style: context.text.bodySmall?.copyWith(
                           color: context.colors.onSurfaceVariant,
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Haptics.warning(ref);
-                    ref.read(tempSharesControllerProvider.notifier).stop(t.id);
-                  },
-                  child: const Text('Stop'),
-                ),
               ],
             ),
           ),
@@ -777,10 +875,24 @@ class RequestsScreen extends ConsumerWidget {
               _RequestsError(error: error, onRetry: refresh),
             _ when incomingValue.isLoading && outgoingValue.isLoading =>
               const _RequestsLoading(),
-            _ => _RequestsContent(
-              incoming: incoming,
-              outgoing: outgoing,
-              onRefresh: refresh,
+            _ => AnimatedSwitcher(
+              duration: _mutationTransitionDuration(context, ref),
+              switchInCurve: Curves.easeOutQuart,
+              switchOutCurve: Curves.easeOutQuart,
+              transitionBuilder: (child, animation) => SizeTransition(
+                sizeFactor: animation,
+                alignment: Alignment.topCenter,
+                child: child,
+              ),
+              child: _RequestsContent(
+                key: ValueKey(
+                  '${incoming.map((request) => request.id).join(',')}|'
+                  '${outgoing.map((request) => request.id).join(',')}',
+                ),
+                incoming: incoming,
+                outgoing: outgoing,
+                onRefresh: refresh,
+              ),
             ),
           },
         ),
@@ -819,6 +931,7 @@ class _RequestsContent extends StatelessWidget {
     required this.incoming,
     required this.outgoing,
     required this.onRefresh,
+    super.key,
   });
 
   final List<ShareRequest> incoming;
@@ -1110,7 +1223,7 @@ class _OutgoingRequestRowState extends ConsumerState<_OutgoingRequestRow> {
   }
 }
 
-class _RequestRow extends ConsumerStatefulWidget {
+class _RequestRow extends ConsumerWidget {
   const _RequestRow({
     required this.request,
     this.showTimestamp = false,
@@ -1119,60 +1232,50 @@ class _RequestRow extends ConsumerStatefulWidget {
   final ShareRequest request;
   final bool showTimestamp;
 
-  @override
-  ConsumerState<_RequestRow> createState() => _RequestRowState();
-}
-
-class _RequestRowState extends ConsumerState<_RequestRow> {
-  bool _busy = false;
-  String? _transition;
-  String? _error;
-
   Future<void> _run({
-    required String complete,
-    required bool refreshPeople,
-    required Future<void> Function() action,
+    required BuildContext context,
+    required WidgetRef ref,
+    required RequestMutationAction action,
   }) async {
-    setState(() {
-      _busy = true;
-      _transition = complete;
-      _error = null;
-    });
-    try {
-      await action();
-    } on Object {
-      if (mounted) {
-        setState(() {
-          _transition = null;
-          _error = 'Could not update. Try again.';
-        });
-      }
-      return;
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$complete.')));
-    try {
-      await ref.read(requestsControllerProvider.notifier).refresh();
-      if (refreshPeople) {
-        await ref.read(peopleControllerProvider.notifier).refresh();
-      }
-    } on Object {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$complete. Pull to refresh the list.')),
-        );
-      }
+    final messenger = ScaffoldMessenger.of(context);
+    final view = View.of(context);
+    final direction = Directionality.of(context);
+    final canAnnounce = MediaQuery.supportsAnnounceOf(context);
+    final controller = ref.read(requestsControllerProvider.notifier);
+    final outcome = switch (action) {
+      RequestMutationAction.accept => await controller.accept(request),
+      RequestMutationAction.decline => await controller.decline(request),
+    };
+    final message = switch ((action, outcome)) {
+      (_, MutationOutcome.ignored) => null,
+      (RequestMutationAction.accept, MutationOutcome.succeeded) =>
+        'Request accepted.',
+      (RequestMutationAction.accept, MutationOutcome.succeededNeedsRefresh) =>
+        'Request accepted. Pull to refresh people.',
+      (RequestMutationAction.decline, MutationOutcome.succeeded) =>
+        'Request declined.',
+      (RequestMutationAction.decline, MutationOutcome.succeededNeedsRefresh) =>
+        'Request declined.',
+      (RequestMutationAction.accept, MutationOutcome.failed) =>
+        'Could not accept the request. Try again.',
+      (RequestMutationAction.decline, MutationOutcome.failed) =>
+        'Could not decline the request. Try again.',
+    };
+    if (message == null) return;
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+    if (canAnnounce) {
+      unawaited(SemanticsService.sendAnnouncement(view, message, direction));
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final r = widget.request;
-    final session = ref.read(authControllerProvider).value;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final r = request;
+    final mutation = ref.watch(
+      requestMutationsProvider.select((mutations) => mutations[r.id]),
+    );
+    final failed = mutation?.phase == MutationPhase.failed;
+    final failedAction = mutation?.action;
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: context.space.lg,
@@ -1198,45 +1301,44 @@ class _RequestRowState extends ConsumerState<_RequestRow> {
                     color: context.colors.onSurfaceVariant,
                   ),
                 ),
-                if (widget.showTimestamp && r.createdAt != null)
+                if (showTimestamp && r.createdAt != null)
                   Text(
                     'Requested ${relativeSince(r.createdAt!.millisecondsSinceEpoch)}',
                     style: context.text.bodySmall?.copyWith(
                       color: context.colors.onSurfaceVariant,
                     ),
                   ),
-                if (_transition != null)
-                  Text(_transition!, style: context.text.labelLarge),
-                if (_error != null)
-                  Text(
-                    _error!,
-                    style: context.text.bodySmall?.copyWith(
-                      color: context.colors.onSurfaceVariant,
+                if (failed)
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      failedAction == RequestMutationAction.accept
+                          ? 'Could not accept. Try again.'
+                          : 'Could not decline. Try again.',
+                      style: context.text.bodySmall?.copyWith(
+                        color: context.colors.onSurfaceVariant,
+                      ),
                     ),
                   ),
               ],
             ),
           ),
-          if (_busy)
-            Padding(
-              padding: EdgeInsets.all(context.space.sm),
-              child: const Icon(Icons.schedule),
-            )
-          else ...[
+          if (failed) ...[
+            TextButton(
+              onPressed: () =>
+                  _run(context: context, ref: ref, action: failedAction!),
+              child: const Text('Retry'),
+            ),
+          ] else ...[
             IconButton(
               tooltip: 'Decline',
               icon: const Icon(Icons.close),
               onPressed: () {
                 Haptics.warning(ref);
                 _run(
-                  complete: 'Declined',
-                  refreshPeople: false,
-                  action: () async {
-                    if (session == null) return;
-                    await ref
-                        .read(apiProvider)
-                        .rejectRequest(session.token, r.id);
-                  },
+                  context: context,
+                  ref: ref,
+                  action: RequestMutationAction.decline,
                 );
               },
             ),
@@ -1246,14 +1348,9 @@ class _RequestRowState extends ConsumerState<_RequestRow> {
               onPressed: () {
                 Haptics.commit(ref);
                 _run(
-                  complete: 'Accepted',
-                  refreshPeople: true,
-                  action: () async {
-                    if (session == null) return;
-                    await ref
-                        .read(apiProvider)
-                        .acceptRequest(session.token, r.id);
-                  },
+                  context: context,
+                  ref: ref,
+                  action: RequestMutationAction.accept,
                 );
               },
             ),

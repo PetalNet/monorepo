@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
@@ -8,7 +9,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:point_app/features/crypto/verification.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
-import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/presentation/temp_share_sheet.dart';
 import 'package:point_app/features/people/presentation/verify_sheet.dart';
@@ -19,7 +19,6 @@ import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/haptics.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
-import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/presence_tokens.dart';
 import 'package:point_app/theme/theme_x.dart';
@@ -513,37 +512,96 @@ class _HideFromTile extends ConsumerWidget {
   const _HideFromTile({required this.person});
   final Person person;
 
+  Future<void> _setHidden(
+    BuildContext context,
+    WidgetRef ref, {
+    required bool hidden,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final view = View.of(context);
+    final direction = Directionality.of(context);
+    final canAnnounce = MediaQuery.supportsAnnounceOf(context);
+    final succeeded = await ref
+        .read(ghostControllerProvider.notifier)
+        .setHiddenFrom(person.userId, hidden: hidden);
+    final message = succeeded
+        ? hidden
+              ? '${person.displayName} now sees your last-known location.'
+              : '${person.displayName} can see your live location again.'
+        : 'Could not update who sees you. Try again.';
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+    if (canAnnounce) {
+      unawaited(SemanticsService.sendAnnouncement(view, message, direction));
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ghost = ref.watch(ghostControllerProvider).value;
     final hidden = ghost?.isHiddenFrom(person.userId) ?? false;
+    final mutation = ref.watch(
+      ghostMutationsProvider.select((mutations) => mutations[person.userId]),
+    );
+    final busy = mutation?.isRunning ?? false;
+    final failed = mutation?.phase == GhostMutationPhase.failed;
     return Container(
       decoration: BoxDecoration(
         color: context.colors.surfaceContainerHigh,
         borderRadius: context.radii.brMd,
       ),
-      child: SwitchListTile(
-        value: hidden,
-        onChanged: (v) {
-          Haptics.commit(ref);
-          ref
-              .read(ghostControllerProvider.notifier)
-              .setHiddenFrom(person.userId, hidden: v);
-        },
-        title: Text(
-          'Hide from ${person.displayName}',
-          style: context.text.titleMedium,
-        ),
-        subtitle: Text(
-          hidden
-              ? 'They see your last-known only. No one is told.'
-              : "They can see your live location while you're sharing.",
-          style: context.text.bodySmall?.copyWith(
-            color: context.colors.onSurfaceVariant,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile(
+            value: hidden,
+            onChanged: busy
+                ? null
+                : (value) {
+                    Haptics.commit(ref);
+                    _setHidden(context, ref, hidden: value);
+                  },
+            title: Text(
+              'Hide from ${person.displayName}',
+              style: context.text.titleMedium,
+            ),
+            subtitle: Text(
+              busy
+                  ? 'Updating who can see you…'
+                  : hidden
+                  ? 'They see your last-known only. No one is told.'
+                  : "They can see your live location while you're sharing.",
+              style: context.text.bodySmall?.copyWith(
+                color: context.colors.onSurfaceVariant,
+              ),
+            ),
+            contentPadding: EdgeInsets.symmetric(horizontal: context.space.lg),
+            shape: RoundedRectangleBorder(borderRadius: context.radii.brMd),
           ),
-        ),
-        contentPadding: EdgeInsets.symmetric(horizontal: context.space.lg),
-        shape: RoundedRectangleBorder(borderRadius: context.radii.brMd),
+          if (failed)
+            Semantics(
+              liveRegion: true,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  context.space.lg,
+                  0,
+                  context.space.lg,
+                  context.space.md,
+                ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text('Could not update who sees you.'),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          _setHidden(context, ref, hidden: !hidden),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -555,10 +613,42 @@ class _TempShareTile extends ConsumerWidget {
   const _TempShareTile({required this.person});
   final Person person;
 
+  Future<void> _stop(
+    BuildContext context,
+    WidgetRef ref,
+    TempShare temp,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final view = View.of(context);
+    final direction = Directionality.of(context);
+    final canAnnounce = MediaQuery.supportsAnnounceOf(context);
+    final outcome = await ref
+        .read(tempSharesControllerProvider.notifier)
+        .stop(temp.id);
+    final message = switch (outcome) {
+      MutationOutcome.succeeded ||
+      MutationOutcome.succeededNeedsRefresh => 'Temporary sharing stopped.',
+      MutationOutcome.failed => 'Could not stop sharing. Try again.',
+      MutationOutcome.ignored => null,
+    };
+    if (message == null) return;
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+    if (canAnnounce) {
+      unawaited(SemanticsService.sendAnnouncement(view, message, direction));
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final temp = ref.watch(outgoingTempsProvider)[person.userId];
+    final mutations = ref.watch(tempShareMutationsProvider);
+    final mutation = mutations.values
+        .where((item) => item.share.toUserId == person.userId)
+        .firstOrNull;
+    final temp =
+        ref.watch(outgoingTempsProvider)[person.userId] ?? mutation?.share;
     if (temp != null) {
+      final failed = mutation?.phase == TempShareMutationPhase.failed;
+      final busy = mutation?.isRunning ?? false;
       return Material(
         color: context.colors.surfaceContainerHigh,
         borderRadius: context.radii.brMd,
@@ -567,23 +657,41 @@ class _TempShareTile extends ConsumerWidget {
             horizontal: context.space.lg,
             vertical: context.space.md,
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(Icons.arrow_forward, color: context.colors.onSurface),
-              SizedBox(width: context.space.md),
-              Expanded(
-                child: Text(
-                  'Sharing until ${clockHm(temp.expiresAt.millisecondsSinceEpoch)}',
-                  style: context.text.titleMedium,
+              Row(
+                children: [
+                  Icon(Icons.arrow_forward, color: context.colors.onSurface),
+                  SizedBox(width: context.space.md),
+                  Expanded(
+                    child: Text(
+                      'Sharing until ${clockHm(temp.expiresAt.millisecondsSinceEpoch)}',
+                      style: context.text.titleMedium,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: busy
+                        ? null
+                        : () {
+                            Haptics.warning(ref);
+                            _stop(context, ref, temp);
+                          },
+                    child: Text(
+                      busy
+                          ? 'Stopping…'
+                          : failed
+                          ? 'Retry'
+                          : 'Stop',
+                    ),
+                  ),
+                ],
+              ),
+              if (failed)
+                Semantics(
+                  liveRegion: true,
+                  child: const Text('Could not stop sharing. Try again.'),
                 ),
-              ),
-              TextButton(
-                onPressed: () {
-                  Haptics.warning(ref);
-                  ref.read(tempSharesControllerProvider.notifier).stop(temp.id);
-                },
-                child: const Text('Stop'),
-              ),
             ],
           ),
         ),
@@ -620,6 +728,12 @@ class _StopSharingTile extends ConsumerWidget {
   final Person person;
 
   Future<void> _stop(BuildContext context, WidgetRef ref) async {
+    final currentPhase = ref.read(
+      stopSharingMutationsProvider.select(
+        (mutations) => mutations[person.userId],
+      ),
+    );
+    if (currentPhase == MutationPhase.running) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -643,21 +757,58 @@ class _StopSharingTile extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
-    final session = ref.read(authControllerProvider).value;
-    if (session == null) return;
-    await ref.read(apiProvider).deleteShare(session.token, person.userId);
-    await ref.read(peopleControllerProvider.notifier).refresh();
-    await ref.read(requestsControllerProvider.notifier).refresh();
-    if (context.mounted) await context.pop();
+    final outcome = await ref
+        .read(stopSharingMutationsProvider.notifier)
+        .stop(person.userId);
+    if (!context.mounted || outcome == MutationOutcome.ignored) return;
+    if (outcome == MutationOutcome.failed) {
+      const message = 'Could not stop sharing. Try again.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(message)));
+      if (MediaQuery.supportsAnnounceOf(context)) {
+        unawaited(
+          SemanticsService.sendAnnouncement(
+            View.of(context),
+            message,
+            Directionality.of(context),
+          ),
+        );
+      }
+      return;
+    }
+    final message = outcome == MutationOutcome.succeededNeedsRefresh
+        ? 'Sharing stopped. Pull to refresh people.'
+        : 'Sharing stopped.';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+    if (MediaQuery.supportsAnnounceOf(context)) {
+      unawaited(
+        SemanticsService.sendAnnouncement(
+          View.of(context),
+          message,
+          Directionality.of(context),
+        ),
+      );
+    }
+    await context.pop();
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final phase = ref.watch(
+      stopSharingMutationsProvider.select(
+        (mutations) => mutations[person.userId],
+      ),
+    );
+    final busy = phase == MutationPhase.running;
+    final failed = phase == MutationPhase.failed;
     return Material(
       color: context.colors.surfaceContainerHigh,
       borderRadius: context.radii.brMd,
       child: InkWell(
-        onTap: () => _stop(context, ref),
+        onTap: busy ? null : () => _stop(context, ref),
         borderRadius: context.radii.brMd,
         child: Padding(
           padding: EdgeInsets.symmetric(
@@ -668,7 +819,23 @@ class _StopSharingTile extends ConsumerWidget {
             children: [
               Icon(Icons.link_off, color: context.colors.onSurface),
               SizedBox(width: context.space.md),
-              Text('Stop sharing', style: context.text.titleMedium),
+              Expanded(
+                child: Text(
+                  busy
+                      ? 'Stopping sharing…'
+                      : failed
+                      ? 'Could not stop sharing'
+                      : 'Stop sharing',
+                  style: context.text.titleMedium,
+                ),
+              ),
+              if (busy)
+                const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (failed)
+                const Text('Retry'),
             ],
           ),
         ),
