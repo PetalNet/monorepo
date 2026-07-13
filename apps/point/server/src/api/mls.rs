@@ -391,6 +391,15 @@ pub(super) fn push_mailbox(
     })
     .to_string();
     state.hub.send_to_user(recipient, &push);
+    // WS liveness is per user, but push endpoints are per device. Always wake
+    // every registered device so a connected phone cannot suppress encrypted
+    // mailbox catch-up on a sleeping tablet. The wake contains no MLS detail.
+    tokio::spawn(crate::push::wake_user_for_event(
+        state.pool.clone(),
+        recipient.to_owned(),
+        crate::push::Event::MlsMailbox,
+        state.config.federation_allow_private,
+    ));
 }
 
 #[derive(Deserialize)]

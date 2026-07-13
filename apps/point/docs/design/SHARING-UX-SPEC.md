@@ -28,6 +28,35 @@ Grilled Parker × Janet 2026-07-11. **Design LOCKED — do not relitigate.** Thi
 - **Symmetric** — no guardian exception in v1.
 - Visual = locked **inverse-fill + label** signal; presence by FORM not color.
 
+### Notification/event catalog v1
+
+A push is a contentless, per-device catch-up nudge. It is sent even when the
+same user has another live WebSocket; authenticated state after refresh decides
+whether Point shows local copy. The quiet-hours column records which copy may
+be gated when that preference ships; it never gates data catch-up. All external
+payloads remain generic: no person, place, relationship, or location detail
+leaves Point through a push provider.
+
+| Event | Audience | WS frame | Push wake | Local copy | Deep link | Quiet hours |
+| --- | --- | --- | --- | --- | --- | --- |
+| `share.request` | Recipient | `share.request` | Yes | “New sharing request” · “Open Point to review it.” | People · requests | Eligible; preference not in v1 |
+| `share.accepted` | Both parties | `share.accepted` | Yes | “Sharing started” · “Open Point to see the update.” | Person detail | Eligible; preference not in v1 |
+| `share.rejected` | Requester | `share.rejected` | Yes | In-app only | People · requests | N/A |
+| `share.cancelled` | Recipient | `share.cancelled` | Yes | In-app only | People · requests | N/A |
+| `share.removed` | Both parties | `share.removed` | Yes | In-app only | People | N/A |
+| `share.temp_created` | Both parties’ devices | `share.temp_created` | Yes | In-app only | People | N/A |
+| `share.temp_revoked` | Both parties’ devices | `share.temp_revoked` + v0 refresh nudge | Yes | In-app only | People | N/A |
+| `share.temp_expired` | Both parties’ devices | Local deadline | No; clients already hold the authenticated expiry | In-app only | People | N/A |
+| `mls.message` | Recipient | `mls.message` | Yes | None; encrypted sync only | None | N/A |
+| `profile.changed` | Active peers | Reserved until profile fan-out ships | No | In-app only | Person detail | N/A |
+| `place.arrived` / `place.departed` | Per-person/place opt-in | Reserved for the privacy-first places slice | No | Not available in v1 | Person/place | Eligible when shipped |
+| `presence.stale` | Current viewer | Local derived state | No | Generic in-app staleness | Person detail | N/A |
+| `presence.went_dark` | Nobody | None | **Never** | **Never** | None | N/A |
+
+`profile.changed` and place events are catalogued but deliberately not emitted:
+profile fan-out needs its owning account API, and places have no privacy domain
+or detector yet. Neither may be represented as working notification plumbing.
+
 ## 05 · Core shell principle
 - **Always-on is only OK because you always see who's watching.** A persistent, glanceable **"visible to N people"** status is a PRIMARY shell element — always one tap from the full who-sees-me list + per-person kill switches. Never buried in settings. This earns the always-on permission.
 
