@@ -7,7 +7,7 @@
 
 import type { Sql } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
-import { tailSystemOutbox } from "./system-outbox.ts";
+import { sourceCursorRef, tailSystemOutbox } from "./system-outbox.ts";
 import { uuidv5 } from "./uuid5.ts";
 
 export interface EmitFn {
@@ -27,6 +27,7 @@ export interface BridgeConfig {
 interface Cursor {
 	readonly cursor: string;
 	readonly belowCount: number;
+	readonly belowHash: string;
 }
 
 export class Bridge {
@@ -47,16 +48,22 @@ export class Bridge {
 	async #cursor(source: string): Promise<Cursor> {
 		const sql = this.#writer;
 		const rows = await sql<
-			{ cursor: string; below_count: number }[]
-		>`select cursor, below_count from bridge_cursor where source = ${source}`;
+			{ cursor: string; below_count: number; below_hash: string }[]
+		>`select cursor, below_count, below_hash from bridge_cursor where source = ${source}`;
 		const row = rows[0];
-		return { cursor: row?.cursor ?? "", belowCount: Number(row?.below_count ?? 0) };
+		return {
+			cursor: row?.cursor ?? "",
+			belowCount: Number(row?.below_count ?? 0),
+			belowHash: row?.below_hash ?? "",
+		};
 	}
 
 	async #setCursor(source: string, c: Cursor): Promise<void> {
 		const sql = this.#writer;
-		await sql`insert into bridge_cursor (source, cursor, below_count) values (${source}, ${c.cursor}, ${c.belowCount})
-			on conflict (source) do update set cursor = excluded.cursor, below_count = excluded.below_count, updated_at = now()`;
+		await sql`insert into bridge_cursor (source, cursor, below_count, below_hash)
+			values (${source}, ${c.cursor}, ${c.belowCount}, ${c.belowHash})
+			on conflict (source) do update set cursor = excluded.cursor, below_count = excluded.below_count,
+				below_hash = excluded.below_hash, updated_at = now()`;
 	}
 
 	async #emitOne(e: Emission): Promise<void> {
@@ -120,7 +127,7 @@ export class Bridge {
 		const prev = await this.#cursor(source);
 		let result;
 		try {
-			result = tailSystemOutbox(dir, prev.cursor, prev.belowCount, now);
+			result = tailSystemOutbox(dir, prev.cursor, prev.belowCount, now, prev.belowHash);
 		} catch {
 			// The source is dark — emit a positive down-signal ONCE on the healthy->dark transition,
 			// not every poll (a 5s poll would otherwise mint ~17k duplicate warnings a day).
@@ -135,8 +142,9 @@ export class Bridge {
 		if (result.anomaly)
 			await this.#emitOne(this.#control(source, "bridge.source.anomaly", now, "warn"));
 		for (const loss of result.losses) {
-			await this.#quarantine(source, loss.file, null, loss.reason);
-			await this.#emitOne(this.#gap(source, loss.file, loss.reason, now));
+			const ref = sourceCursorRef(loss.file);
+			await this.#quarantine(source, ref, null, loss.reason);
+			await this.#emitOne(this.#gap(source, ref, loss.reason, now));
 		}
 		for (const e of result.emissions) {
 			const r = await this.#emit(PRODUCER, e, Buffer.byteLength(JSON.stringify(e)));
@@ -144,15 +152,23 @@ export class Bridge {
 			// Record-level validation/scrubber failures are poison records, not source outages. Keep no
 			// secret payload in the DLQ: only the durable source pointer, emission id, and error class.
 			if (["invalid_emission", "payload_too_large", "secret_detected"].includes(r.code ?? "")) {
-				const file = String(e.dimensions?.["file"] ?? e.id);
-				await this.#quarantine(source, file, e.id, r.code ?? "invalid_emission");
-				await this.#emitOne(this.#gap(source, file, r.code ?? "invalid_emission", now));
+				const ref = String(e.dimensions?.["file_ref"] ?? e.id);
+				await this.#quarantine(source, ref, e.id, r.code ?? "invalid_emission");
+				await this.#emitOne(this.#gap(source, ref, r.code ?? "invalid_emission", now));
 				continue;
 			}
 			throw new Error(`bridge emit rejected: ${r.code ?? "unknown"} (${e.type})`);
 		}
-		if (result.cursor !== prev.cursor || result.belowCount !== prev.belowCount)
-			await this.#setCursor(source, { cursor: result.cursor, belowCount: result.belowCount });
+		if (
+			result.cursor !== prev.cursor ||
+			result.belowCount !== prev.belowCount ||
+			result.belowHash !== prev.belowHash
+		)
+			await this.#setCursor(source, {
+				cursor: result.cursor,
+				belowCount: result.belowCount,
+				belowHash: result.belowHash,
+			});
 	}
 
 	start(intervalMs: number): void {

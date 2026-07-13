@@ -3,6 +3,7 @@
 // tailer maps known operational messages to their statistic types and preserves unknown messages as
 // `bot.message`, so the console consumes them and Matrix can eventually go quiet.
 
+import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -16,7 +17,7 @@ interface OutboxFile {
 
 export interface TailLoss {
 	readonly file: string;
-	readonly reason: "non_regular" | "oversize";
+	readonly reason: "invalid_json" | "non_regular" | "oversize";
 }
 
 // A bot message is a small line. Anything bigger is either not ours or malicious; cap the read so a
@@ -43,10 +44,21 @@ export interface TailResult {
 	readonly cursor: string;
 	/** Count of `.json` files at-or-below `cursor` — the append-only invariant guard (see below). */
 	readonly belowCount: number;
+	readonly belowHash: string;
 	/** A file appeared at/below the cursor (non-monotonic insert); this pass rescanned to recover it. */
 	readonly anomaly: boolean;
 	/** Stable records skipped deliberately; the caller must emit gap + quarantine metadata. */
 	readonly losses: readonly TailLoss[];
+}
+
+export function sourceCursorRef(file: string): string {
+	return uuidv5(`system-outbox-cursor:${file}`);
+}
+
+function namesHash(names: readonly string[]): string {
+	return names.length === 0
+		? ""
+		: createHash("sha256").update(names.join("\0"), "utf8").digest("hex");
 }
 
 type ReadResult =
@@ -84,10 +96,10 @@ function operationalType(body: string): {
 } | null {
 	const disk =
 		/(?:host\s+)?(\.\d+|[a-z0-9][a-z0-9.-]*)\s+disk[^\n]{0,40}?(\d+(?:\.\d+)?)\s*%/i.exec(body);
-	if (disk?.[1] && disk[2])
+	if (disk?.[1] === ".14" && disk[2])
 		return {
 			type: "host.disk.pct",
-			subject: disk[1].toLowerCase(),
+			subject: ".14",
 			subjectKind: "host",
 			measures: { pct: Number(disk[2]) },
 			meta: { fields: { pct: { unit: "percent", kind: "gauge", cardinality: "low" } } },
@@ -98,20 +110,9 @@ function operationalType(body: string): {
 	if (container?.[1])
 		return {
 			type: "container.update_available",
-			subject: container[1].toLowerCase(),
+			subject: SUBJECT,
 			subjectKind: "service",
-			dimensions: { container: container[1].toLowerCase() },
-		};
-	const box =
-		/box\s+(\.\d+|[a-z0-9][a-z0-9.-]*)[^\n]{0,100}?update status (?:changed|is)\s*:?\s*([a-z_ -]+)/i.exec(
-			body,
-		);
-	if (box?.[1])
-		return {
-			type: "box.update_status_changed",
-			subject: box[1].toLowerCase(),
-			subjectKind: "host",
-			dimensions: { status: (box[2] ?? "changed").trim().slice(0, 64) },
+			dimensions: { claimed_container: container[1].toLowerCase() },
 		};
 	return null;
 }
@@ -143,12 +144,16 @@ export function tailSystemOutbox(
 	cursor: string,
 	knownBelowCount: number,
 	ts: string,
+	knownBelowHash?: string,
 ): TailResult {
 	const sentDir = join(dir, "sent");
 	const all = readdirSync(sentDir)
 		.filter((n) => n.endsWith(".json"))
 		.sort();
-	const anomaly = all.filter((n) => n <= cursor).length > knownBelowCount;
+	const below = all.filter((n) => n <= cursor);
+	const anomaly =
+		below.length !== knownBelowCount ||
+		(knownBelowHash !== undefined && namesHash(below) !== knownBelowHash);
 	// On anomaly, rescan from the start and rebuild the cursor over the clean prefix; else fast path.
 	const candidates = anomaly ? all : all.filter((n) => n > cursor);
 	const emissions: Emission[] = [];
@@ -173,7 +178,11 @@ export function tailSystemOutbox(
 			const value: unknown = JSON.parse(read.raw);
 			parsed = value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 		} catch {
-			break; // partial/unparseable: transient barrier — leave the cursor before it, retry
+			// sent/ is populated by atomic rename after the daemon parses JSON; malformed JSON here is
+			// therefore stable poison and must not stall every later record.
+			losses.push({ file: name, reason: "invalid_json" });
+			newCursor = name;
+			continue;
 		}
 		newCursor = name;
 		const sender = (typeof parsed.sender === "string" ? parsed.sender : "unknown")
@@ -192,7 +201,12 @@ export function tailSystemOutbox(
 			severity: severityOf(body),
 			action: null,
 			scope: "fleet",
-			dimensions: { sender, message: body, file: name, ...operational?.dimensions },
+			dimensions: {
+				sender,
+				message: body,
+				file_ref: sourceCursorRef(name),
+				...operational?.dimensions,
+			},
 			measures: operational?.measures,
 			meta: operational?.meta,
 		});
@@ -201,6 +215,7 @@ export function tailSystemOutbox(
 		emissions,
 		cursor: newCursor,
 		belowCount: all.filter((n) => n <= newCursor).length,
+		belowHash: namesHash(all.filter((n) => n <= newCursor)),
 		anomaly,
 		losses,
 	};

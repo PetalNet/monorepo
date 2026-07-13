@@ -261,10 +261,14 @@ scope with `≤danger` severity, so the now-throwing emit path cannot reject the
 ### N1b-3 final Terra review — findings applied
 
 The required fresh `gpt-5.6-terra` review found five additional gaps. All are fixed and covered by
-the 58-test focused suite: recognized system-outbox messages now map to `host.disk.pct`,
-`container.update_available`, and `box.update_status_changed` (unknowns remain `bot.message`);
+the focused suite: recognized system-outbox messages now map to `host.disk.pct` and
+`container.update_available` (unknowns remain `bot.message`; executor-only completion types do not);
 non-object JSON is normalized; file reads use descriptor-bound `O_NOFOLLOW` + `fstat`; stable
 non-regular/oversize losses emit `bridge.gap_detected`; and record-level validation/secret failures
 are metadata-only quarantined in `bridge_dead_letter` so one poison record cannot block later files.
 Transient append/deploy failures still leave the cursor unchanged. The published contract now says
 checkpoint-after-accept (the physically accurate cross-HTTP guarantee) and documents quarantine.
+The re-review then tightened identity and reconciliation: typed subjects are fixed to the local
+source, filenames leave the writer-only cursor table only as opaque UUID refs, malformed JSON in
+the daemon's atomic-rename `sent/` directory is stable poison rather than an infinite barrier, and
+the cursor persists a digest as well as a count so prune+late-insert cannot mask loss.

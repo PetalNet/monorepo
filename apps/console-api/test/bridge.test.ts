@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, it, expect } from "vitest";
 
-import { tailSystemOutbox } from "../src/bridge/system-outbox.ts";
+import { sourceCursorRef, tailSystemOutbox } from "../src/bridge/system-outbox.ts";
 import { uuidv5 } from "../src/bridge/uuid5.ts";
 
 function makeOutbox(files: Record<string, unknown>): string {
@@ -58,12 +58,12 @@ describe("system-outbox tailer", () => {
 			expect(emissions.map((e) => e.type)).toEqual([
 				"host.disk.pct",
 				"container.update_available",
-				"box.update_status_changed",
+				"bot.message",
 			]);
 			expect(emissions[0]?.subject).toBe(".14");
 			expect(emissions[0]?.measures?.["pct"]).toBe(91);
-			expect(emissions[1]?.subject).toBe("console-api");
-			expect(emissions[2]?.dimensions?.["status"]).toBe("updates_pending");
+			expect(emissions[1]?.subject).toBe("system-outbox");
+			expect(emissions[1]?.dimensions?.["claimed_container"]).toBe("console-api");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -78,7 +78,13 @@ describe("system-outbox tailer", () => {
 			const first = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
 			expect(first.emissions).toHaveLength(2);
 			// re-poll from the advanced cursor: nothing new
-			const second = tailSystemOutbox(dir, first.cursor, first.belowCount, "2026-07-13T00:00:01Z");
+			const second = tailSystemOutbox(
+				dir,
+				first.cursor,
+				first.belowCount,
+				"2026-07-13T00:00:01Z",
+				first.belowHash,
+			);
 			expect(second.emissions).toHaveLength(0);
 			// re-tailing the SAME file yields the SAME id (lake dedups) — deterministic
 			const reid = tailSystemOutbox(dir, "100-shawn.json", 1, "2026-07-13T00:00:02Z");
@@ -92,7 +98,7 @@ describe("system-outbox tailer", () => {
 		expect(() => tailSystemOutbox("/no/such/outbox", "", 0, "2026-07-13T00:00:00Z")).toThrow();
 	});
 
-	it("treats a partial/corrupt file as a barrier — later files are not skipped forever", () => {
+	it("quarantines malformed JSON and continues with later files", () => {
 		const dir = makeOutbox({ "100-shawn.json": { sender: "shawn", body: "[warn] a" } });
 		// a file caught mid-write: invalid JSON, sorts between the two valid ones
 		writeFileSync(join(dir, "sent", "150-derek.json"), '{"sender":"derek","body":"[fail] par');
@@ -101,18 +107,11 @@ describe("system-outbox tailer", () => {
 			JSON.stringify({ sender: "shawn", body: "[warn] b" }),
 		);
 		try {
-			// first poll stops at the corrupt file: only 100 emits, cursor stays before 150
+			// sent/ is atomic-rename output, so malformed JSON is stable poison and is skipped loudly.
 			const first = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
-			expect(first.emissions).toHaveLength(1);
-			expect(first.cursor).toBe("100-shawn.json");
-			// the bot finishes writing 150; re-poll picks it up AND the file behind it (no loss)
-			writeFileSync(
-				join(dir, "sent", "150-derek.json"),
-				JSON.stringify({ sender: "derek", body: "[fail] parted" }),
-			);
-			const second = tailSystemOutbox(dir, first.cursor, first.belowCount, "2026-07-13T00:00:01Z");
-			expect(second.emissions.map((e) => e.dimensions?.["sender"])).toEqual(["derek", "shawn"]);
-			expect(second.cursor).toBe("200-shawn.json");
+			expect(first.emissions.map((e) => e.dimensions?.["sender"])).toEqual(["shawn", "shawn"]);
+			expect(first.losses).toEqual([{ file: "150-derek.json", reason: "invalid_json" }]);
+			expect(first.cursor).toBe("200-shawn.json");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -131,14 +130,57 @@ describe("system-outbox tailer", () => {
 				JSON.stringify({ sender: "derek", body: "[fail] late" }),
 			);
 			// fast path (name > cursor) would miss 150 forever; the belowCount jump triggers a rescan
-			const second = tailSystemOutbox(dir, first.cursor, first.belowCount, "2026-07-13T00:00:01Z");
+			const second = tailSystemOutbox(
+				dir,
+				first.cursor,
+				first.belowCount,
+				"2026-07-13T00:00:01Z",
+				first.belowHash,
+			);
 			expect(second.anomaly).toBe(true);
-			expect(second.emissions.map((e) => e.dimensions?.["file"])).toContain("150-derek.json");
+			expect(second.emissions.map((e) => e.dimensions?.["file_ref"])).toContain(
+				sourceCursorRef("150-derek.json"),
+			);
 			expect(second.belowCount).toBe(2);
 			// next poll is quiet again — the anomaly is not re-triggered
-			const third = tailSystemOutbox(dir, second.cursor, second.belowCount, "2026-07-13T00:00:02Z");
+			const third = tailSystemOutbox(
+				dir,
+				second.cursor,
+				second.belowCount,
+				"2026-07-13T00:00:02Z",
+				second.belowHash,
+			);
 			expect(third.anomaly).toBe(false);
 			expect(third.emissions).toHaveLength(0);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("detects prune plus late insert even when the below-cursor count is unchanged", () => {
+		const dir = makeOutbox({
+			"100-old.json": { sender: "shawn", body: "old" },
+			"200-current.json": { sender: "shawn", body: "current" },
+		});
+		try {
+			const first = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
+			rmSync(join(dir, "sent", "100-old.json"));
+			writeFileSync(
+				join(dir, "sent", "150-late.json"),
+				JSON.stringify({ sender: "derek", body: "late" }),
+			);
+			const second = tailSystemOutbox(
+				dir,
+				first.cursor,
+				first.belowCount,
+				"2026-07-13T00:00:01Z",
+				first.belowHash,
+			);
+			expect(second.belowCount).toBe(first.belowCount);
+			expect(second.anomaly).toBe(true);
+			expect(second.emissions.map((e) => e.dimensions?.["file_ref"])).toContain(
+				sourceCursorRef("150-late.json"),
+			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -173,7 +215,7 @@ describe("system-outbox tailer", () => {
 		try {
 			const { emissions, losses } = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
 			expect(emissions).toHaveLength(1); // the symlink is skipped, the real file is read
-			expect(emissions[0]?.dimensions?.["file"]).toBe("200-real.json");
+			expect(emissions[0]?.dimensions?.["file_ref"]).toBe(sourceCursorRef("200-real.json"));
 			expect(losses).toEqual([{ file: "100-link.json", reason: "non_regular" }]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });

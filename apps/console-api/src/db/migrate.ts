@@ -155,10 +155,12 @@ const STATEMENTS: readonly string[] = [
 	// restart resumes; deterministic emission ids make re-processing safe regardless).
 	`create table if not exists bridge_cursor (
 	   source      text primary key,
-	   cursor      text not null default '',
-	   below_count integer not null default 0,
-	   updated_at  timestamptz not null default now()
+		   cursor      text not null default '',
+		   below_count integer not null default 0,
+		   below_hash  text not null default '',
+		   updated_at  timestamptz not null default now()
 		 )`,
+	`alter table bridge_cursor add column if not exists below_hash text not null default ''`,
 
 	`create table if not exists bridge_dead_letter (
 		   source          text not null,

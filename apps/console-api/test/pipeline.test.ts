@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import { buildServices, type Services } from "../src/app.ts";
 import { Bridge } from "../src/bridge/index.ts";
+import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
 import { migrate } from "../src/db/migrate.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
@@ -590,7 +591,7 @@ describe("bridge end-to-end (N1b-3 — bot-spam into the bus)", () => {
 		const dir = mkdtempSync(join(tmpdir(), "e2e-poison-outbox-"));
 		mkdirSync(join(dir, "sent"), { recursive: true });
 		writeFileSync(
-			join(dir, "sent", "990-poison.json"),
+			join(dir, "sent", "990-ghp_abcdefghijklmnopqrstuvwxyz.json"),
 			JSON.stringify({
 				sender: "shawn",
 				body: "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz",
@@ -605,14 +606,16 @@ describe("bridge end-to-end (N1b-3 — bot-spam into the bus)", () => {
 				systemOutboxDir: dir,
 			});
 			await bridge.pollOnce("2026-07-13T00:01:00Z");
+			const validRef = sourceCursorRef("991-valid.json");
+			const poisonRef = sourceCursorRef("990-ghp_abcdefghijklmnopqrstuvwxyz.json");
 			const valid = await services.db
-				.admin`select count(*)::int n from events where dimensions->>'file' = '991-valid.json'`;
+				.admin`select count(*)::int n from events where dimensions->>'file_ref' = ${validRef}`;
 			expect(valid[0]?.["n"]).toBe(1);
 			const dead = await services.db
-				.admin`select error_code from bridge_dead_letter where source_cursor = '990-poison.json'`;
+				.admin`select error_code from bridge_dead_letter where source_cursor = ${poisonRef}`;
 			expect(dead[0]?.["error_code"]).toBe("secret_detected");
 			const gap = await services.db
-				.admin`select count(*)::int n from events where type='bridge.gap_detected' and dimensions->>'source_cursor'='990-poison.json'`;
+				.admin`select count(*)::int n from events where type='bridge.gap_detected' and dimensions->>'source_cursor'=${poisonRef}`;
 			expect(gap[0]?.["n"]).toBe(1);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
