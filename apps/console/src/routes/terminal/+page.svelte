@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { runOp } from "$lib/api/client";
+	import {
+		connectTerminal,
+		terminalAttach,
+		terminalDetach,
+		terminalInput,
+		type TerminalFrame,
+	} from "$lib/api/client";
 	import { opDef } from "$lib/api/ops";
 	import type { HeartbeatItem } from "$lib/api/types";
 	import Icon from "$lib/components/Icon.svelte";
@@ -23,7 +29,12 @@
 	let keyboardViewport = $state(false);
 	let now = $state(Date.now());
 	let auditOrigin = $state<HTMLButtonElement | null>(null);
-	const detach = opDef("term.detach")!;
+	let terminalLines = $state<string[]>([]);
+	let frameSeq = $state(0);
+	let stopFrames: (() => void) | null = null;
+	let inputQueue = Promise.resolve();
+	const decoder = new TextDecoder();
+	const encoder = new TextEncoder();
 	const restart = opDef("agent.restart")!;
 	const stop = opDef("agent.stop")!;
 	const sessions = $derived(data.sessions.filter((session) => `${session.tmux_session} ${session.pane_id} ${session.host} ${session.handle}`.toLowerCase().includes(filter.toLowerCase())));
@@ -35,24 +46,43 @@
 		updateViewport();
 		const clock = globalThis.setInterval(() => now = Date.now(), 1000);
 		globalThis.addEventListener("resize", updateViewport);
-		return () => { globalThis.clearInterval(clock); globalThis.removeEventListener("resize", updateViewport); };
+		return () => { stopFrames?.(); globalThis.clearInterval(clock); globalThis.removeEventListener("resize", updateViewport); };
 	});
+	function frameData(frame: Extract<TerminalFrame, { kind: "snapshot" }>): string {
+		const raw = atob(frame.data_b64);
+		return decoder.decode(Uint8Array.from(raw, (character) => character.charCodeAt(0)));
+	}
+	function onTerminalFrame(frame: TerminalFrame) {
+		streamId = frame.stream_id;
+		frameSeq = frame.seq;
+		if (frame.kind === "open") streamState = "live";
+		else if (frame.kind === "snapshot") {
+			terminalLines = frameData(frame).split("\n");
+			streamState = "live";
+		} else streamState = "unavailable";
+	}
 
 	async function watch(session: HeartbeatItem) {
 		busy = true; active = session; mode = "read"; streamState = "connecting";
-		try {
-			const response = await runOp("term.watch", { host: session.host, tmux_session: session.tmux_session, pane_id: session.pane_id, scrollback_lines: 500 });
-			streamId = data.isMock ? `mock-${session.session_id}` : typeof response.result?.stream_id === "string" ? response.result.stream_id : null;
-			streamState = streamId ? "live" : "unavailable";
-			snackbar.push({ message: "term.watch sent", op: "term.watch", tone: "good" });
-		} catch (error) { streamState = "unavailable"; snackbar.push({ message: `term.watch failed: ${(error as Error).message}`, op: "term.watch", tone: "danger" }); }
-		finally { busy = false; }
+		terminalLines = []; frameSeq = 0; stopFrames?.(); stopFrames = null;
+		if (data.isMock) {
+			streamId = `mock-${session.session_id}`;
+			terminalLines = mockPtyLines;
+			streamState = "live";
+			busy = false;
+			return;
+		}
+		stopFrames = connectTerminal(
+			{ host: session.host, tmux_session: session.tmux_session!, pane_id: session.pane_id!, scrollback_lines: 500 },
+			(frame) => { onTerminalFrame(frame); busy = false; },
+			(error) => { busy = false; streamState = "unavailable"; snackbar.push({ message: `term.watch failed: ${error.message}`, op: "term.watch", tone: "danger" }); },
+		);
 	}
 	async function attachActive() {
 		if (!streamId) return;
 		busy = true;
 		try {
-			await runOp("term.attach", { stream_id: streamId });
+			if (!data.isMock) await terminalAttach(streamId);
 			mode = "write";
 			attachDialog?.close();
 			snackbar.push({ message: "term.attach sent", op: "term.attach", tone: "good" });
@@ -60,19 +90,41 @@
 			snackbar.push({ message: `term.attach failed: ${(error as Error).message}`, op: "term.attach", tone: "danger" });
 		} finally { busy = false; }
 	}
+	async function closeActive() {
+		const closingId = streamId;
+		if (closingId && !data.isMock) {
+			try { await terminalDetach(closingId); }
+			catch (error) { snackbar.push({ message: `term.detach failed: ${(error as Error).message}`, op: "term.detach", tone: "danger" }); }
+		}
+		stopFrames?.(); stopFrames = null; streamId = null; contained = false; active = null;
+	}
 	function release(event?: KeyboardEvent) { if (!event || (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "q")) { event?.preventDefault(); contained = false; } }
+	function terminalKey(event: KeyboardEvent) {
+		if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "q") { release(event); return; }
+		if (!contained || mode !== "write" || !streamId) return;
+		const special: Record<string, string> = { Enter: "\r", Tab: "\t", Backspace: "\x7f", Escape: "\x1b", ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D" };
+		let value = special[event.key] ?? (event.key.length === 1 ? event.key : "");
+		if (event.ctrlKey && event.key.length === 1) value = String.fromCharCode(event.key.toUpperCase().charCodeAt(0) & 31);
+		if (!value) return;
+		event.preventDefault();
+		if (data.isMock) return;
+		const id = streamId;
+		inputQueue = inputQueue.then(() => terminalInput(id, encoder.encode(value))).catch((error) => {
+			snackbar.push({ message: `term.input failed: ${(error as Error).message}`, op: "term.input", tone: "danger" });
+		});
+	}
 </script>
 
 {#if data.denied}
-	<section class="denied"><span><Icon name="square-terminal" size={64} /><Icon name="lock-keyhole" size={28} /></span><h1>Not with your key. Ask an admin.</h1><p>{data.isMock ? "This attempt was logged." : "No session details are disclosed."}</p></section>
+	<section class="denied"><span><Icon name="square-terminal" size={64} /><Icon name="lock-keyhole" size={28} /></span><h1>Not with your key. Ask an admin.</h1><p>This attempt was logged.</p></section>
 {:else if active}
-	<header class="sign"><h1 title="the Judge's Chambers">Terminal</h1><span>Chambers. Admins only. The Doorman logs everyone.</span><small>{active.host} · {active.tmux_session}:{active.pane_id}</small><button class="ghost" onclick={() => { active = null; streamId = null; contained = false; }}>Back to sessions</button></header>
+	<header class="sign"><h1 title="the Judge's Chambers">Terminal</h1><span>Chambers. Admins only. The Doorman logs everyone.</span><small>{active.host} · {active.tmux_session}:{active.pane_id}</small><button class="ghost" onclick={closeActive}>Back to sessions</button></header>
 	<section class="pty">
-		<header><code>{active.host} · {active.tmux_session}:{active.pane_id}</code><b>{active.handle ?? "resident"}</b>{#if mode === "read"}<StatusPill tone="idle" label="Read · watch only" />{/if}<div class="actions">{#if streamId && mode === "read"}<button class="tonal" disabled={!data.ptyLive || !data.auditWritable} onclick={() => attachDialog?.showModal()}>Attach</button>{/if}{#if streamId}<OpButton def={detach} args={{ stream_id: streamId }} lanes={data.lanes} executorLive={data.ptyLive} onfired={() => { active = null; streamId = null; }} />{/if}</div></header>
+		<header><code>{active.host} · {active.tmux_session}:{active.pane_id}</code><b>{active.handle ?? "resident"}</b>{#if mode === "read"}<StatusPill tone="idle" label="Read · watch only" />{/if}<div class="actions">{#if streamId && mode === "read"}<button class="tonal" disabled={!data.ptyLive || !data.auditWritable} onclick={() => attachDialog?.showModal()}>Attach</button>{/if}{#if streamId}<button class="ghost" onclick={closeActive}>Detach</button>{/if}</div></header>
 		{#if mode === "write"}<div class="ribbon"><Icon name="keyboard" size={15} /><b>Write · {data.adminName} at the keys · every keystroke is logged.</b></div>{/if}
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (terminal focus containment requires an application viewport) -->
-		<div class="viewport" role="application" aria-label={`${mode} terminal viewport`} tabindex="0" onfocus={() => contained = true} onkeydown={release}>{#if data.isMock && streamState === "live"}{#each mockPtyLines as line}<div>{line}{#if line.endsWith("$ ")}<span class="cursor"> </span>{/if}</div>{/each}{:else if streamState === "connecting"}<span class="muted">Connecting to {active.host} · {active.tmux_session}:{active.pane_id}</span>{:else}<span class="muted">PTY frame transport is unavailable. No prompt or scrollback is fabricated.</span>{/if}</div>
-		<footer><span>{streamState} · {streamId ?? "no stream id"}</span><span>scrollback {data.isMock ? mockPtyLines.length : 0} / 10,000</span>{#if contained}<span>keys go to the shell · Ctrl+Shift+Q releases</span><button class="ghost" onclick={() => release()}>Release</button>{/if}</footer>
+		<div class="viewport" role="application" aria-label={`${mode} terminal viewport`} tabindex="0" onfocus={() => contained = true} onkeydown={terminalKey}>{#if streamState === "live"}{#each terminalLines as line}<div>{line}{#if line.endsWith("$ ")}<span class="cursor"> </span>{/if}</div>{/each}{:else if streamState === "connecting"}<span class="muted">Connecting to {active.host} · {active.tmux_session}:{active.pane_id}</span>{:else}<span class="muted">PTY frame transport is unavailable. No prompt or scrollback is fabricated.</span>{/if}</div>
+		<footer><span>{streamState} · seq {frameSeq} · {streamId ?? "no stream id"}</span><span>scrollback {terminalLines.length} / 10,000</span>{#if contained}<span>keys go to the shell · Ctrl+Shift+Q releases</span><button class="ghost" onclick={() => release()}>Release</button>{/if}</footer>
 	</section>
 {:else}
 	<header class="sign"><h1 title="the Judge's Chambers">Terminal</h1><span>Chambers. Admins only. The Doorman logs everyone.</span><small>{data.sessions.length} live sessions · {data.auditWritable ? "audit current" : "audit unverified"}</small><code><Icon name="lock-keyhole" size={11} /> TERM_ADMIN · {data.grantName}</code></header>

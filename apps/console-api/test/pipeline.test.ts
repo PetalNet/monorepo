@@ -26,7 +26,12 @@ import { runStructured } from "../src/query/structured.ts";
 import { readEntity } from "../src/reads/entities.ts";
 import { readRoster, readExecutors } from "../src/reads/roster.ts";
 import { searchSemanticCorpus } from "../src/semantic/search.ts";
-import { buildServer, resolvedOpCapabilities, validateJsonSchema } from "../src/server.ts";
+import {
+	buildServer,
+	resolvedOpCapabilities,
+	validateJsonSchema,
+	type TerminalAdapter,
+} from "../src/server.ts";
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -172,6 +177,138 @@ beforeAll(async () => {
 afterAll(async () => {
 	await services?.close();
 	await temp?.stop();
+});
+
+describe("terminal server gate and frame transport (BR-014)", () => {
+	const principal = {
+		kind: "human",
+		id: "terminal-owner",
+		tiers: ["owner"],
+		lanes: ["viewer", "editor", "operator", "admin", "term_admin"],
+		scopes: ["fleet"],
+	};
+	const headers = {
+		"content-type": "application/json",
+		"x-dev-principal": JSON.stringify(principal),
+	};
+	const adapter: TerminalAdapter = {
+		async health() {
+			return true;
+		},
+		async capture() {
+			return Buffer.from("ready\n$ ");
+		},
+		async input() {},
+	};
+
+	it("returns 403 only after retaining a non-admin deep-link denial", async () => {
+		const server = await buildServer(services, true, undefined, null, adapter);
+		const deniedId = `terminal-viewer-${randomBytes(5).toString("hex")}`;
+		try {
+			const response = await server.inject({
+				method: "GET",
+				url: "/api/v1/terminal",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: deniedId,
+						tiers: [],
+						lanes: ["viewer"],
+						scopes: [],
+					}),
+				},
+			});
+			expect(response.statusCode).toBe(403);
+			expect(response.json().error.code).toBe("term_denied");
+			const retained = await services.db.admin<{ seq: string }[]>`
+				select seq from events
+				where type = 'term.denied' and dimensions->>'principal' = ${deniedId}`;
+			expect(retained).toHaveLength(1);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("commits watch audit before the first PTY capture/frame and audits attached input", async () => {
+		let auditWasVisibleAtCapture = false;
+		const inputs: Buffer[] = [];
+		const orderedAdapter: TerminalAdapter = {
+			async health() {
+				return true;
+			},
+			async capture() {
+				const rows = await services.db.admin`
+					select 1 from events
+					where type = 'term.watch' and dimensions->>'principal' = ${principal.id}`;
+				auditWasVisibleAtCapture = rows.length > 0;
+				return Buffer.from("first audited frame\n$ ");
+			},
+			async input(_target, data) {
+				inputs.push(data);
+			},
+		};
+		const server = await buildServer(services, true, undefined, null, orderedAdapter);
+		const origin = await server.listen({ host: "127.0.0.1", port: 0 });
+		const controller = new AbortController();
+		try {
+			const response = await fetch(`${origin}/api/v1/terminal/streams`, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					host: ".14",
+					tmux_session: "agents",
+					pane_id: "%12",
+					scrollback_lines: 500,
+				}),
+				signal: controller.signal,
+			});
+			expect(response.status).toBe(200);
+			const reader = response.body?.getReader();
+			expect(reader).toBeDefined();
+			let wire = "";
+			while (wire.split("\n").filter(Boolean).length < 2) {
+				const frame = await reader!.read();
+				wire += new TextDecoder().decode(frame.value);
+			}
+			const frames = wire
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line) as Record<string, unknown>);
+			expect(frames[0]).toMatchObject({ kind: "open", seq: 0, mode: "read" });
+			expect(typeof frames[0]?.["audit_seq"]).toBe("number");
+			expect(frames[1]).toMatchObject({ kind: "snapshot", seq: 1 });
+			expect(auditWasVisibleAtCapture).toBe(true);
+			const streamId = String(frames[0]?.["stream_id"]);
+
+			const attach = await fetch(`${origin}/api/v1/terminal/streams/${streamId}/attach`, {
+				method: "POST",
+				headers,
+				body: "{}",
+			});
+			expect(attach.status).toBe(200);
+			const input = await fetch(`${origin}/api/v1/terminal/streams/${streamId}/input`, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ data_b64: Buffer.from("x").toString("base64") }),
+			});
+			expect(input.status).toBe(200);
+			expect(inputs).toEqual([Buffer.from("x")]);
+			const inputAudit = await services.db.admin`
+				select 1 from events
+				where type = 'term.input' and dimensions->>'stream_id' = ${streamId}`;
+			expect(inputAudit).toHaveLength(1);
+
+			const detach = await fetch(`${origin}/api/v1/terminal/streams/${streamId}/detach`, {
+				method: "POST",
+				headers,
+				body: "{}",
+			});
+			expect(detach.status).toBe(200);
+		} finally {
+			controller.abort();
+			await server.close();
+		}
+	}, 30_000);
 });
 
 describe("emit pipeline", () => {
@@ -1034,6 +1171,31 @@ describe("live browser auth boundary", () => {
 			expect(denied.statusCode).toBe(403);
 			expect(denied.headers["access-control-allow-origin"]).toBeUndefined();
 			expect(denied.json().error.code).toBe("origin_denied");
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("adds the non-hierarchical terminal lane only for the dedicated Authentik group", async () => {
+		const server = await buildServer(services, false, undefined, browserAuth);
+		try {
+			const response = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				headers: {
+					"x-authentik-username": "parker",
+					"x-authentik-groups": "owner|term_admin",
+					"x-console-auth-proxy-nonce": proxyNonce,
+				},
+			});
+			expect(response.statusCode).toBe(200);
+			expect(response.json().lanes).toEqual([
+				"viewer",
+				"editor",
+				"operator",
+				"admin",
+				"term_admin",
+			]);
 		} finally {
 			await server.close();
 		}

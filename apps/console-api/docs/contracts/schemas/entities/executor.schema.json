@@ -15,6 +15,7 @@
 				"box-agent",
 				"edge",
 				"probe-runner",
+				"pty",
 				"console-api"
 			],
 			"description": "Which executor class this instance belongs to (the op catalog's `executor` field routes to one of these)."

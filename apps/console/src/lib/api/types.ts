@@ -132,6 +132,7 @@ export interface ExecutorItem extends Extra {
 		| "box-agent"
 		| "edge"
 		| "probe-runner"
+		| "pty"
 		| "console-api";
 	ref?: string | null;
 	liveness: "alive" | "suspect" | "down" | "unknown";
