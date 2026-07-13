@@ -6,6 +6,7 @@ import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/me/avatar_provider.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/people_presence.dart';
+import 'package:point_app/features/people/presentation/temp_share_sheet.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
@@ -24,6 +25,8 @@ import 'package:point_app/widgets/person_row.dart';
 /// People (spec 06): incoming requests pinned at top (accept / decline), then
 /// the active people — avatar, name, one-line status + last-updated — each
 /// tapping through to that person's detail.
+enum _PeopleAddAction { ongoing, temporary }
+
 class PeopleScreen extends ConsumerWidget {
   const PeopleScreen({super.key});
 
@@ -35,10 +38,15 @@ class PeopleScreen extends ConsumerWidget {
     final outgoingValue = ref.watch(outgoingRequestsControllerProvider);
     final requests = requestsValue.value ?? const <ShareRequest>[];
     final outgoing = outgoingValue.value ?? const <OutgoingShareRequest>[];
-    final temps = ref.watch(outgoingTempsProvider);
+    final outgoingTemps = ref.watch(outgoingTempsProvider);
+    final incomingTemps = ref.watch(incomingTempsProvider);
+    final incomingTempPeople = ref.watch(incomingTempPeopleProvider);
     final supplementalValues = [requestsValue, outgoingValue];
     final hasVisibleSupplementalData =
-        requests.isNotEmpty || outgoing.isNotEmpty || temps.isNotEmpty;
+        requests.isNotEmpty ||
+        outgoing.isNotEmpty ||
+        outgoingTemps.isNotEmpty ||
+        incomingTemps.isNotEmpty;
     final isInitialLoading =
         (peopleValue.isLoading && !peopleValue.hasValue) ||
         (people.isEmpty &&
@@ -84,10 +92,37 @@ class PeopleScreen extends ConsumerWidget {
                 : 'Requests, ${requests.length} pending',
             onPressed: openRequests,
           ),
-          IconButton(
+          PopupMenuButton<_PeopleAddAction>(
             icon: const Icon(Icons.person_add_alt),
-            tooltip: 'Add person',
-            onPressed: () => context.push(const AddPersonRoute()),
+            tooltip: 'Add or share',
+            onSelected: (action) {
+              switch (action) {
+                case _PeopleAddAction.ongoing:
+                  context.push(const AddPersonRoute());
+                case _PeopleAddAction.temporary:
+                  TempShareSheet.showForHandle(context);
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _PeopleAddAction.ongoing,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.people_outline),
+                  title: Text('Share ongoing'),
+                  subtitle: Text('You see each other'),
+                ),
+              ),
+              PopupMenuItem(
+                value: _PeopleAddAction.temporary,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.schedule),
+                  title: Text('Share temporarily'),
+                  subtitle: Text('They see you for a while'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -101,7 +136,9 @@ class PeopleScreen extends ConsumerWidget {
               people: people,
               requests: requests,
               outgoing: outgoing,
-              temps: temps.values.toList(),
+              outgoingTemps: outgoingTemps.values.toList(),
+              incomingTemps: incomingTemps,
+              incomingTempPeople: incomingTempPeople,
               isInitialLoading: isInitialLoading,
               hasInitialError: hasInitialError,
               hasRefreshError: hasRefreshError,
@@ -128,7 +165,9 @@ class _PeopleBody extends StatelessWidget {
     required this.people,
     required this.requests,
     required this.outgoing,
-    required this.temps,
+    required this.outgoingTemps,
+    required this.incomingTemps,
+    required this.incomingTempPeople,
     required this.isInitialLoading,
     required this.hasInitialError,
     required this.hasRefreshError,
@@ -141,7 +180,9 @@ class _PeopleBody extends StatelessWidget {
   final List<Person> people;
   final List<ShareRequest> requests;
   final List<OutgoingShareRequest> outgoing;
-  final List<TempShare> temps;
+  final List<TempShare> outgoingTemps;
+  final Map<String, TempShare> incomingTemps;
+  final List<Person> incomingTempPeople;
   final bool isInitialLoading;
   final bool hasInitialError;
   final bool hasRefreshError;
@@ -164,7 +205,8 @@ class _PeopleBody extends StatelessWidget {
                 when people.isEmpty &&
                     requests.isEmpty &&
                     outgoing.isEmpty &&
-                    temps.isEmpty =>
+                    outgoingTemps.isEmpty &&
+                    incomingTemps.isEmpty =>
               _RefreshableEmptyPeople(
                 hasRefreshError: hasRefreshError,
                 onRetry: onRefresh,
@@ -173,7 +215,9 @@ class _PeopleBody extends StatelessWidget {
               people: people,
               requests: requests,
               outgoing: outgoing,
-              temps: temps,
+              outgoingTemps: outgoingTemps,
+              incomingTemps: incomingTemps,
+              incomingTempPeople: incomingTempPeople,
               hasRefreshError: hasRefreshError,
               hasAvatarError: hasAvatarError,
               onRetry: onRefresh,
@@ -192,7 +236,9 @@ class _PeopleList extends StatelessWidget {
     required this.people,
     required this.requests,
     required this.outgoing,
-    required this.temps,
+    required this.outgoingTemps,
+    required this.incomingTemps,
+    required this.incomingTempPeople,
     required this.hasRefreshError,
     required this.hasAvatarError,
     required this.onRetry,
@@ -203,7 +249,9 @@ class _PeopleList extends StatelessWidget {
   final List<Person> people;
   final List<ShareRequest> requests;
   final List<OutgoingShareRequest> outgoing;
-  final List<TempShare> temps;
+  final List<TempShare> outgoingTemps;
+  final Map<String, TempShare> incomingTemps;
+  final List<Person> incomingTempPeople;
   final bool hasRefreshError;
   final bool hasAvatarError;
   final Future<void> Function() onRetry;
@@ -225,8 +273,17 @@ class _PeopleList extends StatelessWidget {
             count: outgoing.length,
             onOpenRequests: onOpenRequests,
           ),
-        if (temps.isNotEmpty) _TempSection(temps: temps, people: people),
-        if ((requests.isNotEmpty || outgoing.isNotEmpty || temps.isNotEmpty) &&
+        if (incomingTemps.isNotEmpty)
+          _IncomingTempSection(
+            temps: incomingTemps,
+            people: incomingTempPeople,
+          ),
+        if (outgoingTemps.isNotEmpty)
+          _TempSection(temps: outgoingTemps, people: people),
+        if ((requests.isNotEmpty ||
+                outgoing.isNotEmpty ||
+                outgoingTemps.isNotEmpty ||
+                incomingTemps.isNotEmpty) &&
             people.isNotEmpty)
           Divider(
             height: context.space.xl,
@@ -527,6 +584,85 @@ class _OutgoingRequestsSummary extends StatelessWidget {
       subtitle: const Text('Open to review or cancel'),
       trailing: const Icon(Icons.chevron_right),
       onTap: onOpenRequests,
+    );
+  }
+}
+
+/// Incoming one-way temp shares are recipient relationships, not mutual
+/// people. They remain visually separate and open a detail map backed by the
+/// sender's decrypted fix even when no permanent `user_shares` row exists.
+class _IncomingTempSection extends ConsumerWidget {
+  const _IncomingTempSection({required this.temps, required this.people});
+
+  final Map<String, TempShare> temps;
+  final List<Person> people;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final format = ref.watch(settingsProvider.select((s) => s.timeFormat));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            context.space.lg,
+            context.space.md,
+            context.space.lg,
+            context.space.sm,
+          ),
+          child: Text(
+            'SHARING WITH YOU',
+            style: context.text.labelMedium?.copyWith(
+              color: context.colors.onSurfaceVariant,
+            ),
+          ),
+        ),
+        for (final person in people)
+          Semantics(
+            button: true,
+            label:
+                '${person.displayName} is temporarily sharing their location with you',
+            child: ListTile(
+              minVerticalPadding: context.space.sm,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: context.space.lg,
+              ),
+              leading: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  InitialsAvatar(name: person.displayName, size: 48),
+                  Positioned(
+                    right: -4,
+                    bottom: -4,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: context.colors.inverseSurface,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(context.space.xxs),
+                        child: Icon(
+                          Icons.arrow_back,
+                          size: 14,
+                          color: context.colors.onInverseSurface,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              title: Text(person.displayName),
+              subtitle: Text(
+                'You can see them until '
+                '${clockHm(temps[person.userId]!.expiresAt.millisecondsSinceEpoch, format: format)}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push(PersonDetailRoute(person.userId)),
+            ),
+          ),
+      ],
     );
   }
 }

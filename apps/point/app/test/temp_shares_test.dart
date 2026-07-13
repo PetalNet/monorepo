@@ -1,15 +1,32 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:point_app/features/people/presentation/temp_share_sheet.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/api/models.dart';
+import 'package:point_app/services/auth_controller.dart';
+import 'package:point_app/theme/app_theme.dart';
+import 'package:point_app/theme/presence_tokens.dart';
+
+class _SignedInAuth extends AuthController {
+  @override
+  Future<Session?> build() async => const Session(
+    token: 'token',
+    userId: 'eli@point.dev',
+    displayName: 'Eli',
+    isAdmin: false,
+  );
+}
 
 void main() {
   final now = DateTime(2026, 7, 12, 12);
   TempShare mk(String from, String to, Duration fromNow) => TempShare(
-        id: '$from>$to',
-        fromUserId: from,
-        toUserId: to,
-        expiresAt: now.add(fromNow),
-      );
+    id: '$from>$to',
+    fromUserId: from,
+    toUserId: to,
+    expiresAt: now.add(fromNow),
+  );
 
   test('TempShare.fromJson parses direction + expiry', () {
     final t = TempShare.fromJson(const {
@@ -38,10 +55,121 @@ void main() {
     expect(myOutgoingTemps(rows, null, now), isEmpty);
   });
 
+  test('incoming and outgoing temporary relationships stay separate', () {
+    final rows = [
+      mk('me@point.dev', 'friend@point.dev', const Duration(hours: 1)),
+      mk('walker@remote.dev', 'me@point.dev', const Duration(minutes: 15)),
+      mk('stale@remote.dev', 'me@point.dev', const Duration(minutes: -1)),
+    ];
+
+    expect(
+      myOutgoingTemps(rows, 'me@point.dev', now).keys,
+      ['friend@point.dev'],
+    );
+    expect(
+      myIncomingTemps(rows, 'me@point.dev', now).keys,
+      ['walker@remote.dev'],
+    );
+  });
+
+  test('incoming temp identities exclude existing ongoing people', () {
+    final incoming = {
+      'mara@point.dev': mk(
+        'mara@point.dev',
+        'me@point.dev',
+        const Duration(hours: 1),
+      ),
+      'walker@remote.dev': mk(
+        'walker@remote.dev',
+        'me@point.dev',
+        const Duration(hours: 1),
+      ),
+    };
+    const ongoing = [
+      Person(
+        userId: 'mara@point.dev',
+        displayName: 'Mara',
+        presence: PresenceState.live,
+      ),
+    ];
+
+    final identities = tempOnlySenderIdentities(incoming, ongoing);
+
+    expect(identities, hasLength(1));
+    expect(identities.single.userId, 'walker@remote.dev');
+    expect(identities.single.displayName, 'walker');
+    expect(identities.single.subtitle, 'walker@remote.dev');
+  });
+
+  test('incoming temp-only sender resolves a decrypted recipient location', () {
+    final incoming = {
+      'walker@remote.dev': mk(
+        'walker@remote.dev',
+        'me@point.dev',
+        const Duration(hours: 1),
+      ),
+    };
+    final people = resolveIncomingTempPeople(
+      incoming: incoming,
+      ongoing: const [],
+      fixes: {
+        'walker@remote.dev': PeerFix(
+          userId: 'walker@remote.dev',
+          data: {
+            'lat': 41.8781,
+            'lon': -87.6298,
+            'timestamp': now.millisecondsSinceEpoch,
+          },
+        ),
+      },
+      serverPresence: const {},
+      now: now,
+      selfDomain: 'point.dev',
+    );
+
+    expect(people, hasLength(1));
+    expect(people.single.userId, 'walker@remote.dev');
+    expect(people.single.hasLocation, isTrue);
+    expect(people.single.lat, 41.8781);
+    expect(people.single.lon, -87.6298);
+    expect(people.single.subtitle, 'walker@remote.dev · now');
+  });
+
   test('computeShareTargets unions ongoing shares and temp targets', () {
     expect(
       computeShareTargets(['a@x', 'b@x'], ['b@x', 'temp@x']).toSet(),
       {'a@x', 'b@x', 'temp@x'},
     );
+  });
+
+  testWidgets('exact handle advances to an unmistakable one-way share', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [authControllerProvider.overrideWith(_SignedInAuth.new)],
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const Scaffold(body: TempShareSheet()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Share temporarily'), findsOneWidget);
+    expect(find.text("They see you. You don't see them."), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'walker@remote.dev');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Continue'));
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+
+    expect(find.text('Share with walker for a while'), findsOneWidget);
+    expect(
+      find.text("walker sees your live location. You won't see them."),
+      findsOneWidget,
+    );
+    expect(find.text('1 hour'), findsOneWidget);
   });
 }

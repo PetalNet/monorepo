@@ -11,6 +11,7 @@ import 'package:point_app/features/map/presentation/person_map_sheet.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/map/presentation/self_marker.dart';
 import 'package:point_app/features/people/people_presence.dart';
+import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/haptics.dart';
@@ -170,10 +171,10 @@ class _MapScreenState extends ConsumerState<MapScreen>
     // Only currently-LIVE people plot; dark people (stale last-known) and
     // location-off people don't get a live pin — their frozen last-known lives
     // in People/detail.
-    final located = ref
-        .watch(peopleWithPresenceProvider)
-        .where((p) => p.presence == PresenceState.live && p.hasLocation)
-        .toList();
+    final located = [
+      ...ref.watch(peopleWithPresenceProvider),
+      ...ref.watch(incomingTempPeopleProvider),
+    ].where((p) => p.presence == PresenceState.live && p.hasLocation).toList();
 
     return Scaffold(
       appBar: AppBar(

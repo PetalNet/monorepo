@@ -1,8 +1,12 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/people_presence.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
+import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
+import 'package:point_app/theme/presence_tokens.dart';
 
 /// Active temporary shares involving me, from the live server. Kept in sync by
 /// the relay (`share.temp_created` WS event) and refreshed on create/stop.
@@ -66,6 +70,65 @@ Map<String, TempShare> myOutgoingTemps(
   };
 }
 
+/// MY incoming, not-yet-expired temp shares, keyed by the person sharing with
+/// me. Keeping this separate from [myOutgoingTemps] preserves the one-way
+/// relationship instead of making a temp share look mutual in the UI.
+Map<String, TempShare> myIncomingTemps(
+  List<TempShare> all,
+  String? me,
+  DateTime now,
+) {
+  if (me == null) return const {};
+  return {
+    for (final t in all)
+      if (t.toUserId == me && t.expiresAt.isAfter(now)) t.fromUserId: t,
+  };
+}
+
+/// Resolve stable identities for incoming temp-only senders. The exact handle
+/// is authoritative; its local part is the honest fallback display name until
+/// a profile relationship exists. Existing ongoing people are excluded so a
+/// sender never appears twice.
+List<Person> tempOnlySenderIdentities(
+  Map<String, TempShare> incoming,
+  Iterable<Person> ongoing,
+) {
+  final ongoingIds = ongoing.map((person) => person.userId).toSet();
+  return [
+    for (final userId in incoming.keys)
+      if (!ongoingIds.contains(userId))
+        Person(
+          userId: userId,
+          displayName: userId.split('@').first,
+          presence: PresenceState.away,
+          subtitle: userId,
+        ),
+  ];
+}
+
+/// Resolve temp-only sender identities against decrypted relay state. This is
+/// intentionally pure so the privacy-critical transition from an API
+/// relationship to a visible recipient location is independently testable.
+List<Person> resolveIncomingTempPeople({
+  required Map<String, TempShare> incoming,
+  required Iterable<Person> ongoing,
+  required Map<String, PeerFix> fixes,
+  required Map<String, PeerPresence> serverPresence,
+  required DateTime now,
+  String? selfDomain,
+  TimeFormat timeFormat = TimeFormat.h24,
+}) => [
+  for (final person in tempOnlySenderIdentities(incoming, ongoing))
+    mergePresence(
+      person,
+      fixes[person.userId],
+      serverPresence: serverPresence[person.userId],
+      selfDomain: selfDomain,
+      now: now,
+      timeFormat: timeFormat,
+    ),
+];
+
 /// Everyone I should relay my location to: ongoing share ids ∪ outgoing temp
 /// targets. Pure.
 List<String> computeShareTargets(
@@ -80,6 +143,43 @@ final outgoingTempsProvider = Provider<Map<String, TempShare>>((ref) {
   final me = ref.watch(authControllerProvider).value?.userId;
   final now = ref.watch(presenceClockProvider).value ?? DateTime.now();
   return myOutgoingTemps(all, me, now);
+});
+
+/// MY active incoming temp shares, keyed by sender. The presence clock makes
+/// expiry remove the recipient-facing relationship without another API call.
+final incomingTempsProvider = Provider<Map<String, TempShare>>((ref) {
+  final all = ref.watch(tempSharesControllerProvider).value ?? const [];
+  final me = ref.watch(authControllerProvider).value?.userId;
+  final now = ref.watch(presenceClockProvider).value ?? DateTime.now();
+  return myIncomingTemps(all, me, now);
+});
+
+/// Incoming temp-only senders with the same decrypted live-location merge used
+/// for permanent people. This is the recipient-side presentation identity: it
+/// exists even when there is no `user_shares` row.
+final incomingTempPeopleProvider = Provider<List<Person>>((ref) {
+  final incoming = ref.watch(incomingTempsProvider);
+  if (incoming.isEmpty) return const [];
+  final ongoing = ref.watch(peopleWithPresenceProvider);
+  final live = ref.watch(livePresenceProvider);
+  final serverPresence = ref.watch(peerPresenceProvider);
+  final now = ref.watch(presenceClockProvider).value ?? DateTime.now();
+  final self = ref.watch(authControllerProvider).value?.userId;
+  final selfDomain = self != null && self.contains('@')
+      ? self.split('@').last
+      : null;
+  final timeFormat = ref.watch(settingsProvider.select((s) => s.timeFormat));
+  return resolveIncomingTempPeople(
+    incoming: incoming,
+    ongoing: ongoing,
+    fixes: {
+      for (final entry in live.entries) entry.key: entry.value.target,
+    },
+    serverPresence: serverPresence,
+    selfDomain: selfDomain,
+    now: now,
+    timeFormat: timeFormat,
+  );
 });
 
 /// Everyone I should relay my location to. `all` = ongoing shares ∪ active
