@@ -77,6 +77,7 @@
 					<OpButton
 						def={govAction}
 						args={{ handle: row.handle, action: row.autonomy === "paused" ? "restore" : "pause" }}
+						label={row.autonomy === "paused" ? "Restore" : "Pause"}
 						{lanes}
 						variant="ghost"
 					/>

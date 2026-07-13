@@ -4,10 +4,12 @@
 	import Icon from "$lib/components/Icon.svelte";
 	import RosterRow from "$lib/components/RosterRow.svelte";
 	import SurfaceSign from "$lib/components/SurfaceSign.svelte";
+	import { clockNow } from "$lib/stores/clock.svelte";
 
 	let { data } = $props();
 	const a = $derived(data.agents);
-	const now = Date.now();
+	// Live clock: countdowns tick and gone-quiet crosses its window without a refresh.
+	const now = $derived(clockNow());
 
 	let filter = $state("");
 	function match(rows: RosterItem[]): RosterItem[] {
