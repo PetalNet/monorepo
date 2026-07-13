@@ -30,6 +30,48 @@ class PeerFix {
   int? get timestamp => (data['timestamp'] as num?)?.toInt();
 }
 
+/// The server's privacy-filtered liveness signal for a peer. `online: false`
+/// deliberately carries no cause: ghosting, a dead phone, and lost signal all
+/// become the same neutral dark state in the presentation layer.
+class PeerPresence {
+  const PeerPresence({
+    required this.userId,
+    required this.online,
+    required this.observedAt,
+    this.battery,
+    this.activity,
+  });
+
+  factory PeerPresence.fromFrame(
+    Map<String, dynamic> frame, {
+    DateTime? observedAt,
+  }) {
+    final userId = frame['user_id'];
+    final online = frame['online'];
+    final serverObservedAt = frame['observed_at'];
+    if (userId is! String || userId.isEmpty || online is! bool) {
+      throw const FormatException('invalid presence.update');
+    }
+    return PeerPresence(
+      userId: userId,
+      online: online,
+      observedAt: serverObservedAt is num
+          ? DateTime.fromMillisecondsSinceEpoch(serverObservedAt.toInt())
+          : observedAt ?? DateTime.now(),
+      battery: frame['battery'] is num ? frame['battery'] as num : null,
+      activity: frame['activity'] is String
+          ? frame['activity'] as String
+          : null,
+    );
+  }
+
+  final String userId;
+  final bool online;
+  final DateTime observedAt;
+  final num? battery;
+  final String? activity;
+}
+
 /// Previous and target fixes for one live marker, including both the sender's
 /// sample time and our receipt time. The presentation layer owns interpolation;
 /// relay ordering remains based solely on the signed payload timestamp.
@@ -162,12 +204,22 @@ class RelayController {
   Future<void>? _identityGenerationReady;
   bool _generationRetryScheduled = false;
   final _peerFixes = StreamController<PeerFix>.broadcast();
+  final _peerPresenceUpdates =
+      StreamController<Map<String, PeerPresence>>.broadcast();
   final _syncRequests = StreamController<RealtimeSyncReason>.broadcast();
   final Map<String, int> _latestFixTimestamp = {};
+  final Map<String, PeerPresence> _peerPresenceByUser = {};
   final Map<String, Map<String, int>> _mailboxFailuresByUser = {};
 
   /// Decrypted peer fixes for the presence/map layer.
   Stream<PeerFix> get peerFixes => _peerFixes.stream;
+
+  /// Presence events received so far, including peers without a location fix.
+  Map<String, PeerPresence> get peerPresence =>
+      Map.unmodifiable(_peerPresenceByUser);
+
+  Stream<Map<String, PeerPresence>> get peerPresenceUpdates =>
+      _peerPresenceUpdates.stream;
 
   Stream<RealtimeSyncReason> get syncRequests => _syncRequests.stream;
 
@@ -241,6 +293,8 @@ class RelayController {
     _wsStateSub = ws.connectionStates.listen((state) {
       if (state == WsConnectionState.authenticated) {
         _requestSync(RealtimeSyncReason.wsAuthenticated);
+      } else if (state == WsConnectionState.disconnected) {
+        _clearPeerPresence();
       }
     });
     await ws.start(session.token);
@@ -402,6 +456,8 @@ class RelayController {
     switch (msg['type']) {
       case 'location.broadcast':
         await _onBroadcast(msg);
+      case 'presence.update':
+        _onPresenceUpdate(msg);
       case 'mls.message':
         _requestSync(RealtimeSyncReason.mailboxNotice);
       case 'share.request':
@@ -428,12 +484,41 @@ class RelayController {
           );
           _ref.read(peopleControllerProvider.notifier).removeLocally(peer);
           _ref.read(livePresenceProvider.notifier).remove(peer);
+          _peerPresenceByUser.remove(peer);
+          _emitPeerPresence();
         }
         _requestSync(RealtimeSyncReason.relayEvent);
       case 'share.temp_created':
         // Someone started a temp share to me (or the server confirmed mine).
         _requestSync(RealtimeSyncReason.relayEvent);
     }
+  }
+
+  void _onPresenceUpdate(Map<String, dynamic> frame) {
+    try {
+      final presence = PeerPresence.fromFrame(frame);
+      final current = _peerPresenceByUser[presence.userId];
+      if (current != null && presence.observedAt.isBefore(current.observedAt)) {
+        return;
+      }
+      _peerPresenceByUser[presence.userId] = presence;
+      _emitPeerPresence();
+    } on FormatException {
+      // Presence is advisory and unencrypted. Ignore malformed frames rather
+      // than allowing them to corrupt the trusted location state.
+    }
+  }
+
+  void _emitPeerPresence() {
+    if (!_peerPresenceUpdates.isClosed) {
+      _peerPresenceUpdates.add(Map.unmodifiable(_peerPresenceByUser));
+    }
+  }
+
+  void _clearPeerPresence() {
+    if (_peerPresenceByUser.isEmpty) return;
+    _peerPresenceByUser.clear();
+    _emitPeerPresence();
   }
 
   void _requestSync(RealtimeSyncReason reason) {
@@ -780,6 +865,7 @@ class RelayController {
 
   Future<void> _loadFixCursors(String userId) async {
     _latestFixTimestamp.clear();
+    _clearPeerPresence();
     try {
       final raw = await _storage.read(key: _fixCursorsKey(userId));
       if (raw == null) return;
@@ -851,11 +937,13 @@ class RelayController {
     _identityGenerationReady = null;
     _generationRetryScheduled = false;
     _latestFixTimestamp.clear();
+    _clearPeerPresence();
   }
 
   Future<void> dispose() async {
     await stop();
     await _peerFixes.close();
+    await _peerPresenceUpdates.close();
     await _syncRequests.close();
   }
 
@@ -1001,6 +1089,25 @@ class LivePresence extends Notifier<Map<String, PeerMarkerMotion>> {
 final livePresenceProvider =
     NotifierProvider<LivePresence, Map<String, PeerMarkerMotion>>(
       LivePresence.new,
+    );
+
+/// Live server presence keyed by peer id. The controller owns a snapshot so a
+/// provider created just after a frame still receives the latest state.
+class PeerPresences extends Notifier<Map<String, PeerPresence>> {
+  @override
+  Map<String, PeerPresence> build() {
+    final relay = ref.read(relayControllerProvider);
+    final sub = relay.peerPresenceUpdates.listen(
+      (presence) => state = presence,
+    );
+    ref.onDispose(sub.cancel);
+    return relay.peerPresence;
+  }
+}
+
+final peerPresenceProvider =
+    NotifierProvider<PeerPresences, Map<String, PeerPresence>>(
+      PeerPresences.new,
     );
 
 /// Persists the relay queue in secure storage, namespaced per user.

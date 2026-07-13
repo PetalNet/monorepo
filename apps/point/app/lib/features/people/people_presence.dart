@@ -67,34 +67,53 @@ final presenceClockProvider = StreamProvider<DateTime>(
   ),
 );
 
-/// Merge a [Person] with their latest live decrypted [PeerFix], classifying
-/// presence by freshness:
+/// Merge a [Person] with server liveness and their latest decrypted [PeerFix].
+/// The privacy-safe state table is:
+/// - server offline ⇒ `stale` immediately, regardless of fix freshness;
+/// - server online + no fix ⇒ `live` but locationless;
 /// - fresh fix ⇒ `live`, located, status line (federated `@server` kept quiet);
 /// - stale fix (older than [darkAfter]) ⇒ `stale` = DARK: frozen last-known
 ///   coordinate retained but "Dark since HH:MM"; the map won't plot them live;
-/// - no fix ⇒ unchanged (accepted-but-not-yet-located, or long dark).
+/// - no server signal ⇒ fix freshness remains the conservative fallback.
 Person mergePresence(
   Person p,
   PeerFix? fix, {
+  PeerPresence? serverPresence,
   String? selfDomain,
   DateTime? now,
   TimeFormat timeFormat = TimeFormat.h24,
 }) {
-  if (fix == null) return p;
-  final lat = (fix.data['lat'] as num?)?.toDouble();
-  final lon = (fix.data['lon'] as num?)?.toDouble();
-  final ts = (fix.data['timestamp'] as num?)?.toInt();
-  if (lat == null || lon == null) return p;
   final at = now ?? DateTime.now();
-  final dark =
+  final lat = (fix?.data['lat'] as num?)?.toDouble();
+  final lon = (fix?.data['lon'] as num?)?.toDouble();
+  if (fix == null || lat == null || lon == null) {
+    if (serverPresence == null) return p;
+    final online = serverPresence.online;
+    return Person(
+      userId: p.userId,
+      displayName: p.displayName,
+      presence: online ? PresenceState.live : PresenceState.stale,
+      subtitle: online
+          ? 'Online · Waiting for location'
+          : 'Dark since ${clockHm(serverPresence.observedAt.millisecondsSinceEpoch, format: timeFormat)}',
+      distanceLabel: p.distanceLabel,
+    );
+  }
+  final ts = (fix.data['timestamp'] as num?)?.toInt();
+  final staleFix =
       ts != null &&
       at.difference(DateTime.fromMillisecondsSinceEpoch(ts)) > darkAfter;
+  final offline = serverPresence?.online == false;
+  final dark = offline || staleFix;
   final domain = p.userId.contains('@') ? p.userId.split('@').last : null;
   final federated =
       domain != null && selfDomain != null && domain != selfDomain;
   final String subtitle;
   if (dark) {
-    subtitle = 'Dark since ${clockHm(ts, format: timeFormat)}';
+    final darkAt = offline
+        ? serverPresence!.observedAt.millisecondsSinceEpoch
+        : ts!;
+    subtitle = 'Dark since ${clockHm(darkAt, format: timeFormat)}';
   } else {
     final ago = ts != null ? relativeSince(ts, now: at) : 'now';
     subtitle = federated ? '${p.userId} · $ago' : 'Sharing · $ago';
@@ -115,6 +134,7 @@ Person mergePresence(
 final peopleWithPresenceProvider = Provider<List<Person>>((ref) {
   final people = ref.watch(peopleControllerProvider).value ?? const <Person>[];
   final live = ref.watch(livePresenceProvider);
+  final serverPresence = ref.watch(peerPresenceProvider);
   final now = ref.watch(presenceClockProvider).value ?? DateTime.now();
   final self = ref.watch(authControllerProvider).value?.userId;
   final selfDomain = self != null && self.contains('@')
@@ -129,6 +149,7 @@ final peopleWithPresenceProvider = Provider<List<Person>>((ref) {
         mergePresence(
           p,
           live[p.userId]?.target,
+          serverPresence: serverPresence[p.userId],
           selfDomain: selfDomain,
           now: now,
           timeFormat: timeFormat,

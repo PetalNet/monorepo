@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
+import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
 import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
@@ -17,6 +18,7 @@ import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/api/point_api.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/src/rust/frb_generated.dart';
+import 'package:point_app/theme/presence_tokens.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 const _janet = Session(
@@ -273,6 +275,82 @@ void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     await RustLib.init();
+  });
+
+  test('presence.update is ordered and cleared on transport loss', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final api = _FakeApi();
+    final sockets = _WsHarness();
+    final container = _container(
+      api: api,
+      crypto: _NoopCrypto(),
+      sockets: sockets,
+    );
+    addTearDown(container.dispose);
+    await container.read(authControllerProvider.future);
+    final relay = container.read(relayControllerProvider);
+    await relay.start(_janet);
+    container.listen(peerPresenceProvider, (_, _) {});
+
+    sockets.channels.single.push({'type': 'auth.ok'});
+    sockets.channels.single.push({
+      'type': 'presence.update',
+      'user_id': _parkerId,
+      'online': true,
+      'observed_at': 2000,
+      'battery': 61,
+      'activity': 'walking',
+    });
+    await _waitFor(
+      () => container.read(peerPresenceProvider)[_parkerId]?.online ?? false,
+    );
+    final online = container.read(peerPresenceProvider)[_parkerId]!;
+    expect(online.battery, 61);
+    expect(online.activity, 'walking');
+
+    // A delayed frame from before the online transition cannot resurrect an
+    // older state after a snapshot/live-event race.
+    sockets.channels.single.push({
+      'type': 'presence.update',
+      'user_id': _parkerId,
+      'online': false,
+      'observed_at': 1000,
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(peerPresenceProvider)[_parkerId]?.online, isTrue);
+
+    sockets.channels.single.push({
+      'type': 'presence.update',
+      'user_id': _parkerId,
+      'online': false,
+      'observed_at': 3000,
+    });
+    await _waitFor(
+      () => container.read(peerPresenceProvider)[_parkerId]?.online == false,
+    );
+
+    const person = Person(
+      userId: _parkerId,
+      displayName: 'Parker',
+      presence: PresenceState.away,
+    );
+    final merged = mergePresence(
+      person,
+      PeerFix(
+        userId: _parkerId,
+        data: {
+          'lat': 41.88,
+          'lon': -87.63,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        },
+      ),
+      serverPresence: container.read(peerPresenceProvider)[_parkerId],
+    );
+    expect(merged.presence, PresenceState.stale);
+    expect(merged.hasLocation, isTrue);
+
+    await sockets.channels.single.closeFromServer();
+    await _waitFor(() => container.read(peerPresenceProvider).isEmpty);
   });
 
   test(
