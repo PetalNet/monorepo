@@ -68,6 +68,11 @@ in `ops.json.spec_name_aliases` (the catalog name is the wire name).
 | Bus     | Scoped subscribe over typed signals; authorized unconditional emit        | WebSocket (`/api/v1/bus/ws`, frames: `schemas/bus-frame.schema.json`) + HTTPS emit (`POST /api/v1/emit`) | fleet-event stream, backchannel-rpc events, dispatcher card lifecycle, the Matrix bot-spam this retires             |
 | Library | Rev3 item + link API: hybrid search, typed links, provenance, curation    | HTTPS JSON (`/api/v1/library/*`)                                                                         | tasks / artifacts / feed_items / projects converging into the one store                                             |
 
+Library item drill reads `GET /api/v1/library/items/:itemId`, scoped typed edges from
+`GET /api/v1/library/links?item_id=:itemId`, and transaction-time snapshots from
+`GET /api/v1/library/items/:itemId/history`. History entries are ordered newest first and carry
+`version`, `tx_from`, and the complete item envelope believed at that transaction.
+
 One service owns the surface: **`console-api`** (`apps/console-api`) — a gateway + substrate,
 not a re-implementation: commands route to their real executors, reads serve from the lake and
 the sources of truth. Blast radius, stated plainly: console-api down ⇒ every console surface is

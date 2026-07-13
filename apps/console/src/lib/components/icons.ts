@@ -25,6 +25,7 @@ import FlaskConical from "@lucide/svelte/icons/flask-conical";
 import Folder from "@lucide/svelte/icons/folder";
 import GitBranch from "@lucide/svelte/icons/git-branch";
 import Hammer from "@lucide/svelte/icons/hammer";
+import History from "@lucide/svelte/icons/history";
 import Image from "@lucide/svelte/icons/image";
 import Inbox from "@lucide/svelte/icons/inbox";
 import Kanban from "@lucide/svelte/icons/kanban";
@@ -111,6 +112,7 @@ export const ICONS = {
 	folder: Folder,
 	"git-branch": GitBranch,
 	hammer: Hammer,
+	history: History,
 	image: Image,
 	inbox: Inbox,
 	kanban: Kanban,

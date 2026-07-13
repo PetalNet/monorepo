@@ -44,6 +44,7 @@ import {
 	listDashboards,
 	loadDashboard,
 	readLibraryItem,
+	readLibraryItemHistory,
 	searchLibraryPaletteItems,
 	saveDashboard,
 	setHomeDashboard,
@@ -2565,6 +2566,19 @@ export async function buildServer(
 				},
 			})
 		);
+	});
+	app.get("/api/v1/library/items/:itemId/history", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const { itemId } = req.params as { itemId: string };
+		if (!/^[A-Za-z0-9:_-]{1,128}$/.test(itemId))
+			return reply.code(404).send({
+				error: {
+					code: "library_item_not_found",
+					message: "Library item not found",
+					retryable: false,
+				},
+			});
+		return libraryRead(reply, () => readLibraryItemHistory(services.db.app, p.scopes, itemId));
 	});
 	app.get("/api/v1/library/links", { preHandler: auth }, async (req, reply) => {
 		const p = req.principal as Principal;

@@ -714,6 +714,33 @@ export async function readLibraryItem(
 		: null;
 }
 
+export async function readLibraryItemHistory(
+	app: Sql,
+	scopes: readonly string[],
+	itemId: string,
+): Promise<Record<string, unknown>> {
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<
+			{ version: number; tx_from: string | Date; snapshot: LibraryItemRow }[]
+		>`select r.version, r.tx_from, r.snapshot
+	  from library_item_revisions r
+	  join library_items i on i.id = r.item_id
+	  where r.item_id = ${itemId}
+	  order by r.version desc`,
+	);
+	return {
+		schema_version: 1,
+		freshness: { source: "library-history", observed_at: new Date().toISOString(), window_s: 60 },
+		items: rows.map((row) => ({
+			version: row.version,
+			tx_from: iso(row.tx_from),
+			item: libraryItemEnvelope({ ...row.snapshot, rank: 0 }),
+		})),
+	};
+}
+
 const WORK_LIBRARY_STATUSES = new Set(["todo", "doing", "review", "done"]);
 const KNOWLEDGE_LIBRARY_STATUSES = new Set([
 	"draft",
