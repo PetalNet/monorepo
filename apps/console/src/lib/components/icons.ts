@@ -34,6 +34,7 @@ import LayoutDashboard from "@lucide/svelte/icons/layout-dashboard";
 import Library from "@lucide/svelte/icons/library";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import ListOrdered from "@lucide/svelte/icons/list-ordered";
+import LocateFixed from "@lucide/svelte/icons/locate-fixed";
 import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
 import Mail from "@lucide/svelte/icons/mail";
 import MailX from "@lucide/svelte/icons/mail-x";
@@ -69,6 +70,8 @@ import TrainFront from "@lucide/svelte/icons/train-front";
 import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 import UsersRound from "@lucide/svelte/icons/users-round";
 import X from "@lucide/svelte/icons/x";
+import ZoomIn from "@lucide/svelte/icons/zoom-in";
+import ZoomOut from "@lucide/svelte/icons/zoom-out";
 /**
  * Lucide icon registry. Every icon the shell uses is imported explicitly (keeps tree-shaking
  * honest) and mapped by its Lucide id so string-keyed callers (nav, fix_ops, signage) resolve
@@ -117,6 +120,7 @@ export const ICONS = {
 	library: Library,
 	"library-big": LibraryBig,
 	"list-ordered": ListOrdered,
+	"locate-fixed": LocateFixed,
 	"lock-keyhole": LockKeyhole,
 	mail: Mail,
 	"mail-x": MailX,
@@ -152,6 +156,8 @@ export const ICONS = {
 	"triangle-alert": TriangleAlert,
 	"users-round": UsersRound,
 	x: X,
+	"zoom-in": ZoomIn,
+	"zoom-out": ZoomOut,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

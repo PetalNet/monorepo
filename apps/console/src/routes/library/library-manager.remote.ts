@@ -1,6 +1,13 @@
 import { getRequestEvent, command, query } from "$app/server";
 import { env } from "$env/dynamic/public";
-import type { LibraryItemView, LibraryKind } from "$lib/data/library";
+import type { ExecutorItem, OpResult, ReadEnvelope } from "$lib/api/types";
+import {
+	mockLibrary,
+	readLiveLibrary,
+	type LibraryData,
+	type LibraryItemView,
+	type LibraryKind,
+} from "$lib/data/library";
 import { error } from "@sveltejs/kit";
 import { z } from "zod";
 
@@ -14,6 +21,32 @@ const messageSchema = z
 	})
 	.strict();
 const searchSchema = z.object({ query: z.string().trim().min(1).max(500) }).strict();
+const statusSchema = z
+	.object({
+		id: z.string().min(1).max(128),
+		status: z.enum([
+			"todo",
+			"doing",
+			"review",
+			"done",
+			"draft",
+			"verified-shared",
+			"superseded",
+			"invalidated",
+		]),
+		expected_version: z.number().int().positive(),
+	})
+	.strict();
+const statusResultSchema = z.object({
+	id: z.string(),
+	status: z.string(),
+	version: z.number().int().positive(),
+	conflict: z
+		.object({ values: z.array(z.string()).min(2) })
+		.passthrough()
+		.optional(),
+});
+export type LibraryStatusResult = z.infer<typeof statusResultSchema>;
 
 export interface LibraryManagerResult {
 	schema_version: 1;
@@ -91,6 +124,31 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 	return (await response.json()) as T;
 }
 
+/**
+ * The complete Library lens crosses one SvelteKit RPC boundary; the browser never reads the API
+ * directly.
+ */
+export const getLibrarySurface = query(async (): Promise<LibraryData> => {
+	if (isMock()) return mockLibrary;
+	const serverFetch: typeof fetch = (input, init) => {
+		const supplied = new Headers(init?.headers);
+		for (const [name, value] of forwardedHeaders())
+			if (!supplied.has(name)) supplied.set(name, value);
+		return getRequestEvent().fetch(input, { ...init, headers: supplied });
+	};
+	const [library, executors] = await Promise.all([
+		readLiveLibrary(serverFetch),
+		apiJson<ReadEnvelope<ExecutorItem>>("/executors").catch(() => null),
+	]);
+	return {
+		...library,
+		libraryExecutorLive:
+			executors?.items.some(
+				(executor) => executor.kind === "library" && executor.liveness === "alive",
+			) ?? false,
+	};
+});
+
 function relativeTime(value: string): string {
 	const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60_000));
 	if (minutes < 60) return `${String(minutes)}m`;
@@ -166,6 +224,33 @@ export const searchLibrary = query(
 			`/library/search?limit=100&q=${encodeURIComponent(searchQuery)}`,
 		);
 		return result.items.map(itemView);
+	},
+);
+
+/** Status movement uses the same named operation and audit line available to agents. */
+export const updateLibraryStatus = command(
+	statusSchema,
+	async (input): Promise<LibraryStatusResult> => {
+		if (isMock())
+			return { id: input.id, status: input.status, version: input.expected_version + 1 };
+		const result = await apiJson<OpResult>("/op", {
+			method: "POST",
+			headers: forwardedHeaders(true),
+			body: JSON.stringify({
+				schema_version: 1,
+				id: crypto.randomUUID(),
+				op: "library.item.update",
+				args: {
+					id: input.id,
+					patch: { status: input.status, expected_version: input.expected_version },
+				},
+				dry_run: false,
+			}),
+		});
+		void getLibrarySurface().refresh();
+		const parsed = statusResultSchema.safeParse(result.result);
+		if (!parsed.success) error(502, "Library returned an invalid status receipt");
+		return parsed.data;
 	},
 );
 

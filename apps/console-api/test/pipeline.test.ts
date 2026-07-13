@@ -3501,6 +3501,9 @@ describe("structured query", () => {
 			  now(), 990001)
 			on conflict (kind, subject) do update set state = excluded.state,
 			  observed_at = excluded.observed_at, seq = excluded.seq`;
+		await services.db.admin`
+			insert into grants (subject, relation, object, granted_by)
+			values ('binding-user', 'editor', ${`item:${visibleId}`}, 'test')`;
 		const server = await buildServer(services, true);
 		const headers = {
 			"x-dev-principal": JSON.stringify({
@@ -3613,6 +3616,55 @@ describe("structured query", () => {
 			expect(secondCapabilityPage.json().items[0].capability).not.toBe(
 				firstCapabilityPage.json().items[0].capability,
 			);
+
+			const editorHeaders = {
+				"x-dev-principal": JSON.stringify({
+					kind: "human",
+					id: "binding-user",
+					scopes: ["fleet", "user:binding-user"],
+					lanes: ["viewer", "editor"],
+				}),
+			};
+			const update = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers: editorHeaders,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "library.item.update",
+					args: { id: visibleId, patch: { status: "draft", expected_version: 1 } },
+					dry_run: false,
+				},
+			});
+			expect(update.statusCode, update.body).toBe(200);
+			expect(update.json()).toMatchObject({
+				ok: true,
+				result: { id: visibleId, status: "draft", version: 2 },
+				executor: { kind: "library", liveness: "alive" },
+			});
+			const conflict = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers: editorHeaders,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "library.item.update",
+					args: { id: visibleId, patch: { status: "superseded", expected_version: 1 } },
+					dry_run: false,
+				},
+			});
+			expect(conflict.statusCode, conflict.body).toBe(200);
+			expect(conflict.json()).toMatchObject({
+				ok: true,
+				result: {
+					id: visibleId,
+					status: "CONFLICT",
+					version: 3,
+					conflict: { values: ["draft", "superseded"] },
+				},
+			});
 		} finally {
 			await server.close();
 		}
