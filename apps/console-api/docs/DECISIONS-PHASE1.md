@@ -202,3 +202,13 @@ excluded.scope` to the update predicate so a mismatched-scope event is a no-op (
 ### Next
 
 N1b-2: tracker HTTP reader + /tasks /leases /agents /roster /executors + console-bridge crate.
+
+### N1b-1 codex re-review
+
+Codex re-review of the fixes: both **P0 confirmed resolved** (serialized projector + contiguous
+checkpoint; console_writer read-role rejected), and all four P1 + the P2 confirmed resolved. Two
+follow-ups it raised, fixed same-round: (P1) `pg_advisory_lock` is session-scoped but `#writer` is
+a pool — replaced with a transaction-scoped `pg_advisory_xact_lock` (auto-released, pool-safe),
+replay threads the tx handle; (P2) the `#tail` chain was unbounded — added a bounded in-flight
+queue (`#MAX_PENDING`) that drops a live apply under backpressure with an alarm, which is safe
+because the checkpoint only advances contiguously so a later replay refills the gap.

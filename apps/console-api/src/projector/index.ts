@@ -70,6 +70,12 @@ export class Projector {
 	// Serialize live applies (codex N1b-1 P0): fan-out arrives in seq order; applying one-at-a-time
 	// keeps the checkpoint contiguous so a crash never skips an unfinished seq.
 	#tail: Promise<unknown> = Promise.resolve();
+	// Bound the in-flight queue (codex N1b-1 P2): under a DB stall the chain would grow unboundedly.
+	// Dropping a live apply is SAFE — the checkpoint only advances contiguously, so it stops at the
+	// gap and a later replay refills it (events are durable in the lake); we alarm so the lag shows.
+	#pending = 0;
+	#backpressured = false;
+	static readonly #MAX_PENDING = 5000;
 
 	constructor(writer: Sql, alarm?: ProjectorAlarm) {
 		this.#writer = writer;
@@ -156,15 +162,32 @@ export class Projector {
 	 * checkpoint advances CONTIGUOUSLY — a crash never skips an unfinished seq (codex P0).
 	 */
 	onEvent(seq: number, e: Emission, receivedAt: string): void {
+		if (this.#pending >= Projector.#MAX_PENDING) {
+			if (!this.#backpressured) {
+				this.#backpressured = true;
+				this.#alarm(
+					"projection.backpressure",
+					e.subject,
+					`dropping live apply at seq ${String(seq)}; replay will refill`,
+				);
+			}
+			return; // safe: checkpoint stalls at the gap, a later replay refills it
+		}
+		this.#backpressured = false;
+		this.#pending += 1;
 		const run = this.#tail.then(async () => {
 			await this.#apply(this.#writer, seq, e, receivedAt);
 			// advance ONLY if the previous seq is already checkpointed (contiguous); a no-op otherwise.
 			await this.#writer`update projection_checkpoint set through_seq = ${seq}, updated_at = now()
 				where name = ${this.name} and through_seq = ${seq - 1}`;
 		});
-		this.#tail = run.catch((err: unknown) => {
-			this.#alarm("projection.apply_failed", e.subject, String(err));
-		});
+		this.#tail = run
+			.catch((err: unknown) => {
+				this.#alarm("projection.apply_failed", e.subject, String(err));
+			})
+			.finally(() => {
+				this.#pending -= 1;
+			});
 	}
 
 	async #apply(sql: Sql, seq: number, e: Emission, receivedAt: string): Promise<void> {
