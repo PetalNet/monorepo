@@ -2168,16 +2168,18 @@ dependencies = [
 
 [[package]]
 name = "openmls"
-version = "0.6.0"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f1295188c6665fb9e96466180ac0a919ef52b5861cf7e86523823661348a597"
+checksum = "692e9c6b7d725e53cc42d1fa870066770fd67df35cf1cfbbd047dc0355e06b67"
 dependencies = [
  "log",
- "openmls_traits",
+ "openmls_traits 0.4.1",
  "rayon",
  "serde",
- "thiserror 1.0.69",
+ "serde_bytes",
+ "thiserror 2.0.18",
  "tls_codec",
+ "zeroize",
 ]
 
 [[package]]
@@ -2187,7 +2189,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "465874276a4e2a3e391b25a464059a224c70c5c77ca1e3f595032bb310ab8984"
 dependencies = [
  "ed25519-dalek 2.2.0",
- "openmls_traits",
+ "openmls_traits 0.3.0",
  "p256",
  "rand 0.8.7",
  "serde",
@@ -2202,7 +2204,7 @@ checksum = "ea9cc9eb04ed97262fa96382d7dbf0adfebd5ecde7dbafc7070f9231dd9cf08b"
 dependencies = [
  "base64 0.13.1",
  "log",
- "openmls_traits",
+ "openmls_traits 0.3.0",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -2223,7 +2225,7 @@ dependencies = [
  "hpke-rs-crypto",
  "hpke-rs-rust-crypto",
  "openmls_memory_storage",
- "openmls_traits",
+ "openmls_traits 0.3.0",
  "p256",
  "rand 0.8.7",
  "rand_chacha 0.3.1",
@@ -2238,6 +2240,16 @@ name = "openmls_traits"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "443afa05406adc75fbfa0c3e04db93c5647b763861a474ae1aa8a99c362b80f8"
+dependencies = [
+ "serde",
+ "tls_codec",
+]
+
+[[package]]
+name = "openmls_traits"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e21d8877bacdbc407060df29bf59b145bb886a8fa0099b87ae8067a34b902a13"
 dependencies = [
  "serde",
  "tls_codec",
@@ -2414,7 +2426,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_memory_storage",
  "openmls_rust_crypto",
- "openmls_traits",
+ "openmls_traits 0.3.0",
  "rand 0.10.2",
  "serde",
  "serde_json",
@@ -3232,6 +3244,16 @@ checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
  "ordered-float",
  "serde",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
