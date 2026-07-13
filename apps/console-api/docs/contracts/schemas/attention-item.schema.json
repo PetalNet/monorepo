@@ -1,0 +1,103 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/attention-item.schema.json",
+	"title": "Attention item (one attention state for the whole lab)",
+	"description": "Created by attention rules over emissions; mutated ONLY via attention.ack/snooze/resolve (any channel \u2014 UI click, agent acting on a chat reply, auto-cleanup). Every mutation emits, so all channels see one truth. Incident collapse and flap damping live here, not in renderers. Consumers MUST ignore unknown fields. CREATION RULES (complete set, server-side): crashed/lockout heartbeats; p0 bus signals; blocker task-cards (requires_reply from agents); review-ready task transitions; requested-artifact completion; card.dead dead-letters; security_critical_count>0 update rows; delivery.failed; build-failed feed items (fix_ops = task.dispatch with pre-bound retry args). attention.resolve is IDEMPOTENT on id.",
+	"type": "object",
+	"required": ["schema_version", "id", "grade", "source", "subject", "summary", "ts", "scope"],
+	"additionalProperties": true,
+	"properties": {
+		"schema_version": {
+			"const": 1
+		},
+		"id": {
+			"type": "string"
+		},
+		"grade": {
+			"enum": ["p0", "blocker", "review", "artifact"],
+			"description": "Severity-first ordering: p0/cracks, then blockers (agent questions), then review-ready, then requested artifacts."
+		},
+		"source": {
+			"type": "string",
+			"description": "Originating rule/signal: heartbeat | bus:<type> | tracker | delivery | ..."
+		},
+		"subject": {
+			"type": "string",
+			"description": "Entity key (agent handle, host, service, task id)."
+		},
+		"summary": {
+			"type": "string",
+			"description": "Fact-first reason line (danger-grade copy carries no un-glossed lore)."
+		},
+		"ts": {
+			"type": "string",
+			"format": "date-time"
+		},
+		"scope": {
+			"type": "string",
+			"description": "ReBAC scope tag; whose attention this is."
+		},
+		"task_id": {
+			"type": ["integer", "null"]
+		},
+		"incident_key": {
+			"type": ["string", "null"],
+			"description": "source+subject+rolling-window collapse key; items sharing it render as one incident with children. Flap damping: stays open until quiet for the damping interval."
+		},
+		"fix_ops": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": ["op", "args"],
+				"additionalProperties": false,
+				"properties": {
+					"op": {
+						"type": "string"
+					},
+					"args": {
+						"type": "object"
+					}
+				}
+			},
+			"description": "Ops rendered as the inline ActionRow, WITH their args pre-bound server-side (no client-side derivation from subject)."
+		},
+		"acked_by": {
+			"type": ["string", "null"],
+			"description": "Principal id that claimed it; acked items dim + sort below new."
+		},
+		"snoozed_until": {
+			"type": ["string", "null"],
+			"format": "date-time"
+		},
+		"resolved_by": {
+			"type": ["string", "null"]
+		},
+		"resolved_via": {
+			"type": ["string", "null"],
+			"enum": ["ui", "agent", "auto", null]
+		},
+		"resolved_at": {
+			"type": ["string", "null"],
+			"format": "date-time"
+		},
+		"blast_radius": {
+			"type": ["object", "null"],
+			"additionalProperties": true,
+			"properties": {
+				"hosts": {
+					"type": "integer"
+				},
+				"residents": {
+					"type": "integer"
+				},
+				"leases_expiring_30m": {
+					"type": "integer"
+				},
+				"detail": {
+					"type": ["string", "null"]
+				}
+			},
+			"description": "Server-joined blast radius for host/service items (the named \u00a78 derivation, pre-joined like fix_ops)."
+		}
+	}
+}

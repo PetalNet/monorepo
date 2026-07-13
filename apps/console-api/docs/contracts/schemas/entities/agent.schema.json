@@ -1,0 +1,45 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/agent.schema.json",
+	"title": "Agent registry item (GET /agents)",
+	"description": "One fleet agent's identity + autonomy row. As-built source of truth: the tracker `agents` table (/home/docker/tasks/src/lib/server/db.js) — the ENFORCED side of lane/capability routing (claimNextForAgent/assignTaskToAgent look capabilities up here server-side). `capabilities` is a CSV of tags in the store; this read serves it as a string array. `active` and `autonomy` are stored as INTEGER/TEXT; served as boolean/enum. Identity converges to a Library item later; this read is stable across that migration (same fields, different backing store). Consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"handle": {
+			"type": "string",
+			"pattern": "^[a-z0-9][a-z0-9._-]*$",
+			"description": "Canonical lowercase agent id (primary key), e.g. 'glenn'."
+		},
+		"display_name": {
+			"type": "string",
+			"description": "Human-facing name; may be empty."
+		},
+		"host": {
+			"type": "string",
+			"description": "Which machine it runs on (advisory)."
+		},
+		"role": {
+			"type": "string",
+			"description": "Free-text role label."
+		},
+		"lane": {
+			"type": "string",
+			"description": "Coarse lane label (open|work|lab|...; advisory — capabilities is the real gate)."
+		},
+		"capabilities": {
+			"type": "array",
+			"items": { "type": "string" },
+			"description": "Capability tags the agent MAY work (the lane gate). CSV in the store; served as an array."
+		},
+		"autonomy": {
+			"enum": ["auto", "ask", "readonly", "paused"],
+			"description": "Autonomy mode. Advisory today except 'paused' (with active=false, treated as 'can work nothing' by claim/assign)."
+		},
+		"active": {
+			"type": "boolean",
+			"description": "false = retired/disabled -> claims nothing. Stored as INTEGER 0/1; served as boolean."
+		}
+	},
+	"required": ["handle", "lane", "capabilities", "autonomy", "active"],
+	"additionalProperties": true
+}

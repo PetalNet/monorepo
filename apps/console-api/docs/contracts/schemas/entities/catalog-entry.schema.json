@@ -1,0 +1,73 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/catalog-entry.schema.json",
+	"title": "Statistics catalog entry (GET /catalog)",
+	"description": "One registered emission/statistic type from the semantic layer — the Observability catalog browse and the dashboard-assistant's grounding corpus. Source of truth: the console-api semantic layer (CONSOLE-CONTRACTS.md section 3.2): types self-register on first emission (name, observed dimensions/measures, types, cardinality) — no manual registry. Rows are filtered to the caller: `scopes` lists only the scopes the CALLER may see this type in, and types entirely outside the caller's grant do not arrive. Filters: `type` (prefix/glob), `scope`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"type": {
+			"type": "string",
+			"description": "The emission type name (namespaced, e.g. 'host.disk.pct', 'card.posted')."
+		},
+		"first_seen": {
+			"type": "string",
+			"format": "date-time",
+			"description": "RFC 3339 UTC — when this type first self-registered (first emission observed)."
+		},
+		"last_emit": {
+			"type": ["string", "null"],
+			"format": "date-time",
+			"description": "RFC 3339 UTC — most recent emission of this type; null when registered but never re-observed (e.g. after a catalog import)."
+		},
+		"scopes": {
+			"type": "array",
+			"items": { "type": "string" },
+			"description": "Scopes this type has been observed in, FILTERED to the caller's readable scopes."
+		},
+		"dimensions": {
+			"type": "object",
+			"description": "Observed dimensions, keyed by dimension name.",
+			"additionalProperties": {
+				"type": "object",
+				"properties": {
+					"type": {
+						"enum": ["string", "boolean"],
+						"description": "Observed value type of the dimension."
+					},
+					"cardinality": {
+						"oneOf": [{ "enum": ["low", "medium", "high"] }, { "type": "null" }],
+						"description": "Observed distinct-value cardinality class; null while not yet classified."
+					}
+				},
+				"required": ["type"],
+				"additionalProperties": true
+			}
+		},
+		"measures": {
+			"type": "object",
+			"description": "Observed measures, keyed by measure name.",
+			"additionalProperties": {
+				"type": "object",
+				"properties": {
+					"kind": {
+						"oneOf": [{ "enum": ["gauge", "counter", "delta", "timestamp"] }, { "type": "null" }],
+						"description": "Measure semantics; null while not yet classified."
+					},
+					"unit": {
+						"type": ["string", "null"],
+						"description": "Unit label (e.g. 'pct', 'ms', 'tokens'); null when unknown/dimensionless."
+					}
+				},
+				"required": [],
+				"additionalProperties": true
+			}
+		},
+		"emit_rate_per_min": {
+			"type": ["number", "null"],
+			"minimum": 0,
+			"description": "Recent emission rate (per minute, trailing window); null when too sparse to estimate."
+		}
+	},
+	"required": ["type", "first_seen", "scopes", "dimensions", "measures"],
+	"additionalProperties": true
+}

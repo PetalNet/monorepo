@@ -1,0 +1,58 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/dashboard-item.schema.json",
+	"title": "Dashboard list item (GET /dashboards)",
+	"description": "One saved dashboard's LIST PROJECTION — the gallery/home picker row. Source of truth: Library items with kind 'artifact' carrying a dashboard payload ({layout, panels: PanelSpecV2[], query_refs}; CONSOLE-CONTRACTS.md sections 3.3 /dashboards and 9). This read is metadata only: full content (layout + panels) is fetched via the Library plane, GET /library/items/{id}. Saved/edited via dashboard.* ops (save, load, set_home, pin). Filters: `created_by`, `is_home`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"id": {
+			"type": "string",
+			"description": "Library item id — the key for GET /library/items/{id}."
+		},
+		"title": {
+			"type": "string",
+			"description": "Dashboard title."
+		},
+		"is_home": {
+			"type": "boolean",
+			"description": "true = this is the caller's home dashboard (dashboard.set_home)."
+		},
+		"kind": {
+			"const": "artifact",
+			"description": "Library item kind backing dashboards; always 'artifact' in this projection."
+		},
+		"created_by": {
+			"type": "string",
+			"description": "Principal id that created it (human or agent)."
+		},
+		"responsible_human": {
+			"type": ["string", "null"],
+			"description": "Human accountable for the dashboard (parker|elisha|...); null when unassigned."
+		},
+		"updated_at": {
+			"type": "string",
+			"format": "date-time",
+			"description": "RFC 3339 UTC — last save."
+		},
+		"panel_count": {
+			"type": "integer",
+			"minimum": 0,
+			"description": "Number of panels in the payload (list-view convenience; the panels themselves come via the Library plane)."
+		},
+		"scope": {
+			"type": "string",
+			"description": "Readable scope tag governing who sees this dashboard (ReBAC below the tools; rows outside the caller's grant do not arrive)."
+		}
+	},
+	"required": [
+		"id",
+		"title",
+		"is_home",
+		"kind",
+		"created_by",
+		"updated_at",
+		"panel_count",
+		"scope"
+	],
+	"additionalProperties": true
+}

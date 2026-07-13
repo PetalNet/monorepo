@@ -1,0 +1,55 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/query-result.schema.json",
+	"title": "stats.query result",
+	"type": "object",
+	"required": ["schema_version", "columns", "rows", "row_count", "freshness", "query_ref"],
+	"additionalProperties": true,
+	"properties": {
+		"schema_version": { "const": 1 },
+		"columns": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": ["name", "type"],
+				"additionalProperties": false,
+				"properties": {
+					"name": { "type": "string" },
+					"type": { "enum": ["string", "number", "boolean", "timestamp", "json"] }
+				}
+			}
+		},
+		"rows": { "type": "array", "items": { "type": "array" } },
+		"row_count": { "type": "integer" },
+		"execution_ms": { "type": ["number", "null"] },
+		"freshness": {
+			"type": "object",
+			"required": ["source", "observed_at"],
+			"additionalProperties": false,
+			"properties": {
+				"source": {
+					"type": "string",
+					"description": "lake | tracker | dispatcher | registry | heartbeat | bridge:<name>"
+				},
+				"observed_at": {
+					"type": "string",
+					"format": "date-time",
+					"description": "Newest underlying data point / snapshot time. Consumers compute staleness against the normative windows; the server never claims 'fresh'."
+				},
+				"window_s": {
+					"type": ["number", "null"],
+					"description": "The freshness window this source contracts to (30, 90, 300, ...)."
+				}
+			}
+		},
+		"query_ref": {
+			"type": "string",
+			"description": "Durable id of the executed query: provenance peek ('Show the math.'), PanelSpec v2 indirection, stat-binding target, re-run without recompile."
+		},
+		"truncated": {
+			"type": "boolean",
+			"default": false,
+			"description": "True when limit clipped the result; silent truncation is banned."
+		}
+	}
+}

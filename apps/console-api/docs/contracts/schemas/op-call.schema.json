@@ -1,0 +1,37 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/op-call.schema.json",
+	"title": "Op call (command plane request)",
+	"description": "One envelope for every mutation in the lab. Humans and agents call the identical op (named-op symmetry). Audit commits to the lake BEFORE the effect is acknowledged; if the audit write fails, the op does not run.",
+	"type": "object",
+	"required": ["schema_version", "id", "op", "args"],
+	"additionalProperties": false,
+	"properties": {
+		"schema_version": { "const": 1 },
+		"id": {
+			"type": "string",
+			"format": "uuid",
+			"description": "Client-minted idempotency key; re-send after network failure is safe."
+		},
+		"op": {
+			"type": "string",
+			"pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
+			"description": "Namespaced op name from ops.json (agent.restart, task.claim, attention.resolve, ...)."
+		},
+		"args": {
+			"type": "object",
+			"description": "Op-specific arguments; typed per ops.json entry (JSON Schema fragments, ajv-validated with format assertion ON)."
+		},
+		"task_id": { "type": ["integer", "null"] },
+		"reason": {
+			"type": ["string", "null"],
+			"maxLength": 2000,
+			"description": "Audited verbatim (render-time sanitized — treat as untrusted text; never paste secrets); required by ops that declare requires_reason."
+		},
+		"dry_run": {
+			"type": "boolean",
+			"default": false,
+			"description": "Validate + lane/authz check + executor liveness + intent audit (stamped dry_run), NO effect. Result carries status: applied with result.dry_run: true. The test affordance for ops whose real effect cannot run on disposables (ops.json testable: dry-run-only)."
+		}
+	}
+}

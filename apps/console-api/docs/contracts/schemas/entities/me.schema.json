@@ -1,0 +1,27 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/me.schema.json",
+	"title": "Caller identity (GET /me)",
+	"description": "The caller's own resolved identity: the server-stamped principal (../principal.schema.json \u2014 kind, id, tiers, lanes, scopes, zookie; NEVER trusted from the client) extended with display fields for the session chip. Returned as a single object, not a read-envelope page. Consumers MUST ignore unknown fields.",
+	"$comment": "principal.schema.json is additionalProperties: true (fixed board round 1), so this allOf composition validates cleanly.",
+	"allOf": [
+		{
+			"$ref": "../principal.schema.json"
+		},
+		{
+			"type": "object",
+			"properties": {
+				"display_name": {
+					"type": ["string", "null"],
+					"description": "Human-facing name for the session chip; null when none is configured."
+				},
+				"grant_name": {
+					"type": ["string", "null"],
+					"description": "The session chip's scope name \u2014 the human-readable name of the grant snapshot this principal was resolved under; null when unnamed."
+				}
+			},
+			"required": [],
+			"additionalProperties": true
+		}
+	]
+}

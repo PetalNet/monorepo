@@ -1,0 +1,7 @@
+{
+	"name": "@petalnet/console-api",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Lab Console backend (second pass): the four-plane contract surface (P0, docs only — service lands in Phase 1).",
+	"type": "module"
+}

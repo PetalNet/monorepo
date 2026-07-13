@@ -1,0 +1,55 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/fleet.schema.json",
+	"title": "Fleet status item (GET /fleet)",
+	"description": "One agent's latest fleet lifecycle snapshot, aggregated across boxes. As-built source of truth: fleet-event v1 (apps/manager/docs/contracts/schemas/fleet-event.schema.json), materialized as data/fleet/<handle>.json per box and bridged onto the bus/lake. Fields are the fleet-event v1 fields plus per-item `observed_at` (bridge receipt time — per-row freshness for cross-box aggregation, since one read mixes rows tailed from different machines). `offline` is NEVER served: producers only write alive|working|idle, and the consumer derives offline from staleness (>90s since updated_at/observed_at today). Producer pass-through fields (e.g. the producer's own schema_version) may appear; consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"handle": {
+			"type": "string",
+			"pattern": "^[a-z0-9][a-z0-9._-]*$",
+			"description": "Canonical lowercase agent handle (e.g. 'janet')."
+		},
+		"host": {
+			"type": ["string", "null"],
+			"description": "Machine label in canonical form: '.N' for lab dot-hosts, otherwise a plain hostname."
+		},
+		"event": {
+			"enum": ["session_start", "pre_tool", "post_tool", "stop"],
+			"description": "Which lifecycle hook produced the latest snapshot. v0 producers omit it; may be absent."
+		},
+		"status": {
+			"enum": ["alive", "working", "idle"],
+			"description": "Producer-reported status. 'offline' is derived by the consumer from staleness (>90s) and is never served."
+		},
+		"current_tool": {
+			"type": ["string", "null"],
+			"description": "Tool currently executing (e.g. 'Bash'); null unless status=working."
+		},
+		"task_id": {
+			"type": ["integer", "null"],
+			"description": "Tracker task the agent is currently working; null when no claimed task."
+		},
+		"session_id": {
+			"type": ["string", "null"],
+			"description": "The agent's Claude Code session id, when known."
+		},
+		"started_at": {
+			"type": "string",
+			"format": "date-time",
+			"description": "RFC 3339 UTC — when this agent session started."
+		},
+		"updated_at": {
+			"type": "string",
+			"format": "date-time",
+			"description": "RFC 3339 UTC — when the producer wrote this event. The offline/staleness derivation keys on this field."
+		},
+		"observed_at": {
+			"type": "string",
+			"format": "date-time",
+			"description": "RFC 3339 UTC — when the console-api bridge received/tailed this row (per-row freshness for cross-box aggregation; new in the console read, not in fleet-event v1)."
+		}
+	},
+	"required": ["handle", "status", "updated_at", "observed_at"],
+	"additionalProperties": true
+}
