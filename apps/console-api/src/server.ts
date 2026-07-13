@@ -10,6 +10,13 @@ import { buildServices, type Services } from "./app.ts";
 import { resolveBearer, devPrincipal, type Principal } from "./auth/principal.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
 import { loadEnv } from "./env.ts";
+import {
+	initExceptionMonitor,
+	inertExceptionMonitor,
+	reportSelfEmissionFailure,
+	sanitizedException,
+	type ExceptionMonitor,
+} from "./observability.ts";
 import type { ProjectionKind } from "./projector/index.ts";
 import { runStructured, QueryError, type QueryRequest } from "./query/structured.ts";
 import { readEntity } from "./reads/entities.ts";
@@ -23,9 +30,84 @@ declare module "fastify" {
 	}
 }
 
-export async function buildServer(services: Services, devAuth: boolean) {
+export async function buildServer(
+	services: Services,
+	devAuth: boolean,
+	monitor: ExceptionMonitor = inertExceptionMonitor,
+) {
 	const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
 	await app.register(websocket);
+	async function emitSelf(raw: Record<string, unknown>): Promise<void> {
+		try {
+			const outcome = await services.emit(
+				"system:console-api",
+				raw,
+				Buffer.byteLength(JSON.stringify(raw)),
+			);
+			if (!outcome.ok) reportSelfEmissionFailure(monitor, null, "rejected");
+		} catch (error) {
+			// If the lake itself is unavailable there is nowhere honest to persist this statistic; the
+			// exception channel is deliberately independent of the lake.
+			reportSelfEmissionFailure(monitor, error, "failed");
+		}
+	}
+	let requestSample = 0;
+	const requestStarted = new WeakMap<FastifyRequest, number>();
+	app.addHook("onRequest", async (req) => {
+		requestStarted.set(req, performance.now());
+	});
+	app.addHook("onResponse", async (req, reply) => {
+		// Successful self-observation is sampled 1:10; every failed request is retained. Only bounded
+		// metadata is captured — never Authorization, request bodies, term input, or response bodies.
+		requestSample += 1;
+		if (reply.statusCode < 400 && requestSample % 10 !== 0) return;
+		const raw = {
+			schema_version: 1 as const,
+			id: crypto.randomUUID(),
+			type: "console.api.request",
+			ts: new Date().toISOString(),
+			source: { service: "console-api", host: null, agent: null },
+			subject: "console-api",
+			subject_kind: "service" as const,
+			severity: reply.statusCode >= 500 ? ("danger" as const) : ("info" as const),
+			scope: "fleet",
+			dimensions: {
+				method: req.method,
+				route: req.routeOptions.url,
+				status: String(reply.statusCode),
+			},
+			measures: {
+				duration_ms: Math.max(
+					0,
+					performance.now() - (requestStarted.get(req) ?? performance.now()),
+				),
+			},
+		};
+		await emitSelf(raw);
+	});
+	app.setErrorHandler(async (error, req, reply) => {
+		monitor.captureException(sanitizedException(error));
+		const raw = {
+			schema_version: 1 as const,
+			id: crypto.randomUUID(),
+			type: "console.api.error",
+			ts: new Date().toISOString(),
+			source: { service: "console-api", host: null, agent: null },
+			subject: "console-api",
+			subject_kind: "service" as const,
+			severity: "danger" as const,
+			scope: "fleet",
+			dimensions: {
+				method: req.method,
+				route: req.routeOptions.url,
+				error_class: error instanceof Error ? error.constructor.name : "UnknownError",
+			},
+		};
+		await emitSelf(raw);
+		return reply.code(500).send({
+			error: { code: "internal_error", message: "internal server error", retryable: true },
+		});
+	});
 
 	async function auth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
 		const authz = req.headers.authorization;
@@ -319,8 +401,9 @@ export async function buildServer(services: Services, devAuth: boolean) {
 // entrypoint
 if (import.meta.url === `file://${process.argv[1]}`) {
 	const env = loadEnv();
+	const monitor = initExceptionMonitor(env.glitchtipDsn);
 	const services = await buildServices(env);
-	const server = await buildServer(services, env.devAuth);
+	const server = await buildServer(services, env.devAuth, monitor);
 	await server.listen({ host: env.host, port: env.port });
 	process.stdout.write(`console-api listening on ${env.host}:${String(env.port)}\n`);
 }

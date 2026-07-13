@@ -11,9 +11,11 @@ import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
 import { migrate } from "../src/db/migrate.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
+import { reportSelfEmissionFailure, type ExceptionMonitor } from "../src/observability.ts";
 import { runStructured } from "../src/query/structured.ts";
 import { readEntity } from "../src/reads/entities.ts";
 import { readRoster, readExecutors } from "../src/reads/roster.ts";
+import { buildServer } from "../src/server.ts";
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -114,7 +116,7 @@ beforeAll(async () => {
 	await seedBootstrap(admin);
 	// a test producer that may emit the test types into the scopes these tests exercise
 	await admin`insert into producer_registrations (subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)
-		values ('test:emitter', ${admin.json(["console-api", "bridge"])}, ${admin.json(["host", "iso", "test"])}, ${admin.json(["fleet", "user:*", "agent:*"])}, 'p0')
+		values ('test:emitter', ${admin.json(["console-api", "bridge"])}, ${admin.json(["host", "iso", "test", "audit"])}, ${admin.json(["fleet", "user:*", "agent:*"])}, 'p0')
 		on conflict (subject) do nothing`;
 	await admin.end();
 	services = await buildServices(
@@ -139,6 +141,52 @@ afterAll(async () => {
 });
 
 describe("emit pipeline", () => {
+	it("runs the lake as Timescale hypertables with a continuous one-minute rollup", async () => {
+		const hypertables = await services.db.admin<{ hypertable_name: string }[]>`
+			select hypertable_name
+			from timescaledb_information.hypertables
+			where hypertable_name in ('events', 'event_archive')
+			order by hypertable_name`;
+		expect(hypertables.map((row) => row.hypertable_name)).toEqual(["event_archive", "events"]);
+		const rollups = await services.db.admin<{ view_name: string }[]>`
+			select view_name from timescaledb_information.continuous_aggregates
+			where view_name = 'event_rollup_1m'`;
+		expect(rollups).toHaveLength(1);
+		const retentionJobs = await services.db.admin<{ hypertable_name: string }[]>`
+			select hypertable_name
+			from timescaledb_information.jobs
+			where proc_name = 'policy_retention'
+			  and hypertable_name in ('event_archive', 'event_rollup_1m')`;
+		expect(new Set(retentionJobs.map((row) => row.hypertable_name))).toEqual(
+			new Set(["event_archive", "event_rollup_1m"]),
+		);
+		const maintenanceJobs = await services.db.admin`
+			select 1 from timescaledb_information.jobs
+			where proc_schema = 'public' and proc_name = 'console_events_refresh_then_retain'`;
+		expect(maintenanceJobs).toHaveLength(1);
+	});
+
+	it("refreshes every recoverable rollup bucket before raw retention drops it", async () => {
+		const id = crypto.randomUUID();
+		const receivedAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+		const gates = await services.db.admin<{ seq: string }[]>`
+			insert into emission_ids (id, received_at) values (${id}, ${receivedAt}) returning seq`;
+		const seq = Number(gates[0]?.seq);
+		await services.db.admin`
+			insert into events
+				(seq, id, type, ts, received_at, source_service, subject, subject_kind, severity, scope)
+			values
+				(${seq}, ${id}, 'test.rollup_recovery', ${receivedAt}, ${receivedAt}, 'test',
+				 'rollup-recovery', 'service', 'info', 'fleet')`;
+		await services.db.admin.unsafe(`call console_events_refresh_then_retain(0, '{}'::jsonb)`);
+		const raw = await services.db.admin`select 1 from events where id = ${id}`;
+		expect(raw).toHaveLength(0);
+		const rolled = await services.db.admin`
+			select sum(event_count)::int as n from event_rollup_1m
+			where type = 'test.rollup_recovery'`;
+		expect(rolled[0]?.["n"]).toBe(1);
+	});
+
 	it("accepts a valid emission and returns a seq", async () => {
 		const r = await services.emit("test:emitter", emission(), 300);
 		expect(r.ok).toBe(true);
@@ -155,6 +203,39 @@ describe("emit pipeline", () => {
 		expect(second.seq).toBe(first.seq);
 		const count = await services.db.admin`select count(*)::int as n from events where id = ${e.id}`;
 		expect(count[0]?.["n"]).toBe(1);
+		const gates = await services.db.admin`
+			select count(*)::int as n from emission_ids where id = ${e.id}`;
+		expect(gates[0]?.["n"]).toBe(1);
+	});
+
+	it("archives contractual long-retention event classes atomically", async () => {
+		const e = emission({ type: "audit.probe" });
+		const result = await services.emit("test:emitter", e, 300);
+		expect(result.ok).toBe(true);
+		const archived = await services.db.admin`
+			select count(*)::int as n from event_archive where id = ${e.id}`;
+		expect(archived[0]?.["n"]).toBe(1);
+		// Simulate raw-retention expiry. Normal structured reads must still traverse the archive.
+		await services.db.admin`delete from events where id = ${e.id}`;
+		const query = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "audit.probe",
+			select: [{ field: "subject" }],
+		});
+		expect(query.rows.map((row) => row[0])).toContain(e.subject);
+	});
+
+	it("reruns the ordered migration without duplicating policies or losing data", async () => {
+		const historical = emission({ type: "audit.backfill" });
+		await services.emit("test:emitter", historical, 300);
+		await services.db.admin`delete from event_archive where id = ${historical.id}`;
+		await migrate(services.db.admin);
+		const rows = await services.db.admin`select count(*)::int as n from emission_ids`;
+		expect(Number(rows[0]?.["n"] ?? 0)).toBeGreaterThan(0);
+		const backfilled = await services.db.admin`
+			select count(*)::int as n from event_archive where id = ${historical.id}`;
+		expect(backfilled[0]?.["n"]).toBe(1);
 	});
 
 	it("denies an unregistered producer", async () => {
@@ -174,6 +255,67 @@ describe("emit pipeline", () => {
 			200,
 		);
 		expect(r.code).toBe("secret_detected");
+	});
+});
+
+describe("substrate observability", () => {
+	it("keeps a sanitized structured fallback when the exception channel is inert", () => {
+		const lines: string[] = [];
+		reportSelfEmissionFailure(
+			{
+				captureException() {},
+				async close() {
+					return true;
+				},
+			},
+			new Error("private database detail"),
+			"failed",
+			(line) => lines.push(line),
+		);
+		expect(lines).toHaveLength(1);
+		expect(JSON.parse(lines[0] ?? "{}")).toEqual({
+			level: "error",
+			service: "console-api",
+			event: "self_emission_failed",
+			error_class: "Error",
+		});
+		expect(lines[0]).not.toContain("private database detail");
+	});
+
+	it("sends exceptions to GlitchTip and a stack-free error statistic to the lake", async () => {
+		const captured: unknown[] = [];
+		const monitor: ExceptionMonitor = {
+			captureException(error) {
+				captured.push(error);
+			},
+			async close() {
+				return true;
+			},
+		};
+		const server = await buildServer(services, true, monitor);
+		server.get("/test/boom", async () => {
+			throw new Error("private failure detail");
+		});
+		try {
+			const response = await server.inject({
+				method: "GET",
+				url: "/test/boom",
+				headers: { authorization: "Bearer must-never-land" },
+			});
+			expect(response.statusCode).toBe(500);
+			expect(captured).toHaveLength(1);
+			expect(captured[0]).toBeInstanceOf(Error);
+			expect(String(captured[0])).not.toContain("private failure detail");
+			const rows = await services.db.admin<
+				{ dimensions: Record<string, unknown>; meta: Record<string, unknown> }[]
+			>`select dimensions, meta from events where type = 'console.api.error'
+				order by seq desc limit 1`;
+			expect(rows[0]?.dimensions["error_class"]).toBe("Error");
+			expect(JSON.stringify(rows[0])).not.toContain("private failure detail");
+			expect(JSON.stringify(rows[0])).not.toContain("must-never-land");
+		} finally {
+			await server.close();
+		}
 	});
 });
 

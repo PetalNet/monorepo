@@ -230,7 +230,7 @@ export async function runStructured(
 	const limit = Number.isFinite(rawLimit)
 		? Math.min(Math.max(1, Math.floor(rawLimit)), 100000)
 		: 1000;
-	let sqlText = `select ${selects.join(", ")} from events`;
+	let sqlText = `select ${selects.join(", ")} from lake_events`;
 	if (whereParts.length) sqlText += ` where ${whereParts.join(" and ")}`;
 	if (groupExprs.length) sqlText += ` group by ${groupExprs.join(", ")}`;
 	if (orderParts.length) sqlText += ` order by ${orderParts.join(", ")}`;
