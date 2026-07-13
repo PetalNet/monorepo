@@ -128,7 +128,7 @@ final peopleWithPresenceProvider = Provider<List<Person>>((ref) {
       _withDistance(
         mergePresence(
           p,
-          live[p.userId],
+          live[p.userId]?.target,
           selfDomain: selfDomain,
           now: now,
           timeFormat: timeFormat,

@@ -12,6 +12,9 @@ import 'package:point_app/features/people/presentation/temp_share_sheet.dart';
 import 'package:point_app/features/people/presentation/verify_sheet.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
+import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -80,13 +83,81 @@ class PersonDetailScreen extends ConsumerWidget {
 
 /// A fixed-height map focused on the person, or a calm placeholder when there's
 /// no recent location (dark / away / not yet located).
-class _FocusMap extends StatelessWidget {
+class _FocusMap extends ConsumerStatefulWidget {
   const _FocusMap({required this.person});
   final Person person;
 
   @override
+  ConsumerState<_FocusMap> createState() => _FocusMapState();
+}
+
+class _FocusMapState extends ConsumerState<_FocusMap>
+    with SingleTickerProviderStateMixin {
+  final _mapController = MapController();
+  late final AnimationController _cameraAnimation;
+  LatLng? _cameraFrom;
+  LatLng? _cameraTarget;
+  bool _mapReady = false;
+  bool _following = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _cameraAnimation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+    )..addListener(_onCameraTick);
+  }
+
+  @override
+  void dispose() {
+    _cameraAnimation.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  bool get _reducedMotion {
+    final preference = ref.read(settingsProvider).motion;
+    return preference == MotionPreference.reduced ||
+        (preference == MotionPreference.system &&
+            MediaQuery.disableAnimationsOf(context));
+  }
+
+  void _onCameraTick() {
+    final from = _cameraFrom;
+    final target = _cameraTarget;
+    if (!_mapReady || from == null || target == null) return;
+    final t = Curves.easeOutQuart.transform(_cameraAnimation.value);
+    _mapController.move(
+      _FocusLatLngTween(begin: from, end: target).lerp(t),
+      15,
+    );
+  }
+
+  void _followPosition(LatLng point) {
+    if (!_following || _cameraAnimation.isAnimating) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_mapReady || !_following) return;
+      _cameraAnimation.stop();
+      _mapController.move(point, _mapController.camera.zoom);
+    });
+  }
+
+  void _resumeFollowing(LatLng point) {
+    setState(() => _following = true);
+    if (!_mapReady || _reducedMotion) {
+      if (_mapReady) _mapController.move(point, 15);
+      return;
+    }
+    _cameraFrom = _mapController.camera.center;
+    _cameraTarget = point;
+    _cameraAnimation.forward(from: 0);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height * 0.42;
+    final person = widget.person;
     if (!person.hasLocation) {
       return SizedBox(
         height: height,
@@ -110,12 +181,19 @@ class _FocusMap extends StatelessWidget {
         children: [
           Positioned.fill(child: ColoredBox(color: context.colors.surface)),
           FlutterMap(
+            mapController: _mapController,
             options: MapOptions(
               initialCenter: point,
               initialZoom: 15,
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
+              onMapReady: () => _mapReady = true,
+              onPositionChanged: (_, hasGesture) {
+                if (!hasGesture || !_following) return;
+                _cameraAnimation.stop();
+                setState(() => _following = false);
+              },
             ),
             children: [
               TileLayer(
@@ -126,21 +204,87 @@ class _FocusMap extends StatelessWidget {
                 userAgentPackageName: 'dev.petalcat.point',
                 tileBuilder: (context, child, tile) => child,
               ),
-              MarkerLayer(
-                markers: [
-                  Marker(
-                    point: point,
-                    width: 96,
-                    height: 72,
-                    alignment: Alignment.topCenter,
-                    child: PresenceMarker(person: person),
-                  ),
-                ],
+              _AnimatedFocusMarkerLayer(
+                person: person,
+                motion: ref.watch(livePresenceProvider)[person.userId],
+                reducedMotion: _reducedMotion,
+                onPosition: _followPosition,
               ),
             ],
           ),
+          if (!_following)
+            Positioned(
+              right: context.space.md,
+              bottom: context.space.md,
+              child: FloatingActionButton.small(
+                heroTag: 'follow-${person.userId}',
+                tooltip: 'Follow ${person.displayName}',
+                onPressed: () => _resumeFollowing(point),
+                child: const Icon(Icons.near_me),
+              ),
+            ),
         ],
       ),
+    );
+  }
+}
+
+class _AnimatedFocusMarkerLayer extends StatelessWidget {
+  const _AnimatedFocusMarkerLayer({
+    required this.person,
+    required this.motion,
+    required this.reducedMotion,
+    required this.onPosition,
+  });
+
+  final Person person;
+  final PeerMarkerMotion? motion;
+  final bool reducedMotion;
+  final ValueChanged<LatLng> onPosition;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = LatLng(person.lat!, person.lon!);
+    final previous = motion?.previous;
+    final begin = previous?.lat == null || previous?.lon == null
+        ? target
+        : LatLng(previous!.lat!, previous.lon!);
+    return TweenAnimationBuilder<LatLng>(
+      tween: _FocusLatLngTween(begin: begin, end: target),
+      duration: motion?.duration(reducedMotion: reducedMotion) ?? Duration.zero,
+      curve: Curves.easeOutQuart,
+      builder: (context, point, child) {
+        onPosition(point);
+        return MarkerLayer(
+          markers: [
+            Marker(
+              point: point,
+              width: 96,
+              height: 72,
+              alignment: Alignment.topCenter,
+              child: child!,
+            ),
+          ],
+        );
+      },
+      child: PresenceMarker(person: person),
+    );
+  }
+}
+
+class _FocusLatLngTween extends Tween<LatLng> {
+  _FocusLatLngTween({required super.begin, required super.end});
+
+  @override
+  LatLng lerp(double t) {
+    final start = begin!;
+    final finish = end!;
+    final longitudeDelta =
+        (finish.longitude - start.longitude + 540) % 360 - 180;
+    final longitude = start.longitude + longitudeDelta * t;
+    return LatLng(
+      start.latitude + (finish.latitude - start.latitude) * t,
+      (longitude + 540) % 360 - 180,
     );
   }
 }
