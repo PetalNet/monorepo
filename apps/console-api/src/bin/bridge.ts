@@ -3,7 +3,13 @@
 // env (SYSTEM_OUTBOX_DIR). Remote boxes run their own per-box bridge (future Rust console-bridge).
 
 import { buildServices } from "../app.ts";
-import { Bridge } from "../bridge/index.ts";
+import {
+	Bridge,
+	DispatcherSqliteAdapter,
+	FleetSnapshotAdapter,
+	JsonlSpoolAdapter,
+	ManagerHeartbeatAdapter,
+} from "../bridge/index.ts";
 import { loadEnv } from "../env.ts";
 
 // Clamp to a sane finite interval: an unset/NaN/zero/negative value must not become a hot loop, and
@@ -19,10 +25,44 @@ const POLL_MS = pollMs(process.env["BRIDGE_POLL_MS"]);
 async function main(): Promise<void> {
 	const env = loadEnv();
 	const services = await buildServices(env, { migrate: false });
+	const adapters = [];
+	if (process.env["FLEET_SNAPSHOT_DIR"])
+		adapters.push(new FleetSnapshotAdapter(process.env["FLEET_SNAPSHOT_DIR"]));
+	if (process.env["MANAGER_HEARTBEAT_DIR"])
+		adapters.push(new ManagerHeartbeatAdapter(process.env["MANAGER_HEARTBEAT_DIR"]));
+	if (process.env["DISPATCHER_DB_PATH"])
+		adapters.push(new DispatcherSqliteAdapter(process.env["DISPATCHER_DB_PATH"]));
+	if (process.env["CONTROL_PLANE_OUTBOX_DIR"])
+		adapters.push(
+			new JsonlSpoolAdapter(
+				"control-plane",
+				"bridge:control-plane",
+				"control-plane",
+				process.env["CONTROL_PLANE_OUTBOX_DIR"],
+			),
+		);
+	if (process.env["BOX_AGENT_OUTBOX_DIR"])
+		adapters.push(
+			new JsonlSpoolAdapter(
+				"box-agent",
+				"bridge:box-agent",
+				"box-agent",
+				process.env["BOX_AGENT_OUTBOX_DIR"],
+			),
+		);
+	if (process.env["DOORMAN_OUTBOX_DIR"])
+		adapters.push(
+			new JsonlSpoolAdapter(
+				"doorman",
+				"bridge:doorman",
+				"doorman",
+				process.env["DOORMAN_OUTBOX_DIR"],
+			),
+		);
 	const bridge = new Bridge(
 		services.db.writer,
 		(subject, emission, bytes) => services.emit(subject, emission, bytes),
-		{ systemOutboxDir: process.env["SYSTEM_OUTBOX_DIR"] ?? undefined },
+		{ systemOutboxDir: process.env["SYSTEM_OUTBOX_DIR"] ?? undefined, adapters },
 	);
 	bridge.start(POLL_MS);
 	process.stdout.write(`console-api-bridge: polling every ${String(POLL_MS)}ms\n`);

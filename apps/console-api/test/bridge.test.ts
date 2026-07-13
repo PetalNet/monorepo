@@ -1,9 +1,16 @@
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { describe, it, expect } from "vitest";
 
+import {
+	DispatcherSqliteAdapter,
+	FleetSnapshotAdapter,
+	JsonlSpoolAdapter,
+	ManagerHeartbeatAdapter,
+} from "../src/bridge/index.ts";
 import { sourceCursorRef, tailSystemOutbox } from "../src/bridge/system-outbox.ts";
 import { uuidv5 } from "../src/bridge/uuid5.ts";
 
@@ -300,6 +307,269 @@ describe("system-outbox tailer", () => {
 			expect(result.emissions).toHaveLength(1);
 			expect(result.cursor).toBe("100-first.json");
 			expect(result.losses).toHaveLength(0);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("subsystem bridge adapters", () => {
+	it("tails fleet snapshots with deterministic ids and change-only cursors", () => {
+		const dir = mkdtempSync(join(tmpdir(), "console-fleet-"));
+		const path = join(dir, "janet.json");
+		const snapshot = {
+			schema_version: 1,
+			handle: "janet",
+			host: ".15",
+			event: "pre_tool",
+			status: "working",
+			task_id: 42,
+			updated_at: "2026-07-13T00:00:00Z",
+		};
+		writeFileSync(path, JSON.stringify(snapshot));
+		try {
+			const adapter = new FleetSnapshotAdapter(dir);
+			const first = adapter.poll("", "2026-07-13T00:00:01Z");
+			expect(adapter.producerSubject).toBe("bridge:fleet");
+			expect(first.emissions).toHaveLength(1);
+			expect(first.emissions[0]).toMatchObject({
+				type: "fleet.event.pre_tool",
+				subject: "janet",
+				task_id: 42,
+				scope: "fleet",
+			});
+			expect(adapter.poll(first.cursor, "2026-07-13T00:00:02Z").emissions).toHaveLength(0);
+			const restarted = adapter.poll("", "2026-07-13T00:00:03Z");
+			expect(restarted.emissions[0]?.id).toBe(first.emissions[0]?.id);
+			writeFileSync(
+				path,
+				JSON.stringify({ ...snapshot, event: "post_tool", status: "idle", task_id: null }),
+			);
+			expect(adapter.poll(first.cursor, "2026-07-13T00:00:04Z").emissions[0]?.type).toBe(
+				"fleet.event.post_tool",
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("samples unchanged manager keepalives at 15 seconds and emits state changes immediately", () => {
+		const dir = mkdtempSync(join(tmpdir(), "console-manager-"));
+		const path = join(dir, "janet-heartbeat.json");
+		const heartbeat = {
+			schema_version: 2,
+			handle: "janet",
+			state: "running",
+			io_ok: true,
+			crash_count: 0,
+			updated_at_epoch: 1_784_070_400,
+		};
+		writeFileSync(path, JSON.stringify(heartbeat));
+		try {
+			const adapter = new ManagerHeartbeatAdapter(dir);
+			const first = adapter.poll("", "2026-07-13T00:00:00Z");
+			writeFileSync(path, JSON.stringify({ ...heartbeat, updated_at_epoch: 1_784_070_401 }));
+			const oneSecond = adapter.poll(first.cursor, "2026-07-13T00:00:01Z");
+			expect(oneSecond.emissions).toHaveLength(0);
+			const keepalive = adapter.poll(oneSecond.cursor, "2026-07-13T00:00:15Z");
+			expect(keepalive.emissions[0]?.type).toBe("agent.heartbeat");
+			writeFileSync(
+				path,
+				JSON.stringify({ ...heartbeat, state: "crashed", updated_at_epoch: 1_784_070_416 }),
+			);
+			expect(adapter.poll(keepalive.cursor, "2026-07-13T00:00:16Z").emissions[0]).toMatchObject({
+				type: "agent.crashed",
+				severity: "danger",
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("tails subsystem JSONL spools, maps RPC envelopes, and skips stable poison", () => {
+		const dir = mkdtempSync(join(tmpdir(), "console-spool-"));
+		writeFileSync(
+			join(dir, "control-plane.jsonl"),
+			`${JSON.stringify({
+				schema_version: 1,
+				id: "11111111-2222-4333-8444-555555555555",
+				type: "event",
+				method: "governance.action",
+				agent: "janet",
+				ts: "2026-07-13T00:00:00Z",
+				payload: { action: "throttle", delay_ms: 60_000 },
+			})}\n{bad json}\n`,
+		);
+		try {
+			const adapter = new JsonlSpoolAdapter(
+				"control-plane",
+				"bridge:control-plane",
+				"control-plane",
+				dir,
+			);
+			const batch = adapter.poll("", "2026-07-13T00:00:01Z");
+			expect(batch.emissions[0]).toMatchObject({
+				type: "governance.action",
+				source: { service: "control-plane", agent: "janet" },
+				subject: "janet",
+				scope: "fleet",
+			});
+			expect(batch.losses).toEqual([{ cursor: "control-plane.jsonl:2", reason: "invalid_json" }]);
+			expect(adapter.poll(batch.cursor, "2026-07-13T00:00:02Z").emissions).toHaveLength(0);
+			writeFileSync(
+				join(dir, "control-plane.jsonl"),
+				`${JSON.stringify({
+					id: "22222222-3333-4444-8555-666666666666",
+					method: "fleet.mode",
+					agent: "janet",
+					ts: "2026-07-13T00:00:03Z",
+					payload: { mode: "sequential" },
+				})}\n`,
+				{ flag: "a" },
+			);
+			expect(adapter.poll(batch.cursor, "2026-07-13T00:00:03Z").emissions[0]?.type).toBe(
+				"fleet.mode",
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reads dispatcher card state through a fenced read-only SQLite cursor", () => {
+		const dir = mkdtempSync(join(tmpdir(), "console-dispatcher-"));
+		const path = join(dir, "dispatcher.db");
+		const db = new DatabaseSync(path);
+		db.exec(`create table cards (
+			card_id text primary key, task_id integer, sender text, sender_class text,
+			recipient text, priority integer, thread text, requires_reply integer,
+			interrupt_policy text, needs text, state text, claimed_by text, fence integer,
+			reaps integer, reply_to text, parent_id text, delivered integer, addressed integer,
+			created_at_ms integer, updated_at_ms integer
+		)`);
+		db.prepare(
+			`insert into cards values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		).run(
+			"card-1",
+			42,
+			"parker",
+			"principal",
+			"janet",
+			0,
+			null,
+			1,
+			"principal_command",
+			"[]",
+			"claimed",
+			"janet",
+			2,
+			0,
+			null,
+			null,
+			1,
+			1,
+			1_784_070_400_000,
+			1_784_070_401_000,
+		);
+		db.close();
+		try {
+			const adapter = new DispatcherSqliteAdapter(path);
+			const first = adapter.poll("", "2026-07-13T00:00:02Z");
+			expect(adapter.producerSubject).toBe("bridge:dispatcher");
+			expect(first.emissions[0]).toMatchObject({
+				type: "card.state_changed",
+				subject: "card-1",
+				task_id: 42,
+				severity: "danger",
+				dimensions: { state: "claimed", claimed_by: "janet" },
+			});
+			expect(adapter.poll(first.cursor, "2026-07-13T00:00:03Z").emissions).toHaveLength(0);
+			const concurrent = new DatabaseSync(path);
+			concurrent
+				.prepare(
+					`insert into cards values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				)
+				.run(
+					"card-0",
+					43,
+					"eli",
+					"principal",
+					"chidi",
+					1,
+					null,
+					0,
+					"defer",
+					"[]",
+					"posted",
+					null,
+					0,
+					0,
+					null,
+					null,
+					0,
+					1,
+					1_784_070_400_000,
+					1_784_070_401_000,
+				);
+			concurrent.close();
+			expect(adapter.poll(first.cursor, "2026-07-13T00:00:04Z").emissions[0]?.subject).toBe(
+				"card-0",
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("retries torn JSONL tails and replays same-length file replacements", () => {
+		const dir = mkdtempSync(join(tmpdir(), "console-spool-durability-"));
+		const path = join(dir, "janet.outbox.jsonl");
+		const envelope = {
+			id: "33333333-4444-4555-8666-777777777777",
+			method: "agent.capacity",
+			agent: "janet",
+			ts: "2026-07-13T00:00:00Z",
+			payload: { free_slots: 1 },
+		};
+		writeFileSync(path, JSON.stringify(envelope));
+		try {
+			const adapter = new JsonlSpoolAdapter("box-agent", "bridge:box-agent", "box-agent", dir);
+			const torn = adapter.poll("", "2026-07-13T00:00:01Z");
+			expect(torn.emissions).toHaveLength(0);
+			writeFileSync(path, "\n", { flag: "a" });
+			const completed = adapter.poll(torn.cursor, "2026-07-13T00:00:02Z");
+			expect(completed.emissions[0]?.type).toBe("agent.capacity");
+			writeFileSync(
+				path,
+				`${JSON.stringify({ ...envelope, id: "44444444-5555-4666-8777-888888888888", method: "worker.inventory" })}\n`,
+			);
+			const replaced = adapter.poll(completed.cursor, "2026-07-13T00:00:03Z");
+			expect(replaced.losses).toEqual([{ cursor: "janet.outbox.jsonl:1", reason: "cursor_reset" }]);
+			expect(replaced.emissions[0]?.type).toBe("worker.inventory");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("quarantines an oversized JSONL record and resumes at the following record", () => {
+		const dir = mkdtempSync(join(tmpdir(), "console-spool-oversize-"));
+		const path = join(dir, "janet.outbox.jsonl");
+		writeFileSync(
+			path,
+			`${JSON.stringify({ payload: "x".repeat(1024 * 1024) })}\n${JSON.stringify({
+				id: "55555555-6666-4777-8888-999999999999",
+				method: "agent.capacity",
+				agent: "janet",
+				ts: "2026-07-13T00:00:00Z",
+				payload: { free_slots: 2 },
+			})}\n`,
+		);
+		try {
+			const adapter = new JsonlSpoolAdapter("box-agent", "bridge:box-agent", "box-agent", dir);
+			const skipped = adapter.poll("", "2026-07-13T00:00:01Z");
+			expect(skipped.losses).toEqual([{ cursor: "janet.outbox.jsonl:1", reason: "oversize" }]);
+			expect(skipped.emissions).toHaveLength(0);
+			expect(adapter.poll(skipped.cursor, "2026-07-13T00:00:02Z").emissions[0]?.type).toBe(
+				"agent.capacity",
+			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
