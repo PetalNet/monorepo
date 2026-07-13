@@ -202,7 +202,7 @@ export class Projector {
 		const kind = projectionKind(e.type);
 		if (!kind) return;
 		// Aggregate-surface kinds must be `fleet`-scoped (codex P1): reject a non-fleet scope so a
-		// mis-stamped emission can never make aggregate state invisible to fleet viewers.
+		// wrongly-stamped emission can never make aggregate state invisible to fleet viewers.
 		if (AGGREGATE_KINDS.has(kind) && e.scope !== "fleet") {
 			this.#alarm(
 				"projection.bad_aggregate_scope",
