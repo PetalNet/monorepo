@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://petalcat.dev/schemas/console/attention-item.schema.json",
   "title": "Attention item (one attention state for the whole lab)",
-  "description": "Created by attention rules over emissions; mutated ONLY via attention.ack/snooze/resolve (any channel \u2014 UI click, agent acting on a chat reply, auto-cleanup). Every mutation emits, so all channels see one truth. Incident collapse and flap damping live here, not in renderers. Consumers MUST ignore unknown fields. CREATION RULES (complete set, server-side): crashed/lockout heartbeats; p0 bus signals; blocker task-cards (requires_reply from agents); review-ready task transitions; requested-artifact completion; card.dead dead-letters; security_critical_count>0 update rows; delivery.failed. attention.resolve is IDEMPOTENT on id.",
+  "description": "Created by attention rules over emissions; mutated ONLY via attention.ack/snooze/resolve (any channel \u2014 UI click, agent acting on a chat reply, auto-cleanup). Every mutation emits, so all channels see one truth. Incident collapse and flap damping live here, not in renderers. Consumers MUST ignore unknown fields. CREATION RULES (complete set, server-side): crashed/lockout heartbeats; p0 bus signals; blocker task-cards (requires_reply from agents); review-ready task transitions; requested-artifact completion; card.dead dead-letters; security_critical_count>0 update rows; delivery.failed; build-failed feed items (fix_ops = task.dispatch with pre-bound retry args). attention.resolve is IDEMPOTENT on id.",
   "type": "object",
   "required": [
     "schema_version",
@@ -122,6 +122,31 @@
         "null"
       ],
       "format": "date-time"
+    },
+    "blast_radius": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "hosts": {
+          "type": "integer"
+        },
+        "residents": {
+          "type": "integer"
+        },
+        "leases_expiring_30m": {
+          "type": "integer"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "description": "Server-joined blast radius for host/service items (the named \u00a78 derivation, pre-joined like fix_ops)."
     }
   }
 }

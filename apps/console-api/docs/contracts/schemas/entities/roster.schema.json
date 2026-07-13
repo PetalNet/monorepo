@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://petalcat.dev/schemas/console/entities/roster.schema.json",
   "title": "Roster item (GET /roster)",
-  "description": "Composite convenience view: one row per agent handle, a PURE SERVER-SIDE JOIN of fleet (fleet.schema.json) + heartbeats (heartbeat.schema.json) + registry (registry.schema.json) + agents (agent.schema.json) + governance (governance.schema.json) + leases (lease.schema.json) + workers (worker.schema.json) — provided so the Roster surface is ONE read instead of seven. No field is computed beyond the join: every field's staleness window is its SOURCE's window (fleet 90s, registry 90/300s, heartbeat per manager tick, etc.), and a null means that source has no row for the handle, never 'healthy'. Fields joined from a source keep that source's semantics verbatim. Consumers MUST ignore unknown fields.",
+  "description": "Composite convenience view: one row per agent handle, a PURE SERVER-SIDE JOIN of fleet (fleet.schema.json) + heartbeats (heartbeat.schema.json) + registry (registry.schema.json) + agents (agent.schema.json) + governance (governance.schema.json) + leases (lease.schema.json) + workers (worker.schema.json) \u2014 provided so the Roster surface is ONE read instead of seven. No field is computed beyond the join: every field's staleness window is its SOURCE's window (fleet 90s, registry 90/300s, heartbeat per manager tick, etc.), and a null means that source has no row for the handle, never 'healthy'. Fields joined from a source keep that source's semantics verbatim. Consumers MUST ignore unknown fields.",
   "type": "object",
   "properties": {
     "handle": {
@@ -11,80 +11,154 @@
       "description": "Canonical lowercase agent handle (the join key)."
     },
     "host": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Machine label, canonical form; from fleet/registry/agents (first non-null wins, sources agree by construction)."
     },
     "status": {
       "oneOf": [
-        { "enum": ["alive", "working", "idle"] },
-        { "type": "null" }
+        {
+          "enum": [
+            "alive",
+            "working",
+            "idle"
+          ]
+        },
+        {
+          "type": "null"
+        }
       ],
       "description": "Fleet status (fleet.status); null = no fleet row. offline stays consumer-derived from staleness."
     },
     "current_tool": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "From fleet.current_tool."
     },
     "task_id": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "description": "Tracker task currently worked (fleet.task_id / lease join)."
     },
     "task_title": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Title of task_id, joined from the tracker; null when no task."
     },
     "heartbeat_state": {
       "oneOf": [
-        { "enum": ["starting", "running", "rate_limited", "waiting", "crashed", "stopped"] },
-        { "type": "null" }
+        {
+          "enum": [
+            "starting",
+            "running",
+            "rate_limited",
+            "waiting",
+            "crashed",
+            "stopped"
+          ]
+        },
+        {
+          "type": "null"
+        }
       ],
       "description": "The supervising manager's heartbeat.state; null = no manager heartbeat row."
     },
     "crash_count": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "minimum": 0,
       "description": "From heartbeat.crash_count; null = no heartbeat row."
     },
     "channel_lock_state": {
       "oneOf": [
-        { "enum": ["held", "released", "lockout"] },
-        { "type": "null" }
+        {
+          "enum": [
+            "held",
+            "released",
+            "lockout"
+          ]
+        },
+        {
+          "type": "null"
+        }
       ],
       "description": "From heartbeat.channel_lock.state; null = no lock state reported."
     },
     "autonomy": {
       "oneOf": [
-        { "enum": ["auto", "ask", "readonly", "paused"] },
-        { "type": "null" }
+        {
+          "enum": [
+            "auto",
+            "ask",
+            "readonly",
+            "paused"
+          ]
+        },
+        {
+          "type": "null"
+        }
       ],
       "description": "From the agents registry; null = not in the agents table."
     },
     "lane": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "From the agents registry; null = not in the agents table."
     },
     "light": {
       "oneOf": [
-        { "enum": ["green", "yellow", "red"] },
-        { "type": "null" }
+        {
+          "enum": [
+            "green",
+            "yellow",
+            "red"
+          ]
+        },
+        {
+          "type": "null"
+        }
       ],
       "description": "Governance traffic light; null = no governance row for the handle."
     },
     "tokens_spent": {
-      "type": ["number", "null"],
+      "type": [
+        "number",
+        "null"
+      ],
       "description": "From governance.tokens_spent; null = no governance row."
     },
     "tier": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Current model tier (governance.tier); null = unreported."
     },
     "lease_expires_at": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "format": "date-time",
       "description": "From the agent's active lease (leasePublic); null = no active lease."
     },
     "fence": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "minimum": 0,
       "description": "From the agent's active lease; null = no active lease."
     },
@@ -96,14 +170,42 @@
     "updated_at": {
       "type": "string",
       "format": "date-time",
-      "description": "RFC 3339 UTC — the newest source-row update among the joined sources for this handle."
+      "description": "RFC 3339 UTC \u2014 the newest source-row update among the joined sources for this handle."
     },
     "observed_at": {
       "type": "string",
       "format": "date-time",
-      "description": "RFC 3339 UTC — when console-api assembled this row (join time; per-row freshness)."
+      "description": "RFC 3339 UTC \u2014 when console-api assembled this row (join time; per-row freshness)."
+    },
+    "fleet_updated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "The FLEET source's own clock \u2014 gone-quiet (>90s) derives from THIS, never the merged max."
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "Fleet started_at \u2014 now-playing elapsed derives from this."
+    },
+    "registry_last_seen_epoch": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Capacity-registry clock for stub rows (liveness 90/300s)."
     }
   },
-  "required": ["handle", "workers_active", "updated_at", "observed_at"],
+  "required": [
+    "handle",
+    "workers_active",
+    "updated_at",
+    "observed_at"
+  ],
   "additionalProperties": true
 }

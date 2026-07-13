@@ -33,7 +33,7 @@
     },
     "object": {
       "type": "string",
-      "description": "A scope tag (user:parker, project:console, fleet, restricted:health), an item ref (item:<id>), or an op namespace (op:agent.*)."
+      "description": "A scope tag (user:parker, project:console, fleet, restricted:health) or an item ref (item:<id>). (op:<ns> object form is RESERVED, unused in P0 \u2014 no authz rule references it.)"
     },
     "condition": {
       "type": [

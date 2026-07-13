@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://petalcat.dev/schemas/console/entities/task.schema.json",
   "title": "Task item (GET /tasks)",
-  "description": "One tracker task row — the full as-built row minus lease secrets. As-built source of truth: the `tasks` table + ensureColumns() additive columns in /home/docker/tasks/src/lib/server/db.js (the tasks app remains the single writer). claim_token (the lease capability secret) is scrubbed and NEVER served (db.js deepScrub / SECRET_COLS); claimed_by and lease_expires_at are NOT secrets and ship on purpose. Timestamps are stored as SQLite 'YYYY-MM-DD HH:MM:SS' UTC; the console read serves them normalized to RFC 3339 UTC. Filters: `status`, `project_id`, `assignee`, `since`, plus the shared limit/cursor. Consumers MUST ignore unknown fields.",
+  "description": "One tracker task row \u2014 the full as-built row minus lease secrets. As-built source of truth: the `tasks` table + ensureColumns() additive columns in /home/docker/tasks/src/lib/server/db.js (the tasks app remains the single writer). claim_token (the lease capability secret) is scrubbed and NEVER served (db.js deepScrub / SECRET_COLS); claimed_by and lease_expires_at are NOT secrets and ship on purpose. Timestamps are stored as SQLite 'YYYY-MM-DD HH:MM:SS' UTC; the console read serves them normalized to RFC 3339 UTC. Filters: `status`, `project_id`, `assignee`, `since`, plus the shared limit/cursor. Consumers MUST ignore unknown fields.",
   "type": "object",
   "properties": {
     "id": {
@@ -14,13 +14,23 @@
       "type": "string",
       "description": "task | idea | doc | question (as-built values; free TEXT column, treat unknown kinds as opaque)."
     },
-    "title": { "type": "string" },
+    "title": {
+      "type": "string"
+    },
     "body": {
       "type": "string",
       "description": "Markdown body; may be empty."
     },
     "status": {
-      "enum": ["inbox", "todo", "doing", "blocked", "review", "done", "dropped"],
+      "enum": [
+        "inbox",
+        "todo",
+        "doing",
+        "blocked",
+        "review",
+        "done",
+        "dropped"
+      ],
       "description": "Board status lane."
     },
     "priority": {
@@ -30,11 +40,17 @@
       "description": "0=P0 (highest) .. 3=P3."
     },
     "project_id": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "description": "Owning project (projects.id); null = unparented."
     },
     "parent_id": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "description": "Parent task for sub-task hierarchy; null = top-level."
     },
     "assignee": {
@@ -46,7 +62,10 @@
       "description": "Agent holding the active lease; empty = unclaimed. NOT a secret (the token is)."
     },
     "lease_expires_at": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "format": "date-time",
       "description": "RFC 3339 UTC lease expiry (reapable after); null/absent = no live lease."
     },
@@ -55,7 +74,11 @@
       "description": "Human-readable blocking note (the typed blocking graph lives in task_blockers, not on this row)."
     },
     "verification_status": {
-      "enum": ["unverified", "verified", "rejected"],
+      "enum": [
+        "unverified",
+        "verified",
+        "rejected"
+      ],
       "description": "Janet's verification of the worker's result against acceptance_criteria."
     },
     "suggested_agent": {
@@ -83,7 +106,10 @@
       "description": "Who created/owns it (authentik username; drives the private-visibility gate)."
     },
     "visibility": {
-      "enum": ["shared", "private"],
+      "enum": [
+        "shared",
+        "private"
+      ],
       "description": "private = owner-only for humans. The console serves rows per the caller's scope (ReBAC below the tools); agents' reads may see all per the tracker's trust boundary."
     },
     "handoff_context": {
@@ -102,7 +128,9 @@
       "type": "string",
       "description": "Why it closed (the 'why' ledger; required by the close tool, not yet by every status-edit path)."
     },
-    "created_by": { "type": "string" },
+    "created_by": {
+      "type": "string"
+    },
     "created_at": {
       "type": "string",
       "format": "date-time",
@@ -131,10 +159,13 @@
     },
     "body_alt": {
       "type": "string",
-      "description": "'Human version' — plain-english rewrite of body (reader toggle)."
+      "description": "'Human version' \u2014 plain-english rewrite of body (reader toggle)."
     },
     "max_children": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "description": "Runaway-delegation guard (default 5)."
     },
     "budget": {
@@ -152,6 +183,13 @@
     "source": {
       "type": "string",
       "description": "Provenance for sync upserts, e.g. 'corner:post:42'."
+    },
+    "project_title": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Joined project name (the BoardCard chip; no separate /projects read needed)."
     }
   },
   "required": [

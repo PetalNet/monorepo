@@ -20,29 +20,51 @@
         "observed_at": {
           "type": "string",
           "format": "date-time",
-          "description": "RFC 3339 UTC — when the served state was last observed/refreshed from its source of truth."
+          "description": "RFC 3339 UTC \u2014 when the served state was last observed/refreshed from its source of truth."
         },
         "window_s": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "description": "The staleness window (seconds) appropriate to this source, for client-side staleness derivation; null when the source has no defined window."
         }
       },
-      "required": ["source", "observed_at"],
+      "required": [
+        "source",
+        "observed_at"
+      ],
       "additionalProperties": true
     },
     "items": {
       "type": "array",
-      "description": "The page of entity items. Item shape = the entity schema for the endpoint (schemas/entities/<entity>.schema.json)."
+      "description": "The page of entity items. Item shape = the entity schema for the endpoint (schemas/entities/<entity>.schema.json). Item shape per endpoint: CI validates each endpoint with a composed schema (this envelope with items.items = the endpoint's entity schema, e.g. fleet.schema.json)."
     },
     "next_cursor": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Opaque pagination cursor; present (non-null) when more pages exist. Pass back verbatim as `cursor`. null = last page."
     },
     "total": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "description": "Total matching items across all pages when cheaply known; null when the source cannot count without a scan."
+    },
+    "truncated": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when limit or the server byte cap clipped the page \u2014 silent truncation is banned."
     }
   },
-  "required": ["schema_version", "freshness", "items", "next_cursor"],
+  "required": [
+    "schema_version",
+    "freshness",
+    "items",
+    "next_cursor"
+  ],
   "additionalProperties": true
 }

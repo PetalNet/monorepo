@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://petalcat.dev/schemas/console/entities/heartbeat.schema.json",
   "title": "Manager heartbeat item (GET /heartbeats)",
-  "description": "One MANAGER's heartbeat snapshot. Rows ARE manager heartbeats — one row per manager process; the 1 manager : 1 box : N agents grouping is by `host`. As-built source of truth: heartbeat v2 (apps/manager/docs/contracts/schemas/session-state.schema.json $defs/heartbeat, channel_lock per $defs/channelLock), rewritten every supervisor tick and bridged by console-api. Legacy writers that emit `schema: 1` are normalized server-side to this v2 shape. Epoch-seconds timestamps are retained from the as-built shape (`*_epoch`; 0 = never). `host` and `observed_at` are added by the aggregation, not written by the manager. Consumers MUST ignore unknown fields.",
+  "description": "One MANAGER's heartbeat snapshot. Rows ARE manager heartbeats \u2014 one row per manager process; the 1 manager : 1 box : N agents grouping is by `host`. As-built source of truth: heartbeat v2 (apps/manager/docs/contracts/schemas/session-state.schema.json $defs/heartbeat, channel_lock per $defs/channelLock), rewritten every supervisor tick and bridged by console-api. Legacy writers that emit `schema: 1` are normalized server-side to this v2 shape. Epoch-seconds timestamps are retained from the as-built shape (`*_epoch`; 0 = never). `host` and `observed_at` are added by the aggregation, not written by the manager. Consumers MUST ignore unknown fields.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -14,7 +14,10 @@
       "description": "Manager build version (cargo package version)."
     },
     "handle": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "pattern": "^[a-z0-9][a-z0-9._-]*$",
       "description": "Fleet handle of the SUPERVISED agent (the row is the manager's; this names who it manages). null for pre-v2 heartbeats that omit it."
     },
@@ -24,7 +27,14 @@
       "description": "Manager process id (valid on Windows too)."
     },
     "state": {
-      "enum": ["starting", "running", "rate_limited", "waiting", "crashed", "stopped"],
+      "enum": [
+        "starting",
+        "running",
+        "rate_limited",
+        "waiting",
+        "crashed",
+        "stopped"
+      ],
       "description": "Supervisor state machine state (manager-rs supervisor.rs::AgentState)."
     },
     "session_id": {
@@ -32,11 +42,17 @@
       "description": "The supervised Claude Code session id."
     },
     "tmux_session": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "tmux session holding the agent pane; null on platforms without tmux. Consumers MUST NOT require it."
     },
     "pane_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Owned (tagged) tmux pane id, e.g. '%12'; null when no live pane or non-tmux platform."
     },
     "io_ok": {
@@ -68,38 +84,62 @@
           "type": "object",
           "properties": {
             "state": {
-              "enum": ["held", "released", "lockout"],
+              "enum": [
+                "held",
+                "released",
+                "lockout"
+              ],
               "description": "held = this manager owns the Matrix channel; released = cleanly gave it up; lockout = another owner detected, stood down."
             },
             "owner": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "description": "Identity currently believed to hold the channel; null when unknown."
             },
             "acquired_at_epoch": {
-              "type": ["integer", "null"],
+              "type": [
+                "integer",
+                "null"
+              ],
               "minimum": 0,
               "description": "Epoch seconds the lock was taken; 0/null = unknown."
             },
             "contender": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "description": "When state=lockout: the identity observed squatting the channel."
             }
           },
-          "required": ["state"],
+          "required": [
+            "state"
+          ],
           "additionalProperties": true
         },
-        { "type": "null" }
+        {
+          "type": "null"
+        }
       ],
       "description": "Single-owner Matrix channel lock state (session-state.schema.json $defs/channelLock); null when the (legacy) writer reported none."
     },
     "host": {
       "type": "string",
-      "description": "Machine label in canonical form ('.N' for lab dot-hosts). Added by console-api aggregation — the manager's own file does not carry it."
+      "description": "Machine label in canonical form ('.N' for lab dot-hosts). Added by console-api aggregation \u2014 the manager's own file does not carry it."
     },
     "observed_at": {
       "type": "string",
       "format": "date-time",
-      "description": "RFC 3339 UTC — when the bridge observed this heartbeat file (per-row freshness). Added by aggregation."
+      "description": "RFC 3339 UTC \u2014 when the bridge observed this heartbeat file (per-row freshness). Added by aggregation."
+    },
+    "rate_limit_reset_epoch": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "When rate_limited/waiting lifts (from the manager's rate-limit hook resetAt); null = unknown, render 'waiting'."
     }
   },
   "required": [

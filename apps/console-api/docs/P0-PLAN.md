@@ -119,6 +119,7 @@ priority over the current phase node (per brief).
    `lake.disk.watermark` crack source + emergency retention-shrink runbook in Phase 1;
    system-outbox/Matrix warning path not decommissioned until the watermark has fired in
    anger once. Bridges soak ≥1 week before v0 consumers switch off local files.
-6. **Library plane before the librarian exists**: the wire surface is pinned now; Phase 2
-   implements items/links/search minimally (dashboards, artifacts, feed projection) so the
-   frontend binds once. Full Rev3 (CRDT, curation autonomy) remains its own effort.
+6. **Library plane before the librarian exists**: the wire surface is pinned now; **Phase 1
+   ships the minimal items table** (dashboards, artifacts, feed projection — so `dashboard.*`
+   is real in Phase 1); Phase 2 adds search/links/curation. Full Rev3 (CRDT, curation
+   autonomy) remains its own effort.

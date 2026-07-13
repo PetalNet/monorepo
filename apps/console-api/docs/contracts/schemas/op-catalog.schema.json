@@ -2,45 +2,202 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://petalcat.dev/schemas/console/op-catalog.schema.json",
   "title": "Op catalog (governs ops.json)",
-  "description": "The machine-readable command catalog IS canonical; the prose table in CONSOLE-CONTRACTS.md §5.2 is generated from it (CI-checked). Every entry must validate against $defs/opEntry.",
+  "description": "The machine-readable command catalog IS canonical; the prose table in CONSOLE-CONTRACTS.md \u00a75.2 is generated from it (CI-checked). Every entry must validate against $defs/opEntry.",
   "type": "object",
-  "required": ["schema_version", "lanes", "ops"],
+  "required": [
+    "schema_version",
+    "lanes",
+    "ops"
+  ],
   "properties": {
-    "schema_version": { "const": 2 },
-    "lanes": { "type": "array", "items": { "enum": ["viewer", "editor", "operator", "admin", "term_admin"] } },
-    "spec_name_aliases": { "type": "object", "additionalProperties": { "type": "string" }, "description": "UI-spec op-name drift resolved here: spec name -> catalog name. The catalog name is the wire name." },
-    "ops": { "type": "array", "items": { "$ref": "#/$defs/opEntry" } }
+    "schema_version": {
+      "const": 2
+    },
+    "lanes": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "viewer",
+          "editor",
+          "operator",
+          "admin",
+          "term_admin"
+        ]
+      }
+    },
+    "spec_name_aliases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "UI-spec op-name drift resolved here: spec name -> catalog name. The catalog name is the wire name."
+    },
+    "ops": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/opEntry"
+      }
+    }
   },
   "$defs": {
     "opEntry": {
       "type": "object",
-      "required": ["op", "lane", "authz", "executor", "args", "effect", "emits", "testable", "phase"],
+      "required": [
+        "op",
+        "lane",
+        "authz",
+        "executor",
+        "args",
+        "effect",
+        "emits",
+        "testable",
+        "phase"
+      ],
       "additionalProperties": false,
       "properties": {
-        "op": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$" },
-        "lane": { "enum": ["viewer", "editor", "operator", "admin", "term_admin"] },
-        "human_only": { "type": "boolean", "description": "Agents structurally excluded regardless of lanes (term.*, item.delete)." },
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$"
+        },
+        "lane": {
+          "enum": [
+            "viewer",
+            "editor",
+            "operator",
+            "admin",
+            "term_admin"
+          ]
+        },
+        "human_only": {
+          "type": "boolean",
+          "description": "Agents structurally excluded regardless of lanes (term.*, item.delete)."
+        },
         "authz": {
           "type": "object",
-          "required": ["rule"],
+          "required": [
+            "rule"
+          ],
           "additionalProperties": false,
           "properties": {
-            "rule": { "enum": ["own", "grant", "own_or_grant", "read"], "description": "own: target must belong to the caller. grant: caller needs `relation` on one of `scope_any` (templates substitute op args). own_or_grant: own, else the grant path. read: no target authorization; result scope-filtering applies. Lane AND authz must both pass BEFORE the intent audit." },
-            "relation": { "enum": ["viewer", "editor", "operator", "owner"] },
-            "scope_any": { "type": "array", "items": { "type": "string" }, "description": "Acceptable scopes in order; ${arg} templates. Flat scope model: fleet does NOT imply agent:x — listing both is how fleet-wide grants compose." }
+            "rule": {
+              "enum": [
+                "own",
+                "grant",
+                "own_or_grant",
+                "read",
+                "scope_visible",
+                "self"
+              ],
+              "description": "own: target must belong to the caller. grant: caller needs `relation` on one of `scope_any` (templates substitute op args). own_or_grant: own, else the grant path. read: no target authorization; result scope-filtering applies. Lane AND authz must both pass BEFORE the intent audit. scope_visible: caller holds viewer on the target's scope (shared operational state: attention). self: affects only caller-keyed state; no foreign-principal args."
+            },
+            "relation": {
+              "enum": [
+                "viewer",
+                "editor",
+                "operator",
+                "owner"
+              ]
+            },
+            "scope_any": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Acceptable scopes in order; ${arg} templates. Flat scope model: fleet does NOT imply agent:x \u2014 listing both is how fleet-wide grants compose."
+            }
+          },
+          "if": {
+            "properties": {
+              "rule": {
+                "enum": [
+                  "grant",
+                  "own_or_grant"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "relation",
+              "scope_any"
+            ],
+            "properties": {
+              "scope_any": {
+                "minItems": 1
+              }
+            }
           }
         },
-        "executor": { "enum": ["console-api", "tracker", "dispatcher", "control-plane", "manager", "box-agent", "library", "edge", "probe-runner", "pty"], "description": "The single liveness-gating executor. Other participants are hops inside the effect." },
-        "args": { "type": "object", "description": "JSON Schema fragment (draft 2020-12) for the op's args object, or a $ref." },
-        "effect": { "type": "string" },
-        "emits": { "type": "array", "items": { "type": "string" } },
-        "lineage": { "type": "string" },
-        "requires_reason": { "type": "boolean" },
-        "destructive": { "type": "boolean" },
-        "confirm": { "enum": ["soft", "typed-name"] },
-        "undo": { "type": "boolean" },
-        "testable": { "enum": ["disposable", "dry-run-only", "live-canary"] },
-        "phase": { "type": "integer", "minimum": 1, "maximum": 5 }
+        "executor": {
+          "enum": [
+            "console-api",
+            "tracker",
+            "dispatcher",
+            "control-plane",
+            "manager",
+            "box-agent",
+            "library",
+            "edge",
+            "probe-runner",
+            "pty"
+          ],
+          "description": "The single liveness-gating executor. Other participants are hops inside the effect."
+        },
+        "args": {
+          "type": "object",
+          "description": "JSON Schema fragment (draft 2020-12) for the op's args object: must carry `type` or `$ref`. CI meta-validates each fragment against the 2020-12 metaschema.",
+          "anyOf": [
+            {
+              "required": [
+                "type"
+              ]
+            },
+            {
+              "required": [
+                "$ref"
+              ]
+            }
+          ]
+        },
+        "effect": {
+          "type": "string"
+        },
+        "emits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lineage": {
+          "type": "string"
+        },
+        "requires_reason": {
+          "type": "boolean"
+        },
+        "destructive": {
+          "type": "boolean"
+        },
+        "confirm": {
+          "enum": [
+            "soft",
+            "typed-name"
+          ]
+        },
+        "undo": {
+          "type": "boolean"
+        },
+        "testable": {
+          "enum": [
+            "disposable",
+            "dry-run-only",
+            "live-canary"
+          ]
+        },
+        "phase": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        }
       }
     }
   }

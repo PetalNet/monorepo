@@ -90,7 +90,45 @@ security APPROVE-WITH-FIXES · ops APPROVE-WITH-FIXES · data APPROVE-WITH-FIXES
 - `*.propose` op variants (server-side transformation for propose_only tiers instead —
   stable response shape, no catalog doubling).
 
-## Board round 2 — revised text (this commit)
+## Board round 2 — revised text
 
-Short re-review of the diffs by the two REVISE personas' lenses + codex (security asked to
-re-see ops.json authz + §4.3 specifically). Recorded below when complete.
+Four re-reviews of the revision: architect, security, frontend-consumer, codex. Verdicts:
+**4× APPROVE-WITH-FIXES, 0 REVISE, 0 remaining P0/HIGH after fixes below.** Architect
+mechanically verified all six round-1 HIGHs genuinely resolved (op names, catalog validation,
+authz completeness, $ref resolution, schema compilation).
+
+Round-2 fixes applied (same commit):
+- **Template resolvability** (codex P1, security H1, architect M2): `${target.*}` resolution
+  order documented + CI rule; task.* → `project:${target.project_id}`; dashboard.delete →
+  `user:${target.owner}`; library.item.create → `${item.scope}`; curation.approve/reject →
+  `item:${target.item_id}`; unresolvable scope_any ENTRY skips (all-unresolvable fails
+  closed); absent task.dispatch recipient = pool card via the fleet entry.
+- **emits[] forgery closed** (security H2, architect M4): §4.3 rule 6 — producer
+  registrations carry default-deny type-prefix allowlists; any catalog `emits[]` type is
+  accepted only from that op's gating executor's registration.
+- **claim_token persistence** (security H3): dedup-recorded task.claim result stored
+  scrubbed (replay = leasePublic); `task.claimed` emission = leasePublic only; task.claim
+  results on the self-instrumentation never-capture list (Rule 6 updated).
+- **New authz rules** (security M1/M2): `scope_visible` for attention mutations; `self` for
+  signal.snooze/delivery.*/context.receive; window.arrange → own_or_grant editor on the
+  dashboard item; card.repost/park least-privilege via `agent:${target.recipient}`;
+  term stream ops bound to the opening principal; kb.research lane editor+; delivery.resend
+  receipt must be caller-scoped; service.logs results scrubbed; delivery-time grant
+  re-check on digests/interrupts (§4.2).
+- **Catalog schema hardening** (codex P1): grant/own_or_grant require relation +
+  nonempty scope_any (if/then); args must carry type|$ref + CI metaschema validation.
+- **Schemas added/typed** (codex P1/P2, architect M3): emit-ack + health schemas; bus ack.error
+  constrained to the error object; gap.reason required; read-envelope `truncated` + items
+  composition note.
+- **Frontend M1-M5**: roster per-source freshness (fleet_updated_at, started_at,
+  registry_last_seen_epoch); heartbeat/governance `rate_limit_reset_epoch`; attention
+  `blast_radius` object (pre-joined); task `project_title`; build-failed added to attention
+  rules with pre-bound task.dispatch retry fix_op; comms dims + `card_id`; delivery.receipt
+  dims pinned; `GET /tiers` (Phase 4); digest count-drift note.
+- **Doc consistency** (architect M1/L5-L10): namespace count 27; Rule 1 emission dual-role
+  exemption; retention-miss dual handling explained; alias notation defined; executor list
+  aligned; P0-PLAN risk 6 rephased; handle patterns + post-normalization confirm compare;
+  principal lanes description; op:<ns> grant object marked reserved; admin/term-lane denials
+  in audit-class retention; query_ref dereference-as-caller pinned.
+
+**P0 gate: PASSED.** Contract published to the frontend on merge.

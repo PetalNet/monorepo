@@ -42,7 +42,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Capability lanes for the command plane (operator, admin, term_admin, readonly, ...).",
+      "description": "Capability lanes for the command plane (closed enum per ops.json: viewer, editor, operator, admin, term_admin).",
       "uniqueItems": true
     },
     "scopes": {
