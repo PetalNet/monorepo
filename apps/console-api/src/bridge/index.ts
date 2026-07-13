@@ -6,15 +6,7 @@
 // signal, not an absence).
 
 import { createHash } from "node:crypto";
-import {
-	closeSync,
-	constants,
-	fstatSync,
-	lstatSync,
-	openSync,
-	readSync,
-	readdirSync,
-} from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -376,10 +368,6 @@ abstract class SnapshotAdapter implements BridgeAdapter {
 			.sort()) {
 			const path = join(this.#dir, name);
 			try {
-				if (!lstatSync(path).isFile()) {
-					losses.push({ cursor: name, reason: "non_regular" });
-					continue;
-				}
 				const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 				let bytes: Buffer;
 				try {
@@ -614,10 +602,22 @@ export class JsonlSpoolAdapter implements BridgeAdapter {
 			.filter((name) => name.endsWith(".jsonl"))
 			.sort()) {
 			const path = join(this.#dir, file);
-			if (!lstatSync(path).isFile()) continue;
-			const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+			let fd: number;
+			try {
+				fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+					losses.push({ cursor: file, reason: "non_regular" });
+					continue;
+				}
+				throw error;
+			}
 			try {
 				const stat = fstatSync(fd);
+				if (!stat.isFile()) {
+					losses.push({ cursor: file, reason: "non_regular" });
+					continue;
+				}
 				const fileId = `${String(stat.dev)}:${String(stat.ino)}`;
 				const prior = previous[file];
 				let byteOffset = prior?.byteOffset ?? 0;
