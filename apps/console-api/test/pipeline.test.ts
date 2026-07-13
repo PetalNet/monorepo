@@ -134,7 +134,7 @@ beforeAll(async () => {
 	await seedBootstrap(admin);
 	// a test producer that may emit the test types into the scopes these tests exercise
 	await admin`insert into producer_registrations (subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)
-		values ('test:emitter', ${admin.json(["console-api", "bridge"])}, ${admin.json(["host", "iso", "test", "audit"])}, ${admin.json(["fleet", "user:*", "agent:*"])}, 'p0')
+		values ('test:emitter', ${admin.json(["console-api", "bridge"])}, ${admin.json(["host", "iso", "test", "audit", "service"])}, ${admin.json(["fleet", "user:*", "agent:*"])}, 'p0')
 		on conflict (subject) do nothing`;
 	await admin`insert into grants (subject, relation, object, granted_by)
 		select 'test:emitter', 'editor', scope, 'test'
@@ -177,6 +177,130 @@ beforeAll(async () => {
 afterAll(async () => {
 	await services?.close();
 	await temp?.stop();
+});
+
+describe("services availability read", () => {
+	it("derives scoped tri-state service rows and validates the response contract", async () => {
+		const suffix = randomBytes(4).toString("hex");
+		const degradedSubject = `.202/matrix-${suffix}`;
+		const downSubject = `.15/library-${suffix}`;
+		const malformedSubject = `.14/malformed-${suffix}`;
+		const projected = new Map<string, number>();
+		for (const [subject, ok, latency] of [
+			[degradedSubject, true, 610],
+			[degradedSubject, true, 720],
+			[degradedSubject, true, 880],
+			[downSubject, false, 0],
+			[downSubject, false, 0],
+			[downSubject, false, 0],
+		] as const) {
+			const result = await services.emit(
+				"test:emitter",
+				emission({
+					type: "service.probe",
+					source: {
+						service: "bridge",
+						host: subject.split("/")[0] ?? null,
+						agent: "janet",
+					},
+					subject,
+					subject_kind: "service",
+					dimensions: {
+						ok,
+						service: subject.split("/")[1] ?? subject,
+					},
+					measures: {
+						latency_ms: latency,
+						cadence_s: 30,
+						degraded_threshold_ms: 500,
+					},
+				}),
+				500,
+			);
+			expect(result.ok).toBe(true);
+			projected.set(subject, result.seq as number);
+		}
+		const malformed = await services.emit(
+			"test:emitter",
+			emission({
+				type: "service.probe",
+				source: { service: "bridge", host: ".14", agent: "janet" },
+				subject: malformedSubject,
+				subject_kind: "service",
+				dimensions: { ok: "unknown", service: `malformed-${suffix}` },
+				measures: { cadence_s: 30, degraded_threshold_ms: 500 },
+			}),
+			500,
+		);
+		expect(malformed.ok).toBe(true);
+		projected.set(malformedSubject, malformed.seq as number);
+		for (const [subject, seq] of projected) await waitProjected("availability", subject, seq);
+
+		const server = await buildServer(services, true);
+		try {
+			const visible = await server.inject({
+				method: "GET",
+				url: "/api/v1/availability?window=24h",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "tester",
+						lanes: ["viewer"],
+						scopes: ["fleet"],
+					}),
+				},
+			});
+			expect(visible.statusCode, visible.body).toBe(200);
+			const body = visible.json();
+			const availabilitySchema = JSON.parse(
+				readFileSync(
+					new URL("../docs/contracts/schemas/availability.schema.json", import.meta.url),
+					"utf8",
+				),
+			) as Record<string, unknown>;
+			expect(validateJsonSchema(body, availabilitySchema, "availability")).toBeNull();
+			expect(body.items).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						subject: degradedSubject,
+						state: "degraded",
+						p50_latency_ms: 720,
+					}),
+					expect.objectContaining({ subject: downSubject, state: "down", uptime_pct: 0 }),
+					expect.objectContaining({
+						subject: malformedSubject,
+						state: "down",
+						invalid_probes: 1,
+						source_error: "1 probe result is unreadable in this window",
+					}),
+				]),
+			);
+
+			const hidden = await server.inject({
+				method: "GET",
+				url: "/api/v1/availability?window=24h",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "hidden",
+						lanes: ["viewer"],
+						scopes: ["user:hidden"],
+					}),
+				},
+			});
+			expect(hidden.json().items).toEqual([]);
+			const badWindow = await server.inject({
+				method: "GET",
+				url: "/api/v1/availability?window=forever",
+				headers: {
+					"x-dev-principal": JSON.stringify({ kind: "human", id: "tester", scopes: ["fleet"] }),
+				},
+			});
+			expect(badWindow.statusCode).toBe(400);
+		} finally {
+			await server.close();
+		}
+	});
 });
 
 describe("terminal server gate and frame transport (BR-014)", () => {
@@ -3509,7 +3633,7 @@ describe("current_state projection (N1b)", () => {
 				   or (kind = 'subscription' and subject = ${subscriptionSubject})
 				   or (kind = 'attention' and subject = ${attentionId})
 				   or (kind = 'box_update' and subject = ${boxId})`;
-			await services.db.admin`delete from projection_checkpoint where name = 'current_state_br008'`;
+			await services.db.admin`delete from projection_checkpoint where name = 'current_state_br009'`;
 			await services.projector.replayContractedReadsToHead();
 			const backfilled = await services.db.admin<
 				{ kind: string; state: Record<string, unknown> }[]

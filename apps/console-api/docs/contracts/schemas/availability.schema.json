@@ -1,0 +1,98 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/availability.schema.json",
+	"title": "Services availability snapshot",
+	"description": "A caller-scoped, derived view over service.probe statistics and service.down/service.up signals. Percentages are computed only from observed probes; coverage states how much of the printed window was actually measured.",
+	"type": "object",
+	"required": ["schema_version", "freshness", "probe_runner", "items"],
+	"additionalProperties": true,
+	"properties": {
+		"schema_version": { "const": 1 },
+		"freshness": {
+			"type": "object",
+			"required": ["source", "observed_at", "window_s"],
+			"additionalProperties": false,
+			"properties": {
+				"source": { "const": "lake" },
+				"observed_at": { "type": ["string", "null"], "format": "date-time" },
+				"window_s": { "type": "integer", "minimum": 1 }
+			}
+		},
+		"probe_runner": { "type": ["string", "null"] },
+		"items": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": [
+					"subject",
+					"service",
+					"host",
+					"state",
+					"p50_latency_ms",
+					"p95_latency_ms",
+					"degraded_threshold_ms",
+					"uptime_pct",
+					"coverage_pct",
+					"window_s",
+					"cadence_s",
+					"observed_probes",
+					"expected_probes",
+					"invalid_probes",
+					"source_error",
+					"last_probe_at",
+					"outage_since",
+					"largest_gap",
+					"points"
+				],
+				"additionalProperties": true,
+				"properties": {
+					"subject": { "type": "string" },
+					"service": { "type": "string" },
+					"host": { "type": ["string", "null"] },
+					"state": { "enum": ["up", "degraded", "down"] },
+					"p50_latency_ms": { "type": ["number", "null"], "minimum": 0 },
+					"p95_latency_ms": { "type": ["number", "null"], "minimum": 0 },
+					"degraded_threshold_ms": { "type": "number", "minimum": 1 },
+					"uptime_pct": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+					"coverage_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+					"window_s": { "type": "integer", "minimum": 1 },
+					"cadence_s": { "type": "integer", "minimum": 1 },
+					"observed_probes": { "type": "integer", "minimum": 0 },
+					"expected_probes": { "type": "integer", "minimum": 1 },
+					"invalid_probes": { "type": "integer", "minimum": 0 },
+					"source_error": { "type": ["string", "null"] },
+					"last_probe_at": { "type": ["string", "null"], "format": "date-time" },
+					"outage_since": { "type": ["string", "null"], "format": "date-time" },
+					"largest_gap": {
+						"oneOf": [
+							{ "type": "null" },
+							{
+								"type": "object",
+								"required": ["from", "to"],
+								"additionalProperties": false,
+								"properties": {
+									"from": { "type": "string", "format": "date-time" },
+									"to": { "type": "string", "format": "date-time" }
+								}
+							}
+						]
+					},
+					"points": {
+						"type": "array",
+						"maxItems": 60,
+						"items": {
+							"type": "object",
+							"required": ["ts", "ok", "latency_ms"],
+							"additionalProperties": false,
+							"properties": {
+								"ts": { "type": "string", "format": "date-time" },
+								"ok": { "type": "boolean" },
+								"latency_ms": { "type": ["number", "null"], "minimum": 0 }
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

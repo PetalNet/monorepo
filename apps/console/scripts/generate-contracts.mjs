@@ -18,6 +18,7 @@ const catalog = await readJson("ops.json");
 const typeSpecs = [
 	["Principal", "schemas/principal.schema.json"],
 	["Me", "schemas/entities/me.schema.json"],
+	["AvailabilitySnapshot", "schemas/availability.schema.json"],
 	["FleetItem", "schemas/entities/fleet.schema.json"],
 	["RegistryItem", "schemas/entities/registry.schema.json"],
 	["WorkerItem", "schemas/entities/worker.schema.json"],
