@@ -26,25 +26,8 @@ type JsonSchema = Record<string, unknown> & {
 type SchemaNode = JsonSchema | boolean;
 
 export type Lane = "viewer" | "editor" | "operator" | "admin" | "term_admin";
-export type PrincipalKind = "human" | "agent" | "system";
-export type FleetStatus = "alive" | "working" | "idle";
-export type BoxUpdateStatus =
-	| "up_to_date"
-	| "updates_pending"
-	| "updates_overdue"
-	| "error_collecting";
-export type QueryColumnType = "string" | "number" | "boolean" | "timestamp" | "json";
 export type SignalSeverity = "debug" | "info" | "warn" | "danger" | "p0";
 export type AttentionGrade = "p0" | "blocker" | "review" | "artifact";
-export type OpStatus = "applied" | "accepted" | null;
-export type HeartbeatState =
-	| "starting"
-	| "running"
-	| "rate_limited"
-	| "waiting"
-	| "crashed"
-	| "stopped";
-export type Autonomy = "auto" | "ask" | "readonly" | "paused";
 export type BudgetLightColor = "green" | "yellow" | "red";
 export type TaskStatus = "inbox" | "todo" | "doing" | "blocked" | "review" | "done" | "dropped";
 
@@ -100,59 +83,10 @@ export type StructuredQuery = {
 	limit?: number | null;
 	sql?: string | null;
 };
-export type BoxUpdatePackage = {
-	name: string;
-	from?: string;
-	to?: string;
-	security: boolean;
-	[key: string]: unknown;
-};
-export type BoxUpdateVulnerability = {
-	cve_id: string;
-	severity: "critical" | "high" | "moderate" | "low";
-	package: string;
-	fixed_in?: string | null;
-	[key: string]: unknown;
-};
-export type QueryColumn = {
-	name: string;
-	type: "string" | "number" | "boolean" | "timestamp" | "json";
-};
-export type EdgeLink = {
-	link_id: string;
-	role: "primary" | "standby";
-	state: "active" | "warm" | "down";
-	rtt_ms?: number | null;
-	established_at: string;
-	last_flap_at?: string | null;
-	flap_count_24h: number;
-	[key: string]: unknown;
-};
-export type FixOp = {
-	op: string;
-	args: Record<string, unknown>;
-};
-export type BlastRadius = {
-	hosts?: number;
-	residents?: number;
-	leases_expiring_30m?: number;
-	detail?: string | null;
-	[key: string]: unknown;
-};
 export type ApiError = {
 	code: string;
 	message: string;
 	retryable: boolean;
-};
-export type Principal = {
-	schema_version: 1;
-	kind: "human" | "agent" | "system";
-	id: string;
-	tiers: Array<string>;
-	lanes: Array<string>;
-	scopes: Array<string>;
-	zookie: string;
-	[key: string]: unknown;
 };
 export type Me = {
 	schema_version: 1;

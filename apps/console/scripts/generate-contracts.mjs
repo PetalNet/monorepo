@@ -288,26 +288,13 @@ const schemaType = `type JsonSchema = Record<string, unknown> & {
 type SchemaNode = JsonSchema | boolean;`;
 
 const aliases = [
-	["PrincipalKind", schemas.Principal.properties.kind],
-	["FleetStatus", schemas.FleetItem.properties.status],
-	["BoxUpdateStatus", schemas.BoxUpdateItem.properties.status],
-	["QueryColumnType", schemas.QueryResult.properties.columns.items.properties.type],
 	["SignalSeverity", schemas.SignalEmission.properties.severity],
 	["AttentionGrade", schemas.AttentionItem.properties.grade],
-	["OpStatus", schemas.OpResult.properties.status],
-	["HeartbeatState", schemas.HeartbeatItem.properties.state],
-	["Autonomy", schemas.RosterItem.properties.autonomy.oneOf[0]],
 	["BudgetLightColor", schemas.GovernanceItem.properties.light],
 	["TaskStatus", schemas.TaskItem.properties.status],
 ];
 
 const nested = [
-	["BoxUpdatePackage", schemas.BoxUpdateRaw.properties.packages.items],
-	["BoxUpdateVulnerability", schemas.BoxUpdateRaw.properties.vulns.items],
-	["QueryColumn", schemas.QueryResult.properties.columns.items],
-	["EdgeLink", schemas.EdgeSessionItem.properties.links.items],
-	["FixOp", schemas.AttentionItem.properties.fix_ops.items],
-	["BlastRadius", { ...schemas.AttentionItem.properties.blast_radius, type: "object" }],
 	[
 		"ApiError",
 		{ ...schemas.OpResult.properties.error, type: "object", additionalProperties: false },
@@ -350,7 +337,13 @@ export interface ReadEnvelope<T extends Record<string, unknown>> extends Record<
 }
 export type StructuredQuery = ${tsType(requestSchema)};
 ${nested.map(([name, schema]) => `export type ${name} = ${tsType(schema)};`).join("\n")}
-${typeSpecs.map(([name]) => `export type ${name} = ${tsType(generatedTypeSchemas[name])}${name === "RosterItem" ? ` & { sources?: Record<"fleet" | "heartbeat" | "registry" | "governance" | "identity" | "lease", { visibility: "visible" | "absent" | "unavailable"; observed_at: string | null }> }` : ""};`).join("\n")}
+${typeSpecs
+	.filter(([name]) => name !== "Principal")
+	.map(
+		([name]) =>
+			`export type ${name} = ${tsType(generatedTypeSchemas[name])}${name === "RosterItem" ? ` & { sources?: Record<"fleet" | "heartbeat" | "registry" | "governance" | "identity" | "lease", { visibility: "visible" | "absent" | "unavailable"; observed_at: string | null }> }` : ""};`,
+	)
+	.join("\n")}
 
 export type GovernancePool = {
 \tpool_tokens: number; pool_spent: number; fleet_mode: "parallel" | "sequential"; cascade_active: boolean; [key: string]: unknown;
