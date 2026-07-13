@@ -66,7 +66,7 @@ type ReadResult =
 	| { readonly kind: "loss"; readonly reason: TailLoss["reason"] }
 	| { readonly kind: "barrier" };
 
-export type FdReader = (
+type FdReader = (
 	fd: number,
 	buffer: Buffer,
 	offset: number,
@@ -75,7 +75,7 @@ export type FdReader = (
 ) => number;
 
 /** Read through short syscalls while retaining a hard MAX_FILE_BYTES + 1 memory/read ceiling. */
-export function readBoundedFd(fd: number, reader: FdReader = readSync): Buffer | null {
+function readBoundedFd(fd: number, reader: FdReader = readSync): Buffer | null {
 	const bytes = Buffer.allocUnsafe(MAX_FILE_BYTES + 1);
 	let count = 0;
 	while (count < bytes.length) {
@@ -86,7 +86,7 @@ export function readBoundedFd(fd: number, reader: FdReader = readSync): Buffer |
 	return count > MAX_FILE_BYTES ? null : bytes.subarray(0, count);
 }
 
-function readRegularFile(path: string): ReadResult {
+function readRegularFile(path: string, reader?: FdReader): ReadResult {
 	let fd: number;
 	try {
 		// O_NOFOLLOW closes the lstat/read TOCTOU window: even a swap immediately before open fails.
@@ -103,7 +103,7 @@ function readRegularFile(path: string): ReadResult {
 		// Never read-to-EOF after a size check: a writer could grow the same inode between those two
 		// operations. Bounded fd reads cap memory even if content changes after fstat.
 		if (stat.size > MAX_FILE_BYTES) return { kind: "loss", reason: "oversize" };
-		const bytes = readBoundedFd(fd);
+		const bytes = readBoundedFd(fd, reader);
 		if (!bytes) return { kind: "loss", reason: "oversize" };
 		return { kind: "ok", raw: bytes.toString("utf8") };
 	} finally {
@@ -169,6 +169,7 @@ export function tailSystemOutbox(
 	ts: string,
 	knownBelowHash?: string,
 	beforeOpen?: (path: string, name: string) => void,
+	reader?: FdReader,
 ): TailResult {
 	const sentDir = join(dir, "sent");
 	const all = readdirSync(sentDir)
@@ -188,7 +189,7 @@ export function tailSystemOutbox(
 		beforeOpen?.(full, name);
 		let read: ReadResult;
 		try {
-			read = readRegularFile(full);
+			read = readRegularFile(full, reader);
 		} catch {
 			break; // vanished mid-scan: barrier, retry next poll
 		}

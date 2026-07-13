@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, it, expect } from "vitest";
 
-import { readBoundedFd, sourceCursorRef, tailSystemOutbox } from "../src/bridge/system-outbox.ts";
+import { sourceCursorRef, tailSystemOutbox } from "../src/bridge/system-outbox.ts";
 import { uuidv5 } from "../src/bridge/uuid5.ts";
 
 function makeOutbox(files: Record<string, unknown>): string {
@@ -30,14 +30,27 @@ describe("uuidv5", () => {
 
 describe("system-outbox tailer", () => {
 	it("assembles short fd reads before parsing", () => {
-		const source = Buffer.from('{"sender":"shawn","body":"ok"}');
-		const bytes = readBoundedFd(42, (_fd, target, offset, length, position) => {
-			if (position >= source.length) return 0;
-			const count = Math.min(3, length, source.length - position);
-			source.copy(target, offset, position, position + count);
-			return count;
-		});
-		expect(bytes?.toString("utf8")).toBe(source.toString("utf8"));
+		const dir = makeOutbox({ "100-shawn.json": { sender: "shawn", body: "ok" } });
+		const source = Buffer.from(JSON.stringify({ sender: "shawn", body: "ok" }));
+		try {
+			const result = tailSystemOutbox(
+				dir,
+				"",
+				0,
+				"2026-07-13T00:00:00Z",
+				undefined,
+				undefined,
+				(_fd, target, offset, length, position) => {
+					if (position >= source.length) return 0;
+					const count = Math.min(3, length, source.length - position);
+					source.copy(target, offset, position, position + count);
+					return count;
+				},
+			);
+			expect(result.emissions[0]?.dimensions?.["sender"]).toBe("shawn");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("maps known warnings to statistics and unknown warnings to bot.message", () => {
