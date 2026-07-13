@@ -131,12 +131,14 @@ pub async fn create_request(
     if share_exists(&state, &user.user_id, &to_user).await? {
         return Ok(Json(recorded));
     }
-    // A pending request in EITHER direction is already an open ask: no-op 200.
+    // A non-expired pending request in EITHER direction is already an open
+    // ask. Older rows remain as lifecycle history but no longer block a retry.
     let pending: Option<(i32,)> = sqlx::query_as(
         "SELECT 1 FROM share_requests
          WHERE ((from_user_id = $1 AND to_user_id = $2)
              OR (from_user_id = $2 AND to_user_id = $1))
            AND status = 'pending'
+           AND created_at >= now() - interval '30 days'
          LIMIT 1",
     )
     .bind(&user.user_id)
@@ -153,8 +155,9 @@ pub async fn create_request(
     sqlx::query(
         "INSERT INTO share_requests (from_user_id, to_user_id) VALUES ($1, $2)
          ON CONFLICT (from_user_id, to_user_id)
-         DO UPDATE SET status = 'pending', updated_at = now()
-         WHERE share_requests.status <> 'pending'",
+         DO UPDATE SET status = 'pending', created_at = now(), updated_at = now()
+         WHERE share_requests.status <> 'pending'
+            OR share_requests.created_at < now() - interval '30 days'",
     )
     .bind(&user.user_id)
     .bind(&to_user)
@@ -196,6 +199,7 @@ pub async fn incoming_requests(
          FROM share_requests sr
          JOIN users u ON u.id = sr.from_user_id
          WHERE sr.to_user_id = $1 AND sr.status = 'pending'
+           AND (u.is_federated OR sr.created_at >= now() - interval '30 days')
          ORDER BY sr.created_at DESC",
     )
     .bind(&user.user_id)
@@ -210,6 +214,7 @@ pub struct OutgoingRequestRow {
     pub to_user_id: String,
     pub to_display_name: String,
     pub created_at: DateTime<Utc>,
+    pub expired: bool,
 }
 
 /// GET /api/shares/requests/outgoing — outgoing pending requests.
@@ -218,7 +223,10 @@ pub async fn outgoing_requests(
     user: AuthUser,
 ) -> ApiResult<Json<Vec<OutgoingRequestRow>>> {
     let rows = sqlx::query_as::<_, OutgoingRequestRow>(
-        "SELECT sr.id, sr.to_user_id, u.display_name AS to_display_name, sr.created_at
+        "SELECT sr.id, sr.to_user_id, u.display_name AS to_display_name,
+                sr.created_at,
+                NOT u.is_federated
+                    AND sr.created_at < now() - interval '30 days' AS expired
          FROM share_requests sr
          JOIN users u ON u.id = sr.to_user_id
          WHERE sr.from_user_id = $1 AND sr.status = 'pending'
@@ -241,6 +249,12 @@ pub async fn accept_request(
     let row: Option<(String,)> = sqlx::query_as(
         "UPDATE share_requests SET status = 'accepted', updated_at = now()
          WHERE id = $1 AND to_user_id = $2 AND status = 'pending'
+           AND (created_at >= now() - interval '30 days'
+                OR EXISTS (
+                    SELECT 1 FROM users
+                    WHERE users.id = share_requests.from_user_id
+                      AND users.is_federated
+                ))
          RETURNING from_user_id",
     )
     .bind(id)
@@ -289,17 +303,73 @@ pub async fn reject_request(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Value>> {
-    let result = sqlx::query(
+    let requester: Option<(String,)> = sqlx::query_as(
         "UPDATE share_requests SET status = 'rejected', updated_at = now()
-         WHERE id = $1 AND to_user_id = $2 AND status = 'pending'",
+         WHERE id = $1 AND to_user_id = $2 AND status = 'pending'
+           AND (created_at >= now() - interval '30 days'
+                OR EXISTS (
+                    SELECT 1 FROM users
+                    WHERE users.id = share_requests.from_user_id
+                      AND users.is_federated
+                ))
+         RETURNING from_user_id",
     )
     .bind(id)
     .bind(&user.user_id)
-    .execute(&state.pool)
+    .fetch_optional(&state.pool)
     .await?;
-    if result.rows_affected() == 0 {
+    let Some((requester,)) = requester else {
         return Err(AppError::NotFound);
-    }
+    };
+
+    // Rejection is a lifecycle event, not a silent disappearance. Live
+    // requester devices can clear their outgoing queue immediately; offline
+    // reconciliation remains authoritative when the app next wakes.
+    let notify = json!({
+        "type": "share.rejected",
+        "user_id": user.user_id,
+        "request_id": id,
+    })
+    .to_string();
+    state.hub.send_to_user(&requester, &notify);
+    // Older clients do not yet distinguish terminal request events, but they
+    // already treat share.request as an authoritative request-list nudge.
+    // Send that compatibility nudge too so their outgoing queue reconciles.
+    let sync = json!({ "type": "share.request", "request_id": id }).to_string();
+    state.hub.send_to_user(&requester, &sync);
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// DELETE /api/shares/requests/{id} — the requester withdraws a pending ask.
+/// Not-yours and no-longer-pending requests share the same 404 response so a
+/// caller cannot probe another user's request IDs.
+pub async fn cancel_request(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    let recipient: Option<(String,)> = sqlx::query_as(
+        "DELETE FROM share_requests
+         WHERE id = $1 AND from_user_id = $2 AND status = 'pending'
+         RETURNING to_user_id",
+    )
+    .bind(id)
+    .bind(&user.user_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((recipient,)) = recipient else {
+        return Err(AppError::NotFound);
+    };
+
+    let notify = json!({
+        "type": "share.cancelled",
+        "user_id": user.user_id,
+        "request_id": id,
+    })
+    .to_string();
+    state.hub.send_to_user(&recipient, &notify);
+    let sync = json!({ "type": "share.request", "request_id": id }).to_string();
+    state.hub.send_to_user(&recipient, &sync);
     Ok(Json(json!({ "ok": true })))
 }
 

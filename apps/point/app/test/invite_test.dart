@@ -2,12 +2,25 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:point_app/features/people/invite.dart';
 import 'package:point_app/features/people/presentation/add_person_screen.dart';
+import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/api/point_api.dart';
+import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
+
+class _SignedInAuth extends AuthController {
+  @override
+  Future<Session?> build() async => const Session(
+    token: 'token',
+    userId: 'eli@point.dev',
+    displayName: 'Eli',
+    isAdmin: false,
+  );
+}
 
 void main() {
   group('invite link round-trip', () {
@@ -182,6 +195,79 @@ void main() {
       );
     },
   );
+
+  test(
+    'request API decodes lifecycle timestamps and cancels with DELETE',
+    () async {
+      final calls = <http.Request>[];
+      final api = PointApi(
+        baseUrl: 'https://point.dev',
+        client: MockClient((request) async {
+          calls.add(request);
+          if (request.method == 'GET') {
+            return http.Response(
+              '[{"id":"r1","to_user_id":"mara@point.dev",'
+              '"to_display_name":"Mara","created_at":"2026-07-13T15:30:00Z"}]',
+              200,
+            );
+          }
+          return http.Response('{"ok":true}', 200);
+        }),
+      );
+
+      final requests = await api.outgoingRequests('token');
+      expect(requests.single.createdAt, DateTime.utc(2026, 7, 13, 15, 30));
+
+      await api.cancelRequest('token', 'r1');
+      expect(calls.last.method, 'DELETE');
+      expect(calls.last.url.path, '/api/shares/requests/r1');
+      expect(calls.last.headers['authorization'], 'Bearer token');
+    },
+  );
+
+  testWidgets('sending transitions to a persistent requested state', (
+    tester,
+  ) async {
+    var sends = 0;
+    final api = PointApi(
+      baseUrl: 'https://point.dev',
+      client: MockClient((request) async {
+        if (request.method == 'POST') {
+          sends++;
+          return http.Response('{"ok":true,"recorded":true}', 200);
+        }
+        return http.Response(
+          '[{"id":"r1","to_user_id":"mara@point.dev",'
+          '"to_display_name":"Mara","created_at":"2026-07-13T15:30:00Z"}]',
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_SignedInAuth.new),
+          apiProvider.overrideWithValue(api),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const AddPersonScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'mara');
+    await tester.tap(find.text('Send request'));
+    await tester.pumpAndSettle();
+
+    expect(sends, 1);
+    expect(find.text('Requested'), findsOneWidget);
+    expect(find.text('Pending'), findsOneWidget);
+    expect(find.text('mara@point.dev'), findsOneWidget);
+    expect(find.text('Send request'), findsNothing);
+  });
 
   group('native share state', () {
     Widget host(InviteShareCallback onShare) => MaterialApp(

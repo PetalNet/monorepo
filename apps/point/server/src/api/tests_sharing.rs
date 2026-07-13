@@ -213,6 +213,121 @@ async fn share_reject_and_delete(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn requester_can_cancel_only_their_own_pending_request(pool: PgPool) {
+    let app = app(&pool, true);
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    let carol = user(&pool, "carol").await;
+
+    send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&alice),
+        Some(json!({ "to_user_id": uid("bob") })),
+    )
+    .await;
+    let (_, outgoing) = send(
+        &app,
+        "GET",
+        "/api/shares/requests/outgoing",
+        Some(&alice),
+        None,
+    )
+    .await;
+    let request_id = outgoing[0]["id"].as_str().unwrap();
+    let cancel_path = format!("/api/shares/requests/{request_id}");
+
+    // Neither the recipient nor an unrelated user can cancel Alice's ask.
+    let (status, _) = send(&app, "DELETE", &cancel_path, Some(&bob), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = send(&app, "DELETE", &cancel_path, Some(&carol), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, value) = send(&app, "DELETE", &cancel_path, Some(&alice), None).await;
+    assert_eq!(status, StatusCode::OK, "{value}");
+    assert_eq!(value["ok"], true);
+
+    let (_, outgoing) = send(
+        &app,
+        "GET",
+        "/api/shares/requests/outgoing",
+        Some(&alice),
+        None,
+    )
+    .await;
+    let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&bob), None).await;
+    assert!(outgoing.as_array().unwrap().is_empty());
+    assert!(incoming.as_array().unwrap().is_empty());
+
+    // Cancellation is terminal and idempotency is explicit: a second attempt
+    // no longer targets a pending request.
+    let (status, _) = send(&app, "DELETE", &cancel_path, Some(&alice), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test]
+async fn expired_request_is_not_actionable_and_can_be_reopened(pool: PgPool) {
+    let app = app(&pool, true);
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+
+    send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&alice),
+        Some(json!({ "to_user_id": uid("bob") })),
+    )
+    .await;
+    sqlx::query(
+        "UPDATE share_requests
+         SET created_at = now() - interval '31 days',
+             updated_at = now() - interval '31 days'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&bob), None).await;
+    assert!(incoming.as_array().unwrap().is_empty());
+    let (_, outgoing) = send(
+        &app,
+        "GET",
+        "/api/shares/requests/outgoing",
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(outgoing.as_array().unwrap().len(), 1);
+    assert_eq!(outgoing[0]["expired"], true);
+
+    let request_id = outgoing[0]["id"].as_str().unwrap();
+    let (status, _) = send(
+        &app,
+        "POST",
+        &format!("/api/shares/requests/{request_id}/accept"),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Sending again is the explicit retry: it reopens the same pair with a
+    // fresh timestamp instead of being blocked by the stale pending row.
+    send(
+        &app,
+        "POST",
+        "/api/shares/request",
+        Some(&alice),
+        Some(json!({ "to_user_id": uid("bob") })),
+    )
+    .await;
+    let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&bob), None).await;
+    assert_eq!(incoming.as_array().unwrap().len(), 1);
+}
+
+#[sqlx::test]
 async fn share_request_rate_limit(pool: PgPool) {
     let app = app(&pool, true);
     let alice = user(&pool, "alice").await;

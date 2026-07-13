@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/ghost/who_sees_me.dart';
+import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// Adaptive shell chrome: a bottom [NavigationBar] on compact widths, a
 /// [NavigationRail] on medium+ (Material breakpoints via `MediaQuery.sizeOf`).
 /// Monochrome — the selected indicator is tonal, never a hue.
-class ShellChrome extends StatelessWidget {
+class ShellChrome extends ConsumerWidget {
   const ShellChrome({
     required this.activeBranch,
     required this.branchContent,
@@ -24,9 +26,12 @@ class ShellChrome extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final width = MediaQuery.sizeOf(context).width;
     final expanded = width >= 600;
+    final requestCount = ref.watch(
+      requestsControllerProvider.select((value) => value.value?.length ?? 0),
+    );
 
     if (expanded) {
       return Scaffold(
@@ -42,11 +47,19 @@ class ShellChrome extends StatelessWidget {
               backgroundColor: context.colors.surface,
               indicatorColor: context.colors.surfaceContainerHighest,
               destinations: [
-                for (final (icon, active, label) in _destinations)
+                for (final (index, destination) in _destinations.indexed)
                   NavigationRailDestination(
-                    icon: Icon(icon),
-                    selectedIcon: Icon(active),
-                    label: Text(label),
+                    icon: _DestinationIcon(
+                      icon: destination.$1,
+                      label: destination.$3,
+                      count: index == 1 ? requestCount : 0,
+                    ),
+                    selectedIcon: _DestinationIcon(
+                      icon: destination.$2,
+                      label: destination.$3,
+                      count: index == 1 ? requestCount : 0,
+                    ),
+                    label: Text(destination.$3),
                   ),
               ],
             ),
@@ -71,15 +84,50 @@ class ShellChrome extends StatelessWidget {
             backgroundColor: context.colors.surface,
             indicatorColor: context.colors.surfaceContainerHighest,
             destinations: [
-              for (final (icon, active, label) in _destinations)
+              for (final (index, destination) in _destinations.indexed)
                 NavigationDestination(
-                  icon: Icon(icon),
-                  selectedIcon: Icon(active),
-                  label: label,
+                  icon: _DestinationIcon(
+                    icon: destination.$1,
+                    label: destination.$3,
+                    count: index == 1 ? requestCount : 0,
+                  ),
+                  selectedIcon: _DestinationIcon(
+                    icon: destination.$2,
+                    label: destination.$3,
+                    count: index == 1 ? requestCount : 0,
+                  ),
+                  label: destination.$3,
                 ),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DestinationIcon extends StatelessWidget {
+  const _DestinationIcon({
+    required this.icon,
+    required this.label,
+    required this.count,
+  });
+
+  final IconData icon;
+  final String label;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: count == 0 ? label : '$label, $count pending requests',
+      excludeSemantics: true,
+      child: Badge.count(
+        count: count,
+        isLabelVisible: count > 0,
+        backgroundColor: context.colors.onSurface,
+        textColor: context.colors.surface,
+        child: Icon(icon),
       ),
     );
   }
