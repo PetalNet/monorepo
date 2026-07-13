@@ -1479,6 +1479,7 @@ export type ContractType =
 	| "OpResult"
 	| "GovernanceItem"
 	| "RosterItem";
+/** @public Generated compatibility fixtures for contract consumers and tests. */
 export const CONTRACT_FIXTURES = {
 	Principal: {
 		schema_version: 1,
@@ -1766,6 +1767,7 @@ function validateSchema(
 	return errors;
 }
 
+/** @public Validate an API value against its canonical schema. */
 export function validateContract(type: ContractType, value: unknown): ValidationResult {
 	const errors = validateSchema(CONTRACT_SCHEMAS[type], value);
 	return { valid: errors.length === 0, errors };

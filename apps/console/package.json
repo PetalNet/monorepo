@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"prebuild": "node scripts/generate-contracts.mjs --check",
 		"build": "vite build",
 		"check": "node scripts/generate-contracts.mjs --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",

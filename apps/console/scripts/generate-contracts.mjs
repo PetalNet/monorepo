@@ -356,9 +356,11 @@ export interface CommsEvent extends Record<string, unknown> {
 
 const CONTRACT_SCHEMAS = ${JSON.stringify(Object.fromEntries(Object.entries(resolvedSchemas).map(([name, schema]) => [name, compactSchema(schema)])))} as unknown as Record<ContractType, JsonSchema>;
 export type ContractType = ${typeSpecs.map(([name]) => JSON.stringify(name)).join(" | ")};
+/** @public Generated compatibility fixtures for contract consumers and tests. */
 export const CONTRACT_FIXTURES = ${JSON.stringify(Object.fromEntries(typeSpecs.map(([name]) => [name, fixture(resolvedSchemas[name])])), null, "\t")} as const;
 ${validatorSource}
 
+/** @public Validate an API value against its canonical schema. */
 export function validateContract(type: ContractType, value: unknown): ValidationResult {
 \tconst errors = validateSchema(CONTRACT_SCHEMAS[type], value);
 \treturn { valid: errors.length === 0, errors };
@@ -443,11 +445,13 @@ export interface OpDef {
 }
 
 const OPS = ${JSON.stringify(Object.fromEntries(opRows.map((row) => [row.op, row])), null, "\t")} as const satisfies Record<OpName, OpDef>;
+/** @public Generated valid arguments for compatibility tests and downstream consumers. */
 export const OP_TEST_FIXTURES = ${JSON.stringify(Object.fromEntries(resolvedOps.map((entry) => [entry.op, fixture(entry.args)])), null, "\t")} as const satisfies Record<OpName, unknown>;
 ${validatorSource}
 
 export function opDef(op: string): OpDef | undefined { return (OPS as Record<string, OpDef>)[op]; }
 export function canSeeOp(op: OpDef, lanes: string[]): boolean { return lanes.includes(op.lane); }
+/** @public Validate operation arguments against the canonical catalog schema. */
 export function validateOpArgs(op: string, args: unknown): ValidationResult {
 \tconst def = opDef(op);
 \tif (!def) return { valid: false, errors: [\`Unknown operation: ${"${op}"}\`] };

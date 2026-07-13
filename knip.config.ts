@@ -7,6 +7,9 @@ export default {
 		".": {
 			entry: ["vite.config.ts"],
 		},
+		"apps/console": {
+			entry: ["scripts/generate-contracts.mjs"],
+		},
 		"apps/collegemap": {
 			drizzle: {
 				config: [],

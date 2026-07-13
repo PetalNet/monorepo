@@ -2936,6 +2936,7 @@ const OPS = {
 		},
 	},
 } as const satisfies Record<OpName, OpDef>;
+/** @public Generated valid arguments for compatibility tests and downstream consumers. */
 export const OP_TEST_FIXTURES = {
 	"attention.ack": {
 		id: "fixture",
@@ -3283,6 +3284,7 @@ export function opDef(op: string): OpDef | undefined {
 export function canSeeOp(op: OpDef, lanes: string[]): boolean {
 	return lanes.includes(op.lane);
 }
+/** @public Validate operation arguments against the canonical catalog schema. */
 export function validateOpArgs(op: string, args: unknown): ValidationResult {
 	const def = opDef(op);
 	if (!def) return { valid: false, errors: [`Unknown operation: ${op}`] };
