@@ -128,6 +128,96 @@ export interface ExecutorItem extends Extra {
 	detail?: string | null;
 }
 
+// ---- accounting (POST /query, GET /catalog, GET /dashboards) ----
+export type QueryColumnType = "string" | "number" | "boolean" | "timestamp" | "json";
+export interface QueryColumn {
+	name: string;
+	type: QueryColumnType;
+}
+export interface StructuredQuery extends Extra {
+	schema_version: 1;
+	mode: "structured";
+	from: string;
+	select?: { field: string; agg?: string | null; as?: string }[];
+	where?: Record<string, unknown>;
+	group_by?: string[];
+	time?: {
+		from?: string;
+		to?: string | null;
+		bucket?: string | null;
+		fill?: "none" | "null" | "zero" | "previous" | null;
+		coverage?: boolean;
+	} | null;
+	order?: { field: string; dir: "asc" | "desc" }[] | null;
+	limit?: number | null;
+}
+export interface QueryResult extends Extra {
+	schema_version: 1;
+	columns: QueryColumn[];
+	rows: unknown[][];
+	row_count: number;
+	execution_ms?: number | null;
+	freshness: { source: string; observed_at: string; window_s?: number | null };
+	query_ref: string;
+	truncated?: boolean;
+}
+export interface CatalogEntry extends Extra {
+	type: string;
+	first_seen: string;
+	last_emit?: string | null;
+	scopes: string[];
+	dimensions: Record<string, { type: "string" | "boolean"; cardinality?: string | null }>;
+	measures: Record<
+		string,
+		{ kind?: "gauge" | "counter" | "delta" | "timestamp" | null; unit?: string | null }
+	>;
+	emit_rate_per_min?: number | null;
+}
+export interface DashboardItem extends Extra {
+	id: string;
+	title: string;
+	is_home: boolean;
+	kind: "artifact";
+	created_by: string;
+	responsible_human?: string | null;
+	updated_at: string;
+	panel_count: number;
+	scope: string;
+}
+
+export interface EdgeRegistryItem extends Extra {
+	pubkey_fp: string;
+	handle?: string | null;
+	host?: string | null;
+	state: "pending" | "enrolled" | "revoked";
+	requested_handle?: string | null;
+	source_ip?: string | null;
+	first_seen_at?: string | null;
+	enrolled_at?: string | null;
+	enrolled_by?: string | null;
+	last_seen_at?: string | null;
+}
+export interface EdgeLink extends Extra {
+	link_id: string;
+	role: "primary" | "standby";
+	state: "active" | "warm" | "down";
+	rtt_ms?: number | null;
+	established_at: string;
+	last_flap_at?: string | null;
+	flap_count_24h: number;
+}
+export interface EdgeSessionItem extends Extra {
+	session_id: string;
+	handle: string;
+	host: string;
+	state: "open" | "resuming" | "floor" | "closed";
+	established_at: string;
+	resumes_count: number;
+	last_seen_at: string;
+	handshakes_clean_count?: number | null;
+	links: EdgeLink[];
+}
+
 // ---- attention (GET /attention, section 5.3) ----
 export type AttentionGrade = "p0" | "blocker" | "review" | "artifact";
 export interface FixOp extends Extra {
