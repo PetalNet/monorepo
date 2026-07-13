@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/presence_tokens.dart';
@@ -322,10 +324,33 @@ class _MarkerIdentity extends StatelessWidget {
               ),
             ),
           ),
-          PresenceDot(state: person.presence, size: 44),
+          PresenceDot(
+            key: ValueKey(person.userId),
+            state: person.presence,
+            size: 44,
+            updateToken: _updateToken(context),
+          ),
         ],
       ),
     );
+  }
+
+  Object _updateToken(BuildContext context) {
+    final hasProviderScope =
+        context.findAncestorWidgetOfExactType<ProviderScope>() != null ||
+        context.findAncestorWidgetOfExactType<UncontrolledProviderScope>() !=
+            null;
+    if (!hasProviderScope) {
+      // PresenceMarker is also rendered in isolated design/test hosts. The
+      // production map has a ProviderScope and therefore uses accepted-fix
+      // identity; coordinates keep standalone rendering deterministic.
+      return (person.lat, person.lon);
+    }
+    final target = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(livePresenceProvider)[person.userId]?.target;
+    return target?.timestamp ?? target?.receivedAt ?? (person.lat, person.lon);
   }
 }
 
