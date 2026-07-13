@@ -15,6 +15,7 @@ export async function searchSemanticCorpus(
 	scopes: readonly string[],
 	query: string,
 	limit = 8,
+	kindFilter?: SemanticSearchResult["kind"],
 ): Promise<SemanticSearchResult[]> {
 	const trimmed = query.trim();
 	if (!trimmed) return [];
@@ -37,8 +38,9 @@ export async function searchSemanticCorpus(
 				select *, embedding <=> ${embedding}::vector as distance,
 					ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', ${trimmed})) as text_rank
 				from semantic_documents
-			) ranked
-			order by score desc, source_ref asc
+				) ranked
+				where (${kindFilter ?? null}::text is null or kind = ${kindFilter ?? null})
+				order by score desc, source_ref asc
 			limit ${boundedLimit}`;
 		return rows.map((row) => ({ ...row, score: Number(row.score) }));
 	});

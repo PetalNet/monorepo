@@ -8,6 +8,7 @@ import { matchPattern } from "../src/bus/broker.ts";
 import { parseEmission, type Emission } from "../src/emission.ts";
 import { authorizeEmission, type ProducerRegistration } from "../src/ingest/authz.ts";
 import { scrubEmission } from "../src/ingest/scrubber.ts";
+import { rankPaletteCandidates } from "../src/palette/search.ts";
 import { materializePanel } from "../src/render/engine.ts";
 
 function emission(over: Partial<Emission> = {}): Emission {
@@ -126,6 +127,48 @@ describe("pattern matching", () => {
 	it("suffix glob", () => expect(matchPattern("*.flap", "doorman.flap")).toBe(true));
 	it("suffix single-star does not cross segments", () =>
 		expect(matchPattern("*.flap", "doorman.link.flap")).toBe(false));
+});
+
+describe("command palette fuzzy ranking", () => {
+	it("ranks exact and compact object matches ahead of loose subsequences", () => {
+		const results = rankPaletteCandidates("carson", [
+			{
+				id: "task:1",
+				kind: "task",
+				label: "Cache response snapshots",
+				description: "task",
+				href: "/work?task=1",
+			},
+			{
+				id: "agent:carson",
+				kind: "agent",
+				label: "Carson",
+				description: "@carson-2",
+				href: "/agents?agent=carson",
+			},
+			{
+				id: "agent:carson-2",
+				kind: "agent",
+				label: "Carson 2",
+				description: "resident",
+				href: "/agents?agent=carson-2",
+			},
+		]);
+		expect(results.map(({ id }) => id)).toEqual(["agent:carson", "agent:carson-2", "task:1"]);
+	});
+
+	it("matches multi-token metadata and refuses unrelated candidates", () => {
+		const task = {
+			id: "task:42",
+			kind: "task" as const,
+			label: "Repair delivery fallback",
+			description: "/task/42 · blocked · console",
+			href: "/work?task=42",
+			keywords: ["janet", "notifications"],
+		};
+		expect(rankPaletteCandidates("blocked console", [task])).toHaveLength(1);
+		expect(rankPaletteCandidates("uptime host", [task])).toHaveLength(0);
+	});
 });
 
 describe("assistant compiler boundary", () => {

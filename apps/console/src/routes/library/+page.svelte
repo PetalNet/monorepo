@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from "$app/state";
 	import AskDock from "$lib/components/AskDock.svelte";
 	import Icon from "$lib/components/Icon.svelte";
 	import IconButton from "$lib/components/IconButton.svelte";
@@ -17,6 +18,7 @@
 	let search = $state<HTMLInputElement|null>(null);
 	let searchResults=$state<LibraryItemView[]|null>(null);
 	let searchState=$state<"idle"|"searching"|"failed">("idle");
+	let handledItem=$state<string|null>(null);
 	const results = $derived((searchResults??lib.items).filter((item) => (!kind || item.kind === kind) && (!project || item.project === project) && (!scope || item.scope === scope) && (!creator || item.creator === creator) && (!status || item.status === status) && (searchResults!==null || `${item.title} ${item.project} ${item.kind} ${item.creator}`.toLowerCase().includes(query.toLowerCase()))));
 	const links=$derived(lib.links ?? libraryLinks);
 	const provenance=$derived(lib.provenance ?? libraryProvenance);
@@ -28,6 +30,8 @@
 	function ask(q:string){query=q;asked=true;view="table";transcript=lib.items.some(i=>i.title.toLowerCase().includes(q.toLowerCase().split(" ")[0]||""))?"I found these items in your readable stacks.":"Nothing in the stacks for that. Research egress is not wired.";}
 	function keys(e:KeyboardEvent){ if(e.key==="f" && !(e.target instanceof HTMLInputElement)){e.preventDefault();search?.focus();} if(["1","2","3","4"].includes(e.key)&&!(e.target instanceof HTMLInputElement)) view=(["desk","graph","kanban","table"] as const)[Number(e.key)-1]; }
 	function graphKey(e:KeyboardEvent){if(!e.key.startsWith("Arrow"))return;const nodes=[...document.querySelectorAll<HTMLButtonElement>(".graph button")];const i=nodes.indexOf(e.currentTarget as HTMLButtonElement);if(i>=0){e.preventDefault();nodes[(i+(e.key==="ArrowLeft"||e.key==="ArrowUp"?-1:1)+nodes.length)%nodes.length]?.focus();}}
+	$effect(()=>{const id=page.url.searchParams.get("item");if(!id||id===handledItem)return;handledItem=id;selected=lib.items.find((item)=>item.id===id)??null;});
+	$effect(()=>{if(page.url.searchParams.get("focus")!=="search")return;queueMicrotask(()=>search?.focus());});
 </script>
 <svelte:window onkeydown={keys}/>
 <div class="sign"><h1>The Library</h1><span>Everything anyone here has ever learned. Ask.</span><form onsubmit={submit} title={lib.connected?"Search the stacks":"Store unreachable"}><Icon name="search" size={14}/><input bind:this={search} bind:value={query} placeholder="Search the stacks" aria-label="Search the stacks" disabled={!lib.connected}/></form><div class="seg">{#each ["desk","graph","kanban","table"] as tab}<button class:on={view===tab} onclick={() => view=tab as typeof view} disabled={!lib.connected}>{tab[0].toUpperCase()+tab.slice(1)}</button>{/each}</div><button class="bud" title="Budhole" aria-label="Budhole" disabled={!lib.connected}><Icon name="library" size={16}/></button></div>

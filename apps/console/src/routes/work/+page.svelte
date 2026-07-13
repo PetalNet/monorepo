@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { env } from "$env/dynamic/public";
 	import { invalidateAll } from "$app/navigation";
+	import { page } from "$app/state";
 	import { onMount, untrack } from "svelte";
 	import { connectBus, runOp } from "$lib/api/client";
 	import type { CardItem, OpResult, TaskItem, TaskStatus } from "$lib/api/types";
@@ -32,6 +33,7 @@
 	let blockReason = $state("");
 	let closeReason = $state("");
 	let dispatchRecipient = $state("");
+	let handledTask = $state<number | null>(null);
 	const statuses: { id: Exclude<TaskStatus, "done" | "dropped">; label: string }[] = [
 		{ id: "inbox", label: "Inbox" }, { id: "todo", label: "Todo" }, { id: "doing", label: "Doing" },
 		{ id: "review", label: "Review" }, { id: "blocked", label: "Blocked" },
@@ -74,6 +76,12 @@
 		if (data.isMock) return;
 		tasks = [...data.tasks]; wantedCards = [...data.wanted];
 		if (selected) selected = data.tasks.find((task: TaskItem) => task.id === selected?.id) ?? null;
+	});
+	$effect(() => {
+		const requested = Number(page.url.searchParams.get("task"));
+		if (!Number.isSafeInteger(requested) || requested < 1 || requested === handledTask) return;
+		handledTask = requested;
+		selected = tasks.find((task) => task.id === requested) ?? null;
 	});
 	onMount(() => {
 		const clock = setInterval(() => now = Date.now(), 1000);
@@ -163,7 +171,7 @@
 	</article>
 {/snippet}
 
-<section class="board" aria-label="Task board">{#each statuses as column}<div class="column status-{column.id}" class:review={column.id==="review"} role="list" aria-label={column.label} ondragover={(event)=>event.preventDefault()} ondrop={() => { if(dragged&&canAct) void move(dragged,column.id); dragged=null; }}><header title={column.id==="blocked"?"Blocked means waiting on a person or a fact. Say which.":undefined}><span>{column.label}</span><b>{visible.filter((task)=>task.status===column.id).length}</b></header>{#each visible.filter((task)=>task.status===column.id).sort((a,b)=>(a.priority-b.priority)||(a.rank??0)-(b.rank??0)).slice(0,expanded[column.id]?undefined:12) as task (task.id)}{@render taskCard(task)}{:else}<p>{column.id==="inbox"?"Inbox zero. You owe nothing right now.":"All caught up."}</p>{/each}{#if visible.filter((task)=>task.status===column.id).length>12}<button class="more" onclick={()=>expanded[column.id]=!expanded[column.id]}>{expanded[column.id]?"Show less":`${visible.filter((task)=>task.status===column.id).length-12} more`}</button>{/if}</div>{/each}</section>
+<section class="board" aria-label="Task board">{#each statuses as column}<div id={column.id} class="column status-{column.id}" class:review={column.id==="review"} role="list" aria-label={column.label} ondragover={(event)=>event.preventDefault()} ondrop={() => { if(dragged&&canAct) void move(dragged,column.id); dragged=null; }}><header title={column.id==="blocked"?"Blocked means waiting on a person or a fact. Say which.":undefined}><span>{column.label}</span><b>{visible.filter((task)=>task.status===column.id).length}</b></header>{#each visible.filter((task)=>task.status===column.id).sort((a,b)=>(a.priority-b.priority)||(a.rank??0)-(b.rank??0)).slice(0,expanded[column.id]?undefined:12) as task (task.id)}{@render taskCard(task)}{:else}<p>{column.id==="inbox"?"Inbox zero. You owe nothing right now.":"All caught up."}</p>{/each}{#if visible.filter((task)=>task.status===column.id).length>12}<button class="more" onclick={()=>expanded[column.id]=!expanded[column.id]}>{expanded[column.id]?"Show less":`${visible.filter((task)=>task.status===column.id).length-12} more`}</button>{/if}</div>{/each}</section>
 
 <section class="settle"><header><Icon name="circle-check" size={14}/><h2>Done today</h2><span>Settles to the Library after 24h.</span></header>{#each done as task}<button onclick={()=>{selected=task;blockReason="";closeReason="";dispatchRecipient="";}}><Icon name="circle-check" size={14}/><b>{task.title}</b><span>{task===done[0]?"Done. Points posted.":""}</span><time>settles in {Math.max(0,24-Math.round((now-Date.parse(task.updated_at))/36e5))}h</time></button>{:else}<p>All caught up.</p>{/each}</section>
 

@@ -1,9 +1,11 @@
 <script lang="ts">
 	import type { Snippet } from "svelte";
+	import { onMount } from "svelte";
 	import { dataMode, sendAssistantContext, sendAssistantMessage, type AssistantContextPayload } from "$lib/api/client";
 	import type { HealthVerdict } from "$lib/api/derive";
 	import type { Me } from "$lib/api/types";
 	import AskDock, { type ContextPayload } from "./AskDock.svelte";
+	import CommandPalette from "./CommandPalette.svelte";
 	import Icon from "./Icon.svelte";
 	import Sidebar from "./Sidebar.svelte";
 	import Snackbar from "./Snackbar.svelte";
@@ -24,6 +26,7 @@
 	let { me, verdict, stateFact = null, badges = {}, connected = true, children }: Props = $props();
 
 	let askRef = $state<AskDock | null>(null);
+	let paletteOpen = $state(false);
 	let context = $state<ContextPayload | null>(null);
 	let progress = $state<string | null>(null);
 	let transcript = $state<string | null>(null);
@@ -120,17 +123,28 @@
 	function clearContext() {
 		context = null;
 	}
+
+	onMount(() => {
+		function commandKey(event: KeyboardEvent) {
+			if (!(event.metaKey || event.ctrlKey) || event.key.toLocaleLowerCase() !== "k") return;
+			event.preventDefault();
+			paletteOpen = true;
+		}
+		window.addEventListener("keydown", commandKey, { capture: true });
+		return () => window.removeEventListener("keydown", commandKey, { capture: true });
+	});
 </script>
 
 <svelte:window onkeydown={openKeyboardMenu} onclick={() => (menu = null)} />
 
 <div class="shell">
-	<Sidebar {me} {verdict} {stateFact} {badges} />
+	<Sidebar {me} {verdict} {stateFact} {badges} onpalette={() => (paletteOpen = true)} />
 	<main class="canvas" oncontextmenu={openContextMenu}>
 		<div class="surface">{@render children()}</div>
 		<AskDock bind:this={askRef} mode="docked" {context} {progress} {transcript} {assistantDown} onask={onAsk} onclearcontext={clearContext} />
 	</main>
 </div>
+<CommandPalette bind:open={paletteOpen} lanes={me.lanes} {connected} onask={() => askRef?.focus()} />
 {#if menu}
 	<div bind:this={menuEl} class="context-menu" style:left={`${menu.x}px`} style:top={`${menu.y}px`} role="menu" aria-label="Element actions" tabindex="-1">
 		<button type="button" role="menuitem" onclick={() => askAbout(menu!.target)}><Icon name="sparkles" size={16} />Ask about this</button>
