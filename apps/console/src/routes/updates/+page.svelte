@@ -11,12 +11,20 @@
 
 <SurfaceSign
 	title="Updates"
-	verdict={!u.connected ? "cant_verify" : critical ? "cracked" : u.remainder ? "needs_you" : "fine"}
+	verdict={!u.connected
+		? "cant_verify"
+		: critical
+			? "cracked"
+			: u.securityUnknown || u.remainder
+				? "needs_you"
+				: "fine"}
 	stateFact={critical
 		? `${u.hud.securityCritical} security-critical update${u.hud.securityCritical === 1 ? "" : "s"} pending.`
-		: u.remainder
-			? `Nothing critical. ${u.remainder}.`
-			: "Nothing critical."}
+		: u.securityUnknown
+			? `Nothing known critical.${u.remainder ? ` ${u.remainder}.` : ""}`
+			: u.remainder
+				? `Nothing critical. ${u.remainder}.`
+				: "Nothing critical."}
 />
 
 {#if !u.connected}

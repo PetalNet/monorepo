@@ -32,6 +32,11 @@ export interface UpdatesData {
 	connected: boolean;
 	rows: UpdateRowView[];
 	hud: { securityCritical: number; owing: number; reboots: number };
+	/**
+	 * True when a box's security count is unknown (null) — "nothing critical" is then unprovable, so
+	 * the surface must not render the green fine line.
+	 */
+	securityUnknown: boolean;
 	/** Null when nothing critical; else the honest remainder tail. */
 	remainder: string | null;
 }
@@ -77,7 +82,13 @@ function assemble(boxUpdates: BoxUpdateItem[], now: number): UpdatesData {
 			a.host.localeCompare(x.host),
 	);
 	const securityCritical = rows.reduce((n, r) => n + (r.securityCritical ?? 0), 0);
-	const owing = rows.filter((r) => r.status !== "up_to_date").length;
+	// A null security count is UNKNOWN, not zero — "nothing critical" is unprovable.
+	const securityUnknown = rows.some((r) => r.securityCritical == null);
+	// Owed = KNOWN-owed only (pending/overdue). error_collecting means the count is
+	// unknowable, not that updates are owed — it lives in the "not verified" signal.
+	const owing = rows.filter(
+		(r) => r.status === "updates_pending" || r.status === "updates_overdue",
+	).length;
 	const reboots = rows.filter((r) => r.rebootRequired === true).length;
 	const parts: string[] = [];
 	if (owing > 0) parts.push(`${owing} host${owing === 1 ? "" : "s"} owe updates`);
@@ -89,6 +100,7 @@ function assemble(boxUpdates: BoxUpdateItem[], now: number): UpdatesData {
 		connected: true,
 		rows,
 		hud: { securityCritical, owing, reboots },
+		securityUnknown,
 		remainder: parts.length ? parts.join(" · ") : null,
 	};
 }
@@ -98,6 +110,7 @@ export function liveEmptyUpdates(): UpdatesData {
 		connected: false,
 		rows: [],
 		hud: { securityCritical: 0, owing: 0, reboots: 0 },
+		securityUnknown: false,
 		remainder: null,
 	};
 }
