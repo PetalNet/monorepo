@@ -193,7 +193,15 @@ class _MapScreenState extends ConsumerState<MapScreen>
           children: [
             const BrandDot(),
             SizedBox(width: context.space.sm),
-            const Text('Point'),
+            const Flexible(
+              child: Text(
+                'Point',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            SizedBox(width: context.space.sm),
+            const Expanded(child: RelayHealthIndicator()),
           ],
         ),
         actions: [
@@ -252,28 +260,19 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ],
           ),
           const MapAvailabilityOverlay(),
-          Positioned(
-            top: context.space.sm,
-            left: context.space.sm,
-            right: context.space.sm,
-            child: Column(
-              children: [
-                const RelayHealthBanner(),
-                if (_follow.isFollowing)
-                  Padding(
-                    padding: EdgeInsets.only(top: context.space.sm),
-                    child: _FollowBadge(
-                      name: located
-                          .where((person) => person.userId == _follow.userId)
-                          .firstOrNull
-                          ?.displayName,
-                      onStop: () =>
-                          setState(() => _follow = _follow.onUserGesture()),
-                    ),
-                  ),
-              ],
+          if (_follow.isFollowing)
+            Positioned(
+              top: context.space.sm,
+              left: context.space.sm,
+              right: context.space.sm,
+              child: _FollowBadge(
+                name: located
+                    .where((person) => person.userId == _follow.userId)
+                    .firstOrNull
+                    ?.displayName,
+                onStop: () => setState(() => _follow = _follow.onUserGesture()),
+              ),
             ),
-          ),
         ],
       ),
     );
