@@ -26,6 +26,9 @@ export interface ProducerRegistration {
 	readonly allowedScopes: readonly string[];
 	/** Producer may not exceed this severity. */
 	readonly maxSeverity: Severity;
+	/** Durable appender admission caps; retries of an existing emission id do not consume them. */
+	readonly maxEmitPerMinute: number;
+	readonly maxNewTypesPerHour: number;
 }
 
 function scopeAllowed(scope: string, patterns: readonly string[]): boolean {

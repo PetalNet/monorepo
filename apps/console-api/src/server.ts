@@ -9,6 +9,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { buildServices, type Services } from "./app.ts";
 import { resolveBearer, devPrincipal, type Principal } from "./auth/principal.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
+import { withScopes } from "./db/pool.ts";
 import { loadEnv } from "./env.ts";
 import {
 	initExceptionMonitor,
@@ -18,16 +19,48 @@ import {
 	type ExceptionMonitor,
 } from "./observability.ts";
 import type { ProjectionKind } from "./projector/index.ts";
+import { readQueryRecord } from "./query/history.ts";
 import { runStructured, QueryError, type QueryRequest } from "./query/structured.ts";
 import { readEntity } from "./reads/entities.ts";
 import { readRoster, readExecutors } from "./reads/roster.ts";
 import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
 import type { TrackerReader } from "./reads/tracker.ts";
+import { mergeSemanticShape, type SemanticShape } from "./semantic/registry.ts";
+import { searchSemanticCorpus } from "./semantic/search.ts";
 
 declare module "fastify" {
 	interface FastifyRequest {
 		principal?: Principal;
 	}
+}
+
+function parseCatalogCursor(
+	cursor: string | undefined,
+): { type: string; inclusive: boolean } | null {
+	if (!cursor) return null;
+	try {
+		const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
+			v?: unknown;
+			position?: unknown;
+			type?: unknown;
+		};
+		if (
+			decoded.v !== 1 ||
+			(decoded.position !== "after" && decoded.position !== "at") ||
+			typeof decoded.type !== "string" ||
+			!/^[a-z0-9_]+(?:\.[a-z0-9_]+)+$/.test(decoded.type)
+		)
+			return null;
+		return { type: decoded.type, inclusive: decoded.position === "at" };
+	} catch {
+		return null;
+	}
+}
+
+function catalogCursor(type: string, inclusive: boolean): string {
+	return Buffer.from(JSON.stringify({ v: 1, position: inclusive ? "at" : "after", type })).toString(
+		"base64url",
+	);
 }
 
 export async function buildServer(
@@ -169,10 +202,21 @@ export async function buildServer(
 		const p = req.principal as Principal;
 		const bytes = Buffer.byteLength(JSON.stringify(req.body ?? {}));
 		const outcome = await services.emit(p.id, req.body, bytes);
-		if (!outcome.ok)
-			return reply
-				.code(outcome.code === "unregistered_producer" ? 403 : 400)
-				.send({ error: { code: outcome.code, message: outcome.message, retryable: false } });
+		if (!outcome.ok) {
+			const rateLimited =
+				outcome.code === "emit_rate_limited" || outcome.code === "new_type_rate_limited";
+			reply.code(outcome.code === "unregistered_producer" ? 403 : rateLimited ? 429 : 400);
+			const retryAfterS = outcome.retryAfterS ?? (outcome.code === "emit_rate_limited" ? 60 : 3600);
+			if (rateLimited) reply.header("retry-after", String(retryAfterS));
+			return reply.send({
+				error: {
+					code: outcome.code,
+					message: outcome.message,
+					retryable: rateLimited,
+					...(rateLimited ? { retry_after_s: retryAfterS } : {}),
+				},
+			});
+		}
 		return reply.code(202).send({ seq: outcome.seq, duplicate: outcome.duplicate ?? false });
 	});
 
@@ -194,7 +238,15 @@ export async function buildServer(
 			results.push(
 				outcome.ok
 					? { seq: outcome.seq, duplicate: outcome.duplicate ?? false }
-					: { error: { code: outcome.code, message: outcome.message, retryable: false } },
+					: {
+							error: {
+								code: outcome.code,
+								message: outcome.message,
+								retryable:
+									outcome.code === "emit_rate_limited" || outcome.code === "new_type_rate_limited",
+								...(outcome.retryAfterS ? { retry_after_s: outcome.retryAfterS } : {}),
+							},
+						},
 			);
 		}
 		return reply.code(202).send({ results });
@@ -228,19 +280,174 @@ export async function buildServer(
 			throw err;
 		}
 	});
+	app.get("/api/v1/query/:queryRef", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const { queryRef } = req.params as { queryRef: string };
+		const record = await readQueryRecord(services.db.app, p.scopes, queryRef);
+		if (!record)
+			return reply.code(404).send({
+				error: { code: "query_not_found", message: "query ref not found", retryable: false },
+			});
+		return { schema_version: 1, ...record };
+	});
+	app.post("/api/v1/query/:queryRef/rerun", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const { queryRef } = req.params as { queryRef: string };
+		const record = await readQueryRecord(services.db.app, p.scopes, queryRef);
+		if (!record)
+			return reply.code(404).send({
+				error: { code: "query_not_found", message: "query ref not found", retryable: false },
+			});
+		try {
+			return await runStructured(services.db.app, p.scopes, record.request);
+		} catch (err) {
+			if (err instanceof QueryError)
+				return reply
+					.code(400)
+					.send({ error: { code: err.code, message: err.message, retryable: false } });
+			throw err;
+		}
+	});
 
 	// --- catalog ---------------------------------------------------------------------------------
-	app.get("/api/v1/catalog", { preHandler: auth }, async (req) => {
+	app.get("/api/v1/catalog", { preHandler: auth }, async (req, reply) => {
 		const p = req.principal as Principal;
-		if (p.scopes.length === 0) return { schema_version: 1, items: [] };
-		const rows = await services.db.app<{ scopes: string[]; [k: string]: unknown }[]>`
-			select type, first_seen, last_emit, dimensions, measures, scopes, emit_count
-			from semantic_registry
-			where scopes ?| ${services.db.app.array(p.scopes as string[])}
-			order by type`;
-		// intersect observed scopes with the caller's grant so a viewer can't learn a type was also
-		// seen in a scope they lack (sub-agent L3)
-		const items = rows.map((r) => ({ ...r, scopes: r.scopes.filter((s) => p.scopes.includes(s)) }));
+		if (p.scopes.length === 0)
+			return {
+				schema_version: 1,
+				freshness: {
+					source: "semantic-registry",
+					observed_at: new Date().toISOString(),
+					window_s: null,
+				},
+				items: [],
+				next_cursor: null,
+				truncated: false,
+			};
+		const query = req.query as {
+			type?: string;
+			scope?: string;
+			limit?: string;
+			cursor?: string;
+			since?: string;
+		};
+		if (query.type && !/^[a-z0-9_.*]+$/.test(query.type))
+			return reply.code(400).send({
+				error: { code: "bad_catalog_filter", message: "invalid type glob", retryable: false },
+			});
+		if (query.since && !Number.isFinite(Date.parse(query.since)))
+			return reply.code(400).send({
+				error: { code: "bad_catalog_filter", message: "invalid since timestamp", retryable: false },
+			});
+		const cursor = parseCatalogCursor(query.cursor);
+		if (query.cursor && !cursor)
+			return reply.code(400).send({
+				error: { code: "bad_catalog_filter", message: "invalid cursor", retryable: false },
+			});
+		const limit = Math.min(Math.max(1, Number(query.limit ?? 200) || 200), 1000);
+		const typeLike = query.type?.replaceAll("_", "#_").replaceAll("*", "%") ?? null;
+		const page = await withScopes(services.db.app, p.scopes, async (tx) => {
+			const types = await tx<{ type: string }[]>`
+					select distinct r.type from semantic_registry_scoped r
+					where (${cursor?.type ?? null}::text is null
+					       or (${cursor?.inclusive ?? false} and r.type >= ${cursor?.type ?? null})
+					       or (not ${cursor?.inclusive ?? false} and r.type > ${cursor?.type ?? null}))
+					  and (${query.since ?? null}::timestamptz is null or r.updated_at >= ${query.since ?? null}::timestamptz)
+					  and (${typeLike}::text is null or r.type like ${typeLike} escape '#')
+					  and (${query.scope ?? null}::text is null or r.scope = ${query.scope ?? null})
+					order by r.type limit ${limit + 1}`;
+			const selected = types.slice(0, limit).map(({ type }) => type);
+			if (selected.length === 0) return { types, rows: [], rates: [] };
+			const rows = await tx<
+				{
+					type: string;
+					scope: string;
+					first_seen: string;
+					last_emit: string | null;
+					dimensions: SemanticShape["dimensions"];
+					measures: SemanticShape["measures"];
+					joins: SemanticShape["joins"];
+					emit_count: string;
+					updated_at: string;
+				}[]
+			>`select * from semantic_registry_scoped where type = any(${tx.array(selected)})
+				  order by type, scope`;
+			const rates = await tx<{ type: string; rate: number }[]>`
+					select type, count(*)::float8 / 5 as rate from events
+					where type = any(${tx.array(selected)})
+					  and received_at >= now() - interval '5 minutes' group by type`;
+			return { types, rows, rates };
+		});
+		const rateByType = new Map(page.rates.map((row) => [row.type, Number(row.rate)]));
+		const items = page.types.slice(0, limit).map(({ type }) => {
+			const rows = page.rows.filter((row) => row.type === type);
+			let shape: SemanticShape = { dimensions: {}, measures: {}, joins: [] };
+			for (const row of rows) shape = mergeSemanticShape(shape, row).shape;
+			return {
+				type,
+				first_seen: rows.map((row) => row.first_seen).sort()[0],
+				last_emit:
+					rows
+						.map((row) => row.last_emit)
+						.filter((value): value is string => value !== null)
+						.sort()
+						.at(-1) ?? null,
+				dimensions: shape.dimensions,
+				measures: shape.measures,
+				joins: shape.joins,
+				scopes: rows.map((row) => row.scope).sort(),
+				emit_count: rows.reduce((sum, row) => sum + Number(row.emit_count), 0),
+				emit_rate_per_min: rateByType.get(type) ?? 0,
+			};
+		});
+		const byteCap = 1024 * 1024;
+		// Reserve a bounded margin for freshness, cursor, omitted_types, and JSON structure so the
+		// advertised cap applies to the complete response rather than only its item payloads.
+		const itemBudget = byteCap - 4096;
+		const capped: typeof items = [];
+		let bytes = 0;
+		for (const item of items) {
+			const nextBytes = Buffer.byteLength(JSON.stringify(item));
+			if (bytes + nextBytes > itemBudget) break;
+			capped.push(item);
+			bytes += nextBytes;
+		}
+		const clippedByBytes = capped.length < items.length;
+		const hasMore = page.types.length > limit || clippedByBytes;
+		const firstOmitted = items[capped.length]?.type;
+		const oversizedFirst = clippedByBytes && capped.length === 0;
+		const cursorType = clippedByBytes ? firstOmitted : capped.at(-1)?.type;
+		const observedAt =
+			page.rows
+				.map((row) => row.updated_at)
+				.sort()
+				.at(-1) ?? new Date().toISOString();
+		return {
+			schema_version: 1,
+			freshness: { source: "semantic-registry", observed_at: observedAt, window_s: null },
+			items: capped,
+			next_cursor: hasMore
+				? cursorType
+					? catalogCursor(cursorType, clippedByBytes && !oversizedFirst)
+					: null
+				: null,
+			truncated: hasMore,
+			...(oversizedFirst && firstOmitted ? { omitted_types: [firstOmitted] } : {}),
+		};
+	});
+	app.get("/api/v1/catalog/search", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const query = req.query as { q?: string; limit?: string };
+		if (!query.q || query.q.length > 512)
+			return reply.code(400).send({
+				error: { code: "bad_search", message: "q is required (max 512 chars)", retryable: false },
+			});
+		const items = await searchSemanticCorpus(
+			services.db.app,
+			p.scopes,
+			query.q,
+			Number(query.limit ?? 8),
+		);
 		return { schema_version: 1, items };
 	});
 

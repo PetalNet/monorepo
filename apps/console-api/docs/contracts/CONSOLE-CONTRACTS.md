@@ -161,10 +161,50 @@ never needs the LLM). **Dereferencing a `query_ref` (peek, re-run, stat-binding 
 always executes as the DEREFERENCING caller** — a shared panel refuses per-viewer, never
 replays the author's scopes. NL→query is `POST /api/v1/ask` (Phase 2, additive).
 
+**Shipped L2 query refs (2026-07-13):** every successful structured execution persists its
+request, placeholder SQL, columns, timing, and authorizing scope set under the returned ref.
+`GET /api/v1/query/:query_ref` peeks that provenance and
+`POST /api/v1/query/:query_ref/rerun` executes the stored structured request through the current
+caller's RLS scopes (and returns a new ref). Because the record contains filter values and may span
+several grants, peek/rerun requires the caller to hold the **complete originating scope set** (a
+strict superset is allowed); otherwise it is indistinguishable from a missing ref (404). The
+originating grants are never replayed implicitly. Structured `sum` requires counter/delta semantics,
+and `avg` over a counter is rejected as `agg_mismatch`. Registered all-event/relationship views
+expose only their declared pseudo-fields; dynamic type fields require querying that statistic type.
+The request schema reserves `rate`, `fill: zero|previous`, and `coverage`, but this build refuses
+those honestly (`bad_agg`/`unsupported_fill`/`unsupported_coverage`) rather than fabricating data.
+
 ### 3.2 The statistics catalog — `GET /api/v1/catalog`
 
 The semantic layer, readable, scope-filtered: `schemas/entities/catalog-entry.schema.json`
 (type, per-field dimension/measure typing, cardinality, last_emit, emit rate, observed scopes).
+
+L2 is live: `GET /api/v1/catalog` returns the shared read envelope (`freshness`, `items`, always-
+present opaque `next_cursor`, and `truncated`) with a 1 MiB server cap. Byte clipping resumes at the
+first omitted type; if one entry alone exceeds the cap, the response explicitly lists it in
+`omitted_types` and advances, so pagination always makes progress without silently losing a row.
+Field descriptors and relationship joins derive transactionally from accepted
+emissions; bounded hashed-value sampling classifies dimension cardinality without storing raw
+dimension values. Every caller-visible registry projection, cardinality set, and statistic search
+document is keyed to one exact scope; the cross-scope aggregate is writer-only coordination state.
+Consequently, overlapping access can never reveal field names, joins, or cardinality learned in a
+different scope. Conflicting dimension types or measure kind/unit declarations do not silently
+rewrite established semantics: the event remains durable and a scoped `registry_drift` curation
+proposal is created. Producer registrations carry configurable `max_emit_per_min` (default 6000)
+and `max_new_types_per_hour` (default 20); over-cap new types are metadata-only quarantined and
+proposed for curation, while same-id retries return the durable rejection without consuming rate
+budget until its stored eligibility time; the same body can then be admitted in the new window.
+Single-emission cap responses are HTTP 429 with `Retry-After`, `retryable: true`, and
+`retry_after_s`; batch item errors carry `retryable: true`.
+
+`GET /api/v1/catalog/search?q=<text>&limit=<1..32>` returns the scope-filtered hybrid retrieval
+slice (`schemas/semantic-search-result.schema.json`) over a normalized 75% pgvector cosine / 25%
+PostgreSQL full-text score. The corpus contains catalog definitions, registered views, and successful query
+structures; query filter values never enter searchable text. Embeddings are currently the hermetic
+384-dimension `feature-hash-v1` provider. Registered structured-query views are `events` (the
+raw+archive lake) and `relationships` (statistics joined to materialized edges). Governed custom
+views publish their direct dimension/measure descriptors in `semantic_views.fields`; validation and
+aggregation use those descriptors, and undeclared columns are not addressable.
 
 ### 3.3 Typed entity reads — `GET /api/v1/<entity>`
 

@@ -1,0 +1,25 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/semantic-search-result.schema.json",
+	"title": "Semantic corpus search response",
+	"type": "object",
+	"properties": {
+		"schema_version": { "const": 1 },
+		"items": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"kind": { "enum": ["statistic", "query", "view"] },
+					"source_ref": { "type": "string" },
+					"content": { "type": "string" },
+					"score": { "type": "number" }
+				},
+				"required": ["kind", "source_ref", "content", "score"],
+				"additionalProperties": false
+			}
+		}
+	},
+	"required": ["schema_version", "items"],
+	"additionalProperties": false
+}

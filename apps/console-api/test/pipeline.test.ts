@@ -8,13 +8,16 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { buildServices, type Services } from "../src/app.ts";
 import { Bridge } from "../src/bridge/index.ts";
 import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
+import { Appender } from "../src/bus/appender.ts";
 import { migrate } from "../src/db/migrate.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
 import { reportSelfEmissionFailure, type ExceptionMonitor } from "../src/observability.ts";
+import { readQueryRecord } from "../src/query/history.ts";
 import { runStructured } from "../src/query/structured.ts";
 import { readEntity } from "../src/reads/entities.ts";
 import { readRoster, readExecutors } from "../src/reads/roster.ts";
+import { searchSemanticCorpus } from "../src/semantic/search.ts";
 import { buildServer } from "../src/server.ts";
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
@@ -45,7 +48,7 @@ async function startTempDb(): Promise<TempDb> {
 		`POSTGRES_PASSWORD=${pw}`,
 		"-p",
 		"0:5432",
-		"timescale/timescaledb:latest-pg16",
+		"timescale/timescaledb-ha:pg16",
 	]);
 	const { stdout: portOut } = await exec("docker", ["port", name, "5432/tcp"]);
 	const port = Number(portOut.trim().split(":").pop());
@@ -206,6 +209,12 @@ describe("emit pipeline", () => {
 		const gates = await services.db.admin`
 			select count(*)::int as n from emission_ids where id = ${e.id}`;
 		expect(gates[0]?.["n"]).toBe(1);
+		const reused = await services.emit(
+			"test:emitter",
+			{ ...e, dimensions: { changed: "body" } },
+			300,
+		);
+		expect(reused).toMatchObject({ ok: false, code: "id_reused" });
 	});
 
 	it("archives contractual long-retention event classes atomically", async () => {
@@ -230,12 +239,21 @@ describe("emit pipeline", () => {
 		const historical = emission({ type: "audit.backfill" });
 		await services.emit("test:emitter", historical, 300);
 		await services.db.admin`delete from event_archive where id = ${historical.id}`;
+		await services.db.admin`
+			update emission_ids set payload_sha256 = null where id = ${historical.id}`;
 		await migrate(services.db.admin);
 		const rows = await services.db.admin`select count(*)::int as n from emission_ids`;
 		expect(Number(rows[0]?.["n"] ?? 0)).toBeGreaterThan(0);
 		const backfilled = await services.db.admin`
 			select count(*)::int as n from event_archive where id = ${historical.id}`;
 		expect(backfilled[0]?.["n"]).toBe(1);
+		expect(await services.emit("test:emitter", historical, 300)).toMatchObject({
+			ok: true,
+			duplicate: true,
+		});
+		expect(
+			await services.emit("test:emitter", { ...historical, action: "changed" }, 300),
+		).toMatchObject({ ok: false, code: "id_reused" });
 	});
 
 	it("denies an unregistered producer", async () => {
@@ -255,6 +273,437 @@ describe("emit pipeline", () => {
 			200,
 		);
 		expect(r.code).toBe("secret_detected");
+	});
+});
+
+describe("L2 semantic layer", () => {
+	it("auto-derives rich field semantics and proposes drift without mutating the registry", async () => {
+		const first = emission({
+			type: "test.semantic_latency",
+			dimensions: { zone: "north", healthy: true },
+			measures: { latency_ms: 12 },
+			meta: {
+				fields: {
+					zone: { cardinality: "low" },
+					latency_ms: { kind: "gauge", unit: "ms" },
+				},
+			},
+		});
+		expect((await services.emit("test:emitter", first, 500)).ok).toBe(true);
+		const rows = await services.db.admin<
+			{
+				dimensions: Record<string, { type: string; cardinality: string | null }>;
+				measures: Record<string, { kind: string | null; unit: string | null }>;
+			}[]
+		>`select dimensions, measures from semantic_registry where type = ${first.type}`;
+		expect(rows[0]?.dimensions["healthy"]?.type).toBe("boolean");
+		expect(rows[0]?.dimensions["zone"]?.cardinality).toBe("low");
+		expect(rows[0]?.measures["latency_ms"]).toEqual({ kind: "gauge", unit: "ms" });
+		const vector = await services.db.admin`
+			select vector_dims(embedding) as dims from semantic_documents
+			where id = ${`stat:${first.type}:${first.scope}`}`;
+		expect(vector[0]?.["dims"]).toBe(384);
+
+		const drift = emission({
+			type: first.type,
+			dimensions: { zone: "south", healthy: "yes" },
+			measures: { latency_ms: 14 },
+			meta: { fields: { latency_ms: { kind: "counter", unit: "seconds" } } },
+		});
+		expect((await services.emit("test:emitter", drift, 500)).ok).toBe(true);
+		const after = await services.db.admin<
+			{ dimensions: Record<string, { type: string }>; measures: Record<string, { kind: string }> }[]
+		>`select dimensions, measures from semantic_registry where type = ${first.type}`;
+		expect(after[0]?.dimensions["healthy"]?.type).toBe("boolean");
+		expect(after[0]?.measures["latency_ms"]?.kind).toBe("gauge");
+		const proposals = await services.db.admin<{ kind: string }[]>`
+			select kind from semantic_proposals
+			where statistic_type = ${first.type} and status = 'pending'`;
+		expect(proposals.map((proposal) => proposal.kind)).toEqual([
+			"registry_drift",
+			"registry_drift",
+			"registry_drift",
+		]);
+		await expect(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: first.type,
+				select: [{ field: "latency_ms", agg: "sum" }],
+			}),
+		).rejects.toThrow(/counter\|delta/);
+	});
+
+	it("persists successful query refs and retrieves scoped statistic/query context through pgvector", async () => {
+		const result = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "test.semantic_latency",
+			select: [{ field: "latency_ms", agg: "avg", as: "latency" }],
+			group_by: ["zone"],
+		});
+		const record = await readQueryRecord(services.db.app, ["fleet"], result.query_ref);
+		expect(record?.sql_text).toContain("avg");
+		expect(record?.request.from).toBe("test.semantic_latency");
+		const context = await searchSemanticCorpus(
+			services.db.app,
+			["fleet"],
+			"semantic latency zone",
+			8,
+		);
+		expect(context.some((item) => item.source_ref === "test.semantic_latency")).toBe(true);
+		expect(context.some((item) => item.source_ref === result.query_ref)).toBe(true);
+	});
+
+	it("keeps the RAG corpus scope-filtered", async () => {
+		const privateType = `test.private_${randomBytes(4).toString("hex")}`;
+		await services.emit(
+			"test:emitter",
+			emission({ type: privateType, scope: "user:eli", dimensions: { private_marker: "orchid" } }),
+			400,
+		);
+		const parker = await searchSemanticCorpus(services.db.app, ["user:parker"], "orchid", 32);
+		expect(parker.some((item) => item.source_ref === privateType)).toBe(false);
+		const eli = await searchSemanticCorpus(services.db.app, ["user:eli"], "orchid", 32);
+		expect(eli.some((item) => item.source_ref === privateType)).toBe(true);
+		const views = await searchSemanticCorpus(
+			services.db.app,
+			["fleet"],
+			"materialized relationship edges",
+			32,
+		);
+		expect(views.some((item) => item.kind === "view" && item.source_ref === "relationships")).toBe(
+			true,
+		);
+	});
+
+	it("keeps descriptors for the same statistic isolated by scope", async () => {
+		const type = `test.scoped_${randomBytes(4).toString("hex")}`;
+		await services.emit(
+			"test:emitter",
+			emission({ type, scope: "fleet", dimensions: { public_zone: "north" } }),
+			400,
+		);
+		await services.emit(
+			"test:emitter",
+			emission({ type, scope: "user:eli", dimensions: { private_marker: "orchid" } }),
+			400,
+		);
+		const fleetRows = await services.db.app.begin(async (tx) => {
+			await tx`select set_config('app.scopes', 'fleet', true)`;
+			return tx<{ dimensions: Record<string, unknown> }[]>`
+				select dimensions from semantic_registry_scoped where type = ${type}`;
+		});
+		expect(fleetRows).toHaveLength(1);
+		expect(fleetRows[0]?.dimensions).toHaveProperty("public_zone");
+		expect(fleetRows[0]?.dimensions).not.toHaveProperty("private_marker");
+		const fleetSearch = await searchSemanticCorpus(services.db.app, ["fleet"], "orchid", 32);
+		expect(fleetSearch.some((item) => item.content.includes("private_marker"))).toBe(false);
+		await expect(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: type,
+				select: [{ field: "private_marker" }],
+			}),
+		).rejects.toThrow(/not registered/);
+	});
+
+	it("quarantines new-type floods and creates one curation proposal", async () => {
+		await services.db.admin`
+			update producer_registrations set max_new_types_per_hour = 1
+			where subject = 'test:emitter'`;
+		await services.db.admin`delete from producer_rate_windows where subject = 'test:emitter'`;
+		const first = emission({ type: `test.cap_${randomBytes(4).toString("hex")}` });
+		const second = emission({ type: `test.cap_${randomBytes(4).toString("hex")}` });
+		try {
+			expect((await services.emit("test:emitter", first, 300)).ok).toBe(true);
+			const rejected = await services.emit("test:emitter", second, 300);
+			expect(rejected).toMatchObject({ ok: false, code: "new_type_rate_limited" });
+			const beforeRetry = await services.db.admin`
+				select minute_emit_count, hour_new_type_count from producer_rate_windows
+				where subject = 'test:emitter'`;
+			expect(await services.emit("test:emitter", second, 300)).toMatchObject({
+				ok: false,
+				code: "new_type_rate_limited",
+			});
+			const afterRetry = await services.db.admin`
+				select minute_emit_count, hour_new_type_count from producer_rate_windows
+				where subject = 'test:emitter'`;
+			expect(afterRetry).toEqual(beforeRetry);
+			const quarantined = await services.db.admin`
+				select reason from emission_quarantine where id = ${second.id}`;
+			expect(quarantined[0]?.["reason"]).toBe("new_type_rate_limited");
+			const proposals = await services.db.admin`
+				select 1 from semantic_proposals where kind = 'new_type_rate_cap'
+				and statistic_type = ${second.type}`;
+			expect(proposals).toHaveLength(1);
+			await services.db.admin`
+				update producer_rate_windows set hour_started_at = now() - interval '2 hours',
+					hour_new_type_count = 0 where subject = 'test:emitter'`;
+			await services.db.admin`
+				update emission_quarantine set retry_after = now() - interval '1 second'
+				where id = ${second.id}`;
+			expect(await services.emit("test:emitter", second, 300)).toMatchObject({ ok: true });
+		} finally {
+			await services.db.admin`
+				update producer_registrations set max_new_types_per_hour = 20
+				where subject = 'test:emitter'`;
+			await services.db.admin`delete from producer_rate_windows where subject = 'test:emitter'`;
+		}
+	});
+
+	it("serializes semantic merges across independent appenders", async () => {
+		const type = `test.concurrent_${randomBytes(4).toString("hex")}`;
+		const a = new Appender(services.db.writer, () => undefined);
+		const b = new Appender(services.db.writer, () => undefined);
+		const limits = { maxEmitPerMinute: 6000, maxNewTypesPerHour: 20 };
+		await Promise.all([
+			a.append(emission({ type, dimensions: { alpha: "a" } }), "test:emitter", limits),
+			b.append(emission({ type, dimensions: { beta: "b" } }), "test:emitter", limits),
+		]);
+		const rows = await services.db.admin<{ dimensions: Record<string, unknown> }[]>`
+			select dimensions from semantic_registry_scoped where type = ${type} and scope = 'fleet'`;
+		expect(rows[0]?.dimensions).toHaveProperty("alpha");
+		expect(rows[0]?.dimensions).toHaveProperty("beta");
+
+		const retry = emission({ type: `test.concurrent_retry_${randomBytes(4).toString("hex")}` });
+		const before = await services.db.admin<{ minute_emit_count: number }[]>`
+			select minute_emit_count from producer_rate_windows where subject = 'test:emitter'`;
+		const outcomes = await Promise.all([
+			a.append(retry, "test:emitter", limits),
+			b.append(retry, "test:emitter", limits),
+		]);
+		const after = await services.db.admin<{ minute_emit_count: number }[]>`
+			select minute_emit_count from producer_rate_windows where subject = 'test:emitter'`;
+		expect(outcomes.filter((outcome) => outcome.ok && outcome.duplicate)).toHaveLength(1);
+		expect((after[0]?.minute_emit_count ?? 0) - (before[0]?.minute_emit_count ?? 0)).toBe(1);
+	});
+
+	it("requires every originating scope to dereference a query record", async () => {
+		const result = await runStructured(services.db.app, ["fleet", "user:eli"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "events",
+			select: [{ field: "type" }],
+			limit: 1,
+		});
+		expect(await readQueryRecord(services.db.app, ["fleet"], result.query_ref)).toBeNull();
+		expect(
+			await readQueryRecord(services.db.app, ["fleet", "user:eli"], result.query_ref),
+		).not.toBeNull();
+	});
+
+	it("rejects dishonest view and counter aggregations before SQL execution", async () => {
+		await expect(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "relationships",
+				select: [{ field: "subject", agg: "sum" }],
+			}),
+		).rejects.toThrow(/registered measure/);
+		const type = `test.counter_${randomBytes(4).toString("hex")}`;
+		await services.emit(
+			"test:emitter",
+			emission({
+				type,
+				measures: { requests: 1 },
+				meta: { fields: { requests: { kind: "counter", unit: "requests" } } },
+			}),
+			400,
+		);
+		await expect(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: type,
+				select: [{ field: "requests", agg: "avg" }],
+			}),
+		).rejects.toThrow(/invalid for counter/);
+	});
+
+	it("uses governed view descriptors and validates typed filters before SQL", async () => {
+		const type = `test.view_metric_${randomBytes(4).toString("hex")}`;
+		for (const [requests, zone] of [
+			[1, "north"],
+			[2, "south"],
+		] as const)
+			await services.emit(
+				"test:emitter",
+				emission({
+					type,
+					dimensions: { zone },
+					measures: { requests },
+					meta: { fields: { requests: { kind: "gauge", unit: "requests" } } },
+				}),
+				400,
+			);
+		await services.db.admin.unsafe(`
+			create or replace view test_semantic_custom with (security_invoker = true) as
+			select e.*, (e.measures->>'requests')::numeric as requests
+			from lake_events e`);
+		await services.db.admin`grant select on test_semantic_custom to console_app`;
+		await services.db.admin`
+			insert into semantic_views (name, relation_name, description, fields, scopes)
+			values ('custom_metrics', 'test_semantic_custom', 'governed metric view',
+				${services.db.admin.json({
+					shape: "event",
+					requests: { type: "number", kind: "gauge", unit: "requests" },
+				})}, '["*"]'::jsonb)
+			on conflict (name) do update set relation_name = excluded.relation_name,
+				fields = excluded.fields, enabled = true`;
+		const distinct = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "custom_metrics",
+			select: [{ field: "requests", agg: "count_distinct", as: "n" }],
+			where: { type },
+		});
+		expect(distinct.rows).toEqual([[2]]);
+		const ranged = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: type,
+			select: [{ field: "zone" }],
+			where: { zone: { op: "gt", value: "north" } },
+		});
+		expect(ranged.rows).toEqual([["south"]]);
+		await expect(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: type,
+				where: { requests: { op: "like", value: "%2%" } },
+			}),
+		).rejects.toThrow(/textual field/);
+
+		const booleanType = `test.boolean_${randomBytes(4).toString("hex")}`;
+		await services.emit(
+			"test:emitter",
+			emission({ type: booleanType, dimensions: { healthy: true } }),
+			300,
+		);
+		const booleans = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: booleanType,
+			select: [{ field: "healthy" }],
+			where: { healthy: true },
+		});
+		expect(booleans.rows).toEqual([[true]]);
+		await expect(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: booleanType,
+				where: { healthy: { op: "gt", value: false } },
+			}),
+		).rejects.toThrow(/invalid for boolean/);
+
+		await services.db.admin.unsafe(`
+			create or replace view test_semantic_unsafe as select * from lake_events`);
+		await services.db.admin`grant select on test_semantic_unsafe to console_app`;
+		await services.db.admin`
+			insert into semantic_views (name, relation_name, description, fields, scopes)
+			values ('unsafe_metrics', 'test_semantic_unsafe', 'must be refused',
+				'{"shape":"event"}'::jsonb, '["*"]'::jsonb)
+			on conflict (name) do update set relation_name = excluded.relation_name, enabled = true`;
+		await expect(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "unsafe_metrics",
+			}),
+		).rejects.toThrow(/unknown source/);
+	});
+
+	it("serves catalog reads in the paginated envelope and rate caps as retryable 429s", async () => {
+		const publicType = `test.catalog_${randomBytes(4).toString("hex")}`;
+		const secondPublicType = `test.catalog_${randomBytes(4).toString("hex")}`;
+		const wildcardTrap = `test.catalogx${randomBytes(4).toString("hex")}`;
+		const privateType = `test.catalog_private_${randomBytes(4).toString("hex")}`;
+		await services.emit("test:emitter", emission({ type: publicType }), 300);
+		await services.emit("test:emitter", emission({ type: secondPublicType }), 300);
+		await services.emit("test:emitter", emission({ type: wildcardTrap }), 300);
+		await services.emit(
+			"test:emitter",
+			emission({ type: privateType, scope: "user:eli", dimensions: { secret_shape: "x" } }),
+			300,
+		);
+		const server = await buildServer(services, true);
+		const principal = JSON.stringify({
+			kind: "system",
+			id: "test:emitter",
+			scopes: ["fleet"],
+			lanes: [],
+		});
+		try {
+			const catalog = await server.inject({
+				method: "GET",
+				url: `/api/v1/catalog?type=test.catalog_*&limit=1`,
+				headers: { "x-dev-principal": principal },
+			});
+			expect(catalog.statusCode).toBe(200);
+			const envelope = catalog.json();
+			expect(envelope).toMatchObject({
+				schema_version: 1,
+				freshness: { source: "semantic-registry" },
+				truncated: true,
+			});
+			expect(envelope).toHaveProperty("next_cursor");
+			expect(envelope.next_cursor).not.toContain("test.catalog");
+			expect(envelope.items).toHaveLength(1);
+			expect(JSON.stringify(envelope)).not.toContain("secret_shape");
+			expect(JSON.stringify(envelope)).not.toContain(wildcardTrap);
+			const next = await server.inject({
+				method: "GET",
+				url: `/api/v1/catalog?type=test.catalog_*&limit=1&cursor=${encodeURIComponent(envelope.next_cursor)}`,
+				headers: { "x-dev-principal": principal },
+			});
+			expect(next.statusCode).toBe(200);
+			expect(next.json().items).toHaveLength(1);
+			expect(next.json().items[0].type).not.toBe(envelope.items[0].type);
+
+			await services.db.admin`
+				update producer_registrations set max_emit_per_min = 0 where subject = 'test:emitter'`;
+			await services.db.admin`delete from producer_rate_windows where subject = 'test:emitter'`;
+			const limited = await server.inject({
+				method: "POST",
+				url: "/api/v1/emit",
+				headers: { "x-dev-principal": principal },
+				payload: emission({ type: `test.rate_${randomBytes(4).toString("hex")}` }),
+			});
+			expect(limited.statusCode).toBe(429);
+			expect(limited.headers["retry-after"]).toBe("60");
+			expect(limited.json().error).toMatchObject({
+				code: "emit_rate_limited",
+				retryable: true,
+			});
+		} finally {
+			await services.db.admin`
+				update producer_registrations set max_emit_per_min = 6000 where subject = 'test:emitter'`;
+			await services.db.admin`delete from producer_rate_windows where subject = 'test:emitter'`;
+			await server.close();
+		}
+	});
+
+	it("queries the registered statistic-to-edge relationship view", async () => {
+		const linked = emission({
+			type: "test.relationship",
+			subject: "service:api",
+			subject_kind: "service",
+			links: [{ rel: "runs_on", to: { kind: "host", id: ".14" } }],
+		});
+		await services.emit("test:emitter", linked, 400);
+		const result = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "relationships",
+			select: [{ field: "edge_rel" }, { field: "edge_to_id" }],
+			where: { subject: "service:api" },
+		});
+		expect(result.rows).toContainEqual(["runs_on", ".14"]);
 	});
 });
 

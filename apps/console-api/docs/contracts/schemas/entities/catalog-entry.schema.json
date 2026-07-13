@@ -66,6 +66,19 @@
 			"type": ["number", "null"],
 			"minimum": 0,
 			"description": "Recent emission rate (per minute, trailing window); null when too sparse to estimate."
+		},
+		"joins": {
+			"type": "array",
+			"description": "Relationship shapes observed from accepted emission links.",
+			"items": {
+				"type": "object",
+				"properties": {
+					"rel": { "type": "string" },
+					"to_kind": { "type": "string" }
+				},
+				"required": ["rel", "to_kind"],
+				"additionalProperties": false
+			}
 		}
 	},
 	"required": ["type", "first_seen", "scopes", "dimensions", "measures"],
