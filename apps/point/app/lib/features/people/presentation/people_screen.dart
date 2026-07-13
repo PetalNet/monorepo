@@ -88,7 +88,15 @@ class PeopleScreen extends ConsumerWidget {
           children: [
             const BrandDot(),
             SizedBox(width: context.space.sm),
-            const Text('People'),
+            const Flexible(
+              child: Text(
+                'People',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            SizedBox(width: context.space.sm),
+            const Expanded(child: RelayHealthIndicator()),
           ],
         ),
         actions: [
@@ -139,33 +147,26 @@ class PeopleScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          RelayHealthBanner(showAction: !hasInitialError && !hasAvatarError),
-          Expanded(
-            child: _PeopleBody(
-              people: people,
-              requests: requests,
-              outgoing: outgoing,
-              outgoingTemps: outgoingTemps.values.toList(),
-              incomingTemps: incomingTemps,
-              incomingTempPeople: incomingTempPeople,
-              isInitialLoading: isInitialLoading,
-              hasInitialError: hasInitialError,
-              hasRefreshError: hasRefreshError,
-              hasAvatarError: hasAvatarError,
-              onRetryAvatars: () {
-                for (final person in people) {
-                  ref.invalidate(avatarProvider(person.userId));
-                }
-              },
-              onOpenRequests: openRequests,
-              onRefresh: () => ref
-                  .read(realtimeSyncCoordinatorProvider)
-                  .syncNow(RealtimeSyncReason.manualRefresh),
-            ),
-          ),
-        ],
+      body: _PeopleBody(
+        people: people,
+        requests: requests,
+        outgoing: outgoing,
+        outgoingTemps: outgoingTemps.values.toList(),
+        incomingTemps: incomingTemps,
+        incomingTempPeople: incomingTempPeople,
+        isInitialLoading: isInitialLoading,
+        hasInitialError: hasInitialError,
+        hasRefreshError: hasRefreshError,
+        hasAvatarError: hasAvatarError,
+        onRetryAvatars: () {
+          for (final person in people) {
+            ref.invalidate(avatarProvider(person.userId));
+          }
+        },
+        onOpenRequests: openRequests,
+        onRefresh: () => ref
+            .read(realtimeSyncCoordinatorProvider)
+            .syncNow(RealtimeSyncReason.manualRefresh),
       ),
     );
   }

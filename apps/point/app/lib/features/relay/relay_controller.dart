@@ -1581,7 +1581,7 @@ class RelayHealthPresentation {
         title: 'Live',
         detail: _lastSyncLabel(health.lastSyncAt, now: now),
         icon: Icons.check_circle,
-        actionLabel: 'Sync',
+        actionLabel: null,
       ),
       RelayHealthStatus.reconnecting => const RelayHealthPresentation(
         title: 'Reconnecting',
@@ -1616,21 +1616,20 @@ class RelayHealthPresentation {
     if (elapsed.inHours < 1) return 'Synced ${elapsed.inMinutes}m ago';
     return 'Synced ${elapsed.inHours}h ago';
   }
+
+  String get compactLabel {
+    if (title != 'Live') return title;
+    return '$title · ${detail.replaceFirst('Synced ', '')}';
+  }
 }
 
-/// Shared, monochrome status surface for Map and People. Text and icon shape
-/// carry every state, and state changes become instant when motion is reduced.
-class RelayHealthBanner extends ConsumerWidget {
-  const RelayHealthBanner({
-    super.key,
-    this.health,
-    this.onAction,
-    this.showAction = true,
-  });
+/// Compact relay truth for app-bar titles. Form and text carry every state;
+/// only states that need intervention expose a full-size tap target.
+class RelayHealthIndicator extends ConsumerWidget {
+  const RelayHealthIndicator({super.key, this.health, this.onAction});
 
   final RelayHealth? health;
   final VoidCallback? onAction;
-  final bool showAction;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1646,66 +1645,95 @@ class RelayHealthBanner extends ConsumerWidget {
         motion == MotionPreference.reduced ||
         (motion == MotionPreference.system &&
             MediaQuery.disableAnimationsOf(context));
-    final action = showAction ? presentation.actionLabel : null;
+    final action = presentation.actionLabel;
+    final onActivate = action == null
+        ? null
+        : onAction ??
+              () => ref.read(relayHealthProvider.notifier).retryOrSync();
+    final content = _RelayHealthIndicatorContent(
+      icon: presentation.icon,
+      label: presentation.compactLabel,
+      actionable: action != null,
+    );
     return Semantics(
       container: true,
       liveRegion: true,
+      button: action != null,
+      excludeSemantics: true,
       label: '${presentation.title}. ${presentation.detail}',
+      hint: action == null ? null : '$action sync',
+      onTap: onActivate,
       child: AnimatedSwitcher(
         duration: reducedMotion
             ? Duration.zero
             : const Duration(milliseconds: 180),
         switchInCurve: Curves.easeOutQuart,
         switchOutCurve: Curves.easeOutQuart,
-        child: ColoredBox(
+        child: KeyedSubtree(
           key: ValueKey((
             current.status,
             current.queueDepth,
             current.locationBlocked,
           )),
-          color: context.colors.surfaceContainer,
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: context.space.md,
-              vertical: context.space.xs,
+          child: action == null
+              ? content
+              : Tooltip(
+                  message: '$action sync',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(context.radii.full),
+                    onTap: onActivate,
+                    child: content,
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RelayHealthIndicatorContent extends StatelessWidget {
+  const _RelayHealthIndicatorContent({
+    required this.icon,
+    required this.label,
+    required this.actionable,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool actionable;
+
+  @override
+  Widget build(BuildContext context) {
+    final minimumHeight = actionable
+        ? kMinInteractiveDimension
+        : context.space.xl;
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        minWidth: actionable ? kMinInteractiveDimension : 0,
+        minHeight: minimumHeight,
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: context.space.xs),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: context.space.md,
+              color: context.colors.onSurfaceVariant,
             ),
-            child: Row(
-              children: [
-                Icon(
-                  presentation.icon,
-                  size: 20,
+            SizedBox(width: context.space.xs),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.labelSmall?.copyWith(
                   color: context.colors.onSurfaceVariant,
                 ),
-                SizedBox(width: context.space.sm),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(presentation.title, style: context.text.labelLarge),
-                      Text(
-                        presentation.detail,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.text.bodySmall?.copyWith(
-                          color: context.colors.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (action != null)
-                  TextButton(
-                    onPressed:
-                        onAction ??
-                        () => ref
-                            .read(relayHealthProvider.notifier)
-                            .retryOrSync(),
-                    child: Text(action),
-                  ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

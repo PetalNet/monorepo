@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -24,7 +25,9 @@ Widget _relayHost(
     home: MediaQuery(
       data: MediaQueryData(disableAnimations: reducedMotion),
       child: Scaffold(
-        body: RelayHealthBanner(health: health, onAction: onAction),
+        appBar: AppBar(
+          title: RelayHealthIndicator(health: health, onAction: onAction),
+        ),
       ),
     ),
   ),
@@ -33,7 +36,7 @@ Widget _relayHost(
 void main() {
   FlutterSecureStorage.setMockInitialValues({});
 
-  group('RelayHealthBanner', () {
+  group('RelayHealthIndicator', () {
     const states = {
       RelayHealthStatus.connecting: 'Connecting',
       RelayHealthStatus.live: 'Live',
@@ -55,7 +58,7 @@ void main() {
             ),
           ),
         );
-        expect(find.text(entry.value), findsOneWidget);
+        expect(find.textContaining(entry.value), findsOneWidget);
         expect(
           find.bySemanticsLabel(RegExp('^${entry.value}\\.')),
           findsOneWidget,
@@ -78,8 +81,34 @@ void main() {
         tester.widget<AnimatedSwitcher>(find.byType(AnimatedSwitcher)).duration,
         Duration.zero,
       );
-      await tester.tap(find.text('Retry'));
+      expect(find.text('Retry'), findsNothing);
+      final targetSize = tester.getSize(find.byType(RelayHealthIndicator));
+      expect(targetSize.width, greaterThanOrEqualTo(kMinInteractiveDimension));
+      expect(targetSize.height, greaterThanOrEqualTo(kMinInteractiveDimension));
+      final semantics = tester
+          .getSemantics(find.byType(RelayHealthIndicator))
+          .getSemanticsData();
+      expect(semantics.hasAction(SemanticsAction.tap), isTrue);
+      await tester.tap(find.byType(RelayHealthIndicator));
       expect(retries, 1);
+    });
+
+    testWidgets('healthy state is compact and has no permanent sync action', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _relayHost(
+          RelayHealth(
+            status: RelayHealthStatus.live,
+            queueDepth: 0,
+            locationBlocked: false,
+            lastSyncAt: DateTime.now(),
+          ),
+        ),
+      );
+      expect(find.text('Live · just now'), findsOneWidget);
+      expect(find.text('Sync'), findsNothing);
+      expect(find.byType(TextButton), findsNothing);
     });
 
     testWidgets('queued and location-blocked states never claim Live', (
