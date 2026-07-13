@@ -47,7 +47,7 @@
 	);
 
 	async function fire() {
-		if (def.confirm === "soft" && !confirming) {
+		if (def.confirm !== "none" && !confirming) {
 			confirming = true;
 			return;
 		}

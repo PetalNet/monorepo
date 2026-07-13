@@ -11,7 +11,15 @@
  */
 import { env } from "$env/dynamic/public";
 
-import type { ApiError, Me, OpResult } from "./types";
+import type {
+	ApiError,
+	BoxUpdateItem,
+	BoxUpdateRaw,
+	ExecutorItem,
+	Me,
+	OpResult,
+	ReadEnvelope,
+} from "./types";
 
 export type DataMode = "mock" | "live";
 
@@ -64,6 +72,40 @@ export async function readMe(fetchFn: typeof fetch = fetch): Promise<Me> {
 		credentials: "include",
 	});
 	return json<Me>(res);
+}
+
+/** GET /api/v1/box-updates — contract-backed update/security posture for every visible box. */
+export async function readBoxUpdates(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<BoxUpdateItem>> {
+	const res = await fetchFn(`${base()}/box-updates?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<BoxUpdateItem>>(res);
+}
+
+/** GET /api/v1/box-updates/{box_id}/raw — pending packages and CVE detail. */
+export async function readBoxUpdateRaw(
+	boxId: string,
+	fetchFn: typeof fetch = fetch,
+): Promise<BoxUpdateRaw> {
+	const res = await fetchFn(`${base()}/box-updates/${encodeURIComponent(boxId)}/raw`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<BoxUpdateRaw>(res);
+}
+
+/** GET /api/v1/executors — positive liveness evidence used to gate named operations. */
+export async function readExecutors(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<ExecutorItem>> {
+	const res = await fetchFn(`${base()}/executors`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<ExecutorItem>>(res);
 }
 
 /**
