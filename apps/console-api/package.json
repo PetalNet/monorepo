@@ -21,6 +21,7 @@
 		"fastify": "catalog:prod",
 		"nanoid": "catalog:prod",
 		"postgres": "catalog:prod",
+		"uuid": "catalog:prod",
 		"zod": "catalog:prod"
 	},
 	"devDependencies": {

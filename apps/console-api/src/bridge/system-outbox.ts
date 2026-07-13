@@ -4,7 +4,7 @@
 // `bot.message`, so the console consumes them and Matrix can eventually go quiet.
 
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, openSync, readFileSync, readdirSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Emission } from "../emission.ts";
@@ -66,6 +66,26 @@ type ReadResult =
 	| { readonly kind: "loss"; readonly reason: TailLoss["reason"] }
 	| { readonly kind: "barrier" };
 
+export type FdReader = (
+	fd: number,
+	buffer: Buffer,
+	offset: number,
+	length: number,
+	position: number,
+) => number;
+
+/** Read through short syscalls while retaining a hard MAX_FILE_BYTES + 1 memory/read ceiling. */
+export function readBoundedFd(fd: number, reader: FdReader = readSync): Buffer | null {
+	const bytes = Buffer.allocUnsafe(MAX_FILE_BYTES + 1);
+	let count = 0;
+	while (count < bytes.length) {
+		const read = reader(fd, bytes, count, bytes.length - count, count);
+		if (read === 0) break;
+		count += read;
+	}
+	return count > MAX_FILE_BYTES ? null : bytes.subarray(0, count);
+}
+
 function readRegularFile(path: string): ReadResult {
 	let fd: number;
 	try {
@@ -80,8 +100,13 @@ function readRegularFile(path: string): ReadResult {
 	try {
 		const stat = fstatSync(fd);
 		if (!stat.isFile()) return { kind: "loss", reason: "non_regular" };
+		// Never read-to-EOF after a size check: a writer could grow the same inode between those two
+		// operations. Bounded fd reads cap memory even if content changes after fstat.
 		if (stat.size > MAX_FILE_BYTES) return { kind: "loss", reason: "oversize" };
-		return { kind: "ok", raw: readFileSync(fd, "utf8") };
+		const bytes = readBoundedFd(fd);
+		if (!bytes)
+			return { kind: "loss", reason: "oversize" };
+		return { kind: "ok", raw: bytes.toString("utf8") };
 	} finally {
 		closeSync(fd);
 	}

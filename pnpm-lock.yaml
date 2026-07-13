@@ -155,6 +155,9 @@ catalogs:
     tailwindcss:
       specifier: ^4.1.18
       version: 4.3.1
+    uuid:
+      specifier: ^13.0.0
+      version: 13.0.2
     zod:
       specifier: ^4.0.0
       version: 4.4.3
@@ -380,6 +383,9 @@ importers:
       postgres:
         specifier: catalog:prod
         version: 3.4.7
+      uuid:
+        specifier: catalog:prod
+        version: 13.0.2
       zod:
         specifier: catalog:prod
         version: 4.4.3
@@ -5515,6 +5521,10 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
+  uuid@13.0.2:
+    resolution: {integrity: sha512-vzi9uRZ926x4XV73S/4qQaTwPXM2JBj6/6lI/byHH1jOpCzb0zDbfytgA9LcN/hzb2l7WQSQnxITOVx5un/wGw==}
+    hasBin: true
+
   valibot@1.2.0:
     resolution: {integrity: sha512-mm1rxUsmOxzrwnX5arGS+U4T25RdvpPjPN4yR0u9pUBov9+zGVtO84tif1eY4r6zWxVxu3KzIyknJy3rxfRZZg==}
     peerDependencies:
@@ -10642,6 +10652,8 @@ snapshots:
       punycode: 2.3.1
 
   util-deprecate@1.0.2: {}
+
+  uuid@13.0.2: {}
 
   valibot@1.2.0(typescript@6.0.3):
     optionalDependencies:

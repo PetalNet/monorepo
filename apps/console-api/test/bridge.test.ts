@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, it, expect } from "vitest";
 
-import { sourceCursorRef, tailSystemOutbox } from "../src/bridge/system-outbox.ts";
+import { readBoundedFd, sourceCursorRef, tailSystemOutbox } from "../src/bridge/system-outbox.ts";
 import { uuidv5 } from "../src/bridge/uuid5.ts";
 
 function makeOutbox(files: Record<string, unknown>): string {
@@ -22,9 +22,26 @@ describe("uuidv5", () => {
 		expect(a).not.toBe(uuidv5("y"));
 		expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/); // v5 + variant
 	});
+
+	it("preserves the persisted bridge-id fixture across implementations", () => {
+		expect(uuidv5("system-outbox:200-shawn.json")).toBe(
+			"79a08f46-35ee-53a5-ac40-11e5a7acefb7",
+		);
+	});
 });
 
 describe("system-outbox tailer", () => {
+	it("assembles short fd reads before parsing", () => {
+		const source = Buffer.from('{"sender":"shawn","body":"ok"}');
+		const bytes = readBoundedFd(42, (_fd, target, offset, length, position) => {
+			if (position >= source.length) return 0;
+			const count = Math.min(3, length, source.length - position);
+			source.copy(target, offset, position, position + count);
+			return count;
+		});
+		expect(bytes?.toString("utf8")).toBe(source.toString("utf8"));
+	});
+
 	it("maps known warnings to statistics and unknown warnings to bot.message", () => {
 		const dir = makeOutbox({
 			"100-shawn.json": { sender: "shawn", body: "[warn] host-janitor: .14 disk 91% used" },
