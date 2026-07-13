@@ -1,7 +1,11 @@
 <script lang="ts">
+	import { browser } from "$app/environment";
 	import { untrack } from "svelte";
+	import { dataMode, readRoster } from "$lib/api/client";
 	import { registryLiveness } from "$lib/api/derive";
+	import type { RosterItem } from "$lib/api/types";
 	import AskDock, { type ContextPayload } from "$lib/components/AskDock.svelte";
+	import Countdown from "$lib/components/Countdown.svelte";
 	import Envelope from "$lib/components/Envelope.svelte";
 	import Icon from "$lib/components/Icon.svelte";
 	import HouseTile from "$lib/components/HouseTile.svelte";
@@ -10,7 +14,7 @@
 	import SavedDashboards from "$lib/components/SavedDashboards.svelte";
 	import SurfaceSign, { type Hud } from "$lib/components/SurfaceSign.svelte";
 	import TownHall from "$lib/components/TownHall.svelte";
-	import { registry as mockRegistry } from "$lib/data/mock";
+	import { fleet as mockFleet, registry as mockRegistry } from "$lib/data/mock";
 	import { clockNow } from "$lib/stores/clock.svelte";
 
 	let { data } = $props();
@@ -28,6 +32,13 @@
 	);
 	let context = $state<ContextPayload | null>(scene0 === "asked" ? { label: "Tuesday · $9.84" } : null);
 	let askRef = $state<AskDock | null>(null);
+	let railView = $state<"houses" | "residents">("houses");
+	let railViewReady = $state(false);
+	let residents = $state<RosterItem[]>([]);
+	let residentsLoading = $state(false);
+	let residentsAttempted = $state(false);
+	let residentsError = $state<string | null>(null);
+	const railViewKey = $derived(`console:cockpit:rail:${data.me.id}`);
 
 	const now = $derived(clockNow());
 	const greeting = (() => {
@@ -61,6 +72,34 @@
 		{ tone: "good", count: c.hud.inFlight, label: "in flight" },
 		{ tone: "good", count: c.hud.hostsUp, label: `up · ${c.hud.hostsDown} down` },
 	]);
+
+	$effect(() => {
+		if (!browser || railViewReady) return;
+		const saved = localStorage.getItem(railViewKey);
+		if (saved === "houses" || saved === "residents") railView = saved;
+		railViewReady = true;
+	});
+
+	$effect(() => {
+		if (!browser || railView !== "residents" || residentsAttempted) return;
+		residentsAttempted = true;
+		if (dataMode() === "mock") {
+			residents = mockFleet.map((row) => ({ ...row, workers_active: row.status === "working" ? 1 : 0 }));
+			return;
+		}
+		residentsLoading = true;
+		void readRoster()
+			.then((result) => (residents = result.items))
+			.catch((error: unknown) => {
+				residentsError = error instanceof Error ? error.message : "Roster read failed";
+			})
+			.finally(() => (residentsLoading = false));
+	});
+
+	function selectRailView(next: "houses" | "residents") {
+		railView = next;
+		if (browser) localStorage.setItem(railViewKey, next);
+	}
 
 	function railTone(host: string) {
 		const reg = mockRegistry.find((r) => r.host === host);
@@ -193,18 +232,44 @@
 				<div data-ask="Town Hall, the attention board">
 					<TownHall items={c.attention} lanes={data.me.lanes} />
 				</div>
-				<div class="phone-hide"><SavedDashboards items={c.saved} /></div>
+				<div class="phone-hide"><SavedDashboards items={c.saved} lanes={data.me.lanes} userId={data.me.id} /></div>
 			</div>
 			<aside class="rail phone-hide">
 				<RailCard heading="The neighborhood">
-					<div class="rail-meta">{c.railHosts.filter((h) => !h.dark).length} houses · {c.hud.inFlight} workers up</div>
-					<div class="house-row">
-						{#each c.railHosts as h (h.host)}
-							<div data-ask="host {h.host}">
-								<HouseTile host={h.host} workersUp={h.workersUp} tone={railTone(h.host)} dark={h.dark} />
-							</div>
-						{/each}
+					<div class="rail-tools">
+						<div class="rail-meta">{c.railHosts.filter((h) => !h.dark).length} houses · {c.hud.inFlight} workers up</div>
+						<div class="rail-flip" aria-label="Neighborhood view">
+							<button class:selected={railView === "houses"} aria-pressed={railView === "houses"} onclick={() => selectRailView("houses")}>Houses</button>
+							<button class:selected={railView === "residents"} aria-pressed={railView === "residents"} onclick={() => selectRailView("residents")}>Residents</button>
+						</div>
 					</div>
+					{#key railView}<div class="rail-view" aria-live="polite">
+						{#if railView === "houses"}
+							<div class="house-row">
+								{#each c.railHosts as h (h.host)}
+									<div data-ask="host {h.host}">
+										<HouseTile host={h.host} workersUp={h.workersUp} tone={railTone(h.host)} dark={h.dark} />
+									</div>
+								{/each}
+							</div>
+						{:else if residentsLoading}
+							<div class="resident-skeleton" aria-label="Loading residents"><span></span><span></span><span></span></div>
+						{:else if residentsError}
+							<p class="rail-empty danger">Residents unavailable. {residentsError}</p>
+						{:else if residents.length === 0}
+							<p class="rail-empty">No residents yet. The neighborhood is waiting.</p>
+						{:else}
+							<div class="resident-list">
+								{#each residents as resident (resident.handle)}
+									<div class="resident-row" data-ask="resident {resident.handle}">
+										<span class:working={resident.status === "working"} class="resident-dot" aria-hidden="true"></span>
+										<div><b>{resident.handle}</b><span>{resident.current_tool ?? resident.status ?? "idle"}</span></div>
+										{#if resident.lease_expires_at}<code><Countdown expiresAt={resident.lease_expires_at} {now} /></code>{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>{/key}
 				</RailCard>
 				<RailCard heading="Mail on the wire">
 					{#each c.comms as ev, i (ev.id)}
@@ -258,13 +323,62 @@
 		font:
 			400 0.6875rem var(--mono);
 		color: var(--text-3);
+	}
+	.rail-tools {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--s-2);
 		margin-bottom: var(--s-2);
 	}
+	.rail-flip {
+		display: inline-flex;
+		background: var(--s2);
+		border-radius: var(--r-pill);
+		padding: 2px;
+	}
+	.rail-flip button {
+		min-height: 32px;
+		border: 0;
+		border-radius: var(--r-pill);
+		padding: 0 var(--s-2);
+		background: transparent;
+		color: var(--text-3);
+		font: 500 0.6875rem var(--sans);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+	}
+	.rail-flip button:hover { background: var(--s3); }
+	.rail-flip button.selected { background: var(--petal-soft); color: var(--petal-text); }
+	.rail-flip button:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
+	.rail-view { animation: rail-crossfade var(--dur-fast) var(--ease-standard); }
 	.house-row {
 		display: grid;
 		grid-template-columns: repeat(4, 1fr);
 		gap: var(--s-2);
 	}
+	.resident-list { display: flex; flex-direction: column; }
+	.resident-row {
+		display: flex;
+		align-items: center;
+		gap: var(--s-2);
+		min-height: 32px;
+		padding: 0 var(--s-1);
+		border-top: 1px solid var(--rule);
+	}
+	.resident-row:first-child { border-top: 0; }
+	.resident-row > div { display: flex; min-width: 0; align-items: baseline; gap: var(--s-2); }
+	.resident-row b { font: 500 0.75rem var(--sans); }
+	.resident-row span, .resident-row code { font: 400 0.6875rem var(--mono); color: var(--text-3); }
+	.resident-row code { margin-inline-start: auto; }
+	.resident-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--text-3); }
+	.resident-dot.working { background: var(--good-dot); }
+	.rail-empty { padding: var(--s-3) var(--s-2); font-size: 0.75rem; color: var(--text-3); }
+	.rail-empty.danger { color: var(--danger-text); background: var(--danger-soft); border-radius: var(--r-xs); }
+	.resident-skeleton { display: grid; gap: var(--s-1); }
+	.resident-skeleton span { display: block; height: 32px; border-radius: var(--r-xs); background: var(--s2); animation: resident-pulse 1.2s ease-in-out infinite alternate; }
+	@keyframes rail-crossfade { from { opacity: 0.55; } to { opacity: 1; } }
+	@keyframes resident-pulse { to { background: var(--s3); } }
 	/* generated dashboard */
 	.dash {
 		display: grid;
@@ -371,5 +485,8 @@
 		.phone-hide {
 			display: none;
 		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.rail-view, .resident-skeleton span { animation: none; }
 	}
 </style>
