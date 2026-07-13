@@ -81,6 +81,15 @@ type OpEntry = {
 	testable: "disposable" | "dry-run-only" | "live-canary";
 };
 
+export function resolvedOpCapabilities(
+	op: string,
+	principalKind: Principal["kind"],
+	proposalRequired: boolean,
+): Record<string, boolean> {
+	if (op !== "task.update" && op !== "task.close") return {};
+	return { force: principalKind === "human" && !proposalRequired };
+}
+
 const CONTRACTS_DIR = new URL("../docs/contracts/", import.meta.url);
 const schemaCache = new Map<string, JsonSchema>();
 function readSchema(url: URL): JsonSchema {
@@ -1042,6 +1051,24 @@ export async function buildServer(
 		}
 		const authorization = await authorizeOp(entry, principal, call.args);
 		if (!authorization.ok) return opError(reply, call, 403, "scope_denied", authorization.message);
+		const isRead = entry.authz.rule === "read";
+		const proposalRequired =
+			!isRead &&
+			(await shouldProposeMutation(
+				services.db.admin,
+				principal,
+				authorization.object,
+				entry.authz.relation ?? "editor",
+			));
+		const capabilities = resolvedOpCapabilities(call.op, principal.kind, proposalRequired);
+		if (call.args["force"] === true && capabilities["force"] !== true)
+			return opError(
+				reply,
+				call,
+				403,
+				"force_denied",
+				"force requires server-resolved commit authority on the target",
+			);
 		const executor = await executorEvidence(entry, authorization.target, call.args);
 		if (executor.liveness !== "alive")
 			return reply.code(503).send(
@@ -1085,7 +1112,6 @@ export async function buildServer(
 				`${call.op} has no configured command adapter`,
 				true,
 			);
-		const isRead = entry.authz.rule === "read";
 		const callHash = createHash("sha256").update(canonicalJson(call)).digest("hex");
 		let auditSeq: number | null = null;
 		if (!isRead) {
@@ -1119,7 +1145,12 @@ export async function buildServer(
 			const result = opEnvelope(call, {
 				ok: true,
 				status: "applied",
-				result: { dry_run: true, op: call.op },
+				result: {
+					dry_run: true,
+					op: call.op,
+					effect: proposalRequired ? "propose" : "commit",
+					capabilities,
+				},
 				error: null,
 				audit_seq: auditSeq,
 				executor,
@@ -1129,15 +1160,7 @@ export async function buildServer(
 				return opError(reply, call, 503, "audit_unavailable", "dry-run outcome audit failed", true);
 			return reply.send(result);
 		}
-		if (
-			!isRead &&
-			(await shouldProposeMutation(
-				services.db.admin,
-				principal,
-				authorization.object,
-				entry.authz.relation ?? "editor",
-			))
-		) {
+		if (proposalRequired) {
 			try {
 				const proposed = await maybePropose(
 					principal,

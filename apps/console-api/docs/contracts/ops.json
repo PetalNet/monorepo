@@ -229,7 +229,7 @@
 					"force": {
 						"type": "boolean",
 						"default": false,
-						"description": "Human principals (tier owner|moderator) may force a transition without holding the lease; audited; tracker clears the lease + increments fence."
+						"description": "Human principals with server-resolved commit authority for this target may force a transition without holding the lease; permission-level names are data and are never checked here; audited; tracker clears the lease + increments fence."
 					}
 				},
 				"additionalProperties": false
