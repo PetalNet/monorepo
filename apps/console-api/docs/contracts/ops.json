@@ -251,13 +251,18 @@
 			"executor": "tracker",
 			"args": {
 				"type": "object",
-				"required": ["id", "status"],
+				"required": ["id", "status", "reason"],
 				"properties": {
 					"id": {
 						"type": "integer"
 					},
 					"status": {
 						"enum": ["done", "dropped"]
+					},
+					"reason": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 2000
 					},
 					"lease": {
 						"type": "object",
