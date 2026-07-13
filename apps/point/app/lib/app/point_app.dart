@@ -49,6 +49,7 @@ import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/services/server_config.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
+import 'package:point_app/widgets/photo_dot.dart';
 
 class PointApp extends ConsumerStatefulWidget {
   const PointApp({super.key});
@@ -308,12 +309,16 @@ class _PointAppState extends ConsumerState<PointApp>
   );
 
   /// Route-pair transitions (the acceptance-bar `pageWrapper`): full-screen
-  /// modals (Ghost, Device-link) slide up; everything else fades.
+  /// modals slide up, person detail preserves identity, and the rest fade.
   Page<Object?> _pageWrapper(KaiselPageWrapperContext<AppRoute> ctx) {
     return switch (ctx.route) {
+      PersonDetailRoute() => PersonDetailTransitionPage(
+        key: ctx.key,
+        reduced: _reducedMotion,
+        child: ctx.child,
+      ),
       GhostRoute() ||
       DeviceLinkRoute() ||
-      PersonDetailRoute() ||
       AddPersonRoute() ||
       SettingsPrivacyRoute() ||
       SettingsLookRoute() ||
@@ -348,7 +353,16 @@ class _PointAppState extends ConsumerState<PointApp>
       RecoveryRoute() => const RecoveryScreen(),
       GhostRoute() => const GhostScreen(),
       DeviceLinkRoute() => const DeviceLinkScreen(),
-      PersonDetailRoute(:final userId) => PersonDetailScreen(userId: userId),
+      PersonDetailRoute(:final userId) => PersonSharedElementScope(
+        elements: _reducedMotion
+            ? const {}
+            : const {
+                PersonSharedElement.avatar,
+                PersonSharedElement.marker,
+              },
+        animateMarkerOrigin: !_reducedMotion && _activeShellBranch == 0,
+        child: PersonDetailScreen(userId: userId),
+      ),
       AddPersonRoute(:final prefillHandle) => AddPersonScreen(
         prefillHandle: prefillHandle,
       ),
@@ -373,12 +387,31 @@ class _PointAppState extends ConsumerState<PointApp>
             },
           ),
         ],
-        branchContentBuilder: (context, active, branches, _) =>
-            AnimatedBranchStack(
-              activeBranch: active,
-              branches: branches,
-              reduced: _reducedMotion,
-            ),
+        branchContentBuilder: (context, active, branches, _) {
+          final allowMotion = !_reducedMotion;
+          return AnimatedBranchStack(
+            activeBranch: active,
+            branches: [
+              PersonSharedElementScope(
+                elements: allowMotion && active == 0
+                    ? const {PersonSharedElement.marker}
+                    : const {},
+                child: branches[0],
+              ),
+              PersonSharedElementScope(
+                elements: allowMotion && active == 1
+                    ? const {PersonSharedElement.avatar}
+                    : const {},
+                child: branches[1],
+              ),
+              PersonSharedElementScope(
+                elements: const {},
+                child: branches[2],
+              ),
+            ],
+            reduced: _reducedMotion,
+          );
+        },
         chromeBuilder: (context, active, content, switchBranch) {
           _activeShellBranch = active;
           _switchShellBranch = switchBranch;
@@ -566,6 +599,50 @@ class _SlideUpPage extends Page<Object?> {
               begin: const Offset(0, 0.06),
               end: Offset.zero,
             ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A restrained surface arrival around the person's shared-identity flight.
+///
+/// The tiny scale change gives the destination surface spatial continuity
+/// without competing with the avatar/marker. Reduced motion is an immediate
+/// route swap and the identity widgets omit Hero entirely in that mode.
+class PersonDetailTransitionPage extends Page<Object?> {
+  const PersonDetailTransitionPage({
+    required this.child,
+    this.reduced = false,
+    super.key,
+  });
+
+  final Widget child;
+  final bool reduced;
+
+  @override
+  Route<Object?> createRoute(BuildContext context) {
+    return PageRouteBuilder<Object?>(
+      settings: this,
+      transitionDuration: reduced
+          ? Duration.zero
+          : const Duration(milliseconds: 240),
+      reverseTransitionDuration: reduced
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
+      pageBuilder: (_, _, _) => child,
+      transitionsBuilder: (_, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutQuart,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
             child: child,
           ),
         );

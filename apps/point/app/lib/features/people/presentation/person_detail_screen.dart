@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -50,44 +52,95 @@ class PersonDetailScreen extends ConsumerWidget {
         );
     final incomingOnly = ongoingPerson == null && incomingTemp != null;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(person.displayName),
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => context.pop(),
+    return PersonMarkerFlightPopGate(
+      userId: userId,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(person.displayName),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () =>
+                unawaited(_closeAfterMarkerFlight(context, userId)),
+          ),
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _FocusMap(person: person),
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.all(context.space.lg),
+                  children: [
+                    _IdentityHeader(person: person),
+                    SizedBox(height: context.space.md),
+                    _StatusLine(person: person),
+                    SizedBox(height: context.space.xl),
+                    if (incomingOnly) ...[
+                      _IncomingTempDetail(person: person, temp: incomingTemp),
+                      SizedBox(height: context.space.md),
+                      _TempShareTile(person: person),
+                    ] else ...[
+                      _TempShareTile(person: person),
+                      SizedBox(height: context.space.md),
+                      _VerifyTile(person: person),
+                      SizedBox(height: context.space.md),
+                      _HideFromTile(person: person),
+                      SizedBox(height: context.space.md),
+                      _StopSharingTile(person: person),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _FocusMap(person: person),
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.all(context.space.lg),
-                children: [
-                  _IdentityHeader(person: person),
-                  SizedBox(height: context.space.md),
-                  _StatusLine(person: person),
-                  SizedBox(height: context.space.xl),
-                  if (incomingOnly) ...[
-                    _IncomingTempDetail(person: person, temp: incomingTemp),
-                    SizedBox(height: context.space.md),
-                    _TempShareTile(person: person),
-                  ] else ...[
-                    _TempShareTile(person: person),
-                    SizedBox(height: context.space.md),
-                    _VerifyTile(person: person),
-                    SizedBox(height: context.space.md),
-                    _HideFromTile(person: person),
-                    SizedBox(height: context.space.md),
-                    _StopSharingTile(person: person),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
+    );
+  }
+}
+
+Future<void> _closeAfterMarkerFlight(
+  BuildContext context,
+  String userId,
+) async {
+  await PersonMarkerTransition.whenSettled(userId);
+  if (context.mounted) await context.pop();
+}
+
+class PersonMarkerFlightPopGate extends StatefulWidget {
+  const PersonMarkerFlightPopGate({
+    required this.userId,
+    required this.child,
+    super.key,
+  });
+
+  final String userId;
+  final Widget child;
+
+  @override
+  State<PersonMarkerFlightPopGate> createState() =>
+      _PersonMarkerFlightPopGateState();
+}
+
+class _PersonMarkerFlightPopGateState extends State<PersonMarkerFlightPopGate> {
+  bool _popPending = false;
+
+  Future<void> _onPopInvoked(bool didPop, Object? result) async {
+    if (didPop || _popPending) return;
+    _popPending = true;
+    await PersonMarkerTransition.whenSettled(widget.userId);
+    if (!mounted) return;
+    Navigator.of(context).pop(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: PersonMarkerTransition.activeUsers,
+      builder: (context, activeUsers, _) => PopScope<Object?>(
+        canPop: !activeUsers.contains(widget.userId),
+        onPopInvokedWithResult: _onPopInvoked,
+        child: widget.child,
       ),
     );
   }
