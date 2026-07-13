@@ -114,16 +114,16 @@ final serverTileInfoProvider = FutureProvider<ServerTileInfo>((ref) async {
 /// Resolve the map provider CHOICE (Privacy setting / onboarding fork) into a
 /// renderable [TileSource], against what the connected server actually offers.
 ///
-/// Returns NULL while the server's advertised endpoints are still loading (or
-/// failed to load): the map then shows only its dark surface and fetches no
-/// tiles at all. This is the privacy floor — a self-hosted-tier user must
-/// never have their neighborhood tiles requested from a public CDN in the
-/// window before we know whether their server runs a tileserver. Only once we
-/// have a DEFINITIVE answer do we fall back to the public mirror.
+/// Returns NULL while the server's advertised endpoints are unresolved. The
+/// map separately renders [serverTileInfoProvider]'s loading/error state, while
+/// this provider keeps the privacy floor: no neighborhood tile is requested
+/// from a public CDN before the server gives a definitive answer.
 final tileSourceProvider = Provider<TileSource?>((ref) {
   final choice = ref.watch(settingsProvider.select((s) => s.mapProvider));
   final infoAsync = ref.watch(serverTileInfoProvider);
-  // Unresolved (loading OR error): render nothing rather than leak.
+  // Unresolved (loading OR error): render no tiles rather than leak. The map
+  // presentation watches the AsyncValue itself so these states stay distinct.
+  if (infoAsync.isLoading || infoAsync.hasError) return null;
   final info = infoAsync.value;
   if (info == null) return null;
   final origin = ref.watch(serverUrlProvider);

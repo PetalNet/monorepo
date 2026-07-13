@@ -20,13 +20,14 @@ class RequestsController extends AsyncNotifier<List<ShareRequest>> {
   /// share-target listener never sees a transient null (which would drop
   /// outbound fixes for a round-trip).
   Future<List<ShareRequest>> refresh() async {
-    final previous = state.value ?? const <ShareRequest>[];
     final next = await AsyncValue.guard(build);
     if (next.hasValue) {
       state = next;
       return next.value!;
     }
-    state = AsyncData(previous);
+    // AsyncNotifier retains the previous data when an AsyncError is assigned,
+    // allowing presentation to show both the last-good list and its failure.
+    state = next;
     Error.throwWithStackTrace(next.error!, next.stackTrace!);
   }
 
@@ -62,13 +63,12 @@ class OutgoingRequestsController
   }
 
   Future<List<OutgoingShareRequest>> refresh() async {
-    final previous = state.value ?? const <OutgoingShareRequest>[];
     final next = await AsyncValue.guard(build);
     if (next.hasValue) {
       state = next;
       return next.value!;
     }
-    state = AsyncData(previous);
+    state = next;
     Error.throwWithStackTrace(next.error!, next.stackTrace!);
   }
 }

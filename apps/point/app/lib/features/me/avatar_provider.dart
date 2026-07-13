@@ -4,8 +4,9 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/services/auth_controller.dart';
 
 /// A person's photo-dot bytes, fetched once per session and cached by user
-/// id. Null = no avatar (or not visible to us): callers fall back to the
-/// monogram. Invalidate after an upload/delete of the OWN avatar.
+/// id. Null means the server definitively reports no visible avatar; transport
+/// and server failures remain [AsyncError] so they are not misrepresented as
+/// an absent photo. Invalidate after an upload/delete of the OWN avatar.
 // The family's concrete type is not exported by riverpod's public API, so it
 // cannot be written out; the generics on the builder call carry the type.
 // ignore: specify_nonobvious_property_types
@@ -15,10 +16,5 @@ final avatarProvider = FutureProvider.family<Uint8List?, String>((
 ) async {
   final session = ref.watch(authControllerProvider).value;
   if (session == null) return null;
-  try {
-    return await ref.read(apiProvider).fetchAvatar(session.token, userId);
-  } on Object {
-    // A fetch hiccup renders as the monogram, never an error surface.
-    return null;
-  }
+  return ref.read(apiProvider).fetchAvatar(session.token, userId);
 });
