@@ -1206,6 +1206,57 @@ export async function buildServer(
 					kind: "context",
 					content: JSON.stringify(call.args["payload"]),
 				})) as unknown as Record<string, unknown>;
+			case "signal.snooze": {
+				const pattern = String(call.args["type_pattern"]);
+				const rows = await services.db.admin<
+					{ subject: string; scope: string; state: Record<string, unknown> }[]
+				>`select subject, scope, state from current_state
+			  where kind = 'subscription' and state->>'owner' = ${principal.id}
+			    and state->>'pattern' = ${pattern}
+			    and coalesce((state->'storm'->>'active')::boolean, false) = true
+			  limit 1`;
+				const row = rows[0];
+				if (!row)
+					throw new AssistantRuntimeError(
+						"storm_not_active",
+						"this scope no longer has an active storm override",
+						false,
+					);
+				const storm = row.state["storm"] as Record<string, unknown>;
+				const now = new Date().toISOString();
+				const entity = {
+					...row.state,
+					tier: "feed",
+					updated_by: principal.id,
+					updated_at: now,
+					storm: { ...storm, active: false, undone_at: now, undone_by: principal.id },
+				};
+				const emission = {
+					schema_version: 1 as const,
+					id: uuidv5(`signal-storm-undo:${call.id}`),
+					type: "subscription.changed",
+					ts: now,
+					source: { service: "console-api", host: null, agent: null },
+					subject: row.subject,
+					subject_kind: "other" as const,
+					severity: "info" as const,
+					scope: row.scope,
+					dimensions: { action: "storm_undone", pattern, owner: principal.id, tier: "feed" },
+					meta: { retention_class: "audit", entity },
+				};
+				const outcome = await services.emit(
+					"system:console-api",
+					emission,
+					Buffer.byteLength(JSON.stringify(emission)),
+				);
+				if (!outcome.ok)
+					throw new AssistantRuntimeError(
+						outcome.code ?? "storm_undo_failed",
+						"storm override could not be undone",
+						true,
+					);
+				return { pattern, tier: "feed", restored: true, updated_at: now };
+			}
 			default:
 				throw new AssistantRuntimeError(
 					"executor_unreachable",
@@ -1324,7 +1375,8 @@ export async function buildServer(
 				`${entry.executor} has no configured command adapter`,
 				true,
 			);
-		if (!call.dry_run && !INTERNAL_OP_ADAPTERS.has(call.op))
+		const isStormRestore = call.op === "signal.snooze" && call.args["restore"] === true;
+		if (!call.dry_run && !INTERNAL_OP_ADAPTERS.has(call.op) && !isStormRestore)
 			return opError(
 				reply,
 				call,

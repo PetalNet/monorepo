@@ -327,7 +327,7 @@ heartbeat fresh AND ingest flowing, not just a live socket.
 
 ### 4.2 Standing subscriptions + escalation
 
-`schemas/subscription.schema.json`: `{pattern, filter?, tier, loud, window, note, owner}`.
+`schemas/subscription.schema.json`: `{pattern, filter?, tier, loud, window, note, owner, storm?}`.
 Digests are **server-assembled** per owner+window (a digest emission per batch;
 `digest.failed` on assembly failure; `next_digest_at` echoed in `/delivery`). Interrupt tier
 is validated (`interrupt_ineligible` otherwise) and reserved per /task/709. Delivery is Matrix
@@ -336,9 +336,12 @@ by default; every delivery lands a `delivery.receipt` emission **scoped `user:<o
 channel}`. **Delivery-time re-check**: digest assembly and interrupt/Matrix dispatch re-check
 the owner's grant set (zookie-current) at SEND time, not subscription-creation time — the
 standing-subscription analog of the WS re-fence. Client-side DigestGroup counts may drift
-from a server batch on `digest.failed`; the digest emission is the truth. Storm damping:
-sustained ≥60 events/5min per (owner × pattern) auto-mutes to digest via `signal.snooze`
-attributed to `system:bus` — agent-editable threshold.
+from a server batch on `digest.failed`; the digest emission is the truth. Storm damping: a Feed
+subscription exceeding 60 events in the rolling five-minute lake receipt window auto-mutes for
+one hour to Digest through the `signal.snooze` action attributed to `system:bus`. The projected
+`storm` record retains the measured count, window, expiry, threshold, prior tier, and attribution.
+Humans and agents end the active override through that same audited `signal.snooze` operation,
+which restores the prior tier through the same projection.
 
 ### 4.3 Emit — `POST /api/v1/emit` (+ `/emit/batch`, ≤500)
 
@@ -353,7 +356,10 @@ attributed to `system:bus` — agent-editable threshold.
    door, not filtered later.
 3. **Scope ownership**: a producer emits only into scopes its grants allow (own
    `agent:<self>`; `fleet` if granted; `user:*`/`restricted:*` only with an explicit emitter
-   grant — relation `editor` on the scope + producer registration).
+   grant — relation `editor` on the scope + producer registration). The in-process console-api
+   may write only a `subscription.changed` entity whose owner exactly names its matching
+   `user:<owner>` or `agent:<owner>` scope; this narrow system-action path supports audited
+   per-principal storm expiry without granting the service every user scope.
 4. **Severity cap** per producer capability (agents can't mint `p0` outside their own scope).
 5. **Rate + registry caps**: per-producer emit rate, new-type registration rate (quarantine +
    curation proposal on breach), cardinality caps (schema bounds).

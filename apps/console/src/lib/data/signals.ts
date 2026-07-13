@@ -51,6 +51,27 @@ export const mockSignals: SignalEmission[] = [
 export const mockSubscriptions: SubscriptionItem[] = [
 	{
 		schema_version: 1,
+		pattern: "citeseer.*",
+		tier: "digest",
+		window: "18:00",
+		loud: false,
+		owner: "parker",
+		note: "automatic storm override",
+		updated_by: "system:bus",
+		updated_at: iso(2 * 6e4),
+		storm: {
+			active: true,
+			event_count: 4_120,
+			threshold: 60,
+			window_started_at: iso(7 * 6e4),
+			muted_at: iso(2 * 6e4),
+			expires_at: iso(-58 * 6e4),
+			previous_tier: "feed",
+			muted_by: "system:bus",
+		},
+	},
+	{
+		schema_version: 1,
 		pattern: "host.disk.*",
 		tier: "feed",
 		loud: false,

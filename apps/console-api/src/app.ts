@@ -24,6 +24,7 @@ import {
 } from "./observability.ts";
 import { Projector } from "./projector/index.ts";
 import { TrackerReader, type TrackerProposalLookup } from "./reads/tracker.ts";
+import { SignalStormDetector } from "./signals/storm.ts";
 
 export interface EmitOutcome {
 	readonly ok: boolean;
@@ -148,6 +149,8 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		broker.onEvent(seq, e);
 		projector.onEvent(seq, e, receivedAt);
 	});
+	let stormDetector: SignalStormDetector | null = null;
+	let stormExpiryTimer: NodeJS.Timeout | null = null;
 
 	async function emit(
 		producer: string | { readonly id: string; readonly tiers: readonly string[] },
@@ -185,7 +188,19 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 			["editor", "operator", "owner"],
 			false,
 		);
-		if (!editable.scopes.includes(e.scope))
+		// Registration remains the first fence. The only grant exception below is a subscription
+		// entity whose owner and private scope agree exactly; all other writes use grant intersection.
+		const entity = e.meta?.["entity"];
+		const entityOwner =
+			entity && typeof entity === "object" && !Array.isArray(entity)
+				? (entity as Record<string, unknown>)["owner"]
+				: undefined;
+		const internalSubscriptionWrite =
+			producerSubject === "system:console-api" &&
+			e.type === "subscription.changed" &&
+			typeof entityOwner === "string" &&
+			e.scope === (entityOwner.startsWith("agent:") ? entityOwner : `user:${entityOwner}`);
+		if (!editable.scopes.includes(e.scope) && !internalSubscriptionWrite)
 			return {
 				ok: false,
 				code: "scope_denied",
@@ -232,8 +247,32 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 				message: result.message,
 				...(result.retryAfterS ? { retryAfterS: result.retryAfterS } : {}),
 			};
+		if (!result.duplicate && stormDetector) {
+			// Detection coalesces bursts internally and stays off the durable append response path.
+			void stormDetector
+				.observe(e)
+				.catch((error) =>
+					monitor.captureException(sanitizedException(error, "signal storm detection failed")),
+				);
+		}
 		return { ok: true, seq: result.seq, duplicate: result.duplicate };
 	}
+
+	stormDetector = new SignalStormDetector(
+		db.admin,
+		async (emission) =>
+			emit("system:console-api", emission, Buffer.byteLength(JSON.stringify(emission))),
+		() => new Date(),
+		async (owner) => (await resolveScopes(db.admin, owner, [])).scopes,
+	);
+	stormExpiryTimer = setInterval(() => {
+		void stormDetector
+			?.reconcileExpired()
+			.catch((error) =>
+				monitor.captureException(sanitizedException(error, "signal storm expiry failed")),
+			);
+	}, 30_000);
+	stormExpiryTimer.unref();
 
 	return {
 		db,
@@ -252,6 +291,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		},
 		emit,
 		async close() {
+			if (stormExpiryTimer) clearInterval(stormExpiryTimer);
 			tracker?.close();
 			await grantListen.unlisten();
 			await db.close();

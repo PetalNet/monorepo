@@ -26,6 +26,7 @@
 		"daisyui": "catalog:prod",
 		"svelte": "catalog:prod",
 		"tailwindcss": "catalog:prod"
+		,"zod": "catalog:prod"
 	},
 	"devDependencies": {
 		"@playwright/test": "catalog:dev",
