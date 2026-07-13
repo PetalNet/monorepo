@@ -23,6 +23,8 @@ import type {
 	DeliveryItem,
 	ExecutorItem,
 	HeartbeatItem,
+	GovernanceItem,
+	GovernancePool,
 	LeaseItem,
 	EdgeRegistryItem,
 	EdgeSessionItem,
@@ -133,6 +135,15 @@ export async function readHeartbeats(
 		credentials: "include",
 	});
 	return json<ReadEnvelope<HeartbeatItem>>(res);
+}
+export async function readGovernance(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<GovernanceItem> & { pool?: GovernancePool }> {
+	const res = await fetchFn(`${base()}/governance?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<GovernanceItem> & { pool?: GovernancePool }>(res);
 }
 export async function readTasks(fetchFn: typeof fetch = fetch): Promise<ReadEnvelope<TaskItem>> {
 	let cursor: string | null = null;

@@ -398,6 +398,23 @@ export type HeartbeatState =
 	| "stopped";
 export type Autonomy = "auto" | "ask" | "readonly" | "paused";
 export type BudgetLightColor = "green" | "yellow" | "red";
+export interface GovernanceItem extends Extra {
+	agent: string;
+	light: BudgetLightColor;
+	tokens_spent: number;
+	granted_tokens?: number | null;
+	grant_expires_epoch?: number | null;
+	tier?: "haiku" | "sonnet" | "opus" | null;
+	rate_limit_hits: number;
+	last_rate_limited_epoch?: number | null;
+	rate_limit_reset_epoch?: number | null;
+}
+export interface GovernancePool extends Extra {
+	pool_tokens: number;
+	pool_spent: number;
+	fleet_mode: "parallel" | "sequential";
+	cascade_active: boolean;
+}
 export interface RosterItem extends Extra {
 	handle: string;
 	host?: string | null;
