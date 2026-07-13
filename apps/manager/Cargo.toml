@@ -18,7 +18,7 @@ signal-hook = "0.4"
 libc = "0.2"
 sha2 = "0.11"
 tiny_http = "0.12"
-sentry = { version = "0.34", default-features = false, features = [
+sentry = { version = "0.48", default-features = false, features = [
 	"backtrace",
 	"contexts",
 	"panic",
