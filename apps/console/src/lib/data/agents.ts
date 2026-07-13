@@ -6,7 +6,6 @@
  */
 import { isRosterDown, rosterLane, rosterState } from "../api/derive.ts";
 import type { HeartbeatItem, RosterItem } from "../api/types.ts";
-
 import * as mock from "./mock.ts";
 
 export interface RosterLanes {
