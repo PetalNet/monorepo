@@ -10,7 +10,9 @@
 	 * inline fix ActionRow, ack + snooze, blast-radius line for host/service items.
 	 * A P0 renders as the facade crack (§4.6): the fact in danger grade, the fix
 	 * inline, the blast radius, and the vetted subline. fix_ops carry pre-bound
-	 * args — the client never derives op args from subject.
+	 * args — the client never derives op args from subject. The fix leads; the
+	 * generic attention controls (ack/snooze/resolve) collapse into an overflow so
+	 * the one card you hit at 2am is not a wall of near-identical verbs.
 	 */
 	interface Props {
 		item: AttentionItem;
@@ -21,10 +23,15 @@
 	}
 	let { item, lanes, executorLive = {}, now = Date.now() }: Props = $props();
 
+	let moreOpen = $state(false);
+
 	const isCrack = $derived(item.grade === "p0");
 	const ackDef = opDef("attention.ack");
 	const snoozeDef = opDef("attention.snooze");
 	const resolveDef = opDef("attention.resolve");
+	const houseHref = $derived(
+		item.blast_radius?.host ? `/hosts?host=${item.blast_radius.host}` : null,
+	);
 </script>
 
 <article class="att" class:crack={isCrack} class:acked={item.acked_by}>
@@ -46,7 +53,7 @@
 			{#if b.leases_expiring_30m}· {b.leases_expiring_30m} lease{b.leases_expiring_30m > 1
 					? "s"
 					: ""} expiring in 30m{/if}
-			· <a href="/hosts?subject={item.subject}">open the house</a>
+			{#if houseHref}· <a href={houseHref}>open the house</a>{/if}
 		</div>
 	{/if}
 
@@ -63,14 +70,27 @@
 				/>
 			{/if}
 		{/each}
-		{#if ackDef && !item.acked_by}
-			<OpButton def={ackDef} args={{ id: item.id }} {lanes} variant="ghost" />
-		{/if}
-		{#if snoozeDef}
-			<OpButton def={snoozeDef} args={{ id: item.id, duration: "1h" }} {lanes} variant="ghost" />
-		{/if}
-		{#if resolveDef}
-			<OpButton def={resolveDef} args={{ id: item.id }} {lanes} variant="ghost" />
+
+		<button
+			type="button"
+			class="more"
+			aria-expanded={moreOpen}
+			aria-label="More attention actions"
+			onclick={() => (moreOpen = !moreOpen)}
+		>
+			<Icon name="ellipsis" size={16} />
+		</button>
+
+		{#if moreOpen}
+			{#if ackDef && !item.acked_by}
+				<OpButton def={ackDef} args={{ id: item.id }} {lanes} variant="ghost" />
+			{/if}
+			{#if snoozeDef}
+				<OpButton def={snoozeDef} args={{ id: item.id, duration_s: 3600 }} {lanes} variant="ghost" />
+			{/if}
+			{#if resolveDef}
+				<OpButton def={resolveDef} args={{ id: item.id }} {lanes} variant="ghost" />
+			{/if}
 		{/if}
 	</div>
 
@@ -120,10 +140,27 @@
 		gap: var(--s-2);
 		margin-top: var(--s-2);
 		flex-wrap: wrap;
+		align-items: center;
+	}
+	.more {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border: 0;
+		border-radius: var(--r-sm);
+		background: transparent;
+		color: var(--text-3);
+		cursor: pointer;
+		transition: background var(--t);
+	}
+	.more:hover {
+		background: var(--s2);
 	}
 	.crack-sub {
 		font:
-			400 0.75rem var(--sign);
+			400 0.75rem var(--sans);
 		color: var(--text-3);
 		margin-top: var(--s-2);
 	}

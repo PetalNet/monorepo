@@ -39,22 +39,23 @@
 	.roof {
 		height: 6px;
 		border-radius: 2px 2px 0 0;
-		background: var(--jade);
-		opacity: 0.55;
+		/* Neutral rule tone: jade is reserved for the place-and-proof / Janet
+		 * charter (§3), not decorative chrome. */
+		background: var(--rule-strong);
 	}
 	.body {
 		background: var(--s2);
 		border-radius: 0 0 var(--r-xs) var(--r-xs);
 		padding: var(--s-1);
 		display: flex;
-		gap: 3px;
+		gap: var(--s-1);
 		justify-content: center;
-		min-height: 17px;
+		min-height: 18px;
 	}
 	.win {
-		width: 7px;
-		height: 9px;
-		border-radius: 1px;
+		width: 6px;
+		height: 10px;
+		border-radius: var(--r-xs);
 		background: var(--s3);
 	}
 	.win.on {
@@ -67,7 +68,7 @@
 		margin-top: var(--s-1);
 		display: flex;
 		align-items: center;
-		gap: 3px;
+		gap: var(--s-1);
 		justify-content: center;
 	}
 </style>

@@ -41,6 +41,7 @@
 				<span class="nav-label">{item.label}</span>
 				{#if typeof badge === "number"}
 					<span class="nav-badge">{badge}</span>
+					{#if badge > 0}<span class="rail-dot" aria-hidden="true"></span>{/if}
 				{:else if badge === "down" || badge === "p0"}
 					<StatusDot tone="danger" size={6} />
 				{/if}
@@ -65,7 +66,7 @@
 				<Icon name="circle-help" size={12} />
 				<span>{stateFact ?? "Can't verify."}</span>
 			{:else if verdict === "needs_you"}
-				<Icon name="circle-check" size={12} />
+				<Icon name="circle-help" size={12} />
 				<span>Mostly fine. Something needs you.</span>
 			{:else}
 				<Icon name="circle-check" size={12} />
@@ -161,6 +162,14 @@
 		font-feature-settings: "tnum" 1;
 		color: var(--text-3);
 	}
+	/* Collapsed-rail fallback: the count is hidden, so a dot keeps the signal. */
+	.rail-dot {
+		display: none;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--text-3);
+	}
 	.sb-foot {
 		margin-top: auto;
 		padding: var(--s-2) var(--s-3) var(--s-3);
@@ -227,6 +236,12 @@
 	.sb-state.cant_verify :global(svg) {
 		color: var(--warn-dot);
 	}
+	.sb-state.needs_you {
+		color: var(--text-2);
+	}
+	.sb-state.needs_you :global(svg) {
+		color: var(--text-3);
+	}
 
 	/* icon rail (foundations §2.1): collapse to 56px below 1280px, keep badges. */
 	@media (max-width: 1279px) {
@@ -245,6 +260,13 @@
 		.nav-item {
 			justify-content: center;
 			padding: 0;
+			position: relative;
+		}
+		.rail-dot {
+			display: block;
+			position: absolute;
+			top: 4px;
+			inset-inline-end: 8px;
 		}
 		nav {
 			align-items: center;

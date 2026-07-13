@@ -31,11 +31,37 @@ export interface ShellHealth {
 export interface CockpitData extends ShellHealth {
 	scene: Scene;
 	greetingName: string;
+	/**
+	 * False = the cockpit's live reads (attention/roster/comms) are not connected yet (2nd-pass,
+	 * §6.1). The page renders an honest "can't verify" state rather than fabricated fixtures — never
+	 * fake state (lore veto #20).
+	 */
+	connected: boolean;
 	hud: { needYou: number; inFlight: number; hostsUp: number; hostsDown: number };
 	attention: AttentionItem[];
 	railHosts: mock.RailHost[];
 	comms: CommsEvent[];
 	saved: mock.SavedDashboard[];
+}
+
+/**
+ * Live-mode placeholder until the cockpit's 2nd-pass reads land (§6.1). No fabricated
+ * rail/board/mail — the shell says "Can't verify" and means it.
+ */
+export function liveEmptyCockpit(greetingName: string): CockpitData {
+	return {
+		scene: "clear",
+		greetingName,
+		connected: false,
+		verdict: "cant_verify",
+		stateFact: "Bus not connected.",
+		badges: {},
+		hud: { needYou: 0, inFlight: 0, hostsUp: 0, hostsDown: 0 },
+		attention: [],
+		railHosts: [],
+		comms: [],
+		saved: [],
+	};
 }
 
 /** Build the cockpit view model for a scene (mock mode). */
@@ -82,6 +108,7 @@ export function mockCockpit(scene: Scene): CockpitData {
 	return {
 		scene,
 		greetingName: mock.me.display_name ?? "there",
+		connected: true,
 		verdict,
 		stateFact,
 		badges,

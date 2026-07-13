@@ -186,13 +186,16 @@ export const attentionCracked: AttentionItem[] = [
 		scope: "fleet",
 		task_id: 718,
 		incident_key: "heartbeat:carson-2",
+		// fix_ops carry server-PRE-BOUND args (§5.3); the exact per-op arg schema
+		// is ops.json (term.watch needs host/tmux_session/pane_id, not a handle).
+		// A live crash is not the moment to mute the signal, so no signal.snooze.
 		fix_ops: [
 			{ op: "agent.restart", args: { handle: "carson-2" } },
-			{ op: "term.watch", args: { handle: "carson-2" } },
-			{ op: "signal.snooze", args: { subject: "carson-2", duration: "1h" } },
+			{ op: "term.watch", args: { host: ".14", tmux_session: "agents", pane_id: "%12" } },
 		],
 		acked_by: null,
 		blast_radius: {
+			host: ".14",
 			hosts: 1,
 			residents: 2,
 			leases_expiring_30m: 1,

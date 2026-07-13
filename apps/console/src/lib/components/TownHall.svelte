@@ -45,10 +45,13 @@
 		gap: var(--s-2);
 		margin-bottom: var(--s-2);
 	}
+	/* Signage secondary in sans, not serif: the one serif (sign-face) moment per
+	 * screen is the greeting row (foundations §7). */
 	.sign-sub {
 		font:
-			400 0.8125rem var(--sign);
+			400 0.8125rem var(--sans);
 		color: var(--text-3);
+		font-style: italic;
 	}
 	.town-empty {
 		display: flex;

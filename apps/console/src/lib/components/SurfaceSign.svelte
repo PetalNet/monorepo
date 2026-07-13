@@ -37,7 +37,7 @@
 			{:else if verdict === "cant_verify"}
 				<Icon name="circle-help" size={14} />{stateFact ?? "Can't verify."}
 			{:else if verdict === "needs_you"}
-				<Icon name="circle-check" size={14} />Mostly fine. Something needs you.
+				<Icon name="circle-help" size={14} />Mostly fine. Something needs you.
 			{:else}
 				<Icon name="circle-check" size={14} />Welcome! Everything is fine.
 			{/if}
@@ -92,6 +92,13 @@
 	}
 	.fine.cant_verify :global(svg) {
 		color: var(--warn-dot);
+	}
+	/* needs_you is not "fine" — neutral/attention tone, never a green motif. */
+	.fine.needs_you {
+		color: var(--text-2);
+	}
+	.fine.needs_you :global(svg) {
+		color: var(--text-3);
 	}
 	.date {
 		margin-inline-start: auto;

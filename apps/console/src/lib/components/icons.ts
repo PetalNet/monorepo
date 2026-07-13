@@ -2,6 +2,7 @@ import ChartLine from "@lucide/svelte/icons/chart-line";
 import CircleCheck from "@lucide/svelte/icons/circle-check";
 import CircleHelp from "@lucide/svelte/icons/circle-help";
 import DoorOpen from "@lucide/svelte/icons/door-open";
+import Ellipsis from "@lucide/svelte/icons/ellipsis";
 import Kanban from "@lucide/svelte/icons/kanban";
 import LayoutDashboard from "@lucide/svelte/icons/layout-dashboard";
 import LibraryBig from "@lucide/svelte/icons/library-big";
@@ -33,6 +34,7 @@ export const ICONS: Record<string, LucideIcon> = {
 	"circle-check": CircleCheck,
 	"circle-help": CircleHelp,
 	"door-open": DoorOpen,
+	ellipsis: Ellipsis,
 	kanban: Kanban,
 	"layout-dashboard": LayoutDashboard,
 	"library-big": LibraryBig,

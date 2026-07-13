@@ -191,11 +191,18 @@
 		align-items: center;
 		gap: var(--s-2);
 		background: var(--s1);
+		/* Inset hairline ring: permitted ONLY for the snackbar and the dock
+		 * (foundations §3.1) — this is the dock. Focus adds the outset petal ring. */
+		box-shadow: inset 0 0 0 1px var(--rule-strong);
 		border-radius: var(--r-pill);
 		padding: 0.75rem var(--s-3);
 		min-height: 48px;
-		box-shadow: inset 0 0 0 1px var(--rule-strong);
 		pointer-events: auto;
+	}
+	.ask-bar:focus-within {
+		box-shadow:
+			inset 0 0 0 1px var(--rule-strong),
+			0 0 0 2px var(--petal);
 	}
 	.ask-bar :global(svg) {
 		color: var(--jade);

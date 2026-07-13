@@ -85,6 +85,8 @@ export interface FixOp extends Extra {
 	args: Record<string, unknown>;
 }
 export interface BlastRadius extends Extra {
+	/** The host the crash/incident lives on — the "open the house" target. */
+	host?: string | null;
 	hosts?: number;
 	residents?: number;
 	leases_expiring_30m?: number;

@@ -3,6 +3,7 @@
 	import { registryLiveness } from "$lib/api/derive";
 	import AskDock, { type ContextPayload } from "$lib/components/AskDock.svelte";
 	import Envelope from "$lib/components/Envelope.svelte";
+	import Icon from "$lib/components/Icon.svelte";
 	import HouseTile from "$lib/components/HouseTile.svelte";
 	import Panel from "$lib/components/Panel.svelte";
 	import RailCard from "$lib/components/RailCard.svelte";
@@ -74,6 +75,18 @@
 		queueMicrotask(() => askRef?.focus());
 	}
 
+	// Right-click-ask, the universal primitive (§4.3, /task/700): capture the
+	// clicked element's context and inject it into the chat. Delegated over the
+	// cockpit so any element (a card, a house, a saved tile) is interrogable,
+	// not just generated panels. Selected text yields the native menu.
+	function askAboutClick(e: MouseEvent) {
+		if (window.getSelection()?.toString()) return;
+		const el = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-ask]");
+		if (!el) return;
+		e.preventDefault();
+		askAbout(el.dataset.ask || el.textContent?.trim().slice(0, 60) || "this");
+	}
+
 	function onKey(e: KeyboardEvent) {
 		const el = e.target as HTMLElement | null;
 		const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
@@ -143,36 +156,49 @@
 	</div>
 
 	<AskDock bind:this={askRef} mode="docked" {context} {progress} {transcript}
-		onask={onAsk} onclearcontext={() => (context = null)} />
+		assistantDown={!data.connected} onask={onAsk} onclearcontext={() => (context = null)} />
 {:else}
 	<!-- All clear: a pinned home around the ask (foundations §5.5). -->
 	<SurfaceSign hero title={greeting} verdict={c.verdict} stateFact={c.stateFact} date={dateStr}
 		{hud} />
 
-	<AskDock bind:this={askRef} mode="centered" {context} onask={onAsk}
-		onclearcontext={() => (context = null)} />
+	<AskDock bind:this={askRef} mode="centered" {context} assistantDown={!data.connected}
+		onask={onAsk} onclearcontext={() => (context = null)} />
 
-	<div class="home-grid">
-		<div class="home-main">
-			<TownHall items={c.attention} lanes={data.me.lanes} />
-			<SavedDashboards items={c.saved} />
+	{#if !c.connected}
+		<!-- Live, not connected: honest placeholder, never fabricated fixtures (veto #20). -->
+		<div class="unverified">
+			<Icon name="circle-help" size={20} />
+			<p>Can't verify the neighborhood yet. The cockpit reads land with the backend's 2nd pass.</p>
+			<span>Ask Janet anything — every surface is still live.</span>
 		</div>
-		<aside class="rail">
-			<RailCard heading="The neighborhood">
-				<div class="rail-meta">{c.railHosts.filter((h) => !h.dark).length} houses · {c.hud.inFlight} workers up</div>
-				<div class="house-row">
-					{#each c.railHosts as h (h.host)}
-						<HouseTile host={h.host} workersUp={h.workersUp} tone={railTone(h.host)} dark={h.dark} />
-					{/each}
+	{:else}
+		<div class="home-grid" oncontextmenu={askAboutClick} role="presentation">
+			<div class="home-main">
+				<div data-ask="Town Hall, the attention board">
+					<TownHall items={c.attention} lanes={data.me.lanes} />
 				</div>
-			</RailCard>
-			<RailCard heading="Mail on the wire">
-				{#each c.comms as ev, i (ev.id)}
-					<Envelope event={ev} rate={i === 1 ? 12 : null} {now} />
-				{/each}
-			</RailCard>
-		</aside>
-	</div>
+				<SavedDashboards items={c.saved} />
+			</div>
+			<aside class="rail">
+				<RailCard heading="The neighborhood">
+					<div class="rail-meta">{c.railHosts.filter((h) => !h.dark).length} houses · {c.hud.inFlight} workers up</div>
+					<div class="house-row">
+						{#each c.railHosts as h (h.host)}
+							<div data-ask="host {h.host}">
+								<HouseTile host={h.host} workersUp={h.workersUp} tone={railTone(h.host)} dark={h.dark} />
+							</div>
+						{/each}
+					</div>
+				</RailCard>
+				<RailCard heading="Mail on the wire">
+					{#each c.comms as ev, i (ev.id)}
+						<Envelope event={ev} rate={i === 1 ? 12 : null} {now} />
+					{/each}
+				</RailCard>
+			</aside>
+		</div>
+	{/if}
 {/if}
 
 <style>
@@ -181,6 +207,26 @@
 		grid-template-columns: 1fr 344px;
 		gap: var(--s-3);
 		margin-top: var(--s-4);
+	}
+	.unverified {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--s-2);
+		text-align: center;
+		padding: var(--s-6) var(--s-4);
+		color: var(--text-3);
+	}
+	.unverified :global(svg) {
+		color: var(--warn-dot);
+	}
+	.unverified p {
+		font-size: 0.875rem;
+		color: var(--text-2);
+		max-width: 46ch;
+	}
+	.unverified span {
+		font-size: 0.75rem;
 	}
 	.home-main {
 		display: flex;
@@ -239,8 +285,8 @@
 		color: var(--text);
 		background: var(--jade-soft);
 		border-bottom: 1px solid var(--jade);
-		border-radius: 1px;
-		padding: 0 3px;
+		border-radius: var(--r-xs);
+		padding: 0 var(--s-1);
 	}
 	.mini-table {
 		width: 100%;
