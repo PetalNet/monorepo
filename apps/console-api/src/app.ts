@@ -73,6 +73,7 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 	// serving reads, then live off fan-out (N1b). Writes as console_writer (non-superuser).
 	const projector = new Projector(db.writer);
 	await projector.replayToHead();
+	await projector.replayContractedReadsToHead();
 	const tracker = env.trackerDbPath ? new TrackerReader(env.trackerDbPath) : null;
 	const proposalConfig = [env.trackerRpcUrl, env.trackerRpcToken, env.trackerProposalProject];
 	if (proposalConfig.some(Boolean) && !proposalConfig.every(Boolean))

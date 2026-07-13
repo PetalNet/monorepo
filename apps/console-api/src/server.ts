@@ -45,11 +45,10 @@ import {
 	sanitizedException,
 	type ExceptionMonitor,
 } from "./observability.ts";
-import type { ProjectionKind } from "./projector/index.ts";
 import { readQueryRecord } from "./query/history.ts";
 import { runStructured, QueryError, type QueryRequest } from "./query/structured.ts";
-import { readEntity } from "./reads/entities.ts";
 import { readRoster, readExecutors } from "./reads/roster.ts";
+import { registerEntityReadRoutes } from "./reads/routes.ts";
 import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
 import type { TrackerReader } from "./reads/tracker.ts";
 import { materializePanel } from "./render/engine.ts";
@@ -125,7 +124,7 @@ function schemaType(value: unknown): string {
 }
 
 /** The catalog uses a deliberately small, deterministic draft-2020-12 subset. */
-function validateJsonSchema(
+export function validateJsonSchema(
 	value: unknown,
 	schema: JsonSchema,
 	path = "args",
@@ -1754,27 +1753,8 @@ export async function buildServer(
 		return { schema_version: 1, items };
 	});
 
-	// --- typed entity reads (current_state projection, N1b) --------------------------------------
-	const ENTITY_ROUTES: Record<string, ProjectionKind> = {
-		fleet: "fleet",
-		heartbeats: "heartbeat",
-		registry: "registry",
-		governance: "governance",
-		cards: "card",
-		"box-updates": "box_update",
-		workers: "worker",
-		"edge/registry": "edge",
-	};
-	for (const [path, kind] of Object.entries(ENTITY_ROUTES)) {
-		app.get(`/api/v1/${path}`, { preHandler: auth }, async (req) => {
-			const p = req.principal as Principal;
-			const q = req.query as { limit?: string; cursor?: string };
-			return readEntity(services.db.app, p.scopes, kind, {
-				limit: q.limit ? Number(q.limit) : undefined,
-				cursor: q.cursor,
-			});
-		});
-	}
+	// --- typed entity reads (RLS-scoped projections, N1b) -----------------------------------------
+	registerEntityReadRoutes(app, { app: services.db.app, auth });
 
 	// --- tracker-sourced reads (single-writer store, mapped to console scope, N1b-2) -------------
 	function trackerOr503(reply: FastifyReply): boolean {

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
 
@@ -25,7 +26,7 @@ import { runStructured } from "../src/query/structured.ts";
 import { readEntity } from "../src/reads/entities.ts";
 import { readRoster, readExecutors } from "../src/reads/roster.ts";
 import { searchSemanticCorpus } from "../src/semantic/search.ts";
-import { buildServer } from "../src/server.ts";
+import { buildServer, validateJsonSchema } from "../src/server.ts";
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -134,7 +135,8 @@ beforeAll(async () => {
 	await admin`insert into grants (subject, relation, object, granted_by) values
 		('tester', 'editor', 'fleet', 'test'),
 		('binding-user', 'editor', 'fleet', 'test'),
-		('author', 'editor', 'user:public', 'test')`;
+		('author', 'editor', 'user:public', 'test'),
+		('system:console-api', 'editor', 'user:eli', 'test')`;
 	await admin.end();
 	services = await buildServices(
 		{
@@ -2551,6 +2553,353 @@ describe("current_state projection (N1b)", () => {
 			await new Promise((res) => setTimeout(res, 20));
 		}
 		throw new Error("unreachable_since never set");
+	});
+
+	it("serves every BR-008 typed read from its scoped projection with contract-valid shapes", async () => {
+		const suffix = randomBytes(4).toString("hex");
+		const now = new Date().toISOString();
+		const sessionId = `session-${suffix}`;
+		const fingerprint = `sha256:${suffix}`;
+		const attentionId = `attention-${suffix}`;
+		const boxId = `a1:${suffix}`;
+		const subscriptionSubject = `subscription:eli:${suffix}`;
+
+		const enrolled = await services.emit(
+			"bridge:doorman",
+			emission({
+				type: "doorman.enroll.request",
+				source: { service: "doorman", host: ".14", agent: null },
+				subject: fingerprint,
+				subject_kind: "other",
+				meta: {
+					entity: {
+						pubkey_fp: fingerprint,
+						handle: null,
+						host: ".14",
+						state: "pending",
+						requested_handle: `edge-${suffix}`,
+						first_seen_at: now,
+					},
+				},
+			}),
+			800,
+		);
+		const opened = await services.emit(
+			"bridge:doorman",
+			emission({
+				type: "doorman.session.opened",
+				source: { service: "doorman", host: ".14", agent: null },
+				subject: sessionId,
+				subject_kind: "session",
+				meta: {
+					entity: {
+						session_id: sessionId,
+						handle: `edge-${suffix}`,
+						host: ".14",
+						state: "open",
+						established_at: now,
+						resumes_count: 0,
+						last_seen_at: now,
+						links: [
+							{
+								link_id: `link-${suffix}`,
+								role: "primary",
+								state: "active",
+								established_at: now,
+								flap_count_24h: 0,
+							},
+						],
+					},
+				},
+			}),
+			1_200,
+		);
+		const unrelatedDoorman = await services.emit(
+			"bridge:doorman",
+			emission({
+				type: "doorman.health",
+				source: { service: "doorman", host: ".14", agent: null },
+				subject: `doorman-${suffix}`,
+			}),
+			400,
+		);
+		const projectorFence = await services.emit(
+			"bridge:fleet",
+			emission({
+				type: "fleet.event.stop",
+				source: { service: "bridge", host: ".14", agent: `fence-${suffix}` },
+				subject: `fence-${suffix}`,
+				subject_kind: "agent",
+				dimensions: { status: "idle" },
+			}),
+			400,
+		);
+		expect(enrolled.ok).toBe(true);
+		expect(opened.ok).toBe(true);
+		expect(unrelatedDoorman.ok).toBe(true);
+		expect(projectorFence.ok).toBe(true);
+		await waitProjected("edge", fingerprint, enrolled.seq as number);
+		await waitProjected("edge_session", sessionId, opened.seq as number);
+		await waitProjected("fleet", `fence-${suffix}`, projectorFence.seq as number);
+		expect(
+			await services.db.admin`
+				select 1 from current_state where kind = 'edge_session' and subject = ${`doorman-${suffix}`}`,
+		).toHaveLength(0);
+
+		const subscription = {
+			schema_version: 1,
+			pattern: `task.${suffix}`,
+			filter: null,
+			tier: "digest",
+			window: "18:00",
+			loud: false,
+			note: null,
+			owner: "eli",
+			updated_by: "eli",
+			updated_at: now,
+		};
+		const delivery = {
+			owner: "eli",
+			channel: "matrix",
+			target: "@eli:example.test",
+			verified: true,
+			cocoon_until: null,
+			next_digest_at: null,
+			updated_at: now,
+			updated_by: "eli",
+		};
+		const attention = {
+			schema_version: 1,
+			id: attentionId,
+			grade: "blocker",
+			source: "tracker",
+			subject: `task:${suffix}`,
+			summary: "A task needs a decision.",
+			ts: now,
+			scope: "user:eli",
+			fix_ops: [{ op: "task.update", args: { id: 42 } }],
+		};
+		const raw = {
+			box_id: boxId,
+			packages: [{ name: "openssl", from: "3.0.0", to: "3.0.1", security: true }],
+			vulns: [
+				{ cve_id: "CVE-2026-12345", severity: "high", package: "openssl", fixed_in: "3.0.1" },
+			],
+			collected_at: now,
+		};
+		const subscriptionResult = await services.emit(
+			"system:console-api",
+			emission({
+				type: "subscription.changed",
+				source: { service: "console-api", host: null, agent: null },
+				subject: subscriptionSubject,
+				subject_kind: "other",
+				scope: "user:eli",
+				meta: { entity: subscription },
+			}),
+			900,
+		);
+		await services.db.writer`
+			insert into delivery_config
+				(owner, scope, channel, target, verified, cocoon_until, next_digest_at, updated_at, updated_by)
+			values
+				(${delivery.owner}, 'user:eli', ${delivery.channel}, ${delivery.target}, ${delivery.verified},
+				 ${delivery.cocoon_until}, ${delivery.next_digest_at}, ${delivery.updated_at}, ${delivery.updated_by})
+			on conflict (owner) do update set target = excluded.target, verified = excluded.verified,
+				updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
+		const attentionResult = await services.emit(
+			"system:console-api",
+			emission({
+				type: "attention.created",
+				source: { service: "console-api", host: null, agent: null },
+				subject: attentionId,
+				subject_kind: "other",
+				scope: "user:eli",
+				meta: { entity: attention },
+			}),
+			900,
+		);
+		const boxResult = await services.emit(
+			"bridge:hosts",
+			emission({
+				type: "box.update_status_changed",
+				source: { service: "bridge", host: ".14", agent: null },
+				subject: boxId,
+				subject_kind: "host",
+				meta: { box_update_raw: raw },
+			}),
+			1_200,
+		);
+		for (const result of [subscriptionResult, attentionResult, boxResult])
+			expect(result.ok).toBe(true);
+		await waitProjected("subscription", subscriptionSubject, subscriptionResult.seq as number);
+		await waitProjected("attention", attentionId, attentionResult.seq as number);
+		await waitProjected("box_update", boxId, boxResult.seq as number);
+
+		const schemas = (name: string): Record<string, unknown> =>
+			JSON.parse(
+				readFileSync(
+					new URL(`../docs/contracts/schemas/${name}.schema.json`, import.meta.url),
+					"utf8",
+				),
+			) as Record<string, unknown>;
+		const envelopeSchema = schemas("entities/read-envelope");
+		const server = await buildServer(services, true);
+		const fleetPrincipal = JSON.stringify({
+			kind: "human",
+			id: "eli",
+			scopes: ["fleet", "user:eli"],
+			lanes: ["viewer"],
+		});
+		const hiddenPrincipal = JSON.stringify({
+			kind: "human",
+			id: "secret",
+			scopes: ["user:secret"],
+			lanes: ["viewer"],
+		});
+		try {
+			for (const [path, itemSchema, identity] of [
+				["edge/registry", "entities/edge-registry", ["pubkey_fp", fingerprint]],
+				["edge/sessions", "entities/edge-session", ["session_id", sessionId]],
+				["subscriptions", "subscription", ["pattern", subscription.pattern]],
+				["delivery", "entities/delivery", ["owner", "eli"]],
+				["attention", "attention-item", ["id", attentionId]],
+			] as const) {
+				const response = await server.inject({
+					method: "GET",
+					url: `/api/v1/${path}`,
+					headers: { "x-dev-principal": fleetPrincipal },
+				});
+				expect(response.statusCode, response.body).toBe(200);
+				const body = response.json();
+				expect(validateJsonSchema(body, envelopeSchema, "response")).toBeNull();
+				const item = body.items.find(
+					(candidate: Record<string, unknown>) => candidate[identity[0]] === identity[1],
+				);
+				expect(item).toBeDefined();
+				for (const candidate of body.items)
+					expect(validateJsonSchema(candidate, schemas(itemSchema), "item")).toBeNull();
+			}
+			const filteredSession = await server.inject({
+				method: "GET",
+				url: `/api/v1/edge/sessions?handle=${encodeURIComponent(`edge-${suffix}`)}&state=open&since=${encodeURIComponent(now)}`,
+				headers: { "x-dev-principal": fleetPrincipal },
+			});
+			expect(filteredSession.json().items).toEqual([
+				expect.objectContaining({ session_id: sessionId }),
+			]);
+			const excludedSession = await server.inject({
+				method: "GET",
+				url: "/api/v1/edge/sessions?state=closed",
+				headers: { "x-dev-principal": fleetPrincipal },
+			});
+			expect(excludedSession.json().items).toEqual([]);
+			const otherOwner = await server.inject({
+				method: "GET",
+				url: "/api/v1/subscriptions?owner=parker",
+				headers: { "x-dev-principal": fleetPrincipal },
+			});
+			expect(otherOwner.json().items).toEqual([]);
+			const badSince = await server.inject({
+				method: "GET",
+				url: "/api/v1/attention?since=not-a-date",
+				headers: { "x-dev-principal": fleetPrincipal },
+			});
+			expect(badSince.statusCode).toBe(400);
+
+			const rawResponse = await server.inject({
+				method: "GET",
+				url: `/api/v1/box-updates/${encodeURIComponent(boxId)}/raw`,
+				headers: { "x-dev-principal": fleetPrincipal },
+			});
+			expect(rawResponse.statusCode, rawResponse.body).toBe(200);
+			expect(
+				validateJsonSchema(rawResponse.json(), schemas("entities/box-update-raw"), "item"),
+			).toBeNull();
+
+			for (const path of ["subscriptions", "delivery", "attention"]) {
+				const hidden = await server.inject({
+					method: "GET",
+					url: `/api/v1/${path}`,
+					headers: { "x-dev-principal": hiddenPrincipal },
+				});
+				expect(hidden.json().items).toEqual([]);
+			}
+			const hiddenRaw = await server.inject({
+				method: "GET",
+				url: `/api/v1/box-updates/${encodeURIComponent(boxId)}/raw`,
+				headers: { "x-dev-principal": hiddenPrincipal },
+			});
+			const missingRaw = await server.inject({
+				method: "GET",
+				url: "/api/v1/box-updates/does-not-exist/raw",
+				headers: { "x-dev-principal": hiddenPrincipal },
+			});
+			expect(hiddenRaw.statusCode).toBe(404);
+			expect(hiddenRaw.json()).toEqual(missingRaw.json());
+
+			await services.db.writer`delete from current_state
+				where (kind = 'edge_session' and subject = ${sessionId})
+				   or (kind = 'subscription' and subject = ${subscriptionSubject})
+				   or (kind = 'attention' and subject = ${attentionId})
+				   or (kind = 'box_update' and subject = ${boxId})`;
+			await services.db.admin`delete from projection_checkpoint where name = 'current_state_br008'`;
+			await services.projector.replayContractedReadsToHead();
+			const backfilled = await services.db.admin<
+				{ kind: string; state: Record<string, unknown> }[]
+			>`select kind, state from current_state
+			  where (kind = 'edge_session' and subject = ${sessionId})
+			     or (kind = 'subscription' and subject = ${subscriptionSubject})
+			     or (kind = 'attention' and subject = ${attentionId})
+			     or (kind = 'box_update' and subject = ${boxId})`;
+			expect(new Set(backfilled.map((row) => row.kind))).toEqual(
+				new Set(["edge_session", "subscription", "attention", "box_update"]),
+			);
+			expect(
+				backfilled.find((row) => row.kind === "box_update")?.state["box_update_raw"],
+			).toMatchObject(raw);
+
+			services.projector.onEvent(
+				9_100_001,
+				emission({
+					type: "subscription.changed",
+					source: { service: "console-api", host: null, agent: null },
+					subject: subscriptionSubject,
+					scope: "user:eli",
+					action: "remove",
+				}),
+				now,
+			);
+			services.projector.onEvent(
+				9_100_002,
+				emission({
+					type: "delivery.receipt",
+					source: { service: "console-api", host: null, agent: null },
+					subject: `receipt-${suffix}`,
+					scope: "user:eli",
+				}),
+				now,
+			);
+			services.projector.onEvent(
+				9_100_003,
+				emission({
+					type: "attention.created",
+					source: { service: "console-api", host: null, agent: null },
+					subject: `sync-${suffix}`,
+					scope: "user:eli",
+				}),
+				now,
+			);
+			await waitProjected("attention", `sync-${suffix}`, 9_100_003);
+			expect(
+				await services.db.admin`
+					select 1 from current_state
+					where (kind = 'subscription' and subject = ${subscriptionSubject})
+					   or (kind = 'delivery' and subject = ${`receipt-${suffix}`})`,
+			).toHaveLength(0);
+		} finally {
+			await server.close();
+		}
 	});
 });
 

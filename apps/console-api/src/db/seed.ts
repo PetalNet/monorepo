@@ -79,7 +79,16 @@ const REGISTRATIONS: readonly RegSeed[] = [
 	{
 		subject: "system:console-api",
 		services: ["console-api"],
-		prefixes: ["console.api", "audit", "attention", "delivery", "signal", "lake", "bridge"],
+		prefixes: [
+			"console.api",
+			"audit",
+			"attention",
+			"subscription",
+			"delivery",
+			"signal",
+			"lake",
+			"bridge",
+		],
 		scopes: ["fleet", "user:*", "agent:*", "project:*", "restricted:*"],
 		maxSeverity: "p0",
 	},

@@ -543,7 +543,8 @@ const STATEMENTS: readonly string[] = [
 
 	// --- N1b: current-state projection (latest per entity), keyed by the PROJECTION bucket -----
 	// kind is the projection-map target (fleet|heartbeat|registry|governance|card|worker|
-	// box_update|edge), NOT the emission subject_kind (which is `agent` for four of them).
+	// box_update|edge|edge_session|attention|subscription|delivery), NOT the emission
+	// subject_kind (which is `agent` for several independent buckets).
 	`create table if not exists current_state (
 	   kind              text not null,
 	   subject           text not null,
@@ -555,6 +556,17 @@ const STATEMENTS: readonly string[] = [
 	   seq               bigint not null,
 	   primary key (kind, subject)
 	 )`,
+	`create table if not exists delivery_config (
+	   owner          text primary key,
+	   scope          text not null,
+	   channel        text not null default 'matrix' check (channel = 'matrix'),
+	   target         text not null,
+	   verified       boolean not null default false,
+	   cocoon_until   timestamptz,
+	   next_digest_at timestamptz,
+	   updated_at     timestamptz not null default now(),
+	   updated_by     text not null
+	 )`,
 
 	// projector durability: the seq up to which current_state reflects the lake.
 	`create table if not exists projection_checkpoint (
@@ -562,7 +574,6 @@ const STATEMENTS: readonly string[] = [
 	   through_seq  bigint not null default 0,
 	   updated_at   timestamptz not null default now()
 	 )`,
-
 	// bridge cursors: the high-water mark a co-located bridge has ingested per source (durable so a
 	// restart resumes; deterministic emission ids make re-processing safe regardless).
 	`create table if not exists bridge_cursor (
@@ -616,6 +627,8 @@ const STATEMENTS: readonly string[] = [
 	// --- RLS: enable + force on every scoped base table, then the policy ----------------------
 	`alter table current_state enable row level security`,
 	`alter table current_state force row level security`,
+	`alter table delivery_config enable row level security`,
+	`alter table delivery_config force row level security`,
 	`alter table items_min enable row level security`,
 	`alter table items_min force row level security`,
 	`alter table events enable row level security`,
@@ -685,6 +698,13 @@ const STATEMENTS: readonly string[] = [
 	   if not exists (select 1 from pg_policies where tablename='current_state' and policyname='current_state_writer_all') then
 	     create policy current_state_writer_all on current_state to console_writer using (true) with check (true);
 	   end if;
+	   if not exists (select 1 from pg_policies where tablename='delivery_config' and policyname='delivery_config_scope_select') then
+	     create policy delivery_config_scope_select on delivery_config for select to console_app, console_ro
+	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='delivery_config' and policyname='delivery_config_writer_all') then
+	     create policy delivery_config_writer_all on delivery_config to console_writer using (true) with check (true);
+	   end if;
 	   drop policy if exists items_min_scope_select on items_min;
 	   create policy items_min_scope_select on items_min for select to console_app, console_ro
 	     using (
@@ -750,9 +770,9 @@ const STATEMENTS: readonly string[] = [
 	`revoke create on schema public from console_ro`,
 	`revoke select on semantic_registry from console_app, console_ro`,
 	`grant usage on schema public to console_app, console_ro, console_writer`,
-	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, items_min, semantic_registry_scoped, semantic_views to console_ro`,
+	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, delivery_config, items_min, semantic_registry_scoped, semantic_views to console_ro`,
 	// console_app: scoped reads across the read surface.
-	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
+	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, delivery_config, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
 	`grant insert on query_history, semantic_documents to console_app`,
 	// console_writer: the appender + projector (non-superuser) — insert events/edges/blobs, upsert current_state.
 	`grant insert, select on emission_ids, events, event_archive, edges, blobs to console_writer`,
@@ -762,6 +782,7 @@ const STATEMENTS: readonly string[] = [
 	`grant usage, select on sequence emission_ids_seq_seq to console_writer`,
 	`grant usage, select on sequence semantic_proposals_id_seq to console_writer`,
 	`grant insert, update, select, delete on current_state, items_min to console_writer`,
+	`grant insert, update, select, delete on delivery_config to console_writer`,
 	`grant insert, select on dashboard_mutations to console_writer`,
 	`grant insert, update, select on proposal_mutations to console_writer`,
 	`grant insert, update, select on assistant_sessions, assistant_messages to console_writer`,
