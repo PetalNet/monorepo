@@ -670,9 +670,50 @@ async fn ws_auth_success_broadcasts_presence_online(pool: PgPool) {
     let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
     let _alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
 
+    let presence = loop {
+        let presence = expect_frame(&mut bob_ws, "presence.update", 2000).await;
+        if presence["user_id"] == uid("alice") && presence["online"] == true {
+            break presence;
+        }
+    };
+    assert_eq!(presence["user_id"], uid("alice"));
+    assert_eq!(presence["online"], true);
+}
+
+#[sqlx::test]
+async fn ws_auth_receives_authoritative_presence_snapshot(pool: PgPool) {
+    let url = spawn_ws_server(&pool).await;
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+
+    let _alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+    let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+
     let presence = expect_frame(&mut bob_ws, "presence.update", 2000).await;
     assert_eq!(presence["user_id"], uid("alice"));
     assert_eq!(presence["online"], true);
+    assert!(presence["observed_at"].is_i64());
+}
+
+#[sqlx::test]
+async fn ws_presence_snapshot_makes_ghosting_indistinguishable_from_offline(pool: PgPool) {
+    let url = spawn_ws_server(&pool).await;
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+
+    let _alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+    sqlx::query("UPDATE users SET ghost_active = TRUE WHERE id = $1")
+        .bind(uid("alice"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+
+    let presence = expect_frame(&mut bob_ws, "presence.update", 2000).await;
+    assert_eq!(presence["user_id"], uid("alice"));
+    assert_eq!(presence["online"], false);
 }
 
 #[sqlx::test]
@@ -865,6 +906,14 @@ async fn delete_share_notifies_both_peers_and_stops_delivery(pool: PgPool) {
     let (url, router) = spawn_ws_server_with_router(&pool).await;
     let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
     let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+    for ws in [&mut alice_ws, &mut bob_ws] {
+        loop {
+            let presence = expect_frame(ws, "presence.update", 2000).await;
+            if presence["online"] == true {
+                break;
+            }
+        }
+    }
 
     let (status, body) = send(
         &router,
@@ -916,6 +965,10 @@ async fn ws_ghost_drops_location_updates(pool: PgPool) {
     let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
     let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
 
+    let dark = expect_frame(&mut bob_ws, "presence.update", 2000).await;
+    assert_eq!(dark["user_id"], uid("alice"));
+    assert_eq!(dark["online"], false);
+
     ws_send(
         &mut alice_ws,
         json!({
@@ -928,7 +981,8 @@ async fn ws_ghost_drops_location_updates(pool: PgPool) {
     )
     .await;
 
-    // Ghost wins: no delivery, and no presence leaked on connect either.
+    // Ghost wins: no location delivery; presence uses the same generic dark
+    // frame as an offline peer and does not reveal intent.
     assert!(recv_frame(&mut bob_ws, 300).await.is_none());
     assert_eq!(
         count(&pool, "SELECT COUNT(*) FROM location_updates").await,

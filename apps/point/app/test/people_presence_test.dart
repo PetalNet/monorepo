@@ -38,6 +38,25 @@ void main() {
       expect(merged.presence, PresenceState.away);
     });
 
+    test('server online without a fix is truthful and locationless', () {
+      final merged = mergePresence(
+        away,
+        null,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: true,
+          observedAt: now,
+          battery: 72,
+          activity: 'walking',
+        ),
+        now: now,
+      );
+
+      expect(merged.presence, PresenceState.live);
+      expect(merged.hasLocation, isFalse);
+      expect(merged.subtitle, 'Online · Waiting for location');
+    });
+
     test('fresh fix → live, located, "Sharing · Nm"', () {
       final fix = PeerFix(
         userId: 'eli@point.dev',
@@ -74,6 +93,54 @@ void main() {
         expect(merged.subtitle, 'Dark since ${clockHm(darkTs)}');
       },
     );
+
+    test('server offline makes a fresh fix dark immediately', () {
+      final disconnectedAt = now.subtract(const Duration(seconds: 5));
+      final fix = PeerFix(
+        userId: away.userId,
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': ago(const Duration(seconds: 10)),
+        },
+      );
+
+      final merged = mergePresence(
+        away,
+        fix,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: false,
+          observedAt: disconnectedAt,
+        ),
+        now: now,
+      );
+
+      expect(merged.presence, PresenceState.stale);
+      expect(merged.hasLocation, isTrue);
+      expect(merged.lat, 38.6);
+      expect(
+        merged.subtitle,
+        'Dark since ${clockHm(disconnectedAt.millisecondsSinceEpoch)}',
+      );
+    });
+
+    test('server offline without a fix is neutral dark, never ghosted', () {
+      final merged = mergePresence(
+        away,
+        null,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: false,
+          observedAt: now,
+        ),
+        now: now,
+      );
+
+      expect(merged.presence, PresenceState.stale);
+      expect(merged.presence, isNot(PresenceState.ghosted));
+      expect(merged.hasLocation, isFalse);
+    });
 
     test('fix without coordinates → unchanged', () {
       const fix = PeerFix(userId: 'eli@point.dev', data: {'speed': 1});
@@ -120,6 +187,16 @@ void main() {
       );
       expect(merged.subtitle, 'mara@fieldstone.social · 3m');
     });
+  });
+
+  test('PeerPresence uses the server observation clock', () {
+    final presence = PeerPresence.fromFrame(const {
+      'user_id': 'eli@point.dev',
+      'online': false,
+      'observed_at': 1234,
+    });
+
+    expect(presence.observedAt.millisecondsSinceEpoch, 1234);
   });
 
   group('PeerMarkerMotion', () {

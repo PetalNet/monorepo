@@ -143,6 +143,10 @@ async fn handle_socket(state: AppState, mut socket: WebSocket) {
 
     // Presence: online, to everyone entitled to see the sender's presence.
     broadcast_presence(&state, &user_id, true, None, None).await;
+    // Transitions can be missed while this socket is away. Seed every newly
+    // authenticated connection with an authoritative, privacy-filtered view
+    // so reconnect never preserves an old online/offline claim indefinitely.
+    send_presence_snapshot(&state, &user_id, &reply).await;
 
     // One select loop owns both directions plus keepalive + forced-close, so a
     // single task drives the socket (no orphaned writer to abort). `sink` is
@@ -575,10 +579,21 @@ async fn broadcast_presence(
     if audience.is_empty() {
         return;
     }
+    let msg = presence_frame(user_id, online, battery, activity);
+    state.hub.send_to_users(audience.iter(), &msg);
+}
+
+fn presence_frame(
+    user_id: &str,
+    online: bool,
+    battery: Option<&Value>,
+    activity: Option<&Value>,
+) -> String {
     let mut msg = json!({
         "type": "presence.update",
         "user_id": user_id,
         "online": online,
+        "observed_at": chrono::Utc::now().timestamp_millis(),
     });
     if let Some(b) = battery {
         msg["battery"] = b.clone();
@@ -586,8 +601,45 @@ async fn broadcast_presence(
     if let Some(a) = activity {
         msg["activity"] = a.clone();
     }
-    let msg = msg.to_string();
-    state.hub.send_to_users(audience.iter(), &msg);
+    msg.to_string()
+}
+
+/// Send the viewer a complete snapshot of relationship peers. A ghosted peer
+/// is represented by the same generic offline state as a disconnected peer;
+/// the frame never discloses why positive online evidence is unavailable.
+async fn send_presence_snapshot(state: &AppState, viewer: &str, reply: &Sender<String>) {
+    let candidates: Vec<(String, bool)> = match sqlx::query_as(
+        "SELECT DISTINCT peer,
+                NOT users.ghost_active AND NOT EXISTS (
+                    SELECT 1 FROM ghost_targets
+                    WHERE user_id = peer AND target_user_id = $1
+                ) AS visible
+         FROM (
+             SELECT other.user_id AS peer
+             FROM group_members viewer
+             JOIN group_members other ON other.group_id = viewer.group_id
+             WHERE viewer.user_id = $1 AND other.user_id <> $1 AND other.sharing
+             UNION
+             SELECT CASE WHEN user_a = $1 THEN user_b ELSE user_a END
+             FROM user_shares WHERE user_a = $1 OR user_b = $1
+         ) peers
+         JOIN users ON users.id = peer",
+    )
+    .bind(viewer)
+    .fetch_all(&state.pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %e, "presence snapshot query failed — dropping");
+            return;
+        }
+    };
+
+    for (peer, visible) in candidates {
+        let online = visible && state.hub.is_online(&peer);
+        let _ = reply.try_send(presence_frame(&peer, online, None, None));
+    }
 }
 
 async fn presence_audience(pool: &PgPool, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
