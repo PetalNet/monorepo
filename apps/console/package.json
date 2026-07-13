@@ -12,6 +12,8 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
+		"@fontsource/geist-mono": "catalog:prod",
+		"@fontsource/geist-sans": "catalog:prod",
 		"@lucide/svelte": "catalog:prod",
 		"@sentry/sveltekit": "catalog:prod",
 		"@sveltejs/kit": "catalog:prod",
@@ -20,8 +22,6 @@
 		"tailwindcss": "catalog:prod"
 	},
 	"devDependencies": {
-		"@fontsource/geist-mono": "catalog:dev",
-		"@fontsource/geist-sans": "catalog:dev",
 		"@sveltejs/adapter-node": "catalog:dev",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",

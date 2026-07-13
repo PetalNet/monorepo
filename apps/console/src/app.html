@@ -9,8 +9,7 @@
 			// No pin => follow the OS (Paper light / Ink dark) via prefers-color-scheme.
 			try {
 				const t = localStorage.getItem("console-theme");
-				if (t === "light" || t === "dark")
-					document.documentElement.setAttribute("data-theme", t);
+				if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
 			} catch (e) {}
 		</script>
 		%sveltekit.head%

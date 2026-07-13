@@ -16,7 +16,9 @@
    paper-ink themes carry the color-scheme + semantic mapping. The bespoke
    component layer drives off the raw tokens below. */
 @plugin "daisyui" {
-	themes: light --default, dark --prefersdark;
+	themes:
+		light --default,
+		dark --prefersdark;
 }
 @plugin "daisyui/theme" {
 	name: "light";
@@ -286,8 +288,7 @@ time,
 	font-weight: 400;
 }
 .micro {
-	font:
-		500 0.6875rem var(--mono);
+	font: 500 0.6875rem var(--mono);
 	text-transform: uppercase;
 	letter-spacing: 0.06em;
 	color: var(--text-3);

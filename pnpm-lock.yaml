@@ -15,12 +15,6 @@ catalogs:
     '@eslint/markdown':
       specifier: ^8.0.2
       version: 8.0.2
-    '@fontsource/geist-mono':
-      specifier: ^5.2.8
-      version: 5.2.8
-    '@fontsource/geist-sans':
-      specifier: ^5.2.5
-      version: 5.2.5
     '@manypkg/cli':
       specifier: ^0.25.1
       version: 0.25.1
@@ -86,6 +80,12 @@ catalogs:
       specifier: ^3.4.17
       version: 3.4.19
   prod:
+    '@fontsource/geist-mono':
+      specifier: ^5.2.8
+      version: 5.2.8
+    '@fontsource/geist-sans':
+      specifier: ^5.2.5
+      version: 5.2.5
     '@libsql/client':
       specifier: ^0.17.0
       version: 0.17.4
@@ -307,6 +307,12 @@ importers:
 
   apps/console:
     dependencies:
+      '@fontsource/geist-mono':
+        specifier: catalog:prod
+        version: 5.2.8
+      '@fontsource/geist-sans':
+        specifier: catalog:prod
+        version: 5.2.5
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.3(@typescript-eslint/types@8.61.1))
@@ -326,12 +332,6 @@ importers:
         specifier: catalog:prod
         version: 4.3.1
     devDependencies:
-      '@fontsource/geist-mono':
-        specifier: catalog:dev
-        version: 5.2.8
-      '@fontsource/geist-sans':
-        specifier: catalog:dev
-        version: 5.2.5
       '@sveltejs/adapter-node':
         specifier: catalog:dev
         version: 5.5.4(@sveltejs/kit@2.66.0(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(svelte@5.56.3(@typescript-eslint/types@8.61.1))(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))

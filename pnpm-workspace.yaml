@@ -35,8 +35,6 @@ catalogs:
     "@eslint/js": ^10.0.1
     "@eslint/json": ^2.0.0
     "@eslint/markdown": ^8.0.2
-    "@fontsource/geist-mono": ^5.2.8
-    "@fontsource/geist-sans": ^5.2.5
     "@manypkg/cli": ^0.25.1
     "@sveltejs/adapter-node": ^5.5.2
     "@sveltejs/vite-plugin-svelte": ^7.0.0
@@ -70,6 +68,8 @@ catalogs:
     "@types/sortablejs": ^1.15.8
 
   prod:
+    "@fontsource/geist-mono": ^5.2.8
+    "@fontsource/geist-sans": ^5.2.5
     "@libsql/client": ^0.17.0
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
