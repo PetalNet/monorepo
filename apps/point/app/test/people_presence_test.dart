@@ -23,6 +23,62 @@ void main() {
     test('days', () {
       expect(relativeSince(ago(const Duration(days: 3)), now: now), '3d');
     });
+    test('does not call an implausible future timestamp now', () {
+      expect(
+        relativeSince(
+          now.add(const Duration(minutes: 2)).millisecondsSinceEpoch,
+          now: now,
+        ),
+        'time uncertain',
+      );
+    });
+  });
+
+  group('fixFreshness', () {
+    test('moves from current to recent to stale at truthful boundaries', () {
+      expect(
+        fixFreshness(ago(const Duration(seconds: 44)), now: now),
+        FixFreshness.current,
+      );
+      expect(
+        fixFreshness(ago(const Duration(seconds: 45)), now: now),
+        FixFreshness.recent,
+      );
+      expect(fixFreshness(ago(darkAfter), now: now), FixFreshness.recent);
+      expect(
+        fixFreshness(
+          ago(darkAfter + const Duration(milliseconds: 1)),
+          now: now,
+        ),
+        FixFreshness.stale,
+      );
+    });
+
+    test('missing and far-future sample clocks are uncertain', () {
+      expect(fixFreshness(null, now: now), FixFreshness.uncertain);
+      expect(
+        fixFreshness(
+          now.add(const Duration(minutes: 2)).millisecondsSinceEpoch,
+          now: now,
+        ),
+        FixFreshness.uncertain,
+      );
+    });
+  });
+
+  group('formatAccuracy', () {
+    test('formats meter and kilometer precision without false decimals', () {
+      expect(formatAccuracy(0.4), '±<1 m');
+      expect(formatAccuracy(8.4), '±8 m');
+      expect(formatAccuracy(1240), '±1.2 km');
+    });
+
+    test('omits absent and invalid precision', () {
+      expect(formatAccuracy(null), isNull);
+      expect(formatAccuracy(0), isNull);
+      expect(formatAccuracy(-1), isNull);
+      expect(formatAccuracy(double.nan), isNull);
+    });
   });
 
   group('mergePresence', () {
@@ -57,12 +113,13 @@ void main() {
       expect(merged.subtitle, 'Online · Waiting for location');
     });
 
-    test('fresh fix → live, located, "Sharing · Nm"', () {
+    test('fresh fix → live, located, with freshness and accuracy', () {
       final fix = PeerFix(
         userId: 'eli@point.dev',
         data: {
           'lat': 38.6,
           'lon': -90.2,
+          'accuracy': 11.7,
           'timestamp': ago(const Duration(minutes: 1)),
         },
       );
@@ -70,7 +127,7 @@ void main() {
       expect(merged.presence, PresenceState.live);
       expect(merged.hasLocation, isTrue);
       expect(merged.lat, 38.6);
-      expect(merged.subtitle, 'Sharing · 1m');
+      expect(merged.subtitle, 'Sharing · ±12 m · 1m');
     });
 
     test(
@@ -82,6 +139,7 @@ void main() {
           data: {
             'lat': 38.6,
             'lon': -90.2,
+            'accuracy': 24,
             'timestamp': darkTs,
           },
         );
@@ -89,8 +147,11 @@ void main() {
         expect(merged.presence, PresenceState.stale);
         // Frozen last-known coordinate is retained (shown in People/detail).
         expect(merged.hasLocation, isTrue);
-        expect(merged.subtitle, startsWith('Dark since '));
-        expect(merged.subtitle, 'Dark since ${clockHm(darkTs)}');
+        expect(merged.subtitle, startsWith('Last place · Dark since '));
+        expect(
+          merged.subtitle,
+          'Last place · Dark since ${clockHm(darkTs)} · ±24 m',
+        );
       },
     );
 
@@ -121,8 +182,29 @@ void main() {
       expect(merged.lat, 38.6);
       expect(
         merged.subtitle,
-        'Dark since ${clockHm(disconnectedAt.millisecondsSinceEpoch)}',
+        'Last place · Dark since '
+        '${clockHm(disconnectedAt.millisecondsSinceEpoch)}',
       );
+    });
+
+    test('uncertain sender clock keeps last place but is not plotted live', () {
+      final fix = PeerFix(
+        userId: away.userId,
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'accuracy': 9,
+          'timestamp': now
+              .add(const Duration(minutes: 2))
+              .millisecondsSinceEpoch,
+        },
+      );
+
+      final merged = mergePresence(away, fix, now: now);
+
+      expect(merged.presence, PresenceState.away);
+      expect(merged.hasLocation, isTrue);
+      expect(merged.subtitle, 'Last place · Update time uncertain · ±9 m');
     });
 
     test('server offline without a fix is neutral dark, never ghosted', () {
@@ -236,10 +318,9 @@ void main() {
           after: const Duration(seconds: 2),
         );
 
-        final motion = PeerMarkerMotion.initial(first).advance(
-          second,
-          now: second.receivedAt,
-        );
+        final motion = PeerMarkerMotion.initial(
+          first,
+        ).advance(second, now: second.receivedAt);
 
         expect(motion.previous, same(first));
         expect(motion.target, same(second));
@@ -259,10 +340,9 @@ void main() {
         after: const Duration(minutes: 4),
       );
 
-      final motion = PeerMarkerMotion.initial(first).advance(
-        stale,
-        now: stale.receivedAt!.add(const Duration(minutes: 4)),
-      );
+      final motion = PeerMarkerMotion.initial(
+        first,
+      ).advance(stale, now: stale.receivedAt!.add(const Duration(minutes: 4)));
 
       expect(motion.duration(reducedMotion: false), Duration.zero);
     });
@@ -277,10 +357,9 @@ void main() {
           after: const Duration(minutes: 4),
         );
 
-        final motion = PeerMarkerMotion.initial(first).advance(
-          resumed,
-          now: resumed.receivedAt,
-        );
+        final motion = PeerMarkerMotion.initial(
+          first,
+        ).advance(resumed, now: resumed.receivedAt);
 
         expect(motion.duration(reducedMotion: false), Duration.zero);
       },
@@ -294,10 +373,9 @@ void main() {
         after: const Duration(seconds: 2),
       );
 
-      final motion = PeerMarkerMotion.initial(first).advance(
-        impossible,
-        now: impossible.receivedAt,
-      );
+      final motion = PeerMarkerMotion.initial(
+        first,
+      ).advance(impossible, now: impossible.receivedAt);
 
       expect(motion.duration(reducedMotion: false), Duration.zero);
     });
