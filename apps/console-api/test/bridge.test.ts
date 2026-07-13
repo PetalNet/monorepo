@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -231,6 +231,23 @@ describe("system-outbox tailer", () => {
 			expect(result.losses).toEqual([{ file: "100-huge.json", reason: "oversize" }]);
 			expect(result.cursor).toBe("200-real.json");
 		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reports a permission-denied record as a loss and continues", () => {
+		const dir = makeOutbox({
+			"100-denied.json": { sender: "shawn", body: "denied" },
+			"200-real.json": { sender: "shawn", body: "ok" },
+		});
+		chmodSync(join(dir, "sent", "100-denied.json"), 0);
+		try {
+			const result = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
+			expect(result.losses).toEqual([{ file: "100-denied.json", reason: "unreadable" }]);
+			expect(result.emissions).toHaveLength(1);
+			expect(result.cursor).toBe("200-real.json");
+		} finally {
+			chmodSync(join(dir, "sent", "100-denied.json"), 0o600);
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});

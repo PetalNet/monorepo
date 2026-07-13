@@ -17,7 +17,7 @@ interface OutboxFile {
 
 export interface TailLoss {
 	readonly file: string;
-	readonly reason: "invalid_json" | "non_regular" | "oversize";
+	readonly reason: "invalid_json" | "non_regular" | "oversize" | "unreadable";
 }
 
 // A bot message is a small line. Anything bigger is either not ours or malicious; cap the read so a
@@ -72,9 +72,10 @@ function readRegularFile(path: string): ReadResult {
 		// O_NOFOLLOW closes the lstat/read TOCTOU window: even a swap immediately before open fails.
 		fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "ELOOP"
-			? { kind: "loss", reason: "non_regular" }
-			: { kind: "barrier" };
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ELOOP") return { kind: "loss", reason: "non_regular" };
+		if (code === "EACCES" || code === "EPERM") return { kind: "loss", reason: "unreadable" };
+		return { kind: "barrier" }; // vanished or transient resource/I/O failure: retry next poll
 	}
 	try {
 		const stat = fstatSync(fd);
@@ -124,20 +125,18 @@ function operationalType(body: string): {
  *
  * Cursor semantics — a CONTIGUOUS high-watermark that only advances over the unbroken clean prefix:
  *
- * - A partial/unparseable file is a BARRIER (transient — a write caught mid-flight): stop there,
- *   leave the cursor before it, retry next poll. Advancing past it would skip it forever.
- * - A non-regular file (symlink/dir) or an oversize file is SKIPPED past (a stable condition — it
- *   will never become our data; a symlink could also smuggle in unrelated readable JSON).
+ * - A vanished/transiently unreadable file is a BARRIER: stop there and retry next poll.
+ * - Malformed, permission-denied, non-regular, and oversize files are stable poison in the daemon's
+ *   atomic-rename `sent/`; they are returned as losses for quarantine + gap signaling.
  * - Wrong-typed fields are coerced with safe defaults, never thrown on (one malformed record must not
  *   mark the entire source dark).
  *
  * Late/non-monotonic filenames — the producer writes strictly increasing nanosecond names into an
  * append-only `sent/`, so the fast path only looks at names `> cursor`. But a misbehaving producer
- * could drop a name at/below the cursor, which the fast path would miss forever. Because `sent/` is
- * append-only, that shows up as MORE files at/below the cursor than we last recorded
- * (`belowCount`). When that happens we flag an anomaly and rescan every file this pass — the
- * deterministic id dedups everything already in the lake, so the only cost is a re-read.
- * At-least-once delivery throughout.
+ * could drop a name at/below the cursor, which the fast path would miss forever. A persisted count
+ * AND filename-set digest detects additions, pruning, and equal-count replacements. On drift we
+ * flag an anomaly and rescan every file this pass — the deterministic id dedups everything already
+ * in the lake, so the only cost is a re-read. At-least-once delivery throughout.
  */
 export function tailSystemOutbox(
 	dir: string,
