@@ -58,7 +58,7 @@ catalogs:
     vitest: ^3.2.4
     # Exact-pinned (not ^) so it stays in lockstep with the CI-installed vp
     # (.github/workflows/ci.yml setup-vp version). Renovate bumps both together.
-    vite-plus: 0.1.24
+    vite-plus: 0.2.4
 
   types:
     "@types/bcryptjs": ^2.4.6
