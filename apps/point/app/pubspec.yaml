@@ -1,7 +1,7 @@
 name: point_app
 description: "Point — Matrix for location. E2E-encrypted, federatable location sharing."
 publish_to: "none"
-version: 1.2.5+10
+version: 1.2.6+11
 
 environment:
   sdk: ^3.10.0
