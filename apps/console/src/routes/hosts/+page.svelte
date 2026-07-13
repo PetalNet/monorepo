@@ -1,5 +1,128 @@
 <script lang="ts">
-	import SurfaceStub from "$lib/components/SurfaceStub.svelte";
+	import { page } from "$app/state";
+	import HostCard from "$lib/components/HostCard.svelte";
+	import HudChip from "$lib/components/HudChip.svelte";
+	import Icon from "$lib/components/Icon.svelte";
+	import SurfaceSign from "$lib/components/SurfaceSign.svelte";
+
+	let { data } = $props();
+	const h = $derived(data.hosts);
+	// The cockpit crack card links /hosts?host=<h>; highlight that house (§3.7).
+	const focusHost = $derived(page.url.searchParams.get("host"));
+
+	let filter = $state("");
+	const shown = $derived(
+		filter.trim()
+			? h.hosts.filter((x) => x.host.toLowerCase().includes(filter.trim().toLowerCase()))
+			: h.hosts,
+	);
+	const allQuiet = $derived(h.connected && h.hosts.every((x) => x.liveness === "up"));
 </script>
 
-<SurfaceStub title="Hosts" icon="server" sign="The Neighborhood" blurb="Every box as a house, its containers as rooms, with health and the availability panel." />
+<div class="util">
+	<SurfaceSign
+		title="Hosts"
+		verdict={h.connected ? (allQuiet ? "fine" : "needs_you") : "cant_verify"}
+		stateFact={allQuiet ? "Every house is quiet. Everything is fine." : null}
+	/>
+	<label class="filter">
+		<Icon name="server" size={14} />
+		<input bind:value={filter} placeholder="Filter houses" aria-label="Filter houses" />
+	</label>
+</div>
+
+{#if !h.connected}
+	<div class="unverified">
+		<Icon name="circle-help" size={20} />
+		<p>Can't verify the neighborhood yet. The host reads land with the backend's 2nd pass.</p>
+	</div>
+{:else}
+	<div class="hud">
+		<HudChip tone="good" count={h.hud.housesUp} label="houses up" />
+		<HudChip tone="good" count={h.hud.residents} label="residents" />
+		<HudChip tone="idle" count={h.hud.containers} label="containers" />
+	</div>
+
+	<div class="grid">
+		{#each shown as host (host.host)}
+			<HostCard {host} highlighted={host.host === focusHost} />
+		{/each}
+	</div>
+
+	<p class="note">
+		The grid is a renderer. The substrate already carries what a spatial neighborhood view needs —
+		hosts, residents, containers — so it layers on later with no re-wiring.
+	</p>
+{/if}
+
+<style>
+	.util {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--s-3);
+		flex-wrap: wrap;
+	}
+	.filter {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--s-2);
+		background: var(--s2);
+		border-radius: var(--r-sm);
+		padding: 0 var(--s-3);
+		height: 32px;
+		width: 240px;
+		max-width: 100%;
+	}
+	.filter :global(svg) {
+		color: var(--text-3);
+		flex: none;
+	}
+	.filter input {
+		flex: 1;
+		border: 0;
+		background: transparent;
+		color: var(--text);
+		font:
+			400 0.8125rem var(--sans);
+		min-width: 0;
+	}
+	.filter input:focus {
+		outline: none;
+	}
+	.hud {
+		display: flex;
+		gap: var(--s-2);
+		margin-top: var(--s-3);
+		flex-wrap: wrap;
+	}
+	.grid {
+		margin-top: var(--s-4);
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
+		gap: var(--s-3);
+	}
+	.note {
+		margin-top: var(--s-4);
+		font-size: 0.75rem;
+		color: var(--text-3);
+		max-width: 70ch;
+	}
+	.unverified {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--s-2);
+		text-align: center;
+		padding: var(--s-6) var(--s-4);
+		color: var(--text-3);
+	}
+	.unverified :global(svg) {
+		color: var(--warn-dot);
+	}
+	.unverified p {
+		font-size: 0.875rem;
+		color: var(--text-2);
+		max-width: 46ch;
+	}
+</style>
