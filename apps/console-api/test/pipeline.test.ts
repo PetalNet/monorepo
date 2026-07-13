@@ -1191,6 +1191,81 @@ describe("live browser auth boundary", () => {
 		}
 	});
 
+	it("keeps identical subscription IDs isolated when another socket closes", async () => {
+		const server = await buildServer(services, true);
+		await server.ready();
+		const connect = async (id: string) => {
+			const principal = JSON.stringify({
+				kind: "human",
+				id,
+				tiers: ["owner"],
+				lanes: ["viewer"],
+				scopes: ["fleet"],
+				zookie: "1",
+			});
+			return server.injectWS("/api/v1/bus/ws", {
+				headers: { "x-dev-principal": principal },
+				rawHeaders: ["x-dev-principal", principal],
+				socket: { remoteAddress: "127.0.0.1" },
+			});
+		};
+		const victim = await connect("subscription-victim");
+		const attacker = await connect("subscription-attacker");
+		const victimFrames: Record<string, unknown>[] = [];
+		const attackerFrames: Record<string, unknown>[] = [];
+		victim.on("message", (data) => victimFrames.push(JSON.parse(data.toString())));
+		attacker.on("message", (data) => attackerFrames.push(JSON.parse(data.toString())));
+		const eventType = `test.subscription_ownership.${randomUUID().replaceAll("-", "")}`;
+		const subscribe = JSON.stringify({
+			schema_version: 1,
+			action: "subscribe",
+			sub_id: "shared-client-id",
+			pattern: eventType,
+		});
+
+		try {
+			victim.send(subscribe);
+			attacker.send(subscribe);
+			await expect
+				.poll(
+					() =>
+						[victimFrames, attackerFrames].every((frames) =>
+							frames.some(
+								(frame) =>
+									frame["kind"] === "ack" &&
+									frame["sub_id"] === "shared-client-id" &&
+									!("error" in frame),
+							),
+						),
+					{ timeout: 2_000 },
+				)
+				.toBe(true);
+
+			const attackerClosed = new Promise<void>((resolve) => {
+				attacker.once("close", () => resolve());
+			});
+			attacker.terminate();
+			await attackerClosed;
+			services.broker.onEvent(
+				services.broker.head + 1,
+				emission({ type: eventType, scope: "fleet", subject: "ownership-proof" }),
+			);
+			await expect
+				.poll(
+					() =>
+						victimFrames.filter(
+							(frame) => frame["kind"] === "event" && frame["sub_id"] === "shared-client-id",
+						).length,
+					{ timeout: 2_000 },
+				)
+				.toBe(1);
+		} finally {
+			victim.terminate();
+			attacker.terminate();
+			await server.close();
+		}
+	});
+
 	it("accepts the trusted proxy identity and resolves current ReBAC grants", async () => {
 		const server = await buildServer(services, false, undefined, browserAuth);
 		await server.listen({ host: "127.0.0.1", port: 0 });
@@ -2195,6 +2270,7 @@ describe("post-restart replay (codex N1a P1)", () => {
 		try {
 			const frames: Record<string, unknown>[] = [];
 			await svc2.broker.subscribe(
+				"restart-replay-test",
 				{ subId: "r1", pattern: "test.*", since: 0, scopes: ["fleet"] },
 				(f) => frames.push(f),
 			);

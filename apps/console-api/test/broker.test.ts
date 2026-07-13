@@ -26,6 +26,8 @@ const spec = (subId: string, since?: number): SubscribeSpec => ({
 });
 
 describe("broker cutover", () => {
+	const owner = "connection-1";
+
 	it("replays <= boundary then streams live > boundary, exactly once", async () => {
 		// replay streams the two historical events (seq 1,2)
 		const broker = new Broker(async (_spec, _through, onRow) => {
@@ -35,7 +37,7 @@ describe("broker cutover", () => {
 		broker.onEvent(1, ev(1));
 		broker.onEvent(2, ev(2)); // head is now 2 (the boundary)
 		const frames: Record<string, unknown>[] = [];
-		await broker.subscribe(spec("s1", 0), (f) => frames.push(f));
+		await broker.subscribe(owner, spec("s1", 0), (f) => frames.push(f));
 		// live event after cutover
 		broker.onEvent(3, ev(3));
 		await new Promise((r) => setTimeout(r, 20));
@@ -58,7 +60,7 @@ describe("broker cutover", () => {
 		});
 		broker.onEvent(1, ev(1)); // head = 1 (boundary)
 		const frames: Record<string, unknown>[] = [];
-		const subP = broker.subscribe(spec("s2", 0), (f) => frames.push(f));
+		const subP = broker.subscribe(owner, spec("s2", 0), (f) => frames.push(f));
 		// a live event arrives WHILE replay is blocked
 		broker.onEvent(2, ev(2));
 		releaseReplay?.();
@@ -71,7 +73,7 @@ describe("broker cutover", () => {
 	it("emits a gap frame under backpressure instead of dropping silently", async () => {
 		const broker = new Broker(async () => {});
 		const frames: Record<string, unknown>[] = [];
-		await broker.subscribe(spec("s3"), (f) => frames.push(f)); // live immediately (no since)
+		await broker.subscribe(owner, spec("s3"), (f) => frames.push(f)); // live immediately (no since)
 		for (let i = 1; i <= 1500; i++) broker.onEvent(i, ev(i)); // overflow QUEUE_MAX=1000
 		await new Promise((r) => setTimeout(r, 100));
 		const gap = frames.find((f) => f["kind"] === "gap");
@@ -82,7 +84,7 @@ describe("broker cutover", () => {
 	it("does not deliver events outside the subscriber scope", async () => {
 		const broker = new Broker(async () => {});
 		const frames: Record<string, unknown>[] = [];
-		await broker.subscribe({ subId: "s4", pattern: "*", scopes: ["user:parker"] }, (f) =>
+		await broker.subscribe(owner, { subId: "s4", pattern: "*", scopes: ["user:parker"] }, (f) =>
 			frames.push(f),
 		);
 		broker.onEvent(1, { ...ev(1), scope: "user:eli" }); // eli's event, parker's sub
@@ -93,11 +95,54 @@ describe("broker cutover", () => {
 	it("fails closed before an event can race a grant-change revalidation", async () => {
 		const broker = new Broker(async () => {});
 		const frames: Record<string, unknown>[] = [];
-		await broker.subscribe(spec("grant-race"), (frame) => frames.push(frame));
-		broker.revalidateScopes(["grant-race"], []);
+		await broker.subscribe(owner, spec("grant-race"), (frame) => frames.push(frame));
+		broker.revalidateScopes(owner, ["grant-race"], []);
 		broker.onEvent(1, ev(1));
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(frames.some((frame) => frame["kind"] === "resync_required")).toBe(true);
 		expect(frames.filter((frame) => frame["kind"] === "event")).toHaveLength(0);
+	});
+
+	it("isolates identical subscription IDs by connection owner", async () => {
+		const broker = new Broker(async () => {});
+		const victimFrames: Record<string, unknown>[] = [];
+		const attackerFrames: Record<string, unknown>[] = [];
+		await broker.subscribe("victim-connection", spec("shared"), (frame) =>
+			victimFrames.push(frame),
+		);
+		await broker.subscribe("attacker-connection", spec("shared"), (frame) =>
+			attackerFrames.push(frame),
+		);
+
+		broker.unsubscribe("attacker-connection", "shared");
+		broker.onEvent(1, ev(1));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(victimFrames.filter((frame) => frame["kind"] === "event")).toHaveLength(1);
+		expect(attackerFrames.filter((frame) => frame["kind"] === "event")).toHaveLength(0);
+	});
+
+	it("records a connection subscription only after registration is accepted", async () => {
+		const broker = new Broker(async () => {});
+		let registrations = 0;
+		await broker.subscribe(
+			owner,
+			spec("duplicate"),
+			() => {},
+			() => {
+				registrations += 1;
+			},
+		);
+		const accepted = await broker.subscribe(
+			owner,
+			spec("duplicate"),
+			() => {},
+			() => {
+				registrations += 1;
+			},
+		);
+
+		expect(accepted).toBe(false);
+		expect(registrations).toBe(1);
 	});
 });

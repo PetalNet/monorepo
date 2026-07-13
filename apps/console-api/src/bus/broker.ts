@@ -81,6 +81,7 @@ function passesFilter(spec: SubscribeSpec, e: Emission): boolean {
 }
 
 interface Sub {
+	ownerId: string;
 	spec: SubscribeSpec;
 	send: SendFrame;
 	live: boolean;
@@ -126,8 +127,14 @@ export class Broker {
 		}
 	}
 
-	async subscribe(spec: SubscribeSpec, send: SendFrame): Promise<void> {
-		if (this.#subs.has(spec.subId)) {
+	async subscribe(
+		ownerId: string,
+		spec: SubscribeSpec,
+		send: SendFrame,
+		onRegistered?: () => void,
+	): Promise<boolean> {
+		const key = subscriptionKey(ownerId, spec.subId);
+		if (this.#subs.has(key)) {
 			// reject WITHOUT overwriting the live subscription (would orphan it — sub-agent M3)
 			send({
 				schema_version: 1,
@@ -136,9 +143,10 @@ export class Broker {
 				replay_through_seq: this.#head,
 				error: { code: "sub_id_in_use", message: "sub_id already active", retryable: false },
 			});
-			return;
+			return false;
 		}
 		const sub: Sub = {
+			ownerId,
 			spec,
 			send,
 			live: false,
@@ -150,7 +158,8 @@ export class Broker {
 			closed: false,
 		};
 		// register BEFORE capturing the boundary so nothing fanned after now is lost
-		this.#subs.set(spec.subId, sub);
+		this.#subs.set(key, sub);
+		onRegistered?.();
 		const boundary = this.#head;
 		send({ schema_version: 1, kind: "ack", sub_id: spec.subId, replay_through_seq: boundary });
 		try {
@@ -166,27 +175,33 @@ export class Broker {
 				oldest_seq: boundary,
 				message: String(err),
 			});
-			this.unsubscribe(spec.subId);
-			return;
+			this.#remove(sub);
+			return true;
 		}
 		// flush buffered live events with seq > boundary exactly once, then go live
-		if (sub.closed) return;
+		if (sub.closed) return true;
 		const flush = sub.buffer.filter((b) => b.seq > boundary).toSorted((a, b) => a.seq - b.seq);
 		for (const b of flush) send(frame(spec.subId, b.seq, b.emission));
 		sub.buffer = [];
 		sub.live = true;
+		return true;
 	}
 
-	unsubscribe(subId: string): void {
-		const sub = this.#subs.get(subId);
+	unsubscribe(ownerId: string, subId: string): void {
+		const key = subscriptionKey(ownerId, subId);
+		const sub = this.#subs.get(key);
 		if (sub) sub.closed = true;
-		this.#subs.delete(subId);
+		this.#subs.delete(key);
 	}
 
 	/** Re-fence on grant change: drop subs whose new scope set no longer covers their pattern's scope. */
-	revalidateScopes(connSubIds: readonly string[], newScopes: readonly string[]): void {
+	revalidateScopes(
+		ownerId: string,
+		connSubIds: readonly string[],
+		newScopes: readonly string[],
+	): void {
 		for (const subId of connSubIds) {
-			const sub = this.#subs.get(subId);
+			const sub = this.#subs.get(subscriptionKey(ownerId, subId));
 			if (!sub) continue;
 			const narrowed = sub.spec.scopes.some((s) => !newScopes.includes(s));
 			if (narrowed) {
@@ -197,9 +212,15 @@ export class Broker {
 					oldest_seq: this.#head,
 					message: "grant changed",
 				});
-				this.unsubscribe(subId);
+				this.unsubscribe(ownerId, subId);
 			}
 		}
+	}
+
+	#remove(sub: Sub): void {
+		sub.closed = true;
+		const key = subscriptionKey(sub.ownerId, sub.spec.subId);
+		if (this.#subs.get(key) === sub) this.#subs.delete(key);
 	}
 
 	#enqueue(sub: Sub, seq: number, e: Emission): void {
@@ -237,6 +258,10 @@ export class Broker {
 			sub.draining = false;
 		}
 	}
+}
+
+function subscriptionKey(ownerId: string, subId: string): string {
+	return `${ownerId}\u0000${subId}`;
 }
 
 function frame(subId: string, seq: number, emission: Emission): Record<string, unknown> {
