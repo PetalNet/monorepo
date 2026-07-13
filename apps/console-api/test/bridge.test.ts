@@ -24,9 +24,7 @@ describe("uuidv5", () => {
 	});
 
 	it("preserves the persisted bridge-id fixture across implementations", () => {
-		expect(uuidv5("system-outbox:200-shawn.json")).toBe(
-			"79a08f46-35ee-53a5-ac40-11e5a7acefb7",
-		);
+		expect(uuidv5("system-outbox:200-shawn.json")).toBe("79a08f46-35ee-53a5-ac40-11e5a7acefb7");
 	});
 });
 

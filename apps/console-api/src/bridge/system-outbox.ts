@@ -104,8 +104,7 @@ function readRegularFile(path: string): ReadResult {
 		// operations. Bounded fd reads cap memory even if content changes after fstat.
 		if (stat.size > MAX_FILE_BYTES) return { kind: "loss", reason: "oversize" };
 		const bytes = readBoundedFd(fd);
-		if (!bytes)
-			return { kind: "loss", reason: "oversize" };
+		if (!bytes) return { kind: "loss", reason: "oversize" };
 		return { kind: "ok", raw: bytes.toString("utf8") };
 	} finally {
 		closeSync(fd);
