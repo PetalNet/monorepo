@@ -139,4 +139,14 @@
 		color: var(--text-2);
 		max-width: 46ch;
 	}
+	@media (max-width: 767px) {
+		.filter { width: 100%; }
+		.grid {
+			display: flex;
+			flex-direction: column;
+			gap: 1px;
+			margin-top: var(--s-3);
+		}
+		.note { display: none; }
+	}
 </style>

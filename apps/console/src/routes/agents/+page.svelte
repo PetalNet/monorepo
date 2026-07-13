@@ -240,7 +240,14 @@
 	.residents a { min-height: 32px; display: inline-flex; align-items: center; padding: 0 var(--s-2); border-radius: var(--r-pill); background: var(--s2); color: var(--text-2); font: 500 0.6875rem var(--mono); text-decoration: none; }
 	.residents a:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
 	.residents em { color: var(--text-3); font-size: 0.75rem; }
-	@media (max-width: 700px) { .flip { order: 3; margin-inline-start: 0; } .architect dl { grid-template-columns: repeat(2, 1fr); } }
+	@media (max-width: 767px) {
+		.util { align-items: flex-start; }
+		.flip { order: 3; margin-inline-start: 0; }
+		.filter { width: 100%; order: 4; }
+		.architects { grid-template-columns: 1fr; gap: var(--s-2); }
+		.architect { padding: var(--s-3); }
+		.architect dl { grid-template-columns: repeat(2, 1fr); margin: var(--s-3) 0; }
+	}
 	.lane-head {
 		display: flex;
 		align-items: center;

@@ -188,4 +188,48 @@
 		gap: 2px;
 		min-width: 140px;
 	}
+	@media (max-width: 767px) {
+		.row {
+			grid-template-columns: 24px minmax(0, 1fr) auto;
+			grid-template-rows: 24px 16px;
+			column-gap: var(--s-2);
+			row-gap: 0;
+			height: 48px;
+			min-width: 0;
+			padding: var(--s-1) var(--s-2);
+			background: var(--s1);
+		}
+		.ava {
+			grid-column: 1;
+			grid-row: 1 / span 2;
+		}
+		.who {
+			grid-column: 2;
+			grid-row: 1;
+			align-self: end;
+		}
+		.who b {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		.meta {
+			display: none;
+		}
+		.row > :global(.pill) {
+			grid-column: 3;
+			grid-row: 1 / span 2;
+		}
+		.playing {
+			grid-column: 2;
+			grid-row: 2;
+			align-self: start;
+			font-size: 0.6875rem;
+		}
+		.gov,
+		.lease,
+		.overflow {
+			display: none;
+		}
+	}
 </style>

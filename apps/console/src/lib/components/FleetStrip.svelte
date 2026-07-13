@@ -20,7 +20,7 @@
 	const light = $derived(pct >= 90 ? "red" : pct >= 70 ? "yellow" : "green");
 </script>
 
-<div class="strip">
+<div class="strip desktop-strip">
 	<div class="zone">
 		<span class="micro">Points</span>
 		<span class="val">
@@ -52,7 +52,26 @@
 	</div>
 </div>
 
+<div class="phone-strip" aria-label="Fleet summary">
+	<span class="phone-health" class:danger={health.down > 0}>
+		<StatusDot tone={health.down > 0 ? "danger" : "good"} />
+		<span class="health-long" aria-hidden="true">{health.alive} alive · {health.working} working · {health.idle} idle · {health.down} down</span>
+		<span class="health-short" aria-hidden="true">{health.alive}A · {health.working}W · {health.idle}I · {health.down}D</span>
+		<span class="sr-only">{health.alive} alive, {health.working} working, {health.idle} idle, {health.down} down</span>
+	</span>
+	<span class="phone-budget">
+		<BudgetLight {light} /><span class="sr-only">Fleet points used: </span>{pct}%
+	</span>
+	<span class="phone-mode">{summary.mode === "parallel" ? "Parallel" : "Sequential"}</span>
+</div>
+
 <style>
+	.phone-strip {
+		display: none;
+	}
+	.health-short {
+		display: none;
+	}
 	.strip {
 		display: grid;
 		grid-template-columns: repeat(4, auto);
@@ -114,5 +133,56 @@
 			400 0.6875rem var(--mono);
 		color: var(--text-3);
 		margin-inline-start: var(--s-1);
+	}
+	@media (max-width: 767px) {
+		.desktop-strip {
+			display: none;
+		}
+		.phone-strip {
+			display: flex;
+			align-items: center;
+			gap: var(--s-2);
+			min-height: 40px;
+			padding: 0 var(--s-2);
+			background: var(--s1);
+			border-radius: var(--r-xs);
+			font: 500 0.6875rem var(--mono);
+			font-feature-settings: "tnum" 1;
+			color: var(--text-2);
+			white-space: nowrap;
+		}
+		.phone-health {
+			display: inline-flex;
+			align-items: center;
+			gap: var(--s-1);
+			min-width: 0;
+		}
+		.phone-health.danger {
+			color: var(--danger-text);
+		}
+		.phone-budget {
+			display: inline-flex;
+			align-items: center;
+			gap: var(--s-1);
+			margin-inline-start: auto;
+		}
+		.phone-mode {
+			color: var(--text-3);
+		}
+	}
+	@media (max-width: 430px) {
+		.phone-strip {
+			gap: var(--s-1);
+			font-size: 0.625rem;
+		}
+		.phone-health {
+			gap: 2px;
+		}
+		.health-long {
+			display: none;
+		}
+		.health-short {
+			display: inline;
+		}
 	}
 </style>
