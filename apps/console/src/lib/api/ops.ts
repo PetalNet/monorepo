@@ -268,7 +268,8 @@ const OPS = {
 			"type": "object",
 			"required": [
 				"id",
-				"status"
+				"status",
+				"reason"
 			],
 			"properties": {
 				"id": {
@@ -279,6 +280,11 @@ const OPS = {
 						"done",
 						"dropped"
 					]
+				},
+				"reason": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 2000
 				},
 				"lease": {
 					"type": "object",
@@ -3565,7 +3571,8 @@ export const OP_TEST_FIXTURES = {
 	},
 	"task.close": {
 		"id": 0,
-		"status": "done"
+		"status": "done",
+		"reason": "fixture"
 	},
 	"task.dispatch": {
 		"body": "fixture"
