@@ -325,6 +325,9 @@ class _FocusMapState extends ConsumerState<_FocusMap>
               _AnimatedFocusMarkerLayer(
                 person: person,
                 motion: ref.watch(livePresenceProvider)[person.userId],
+                timeFormat: ref.watch(
+                  settingsProvider.select((settings) => settings.timeFormat),
+                ),
                 reducedMotion: _reducedMotion,
                 onPosition: _followPosition,
               ),
@@ -351,12 +354,14 @@ class _AnimatedFocusMarkerLayer extends StatelessWidget {
   const _AnimatedFocusMarkerLayer({
     required this.person,
     required this.motion,
+    required this.timeFormat,
     required this.reducedMotion,
     required this.onPosition,
   });
 
   final Person person;
   final PeerMarkerMotion? motion;
+  final TimeFormat timeFormat;
   final bool reducedMotion;
   final ValueChanged<LatLng> onPosition;
 
@@ -385,7 +390,7 @@ class _AnimatedFocusMarkerLayer extends StatelessWidget {
           ],
         );
       },
-      child: PresenceMarker(person: person),
+      child: PresenceMarker(person: person, timeFormat: timeFormat),
     );
   }
 }
