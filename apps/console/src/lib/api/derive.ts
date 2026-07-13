@@ -1,10 +1,31 @@
 /**
  * Shared client derivations named in foundations §6.3/§6.4 — computed once here, NEVER re-derived
  * per surface. The UI computes staleness, it never trusts it (Rule 10): silence never renders as
- * health. This is the shell's subset; each surface adds the derivations it needs (severity→label,
- * incident collapse, heartbeat freshness) when it lands.
+ * health. This is the shell's subset; each surface adds only derivations that are not shared.
  */
-import type { AttentionGrade, AttentionItem, FleetItem, RegistryItem, RosterItem } from "./types";
+import type {
+	AttentionGrade,
+	AttentionItem,
+	FleetItem,
+	RegistryItem,
+	RosterItem,
+	SignalSeverity,
+} from "./types";
+
+export type SignalSeverityLabel = "P0" | "P1" | "P2" | "P3" | "feed only";
+
+/** Canonical operator grade for every accepted signal severity (contracts §8). */
+const SIGNAL_SEVERITY_LABELS = {
+	p0: "P0",
+	danger: "P1",
+	warn: "P2",
+	info: "P3",
+	debug: "feed only",
+} as const satisfies Record<SignalSeverity, SignalSeverityLabel>;
+
+export function signalSeverityLabel(severity: SignalSeverity): SignalSeverityLabel {
+	return SIGNAL_SEVERITY_LABELS[severity];
+}
 
 // Freshness windows (foundations §8, seconds).
 const WINDOW = {
