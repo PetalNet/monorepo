@@ -41,6 +41,17 @@ export const mockLibrary: LibraryData = {
 	isMock: true,
 	connected: true,
 	libraryExecutorLive: true,
+	capabilities: [
+		{
+			capability: "skill.fleet-retry",
+			provider: "agent:library",
+			host: ".14",
+			transport: "library",
+			observedAt: new Date().toISOString(),
+			fresh: true,
+		},
+	],
+	sources: { capabilities: "live" },
 	items: [
 		{
 			id: "kb-1",

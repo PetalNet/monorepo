@@ -21,6 +21,23 @@ const messageSchema = z
 	})
 	.strict();
 const searchSchema = z.object({ query: z.string().trim().min(1).max(500) }).strict();
+const acquisitionSchema = z
+	.object({
+		capability: z.string().min(1).max(128),
+		provider: z.string().min(1).max(128),
+	})
+	.strict();
+const acquisitionResultSchema = z.object({
+	capability: z.string(),
+	kind: z.enum(["skill", "tool"]),
+	version: z.string(),
+	provider: z.string(),
+	scope: z.string(),
+	integrity: z.object({ algorithm: z.literal("sha256"), digest: z.string().length(64) }),
+	artifact: z.object({ bytes: z.number().int().positive() }),
+	provenance: z.object({ library_item_id: z.string() }),
+});
+export type LibraryAcquisitionReceipt = z.infer<typeof acquisitionResultSchema>;
 const statusSchema = z
 	.object({
 		id: z.string().min(1).max(128),
@@ -224,6 +241,35 @@ export const searchLibrary = query(
 			`/library/search?limit=100&q=${encodeURIComponent(searchQuery)}`,
 		);
 		return result.items.map(itemView);
+	},
+);
+
+/** Prove the artifact is runnable through the caller-scoped acquisition endpoint. */
+export const verifyLibraryCapability = command(
+	acquisitionSchema,
+	async (input): Promise<LibraryAcquisitionReceipt> => {
+		if (isMock())
+			return {
+				capability: input.capability,
+				kind: input.capability.startsWith("skill.") ? "skill" : "tool",
+				version: "fixture",
+				provider: input.provider,
+				scope: "fleet-public",
+				integrity: { algorithm: "sha256", digest: "0".repeat(64) },
+				artifact: { bytes: 512 },
+				provenance: { library_item_id: "fixture-capability" },
+			};
+		const result = await apiJson<unknown>(
+			`/library/capabilities/${encodeURIComponent(input.capability)}/acquire`,
+			{
+				method: "POST",
+				headers: forwardedHeaders(true),
+				body: JSON.stringify({ provider: input.provider }),
+			},
+		);
+		const parsed = acquisitionResultSchema.safeParse(result);
+		if (!parsed.success) error(502, "Registry returned an invalid acquisition receipt");
+		return parsed.data;
 	},
 );
 
