@@ -100,6 +100,8 @@ async function startTempDb(): Promise<TempDb> {
 
 let temp: TempDb;
 let services: Services;
+const capturedServiceExceptions: unknown[] = [];
+const internalServiceErrors: string[] = [];
 
 function emission(over: Partial<Emission> = {}): Emission {
 	return {
@@ -150,7 +152,20 @@ beforeAll(async () => {
 			glitchtipDsn: null,
 			trackerDbPath: null,
 		},
-		{ migrate: false },
+		{
+			migrate: false,
+			monitor: {
+				captureException(error) {
+					capturedServiceExceptions.push(error);
+				},
+				async close() {
+					return true;
+				},
+			},
+			writeInternalError(line) {
+				internalServiceErrors.push(line);
+			},
+		},
 	);
 }, 120000);
 
@@ -211,6 +226,58 @@ describe("emit pipeline", () => {
 		expect(r.ok).toBe(true);
 		expect(typeof r.seq).toBe("number");
 		expect(r.duplicate).toBe(false);
+	});
+
+	it("sanitizes appender exceptions for emitters and reports bounded incident metadata", async () => {
+		capturedServiceExceptions.length = 0;
+		internalServiceErrors.length = 0;
+		const originalAppend = services.appender.append.bind(services.appender);
+		services.appender.append = async () => {
+			throw new Error("private database host=db.internal relation=events");
+		};
+		const server = await buildServer(services, true);
+		try {
+			const response = await server.inject({
+				method: "POST",
+				url: "/api/v1/emit",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "system",
+						id: "test:emitter",
+						scopes: ["fleet"],
+						lanes: [],
+					}),
+				},
+				payload: emission(),
+			});
+			expect(response.statusCode).toBe(503);
+			expect(response.json()).toEqual({
+				error: {
+					code: "append_failed",
+					message: "emission append failed",
+					retryable: true,
+				},
+			});
+			expect(response.body).not.toContain("db.internal");
+			expect(capturedServiceExceptions).toHaveLength(1);
+			expect(String(capturedServiceExceptions[0])).toMatch(
+				/^Error: append failed; incident [0-9a-f-]{36}$/,
+			);
+			expect(String(capturedServiceExceptions[0])).not.toContain("db.internal");
+			expect(internalServiceErrors).toHaveLength(1);
+			const incident = JSON.parse(internalServiceErrors[0] ?? "{}");
+			expect(incident).toMatchObject({
+				level: "error",
+				service: "console-api",
+				event: "append_failed",
+				error_class: "Error",
+			});
+			expect(incident.incident_id).toMatch(/^[0-9a-f-]{36}$/);
+			expect(internalServiceErrors[0]).not.toContain("db.internal");
+		} finally {
+			services.appender.append = originalAppend;
+			await server.close();
+		}
 	});
 
 	it("dedups a duplicate id to the original seq with no second row", async () => {

@@ -1,7 +1,7 @@
 // Service assembly: wires the lake, the serialized appender, the bus broker, and the emit
 // pipeline. Importable by both the HTTP server and the tests (drive the real path, no HTTP mock).
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { OpenAiCompatibleAssistantCompiler, type AssistantCompiler } from "./assistant/compiler.ts";
 import { AssistantRuntime, ClaudeCodeAssistantManager } from "./assistant/runtime.ts";
@@ -17,6 +17,11 @@ import type { Env } from "./env.ts";
 import { authorizeEmission } from "./ingest/authz.ts";
 import { loadRegistration } from "./ingest/registrations.ts";
 import { scrubEmission } from "./ingest/scrubber.ts";
+import {
+	inertExceptionMonitor,
+	sanitizedException,
+	type ExceptionMonitor,
+} from "./observability.ts";
 import { Projector } from "./projector/index.ts";
 import { TrackerReader, type TrackerProposalLookup } from "./reads/tracker.ts";
 
@@ -51,10 +56,24 @@ export interface Services {
 	close(): Promise<void>;
 }
 
-export async function buildServices(env: Env, opts?: { migrate?: boolean }): Promise<Services> {
+interface ServiceOptions {
+	readonly migrate?: boolean;
+	readonly monitor?: ExceptionMonitor;
+	readonly writeInternalError?: (line: string) => unknown;
+}
+
+function boundedErrorClass(error: unknown): string {
+	const name = error instanceof Error ? error.constructor.name : "UnknownError";
+	return /^[A-Za-z][A-Za-z0-9_$]{0,63}$/.test(name) ? name : "Error";
+}
+
+export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Services> {
 	if (!env.devAuth && !env.cursorSecret)
 		throw new Error("missing required env CONSOLE_API_CURSOR_SECRET");
 	const cursorSecret = env.cursorSecret ?? randomBytes(32).toString("base64url");
+	const monitor = opts?.monitor ?? inertExceptionMonitor;
+	const writeInternalError =
+		opts?.writeInternalError ?? ((line: string) => process.stderr.write(line));
 	const db = openDb(env);
 	if (opts?.migrate !== false) await migrate(db.admin);
 	await assertRuntimeRolesHardened(db, env.devAuth);
@@ -182,7 +201,29 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 				maxNewTypesPerHour: reg.maxNewTypesPerHour,
 			});
 		} catch (err) {
-			return { ok: false, code: "append_failed", message: String(err) };
+			const incidentId = randomUUID();
+			const errorClass = boundedErrorClass(err);
+			const captured = sanitizedException(err, `append failed; incident ${incidentId}`);
+			captured.name = errorClass;
+			try {
+				monitor.captureException(captured);
+			} catch {
+				// A telemetry outage must not replace the stable producer-facing append failure.
+			}
+			try {
+				writeInternalError(
+					`${JSON.stringify({
+						level: "error",
+						service: "console-api",
+						event: "append_failed",
+						incident_id: incidentId,
+						error_class: errorClass,
+					})}\n`,
+				);
+			} catch {
+				// Keep the API response deterministic even if the local fallback sink is unavailable.
+			}
+			return { ok: false, code: "append_failed", message: "emission append failed" };
 		}
 		if (!result.ok)
 			return {
