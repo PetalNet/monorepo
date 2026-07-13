@@ -93,6 +93,56 @@ pub async fn get_history(
     Ok(Json(out))
 }
 
+/// GET /api/current/{user_id} — current, non-expired encrypted fixes for the
+/// target, scoped to audiences the viewer is authorized to consume. This is
+/// the reconnect snapshot counterpart to best-effort `location.broadcast`.
+pub async fn get_current(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(target): Path<String>,
+) -> ApiResult<Json<Vec<Value>>> {
+    let target = target.trim().to_lowercase();
+    if !authz::can_view(&state.pool, &user.user_id, &target).await? {
+        return Err(AppError::NotFound);
+    }
+
+    let own = user.user_id == target;
+    let rows: Vec<(Vec<u8>, i64, String, String)> = sqlx::query_as(
+        "SELECT lu.encrypted_blob, lu.client_timestamp,
+                lu.recipient_type, lu.recipient_id
+         FROM location_updates lu
+         JOIN entities e ON e.id = lu.sender_entity_id
+         WHERE e.owner_id = $1 AND e.kind = 'person'
+           AND lu.created_at + make_interval(secs => lu.ttl_seconds) > now()
+           AND ($2
+                OR (lu.recipient_type = 'user' AND lu.recipient_id = $3)
+                OR (lu.recipient_type = 'group' AND lu.recipient_id IN (
+                        SELECT gv.group_id::text
+                        FROM group_members gv
+                        JOIN group_members gt ON gt.group_id = gv.group_id
+                        WHERE gv.user_id = $3 AND gt.user_id = $1 AND gt.sharing)))
+         ORDER BY lu.client_timestamp",
+    )
+    .bind(&target)
+    .bind(own)
+    .bind(&user.user_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|(blob, ts, rtype, rid)| {
+                json!({
+                    "encrypted_blob": BASE64.encode(blob),
+                    "client_timestamp": ts,
+                    "recipient_type": rtype,
+                    "recipient_id": rid,
+                })
+            })
+            .collect(),
+    ))
+}
+
 /// DELETE /api/history — wipe my own person-entity history rows.
 pub async fn delete_my_history(
     State(state): State<AppState>,

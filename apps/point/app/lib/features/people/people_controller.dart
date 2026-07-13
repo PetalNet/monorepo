@@ -20,8 +20,15 @@ class PeopleController extends AsyncNotifier<List<Person>> {
   /// Re-fetch WITHOUT flashing through `AsyncLoading` — keeps the previous list
   /// visible and, critically, keeps `.value` non-null so the share-target
   /// listener never briefly sees `[]` and stops encrypting to everyone.
-  Future<void> refresh() async {
-    state = await AsyncValue.guard(build);
+  Future<List<Person>> refresh() async {
+    final previous = state.value ?? const <Person>[];
+    final next = await AsyncValue.guard(build);
+    if (next.hasValue) {
+      state = next;
+      return next.value!;
+    }
+    state = AsyncData(previous);
+    Error.throwWithStackTrace(next.error!, next.stackTrace!);
   }
 
   /// Apply a live share teardown before the network refresh completes. This

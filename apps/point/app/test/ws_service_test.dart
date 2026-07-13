@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:point_app/features/relay/reconnect_policy.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:point_app/features/relay/ws_service.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -17,6 +18,8 @@ class _FakeChannel implements WebSocketChannel {
   final _sink = _FakeSink();
 
   void push(Map<String, dynamic> msg) => _in.add(jsonEncode(msg));
+
+  Future<void> closeFromServer() => _in.close();
 
   @override
   Stream<dynamic> get stream => _in.stream;
@@ -102,7 +105,9 @@ void main() {
         connect: (_) => channel = _FakeChannel(),
       );
       final received = <Map<String, dynamic>>[];
+      final states = <WsConnectionState>[];
       ws.incoming.listen(received.add);
+      ws.connectionStates.listen(states.add);
       await ws.start('t');
       channel
         ..push({'type': 'auth.ok'})
@@ -111,6 +116,39 @@ void main() {
       expect(received.any((m) => m['type'] == 'location.broadcast'), isTrue);
       // auth.ok is consumed internally, not surfaced.
       expect(received.any((m) => m['type'] == 'auth.ok'), isFalse);
+      expect(states, contains(WsConnectionState.authenticated));
+      await ws.dispose();
+    });
+
+    test('re-authentication is surfaced after a dropped connection', () async {
+      final channels = <_FakeChannel>[];
+      final ws = WsService(
+        wsUrl: 'ws://test/ws',
+        queue: RelayQueue(store: MemoryRelayStore()),
+        policy: ReconnectPolicy(base: Duration.zero, jitter: 0),
+        connect: (_) {
+          final channel = _FakeChannel();
+          channels.add(channel);
+          return channel;
+        },
+      );
+      final authenticated = <WsConnectionState>[];
+      ws.connectionStates.listen((state) {
+        if (state == WsConnectionState.authenticated) {
+          authenticated.add(state);
+        }
+      });
+
+      await ws.start('t');
+      channels.single.push({'type': 'auth.ok'});
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await channels.single.closeFromServer();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(channels, hasLength(2));
+      channels.last.push({'type': 'auth.ok'});
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(authenticated, hasLength(2));
       await ws.dispose();
     });
   });

@@ -37,6 +37,8 @@ import 'package:point_app/features/people/presentation/people_screen.dart';
 import 'package:point_app/features/people/presentation/person_detail_screen.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/push/push_service.dart';
+import 'package:point_app/features/relay/realtime_sync_coordinator.dart';
+import 'package:point_app/features/relay/realtime_sync_models.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/haptics.dart';
@@ -67,6 +69,9 @@ class _PointAppState extends ConsumerState<PointApp>
     // defined but never called. Without this the battery engine never learns
     // it's been backgrounded and location silently stops.
     WidgetsBinding.instance.addObserver(this);
+    // Construct the coordinator before the relay connects so its trigger
+    // subscription cannot miss the first (or any later) WS authentication.
+    ref.read(realtimeSyncCoordinatorProvider);
     // A background cold start (push wake) may never receive a lifecycle
     // event before the launch gate runs start(); seed the engine with the
     // real state so the foreground fresh-fix nudge doesn't run GPS at the
@@ -127,6 +132,11 @@ class _PointAppState extends ConsumerState<PointApp>
     switch (state) {
       case AppLifecycleState.resumed:
         engine.onForeground();
+        unawaited(
+          ref
+              .read(realtimeSyncCoordinatorProvider)
+              .syncNow(RealtimeSyncReason.appResumed),
+        );
         // The force-uncompleted gate, on every return to the app: if a
         // required step regressed while we were away (location revoked in
         // Android settings), route back into that step rather than sit in a
@@ -303,6 +313,13 @@ class _PointAppState extends ConsumerState<PointApp>
           onSwitch: (branch) {
             Haptics.tick(ref);
             switchBranch(branch);
+            if (branch == 1) {
+              unawaited(
+                ref
+                    .read(realtimeSyncCoordinatorProvider)
+                    .syncNow(RealtimeSyncReason.peopleTabActivated),
+              );
+            }
           },
         ),
       ),

@@ -182,6 +182,17 @@ class PointApi {
         .toList();
   }
 
+  Future<List<OutgoingShareRequest>> outgoingRequests(String token) async {
+    final r = await _client.get(
+      _u('/api/shares/requests/outgoing'),
+      headers: _headers(token),
+    );
+    if (r.statusCode != 200) _fail(r);
+    return (jsonDecode(r.body) as List<dynamic>)
+        .map((e) => OutgoingShareRequest.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<void> sendShareRequest(String token, String toUserId) async {
     final r = await _client.post(
       _u('/api/shares/request'),
@@ -393,6 +404,34 @@ class PointApi {
       body: '{}',
     );
     if (r.statusCode != 200) _fail(r);
+  }
+
+  Future<void> quarantineMlsMessage(
+    String token,
+    String id, {
+    required String reason,
+  }) async {
+    final r = await _client.post(
+      _u('/api/mls/messages/$id/quarantine'),
+      headers: _headers(token),
+      body: jsonEncode({'reason': reason}),
+    );
+    if (r.statusCode != 200) _fail(r);
+  }
+
+  Future<List<EncryptedCurrentFix>> currentFixes(
+    String token,
+    String userId,
+  ) async {
+    final encoded = Uri.encodeComponent(userId);
+    final r = await _client.get(
+      _u('/api/current/$encoded'),
+      headers: _headers(token),
+    );
+    if (r.statusCode != 200) _fail(r);
+    return (jsonDecode(r.body) as List<dynamic>)
+        .map((e) => EncryptedCurrentFix.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   // --- Push notification transport (Wave D) --------------------------------

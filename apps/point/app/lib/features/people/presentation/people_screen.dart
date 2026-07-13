@@ -6,6 +6,8 @@ import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
+import 'package:point_app/features/relay/realtime_sync_coordinator.dart';
+import 'package:point_app/features/relay/realtime_sync_models.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -42,35 +44,61 @@ class PeopleScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: (people.isEmpty && requests.isEmpty && temps.isEmpty)
-              ? const _EmptyPeople()
-              : ListView(
-                  padding: EdgeInsets.only(top: context.space.sm),
-                  children: [
-                    if (requests.isNotEmpty)
-                      _RequestsSection(requests: requests),
-                    if (temps.isNotEmpty)
-                      _TempSection(
-                        temps: temps.values.toList(),
-                        people: people,
-                      ),
-                    if ((requests.isNotEmpty || temps.isNotEmpty) &&
-                        people.isNotEmpty)
-                      Divider(
-                        height: context.space.xl,
-                        color: context.colors.outline.withValues(alpha: 0.4),
-                      ),
-                    for (final p in people)
-                      PersonRow(
-                        person: p,
-                        onTap: () => context.push(PersonDetailRoute(p.userId)),
-                      ),
-                  ],
-                ),
+      body: RefreshIndicator(
+        onRefresh: () => ref
+            .read(realtimeSyncCoordinatorProvider)
+            .syncNow(RealtimeSyncReason.manualRefresh),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: (people.isEmpty && requests.isEmpty && temps.isEmpty)
+                ? const _RefreshableEmptyPeople()
+                : ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.only(top: context.space.sm),
+                    children: [
+                      if (requests.isNotEmpty)
+                        _RequestsSection(requests: requests),
+                      if (temps.isNotEmpty)
+                        _TempSection(
+                          temps: temps.values.toList(),
+                          people: people,
+                        ),
+                      if ((requests.isNotEmpty || temps.isNotEmpty) &&
+                          people.isNotEmpty)
+                        Divider(
+                          height: context.space.xl,
+                          color: context.colors.outline.withValues(alpha: 0.4),
+                        ),
+                      for (final p in people)
+                        PersonRow(
+                          person: p,
+                          onTap: () =>
+                              context.push(PersonDetailRoute(p.userId)),
+                        ),
+                    ],
+                  ),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _RefreshableEmptyPeople extends StatelessWidget {
+  const _RefreshableEmptyPeople();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: constraints.maxHeight,
+            child: const _EmptyPeople(),
+          ),
+        ],
       ),
     );
   }

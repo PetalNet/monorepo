@@ -8,8 +8,7 @@ import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/people/people_controller.dart';
-import 'package:point_app/features/people/requests_controller.dart';
-import 'package:point_app/features/people/temp_shares_controller.dart';
+import 'package:point_app/features/relay/realtime_sync_models.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:point_app/features/relay/ws_service.dart';
 import 'package:point_app/services/api/models.dart';
@@ -33,13 +32,24 @@ class PeerFix {
 /// - inbound: `mls.message` Welcomes join groups; `location.broadcast` frames
 ///   are decrypted and surfaced as [PeerFix]es.
 class RelayController {
-  RelayController(this._ref);
+  RelayController(
+    this._ref, {
+    FlutterSecureStorage? storage,
+    WsService Function(String wsUrl, RelayQueue queue)? wsFactory,
+  }) : _storage = storage ?? const FlutterSecureStorage(),
+       _wsFactory = wsFactory;
 
   final Ref _ref;
+  final FlutterSecureStorage _storage;
+  final WsService Function(String wsUrl, RelayQueue queue)? _wsFactory;
   WsService? _ws;
   StreamSubscription<Fix>? _fixSub;
   StreamSubscription<Map<String, dynamic>>? _wsSub;
+  StreamSubscription<WsConnectionState>? _wsStateSub;
   Session? _session;
+  int _sessionEpoch = 0;
+  Future<void> _lifecycleTail = Future<void>.value();
+  Future<void> _sessionWorkTail = Future<void>.value();
 
   /// Server ids of peers we currently share with (their pairwise groups).
   final Set<String> _shareTargets = {};
@@ -54,21 +64,33 @@ class RelayController {
   Future<void>? _identityGenerationReady;
   bool _generationRetryScheduled = false;
   final _peerFixes = StreamController<PeerFix>.broadcast();
+  final _syncRequests = StreamController<RealtimeSyncReason>.broadcast();
+  final Map<String, int> _latestFixTimestamp = {};
 
   /// Decrypted peer fixes for the presence/map layer.
   Stream<PeerFix> get peerFixes => _peerFixes.stream;
 
+  Stream<RealtimeSyncReason> get syncRequests => _syncRequests.stream;
+
+  int get sessionEpoch => _sessionEpoch;
+
+  bool isSessionCurrent(int epoch, String userId) =>
+      epoch == _sessionEpoch && _session?.userId == userId;
+
   static const _poolFloor = 5;
 
-  Future<void> start(Session session) async {
+  Future<void> start(Session session) => _queueLifecycle(() => _start(session));
+
+  Future<void> _start(Session session) async {
     // Defensive idempotence: a repeat start for the same session is a no-op,
     // and a different session tears the old stack down first. Without this a
     // re-entrant start stacks WS/fix subscriptions and double-processes MLS
     // messages.
     if (_ws != null) {
       if (_session?.userId == session.userId) return;
-      await stop();
+      await _stopInternal();
     }
+    _sessionEpoch++;
     _session = session;
     final generationReady = Completer<void>();
     _identityGenerationReady = generationReady.future;
@@ -110,15 +132,19 @@ class RelayController {
     }
 
     // Durable WS (survives disconnect; jittered reconnect).
-    final ws = WsService(
-      wsUrl: _wsUrlFor(_ref.read(serverUrlProvider)),
-      queue: RelayQueue(store: _SecureRelayStore(session.userId)),
-    );
+    await _loadFixCursors(session.userId);
+    final wsUrl = _wsUrlFor(_ref.read(serverUrlProvider));
+    final queue = RelayQueue(store: _SecureRelayStore(session.userId));
+    final ws =
+        _wsFactory?.call(wsUrl, queue) ?? WsService(wsUrl: wsUrl, queue: queue);
     _ws = ws;
     _wsSub = ws.incoming.listen(_onIncoming);
+    _wsStateSub = ws.connectionStates.listen((state) {
+      if (state == WsConnectionState.authenticated) {
+        _requestSync(RealtimeSyncReason.wsAuthenticated);
+      }
+    });
     await ws.start(session.token);
-
-    await _drainPendingWelcomes();
 
     // Relay each local fix, encrypted per share.
     _fixSub = _ref.read(locationServiceProvider).fixes.listen(_onLocalFix);
@@ -278,16 +304,18 @@ class RelayController {
       case 'location.broadcast':
         await _onBroadcast(msg);
       case 'mls.message':
-        await _onMlsMessage(msg);
+        _requestSync(RealtimeSyncReason.mailboxNotice);
+      case 'share.request':
+        _requestSync(RealtimeSyncReason.shareRequest);
       case 'share.accepted':
         // A request either party sent was accepted → the shares list changed.
         // Refresh both so the pinned request clears and the new person appears
         // (the relay's setShareTargets then forms the MLS group with them).
-        _refreshSharing();
+        _requestSync(RealtimeSyncReason.relayEvent);
       case 'peer.rekeyed':
         // Pull the authoritative generation marker; the deterministic
         // initiator will replace the stale group and emit a fresh Welcome.
-        _refreshSharing();
+        _requestSync(RealtimeSyncReason.relayEvent);
       case 'share.removed':
         final peer = msg['user_id'] as String?;
         if (peer != null) {
@@ -302,17 +330,15 @@ class RelayController {
           _ref.read(peopleControllerProvider.notifier).removeLocally(peer);
           _ref.read(livePresenceProvider.notifier).remove(peer);
         }
-        _refreshSharing();
+        _requestSync(RealtimeSyncReason.relayEvent);
       case 'share.temp_created':
         // Someone started a temp share to me (or the server confirmed mine).
-        unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
+        _requestSync(RealtimeSyncReason.relayEvent);
     }
   }
 
-  void _refreshSharing() {
-    unawaited(_ref.read(peopleControllerProvider.notifier).refresh());
-    unawaited(_ref.read(requestsControllerProvider.notifier).refresh());
-    unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
+  void _requestSync(RealtimeSyncReason reason) {
+    if (!_syncRequests.isClosed) _syncRequests.add(reason);
   }
 
   void _scheduleGenerationRetry() {
@@ -320,7 +346,7 @@ class RelayController {
     _generationRetryScheduled = true;
     Future<void>.delayed(const Duration(seconds: 2), () {
       _generationRetryScheduled = false;
-      if (_session != null) _refreshSharing();
+      if (_session != null) _requestSync(RealtimeSyncReason.relayEvent);
     });
   }
 
@@ -335,60 +361,363 @@ class RelayController {
     try {
       final pt = await crypto.decrypt(gid, base64Decode(blob));
       final data = jsonDecode(utf8.decode(pt)) as Map<String, dynamic>;
-      _peerFixes.add(PeerFix(userId: sender, data: data));
+      await _acceptPeerFix(sender, data);
     } on Object catch (e) {
       if (kDebugMode) debugPrint('peer fix decrypt failed: $e');
     }
   }
 
-  Future<void> _drainPendingWelcomes() async {
-    final session = _session;
-    if (session == null) return;
-    final api = _ref.read(apiProvider);
-    try {
-      final msgs = await api.mlsMessages(session.token);
-      for (final m in msgs.where((m) => m['message_type'] == 'welcome')) {
-        await _applyWelcome(m);
-      }
-    } on Object catch (e) {
-      if (kDebugMode) debugPrint('drain welcomes failed: $e');
-    }
-  }
+  /// Drain the authoritative MLS mailbox oldest-first. Durable crypto state and
+  /// the local applied-id marker are committed atomically by [CryptoService]
+  /// before the server row is ACKed. A poison row blocks only its own group;
+  /// after three failed sync passes it is quarantined server-side so later
+  /// commits can make progress without falsely marking the poison as applied.
+  Future<MailboxDrainDiff> processMailbox() =>
+      _queueSessionWork(_processMailbox);
 
-  Future<void> _onMlsMessage(Map<String, dynamic> msg) async {
-    // The server pushes a lightweight notice; pull the authoritative mailbox.
-    await _drainPendingWelcomes();
-  }
-
-  Future<void> _applyWelcome(Map<String, dynamic> m) async {
+  Future<MailboxDrainDiff> _processMailbox() async {
     final session = _session;
-    if (session == null) return;
+    if (session == null) return const MailboxDrainDiff();
+    final epoch = _sessionEpoch;
     final api = _ref.read(apiProvider);
     final crypto = _ref.read(cryptoServiceProvider);
+    final failures = await _readMailboxFailures(session.userId);
+    var applied = 0;
+    var alreadyApplied = 0;
+    var acknowledged = 0;
+    var quarantined = 0;
+    var deferred = 0;
+    final errors = <String>[];
+    final blockedGroups = <String>{};
     try {
-      await crypto.processWelcome(base64Decode(m['payload'] as String));
-      await api.ackMlsMessage(session.token, m['id'] as String);
-      final sender = m['sender_id'] as String?;
-      final generation = sender == null ? null : _peerRekeyedAt[sender];
-      final since = sender == null ? null : _shareSince[sender];
-      if (sender != null) {
-        await _writeHandledFormation(
-          session.userId,
-          sender,
-          peerRekeyedAt: generation,
-          shareSince: since,
-        );
+      final messages = await api.mlsMessages(session.token)
+        ..sort((a, b) {
+          final created = (a['created_at'] as String? ?? '').compareTo(
+            b['created_at'] as String? ?? '',
+          );
+          if (created != 0) return created;
+          return (a['id'] as String? ?? '').compareTo(b['id'] as String? ?? '');
+        });
+      if (!isSessionCurrent(epoch, session.userId)) {
+        return const MailboxDrainDiff(errors: ['session_changed']);
+      }
+      for (final message in messages) {
+        if (!isSessionCurrent(epoch, session.userId)) {
+          return MailboxDrainDiff(
+            applied: applied,
+            alreadyApplied: alreadyApplied,
+            acknowledged: acknowledged,
+            quarantined: quarantined,
+            deferred: deferred,
+            errors: const ['session_changed'],
+          );
+        }
+        final id = message['id'] as String?;
+        final type = message['message_type'] as String?;
+        final groupId = message['group_id'] as String?;
+        final payload = message['payload'] as String?;
+        if (id == null || type == null || groupId == null || payload == null) {
+          if (id != null &&
+              await _quarantine(
+                session.token,
+                id,
+                reason: 'malformed_envelope',
+              )) {
+            quarantined++;
+          } else {
+            errors.add('mailbox_malformed');
+          }
+          continue;
+        }
+        if (blockedGroups.contains(groupId)) {
+          deferred++;
+          continue;
+        }
+        var appliedDurably = false;
+        try {
+          final bytes = base64Decode(payload);
+          final MailboxApplyResult result;
+          switch (type) {
+            case 'welcome':
+              result = await crypto.processMailboxWelcome(id, bytes);
+            case 'commit':
+              result = await crypto.processMailboxCommit(
+                id,
+                CryptoService.groupIdFor(groupId),
+                bytes,
+              );
+            default:
+              if (await _quarantine(
+                session.token,
+                id,
+                reason: 'unknown_message_type',
+              )) {
+                quarantined++;
+                failures.remove(id);
+                continue;
+              }
+              throw const FormatException('unknown mailbox message type');
+          }
+          appliedDurably = true;
+          if (result == MailboxApplyResult.applied) {
+            applied++;
+          } else {
+            alreadyApplied++;
+          }
+          await api.ackMlsMessage(session.token, id);
+          acknowledged++;
+          failures.remove(id);
+          try {
+            await crypto.markMailboxAcknowledged(id);
+          } on Object catch (e) {
+            // An extra replay guard is safe; losing it before ACK is not.
+            if (kDebugMode) debugPrint('clear mailbox receipt $id failed: $e');
+          }
+          if (type == 'welcome') {
+            try {
+              await _recordWelcomeFormation(message);
+            } on Object catch (e) {
+              if (kDebugMode) {
+                debugPrint('persist Welcome formation marker failed: $e');
+              }
+            }
+          }
+        } on FormatException {
+          if (await _quarantine(
+            session.token,
+            id,
+            reason: 'malformed_payload',
+          )) {
+            quarantined++;
+            failures.remove(id);
+          } else {
+            blockedGroups.add(groupId);
+            errors.add('mailbox_quarantine_failed');
+          }
+        } on Object catch (e) {
+          if (appliedDurably) {
+            // ACK failed after crypto+marker persistence. Never process or
+            // quarantine this valid message again; the next drain recognizes
+            // its local id and retries only the idempotent ACK.
+            blockedGroups.add(groupId);
+            errors.add('mailbox_ack_failed');
+            continue;
+          }
+          final count = (failures[id] ?? 0) + 1;
+          failures[id] = count;
+          if (count >= 3 &&
+              await _quarantine(
+                session.token,
+                id,
+                reason: 'crypto_rejected',
+              )) {
+            quarantined++;
+            failures.remove(id);
+          } else {
+            blockedGroups.add(groupId);
+            errors.add('mailbox_apply_failed');
+            if (kDebugMode) debugPrint('apply MLS mailbox row $id failed: $e');
+          }
+        }
       }
     } on Object catch (e) {
-      if (kDebugMode) debugPrint('apply welcome failed: $e');
+      errors.add('mailbox_unavailable');
+      if (kDebugMode) debugPrint('drain MLS mailbox failed: $e');
+    }
+    await _writeMailboxFailures(session.userId, failures);
+    return MailboxDrainDiff(
+      applied: applied,
+      alreadyApplied: alreadyApplied,
+      acknowledged: acknowledged,
+      quarantined: quarantined,
+      deferred: deferred,
+      errors: errors,
+    );
+  }
+
+  Future<bool> _quarantine(
+    String token,
+    String id, {
+    required String reason,
+  }) async {
+    try {
+      await _ref
+          .read(apiProvider)
+          .quarantineMlsMessage(token, id, reason: reason);
+      return true;
+    } on Object {
+      return false;
     }
   }
 
-  Future<void> stop() async {
+  Future<void> _recordWelcomeFormation(Map<String, dynamic> message) async {
+    final session = _session;
+    if (session == null) return;
+    final sender = message['sender_id'] as String?;
+    final generation = sender == null ? null : _peerRekeyedAt[sender];
+    final since = sender == null ? null : _shareSince[sender];
+    if (sender != null) {
+      await _writeHandledFormation(
+        session.userId,
+        sender,
+        peerRekeyedAt: generation,
+        shareSince: since,
+      );
+    }
+  }
+
+  Future<CurrentFixSyncDiff> reconcileCurrentFixes(List<Person> people) =>
+      _queueSessionWork(() => _reconcileCurrentFixes(people));
+
+  Future<CurrentFixSyncDiff> _reconcileCurrentFixes(List<Person> people) async {
+    final session = _session;
+    if (session == null) return const CurrentFixSyncDiff();
+    final epoch = _sessionEpoch;
+    final api = _ref.read(apiProvider);
+    final crypto = _ref.read(cryptoServiceProvider);
+    final updated = <String>{};
+    final errors = <String>[];
+    for (final person in people) {
+      try {
+        final rows = await api.currentFixes(session.token, person.userId);
+        if (!isSessionCurrent(epoch, session.userId)) {
+          return const CurrentFixSyncDiff(errors: ['session_changed']);
+        }
+        for (final row in rows) {
+          if (row.clientTimestamp <=
+              (_latestFixTimestamp[person.userId] ?? 0)) {
+            continue;
+          }
+          final groupId = row.recipientType == 'group'
+              ? CryptoService.groupIdFor(row.recipientId)
+              : CryptoService.pairwiseGroupId(session.userId, person.userId);
+          if (!crypto.hasGroup(groupId)) continue;
+          final plaintext = await crypto.decrypt(
+            groupId,
+            base64Decode(row.blob),
+          );
+          final data =
+              jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
+          if (await _acceptPeerFix(person.userId, data)) {
+            updated.add(person.userId);
+          }
+        }
+      } on Object catch (e) {
+        errors.add('current_fix_failed:${person.userId}');
+        if (kDebugMode) {
+          debugPrint('current fix reconcile for ${person.userId} failed: $e');
+        }
+      }
+    }
+    return CurrentFixSyncDiff(updatedPeers: updated, errors: errors);
+  }
+
+  Future<bool> _acceptPeerFix(
+    String userId,
+    Map<String, dynamic> data,
+  ) async {
+    final timestamp = data['timestamp'] as int? ?? 0;
+    if (timestamp <= (_latestFixTimestamp[userId] ?? 0)) return false;
+    _latestFixTimestamp[userId] = timestamp;
+    _peerFixes.add(PeerFix(userId: userId, data: data));
+    final session = _session;
+    if (session != null) await _writeFixCursors(session.userId);
+    return true;
+  }
+
+  String _mailboxFailuresKey(String userId) =>
+      'point.mls.mailbox.failures.$userId';
+
+  Future<Map<String, int>> _readMailboxFailures(String userId) async {
+    try {
+      final raw = await _storage.read(key: _mailboxFailuresKey(userId));
+      if (raw == null) return {};
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return json.map((id, count) => MapEntry(id, count as int));
+    } on Object {
+      return {};
+    }
+  }
+
+  Future<void> _writeMailboxFailures(
+    String userId,
+    Map<String, int> failures,
+  ) async {
+    try {
+      await _storage.write(
+        key: _mailboxFailuresKey(userId),
+        value: jsonEncode(failures),
+      );
+    } on Object catch (e) {
+      if (kDebugMode) debugPrint('persist mailbox failures failed: $e');
+    }
+  }
+
+  String _fixCursorsKey(String userId) => 'point.relay.fix-cursors.$userId';
+
+  Future<void> _loadFixCursors(String userId) async {
+    _latestFixTimestamp.clear();
+    try {
+      final raw = await _storage.read(key: _fixCursorsKey(userId));
+      if (raw == null) return;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      _latestFixTimestamp.addAll(
+        json.map((peer, timestamp) => MapEntry(peer, timestamp as int)),
+      );
+    } on Object catch (e) {
+      if (kDebugMode) debugPrint('load current-fix cursors failed: $e');
+    }
+  }
+
+  Future<void> _writeFixCursors(String userId) async {
+    try {
+      await _storage.write(
+        key: _fixCursorsKey(userId),
+        value: jsonEncode(_latestFixTimestamp),
+      );
+    } on Object catch (e) {
+      if (kDebugMode) debugPrint('persist current-fix cursors failed: $e');
+    }
+  }
+
+  Future<T> _queueSessionWork<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _sessionWorkTail = _sessionWorkTail.catchError((Object _) {}).then((
+      _,
+    ) async {
+      try {
+        completer.complete(await action());
+      } on Object catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<void> _queueLifecycle(Future<void> Function() action) {
+    final completer = Completer<void>();
+    _lifecycleTail = _lifecycleTail.catchError((Object _) {}).then((_) async {
+      try {
+        await action();
+        completer.complete();
+      } on Object catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<void> stop() => _queueLifecycle(_stopInternal);
+
+  Future<void> _stopInternal() async {
+    _sessionEpoch++;
+    await _sessionWorkTail.catchError((Object _) {});
     await _fixSub?.cancel();
     _fixSub = null;
     await _wsSub?.cancel();
     _wsSub = null;
+    await _wsStateSub?.cancel();
+    _wsStateSub = null;
     await _ws?.dispose();
     _ws = null;
     _session = null;
@@ -398,11 +727,13 @@ class RelayController {
     _selfRekeyedAt = null;
     _identityGenerationReady = null;
     _generationRetryScheduled = false;
+    _latestFixTimestamp.clear();
   }
 
   Future<void> dispose() async {
     await stop();
     await _peerFixes.close();
+    await _syncRequests.close();
   }
 
   String _wsUrlFor(String base) => '${base.replaceFirst('http', 'ws')}/ws';

@@ -3,9 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:point_app/features/people/people_controller.dart';
-import 'package:point_app/features/people/requests_controller.dart';
-import 'package:point_app/features/people/temp_shares_controller.dart';
+import 'package:point_app/features/relay/realtime_sync_coordinator.dart';
+import 'package:point_app/features/relay/realtime_sync_models.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:unifiedpush/unifiedpush.dart';
@@ -91,21 +90,24 @@ class PushService {
     try {
       await _ref
           .read(apiProvider)
-          .registerPush(session.token, transport: transport, endpoint: endpoint);
+          .registerPush(
+            session.token,
+            transport: transport,
+            endpoint: endpoint,
+          );
       await _storage.write(key: _endpointKey, value: endpoint);
     } on Object catch (e) {
       if (kDebugMode) debugPrint('push endpoint upload failed: $e');
     }
   }
 
-  /// A wake arrived. It carries no content by design, so we simply refresh the
-  /// surfaces a v1 wake can concern — pending requests and the people list —
-  /// over the authenticated API. Skipped when signed out (nothing to pull).
+  /// A wake carries no content by design. Its only meaning is “authoritative
+  /// state may have changed,” so route it through the full ordered catch-up.
   Future<void> _onWake(List<int> content) async {
     if (_ref.read(authControllerProvider).value == null) return;
-    unawaited(_ref.read(requestsControllerProvider.notifier).refresh());
-    unawaited(_ref.read(peopleControllerProvider.notifier).refresh());
-    unawaited(_ref.read(tempSharesControllerProvider.notifier).refresh());
+    await _ref
+        .read(realtimeSyncCoordinatorProvider)
+        .syncNow(RealtimeSyncReason.pushWake);
   }
 
   Future<void> _onUnregistered() async {

@@ -117,6 +117,7 @@ pub fn router(state: AppState) -> Router {
         // history
         .route("/api/history", delete(history::delete_my_history))
         .route("/api/history/{user_id}", get(history::get_history))
+        .route("/api/current/{user_id}", get(history::get_current))
         // MLS delivery service (ciphertext-only)
         .route("/api/mls/keys", post(mls::upload_keys))
         .route("/api/mls/keys/count", get(mls::key_count))
@@ -127,6 +128,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/mls/commit", post(mls::send_commit))
         .route("/api/mls/messages", get(mls::pending_messages))
         .route("/api/mls/messages/{id}/ack", post(mls::ack_message))
+        .route(
+            "/api/mls/messages/{id}/quarantine",
+            post(mls::quarantine_message),
+        )
         // live location stream (auth is the first WS message, D-011)
         .route("/ws", get(crate::ws::ws_handler))
         // federation (M3): discovery + inbox are unauthenticated (the Ed25519
