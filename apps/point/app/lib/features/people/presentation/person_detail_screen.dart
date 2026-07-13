@@ -36,14 +36,19 @@ class PersonDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final people = ref.watch(peopleWithPresenceProvider);
+    final incomingTempPeople = ref.watch(incomingTempPeopleProvider);
+    final incomingTemp = ref.watch(incomingTempsProvider)[userId];
+    final ongoingPerson = people.where((p) => p.userId == userId).firstOrNull;
     final person =
-        people.where((p) => p.userId == userId).firstOrNull ??
+        ongoingPerson ??
+        incomingTempPeople.where((p) => p.userId == userId).firstOrNull ??
         Person(
           userId: userId,
           displayName: userId.split('@').first,
           presence: PresenceState.away,
           subtitle: userId,
         );
+    final incomingOnly = ongoingPerson == null && incomingTemp != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -65,17 +70,77 @@ class PersonDetailScreen extends ConsumerWidget {
                   SizedBox(height: context.space.md),
                   _StatusLine(person: person),
                   SizedBox(height: context.space.xl),
-                  _TempShareTile(person: person),
-                  SizedBox(height: context.space.md),
-                  _VerifyTile(person: person),
-                  SizedBox(height: context.space.md),
-                  _HideFromTile(person: person),
-                  SizedBox(height: context.space.md),
-                  _StopSharingTile(person: person),
+                  if (incomingOnly) ...[
+                    _IncomingTempDetail(person: person, temp: incomingTemp),
+                    SizedBox(height: context.space.md),
+                    _TempShareTile(person: person),
+                  ] else ...[
+                    _TempShareTile(person: person),
+                    SizedBox(height: context.space.md),
+                    _VerifyTile(person: person),
+                    SizedBox(height: context.space.md),
+                    _HideFromTile(person: person),
+                    SizedBox(height: context.space.md),
+                    _StopSharingTile(person: person),
+                  ],
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Recipient-side truth for a temp-only sender. It deliberately omits mutual
+/// share controls: the sender is sharing one-way and the recipient is not.
+class _IncomingTempDetail extends ConsumerWidget {
+  const _IncomingTempDetail({required this.person, required this.temp});
+
+  final Person person;
+  final TempShare temp;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final format = ref.watch(settingsProvider.select((s) => s.timeFormat));
+    return Semantics(
+      container: true,
+      label:
+          '${person.displayName} is sharing with you temporarily. You are not sharing back.',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: context.colors.surfaceContainerHigh,
+          borderRadius: context.radii.brMd,
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(context.space.lg),
+          child: Row(
+            children: [
+              Icon(Icons.arrow_back, color: context.colors.onSurface),
+              SizedBox(width: context.space.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${person.displayName} → You',
+                      style: context.text.titleMedium,
+                    ),
+                    SizedBox(height: context.space.xxs),
+                    Text(
+                      'You can see them until '
+                      '${clockHm(temp.expiresAt.millisecondsSinceEpoch, format: format)}. '
+                      "You aren't sharing back.",
+                      style: context.text.bodySmall?.copyWith(
+                        color: context.colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
