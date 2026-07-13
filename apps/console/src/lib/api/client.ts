@@ -43,8 +43,61 @@ export function dataMode(): DataMode {
 	return env.PUBLIC_CONSOLE_DATA_MODE === "live" ? "live" : "mock";
 }
 
-export function busWebSocketUrl(): string {
+function busWebSocketUrl(): string {
 	return `${base().replace(/^http/, "ws")}/bus/ws`;
+}
+
+export interface BusSubscription {
+	readonly sub_id: string;
+	readonly pattern: string;
+	readonly filter?: Record<string, string>;
+	readonly since?: number;
+}
+
+export type BusConnectionState = "connecting" | "open" | "error" | "closed";
+
+/**
+ * Browser bus transport. WebSocket handshakes use the browser's credential mode, so the trusted
+ * Authentik cookie reaches the console proxy and the proxy stamps the upgrade identity. Resolve
+ * subscriptions lazily so reconnects can resume from the latest sequence observed by the caller.
+ */
+export function connectBus(
+	subscriptions: () => readonly BusSubscription[],
+	onFrame: (frame: Record<string, unknown>) => void,
+	onState: (state: BusConnectionState) => void = () => {},
+): () => void {
+	let disposed = false;
+	let socket: WebSocket | null = null;
+	let reconnect: ReturnType<typeof setTimeout> | null = null;
+	const connect = () => {
+		onState("connecting");
+		socket = new WebSocket(busWebSocketUrl());
+		socket.addEventListener("open", () => {
+			onState("open");
+			for (const subscription of subscriptions())
+				socket?.send(JSON.stringify({ schema_version: 1, action: "subscribe", ...subscription }));
+		});
+		socket.addEventListener("message", (message) => {
+			try {
+				const frame = JSON.parse(String(message.data)) as unknown;
+				if (frame && typeof frame === "object" && !Array.isArray(frame))
+					onFrame(frame as Record<string, unknown>);
+			} catch {
+				onState("error");
+			}
+		});
+		socket.addEventListener("error", () => onState("error"));
+		socket.addEventListener("close", () => {
+			onState("closed");
+			if (!disposed) reconnect = setTimeout(connect, 2000);
+		});
+	};
+	connect();
+	return () => {
+		disposed = true;
+		if (reconnect) clearTimeout(reconnect);
+		socket?.close();
+	};
 }
 
 function base(): string {

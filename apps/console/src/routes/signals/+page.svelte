@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
-	import { busWebSocketUrl } from "$lib/api/client";
+	import { connectBus } from "$lib/api/client";
 	import { opDef } from "$lib/api/ops";
 	import type { CardItem, SignalEmission } from "$lib/api/types";
 	import type { DeliveryReceiptView } from "$lib/data/signals";
@@ -51,29 +51,27 @@
 
 	onMount(() => {
 		if (data.isMock) return;
-		let disposed = false;
 		let lastSeq = Number(signals[0]?.id) || undefined;
-		let ws: WebSocket | null = null;
-		let reconnect: ReturnType<typeof setTimeout> | null = null;
-		const connect = () => {
-			ws = new WebSocket(busWebSocketUrl());
-			ws.addEventListener("open", () => ws?.send(JSON.stringify({ schema_version: 1, action: "subscribe", sub_id: "console-signals", pattern: "**", ...(lastSeq ? { since: lastSeq } : {}) })));
-			ws.addEventListener("message", (message) => {
-			const frame = JSON.parse(String(message.data)) as { kind?: string; emission?: SignalEmission; ts?: string; seq?: number; ingest?: Record<string, number> | null };
-			if (frame.kind === "heartbeat") { heartbeatAt = frame.ts ?? new Date().toISOString(); busState = frame.ingest && Object.values(frame.ingest).every((lag) => lag <= 90) ? "live" : "silent"; }
-			if (frame.kind === "event" && frame.emission) {
-				lastSeq = frame.seq ?? lastSeq;
-				signals = [frame.emission, ...signals.filter((signal) => signal.id !== frame.emission?.id)].slice(0, 50);
-				if (frame.emission.type === "delivery.receipt") receipts = [{ seq: frame.emission.id, ts: frame.emission.ts, tier: String(frame.emission.dimensions?.tier ?? "unknown"), signal: String(frame.emission.dimensions?.signal_ref ?? frame.emission.type), subject: frame.emission.subject, status: String(frame.emission.dimensions?.status ?? "unknown"), error: frame.emission.dimensions?.error_code ? String(frame.emission.dimensions.error_code) : null, retryable: frame.emission.dimensions?.retryable === true }, ...receipts].slice(0, 50);
-			}
-			if (frame.kind === "gap" || frame.kind === "resync_required") { busState = "gap"; globalThis.location.reload(); }
-			});
-			ws.addEventListener("error", () => (busState = "silent"));
-			ws.addEventListener("close", () => { busState = "silent"; if (!disposed) reconnect = setTimeout(connect, 2000); });
-		};
-		connect();
+		const disconnect = connectBus(
+			() => [{ sub_id: "console-signals", pattern: "**", ...(lastSeq ? { since: lastSeq } : {}) }],
+			(rawFrame) => {
+				const frame = rawFrame as { kind?: string; emission?: SignalEmission; ts?: string; seq?: number; ingest?: Record<string, number> | null };
+				if (frame.kind === "heartbeat") {
+					heartbeatAt = frame.ts ?? new Date().toISOString();
+					const lags = frame.ingest ? Object.values(frame.ingest) : [];
+					busState = lags.length > 0 && lags.every((lag) => lag <= 90) ? "live" : "silent";
+				}
+				if (frame.kind === "event" && frame.emission) {
+					lastSeq = frame.seq ?? lastSeq;
+					signals = [frame.emission, ...signals.filter((signal) => signal.id !== frame.emission?.id)].slice(0, 50);
+					if (frame.emission.type === "delivery.receipt") receipts = [{ seq: frame.emission.id, ts: frame.emission.ts, tier: String(frame.emission.dimensions?.tier ?? "unknown"), signal: String(frame.emission.dimensions?.signal_ref ?? frame.emission.type), subject: frame.emission.subject, status: String(frame.emission.dimensions?.status ?? "unknown"), error: frame.emission.dimensions?.error_code ? String(frame.emission.dimensions.error_code) : null, retryable: frame.emission.dimensions?.retryable === true }, ...receipts].slice(0, 50);
+				}
+				if (frame.kind === "gap" || frame.kind === "resync_required") { busState = "gap"; globalThis.location.reload(); }
+			},
+			(state) => { if (state === "error" || state === "closed") busState = "silent"; },
+		);
 		const freshness = setInterval(() => { if (heartbeatAt && Date.now() - Date.parse(heartbeatAt) > 9e4) busState = "silent"; }, 15000);
-		return () => { disposed = true; if (reconnect) clearTimeout(reconnect); clearInterval(freshness); ws?.close(); };
+		return () => { clearInterval(freshness); disconnect(); };
 	});
 
 	function keyboard(event: KeyboardEvent) {

@@ -511,31 +511,31 @@ export async function buildServer(
 		});
 	});
 
-	async function auth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+	async function resolveRequestPrincipal(req: FastifyRequest): Promise<Principal | null> {
 		const authz = req.headers.authorization;
 		if (authz?.startsWith("Bearer ")) {
 			const p = await resolveBearer(services.db.admin, authz.slice(7));
-			if (p) {
-				req.principal = p;
-				return;
-			}
+			if (p) return p;
 		}
 		if (browserAuth) {
 			const p = await resolveForwardAuth(services, req, browserAuth);
-			if (p) {
-				req.principal = p;
-				return;
-			}
+			if (p) return p;
 		}
 		if (devAuth) {
 			const dev = req.headers["x-dev-principal"];
 			if (typeof dev === "string") {
 				const p = devPrincipal(dev);
-				if (p) {
-					req.principal = p;
-					return;
-				}
+				if (p) return p;
 			}
+		}
+		return null;
+	}
+
+	async function auth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+		const principal = await resolveRequestPrincipal(req);
+		if (principal) {
+			req.principal = principal;
+			return;
 		}
 		await reply.code(401).send({
 			error: { code: "unauthorized", message: "valid credentials required", retryable: false },
@@ -1820,9 +1820,7 @@ export async function buildServer(
 		const bearer = authz?.startsWith("Bearer ") ? authz.slice(7) : null;
 		const ready = (async () => {
 			try {
-				if (bearer) principal = await resolveBearer(services.db.admin, bearer);
-				else if (devAuth && typeof req.headers["x-dev-principal"] === "string")
-					principal = devPrincipal(req.headers["x-dev-principal"]);
+				principal = await resolveRequestPrincipal(req);
 			} catch {
 				principal = null;
 			}
@@ -1832,25 +1830,64 @@ export async function buildServer(
 					kind: "ack",
 					sub_id: "*",
 					replay_through_seq: 0,
-					error: { code: "unauthorized", message: "bearer required", retryable: false },
+					error: { code: "unauthorized", message: "valid credentials required", retryable: false },
 				});
 				socket.close();
 			}
 		})();
+		let heartbeatRunning = false;
+		const sendHeartbeat = async (): Promise<void> => {
+			if (!principal || heartbeatRunning || socket.readyState !== socket.OPEN) return;
+			heartbeatRunning = true;
+			const ts = new Date();
+			let ingest: Record<string, number> | null = null;
+			try {
+				const rows = await withScopes(
+					services.db.app,
+					principal.scopes,
+					async (tx) =>
+						tx<{ source_service: string; last_received_at: string }[]>`
+						select source_service, max(received_at)::text as last_received_at
+						from events
+						group by source_service`,
+				);
+				ingest = Object.fromEntries(
+					rows.map((row) => [
+						row.source_service,
+						Math.max(0, (ts.getTime() - Date.parse(row.last_received_at)) / 1000),
+					]),
+				);
+			} catch (error) {
+				monitor.captureException(sanitizedException(error));
+			} finally {
+				heartbeatRunning = false;
+			}
+			send({
+				schema_version: 1,
+				kind: "heartbeat",
+				ts: ts.toISOString(),
+				seq_head: services.broker.head,
+				ingest,
+			});
+		};
+		void ready.then(sendHeartbeat);
+		const heartbeatTimer = setInterval(() => {
+			void sendHeartbeat();
+		}, 15000);
+		heartbeatTimer.unref();
 
 		// LISTEN/NOTIFY makes grant changes re-fence immediately. The 30s check remains as a recovery
 		// path for token revocation and a notification connection blip.
 		let refreshing = false;
 		let refreshAgain = false;
 		const refreshPrincipal = async (): Promise<void> => {
-			if (!bearer) return;
 			if (refreshing) {
 				refreshAgain = true;
 				return;
 			}
 			refreshing = true;
 			try {
-				const fresh = await resolveBearer(services.db.admin, bearer);
+				const fresh = await resolveRequestPrincipal(req);
 				if (!fresh) {
 					for (const id of connSubs) services.broker.unsubscribe(id);
 					socket.close();
@@ -1868,14 +1905,15 @@ export async function buildServer(
 				}
 			}
 		};
-		const stopGrantWatch = bearer
+		const refreshable = Boolean(bearer || browserAuth);
+		const stopGrantWatch = refreshable
 			? services.onGrantChange(() => {
 					principal = null;
 					services.broker.revalidateScopes(connSubs, []);
 					void refreshPrincipal();
 				})
 			: null;
-		const revalidateTimer = bearer
+		const revalidateTimer = refreshable
 			? setInterval(() => {
 					void refreshPrincipal();
 				}, 30000)
@@ -1921,6 +1959,7 @@ export async function buildServer(
 			})();
 		});
 		socket.on("close", () => {
+			clearInterval(heartbeatTimer);
 			if (revalidateTimer) clearInterval(revalidateTimer);
 			stopGrantWatch?.();
 			for (const id of connSubs) services.broker.unsubscribe(id);
