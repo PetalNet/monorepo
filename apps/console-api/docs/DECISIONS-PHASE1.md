@@ -128,3 +128,45 @@ and devAuth gates both HTTP and WS. All findings applied + regression-tested (34
 ### Next
 
 Push N1a → PR → CI green → merge, then N1b (bridges + typed reads + completion tail).
+
+## N1b design review round (PHASE1B-DESIGN.md, pre-code)
+
+Reviewers: **codex** (REVISE — 3 P0, 2 P1, 1 P2) + **adversarial sub-agent** (REVISE — 3 HIGH, 6
+MED, 3 LOW). Both converge on the load-bearing gaps; all applied to the design before code:
+
+- **Projection key (sub-agent H1, critical)**: `(subject_kind, subject)` would collapse
+  fleet/heartbeat/registry/governance onto one row (all have `subject_kind=agent, subject=handle`).
+  Fixed: PK `(kind, subject)` where `kind` is the projection-map bucket, not the emission field.
+- **Projector crash-durability (both P0/M1)**: seq-guard alone isn't crash-safe (fan-out is
+  un-awaited, in-process). Added a durable `projection_checkpoint` + boot lake-replay to head
+  (like the broker's setHead) before serving reads; atomic seq-guarded upsert.
+- **Tracker read authz (both P0/H2)**: lake RLS can't reach tracker rows. Pinned a visibility→scope
+  mapping (project→project:P, private+owner→user:U, shared→fleet) applied console-side over a
+  broad service-token read, filtered by caller scopes; leasePublic in the read path; unfiltered
+  direct SQLite rejected.
+- **Executor-signed completions (both P0/H3)**: a delegated bridge registration only relocates
+  trust to outbox-dir write access (forgeable). Fixed: executors Ed25519-sign result envelopes,
+  console-api verifies vs a registered pubkey + enforces executor↔signer identity, bridge
+  relay-only — a compromised bridge/poisoned outbox cannot forge a completion.
+- **Aggregate scope + invariance (sub-agent M2/M3)**: aggregate-backing types stamped the
+  aggregate scope (`fleet`) so a fleet-granted viewer sees `/fleet`; scope invariant per
+  `(kind,subject)`, projector rejects+alarms on change (no silent visibility flip).
+- **Roster null ambiguity (sub-agent M4)**: per-source `visibility` marker so a null field is
+  "no row" vs "not yours", never rendered as "no data"; documented mixed-source, not atomic.
+- **Bridge outbox state machine (both P1/M5)**: pending→accepted, durable id+payload before POST,
+  cursor advances only after 202, batch checkpoints last-contiguous-accepted; corrected the
+  contract's "transactional" wording to checkpoint-after-accept.
+- **Snapshot content-hash (sub-agent M6)**: must include the producer's monotonic `updated_at`;
+  same-content re-transition is inherently unrecoverable (stated honestly, not a claimed gap).
+- **Freshness (both P1/L1)**: `current_state.observed_at` = lake `received_at` (fan-out signature
+  widened to carry it); producer `updated_at` kept in `state` for the skew-proof derivation;
+  `unreachable_since` carries dead-box positive evidence.
+- **current_state RLS (codex P2)**: FORCE RLS + scoped policy + console_writer write role (mirrors
+  events). **L3**: forward-ref that N1d's hypertable conversion must move dedup to the emission_ids
+  gate atomically or exactly-once regresses.
+
+### Next
+
+Build N1b (projector + current_state + typed reads + tracker mapping + roster/executors +
+completion-signature verify), then the `console-bridge` Rust crate. PR → codex + adversarial
+review → merge.
