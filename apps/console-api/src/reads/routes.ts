@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import type { Principal } from "../auth/principal.ts";
+import { readAvailability } from "../availability/service.ts";
 import type { Sql } from "../db/pool.ts";
 import type { ProjectionKind } from "../projector/index.ts";
 import {
@@ -119,6 +120,25 @@ export function registerEntityReadRoutes(
 	server: FastifyInstance,
 	services: ReadRouteServices,
 ): void {
+	server.get("/api/v1/availability", { preHandler: services.auth }, async (request, reply) => {
+		const principal = request.principal as Principal;
+		const requested = (request.query as { window?: string }).window ?? "30d";
+		const windows: Readonly<Record<string, number>> = {
+			"24h": 86_400,
+			"7d": 7 * 86_400,
+			"30d": 30 * 86_400,
+		};
+		const windowS = windows[requested];
+		if (!windowS)
+			return reply.code(400).send({
+				error: {
+					code: "bad_window",
+					message: "window must be one of 24h, 7d, or 30d",
+					retryable: false,
+				},
+			});
+		return readAvailability(services.app, principal.scopes, windowS);
+	});
 	for (const route of ENTITY_ROUTES) {
 		server.get(`/api/v1/${route.path}`, { preHandler: services.auth }, async (request, reply) => {
 			const principal = request.principal as Principal;

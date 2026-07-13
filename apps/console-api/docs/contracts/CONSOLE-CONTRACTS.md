@@ -174,7 +174,27 @@ expose only their declared pseudo-fields; dynamic type fields require querying t
 The request schema reserves `rate`, `fill: zero|previous`, and `coverage`, but this build refuses
 those honestly (`bad_agg`/`unsupported_fill`/`unsupported_coverage`) rather than fabricating data.
 
-### 3.1a Cost pairwise comparison — `POST /api/v1/cost/compare`
+### 3.1a Services availability — `GET /api/v1/availability`
+
+The Hosts uptime-kuma replacement is a typed, caller-scoped derivation over the lake, pinned by
+`schemas/availability.schema.json`. `service.probe` is the canonical statistic: `subject` identifies
+the watched service (prefer `<host>/<service>`), `dimensions.ok` is the observed boolean result,
+`measures.latency_ms` is the response latency, and optional `measures.cadence_s` and
+`measures.degraded_threshold_ms` override the 30-second / 500-ms defaults. `service.down` and
+`service.up` are the matching bus facts. The endpoint accepts `window=24h|7d|30d` (default `30d`).
+
+`down` means the latest service signal is down, the last three probes failed, or three expected
+cadences elapsed without a probe. `degraded` means the observed p95 exceeds the service threshold;
+otherwise the service is `up`. Uptime is successful / observed probes, never successful / expected.
+Coverage is observed / expected over the printed window, and the largest missing interval is returned
+so a gap cannot masquerade as a clean percentage. Each row includes p50 and at most the latest 60
+probe points for the inline sparkline. The scoped availability projection retains each service's
+latest probe and latest up/down signal beyond raw-lake retention; the reporting window limits only
+the statistics, never service identity or current-down derivation. Malformed probe results increment
+`invalid_probes` and set `source_error` instead of disappearing from coverage. The read executes with
+the caller's RLS scopes.
+
+### 3.1b Cost pairwise comparison — `POST /api/v1/cost/compare`
 
 Runs as the caller over `usage_events` and `model_pricing`; request and response are
 `schemas/cost-comparison-request.schema.json` and `schemas/cost-comparison-result.schema.json`.

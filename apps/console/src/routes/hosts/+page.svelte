@@ -1,14 +1,19 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import { onMount } from "svelte";
+	import { connectBus } from "$lib/api/client";
+	import AvailabilityPanel from "$lib/components/AvailabilityPanel.svelte";
 	import HostCard from "$lib/components/HostCard.svelte";
 	import HudChip from "$lib/components/HudChip.svelte";
 	import Icon from "$lib/components/Icon.svelte";
 	import SurfaceSign from "$lib/components/SurfaceSign.svelte";
+	import { getAvailability } from "./availability.remote";
 
 	let { data } = $props();
 	const h = $derived(data.hosts);
 	// The cockpit crack card links /hosts?host=<h>; highlight that house (§3.7).
 	const focusHost = $derived(page.url.searchParams.get("host"));
+	const availabilityQuery = getAvailability();
 
 	let filter = $state("");
 	const shown = $derived(
@@ -17,6 +22,29 @@
 			: h.hosts,
 	);
 	const allQuiet = $derived(h.connected && h.hosts.length > 0 && h.hosts.every((x) => x.quiet));
+
+	onMount(() => {
+		if (data.isMock) return;
+		let queued: ReturnType<typeof setTimeout> | null = null;
+		const refreshSoon = () => {
+			if (queued) return;
+			queued = setTimeout(() => {
+				queued = null;
+				void availabilityQuery.refresh();
+			}, 250);
+		};
+		const disconnect = connectBus(
+			() => [{ sub_id: "console-hosts-availability", pattern: "service.*" }],
+			(frame) => {
+				if (frame["kind"] === "event" || frame["kind"] === "gap" || frame["kind"] === "resync_required")
+					refreshSoon();
+			},
+		);
+		return () => {
+			if (queued) clearTimeout(queued);
+			disconnect();
+		};
+	});
 </script>
 
 <div class="util">
@@ -54,7 +82,18 @@
 			<HostCard {host} highlighted={host.host === focusHost} />
 		{/each}
 	</div>
+{/if}
 
+<AvailabilityPanel
+	snapshot={availabilityQuery.current?.snapshot}
+	loading={availabilityQuery.loading}
+	error={availabilityQuery.error}
+	lanes={data.me.lanes}
+	probeRunnerLive={availabilityQuery.current?.probe_runner_live ?? false}
+	onrefresh={() => void availabilityQuery.refresh()}
+/>
+
+{#if h.connected}
 	<p class="note">
 		The grid is a renderer. The substrate already carries what a spatial neighborhood view needs —
 		hosts, residents, containers — so it layers on later with no re-wiring.
