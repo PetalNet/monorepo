@@ -9,10 +9,24 @@ import { z } from "zod";
 
 import { buildServices, type Services } from "./app.ts";
 import { ask } from "./assistant/engine.ts";
-import { GrantError, grantMutationSchema, listGrants, mutateGrant } from "./auth/grants.ts";
+import {
+	canViewGrantObject,
+	GrantError,
+	grantMutationSchema,
+	listGrants,
+	mutateGrant,
+} from "./auth/grants.ts";
 import { resolveBearer, devPrincipal, type Principal } from "./auth/principal.ts";
+import { ProposalError, proposeMutation } from "./auth/proposals.ts";
+import { type GrantRelation, listTiers, shouldProposeMutation } from "./auth/tiers.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
-import { DashboardError, listDashboards, loadDashboard, saveDashboard } from "./dashboard/store.ts";
+import {
+	DashboardError,
+	dashboardTargetScope,
+	listDashboards,
+	loadDashboard,
+	saveDashboard,
+} from "./dashboard/store.ts";
 import { withScopes } from "./db/pool.ts";
 import { loadEnv } from "./env.ts";
 import {
@@ -175,6 +189,45 @@ export async function buildServer(
 			.send({ error: { code: "unauthorized", message: "bearer required", retryable: false } });
 	}
 
+	async function maybePropose(
+		principal: Principal,
+		operation: string,
+		requestId: string,
+		args: unknown,
+		object: string | null,
+		minimumRelation: GrantRelation,
+	): Promise<Record<string, unknown> | null> {
+		if (!(await shouldProposeMutation(services.db.admin, principal, object, minimumRelation)))
+			return null;
+		if (!services.trackerProposals || !services.trackerProposalLookup)
+			throw new ProposalError(
+				"tracker_unavailable",
+				"tracker proposal writer is not configured",
+				true,
+			);
+		return proposeMutation(
+			services.db.writer,
+			services.trackerProposals,
+			services.trackerProposalLookup,
+			principal,
+			{ operation, requestId, args },
+		);
+	}
+
+	function proposalFailure(reply: FastifyReply, error: ProposalError) {
+		const status =
+			error.code === "id_reused"
+				? 409
+				: error.code === "proposal_too_large"
+					? 413
+					: error.code === "secret_detected"
+						? 400
+						: 503;
+		return reply.code(status).send({
+			error: { code: error.code, message: error.message, retryable: error.retryable },
+		});
+	}
+
 	// --- health (unauthenticated) --------------------------------------------------------------
 	app.get("/api/v1/health", async () => {
 		let lake: "ok" | "down" = "ok";
@@ -205,6 +258,9 @@ export async function buildServer(
 			zookie: p.zookie,
 		};
 	});
+
+	// --- extensible permission-level catalog ---------------------------------------------------
+	app.get("/api/v1/tiers", { preHandler: auth }, async () => listTiers(services.db.app));
 
 	// --- ReBAC grants ---------------------------------------------------------------------------
 	app.get("/api/v1/grants", { preHandler: auth }, async (req, reply) => {
@@ -239,8 +295,21 @@ export async function buildServer(
 				},
 			});
 		try {
+			const principal = req.principal as Principal;
+			if (!(await canViewGrantObject(services.db.admin, principal, parsed.data.object)))
+				throw new GrantError("grant_denied", "object is not visible to the caller");
+			const proposed = await maybePropose(
+				principal,
+				"grant.mutate",
+				parsed.data.id,
+				parsed.data,
+				parsed.data.object,
+				"owner",
+			);
+			if (proposed) return proposed;
 			return await mutateGrant(services.db, req.principal as Principal, parsed.data);
 		} catch (error) {
+			if (error instanceof ProposalError) return proposalFailure(reply, error);
 			if (!(error instanceof GrantError)) throw error;
 			return reply
 				.code(error.code === "grant_denied" ? 403 : error.code === "bad_grant" ? 400 : 409)
@@ -405,8 +474,21 @@ export async function buildServer(
 				error: { code: "bad_dashboard", message: "invalid dashboard payload", retryable: false },
 			});
 		try {
+			const targetScope = dashboardTargetScope(p, parsed.data.scope);
+			if (!targetScope || !p.scopes.includes(targetScope))
+				throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
+			const proposed = await maybePropose(
+				p,
+				"dashboard.save",
+				parsed.data.id,
+				parsed.data,
+				targetScope,
+				"editor",
+			);
+			if (proposed) return proposed;
 			return await saveDashboard(services.db, p, parsed.data);
 		} catch (error) {
+			if (error instanceof ProposalError) return proposalFailure(reply, error);
 			if (error instanceof DashboardError)
 				return reply
 					.code(error.code === "scope_denied" ? 403 : 400)

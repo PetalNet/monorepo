@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
+import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
 
 import postgres from "postgres";
@@ -9,6 +10,7 @@ import { buildServices, type Services } from "../src/app.ts";
 import { AssistantCompilerError, type AssistantCompiler } from "../src/assistant/compiler.ts";
 import { ask } from "../src/assistant/engine.ts";
 import { resolveBearer, sha256 } from "../src/auth/principal.ts";
+import { TrackerProposalWriter } from "../src/auth/proposals.ts";
 import { Bridge } from "../src/bridge/index.ts";
 import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
 import { Appender } from "../src/bus/appender.ts";
@@ -1049,6 +1051,361 @@ describe("Phase 3 ReBAC control plane", () => {
 				300,
 			),
 		).toMatchObject({ ok: false, code: "scope_denied" });
+	});
+});
+
+describe("Phase 4 permission levels", () => {
+	it("publishes seeded and inserted permission levels through the authenticated catalog", async () => {
+		await services.db.admin`
+			insert into tiers (name, authentik_group, description, default_relations, propose_only)
+			values ('reviewer', 'reviewers', 'Can review explicitly shared work.', '["viewer"]', true)`;
+		const server = await buildServer(services, true);
+		try {
+			const response = await server.inject({
+				method: "GET",
+				url: "/api/v1/tiers",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "tier-reader",
+						tiers: ["guest"],
+						lanes: ["viewer"],
+						scopes: [],
+					}),
+				},
+			});
+			expect(response.statusCode, response.body).toBe(200);
+			const catalog = response.json();
+			expect(catalog.schema_version).toBe(1);
+			expect(catalog.items).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: "collaborator",
+						description: expect.any(String),
+						default_relations: ["viewer"],
+						propose_only: true,
+					}),
+					{
+						name: "reviewer",
+						authentik_group: "reviewers",
+						description: "Can review explicitly shared work.",
+						default_relations: ["viewer"],
+						propose_only: true,
+					},
+				]),
+			);
+			await services.db.admin`
+				update tiers set description = 'Locally configured owner.', default_relations = '["operator"]'
+				where name = 'owner'`;
+			await seedBootstrap(services.db.admin);
+			const configured = await services.db.admin<
+				{ description: string; default_relations: string[] }[]
+			>`select description, default_relations from tiers where name = 'owner'`;
+			expect(configured[0]).toEqual({
+				description: "Locally configured owner.",
+				default_relations: ["operator"],
+			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("files a collaborator mutation in the real tracker RPC and never commits it locally", async () => {
+		const trackerCalls: unknown[] = [];
+		const reconciledTasks = new Map<string, number>();
+		const tracker = createHttpServer((request, response) => {
+			let body = "";
+			request.setEncoding("utf8");
+			request.on("data", (chunk) => {
+				body += chunk;
+			});
+			request.on("end", () => {
+				const parsedBody = JSON.parse(body) as {
+					args?: { title?: string; body?: string };
+				};
+				trackerCalls.push({
+					authorization: request.headers.authorization,
+					body: parsedBody,
+				});
+				if (parsedBody.args?.body?.includes('"title": "Ambiguous response"')) {
+					const match = /"request_id": "([^"]+)"/.exec(parsedBody.args.body ?? "");
+					if (match?.[1]) reconciledTasks.set(match[1], 9001);
+					response.destroy();
+					return;
+				}
+				response.writeHead(201, { "content-type": "application/json" });
+				response.end(JSON.stringify({ filed: { id: 8123 } }));
+			});
+		});
+		await new Promise<void>((resolve) => tracker.listen(0, "127.0.0.1", resolve));
+		const address = tracker.address();
+		if (!address || typeof address === "string")
+			throw new Error("tracker test server did not bind");
+		const writer = new TrackerProposalWriter({
+			url: `http://127.0.0.1:${String(address.port)}/api/agent/rpc`,
+			token: "tracker-test-token",
+			project: "Lab Console",
+		});
+		const trackerProposalLookup = {
+			findProposalTaskId(criteria: {
+				requestId: string;
+				principalId: string;
+				operation: string;
+				requestHash: string;
+				project: string;
+			}) {
+				if (
+					criteria.principalId !== "semi-trusted" ||
+					criteria.operation !== "dashboard.save" ||
+					criteria.project !== "Lab Console" ||
+					!criteria.requestHash
+				)
+					return null;
+				return reconciledTasks.get(criteria.requestId) ?? null;
+			},
+		};
+		const server = await buildServer(
+			{ ...services, trackerProposals: writer, trackerProposalLookup },
+			true,
+		);
+		const requestId = randomUUID();
+		const payload = {
+			schema_version: 1,
+			id: requestId,
+			title: "Collaborator suggestion",
+			scope: "fleet",
+			panels: [{ schema_version: 2, type: "text", title: "Idea", prose: "Please consider this." }],
+		};
+		const headers = {
+			"x-dev-principal": JSON.stringify({
+				kind: "human",
+				id: "semi-trusted",
+				tiers: ["collaborator"],
+				lanes: ["viewer"],
+				scopes: ["fleet"],
+			}),
+		};
+		try {
+			const proposed = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload,
+			});
+			expect(proposed.statusCode, proposed.body).toBe(200);
+			expect(proposed.json()).toEqual({
+				schema_version: 1,
+				in_reply_to: requestId,
+				ok: true,
+				status: "applied",
+				result: { proposed: true, proposal_task_id: 8123 },
+			});
+			const retried = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload,
+			});
+			expect(retried.json()).toEqual(proposed.json());
+			expect(trackerCalls).toHaveLength(1);
+			expect(trackerCalls[0]).toMatchObject({
+				authorization: "Bearer tracker-test-token",
+				body: {
+					op: "file",
+					args: {
+						kind: "idea",
+						project: "Lab Console",
+						title: "[Proposal] dashboard.save",
+					},
+				},
+			});
+			const grantProposal = await server.inject({
+				method: "POST",
+				url: "/api/v1/grants",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					action: "grant",
+					subject: "would-be-viewer",
+					relation: "viewer",
+					object: "fleet",
+				},
+			});
+			expect(grantProposal.statusCode, grantProposal.body).toBe(200);
+			expect(grantProposal.json().result).toEqual({
+				proposed: true,
+				proposal_task_id: 8123,
+			});
+			expect(trackerCalls).toHaveLength(2);
+			expect(trackerCalls[1]).toMatchObject({
+				body: { op: "file", args: { title: "[Proposal] grant.mutate" } },
+			});
+			await services.db.admin`
+				insert into tiers (name, authentik_group, description, default_relations, propose_only)
+				values ('viewer_commit', 'viewer-commit', 'Tie test.', '["viewer"]', false)`;
+			const tied = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "tied-collaborator",
+						tiers: ["collaborator", "viewer_commit"],
+						lanes: ["viewer"],
+						scopes: ["fleet"],
+					}),
+				},
+				payload: { ...payload, id: randomUUID(), title: "Restrictive tie wins" },
+			});
+			expect(tied.statusCode, tied.body).toBe(200);
+			expect(tied.json().result.proposed).toBe(true);
+			expect(trackerCalls).toHaveLength(3);
+
+			const ambiguousId = randomUUID();
+			const ambiguous = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload: { ...payload, id: ambiguousId, title: "Ambiguous response" },
+			});
+			expect(ambiguous.statusCode, ambiguous.body).toBe(200);
+			expect(ambiguous.json().result.proposal_task_id).toBe(9001);
+			const ambiguousRetry = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload: { ...payload, id: ambiguousId, title: "Ambiguous response" },
+			});
+			expect(ambiguousRetry.json()).toEqual(ambiguous.json());
+			expect(trackerCalls).toHaveLength(4);
+			const crossPrincipal = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "different-collaborator",
+						tiers: ["collaborator"],
+						lanes: ["viewer"],
+						scopes: ["fleet"],
+					}),
+				},
+				payload: { ...payload, id: ambiguousId, title: "Different principal" },
+			});
+			expect(crossPrincipal.statusCode, crossPrincipal.body).toBe(200);
+			expect(crossPrincipal.json().result.proposal_task_id).toBe(8123);
+			expect(trackerCalls).toHaveLength(5);
+			const secret = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload: {
+					...payload,
+					id: randomUUID(),
+					panels: [
+						{ schema_version: 2, type: "text", title: "Unsafe", prose: "Bearer hidden-token" },
+					],
+				},
+			});
+			expect(secret.statusCode).toBe(400);
+			expect(secret.json().error.code).toBe("secret_detected");
+			expect(trackerCalls).toHaveLength(5);
+			const committed = await services.db.admin<{ n: number }[]>`
+				select count(*)::int as n from items_min
+				where created_by = 'semi-trusted' and title = 'Collaborator suggestion'`;
+			expect(committed[0]?.n).toBe(0);
+			const committedGrant = await services.db.admin<{ n: number }[]>`
+				select count(*)::int as n from grants
+				where subject = 'would-be-viewer' and object = 'fleet'`;
+			expect(committedGrant[0]?.n).toBe(0);
+			const drift = await server.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload: { ...payload, title: "Changed after retry" },
+			});
+			expect(drift.statusCode).toBe(409);
+			expect(drift.json().error.code).toBe("id_reused");
+		} finally {
+			await server.close();
+			await new Promise<void>((resolve, reject) =>
+				tracker.close((error) => (error ? reject(error) : resolve())),
+			);
+		}
+	});
+
+	it("fails closed when proposals are unavailable and lets an explicit resource grant commit", async () => {
+		const collaborator = {
+			kind: "human" as const,
+			id: "elevated-collaborator",
+			tiers: ["collaborator"],
+			lanes: ["viewer"],
+			scopes: ["fleet"],
+		};
+		const headers = { "x-dev-principal": JSON.stringify(collaborator) };
+		const payload = {
+			schema_version: 1,
+			id: randomUUID(),
+			title: "Explicitly elevated",
+			panels: [{ schema_version: 2, type: "text", title: "Elevated", prose: "Commit me." }],
+		};
+		const unavailable = await buildServer({ ...services, trackerProposals: null }, true);
+		try {
+			const hidden = await unavailable.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers: {
+					"x-dev-principal": JSON.stringify({ ...collaborator, scopes: [] }),
+				},
+				payload: { ...payload, scope: "restricted:victim" },
+			});
+			expect(hidden.statusCode).toBe(403);
+			expect(hidden.json().error.code).toBe("scope_denied");
+			const hiddenGrant = await unavailable.inject({
+				method: "POST",
+				url: "/api/v1/grants",
+				headers: {
+					"x-dev-principal": JSON.stringify({ ...collaborator, scopes: [] }),
+				},
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					action: "grant",
+					subject: "victim",
+					relation: "viewer",
+					object: "restricted:victim",
+				},
+			});
+			expect(hiddenGrant.statusCode).toBe(403);
+			expect(hiddenGrant.json().error.code).toBe("grant_denied");
+			const refused = await unavailable.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload,
+			});
+			expect(refused.statusCode).toBe(503);
+			expect(refused.json().error.code).toBe("tracker_unavailable");
+		} finally {
+			await unavailable.close();
+		}
+		await services.db.admin`
+			insert into grants (subject, relation, object, granted_by)
+			values ('elevated-collaborator', 'editor', 'fleet', 'test')`;
+		const elevated = await buildServer({ ...services, trackerProposals: null }, true);
+		try {
+			const saved = await elevated.inject({
+				method: "POST",
+				url: "/api/v1/dashboards",
+				headers,
+				payload: { ...payload, id: randomUUID() },
+			});
+			expect(saved.statusCode, saved.body).toBe(200);
+			expect(saved.json()).toMatchObject({ title: "Explicitly elevated", scope: "fleet" });
+		} finally {
+			await elevated.close();
+		}
 	});
 });
 

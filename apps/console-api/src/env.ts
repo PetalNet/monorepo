@@ -31,6 +31,10 @@ export interface Env {
 	 * /agents).
 	 */
 	readonly trackerDbPath: string | null;
+	/** Canonical tracker agent-RPC writer used for propose-not-commit. */
+	readonly trackerRpcUrl?: string | null;
+	readonly trackerRpcToken?: string | null;
+	readonly trackerProposalProject?: string | null;
 	/** OpenAI-compatible chat-completions endpoint used by the scoped dashboard compiler. */
 	readonly assistantLlmUrl?: string | null;
 	readonly assistantLlmModel?: string | null;
@@ -59,6 +63,9 @@ export function loadEnv(): Env {
 			? { cursorSecret: process.env["CONSOLE_API_CURSOR_SECRET"] }
 			: {}),
 		trackerDbPath: process.env["TRACKER_DB_PATH"] ?? null,
+		trackerRpcUrl: process.env["TRACKER_RPC_URL"] ?? null,
+		trackerRpcToken: process.env["TRACKER_RPC_TOKEN"] ?? null,
+		trackerProposalProject: process.env["TRACKER_PROPOSAL_PROJECT"] ?? null,
 		assistantLlmUrl: process.env["CONSOLE_ASSISTANT_LLM_URL"] ?? null,
 		assistantLlmModel: process.env["CONSOLE_ASSISTANT_LLM_MODEL"] ?? null,
 		assistantLlmApiKey: process.env["CONSOLE_ASSISTANT_LLM_API_KEY"] ?? null,

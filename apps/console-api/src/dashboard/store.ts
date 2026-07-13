@@ -49,7 +49,8 @@ export class DashboardError extends Error {
 	}
 }
 
-function defaultScope(principal: Principal): string | null {
+export function dashboardTargetScope(principal: Principal, requestedScope?: string): string | null {
+	if (requestedScope) return requestedScope;
 	const personal = principal.kind === "agent" ? principal.id : `user:${principal.id}`;
 	return principal.scopes.includes(personal) ? personal : ([...principal.scopes].sort()[0] ?? null);
 }
@@ -156,7 +157,7 @@ export async function saveDashboard(
 	principal: Principal,
 	input: DashboardInput,
 ): Promise<Record<string, unknown>> {
-	const scope = input.scope ?? defaultScope(principal);
+	const scope = dashboardTargetScope(principal, input.scope);
 	if (!scope || !principal.scopes.includes(scope))
 		throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
 	if (!(await canMutateScope(db.writer, principal, scope)))

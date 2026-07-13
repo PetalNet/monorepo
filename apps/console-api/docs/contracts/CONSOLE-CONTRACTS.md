@@ -301,6 +301,7 @@ another repo to learn a field. Aggregated reads carry per-item `observed_at` (Ru
 | `/roster`                          | `entities/roster.schema.json`         | server-side join                                         | the Agents surface in ONE read (fleet × heartbeat × registry × agents × governance × leases × workers)                                                                                                |
 | `/me`                              | `entities/me.schema.json`             | auth                                                     | Principal + display/grant name (session chip)                                                                                                                                                         |
 | `/grants?object=...`               | `../grant-list.schema.json`           | ReBAC tuples                                             | owner-only current grant enumeration; mutations use `POST /grants` + `grant-mutation.schema.json`                                                                                                     |
+| `/tiers`                           | `schemas/tier-list.schema.json`       | permission-level rows                                    | authenticated catalog for user/share pickers; adding a level is a data insert                                                                                                                         |
 
 History reads (comms log, audit trails, the Void, delivery log, restart counts) are
 `stats.query` reads over persisted emissions. `audit.op` emissions pin `subject` = the target
@@ -469,7 +470,10 @@ bounded snapshot in P0 (streaming shares the term-frame carve-out, §11); `deliv
 **Propose-not-commit** (tiers with `propose_only`, §7.3): there are no `*.propose` op
 variants. The op router transforms any mutating op call from a propose-only caller into a
 tracker suggestion-queue entry and returns `{ok: true, status: "applied", result: {proposed:
-true, proposal_task_id}}` — a stable shape; owners promote via the normal tracker flow.
+true, proposal_task_id}}` — a stable shape; owners promote via the normal tracker flow. The
+Phase 4 primitive is active on the live dashboard/grant mutation surfaces. Global catalog-op
+activation awaits the inherited N1c `/op` router (dated in `BLOCKERS.md`); console-api does not
+publish a proposal-only facade in its place.
 
 ### 5.3 The attention store
 
@@ -527,12 +531,33 @@ Phase 3 is live (2026-07-13):
   unconditional `editor|operator|owner` grant on the emitted scope (the intrinsic agent scope
   counts only for the matching agent). A viewer or conditional grant alone can never emit.
 
-### 7.3 Permission levels — tier rows `{name, authentik_group, default_relations,
+### 7.3 Permission levels
 
-propose_only}`, seeds owner/moderator/collaborator/guest; adding a level is an insert.
-`propose_only`routes via the §5.2 transformation. Terminal stays human-only regardless of
-tier (structural, not a grant).`GET /tiers` (names + descriptions, for share/grant pickers)
-lands with Phase 4.
+Phase 4 is live (2026-07-13). Tier rows are `{name, authentik_group, description,
+default_relations, propose_only}` and seed owner/moderator/collaborator/guest; adding a level is an
+insert, with no code-name allowlist. `GET /api/v1/tiers` returns
+`schemas/tier-list.schema.json` for user/share pickers.
+
+The strongest configured `default_relations` entry resolves overlapping `principal.tiers`, which the
+current production-capable bearer path server-stamps from `api_tokens`; owner/moderator therefore
+remain commit-capable without hard-coded tier names, and an equal-strength ambiguity fails closed to
+propose-only when any tied row requires it. Trusted Authentik forward-auth mapping for browser humans
+is not yet active and remains an upstream deployment prerequisite; dev headers exist only behind
+`CONSOLE_API_DEV_AUTH`.
+Bootstrap inserts missing baseline rows
+but never overwrites configured levels on later deploys. A propose-only caller's dashboard and grant
+mutations first prove the target is currently visible, then are filed through the tracker's canonical
+bearer-authenticated `file` RPC as an inbox idea and return the §5.2 `op-result` shape with
+`result: {proposed: true, proposal_task_id}`; no console mutation is committed. The client UUID is
+deduplicated per principal and body drift is `id_reused`. A durable dispatch state plus the
+co-located read-only tracker source reconciles external-success/local-failure outcomes by UUID, so a
+retry cannot file a second idea. Secret-shaped proposal content is rejected before dispatch. If the
+tracker writer is absent or down, the mutation fails closed with retryable `tracker_unavailable`.
+Configure the writer atomically with `TRACKER_RPC_URL`, `TRACKER_RPC_TOKEN`, and
+`TRACKER_PROPOSAL_PROJECT`; production URLs must be HTTPS and `TRACKER_DB_PATH` is required as the
+reconciliation oracle. A current, unconditional, **direct** `editor|operator|owner` resource grant is the explicit
+elevation beyond propose-only and permits the normal commit path; tier-inherited grants retain the
+tier's default posture. Terminal stays human-only regardless of tier (structural, not a grant).
 
 ## 8. Freshness windows (normative)
 

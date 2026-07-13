@@ -28,6 +28,11 @@ export interface ScrubResult {
 	readonly where?: string;
 }
 
+export function scrubUnknown(value: unknown, root = "payload"): ScrubResult {
+	const hit = scan(value, root);
+	return hit ? { ok: false, where: hit } : { ok: true };
+}
+
 function scan(value: unknown, path: string): string | null {
 	if (typeof value === "string") {
 		for (const re of TOKEN_SHAPES) if (re.test(value)) return path;
@@ -58,6 +63,5 @@ function scan(value: unknown, path: string): string | null {
  * Fail-loud: a producer putting a secret on the bus is a bug to surface, not to silently strip.
  */
 export function scrubEmission(e: Emission): ScrubResult {
-	const hit = scan(e, "emission");
-	return hit ? { ok: false, where: hit } : { ok: true };
+	return scrubUnknown(e, "emission");
 }
