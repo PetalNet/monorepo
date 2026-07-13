@@ -5,7 +5,7 @@
  * can be recomputed from the live UI clock (§6.4).
  */
 import { isRosterDown, rosterLane, rosterState } from "$lib/api/derive";
-import type { RosterItem } from "$lib/api/types";
+import type { HeartbeatItem, RosterItem } from "$lib/api/types";
 
 import * as mock from "./mock";
 
@@ -47,27 +47,35 @@ export function deriveRoster(
 	return { lanes, health };
 }
 
-function assemble(roster: RosterItem[], summary: mock.FleetSummary): AgentsData {
+export function assembleAgents(roster: RosterItem[], summary: mock.FleetSummary): AgentsData {
 	return { connected: true, roster, summary, total: roster.length };
 }
 
-/** Live-mode placeholder until /roster is wired against the running console-api. */
-export function liveEmptyAgents(): AgentsData {
-	return {
-		connected: false,
-		roster: [],
-		summary: {
-			tokensSpent: 0,
-			tokensGranted: 1,
-			mode: "parallel",
-			modeReason: null,
-			disciplineOffTask: 0,
-			disciplineNote: null,
-		},
-		total: 0,
-	};
+export function mockAgents(): AgentsData {
+	return assembleAgents(mock.roster, mock.fleetSummary);
 }
 
-export function mockAgents(): AgentsData {
-	return assemble(mock.roster, mock.fleetSummary);
+/** Contract-shaped manager heartbeats for the mock lens; live mode always reads `/heartbeats`. */
+export function mockArchitects(): HeartbeatItem[] {
+	const nowEpoch = Math.floor(Date.now() / 1_000);
+	return mock.roster.flatMap((row, index) => {
+		if (!row.host || !row.heartbeat_state) return [];
+		return [
+			{
+				schema_version: 2,
+				version: "mock-manager",
+				handle: row.handle,
+				pid: 2_000 + index,
+				state: row.heartbeat_state,
+				session_id: `mock-${row.handle}`,
+				io_ok: row.channel_lock_state !== "lockout",
+				crash_count: row.crash_count ?? 0,
+				started_at_epoch: Math.floor(Date.parse(row.started_at ?? row.updated_at) / 1_000),
+				last_sync_ok_epoch: nowEpoch - 12,
+				updated_at_epoch: nowEpoch - 6,
+				host: row.host,
+				observed_at: new Date((nowEpoch - 6) * 1_000).toISOString(),
+			},
+		];
+	});
 }

@@ -1,5 +1,6 @@
-import { dataMode, readMe } from "$lib/api/client";
-import type { Me } from "$lib/api/types";
+import { dataMode, readHealth, readMe } from "$lib/api/client";
+import { consoleHealthBusAgeS } from "$lib/api/derive";
+import type { ConsoleHealth, Me } from "$lib/api/types";
 import { mockCockpit, type Scene, type ShellHealth } from "$lib/data/cockpit";
 import { me as mockMe } from "$lib/data/mock";
 
@@ -11,6 +12,19 @@ export interface ShellData {
 	scene: Scene;
 	/** False = live mode but console-api is unreachable — degrade honestly dark. */
 	connected: boolean;
+}
+
+function liveShellHealth(value: ConsoleHealth | null): ShellHealth {
+	if (!value) return { verdict: "cant_verify", stateFact: "Health read unavailable.", badges: {} };
+	if (value.lake === "down")
+		return { verdict: "cant_verify", stateFact: "Telemetry lake unreachable.", badges: {} };
+	const busAgeS = consoleHealthBusAgeS(value);
+	if (busAgeS !== null && busAgeS <= 90) return { verdict: "fine", stateFact: null, badges: {} };
+	return {
+		verdict: "cant_verify",
+		stateFact: "Lake reachable; live bridge evidence unavailable.",
+		badges: {},
+	};
 }
 
 // A disconnected principal: no lanes (controls hidden), no scopes. The shell
@@ -31,9 +45,9 @@ const OFFLINE_ME: Me = {
 /**
  * Shell load: the caller's identity (session chip + lane gating) and the fleet-wide health that
  * drives the sidebar state line on every surface. Mock mode composes both from fixtures; live mode
- * reads /me and, until the 2nd-pass reads land, renders "Can't verify" honestly rather than faking
- * (see BLOCKERS.md). If console-api is unreachable, the shell degrades to an offline principal
- * instead of crashing. A `?scene=` param drives the demo scenes.
+ * reads /me and /health independently, grading only explicit bridge proof as healthy. If
+ * console-api is unreachable, the shell degrades to an offline principal instead of crashing. A
+ * `?scene=` param drives the demo scenes.
  */
 export const load: LayoutLoad = async ({ url, fetch }): Promise<ShellData> => {
 	const sceneParam = url.searchParams.get("scene");
@@ -48,12 +62,11 @@ export const load: LayoutLoad = async ({ url, fetch }): Promise<ShellData> => {
 
 	if (dataMode() === "live") {
 		try {
-			const me = await readMe(fetch);
-			const health: ShellHealth = {
-				verdict: "cant_verify",
-				stateFact: "Bus not connected.",
-				badges: {},
-			};
+			const [me, healthRead] = await Promise.all([
+				readMe(fetch),
+				readHealth(fetch).catch(() => null),
+			]);
+			const health = liveShellHealth(healthRead);
 			return { me, health, scene, connected: true };
 		} catch {
 			const health: ShellHealth = {

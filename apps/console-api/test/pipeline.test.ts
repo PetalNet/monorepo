@@ -2930,6 +2930,29 @@ describe("roster + executors (N1b-2, lake half)", () => {
 		expect(row?.identity.visibility).toBe("unavailable"); // tracker null => unavailable, not "no data"
 	});
 
+	it("roster counts visible worker rows for their owning agent", async () => {
+		const event = await services.emit(
+			"bridge:box-agent",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "worker.started",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".15", agent: "rosterbox" },
+				subject: "rosterbox-worker-1",
+				subject_kind: "other",
+				severity: "info",
+				scope: "fleet",
+				dimensions: { handle: "rosterbox", label: "focused-test" },
+			},
+			300,
+		);
+		await waitProjected("worker", "rosterbox-worker-1", event.seq as number);
+		const env = await readRoster(services.db.app, null, ["fleet"]);
+		const row = env.items.find((item) => item["handle"] === "rosterbox");
+		expect(row?.["workers_active"]).toBe(1);
+	});
+
 	it("executors derive liveness from lake current_state", async () => {
 		await services.emit(
 			"bridge:manager",

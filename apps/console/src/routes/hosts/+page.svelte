@@ -34,14 +34,20 @@
 {#if !h.connected}
 	<div class="unverified">
 		<Icon name="circle-help" size={20} />
-		<p>Can't verify the neighborhood yet. The host reads land with the backend's 2nd pass.</p>
+		<p>Can't verify the neighborhood. No host read or last-known snapshot is available.</p>
 	</div>
 {:else}
 	<div class="hud">
 		<HudChip tone="good" count={h.hud.housesUp} label="houses up" />
 		<HudChip tone="good" count={h.hud.residents} label="residents" />
-		<HudChip tone="idle" count={h.hud.containers} label="containers" />
+		<HudChip tone="idle" count={h.hud.containers ?? "—"} label="containers" />
 	</div>
+	{#if Object.values(data.sources).some((source) => source !== "live")}
+		<p class="source-note" role="status">
+			<Icon name="radio-tower" size={14} />
+			{Object.entries(data.sources).filter(([, state]) => state !== "live").map(([source, state]) => `${source} ${state}`).join(" · ")}
+		</p>
+	{/if}
 
 	<div class="grid">
 		{#each shown as host (host.host)}
@@ -95,6 +101,14 @@
 		gap: var(--s-2);
 		margin-top: var(--s-3);
 		flex-wrap: wrap;
+	}
+	.source-note {
+		display: flex;
+		align-items: center;
+		gap: var(--s-2);
+		margin-top: var(--s-3);
+		color: var(--warn-text);
+		font: 500 0.75rem var(--mono);
 	}
 	.grid {
 		margin-top: var(--s-4);

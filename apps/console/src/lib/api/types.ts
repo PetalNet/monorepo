@@ -66,6 +66,17 @@ export interface RegistryItem extends Extra {
 	last_seen_epoch: number;
 }
 
+// ---- workers (GET /workers) ----
+export interface WorkerItem extends Extra {
+	handle: string;
+	host: string;
+	label: string;
+	started_at: string;
+	updated_at: string;
+	last_tool?: string | null;
+	tokens_spent?: number | null;
+}
+
 // ---- box updates (GET /box-updates) ----
 export type BoxUpdateStatus =
 	| "up_to_date"
@@ -438,6 +449,11 @@ export interface RosterItem extends Extra {
 	fleet_updated_at?: string | null;
 	started_at?: string | null;
 	registry_last_seen_epoch?: number | null;
+	/** The join keeps each source's visibility and clock so partial reads never look like absence. */
+	sources?: Record<
+		"fleet" | "heartbeat" | "registry" | "governance" | "identity" | "lease",
+		{ visibility: "visible" | "absent" | "unavailable"; observed_at: string | null }
+	>;
 }
 
 // ---- comms projection (derived view for the Envelope / mail rail) ----
