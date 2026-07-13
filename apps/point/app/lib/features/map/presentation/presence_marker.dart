@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
+import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/presence_tokens.dart';
@@ -17,9 +19,15 @@ typedef PresenceMarkerTap = FutureOr<void> Function();
 /// with the person's initials, and a small mono label pill beneath. Monochrome
 /// — form carries state, never color.
 class PresenceMarker extends StatelessWidget {
-  const PresenceMarker({required this.person, this.onTap, super.key});
+  const PresenceMarker({
+    required this.person,
+    this.timeFormat = TimeFormat.h24,
+    this.onTap,
+    super.key,
+  });
 
   final Person person;
+  final TimeFormat timeFormat;
   final PresenceMarkerTap? onTap;
 
   @override
@@ -81,6 +89,9 @@ class PresenceMarker extends StatelessWidget {
   };
 
   String get _semanticFreshness {
+    final darkSince = _darkSince;
+    if (darkSince != null) return darkSince;
+    if (person.presence == PresenceState.stale) return 'dark';
     final compact = _compactFreshness;
     if (compact == null) return 'updated recently';
     if (compact == 'now') return 'updated now';
@@ -108,9 +119,17 @@ class PresenceMarker extends StatelessWidget {
         : null;
   }
 
-  String get _when => person.presence == PresenceState.live
-      ? (_compactFreshness ?? 'recent')
-      : (person.distanceLabel ?? 'away');
+  String? get _darkSince {
+    final at = person.darkSinceAt;
+    return at == null ? null : 'dark since ${clockHm(at, format: timeFormat)}';
+  }
+
+  String get _when => switch (person.presence) {
+    PresenceState.live => _compactFreshness ?? 'recent',
+    PresenceState.stale => _darkSince ?? 'dark',
+    PresenceState.away => 'last known',
+    PresenceState.ghosted => 'dark',
+  };
 }
 
 class _MarkerSharedElement extends StatefulWidget {

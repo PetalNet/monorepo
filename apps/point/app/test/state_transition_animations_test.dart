@@ -304,6 +304,96 @@ void main() {
     expect(find.byType(PresenceMarker), findsNothing);
   });
 
+  testWidgets(
+    'fresh marker becomes dark after two hours and stays at last-known',
+    (tester) async {
+      final container = _mapContainer();
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppTheme.dark(pureBlack: true),
+            home: const MapScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(PresenceMarker), findsOneWidget);
+      expect(find.byKey(const ValueKey(PresenceState.live)), findsOneWidget);
+
+      final now = DateTime(2026, 7, 13, 12);
+      final darkAt = now.subtract(const Duration(hours: 2));
+      final stale = mergePresence(
+        _mara,
+        PeerFix(
+          userId: _mara.userId,
+          data: {
+            'lat': _mara.lat,
+            'lon': _mara.lon,
+            'accuracy': 24,
+            'timestamp': darkAt.millisecondsSinceEpoch,
+          },
+        ),
+        now: now,
+      );
+      container.read(_peopleSourceProvider.notifier).people = [stale];
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 181));
+
+      expect(find.byType(PresenceMarker), findsOneWidget);
+      expect(find.byKey(const ValueKey(PresenceState.stale)), findsOneWidget);
+      final marker = tester.widget<PresenceMarker>(find.byType(PresenceMarker));
+      expect(
+        find.text(
+          'Mara · dark since '
+          '${clockHm(darkAt.millisecondsSinceEpoch, format: marker.timeFormat)}',
+        ),
+        findsOneWidget,
+      );
+      expect(marker.person.lat, _mara.lat);
+      expect(marker.person.lon, _mara.lon);
+    },
+  );
+
+  testWidgets('ghost intent is normalized to the neutral dark marker', (
+    tester,
+  ) async {
+    final container = _mapContainer();
+    addTearDown(container.dispose);
+    container.read(_peopleSourceProvider.notifier).people = const [
+      Person(
+        userId: 'mara@point.dev',
+        displayName: 'Mara',
+        presence: PresenceState.ghosted,
+        subtitle: 'Ghosted',
+        lat: 38.627,
+        lon: -90.199,
+      ),
+    ];
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const MapScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PresenceMarker), findsOneWidget);
+    expect(find.byKey(const ValueKey(PresenceState.stale)), findsOneWidget);
+    expect(find.byKey(const ValueKey(PresenceState.ghosted)), findsNothing);
+    expect(find.text('Mara · dark'), findsOneWidget);
+    expect(
+      tester.getSemantics(find.byType(PresenceMarker)).label,
+      'Mara, Stale, dark',
+    );
+    semantics.dispose();
+  });
+
   testWidgets('reduced motion removes markers without an exit timeline', (
     tester,
   ) async {

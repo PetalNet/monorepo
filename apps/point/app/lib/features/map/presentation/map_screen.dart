@@ -22,8 +22,8 @@ import 'package:point_app/theme/presence_tokens.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// Map + presence (spec 07): a monochrome basemap centered on YOU, all active
-/// sharers' markers, a "recenter on me" FAB, and a go-dark entry. Dark /
-/// location-off people don't plot (their frozen last-known lives in People).
+/// sharers' last-known markers, a "recenter on me" FAB, and a go-dark entry.
+/// People without any location remain in People without a fabricated marker.
 /// Only the marker layer rebuilds on presence change.
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -158,6 +158,9 @@ class _MapScreenState extends ConsumerState<MapScreen>
     final motionPreference = ref.watch(
       settingsProvider.select((settings) => settings.motion),
     );
+    final timeFormat = ref.watch(
+      settingsProvider.select((settings) => settings.timeFormat),
+    );
     final reducedMotion =
         motionPreference == MotionPreference.reduced ||
         (motionPreference == MotionPreference.system &&
@@ -174,13 +177,13 @@ class _MapScreenState extends ConsumerState<MapScreen>
       }
     });
 
-    // Only currently-LIVE people plot; dark people (stale last-known) and
-    // location-off people don't get a live pin — their frozen last-known lives
-    // in People/detail.
+    // A real last-known coordinate remains useful indefinitely. Freshness is
+    // carried by the marker's form + status; only people with no fix ever stay
+    // off-map, and relationship teardown still removes cached locations.
     final located = [
       ...ref.watch(peopleWithPresenceProvider),
       ...ref.watch(incomingTempPeopleProvider),
-    ].where((p) => p.presence == PresenceState.live && p.hasLocation).toList();
+    ].where((p) => p.hasLocation).map(_neutralMapPresence).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -232,6 +235,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
               _PeopleMarkers(
                 people: located,
                 motions: motions,
+                timeFormat: timeFormat,
                 reducedMotion: reducedMotion,
                 onFocus: (person) {
                   Haptics.selection(ref);
@@ -272,6 +276,26 @@ class _MapScreenState extends ConsumerState<MapScreen>
       ),
     );
   }
+}
+
+/// Defense in depth for ghost deniability: even if a future source supplies
+/// the internal ghosted form, a shared person's map marker stays identical to
+/// every other neutral dark/stale cause.
+Person _neutralMapPresence(Person person) {
+  if (person.presence != PresenceState.ghosted) return person;
+  return Person(
+    userId: person.userId,
+    displayName: person.displayName,
+    presence: PresenceState.stale,
+    subtitle: 'Last place · Dark',
+    distanceLabel: person.distanceLabel,
+    lat: person.lat,
+    lon: person.lon,
+    darkSinceAt: person.darkSinceAt,
+    profileVersion: person.profileVersion,
+    rekeyedAt: person.rekeyedAt,
+    shareSince: person.shareSince,
+  );
 }
 
 /// Honest map-discovery state shown above the privacy-preserving blank tile
@@ -411,12 +435,14 @@ class _PeopleMarkers extends StatefulWidget {
   const _PeopleMarkers({
     required this.people,
     required this.motions,
+    required this.timeFormat,
     required this.reducedMotion,
     required this.onFocus,
     required this.onPosition,
   });
   final List<Person> people;
   final Map<String, PeerMarkerMotion> motions;
+  final TimeFormat timeFormat;
   final bool reducedMotion;
   final void Function(Person) onFocus;
   final void Function(String, LatLng) onPosition;
@@ -528,6 +554,7 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
     distanceLabel: person.distanceLabel,
     lat: person.lat,
     lon: person.lon,
+    darkSinceAt: person.darkSinceAt,
     profileVersion: person.profileVersion,
     rekeyedAt: person.rekeyedAt,
     shareSince: person.shareSince,
@@ -551,6 +578,7 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
             key: ValueKey('marker-transition-${entry.person.userId}'),
             person: entry.person,
             motion: widget.motions[entry.person.userId],
+            timeFormat: widget.timeFormat,
             visibility: entry.controller,
             exiting: entry.exiting,
             reducedMotion: widget.reducedMotion,
@@ -580,6 +608,7 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
   const _AnimatedPersonMarkerLayer({
     required this.person,
     required this.motion,
+    required this.timeFormat,
     required this.reducedMotion,
     required this.onPosition,
     required this.onTap,
@@ -590,6 +619,7 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
 
   final Person person;
   final PeerMarkerMotion? motion;
+  final TimeFormat timeFormat;
   final Animation<double>? visibility;
   final bool exiting;
   final bool reducedMotion;
@@ -607,7 +637,11 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
       ignoring: exiting,
       child: ExcludeSemantics(
         excluding: exiting,
-        child: PresenceMarker(person: person, onTap: onTap),
+        child: PresenceMarker(
+          person: person,
+          timeFormat: timeFormat,
+          onTap: onTap,
+        ),
       ),
     );
     final visibility = this.visibility;

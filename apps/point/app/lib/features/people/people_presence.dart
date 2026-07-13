@@ -13,7 +13,7 @@ import 'package:point_app/theme/presence_tokens.dart';
 /// After this long without a fresh fix, a person reads as DARK — the honest
 /// interpretation of "no location is leaving their device" (ghost, dead phone,
 /// or no signal are indistinguishable, by design). Their frozen last-known
-/// position + "dark since" is shown; they stop plotting as a live pin.
+/// position + "dark since" remains visible on both Map and People.
 const darkAfter = Duration(minutes: 3);
 
 /// How confidently the client can describe a peer fix at the current time.
@@ -100,7 +100,7 @@ final presenceClockProvider = StreamProvider<DateTime>(
 /// - server online + no fix ⇒ `live` but locationless;
 /// - fresh fix ⇒ `live`, located, status line (federated `@server` kept quiet);
 /// - stale fix (older than [darkAfter]) ⇒ `stale` = DARK: frozen last-known
-///   coordinate retained but "Dark since HH:MM"; the map won't plot them live;
+///   coordinate retained with "Dark since HH:MM" and a dark map marker;
 /// - no server signal ⇒ fix freshness remains the conservative fallback.
 Person mergePresence(
   Person p,
@@ -132,18 +132,20 @@ Person mergePresence(
   final uncertainFix = freshness == FixFreshness.uncertain;
   final offline = serverPresence?.online == false;
   final dark = offline || staleFix;
+  final darkSinceAt = dark
+      ? offline
+            ? serverPresence!.observedAt.millisecondsSinceEpoch
+            : ts!
+      : null;
   final domain = p.userId.contains('@') ? p.userId.split('@').last : null;
   final federated =
       domain != null && selfDomain != null && domain != selfDomain;
   final String subtitle;
   if (dark) {
-    final darkAt = offline
-        ? serverPresence!.observedAt.millisecondsSinceEpoch
-        : ts!;
     final precision = formatAccuracy(fix.accuracy);
     subtitle = [
       'Last place',
-      'Dark since ${clockHm(darkAt, format: timeFormat)}',
+      'Dark since ${clockHm(darkSinceAt!, format: timeFormat)}',
       if (precision != null) precision,
     ].join(' · ');
   } else if (uncertainFix) {
@@ -174,6 +176,7 @@ Person mergePresence(
     distanceLabel: p.distanceLabel,
     lat: lat,
     lon: lon,
+    darkSinceAt: darkSinceAt,
   );
 }
 
@@ -226,5 +229,6 @@ Person _withDistance(Person p, Fix? selfFix, DistanceUnits units) {
     distanceLabel: formatDistance(meters, units),
     lat: p.lat,
     lon: p.lon,
+    darkSinceAt: p.darkSinceAt,
   );
 }

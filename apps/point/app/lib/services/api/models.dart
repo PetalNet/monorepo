@@ -42,6 +42,7 @@ class Person {
     this.distanceLabel,
     this.lat,
     this.lon,
+    this.darkSinceAt,
     this.profileVersion,
     this.rekeyedAt,
     this.shareSince,
@@ -56,6 +57,10 @@ class Person {
   final String? distanceLabel;
   final double? lat;
   final double? lon;
+
+  /// Privacy-neutral start of the current dark/stale period. This never
+  /// distinguishes deliberate ghosting from disconnect, dead phone, or age.
+  final int? darkSinceAt;
 
   /// Authoritative identity generation from the shares snapshot. It advances
   /// when the peer changes profile data, allowing missed live avatar events to
