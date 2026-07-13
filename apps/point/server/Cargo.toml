@@ -7,9 +7,10 @@ license = "AGPL-3.0"
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.8", default-features = false, features = [
+sqlx = { version = "0.9", default-features = false, features = [
 	"postgres",
-	"runtime-tokio-rustls",
+	"runtime-tokio",
+	"tls-rustls",
 	"macros",
 	"migrate",
 	"uuid",

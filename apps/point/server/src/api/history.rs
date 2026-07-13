@@ -70,7 +70,9 @@ pub async fn get_history(
          ORDER BY lh.client_timestamp {order}
          LIMIT $5"
     );
-    let rows: Vec<(Vec<u8>, i64, String, String)> = sqlx::query_as(&sql)
+    // `order` is selected from the two fixed literals above; all request data
+    // remains in bind parameters, so the constructed statement is SQL-safe.
+    let rows: Vec<(Vec<u8>, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(&target)
         .bind(since)
         .bind(own)
