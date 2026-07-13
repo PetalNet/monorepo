@@ -30,9 +30,9 @@
 	--color-base-content: #161412;
 	--color-primary: #8a3c28;
 	--color-primary-content: #ffffff;
-	--color-secondary: #2a8f7d;
+	--color-secondary: #8a3c28;
 	--color-secondary-content: #ffffff;
-	--color-accent: #2a8f7d;
+	--color-accent: #8a3c28;
 	--color-accent-content: #ffffff;
 	--color-neutral: #3a3631;
 	--color-neutral-content: #fbfaf9;
@@ -55,9 +55,9 @@
 	--color-base-content: #ece8e3;
 	--color-primary: #ec8a76;
 	--color-primary-content: #0d0c0b;
-	--color-secondary: #5bbfa6;
+	--color-secondary: #ec8a76;
 	--color-secondary-content: #0d0c0b;
-	--color-accent: #5bbfa6;
+	--color-accent: #ec8a76;
 	--color-accent-content: #0d0c0b;
 	--color-neutral: #c4beb6;
 	--color-neutral-content: #161413;
@@ -94,6 +94,11 @@
 	--jade-text: #14574c; /* 8.4 / 8.1 / 7.7 */
 	--jade-soft: rgba(42, 143, 125, 0.12);
 	--jade-ln: rgba(42, 143, 125, 0.3);
+	--avatar-l: 0.43;
+	--avatar-c: 0.08;
+	--on-avatar: #ffffff; /* >=7.7 across the full generated hue range */
+	--research-soft: #f0ecf7;
+	--research-text: #4c347e; /* 8.6 on research-soft */
 	--good-dot: #2f8f5b;
 	--good-text: #14522f; /* 9.2/8.8/8.5 */
 	--warn-dot: #c77d11;
@@ -133,6 +138,11 @@
 	--jade-text: #5bbfa6;
 	--jade-soft: rgba(91, 191, 166, 0.14);
 	--jade-ln: rgba(91, 191, 166, 0.32);
+	--avatar-l: 0.43;
+	--avatar-c: 0.08;
+	--on-avatar: #ffffff; /* >=7.7 across the full generated hue range */
+	--research-soft: #292333;
+	--research-text: #d5c2f2; /* 9.3 on research-soft */
 	--good-dot: #4caf7d;
 	--good-text: #79ca9d; /* 10.0/9.4/8.8 */
 	--warn-dot: #d99520;
@@ -173,6 +183,11 @@
 		--jade-text: #5bbfa6;
 		--jade-soft: rgba(91, 191, 166, 0.14);
 		--jade-ln: rgba(91, 191, 166, 0.32);
+		--avatar-l: 0.43;
+		--avatar-c: 0.08;
+		--on-avatar: #ffffff;
+		--research-soft: #292333;
+		--research-text: #d5c2f2;
 		--good-dot: #4caf7d;
 		--good-text: #79ca9d;
 		--warn-dot: #d99520;

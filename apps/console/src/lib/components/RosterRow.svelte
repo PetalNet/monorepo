@@ -50,7 +50,7 @@
 </script>
 
 <div class="row" class:active={menuOpen}>
-	<span class="ava" style="background: oklch(0.62 0.11 {hueForHandle(row.handle)})">
+	<span class="ava" style="background: oklch(var(--avatar-l) var(--avatar-c) {hueForHandle(row.handle)})">
 		{initial(row.handle)}
 	</span>
 	<div class="who">
@@ -110,7 +110,7 @@
 		place-items: center;
 		font:
 			500 0.6875rem var(--sans);
-		color: #fff;
+		color: var(--on-avatar);
 	}
 	.who {
 		min-width: 0;
