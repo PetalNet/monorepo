@@ -8,6 +8,7 @@
 //! schema.
 
 use serde::Deserialize;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_ENV: &str = "AGENT_MANAGER_CONFIG";
@@ -65,6 +66,12 @@ struct RawConfig {
     /// Size of a freshly created detached tmux session.
     tmux_width: Option<u32>,
     tmux_height: Option<u32>,
+    /// Optional authenticated HTTP specialization for per-user console assistants.
+    assistant_api_bind: Option<String>,
+    assistant_api_token: Option<String>,
+    assistant_receipts_path: Option<String>,
+    assistant_model: Option<String>,
+    glitchtip_dsn: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +94,11 @@ pub struct Config {
     pub kill_agent_on_shutdown: bool,
     pub tmux_width: u32,
     pub tmux_height: u32,
+    pub assistant_api_bind: Option<String>,
+    pub assistant_api_token: Option<String>,
+    pub assistant_receipts_path: PathBuf,
+    pub assistant_model: Option<String>,
+    pub glitchtip_dsn: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -137,6 +149,8 @@ impl Config {
                 .unwrap_or_else(|| home.clone()),
         };
 
+        validate_assistant_config(&raw)?;
+
         Ok(Config {
             creds_path: expand(&home, &raw.creds_path),
             control_room: raw.control_room,
@@ -176,12 +190,46 @@ impl Config {
             kill_agent_on_shutdown: raw.kill_agent_on_shutdown.unwrap_or(true),
             tmux_width: raw.tmux_width.unwrap_or(220),
             tmux_height: raw.tmux_height.unwrap_or(50),
+            assistant_api_bind: raw.assistant_api_bind,
+            assistant_api_token: raw.assistant_api_token,
+            assistant_receipts_path: raw
+                .assistant_receipts_path
+                .map(|p| expand(&home, &p))
+                .unwrap_or_else(|| shared("assistant-manager-receipts.json")),
+            assistant_model: raw.assistant_model,
+            glitchtip_dsn: raw.glitchtip_dsn,
         })
     }
 
     pub fn load_creds(&self) -> Result<MatrixCreds, String> {
         MatrixCreds::from_path(&self.creds_path)
     }
+}
+
+fn validate_assistant_config(raw: &RawConfig) -> Result<(), String> {
+    if raw.assistant_api_bind.is_some() != raw.assistant_api_token.is_some() {
+        return Err(
+            "assistant_api_bind and assistant_api_token must be configured together".into(),
+        );
+    }
+    if raw
+        .assistant_api_token
+        .as_ref()
+        .is_some_and(|token| token.len() < 32)
+    {
+        return Err("assistant_api_token must contain at least 32 characters".into());
+    }
+    if let Some(bind) = &raw.assistant_api_bind {
+        let address: SocketAddr = bind
+            .parse()
+            .map_err(|_| "assistant_api_bind must be an IP socket address".to_string())?;
+        if !address.ip().is_loopback() {
+            return Err(
+                "assistant_api_bind must be loopback; terminate TLS at the local proxy".into(),
+            );
+        }
+    }
+    Ok(())
 }
 
 impl MatrixCreds {
@@ -247,5 +295,21 @@ mod tests {
         }"#;
         let raw: RawConfig = serde_json::from_str(v).unwrap();
         assert_eq!(raw.schema_version, Some(1));
+    }
+
+    #[test]
+    fn assistant_http_configuration_is_atomic() {
+        let only_bind = r#"{"creds_path":"~/c.json","control_room":"!r:x","assistant_api_bind":"127.0.0.1:8091"}"#;
+        let raw: RawConfig = serde_json::from_str(only_bind).unwrap();
+        assert_eq!(
+            validate_assistant_config(&raw).unwrap_err(),
+            "assistant_api_bind and assistant_api_token must be configured together"
+        );
+
+        let public_bind = r#"{"creds_path":"~/c.json","control_room":"!r:x","assistant_api_bind":"0.0.0.0:8091","assistant_api_token":"abcdefghijklmnopqrstuvwxyz-123456"}"#;
+        let raw: RawConfig = serde_json::from_str(public_bind).unwrap();
+        assert!(validate_assistant_config(&raw)
+            .unwrap_err()
+            .contains("loopback"));
     }
 }

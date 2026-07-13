@@ -275,6 +275,51 @@ export async function readHealth(fetchFn: typeof fetch = fetch): Promise<Console
 	return json<ConsoleHealth>(res);
 }
 
+export interface AssistantContextPayload {
+	element_kind: string;
+	field?: string;
+	value: string;
+	datum?: Record<string, unknown>;
+	query_ref?: string;
+	entity_ref?: string;
+}
+
+export interface AssistantMessageResult {
+	schema_version: 1;
+	session_id: string;
+	message_id: string;
+	content: string;
+	tool_results: unknown[];
+}
+
+/** Deliver selected UI context through the caller-scoped assistant runtime. */
+export async function sendAssistantContext(
+	payload: AssistantContextPayload,
+	fetchFn: typeof fetch = fetch,
+): Promise<AssistantMessageResult> {
+	const res = await fetchFn(`${base()}/assistant/context`, {
+		method: "POST",
+		headers: { "content-type": "application/json", accept: "application/json" },
+		credentials: "include",
+		body: JSON.stringify({ id: crypto.randomUUID(), payload }),
+	});
+	return json<AssistantMessageResult>(res);
+}
+
+/** Continue the principal's durable, per-user manager session. */
+export async function sendAssistantMessage(
+	message: string,
+	fetchFn: typeof fetch = fetch,
+): Promise<AssistantMessageResult> {
+	const res = await fetchFn(`${base()}/assistant/messages`, {
+		method: "POST",
+		headers: { "content-type": "application/json", accept: "application/json" },
+		credentials: "include",
+		body: JSON.stringify({ id: crypto.randomUUID(), message }),
+	});
+	return json<AssistantMessageResult>(res);
+}
+
 /**
  * POST /api/v1/op — the named-op command plane (§5.1). Every mutation is a named op, identical for
  * humans and agents. `id` is a client-minted UUID for idempotent dedup. Browsers never hold a

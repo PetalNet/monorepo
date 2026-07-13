@@ -52,6 +52,7 @@
 	verdict={data.health.verdict}
 	stateFact={data.health.stateFact}
 	badges={data.health.badges}
+	connected={data.connected}
 >
 	{@render children()}
 </AppShell>
