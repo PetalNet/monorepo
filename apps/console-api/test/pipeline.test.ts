@@ -252,6 +252,24 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 		);
 		await svc.close();
 	});
+
+	it("refuses in prod-auth when the app URL is console_writer (writer bypasses scope)", async () => {
+		await expect(
+			buildServices(
+				{
+					databaseUrl: temp.adminUrl,
+					appDatabaseUrl: temp.writerUrl, // console_writer has a using(true) policy — must be rejected
+					roDatabaseUrl: temp.roUrl,
+					writerDatabaseUrl: temp.writerUrl,
+					host: "127.0.0.1",
+					port: 0,
+					devAuth: false,
+					glitchtipDsn: null,
+				},
+				{ migrate: false },
+			),
+		).rejects.toThrow(/console_app|writer/);
+	});
 });
 
 describe("post-restart replay (codex N1a P1)", () => {

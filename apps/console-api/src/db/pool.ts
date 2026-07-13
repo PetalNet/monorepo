@@ -59,11 +59,21 @@ export async function assertRuntimeRolesHardened(db: Db, devAuth: boolean): Prom
 		throw new Error(
 			"APP_DATABASE_URL must be a distinct non-superuser role in prod (RLS bypass otherwise)",
 		);
-	const rows = await db.app<{ rolsuper: boolean; rolbypassrls: boolean }[]>`
-		select rolsuper, rolbypassrls from pg_roles where rolname = current_user`;
+	const rows = await db.app<
+		{ rolsuper: boolean; rolbypassrls: boolean; who: string; is_writer: boolean }[]
+	>`
+		select rolsuper, rolbypassrls, current_user as who,
+			pg_has_role(current_user, 'console_writer', 'MEMBER') as is_writer
+		from pg_roles where rolname = current_user`;
 	const r = rows[0];
 	if (!r || r.rolsuper || r.rolbypassrls)
 		throw new Error("console app role must be NOSUPERUSER NOBYPASSRLS (RLS bypass otherwise)");
+	// console_writer holds a `using(true)` policy on current_state/events (for the appender/projector);
+	// the READ connection must NOT be that role, or scoped reads would see every row (codex N1b-1 P0).
+	if (r.who === "console_writer" || r.is_writer)
+		throw new Error(
+			"APP_DATABASE_URL must connect as console_app, not console_writer (writer bypasses scope)",
+		);
 }
 
 /**

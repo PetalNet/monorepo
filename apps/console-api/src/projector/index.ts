@@ -49,18 +49,47 @@ export interface ProjectorAlarm {
 	(type: string, subject: string, message: string): void;
 }
 
+// Aggregate-surface kinds MUST carry the `fleet` scope so a fleet-granted viewer can read them
+// (flat model: `fleet` does not imply `agent:x`). A per-agent-private projection is Phase 3+.
+const AGGREGATE_KINDS = new Set<ProjectionKind>([
+	"fleet",
+	"heartbeat",
+	"registry",
+	"governance",
+	"card",
+	"box_update",
+	"edge",
+]);
+// A stable 64-bit key for the projector's pg advisory lock (guards concurrent replay).
+const REPLAY_LOCK_KEY = 738120;
+
 export class Projector {
 	readonly #writer: Sql;
 	readonly #alarm: ProjectorAlarm;
 	readonly name = "current_state";
+	// Serialize live applies (codex N1b-1 P0): fan-out arrives in seq order; applying one-at-a-time
+	// keeps the checkpoint contiguous so a crash never skips an unfinished seq.
+	#tail: Promise<unknown> = Promise.resolve();
 
 	constructor(writer: Sql, alarm?: ProjectorAlarm) {
 		this.#writer = writer;
 		this.#alarm = alarm ?? (() => {});
 	}
 
-	/** Boot replay: apply every lake event past the checkpoint, in seq order, up to head. Idempotent. */
+	/**
+	 * Boot replay: apply every lake event past the checkpoint, in seq order, up to head. Idempotent.
+	 * Takes a transaction-scoped advisory lock so two instances cannot replay concurrently.
+	 */
 	async replayToHead(): Promise<void> {
+		await this.#writer`select pg_advisory_lock(${REPLAY_LOCK_KEY})`;
+		try {
+			await this.#replayLocked();
+		} finally {
+			await this.#writer`select pg_advisory_unlock(${REPLAY_LOCK_KEY})`;
+		}
+	}
+
+	async #replayLocked(): Promise<void> {
 		const ck = await this.#writer<{ through_seq: string }[]>`
 			insert into projection_checkpoint (name, through_seq) values (${this.name}, 0)
 			on conflict (name) do update set name = excluded.name
@@ -112,43 +141,77 @@ export class Projector {
 					typeof r.received_at === "string" ? r.received_at : new Date(r.received_at).toISOString(),
 				);
 				cursor = Number(r.seq);
+				// monotonic checkpoint (codex P1): only ever advance, never regress.
+				await this.#writer`update projection_checkpoint set through_seq = ${cursor}, updated_at = now()
+					where name = ${this.name} and through_seq < ${cursor}`;
 			}
-			await this.#writer`update projection_checkpoint set through_seq = ${cursor}, updated_at = now() where name = ${this.name}`;
 			if (rows.length < 5000) break;
 		}
 	}
 
-	/** Live path: called by the appender's fan-out, post-commit, in seq order. */
+	/**
+	 * Live path: called by the appender's fan-out, post-commit, in seq order. Serialized so the
+	 * checkpoint advances CONTIGUOUSLY — a crash never skips an unfinished seq (codex P0).
+	 */
 	onEvent(seq: number, e: Emission, receivedAt: string): void {
-		void this.#apply(seq, e, receivedAt)
-			.then(
-				() =>
-					this.#writer`update projection_checkpoint set through_seq = ${seq}, updated_at = now() where name = ${this.name} and through_seq < ${seq}`,
-			)
-			.catch((err: unknown) => {
-				this.#alarm("projection.apply_failed", e.subject, String(err));
-			});
+		const run = this.#tail.then(async () => {
+			await this.#apply(seq, e, receivedAt);
+			// advance ONLY if the previous seq is already checkpointed (contiguous); a no-op otherwise.
+			await this.#writer`update projection_checkpoint set through_seq = ${seq}, updated_at = now()
+				where name = ${this.name} and through_seq = ${seq - 1}`;
+		});
+		this.#tail = run.catch((err: unknown) => {
+			this.#alarm("projection.apply_failed", e.subject, String(err));
+		});
 	}
 
 	async #apply(seq: number, e: Emission, receivedAt: string): Promise<void> {
 		// bridge.source.unreachable marks the affected entities dark (positive down-evidence, L2).
+		// seq-guarded (codex P1): only mark a row dark if its last state is not newer than this signal,
+		// so a delayed old unreachable cannot re-mark a freshly-healthy entity.
 		if (e.type === "bridge.source.unreachable") {
 			await this.#writer`update current_state set unreachable_since = ${receivedAt}
-				where subject = ${e.subject} and unreachable_since is null`;
+				where subject = ${e.subject} and unreachable_since is null and seq <= ${seq}`;
 			return;
 		}
 		const kind = projectionKind(e.type);
 		if (!kind) return;
-		// scope invariance: the upsert NEVER rewrites scope, so visibility cannot flip. A differing
-		// scope on a live update is a producer bug — alarm, don't apply the new scope.
+		// Aggregate-surface kinds must be `fleet`-scoped (codex P1): reject a non-fleet scope so a
+		// mis-stamped emission can never make aggregate state invisible to fleet viewers.
+		if (AGGREGATE_KINDS.has(kind) && e.scope !== "fleet") {
+			this.#alarm(
+				"projection.bad_aggregate_scope",
+				e.subject,
+				`${kind} requires fleet scope, got ${e.scope}`,
+			);
+			return;
+		}
+		// Scope invariance (codex P1): the update predicate requires the SAME scope, so a differing
+		// scope never applies new state under the old scope (which would flip visibility). A mismatch
+		// is a no-op here and is alarmed separately below.
 		const rows = await this.#writer<{ scope: string }[]>`
 			insert into current_state (kind, subject, scope, state, observed_at, producer_ts, seq, unreachable_since)
 			values (${kind}, ${e.subject}, ${e.scope}, ${this.#writer.json(stateOf(e) as never)}, ${receivedAt}, ${e.ts}, ${seq}, null)
 			on conflict (kind, subject) do update
 				set state = excluded.state, observed_at = excluded.observed_at, producer_ts = excluded.producer_ts,
 					seq = excluded.seq, unreachable_since = null
-				where excluded.seq > current_state.seq
+				where excluded.seq > current_state.seq and current_state.scope = excluded.scope
 			returning scope`;
+		if (rows.length === 0) {
+			// either a stale seq (no-op) or a scope mismatch — check for the latter to alarm.
+			const cur = await this.#writer<
+				{ scope: string; seq: string }[]
+			>`select scope, seq from current_state where kind = ${kind} and subject = ${e.subject}`;
+			const c = cur[0];
+			if (c && c.scope !== e.scope && Number(c.seq) < seq) {
+				this.#alarm(
+					"projection.scope_conflict",
+					e.subject,
+					`${kind} scope ${e.scope} != invariant ${c.scope} (not applied)`,
+				);
+			}
+			return;
+		}
 		const storedScope = rows[0]?.scope;
 		if (storedScope !== undefined && storedScope !== e.scope) {
 			this.#alarm(

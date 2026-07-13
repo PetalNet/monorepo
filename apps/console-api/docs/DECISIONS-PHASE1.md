@@ -170,3 +170,35 @@ MED, 3 LOW). Both converge on the load-bearing gaps; all applied to the design b
 Build N1b (projector + current_state + typed reads + tracker mapping + roster/executors +
 completion-signature verify), then the `console-bridge` Rust crate. PR → codex + adversarial
 review → merge.
+
+## N1b-1 code review round (codex, the required reviewer)
+
+Per the updated process (Parker: codex-only, no Claude board), codex (gpt-5.6-terra) reviewed
+N1b-1: **REVISE** — 2 P0, 4 P1, 1 P2. It confirmed RLS enable/force, scoped read path,
+policy/grant ordering, writer-only checkpoint, bound SQL params, and the received_at fan-out are
+correct. All findings applied + tested (39 green):
+
+- **P0 — projector live-apply concurrency**: fire-and-forget applies could advance the checkpoint
+  past an unfinished seq (crash → permanently skip it). Fixed: serialized the live path through a
+  `#tail` promise chain (like the appender) and the checkpoint advances CONTIGUOUSLY
+  (`where through_seq = seq-1`), so a gap never advances past it.
+- **P0 — console_writer as read role bypasses scope**: `console_writer` holds a `using(true)`
+  policy; if the app connected as it, scoped reads would see every row. Fixed:
+  `assertRuntimeRolesHardened` now rejects the app role being `console_writer` or a member of it
+  (must be `console_app`); tested.
+- **P1 — scope conflict applied new state under old scope**: added `current_state.scope =
+excluded.scope` to the update predicate so a mismatched-scope event is a no-op (state never
+  applied under the wrong scope), with a separate mismatch alarm.
+- **P1 — aggregate scope not enforced**: the projector now rejects a non-`fleet` scope for
+  aggregate kinds (fleet/heartbeat/registry/governance/card/box_update/edge); the aggregate-
+  emitting bridge registrations tightened to `fleet`-only (defense in depth).
+- **P1 — checkpoint ownership**: pg advisory lock around boot replay + monotonic checkpoint writes
+  (`where through_seq < cursor`).
+- **P1 — unreachable no seq guard**: `bridge.source.unreachable` only marks a row dark when its
+  last state is not newer (`and seq <= ${seq}`), so a delayed old signal can't re-dark a healthy
+  entity.
+- **P2 — limit NaN**: `readEntity` coerces a non-numeric limit to the default (clean, no 500).
+
+### Next
+
+N1b-2: tracker HTTP reader + /tasks /leases /agents /roster /executors + console-bridge crate.

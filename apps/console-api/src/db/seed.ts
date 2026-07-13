@@ -48,14 +48,14 @@ const REGISTRATIONS: readonly RegSeed[] = [
 		subject: "bridge:fleet",
 		services: ["bridge"],
 		prefixes: ["bridge", "fleet.event"],
-		scopes: ["fleet", "agent:*"],
+		scopes: ["fleet"],
 		maxSeverity: "warn",
 	},
 	{
 		subject: "bridge:manager",
 		services: ["bridge", "manager"],
 		prefixes: ["bridge", "agent.heartbeat", "agent.crashed", "agent.lifecycle", "channel"],
-		scopes: ["fleet", "agent:*"],
+		scopes: ["fleet"],
 		maxSeverity: "p0",
 	},
 	{
@@ -69,7 +69,7 @@ const REGISTRATIONS: readonly RegSeed[] = [
 		subject: "bridge:control-plane",
 		services: ["bridge", "control-plane"],
 		prefixes: ["bridge", "governance", "fleet.mode", "discipline", "usage"],
-		scopes: ["fleet", "agent:*"],
+		scopes: ["fleet"],
 		maxSeverity: "warn",
 	},
 	{

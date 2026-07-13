@@ -34,7 +34,8 @@ export async function readEntity(
 	kind: ProjectionKind,
 	opts: ReadOpts = {},
 ): Promise<ReadEnvelope> {
-	const limit = Math.min(Math.max(1, Math.floor(Number(opts.limit ?? 200))), 1000);
+	const n = Number(opts.limit ?? 200);
+	const limit = Number.isFinite(n) ? Math.min(Math.max(1, Math.floor(n)), 1000) : 200;
 	const after = opts.cursor ?? "";
 	const rows = await withScopes(
 		app,
