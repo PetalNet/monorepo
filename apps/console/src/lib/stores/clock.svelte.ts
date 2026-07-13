@@ -9,9 +9,10 @@ let current = $state(0);
 
 if (browser) {
 	current = Date.now();
-	setInterval(() => {
+	const interval = setInterval(() => {
 		current = Date.now();
 	}, 1000);
+	import.meta.hot?.dispose(() => clearInterval(interval));
 }
 
 export function clockNow(): number {

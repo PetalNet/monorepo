@@ -4,10 +4,9 @@
  * and applies the shared derivations. The raw roster is retained so time-derived lanes and health
  * can be recomputed from the live UI clock (§6.4).
  */
-import { isRosterDown, rosterLane, rosterState } from "$lib/api/derive";
-import type { HeartbeatItem, RosterItem } from "$lib/api/types";
-
-import * as mock from "./mock";
+import { isRosterDown, rosterLane, rosterState } from "../api/derive.ts";
+import type { HeartbeatItem, RosterItem } from "../api/types.ts";
+import * as mock from "./mock.ts";
 
 export interface RosterLanes {
 	needs: RosterItem[];
