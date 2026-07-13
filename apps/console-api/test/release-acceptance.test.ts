@@ -476,23 +476,23 @@ describe("BR-032 hermetic release acceptance", () => {
 
 			// Open a fresh subscription after the unrelated item-share grant change so this assertion
 			// proves that narrowing Alpha's readable scope itself triggers the re-fence.
-			const refenceSocket = await server.injectWS("/api/v1/bus/ws", {
+			const scopeFenceSocket = await server.injectWS("/api/v1/bus/ws", {
 				headers: alphaHeaders,
 				rawHeaders: Object.entries(alphaHeaders).flatMap(([name, value]) => [name, value]),
 				socket: { remoteAddress: "127.0.0.1" },
 			});
-			const refenceFrames: Record<string, unknown>[] = [];
-			refenceSocket.on("message", (data) => refenceFrames.push(JSON.parse(data.toString())));
-			refenceSocket.send(
+			const scopeFenceFrames: Record<string, unknown>[] = [];
+			scopeFenceSocket.on("message", (data) => scopeFenceFrames.push(JSON.parse(data.toString())));
+			scopeFenceSocket.send(
 				JSON.stringify({
 					schema_version: 1,
 					action: "subscribe",
-					sub_id: "release-refence",
+					sub_id: "release-scope-fence",
 					pattern: "**",
 				}),
 			);
 			await expect
-				.poll(() => refenceFrames.some((frame) => frame["kind"] === "ack"), {
+				.poll(() => scopeFenceFrames.some((frame) => frame["kind"] === "ack"), {
 					timeout: 2_000,
 				})
 				.toBe(true);
@@ -513,14 +513,14 @@ describe("BR-032 hermetic release acceptance", () => {
 			await expect
 				.poll(
 					() =>
-						refenceFrames.some(
+						scopeFenceFrames.some(
 							(frame) =>
 								frame["kind"] === "resync_required" && frame["message"] === "grant changed",
 						),
 					{ timeout: 2_000 },
 				)
 				.toBe(true);
-			refenceSocket.terminate();
+			scopeFenceSocket.terminate();
 		} finally {
 			await server.close();
 			await new Promise<void>((resolve) => manager.close(() => resolve()));
