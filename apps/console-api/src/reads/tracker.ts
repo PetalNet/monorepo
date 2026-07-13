@@ -34,6 +34,11 @@ export function filterByScopes<
 }
 
 const LEASE_SECRET_KEYS = new Set(["claim_token", "claimtoken", "token", "secret"]);
+const TASK_PUBLIC_COLUMNS = `t.id, t.kind, t.title, t.body, t.status, t.priority, t.assignee,
+	t.claimed_by, t.owner, t.visibility, t.project_id, t.blocked_on, t.verification_status,
+	t.up_next, t.rank, t.parent_id, t.effort, t.suggested_agent, t.close_reason,
+	t.result_summary, t.created_by, t.created_at, t.updated_at, p.name as project_name,
+	p.name as project_title`;
 
 /** LeasePublic projection: strip claim_token and any lease secret before a lease row leaves. */
 function leasePublic<T extends Record<string, unknown>>(row: T): Partial<T> {
@@ -121,11 +126,19 @@ export class TrackerReader {
 	/** Active + recent tasks, mapped to console scope. claim_token is never selected. */
 	tasks(limit = 500): TrackerRow[] {
 		return this.#all(
-			`select t.id, t.kind, t.title, t.status, t.priority, t.assignee, t.claimed_by, t.owner,
-				t.visibility, t.project_id, t.blocked_on, t.verification_status, t.up_next, t.rank,
-				t.parent_id, t.effort, t.suggested_agent, t.close_reason, t.updated_at, p.name as project_name
+			`select ${TASK_PUBLIC_COLUMNS}
 			from tasks t left join projects p on p.id = t.project_id
 			order by t.updated_at desc limit ${String(Math.min(Math.max(1, Math.floor(limit)), 2000))}`,
+		);
+	}
+
+	/** Complete closed-task history for the Library lens. */
+	closedTasks(): TrackerRow[] {
+		return this.#all(
+			`select ${TASK_PUBLIC_COLUMNS}
+			from tasks t left join projects p on p.id = t.project_id
+			where t.status in ('done', 'dropped')
+			order by t.updated_at desc`,
 		);
 	}
 

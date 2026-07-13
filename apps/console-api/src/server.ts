@@ -71,6 +71,7 @@ import { readRoster, readExecutors } from "./reads/roster.ts";
 import { registerEntityReadRoutes } from "./reads/routes.ts";
 import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
 import type { TrackerReader } from "./reads/tracker.ts";
+import { readWorkSettlement } from "./reads/work-settlement.ts";
 import { acquireCapability, CapabilityAcquisitionError } from "./registry/acquisition.ts";
 import { materializePanel } from "./render/engine.ts";
 import type { PanelSpecV2 } from "./render/types.ts";
@@ -3146,6 +3147,13 @@ export async function buildServer(
 	app.get("/api/v1/tasks", { preHandler: auth }, async (req, reply) => {
 		if (!trackerOr503(reply)) return reply;
 		return readTasks(services.tracker as TrackerReader, (req.principal as Principal).scopes);
+	});
+	app.get("/api/v1/work/settlement", { preHandler: auth }, async (req, reply) => {
+		if (!trackerOr503(reply)) return reply;
+		return readWorkSettlement(
+			services.tracker as TrackerReader,
+			(req.principal as Principal).scopes,
+		);
 	});
 	app.get("/api/v1/leases", { preHandler: auth }, async (req, reply) => {
 		if (!trackerOr503(reply)) return reply;

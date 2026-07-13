@@ -1,5 +1,6 @@
 import { getRequestEvent, query } from "$app/server";
 import { env } from "$env/dynamic/public";
+import type { WorkSettlementSnapshot } from "$lib/api/types";
 import {
 	libraryLinks,
 	libraryProvenance,
@@ -7,6 +8,11 @@ import {
 	type LibraryItemView,
 	type LibraryLinkFixture,
 } from "$lib/data/library";
+import {
+	mockWorkSettlement,
+	settledTaskLibraryItem,
+	type SettlingTask,
+} from "$lib/data/work-settlement";
 import { error } from "@sveltejs/kit";
 import { z } from "zod";
 
@@ -92,7 +98,30 @@ function view(item: ApiItem): LibraryItemView {
 	};
 }
 
+function taskDetail(task: SettlingTask, isMock: boolean): LibraryDetail {
+	const item = settledTaskLibraryItem(task);
+	return {
+		item,
+		links: [],
+		revisions: [{ version: item.version, txFrom: task.updated_at, item }],
+		responsibleHuman: task.owner ?? "unassigned",
+		txFrom: task.updated_at,
+		isMock,
+	};
+}
+
 export const getLibraryItemDetail = query(idSchema, async (id): Promise<LibraryDetail> => {
+	if (id.startsWith("task:")) {
+		const isMock = env.PUBLIC_CONSOLE_DATA_MODE !== "live";
+		const settlement = isMock
+			? mockWorkSettlement()
+			: await api<WorkSettlementSnapshot>("/work/settlement");
+		const task = [...settlement.settling, ...settlement.history].find(
+			(candidate) => `task:${String(candidate.id)}` === id,
+		);
+		if (!task) error(404, "Library task not found");
+		return taskDetail(task, isMock);
+	}
 	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") {
 		const item = mockLibrary.items.find((candidate) => candidate.id === id);
 		if (!item) error(404, "Library item not found");

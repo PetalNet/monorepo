@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import { readTasks, readLeases, readAgents } from "../src/reads/tracker-reads.ts";
 import { filterByScopes, TrackerReader } from "../src/reads/tracker.ts";
+import { readWorkSettlement } from "../src/reads/work-settlement.ts";
 
 describe("tracker visibility -> console scope mapping (via filterByScopes)", () => {
 	it("maps project/private/shared to the right scope and filters to the caller's grants", () => {
@@ -34,7 +35,8 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 			create table tasks (id integer primary key, project_id integer, kind text, title text, status text,
 				priority integer, up_next integer, rank real, parent_id integer, blocked_on text, assignee text,
 				claimed_by text, claim_token text, lease_expires_at text, verification_status text, effort text,
-				suggested_agent text, close_reason text, owner text, visibility text, updated_at text, body text);
+				suggested_agent text, close_reason text, result_summary text, created_by text, owner text,
+				visibility text, created_at text, updated_at text, body text);
 			create table agents (handle text primary key, display_name text, host text, role text, lane text,
 				capabilities text, autonomy text, active integer);
 		`);
@@ -61,6 +63,9 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 			"insert into tasks (id,project_id,title,status,owner,visibility,updated_at) values (6,1,'eli private in console','todo','eli','private','2026-07-13')",
 		).run();
 		db.prepare("insert into agents (handle,host,active) values ('janet','.202',1)").run();
+		db.prepare(
+			"insert into tasks (id,title,kind,status,priority,owner,visibility,created_at,updated_at) values (9,'settled','task','done',2,'parker','shared','2026-07-01 10:00:00','2026-07-10 10:00:00')",
+		).run();
 		db.close();
 		reader = new TrackerReader(dbPath);
 	});
@@ -96,6 +101,14 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 	it("agents require fleet grant", () => {
 		expect(readAgents(reader, ["fleet"]).items).toHaveLength(1);
 		expect(readAgents(reader, ["user:nobody"]).items).toHaveLength(0);
+	});
+
+	it("serves complete scope-filtered settlement history with normalized timestamps", () => {
+		const snapshot = readWorkSettlement(reader, ["fleet"], new Date("2026-07-13T18:00:00Z"));
+		expect(snapshot.history.map((item) => item["id"])).toContain(9);
+		expect(snapshot.history.find((item) => item["id"] === 9)?.["created_at"]).toBe(
+			"2026-07-01T10:00:00.000Z",
+		);
 	});
 
 	it("reconciles only an exact top-level proposal envelope, never markers hidden in args", () => {

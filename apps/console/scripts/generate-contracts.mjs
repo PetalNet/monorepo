@@ -28,6 +28,7 @@ const typeSpecs = [
 	["ExecutorItem", "schemas/entities/executor.schema.json"],
 	["HeartbeatItem", "schemas/entities/heartbeat.schema.json"],
 	["TaskItem", "schemas/entities/task.schema.json"],
+	["WorkSettlementSnapshot", "schemas/work-settlement.schema.json"],
 	["LeaseItem", "schemas/entities/lease.schema.json"],
 	["QueryResult", "schemas/query-result.schema.json"],
 	["CatalogEntry", "schemas/entities/catalog-entry.schema.json"],
