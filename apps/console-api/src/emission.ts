@@ -16,7 +16,7 @@ const ACTION_HTTPS_HOSTS = new Set(["tasks.petalcat.dev"]);
  * Emission actions are navigation targets, never executable URL payloads. Internal routes are
  * preferred; HTTPS is the only external scheme producers may persist.
  */
-export function isSafeEmissionAction(value: string): boolean {
+function isSafeEmissionAction(value: string): boolean {
 	if (!value || value.trimStart().startsWith("//") || value.includes("\\")) return false;
 	try {
 		const internalBase = new URL("https://console.invalid/");
