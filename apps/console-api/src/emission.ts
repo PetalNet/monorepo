@@ -10,6 +10,33 @@ export type Severity = (typeof SEVERITIES)[number];
 
 const HANDLE_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const TYPE_RE = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
+const ACTION_HTTPS_HOSTS = new Set(["tasks.petalcat.dev"]);
+
+/**
+ * Emission actions are navigation targets, never executable URL payloads. Internal routes are
+ * preferred; HTTPS is the only external scheme producers may persist.
+ */
+export function isSafeEmissionAction(value: string): boolean {
+	if (!value || value.trimStart().startsWith("//") || value.includes("\\")) return false;
+	try {
+		const internalBase = new URL("https://console.invalid/");
+		const url = new URL(value, internalBase);
+		return (
+			url.username === "" &&
+			url.password === "" &&
+			(url.origin === internalBase.origin ||
+				(url.protocol === "https:" && ACTION_HTTPS_HOSTS.has(url.hostname)))
+		);
+	} catch {
+		return false;
+	}
+}
+
+const actionTarget = z
+	.string()
+	.min(1)
+	.max(512)
+	.refine(isSafeEmissionAction, "action must be an internal route or HTTPS URL");
 
 const linkTarget = z
 	.object({
@@ -44,7 +71,7 @@ export const emissionSchema = z.object({
 		.nullable()
 		.optional(),
 	severity: z.enum(SEVERITIES),
-	action: z.string().max(512).nullable().optional(),
+	action: actionTarget.nullable().optional(),
 	task_id: z.number().int().nullable().optional(),
 	scope: z.string().regex(SCOPE_RE),
 	dimensions: z.record(z.string(), z.union([z.string().max(512), z.boolean()])).optional(),
