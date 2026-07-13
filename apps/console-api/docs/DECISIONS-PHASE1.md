@@ -212,3 +212,63 @@ a pool — replaced with a transaction-scoped `pg_advisory_xact_lock` (auto-rele
 replay threads the tx handle; (P2) the `#tail` chain was unbounded — added a bounded in-flight
 queue (`#MAX_PENDING`) that drops a live apply under backpressure with an alarm, which is safe
 because the checkpoint only advances contiguously so a later replay refills the gap.
+
+## N1b-3 — co-located bridge (system-outbox → bus)
+
+The `/task/681` driving use case: the lab's service bots (shawn/derek/michael) drop JSON warning
+files under `<dir>/sent/` that today flood Matrix. The bridge tails them on a poll and ingests each
+as a typed `bot.message` through the **normal emit path** (authz + scrubber + dedup), so Matrix goes
+quiet — "you go look, not get pinged". Co-located TS (not the remote Rust `console-bridge`) because
+this covers only the `.14`-local source and the box is disk/RAM-tight; remote boxes get their own
+per-box bridge later. Idempotency = deterministic UUIDv5 per source filename (lake dedups); resume =
+durable per-source cursor in `bridge_cursor`.
+
+### N1b-3 codex review (gpt-5.6-terra) — findings, all applied
+
+- **P0 rejected-emit swallowed**: emit-through returned `{ok:false}` but the cursor still advanced,
+  permanently skipping that file. `#emitOne` now throws on `!ok`, leaving the cursor un-advanced so
+  the next poll re-tails (deterministic id dedups the landed ones). `ok:false` can only mean the
+  producer registration is wrong, so a stalled cursor surfaces that deploy fault loudly rather than
+  silently dropping the whole feed.
+- **P0 partial file skipped-past**: a file caught mid-write parsed as invalid JSON and the cursor
+  advanced past it, losing it forever. Parse failure is now a **barrier** — stop, leave the cursor
+  before it, retry next poll once the write completes.
+- **P0 non-monotonic cursor gap**: a lexicographic high-water cursor silently misses any file whose
+  name sorts at/below the cursor (a producer writing out of order). Because `sent/` is append-only,
+  that shows up as more files at/below the cursor than last recorded (`below_count`, now persisted),
+  which triggers an **anomaly full rescan** (dedup makes the re-read free) plus a
+  `bridge.source.anomaly` signal. Walked the anomaly×barrier interaction: it converges (re-emits
+  dedup, the signal fires once per below-insert, no loop even when a mid-rescan barrier regresses the
+  cursor).
+- **P1 sender spoofing**: `subject` was the writer-controlled `sender`, letting anyone who can drop
+  a file forge a `bot.message` attributed to any identity. Subject is now the fixed trustworthy
+  source `system-outbox`; the claimed sender is a labelled dimension only.
+- **P1 wrong-typed JSON poisons the source**: `{"sender":1}` threw at `.toLowerCase()` and marked
+  the whole source unreachable. Fields are now type-checked and coerced to safe defaults per record.
+- **P1 concurrent polls race the cursor**: `pollOnce` is single-flight (a tick during an in-flight
+  poll is dropped); poll failures log to stderr instead of being swallowed.
+- **P1 symlink/oversize reads**: files are `lstat`'d — non-regular files (a symlink could smuggle in
+  unrelated readable JSON) are skipped and reads are capped at 64 KiB.
+- **P1 unreachable-event spam** (~17k/day at a 5s poll): the down-signal is emitted once on the
+  healthy→dark transition (in-memory `#dark` set), with a `bridge.source.recovered` on the way back.
+- **P2 `BRIDGE_POLL_MS`**: validated/clamped to a finite `[250ms, 1h]` interval.
+
+RLS/authz assessment (codex): no privilege leak on `bridge_cursor` — unscoped, no `console_app`/
+`console_ro` grant, `console_writer` has exactly SELECT/INSERT/UPDATE. `bot.message` and the
+`bridge.source.*` control events are all permitted by the seeded `bridge`/`bot` prefixes at `fleet`
+scope with `≤danger` severity, so the now-throwing emit path cannot reject them.
+
+### N1b-3 final Terra review — findings applied
+
+The required fresh `gpt-5.6-terra` review found five additional gaps. All are fixed and covered by
+the focused suite: recognized system-outbox messages now map to `host.disk.pct` and
+`container.update_available` (unknowns remain `bot.message`; executor-only completion types do not);
+non-object JSON is normalized; file reads use descriptor-bound `O_NOFOLLOW` + `fstat`; stable
+non-regular/oversize losses emit `bridge.gap_detected`; and record-level validation/secret failures
+are metadata-only quarantined in `bridge_dead_letter` so one poison record cannot block later files.
+Transient append/deploy failures still leave the cursor unchanged. The published contract now says
+checkpoint-after-accept (the physically accurate cross-HTTP guarantee) and documents quarantine.
+The re-review then tightened identity and reconciliation: typed subjects are fixed to the local
+source, filenames leave the writer-only cursor table only as opaque UUID refs, malformed JSON in
+the daemon's atomic-rename `sent/` directory is stable poison rather than an infinite barrier, and
+the cursor persists a digest as well as a count so prune+late-insert cannot mask loss.

@@ -6,6 +6,8 @@ import postgres from "postgres";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import { buildServices, type Services } from "../src/app.ts";
+import { Bridge } from "../src/bridge/index.ts";
+import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
 import { migrate } from "../src/db/migrate.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
@@ -542,5 +544,81 @@ describe("roster + executors (N1b-2, lake half)", () => {
 			| { liveness: string }
 			| undefined;
 		expect(mgr?.liveness).toBe("alive"); // fresh heartbeat -> manager class alive
+	});
+});
+
+describe("bridge end-to-end (N1b-3 — bot-spam into the bus)", () => {
+	it("ingests system-outbox files into the lake via the real emit path, idempotently", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = mkdtempSync(join(tmpdir(), "e2e-outbox-"));
+		mkdirSync(join(dir, "sent"), { recursive: true });
+		writeFileSync(
+			join(dir, "sent", "900-shawn.json"),
+			JSON.stringify({ sender: "shawn", body: "[warn] routine alert" }),
+		);
+
+		const bridge = new Bridge(services.db.writer, (subj, e, b) => services.emit(subj, e, b), {
+			systemOutboxDir: dir,
+		});
+		await bridge.pollOnce("2026-07-13T00:00:00Z");
+		const q1 = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "bot.message",
+			select: [{ field: "subject" }],
+		});
+		// the subject is the trustworthy source; the (spoofable) claimed sender rides as a dimension
+		expect(q1.rows.map((r) => r[0])).toContain("system-outbox");
+		const sender = await services.db
+			.admin`select dimensions->>'sender' s from events where type='bot.message'`;
+		expect(sender.map((r) => r["s"])).toContain("shawn");
+
+		// second poll: cursor advanced -> no re-emit; and even a forced re-tail dedups by deterministic id
+		const before = await services.db
+			.admin`select count(*)::int n from events where type='bot.message'`;
+		await bridge.pollOnce("2026-07-13T00:00:05Z");
+		const after = await services.db
+			.admin`select count(*)::int n from events where type='bot.message'`;
+		expect(after[0]?.["n"]).toBe(before[0]?.["n"]); // idempotent — no duplicate rows
+	});
+
+	it("quarantines a secret-bearing poison record and continues with the next file", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = mkdtempSync(join(tmpdir(), "e2e-poison-outbox-"));
+		mkdirSync(join(dir, "sent"), { recursive: true });
+		writeFileSync(
+			join(dir, "sent", "990-ghp_abcdefghijklmnopqrstuvwxyz.json"),
+			JSON.stringify({
+				sender: "shawn",
+				body: "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz",
+			}),
+		);
+		writeFileSync(
+			join(dir, "sent", "991-valid.json"),
+			JSON.stringify({ sender: "shawn", body: "routine valid message after poison" }),
+		);
+		try {
+			const bridge = new Bridge(services.db.writer, (subj, e, b) => services.emit(subj, e, b), {
+				systemOutboxDir: dir,
+			});
+			await bridge.pollOnce("2026-07-13T00:01:00Z");
+			const validRef = sourceCursorRef("991-valid.json");
+			const poisonRef = sourceCursorRef("990-ghp_abcdefghijklmnopqrstuvwxyz.json");
+			const valid = await services.db
+				.admin`select count(*)::int n from events where dimensions->>'file_ref' = ${validRef}`;
+			expect(valid[0]?.["n"]).toBe(1);
+			const dead = await services.db
+				.admin`select error_code from bridge_dead_letter where source_cursor = ${poisonRef}`;
+			expect(dead[0]?.["error_code"]).toBe("secret_detected");
+			const gap = await services.db
+				.admin`select count(*)::int n from events where type='bridge.gap_detected' and dimensions->>'source_cursor'=${poisonRef}`;
+			expect(gap[0]?.["n"]).toBe(1);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

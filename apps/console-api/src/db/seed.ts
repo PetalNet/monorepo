@@ -79,6 +79,13 @@ const REGISTRATIONS: readonly RegSeed[] = [
 		scopes: ["fleet"],
 		maxSeverity: "p0",
 	},
+	{
+		subject: "bridge:system-outbox",
+		services: ["bridge"],
+		prefixes: ["bridge", "bot", "host", "container"],
+		scopes: ["fleet"],
+		maxSeverity: "danger",
+	},
 ];
 
 export async function seedBootstrap(admin: Sql): Promise<void> {
