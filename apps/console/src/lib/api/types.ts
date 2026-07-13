@@ -127,6 +127,23 @@ export interface ExecutorItem extends Extra {
 	last_seen_epoch?: number | null;
 	detail?: string | null;
 }
+export interface HeartbeatItem extends Extra {
+	schema_version: 2;
+	version: string;
+	handle?: string | null;
+	pid: number;
+	state: "starting" | "running" | "rate_limited" | "waiting" | "crashed" | "stopped";
+	session_id: string;
+	tmux_session?: string | null;
+	pane_id?: string | null;
+	io_ok: boolean;
+	crash_count: number;
+	started_at_epoch: number;
+	last_sync_ok_epoch: number;
+	updated_at_epoch: number;
+	host: string;
+	observed_at: string;
+}
 
 // ---- accounting (POST /query, GET /catalog, GET /dashboards) ----
 export type QueryColumnType = "string" | "number" | "boolean" | "timestamp" | "json";

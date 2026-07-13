@@ -21,6 +21,7 @@ import type {
 	DashboardItem,
 	DeliveryItem,
 	ExecutorItem,
+	HeartbeatItem,
 	EdgeRegistryItem,
 	EdgeSessionItem,
 	Me,
@@ -120,6 +121,15 @@ export async function readExecutors(
 		credentials: "include",
 	});
 	return json<ReadEnvelope<ExecutorItem>>(res);
+}
+export async function readHeartbeats(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<HeartbeatItem>> {
+	const res = await fetchFn(`${base()}/heartbeats?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<HeartbeatItem>>(res);
 }
 
 /** POST /api/v1/query — scope-filtered structured statistics query, run as the caller. */
