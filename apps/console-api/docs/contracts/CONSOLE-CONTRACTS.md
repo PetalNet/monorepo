@@ -372,6 +372,13 @@ one hour to Digest through the `signal.snooze` action attributed to `system:bus`
 Humans and agents end the active override through that same audited `signal.snooze` operation,
 which restores the prior tier through the same projection.
 
+The live Matrix adapter is configured as one fail-closed set:
+`CONSOLE_API_MATRIX_HOMESERVER` (an HTTPS origin), `CONSOLE_API_MATRIX_ACCESS_TOKEN`, and
+`CONSOLE_API_MATRIX_OWNER_BINDINGS` (JSON mapping console principal ids to their verified Matrix
+user ids). A user-id target must equal that binding. A room target is accepted only when both the
+delivery account and the bound user are joined. Missing configuration yields an honest failed
+operation; it never produces a synthetic delivered receipt.
+
 ### 4.3 Emit — `POST /api/v1/emit` (+ `/emit/batch`, ≤500)
 
 **Emit authorization matrix** (Rule 7 applied to producers):

@@ -9,6 +9,7 @@ export interface DeliveryReceiptView {
 	status: string;
 	error: string | null;
 	retryable?: boolean;
+	channel?: string;
 }
 
 const now = Date.now(),
@@ -164,6 +165,7 @@ export const mockReceipts: DeliveryReceiptView[] = [
 		subject: "Test from the lab.",
 		status: "delivered",
 		error: null,
+		channel: "matrix",
 	},
 	{
 		seq: "r2",
@@ -173,6 +175,7 @@ export const mockReceipts: DeliveryReceiptView[] = [
 		subject: "14 signals batched",
 		status: "delivered",
 		error: null,
+		channel: "matrix",
 	},
 	{
 		seq: "r3",
@@ -182,5 +185,6 @@ export const mockReceipts: DeliveryReceiptView[] = [
 		subject: "carson-2",
 		status: "delivered",
 		error: null,
+		channel: "matrix",
 	},
 ];

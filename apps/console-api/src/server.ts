@@ -50,6 +50,7 @@ import {
 import { withScopes } from "./db/pool.ts";
 import { loadEnv } from "./env.ts";
 import { scrubUnknown } from "./ingest/scrubber.ts";
+import { MatrixDeliveryError } from "./notifications/matrix.ts";
 import {
 	initExceptionMonitor,
 	inertExceptionMonitor,
@@ -236,6 +237,10 @@ const INTERNAL_OP_ADAPTERS = new Set([
 	"viz.render",
 	"text.surface",
 	"context.receive",
+	"delivery.test",
+	"delivery.set_target",
+	"delivery.resend",
+	"delivery.cocoon",
 ]);
 
 function schemaAtPointer(schema: JsonSchema, fragment: string): JsonSchema | null {
@@ -1277,6 +1282,23 @@ export async function buildServer(
 					);
 				return { pattern, tier: "feed", restored: true, updated_at: now };
 			}
+			case "delivery.test":
+				return (await services.delivery.test(principal.id)) as Record<string, unknown>;
+			case "delivery.set_target":
+				return (await services.delivery.setTarget(
+					principal.id,
+					String(call.args["target"]),
+				)) as Record<string, unknown>;
+			case "delivery.resend":
+				return (await services.delivery.resend(
+					principal.id,
+					String(call.args["receipt_ref"]),
+				)) as Record<string, unknown>;
+			case "delivery.cocoon":
+				return (await services.delivery.cocoon(principal.id, String(call.args["until"]))) as Record<
+					string,
+					unknown
+				>;
 			default:
 				throw new AssistantRuntimeError(
 					"executor_unreachable",
@@ -1518,10 +1540,13 @@ export async function buildServer(
 			const known =
 				error instanceof AssistantRuntimeError ||
 				error instanceof QueryError ||
-				error instanceof TrackerCommandError;
+				error instanceof TrackerCommandError ||
+				error instanceof MatrixDeliveryError;
 			const code = known ? error.code : "op_failed";
 			const retryable =
-				error instanceof AssistantRuntimeError || error instanceof TrackerCommandError
+				error instanceof AssistantRuntimeError ||
+				error instanceof TrackerCommandError ||
+				error instanceof MatrixDeliveryError
 					? error.retryable
 					: false;
 			const failed = opEnvelope(call, {
@@ -1585,6 +1610,11 @@ export async function buildServer(
 			}));
 			const matrixEpoch = Number(matrixRows[0]?.sync_ok_epoch);
 			matrixSyncOkEpoch = Number.isSafeInteger(matrixEpoch) && matrixEpoch > 0 ? matrixEpoch : null;
+			await services.delivery
+				.reconcileMatrixSync(matrixSyncOkEpoch)
+				.catch((error) =>
+					monitor.captureException(sanitizedException(error, "delivery sync health")),
+				);
 		} catch (error) {
 			lake = "down";
 			monitor.captureException(sanitizedException(error));

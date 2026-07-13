@@ -19,6 +19,8 @@ import type { Env } from "./env.ts";
 import { authorizeEmission } from "./ingest/authz.ts";
 import { loadRegistration } from "./ingest/registrations.ts";
 import { scrubEmission } from "./ingest/scrubber.ts";
+import { DeliveryService } from "./notifications/delivery.ts";
+import { HttpMatrixTransport } from "./notifications/matrix.ts";
 import {
 	inertExceptionMonitor,
 	sanitizedException,
@@ -51,6 +53,7 @@ export interface Services {
 	readonly assistant: AssistantCompiler | null;
 	readonly assistantRuntime: AssistantRuntime | null;
 	readonly costMeter?: CostMeter;
+	readonly delivery: DeliveryService;
 	/** Process-local key only in dev; production must supply CONSOLE_API_CURSOR_SECRET. */
 	readonly cursorSecret: string;
 	onGrantChange(listener: (zookie: string) => void): () => void;
@@ -161,9 +164,15 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 				...(env.costMeterToken ? { token: env.costMeterToken } : {}),
 			})
 		: undefined;
+	let delivery: DeliveryService | null = null;
 	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
 		projector.onEvent(seq, e, receivedAt);
+		void delivery
+			?.enqueueEmission(e)
+			.catch((error) =>
+				monitor.captureException(sanitizedException(error, "delivery dispatch failed")),
+			);
 	});
 	let stormDetector: SignalStormDetector | null = null;
 	let stormExpiryTimer: NodeJS.Timeout | null = null;
@@ -216,7 +225,13 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 			e.type === "subscription.changed" &&
 			typeof entityOwner === "string" &&
 			e.scope === (entityOwner.startsWith("agent:") ? entityOwner : `user:${entityOwner}`);
-		if (!editable.scopes.includes(e.scope) && !internalSubscriptionWrite)
+		const internalOwner = e.dimensions?.["owner"];
+		const internalPrivateWrite =
+			producerSubject === "system:console-api" &&
+			(e.type.startsWith("delivery.") || e.type.startsWith("attention.")) &&
+			typeof internalOwner === "string" &&
+			e.scope === `user:${internalOwner}`;
+		if (!editable.scopes.includes(e.scope) && !internalSubscriptionWrite && !internalPrivateWrite)
 			return {
 				ok: false,
 				code: "scope_denied",
@@ -274,6 +289,14 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		return { ok: true, seq: result.seq, duplicate: result.duplicate };
 	}
 
+	delivery = new DeliveryService({
+		db,
+		matrix: env.matrix ? new HttpMatrixTransport(env.matrix) : null,
+		emit: async (emission) =>
+			emit("system:console-api", emission, Buffer.byteLength(JSON.stringify(emission))),
+		scopesForOwner: async (owner) => (await resolveScopes(db.admin, owner, [])).scopes,
+	});
+
 	stormDetector = new SignalStormDetector(
 		db.admin,
 		async (emission) =>
@@ -302,6 +325,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		assistant,
 		assistantRuntime,
 		...(costMeter ? { costMeter } : {}),
+		delivery,
 		cursorSecret,
 		onGrantChange(listener) {
 			grantListeners.add(listener);
@@ -310,6 +334,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		emit,
 		async close() {
 			if (stormExpiryTimer) clearInterval(stormExpiryTimer);
+			await delivery?.drain();
 			tracker?.close();
 			await grantListen.unlisten();
 			await db.close();
