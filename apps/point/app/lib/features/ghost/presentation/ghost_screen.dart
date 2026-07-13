@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';
+import 'package:point_app/features/me/presentation/settings_widgets.dart';
 import 'package:point_app/theme/theme_x.dart';
 import 'package:point_app/widgets/ghost_toggle.dart';
 
@@ -47,14 +48,13 @@ class GhostScreen extends ConsumerWidget {
             children: [
               Text(
                 'CURRENTLY',
-                style: context.text.labelSmall
-                    ?.copyWith(color: context.colors.onSurfaceVariant),
+                style: context.text.labelSmall?.copyWith(
+                  color: context.colors.onSurfaceVariant,
+                ),
               ),
               SizedBox(height: context.space.md),
               Text(
-                sharing
-                    ? "You're sharing your\nlocation"
-                    : "You're\ndark",
+                sharing ? "You're sharing your\nlocation" : "You're\ndark",
                 textAlign: TextAlign.center,
                 style: context.text.headlineMedium,
               ),
@@ -66,8 +66,9 @@ class GhostScreen extends ConsumerWidget {
                     ? 'Tap to go dark. No one sees where you are, and no one is told that you went dark.'
                     : 'No one can see your location. Tap to start sharing again.',
                 textAlign: TextAlign.center,
-                style: context.text.bodyMedium
-                    ?.copyWith(color: context.colors.onSurfaceVariant),
+                style: context.text.bodyMedium?.copyWith(
+                  color: context.colors.onSurfaceVariant,
+                ),
               ),
               SizedBox(height: context.space.xxl),
               GhostToggle(
@@ -79,8 +80,9 @@ class GhostScreen extends ConsumerWidget {
               SizedBox(height: context.space.sm),
               Text(
                 sharing ? 'Sharing (on)' : 'Ghost (on)',
-                style: context.text.bodySmall
-                    ?.copyWith(color: context.colors.onSurfaceVariant),
+                style: context.text.bodySmall?.copyWith(
+                  color: context.colors.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -101,7 +103,9 @@ class _StatusChip extends StatelessWidget {
     final ink = context.colors.onSurface;
     final onInk = context.colors.surface;
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
+      duration: ReducedMotionScope.of(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 220),
       height: 72,
       padding: EdgeInsets.symmetric(horizontal: context.space.md),
       decoration: BoxDecoration(
@@ -115,8 +119,9 @@ class _StatusChip extends StatelessWidget {
           SizedBox(width: context.space.lg),
           Text(
             sharing ? 'Sharing' : 'Ghosted',
-            style: context.text.titleLarge
-                ?.copyWith(color: sharing ? onInk : ink),
+            style: context.text.titleLarge?.copyWith(
+              color: sharing ? onInk : ink,
+            ),
           ),
           SizedBox(width: context.space.lg),
           Container(
