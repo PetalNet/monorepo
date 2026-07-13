@@ -10,14 +10,18 @@
 
 import { DatabaseSync } from "node:sqlite";
 
-/** Map a tracker row's native visibility to the console scope tag that governs who may read it. */
+/**
+ * Map a tracker row's native visibility to the console scope tag that governs who may read it.
+ * PRIVATE is owner-only in the tracker's ACL and takes precedence over project (codex N1b-2 P0): a
+ * private task that also has a project must NOT leak to project-scoped callers.
+ */
 function trackerScope(row: {
 	project_name?: string | null;
 	visibility?: string | null;
 	owner?: string | null;
 }): string {
-	if (row.project_name) return `project:${row.project_name}`;
 	if (row.visibility === "private" && row.owner) return `user:${row.owner}`;
+	if (row.project_name) return `project:${row.project_name}`;
 	return "fleet";
 }
 
@@ -74,13 +78,18 @@ export class TrackerReader {
 		);
 	}
 
-	/** LeasePublic view of held leases (status=doing). claim_token is NOT selected. */
+	/**
+	 * LeasePublic view of ACTIVE (unexpired) held leases. claim_token is NOT selected. Uses
+	 * julianday() so both 'YYYY-MM-DD HH:MM:SS' and RFC3339 'T…Z' expiry formats compare correctly,
+	 * matching the tracker's active-lease semantics (codex N1b-2 P2).
+	 */
 	leases(): TrackerRow[] {
 		const rows = this.#all(
 			`select t.id as task_id, t.claimed_by as worker, t.lease_expires_at, t.owner, t.visibility,
 				p.name as project_name
 			from tasks t left join projects p on p.id = t.project_id
-			where t.status = 'doing' and coalesce(t.claimed_by,'') != ''`,
+			where t.status = 'doing' and coalesce(t.claimed_by,'') != ''
+				and t.lease_expires_at is not null and julianday(t.lease_expires_at) > julianday('now')`,
 		);
 		return rows.map((r) => leasePublic(r) as TrackerRow);
 	}

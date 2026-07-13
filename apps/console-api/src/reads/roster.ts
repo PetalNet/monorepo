@@ -68,12 +68,18 @@ export async function readRoster(
 			heartbeat: source(cs["heartbeat"]),
 			registry: source(cs["registry"]),
 			governance: source(cs["governance"]),
-			identity: agentByHandle.has(handle)
-				? { visibility: "visible", data: agentByHandle.get(handle) }
-				: { visibility: tracker ? "absent" : "absent", data: null },
-			lease: leaseByWorker.has(handle)
-				? { visibility: "visible", data: leaseByWorker.get(handle) }
-				: { visibility: "absent", data: null },
+			// tracker null => "unavailable" (source down), distinct from "absent" (no row) — the frontend
+			// must not render an unavailable source as "no data" (codex N1b-2 P1, Rule 10).
+			identity: !tracker
+				? { visibility: "unavailable" as const, data: null }
+				: agentByHandle.has(handle)
+					? { visibility: "visible" as const, data: agentByHandle.get(handle) }
+					: { visibility: "absent" as const, data: null },
+			lease: !tracker
+				? { visibility: "unavailable" as const, data: null }
+				: leaseByWorker.has(handle)
+					? { visibility: "visible" as const, data: leaseByWorker.get(handle) }
+					: { visibility: "absent" as const, data: null },
 		};
 	});
 	return {
@@ -103,35 +109,49 @@ const EXECUTOR_KINDS = [
 	"console-api",
 ] as const;
 
-/** /executors — pre-flight liveness for ActionRows, derived from lake registry + heartbeat state. */
+function livenessFrom(
+	observedAt: string | undefined,
+	now: number,
+): { liveness: string; last_seen: string | null } {
+	if (!observedAt) return { liveness: "unknown", last_seen: null };
+	const t = new Date(observedAt).getTime();
+	const ageS = (now - t) / 1000;
+	return {
+		liveness: ageS <= 90 ? "alive" : ageS <= 300 ? "suspect" : "down",
+		last_seen: new Date(t).toISOString(),
+	};
+}
+
+/**
+ * /executors — per-instance ActionRow pre-flight liveness. Reports ONLY liveness we have real lake
+ * evidence for (codex N1b-2 P1): managers from their heartbeat rows (per handle). The remaining
+ * executor SERVICES (dispatcher/control-plane/tracker/library/box-agent/edge/…) have no lake
+ * liveness source until their emitters land in N1c — reported `unknown`, never faked `alive` from
+ * an unrelated agent registry row.
+ */
 export async function readExecutors(app: Sql, scopes: readonly string[]): Promise<ReadEnvelope> {
-	// registry current-state carries per-agent last_seen; managers' heartbeat carries manager liveness.
 	const rows = await withScopes(
 		app,
 		scopes,
 		async (tx) =>
 			tx<
 				CurrentRow[]
-			>`select kind, subject, state, observed_at from current_state where kind in ('registry','heartbeat')`,
+			>`select kind, subject, observed_at from current_state where kind = 'heartbeat'`,
 	);
 	const now = Date.now();
-	const items = EXECUTOR_KINDS.map((kind) => {
-		// derive a coarse liveness for the executor class from the freshest matching current_state row.
-		const matches = rows.filter((r) =>
-			kind === "manager" ? r.kind === "heartbeat" : r.kind === "registry",
-		);
-		let freshest = 0;
-		for (const m of matches) {
-			const t = new Date(
-				typeof m.observed_at === "string" ? m.observed_at : m.observed_at,
-			).getTime();
-			if (t > freshest) freshest = t;
-		}
-		const ageS = freshest === 0 ? null : (now - freshest) / 1000;
-		const liveness =
-			ageS === null ? "unknown" : ageS <= 90 ? "alive" : ageS <= 300 ? "suspect" : "down";
-		return { kind, liveness, last_seen: freshest === 0 ? null : new Date(freshest).toISOString() };
-	});
+	const items: { kind: string; ref: string | null; liveness: string; last_seen: string | null }[] =
+		[];
+	// per-manager instances from heartbeat rows (the real evidence we have)
+	for (const r of rows) {
+		const obs =
+			typeof r.observed_at === "string" ? r.observed_at : new Date(r.observed_at).toISOString();
+		items.push({ kind: "manager", ref: r.subject, ...livenessFrom(obs, now) });
+	}
+	// the other executor kinds: no lake evidence yet (N1c emitters) — honest `unknown`.
+	for (const kind of EXECUTOR_KINDS) {
+		if (kind === "manager") continue;
+		items.push({ kind, ref: null, liveness: "unknown", last_seen: null });
+	}
 	return {
 		schema_version: 1,
 		freshness: { source: "lake", observed_at: new Date().toISOString(), window_s: null },

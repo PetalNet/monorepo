@@ -493,7 +493,7 @@ describe("current_state projection (N1b)", () => {
 });
 
 describe("roster + executors (N1b-2, lake half)", () => {
-	it("roster joins lake current_state per handle; tracker-absent halves are marked absent, not null-as-data", async () => {
+	it("roster joins lake current_state per handle; tracker-down halves are 'unavailable', not null-as-data", async () => {
 		const e = await services.emit(
 			"bridge:fleet",
 			{
@@ -516,7 +516,7 @@ describe("roster + executors (N1b-2, lake half)", () => {
 			| { fleet: { visibility: string }; identity: { visibility: string } }
 			| undefined;
 		expect(row?.fleet.visibility).toBe("visible");
-		expect(row?.identity.visibility).toBe("absent"); // tracker not wired here — absent, not "no data"
+		expect(row?.identity.visibility).toBe("unavailable"); // tracker null => unavailable, not "no data"
 	});
 
 	it("executors derive liveness from lake current_state", async () => {

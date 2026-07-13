@@ -48,8 +48,17 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 		db.prepare(
 			"insert into tasks (id,title,status,owner,visibility,updated_at) values (3,'shared','todo','parker','shared','2026-07-13')",
 		).run();
+		// active (future) lease
 		db.prepare(
-			"insert into tasks (id,title,status,claimed_by,claim_token,lease_expires_at,visibility) values (4,'doing','doing','janet','SECRET','2026-07-13T01:00:00Z','shared')",
+			"insert into tasks (id,title,status,claimed_by,claim_token,lease_expires_at,visibility) values (4,'doing','doing','janet','SECRET','2099-01-01T00:00:00Z','shared')",
+		).run();
+		// EXPIRED lease — must be filtered from /leases (codex P2)
+		db.prepare(
+			"insert into tasks (id,title,status,claimed_by,claim_token,lease_expires_at,visibility) values (5,'stale','doing','ghost','SECRET','2020-01-01T00:00:00Z','shared')",
+		).run();
+		// PRIVATE task that ALSO has a project — must NOT leak to a project-only caller (codex P0)
+		db.prepare(
+			"insert into tasks (id,project_id,title,status,owner,visibility,updated_at) values (6,1,'eli private in console','todo','eli','private','2026-07-13')",
 		).run();
 		db.prepare("insert into agents (handle,host,active) values ('janet','.202',1)").run();
 		db.close();
@@ -68,10 +77,19 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 		expect(ids).not.toContain(2); // eli private
 	});
 
-	it("leases are leasePublic (no claim_token) and scoped", () => {
+	it("a PRIVATE task in a project does NOT leak to a project-only caller (codex P0)", () => {
+		const asProject = readTasks(reader, ["project:console"]).items.map((i) => i["id"]);
+		expect(asProject).toContain(1); // shared-in-project task
+		expect(asProject).not.toContain(6); // eli's private-in-project task — owner-only, not project
+		const asEli = readTasks(reader, ["user:eli"]).items.map((i) => i["id"]);
+		expect(asEli).toContain(6); // owner sees their own private task
+	});
+
+	it("leases are leasePublic (no claim_token), scoped, and exclude EXPIRED leases (codex P2)", () => {
 		const env = readLeases(reader, ["fleet"]);
-		expect(env.items).toHaveLength(1);
+		expect(env.items).toHaveLength(1); // task 4 active; task 5 expired -> filtered
 		expect(env.items[0]?.["worker"]).toBe("janet");
+		expect(env.items[0]?.["task_id"]).toBe(4);
 		expect("claim_token" in (env.items[0] ?? {})).toBe(false);
 	});
 
