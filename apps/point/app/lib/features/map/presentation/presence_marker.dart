@@ -9,13 +9,14 @@ import 'package:point_app/widgets/presence_dot.dart';
 /// with the person's initials, and a small mono label pill beneath. Monochrome
 /// — form carries state, never color.
 class PresenceMarker extends StatelessWidget {
-  const PresenceMarker({required this.person, super.key});
+  const PresenceMarker({required this.person, this.onTap, super.key});
 
   final Person person;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final marker = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
@@ -35,8 +36,9 @@ class PresenceMarker extends StatelessWidget {
                 alignment: Alignment.center,
                 child: Text(
                   _initials,
-                  style: context.text.labelMedium
-                      ?.copyWith(color: context.colors.onSurface),
+                  style: context.text.labelMedium?.copyWith(
+                    color: context.colors.onSurface,
+                  ),
                 ),
               ),
               PresenceDot(state: person.presence, size: 44),
@@ -47,6 +49,43 @@ class PresenceMarker extends StatelessWidget {
         _LabelPill(text: '${person.displayName} · $_when'),
       ],
     );
+
+    if (onTap == null) return marker;
+    return Semantics(
+      label: '${person.displayName}, $_semanticStatus, $_semanticFreshness',
+      hint: 'Opens location actions and person details',
+      button: true,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
+        onTap: onTap,
+        child: marker,
+      ),
+    );
+  }
+
+  String get _semanticStatus => switch (person.presence) {
+    PresenceState.live => 'Live',
+    PresenceState.away => 'Away',
+    PresenceState.stale => 'Stale',
+    PresenceState.ghosted => 'Ghosted',
+  };
+
+  String get _semanticFreshness {
+    final compact = _compactFreshness;
+    if (compact == null) return 'updated recently';
+    if (compact == 'now') return 'updated now';
+    final match = RegExp(r'^(\d+)([mhd])$').firstMatch(compact);
+    if (match == null) return 'updated recently';
+    final amount = int.parse(match.group(1)!);
+    final unit = switch (match.group(2)) {
+      'm' => 'minute',
+      'h' => 'hour',
+      _ => 'day',
+    };
+    return 'updated $amount $unit${amount == 1 ? '' : 's'} ago';
   }
 
   String get _initials {
@@ -55,8 +94,15 @@ class PresenceMarker extends StatelessWidget {
     return parts.first.characters.take(2).toString().toUpperCase();
   }
 
+  String? get _compactFreshness {
+    final candidate = person.subtitle.trim().split('·').last.trim();
+    return candidate == 'now' || RegExp(r'^\d+[mhd]$').hasMatch(candidate)
+        ? candidate
+        : null;
+  }
+
   String get _when => person.presence == PresenceState.live
-      ? 'now'
+      ? (_compactFreshness ?? 'recent')
       : (person.distanceLabel ?? 'away');
 }
 
@@ -68,7 +114,7 @@ class _LabelPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 92),
+      constraints: const BoxConstraints(maxWidth: 140),
       child: Container(
         padding: EdgeInsets.symmetric(
           horizontal: context.space.sm,
@@ -80,8 +126,8 @@ class _LabelPill extends StatelessWidget {
         ),
         child: Text(
           text,
-          maxLines: 1,
-          softWrap: false,
+          maxLines: 2,
+          softWrap: true,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: context.text.labelSmall?.copyWith(
