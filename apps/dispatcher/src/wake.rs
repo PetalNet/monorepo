@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use rand::Rng;
+use rand::RngExt;
 
 #[derive(Debug)]
 pub struct TokenBucket {
@@ -52,7 +52,7 @@ pub fn full_jitter(base: Duration) -> Duration {
     if base.is_zero() {
         return base;
     }
-    let ms = rand::thread_rng().gen_range(0..=base.as_millis() as u64);
+    let ms = rand::rng().random_range(0..=base.as_millis() as u64);
     Duration::from_millis(ms)
 }
 

@@ -4,7 +4,7 @@ use axum::extract::{Path, State};
 use axum::response::Html;
 use axum::Json;
 use chrono::{DateTime, Duration, Utc};
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -225,9 +225,9 @@ pub async fn admin_info(State(state): State<AppState>, user: AuthUser) -> ApiRes
 /// Shared with group invites (api::groups).
 pub(crate) fn generate_invite_code() -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..8)
-        .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char)
+        .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
         .collect()
 }
 
