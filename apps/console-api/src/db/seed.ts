@@ -67,6 +67,8 @@ const GRANTS: readonly GrantSeed[] = [
 	{ subject: "bridge:dispatcher", relation: "editor", object: "fleet" },
 	{ subject: "bridge:control-plane", relation: "editor", object: "fleet" },
 	{ subject: "bridge:hosts", relation: "editor", object: "fleet" },
+	{ subject: "bridge:box-agent", relation: "editor", object: "fleet" },
+	{ subject: "bridge:doorman", relation: "editor", object: "fleet" },
 	{ subject: "bridge:system-outbox", relation: "editor", object: "fleet" },
 ];
 
@@ -115,6 +117,20 @@ const REGISTRATIONS: readonly RegSeed[] = [
 		prefixes: ["bridge", "host", "container", "box", "service.lifecycle"],
 		scopes: ["fleet"],
 		maxSeverity: "p0",
+	},
+	{
+		subject: "bridge:box-agent",
+		services: ["bridge", "box-agent"],
+		prefixes: ["bridge", "agent.capacity", "worker", "host", "container"],
+		scopes: ["fleet"],
+		maxSeverity: "danger",
+	},
+	{
+		subject: "bridge:doorman",
+		services: ["bridge", "doorman"],
+		prefixes: ["bridge", "doorman"],
+		scopes: ["fleet"],
+		maxSeverity: "danger",
 	},
 	{
 		subject: "bridge:system-outbox",
