@@ -2173,7 +2173,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f1295188c6665fb9e96466180ac0a919ef52b5861cf7e86523823661348a597"
 dependencies = [
  "log",
- "openmls_traits",
+ "openmls_traits 0.3.0",
  "rayon",
  "serde",
  "thiserror 1.0.69",
@@ -2182,12 +2182,12 @@ dependencies = [
 
 [[package]]
 name = "openmls_basic_credential"
-version = "0.3.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "465874276a4e2a3e391b25a464059a224c70c5c77ca1e3f595032bb310ab8984"
+checksum = "983e8be1457dd6f316f409292cec334af3b57b49a19deadc925c83c3c35e15b6"
 dependencies = [
  "ed25519-dalek 2.2.0",
- "openmls_traits",
+ "openmls_traits 0.5.0",
  "p256",
  "rand 0.8.7",
  "serde",
@@ -2202,7 +2202,7 @@ checksum = "ea9cc9eb04ed97262fa96382d7dbf0adfebd5ecde7dbafc7070f9231dd9cf08b"
 dependencies = [
  "base64 0.13.1",
  "log",
- "openmls_traits",
+ "openmls_traits 0.3.0",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -2223,7 +2223,7 @@ dependencies = [
  "hpke-rs-crypto",
  "hpke-rs-rust-crypto",
  "openmls_memory_storage",
- "openmls_traits",
+ "openmls_traits 0.3.0",
  "p256",
  "rand 0.8.7",
  "rand_chacha 0.3.1",
@@ -2238,6 +2238,16 @@ name = "openmls_traits"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "443afa05406adc75fbfa0c3e04db93c5647b763861a474ae1aa8a99c362b80f8"
+dependencies = [
+ "serde",
+ "tls_codec",
+]
+
+[[package]]
+name = "openmls_traits"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f88ccdd53448dfdbfa5b8da8ba4e527c418fdb966418172bace2e3b41eedd56"
 dependencies = [
  "serde",
  "tls_codec",
@@ -2414,7 +2424,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_memory_storage",
  "openmls_rust_crypto",
- "openmls_traits",
+ "openmls_traits 0.3.0",
  "rand 0.10.2",
  "serde",
  "serde_json",
