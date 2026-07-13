@@ -2432,7 +2432,7 @@ dependencies = [
  "openidconnect",
  "point-core",
  "rand 0.10.2",
- "reqwest 0.12.28",
+ "reqwest 0.13.4",
  "sentry",
  "serde",
  "serde_json",
