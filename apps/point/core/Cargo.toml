@@ -20,7 +20,7 @@ thiserror = "2"
 base64 = "0.22"
 rand = "0.10"
 hex = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
 # Zero-knowledge account recovery (client-side): derive a key from a user-held
 # recovery code and encrypt the exported MLS state so the server stores only
 # opaque ciphertext. See recovery.rs.
