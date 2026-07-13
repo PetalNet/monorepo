@@ -73,6 +73,11 @@ import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
 import type { TrackerReader } from "./reads/tracker.ts";
 import { readWorkSettlement } from "./reads/work-settlement.ts";
 import { acquireCapability, CapabilityAcquisitionError } from "./registry/acquisition.ts";
+import {
+	CapabilityContributionError,
+	proposeCapability,
+	reviewCapability,
+} from "./registry/contribution.ts";
 import { materializePanel } from "./render/engine.ts";
 import type { PanelSpecV2 } from "./render/types.ts";
 import {
@@ -250,6 +255,8 @@ const INTERNAL_OP_ADAPTERS = new Set([
 	"context.receive",
 	"signal.source_mode",
 	"library.item.update",
+	"library.capability.propose",
+	"library.capability.review",
 	"delivery.test",
 	"delivery.set_target",
 	"delivery.resend",
@@ -847,6 +854,12 @@ export async function buildServer(
 			}
 		}
 		if (typeof rawId === "string") {
+			if (entry.op === "library.capability.review") {
+				const proposals = await services.db.admin<
+					{ id: string; scope: string; proposed_by: string | null }[]
+				>`select id, scope, proposed_by from library_curation where id = ${rawId}`;
+				if (proposals[0]) return { ...proposals[0], owner: proposals[0].proposed_by };
+			}
 			const items = await services.db.admin<
 				{
 					id: string;
@@ -1295,6 +1308,23 @@ export async function buildServer(
 					Number(patch["expected_version"]),
 				);
 			}
+			case "library.capability.propose":
+				return proposeCapability(services.db.writer, principal, {
+					capability: String(call.args["capability"]),
+					title: String(call.args["title"]),
+					version: String(call.args["version"]),
+					scope: String(call.args["scope"]),
+					reason: call.reason?.trim() ?? "",
+					artifactBase64: String(call.args["artifact_base64"]),
+				});
+			case "library.capability.review":
+				return reviewCapability(
+					services.db.writer,
+					String(call.args["proposal_id"]),
+					call.args["decision"] as "under-review" | "promoted" | "rejected",
+					principal.id,
+					call.reason?.trim() ?? "",
+				);
 			case "task.claim":
 				if (!services.trackerCommands)
 					throw new TrackerCommandError(
@@ -1723,6 +1753,7 @@ export async function buildServer(
 		const isRead = entry.authz.rule === "read";
 		const proposalRequired =
 			!isRead &&
+			call.op !== "library.capability.propose" &&
 			(await shouldProposeMutation(
 				services.db.admin,
 				principal,
@@ -1908,6 +1939,7 @@ export async function buildServer(
 			monitor.captureException(sanitizedException(error));
 			const known =
 				error instanceof AssistantRuntimeError ||
+				error instanceof CapabilityContributionError ||
 				error instanceof DashboardError ||
 				error instanceof QueryError ||
 				error instanceof TrackerCommandError ||
@@ -1931,7 +1963,17 @@ export async function buildServer(
 				undo: null,
 			});
 			if (!isRead) await auditOutcome(call, principal, failed, "failed");
-			return reply.code(retryable ? 503 : 400).send(failed);
+			return reply
+				.code(
+					retryable
+						? 503
+						: error instanceof CapabilityContributionError && error.code === "proposal_not_found"
+							? 404
+							: error instanceof CapabilityContributionError
+								? 409
+								: 400,
+				)
+				.send(failed);
 		}
 	});
 

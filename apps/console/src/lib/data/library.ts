@@ -259,6 +259,10 @@ export interface LibraryCurationView {
 	linksIn: number;
 	activeTaskLinks: number;
 	proposedAt: string;
+	state: string;
+	capability?: string;
+	version?: string;
+	proposedBy?: string;
 }
 
 interface ApiEnvelope<T> {
@@ -315,6 +319,10 @@ interface ApiLibraryCuration {
 	links_in: number;
 	active_task_links: number;
 	proposed_at: string;
+	state: string;
+	capability: string | null;
+	version: string | null;
+	proposed_by: string | null;
 }
 
 function apiBase(): string {
@@ -458,6 +466,10 @@ export async function readLiveLibrary(fetchFn: typeof fetch = fetch): Promise<Li
 						linksIn: item.links_in,
 						activeTaskLinks: item.active_task_links,
 						proposedAt: item.proposed_at,
+						state: item.state,
+						...(item.capability ? { capability: item.capability } : {}),
+						...(item.version ? { version: item.version } : {}),
+						...(item.proposed_by ? { proposedBy: item.proposed_by } : {}),
 					}))
 				: [],
 		sources: {

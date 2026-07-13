@@ -26,7 +26,7 @@ type JsonSchema = Record<string, unknown> & {
 };
 type SchemaNode = JsonSchema | boolean;
 export type ConfirmKind = "none" | "soft" | "hard";
-export type OpName = "attention.ack" | "attention.snooze" | "attention.resolve" | "task.get_ready" | "task.up_next" | "task.claim" | "task.update" | "task.close" | "task.dispatch" | "agent.start" | "agent.stop" | "agent.restart" | "agent.kill_session" | "agent.autonomy" | "governance.action" | "governance.tier" | "fleet.mode" | "channel.reclaim" | "signal.snooze" | "signal.source_mode" | "subscription.set" | "subscription.remove" | "card.repost" | "card.park" | "stats.query" | "viz.render" | "text.surface" | "window.arrange" | "dashboard.save" | "dashboard.load" | "dashboard.set_home" | "dashboard.pin" | "dashboard.delete" | "dashboard.share" | "context.receive" | "kb.search" | "kb.research" | "library.item.create" | "library.item.update" | "library.link.add" | "library.hold" | "curation.propose" | "curation.approve" | "curation.reject" | "item.weed" | "item.merge" | "item.delete" | "promotion.request" | "promotion.approve" | "service.restart" | "service.stop" | "service.logs" | "host.probe" | "host.reboot" | "updates.check" | "updates.approve" | "updates.revoke" | "updates.apply" | "edge.enroll.approve" | "edge.enroll.deny" | "edge.key.revoke" | "doorman.session.drop" | "doorman.redial" | "term.watch" | "term.attach" | "term.input" | "term.resize" | "term.scrollback" | "term.detach" | "delivery.test" | "delivery.set_target" | "delivery.resend" | "delivery.cocoon";
+export type OpName = "attention.ack" | "attention.snooze" | "attention.resolve" | "task.get_ready" | "task.up_next" | "task.claim" | "task.update" | "task.close" | "task.dispatch" | "agent.start" | "agent.stop" | "agent.restart" | "agent.kill_session" | "agent.autonomy" | "governance.action" | "governance.tier" | "fleet.mode" | "channel.reclaim" | "signal.snooze" | "signal.source_mode" | "subscription.set" | "subscription.remove" | "card.repost" | "card.park" | "stats.query" | "viz.render" | "text.surface" | "window.arrange" | "dashboard.save" | "dashboard.load" | "dashboard.set_home" | "dashboard.pin" | "dashboard.delete" | "dashboard.share" | "context.receive" | "kb.search" | "kb.research" | "library.item.create" | "library.item.update" | "library.capability.propose" | "library.capability.review" | "library.link.add" | "library.hold" | "curation.propose" | "curation.approve" | "curation.reject" | "item.weed" | "item.merge" | "item.delete" | "promotion.request" | "promotion.approve" | "service.restart" | "service.stop" | "service.logs" | "host.probe" | "host.reboot" | "updates.check" | "updates.approve" | "updates.revoke" | "updates.apply" | "edge.enroll.approve" | "edge.enroll.deny" | "edge.key.revoke" | "doorman.session.drop" | "doorman.redial" | "term.watch" | "term.attach" | "term.input" | "term.resize" | "term.scrollback" | "term.detach" | "delivery.test" | "delivery.set_target" | "delivery.resend" | "delivery.cocoon";
 export interface OpDef {
 	op: OpName; verb: string; lane: Lane; executor: string; confirm: ConfirmKind;
 	undo: boolean; humanOnly: boolean; args: JsonSchema;
@@ -2773,6 +2773,79 @@ const OPS = {
 			"additionalProperties": false
 		}
 	},
+	"library.capability.propose": {
+		"op": "library.capability.propose",
+		"verb": "Propose",
+		"lane": "viewer",
+		"executor": "library",
+		"confirm": "none",
+		"undo": false,
+		"humanOnly": false,
+		"args": {
+			"type": "object",
+			"required": [
+				"capability",
+				"title",
+				"version",
+				"scope",
+				"artifact_base64"
+			],
+			"properties": {
+				"capability": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 128
+				},
+				"title": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 160
+				},
+				"version": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 64
+				},
+				"scope": {
+					"type": "string"
+				},
+				"artifact_base64": {
+					"type": "string",
+					"maxLength": 1398104
+				}
+			},
+			"additionalProperties": false
+		}
+	},
+	"library.capability.review": {
+		"op": "library.capability.review",
+		"verb": "Review",
+		"lane": "admin",
+		"executor": "library",
+		"confirm": "none",
+		"undo": false,
+		"humanOnly": true,
+		"args": {
+			"type": "object",
+			"required": [
+				"proposal_id",
+				"decision"
+			],
+			"properties": {
+				"proposal_id": {
+					"type": "string"
+				},
+				"decision": {
+					"enum": [
+						"under-review",
+						"promoted",
+						"rejected"
+					]
+				}
+			},
+			"additionalProperties": false
+		}
+	},
 	"library.link.add": {
 		"op": "library.link.add",
 		"verb": "Add",
@@ -3756,6 +3829,17 @@ export const OP_TEST_FIXTURES = {
 	"library.item.update": {
 		"id": "fixture",
 		"patch": {}
+	},
+	"library.capability.propose": {
+		"capability": "fixture",
+		"title": "fixture",
+		"version": "fixture",
+		"scope": "fixture",
+		"artifact_base64": "fixture"
+	},
+	"library.capability.review": {
+		"proposal_id": "fixture",
+		"decision": "under-review"
 	},
 	"library.link.add": {
 		"from_id": "fixture",

@@ -920,8 +920,9 @@ export async function listLibraryCuration(
 				proposed_at: string | Date;
 			}[]
 		>`select id, item_id, proposal_type, reason, scope, state, links_in, active_task_links,
-		         run_id, proposed_at from library_curation
-		  where state = 'review' order by proposed_at desc, id desc
+		         run_id, proposed_at, capability, version, sha256, proposed_by, reviewed_by,
+		         reviewed_at, review_reason from library_curation
+		  where state in ('review', 'proposed', 'under-review') order by proposed_at desc, id desc
 		  limit ${limit + 1} offset ${offset}`,
 	);
 	const page = rows.slice(0, limit);
