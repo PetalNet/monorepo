@@ -50,7 +50,10 @@ catalogs:
     postcss: ^8.4.49
     prisma: ^5.22.0
     svelte-check: ^4.3.5
-    typescript: ^6.0.3
+    # Keep the TS 6 API at the name ecosystem tooling imports. The native TS 7
+    # compiler is installed alongside it under the official alias below.
+    "@typescript/native": npm:typescript@^7.0.2
+    typescript: npm:@typescript/typescript6@^6.0.2
     typescript-eslint: ^8.60.0
     typesync: ^0.14.3
     update-ts-references: ^6.0.0
