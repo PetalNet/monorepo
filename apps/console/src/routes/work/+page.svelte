@@ -15,6 +15,7 @@
 	import VerificationBadge from "$lib/components/VerificationBadge.svelte";
 	import type { WorkEvent } from "$lib/data/work";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
+	import { claimWantedCard, getWantedBoard } from "./wanted-board.remote";
 
 	let { data } = $props();
 	let tasks = $state<TaskItem[]>([...untrack(() => data.tasks)]);
@@ -34,6 +35,7 @@
 	let closeReason = $state("");
 	let dispatchRecipient = $state("");
 	let handledTask = $state<number | null>(null);
+	const wantedQuery = getWantedBoard();
 	const statuses: { id: Exclude<TaskStatus, "done" | "dropped">; label: string }[] = [
 		{ id: "inbox", label: "Inbox" }, { id: "todo", label: "Todo" }, { id: "doing", label: "Doing" },
 		{ id: "review", label: "Review" }, { id: "blocked", label: "Blocked" },
@@ -53,9 +55,12 @@
 	const age = (value: number | string) => { const ms = typeof value === "number" ? value : Date.parse(value); const minutes = Math.max(0, Math.round((now - ms) / 6e4)); return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`; };
 	const score = (card: CardItem) => (3 - card.priority) + .05 * ((now - card.created_at_ms) / 6e4);
 	const rank = (state: CardItem["state"]) => state === "posted" ? 0 : state === "parked" ? 1 : state === "dead" ? 2 : 3;
-	const wanted = $derived(wantedCards.toSorted((a: CardItem, b: CardItem) => {
+	const wanted = $derived(wantedCards.filter((card) => card.state !== "done").toSorted((a: CardItem, b: CardItem) => {
 		return rank(a.state) - rank(b.state) || score(b) - score(a);
 	}));
+	const wantedServicesLive = $derived(
+		wantedQuery.current?.dispatcher_live === true && wantedQuery.current?.tracker_live === true,
+	);
 	async function runTaskClose(args: Record<string, unknown>, dryRun = false): Promise<OpResult> {
 		const response = await fetch(`${env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1"}/op`, {
 			method: "POST",
@@ -76,6 +81,9 @@
 		if (data.isMock) return;
 		tasks = [...data.tasks]; wantedCards = [...data.wanted];
 		if (selected) selected = data.tasks.find((task: TaskItem) => task.id === selected?.id) ?? null;
+	});
+	$effect(() => {
+		if (wantedQuery.current) wantedCards = [...wantedQuery.current.cards];
 	});
 	$effect(() => {
 		const requested = Number(page.url.searchParams.get("task"));
@@ -139,9 +147,59 @@
 	const block = (task: TaskItem) => fire(task, "task.update", { id: task.id, patch: { status: "blocked", blocked_on: blockReason }, ...((task.status === "doing" || task.status === "review") ? { force: true } : {}) }, { status: "blocked", blocked_on: blockReason });
 	const close = (task: TaskItem) => fire(task, "task.close", { id: task.id, status: "done", reason: closeReason.trim(), ...((task.status === "doing" || task.status === "review") ? { force: true } : {}) }, { status: "done", close_reason: closeReason.trim() }, "task.close: done with reason recorded.");
 	async function claimWanted(card: CardItem) {
-		const task = tasks.find((item) => item.id === card.task_id) ?? { id: card.task_id, title: card.body, status: "todo", priority: card.priority, kind: "task", created_at: new Date(card.created_at_ms).toISOString(), updated_at: new Date(card.updated_at_ms).toISOString() } satisfies TaskItem;
-		await claim(task);
-		if (data.isMock) { wantedCards = wantedCards.filter((item) => item.card_id !== card.card_id); if (!tasks.some((item)=>item.id===task.id)) tasks = [...tasks, { ...task, status: "doing", claimed_by: "you", assignee: "you" }]; }
+		busy = card.task_id;
+		try {
+			const outcome = await claimWantedCard({
+				card_id: card.card_id,
+				task_id: card.task_id,
+				...(card.needs[0] ? { capability: card.needs[0] } : {}),
+				updated_at_ms: card.updated_at_ms,
+			});
+			if (!outcome.won) {
+				snackbar.push({
+					message: outcome.claimed_by
+						? `Claimed by ${outcome.claimed_by} first.`
+						: "Claimed by another resident first.",
+					op: "task.claim",
+					tone: "warn",
+				});
+				return;
+			}
+			wantedCards = wantedCards.map((item) =>
+				item.card_id === card.card_id
+					? { ...item, state: "claimed", claimed_by: outcome.claimed_by }
+					: item,
+			);
+			const task = tasks.find((item) => item.id === card.task_id) ?? {
+				id: card.task_id,
+				title: card.body,
+				status: "todo",
+				priority: card.priority,
+				kind: "task",
+				created_at: new Date(card.created_at_ms).toISOString(),
+				updated_at: new Date(card.updated_at_ms).toISOString(),
+			} satisfies TaskItem;
+			tasks = tasks.some((item) => item.id === task.id)
+				? tasks.map((item) =>
+						item.id === task.id
+							? { ...item, status: "doing", claimed_by: outcome.claimed_by, assignee: outcome.claimed_by }
+							: item,
+					)
+				: [...tasks, { ...task, status: "doing", claimed_by: outcome.claimed_by, assignee: outcome.claimed_by }];
+			snackbar.push({ message: "task.claim won. Lease granted by tracker.", op: "task.claim", tone: "good" });
+			setTimeout(() => {
+				wantedCards = wantedCards.filter((item) => item.card_id !== card.card_id);
+			}, 240);
+			if (!data.isMock) await invalidateAll();
+		} catch (error) {
+			snackbar.push({
+				message: `task.claim failed: ${(error as Error).message}`,
+				op: "task.claim",
+				tone: "danger",
+			});
+		} finally {
+			busy = null;
+		}
 	}
 	function keys(event: KeyboardEvent) {
 		if (event.key === "Escape" && drawer?.open) drawer.close();
@@ -175,16 +233,49 @@
 
 <section class="settle"><header><Icon name="circle-check" size={14}/><h2>Done today</h2><span>Settles to the Library after 24h.</span></header>{#each done as task}<button onclick={()=>{selected=task;blockReason="";closeReason="";dispatchRecipient="";}}><Icon name="circle-check" size={14}/><b>{task.title}</b><span>{task===done[0]?"Done. Points posted.":""}</span><time>settles in {Math.max(0,24-Math.round((now-Date.parse(task.updated_at))/36e5))}h</time></button>{:else}<p>All caught up.</p>{/each}</section>
 
-<div class="lower"><section class="wanted"><header><Icon name="signpost" size={14}/><h2>Unclaimed work</h2><span>Soul Squad Board</span><b>{unclaimed.length}</b></header>{#each wanted as card}<article class:parked={card.state==="parked"} class:dead={card.state==="dead"}><div><b>{card.body}</b><small>{#each card.needs as need}<code>{need}</code>{/each}<span>P{card.priority}</span><span>{age(card.created_at_ms)} old</span>{#if card.state==="parked"}<em>Parked. No resident provides {card.needs.join(", ")} right now.</em>{/if}{#if card.state==="dead"}<em>{card.reaps} reaps · dead letter</em>{/if}</small></div><span class="score">score {score(card).toFixed(1)}</span>{#if card.state==="posted"}<button class="tonal" disabled={!canAct||!data.trackerLive} onclick={() => claimWanted(card)}>Claim</button>{:else if card.state==="dead"}<a href="/signals">triage in Signals</a>{:else}<button disabled title="No resident currently satisfies this card">Claim</button>{/if}</article>{:else}<p>Nothing unclaimed. The Soul Squad got it all.</p>{/each}{#if !data.wantedAvailable}<p class="unavailable">Dispatcher card projection unavailable.</p>{/if}</section>
+<div class="lower"><section class="wanted" aria-labelledby="wanted-title"><header><Icon name="signpost" size={14}/><h2 id="wanted-title">Unclaimed work</h2><span>Soul Squad Board</span><b>{unclaimed.length}</b></header>
+	{#if !wantedQuery.current && !data.isMock}
+		<div class="wanted-loading" aria-label="Loading wanted board" aria-busy="true">
+			{#each Array(4) as _}<div class="wanted-skeleton"><span></span><i></i></div>{/each}
+		</div>
+	{:else}
+		{#each wanted as card (card.card_id)}
+			<article class:parked={card.state==="parked"} class:dead={card.state==="dead"} class:claimed={card.state==="claimed"}>
+				<div><b>{card.body}</b><small>{#each card.needs as need}<code>{need}</code>{/each}<span>P{card.priority}</span><span>{age(card.created_at_ms)} old</span>{#if card.state==="parked"}<em>Parked. No resident provides {card.needs.join(", ")} right now.</em>{/if}{#if card.state==="dead"}<em>{card.reaps} reaps · dead letter</em>{/if}</small></div>
+				<span class="score" title="Surfacing score">score {score(card).toFixed(1)}</span>
+				{#if card.state==="posted"}
+					<button class="tonal" disabled={!canAct||!wantedServicesLive||busy===card.task_id} title={!canAct?"State actions blocked":!wantedServicesLive?"Tracker or dispatcher is not live":"task.claim"} onclick={() => claimWanted(card)}>{busy===card.task_id?"Claiming…":"Claim"}</button>
+				{:else if card.state==="claimed"}
+					<div class="agent claimed-by"><span>{card.claimed_by?.slice(0,1).toUpperCase()??"?"}</span><b>{card.claimed_by??"Claimed"}</b></div>
+				{:else if card.state==="dead"}
+					<a href="/signals">triage in Signals</a>
+				{:else}
+					<button disabled title="No resident currently satisfies this card">Claim</button>
+				{/if}
+			</article>
+		{:else}<p>Nothing unclaimed. The Soul Squad got it all.</p>{/each}
+	{/if}
+</section>
 	<aside class="feed"><header><Icon name="hammer" size={14}/><h2>Build feed</h2><span>newest {data.feed.length}</span></header>{#each data.feed as item}<article class:failed={item.state==="failed"}><div class="preview"><Icon name={item.state==="shipped"?"image":"hammer"} size={24}/></div><b>{item.title}</b><p>{item.state==="building"?"Building.":item.state==="failed"?`Build failed at ${item.step}. Log attached. Not fine until it is green.`:"Shipped to the Library."}</p><footer><span>{item.agent}</span>{#if item.taskId>0}<a href={`/work?task=${item.taskId}`}>/task/{item.taskId}</a>{:else}<span>Library artifact</span>{/if}<time>{age(item.updatedAt)}</time></footer></article>{:else}<p>{data.feedAvailable?"No recent Library artifacts.":"Build feed unavailable: Library could not be read."}</p>{/each}</aside>
 </div>
 
 <ModalSurface bind:element={drawer} open={selected!==null} variant="drawer" labelledby="task-title" onclose={()=>selected=null}>{#if selected}<div class="task-drawer"><IconButton class="dialog-close" name="x" label="Close task" autofocus onclick={()=>drawer?.close()}/><small>/task/{selected.id} · {selected.status}</small><h2 id="task-title">{selected.title}</h2><div class="drawer-meta"><StatusPill tone={selected.status==="done"?"good":selected.status==="blocked"?"danger":selected.status==="review"?"warn":"info"} label={selected.status}/><PriorityPips priority={selected.priority}/><VerificationBadge status={selected.verification_status??"unverified"}/></div>{#if selected.claimed_by||selected.assignee}<div class="agent large"><span>{(selected.claimed_by||selected.assignee)?.slice(0,1).toUpperCase()}</span><b>{selected.claimed_by||selected.assignee}</b></div>{/if}{#if selected.acceptance_criteria}<section><h3>Acceptance criteria</h3>{#each selected.acceptance_criteria.split("\n").filter(Boolean) as criterion}<p><Icon name="circle-dashed" size={12}/>{criterion}</p>{/each}</section>{/if}{#if selected.handoff_context}<section><h3>Handoff context</h3><div class="box">{selected.handoff_context}</div></section>{/if}<section><h3>Events</h3>{#each eventsFor(selected.id) as event}<p class="event"><time>{new Date(event.ts).toLocaleTimeString()}</time><span>{event.detail}</span></p>{:else}<p>No contracted events found.</p>{/each}</section>{#if selected.result_summary}<section><h3>Result</h3><div class="box">{selected.result_summary}</div></section>{/if}<div class="drawer-actions">{#if selected.status==="review"}<button class="tonal" disabled={!canAct||!data.trackerLive} title={!canAct?"task.update permission required":"task.update"} onclick={()=>verify(selected!)}>Verify</button><label>Rejection reason<input bind:value={rejectReason}/></label><button disabled={!canAct||!data.trackerLive||!rejectReason.trim()} title={!canAct?"task.update permission required":"Reject with reason"} onclick={()=>reject(selected!)}>Reject</button>{/if}{#if selected.status==="todo"}<button class="tonal" disabled={!canAct||!data.trackerLive} onclick={()=>claim(selected!)}>Claim</button>{/if}{#if selected.status==="todo"||selected.status==="inbox"}<label>Dispatch recipient<input bind:value={dispatchRecipient} placeholder="agent id"/></label><button disabled={!canAct||!data.dispatcherLive} title={!data.dispatcherLive?"Dispatcher unreachable":"task.dispatch"} onclick={()=>dispatch(selected!,dispatchRecipient)}>Dispatch</button>{/if}{#if selected.status==="inbox"}<button class="tonal" disabled={!canAct||!data.trackerLive} onclick={()=>moveTodo(selected!)}>Move to Todo</button>{/if}{#if selected.status!=="done"&&selected.status!=="dropped"}<label>Block reason<input bind:value={blockReason} placeholder="Dependency or incident"/></label><button disabled={!blockReason.trim()||!data.trackerLive||!canAct} title={!blockReason.trim()?"A blocking reason is required":!canAct?"task.update permission required":"task.update"} onclick={()=>block(selected!)}>Block</button><label>Close reason<input bind:value={closeReason} placeholder="Outcome and why this is complete"/></label><button class="tonal" disabled={!closeReason.trim()||!data.trackerLive||!canAct||busy===selected.id} title={!closeReason.trim()?"A close reason is required":!canAct?"task.close permission required":"task.close"} onclick={()=>close(selected!)}>Close as done</button>{/if}</div></div>{/if}</ModalSurface>
 
 <style>
-	.utility{display:flex;align-items:center;gap:var(--s-3);min-height:40px}.utility :global(.surface-sign){flex:1}.utility label{width:240px;height:32px;background:var(--s2);display:flex;align-items:center;gap:var(--s-2);padding:0 var(--s-2);border-radius:var(--r-xs)}input{border:0;background:none;color:var(--text);outline:0;min-width:0;width:100%}input:focus{outline:2px solid var(--petal);outline-offset:2px}.utility time{font:400 .75rem var(--mono);color:var(--text-3)}.hud{display:flex;gap:var(--s-2);margin:var(--s-3) 0 var(--s-4)}.stalebar{display:flex;align-items:center;gap:var(--s-2);min-height:40px;padding:0 var(--s-3);background:var(--warn-soft);color:var(--warn-text);font-size:.75rem;margin-bottom:var(--s-3);border-radius:var(--r-xs)}.board{display:grid;grid-template-columns:repeat(5,minmax(184px,1fr));gap:var(--s-2);min-height:320px}.column{display:flex;flex-direction:column;gap:var(--s-2);min-width:0}.column>header{height:24px;display:flex;align-items:center;gap:var(--s-1);font:500 .6875rem var(--mono);text-transform:uppercase;color:var(--text-3)}.column>header b{font-weight:500}.column>p,.settle>p,.wanted>p,.feed>p{font-size:.75rem;color:var(--text-3);padding:var(--s-2)}.task{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-2);display:flex;flex-direction:column;gap:var(--s-1);transition:background var(--t),transform var(--dur-fast)}.task:hover{background:var(--s2)}.task:active{transform:scale(.97)}.task.urgent{background:var(--danger-soft)}.task.ready{background:var(--jade-soft)}.drill{border:0;background:none;color:var(--text);padding:0;text-align:left;display:flex;gap:var(--s-1);align-items:baseline}.drill:focus{outline:2px solid var(--petal);outline-offset:2px}.title{font:500 .84375rem/1.35 var(--sans);display:-webkit-box;line-clamp:2;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.project{font:500 .6875rem var(--mono);text-transform:uppercase;background:var(--s2);color:var(--text-3);padding:0 var(--s-1);border-radius:var(--r-xs)}.task small{font:400 .6875rem var(--mono);color:var(--text-3)}.agent{display:inline-flex;align-items:center;gap:var(--s-1);font-size:.75rem}.agent>span{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;background:var(--jade-soft);color:var(--jade-text);font-size:.6875rem}.agent b{font-weight:500}.lease{display:flex;align-items:center;gap:var(--s-1);font-size:.6875rem;color:var(--text-3)}.lease code{margin-left:auto}.blocked{color:var(--danger-text)!important}.task footer{display:flex;align-items:center;gap:var(--s-2)}.task footer>span{flex:1}.mini,.tonal,.drawer-actions button,.wanted article>button{border:0;background:none;color:var(--text);min-height:32px;padding:0 var(--s-2);border-radius:var(--r-xs);font:500 .6875rem var(--sans)}.tonal,.mini.tonal{background:var(--petal-soft);color:var(--petal-text)}button:disabled{opacity:.45}.settle{margin-top:var(--s-4)}.settle>header,.wanted>header,.feed>header{height:32px;display:flex;align-items:center;gap:var(--s-2)}.settle h2,.wanted h2,.feed h2{font:500 .6875rem var(--mono);text-transform:uppercase}.settle header span,.wanted header span,.feed header span{font-size:.6875rem;color:var(--text-3)}.settle header span{margin-left:auto}.settle>button{width:100%;min-height:32px;border:0;border-top:1px solid var(--rule);background:none;color:var(--text);display:grid;grid-template-columns:16px 1fr 160px 100px;align-items:center;text-align:left;gap:var(--s-2)}.settle>button span{font-size:.6875rem;color:var(--text-3)}.settle>button time{text-align:right;font:400 .6875rem var(--mono)}.lower{display:grid;grid-template-columns:minmax(0,1fr) 344px;gap:var(--s-4);margin-top:var(--s-5)}.wanted,.feed{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-3)}.wanted header b{margin-left:auto;font:500 .6875rem var(--mono)}.wanted article{min-height:56px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:var(--s-2)}.wanted article>div{display:grid;flex:1}.wanted article small{display:flex;align-items:center;gap:var(--s-2);font:400 .6875rem var(--mono);color:var(--text-3);flex-wrap:wrap}.wanted code{background:var(--s2);padding:0 var(--s-1)}.wanted em{flex-basis:100%;font-style:normal}.wanted .parked{color:var(--text-3)}.wanted .dead{color:var(--danger-text)}.score{font:400 .6875rem var(--mono);color:var(--text-3)}.wanted a{font-size:.6875rem;color:var(--petal-text)}.unavailable{color:var(--danger-text)!important}.feed article{padding:var(--s-2) 0;border-top:1px solid var(--rule)}.preview{height:120px;background:var(--s2);display:grid;place-items:center;border-radius:var(--r-xs);color:var(--text-3);margin-bottom:var(--s-2)}.feed article>p{font-size:.75rem;color:var(--text-3)}.feed .failed>p{color:var(--danger-text)}.feed footer{display:flex;gap:var(--s-2);font-size:.6875rem}.feed footer time{margin-left:auto;font-family:var(--mono)}.feed a{color:var(--petal-text)}.box{background:var(--s2);padding:var(--s-3);font-size:.8125rem;border-radius:var(--r-xs)}.event{border-top:1px solid var(--rule);padding:var(--s-2) 0;margin:0}.event time{width:72px;font-family:var(--mono);color:var(--text-3)}.drawer-actions{display:flex;gap:var(--s-2);align-items:end;margin-top:var(--s-4);flex-wrap:wrap}.drawer-actions label{display:grid;font-size:.6875rem;color:var(--text-3);flex:1}.drawer-actions input{height:32px;background:var(--s2);padding:0 var(--s-2)}.contract-note{font-size:.6875rem;color:var(--text-3);margin-top:var(--s-3)}@media(max-width:1023px){.board{display:flex;flex-direction:column}.column.review{order:-5}.column{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.column>header{grid-column:1/-1}.lower{grid-template-columns:1fr}}@media(max-width:767px){.utility :global(.surface-sign) :global(.blurb),.utility time{display:none}.utility{flex-wrap:wrap}.utility label{width:100%;order:2}.utility label input{width:100%}.hud{overflow:auto}.board .column{grid-template-columns:1fr}.column:not(.review):not(:has(.urgent)){display:none}.settle>button{grid-template-columns:16px 1fr 80px}.settle>button span{display:none}.lower{margin-top:var(--s-4)}}
+	.utility{display:flex;align-items:center;gap:var(--s-3);min-height:40px}.utility :global(.surface-sign){flex:1}.utility label{width:240px;height:32px;background:var(--s2);display:flex;align-items:center;gap:var(--s-2);padding:0 var(--s-2);border-radius:var(--r-xs)}input{border:0;background:none;color:var(--text);outline:0;min-width:0;width:100%}input:focus{outline:2px solid var(--petal);outline-offset:2px}.utility time{font:400 .75rem var(--mono);color:var(--text-3)}.hud{display:flex;gap:var(--s-2);margin:var(--s-3) 0 var(--s-4)}.stalebar{display:flex;align-items:center;gap:var(--s-2);min-height:40px;padding:0 var(--s-3);background:var(--warn-soft);color:var(--warn-text);font-size:.75rem;margin-bottom:var(--s-3);border-radius:var(--r-xs)}.board{display:grid;grid-template-columns:repeat(5,minmax(184px,1fr));gap:var(--s-2);min-height:320px}.column{display:flex;flex-direction:column;gap:var(--s-2);min-width:0}.column>header{height:24px;display:flex;align-items:center;gap:var(--s-1);font:500 .6875rem var(--mono);text-transform:uppercase;color:var(--text-3)}.column>header b{font-weight:500}.column>p,.settle>p,.wanted>p,.feed>p{font-size:.75rem;color:var(--text-3);padding:var(--s-2)}.task{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-2);display:flex;flex-direction:column;gap:var(--s-1);transition:background var(--t),transform var(--dur-fast)}.task:hover{background:var(--s2)}.task:active{transform:scale(.97)}.task.urgent{background:var(--danger-soft)}.task.ready{background:var(--jade-soft)}.drill{border:0;background:none;color:var(--text);padding:0;text-align:left;display:flex;gap:var(--s-1);align-items:baseline}.drill:focus{outline:2px solid var(--petal);outline-offset:2px}.title{font:500 .84375rem/1.35 var(--sans);display:-webkit-box;line-clamp:2;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.project{font:500 .6875rem var(--mono);text-transform:uppercase;background:var(--s2);color:var(--text-3);padding:0 var(--s-1);border-radius:var(--r-xs)}.task small{font:400 .6875rem var(--mono);color:var(--text-3)}.agent{display:inline-flex;align-items:center;gap:var(--s-1);font-size:.75rem}.agent>span{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;background:var(--jade-soft);color:var(--jade-text);font-size:.6875rem}.agent b{font-weight:500}.lease{display:flex;align-items:center;gap:var(--s-1);font-size:.6875rem;color:var(--text-3)}.lease code{margin-left:auto}.blocked{color:var(--danger-text)!important}.task footer{display:flex;align-items:center;gap:var(--s-2)}.task footer>span{flex:1}.mini,.tonal,.drawer-actions button,.wanted article>button{border:0;background:none;color:var(--text);min-height:32px;padding:0 var(--s-2);border-radius:var(--r-xs);font:500 .6875rem var(--sans)}.tonal,.mini.tonal{background:var(--petal-soft);color:var(--petal-text)}button:disabled{opacity:.45}.settle{margin-top:var(--s-4)}.settle>header,.wanted>header,.feed>header{height:32px;display:flex;align-items:center;gap:var(--s-2)}.settle h2,.wanted h2,.feed h2{font:500 .6875rem var(--mono);text-transform:uppercase}.settle header span,.wanted header span,.feed header span{font-size:.6875rem;color:var(--text-3)}.settle header span{margin-left:auto}.settle>button{width:100%;min-height:32px;border:0;border-top:1px solid var(--rule);background:none;color:var(--text);display:grid;grid-template-columns:16px 1fr 160px 100px;align-items:center;text-align:left;gap:var(--s-2)}.settle>button span{font-size:.6875rem;color:var(--text-3)}.settle>button time{text-align:right;font:400 .6875rem var(--mono)}.lower{display:grid;grid-template-columns:minmax(0,1fr) 344px;gap:var(--s-4);margin-top:var(--s-5)}.wanted,.feed{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-3)}.wanted header b{margin-left:auto;font:500 .6875rem var(--mono)}.wanted article{min-height:56px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:var(--s-2)}.wanted article>div{display:grid;flex:1}.wanted article small{display:flex;align-items:center;gap:var(--s-2);font:400 .6875rem var(--mono);color:var(--text-3);flex-wrap:wrap}.wanted code{background:var(--s2);padding:0 var(--s-1)}.wanted em{flex-basis:100%;font-style:normal}.wanted .parked{color:var(--text-3)}.wanted .dead{color:var(--danger-text)}.score{font:400 .6875rem var(--mono);color:var(--text-3)}.wanted a{font-size:.6875rem;color:var(--petal-text)}.unavailable{color:var(--danger-text)!important}.feed article{padding:var(--s-2) 0;border-top:1px solid var(--rule)}.preview{height:120px;background:var(--s2);display:grid;place-items:center;border-radius:var(--r-xs);color:var(--text-3);margin-bottom:var(--s-2)}.feed article>p{font-size:.75rem;color:var(--text-3)}.feed .failed>p{color:var(--danger-text)}.feed footer{display:flex;gap:var(--s-2);font-size:.6875rem}.feed footer time{margin-left:auto;font-family:var(--mono)}.feed a{color:var(--petal-text)}.box{background:var(--s2);padding:var(--s-3);font-size:.8125rem;border-radius:var(--r-xs)}.event{border-top:1px solid var(--rule);padding:var(--s-2) 0;margin:0}.event time{width:72px;font-family:var(--mono);color:var(--text-3)}.drawer-actions{display:flex;gap:var(--s-2);align-items:end;margin-top:var(--s-4);flex-wrap:wrap}.drawer-actions label{display:grid;font-size:.6875rem;color:var(--text-3);flex:1}.drawer-actions input{height:32px;background:var(--s2);padding:0 var(--s-2)}.contract-note{font-size:.6875rem;color:var(--text-3);margin-top:var(--s-3)}@media(max-width:1023px){.board{display:flex;flex-direction:column}.column.review{order:-5}.column{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.column>header{grid-column:1/-1}.lower{grid-template-columns:1fr}}@media(max-width:767px){.utility :global(.surface-sign) :global(.blurb),.utility time{display:none}.utility{flex-wrap:wrap}.utility label{width:100%;order:2}.utility label input{width:100%}.hud{overflow:auto}.board .column{grid-template-columns:1fr}.column:not(.review):not(:has(.urgent)){display:none}.settle>button{grid-template-columns:16px 1fr 80px}.settle>button span{display:none}.lower{margin-top:var(--s-4)}.wanted article{display:grid;grid-template-columns:minmax(0,1fr) auto;padding:var(--s-2) 0}.wanted article>div{grid-column:1/-1}.wanted .score{align-self:center}.claimed-by{min-width:0}}
 	.surface-sign{display:flex;align-items:baseline;gap:var(--s-3);flex:1}.surface-sign h1{font:400 1.25rem var(--sign)}.surface-sign>span{font:400 1.0625rem var(--sign);color:var(--jade-text)}.surface-sign small{font-size:.6875rem;color:var(--jade-text)}.surface-sign small.danger{color:var(--danger-text)}.surface-sign small.warn{color:var(--warn-text)}.title{line-clamp:2}
 	@media(max-width:1023px){.status-review{order:1}.status-doing{order:2}.status-todo{order:3}.status-blocked{order:4}.status-inbox{order:5}}
 	.project{font-size:.6875rem;padding-block:0}
 	.task-drawer>small{font:400 .6875rem var(--mono);color:var(--text-3)}.task-drawer h2{font:500 1.125rem var(--sans);margin:var(--s-2) var(--s-5) var(--s-3) 0}.task-drawer section{margin-top:var(--s-4)}.task-drawer h3{font:500 .6875rem var(--mono);text-transform:uppercase;color:var(--text-3);margin-bottom:var(--s-2)}.task-drawer section>p{display:flex;gap:var(--s-2);font-size:.75rem}
+	.wanted article{transition:background var(--t),opacity 240ms var(--ease-standard),transform 240ms var(--ease-standard)}
+	.wanted article:hover{background:var(--s2)}
+	.wanted article.claimed{background:var(--jade-soft);opacity:.72;transform:translateY(2px)}
+	.wanted article>button:focus-visible,.wanted a:focus-visible{outline:2px solid var(--petal);outline-offset:2px}
+	.claimed-by{min-width:104px;justify-content:flex-end;color:var(--jade-text)}
+	.wanted-loading{display:grid}
+	.wanted-skeleton{height:56px;border-top:1px solid var(--rule);display:grid;grid-template-columns:1fr 72px;align-items:center;gap:var(--s-3)}
+	.wanted-skeleton span,.wanted-skeleton i{display:block;height:10px;background:var(--s2);border-radius:var(--r-xs);animation:wanted-pulse 1.2s ease-in-out infinite alternate}
+	.wanted-skeleton span{width:min(62%,360px)}.wanted-skeleton i{width:72px;justify-self:end}
+	@keyframes wanted-pulse{to{background:var(--s3)}}
+	@media(prefers-reduced-motion:reduce){.wanted article{transition:background var(--t)}.wanted article.claimed{transform:none}.wanted-skeleton span,.wanted-skeleton i{animation:none}}
 </style>

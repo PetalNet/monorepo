@@ -1,7 +1,6 @@
 import {
 	dataMode,
 	readAttention,
-	readCards,
 	readExecutors,
 	readLeases,
 	readTasks,
@@ -40,10 +39,9 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			tiers: shell.me.tiers,
 			isMock: true,
 		};
-	const [tasks, leases, cards, executors, history, attention, library] = await Promise.all([
+	const [tasks, leases, executors, history, attention, library] = await Promise.all([
 		readTasks(fetch).catch(() => null),
 		readLeases(fetch).catch(() => null),
-		readCards(fetch).catch(() => null),
 		readExecutors(fetch).catch(() => null),
 		runQuery(
 			{
@@ -112,11 +110,12 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 	return {
 		tasks: tasks?.items ?? [],
 		leases: leases?.items ?? [],
-		wanted: cards?.items ?? [],
+		// Wanted-board data is owned by wanted-board.remote.ts in live mode.
+		wanted: [],
 		events,
 		feed,
 		tasksAvailable: tasks !== null,
-		wantedAvailable: cards !== null,
+		wantedAvailable: true,
 		feedAvailable: library?.connected === true,
 		attentionAvailable: attention !== null,
 		ackedReviewTaskIds: (attention?.items ?? [])

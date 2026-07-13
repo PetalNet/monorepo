@@ -594,6 +594,13 @@ reconciliation oracle. A current, unconditional, **direct** `editor|operator|own
 elevation beyond propose-only and permits the normal commit path; tier-inherited grants retain the
 tier's default posture. Terminal stays human-only regardless of tier (structural, not a grant).
 
+The same bearer-authenticated tracker RPC is the live command adapter for `task.claim`. Console-api
+passes the requested task id and optional capability to the tracker's canonical `claim` operation; the
+tracker owns the guarded todo→doing update, lease mint, and fence increment. Console-api verifies that
+the returned task id is the requested id, maps an empty result to `claim_lost`, and strips the lease
+capability token before constructing the browser-facing op result. The Work surface invokes this path
+through a SvelteKit remote command, never a browser-origin fetch.
+
 ## 8. Freshness windows (normative)
 
 heartbeat ≤30s · fleet snapshot ≤90s · registry ≤90/300s · Matrix sync ≤120s · resource series

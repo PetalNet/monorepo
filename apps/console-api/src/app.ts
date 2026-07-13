@@ -10,6 +10,7 @@ import { TrackerProposalWriter } from "./auth/proposals.ts";
 import { Appender, type AppendResult } from "./bus/appender.ts";
 import { Broker } from "./bus/broker.ts";
 import { makeReplay } from "./bus/replay.ts";
+import { TrackerCommandWriter } from "./commands/tracker.ts";
 import { AgentsViewCostMeter, type CostMeter } from "./cost/meter.ts";
 import { migrate } from "./db/migrate.ts";
 import { openDb, assertRuntimeRolesHardened, type Db } from "./db/pool.ts";
@@ -45,6 +46,8 @@ export interface Services {
 	readonly tracker: TrackerReader | null;
 	readonly trackerProposals: TrackerProposalWriter | null;
 	readonly trackerProposalLookup: TrackerProposalLookup | null;
+	/** Canonical tracker command RPC; the tracker remains the only lease/task writer. */
+	readonly trackerCommands: TrackerCommandWriter | null;
 	readonly assistant: AssistantCompiler | null;
 	readonly assistantRuntime: AssistantRuntime | null;
 	readonly costMeter?: CostMeter;
@@ -113,6 +116,10 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 					token: env.trackerRpcToken,
 					project: env.trackerProposalProject,
 				})
+			: null;
+	const trackerCommands =
+		env.trackerRpcUrl && env.trackerRpcToken
+			? new TrackerCommandWriter({ url: env.trackerRpcUrl, token: env.trackerRpcToken })
 			: null;
 	const assistant =
 		env.assistantLlmUrl && env.assistantLlmModel
@@ -291,6 +298,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		tracker,
 		trackerProposals,
 		trackerProposalLookup: tracker,
+		trackerCommands,
 		assistant,
 		assistantRuntime,
 		...(costMeter ? { costMeter } : {}),
