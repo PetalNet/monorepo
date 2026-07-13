@@ -2461,6 +2461,7 @@ export async function buildServer(
 	app.get("/api/v1/bus/ws", { websocket: true }, (socket, req) => {
 		const maxFrameBytes = 16 * 1024;
 		const maxSubscriptions = 64;
+		const connectionId = crypto.randomUUID();
 		wsClients += 1;
 		let clientCounted = true;
 		let principal: Principal | null = null;
@@ -2541,12 +2542,12 @@ export async function buildServer(
 			try {
 				const fresh = await resolveRequestPrincipal(req);
 				if (!fresh) {
-					for (const id of connSubs) services.broker.unsubscribe(id);
+					for (const id of connSubs) services.broker.unsubscribe(connectionId, id);
 					socket.close();
 					return;
 				}
 				principal = fresh;
-				services.broker.revalidateScopes([...connSubs], fresh.scopes);
+				services.broker.revalidateScopes(connectionId, [...connSubs], fresh.scopes);
 			} catch {
 				/* transient DB blip: keep the connection, retry on the fallback timer */
 			} finally {
@@ -2561,7 +2562,7 @@ export async function buildServer(
 		const stopGrantWatch = refreshable
 			? services.onGrantChange(() => {
 					principal = null;
-					services.broker.revalidateScopes([...connSubs], []);
+					services.broker.revalidateScopes(connectionId, [...connSubs], []);
 					void refreshPrincipal();
 				})
 			: null;
@@ -2634,10 +2635,11 @@ export async function buildServer(
 						since: msg.since,
 						scopes: principal.scopes,
 					};
-					connSubs.add(msg.sub_id);
-					await services.broker.subscribe(spec, send);
+					await services.broker.subscribe(connectionId, spec, send, () => {
+						connSubs.add(msg.sub_id);
+					});
 				} else {
-					services.broker.unsubscribe(msg.sub_id);
+					services.broker.unsubscribe(connectionId, msg.sub_id);
 					connSubs.delete(msg.sub_id);
 				}
 			})();
@@ -2650,7 +2652,7 @@ export async function buildServer(
 			clearInterval(heartbeatTimer);
 			if (revalidateTimer) clearInterval(revalidateTimer);
 			stopGrantWatch?.();
-			for (const id of connSubs) services.broker.unsubscribe(id);
+			for (const id of connSubs) services.broker.unsubscribe(connectionId, id);
 		});
 	});
 
