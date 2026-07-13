@@ -124,6 +124,42 @@ const OPS = {
 		undo: false,
 		humanOnly: false,
 	},
+	"updates.check": {
+		op: "updates.check",
+		verb: "Check now",
+		lane: "operator",
+		executor: "box-agent",
+		confirm: "none",
+		undo: false,
+		humanOnly: false,
+	},
+	"updates.approve": {
+		op: "updates.approve",
+		verb: "Approve",
+		lane: "operator",
+		executor: "console-api",
+		confirm: "none",
+		undo: true,
+		humanOnly: false,
+	},
+	"updates.apply": {
+		op: "updates.apply",
+		verb: "Apply now",
+		lane: "operator",
+		executor: "box-agent",
+		confirm: "soft",
+		undo: false,
+		humanOnly: false,
+	},
+	"host.reboot": {
+		op: "host.reboot",
+		verb: "Reboot",
+		lane: "admin",
+		executor: "box-agent",
+		confirm: "hard",
+		undo: false,
+		humanOnly: false,
+	},
 } satisfies Record<string, OpDef>;
 
 export function opDef(op: string): OpDef | undefined {

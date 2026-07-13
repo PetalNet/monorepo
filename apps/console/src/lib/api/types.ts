@@ -9,6 +9,20 @@
 
 type Extra = Record<string, unknown>;
 
+export interface ReadEnvelope<T extends Extra> extends Extra {
+	schema_version: 1;
+	freshness: {
+		source: string;
+		observed_at: string;
+		window_s?: number | null;
+		[key: string]: unknown;
+	};
+	items: T[];
+	next_cursor: string | null;
+	total?: number | null;
+	truncated?: boolean;
+}
+
 // ---- principal / me (section 1.2) ----
 export type PrincipalKind = "human" | "agent" | "system";
 export type Lane = "viewer" | "editor" | "operator" | "admin" | "term_admin";
@@ -76,6 +90,42 @@ export interface BoxUpdateItem extends Extra {
 	status: BoxUpdateStatus;
 	raw_ref?: string | null;
 	updated_at: string;
+}
+
+export interface BoxUpdatePackage extends Extra {
+	name: string;
+	from?: string;
+	to?: string;
+	security: boolean;
+}
+export interface BoxUpdateVulnerability extends Extra {
+	cve_id: string;
+	severity: "critical" | "high" | "moderate" | "low";
+	package: string;
+	fixed_in?: string | null;
+}
+export interface BoxUpdateRaw extends Extra {
+	box_id: string;
+	packages: BoxUpdatePackage[];
+	vulns: BoxUpdateVulnerability[];
+	collected_at: string;
+}
+
+export interface ExecutorItem extends Extra {
+	kind:
+		| "manager"
+		| "dispatcher"
+		| "control-plane"
+		| "tracker"
+		| "library"
+		| "box-agent"
+		| "edge"
+		| "probe-runner"
+		| "console-api";
+	ref?: string | null;
+	liveness: "alive" | "suspect" | "down" | "unknown";
+	last_seen_epoch?: number | null;
+	detail?: string | null;
 }
 
 // ---- attention (GET /attention, section 5.3) ----

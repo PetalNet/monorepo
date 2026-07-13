@@ -13,8 +13,11 @@
 	 */
 	interface Props {
 		row: UpdateRowView;
+		active?: boolean;
+		onselect?: (row: UpdateRowView) => void;
+		onaskmode?: (row: UpdateRowView) => void;
 	}
-	let { row }: Props = $props();
+	let { row, active = false, onselect, onaskmode }: Props = $props();
 	const now = $derived(clockNow());
 
 	const pill = $derived(
@@ -30,7 +33,22 @@
 	const ago = (ts: string | null) => (ts ? humanAge(now - Date.parse(ts)) : "—");
 </script>
 
-<div class="row" class:trouble={row.securityCritical}>
+<div
+	class="row"
+	class:trouble={row.securityCritical}
+	class:active
+	role="button"
+	tabindex="0"
+	aria-label="Open update details for {row.host}"
+	data-update-row
+	onclick={() => onselect?.(row)}
+	onkeydown={(e) => {
+		if (e.key === "Enter" || e.key === " ") {
+			e.preventDefault();
+			onselect?.(row);
+		}
+	}}
+>
 	<span class="host">{row.host}</span>
 	<span class="pill">
 		<StatusPill tone={pill.tone} label={pill.label} />
@@ -40,7 +58,9 @@
 	<span class="n sec" class:danger={row.securityCritical}>{num(row.securityCritical)}</span>
 	<span class="n">{num(row.vulns)}</span>
 	<span class="n reboot">{row.rebootRequired == null ? "—" : row.rebootRequired ? "reboot" : "no"}</span>
-	<span class="mode"><ApplyModeChip mode={row.applyMode} /></span>
+	<span class="mode">
+		<ApplyModeChip mode={row.applyMode} onask={() => onaskmode?.(row)} />
+	</span>
 	<span class="n dim">{ago(row.lastChecked)}</span>
 	<span class="n dim">{ago(row.lastApplied)}</span>
 	<span class="src">{row.source}{row.agentless ? " · agentless" : ""}</span>
@@ -60,6 +80,9 @@
 	.row:hover {
 		background: var(--s2);
 	}
+	.row.active {
+		background: var(--s2);
+	}
 	.host {
 		font:
 			500 0.8125rem var(--mono);
@@ -71,7 +94,7 @@
 	}
 	.stale {
 		font:
-			400 0.625rem var(--mono);
+			400 0.6875rem var(--mono);
 		color: var(--warn-text);
 	}
 	.n {

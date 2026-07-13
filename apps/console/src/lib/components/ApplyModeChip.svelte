@@ -8,8 +8,9 @@
 	 */
 	interface Props {
 		mode: ApplyMode | null;
+		onask?: () => void;
 	}
-	let { mode }: Props = $props();
+	let { mode, onask }: Props = $props();
 	const label = $derived(
 		mode === "auto"
 			? "Auto"
@@ -19,11 +20,25 @@
 					? "Notify only"
 					: "—",
 	);
+	function ask(event: MouseEvent) {
+		event.stopPropagation();
+		onask?.();
+	}
+	function keepKey(event: KeyboardEvent) {
+		event.stopPropagation();
+	}
 </script>
 
-<span class="chip" title="Apply mode is agent-malleable. Ask Janet to change it.">
+<button
+	type="button"
+	class="chip"
+	title="Apply mode is agent-malleable. Ask Janet to change it."
+	onclick={ask}
+	onkeydown={keepKey}
+	aria-label="{label}. Ask Janet to change apply mode"
+>
 	{label}
-</span>
+</button>
 
 <style>
 	.chip {
@@ -37,5 +52,11 @@
 		font:
 			500 0.6875rem var(--mono);
 		white-space: nowrap;
+		border: 0;
+		cursor: pointer;
+		transition: background var(--t);
+	}
+	.chip:hover {
+		background: var(--s3);
 	}
 </style>
