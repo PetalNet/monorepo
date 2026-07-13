@@ -33,15 +33,41 @@ const SEV_ORDER = ["debug", "info", "warn", "danger", "p0"];
 const QUEUE_MAX = 1000;
 
 export function matchPattern(pattern: string, type: string): boolean {
-	if (pattern === type) return true;
-	if (pattern.endsWith(".*")) return type.startsWith(pattern.slice(0, -1)); // doorman.* → doorman.link.flap
-	if (pattern === "*") return true;
-	if (pattern.startsWith("*.")) {
-		const suffix = pattern.slice(1); // ".flap"
-		const seg = type.split(".");
-		return seg.length >= 2 && `.${seg[seg.length - 1]}` === suffix;
-	}
-	return false;
+	const patternSegments = pattern.split(".");
+	const typeSegments = type.split(".");
+	if (
+		patternSegments.some(
+			(segment) => !segment || (segment.includes("*") && segment !== "*" && segment !== "**"),
+		) ||
+		typeSegments.some((segment) => !segment)
+	)
+		return false;
+	// The contract keeps the historical trailing `.*` convenience: unlike a `*` elsewhere, it
+	// spans the remainder of the dotted type. Normalize it to the canonical globstar grammar.
+	if (patternSegments.at(-1) === "*" && patternSegments.length > 1)
+		patternSegments[patternSegments.length - 1] = "**";
+
+	const memo = new Map<string, boolean>();
+	const matches = (patternIndex: number, typeIndex: number): boolean => {
+		const key = `${String(patternIndex)}:${String(typeIndex)}`;
+		const cached = memo.get(key);
+		if (cached !== undefined) return cached;
+		let result: boolean;
+		if (patternIndex === patternSegments.length) result = typeIndex === typeSegments.length;
+		else if (patternSegments[patternIndex] === "**")
+			result =
+				matches(patternIndex + 1, typeIndex) ||
+				(typeIndex < typeSegments.length && matches(patternIndex, typeIndex + 1));
+		else
+			result =
+				typeIndex < typeSegments.length &&
+				(patternSegments[patternIndex] === "*" ||
+					patternSegments[patternIndex] === typeSegments[typeIndex]) &&
+				matches(patternIndex + 1, typeIndex + 1);
+		memo.set(key, result);
+		return result;
+	};
+	return matches(0, 0);
 }
 
 function passesFilter(spec: SubscribeSpec, e: Emission): boolean {

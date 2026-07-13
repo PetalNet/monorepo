@@ -791,6 +791,99 @@ describe("live browser auth boundary", () => {
 		trustedProxies: ["127.0.0.1"],
 	};
 
+	it("authenticates the browser WS upgrade and replays the exact frontend subscriptions", async () => {
+		const seeded = await services.emit(
+			"test:emitter",
+			emission({ type: "test.ws_seed", subject: "ws-seed" }),
+			300,
+		);
+		expect(seeded.ok).toBe(true);
+		const headAtUpgrade = services.broker.head;
+		const server = await buildServer(services, false, undefined, browserAuth);
+		await server.ready();
+		const forwardedHeaders = {
+			origin: consoleOrigin,
+			cookie: "authentik_session=opaque-test-cookie",
+			"x-authentik-username": "parker",
+			"x-authentik-groups": "owner",
+			"x-console-auth-proxy-nonce": proxyNonce,
+		};
+		const socket = await server.injectWS("/api/v1/bus/ws", {
+			headers: {
+				...forwardedHeaders,
+			},
+			rawHeaders: Object.entries(forwardedHeaders).flatMap(([name, value]) => [name, value]),
+			socket: { remoteAddress: "127.0.0.1" },
+		});
+		const frames: Record<string, unknown>[] = [];
+		socket.on("message", (data) => frames.push(JSON.parse(data.toString())));
+		const subscriptions = [
+			{ sub_id: "console-signals", pattern: "**" },
+			{ sub_id: "console-work-0", pattern: "task.**" },
+			{ sub_id: "console-work-1", pattern: "card.**" },
+			{ sub_id: "console-work-2", pattern: "artifact.**" },
+		];
+		for (const subscription of subscriptions)
+			socket.send(JSON.stringify({ schema_version: 1, action: "subscribe", ...subscription }));
+		await expect
+			.poll(() => frames.filter((frame) => frame["kind"] === "ack").length, { timeout: 2_000 })
+			.toBe(4);
+		const eventStart = services.broker.head;
+		for (const [index, type] of [
+			"task.review.requested",
+			"card.posted",
+			"artifact.build.completed",
+		].entries())
+			services.broker.onEvent(
+				eventStart + index + 1,
+				emission({ type, subject: type, scope: "fleet" }),
+			);
+
+		try {
+			const expectedTypes = new Set([
+				"task.review.requested",
+				"card.posted",
+				"artifact.build.completed",
+			]);
+			await expect
+				.poll(
+					() => ({
+						targetEvents: new Set(
+							frames
+								.filter((frame) => frame["kind"] === "event")
+								.map(
+									(frame) =>
+										(frame["emission"] as Record<string, unknown> | undefined)?.["type"] ?? "",
+								)
+								.filter((type) => expectedTypes.has(String(type))),
+						).size,
+						heartbeats: frames.filter((frame) => frame["kind"] === "heartbeat").length,
+					}),
+					{ timeout: 16_000 },
+				)
+				.toEqual({ targetEvents: 3, heartbeats: 2 });
+			const heartbeats = frames.filter((frame) => frame["kind"] === "heartbeat");
+			expect(heartbeats[0]).toMatchObject({
+				schema_version: 1,
+				kind: "heartbeat",
+				seq_head: headAtUpgrade,
+			});
+			expect(heartbeats[1]).toMatchObject({
+				schema_version: 1,
+				kind: "heartbeat",
+				seq_head: eventStart + 3,
+			});
+			expect(heartbeats[0]?.["ts"]).toEqual(expect.any(String));
+			expect(heartbeats[0]?.["ingest"]).toMatchObject({ "console-api": expect.any(Number) });
+			expect(
+				Date.parse(String(heartbeats[1]?.["ts"])) - Date.parse(String(heartbeats[0]?.["ts"])),
+			).toBeGreaterThanOrEqual(14_000);
+		} finally {
+			socket.terminate();
+			await server.close();
+		}
+	});
+
 	it("accepts the trusted proxy identity and resolves current ReBAC grants", async () => {
 		const server = await buildServer(services, false, undefined, browserAuth);
 		await server.listen({ host: "127.0.0.1", port: 0 });

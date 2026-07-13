@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from "$app/navigation";
 	import { onMount, untrack } from "svelte";
-	import { busWebSocketUrl, runOp } from "$lib/api/client";
+	import { connectBus, runOp } from "$lib/api/client";
 	import type { CardItem, TaskItem, TaskStatus } from "$lib/api/types";
 	import Countdown from "$lib/components/Countdown.svelte";
 	import HudChip from "$lib/components/HudChip.svelte";
@@ -23,6 +23,7 @@
 	let busy = $state<number | null>(null);
 	let mountedAt = $state(Date.now());
 	let busHeartbeatAt = $state<string | null>(untrack(() => data.isMock) ? new Date().toISOString() : null);
+	let busIngestHealthy = $state(untrack(() => data.isMock));
 	let expanded = $state<Record<string, boolean>>({});
 	let dragged = $state<TaskItem | null>(null);
 	let blockReason = $state("");
@@ -37,7 +38,7 @@
 	const inFlight = $derived(tasks.filter((task) => task.status === "doing" || task.status === "review"));
 	const unclaimed = $derived(wantedCards.filter((card: CardItem) => card.state === "posted" || card.state === "parked" || card.state === "dead"));
 	const done = $derived(tasks.filter((task) => task.status === "done" && now - Date.parse(task.updated_at) < 864e5));
-	const busSilent = $derived(!data.isMock && (busHeartbeatAt ? now - Date.parse(busHeartbeatAt) > 9e4 : now - mountedAt > 9e4));
+	const busSilent = $derived(!data.isMock && (!busIngestHealthy || (busHeartbeatAt ? now - Date.parse(busHeartbeatAt) > 9e4 : now - mountedAt > 9e4)));
 	const stale = $derived(!data.tasksAvailable || !data.snapshotAt || (busSilent && now - Date.parse(data.snapshotAt) > 9e4));
 	const canAct = $derived(data.lanes.includes("operator") && !stale);
 	const canForce = $derived(canAct && (data.tiers.includes("owner") || data.tiers.includes("moderator")));
@@ -60,20 +61,21 @@
 	onMount(() => {
 		const clock = setInterval(() => now = Date.now(), 1000);
 		if (data.isMock) return () => clearInterval(clock);
-		let disposed = false; let socket: WebSocket | null = null; let reconnect: ReturnType<typeof setTimeout> | null = null;
-		const connect = () => {
-			socket = new WebSocket(busWebSocketUrl());
-			socket.addEventListener("open", () => ["task.**", "card.**", "artifact.**"].forEach((pattern, index) => socket?.send(JSON.stringify({ schema_version: 1, action: "subscribe", sub_id: `console-work-${index}`, pattern }))));
-			socket.addEventListener("message", (message) => {
-				const frame = JSON.parse(String(message.data)) as { kind?: string; ts?: string; emission?: { type?: string } };
-				if (frame.kind === "heartbeat") busHeartbeatAt = frame.ts ?? new Date().toISOString();
+		const disconnect = connectBus(
+			() => ["task.**", "card.**", "artifact.**"].map((pattern, index) => ({ sub_id: `console-work-${index}`, pattern })),
+			(rawFrame) => {
+				const frame = rawFrame as { kind?: string; ts?: string; ingest?: Record<string, number> | null; emission?: { type?: string } };
+				if (frame.kind === "heartbeat") {
+					busHeartbeatAt = frame.ts ?? new Date().toISOString();
+					const lags = frame.ingest ? Object.values(frame.ingest) : [];
+					busIngestHealthy = lags.length > 0 && lags.every((lag) => lag <= 90);
+				}
 				if (frame.kind === "event" && /^(task|card|artifact)\./.test(frame.emission?.type ?? "")) void invalidateAll();
 				if (frame.kind === "gap" || frame.kind === "resync_required") void invalidateAll();
-			});
-			socket.addEventListener("close", () => { if (!disposed) reconnect = setTimeout(connect, 2000); });
-		};
-		connect();
-		return () => { disposed = true; clearInterval(clock); if (reconnect) clearTimeout(reconnect); socket?.close(); };
+			},
+			(state) => { if (state === "error" || state === "closed") busIngestHealthy = false; },
+		);
+		return () => { clearInterval(clock); disconnect(); };
 	});
 
 	async function fire(task: TaskItem, op: string, args: Record<string, unknown>, patch?: Partial<TaskItem>, message?: string) {

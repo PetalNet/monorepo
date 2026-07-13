@@ -102,10 +102,30 @@ describe("emit authorization", () => {
 
 describe("pattern matching", () => {
 	it("exact", () => expect(matchPattern("host.cpu.pct", "host.cpu.pct")).toBe(true));
-	it("prefix glob", () => expect(matchPattern("doorman.*", "doorman.link.flap")).toBe(true));
+	it("trailing glob crosses segments", () =>
+		expect(matchPattern("doorman.*", "doorman.link.flap")).toBe(true));
 	it("prefix glob miss", () => expect(matchPattern("doorman.*", "host.cpu.pct")).toBe(false));
-	it("star", () => expect(matchPattern("*", "anything.here")).toBe(true));
+	it("single star stays within one segment", () => {
+		expect(matchPattern("host.*.pct", "host.cpu.pct")).toBe(true);
+		expect(matchPattern("host.*.pct", "host.rack.cpu.pct")).toBe(false);
+	});
+	it("globstar matches the exact Signals subscription", () => {
+		expect(matchPattern("**", "host.cpu.pct")).toBe(true);
+		expect(matchPattern("**", "task.claimed")).toBe(true);
+	});
+	it.each([
+		["task.**", "task.claimed"],
+		["task.**", "task.review.requested"],
+		["card.**", "card.posted"],
+		["artifact.**", "artifact.build.completed"],
+	])("matches frontend pattern %s against %s", (pattern, type) => {
+		expect(matchPattern(pattern, type)).toBe(true);
+	});
+	it("globstar does not consume a partial segment", () =>
+		expect(matchPattern("task.**", "taskish.claimed")).toBe(false));
 	it("suffix glob", () => expect(matchPattern("*.flap", "doorman.flap")).toBe(true));
+	it("suffix single-star does not cross segments", () =>
+		expect(matchPattern("*.flap", "doorman.link.flap")).toBe(false));
 });
 
 describe("assistant compiler boundary", () => {
