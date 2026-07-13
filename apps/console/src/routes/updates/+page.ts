@@ -6,6 +6,7 @@ import {
 	mockUpdates,
 	type UpdatesData,
 } from "$lib/data/updates";
+import { captureCaughtFailure } from "$lib/glitchtip";
 
 import type { PageLoad } from "./$types";
 
@@ -21,17 +22,24 @@ export const load: PageLoad = async ({
 	if (dataMode() === "mock") return { updates: mockUpdates(shell.me.lanes), raw: [] };
 	try {
 		const response = await readBoxUpdates(fetch);
-		const executors = await readExecutors(fetch).catch(() => null);
+		const executors = await readExecutors(fetch).catch((error) => {
+			captureCaughtFailure(error, { surface: "updates", endpoint: "/executors" });
+			return null;
+		});
 		const liveHosts = (executors?.items ?? [])
 			.filter((e) => e.kind === "box-agent" && e.liveness === "alive" && e.ref)
 			.map((e) => e.ref as string);
-		const raw = (
-			await Promise.allSettled(
-				response.items
-					.filter((row) => row.raw_ref)
-					.map((row) => readBoxUpdateRaw(row.box_id, fetch)),
-			)
-		).flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+		const rawResults = await Promise.allSettled(
+			response.items.filter((row) => row.raw_ref).map((row) => readBoxUpdateRaw(row.box_id, fetch)),
+		);
+		const raw = rawResults.flatMap((result) => {
+			if (result.status === "fulfilled") return [result.value];
+			captureCaughtFailure(result.reason, {
+				surface: "updates",
+				endpoint: "/box-updates/:box_id/raw",
+			});
+			return [];
+		});
 		return {
 			updates: assembleUpdates(response.items, {
 				now: Date.now(),
@@ -44,7 +52,8 @@ export const load: PageLoad = async ({
 			}),
 			raw,
 		};
-	} catch {
+	} catch (error) {
+		captureCaughtFailure(error, { surface: "updates", endpoint: "/box-updates" });
 		return { updates: liveEmptyUpdates(), raw: [] };
 	}
 };

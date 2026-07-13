@@ -1,5 +1,9 @@
+import process from "node:process";
+
 import adapter from "@sveltejs/adapter-node";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
+
+const e2e = process.env.CONSOLE_E2E === "1";
 
 /** @type {import("@sveltejs/kit").Config} */
 const config = {
@@ -17,7 +21,7 @@ const config = {
 				"frame-ancestors": ["none"],
 				"img-src": ["self", "data:"],
 				"object-src": ["none"],
-				"script-src": ["self"],
+				"script-src": ["self", ...(e2e ? ["unsafe-inline"] : [])],
 				"style-src": ["self", "unsafe-inline"],
 			},
 		},

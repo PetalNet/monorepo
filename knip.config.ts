@@ -11,18 +11,16 @@ export default {
 		".": {
 			entry: ["vite.config.ts"],
 		},
-		...(strict
-			? {
-					"apps/console": {
-						ignore: ["scripts/generate-contracts.mjs"],
-					},
-				}
-			: {}),
 		"apps/collegemap": {
 			drizzle: {
 				config: [],
 				entry: ["drizzle.config.ts"],
 			},
+		},
+		"apps/console": {
+			entry: ["tests/contract-server.mjs", "tests/e2e-vite.ts"],
+			...(strict ? { ignore: ["scripts/generate-contracts.mjs"] } : {}),
+			ignoreUnresolved: ["^/src/lib/api/client\\.ts$"],
 		},
 	},
 } satisfies KnipConfig;

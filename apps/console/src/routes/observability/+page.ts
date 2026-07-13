@@ -1,10 +1,11 @@
 import { dataMode, readCatalog, readDashboards, readExecutors, runQuery } from "$lib/api/client";
 import type { CatalogEntry, DashboardItem, QueryResult, StructuredQuery } from "$lib/api/types";
 import { emptyAccounting, mockAccounting } from "$lib/data/observability";
+import { captureCaughtFailure } from "$lib/glitchtip";
 
 import type { PageLoad } from "./$types";
 
-const queries: Record<string, StructuredQuery> = {
+const queries = {
 	events: {
 		schema_version: 1,
 		mode: "structured",
@@ -40,17 +41,20 @@ const queries: Record<string, StructuredQuery> = {
 		order: [{ field: "events", dir: "desc" }],
 		limit: 12,
 	},
-};
+} satisfies Record<string, StructuredQuery>;
+
+const queryEntries = Object.entries(queries) as Array<[keyof typeof queries, StructuredQuery]>;
 
 export const load: PageLoad = async ({ fetch, parent }) => {
 	const shell = await parent();
 	if (dataMode() === "mock") return { accounting: mockAccounting(shell.me.lanes) };
 	const errors: string[] = [];
 	const entries = await Promise.all(
-		Object.entries(queries).map(async ([key, q]) => {
+		queryEntries.map(async ([key, q]) => {
 			try {
 				return [key, await runQuery(q, fetch)] as const;
-			} catch {
+			} catch (error) {
+				captureCaughtFailure(error, { surface: "observability", endpoint: `/query/${key}` });
 				errors.push(`${key} query unavailable`);
 				return [key, null] as const;
 			}
@@ -60,12 +64,14 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 	let dashboards: DashboardItem[] = [];
 	try {
 		catalog = (await readCatalog(fetch)).items;
-	} catch {
+	} catch (error) {
+		captureCaughtFailure(error, { surface: "observability", endpoint: "/catalog" });
 		errors.push("catalog unavailable");
 	}
 	try {
 		dashboards = (await readDashboards(fetch)).items;
-	} catch {
+	} catch (error) {
+		captureCaughtFailure(error, { surface: "observability", endpoint: "/dashboards" });
 		errors.push("saved dashboards unavailable");
 	}
 	const accounting = emptyAccounting(errors, shell.me.lanes);
@@ -81,7 +87,8 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			consoleApi: executors.some((e) => e.kind === "console-api" && e.liveness === "alive"),
 			library: executors.some((e) => e.kind === "library" && e.liveness === "alive"),
 		};
-	} catch {
+	} catch (error) {
+		captureCaughtFailure(error, { surface: "observability", endpoint: "/executors" });
 		errors.push("executor liveness unavailable");
 	}
 	return { accounting };

@@ -7,6 +7,7 @@ import {
 	mockSessions,
 	mockWireEvents,
 } from "$lib/data/network";
+import { captureCaughtFailure } from "$lib/glitchtip";
 
 import type { PageLoad } from "./$types";
 export const load: PageLoad = async ({ fetch, parent }) => {
@@ -31,10 +32,14 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 		registryAvailable = true;
 	try {
 		registry = (await readEdgeRegistry(fetch)).items;
-	} catch {
+	} catch (error) {
+		captureCaughtFailure(error, { surface: "network", endpoint: "/edge/registry" });
 		registryAvailable = false;
 	}
-	const executors = await readExecutors(fetch).catch(() => null);
+	const executors = await readExecutors(fetch).catch((error) => {
+		captureCaughtFailure(error, { surface: "network", endpoint: "/executors" });
+		return null;
+	});
 	const alive = (kind: string) =>
 		(executors?.items ?? []).some((item) => item.kind === kind && item.liveness === "alive");
 	try {
@@ -53,7 +58,8 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			controlPlaneLive: alive("control-plane"),
 			error: registryAvailable ? null : "Key registry unavailable",
 		};
-	} catch {
+	} catch (error) {
+		captureCaughtFailure(error, { surface: "network", endpoint: "/edge/sessions" });
 		return {
 			sessions: [],
 			registry,
