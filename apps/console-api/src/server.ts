@@ -244,6 +244,7 @@ const INTERNAL_OP_ADAPTERS = new Set([
 	"viz.render",
 	"text.surface",
 	"context.receive",
+	"signal.source_mode",
 	"delivery.test",
 	"delivery.set_target",
 	"delivery.resend",
@@ -1578,6 +1579,15 @@ export async function buildServer(
 					);
 				return { pattern, tier: "feed", restored: true, updated_at: now };
 			}
+			case "signal.source_mode":
+				return (await services.sourceModes.set(
+					principal.id,
+					String(call.args["source_service"]),
+					call.args["mode"] === "development" ? "development" : "normal",
+					typeof call.args["note"] === "string" && call.args["note"].trim()
+						? call.args["note"].trim()
+						: null,
+				)) as unknown as Record<string, unknown>;
 			case "delivery.test":
 				return (await services.delivery.test(principal.id)) as Record<string, unknown>;
 			case "delivery.set_target":
@@ -1812,18 +1822,28 @@ export async function buildServer(
 			}
 		}
 		try {
-			const dispatched = await dispatchInternalOp(call, principal);
+			const operationResult = await dispatchInternalOp(call, principal);
+			const undo =
+				call.op === "updates.approve"
+					? { op: "updates.revoke", args: { approval_id: call.id } }
+					: call.op === "signal.source_mode"
+						? {
+								op: "signal.source_mode",
+								args: {
+									source_service: call.args["source_service"],
+									mode:
+										operationResult["previous_mode"] === "development" ? "development" : "normal",
+								},
+							}
+						: null;
 			const success = opEnvelope(call, {
 				ok: true,
 				status: "applied",
-				result: dispatched,
+				result: operationResult,
 				error: null,
 				audit_seq: auditSeq,
 				executor,
-				undo:
-					call.op === "updates.approve"
-						? { op: "updates.revoke", args: { approval_id: call.id } }
-						: null,
+				undo,
 			});
 			if (!isRead && !(await auditOutcome(call, principal, success, "ok")))
 				return opError(

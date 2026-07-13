@@ -108,6 +108,7 @@ let temp: TempDb;
 let services: Services;
 const capturedServiceExceptions: unknown[] = [];
 const internalServiceErrors: string[] = [];
+const deliverySends: { owner: string; target: string; body: string }[] = [];
 
 function emission(over: Partial<Emission> = {}): Emission {
 	return {
@@ -160,6 +161,13 @@ beforeAll(async () => {
 		},
 		{
 			migrate: false,
+			matrixTransport: {
+				async assertOwnedTarget() {},
+				async send(owner, target, body) {
+					deliverySends.push({ owner, target, body });
+					return { eventId: `$test-${String(deliverySends.length)}`, roomId: "!test:local" };
+				},
+			},
 			monitor: {
 				captureException(error) {
 					capturedServiceExceptions.push(error);
@@ -4544,6 +4552,155 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 			await new Promise<void>((resolve, reject) =>
 				manager.close((error) => (error ? reject(error) : resolve())),
 			);
+		}
+	});
+});
+
+describe("signal source development mode", () => {
+	it("mutes and restores the real append-to-delivery path through the audited named op", async () => {
+		const server = await buildServer(services, true);
+		const pattern = `test.dev_mode_${randomBytes(4).toString("hex")}`;
+		const headers = {
+			"x-dev-principal": JSON.stringify({
+				kind: "human",
+				id: "parker",
+				tiers: ["owner"],
+				scopes: ["fleet", "user:parker"],
+				lanes: ["viewer", "operator"],
+			}),
+		};
+		try {
+			await services.db.writer`
+				insert into delivery_config
+					(owner, scope, channel, target, verified, updated_at, updated_by)
+				values ('parker', 'user:parker', 'matrix', '@parker:local', true, now(), 'test')
+				on conflict (owner) do update set target = excluded.target, verified = true`;
+			const subscription = await services.emit(
+				"system:console-api",
+				{
+					schema_version: 1,
+					id: randomUUID(),
+					type: "subscription.changed",
+					ts: new Date().toISOString(),
+					source: { service: "console-api", host: null, agent: null },
+					subject: `parker:${pattern}`,
+					subject_kind: "other",
+					severity: "info",
+					scope: "user:parker",
+					dimensions: { owner: "parker", pattern, tier: "feed", loud: true },
+					meta: {
+						retention_class: "audit",
+						entity: { schema_version: 1, owner: "parker", pattern, tier: "feed", loud: true },
+					},
+				},
+				300,
+			);
+			expect(subscription.ok).toBe(true);
+			await waitProjected("subscription", `parker:${pattern}`, subscription.seq!);
+			const changed = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "signal.source_mode",
+					args: {
+						source_service: "console-api",
+						mode: "development",
+						note: "test-container work",
+					},
+					dry_run: false,
+				},
+			});
+			expect(changed.statusCode, changed.body).toBe(200);
+			expect(changed.json().result).toMatchObject({
+				source_service: "console-api",
+				mode: "development",
+				updated_by: "parker",
+			});
+			expect(changed.json().undo).toEqual({
+				op: "signal.source_mode",
+				args: { source_service: "console-api", mode: "normal" },
+			});
+
+			const listed = await server.inject({
+				method: "GET",
+				url: "/api/v1/signal-sources",
+				headers,
+			});
+			expect(listed.statusCode, listed.body).toBe(200);
+			expect(listed.json().items).toContainEqual(
+				expect.objectContaining({
+					source_service: "console-api",
+					mode: "development",
+					note: "test-container work",
+				}),
+			);
+			const sendsBefore = deliverySends.length;
+			const muted = await services.emit(
+				"test:emitter",
+				emission({ type: pattern, severity: "p0", subject: "muted development alert" }),
+				300,
+			);
+			expect(muted.ok).toBe(true);
+			await services.delivery.drain();
+			expect(deliverySends).toHaveLength(sendsBefore);
+
+			const restored = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers,
+				payload: {
+					schema_version: 1,
+					id: randomUUID(),
+					op: "signal.source_mode",
+					args: { source_service: "console-api", mode: "normal" },
+					dry_run: false,
+				},
+			});
+			expect(restored.statusCode, restored.body).toBe(200);
+			expect(restored.json().undo).toEqual({
+				op: "signal.source_mode",
+				args: { source_service: "console-api", mode: "development" },
+			});
+			const delivered = await services.emit(
+				"test:emitter",
+				emission({ type: pattern, severity: "p0", subject: "restored alert" }),
+				300,
+			);
+			expect(delivered.ok).toBe(true);
+			await services.delivery.drain();
+			expect(deliverySends.slice(sendsBefore)).toContainEqual(
+				expect.objectContaining({
+					owner: "parker",
+					body: `${pattern} — restored alert`,
+				}),
+			);
+
+			const concurrentSource = `test-first-write-${randomBytes(4).toString("hex")}`;
+			const concurrentChanges = await Promise.all(
+				[0, 1].map(() =>
+					server.inject({
+						method: "POST",
+						url: "/api/v1/op",
+						headers,
+						payload: {
+							schema_version: 1,
+							id: randomUUID(),
+							op: "signal.source_mode",
+							args: { source_service: concurrentSource, mode: "development" },
+							dry_run: false,
+						},
+					}),
+				),
+			);
+			expect(concurrentChanges.map((response) => response.statusCode)).toEqual([200, 200]);
+			expect(
+				concurrentChanges.map((response) => response.json().undo.args.mode).toSorted(),
+			).toEqual(["development", "normal"]);
+		} finally {
+			await server.close();
 		}
 	});
 });

@@ -637,6 +637,40 @@
 			"phase": 1
 		},
 		{
+			"op": "signal.source_mode",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["source_service", "mode"],
+				"properties": {
+					"source_service": {
+						"type": "string",
+						"pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+						"description": "Exact emission source.service whose off-console alerts are controlled."
+					},
+					"mode": {
+						"enum": ["normal", "development"]
+					},
+					"note": {
+						"type": "string",
+						"maxLength": 240
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "persist an audited global source mode; development suppresses every off-console alert from that exact source, including P0/safety, until explicitly returned to normal",
+			"emits": ["signal.source_mode_changed"],
+			"undo": true,
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
 			"op": "subscription.set",
 			"lane": "viewer",
 			"authz": {
