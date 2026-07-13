@@ -611,6 +611,10 @@ export async function buildServer(
 	}
 	let requestSample = 0;
 	let wsClients = 0;
+	let wsSubscriptions = 0;
+	let healthCache: Record<string, unknown> | null = null;
+	let healthCacheAt = 0;
+	let healthEmissionAt = 0;
 	const requestStarted = new WeakMap<FastifyRequest, number>();
 	app.addHook("onRequest", async (req) => {
 		requestStarted.set(req, performance.now());
@@ -1937,27 +1941,68 @@ export async function buildServer(
 
 	// --- health (unauthenticated) --------------------------------------------------------------
 	app.get("/api/v1/health", async () => {
+		const requestedAt = Date.now();
+		if (healthCache && requestedAt - healthCacheAt < 5_000)
+			return { ...healthCache, ws_clients: wsClients, ws_subscriptions: wsSubscriptions };
 		let lake: "ok" | "down" = "ok";
 		let bridges: {
 			source: string;
+			cursor: string | null;
+			cursor_updated_at: string;
+			cursor_lag_s: number;
+			dead_letters: number;
 			last_ingest_at: string | null;
 			observed_at: string | null;
 			lag_s: number | null;
 		}[] = [];
-		let ingest: { source: string; last_ingest_at: string; lag_s: number }[] = [];
+		let ingest: {
+			source: string;
+			last_ingest_at: string;
+			lag_s: number;
+			rate_1m: number;
+		}[] = [];
+		let projectors: {
+			name: string;
+			through_seq: number;
+			lag_events: number;
+			updated_at: string;
+			lag_s: number;
+		}[] = [];
+		let managerLastSuccessAt: string | null = null;
 		let matrixSyncOkEpoch: number | null = null;
+		let keyCeremonyReady = false;
 		try {
 			const now = Date.now();
-			const [bridgeRows, ingestRows, matrixRows] = await Promise.all([
-				services.db.admin<{ source: string; last_ingest_at: string | null }[]>`
-					select c.source, max(e.received_at)::text as last_ingest_at
+			const [bridgeRows, ingestRows, projectorRows, managerRows, matrixRows] = await Promise.all([
+				services.db.admin<
+					{
+						source: string;
+						cursor: string | null;
+						cursor_updated_at: string;
+						dead_letters: string;
+						last_ingest_at: string | null;
+					}[]
+				>`
+					select c.source, c.cursor, c.updated_at::text as cursor_updated_at,
+					       (select count(*)::text from bridge_dead_letter d
+					        where d.source = c.source) as dead_letters,
+					       (select max(e.received_at)::text from events e
+					        where e.meta #>> '{bridge_source,id}' = c.source) as last_ingest_at
 					from bridge_cursor c
-					left join events e on e.meta #>> '{bridge_source,id}' = c.source
-					group by c.source
 					order by c.source`,
-				services.db.admin<{ source: string; last_ingest_at: string }[]>`
-					select source_service as source, max(received_at)::text as last_ingest_at
+				services.db.admin<{ source: string; last_ingest_at: string; rate_1m: string }[]>`
+					select source_service as source, max(received_at)::text as last_ingest_at,
+					       count(*) filter (where received_at >= now() - interval '1 minute')::text as rate_1m
 					from events group by source_service order by source_service`,
+				services.db.admin<
+					{ name: string; through_seq: string; updated_at: string; head: string }[]
+				>`
+					select p.name, p.through_seq::text, p.updated_at::text,
+					       coalesce((select max(seq) from emission_ids), 0)::text as head
+					from projection_checkpoint p order by p.name`,
+				services.db.admin<{ last_success_at: string | null }[]>`
+					select max(received_at)::text as last_success_at from events
+					where source_service = 'manager' and type = 'agent.heartbeat'`,
 				services.db.admin<{ sync_ok_epoch: string | null }[]>`
 					select max((measures ->> 'last_sync_ok_epoch')::double precision)::bigint::text
 					       as sync_ok_epoch
@@ -1969,6 +2014,10 @@ export async function buildServer(
 			]);
 			bridges = bridgeRows.map((row) => ({
 				source: row.source,
+				cursor: row.cursor,
+				cursor_updated_at: row.cursor_updated_at,
+				cursor_lag_s: Math.max(0, (now - Date.parse(row.cursor_updated_at)) / 1000),
+				dead_letters: Number(row.dead_letters),
 				last_ingest_at: row.last_ingest_at,
 				observed_at: row.last_ingest_at,
 				lag_s: row.last_ingest_at
@@ -1979,7 +2028,16 @@ export async function buildServer(
 				source: row.source,
 				last_ingest_at: row.last_ingest_at,
 				lag_s: Math.max(0, (now - Date.parse(row.last_ingest_at)) / 1000),
+				rate_1m: Number(row.rate_1m),
 			}));
+			projectors = projectorRows.map((row) => ({
+				name: row.name,
+				through_seq: Number(row.through_seq),
+				lag_events: Math.max(0, Number(row.head) - Number(row.through_seq)),
+				updated_at: row.updated_at,
+				lag_s: Math.max(0, (now - Date.parse(row.updated_at)) / 1000),
+			}));
+			managerLastSuccessAt = managerRows[0]?.last_success_at ?? null;
 			const matrixEpoch = Number(matrixRows[0]?.sync_ok_epoch);
 			matrixSyncOkEpoch = Number.isSafeInteger(matrixEpoch) && matrixEpoch > 0 ? matrixEpoch : null;
 			await services.delivery
@@ -1991,14 +2049,66 @@ export async function buildServer(
 			lake = "down";
 			monitor.captureException(sanitizedException(error));
 		}
-		return {
+		if (services.keyCeremony)
+			keyCeremonyReady = await services.keyCeremony.health().catch((error) => {
+				monitor.captureException(sanitizedException(error, "key ceremony health"));
+				return false;
+			});
+		const health = {
 			lake,
 			seq_head: services.broker.head,
 			bridges,
 			ingest,
+			projectors,
 			ws_clients: wsClients,
+			ws_subscriptions: wsSubscriptions,
+			manager_last_success_at: managerLastSuccessAt,
 			matrix_sync_ok_epoch: matrixSyncOkEpoch,
+			readiness: {
+				assistant_compiler: services.assistant ? "adapter_ready" : "unconfigured",
+				assistant_runtime: services.assistantRuntime ? "adapter_ready" : "unconfigured",
+				executor_key_ceremony: services.keyCeremony
+					? keyCeremonyReady
+						? "ready"
+						: "down"
+					: "unconfigured",
+			},
 		};
+		healthCache = health;
+		healthCacheAt = requestedAt;
+		if (requestedAt - healthEmissionAt >= 60_000) {
+			healthEmissionAt = requestedAt;
+			void emitSelf({
+				schema_version: 1,
+				id: crypto.randomUUID(),
+				type: "console.bus.health",
+				ts: new Date().toISOString(),
+				source: { service: "console-api", host: null, agent: null },
+				subject: "console-api",
+				subject_kind: "service",
+				severity: lake === "ok" ? "info" : "danger",
+				scope: "fleet",
+				dimensions: {
+					lake,
+					assistant_compiler: health.readiness.assistant_compiler,
+					assistant_runtime: health.readiness.assistant_runtime,
+					executor_key_ceremony: health.readiness.executor_key_ceremony,
+				},
+				measures: {
+					seq_head: health.seq_head,
+					ws_clients: health.ws_clients,
+					ws_subscriptions: health.ws_subscriptions,
+					bridge_dead_letters: bridges.reduce((sum, bridge) => sum + bridge.dead_letters, 0),
+					projector_lag_events: projectors.reduce(
+						(max, projector) => Math.max(max, projector.lag_events),
+						0,
+					),
+					ingest_rate_1m: ingest.reduce((sum, source) => sum + source.rate_1m, 0),
+				},
+				meta: { retention_class: "telemetry" },
+			});
+		}
+		return health;
 	});
 
 	// --- me --------------------------------------------------------------------------------------
@@ -3582,7 +3692,12 @@ export async function buildServer(
 		let principal: Principal | null = null;
 		const authz = req.headers.authorization;
 		const connSubs = new Set<string>();
+		const removeConnSub = (subId: string): void => {
+			if (connSubs.delete(subId)) wsSubscriptions = Math.max(0, wsSubscriptions - 1);
+		};
 		const send = (frame: Record<string, unknown>): void => {
+			if (frame["kind"] === "resync_required" && typeof frame["sub_id"] === "string")
+				removeConnSub(frame["sub_id"]);
 			if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
 		};
 		const bearer = authz?.startsWith("Bearer ") ? authz.slice(7) : null;
@@ -3751,11 +3866,14 @@ export async function buildServer(
 						scopes: principal.scopes,
 					};
 					await services.broker.subscribe(connectionId, spec, send, () => {
-						connSubs.add(msg.sub_id);
+						if (!connSubs.has(msg.sub_id)) {
+							connSubs.add(msg.sub_id);
+							wsSubscriptions += 1;
+						}
 					});
 				} else {
 					services.broker.unsubscribe(connectionId, msg.sub_id);
-					connSubs.delete(msg.sub_id);
+					removeConnSub(msg.sub_id);
 				}
 			})();
 		});
@@ -3768,6 +3886,8 @@ export async function buildServer(
 			if (revalidateTimer) clearInterval(revalidateTimer);
 			stopGrantWatch?.();
 			for (const id of connSubs) services.broker.unsubscribe(connectionId, id);
+			wsSubscriptions = Math.max(0, wsSubscriptions - connSubs.size);
+			connSubs.clear();
 		});
 	});
 
