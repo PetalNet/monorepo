@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/attention-item.schema.json",
+  "title": "Attention item (one attention state for the whole lab)",
+  "description": "Created by attention rules over emissions; mutated ONLY via attention.ack/snooze/resolve (any channel — UI click, agent acting on a chat reply, auto-cleanup). Every mutation emits, so all channels see one truth. Incident collapse and flap damping live here, not in renderers.",
+  "type": "object",
+  "required": ["schema_version", "id", "grade", "source", "subject", "summary", "ts", "scope"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string" },
+    "grade": {
+      "enum": ["p0", "blocker", "review", "artifact"],
+      "description": "Severity-first ordering: p0/cracks, then blockers (agent questions), then review-ready, then requested artifacts."
+    },
+    "source": { "type": "string", "description": "Originating rule/signal: heartbeat | bus:<type> | tracker | delivery | ..." },
+    "subject": { "type": "string", "description": "Entity key (agent handle, host, service, task id)." },
+    "summary": { "type": "string", "description": "Fact-first reason line (danger-grade copy carries no un-glossed lore)." },
+    "ts": { "type": "string", "format": "date-time" },
+    "scope": { "type": "string", "description": "ReBAC scope tag; whose attention this is." },
+    "task_id": { "type": ["integer", "null"] },
+    "incident_key": { "type": ["string", "null"], "description": "source+subject+rolling-window collapse key; items sharing it render as one incident with children. Flap damping: stays open until quiet for the damping interval." },
+    "fix_ops": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Op names from ops.json rendered as the inline ActionRow (agent.restart, card.repost, ...)."
+    },
+    "acked_by": { "type": ["string", "null"], "description": "Principal id that claimed it; acked items dim + sort below new." },
+    "snoozed_until": { "type": ["string", "null"], "format": "date-time" },
+    "resolved_by": { "type": ["string", "null"] },
+    "resolved_via": { "enum": ["ui", "agent", "auto", null], "description": "Channel-agnostic resolution: whichever side handled it clears the one state." },
+    "resolved_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

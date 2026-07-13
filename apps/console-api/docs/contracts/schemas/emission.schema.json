@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/emission.schema.json",
+  "title": "Emission (signal + statistic, the L1 canonical shape)",
+  "description": "One envelope for everything that happens in the lab. Bus semantics (signal) and lake semantics (statistic) are the same instance: every emission fans out to scoped subscribers AND lands durably in the lake. The semantic layer (L2) is auto-derived from these.",
+  "type": "object",
+  "required": ["schema_version", "id", "type", "ts", "source", "subject", "severity", "scope"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "format": "uuid", "description": "Producer-minted idempotency key; receivers de-duplicate." },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
+      "description": "Dot-namespaced event/statistic name (e.g. doorman.link.flap, host.cpu.pct). The semantic-layer registry key; first emission of a new type auto-registers it."
+    },
+    "ts": { "type": "string", "format": "date-time", "description": "When it happened (producer clock, RFC 3339 UTC)." },
+    "source": {
+      "type": "object",
+      "required": ["service"],
+      "additionalProperties": false,
+      "properties": {
+        "service": { "type": "string", "description": "Emitting service (manager, dispatcher, control-plane, box-agent, console-api, bridge, ...)." },
+        "host": { "type": ["string", "null"], "description": "Canonical .N host label, mc34, or VPS." },
+        "agent": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "Canonical agent handle when the emission is about/by an agent." }
+      }
+    },
+    "subject": { "type": "string", "description": "What the emission is about — an entity key, joinable (agent handle, host, service name, task id, card id, item id)." },
+    "severity": {
+      "enum": ["debug", "info", "warn", "danger", "p0"],
+      "description": "First-class severity. p0 cracks the facade; interrupt tier is reserved for p0/safety/principal-command."
+    },
+    "action": { "type": ["string", "null"], "description": "Optional: what a human/agent should do about it (the SignalRow action line)." },
+    "task_id": { "type": ["integer", "null"], "description": "Tracker tie whenever the activity belongs to a task." },
+    "scope": {
+      "type": "string",
+      "pattern": "^(user:[a-z0-9._-]+|agent:[a-z0-9._-]+|project:[a-z0-9._-]+|fleet|restricted:[a-z0-9._-]+)$",
+      "description": "ReBAC visibility tag. REQUIRED — un-scoped emissions are rejected (fail-loud, never default-public)."
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "boolean"] },
+      "description": "Low-cardinality string/bool facets (semantic-layer dimensions)."
+    },
+    "measures": {
+      "type": "object",
+      "additionalProperties": { "type": "number" },
+      "description": "Numeric values (semantic-layer measures)."
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "unit": { "type": "string" },
+        "cardinality_hint": { "enum": ["low", "medium", "high"] }
+      },
+      "description": "Optional typing hints consumed by L2 auto-derivation. Unknown keys tolerated."
+    }
+  }
+}

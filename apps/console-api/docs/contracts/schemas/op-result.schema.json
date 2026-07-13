@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/op-result.schema.json",
+  "title": "Op result (command plane response)",
+  "type": "object",
+  "required": ["schema_version", "in_reply_to", "ok"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "in_reply_to": { "type": "string", "format": "uuid" },
+    "ok": { "type": "boolean" },
+    "result": { "type": ["object", "null"], "description": "Op-specific payload on success." },
+    "error": {
+      "type": ["object", "null"],
+      "required": ["code", "message", "retryable"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "Stable snake_case code (unauthorized, executor_unreachable, stale_fence, scope_denied, audit_unavailable, ...)." },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean", "description": "May the caller re-send the SAME id after backoff." }
+      }
+    },
+    "audit_seq": { "type": ["integer", "null"], "description": "Lake seq of the audit emission — the receipt; null only on unauthorized (the denial itself is audited separately for term.*)." },
+    "executor": {
+      "type": ["object", "null"],
+      "required": ["kind", "liveness"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "description": "manager | dispatcher | control-plane | box-agent | tracker | library | console-api | edge | pty" },
+        "ref": { "type": ["string", "null"], "description": "Which instance (janet@.202, box .15, ...)." },
+        "liveness": { "enum": ["alive", "suspect", "down", "unknown"], "description": "Availability gates on THIS, never on target data freshness." }
+      }
+    },
+    "undo": {
+      "type": ["object", "null"],
+      "required": ["op", "args"],
+      "properties": { "op": { "type": "string" }, "args": { "type": "object" } },
+      "description": "Present when the op supports undo; the snackbar's undo fires this."
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/scope-grant.schema.json",
+  "title": "Scope grant (ReBAC tuple)",
+  "description": "Lean tracker-native ReBAC (per /task/724 research: Authentik groups = coarse tiers + per-resource tuples; OpenFGA/SpiceDB not adopted at this scale). Checks are zookie-fenced so a revoke is never read stale. Enforcement: query-layer scope injection + Postgres RLS backstop + op-router lane checks.",
+  "type": "object",
+  "required": ["schema_version", "subject", "relation", "object", "valid_at", "granted_by", "zookie"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "subject": { "type": "string", "description": "Principal id (parker, agent:janet) or tier:<name> (grants to every member of the tier)." },
+    "relation": { "enum": ["viewer", "editor", "operator", "owner"], "description": "viewer=read; editor=item mutation; operator=command-plane ops in the object namespace; owner=grant/revoke + destructive ops." },
+    "object": { "type": "string", "description": "A scope tag (user:parker, project:console, fleet, restricted:health), an item ref (item:<id>), or an op namespace (op:agent.*)." },
+    "condition": { "type": ["string", "null"], "description": "Optional guard (e.g. propose_only — mutations route to the tracker suggestion queue)." },
+    "valid_at": { "type": "string", "format": "date-time" },
+    "invalid_at": { "type": ["string", "null"], "format": "date-time", "description": "Expiry; expired grants are dead, not deleted (audit)." },
+    "granted_by": { "type": "string" },
+    "zookie": { "type": "string", "description": "Monotonic consistency token minted on every grant-set change." }
+  }
+}

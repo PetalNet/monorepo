@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/query-request.schema.json",
+  "title": "stats.query request",
+  "description": "Runs AS the caller (scope-filter injection + RLS backstop). Structured mode validates against the semantic layer and rejects unknown fields with nearest-match hints (feasibility honesty). SQL mode executes under a read-only role with a hard statement timeout.",
+  "type": "object",
+  "required": ["schema_version", "mode"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "enum": ["structured", "sql"] },
+    "from": { "type": "string", "description": "structured: emission type or registered view (host.cpu.pct, fleet, tasks, ...)." },
+    "select": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field"],
+        "additionalProperties": false,
+        "properties": {
+          "field": { "type": "string", "description": "dimension, measure, or subject/ts/severity" },
+          "agg": { "enum": ["sum", "avg", "min", "max", "count", "count_distinct", "p50", "p95", "p99", "last", null] },
+          "as": { "type": "string" }
+        }
+      }
+    },
+    "where": { "type": "object", "additionalProperties": true, "description": "field → value | {op: eq|ne|gt|gte|lt|lte|in|like, value}" },
+    "group_by": { "type": "array", "items": { "type": "string" } },
+    "time": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string", "description": "RFC 3339 or relative (-24h)" },
+        "to": { "type": ["string", "null"] },
+        "bucket": { "type": ["string", "null"], "description": "1m | 5m | 1h | 1d — time-bucketed aggregation" }
+      }
+    },
+    "order": { "type": ["array", "null"], "items": { "type": "object", "properties": { "field": { "type": "string" }, "dir": { "enum": ["asc", "desc"] } } } },
+    "limit": { "type": ["integer", "null"], "maximum": 100000 },
+    "sql": { "type": ["string", "null"], "description": "sql mode only. Read-only; INSERT/UPDATE/DELETE/DROP/CREATE/ALTER/TRUNCATE blocked; 20s hard timeout; caller scope enforced by RLS regardless of the SQL text." }
+  }
+}

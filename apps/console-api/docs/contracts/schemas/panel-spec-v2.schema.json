@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/panel-spec-v2.schema.json",
+  "title": "PanelSpec v2 (render contract)",
+  "description": "Citeseer's PanelSpec lineage with the named 2nd-pass extensions: query_ref indirection (replaces inlined SQL; the provenance peek resolves the ref), stat bindings for prose, and layout as data. Charts and investigation-tree state are data — savable, replayable, renderer-agnostic (spatial/Godot render the same specs).",
+  "type": "object",
+  "required": ["schema_version", "type", "title"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 2 },
+    "type": { "enum": ["bar", "line", "stat", "table", "pie", "scatter", "gauge", "heatmap", "histogram", "insight", "text", "refusal"], "description": "citeseer's ten + text (prose with stat bindings) + refusal (the honest no)." },
+    "title": { "type": "string" },
+    "description": { "type": ["string", "null"] },
+    "query_ref": { "type": ["string", "null"], "description": "NEW v2: durable ref to the executed query (query-result.query_ref). Replaces citeseer's inlined per-panel sql. Peek ('Show the math.') and re-run resolve this. null only for text/refusal panels." },
+    "encoding": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": ["string", "null"] },
+        "y": { "type": ["string", "null"] },
+        "group_by": { "type": ["string", "null"] },
+        "columns": { "type": ["array", "null"], "items": { "type": "string" } },
+        "value": { "type": ["string", "null"] },
+        "unit": { "type": ["string", "null"] },
+        "color": { "type": ["string", "null"] },
+        "color_map": { "type": ["object", "null"], "additionalProperties": { "type": "string" } }
+      }
+    },
+    "prose": { "type": ["string", "null"], "description": "text panels: markdown with stat bindings {{stat:<query_ref>#<column>[agg]}} — each renders as a live, proved, drillable inline number. Unbound numbers are visibly unproven." },
+    "refusal": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "reason": { "type": "string" },
+        "suggestions": { "type": "array", "items": { "type": "string" } }
+      },
+      "description": "refusal panels: the feasibility gate's honest no — reason + realign suggestions. No hallucinated chart."
+    },
+    "summary": { "type": ["string", "null"] },
+    "narrative": { "type": ["string", "null"] },
+    "confidence": { "enum": ["high", "medium", "low", null] },
+    "recommendations": { "type": ["array", "null"], "items": { "type": "string" } },
+    "forecast": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "strategy": { "enum": ["auto", "linear", "drift", "moving_average", "exp_smoothing", "seasonal_naive"] },
+        "horizon": { "type": "integer" },
+        "window": { "type": ["integer", "null"] },
+        "alpha": { "type": ["number", "null"] },
+        "season_length": { "type": ["integer", "null"] },
+        "confidence": { "type": ["number", "null"] },
+        "interval_pct": { "type": ["number", "null"] }
+      }
+    },
+    "layout": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "col": { "type": "integer", "minimum": 0, "maximum": 11 },
+        "span": { "type": "integer", "minimum": 3, "maximum": 12 },
+        "row": { "type": "integer", "minimum": 0 },
+        "height": { "type": ["integer", "null"] },
+        "group": { "type": ["string", "null"] },
+        "highlight": { "type": "boolean", "default": false },
+        "locked": { "type": "boolean", "default": false, "description": "Manual user move locks the slot against later auto-arranges." }
+      },
+      "description": "NEW v2: layout as data on a 12-col grid model (window.arrange writes this). State, not pixels."
+    },
+    "live": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "pattern": { "type": "string", "description": "Bus pattern that refreshes this panel." },
+        "cadence_s": { "type": ["number", "null"], "description": "Expected cadence; STALLED past 2× cadence." }
+      },
+      "description": "NEW v2: live binding — the panel subscribes and re-runs its query_ref on matching emissions."
+    }
+  }
+}

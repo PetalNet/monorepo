@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/subscription.schema.json",
+  "title": "Standing bus subscription (Signals · Delivery)",
+  "description": "Persisted per-owner subscription driving the Signals feed, digests, and off-console delivery. Agent-malleable config: subscription.set/remove are ordinary audited ops; the UI menu and an agent edit the same store. Escalation per /task/709: interrupt reserved for p0/safety/principal-command.",
+  "type": "object",
+  "required": ["schema_version", "pattern", "tier", "owner"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "pattern": { "type": "string", "description": "Glob over emission type (doorman.*, task.created, ...). Server intersects with the owner's readable scopes." },
+    "filter": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "severity_gte": { "enum": ["debug", "info", "warn", "danger", "p0"] },
+        "source_service": { "type": "string" },
+        "subject": { "type": "string" }
+      }
+    },
+    "tier": { "enum": ["feed", "digest", "interrupt"], "description": "feed = pull-only; digest = batched per window; interrupt = off-console delivery (Matrix default)." },
+    "loud": { "type": "boolean", "default": false, "description": "Promote-to-loud: delivers off-console even below interrupt tier." },
+    "note": { "type": ["string", "null"] },
+    "owner": { "type": "string", "description": "Principal id this subscription belongs to (per-user/per-agent)." },
+    "updated_by": { "type": ["string", "null"] },
+    "updated_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}
