@@ -82,7 +82,7 @@ async fn run(config: Config) {
     };
 
     // Periodic cleanup: expired live fixes, expired temp shares, >30d history.
-    tokio::spawn(cleanup_task(pool.clone()));
+    tokio::spawn(cleanup_task(state.clone()));
 
     let app = api::router(state.clone());
 
@@ -109,7 +109,7 @@ async fn run(config: Config) {
 
 const HISTORY_RETENTION_DAYS: i32 = 30;
 
-async fn cleanup_task(pool: sqlx::PgPool) {
+async fn cleanup_task(state: AppState) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
     loop {
         interval.tick().await;
@@ -118,16 +118,36 @@ async fn cleanup_task(pool: sqlx::PgPool) {
                 "DELETE FROM location_updates
                  WHERE created_at + make_interval(secs => ttl_seconds) < now()",
             )
-            .execute(&pool)
+            .execute(&state.pool)
             .await?;
-            sqlx::query("DELETE FROM temporary_shares WHERE expires_at < now()")
-                .execute(&pool)
-                .await?;
+            let expired: Vec<(uuid::Uuid, String, Option<String>)> = sqlx::query_as(
+                "DELETE FROM temporary_shares
+                 WHERE expires_at < now()
+                 RETURNING id, from_user_id, to_user_id",
+            )
+            .fetch_all(&state.pool)
+            .await?;
+            for (id, from_user_id, to_user_id) in expired {
+                let Some(to_user_id) = to_user_id else {
+                    continue;
+                };
+                api::shares::notify_temp_teardown(
+                    &state,
+                    api::shares::TempTeardown::Expired,
+                    id,
+                    &from_user_id,
+                    &to_user_id,
+                );
+                // Catalog-v0 clients refresh temporary state on this frame.
+                let sync = serde_json::json!({ "type": "share.temp_created" }).to_string();
+                state.hub.send_to_user(&from_user_id, &sync);
+                state.hub.send_to_user(&to_user_id, &sync);
+            }
             sqlx::query(
                 "DELETE FROM location_history WHERE created_at < now() - make_interval(days => $1)",
             )
             .bind(HISTORY_RETENTION_DAYS)
-            .execute(&pool)
+            .execute(&state.pool)
             .await?;
             // Reap consumed KeyPackages and applied MLS messages so the mailbox
             // and pool tables don't grow without bound (M6). Windows are
@@ -136,13 +156,13 @@ async fn cleanup_task(pool: sqlx::PgPool) {
                 "DELETE FROM key_packages
                  WHERE consumed_at IS NOT NULL AND consumed_at < now() - make_interval(days => 7)",
             )
-            .execute(&pool)
+            .execute(&state.pool)
             .await?;
             sqlx::query(
                 "DELETE FROM mls_messages
                  WHERE processed AND created_at < now() - make_interval(days => 30)",
             )
-            .execute(&pool)
+            .execute(&state.pool)
             .await?;
             Ok(())
         }

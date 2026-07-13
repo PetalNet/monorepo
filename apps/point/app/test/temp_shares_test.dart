@@ -62,14 +62,12 @@ void main() {
       mk('stale@remote.dev', 'me@point.dev', const Duration(minutes: -1)),
     ];
 
-    expect(
-      myOutgoingTemps(rows, 'me@point.dev', now).keys,
-      ['friend@point.dev'],
-    );
-    expect(
-      myIncomingTemps(rows, 'me@point.dev', now).keys,
-      ['walker@remote.dev'],
-    );
+    expect(myOutgoingTemps(rows, 'me@point.dev', now).keys, [
+      'friend@point.dev',
+    ]);
+    expect(myIncomingTemps(rows, 'me@point.dev', now).keys, [
+      'walker@remote.dev',
+    ]);
   });
 
   test('incoming temp identities exclude existing ongoing people', () {
@@ -136,9 +134,106 @@ void main() {
   });
 
   test('computeShareTargets unions ongoing shares and temp targets', () {
+    expect(computeShareTargets(['a@x', 'b@x'], ['b@x', 'temp@x']).toSet(), {
+      'a@x',
+      'b@x',
+      'temp@x',
+    });
+  });
+
+  test('temp teardown drops a peer fix when viewing access ended', () {
+    final remaining = [
+      mk('me@point.dev', 'walker@remote.dev', const Duration(hours: 1)),
+    ];
+
     expect(
-      computeShareTargets(['a@x', 'b@x'], ['b@x', 'temp@x']).toSet(),
-      {'a@x', 'b@x', 'temp@x'},
+      retainsPeerLocationAfterTempTeardown(
+        remaining: remaining,
+        me: 'me@point.dev',
+        peer: 'walker@remote.dev',
+        permanentPeers: const [],
+        now: now,
+      ),
+      isFalse,
+      reason: 'an outgoing temp never grants access to the recipient fix',
+    );
+  });
+
+  test(
+    'temp teardown retains a peer fix only for another active access path',
+    () {
+      final anotherIncoming = [
+        mk('walker@remote.dev', 'me@point.dev', const Duration(minutes: 5)),
+      ];
+
+      expect(
+        retainsPeerLocationAfterTempTeardown(
+          remaining: anotherIncoming,
+          me: 'me@point.dev',
+          peer: 'walker@remote.dev',
+          permanentPeers: const [],
+          now: now,
+        ),
+        isTrue,
+      );
+      expect(
+        retainsPeerLocationAfterTempTeardown(
+          remaining: const [],
+          me: 'me@point.dev',
+          peer: 'walker@remote.dev',
+          permanentPeers: const ['walker@remote.dev'],
+          now: now,
+        ),
+        isTrue,
+      );
+      expect(
+        retainsPeerLocationAfterTempTeardown(
+          remaining: [
+            mk(
+              'walker@remote.dev',
+              'me@point.dev',
+              const Duration(seconds: -1),
+            ),
+          ],
+          me: 'me@point.dev',
+          peer: 'walker@remote.dev',
+          permanentPeers: const [],
+          now: now,
+        ),
+        isFalse,
+        reason: 'an expired parallel temp is not an access path',
+      );
+    },
+  );
+
+  test('expiry clock evicts only the last temp-only peer access', () {
+    final walker = mk(
+      'walker@remote.dev',
+      'me@point.dev',
+      const Duration(minutes: 1),
+    );
+    final mara = mk(
+      'mara@point.dev',
+      'me@point.dev',
+      const Duration(minutes: 1),
+    );
+
+    expect(
+      peersLosingTempLocationAccess(
+        previous: {'walker@remote.dev': walker, 'mara@point.dev': mara},
+        next: const {},
+        permanentPeers: const ['mara@point.dev'],
+      ),
+      {'walker@remote.dev'},
+    );
+    expect(
+      peersLosingTempLocationAccess(
+        previous: null,
+        next: const {},
+        permanentPeers: const [],
+      ),
+      isEmpty,
+      reason: 'initial loading is not proof that access was revoked',
     );
   });
 

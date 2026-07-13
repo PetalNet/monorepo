@@ -49,6 +49,18 @@ class TempSharesController extends AsyncNotifier<List<TempShare>> {
     await ref.read(apiProvider).deleteTempShare(session.token, id);
     await refresh();
   }
+
+  /// Apply a server-authoritative teardown before the reconciliation request
+  /// completes. Returning the remaining rows lets the relay decide whether a
+  /// cached peer fix is still authorized by another relationship.
+  List<TempShare> removeLocally(String id) {
+    final remaining = [
+      for (final share in state.value ?? const <TempShare>[])
+        if (share.id != id) share,
+    ];
+    state = AsyncData(remaining);
+    return remaining;
+  }
 }
 
 final tempSharesControllerProvider =
@@ -83,6 +95,40 @@ Map<String, TempShare> myIncomingTemps(
     for (final t in all)
       if (t.toUserId == me && t.expiresAt.isAfter(now)) t.fromUserId: t,
   };
+}
+
+/// Whether the current user may still retain a peer's decrypted fix after one
+/// temporary row is removed. Outgoing shares do not grant viewing access; only
+/// a permanent relationship or another active incoming share does.
+bool retainsPeerLocationAfterTempTeardown({
+  required Iterable<TempShare> remaining,
+  required String? me,
+  required String peer,
+  required Iterable<String> permanentPeers,
+  required DateTime now,
+}) {
+  if (permanentPeers.contains(peer)) return true;
+  if (me == null) return false;
+  return remaining.any(
+    (share) =>
+        share.fromUserId == peer &&
+        share.toUserId == me &&
+        share.expiresAt.isAfter(now),
+  );
+}
+
+/// Peers whose last visible incoming temp relationship disappeared on a clock
+/// tick. The first provider emission has no prior authorization snapshot and
+/// therefore never evicts; permanent peers remain authorized.
+Set<String> peersLosingTempLocationAccess({
+  required Map<String, TempShare>? previous,
+  required Map<String, TempShare> next,
+  required Iterable<String> permanentPeers,
+}) {
+  if (previous == null) return const <String>{};
+  return previous.keys.toSet()
+    ..removeAll(next.keys)
+    ..removeAll(permanentPeers);
 }
 
 /// Resolve stable identities for incoming temp-only senders. The exact handle
@@ -172,9 +218,7 @@ final incomingTempPeopleProvider = Provider<List<Person>>((ref) {
   return resolveIncomingTempPeople(
     incoming: incoming,
     ongoing: ongoing,
-    fixes: {
-      for (final entry in live.entries) entry.key: entry.value.target,
-    },
+    fixes: {for (final entry in live.entries) entry.key: entry.value.target},
     serverPresence: serverPresence,
     selfDomain: selfDomain,
     now: now,
