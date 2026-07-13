@@ -5,14 +5,16 @@ import { browser } from "$app/environment";
  * recompute as time passes, not freeze at render — a frozen clock renders stale operational state
  * as current (§4.6 honesty). Read `clockNow()` inside a component and it ticks reactively.
  */
-let current = $state(Date.now());
+let current = $state(0);
 
 if (browser) {
+	current = Date.now();
 	setInterval(() => {
 		current = Date.now();
 	}, 1000);
 }
 
 export function clockNow(): number {
-	return current;
+	// A module can live for the whole server process. Never reuse its import-time timestamp for SSR.
+	return browser ? current : Date.now();
 }
