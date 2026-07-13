@@ -10,6 +10,7 @@ import {
 } from "$lib/api/derive";
 import type { AttentionItem, ConsoleHealth, DashboardItem, RosterItem } from "$lib/api/types";
 import { mockCockpit, type CockpitData, type NavBadges } from "$lib/data/cockpit";
+import { captureCaughtFailure } from "$lib/glitchtip";
 
 import type { PageLoad } from "./$types";
 
@@ -35,10 +36,22 @@ export const load: PageLoad = async ({ parent, fetch }): Promise<{ cockpit: Cock
 	const { scene, me } = await parent();
 	if (dataMode() === "live") {
 		const [attentionRead, rosterRead, healthRead, dashboardsRead] = await Promise.all([
-			readAttention(fetch).catch(() => null),
-			readRoster(fetch).catch(() => null),
-			readHealth(fetch).catch(() => null),
-			readDashboards(fetch).catch(() => null),
+			readAttention(fetch).catch((error) => {
+				captureCaughtFailure(error, { surface: "cockpit", endpoint: "/attention" });
+				return null;
+			}),
+			readRoster(fetch).catch((error) => {
+				captureCaughtFailure(error, { surface: "cockpit", endpoint: "/roster" });
+				return null;
+			}),
+			readHealth(fetch).catch((error) => {
+				captureCaughtFailure(error, { surface: "cockpit", endpoint: "/health" });
+				return null;
+			}),
+			readDashboards(fetch).catch((error) => {
+				captureCaughtFailure(error, { surface: "cockpit", endpoint: "/dashboards" });
+				return null;
+			}),
 		]);
 		const attention = keep("attention", attentionRead?.items ?? null) ?? [];
 		const roster = keep("roster", rosterRead?.items ?? null) ?? [];

@@ -3,6 +3,7 @@ import { consoleHealthBusAgeS } from "$lib/api/derive";
 import type { ConsoleHealth, Me } from "$lib/api/types";
 import { mockCockpit, type Scene, type ShellHealth } from "$lib/data/cockpit";
 import { me as mockMe } from "$lib/data/mock";
+import { captureCaughtFailure } from "$lib/glitchtip";
 
 import type { LayoutLoad } from "./$types";
 
@@ -64,11 +65,15 @@ export const load: LayoutLoad = async ({ url, fetch }): Promise<ShellData> => {
 		try {
 			const [me, healthRead] = await Promise.all([
 				readMe(fetch),
-				readHealth(fetch).catch(() => null),
+				readHealth(fetch).catch((error) => {
+					captureCaughtFailure(error, { surface: "cockpit-shell", endpoint: "/health" });
+					return null;
+				}),
 			]);
 			const health = liveShellHealth(healthRead);
 			return { me, health, scene, connected: true };
-		} catch {
+		} catch (error) {
+			captureCaughtFailure(error, { surface: "cockpit-shell", endpoint: "/me" });
 			const health: ShellHealth = {
 				verdict: "cant_verify",
 				stateFact: "console-api unreachable.",
