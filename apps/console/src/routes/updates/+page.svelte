@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { dataMode, readBoxUpdateRaw } from "$lib/api/client";
+	import { onMount } from "svelte";
+
+	import { connectBus, dataMode, readBoxUpdateRaw, readHealth, runQuery } from "$lib/api/client";
 	import { opDef } from "$lib/api/ops";
 	import type { BoxUpdateRaw } from "$lib/api/types";
 	import HudChip from "$lib/components/HudChip.svelte";
@@ -24,6 +26,28 @@
 	let rawError = $state<string | null>(null);
 	let receiptOpen = $state(false);
 	let filter = $state("");
+	type ContainerUpdate = {
+		id: string;
+		container: string;
+		source: string;
+		at: string;
+	};
+	let containerUpdates = $state<ContainerUpdate[]>(
+		dataMode() === "mock"
+			? [
+					{ id: "mock-1", container: "citeseer-web", source: ".14 · 1.8.2 → 1.9.0", at: new Date(Date.now() - 2 * 3_600_000).toISOString() },
+					{ id: "mock-2", container: "tasks-app", source: ".202 · ab12f → 9c04e", at: new Date(Date.now() - 5 * 3_600_000).toISOString() },
+					{ id: "mock-3", container: "matrix-bridge", source: ".12 · 0.4.1 → 0.4.3", at: new Date(Date.now() - 9 * 3_600_000).toISOString() },
+				]
+			: [],
+	);
+	let containerHistory = $state<"loading" | "ready" | "unavailable">(
+		dataMode() === "mock" ? "ready" : "loading",
+	);
+	let containerObservedAt = $state<string | null>(null);
+	let containerQueryRef = $state<string | null>(null);
+	let containerLiveAt = $state<string | null>(null);
+	let containerLastSeq = $state<number | undefined>(undefined);
 	const filteredRows = $derived(
 		u.rows.filter((row) =>
 			`${row.host} ${row.status} ${row.source}`.toLowerCase().includes(filter.trim().toLowerCase()),
@@ -44,6 +68,109 @@
 	const reboot = opDef("host.reboot")!;
 	let drawerEl = $state<HTMLDialogElement | null>(null);
 	let receiptEl = $state<HTMLDialogElement | null>(null);
+
+	function recordRows(result: Awaited<ReturnType<typeof runQuery>>): Record<string, unknown>[] {
+		return result.rows.map((row) =>
+			Object.fromEntries(result.columns.map((column, index) => [column.name, row[index]])),
+		);
+	}
+
+	function asContainerUpdate(row: Record<string, unknown>): ContainerUpdate {
+		const seq = Number(row["seq"]);
+		const at = typeof row["ts"] === "string" ? row["ts"] : new Date().toISOString();
+		return {
+			id: Number.isFinite(seq) ? String(seq) : `${String(row["subject"])}:${at}`,
+			container: String(row["claimed_container"] ?? row["subject"] ?? "unknown container"),
+			source: String(row["source_agent"] ?? row["source_host"] ?? "source unknown"),
+			at,
+		};
+	}
+
+	async function loadContainerHistory() {
+		try {
+			const result = await runQuery({
+				schema_version: 1,
+				mode: "structured",
+				from: "container.update_available",
+				select: [
+					{ field: "seq" },
+					{ field: "claimed_container" },
+					{ field: "subject" },
+					{ field: "source.agent" },
+					{ field: "source.host" },
+					{ field: "ts" },
+				],
+				time: { from: new Date(Date.now() - 7 * 86_400_000).toISOString() },
+				order: [{ field: "ts", dir: "desc" }],
+				limit: 6,
+			});
+			const rows = recordRows(result);
+			containerUpdates = rows.map(asContainerUpdate);
+			containerLastSeq = Math.max(0, ...rows.map((row) => Number(row["seq"]) || 0)) || undefined;
+			containerObservedAt = result.freshness.observed_at;
+			containerQueryRef = result.query_ref;
+			containerLiveAt = null;
+			containerHistory = "ready";
+		} catch {
+			containerHistory = "unavailable";
+		}
+	}
+
+	onMount(() => {
+		if (dataMode() === "mock") return;
+		let disposed = false;
+		let disconnect: (() => void) | null = null;
+		void (async () => {
+			const recoveryHead = await readHealth().then((health) => health.seq_head).catch(() => null);
+			await loadContainerHistory();
+			if (disposed) return;
+			disconnect = connectBus(
+				() => [
+					{
+						sub_id: "console-updates-containers",
+						pattern: "container.update_available",
+						since: recoveryHead ?? containerLastSeq ?? 0,
+					},
+				],
+				(rawFrame) => {
+					const frame = rawFrame as {
+						kind?: string;
+						seq?: number;
+						emission?: {
+							type?: string;
+							subject?: string;
+							ts?: string;
+							source?: { agent?: string | null; host?: string | null };
+							dimensions?: Record<string, string | boolean>;
+						};
+					};
+					if (frame.kind === "event" && frame.emission?.type === "container.update_available") {
+						const update = asContainerUpdate({
+							seq: frame.seq,
+							claimed_container: frame.emission.dimensions?.["claimed_container"],
+							subject: frame.emission.subject,
+							source_agent: frame.emission.source?.agent,
+							source_host: frame.emission.source?.host,
+							ts: frame.emission.ts,
+						});
+						containerUpdates = [
+							update,
+							...containerUpdates.filter((item) => item.id !== update.id),
+						].slice(0, 6);
+						containerLastSeq = frame.seq ?? containerLastSeq;
+						containerLiveAt = update.at;
+						containerHistory = "ready";
+					}
+					if (frame.kind === "gap" || frame.kind === "resync_required")
+						void loadContainerHistory();
+				},
+			);
+		})();
+		return () => {
+			disposed = true;
+			disconnect?.();
+		};
+	});
 
 	$effect(() => {
 		if (selected && drawerEl && !drawerEl.open) drawerEl.showModal();
@@ -224,16 +351,20 @@
 			title="Container updates"
 			sub="Derek · digest-batched"
 			span={5}
-			prov={{ source: "container.update_available", freshness: dataMode() === "mock" ? "mock live" : "history unavailable", rows: dataMode() === "mock" ? "3 updates" : null }}
+			prov={{ source: containerLiveAt ? containerQueryRef ? `${containerQueryRef} + live bus` : "live bus" : containerQueryRef ?? "container.update_available", freshness: dataMode() === "mock" ? "mock live" : containerLiveAt ?? containerObservedAt ?? containerHistory, rows: containerHistory === "ready" ? `${containerUpdates.length} updates` : null }}
 		>
-			{#if dataMode() === "mock"}
+			{#if containerUpdates.length}
 				<div class="containers">
-					<div><code>citeseer-web</code><span>.14 · 1.8.2 → 1.9.0</span><time>2h</time></div>
-					<div><code>tasks-app</code><span>.202 · ab12f → 9c04e</span><time>5h</time></div>
-					<div><code>matrix-bridge</code><span>.12 · 0.4.1 → 0.4.3</span><time>9h</time></div>
+					{#each containerUpdates as update (update.id)}
+						<div><code>{update.container}</code><span>{update.source} · update available</span><time>{Math.max(0, Math.round((Date.now() - Date.parse(update.at)) / 3_600_000))}h</time></div>
+					{/each}
 				</div>
+			{:else if containerHistory === "loading"}
+				<div class="skeletons" aria-label="Loading container update history"><i></i><i></i><i></i></div>
+			{:else if containerHistory === "ready"}
+				<div class="quiet"><Icon name="shield-check" size={14} /> No container updates arrived in the last 7 days.</div>
 			{:else}
-				<div class="quiet">Container event history is not available from the current read contract.</div>
+				<div class="quiet"><Icon name="circle-help" size={14} /> Container history query failed. No live-only state is shown.</div>
 			{/if}
 		</Panel>
 	</div>
