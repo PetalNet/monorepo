@@ -19,9 +19,11 @@ COPY packages/tsconfig packages/tsconfig
 RUN pnpm --filter @petalnet/types build \
 	&& pnpm --filter @petalnet/console-api build \
 	&& pnpm --filter @petalnet/console-api deploy --prod --legacy /opt/console-api \
-	&& rm -rf /opt/console-api/src /opt/console-api/test /opt/console-api/docs \
+	&& rm -rf /opt/console-api/src /opt/console-api/test \
 		/opt/console-api/Dockerfile /opt/console-api/tsconfig.json \
-		/opt/console-api/vitest.config.ts /opt/console-api/.oxlintrc.json
+		/opt/console-api/vitest.config.ts /opt/console-api/.oxlintrc.json \
+	&& find /opt/console-api/docs -mindepth 1 -maxdepth 1 \
+		! -name contracts -exec rm -rf {} +
 
 FROM node:26-bookworm-slim@sha256:e999d087492c7227c85adc70574cf9d3cce774c3e6d7b8dfe473ee6b142c8f2c AS runtime
 
