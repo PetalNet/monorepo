@@ -559,6 +559,24 @@ class RelayController {
         // Pull the authoritative generation marker; the deterministic
         // initiator will replace the stale group and emit a fresh Welcome.
         _requestSync(RealtimeSyncReason.relayEvent);
+      case 'profile.updated':
+        final peer = msg['user_id'] as String?;
+        if (peer != null) {
+          unawaited(
+            _ref
+                .read(peopleControllerProvider.notifier)
+                .profileUpdated(
+                  peer,
+                  profileVersion: msg['profile_version'] as int? ?? 0,
+                  avatarChanged: msg['avatar_changed'] == true,
+                ),
+          );
+          // Pending-request rows also carry names and avatars. The focused
+          // People refresh above gives the primary surface same-turn polish;
+          // the authoritative coordinator keeps every identity-bearing list
+          // coherent without putting profile content in the WS frame.
+          _requestSync(RealtimeSyncReason.relayEvent);
+        }
       case 'share.removed':
         final peer = msg['user_id'] as String?;
         if (peer != null) {

@@ -4,6 +4,7 @@
 use axum::extract::State;
 use axum::Extension;
 use axum::Json;
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -196,7 +197,121 @@ const PROFILE_UPDATES_PER_MINUTE: u32 = 12;
 /// Avatar uploads per minute (each is up to 128 KiB of DB write).
 const AVATAR_UPLOADS_PER_MINUTE: u32 = 6;
 /// Hard cap on the stored avatar bytes ("photo-dot": a small square).
-const MAX_AVATAR_BYTES: usize = 128 * 1024;
+pub(super) const MAX_AVATAR_BYTES: usize = 128 * 1024;
+
+/// Notify every local account currently authorized to see this profile. This
+/// mirrors `authz::can_view_profile`: accepted and temporary shares, shared
+/// groups, and pending requests all make identity visible. The frame contains
+/// no profile content; recipients pull the authoritative, access-controlled
+/// REST surfaces after it arrives.
+async fn notify_profile_updated(
+    state: &AppState,
+    user_id: &str,
+    version: DateTime<Utc>,
+    avatar_changed: bool,
+) {
+    let peers: Vec<(String,)> = match sqlx::query_as(
+        "SELECT DISTINCT peer_id
+         FROM (
+             SELECT CASE WHEN user_a = $1 THEN user_b ELSE user_a END AS peer_id
+             FROM user_shares
+             WHERE user_a = $1 OR user_b = $1
+             UNION
+             SELECT CASE WHEN from_user_id = $1 THEN to_user_id ELSE from_user_id END AS peer_id
+             FROM temporary_shares
+             WHERE (from_user_id = $1 OR to_user_id = $1)
+               AND to_user_id IS NOT NULL
+               AND expires_at > now()
+             UNION
+             SELECT theirs.user_id AS peer_id
+             FROM group_members mine
+             JOIN group_members theirs ON theirs.group_id = mine.group_id
+             WHERE mine.user_id = $1 AND theirs.user_id <> $1
+             UNION
+             SELECT CASE WHEN from_user_id = $1 THEN to_user_id ELSE from_user_id END AS peer_id
+             FROM share_requests
+             WHERE (from_user_id = $1 OR to_user_id = $1)
+               AND status = 'pending'
+         ) authorized_peers
+         WHERE peer_id IS NOT NULL AND peer_id <> $1",
+    )
+    .bind(user_id)
+    .fetch_all(&state.pool)
+    .await
+    {
+        Ok(peers) => peers,
+        Err(error) => {
+            // The profile write already committed. Do not turn a successful,
+            // durable mutation into a misleading 500 because its advisory
+            // live fan-out could not be resolved; reconnect reconciliation
+            // still pulls the authoritative profile later.
+            tracing::warn!(user_id, %error, "profile update fan-out lookup failed");
+            return;
+        }
+    };
+
+    let event = json!({
+        "type": "profile.updated",
+        "user_id": user_id,
+        "profile_version": version.timestamp_micros(),
+        "avatar_changed": avatar_changed,
+    })
+    .to_string();
+    // Every device belonging to the actor also needs to converge. The device
+    // that made the mutation invalidates locally; this reaches their others.
+    state.hub.send_to_user(user_id, &event);
+
+    let snapshot: Option<(String, Option<Vec<u8>>, Option<String>)> =
+        match sqlx::query_as("SELECT display_name, avatar, avatar_mime FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&state.pool)
+            .await
+        {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!(user_id, %error, "profile update snapshot lookup failed");
+                return;
+            }
+        };
+    let Some((display_name, avatar, avatar_mime)) = snapshot else {
+        return;
+    };
+
+    for (peer_id,) in peers {
+        let is_remote = super::federation::domain_of(&peer_id)
+            .is_some_and(|domain| !domain.eq_ignore_ascii_case(&state.config.domain));
+        if !is_remote {
+            state.hub.send_to_user(&peer_id, &event);
+            continue;
+        }
+
+        use base64::Engine as _;
+        let payload = json!({
+            "profile_version": version.timestamp_micros(),
+            "display_name": display_name,
+            "avatar_changed": avatar_changed,
+            "avatar": avatar.as_ref().map(|bytes| {
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            }),
+            "avatar_mime": avatar_mime,
+        });
+        let state = state.clone();
+        let sender = user_id.to_string();
+        tokio::spawn(async move {
+            if let Err(error) = super::federation::send_federated(
+                &state,
+                &sender,
+                &peer_id,
+                "profile.updated",
+                payload,
+            )
+            .await
+            {
+                tracing::warn!(peer = %peer_id, ?error, "federated profile update failed");
+            }
+        });
+    }
+}
 
 #[derive(Deserialize)]
 pub struct UpdateProfileBody {
@@ -219,11 +334,15 @@ pub async fn update_profile(
     if name.is_empty() {
         return Err(AppError::BadRequest("display name is empty".into()));
     }
-    sqlx::query("UPDATE users SET display_name = $1, updated_at = now() WHERE id = $2")
-        .bind(&name)
-        .bind(&user.user_id)
-        .execute(&state.pool)
-        .await?;
+    let (version,): (DateTime<Utc>,) = sqlx::query_as(
+        "UPDATE users SET display_name = $1, updated_at = now() WHERE id = $2
+         RETURNING updated_at",
+    )
+    .bind(&name)
+    .bind(&user.user_id)
+    .fetch_one(&state.pool)
+    .await?;
+    notify_profile_updated(&state, &user.user_id, version, false).await;
     Ok(Json(json!({ "ok": true, "display_name": name })))
 }
 
@@ -263,7 +382,7 @@ pub struct AvatarBody {
 
 /// Magic-byte check: the bytes must actually be the format the mime claims,
 /// so the avatar endpoint can never serve attacker-typed content.
-fn avatar_bytes_match_mime(bytes: &[u8], mime: &str) -> bool {
+pub(super) fn avatar_bytes_match_mime(bytes: &[u8], mime: &str) -> bool {
     match mime {
         "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
         "image/png" => bytes.starts_with(&[0x89, b'P', b'N', b'G']),
@@ -297,12 +416,16 @@ pub async fn upload_avatar(
             "avatar: mime must be image/jpeg, image/png, or image/webp and match the bytes".into(),
         ));
     }
-    sqlx::query("UPDATE users SET avatar = $1, avatar_mime = $2, updated_at = now() WHERE id = $3")
-        .bind(&bytes)
-        .bind(&body.mime)
-        .bind(&user.user_id)
-        .execute(&state.pool)
-        .await?;
+    let (version,): (DateTime<Utc>,) = sqlx::query_as(
+        "UPDATE users SET avatar = $1, avatar_mime = $2, updated_at = now() WHERE id = $3
+         RETURNING updated_at",
+    )
+    .bind(&bytes)
+    .bind(&body.mime)
+    .bind(&user.user_id)
+    .fetch_one(&state.pool)
+    .await?;
+    notify_profile_updated(&state, &user.user_id, version, true).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -311,12 +434,14 @@ pub async fn delete_avatar(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> ApiResult<Json<Value>> {
-    sqlx::query(
-        "UPDATE users SET avatar = NULL, avatar_mime = NULL, updated_at = now() WHERE id = $1",
+    let (version,): (DateTime<Utc>,) = sqlx::query_as(
+        "UPDATE users SET avatar = NULL, avatar_mime = NULL, updated_at = now() WHERE id = $1
+         RETURNING updated_at",
     )
     .bind(&user.user_id)
-    .execute(&state.pool)
+    .fetch_one(&state.pool)
     .await?;
+    notify_profile_updated(&state, &user.user_id, version, true).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -329,8 +454,10 @@ pub async fn get_user_avatar(
     State(state): State<AppState>,
     user: AuthUser,
     axum::extract::Path(target): axum::extract::Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> ApiResult<axum::response::Response> {
     use axum::response::IntoResponse;
+    use sha2::{Digest, Sha256};
     let target = target.trim().to_lowercase();
     if !crate::authz::can_view_profile(&state.pool, &user.user_id, &target).await? {
         return Err(AppError::NotFound);
@@ -343,13 +470,31 @@ pub async fn get_user_avatar(
     let Some((Some(bytes), Some(mime))) = row else {
         return Err(AppError::NotFound);
     };
+    let mut hasher = Sha256::new();
+    hasher.update(mime.as_bytes());
+    hasher.update([0]);
+    hasher.update(&bytes);
+    let etag = format!("\"avatar-{}\"", hex::encode(hasher.finalize()));
+    let cache_control = "private, max-age=300";
+    if headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
+    {
+        return Ok((
+            axum::http::StatusCode::NOT_MODIFIED,
+            [
+                (axum::http::header::ETAG, etag),
+                (axum::http::header::CACHE_CONTROL, cache_control.to_string()),
+            ],
+        )
+            .into_response());
+    }
     Ok((
         [
             (axum::http::header::CONTENT_TYPE, mime),
-            (
-                axum::http::header::CACHE_CONTROL,
-                "private, max-age=300".to_string(),
-            ),
+            (axum::http::header::CACHE_CONTROL, cache_control.to_string()),
+            (axum::http::header::ETAG, etag),
         ],
         bytes,
     )

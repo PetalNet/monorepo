@@ -142,6 +142,11 @@ class RealtimeSyncCoordinator {
     var profile = previousProfile;
     try {
       profile = await _ref.refresh(meProfileProvider.future);
+      if (profile != null && profile.displayName != session.displayName) {
+        await _ref
+            .read(authControllerProvider.notifier)
+            .updateDisplayName(profile.displayName);
+      }
     } on Object {
       errors.add(RealtimeSyncFailure.profileUnavailable);
     }

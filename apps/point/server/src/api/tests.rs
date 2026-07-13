@@ -739,6 +739,82 @@ async fn profile_update_sanitizes_and_persists(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn profile_updates_notify_only_authorized_peers_without_profile_content(pool: PgPool) {
+    let state = test_state(pool.clone(), true);
+    let app = super::router(state.clone());
+    let password = format!("profile-test-{}", uuid::Uuid::new_v4());
+    let (_, alice) = register(&app, "alice", &password, None).await;
+    let alice = token_of(&alice);
+    let (_, _) = register(&app, "bob", &password, None).await;
+    let (_, _) = register(&app, "mallory", &password, None).await;
+    let alice_id = format!("alice@{DOMAIN}");
+    let bob_id = format!("bob@{DOMAIN}");
+    let mallory_id = format!("mallory@{DOMAIN}");
+    sqlx::query("INSERT INTO user_shares (user_a, user_b) VALUES ($1, $2)")
+        .bind(&alice_id)
+        .bind(&bob_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (bob_tx, mut bob_rx) = tokio::sync::mpsc::channel(4);
+    state
+        .hub
+        .add_connection(&bob_id, bob_tx, Arc::new(tokio::sync::Notify::new()));
+    let (alice_tx, mut alice_rx) = tokio::sync::mpsc::channel(4);
+    state
+        .hub
+        .add_connection(&alice_id, alice_tx, Arc::new(tokio::sync::Notify::new()));
+    let (mallory_tx, mut mallory_rx) = tokio::sync::mpsc::channel(4);
+    state.hub.add_connection(
+        &mallory_id,
+        mallory_tx,
+        Arc::new(tokio::sync::Notify::new()),
+    );
+
+    let (status, _) = send(
+        &app,
+        "PUT",
+        "/api/account/profile",
+        Some(&alice),
+        Some(json!({ "display_name": "Alice Renamed" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let event: Value = serde_json::from_str(&bob_rx.recv().await.unwrap()).unwrap();
+    assert_eq!(event["type"], "profile.updated");
+    assert_eq!(event["user_id"], alice_id);
+    assert_eq!(event["avatar_changed"], false);
+    assert!(event["profile_version"].is_number());
+    assert!(event.get("display_name").is_none());
+    assert!(event.get("avatar").is_none());
+    assert!(mallory_rx.try_recv().is_err());
+    let self_event: Value = serde_json::from_str(&alice_rx.recv().await.unwrap()).unwrap();
+    assert_eq!(self_event["type"], "profile.updated");
+    assert_eq!(self_event["user_id"], alice_id);
+
+    use base64::Engine as _;
+    let png = [&[0x89u8, b'P', b'N', b'G'][..], &[0u8; 8][..]].concat();
+    let (status, _) = send(
+        &app,
+        "POST",
+        "/api/account/avatar",
+        Some(&alice),
+        Some(json!({
+            "data": base64::engine::general_purpose::STANDARD.encode(png),
+            "mime": "image/png"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let event: Value = serde_json::from_str(&bob_rx.recv().await.unwrap()).unwrap();
+    assert_eq!(event["type"], "profile.updated");
+    assert_eq!(event["avatar_changed"], true);
+    let self_event: Value = serde_json::from_str(&alice_rx.recv().await.unwrap()).unwrap();
+    assert_eq!(self_event["avatar_changed"], true);
+}
+
+#[sqlx::test]
 async fn who_can_add_me_nobody_silently_drops_requests(pool: PgPool) {
     let app = app(&pool, true);
     let (_, alice) = register(&app, "alice", "password-1", None).await;
@@ -885,6 +961,37 @@ async fn avatar_roundtrip_is_relationship_gated(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
+
+    // A family-entry invalidation can cheaply revalidate unchanged bytes.
+    let request = Request::builder()
+        .uri(format!("/api/users/alice@{DOMAIN}/avatar"))
+        .header("authorization", format!("Bearer {bob}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let etag = response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let request = Request::builder()
+        .uri(format!("/api/users/alice@{DOMAIN}/avatar"))
+        .header("authorization", format!("Bearer {bob}"))
+        .header("if-none-match", etag)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert!(response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .is_empty());
 
     // Delete returns to the monogram (404 even for self).
     let (status, _) = send(&app, "DELETE", "/api/account/avatar", Some(&alice), None).await;

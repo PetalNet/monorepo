@@ -452,6 +452,7 @@ pub async fn cancel_request(
 pub struct ShareRow {
     pub user_id: String,
     pub display_name: String,
+    pub profile_version: DateTime<Utc>,
     pub since: DateTime<Utc>,
     /// When this peer's MLS identity last changed (task 726): the client
     /// rebuilds its pairwise group when this is newer than the group it holds.
@@ -466,6 +467,7 @@ pub async fn list_shares(
     let rows = sqlx::query_as::<_, ShareRow>(
         "SELECT CASE WHEN us.user_a = $1 THEN us.user_b ELSE us.user_a END AS user_id,
                 u.display_name,
+                u.updated_at AS profile_version,
                 us.created_at AS since,
                 u.rekeyed_at
          FROM user_shares us
