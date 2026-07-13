@@ -11,6 +11,8 @@ import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
 import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
+import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:unifiedpush/unifiedpush.dart';
@@ -21,10 +23,8 @@ import 'package:unifiedpush/unifiedpush.dart';
 ///
 /// UnifiedPush is fully wired: register with the distributor, POST the
 /// endpoint to the server, and refresh the relevant controllers when a wake
-/// arrives. FCM registration is transport-agnostic on the server; the device
-/// side needs a Firebase build (google-services.json + firebase_messaging),
-/// which a convenient-tier flavor supplies. Until then the private path is the
-/// one delivering.
+/// arrives. The standard build does not advertise FCM because it has no
+/// Firebase token source.
 class PushService {
   PushService(
     this._ref, {
@@ -40,15 +40,21 @@ class PushService {
   /// The last endpoint we registered with the server, so a transport switch or
   /// sign-out can unregister it precisely.
   static const _endpointKey = 'point.push.endpoint';
+  static const _transportKey = 'point.push.transport';
+  static const _syncedAtKey = 'point.push.synced_at';
   static const _snapshotKeyPrefix = 'point.push.snapshot.';
 
   bool _initialized = false;
+  bool _migrationHandled = false;
   Future<void> _wakeTail = Future<void>.value();
   Future<void> _notificationTail = Future<void>.value();
   StreamSubscription<RealtimeSyncDiff>? _syncDiffSub;
   final _syncAnnouncements = PushSyncAnnouncementState();
   final _foregroundNotices = StreamController<PushNotice>.broadcast();
   final _destinations = StreamController<PushDestination>.broadcast();
+  final deliveryHealth = ValueNotifier<PushDeliveryHealth>(
+    const PushDeliveryHealth.loading(),
+  );
 
   Stream<PushNotice> get foregroundNotices => _foregroundNotices.stream;
   Stream<PushDestination> get destinations => _destinations.stream;
@@ -82,19 +88,23 @@ class PushService {
   /// Bring registration in line with the current transport setting. Called on
   /// sign-in and whenever the notification transport changes.
   ///
-  /// UnifiedPush registration is attempted whenever a distributor is available,
-  /// EVEN on the convenient/FCM choice: a real device push beats none, and the
-  /// base build has no Firebase SDK to mint an FCM token. So a convenient-tier
-  /// user with ntfy installed still gets push (via UP); only a user with no
-  /// distributor AND no FCM flavor gets nothing — which is inherent, not a
-  /// silent failure this code introduces. A convenient-tier build flavor
-  /// (firebase_messaging + google-services.json) calls [registerFcm].
   Future<void> sync() async {
     try {
-      final distributors = await UnifiedPush.getDistributors();
-      if (distributors.isNotEmpty) {
-        final ok = await UnifiedPush.tryUseCurrentOrDefaultDistributor();
-        if (ok) await UnifiedPush.register();
+      final settings = await _ref.read(settingsProvider.notifier).loaded;
+      if (settings.needsPushMigration && !_migrationHandled) {
+        if (!await _migrateUnsupportedFcm()) return;
+        _migrationHandled = true;
+      }
+      final distributors = settings.transport == NotifTransport.unifiedPush
+          ? await UnifiedPush.getDistributors()
+          : const <String>[];
+      final plan = PushTransportPolicy.resolve(
+        settings: settings,
+        hasDistributor: distributors.isNotEmpty,
+      );
+      if (plan == PushTransportPlan.registerUnifiedPush) {
+        final selected = await UnifiedPush.tryUseCurrentOrDefaultDistributor();
+        if (selected) await UnifiedPush.register();
       }
       // This is contextual rather than an app-launch prompt: only ask once the
       // user has selected a working notification transport and Point has an
@@ -107,8 +117,31 @@ class PushService {
     }
   }
 
+  Future<bool> _migrateUnsupportedFcm() async {
+    final session = _ref.read(authControllerProvider).value;
+    final endpoint = await _storage.read(key: _endpointKey);
+    if (endpoint != null && session == null) return false;
+    if (endpoint != null && session != null) {
+      try {
+        await _ref.read(apiProvider).unregisterPush(session.token, endpoint);
+      } on Object catch (e) {
+        if (kDebugMode) debugPrint('legacy FCM endpoint clear failed: $e');
+        return false;
+      }
+    }
+    await _storage.delete(key: _endpointKey);
+    await _storage.delete(key: _transportKey);
+    await _storage.delete(key: _syncedAtKey);
+    deliveryHealth.value = const PushDeliveryHealth.notRegistered();
+    return true;
+  }
+
   /// A convenient-tier (Firebase) build calls this with its FCM token.
   Future<void> registerFcm(String fcmToken) async {
+    if (!PushBuildCapabilities.supportsFcm ||
+        _ref.read(settingsProvider).transport != NotifTransport.fcm) {
+      return;
+    }
     final session = _ref.read(authControllerProvider).value;
     if (session == null) return;
     await _ensureBaseline(session);
@@ -148,6 +181,16 @@ class PushService {
         return;
       }
       await _storage.write(key: _endpointKey, value: endpoint);
+      await _storage.write(key: _transportKey, value: transport);
+      final syncedAt = DateTime.now();
+      await _storage.write(
+        key: _syncedAtKey,
+        value: syncedAt.toUtc().toIso8601String(),
+      );
+      deliveryHealth.value = PushDeliveryHealth.registered(
+        transport: transport,
+        syncedAt: syncedAt,
+      );
     } on Object catch (e) {
       if (kDebugMode) debugPrint('push endpoint upload failed: $e');
       return;
@@ -169,9 +212,7 @@ class PushService {
   void _enqueueWake(List<int> content) {
     _wakeTail = _wakeTail
         .catchError((Object _) {})
-        .then(
-          (_) => _onWake(content),
-        );
+        .then((_) => _onWake(content));
   }
 
   /// Reconcile a contentless wake against the persisted authoritative state.
@@ -254,9 +295,7 @@ class PushService {
     final encoded = await _storage.read(key: _snapshotKey(session));
     if (encoded == null) return null;
     try {
-      return PushSnapshot.fromJson(
-        jsonDecode(encoded) as Map<String, dynamic>,
-      );
+      return PushSnapshot.fromJson(jsonDecode(encoded) as Map<String, dynamic>);
     } on Object {
       return null;
     }
@@ -313,13 +352,110 @@ class PushService {
       }
     }
     await _storage.delete(key: _endpointKey);
+    await _storage.delete(key: _transportKey);
+    await _storage.delete(key: _syncedAtKey);
+    deliveryHealth.value = const PushDeliveryHealth.notRegistered();
+  }
+
+  /// Refresh the user-facing delivery status from privacy-minimal metadata.
+  Future<void> refreshDeliveryHealth() async {
+    try {
+      final endpoint = await _storage.read(key: _endpointKey);
+      final transport = await _storage.read(key: _transportKey);
+      final rawSyncedAt = await _storage.read(key: _syncedAtKey);
+      final syncedAt = rawSyncedAt == null
+          ? null
+          : DateTime.tryParse(rawSyncedAt)?.toLocal();
+      deliveryHealth.value = endpoint == null
+          ? const PushDeliveryHealth.notRegistered()
+          : PushDeliveryHealth.registered(
+              transport: transport ?? 'unknown',
+              syncedAt: syncedAt,
+            );
+    } on Object catch (e) {
+      if (kDebugMode) debugPrint('push delivery health read failed: $e');
+      deliveryHealth.value = const PushDeliveryHealth.unavailable();
+    }
+  }
+
+  /// Exercises the local notification channel without sending any user data.
+  Future<bool> sendTestNotification() async {
+    if (!_notifications.supportsDisplay) return false;
+    try {
+      if (!await _notifications.requestPermission()) return false;
+      await _notifications.showTest();
+      return true;
+    } on Object catch (e) {
+      if (kDebugMode) debugPrint('test notification failed: $e');
+      return false;
+    }
   }
 
   Future<void> dispose() async {
     await _syncDiffSub?.cancel();
     await _foregroundNotices.close();
     await _destinations.close();
+    deliveryHealth.dispose();
   }
+}
+
+enum PushTransportPlan { registerUnifiedPush, awaitFcmToken, unavailable }
+
+/// Pure transport decision used by [PushService.sync]. Unsupported settings
+/// never quietly register a different transport.
+abstract final class PushTransportPolicy {
+  static PushTransportPlan resolve({
+    required AppSettings settings,
+    required bool hasDistributor,
+  }) {
+    switch (settings.transport) {
+      case NotifTransport.unifiedPush:
+        if (hasDistributor) return PushTransportPlan.registerUnifiedPush;
+        if (settings.fcmFallback && PushBuildCapabilities.supportsFcm) {
+          return PushTransportPlan.awaitFcmToken;
+        }
+        return PushTransportPlan.unavailable;
+      case NotifTransport.fcm:
+        return PushBuildCapabilities.supportsFcm
+            ? PushTransportPlan.awaitFcmToken
+            : PushTransportPlan.unavailable;
+    }
+  }
+}
+
+@immutable
+class PushDeliveryHealth {
+  const PushDeliveryHealth.loading()
+    : isLoading = true,
+      registeredTransport = null,
+      syncedAt = null,
+      isAvailable = true;
+
+  const PushDeliveryHealth.notRegistered()
+    : isLoading = false,
+      registeredTransport = null,
+      syncedAt = null,
+      isAvailable = true;
+
+  const PushDeliveryHealth.unavailable()
+    : isLoading = false,
+      registeredTransport = null,
+      syncedAt = null,
+      isAvailable = false;
+
+  const PushDeliveryHealth.registered({
+    required String transport,
+    required this.syncedAt,
+  }) : isLoading = false,
+       isAvailable = true,
+       registeredTransport = transport;
+
+  final bool isLoading;
+  final bool isAvailable;
+  final String? registeredTransport;
+  final DateTime? syncedAt;
+
+  bool get isRegistered => registeredTransport != null;
 }
 
 /// Persisted, privacy-minimal state used to decide whether a contentless wake
@@ -327,10 +463,7 @@ class PushService {
 /// data never enter storage or notification bodies.
 @immutable
 class PushSnapshot {
-  const PushSnapshot({
-    required this.people,
-    required this.incoming,
-  });
+  const PushSnapshot({required this.people, required this.incoming});
 
   factory PushSnapshot.capture(Ref ref) => PushSnapshot(
     people: {
@@ -439,10 +572,7 @@ abstract final class PushNotificationPolicy {
 
 @immutable
 class PushWakeDecision {
-  const PushWakeDecision({
-    required this.nextSnapshot,
-    required this.notices,
-  });
+  const PushWakeDecision({required this.nextSnapshot, required this.notices});
 
   final PushSnapshot nextSnapshot;
   final List<PushNotice> notices;
@@ -532,9 +662,11 @@ final class PersonPushDestination extends PushDestination {
 }
 
 abstract interface class LocalNotificationGateway {
+  bool get supportsDisplay;
   Future<void> initialize(ValueChanged<String?> onPayload);
-  Future<void> requestPermission();
+  Future<bool> requestPermission();
   Future<void> show(PushNotice notice);
+  Future<void> showTest();
 }
 
 class PluginLocalNotificationGateway implements LocalNotificationGateway {
@@ -551,12 +683,14 @@ class PluginLocalNotificationGateway implements LocalNotificationGateway {
   final FlutterLocalNotificationsPlugin _plugin;
 
   @override
+  bool get supportsDisplay =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  @override
   Future<void> initialize(ValueChanged<String?> onPayload) async {
-    if (kIsWeb ||
-        (defaultTargetPlatform != TargetPlatform.android &&
-            defaultTargetPlatform != TargetPlatform.iOS)) {
-      return;
-    }
+    if (!supportsDisplay) return;
     await _plugin.initialize(
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('ic_notification'),
@@ -581,26 +715,27 @@ class PluginLocalNotificationGateway implements LocalNotificationGateway {
   }
 
   @override
-  Future<void> requestPermission() async {
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.requestNotificationsPermission();
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
+  Future<bool> requestPermission() async {
+    if (!supportsDisplay) return false;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return await _plugin
+              .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin
+              >()
+              ?.requestNotificationsPermission() ??
+          false;
+    }
+    return await _plugin
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >()
+            ?.requestPermissions(alert: true, badge: true, sound: true) ??
+        false;
   }
 
   @override
   Future<void> show(PushNotice notice) async {
-    if (kIsWeb ||
-        (defaultTargetPlatform != TargetPlatform.android &&
-            defaultTargetPlatform != TargetPlatform.iOS)) {
-      return;
-    }
+    if (!supportsDisplay) return;
     await _plugin.show(
       id: notice.notificationId,
       title: notice.title,
@@ -620,10 +755,32 @@ class PluginLocalNotificationGateway implements LocalNotificationGateway {
       ),
     );
   }
+
+  @override
+  Future<void> showTest() async {
+    if (!supportsDisplay) return;
+    await _plugin.show(
+      id: 0x504f494e,
+      title: 'Point notifications are ready',
+      body: 'This private test stayed on this device.',
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channel.id,
+          _channel.name,
+          channelDescription: _channel.description,
+          importance: Importance.high,
+          priority: Priority.high,
+          category: AndroidNotificationCategory.status,
+        ),
+        iOS: const DarwinNotificationDetails(),
+      ),
+    );
+  }
 }
 
 final pushServiceProvider = Provider<PushService>((ref) {
   final service = PushService(ref);
+  unawaited(service.refreshDeliveryHealth());
   ref.onDispose(() => unawaited(service.dispose()));
   return service;
 });

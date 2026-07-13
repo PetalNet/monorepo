@@ -7,8 +7,6 @@ void main() {
     test('roundtrips every field', () {
       const s = AppSettings(
         mapProvider: MapProviderChoice.proxied,
-        transport: NotifTransport.fcm,
-        fcmFallback: true,
         transportChosen: true,
         appearance: Appearance.pureBlack,
         motion: MotionPreference.reduced,
@@ -19,6 +17,47 @@ void main() {
         goDarkDefault: true,
       );
       expect(AppSettings.fromJson(s.toJson()), s);
+    });
+
+    test('migrates unsupported FCM while preserving completed onboarding', () {
+      final s = AppSettings.fromJson(const {
+        'transport': 'fcm',
+        'fcm_fallback': true,
+        'transport_chosen': true,
+      });
+
+      expect(s.transport, NotifTransport.unifiedPush);
+      expect(s.fcmFallback, isFalse);
+      expect(s.transportChosen, isTrue);
+      expect(s.needsPushMigration, isTrue);
+
+      final persisted = AppSettings.fromJson(s.toJson());
+      expect(persisted.transport, NotifTransport.unifiedPush);
+      expect(persisted.fcmFallback, isFalse);
+      expect(persisted.needsPushMigration, isFalse);
+    });
+
+    test('rejects unsupported FCM updates', () {
+      final s = const AppSettings().copyWith(
+        transport: NotifTransport.fcm,
+        fcmFallback: true,
+        transportChosen: true,
+      );
+
+      expect(s.transport, NotifTransport.unifiedPush);
+      expect(s.fcmFallback, isFalse);
+      expect(s.transportChosen, isTrue);
+      expect(s.needsPushMigration, isTrue);
+    });
+
+    test('normalizes unsupported direct construction', () {
+      const s = AppSettings(
+        transport: NotifTransport.fcm,
+        fcmFallback: true,
+      );
+
+      expect(s.transport, NotifTransport.unifiedPush);
+      expect(s.fcmFallback, isFalse);
     });
 
     test('unknown or missing values fall back to the defaults', () {
