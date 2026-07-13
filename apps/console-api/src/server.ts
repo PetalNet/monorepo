@@ -217,6 +217,10 @@ const opCatalog = readSchema(new URL("ops.json", CONTRACTS_DIR)) as {
 	schema_version: number;
 	ops: OpEntry[];
 };
+const busFrameSchema = readSchema(new URL("schemas/bus-frame.schema.json", CONTRACTS_DIR));
+const clientBusFrameSchema: JsonSchema = {
+	oneOf: [{ $ref: "#/$defs/subscribe" }, { $ref: "#/$defs/unsubscribe" }],
+};
 if (opCatalog.schema_version !== 2) throw new Error("unsupported op catalog schema version");
 const OP_BY_NAME = new Map(opCatalog.ops.map((entry) => [entry.op, entry]));
 if (OP_BY_NAME.size !== opCatalog.ops.length) throw new Error("duplicate operation in ops.json");
@@ -2410,9 +2414,11 @@ export async function buildServer(
 
 	// --- bus WS ----------------------------------------------------------------------------------
 	app.get("/api/v1/bus/ws", { websocket: true }, (socket, req) => {
+		const maxFrameBytes = 16 * 1024;
+		const maxSubscriptions = 64;
 		let principal: Principal | null = null;
 		const authz = req.headers.authorization;
-		const connSubs: string[] = [];
+		const connSubs = new Set<string>();
 		const send = (frame: Record<string, unknown>): void => {
 			if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
 		};
@@ -2493,7 +2499,7 @@ export async function buildServer(
 					return;
 				}
 				principal = fresh;
-				services.broker.revalidateScopes(connSubs, fresh.scopes);
+				services.broker.revalidateScopes([...connSubs], fresh.scopes);
 			} catch {
 				/* transient DB blip: keep the connection, retry on the fallback timer */
 			} finally {
@@ -2508,7 +2514,7 @@ export async function buildServer(
 		const stopGrantWatch = refreshable
 			? services.onGrantChange(() => {
 					principal = null;
-					services.broker.revalidateScopes(connSubs, []);
+					services.broker.revalidateScopes([...connSubs], []);
 					void refreshPrincipal();
 				})
 			: null;
@@ -2523,37 +2529,69 @@ export async function buildServer(
 			void (async () => {
 				await ready;
 				if (!principal) return;
-				let msg: {
-					action?: string;
-					sub_id?: string;
+				const rejectFrame = (code: string, message: string, subId = "?"): void => {
+					send({
+						schema_version: 1,
+						kind: "ack",
+						sub_id: subId,
+						replay_through_seq: services.broker.head,
+						error: { code, message, retryable: false },
+					});
+				};
+				if (data.byteLength > maxFrameBytes) {
+					rejectFrame("frame_too_large", `frame exceeds ${String(maxFrameBytes)} bytes`);
+					return;
+				}
+				let raw: unknown;
+				try {
+					raw = JSON.parse(data.toString()) as unknown;
+				} catch {
+					rejectFrame("bad_frame", "invalid json");
+					return;
+				}
+				const rawSubId =
+					raw && typeof raw === "object" ? (raw as Record<string, unknown>)["sub_id"] : undefined;
+				const candidateSubId =
+					typeof rawSubId === "string" && rawSubId.length <= 64 ? rawSubId : "?";
+				const contractError = validateJsonSchema(
+					raw,
+					clientBusFrameSchema,
+					"frame",
+					busFrameSchema,
+				);
+				if (contractError) {
+					rejectFrame("invalid_frame", "frame does not match the bus contract", candidateSubId);
+					return;
+				}
+				const msg = raw as {
+					schema_version: 1;
+					action: "subscribe" | "unsubscribe";
+					sub_id: string;
 					pattern?: string;
 					filter?: SubscribeSpec["filter"];
 					since?: number;
 				};
-				try {
-					msg = JSON.parse(data.toString()) as typeof msg;
-				} catch {
-					send({
-						schema_version: 1,
-						kind: "ack",
-						sub_id: "?",
-						replay_through_seq: services.broker.head,
-						error: { code: "bad_frame", message: "invalid json", retryable: false },
-					});
-					return;
-				}
-				if (msg.action === "subscribe" && msg.sub_id && msg.pattern) {
+				if (msg.action === "subscribe") {
+					if (!connSubs.has(msg.sub_id) && connSubs.size >= maxSubscriptions) {
+						rejectFrame(
+							"subscription_limit",
+							`connection is limited to ${String(maxSubscriptions)} subscriptions`,
+							msg.sub_id,
+						);
+						return;
+					}
 					const spec: SubscribeSpec = {
 						subId: msg.sub_id,
-						pattern: msg.pattern,
+						pattern: msg.pattern as string,
 						filter: msg.filter,
 						since: msg.since,
 						scopes: principal.scopes,
 					};
-					connSubs.push(msg.sub_id);
+					connSubs.add(msg.sub_id);
 					await services.broker.subscribe(spec, send);
-				} else if (msg.action === "unsubscribe" && msg.sub_id) {
+				} else {
 					services.broker.unsubscribe(msg.sub_id);
+					connSubs.delete(msg.sub_id);
 				}
 			})();
 		});
