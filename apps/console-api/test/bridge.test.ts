@@ -251,4 +251,29 @@ describe("system-outbox tailer", () => {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
+
+	it("retries a transient open failure without advancing past later records", () => {
+		const dir = makeOutbox({
+			"100-first.json": { sender: "shawn", body: "first" },
+			"150-vanishes.json": { sender: "shawn", body: "transient" },
+			"200-later.json": { sender: "shawn", body: "later" },
+		});
+		try {
+			const result = tailSystemOutbox(
+				dir,
+				"",
+				0,
+				"2026-07-13T00:00:00Z",
+				undefined,
+				(path, name) => {
+					if (name === "150-vanishes.json") rmSync(path);
+				},
+			);
+			expect(result.emissions).toHaveLength(1);
+			expect(result.cursor).toBe("100-first.json");
+			expect(result.losses).toHaveLength(0);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });

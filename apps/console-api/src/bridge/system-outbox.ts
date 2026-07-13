@@ -144,6 +144,7 @@ export function tailSystemOutbox(
 	knownBelowCount: number,
 	ts: string,
 	knownBelowHash?: string,
+	beforeOpen?: (path: string, name: string) => void,
 ): TailResult {
 	const sentDir = join(dir, "sent");
 	const all = readdirSync(sentDir)
@@ -160,6 +161,7 @@ export function tailSystemOutbox(
 	let newCursor = anomaly ? "" : cursor;
 	for (const name of candidates) {
 		const full = join(sentDir, name);
+		beforeOpen?.(full, name);
 		let read: ReadResult;
 		try {
 			read = readRegularFile(full);
