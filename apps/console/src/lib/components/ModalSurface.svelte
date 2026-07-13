@@ -4,13 +4,14 @@
 	interface Props {
 		open: boolean;
 		variant: "dialog" | "drawer" | "palette";
+		size?: "default" | "wide";
 		labelledby: string;
 		children: Snippet;
 		onclose?: () => void;
 		element?: HTMLDialogElement | null;
 	}
 
-	let { open, variant, labelledby, children, onclose, element = $bindable(null) }: Props = $props();
+	let { open, variant, size = "default", labelledby, children, onclose, element = $bindable(null) }: Props = $props();
 	let focusOrigin: HTMLElement | null = null;
 
 	$effect(() => {
@@ -38,7 +39,7 @@
 	}
 </script>
 
-<dialog bind:this={element} class="modal-surface {variant}" aria-labelledby={labelledby} onclose={handleClose} onclick={dismissBackdrop}>
+<dialog bind:this={element} class="modal-surface {variant} {size}" aria-labelledby={labelledby} onclose={handleClose} onclick={dismissBackdrop}>
 	{@render children()}
 </dialog>
 
@@ -49,5 +50,6 @@
 	.dialog{width:480px;max-width:calc(100% - var(--s-5));max-height:calc(100dvh - var(--s-5));margin:auto;background:var(--s2);border-radius:var(--r-lg)}
 	.palette{width:640px;max-width:calc(100% - var(--s-5));max-height:min(680px,calc(100dvh - var(--s-5)));margin:10dvh auto auto;padding:0;background:var(--s1);border-radius:var(--r-lg);overflow:hidden}
 	.drawer{inset:0 0 0 auto;width:420px;max-width:calc(100% - var(--s-4));height:100dvh;max-height:none;margin:0;background:var(--s1);border-radius:var(--r-lg) 0 0 var(--r-lg)}
+	.drawer.wide{width:560px}
 	@media(max-width:767px){.drawer{width:100%;max-width:100%;border-radius:0}.palette{inset:0;width:100%;max-width:100%;max-height:100dvh;height:100dvh;margin:0;border-radius:0}}
 </style>

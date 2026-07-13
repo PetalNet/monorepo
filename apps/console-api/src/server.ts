@@ -30,6 +30,8 @@ import { ProposalError, proposeMutation } from "./auth/proposals.ts";
 import { type GrantRelation, listTiers, shouldProposeMutation } from "./auth/tiers.ts";
 import { uuidv5 } from "./bridge/uuid5.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
+import { costComparisonRequestSchema } from "./cost/compare.ts";
+import { compareCostPair, CostComparisonUnavailableError } from "./cost/service.ts";
 import {
 	DashboardError,
 	dashboardTargetScope,
@@ -1740,6 +1742,36 @@ export async function buildServer(
 					.code(400)
 					.send({ error: { code: err.code, message: err.message, retryable: false } });
 			throw err;
+		}
+	});
+	app.post("/api/v1/cost/compare", { preHandler: auth }, async (req, reply) => {
+		const parsed = costComparisonRequestSchema.safeParse(req.body);
+		if (!parsed.success)
+			return reply.code(400).send({
+				error: {
+					code: "bad_cost_comparison",
+					message: parsed.error.issues[0]?.message ?? "invalid cost comparison",
+					retryable: false,
+				},
+			});
+		const principal = req.principal as Principal;
+		try {
+			return await compareCostPair(
+				services.db.app,
+				principal.scopes,
+				parsed.data,
+				services.costMeter,
+			);
+		} catch (error) {
+			if (error instanceof QueryError)
+				return reply.code(400).send({
+					error: { code: error.code, message: error.message, retryable: false },
+				});
+			if (error instanceof CostComparisonUnavailableError)
+				return reply.code(503).send({
+					error: { code: "cost_meter_unavailable", message: error.message, retryable: true },
+				});
+			throw error;
 		}
 	});
 	app.get("/api/v1/query/:queryRef", { preHandler: auth }, async (req, reply) => {

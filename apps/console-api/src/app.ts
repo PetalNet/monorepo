@@ -10,6 +10,7 @@ import { TrackerProposalWriter } from "./auth/proposals.ts";
 import { Appender, type AppendResult } from "./bus/appender.ts";
 import { Broker } from "./bus/broker.ts";
 import { makeReplay } from "./bus/replay.ts";
+import { AgentsViewCostMeter, type CostMeter } from "./cost/meter.ts";
 import { migrate } from "./db/migrate.ts";
 import { openDb, assertRuntimeRolesHardened, type Db } from "./db/pool.ts";
 import { parseEmission } from "./emission.ts";
@@ -46,6 +47,7 @@ export interface Services {
 	readonly trackerProposalLookup: TrackerProposalLookup | null;
 	readonly assistant: AssistantCompiler | null;
 	readonly assistantRuntime: AssistantRuntime | null;
+	readonly costMeter?: CostMeter;
 	/** Process-local key only in dev; production must supply CONSOLE_API_CURSOR_SECRET. */
 	readonly cursorSecret: string;
 	onGrantChange(listener: (zookie: string) => void): () => void;
@@ -145,6 +147,13 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 					}),
 				)
 			: null;
+	const costMeter = env.costMeterUrl
+		? new AgentsViewCostMeter({
+				url: env.costMeterUrl,
+				...(env.costMeterHostHeader ? { hostHeader: env.costMeterHostHeader } : {}),
+				...(env.costMeterToken ? { token: env.costMeterToken } : {}),
+			})
+		: undefined;
 	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
 		projector.onEvent(seq, e, receivedAt);
@@ -284,6 +293,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		trackerProposalLookup: tracker,
 		assistant,
 		assistantRuntime,
+		...(costMeter ? { costMeter } : {}),
 		cursorSecret,
 		onGrantChange(listener) {
 			grantListeners.add(listener);

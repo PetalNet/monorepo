@@ -21,6 +21,7 @@
 		"@fontsource/geist-mono": "catalog:prod",
 		"@fontsource/geist-sans": "catalog:prod",
 		"@lucide/svelte": "catalog:prod",
+		"@petalnet/types": "workspace:*",
 		"@sentry/sveltekit": "catalog:prod",
 		"@sveltejs/kit": "catalog:prod",
 		"daisyui": "catalog:prod",

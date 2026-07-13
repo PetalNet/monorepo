@@ -45,6 +45,10 @@ export interface Env {
 	readonly assistantManagerUrl?: string | null;
 	readonly assistantManagerToken?: string | null;
 	readonly publicConsoleUrl?: string | null;
+	/** AgentsView read API used until the BR-033 Postgres mirror is registered. */
+	readonly costMeterUrl?: string | null;
+	readonly costMeterHostHeader?: string | null;
+	readonly costMeterToken?: string | null;
 	/** Strict browser boundary. Null only in explicit dev-auth mode. */
 	readonly browserAuth: {
 		readonly consoleOrigin: string;
@@ -62,6 +66,15 @@ function required(name: string): string {
 export function loadEnv(): Env {
 	const databaseUrl = required("DATABASE_URL");
 	const devAuth = process.env["CONSOLE_API_DEV_AUTH"] === "1";
+	const configuredCostMeterUrl = process.env["CONSOLE_COST_METER_URL"];
+	const costMeterUrl = configuredCostMeterUrl ?? "http://127.0.0.1:8098/api/v1";
+	const parsedCostMeterUrl = new URL(costMeterUrl);
+	if (
+		!devAuth &&
+		parsedCostMeterUrl.protocol !== "https:" &&
+		!new Set(["127.0.0.1", "::1", "localhost"]).has(parsedCostMeterUrl.hostname)
+	)
+		throw new Error("CONSOLE_COST_METER_URL must use https or a loopback host");
 	const consoleOrigin = process.env["CONSOLE_API_CORS_ORIGIN"];
 	const proxyNonce = process.env["CONSOLE_API_AUTH_PROXY_NONCE"];
 	const trustedProxies = (process.env["CONSOLE_API_TRUSTED_PROXIES"] ?? "")
@@ -112,6 +125,10 @@ export function loadEnv(): Env {
 		assistantManagerUrl: process.env["CONSOLE_ASSISTANT_MANAGER_URL"] ?? null,
 		assistantManagerToken: process.env["CONSOLE_ASSISTANT_MANAGER_TOKEN"] ?? null,
 		publicConsoleUrl: process.env["CONSOLE_API_PUBLIC_URL"] ?? null,
+		costMeterUrl,
+		costMeterHostHeader:
+			process.env["CONSOLE_COST_METER_HOST"] ?? (configuredCostMeterUrl ? null : "localhost:8080"),
+		costMeterToken: process.env["CONSOLE_COST_METER_TOKEN"] ?? null,
 		browserAuth,
 	};
 }

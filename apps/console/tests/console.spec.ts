@@ -76,6 +76,35 @@ test("named command reaches the contract op plane", async ({ page, request }) =>
 	await expect(page.getByText("doorman.redial sent", { exact: false })).toBeVisible();
 });
 
+test("cost breakdown compares a live sibling through the remote function", async ({ page }) => {
+	await page.goto("/cost");
+	await page.waitForTimeout(1_500);
+	const baseline = page.getByRole("button", { name: /claude-opus-4-8.*percent/i });
+	const sibling = page.getByRole("button", { name: /claude-sonnet-5.*percent/i });
+	await sibling.click({ button: "right" });
+	await expect(page.getByRole("menuitem", { name: "Compare these" })).toHaveCount(0);
+	await page.keyboard.press("Escape");
+	await baseline.click();
+	await expect(page.locator("button.chip")).toContainText("model = claude-opus-4-8");
+	await sibling.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Compare these" }).click();
+	const comparison = page.getByRole("dialog", { name: "Compare cost" });
+	await expect(comparison.getByRole("heading", { name: "Compare cost" })).toBeVisible();
+	await expect(comparison.getByText("Cost / session", { exact: true })).toBeVisible();
+	await expect(comparison.getByText("Tokens / session", { exact: true })).toBeVisible();
+	await expect(comparison.getByText("query-cost-compare", { exact: true })).toBeHidden();
+	await comparison.getByText("Show the math.", { exact: true }).click();
+	await expect(comparison.getByText("query-cost-compare", { exact: true })).toBeVisible();
+	await expect(comparison.getByText("sha256:fixture-price-book", { exact: true })).toBeVisible();
+	await expect(comparison.getByText("Cost source · computed", { exact: true })).toBeVisible();
+	await comparison.getByRole("button", { name: "Re-run" }).click();
+	await expect(comparison.getByText("Cost / session", { exact: true })).toBeVisible();
+	await comparison.getByRole("button", { name: "Close comparison" }).click();
+	await sibling.focus();
+	await page.keyboard.press("Shift+F10");
+	await expect(page.getByRole("menuitem", { name: "Compare these" })).toBeVisible();
+});
+
 test("bus reconnects after a closed socket", async ({ page }) => {
 	let connections = 0;
 	await page.routeWebSocket("**/bus/ws", (socket) => {

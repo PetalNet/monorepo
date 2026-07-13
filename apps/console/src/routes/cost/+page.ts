@@ -43,6 +43,18 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 	const requestedRange = url.searchParams.get("range");
 	const range: Range =
 		requestedRange === "Today" || requestedRange === "30d" ? requestedRange : "7d";
+	const now = new Date();
+	const start = new Date(now);
+	start.setHours(0, 0, 0, 0);
+	start.setDate(start.getDate() - (rangeDays[range] - 1));
+	const end = new Date(now);
+	end.setHours(0, 0, 0, 0);
+	end.setDate(end.getDate() + 1);
+	const ledgerWindow = {
+		from: start.toISOString(),
+		to: end.toISOString(),
+		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+	};
 	if (dataMode() === "mock")
 		return {
 			ledgerAvailable: true,
@@ -50,6 +62,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 			controlPlaneLive: true,
 			isMock: true,
 			range,
+			ledgerWindow,
 			observedAt: new Date().toISOString(),
 			governance: mockGovernance,
 			pool: mockPool,
@@ -70,7 +83,6 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 			lanes: shell.me.lanes,
 		};
 
-	const from = new Date(Date.now() - rangeDays[range] * 86_400_000).toISOString();
 	const [governance, executors, usage, priceBook] = await Promise.all([
 		readGovernance(fetch).catch(() => null),
 		readExecutors(fetch).catch(() => null),
@@ -87,7 +99,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 					{ field: "cache_read_input_tokens", agg: "sum", as: "cache_read_tokens" },
 					{ field: "cost_usd", agg: "sum", as: "reported_cost" },
 				],
-				time: { from },
+				time: { from: ledgerWindow.from, to: ledgerWindow.to },
 				order: [{ field: "reported_cost", dir: "desc" }],
 				limit: 100000,
 			},
@@ -218,6 +230,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 		),
 		isMock: false,
 		range,
+		ledgerWindow,
 		observedAt: usage?.freshness.observed_at ?? governance?.freshness.observed_at ?? null,
 		governance: governance?.items ?? [],
 		pool: governance?.pool ?? null,

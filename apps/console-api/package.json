@@ -20,6 +20,7 @@
 	"dependencies": {
 		"@fastify/cors": "catalog:prod",
 		"@fastify/websocket": "catalog:prod",
+		"@petalnet/types": "workspace:*",
 		"@sentry/node": "catalog:prod",
 		"fastify": "catalog:prod",
 		"nanoid": "catalog:prod",
