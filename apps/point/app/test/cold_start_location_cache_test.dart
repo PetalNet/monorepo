@@ -95,6 +95,15 @@ class _Crypto extends CryptoService {
       Uint8List.fromList(utf8.encode(jsonEncode(payload)));
 }
 
+class _GatedCrypto extends _Crypto {
+  _GatedCrypto() : super(const {});
+
+  final initGate = Completer<MlsInit>();
+
+  @override
+  Future<MlsInit> init(String identity) => initGate.future;
+}
+
 class _SocketHarness {
   WsService create(String wsUrl, RelayQueue queue) => WsService(
     wsUrl: wsUrl,
@@ -173,6 +182,40 @@ void main() {
     expect(requested.queryParameters, {'since': '0', 'limit': '7'});
     expect(rows.single.clientTimestamp, 4000);
   });
+
+  test(
+    'persisted marker restores before crypto or network startup completes',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({
+        'point.relay.fix-cache.${_session.userId}': jsonEncode({
+          'version': 1,
+          'fixes': {
+            _peer: {
+              'data': {'lat': 41.9, 'lon': -87.6, 'timestamp': 5000},
+              'received_at': '2026-07-13T12:00:00Z',
+            },
+          },
+        }),
+      });
+      final crypto = _GatedCrypto();
+      final container = _container(_FakeApi(), crypto);
+      addTearDown(container.dispose);
+      await container.read(authControllerProvider.future);
+      final relay = container.read(relayControllerProvider);
+      container.read(livePresenceProvider);
+
+      final starting = relay.start(_session);
+      for (var i = 0; i < 20; i++) {
+        if (container.read(livePresenceProvider).containsKey(_peer)) break;
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(container.read(livePresenceProvider), contains(_peer));
+      expect(crypto.initGate.isCompleted, isFalse);
+
+      crypto.initGate.complete(MlsInit.restored);
+      await starting;
+    },
+  );
 
   test(
     'cold start restores cache, rejects older current, then accepts newer history',

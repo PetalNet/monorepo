@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/animated_branch_stack.dart';
+import 'package:point_app/app/app_recovery_coordinator.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/app/session_transition.dart';
 import 'package:point_app/app/shell_chrome.dart';
@@ -77,9 +78,10 @@ class _PointAppState extends ConsumerState<PointApp>
     // defined but never called. Without this the battery engine never learns
     // it's been backgrounded and location silently stops.
     WidgetsBinding.instance.addObserver(this);
-    // Construct the coordinator before the relay connects so its trigger
-    // subscription cannot miss the first (or any later) WS authentication.
-    ref.read(realtimeSyncCoordinatorProvider);
+    // Subscribe before relay startup so the first authenticated connection is
+    // also a recovery trigger. AppRecoveryBinding owns the auth/lifecycle
+    // entry points; this eager read only closes the startup race.
+    ref.read(appRecoveryCoordinatorProvider);
     // A background cold start (push wake) may never receive a lifecycle
     // event before the launch gate runs start(); seed the engine with the
     // real state so the foreground fresh-fix nudge doesn't run GPS at the
@@ -207,11 +209,6 @@ class _PointAppState extends ConsumerState<PointApp>
     switch (state) {
       case AppLifecycleState.resumed:
         engine.onForeground();
-        unawaited(
-          ref
-              .read(realtimeSyncCoordinatorProvider)
-              .syncNow(RealtimeSyncReason.appResumed),
-        );
         // The force-uncompleted gate, on every return to the app: if a
         // required step regressed while we were away (location revoked in
         // Android settings), route back into that step rather than sit in a
@@ -522,30 +519,34 @@ class _PointAppState extends ConsumerState<PointApp>
     final appearance = ref.watch(settingsProvider.select((s) => s.appearance));
     ref.watch(settingsProvider.select((s) => s.motion));
     final textScale = ref.watch(settingsProvider.select((s) => s.textScale));
-    return MaterialApp.router(
-      title: 'Point',
-      scaffoldMessengerKey: _messengerKey,
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(pureBlack: appearance == Appearance.pureBlack),
-      themeMode: appearance == Appearance.light
-          ? ThemeMode.light
-          : ThemeMode.dark,
-      // The app text-size setting COMPOSES with the OS scale: the OS scaler
-      // applies first, then ours, so an accessibility choice is respected.
-      builder: (context, child) => ReducedMotionScope(
-        reduced: _reducedMotion,
-        child: MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: _ComposedScaler(
-              MediaQuery.textScalerOf(context),
-              textScale,
-            ),
-          ),
-          child: child ?? const SizedBox.shrink(),
+    return AppRecoveryBinding(
+      child: MaterialApp.router(
+        title: 'Point',
+        scaffoldMessengerKey: _messengerKey,
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(
+          pureBlack: appearance == Appearance.pureBlack,
         ),
+        themeMode: appearance == Appearance.light
+            ? ThemeMode.light
+            : ThemeMode.dark,
+        // The app text-size setting COMPOSES with the OS scale: the OS scaler
+        // applies first, then ours, so an accessibility choice is respected.
+        builder: (context, child) => ReducedMotionScope(
+          reduced: _reducedMotion,
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: _ComposedScaler(
+                MediaQuery.textScalerOf(context),
+                textScale,
+              ),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
+        routerConfig: _config,
       ),
-      routerConfig: _config,
     );
   }
 }

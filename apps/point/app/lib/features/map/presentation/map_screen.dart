@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:point_app/app/app_recovery_coordinator.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/location/self_location_provider.dart';
@@ -299,69 +300,107 @@ Person _neutralMapPresence(Person person) {
   );
 }
 
-/// Honest map-discovery state shown above the privacy-preserving blank tile
-/// layer. The copy intentionally reveals no server URL or transport detail.
+/// Compact map-discovery state above the privacy-preserving canvas. It never
+/// blocks cached people/self markers, and its copy reveals no server detail.
 class MapAvailabilityOverlay extends ConsumerWidget {
   const MapAvailabilityOverlay({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tileInfo = ref.watch(serverTileInfoProvider);
-    if (!tileInfo.isLoading && !tileInfo.hasError && tileInfo.hasValue) {
+    final hasUsableSource = ref.watch(tileSourceProvider) != null;
+    if (hasUsableSource ||
+        (!tileInfo.isLoading && !tileInfo.hasError && tileInfo.hasValue)) {
       return const SizedBox.shrink();
     }
 
     final failed = tileInfo.hasError;
-    return Positioned.fill(
-      child: ColoredBox(
-        color: context.colors.surface.withValues(alpha: 0.92),
-        child: Center(
-          child: Semantics(
-            liveRegion: true,
-            container: true,
-            label: failed ? 'Map unavailable' : 'Loading map',
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 320),
-              margin: EdgeInsets.all(context.space.xl),
-              padding: EdgeInsets.all(context.space.xl),
-              decoration: BoxDecoration(
-                color: context.colors.surfaceContainer,
-                borderRadius: context.radii.brLg,
+    return _MapAvailabilityBanner(
+      failed: failed,
+      onRetry: () => ref.read(appRecoveryCoordinatorProvider).retryMapNow(),
+    );
+  }
+}
+
+class _MapAvailabilityBanner extends StatelessWidget {
+  const _MapAvailabilityBanner({
+    required this.failed,
+    required this.onRetry,
+  });
+
+  final bool failed;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: context.space.sm,
+      right: context.space.sm,
+      bottom: context.space.sm,
+      child: SafeArea(
+        top: false,
+        child: Semantics(
+          liveRegion: true,
+          container: true,
+          label: failed
+              ? 'Map unavailable. Retrying automatically.'
+              : 'Finding private map source.',
+          child: Material(
+            color: context.colors.surfaceContainer,
+            shape: RoundedRectangleBorder(borderRadius: context.radii.brMd),
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: context.space.lg,
+                vertical: context.space.md,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+              child: Row(
                 children: [
-                  Icon(
-                    failed ? Icons.map_outlined : Icons.layers_outlined,
-                    size: 32,
+                  Icon(failed ? Icons.map_outlined : Icons.layers_outlined),
+                  SizedBox(width: context.space.md),
+                  Expanded(
+                    child: _MapAvailabilityMessage(failed: failed),
                   ),
-                  SizedBox(height: context.space.md),
-                  Text(
-                    failed ? 'Map unavailable' : 'Loading map',
-                    style: context.text.titleMedium,
-                  ),
-                  if (failed) ...[
-                    SizedBox(height: context.space.sm),
-                    Text(
-                      'Point could not discover a private map source.',
-                      textAlign: TextAlign.center,
-                      style: context.text.bodyMedium?.copyWith(
-                        color: context.colors.onSurfaceVariant,
-                      ),
+                  if (failed)
+                    TextButton(
+                      onPressed: onRetry,
+                      child: const Text('Retry now'),
                     ),
-                    SizedBox(height: context.space.lg),
-                    FilledButton.icon(
-                      onPressed: () => ref.invalidate(serverTileInfoProvider),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                    ),
-                  ],
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MapAvailabilityMessage extends StatelessWidget {
+  const _MapAvailabilityMessage({required this.failed});
+
+  final bool failed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          failed ? 'Map unavailable' : 'Finding private map…',
+          style: context.text.titleSmall,
+        ),
+        Text(
+          failed
+              ? 'Retrying automatically'
+              : 'People stay available while Point connects',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: context.text.bodySmall?.copyWith(
+            color: context.colors.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }
