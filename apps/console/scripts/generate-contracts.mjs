@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -462,18 +461,7 @@ export function validateOpArgs(op: string, args: unknown): ValidationResult {
 
 async function emit(relative, content) {
 	const file = path.join(outDir, relative);
-	const unformatted = `${content.trim()}\n`;
-	const formatted = spawnSync(
-		path.join(repoDir, "node_modules/.bin/vp"),
-		["fmt", "--stdin-filepath", file],
-		{
-			cwd: repoDir,
-			encoding: "utf8",
-			input: unformatted,
-		},
-	);
-	if (formatted.status !== 0) throw new Error(formatted.stderr || "vp fmt failed");
-	const normalized = formatted.stdout;
+	const normalized = `${content.trim()}\n`;
 	if (check) {
 		const existing = await readFile(file, "utf8").catch(() => "");
 		if (existing !== normalized)
