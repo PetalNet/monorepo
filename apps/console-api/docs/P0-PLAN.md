@@ -27,7 +27,7 @@ engine (L1-L4), ReBAC, permission levels, and the dashboard-assistant runtime se
 
 ## 3. Architecture (one diagram)
 
-```
+```text
                     ┌──────────────────────────── console-api (apps/console-api) ───────────────────────────┐
  browsers/agents ──►│  auth (authentik/bearer → Principal)                                                   │
    HTTPS + WS       │  Query plane ── stats.query (structured|sql-RO) ─┐        ┌── typed reads (/fleet, …)  │
@@ -42,7 +42,7 @@ engine (L1-L4), ReBAC, permission levels, and the dashboard-assistant runtime se
                     │ / managers /  │  │  canonical    │        │  semantic registry +  │   outbox, tracker
                     │ box-agents    │  │  helpers)     │        │  library + grants     │   events, card SQLite)
                     └───────────────┘  └───────────────┘        └───────────────────────┘
-```
+```text
 
 Command routing: `agent.*`/`channel.*` ops ride a new backchannel-rpc `agent.command` inlet to
 the manager (spool now, doorman when it lands; Matrix stays the never-dark floor).

@@ -44,7 +44,7 @@
         "integer",
         "null"
       ],
-      "description": "Owning project (projects.id); null = unparented."
+      "description": "Owning project (projects.id); null = parentless (ideas/docs pre-triage)."
     },
     "parent_id": {
       "type": [
