@@ -17,6 +17,7 @@
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
+		"@fastify/cors": "catalog:prod",
 		"@fastify/websocket": "catalog:prod",
 		"@sentry/node": "catalog:prod",
 		"fastify": "catalog:prod",
