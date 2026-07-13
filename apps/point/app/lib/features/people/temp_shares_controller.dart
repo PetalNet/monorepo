@@ -1,6 +1,7 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/people_presence.dart';
+import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
@@ -8,14 +9,55 @@ import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/presence_tokens.dart';
 
+enum TempShareMutationPhase { running, failed }
+
+class TempShareMutation {
+  const TempShareMutation({required this.share, required this.phase});
+
+  final TempShare share;
+  final TempShareMutationPhase phase;
+  bool get isRunning => phase == TempShareMutationPhase.running;
+}
+
+class TempShareMutations extends Notifier<Map<String, TempShareMutation>> {
+  @override
+  Map<String, TempShareMutation> build() => const {};
+
+  void setPhase(TempShare share, TempShareMutationPhase phase) {
+    state = {
+      ...state,
+      share.id: TempShareMutation(share: share, phase: phase),
+    };
+  }
+
+  void clear(String id) {
+    if (!state.containsKey(id)) return;
+    state = {...state}..remove(id);
+  }
+}
+
+final tempShareMutationsProvider =
+    NotifierProvider<TempShareMutations, Map<String, TempShareMutation>>(
+      TempShareMutations.new,
+    );
+
 /// Active temporary shares involving me, from the live server. Kept in sync by
 /// the relay (`share.temp_created` WS event) and refreshed on create/stop.
 class TempSharesController extends AsyncNotifier<List<TempShare>> {
+  final Set<String> _optimisticallyRemoved = {};
+
   @override
   Future<List<TempShare>> build() async {
     final session = ref.watch(authControllerProvider).value;
-    if (session == null) return const [];
-    return ref.read(apiProvider).listTempShares(session.token);
+    if (session == null) {
+      _optimisticallyRemoved.clear();
+      return const [];
+    }
+    final fetched = await ref.read(apiProvider).listTempShares(session.token);
+    return [
+      for (final share in fetched)
+        if (!_optimisticallyRemoved.contains(share.id)) share,
+    ];
   }
 
   Future<List<TempShare>> refresh() async {
@@ -34,6 +76,16 @@ class TempSharesController extends AsyncNotifier<List<TempShare>> {
 
   /// Start a one-way temp share: [toUserId] sees my location for [minutes].
   Future<void> share(String toUserId, {required int minutes}) async {
+    final stopping = ref
+        .read(tempShareMutationsProvider)
+        .values
+        .any(
+          (mutation) =>
+              mutation.isRunning && mutation.share.toUserId == toUserId,
+        );
+    if (stopping) {
+      throw StateError('A temporary share to this person is still stopping.');
+    }
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
     await ref
@@ -43,11 +95,46 @@ class TempSharesController extends AsyncNotifier<List<TempShare>> {
   }
 
   /// Stop one of my outgoing temp shares early.
-  Future<void> stop(String id) async {
+  Future<MutationOutcome> stop(String id) async {
+    if (ref.read(tempShareMutationsProvider)[id]?.isRunning ?? false) {
+      return MutationOutcome.ignored;
+    }
     final session = ref.read(authControllerProvider).value;
-    if (session == null) return;
-    await ref.read(apiProvider).deleteTempShare(session.token, id);
-    await refresh();
+    if (session == null) return MutationOutcome.ignored;
+    final previous = state.value ?? const <TempShare>[];
+    final index = previous.indexWhere((share) => share.id == id);
+    if (index == -1) return MutationOutcome.ignored;
+    final request = previous[index];
+    ref
+        .read(tempShareMutationsProvider.notifier)
+        .setPhase(request, TempShareMutationPhase.running);
+    _optimisticallyRemoved.add(id);
+    removeLocally(id);
+    try {
+      await ref.read(apiProvider).deleteTempShare(session.token, id);
+    } on Object {
+      _optimisticallyRemoved.remove(id);
+      final current = state.value ?? const <TempShare>[];
+      if (!current.any((share) => share.id == id)) {
+        final restored = [...current];
+        restored.insert(index.clamp(0, restored.length), request);
+        state = AsyncData(restored);
+      }
+      ref
+          .read(tempShareMutationsProvider.notifier)
+          .setPhase(request, TempShareMutationPhase.failed);
+      return MutationOutcome.failed;
+    }
+    var reconciled = true;
+    try {
+      await refresh();
+    } on Object {
+      reconciled = false;
+    }
+    ref.read(tempShareMutationsProvider.notifier).clear(id);
+    return reconciled
+        ? MutationOutcome.succeeded
+        : MutationOutcome.succeededNeedsRefresh;
   }
 
   /// Apply a server-authoritative teardown before the reconciliation request

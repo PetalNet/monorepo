@@ -232,7 +232,9 @@ void main() {
 
     await tester.tap(find.byTooltip('Decline'));
     await tester.pump();
-    expect(find.text('Declined'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('Mara'), findsNothing);
+    expect(find.text('No requests need your attention.'), findsOneWidget);
     expect(haptics.cues, [HapticCue.warning]);
 
     response.complete(http.Response('{"ok":true}', 200));
