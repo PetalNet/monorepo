@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/entities/lease.schema.json",
+  "title": "Lease item (GET /leases)",
+  "description": "One active task lease, in the viewer-safe leasePublic projection ONLY. As-built source of truth: apps/manager/docs/contracts/schemas/queue-lease.schema.json $defs/leasePublic (backed by the tracker's claimed_by/lease_expires_at/fence columns). claim_token is a capability SECRET and NEVER appears in any console read — knowing worker/expiry/fence enables no action without the token; the console uses them for swimlanes and lease countdowns. Filters: `worker`, `task_id`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Queue-lease contract version (passed through from leasePublic)."
+    },
+    "task_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Tracker task id (tasks.id) this lease is held on."
+    },
+    "worker": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Canonical lowercase handle of the claiming agent (tasks.claimed_by)."
+    },
+    "fence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic per-task fencing token, incremented on every successful (re)claim; the store rejects writes carrying a stale fence."
+    },
+    "granted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC — when this claim won."
+    },
+    "lease_expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC — after this instant the lease is reapable (doing->todo, lease fields cleared)."
+    },
+    "lease_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1800,
+      "description": "Lease duration granted (default 30 minutes); renewals extend lease_expires_at by this much."
+    }
+  },
+  "required": ["schema_version", "task_id", "worker", "lease_expires_at"],
+  "additionalProperties": true
+}

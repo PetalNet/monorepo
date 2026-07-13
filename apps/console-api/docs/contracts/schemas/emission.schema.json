@@ -2,59 +2,90 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://petalcat.dev/schemas/console/emission.schema.json",
   "title": "Emission (signal + statistic, the L1 canonical shape)",
-  "description": "One envelope for everything that happens in the lab. Bus semantics (signal) and lake semantics (statistic) are the same instance: every emission fans out to scoped subscribers AND lands durably in the lake. The semantic layer (L2) is auto-derived from these.",
+  "description": "One envelope for everything that happens in the lab. Bus semantics (signal) and lake semantics (statistic) are the same instance: every emission fans out to scoped subscribers AND lands durably in the lake. The semantic layer (L2) is auto-derived from these. AUTHORIZATION (contract §4.3): the server validates `source`, `type` namespace, `scope`, and max `severity` against the authenticated producer's emit capability — none of these are trusted from the body alone. Size bounds: whole envelope <= 16 KiB; <= 24 dimensions; <= 24 measures; <= 16 links. This is a server-accepted shape; consumers of the bus/lake MUST ignore unknown fields.",
   "type": "object",
   "required": ["schema_version", "id", "type", "ts", "source", "subject", "severity", "scope"],
-  "additionalProperties": false,
+  "additionalProperties": true,
   "properties": {
     "schema_version": { "const": 1 },
-    "id": { "type": "string", "format": "uuid", "description": "Producer-minted idempotency key; receivers de-duplicate." },
+    "id": { "type": "string", "format": "uuid", "description": "Idempotency key: a duplicate /emit returns the ORIGINAL {seq} (idempotent accept). Native producers mint random v4; bridges MUST mint deterministic v5 ids (namespace = source path/table, name = cursor/content hash) so a restarted bridge cannot double-land history." },
     "type": {
       "type": "string",
       "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
-      "description": "Dot-namespaced event/statistic name (e.g. doorman.link.flap, host.cpu.pct). The semantic-layer registry key; first emission of a new type auto-registers it."
+      "maxLength": 128,
+      "description": "Dot-namespaced event/statistic name (e.g. doorman.link.flap, host.cpu.pct). The semantic-layer registry key. Auto-registration of a NEW type is gated per producer (rate-capped, quarantined on flood/hostile names — surfaced as a curation proposal). Reserved namespaces (audit.*, attention.*, governance.*, task.*, card.*, console.api.*, delivery.*, bridge.*) accept only console-api-internal and trusted system producers."
     },
-    "ts": { "type": "string", "format": "date-time", "description": "When it happened (producer clock, RFC 3339 UTC)." },
+    "ts": { "type": "string", "format": "date-time", "description": "When it happened (producer clock, RFC 3339 UTC). The lake additionally stamps received_at server-side; freshness computations use received_at when |ts - received_at| exceeds the skew threshold, and a clock.skew emission flags the producer." },
     "source": {
       "type": "object",
       "required": ["service"],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
-        "service": { "type": "string", "description": "Emitting service (manager, dispatcher, control-plane, box-agent, console-api, bridge, ...)." },
+        "service": { "type": "string", "maxLength": 64, "description": "Emitting service. VALIDATED against the producer's identity: a system:control-plane token may emit source.service control-plane; agent:janet may not (source_mismatch, fail-loud)." },
         "host": { "type": ["string", "null"], "description": "Canonical .N host label, mc34, or VPS." },
-        "agent": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]*$", "description": "Canonical agent handle when the emission is about/by an agent." }
+        "agent": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]*$" }
       }
     },
-    "subject": { "type": "string", "description": "What the emission is about — an entity key, joinable (agent handle, host, service name, task id, card id, item id)." },
+    "subject": { "type": "string", "maxLength": 256, "description": "What the emission is about — an entity key, joinable. Canonical formats: agent handle (janet), host (.14), service (host/service), task id (task:4711), card id (card:<uuid>), item id (item:<id>). For audit.op emissions subject IS the target entity (pinned — per-target audit derivations depend on it)." },
+    "subject_kind": { "enum": ["agent", "host", "service", "task", "card", "item", "user", "session", "other", null], "description": "Entity kind of subject — the node type edges attach to. Optional but strongly encouraged; bridges always stamp it." },
     "severity": {
       "enum": ["debug", "info", "warn", "danger", "p0"],
-      "description": "First-class severity. p0 cracks the facade; interrupt tier is reserved for p0/safety/principal-command."
+      "description": "First-class severity. p0 cracks the facade; interrupt tier is reserved for p0/safety/principal-command. Producers are capped at their capability's max severity (agents cannot emit p0 into scopes they don't own). NOTE: dispatcher-priority bridging maps priority 0 -> p0 for SEVERITY display only; interrupt ELIGIBILITY stays the dispatcher's LOCKED interrupt_policy domain (/task/709) — the two never merge."
     },
-    "action": { "type": ["string", "null"], "description": "Optional: what a human/agent should do about it (the SignalRow action line)." },
-    "task_id": { "type": ["integer", "null"], "description": "Tracker tie whenever the activity belongs to a task." },
+    "action": { "type": ["string", "null"], "maxLength": 512 },
+    "task_id": { "type": ["integer", "null"] },
     "scope": {
       "type": "string",
       "pattern": "^(user:[a-z0-9._-]+|agent:[a-z0-9._-]+|project:[a-z0-9._-]+|fleet|restricted:[a-z0-9._-]+)$",
-      "description": "ReBAC visibility tag. REQUIRED — un-scoped emissions are rejected (fail-loud, never default-public)."
+      "description": "ReBAC visibility tag. REQUIRED and AUTHORIZED: a producer may emit only into scopes its capability grants (own agent:<self>; fleet if granted; user:*/restricted:* only with an explicit emitter grant). Un-scoped or unauthorized-scope emissions are rejected fail-loud. FLAT model: fleet does not imply agent:janet; visibility is exactly the grant set. Multi-audience events pick ONE scope; bridges use the narrowest scope that serves the surfaces bound to that type."
     },
     "dimensions": {
       "type": "object",
-      "additionalProperties": { "type": ["string", "boolean"] },
-      "description": "Low-cardinality string/bool facets (semantic-layer dimensions)."
+      "maxProperties": 24,
+      "additionalProperties": { "type": ["string", "boolean"], "maxLength": 512 },
+      "description": "Low-cardinality facets (string/bool; booleans allowed). Comms emissions pin these dimension names: method, in_reply_to, recipient, requires_reply, thread (contract §4.4)."
     },
     "measures": {
       "type": "object",
+      "maxProperties": 24,
       "additionalProperties": { "type": "number" },
-      "description": "Numeric values (semantic-layer measures)."
+      "description": "Numeric values. Timestamp-valued measures ride as epoch-seconds numbers with meta.fields.<name>.kind = timestamp."
     },
+    "links": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": ["rel", "to"],
+        "additionalProperties": false,
+        "properties": {
+          "rel": { "type": "string", "maxLength": 64, "description": "Edge relation (runs_on, deployed_to, preceded, supervises, belongs_to, ...)." },
+          "to": { "type": "object", "required": ["kind", "id"], "additionalProperties": false, "properties": { "kind": { "enum": ["agent", "host", "service", "task", "card", "item", "user", "session", "other"] }, "id": { "type": "string", "maxLength": 256 } } }
+        }
+      },
+      "description": "Edges baked at ingest (graphing design §04): producer/bridge-asserted relationships materialized with the statistic attached, so 'why?' is later a graph walk (reserved GET /api/v1/graph), not a re-query."
+    },
+    "body_ref": { "type": ["string", "null"], "description": "Reference to a lake-stored blob for payloads too large/free-form for dimensions (comms bodies, rpc response output tails). Blob reads are scope-checked like the emission. NEVER a secret-bearing payload: the emit path applies a secret scrubber (claim_token, Authorization, token-shaped strings) and rejects on match." },
     "meta": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "unit": { "type": "string" },
-        "cardinality_hint": { "enum": ["low", "medium", "high"] }
-      },
-      "description": "Optional typing hints consumed by L2 auto-derivation. Unknown keys tolerated."
+        "unit": { "type": "string", "deprecated": true, "description": "DEPRECATED envelope-wide unit — use meta.fields.<name>.unit." },
+        "cardinality_hint": { "enum": ["low", "medium", "high"], "deprecated": true, "description": "DEPRECATED envelope-wide hint — use meta.fields.<name>.cardinality." },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "unit": { "type": "string", "maxLength": 32 },
+              "kind": { "enum": ["gauge", "counter", "delta", "timestamp"], "description": "Aggregation honesty: sum over a gauge and avg over a counter are both wrong; the structured query validator and the rollup jobs consult this." },
+              "cardinality": { "enum": ["low", "medium", "high"] }
+            }
+          },
+          "description": "PER-FIELD typing hints keyed by dimension/measure name — the Phase-0 statistic-contract requirement that lets L2 auto-derive without guessing. Optional; absent fields fall back to observed inference."
+        }
+      }
     }
   }
 }

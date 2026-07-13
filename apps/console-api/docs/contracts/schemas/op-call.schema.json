@@ -14,8 +14,9 @@
       "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
       "description": "Namespaced op name from ops.json (agent.restart, task.claim, attention.resolve, ...)."
     },
-    "args": { "type": "object", "description": "Op-specific arguments; typed per ops.json entry." },
+    "args": { "type": "object", "description": "Op-specific arguments; typed per ops.json entry (JSON Schema fragments, ajv-validated with format assertion ON)." },
     "task_id": { "type": ["integer", "null"] },
-    "reason": { "type": ["string", "null"], "description": "Audited verbatim; required by ops that declare requires_reason (task.close, item.delete, edge.key.revoke, ...)." }
+    "reason": { "type": ["string", "null"], "maxLength": 2000, "description": "Audited verbatim (render-time sanitized — treat as untrusted text; never paste secrets); required by ops that declare requires_reason." },
+    "dry_run": { "type": "boolean", "default": false, "description": "Validate + lane/authz check + executor liveness + intent audit (stamped dry_run), NO effect. Result carries status: applied with result.dry_run: true. The test affordance for ops whose real effect cannot run on disposables (ops.json testable: dry-run-only)." }
   }
 }

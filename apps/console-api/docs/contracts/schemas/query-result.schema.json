@@ -4,7 +4,7 @@
   "title": "stats.query result",
   "type": "object",
   "required": ["schema_version", "columns", "rows", "row_count", "freshness", "query_ref"],
-  "additionalProperties": false,
+  "additionalProperties": true,
   "properties": {
     "schema_version": { "const": 1 },
     "columns": {

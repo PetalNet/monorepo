@@ -18,7 +18,8 @@
         "subject": { "type": "string" }
       }
     },
-    "tier": { "enum": ["feed", "digest", "interrupt"], "description": "feed = pull-only; digest = batched per window; interrupt = off-console delivery (Matrix default)." },
+    "tier": { "enum": ["feed", "digest", "interrupt"], "description": "feed = pull-only; digest = server-assembled batch per window (a digest object emission per owner+window; assembly failure emits digest.failed); interrupt = off-console delivery (Matrix default). Interrupt is accepted only where the pattern can carry p0/safety/principal-command (else interrupt_ineligible)." },
+    "window": { "type": ["string", "null"], "pattern": "^([0-9]{2}:[0-9]{2}|[0-9]+[mh])$", "description": "Digest window: daily HH:MM or interval (30m, 4h). Default 18:00. next_digest_at is echoed in the /delivery read." },
     "loud": { "type": "boolean", "default": false, "description": "Promote-to-loud: delivers off-console even below interrupt tier." },
     "note": { "type": ["string", "null"] },
     "owner": { "type": "string", "description": "Principal id this subscription belongs to (per-user/per-agent)." },

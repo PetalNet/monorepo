@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/entities/edge-registry.schema.json",
+  "title": "Edge key registry item (GET /edge/registry)",
+  "description": "One edge client public key's enrollment record — the Network surface's enrollment queue and key inventory. Source of truth: doorman's key registry (Phase 1 formalization per CONSOLE-CONTRACTS.md section 3.3; shapes per the Network spec, coordinated with PetalNet/doorman — the doorman enrollment gap is as-built blocker #2, so `pending` rows are the approval queue the edge.enroll.approve/deny ops act on). Filters: `state`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
+  "type": "object",
+  "properties": {
+    "pubkey_fp": {
+      "type": "string",
+      "description": "Public key fingerprint — the stable identity of the edge client (primary key)."
+    },
+    "handle": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Canonical handle bound at enrollment; null while pending/revoked-unbound."
+    },
+    "host": {
+      "type": ["string", "null"],
+      "description": "Machine label in canonical form ('.N' for lab dot-hosts); null when unknown."
+    },
+    "state": {
+      "enum": ["pending", "enrolled", "revoked"],
+      "description": "Enrollment lifecycle. pending = awaiting edge.enroll.approve/deny; revoked keys never connect again."
+    },
+    "requested_handle": {
+      "type": ["string", "null"],
+      "description": "The handle the client ASKED for at first contact (unverified — never trusted until approval binds `handle`)."
+    },
+    "source_ip": {
+      "type": ["string", "null"],
+      "description": "IP the enrollment request came from (diagnostics); null when unrecorded."
+    },
+    "first_seen_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "RFC 3339 UTC — first contact from this key; null when unknown."
+    },
+    "enrolled_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "RFC 3339 UTC — when enrollment was approved; null unless state=enrolled (or historically enrolled before revocation)."
+    },
+    "enrolled_by": {
+      "type": ["string", "null"],
+      "description": "Principal id that approved the enrollment (audit); null unless approved."
+    },
+    "last_seen_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "RFC 3339 UTC — most recent contact from this key; null when never seen since enrollment."
+    }
+  },
+  "required": ["pubkey_fp", "state"],
+  "additionalProperties": true
+}

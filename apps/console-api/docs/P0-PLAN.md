@@ -18,10 +18,10 @@ engine (L1-L4), ReBAC, permission levels, and the dashboard-assistant runtime se
 | Piece | Pin | Why |
 | ----- | --- | --- |
 | console-api service | **TypeScript, Node 22, Fastify + ws, Drizzle ORM** — new pnpm-workspace app `apps/console-api` in `PetalNet/monorepo` | Lab web stack is TS (tasks, citeseer, point/app); the L3 engine is a citeseer port (TS); CI + workspace exist; the fleet daemons stay Rust and meet the API at envelopes, not FFI |
-| Lake + substrate store | **Postgres 16 + pgvector, dedicated container (`lab-lake`)** on .14; `events` table partitioned by day + continuous rollups; temp DBs for tests | Graphing brief pins Postgres+pgvector; isolation from the live tasks SQLite; citeseer lineage is Postgres; RLS = the ReBAC backstop |
-| Bus | **In-process fan-out inside console-api over the durable lake write** (accept = durable + fanned out; WS subscribers scope-filtered; `since` replay from the lake seq). Postgres LISTEN/NOTIFY only if/when console-api goes multi-instance | One moving part; bus/lake share a seq so resume is gap-free; doctrine (bus=signals, lake=data) holds by construction |
-| Bridges | Spool/file tail bridge in console-api (fleet events, heartbeats, system-outbox, tracker events) + SQLite-poll for dispatcher cards; **Rust daemons gain a tiny native `emit()` (ureq POST) over time** — glitchtip.rs is the pattern | Zero as-built writer changes to get on the bus day one; native emit replaces bridges incrementally |
-| Auth | Authentik forwardAuth + nonce header-trust (assist pattern) for humans; bearer tokens (TokenAuthority lineage, sha256 at rest) for agents | What the lab runs; closes the spool self-asserted-identity boundary at the API layer |
+| Lake + substrate store | **Postgres 16 + TimescaleDB 2.x + pgvector, dedicated container (`lab-lake`)**; `events` hypertable + **TimescaleDB continuous aggregates** (the rollup mechanism, pinned — vanilla PG has neither); rollup reads carry `freshness.source: lake:rollup` with `window_s` = job cadence; retention CLASSES (audit/term/edge/security ≥1y archived; raw telemetry 30d; rollups 1y); temp DBs for tests. **Precondition: free disk on .14 or mount the lake volume on another box BEFORE the container lands** (.14 at 89%) | Graphing brief pins Postgres+pgvector; hypertable/rollup language now has a real mechanism; RLS (`security_invoker=on` views, no fdw extensions) = the ReBAC backstop |
+| Bus | **Single serialized appender** in console-api assigns seq in durable-commit order; fan-out only after commit (no assignment/commit race); bounded per-subscriber queues + gap frames (backpressure is contracted, `bus-frame.schema.json`); `since` exclusive; retention horizon → resync_required. LISTEN/NOTIFY only if multi-instance | One moving part; resume protocol is designed, not asserted; doctrine holds by construction |
+| Bridges | **Per-box bridge processes POSTing to `/emit`** (local buffering free; deterministic UUIDv5 ids + durable cursors; gap/cursor-reset/source-unreachable emissions; dispatcher = read-only SQLite poll, never triggers); heartbeats bridged as state-change + ≥15s keepalive, NEVER 1:1 at 1s; **volume budget ~0.2-0.3M rows/day is a Phase 1 acceptance gate**; Rust daemons gain native `emit()` over time (glitchtip.rs pattern; fleet-event native emit early — the snapshot file is lossy by construction) | Zero as-built writer changes day one; every bridge guarantee is contracted (§4.4) |
+| Auth | Authentik forwardAuth via a **dedicated console-api middleware** (per-boot nonce, strip-set, full assist-auth.py parity); **hard precondition: close the shared `:80` `forwardedHeaders.trustedIPs` gap before serving** — this surface carries host.reboot/term.*. Bearer tokens: vault keeps plaintext for re-issue (as-built CP4); console-api's verification table stores sha256 only; revocation checked per request | What the lab runs; closes the spool self-asserted-identity boundary INCLUDING the /emit producer side (emit-authz matrix §4.3) |
 | Schemas/validation | JSON Schema 2020-12 (contracts) ↔ zod (runtime) generated, ajv in CI validating examples | N0.1 precedent; frontend consumes the same schema files |
 | Observability | Glitchtip DSN-or-inert + `console.api.*` self-emissions | Lab convention; the substrate is its own first customer |
 
@@ -55,16 +55,22 @@ in console-api shelling to tmux pipe-pane over ssh (TERM_ADMIN humans only).
 
 - **P0 (this node)** — contracts + plan. Deliverable: this doc + CONSOLE-CONTRACTS.md + schemas
   + ops.json, merged; published to the gallery + tracker for the frontend Fable.
-- **Phase 1 — query/command API.** console-api skeleton (auth, Principal, op router,
-  audit-before-effect), lake + emission ingest + WS bus + bridges, typed reads, tracker/
-  dispatcher/control-plane/manager op paths (incl. the manager command inlet + control-plane
-  persistence + `channel.reclaim`), attention store + rules, subscriptions + delivery ops.
-  Test on temp DBs + disposable sub-agent managers, never live Janet.
+- **Phase 1 — query/command API.** console-api skeleton (auth incl. trustedIPs closure,
+  Principal, op router with lane∩authz, **two-phase audit / command ledger**), lake
+  (TimescaleDB) + emission ingest with the **emit-authz matrix** + serialized-appender WS bus
+  + per-box bridges, **edge storage** (subject_kind + links materialized at ingest), typed
+  reads incl. `/me` `/executors` `/roster` `/health`, **minimal Library items table**
+  (dashboards real in Phase 1), tracker/dispatcher/control-plane/manager op paths (manager
+  command inlet reusing op ids + control-plane persistence + `channel.reclaim`), attention
+  store + rules, subscriptions + server-assembled digests + delivery ops, `lake.disk.watermark`
+  + ingest-lag + native crack emitters (service-down probe runner may slip to 2), fleet.mode
+  live-canary runbook. Test on temp DBs + disposable sub-agent managers, never live Janet;
+  `dry_run` covers the rest.
 - **Phase 2 — statistics substrate + engine (L1-L4).** Semantic-layer auto-derivation +
-  catalog, RAG corpus (pgvector), `/ask` engine (citeseer port + 4 hardening moves: semantic
-  grounding, RAG, dry-plan validation, execution-guided self-heal ×3), PanelSpec v2 render
-  contract + forecasting port, native crack-source emitters + probe runner, Library search
-  (items/links/search wire surface).
+  catalog, registered-view governance (the join mechanism), RAG corpus (pgvector), `/ask`
+  engine (citeseer port + 4 hardening moves), `GET /graph` walk endpoint, PanelSpec v2
+  render + forecasting port, remaining crack emitters, Library search/links/curation wire
+  surface.
 - **Phase 3 — ReBAC.** Grants store + zookies, scope-filter injection + RLS, as-user
   enforcement in every plane, scope stamping audit of all emitters.
 - **Phase 4 — permission levels.** Tier rows + Authentik group mapping, propose-not-commit
@@ -89,20 +95,30 @@ priority over the current phase node (per brief).
 
 ## 6. Risks / open questions (board input wanted)
 
-1. **Bus single-instance**: in-process fan-out means one console-api instance for now.
-   Accepted (LAN scale, ~10s of subscribers); LISTEN/NOTIFY is the escape hatch. Right call?
+1. **Bus single-instance**: accepted (LAN scale); backpressure + gap frames + resync are now
+   contracted (bus-frame schema), console-api is the single seq writer (upgrade = brief
+   planned gap, clients heal via `since`), and blast radius is stated plainly in §1 of the
+   contract: console-api down = surfaces honestly dark, Matrix stays the command floor.
+   systemd `Restart=always` + `WatchdogSec` + `MemoryMax` against `/health`.
 2. **Manager command inlet transport**: spool file next to the heartbeat (matches lab idiom,
    works today) vs waiting for doorman RPC. Plan: spool now behind the same `agent.command`
    method shape doorman will carry — swap transport, not contract.
 3. **Governance persistence**: adding SQLite persistence to control-plane changes a merged
    app. Scoped as additive (a `grants`/`usage` table + rehydrate-on-boot), reviewed like any
-   node. Alternative (console-api polls spool events and reconstructs) duplicates truth — rejected.
+   node, **with a rollback note in its PR** (drop-table + revert = old behavior, state was
+   always reconstructible from usage.report flow). Alternative (console-api reconstructs from
+   spool events) duplicates truth — rejected.
 4. **`updates.*` / `service.*` executor**: box-agent source was deleted (binary only, PR #149
    history) and it currently handles task cards, not service ops. Phase 1 restores the source
-   from git history and extends its envelope methods. Risk: scope creep — box-agent changes
-   are kept to the envelope handler layer.
-5. **Postgres container on .14**: disk at 89%. Lake retention/rollup policy is part of Phase 1
-   acceptance (raw events 30d, rollups 1y — tunable, agent-malleable config).
+   from git history and extends its envelope methods (handler layer only; rollback note in
+   its PR). box_update collector lives at `/home/docker/update-collector` (verified);
+   `packages[]`/`vulns[]` raw detail is NEW collector work behind `raw_ref`.
+5. **Postgres container**: .14 disk at 89% — **the volume decision (free space or mount the
+   lake elsewhere) is a hard precondition before the container lands** (stack pin). Volume
+   budget ~0.2-0.3M rows/day (acceptance gate); retention classes contractual (§10);
+   `lake.disk.watermark` crack source + emergency retention-shrink runbook in Phase 1;
+   system-outbox/Matrix warning path not decommissioned until the watermark has fired in
+   anger once. Bridges soak ≥1 week before v0 consumers switch off local files.
 6. **Library plane before the librarian exists**: the wire surface is pinned now; Phase 2
    implements items/links/search minimally (dashboards, artifacts, feed projection) so the
    frontend binds once. Full Rev3 (CRDT, curation autonomy) remains its own effort.

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/entities/worker.schema.json",
+  "title": "Worker (subagent) item (GET /workers)",
+  "description": "One live subagent/worker under a fleet agent — HouseTile windows and the ProgressStream. Source of truth: CONSOLE-CONTRACTS.md section 3.3 /workers — the bridged `fleet/<handle>.subagents.json` stream ({handle, label, started_at, updated_at, last_tool, tokens_spent?}), converging to box-agent inventory in Phase 1. `host` is REQUIRED and added by console-api aggregation so HouseTile windows never need a join to place a worker on a box. Filters: `handle`, `host`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "The OWNING agent's canonical handle (the worker belongs to this agent's session)."
+    },
+    "host": {
+      "type": "string",
+      "description": "Machine label in canonical form ('.N' for lab dot-hosts). REQUIRED — added by aggregation, not by the producer."
+    },
+    "label": {
+      "type": "string",
+      "description": "Short worker label (subagent description / task slug)."
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC — when the worker started."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC — last activity observed from the worker."
+    },
+    "last_tool": {
+      "type": ["string", "null"],
+      "description": "Most recent tool the worker used (e.g. 'Bash'); null when unknown/idle."
+    },
+    "tokens_spent": {
+      "type": ["number", "null"],
+      "description": "Tokens the worker has spent so far; null when the producer does not report it (optional in the as-built stream)."
+    }
+  },
+  "required": ["handle", "host", "label", "started_at", "updated_at"],
+  "additionalProperties": true
+}

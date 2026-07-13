@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petalcat.dev/schemas/console/entities/card.schema.json",
+  "title": "Dispatcher card item (GET /cards)",
+  "description": "One card row from the dispatcher's board. As-built source of truth: the `cards` table in apps/dispatcher/src/board.rs (semantics per apps/manager/docs/contracts/schemas/task-card.schema.json — LOCKED interrupt model, server-stamped sender_class, fenced leases). claim_token-free by construction: the board never stores one. Board timestamps are epoch MILLISECONDS (`*_ms`, as-built). `needs` is a JSON array in the store, served as a string array. Filters: `state`, `recipient`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
+  "type": "object",
+  "properties": {
+    "card_id": {
+      "type": "string",
+      "description": "Unique card id (UUID); consumers de-duplicate on it."
+    },
+    "task_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Tracker task this card belongs to (LOCKED: every card carries its task tie)."
+    },
+    "sender": {
+      "type": "string",
+      "description": "Originating identity: a Matrix user id or a canonical agent handle."
+    },
+    "sender_class": {
+      "enum": ["principal", "agent", "system"],
+      "description": "Stamped by the dispatcher from its own roster, never trusted from the sender."
+    },
+    "recipient": {
+      "type": ["string", "null"],
+      "description": "Addressed handle; null = open pool work (pull). Pool cards lose recipient on reap; addressed cards keep it."
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "0=P0 (highest) .. 3=P3 — same scale/direction as tasks.priority."
+    },
+    "thread": {
+      "type": ["string", "null"],
+      "description": "Conversation thread id (Matrix thread-root event id or bus-assigned); replies carry the same thread."
+    },
+    "requires_reply": {
+      "type": "boolean",
+      "description": "true = sender expects an answer card on the same thread; tracked unanswered until one arrives. Stored INTEGER 0/1; served boolean."
+    },
+    "interrupt_policy": {
+      "enum": ["defer", "principal_command", "safety", "task_clarification"],
+      "description": "defer = queue for the digest (default). The ONLY interrupting classes: principal_command (honored only when sender_class=principal), safety, task_clarification (only when task_id matches the recipient's current lease)."
+    },
+    "body": {
+      "type": "string",
+      "description": "The instruction/message content, verbatim."
+    },
+    "needs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capability tags the work needs; surfaced only to agents whose registry provides cover them (needs is a subset of provides)."
+    },
+    "state": {
+      "enum": ["posted", "parked", "claimed", "done", "dead"],
+      "description": "Board lifecycle state. dead = dead-letter after max reaps (human triage)."
+    },
+    "claimed_by": {
+      "type": ["string", "null"],
+      "description": "Handle of the current claim holder; null unless state=claimed."
+    },
+    "lease_expires_at_ms": {
+      "type": ["integer", "null"],
+      "description": "Epoch MILLISECONDS the claim lease expires (reapable after); null when unclaimed."
+    },
+    "fence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic fencing token, incremented on reap; stale-fence writes are rejected by the board."
+    },
+    "reaps": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many times this card's lease has been reaped; >= max_reaps -> dead."
+    },
+    "reply_to": {
+      "type": ["string", "null"],
+      "description": "card_id this card answers, when it is a reply."
+    },
+    "parent_id": {
+      "type": ["string", "null"],
+      "description": "Parent card_id for fan-out/child cards."
+    },
+    "result": {
+      "type": ["string", "null"],
+      "description": "Worker-reported result recorded at done (as-built column on the cards table)."
+    },
+    "delivered": {
+      "type": "boolean",
+      "description": "true = delivered to the recipient (digest/interrupt path). Stored INTEGER 0/1; served boolean."
+    },
+    "addressed": {
+      "type": "boolean",
+      "description": "true = posted with an explicit recipient (push); addressed cards keep their recipient across reap, pool cards do not. Stored INTEGER 0/1; served boolean."
+    },
+    "created_at_ms": {
+      "type": "integer",
+      "description": "Epoch MILLISECONDS the card was posted (as-built)."
+    },
+    "updated_at_ms": {
+      "type": "integer",
+      "description": "Epoch MILLISECONDS of the last board write to this row (as-built)."
+    }
+  },
+  "required": [
+    "card_id",
+    "task_id",
+    "sender",
+    "sender_class",
+    "priority",
+    "interrupt_policy",
+    "body",
+    "needs",
+    "state",
+    "fence",
+    "reaps",
+    "delivered",
+    "addressed",
+    "created_at_ms",
+    "updated_at_ms"
+  ],
+  "additionalProperties": true
+}
