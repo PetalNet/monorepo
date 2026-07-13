@@ -24,6 +24,8 @@ export interface Env {
 	 */
 	readonly devAuth: boolean;
 	readonly glitchtipDsn: string | null;
+	/** HMAC key for opaque pagination cursors. Required outside dev-auth test/local mode. */
+	readonly cursorSecret?: string;
 	/**
 	 * Read-only path to the tasks tracker SQLite (single-writer store read for /tasks /leases
 	 * /agents).
@@ -43,6 +45,7 @@ function required(name: string): string {
 
 export function loadEnv(): Env {
 	const databaseUrl = required("DATABASE_URL");
+	const devAuth = process.env["CONSOLE_API_DEV_AUTH"] === "1";
 	return {
 		databaseUrl,
 		appDatabaseUrl: process.env["APP_DATABASE_URL"] ?? databaseUrl,
@@ -50,8 +53,11 @@ export function loadEnv(): Env {
 		writerDatabaseUrl: process.env["WRITER_DATABASE_URL"] ?? databaseUrl,
 		host: process.env["CONSOLE_API_HOST"] ?? "127.0.0.1",
 		port: Number(process.env["CONSOLE_API_PORT"] ?? "8080"),
-		devAuth: process.env["CONSOLE_API_DEV_AUTH"] === "1",
+		devAuth,
 		glitchtipDsn: process.env["CONSOLE_API_GLITCHTIP_DSN"] ?? null,
+		...(process.env["CONSOLE_API_CURSOR_SECRET"]
+			? { cursorSecret: process.env["CONSOLE_API_CURSOR_SECRET"] }
+			: {}),
 		trackerDbPath: process.env["TRACKER_DB_PATH"] ?? null,
 		assistantLlmUrl: process.env["CONSOLE_ASSISTANT_LLM_URL"] ?? null,
 		assistantLlmModel: process.env["CONSOLE_ASSISTANT_LLM_MODEL"] ?? null,

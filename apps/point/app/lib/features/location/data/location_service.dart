@@ -22,6 +22,24 @@ class Fix {
   final int timestampMs;
 }
 
+enum LocationHealthStatus { idle, acquiring, live, blocked }
+
+enum LocationHealthFailure { permissionDenied, gps, heartbeat }
+
+@immutable
+class LocationHealth {
+  const LocationHealth({required this.status, this.lastFixAt, this.failure});
+
+  const LocationHealth.idle()
+    : status = LocationHealthStatus.idle,
+      lastFixAt = null,
+      failure = null;
+
+  final LocationHealthStatus status;
+  final DateTime? lastFixAt;
+  final LocationHealthFailure? failure;
+}
+
 /// The concrete battery engine (GO-bar #1/#5/#6). Drives the pure
 /// [LocationStateMachine] with real sensors and applies each [EnginePlan]:
 ///
@@ -44,12 +62,12 @@ class LocationService {
     Stream<Position> Function(LocationSettings)? positionStream,
     Future<Position> Function(LocationSettings)? currentPosition,
     Stream<AccelerometerEvent> Function()? accelStream,
-  })  : _machine = LocationStateMachine(config: config),
-        _checkPermission = checkPermission ?? Geolocator.checkPermission,
-        _requestPermission = requestPermission ?? Geolocator.requestPermission,
-        _positionStream = positionStream ?? _geolocatorStream,
-        _currentPosition = currentPosition ?? _geolocatorCurrent,
-        _accelStream = accelStream ?? accelerometerEventStream;
+  }) : _machine = LocationStateMachine(config: config),
+       _checkPermission = checkPermission ?? Geolocator.checkPermission,
+       _requestPermission = requestPermission ?? Geolocator.requestPermission,
+       _positionStream = positionStream ?? _geolocatorStream,
+       _currentPosition = currentPosition ?? _geolocatorCurrent,
+       _accelStream = accelStream ?? accelerometerEventStream;
 
   static Stream<Position> _geolocatorStream(LocationSettings settings) =>
       Geolocator.getPositionStream(locationSettings: settings);
@@ -76,6 +94,10 @@ class LocationService {
 
   final _fixes = StreamController<Fix>.broadcast();
   Stream<Fix> get fixes => _fixes.stream;
+  final _health = StreamController<LocationHealth>.broadcast();
+  LocationHealth _currentHealth = const LocationHealth.idle();
+  LocationHealth get currentHealth => _currentHealth;
+  Stream<LocationHealth> get health => _health.stream;
 
   StreamSubscription<Position>? _gpsSub;
   StreamSubscription<AccelerometerEvent>? _accelSub;
@@ -109,9 +131,23 @@ class LocationService {
   /// waiting out motion or the first heartbeat.
   Future<void> start() async {
     if (!_started) {
-      if (!await ensurePermission()) return;
+      if (!await ensurePermission()) {
+        _emitHealth(
+          const LocationHealth(
+            status: LocationHealthStatus.blocked,
+            failure: LocationHealthFailure.permissionDenied,
+          ),
+        );
+        return;
+      }
       _started = true;
     }
+    _emitHealth(
+      LocationHealth(
+        status: LocationHealthStatus.acquiring,
+        lastFixAt: _currentHealth.lastFixAt,
+      ),
+    );
     if (_machine.foreground) _machine.onForeground();
     _apply();
   }
@@ -150,6 +186,12 @@ class LocationService {
       _heartbeatTimer?.cancel();
       _heartbeatTimer = null;
       _appliedActivity = plan.activity;
+      _emitHealth(
+        LocationHealth(
+          status: LocationHealthStatus.idle,
+          lastFixAt: _currentHealth.lastFixAt,
+        ),
+      );
       return;
     }
 
@@ -186,14 +228,24 @@ class LocationService {
     _stopGps();
     _appliedGpsPlan = plan;
     final settings = _androidSettings(plan);
-    _gpsSub = _positionStream(settings).listen(_onPosition,
-        onError: (Object e) {
-      if (kDebugMode) debugPrint('gps error: $e');
-    });
+    _gpsSub = _positionStream(settings).listen(
+      _onPosition,
+      onError: (Object e) {
+        _emitHealth(
+          LocationHealth(
+            status: LocationHealthStatus.blocked,
+            lastFixAt: _currentHealth.lastFixAt,
+            failure: LocationHealthFailure.gps,
+          ),
+        );
+        if (kDebugMode) debugPrint('gps error: $e');
+      },
+    );
   }
 
   LocationSettings _androidSettings(EnginePlan plan) {
-    final moving = plan.activity == LocationActivity.fast ||
+    final moving =
+        plan.activity == LocationActivity.fast ||
         plan.activity == LocationActivity.active;
     // distanceFilter is the battery lever: only emit after real movement.
     final distanceFilter = switch (plan.activity) {
@@ -212,8 +264,7 @@ class LocationService {
               notificationTitle: 'Point',
               notificationText: 'Sharing your location',
               enableWakeLock: true,
-              notificationIcon:
-                  AndroidResource(name: 'ic_launcher'),
+              notificationIcon: AndroidResource(name: 'ic_launcher'),
             )
           : null,
     );
@@ -230,8 +281,15 @@ class LocationService {
     final moved = _lastFix == null
         ? double.infinity
         : Geolocator.distanceBetween(
-            _lastFix!.lat, _lastFix!.lon, fix.lat, fix.lon);
+            _lastFix!.lat,
+            _lastFix!.lon,
+            fix.lat,
+            fix.lon,
+          );
     _lastFix = fix;
+    _emitHealth(
+      LocationHealth(status: LocationHealthStatus.live, lastFixAt: p.timestamp),
+    );
     _machine.onGpsFix(speed: p.speed, movedMetres: moved);
     _fixes.add(fix);
     _armStillness();
@@ -243,8 +301,7 @@ class LocationService {
     if (_accelSub != null) return;
     _accelSub = _accelStream().listen((e) {
       // Magnitude minus gravity ~ motion. A sustained bump wakes GPS.
-      final magnitude =
-          (e.x * e.x + e.y * e.y + e.z * e.z) - (9.81 * 9.81);
+      final magnitude = (e.x * e.x + e.y * e.y + e.z * e.z) - (9.81 * 9.81);
       if (magnitude.abs() > _motionThreshold * 9.81) {
         _machine.onMovementWake();
         if (_machine.activity != _appliedActivity) _apply();
@@ -280,6 +337,13 @@ class LocationService {
         if (!timer.isActive || !_machine.plan.gpsEnabled) return;
         _emit(p);
       } on Object catch (e) {
+        _emitHealth(
+          LocationHealth(
+            status: LocationHealthStatus.blocked,
+            lastFixAt: _currentHealth.lastFixAt,
+            failure: LocationHealthFailure.heartbeat,
+          ),
+        );
         if (kDebugMode) debugPrint('heartbeat fix error: $e');
       }
     });
@@ -299,6 +363,9 @@ class LocationService {
       timestampMs: p.timestamp.millisecondsSinceEpoch,
     );
     _lastFix = fix;
+    _emitHealth(
+      LocationHealth(status: LocationHealthStatus.live, lastFixAt: p.timestamp),
+    );
     _fixes.add(fix);
   }
 
@@ -319,6 +386,12 @@ class LocationService {
     _stillnessTimer?.cancel();
     _heartbeatTimer?.cancel();
     await _fixes.close();
+    await _health.close();
+  }
+
+  void _emitHealth(LocationHealth health) {
+    _currentHealth = health;
+    if (!_health.isClosed) _health.add(health);
   }
 
   Future<void> _stopGpsAsync() async {

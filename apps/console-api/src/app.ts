@@ -1,6 +1,8 @@
 // Service assembly: wires the lake, the serialized appender, the bus broker, and the emit
 // pipeline. Importable by both the HTTP server and the tests (drive the real path, no HTTP mock).
 
+import { randomBytes } from "node:crypto";
+
 import { OpenAiCompatibleAssistantCompiler, type AssistantCompiler } from "./assistant/compiler.ts";
 import { Appender, type AppendResult } from "./bus/appender.ts";
 import { Broker } from "./bus/broker.ts";
@@ -32,11 +34,16 @@ export interface Services {
 	/** Read-only tracker access (null when TRACKER_DB_PATH is unset). */
 	readonly tracker: TrackerReader | null;
 	readonly assistant: AssistantCompiler | null;
+	/** Process-local key only in dev; production must supply CONSOLE_API_CURSOR_SECRET. */
+	readonly cursorSecret: string;
 	emit(producerSubject: string, raw: unknown, bytes: number): Promise<EmitOutcome>;
 	close(): Promise<void>;
 }
 
 export async function buildServices(env: Env, opts?: { migrate?: boolean }): Promise<Services> {
+	if (!env.devAuth && !env.cursorSecret)
+		throw new Error("missing required env CONSOLE_API_CURSOR_SECRET");
+	const cursorSecret = env.cursorSecret ?? randomBytes(32).toString("base64url");
 	const db = openDb(env);
 	if (opts?.migrate !== false) await migrate(db.admin);
 	await assertRuntimeRolesHardened(db, env.devAuth);
@@ -117,6 +124,7 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		projector,
 		tracker,
 		assistant,
+		cursorSecret,
 		emit,
 		async close() {
 			tracker?.close();

@@ -461,6 +461,14 @@ const STATEMENTS: readonly string[] = [
 	   payload            jsonb not null default '{}'::jsonb,
 	   updated_at         timestamptz not null default now()
 	 )`,
+	`create table if not exists dashboard_mutations (
+	   principal_id text not null,
+	   request_id   uuid not null,
+	   request_hash text not null,
+	   dashboard_id text not null,
+	   created_at   timestamptz not null default now(),
+	   primary key (principal_id, request_id)
+	 )`,
 
 	// --- RLS: enable + force on every scoped base table, then the policy ----------------------
 	`alter table current_state enable row level security`,
@@ -605,6 +613,7 @@ const STATEMENTS: readonly string[] = [
 	`grant usage, select on sequence emission_ids_seq_seq to console_writer`,
 	`grant usage, select on sequence semantic_proposals_id_seq to console_writer`,
 	`grant insert, update, select, delete on current_state, items_min to console_writer`,
+	`grant insert, select on dashboard_mutations to console_writer`,
 	`grant insert, update, select on projection_checkpoint to console_writer`,
 	`grant insert, update, select on bridge_cursor to console_writer`,
 	`grant insert, select on bridge_dead_letter to console_writer`,

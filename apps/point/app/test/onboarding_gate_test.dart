@@ -37,9 +37,9 @@ void main() {
     await gate.markRecoverySaved(_session.userId);
     expect(await gate.firstIncomplete(_session), OnboardingStep.privacy);
 
-    await container
-        .read(settingsProvider.notifier)
-        .applyPrivacyFork(private: false);
+    final settings = container.read(settingsProvider.notifier);
+    await settings.applyPrivacyFork(private: true);
+    await settings.markTransportChosen();
     expect(await gate.firstIncomplete(_session), OnboardingStep.location);
 
     locationGranted = true;
@@ -72,9 +72,9 @@ void main() {
 
   test('revoking location later re-gates the location step', () async {
     await gate.markRecoverySaved(_session.userId);
-    await container
-        .read(settingsProvider.notifier)
-        .applyPrivacyFork(private: false);
+    final settings = container.read(settingsProvider.notifier);
+    await settings.applyPrivacyFork(private: true);
+    await settings.markTransportChosen();
     locationGranted = true;
     expect(await gate.firstIncomplete(_session), isNull);
 
@@ -82,9 +82,9 @@ void main() {
     expect(await gate.firstIncomplete(_session), OnboardingStep.location);
   });
 
-  test('the gate awaits persisted settings on a cold start', () async {
-    // Regression (review H1): a finished account whose settings were still
-    // loading must not be re-gated into the privacy fork.
+  test('the gate normalizes FCM without trapping a finished account', () async {
+    // A previous build could persist FCM even though this package has no
+    // Firebase token source. Loading must repair that dishonest state.
     FlutterSecureStorage.setMockInitialValues({
       'point.settings':
           '{"map_provider":"proxied","transport":"fcm",'
@@ -100,6 +100,11 @@ void main() {
     // First read of settingsProvider happens INSIDE the gate call, exactly
     // like a cold app start.
     expect(await freshGate.firstIncomplete(_session), isNull);
+    final migrated = freshContainer.read(settingsProvider);
+    expect(migrated.transport, NotifTransport.unifiedPush);
+    expect(migrated.fcmFallback, isFalse);
+    expect(migrated.transportChosen, isTrue);
+    expect(migrated.needsPushMigration, isTrue);
   });
 
   test('the privacy fork writes the right tiers', () async {
@@ -114,9 +119,10 @@ void main() {
     await settings.applyPrivacyFork(private: false);
     s = container.read(settingsProvider);
     expect(s.mapProvider, MapProviderChoice.proxied);
-    expect(s.transport, NotifTransport.fcm);
-    expect(s.fcmFallback, isTrue);
+    expect(s.transport, NotifTransport.unifiedPush);
+    expect(s.fcmFallback, isFalse);
     expect(s.transportChosen, isTrue);
+    expect(s.needsPushMigration, isTrue);
   });
 }
 

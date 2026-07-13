@@ -109,6 +109,10 @@
 				"pattern": { "type": "string" },
 				"cadence_s": { "type": ["number", "null"] }
 			}
+		},
+		"render": {
+			"oneOf": [{ "$ref": "render-artifact.schema.json" }, { "type": "null" }],
+			"description": "Server-generated renderer artifact. Saved dashboards clear this cache and replay query_ref as the viewer before regenerating it."
 		}
 	},
 	"allOf": [

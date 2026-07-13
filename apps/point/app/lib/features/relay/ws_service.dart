@@ -10,6 +10,24 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 /// start authoritative catch-up; a TCP/WebSocket open alone is not.
 enum WsConnectionState { disconnected, connecting, authenticated }
 
+/// A complete transport snapshot for trust-sensitive presentation. Queue
+/// depth is included here so a connected socket with unsent fixes cannot be
+/// mistaken for fully live.
+@immutable
+class WsHealth {
+  const WsHealth({
+    required this.connection,
+    required this.queueDepth,
+    this.lastAuthenticatedAt,
+  });
+
+  final WsConnectionState connection;
+  final int queueDepth;
+  final DateTime? lastAuthenticatedAt;
+
+  bool get isAuthenticated => connection == WsConnectionState.authenticated;
+}
+
 /// The live location transport (GO-bar #3). Auth is the FIRST message, never in
 /// the URL. Outbound fixes go through the durable [RelayQueue] so a disconnect
 /// or a killed process never drops location; reconnect uses jittered backoff
@@ -41,6 +59,9 @@ class WsService {
 
   final _incoming = StreamController<Map<String, dynamic>>.broadcast();
   final _connectionStates = StreamController<WsConnectionState>.broadcast();
+  final _health = StreamController<WsHealth>.broadcast();
+  WsConnectionState _connectionState = WsConnectionState.disconnected;
+  DateTime? _lastAuthenticatedAt;
 
   /// Server → client frames (location.broadcast, presence.update, mls.message…).
   Stream<Map<String, dynamic>> get incoming => _incoming.stream;
@@ -48,6 +69,14 @@ class WsService {
   /// Emits every socket transition, including every successful re-auth. The
   /// relay uses this durable boundary to reconcile state after missed frames.
   Stream<WsConnectionState> get connectionStates => _connectionStates.stream;
+
+  /// Current and future transport health, including durable outbound work.
+  WsHealth get currentHealth => WsHealth(
+    connection: _connectionState,
+    queueDepth: _queue.length,
+    lastAuthenticatedAt: _lastAuthenticatedAt,
+  );
+  Stream<WsHealth> get health => _health.stream;
 
   bool get isConnected => _authed;
 
@@ -57,11 +86,24 @@ class WsService {
     _open();
   }
 
+  /// Skip the backoff delay after an explicit user retry. An authenticated
+  /// connection is left alone; its caller can request an authoritative sync.
+  Future<void> retryNow() async {
+    if (_disposed || _token == null || _authed) return;
+    _reconnectTimer?.cancel();
+    _connectionEpoch++;
+    await _sub?.cancel();
+    _sub = null;
+    await _channel?.sink.close();
+    _channel = null;
+    _open();
+  }
+
   void _open() {
     if (_disposed) return;
     _authed = false;
     final epoch = ++_connectionEpoch;
-    _connectionStates.add(WsConnectionState.connecting);
+    _emitHealth(WsConnectionState.connecting);
     try {
       final channel = _connect(Uri.parse(wsUrl));
       _channel = channel;
@@ -78,6 +120,7 @@ class WsService {
       );
     } on Object catch (e) {
       if (kDebugMode) debugPrint('ws connect failed: $e');
+      _emitHealth(WsConnectionState.disconnected);
       _scheduleReconnect();
     }
   }
@@ -94,7 +137,8 @@ class WsService {
       // Proven healthy: NOW reset the backoff and flush the durable queue.
       _authed = true;
       _policy.onConnected();
-      _connectionStates.add(WsConnectionState.authenticated);
+      _lastAuthenticatedAt = DateTime.now();
+      _emitHealth(WsConnectionState.authenticated);
       unawaited(_flush());
       return;
     }
@@ -104,7 +148,7 @@ class WsService {
   void _onClosed(int epoch) {
     if (epoch != _connectionEpoch || _disposed) return;
     _authed = false;
-    _connectionStates.add(WsConnectionState.disconnected);
+    _emitHealth(WsConnectionState.disconnected);
     _sub?.cancel();
     _sub = null;
     _channel = null;
@@ -121,8 +165,11 @@ class WsService {
   /// connected it's sent and, on any send error, re-enqueued.
   Future<void> send(String audience, String frame) async {
     await _queue.enqueue(audience, frame);
+    _emitHealth();
     if (_authed) await _flush();
   }
+
+  Future<void> flushNow() => _flush();
 
   bool _flushing = false;
 
@@ -132,6 +179,7 @@ class WsService {
     try {
       while (_authed && !_queue.isEmpty) {
         final batch = await _queue.drain(max: 20);
+        _emitHealth();
         try {
           for (final item in batch) {
             _channel!.sink.add(item.frame);
@@ -139,6 +187,8 @@ class WsService {
         } on Object {
           // Send failed mid-batch — put them back at the front and stop.
           await _queue.requeueFront(batch);
+          _emitHealth();
+          _onClosed(_connectionEpoch);
           break;
         }
       }
@@ -155,5 +205,14 @@ class WsService {
     await _channel?.sink.close();
     await _incoming.close();
     await _connectionStates.close();
+    await _health.close();
+  }
+
+  void _emitHealth([WsConnectionState? connection]) {
+    if (connection != null) {
+      _connectionState = connection;
+      if (!_connectionStates.isClosed) _connectionStates.add(connection);
+    }
+    if (!_health.isClosed) _health.add(currentHealth);
   }
 }

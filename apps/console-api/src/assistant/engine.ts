@@ -7,24 +7,10 @@ import {
 	type QueryRequest,
 	type QueryResult,
 } from "../query/structured.ts";
+import { materializePanel } from "../render/engine.ts";
+import type { PanelSpecV2 } from "../render/types.ts";
 import { searchSemanticCorpus, type SemanticSearchResult } from "../semantic/search.ts";
-import {
-	AssistantCompilerError,
-	type AssistantCompiler,
-	type AssistantProposal,
-} from "./compiler.ts";
-
-export interface PanelSpecV2 {
-	schema_version: 2;
-	type: string;
-	title: string;
-	description?: string | null;
-	query_ref?: string;
-	encoding?: Record<string, unknown> | null;
-	refusal?: { reason: string; suggestions: string[] };
-	narrative?: string | null;
-	suggestions?: string[] | null;
-}
+import { AssistantCompilerError, type AssistantCompiler } from "./compiler.ts";
 
 export interface AskResult {
 	schema_version: 1;
@@ -70,13 +56,6 @@ function queryFeedback(error: unknown): { code: string; message: string } {
 			? (error as { code: string }).code
 			: "plan_rejected";
 	return { code, message: "the structured intent could not be validated or executed safely" };
-}
-
-function selectedAliases(request: QueryRequest): string[] {
-	const aliases =
-		request.select?.map((item) => item.as ?? `${item.agg ?? ""}_${item.field}`.replace(/^_/, "")) ??
-		[];
-	return [...(request.time?.bucket ? ["bucket"] : []), ...(request.group_by ?? []), ...aliases];
 }
 
 function escapeRegex(value: string): string {
@@ -165,46 +144,6 @@ function assertRetrievedSource(
 		);
 }
 
-function panelFor(proposal: AssistantProposal, result: QueryResult): PanelSpecV2 {
-	const request = proposal.request as QueryRequest;
-	const names = new Set(result.columns.map(({ name }) => name));
-	const aliases = selectedAliases(request).filter((name) => names.has(name));
-	const grouped = (request.group_by?.length ?? 0) > 0;
-	const aggregate = request.select?.some(({ agg }) => Boolean(agg)) ?? false;
-	const type = request.time?.bucket
-		? "line"
-		: grouped && aggregate
-			? "bar"
-			: aggregate && !grouped
-				? "stat"
-				: "table";
-	const requestedEncoding = proposal.panel?.encoding ?? {};
-	const validEncoding = Object.fromEntries(
-		Object.entries(requestedEncoding).filter(([, value]) =>
-			Array.isArray(value)
-				? value.every((field) => typeof field === "string" && names.has(field))
-				: typeof value !== "string" || names.has(value),
-		),
-	);
-	const encoding =
-		Object.keys(validEncoding).length > 0
-			? validEncoding
-			: type === "stat"
-				? { value: aliases.at(-1) ?? result.columns[0]?.name }
-				: type === "table"
-					? { columns: result.columns.map(({ name }) => name) }
-					: { x: result.columns[0]?.name, y: result.columns[1]?.name };
-	return {
-		schema_version: 2,
-		type,
-		title: proposal.panel?.title ?? "Analysis",
-		description: proposal.panel?.description ?? null,
-		query_ref: result.query_ref,
-		encoding,
-		suggestions: proposal.suggestions ?? [],
-	};
-}
-
 function groundedAnswer(result: QueryResult): string {
 	if (result.row_count === 0) return "No matching data was found in the visible scopes.";
 	if (result.row_count === 1 && result.columns.length === 1) {
@@ -262,7 +201,19 @@ export async function ask(
 			await dryPlanStructured(db.ro, scopes, prepared);
 			const result = await runPreparedStructured(db.app, db.ro, scopes, prepared);
 			const answer = groundedAnswer(result);
-			const panel = panelFor(proposal, result);
+			const materialized = materializePanel(
+				{
+					schema_version: 2,
+					type: "table",
+					title: proposal.panel?.title ?? "Analysis",
+					description: proposal.panel?.description ?? null,
+					query_ref: result.query_ref,
+					encoding: proposal.panel?.encoding ?? {},
+					suggestions: proposal.suggestions ?? [],
+				},
+				result,
+			);
+			const panel = materialized.panel;
 			panel.narrative = answer;
 			return {
 				schema_version: 1,

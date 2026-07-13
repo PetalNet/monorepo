@@ -198,19 +198,52 @@ class _RejectingMailboxCrypto extends _NoopCrypto {
   ) => throw StateError('crypto rejected row');
 }
 
+class _InitFailCrypto extends _NoopCrypto {
+  @override
+  Future<MlsInit> init(String identity) =>
+      throw StateError('crypto storage unavailable');
+}
+
+class _PerPeerCrypto extends _NoopCrypto {
+  @override
+  bool hasGroup(Uint8List groupId) => true;
+
+  @override
+  Future<Uint8List> decrypt(Uint8List groupId, Uint8List ciphertext) async {
+    if (utf8.decode(groupId).contains(_parkerId)) {
+      throw StateError('Parker group cannot decrypt');
+    }
+    return Uint8List.fromList(
+      utf8.encode(
+        jsonEncode({
+          'lat': 41.9,
+          'lon': -87.6,
+          'speed': 0.0,
+          'timestamp': 3000,
+        }),
+      ),
+    );
+  }
+}
+
 class _WsHarness {
   final channels = <_FakeChannel>[];
+  final services = <WsService>[];
 
-  WsService create(String wsUrl, RelayQueue queue) => WsService(
-    wsUrl: wsUrl,
-    queue: queue,
-    policy: ReconnectPolicy(base: Duration.zero, jitter: 0),
-    connect: (_) {
-      final channel = _FakeChannel();
-      channels.add(channel);
-      return channel;
-    },
-  );
+  WsService create(String wsUrl, RelayQueue queue) {
+    final service = WsService(
+      wsUrl: wsUrl,
+      queue: queue,
+      policy: ReconnectPolicy(base: Duration.zero, jitter: 0),
+      connect: (_) {
+        final channel = _FakeChannel();
+        channels.add(channel);
+        return channel;
+      },
+    );
+    services.add(service);
+    return service;
+  }
 }
 
 class _FakeChannel implements WebSocketChannel {
@@ -276,6 +309,188 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
     await RustLib.init();
   });
+
+  test(
+    'relay health tells the full reconnect and successful-sync story',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final sockets = _WsHarness();
+      final syncGate = Completer<void>();
+      final api = _FakeApi()..mailboxGate = syncGate;
+      final container = _container(
+        api: api,
+        crypto: _NoopCrypto(),
+        sockets: sockets,
+      );
+      addTearDown(container.dispose);
+      await container.read(authControllerProvider.future);
+      final observed = <RelayHealth>[];
+      container.listen(
+        relayHealthProvider,
+        (_, next) => observed.add(next),
+        fireImmediately: true,
+      );
+      final relay = container.read(relayControllerProvider);
+      final coordinator = container.read(realtimeSyncCoordinatorProvider);
+
+      expect(observed.last.status, RelayHealthStatus.offline);
+      await relay.start(_janet);
+      await Future<void>.delayed(Duration.zero);
+      expect(observed.last.status, RelayHealthStatus.connecting);
+
+      sockets.channels.single.push({'type': 'auth.ok'});
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(relayHealthProvider).status,
+        RelayHealthStatus.connecting,
+        reason: 'auth alone must never claim Live before catch-up finishes',
+      );
+      syncGate.complete();
+      api.mailboxGate = null;
+      await _waitFor(
+        () =>
+            container.read(relayHealthProvider).status ==
+            RelayHealthStatus.live,
+      );
+      final initialSync = container.read(relayHealthProvider).lastSyncAt;
+      await coordinator.syncNow(RealtimeSyncReason.appResumed);
+      await _waitFor(
+        () => container.read(relayHealthProvider).lastSyncAt != initialSync,
+      );
+      final lastSuccessfulSync = container.read(relayHealthProvider).lastSyncAt;
+      expect(lastSuccessfulSync, isNotNull);
+
+      await sockets.services.single.send('parker@point.test', 'local-fix');
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(relayHealthProvider).status,
+        RelayHealthStatus.live,
+        reason: 'ordinary authenticated queue updates must not demote Live',
+      );
+
+      api.failMailboxReads = 100;
+      await coordinator.syncNow(RealtimeSyncReason.appResumed);
+      await _waitFor(
+        () =>
+            container.read(relayHealthProvider).status ==
+            RelayHealthStatus.reconnecting,
+      );
+      expect(
+        container.read(relayHealthProvider).lastSyncAt,
+        lastSuccessfulSync,
+        reason: 'a failed catch-up must not claim a newer successful sync',
+      );
+
+      api.failMailboxReads = 0;
+      final manual = relay.syncRequests.firstWhere(
+        (reason) => reason == RealtimeSyncReason.manualRefresh,
+      );
+      container.read(relayHealthProvider.notifier).retryOrSync();
+      expect(await manual, RealtimeSyncReason.manualRefresh);
+
+      await sockets.channels.single.closeFromServer();
+      await _waitFor(
+        () => observed.any(
+          (health) => health.status == RelayHealthStatus.reconnecting,
+        ),
+      );
+      expect(
+        observed.map((health) => health.status),
+        containsAllInOrder([
+          RelayHealthStatus.offline,
+          RelayHealthStatus.connecting,
+          RelayHealthStatus.live,
+          RelayHealthStatus.reconnecting,
+        ]),
+      );
+      await relay.stop();
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(relayHealthProvider).lastSyncAt, isNull);
+    },
+  );
+
+  test(
+    'sync health is recorded before its UI provider is first watched',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final sockets = _WsHarness();
+      final container = _container(
+        api: _FakeApi(),
+        crypto: _NoopCrypto(),
+        sockets: sockets,
+      );
+      addTearDown(container.dispose);
+      await container.read(authControllerProvider.future);
+      final relay = container.read(relayControllerProvider);
+
+      await relay.start(_janet);
+      sockets.channels.single.push({'type': 'auth.ok'});
+      await _waitFor(() => relay.health.status == RelayHealthStatus.live);
+
+      expect(
+        container.read(relayHealthProvider).status,
+        RelayHealthStatus.live,
+      );
+    },
+  );
+
+  test(
+    'crypto initialization failure is surfaced before transport exists',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final container = _container(
+        api: _FakeApi(),
+        crypto: _InitFailCrypto(),
+        sockets: _WsHarness(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authControllerProvider.future);
+      final relay = container.read(relayControllerProvider);
+
+      await expectLater(relay.start(_janet), throwsStateError);
+      expect(relay.health.status, RelayHealthStatus.cryptoBlocked);
+    },
+  );
+
+  test(
+    'one peer crypto failure survives another peer decrypting successfully',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final sockets = _WsHarness();
+      final container = _container(
+        api: _FakeApi(),
+        crypto: _PerPeerCrypto(),
+        sockets: sockets,
+      );
+      addTearDown(container.dispose);
+      await container.read(authControllerProvider.future);
+      final relay = container.read(relayControllerProvider);
+      await relay.start(_janet);
+      sockets.channels.single.push({'type': 'auth.ok'});
+      await Future<void>.delayed(Duration.zero);
+      await relay.setShareTargets({_parkerId, 'eli@point.test'});
+
+      sockets.channels.single.push({
+        'type': 'location.broadcast',
+        'sender_id': _parkerId,
+        'blob': base64Encode([1]),
+      });
+      await _waitFor(
+        () => relay.health.status == RelayHealthStatus.cryptoBlocked,
+      );
+
+      sockets.channels.single.push({
+        'type': 'location.broadcast',
+        'sender_id': 'eli@point.test',
+        'blob': base64Encode([2]),
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(relay.health.status, RelayHealthStatus.cryptoBlocked);
+
+      await relay.setShareTargets({'eli@point.test'});
+      expect(relay.health.status, isNot(RelayHealthStatus.cryptoBlocked));
+    },
+  );
 
   test('presence.update is ordered and cleared on transport loss', () async {
     FlutterSecureStorage.setMockInitialValues({});

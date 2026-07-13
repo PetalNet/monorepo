@@ -11,6 +11,7 @@ import { buildServices, type Services } from "./app.ts";
 import { ask } from "./assistant/engine.ts";
 import { resolveBearer, devPrincipal, type Principal } from "./auth/principal.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
+import { DashboardError, listDashboards, loadDashboard, saveDashboard } from "./dashboard/store.ts";
 import { withScopes } from "./db/pool.ts";
 import { loadEnv } from "./env.ts";
 import {
@@ -27,6 +28,9 @@ import { readEntity } from "./reads/entities.ts";
 import { readRoster, readExecutors } from "./reads/roster.ts";
 import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
 import type { TrackerReader } from "./reads/tracker.ts";
+import { materializePanel } from "./render/engine.ts";
+import type { PanelSpecV2 } from "./render/types.ts";
+import { dashboardSaveSchema, renderRequestSchema } from "./render/validation.ts";
 import { mergeSemanticShape, type SemanticShape } from "./semantic/registry.ts";
 import { searchSemanticCorpus } from "./semantic/search.ts";
 
@@ -332,6 +336,70 @@ export async function buildServer(
 				},
 			});
 		return ask(services.db, services.assistant, p.scopes, parsed.data.question.trim());
+	});
+	app.post("/api/v1/render", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const parsed = renderRequestSchema.safeParse(req.body);
+		if (!parsed.success)
+			return reply.code(400).send({
+				error: { code: "bad_render_request", message: "invalid render request", retryable: false },
+			});
+		const record = await readQueryRecord(services.db.app, p.scopes, parsed.data.query_ref);
+		if (!record)
+			return reply.code(404).send({
+				error: { code: "query_not_found", message: "query ref not found", retryable: false },
+			});
+		const result = await runStructured(services.db.app, p.scopes, record.request);
+		return materializePanel(parsed.data.panel as PanelSpecV2, result);
+	});
+
+	// --- renderer-agnostic saved dashboards / investigation branches ---------------------------
+	app.post("/api/v1/dashboards", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const parsed = dashboardSaveSchema.safeParse(req.body);
+		if (!parsed.success)
+			return reply.code(400).send({
+				error: { code: "bad_dashboard", message: "invalid dashboard payload", retryable: false },
+			});
+		try {
+			return await saveDashboard(services.db, p, parsed.data);
+		} catch (error) {
+			if (error instanceof DashboardError)
+				return reply
+					.code(error.code === "scope_denied" ? 403 : 400)
+					.send({ error: { code: error.code, message: error.message, retryable: false } });
+			throw error;
+		}
+	});
+	app.get("/api/v1/dashboards", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const query = req.query as { limit?: string; cursor?: string };
+		try {
+			return await listDashboards(services.db.app, p.scopes, services.cursorSecret, {
+				...(query.limit ? { limit: Number(query.limit) } : {}),
+				...(query.cursor ? { cursor: query.cursor } : {}),
+			});
+		} catch (error) {
+			if (error instanceof DashboardError)
+				return reply
+					.code(400)
+					.send({ error: { code: error.code, message: error.message, retryable: false } });
+			throw error;
+		}
+	});
+	app.get("/api/v1/dashboards/:dashboardId", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const { dashboardId } = req.params as { dashboardId: string };
+		if (!/^dash_[A-Za-z0-9_-]{8,40}$/.test(dashboardId))
+			return reply.code(404).send({
+				error: { code: "dashboard_not_found", message: "dashboard not found", retryable: false },
+			});
+		const dashboard = await loadDashboard(services.db.app, p.scopes, dashboardId);
+		if (!dashboard)
+			return reply.code(404).send({
+				error: { code: "dashboard_not_found", message: "dashboard not found", retryable: false },
+			});
+		return dashboard;
 	});
 
 	// --- catalog ---------------------------------------------------------------------------------
