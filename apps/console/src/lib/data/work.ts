@@ -131,6 +131,17 @@ export const mockTasks: TaskItem[] = [
 		verification_status: "verified",
 		updated_at: iso(22 * 36e5),
 	}),
+	task({
+		id: 726,
+		title: "Normalize tracker timestamps",
+		status: "done",
+		priority: 2,
+		project_title: "work",
+		assignee: "janet",
+		verification_status: "verified",
+		result_summary: "Tracker timestamps now cross the read boundary as RFC 3339 UTC.",
+		updated_at: iso(30 * 36e5),
+	}),
 ];
 export const mockLeases: LeaseItem[] = [
 	{

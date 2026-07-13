@@ -1,6 +1,6 @@
 import { getRequestEvent, command, query } from "$app/server";
 import { env } from "$env/dynamic/public";
-import type { ExecutorItem, OpResult, ReadEnvelope } from "$lib/api/types";
+import type { ExecutorItem, OpResult, ReadEnvelope, WorkSettlementSnapshot } from "$lib/api/types";
 import {
 	mockLibrary,
 	readLiveLibrary,
@@ -8,6 +8,7 @@ import {
 	type LibraryItemView,
 	type LibraryKind,
 } from "$lib/data/library";
+import { settledTaskLibraryItem } from "$lib/data/work-settlement";
 import { error } from "@sveltejs/kit";
 import { z } from "zod";
 
@@ -237,10 +238,22 @@ export const searchLibrary = query(
 	searchSchema,
 	async ({ query: searchQuery }): Promise<LibraryItemView[]> => {
 		if (isMock()) return [];
-		const result = await apiJson<{ items: ApiLibraryItem[] }>(
-			`/library/search?limit=100&q=${encodeURIComponent(searchQuery)}`,
-		);
-		return result.items.map(itemView);
+		const [result, settlement] = await Promise.all([
+			apiJson<{ items: ApiLibraryItem[] }>(
+				`/library/search?limit=100&q=${encodeURIComponent(searchQuery)}`,
+			),
+			apiJson<WorkSettlementSnapshot>("/work/settlement").catch(() => null),
+		]);
+		const needle = searchQuery.toLocaleLowerCase();
+		const taskMatches = (settlement?.history ?? [])
+			.filter((task) =>
+				`${task.title} ${task.body ?? ""} ${task.result_summary ?? ""} ${task.close_reason ?? ""} ${task.project_title ?? ""}`
+					.toLocaleLowerCase()
+					.includes(needle),
+			)
+			.map(settledTaskLibraryItem);
+		const taskIds = new Set(taskMatches.map((item) => item.id));
+		return [...taskMatches, ...result.items.map(itemView).filter((item) => !taskIds.has(item.id))];
 	},
 );
 
