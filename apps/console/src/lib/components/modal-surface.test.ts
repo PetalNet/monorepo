@@ -12,6 +12,7 @@ describe("modal surface contract", () => {
 		assert.match(modal, /border-radius:var\(--r-lg\)/);
 		assert.match(modal, /::backdrop/);
 		assert.match(modal, /dialog-close/);
+		assert.match(modal, /:not\(\[open\]\)\{display:none\}/);
 	});
 
 	it("captures and restores focus around the native modal lifecycle", async () => {

@@ -30,6 +30,7 @@ import { ProposalError, proposeMutation } from "./auth/proposals.ts";
 import { type GrantRelation, listTiers, shouldProposeMutation } from "./auth/tiers.ts";
 import { uuidv5 } from "./bridge/uuid5.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
+import { TrackerCommandError } from "./commands/tracker.ts";
 import { costComparisonRequestSchema } from "./cost/compare.ts";
 import { compareCostPair, CostComparisonUnavailableError } from "./cost/service.ts";
 import {
@@ -230,6 +231,7 @@ if (opCatalog.schema_version !== 2) throw new Error("unsupported op catalog sche
 const OP_BY_NAME = new Map(opCatalog.ops.map((entry) => [entry.op, entry]));
 if (OP_BY_NAME.size !== opCatalog.ops.length) throw new Error("duplicate operation in ops.json");
 const INTERNAL_OP_ADAPTERS = new Set([
+	"task.claim",
 	"stats.query",
 	"viz.render",
 	"text.surface",
@@ -1176,6 +1178,19 @@ export async function buildServer(
 		principal: Principal,
 	): Promise<Record<string, unknown>> {
 		switch (call.op) {
+			case "task.claim":
+				if (!services.trackerCommands)
+					throw new TrackerCommandError(
+						"tracker_unavailable",
+						"tracker command writer is not configured",
+						true,
+					);
+				return (await services.trackerCommands.claim({
+					taskId: Number(call.args["id"]),
+					...(typeof call.args["capability"] === "string"
+						? { capability: call.args["capability"] }
+						: {}),
+				})) as unknown as Record<string, unknown>;
 			case "stats.query":
 				if (call.args["mode"] === "sql") {
 					if (!principal.lanes.includes("operator") && !principal.lanes.includes("admin"))
@@ -1500,9 +1515,15 @@ export async function buildServer(
 			return reply.send(success);
 		} catch (error) {
 			monitor.captureException(sanitizedException(error));
-			const known = error instanceof AssistantRuntimeError || error instanceof QueryError;
+			const known =
+				error instanceof AssistantRuntimeError ||
+				error instanceof QueryError ||
+				error instanceof TrackerCommandError;
 			const code = known ? error.code : "op_failed";
-			const retryable = error instanceof AssistantRuntimeError ? error.retryable : false;
+			const retryable =
+				error instanceof AssistantRuntimeError || error instanceof TrackerCommandError
+					? error.retryable
+					: false;
 			const failed = opEnvelope(call, {
 				ok: false,
 				status: null,

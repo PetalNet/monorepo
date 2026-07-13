@@ -45,6 +45,7 @@
 
 <style>
 	.modal-surface{position:fixed;z-index:var(--z-dialog);border:0;color:var(--text);padding:var(--s-4);box-shadow:var(--shadow-pop);overflow:auto}
+	.modal-surface:not([open]){display:none}
 	.modal-surface::backdrop{background:color-mix(in srgb,var(--text) 24%,transparent)}
 	.modal-surface :global(.dialog-close){position:absolute;right:var(--s-3);top:var(--s-3)}
 	.dialog{width:480px;max-width:calc(100% - var(--s-5));max-height:calc(100dvh - var(--s-5));margin:auto;background:var(--s2);border-radius:var(--r-lg)}
