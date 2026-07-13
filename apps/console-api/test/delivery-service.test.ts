@@ -22,9 +22,11 @@ function signal(overrides: Partial<Emission> = {}): Emission {
 
 function service(options?: {
 	cocoon?: boolean;
+	developmentSource?: string | (() => string | undefined);
 	loud?: boolean;
 	tier?: string;
 	scopes?: string[];
+	scopesForOwner?: () => Promise<string[]>;
 	pattern?: string;
 	filter?: Record<string, unknown>;
 	configured?: boolean;
@@ -39,6 +41,13 @@ function service(options?: {
 	};
 	const sql = (async (strings: TemplateStringsArray) => {
 		const statement = strings.join(" ");
+		if (statement.includes("from signal_source_modes")) {
+			const developmentSource =
+				typeof options?.developmentSource === "function"
+					? options.developmentSource()
+					: options?.developmentSource;
+			return developmentSource ? [{ source_service: developmentSource, mode: "development" }] : [];
+		}
 		if (statement.includes("from current_state where kind = 'subscription'"))
 			return [
 				{
@@ -75,12 +84,51 @@ function service(options?: {
 			emitted.push(emission);
 			return { ok: true, seq: emitted.length };
 		},
-		scopesForOwner: async () => options?.scopes ?? ["fleet", "user:parker"],
+		scopesForOwner:
+			options?.scopesForOwner ?? (async () => options?.scopes ?? ["fleet", "user:parker"]),
 	});
 	return { delivery, send, emitted };
 }
 
 describe("DeliveryService subscription dispatch", () => {
+	it("mutes off-console alerts from a source in development mode", async () => {
+		const { delivery, send, emitted } = service({
+			developmentSource: "box-agent",
+			loud: true,
+		});
+		await delivery.onEmission(signal({ severity: "p0" }));
+		expect(send).not.toHaveBeenCalled();
+		expect(emitted).toEqual([]);
+	});
+
+	it("rechecks development mode at the final transport boundary", async () => {
+		let developing = false;
+		let scopeChecks = 0;
+		let resumeFinalCheck!: () => void;
+		let reachedFinalCheck!: () => void;
+		const paused = new Promise<void>((resolve) => (reachedFinalCheck = resolve));
+		const resume = new Promise<void>((resolve) => (resumeFinalCheck = resolve));
+		const { delivery, send } = service({
+			developmentSource: () => (developing ? "box-agent" : undefined),
+			scopesForOwner: async () => {
+				scopeChecks += 1;
+				if (scopeChecks === 2) {
+					reachedFinalCheck();
+					await resume;
+				}
+				return ["fleet", "user:parker"];
+			},
+		});
+
+		const dispatch = delivery.onEmission(signal({ severity: "p0" }));
+		await paused;
+		developing = true;
+		resumeFinalCheck();
+		await dispatch;
+
+		expect(send).not.toHaveBeenCalled();
+	});
+
 	it("suppresses ordinary loud delivery during Cocoon mode", async () => {
 		const { delivery, send, emitted } = service({ cocoon: true, loud: true });
 		await delivery.onEmission(signal());

@@ -18,6 +18,11 @@
 		lanes: string[];
 		/** Gating executor liveness (pre-flight per /executors). */
 		executorLive?: boolean;
+		/** Additional local availability fence, such as incomplete required input. */
+		available?: boolean;
+		unavailableNote?: string;
+		/** Remote-Function execution seam. Defaults to the browser named-op client. */
+		execute?: (args: Record<string, unknown>) => Promise<unknown>;
 		variant?: "primary" | "tonal" | "ghost" | "danger";
 		/** Display label override (e.g. "Restore" for a preset-arg variant of an op);
 		 * the wire op + audit note stay `def.op`. Defaults to the catalog verb. */
@@ -31,6 +36,9 @@
 		args = {},
 		lanes,
 		executorLive = true,
+		available = true,
+		unavailableNote = "unavailable",
+		execute,
 		variant = "tonal",
 		label,
 		staleNote = null,
@@ -41,9 +49,10 @@
 	let busy = $state(false);
 
 	const visible = $derived(canSeeOp(def, lanes));
-	const disabled = $derived(!executorLive || busy);
+	const disabled = $derived(!executorLive || !available || busy);
 	const auditNote = $derived(
-		`${def.op}` + (executorLive ? "" : " · executor unreachable"),
+		`${def.op}` +
+			(!executorLive ? " · executor unreachable" : !available ? ` · ${unavailableNote}` : ""),
 	);
 
 	async function fire() {
@@ -54,12 +63,16 @@
 		confirming = false;
 		busy = true;
 		try {
-			const res = await runOp(def.op, args);
+			const res = execute ? await execute(args) : await runOp(def.op, args);
+			const undo =
+				res && typeof res === "object" && "undo" in res
+					? (res as { undo?: { op: string; args: Record<string, unknown> } }).undo
+					: undefined;
 			snackbar.push({
 				message: `${def.op} sent`,
 				op: def.op,
 				tone: variant === "danger" ? "danger" : "good",
-				undo: def.undo && res.undo ? res.undo : undefined,
+				undo: def.undo ? undo : undefined,
 			});
 			onfired?.(def.op);
 		} catch (e) {
@@ -79,7 +92,7 @@
 		class="op-btn {variant}"
 		class:confirming
 		{disabled}
-		title={disabled ? `${def.op} · executor unreachable` : auditNote}
+		title={auditNote}
 		onclick={fire}
 		onblur={() => (confirming = false)}
 	>

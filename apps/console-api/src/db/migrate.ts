@@ -567,6 +567,22 @@ const STATEMENTS: readonly string[] = [
 	   updated_at     timestamptz not null default now(),
 	   updated_by     text not null
 	 )`,
+	`create table if not exists signal_source_modes (
+	   source_service text primary key,
+	   scope          text not null default 'fleet' check (scope = 'fleet'),
+	   mode           text not null check (mode in ('normal', 'development')),
+	   note           text,
+	   updated_at     timestamptz not null default now(),
+	   updated_by     text not null
+	 )`,
+	`create table if not exists signal_source_mode_outbox (
+	   id             uuid primary key,
+	   source_service text not null,
+	   mode           text not null check (mode in ('normal', 'development')),
+	   note           text,
+	   updated_at     timestamptz not null,
+	   updated_by     text not null
+	 )`,
 
 	// projector durability: the seq up to which current_state reflects the lake.
 	`create table if not exists projection_checkpoint (
@@ -720,6 +736,8 @@ const STATEMENTS: readonly string[] = [
 	`alter table current_state force row level security`,
 	`alter table delivery_config enable row level security`,
 	`alter table delivery_config force row level security`,
+	`alter table signal_source_modes enable row level security`,
+	`alter table signal_source_modes force row level security`,
 	`alter table library_items enable row level security`,
 	`alter table library_items force row level security`,
 	`alter table library_links enable row level security`,
@@ -801,6 +819,13 @@ const STATEMENTS: readonly string[] = [
 	   end if;
 	   if not exists (select 1 from pg_policies where tablename='delivery_config' and policyname='delivery_config_writer_all') then
 	     create policy delivery_config_writer_all on delivery_config to console_writer using (true) with check (true);
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='signal_source_modes' and policyname='signal_source_modes_scope_select') then
+	     create policy signal_source_modes_scope_select on signal_source_modes for select to console_app, console_ro
+	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='signal_source_modes' and policyname='signal_source_modes_writer_all') then
+	     create policy signal_source_modes_writer_all on signal_source_modes to console_writer using (true) with check (true);
 	   end if;
 	   drop policy if exists library_items_scope_select on library_items;
 	   create policy library_items_scope_select on library_items for select to console_app, console_ro
@@ -892,9 +917,9 @@ const STATEMENTS: readonly string[] = [
 	`revoke create on schema public from console_ro`,
 	`revoke select on semantic_registry from console_app, console_ro`,
 	`grant usage on schema public to console_app, console_ro, console_writer`,
-	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, delivery_config, library_items, library_links, items_min, semantic_registry_scoped, semantic_views to console_ro`,
+	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, delivery_config, signal_source_modes, library_items, library_links, items_min, semantic_registry_scoped, semantic_views to console_ro`,
 	// console_app: scoped reads across the read surface.
-	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, delivery_config, library_items, library_links, library_holds, library_curation, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
+	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, delivery_config, signal_source_modes, library_items, library_links, library_holds, library_curation, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
 	`grant insert on query_history, semantic_documents to console_app`,
 	// console_writer: the appender + projector (non-superuser) — insert events/edges/blobs, upsert current_state.
 	`grant insert, select on emission_ids, events, event_archive, edges, blobs to console_writer`,
@@ -907,6 +932,8 @@ const STATEMENTS: readonly string[] = [
 	`grant usage, select on sequence library_links_id_seq, library_holds_id_seq to console_writer`,
 	`grant insert, update, select, delete on items_min to console_writer`,
 	`grant insert, update, select, delete on delivery_config to console_writer`,
+	`grant insert, update, select, delete on signal_source_modes to console_writer`,
+	`grant insert, select, delete on signal_source_mode_outbox to console_writer`,
 	`grant insert, select on dashboard_mutations to console_writer`,
 	`grant insert, update, select on proposal_mutations to console_writer`,
 	`grant insert, update, select on assistant_sessions, assistant_messages to console_writer`,

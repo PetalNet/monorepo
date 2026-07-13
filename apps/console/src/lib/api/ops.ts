@@ -26,7 +26,7 @@ type JsonSchema = Record<string, unknown> & {
 };
 type SchemaNode = JsonSchema | boolean;
 export type ConfirmKind = "none" | "soft" | "hard";
-export type OpName = "attention.ack" | "attention.snooze" | "attention.resolve" | "task.get_ready" | "task.up_next" | "task.claim" | "task.update" | "task.close" | "task.dispatch" | "agent.start" | "agent.stop" | "agent.restart" | "agent.kill_session" | "agent.autonomy" | "governance.action" | "governance.tier" | "fleet.mode" | "channel.reclaim" | "signal.snooze" | "subscription.set" | "subscription.remove" | "card.repost" | "card.park" | "stats.query" | "viz.render" | "text.surface" | "window.arrange" | "dashboard.save" | "dashboard.load" | "dashboard.set_home" | "dashboard.pin" | "dashboard.delete" | "dashboard.share" | "context.receive" | "kb.search" | "kb.research" | "library.item.create" | "library.item.update" | "library.link.add" | "library.hold" | "curation.propose" | "curation.approve" | "curation.reject" | "item.weed" | "item.merge" | "item.delete" | "promotion.request" | "promotion.approve" | "service.restart" | "service.stop" | "service.logs" | "host.probe" | "host.reboot" | "updates.check" | "updates.approve" | "updates.revoke" | "updates.apply" | "edge.enroll.approve" | "edge.enroll.deny" | "edge.key.revoke" | "doorman.session.drop" | "doorman.redial" | "term.watch" | "term.attach" | "term.input" | "term.resize" | "term.scrollback" | "term.detach" | "delivery.test" | "delivery.set_target" | "delivery.resend" | "delivery.cocoon";
+export type OpName = "attention.ack" | "attention.snooze" | "attention.resolve" | "task.get_ready" | "task.up_next" | "task.claim" | "task.update" | "task.close" | "task.dispatch" | "agent.start" | "agent.stop" | "agent.restart" | "agent.kill_session" | "agent.autonomy" | "governance.action" | "governance.tier" | "fleet.mode" | "channel.reclaim" | "signal.snooze" | "signal.source_mode" | "subscription.set" | "subscription.remove" | "card.repost" | "card.park" | "stats.query" | "viz.render" | "text.surface" | "window.arrange" | "dashboard.save" | "dashboard.load" | "dashboard.set_home" | "dashboard.pin" | "dashboard.delete" | "dashboard.share" | "context.receive" | "kb.search" | "kb.research" | "library.item.create" | "library.item.update" | "library.link.add" | "library.hold" | "curation.propose" | "curation.approve" | "curation.reject" | "item.weed" | "item.merge" | "item.delete" | "promotion.request" | "promotion.approve" | "service.restart" | "service.stop" | "service.logs" | "host.probe" | "host.reboot" | "updates.check" | "updates.approve" | "updates.revoke" | "updates.apply" | "edge.enroll.approve" | "edge.enroll.deny" | "edge.key.revoke" | "doorman.session.drop" | "doorman.redial" | "term.watch" | "term.attach" | "term.input" | "term.resize" | "term.scrollback" | "term.detach" | "delivery.test" | "delivery.set_target" | "delivery.resend" | "delivery.cocoon";
 export interface OpDef {
 	op: OpName; verb: string; lane: Lane; executor: string; confirm: ConfirmKind;
 	undo: boolean; humanOnly: boolean; args: JsonSchema;
@@ -628,6 +628,39 @@ const OPS = {
 					"type": "integer",
 					"minimum": 60,
 					"maximum": 86400
+				}
+			},
+			"additionalProperties": false
+		}
+	},
+	"signal.source_mode": {
+		"op": "signal.source_mode",
+		"verb": "Source mode",
+		"lane": "operator",
+		"executor": "console-api",
+		"confirm": "none",
+		"undo": true,
+		"humanOnly": false,
+		"args": {
+			"type": "object",
+			"required": [
+				"source_service",
+				"mode"
+			],
+			"properties": {
+				"source_service": {
+					"type": "string",
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+				},
+				"mode": {
+					"enum": [
+						"normal",
+						"development"
+					]
+				},
+				"note": {
+					"type": "string",
+					"maxLength": 240
 				}
 			},
 			"additionalProperties": false
@@ -3641,6 +3674,10 @@ export const OP_TEST_FIXTURES = {
 	},
 	"signal.snooze": {
 		"type_pattern": "fixture"
+	},
+	"signal.source_mode": {
+		"source_service": "fixture",
+		"mode": "normal"
 	},
 	"subscription.set": {
 		"pattern": "fixture",

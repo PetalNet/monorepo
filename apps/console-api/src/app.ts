@@ -22,7 +22,7 @@ import { loadRegistration } from "./ingest/registrations.ts";
 import { scrubEmission } from "./ingest/scrubber.ts";
 import { DoormanKeyCeremonyClient } from "./network/key-ceremony.ts";
 import { DeliveryService } from "./notifications/delivery.ts";
-import { HttpMatrixTransport } from "./notifications/matrix.ts";
+import { HttpMatrixTransport, type MatrixTransport } from "./notifications/matrix.ts";
 import {
 	inertExceptionMonitor,
 	sanitizedException,
@@ -30,6 +30,7 @@ import {
 } from "./observability.ts";
 import { Projector } from "./projector/index.ts";
 import { TrackerReader, type TrackerProposalLookup } from "./reads/tracker.ts";
+import { SignalSourceModes } from "./signals/source-modes.ts";
 import { SignalStormDetector } from "./signals/storm.ts";
 
 export interface EmitOutcome {
@@ -57,6 +58,7 @@ export interface Services {
 	readonly costMeter?: CostMeter;
 	readonly delivery: DeliveryService;
 	readonly keyCeremony: DoormanKeyCeremonyClient | null;
+	readonly sourceModes: SignalSourceModes;
 	/** Process-local key only in dev; production must supply CONSOLE_API_CURSOR_SECRET. */
 	readonly cursorSecret: string;
 	onGrantChange(listener: (zookie: string) => void): () => void;
@@ -70,6 +72,7 @@ export interface Services {
 
 interface ServiceOptions {
 	readonly migrate?: boolean;
+	readonly matrixTransport?: MatrixTransport;
 	readonly monitor?: ExceptionMonitor;
 	readonly writeInternalError?: (line: string) => unknown;
 }
@@ -186,6 +189,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 	});
 	let stormDetector: SignalStormDetector | null = null;
 	let stormExpiryTimer: NodeJS.Timeout | null = null;
+	let sourceModeOutboxTimer: NodeJS.Timeout | null = null;
 
 	async function emit(
 		producer: string | { readonly id: string; readonly tiers: readonly string[] },
@@ -365,11 +369,27 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 
 	delivery = new DeliveryService({
 		db,
-		matrix: env.matrix ? new HttpMatrixTransport(env.matrix) : null,
+		matrix: opts?.matrixTransport ?? (env.matrix ? new HttpMatrixTransport(env.matrix) : null),
 		emit: async (emission) =>
 			emit("system:console-api", emission, Buffer.byteLength(JSON.stringify(emission))),
 		scopesForOwner: async (owner) => (await resolveScopes(db.admin, owner, [])).scopes,
 	});
+	const sourceModes = new SignalSourceModes(db.writer, async (emission) =>
+		emit("system:console-api", emission, Buffer.byteLength(JSON.stringify(emission))),
+	);
+	void sourceModes
+		.reconcilePending()
+		.catch((error) =>
+			monitor.captureException(sanitizedException(error, "signal source mode outbox failed")),
+		);
+	sourceModeOutboxTimer = setInterval(() => {
+		void sourceModes
+			.reconcilePending()
+			.catch((error) =>
+				monitor.captureException(sanitizedException(error, "signal source mode outbox failed")),
+			);
+	}, 30_000);
+	sourceModeOutboxTimer.unref();
 
 	stormDetector = new SignalStormDetector(
 		db.admin,
@@ -401,6 +421,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		...(costMeter ? { costMeter } : {}),
 		delivery,
 		keyCeremony,
+		sourceModes,
 		cursorSecret,
 		onGrantChange(listener) {
 			grantListeners.add(listener);
@@ -409,6 +430,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		emit,
 		async close() {
 			if (stormExpiryTimer) clearInterval(stormExpiryTimer);
+			if (sourceModeOutboxTimer) clearInterval(sourceModeOutboxTimer);
 			await delivery?.drain();
 			tracker?.close();
 			await grantListen.unlisten();

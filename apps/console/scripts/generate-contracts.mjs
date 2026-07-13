@@ -37,6 +37,7 @@ const typeSpecs = [
 	["SignalEmission", "schemas/emission.schema.json"],
 	["SubscriptionItem", "schemas/subscription.schema.json"],
 	["DeliveryItem", "schemas/entities/delivery.schema.json"],
+	["SignalSourceModeItem", "schemas/entities/signal-source-mode.schema.json"],
 	["ConsoleHealth", "schemas/health.schema.json"],
 	["CardItem", "schemas/entities/card.schema.json"],
 	["AttentionItem", "schemas/attention-item.schema.json"],

@@ -398,6 +398,7 @@ export class DeliveryService {
 			if (!loud && (tier !== "interrupt" || !isInterruptEligible(emission))) continue;
 			owners.set(row.owner, { tier: tier === "interrupt" ? "interrupt" : "loud" });
 		}
+		if (owners.size === 0) return;
 		await Promise.allSettled(
 			[...owners].map(async ([owner, subscription]) => {
 				const initialScopes = await this.#scopesForOwner(owner);
@@ -422,6 +423,11 @@ export class DeliveryService {
 				// This is deliberately the final check before transport I/O.
 				const scopes = await this.#scopesForOwner(owner);
 				if (!scopes.includes(emission.scope)) return;
+				const sourceModes = await this.#db.writer<
+					{ source_service: string; mode: "development" | "normal" }[]
+				>`select source_service, mode from signal_source_modes
+				  where source_service = ${emission.source.service} and mode = 'development' limit 1`;
+				if (sourceModes.length > 0) return;
 				await this.#send({
 					owner,
 					target: config.target,

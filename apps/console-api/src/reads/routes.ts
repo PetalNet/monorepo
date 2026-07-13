@@ -9,6 +9,7 @@ import {
 	readBoxUpdateRaw,
 	readDeliveryConfig,
 	readEntity,
+	readSignalSourceModes,
 	type ReadOpts,
 	readTypedEntity,
 } from "./entities.ts";
@@ -199,6 +200,19 @@ export function registerEntityReadRoutes(
 			...(limit !== undefined ? { limit } : {}),
 			...(query.cursor ? { cursor: query.cursor } : {}),
 		});
+	});
+	server.get("/api/v1/signal-sources", { preHandler: services.auth }, async (request, reply) => {
+		const principal = request.principal as Principal;
+		const opts = readOpts(request, { path: "signal-sources", kind: "fleet" });
+		if (!opts)
+			return reply.code(400).send({
+				error: {
+					code: "bad_since",
+					message: "since must be an RFC 3339 timestamp",
+					retryable: false,
+				},
+			});
+		return readSignalSourceModes(services.app, principal.scopes, opts);
 	});
 	for (const route of ENTITY_ROUTES) {
 		server.get(`/api/v1/${route.path}`, { preHandler: services.auth }, async (request, reply) => {

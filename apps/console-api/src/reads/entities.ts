@@ -246,6 +246,51 @@ export async function readDeliveryConfig(
 	};
 }
 
+export async function readSignalSourceModes(
+	app: Sql,
+	scopes: readonly string[],
+	opts: ReadOpts = {},
+): Promise<ReadEnvelope> {
+	const n = Number(opts.limit ?? 200);
+	const limit = Number.isFinite(n) ? Math.min(Math.max(1, Math.floor(n)), 1000) : 200;
+	const after = opts.cursor ?? "";
+	const since = opts.since ?? null;
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) =>
+			tx<
+				{
+					source_service: string;
+					mode: "normal" | "development";
+					note: string | null;
+					updated_at: string;
+					updated_by: string;
+				}[]
+			>`select source_service, mode, note, updated_at, updated_by
+			  from signal_source_modes where source_service > ${after}
+			    and (${since}::timestamptz is null or updated_at >= ${since}::timestamptz)
+			  order by source_service asc limit ${limit + 1}`,
+	);
+	const truncated = rows.length > limit;
+	const page = truncated ? rows.slice(0, limit) : rows;
+	const items = page.map((row) => ({
+		...row,
+		updated_at: new Date(row.updated_at).toISOString(),
+	}));
+	return {
+		schema_version: 1,
+		freshness: {
+			source: "signal-source-modes",
+			observed_at: items.at(-1)?.updated_at ?? "1970-01-01T00:00:00Z",
+			window_s: null,
+		},
+		items,
+		next_cursor: truncated ? (page.at(-1)?.source_service ?? null) : null,
+		truncated,
+	};
+}
+
 export async function readBoxUpdateRaw(
 	app: Sql,
 	scopes: readonly string[],
