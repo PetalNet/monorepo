@@ -3,4 +3,4 @@
 // (which the RLS policy splits on ',') is unambiguous.
 
 export const SCOPE_RE =
-	/^(user:[a-z0-9._-]+|agent:[a-z0-9._-]+|project:[a-z0-9._-]+|fleet|restricted:[a-z0-9._-]+)$/;
+	/^(user:[a-z0-9._-]+|agent:[a-z0-9._-]+|project:[a-z0-9._-]+|fleet|restricted:[a-z0-9._-]+|item:[a-zA-Z0-9_-]{8,128})$/;

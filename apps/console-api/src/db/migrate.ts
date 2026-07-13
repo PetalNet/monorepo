@@ -390,7 +390,49 @@ const STATEMENTS: readonly string[] = [
 	   granted_by text not null,
 	   zookie     bigint not null default 1
 	 )`,
+	`do $$ begin
+	   if not exists (select 1 from pg_constraint where conname = 'grants_valid_window') then
+	     alter table grants add constraint grants_valid_window
+	       check (invalid_at is null or invalid_at > valid_at) not valid;
+	   end if;
+	 end $$`,
 	`create index if not exists grants_subject_idx on grants (subject)`,
+	`create index if not exists grants_object_idx on grants (object)`,
+	`create sequence if not exists grant_zookie_seq`,
+	`create table if not exists grant_set_state (
+	   singleton boolean primary key default true check (singleton),
+	   zookie bigint not null
+	 )`,
+	`insert into grant_set_state (singleton, zookie)
+	 select true, greatest(coalesce(max(zookie), 0), 1) from grants
+	 on conflict (singleton) do update set zookie = greatest(grant_set_state.zookie, excluded.zookie)`,
+	`select setval('grant_zookie_seq', greatest(
+	   (select zookie from grant_set_state where singleton),
+	   (select last_value from grant_zookie_seq)
+	 ), true)`,
+	`create or replace function fence_grant_change() returns trigger language plpgsql
+	 security definer set search_path = pg_catalog, public as $$
+	 declare next_zookie bigint;
+	 begin
+	   next_zookie := nextval('grant_zookie_seq');
+	   insert into grant_set_state (singleton, zookie) values (true, next_zookie)
+	     on conflict (singleton) do update
+	       set zookie = greatest(grant_set_state.zookie, excluded.zookie);
+	   if tg_op <> 'DELETE' then new.zookie := next_zookie; end if;
+	   perform pg_notify('console_grants_changed', next_zookie::text);
+	   if tg_op = 'DELETE' then return old; else return new; end if;
+	 end $$`,
+	`drop trigger if exists grants_fence_change on grants`,
+	`create trigger grants_fence_change before insert or update or delete on grants
+	 for each row execute function fence_grant_change()`,
+	`create table if not exists grant_mutations (
+	   principal_id text not null,
+	   request_id uuid not null,
+	   request_hash text not null,
+	   result jsonb not null,
+	   created_at timestamptz not null default now(),
+	   primary key (principal_id, request_id)
+	 )`,
 
 	`create table if not exists tiers (
 	   name            text primary key,
@@ -542,10 +584,12 @@ const STATEMENTS: readonly string[] = [
 	   if not exists (select 1 from pg_policies where tablename='current_state' and policyname='current_state_writer_all') then
 	     create policy current_state_writer_all on current_state to console_writer using (true) with check (true);
 	   end if;
-	   if not exists (select 1 from pg_policies where tablename='items_min' and policyname='items_min_scope_select') then
-	     create policy items_min_scope_select on items_min for select to console_app, console_ro
-	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
-	   end if;
+	   drop policy if exists items_min_scope_select on items_min;
+	   create policy items_min_scope_select on items_min for select to console_app, console_ro
+	     using (
+	       scope = any (string_to_array(current_setting('app.scopes', true), ','))
+	       or ('item:' || id) = any (string_to_array(current_setting('app.scopes', true), ','))
+	     );
 	   if not exists (select 1 from pg_policies where tablename='items_min' and policyname='items_min_writer_all') then
 	     create policy items_min_writer_all on items_min to console_writer using (true) with check (true);
 	   end if;
@@ -600,16 +644,19 @@ const STATEMENTS: readonly string[] = [
 
 	// --- grants -------------------------------------------------------------------------------
 	`revoke all on all tables in schema public from console_ro`,
+	`revoke all on grants, grant_set_state, grant_mutations from console_app, console_ro`,
 	`revoke create on schema public from console_ro`,
 	`revoke select on semantic_registry from console_app, console_ro`,
 	`grant usage on schema public to console_app, console_ro, console_writer`,
 	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, items_min, semantic_registry_scoped, semantic_views to console_ro`,
 	// console_app: scoped reads across the read surface.
-	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, grants, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
+	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
 	`grant insert on query_history, semantic_documents to console_app`,
 	// console_writer: the appender + projector (non-superuser) — insert events/edges/blobs, upsert current_state.
 	`grant insert, select on emission_ids, events, event_archive, edges, blobs to console_writer`,
-	`grant insert, update, select on semantic_registry, semantic_registry_scoped, semantic_field_values, semantic_field_values_scoped, producer_rate_windows, semantic_proposals, emission_quarantine, semantic_documents to console_writer`,
+	`grant insert, update, select on semantic_registry, semantic_registry_scoped, semantic_field_values, semantic_field_values_scoped, producer_rate_windows, semantic_proposals, emission_quarantine, semantic_documents, grants, grant_mutations to console_writer`,
+	`grant select on grant_set_state, items_min to console_writer`,
+	`grant usage, select on sequence grants_id_seq, grant_zookie_seq to console_writer`,
 	`grant usage, select on sequence emission_ids_seq_seq to console_writer`,
 	`grant usage, select on sequence semantic_proposals_id_seq to console_writer`,
 	`grant insert, update, select, delete on current_state, items_min to console_writer`,

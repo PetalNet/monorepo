@@ -300,6 +300,7 @@ another repo to learn a field. Aggregated reads carry per-item `observed_at` (Ru
 | `/executors`                       | `entities/executor.schema.json`       | registry + heartbeats + service probes                   | **pre-flight liveness for every ActionRow** — all ten executor kinds of the catalog (managers, dispatcher, control-plane, tracker, library, per-box box-agents, edge, probe-runner, pty, console-api) |
 | `/roster`                          | `entities/roster.schema.json`         | server-side join                                         | the Agents surface in ONE read (fleet × heartbeat × registry × agents × governance × leases × workers)                                                                                                |
 | `/me`                              | `entities/me.schema.json`             | auth                                                     | Principal + display/grant name (session chip)                                                                                                                                                         |
+| `/grants?object=...`               | `../grant-list.schema.json`           | ReBAC tuples                                             | owner-only current grant enumeration; mutations use `POST /grants` + `grant-mutation.schema.json`                                                                                                     |
 
 History reads (comms log, audit trails, the Void, delivery log, restart counts) are
 `stats.query` reads over persisted emissions. `audit.op` emissions pin `subject` = the target
@@ -500,6 +501,31 @@ validator rule; relation `editor` on a scope doubles as the emit grant per §4.3
 scope-filter injection + Postgres RLS backstop (`security_invoker = on` on every view) +
 op-router lane∩authz. Zookie comparison point: principal resolution checks the grant-set head;
 WS re-fences on change (§4.1); bearer revocation is per-request and separate (§1.2).
+
+Phase 3 is live (2026-07-13):
+
+- `GET /api/v1/grants?object=<scope-or-item-ref>` returns
+  `schemas/grant-list.schema.json`. Only a current `owner` of the object can enumerate its
+  subjects; for `item:<id>`, owning the item's containing scope also authorizes sharing.
+- `POST /api/v1/grants` accepts `schemas/grant-mutation.schema.json`. Grant/revoke is owner-gated,
+  object-serialized, audit-preserving (revokes invalidate rows rather than deleting them), and
+  idempotent by principal + client UUID; body drift is `id_reused`.
+- Every committed grant-set change receives a database-sequenced monotonic zookie, updates the
+  singleton grant-set head, and emits a transactional PostgreSQL notification. Principal zookies
+  are decimal strings (never lossy JavaScript numbers) and always name the **global** comparison
+  point, including for principals with no grants. Open bearer WebSockets synchronously stop and
+  resync every old-epoch subscription on that notification before asynchronously resolving the new
+  Principal; a 30s token-revocation fallback fence remains.
+- `item:<id>` viewer grants are enforced by `items_min` RLS, so they reveal that item shell only;
+  they do not imply its containing scope. Saved panel queries still re-run as the viewer and refuse
+  when the viewer lacks the underlying statistic scopes.
+- An `agent:<handle>` principal has exactly its intrinsic same-named private scope before explicit
+  grants. `console-api-mint-token ... agent --owner <human>` atomically establishes owner edges for
+  the agent and its human. Intrinsic visibility/emit ownership is not item-write or grant-admin
+  authority; those require the stored edge. Fleet remains flat and is never implied.
+- Emission now requires the intersection of producer registration **and** a current
+  unconditional `editor|operator|owner` grant on the emitted scope (the intrinsic agent scope
+  counts only for the matching agent). A viewer or conditional grant alone can never emit.
 
 ### 7.3 Permission levels — tier rows `{name, authentik_group, default_relations,
 

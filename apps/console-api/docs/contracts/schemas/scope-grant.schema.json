@@ -15,6 +15,10 @@
 	],
 	"additionalProperties": false,
 	"properties": {
+		"grant_id": {
+			"type": "string",
+			"description": "Server-assigned immutable grant history row id; present on API responses."
+		},
 		"schema_version": {
 			"const": 1
 		},

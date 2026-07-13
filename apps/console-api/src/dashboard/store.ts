@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
+import { canMutateScope } from "../auth/grants.ts";
 import type { Principal } from "../auth/principal.ts";
 import type { Sql } from "../db/pool.ts";
 import { withScopes } from "../db/pool.ts";
@@ -158,6 +159,8 @@ export async function saveDashboard(
 	const scope = input.scope ?? defaultScope(principal);
 	if (!scope || !principal.scopes.includes(scope))
 		throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
+	if (!(await canMutateScope(db.writer, principal, scope)))
+		throw new DashboardError("scope_denied", "editor relation required for the dashboard scope");
 	const hash = requestHash(input);
 	const existing = await db.writer<MutationRow[]>`
 		select request_hash, dashboard_id from dashboard_mutations

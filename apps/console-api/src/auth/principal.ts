@@ -13,7 +13,7 @@ export interface Principal {
 	readonly tiers: readonly string[];
 	readonly lanes: readonly string[];
 	readonly scopes: readonly string[];
-	readonly zookie: number;
+	readonly zookie: string;
 }
 
 function sha256(s: string): string {
@@ -32,28 +32,34 @@ interface TokenRow {
  * viewer|editor|operator|owner, currently valid) held by the subject directly or by any tier the
  * subject belongs to.
  */
-async function resolveScopes(
+export async function resolveScopes(
 	sql: Sql,
 	subject: string,
 	tiers: readonly string[],
-): Promise<{ scopes: string[]; zookie: number }> {
+	relations: readonly string[] = ["viewer", "editor", "operator", "owner"],
+	includeConditional = true,
+): Promise<{ scopes: string[]; zookie: string }> {
 	const subjects = [subject, ...tiers.map((t) => `tier:${t}`)];
-	const rows = await sql<{ object: string; zookie: string }[]>`
-		select object, zookie from grants
-		where subject = any(${sql.array(subjects)})
-		  and relation in ('viewer','editor','operator','owner')
-		  and valid_at <= now()
-		  and (invalid_at is null or invalid_at > now())`;
+	const rows = await sql<{ object: string | null; head: string }[]>`
+		select g.object, s.zookie::text as head
+		from grant_set_state s
+		left join grants g on g.subject = any(${sql.array(subjects)})
+		  and g.relation = any(${sql.array([...relations])})
+		  and (${includeConditional} or g.condition is null)
+		  and g.valid_at <= now()
+		  and (g.invalid_at is null or g.invalid_at > now())
+		where s.singleton`;
 	const scopes = new Set<string>();
-	let zookie = 0;
+	// An agent always has its own private scope. This intrinsic edge avoids a grant/token bootstrap
+	// cycle while remaining flat: it grants no fleet or other-agent visibility.
+	if (subject.startsWith("agent:") && SCOPE_RE.test(subject)) scopes.add(subject);
 	for (const r of rows) {
 		// Only well-formed scope-tag objects are readable scopes (item:/op: objects gate ops, not
 		// reads). SCOPE_RE is ANCHORED, so a malformed grant object with an embedded comma cannot
 		// inject a phantom scope into the app.scopes GUC (sub-agent M4).
-		if (SCOPE_RE.test(r.object)) scopes.add(r.object);
-		zookie = Math.max(zookie, Number(r.zookie));
+		if (r.object && SCOPE_RE.test(r.object)) scopes.add(r.object);
 	}
-	return { scopes: [...scopes], zookie };
+	return { scopes: [...scopes].sort(), zookie: rows[0]?.head ?? "0" };
 }
 
 export async function resolveBearer(sql: Sql, tokenPlaintext: string): Promise<Principal | null> {
@@ -80,7 +86,7 @@ export function devPrincipal(json: string): Principal | null {
 			lanes: p.lanes ?? [],
 			// SCOPE_RE-validated so a dev header cannot inject a comma into the GUC (sub-agent M4)
 			scopes: (p.scopes ?? []).filter((s) => SCOPE_RE.test(s)),
-			zookie: p.zookie ?? 1,
+			zookie: String(p.zookie ?? "1"),
 		};
 	} catch {
 		return null;
