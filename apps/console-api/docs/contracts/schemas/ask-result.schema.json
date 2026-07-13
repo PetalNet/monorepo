@@ -1,0 +1,87 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/ask-result.schema.json",
+	"title": "Dashboard assistant answer",
+	"description": "Dual-audience answer: grounded prose plus renderer-agnostic PanelSpec, rows, and shown SQL provenance. Refusal is a successful, explicit outcome rather than a fabricated answer.",
+	"type": "object",
+	"required": [
+		"schema_version",
+		"status",
+		"answer",
+		"panel",
+		"result",
+		"shown_sql",
+		"retrieval",
+		"suggestions",
+		"attempts"
+	],
+	"additionalProperties": true,
+	"properties": {
+		"schema_version": { "const": 1 },
+		"status": { "enum": ["answered", "refused"] },
+		"answer": { "type": "string" },
+		"panel": { "$ref": "panel-spec-v2.schema.json" },
+		"result": {
+			"oneOf": [{ "$ref": "query-result.schema.json" }, { "type": "null" }]
+		},
+		"shown_sql": {
+			"oneOf": [
+				{
+					"type": "object",
+					"required": ["query_ref", "sql", "params"],
+					"additionalProperties": false,
+					"properties": {
+						"query_ref": { "type": "string" },
+						"sql": {
+							"type": "string",
+							"description": "Server-compiled placeholder SQL; never model-authored."
+						},
+						"params": { "type": "array" }
+					}
+				},
+				{ "type": "null" }
+			]
+		},
+		"retrieval": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": ["kind", "source_ref", "score"],
+				"additionalProperties": false,
+				"properties": {
+					"kind": { "enum": ["statistic", "query", "view"] },
+					"source_ref": { "type": "string" },
+					"score": { "type": "number" }
+				}
+			}
+		},
+		"suggestions": { "type": "array", "items": { "type": "string" } },
+		"attempts": { "type": "integer", "minimum": 0, "maximum": 2 }
+	},
+	"allOf": [
+		{
+			"if": { "properties": { "status": { "const": "answered" } } },
+			"then": {
+				"properties": {
+					"result": { "$ref": "query-result.schema.json" },
+					"shown_sql": { "type": "object" }
+				}
+			}
+		},
+		{
+			"if": { "properties": { "status": { "const": "refused" } } },
+			"then": {
+				"properties": {
+					"result": { "type": "null" },
+					"shown_sql": { "type": "null" },
+					"panel": {
+						"allOf": [
+							{ "$ref": "panel-spec-v2.schema.json" },
+							{ "properties": { "type": { "const": "refusal" } } }
+						]
+					}
+				}
+			}
+		}
+	]
+}

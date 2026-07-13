@@ -6,10 +6,13 @@ import postgres from "postgres";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import { buildServices, type Services } from "../src/app.ts";
+import { AssistantCompilerError, type AssistantCompiler } from "../src/assistant/compiler.ts";
+import { ask } from "../src/assistant/engine.ts";
 import { Bridge } from "../src/bridge/index.ts";
 import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
 import { Appender } from "../src/bus/appender.ts";
 import { migrate } from "../src/db/migrate.ts";
+import { assertRuntimeRolesHardened, openDb } from "../src/db/pool.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
 import { reportSelfEmissionFailure, type ExceptionMonitor } from "../src/observability.ts";
@@ -868,6 +871,46 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 			),
 		).rejects.toThrow(/console_app|writer/);
 	});
+
+	it("keeps console_ro unable to mutate or create even after disabling its read-only default", async () => {
+		const ro = postgres(temp.roUrl, { max: 1, onnotice: () => {} });
+		try {
+			await ro`set default_transaction_read_only = off`;
+			await expect(
+				ro`insert into events
+					(id, type, ts, source_service, subject, severity, scope)
+				 values (${randomUUID()}, 'test.ro_escape', now(), 'test', 'escape', 'info', 'fleet')`,
+			).rejects.toThrow(/permission denied/);
+			await expect(ro`create table public.console_ro_escape (id int)`).rejects.toThrow(
+				/permission denied/,
+			);
+		} finally {
+			await ro.end({ timeout: 2 });
+		}
+	});
+
+	it("rejects console_ro membership in a privileged runtime role", async () => {
+		await services.db.admin`grant console_writer to console_ro`;
+		const db = openDb({
+			databaseUrl: temp.adminUrl,
+			appDatabaseUrl: temp.appUrl,
+			roDatabaseUrl: temp.roUrl,
+			writerDatabaseUrl: temp.writerUrl,
+			host: "127.0.0.1",
+			port: 0,
+			devAuth: false,
+			glitchtipDsn: null,
+			trackerDbPath: null,
+		});
+		try {
+			await expect(assertRuntimeRolesHardened(db, false)).rejects.toThrow(
+				/membership|write\/create/,
+			);
+		} finally {
+			await db.close();
+			await services.db.admin`revoke console_writer from console_ro`;
+		}
+	});
 });
 
 describe("post-restart replay (codex N1a P1)", () => {
@@ -931,6 +974,262 @@ describe("structured query", () => {
 				time: { bucket: "5m", fill: "previous" },
 			}),
 		).rejects.toThrow(/fill/);
+	});
+
+	it("runs NL intent through scoped RAG, bounded self-heal, RO planning, and provenance", async () => {
+		const type = `test.ask_${randomBytes(4).toString("hex")}`;
+		await services.emit(
+			"test:emitter",
+			emission({
+				type,
+				dimensions: { zone: "north" },
+				measures: { latency_ms: 12 },
+				meta: { fields: { latency_ms: { kind: "gauge", unit: "ms" } } },
+			}),
+			400,
+		);
+		const calls: { feedback?: { code: string; message: string }; sources: string[] }[] = [];
+		const compiler: AssistantCompiler = {
+			async compile(input) {
+				calls.push({
+					...(input.feedback ? { feedback: input.feedback } : {}),
+					sources: input.context.map(({ source_ref }) => source_ref),
+				});
+				const field = input.feedback ? "latency_ms" : "invented_measure";
+				return {
+					feasible: true,
+					request: {
+						schema_version: 1,
+						mode: "structured",
+						from: type,
+						select: [{ field, agg: "avg", as: "latency" }],
+						group_by: ["zone"],
+						limit: 100,
+					},
+					panel: {
+						type: "bar",
+						title: "Latency by zone",
+						encoding: { x: "zone", y: "latency" },
+					},
+				};
+			},
+		};
+		const answer = await ask(
+			{ app: services.db.app, ro: services.db.ro },
+			compiler,
+			["fleet"],
+			"average latency by zone",
+		);
+		expect(answer.status).toBe("answered");
+		expect(answer.attempts).toBe(2);
+		expect(calls[0]?.sources).toContain(type);
+		expect(calls[1]?.feedback).toMatchObject({ code: "bad_field" });
+		expect(answer.result?.rows).toContainEqual(["north", 12]);
+		expect(answer.panel).toMatchObject({ type: "bar", query_ref: answer.result?.query_ref });
+		expect(answer.shown_sql?.sql).toContain("avg");
+		expect(answer.shown_sql?.sql).not.toContain("invented_measure");
+		expect(answer.answer).toContain("north");
+		expect(
+			await readQueryRecord(services.db.app, ["fleet"], answer.result?.query_ref ?? "missing"),
+		).not.toBeNull();
+	});
+
+	it("self-heals once from a real execution type error without exposing database detail", async () => {
+		const type = `test.ask_exec_${randomBytes(4).toString("hex")}`;
+		const bad = emission({
+			type,
+			measures: { latency_ms: 12 },
+			meta: { fields: { latency_ms: { kind: "gauge", unit: "ms" } } },
+		});
+		await services.emit("test:emitter", bad, 400);
+		await services.db.admin`update events set measures = '{"latency_ms":"not-a-number"}'::jsonb
+			where id = ${bad.id}`;
+		const feedback: { code: string; message: string }[] = [];
+		const compiler: AssistantCompiler = {
+			async compile(input) {
+				if (input.feedback) feedback.push(input.feedback);
+				return {
+					feasible: true,
+					request: {
+						schema_version: 1,
+						mode: "structured",
+						from: type,
+						select: [
+							input.feedback
+								? { field: "latency_ms", agg: "count", as: "n" }
+								: { field: "latency_ms", agg: "avg", as: "latency" },
+						],
+					},
+					panel: { type: "stat", title: "Latency" },
+				};
+			},
+		};
+		const result = await ask(
+			{ app: services.db.app, ro: services.db.ro },
+			compiler,
+			["fleet"],
+			`average latency for ${type}`,
+		);
+		expect(result.status).toBe("answered");
+		expect(result.attempts).toBe(2);
+		expect(feedback).toEqual([
+			{
+				code: "execution_rejected",
+				message: "structured execution rejected; revise fields or aggregation",
+			},
+		]);
+		expect(JSON.stringify(feedback)).not.toContain("not-a-number");
+	});
+
+	it("returns an honest assistant refusal without calling a model when no scope is visible", async () => {
+		let called = false;
+		const compiler: AssistantCompiler = {
+			async compile() {
+				called = true;
+				return { feasible: false, reason: "not visible" };
+			},
+		};
+		const result = await ask(
+			{ app: services.db.app, ro: services.db.ro },
+			compiler,
+			[],
+			"show private orchid data",
+		);
+		expect(result.status).toBe("refused");
+		expect(result.panel.type).toBe("refusal");
+		expect(called).toBe(false);
+	});
+
+	it("exposes /ask only when a compiler is configured", async () => {
+		const server = await buildServer(services, true);
+		try {
+			const response = await server.inject({
+				method: "POST",
+				url: "/api/v1/ask",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "user",
+						id: "test-user",
+						scopes: ["fleet"],
+						lanes: [],
+					}),
+				},
+				payload: { question: "count events" },
+			});
+			expect(response.statusCode).toBe(503);
+			expect(response.json().error.code).toBe("assistant_unavailable");
+			const extra = await server.inject({
+				method: "POST",
+				url: "/api/v1/ask",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "user",
+						id: "test-user",
+						scopes: ["fleet"],
+						lanes: [],
+					}),
+				},
+				payload: { question: "count events", unexpected: true },
+			});
+			expect(extra.statusCode).toBe(400);
+			expect(extra.json().error.code).toBe("bad_question");
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("reports repeated compiler outages through the HTTP exception path", async () => {
+		const captured: unknown[] = [];
+		const assistant: AssistantCompiler = {
+			async compile() {
+				throw new AssistantCompilerError("upstream private detail");
+			},
+		};
+		const server = await buildServer({ ...services, assistant }, true, {
+			captureException(error) {
+				captured.push(error);
+			},
+			async close() {
+				return true;
+			},
+		});
+		try {
+			const response = await server.inject({
+				method: "POST",
+				url: "/api/v1/ask",
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "user",
+						id: "test-user",
+						scopes: ["fleet"],
+						lanes: [],
+					}),
+				},
+				payload: { question: "count all visible events" },
+			});
+			expect(response.statusCode).toBe(500);
+			expect(response.json().error).toMatchObject({ code: "internal_error", retryable: true });
+			expect(captured).toHaveLength(1);
+			expect(String(captured[0])).not.toContain("upstream private detail");
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("rejects substring and invented-time filters during bounded repair", async () => {
+		const type = `test.ground_${randomBytes(4).toString("hex")}`;
+		await services.emit("test:emitter", emission({ type, dimensions: { zone: "north" } }), 300);
+		const feedback: string[] = [];
+		const compiler: AssistantCompiler = {
+			async compile(input) {
+				if (input.feedback) feedback.push(input.feedback.code);
+				return {
+					feasible: true,
+					request: {
+						schema_version: 1,
+						mode: "structured",
+						from: type,
+						where: { zone: "nor" },
+						time: { from: "-24h" },
+					},
+					panel: { type: "table", title: "Grounding test" },
+				};
+			},
+		};
+		const result = await ask(
+			{ app: services.db.app, ro: services.db.ro },
+			compiler,
+			["fleet"],
+			`show ${type} for north`,
+		);
+		expect(result.status).toBe("refused");
+		expect(feedback).toEqual(["ungrounded_filter"]);
+	});
+
+	it("rejects an all-wildcard LIKE filter as ungrounded", async () => {
+		const type = `test.like_ground_${randomBytes(4).toString("hex")}`;
+		await services.emit("test:emitter", emission({ type, dimensions: { zone: "north" } }), 300);
+		const compiler: AssistantCompiler = {
+			async compile() {
+				return {
+					feasible: true,
+					request: {
+						schema_version: 1,
+						mode: "structured",
+						from: type,
+						where: { zone: { op: "like", value: "%" } },
+					},
+					panel: { type: "table", title: "Wildcard" },
+				};
+			},
+		};
+		const result = await ask(
+			{ app: services.db.app, ro: services.db.ro },
+			compiler,
+			["fleet"],
+			`show ${type}`,
+		);
+		expect(result.status).toBe("refused");
 	});
 });
 

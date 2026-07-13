@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 
 import { describe, it, expect } from "vitest";
 
+import { OpenAiCompatibleAssistantCompiler } from "../src/assistant/compiler.ts";
 import { matchPattern } from "../src/bus/broker.ts";
 import { parseEmission, type Emission } from "../src/emission.ts";
 import { authorizeEmission, type ProducerRegistration } from "../src/ingest/authz.ts";
@@ -103,4 +105,62 @@ describe("pattern matching", () => {
 	it("prefix glob miss", () => expect(matchPattern("doorman.*", "host.cpu.pct")).toBe(false));
 	it("star", () => expect(matchPattern("*", "anything.here")).toBe(true));
 	it("suffix glob", () => expect(matchPattern("*.flap", "doorman.flap")).toBe(true));
+});
+
+describe("assistant compiler boundary", () => {
+	it("accepts strict structured intent and rejects model-authored SQL", async () => {
+		let includeSql = false;
+		const server = createServer((_request, response) => {
+			response.setHeader("content-type", "application/json");
+			response.end(
+				JSON.stringify({
+					choices: [
+						{
+							message: {
+								content: JSON.stringify({
+									feasible: true,
+									request: {
+										schema_version: 1,
+										mode: "structured",
+										from: "host.cpu.pct",
+										select: [{ field: "pct", agg: "avg", as: "cpu" }],
+										...(includeSql ? { sql: "drop table events" } : {}),
+									},
+									panel: { type: "stat", title: "CPU", encoding: { value: "cpu" } },
+								}),
+							},
+						},
+					],
+				}),
+			);
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		try {
+			const address = server.address();
+			if (!address || typeof address === "string") throw new Error("test server unavailable");
+			const compiler = new OpenAiCompatibleAssistantCompiler({
+				url: `http://127.0.0.1:${String(address.port)}`,
+				model: "test",
+			});
+			const context = [
+				{
+					kind: "statistic" as const,
+					source_ref: "host.cpu.pct",
+					content: "measure pct gauge",
+					score: 1,
+				},
+			];
+			expect((await compiler.compile({ question: "average cpu", context })).request?.from).toBe(
+				"host.cpu.pct",
+			);
+			includeSql = true;
+			await expect(compiler.compile({ question: "average cpu", context })).rejects.toThrow(
+				/invalid structured intent/,
+			);
+		} finally {
+			await new Promise<void>((resolve, reject) =>
+				server.close((error) => (error ? reject(error) : resolve())),
+			);
+		}
+	});
 });

@@ -32,6 +32,8 @@ const STATEMENTS: readonly string[] = [
 	   if not exists (select 1 from pg_roles where rolname = 'console_ro') then
 	     create role console_ro nologin nosuperuser nobypassrls;
 	   end if;
+	   alter role console_ro noinherit;
+	   alter role console_ro set default_transaction_read_only = on;
 	   if not exists (select 1 from pg_roles where rolname = 'console_writer') then
 	     create role console_writer nologin nosuperuser nobypassrls;
 	   end if;
@@ -590,6 +592,7 @@ const STATEMENTS: readonly string[] = [
 
 	// --- grants -------------------------------------------------------------------------------
 	`revoke all on all tables in schema public from console_ro`,
+	`revoke create on schema public from console_ro`,
 	`revoke select on semantic_registry from console_app, console_ro`,
 	`grant usage on schema public to console_app, console_ro, console_writer`,
 	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, items_min, semantic_registry_scoped, semantic_views to console_ro`,

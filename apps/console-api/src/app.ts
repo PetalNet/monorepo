@@ -1,6 +1,7 @@
 // Service assembly: wires the lake, the serialized appender, the bus broker, and the emit
 // pipeline. Importable by both the HTTP server and the tests (drive the real path, no HTTP mock).
 
+import { OpenAiCompatibleAssistantCompiler, type AssistantCompiler } from "./assistant/compiler.ts";
 import { Appender, type AppendResult } from "./bus/appender.ts";
 import { Broker } from "./bus/broker.ts";
 import { makeReplay } from "./bus/replay.ts";
@@ -30,6 +31,7 @@ export interface Services {
 	readonly projector: Projector;
 	/** Read-only tracker access (null when TRACKER_DB_PATH is unset). */
 	readonly tracker: TrackerReader | null;
+	readonly assistant: AssistantCompiler | null;
 	emit(producerSubject: string, raw: unknown, bytes: number): Promise<EmitOutcome>;
 	close(): Promise<void>;
 }
@@ -50,6 +52,14 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 	const projector = new Projector(db.writer);
 	await projector.replayToHead();
 	const tracker = env.trackerDbPath ? new TrackerReader(env.trackerDbPath) : null;
+	const assistant =
+		env.assistantLlmUrl && env.assistantLlmModel
+			? new OpenAiCompatibleAssistantCompiler({
+					url: env.assistantLlmUrl,
+					model: env.assistantLlmModel,
+					...(env.assistantLlmApiKey !== undefined ? { apiKey: env.assistantLlmApiKey } : {}),
+				})
+			: null;
 	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
 		projector.onEvent(seq, e, receivedAt);
@@ -106,6 +116,7 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		broker,
 		projector,
 		tracker,
+		assistant,
 		emit,
 		async close() {
 			tracker?.close();
