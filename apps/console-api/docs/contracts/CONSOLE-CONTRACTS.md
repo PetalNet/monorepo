@@ -128,6 +128,16 @@ cardinality}` — the Phase-0 statistic-contract requirement that makes L2 auto-
   dispatcher's LOCKED `interrupt_policy` domain.
 - **Accepted = durable + fanned out**; high-frequency metrics use the same shape and door.
 
+**L1 implementation (2026-07-13):** `events` and `event_archive` are TimescaleDB hypertables.
+Global UUID idempotency is decided transactionally in the plain `emission_ids` gate before the
+hypertable insert, preserving the serialized appender's commit-order `seq`. `audit.*`, `term.*`,
+`edge.*`, `security.*`, and emissions stamped `meta.retention_class: "audit"` are copied to the
+long-retention archive in the same transaction. Normal structured reads use the RLS-protected
+`lake_events` union, so expiry from the 30-day raw table does not erase contractual history.
+`event_rollup_1m` is the real Timescale continuous aggregate (60-second refresh; 370-day retention).
+Raw expiry runs through an ordered refresh-before-drop job, so recovery after scheduler/database downtime
+materializes every still-raw bucket before enforcing the 30-day boundary.
+
 ## 3. Query plane
 
 ### 3.1 `stats.query` — `POST /api/v1/query`
@@ -422,6 +432,13 @@ _exceptions_; the lake carries _events_ — one error, both places, by class not
 are contractual: `audit.*`, `term.*`, `edge.*`, security events **including admin/term-lane
 authorization denials** ≥1y (archived, never blanket-purged); raw telemetry 30d; rollups 1y. `lake.disk.watermark` is a Phase 1 crack
 source with an emergency retention-shrink runbook.
+
+Shipped L1 behavior: console-api initializes the GlitchTip/Sentry channel only when
+`CONSOLE_API_GLITCHTIP_DSN` is set (inert otherwise). HTTP failures are sent to GlitchTip and also
+land as stack-free `console.api.error`; bounded request metadata lands as sampled
+`console.api.request`. Authorization headers and request/response bodies are never captured.
+If GlitchTip is inert or unavailable, failures to emit these self-statistics also produce a bounded,
+secret-free structured stderr record; they are never silently swallowed.
 
 ## 11. Out of scope for P0 (lands in the named phase)
 

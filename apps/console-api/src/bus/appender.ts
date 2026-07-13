@@ -38,24 +38,36 @@ export class Appender {
 
 	async #doAppend(e: Emission): Promise<AppendResult> {
 		const result = await this.#sql.begin(async (tx) => {
-			const rows = await tx<{ seq: string; received_at: string }[]>`
+			const ids = await tx<{ seq: string; received_at: string }[]>`
+				insert into emission_ids (id) values (${e.id})
+				on conflict (id) do nothing
+				returning seq, received_at`;
+			if (ids.length === 0) {
+				const existing = await tx<{ seq: string }[]>`
+					select seq from emission_ids where id = ${e.id}`;
+				return { seq: Number(existing[0]?.seq), duplicate: true, receivedAt: "" };
+			}
+			const seq = Number(ids[0]?.seq);
+			const receivedAt = ids[0]?.received_at ?? new Date().toISOString();
+			await tx`
 				insert into events
-					(id, type, ts, source_service, source_host, source_agent, subject, subject_kind,
-					 severity, action, task_id, scope, dimensions, measures, links, body_ref, meta)
+					(seq, id, type, ts, received_at, source_service, source_host, source_agent,
+					 subject, subject_kind, severity, action, task_id, scope, dimensions, measures,
+					 links, body_ref, meta)
 				values
-					(${e.id}, ${e.type}, ${e.ts}, ${e.source.service}, ${e.source.host ?? null},
+					(${seq}, ${e.id}, ${e.type}, ${e.ts}, ${receivedAt}, ${e.source.service}, ${e.source.host ?? null},
 					 ${e.source.agent ?? null}, ${e.subject}, ${e.subject_kind ?? null}, ${e.severity},
 					 ${e.action ?? null}, ${e.task_id ?? null}, ${e.scope},
 					 ${tx.json((e.dimensions ?? {}) as never)}, ${tx.json((e.measures ?? {}) as never)},
-					 ${tx.json((e.links ?? []) as never)}, ${e.body_ref ?? null}, ${tx.json((e.meta ?? {}) as never)})
-				on conflict (id) do nothing
-				returning seq, received_at`;
-			if (rows.length === 0) {
-				const existing = await tx<{ seq: string }[]>`select seq from events where id = ${e.id}`;
-				return { seq: Number(existing[0]?.seq), duplicate: true, receivedAt: "" };
-			}
-			const seq = Number(rows[0]?.seq);
-			const receivedAt = rows[0]?.received_at ?? new Date().toISOString();
+					 ${tx.json((e.links ?? []) as never)}, ${e.body_ref ?? null}, ${tx.json((e.meta ?? {}) as never)})`;
+			if (isArchiveClass(e))
+				await tx`insert into event_archive
+					(seq, id, type, ts, received_at, source_service, source_host, source_agent, subject,
+					 subject_kind, severity, action, task_id, scope, dimensions, measures, links, body_ref, meta)
+					select seq, id, type, ts, received_at, source_service, source_host, source_agent,
+					 subject, subject_kind, severity, action, task_id, scope, dimensions, measures, links,
+					 body_ref, meta from events
+					where received_at = ${receivedAt} and seq = ${seq}`;
 			// materialize edges
 			if (e.links && e.links.length > 0) {
 				const fromKind = e.subject_kind ?? "other";
@@ -80,6 +92,12 @@ export class Appender {
 		if (!result.duplicate) this.#fanOut(result.seq, e, result.receivedAt);
 		return { seq: result.seq, duplicate: result.duplicate };
 	}
+}
+
+function isArchiveClass(e: Emission): boolean {
+	if (["audit.", "term.", "edge.", "security."].some((prefix) => e.type.startsWith(prefix)))
+		return true;
+	return e.meta?.["retention_class"] === "audit";
 }
 
 function dimShape(e: Emission): Record<string, string> {

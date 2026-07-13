@@ -18,6 +18,7 @@
 	},
 	"dependencies": {
 		"@fastify/websocket": "catalog:prod",
+		"@sentry/node": "catalog:prod",
 		"fastify": "catalog:prod",
 		"nanoid": "catalog:prod",
 		"postgres": "catalog:prod",
