@@ -1,0 +1,49 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/dashboard-detail.schema.json",
+	"title": "Saved dashboard and investigation node",
+	"type": "object",
+	"required": [
+		"schema_version",
+		"id",
+		"kind",
+		"title",
+		"scope",
+		"is_home",
+		"created_by",
+		"updated_at",
+		"panel_count",
+		"payload"
+	],
+	"additionalProperties": true,
+	"properties": {
+		"schema_version": { "const": 1 },
+		"id": { "type": "string", "pattern": "^dash_" },
+		"kind": { "const": "artifact" },
+		"title": { "type": "string" },
+		"scope": { "type": "string" },
+		"is_home": { "type": "boolean" },
+		"created_by": { "type": ["string", "null"] },
+		"responsible_human": { "type": ["string", "null"] },
+		"updated_at": { "type": "string", "format": "date-time" },
+		"panel_count": { "type": "integer", "minimum": 0 },
+		"payload": {
+			"type": "object",
+			"required": ["schema_version", "layout", "panels", "query_refs", "branch", "time"],
+			"additionalProperties": true,
+			"properties": {
+				"schema_version": { "const": 1 },
+				"layout": { "type": "object" },
+				"panels": { "type": "array", "items": { "$ref": "panel-spec-v2.schema.json" } },
+				"query_refs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+				"branch": { "type": ["object", "null"] },
+				"time": { "type": ["object", "null"] }
+			}
+		},
+		"materialized_panels": {
+			"type": "array",
+			"items": { "$ref": "materialized-panel.schema.json" },
+			"description": "Present on GET /dashboards/{id}; omitted from the save acknowledgement."
+		}
+	}
+}

@@ -2,7 +2,7 @@
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$id": "https://petalcat.dev/schemas/console/entities/dashboard-item.schema.json",
 	"title": "Dashboard list item (GET /dashboards)",
-	"description": "One saved dashboard's LIST PROJECTION — the gallery/home picker row. Source of truth: Library items with kind 'artifact' carrying a dashboard payload ({layout, panels: PanelSpecV2[], query_refs}; CONSOLE-CONTRACTS.md sections 3.3 /dashboards and 9). This read is metadata only: full content (layout + panels) is fetched via the Library plane, GET /library/items/{id}. Saved/edited via dashboard.* ops (save, load, set_home, pin). Filters: `created_by`, `is_home`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
+	"description": "One saved dashboard's LIST PROJECTION — the gallery/home picker row. Source of truth: Library items with kind 'artifact' carrying a dashboard payload ({layout, panels: PanelSpecV2[], query_refs}; CONSOLE-CONTRACTS.md sections 3.3 /dashboards and 9). This read is metadata only: full content plus viewer-scoped replay comes from GET /dashboards/{id}. Saved through POST /dashboards (the dashboard.save tool binds to that real path). Consumers MUST ignore unknown fields.",
 	"type": "object",
 	"properties": {
 		"id": {

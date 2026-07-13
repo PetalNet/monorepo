@@ -1,0 +1,44 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/render-artifact.schema.json",
+	"title": "Renderer-agnostic materialized chart",
+	"type": "object",
+	"required": [
+		"schema_version",
+		"renderer",
+		"spec",
+		"data_query_ref",
+		"selection_reason",
+		"forecast_strategy"
+	],
+	"additionalProperties": true,
+	"properties": {
+		"schema_version": { "const": 1 },
+		"renderer": { "enum": ["vega-lite", "native"] },
+		"spec": {
+			"type": ["object", "null"],
+			"description": "Vega-Lite v6 JSON when renderer=vega-lite; null for native stat/table/text/refusal rendering."
+		},
+		"data_query_ref": { "type": ["string", "null"] },
+		"selection_reason": { "type": "string" },
+		"forecast_strategy": {
+			"enum": ["linear", "drift", "moving_average", "exp_smoothing", "seasonal_naive", null]
+		},
+		"bindings": {
+			"type": "array",
+			"description": "Viewer-scoped resolutions for live {{stat:query_ref#column[agg]}} text bindings.",
+			"items": {
+				"type": "object",
+				"required": ["binding", "query_ref", "column", "value", "status"],
+				"additionalProperties": false,
+				"properties": {
+					"binding": { "type": "string" },
+					"query_ref": { "type": ["string", "null"] },
+					"column": { "type": "string" },
+					"value": true,
+					"status": { "enum": ["resolved", "refused"] }
+				}
+			}
+		}
+	}
+}
