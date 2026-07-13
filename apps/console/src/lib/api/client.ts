@@ -70,7 +70,8 @@ async function json<T>(res: Response): Promise<T> {
 			retryable: res.status >= 500,
 		};
 		try {
-			err = (await res.json()) as ApiError;
+			const body = (await res.json()) as ApiError | { error?: ApiError };
+			err = "error" in body && body.error ? body.error : (body as ApiError);
 		} catch {
 			/* non-JSON error body */
 		}
@@ -285,21 +286,14 @@ export async function runOp(
 	opts: { dry_run?: boolean; fetchFn?: typeof fetch } = {},
 ): Promise<OpResult> {
 	if (dataMode() === "mock") {
-		// Mock: validate + audit locally, echo an applied result. No effect.
-		return {
-			ok: true,
-			status: "applied",
-			result: { op, args, mock: true },
-			undo: null,
-			audit_seq: null,
-		};
+		throw new Error("Commands are unavailable in mock data mode; no operation was applied.");
 	}
 	const id = crypto.randomUUID();
 	const res = await (opts.fetchFn ?? fetch)(`${base()}/op`, {
 		method: "POST",
 		headers: { "content-type": "application/json", accept: "application/json" },
 		credentials: "include", // send the Authentik session for command authz (§1.2)
-		body: JSON.stringify({ op, id, args, dry_run: opts.dry_run ?? false }),
+		body: JSON.stringify({ schema_version: 1, op, id, args, dry_run: opts.dry_run ?? false }),
 	});
 	return json<OpResult>(res);
 }

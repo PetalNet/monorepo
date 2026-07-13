@@ -1,8 +1,10 @@
 // The HTTP + WS surface (contract §1.1). Fastify with a bearer/dev auth hook that resolves a
-// server-stamped Principal, then the four-plane routes. N1a ships Query + Bus + emit + health/me;
-// the Command and Library planes land in N1c/N1d.
+// server-stamped Principal, then the four-plane routes. Query, Command, Bus, and the current
+// Library seam are all served here; unavailable executor adapters fail closed.
 
+import { createHash } from "node:crypto";
 import { timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
@@ -24,6 +26,7 @@ import {
 import { resolveBearer, resolveScopes, devPrincipal, type Principal } from "./auth/principal.ts";
 import { ProposalError, proposeMutation } from "./auth/proposals.ts";
 import { type GrantRelation, listTiers, shouldProposeMutation } from "./auth/tiers.ts";
+import { uuidv5 } from "./bridge/uuid5.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
 import {
 	DashboardError,
@@ -59,6 +62,209 @@ import {
 import { mergeSemanticShape, type SemanticShape } from "./semantic/registry.ts";
 import { searchSemanticCorpus } from "./semantic/search.ts";
 
+type JsonSchema = Record<string, unknown>;
+type OpAuthz = {
+	rule: "own" | "grant" | "own_or_grant" | "read" | "scope_visible" | "self";
+	relation?: GrantRelation;
+	scope_any?: string[];
+};
+type OpEntry = {
+	op: string;
+	lane: string;
+	human_only?: boolean;
+	authz: OpAuthz;
+	executor: string;
+	args: JsonSchema;
+	emits: string[];
+	requires_reason?: boolean;
+	confirm?: "soft" | "typed-name";
+	undo?: boolean;
+	testable: "disposable" | "dry-run-only" | "live-canary";
+};
+
+const CONTRACTS_DIR = new URL("../docs/contracts/", import.meta.url);
+const schemaCache = new Map<string, JsonSchema>();
+function readSchema(url: URL): JsonSchema {
+	const key = url.href;
+	const cached = schemaCache.get(key);
+	if (cached) return cached;
+	const parsed = JSON.parse(readFileSync(url, "utf8")) as JsonSchema;
+	schemaCache.set(key, parsed);
+	return parsed;
+}
+
+const opCatalog = readSchema(new URL("ops.json", CONTRACTS_DIR)) as {
+	schema_version: number;
+	ops: OpEntry[];
+};
+if (opCatalog.schema_version !== 2) throw new Error("unsupported op catalog schema version");
+const OP_BY_NAME = new Map(opCatalog.ops.map((entry) => [entry.op, entry]));
+if (OP_BY_NAME.size !== opCatalog.ops.length) throw new Error("duplicate operation in ops.json");
+const INTERNAL_OP_ADAPTERS = new Set([
+	"stats.query",
+	"viz.render",
+	"text.surface",
+	"context.receive",
+]);
+
+function schemaAtPointer(schema: JsonSchema, fragment: string): JsonSchema | null {
+	let value: unknown = schema;
+	for (const raw of fragment.replace(/^#\/?/, "").split("/").filter(Boolean)) {
+		const part = raw.replaceAll("~1", "/").replaceAll("~0", "~");
+		if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+		value = (value as Record<string, unknown>)[part];
+	}
+	return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonSchema) : null;
+}
+
+function schemaType(value: unknown): string {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	if (Number.isInteger(value)) return "integer";
+	return typeof value === "number" ? "number" : typeof value;
+}
+
+/** The catalog uses a deliberately small, deterministic draft-2020-12 subset. */
+function validateJsonSchema(
+	value: unknown,
+	schema: JsonSchema,
+	path = "args",
+	root: JsonSchema = schema,
+	base = CONTRACTS_DIR,
+): string | null {
+	if (typeof schema["$ref"] === "string") {
+		const ref = schema["$ref"];
+		const [file, fragment = ""] = ref.split("#", 2);
+		const targetBase = file ? new URL(file, base) : base;
+		const targetRoot = file ? readSchema(targetBase) : root;
+		const target = fragment ? schemaAtPointer(targetRoot, `#${fragment}`) : targetRoot;
+		return target
+			? validateJsonSchema(value, target, path, targetRoot, file ? new URL(".", targetBase) : base)
+			: `${path}: unresolved schema reference`;
+	}
+	for (const keyword of ["allOf", "anyOf", "oneOf"] as const) {
+		const branches = schema[keyword];
+		if (!Array.isArray(branches)) continue;
+		const errors = branches.map((branch) =>
+			branch && typeof branch === "object"
+				? validateJsonSchema(value, branch as JsonSchema, path, root, base)
+				: `${path}: invalid schema`,
+		);
+		if (keyword === "allOf") {
+			const failure = errors.find(Boolean);
+			if (failure) return failure;
+		} else if (keyword === "anyOf" && errors.every(Boolean)) return errors[0] ?? `${path}: invalid`;
+		else if (keyword === "oneOf" && errors.filter((error) => !error).length !== 1)
+			return `${path}: must match exactly one allowed shape`;
+	}
+	if (schema["if"] && typeof schema["if"] === "object") {
+		const conditionMatches = !validateJsonSchema(
+			value,
+			schema["if"] as JsonSchema,
+			path,
+			root,
+			base,
+		);
+		const branch = conditionMatches ? schema["then"] : schema["else"];
+		if (branch && typeof branch === "object") {
+			const error = validateJsonSchema(value, branch as JsonSchema, path, root, base);
+			if (error) return error;
+		}
+	}
+	if (Object.hasOwn(schema, "const") && !Object.is(value, schema["const"]))
+		return `${path}: must equal the required value`;
+	if (Array.isArray(schema["enum"]) && !schema["enum"].some((item) => Object.is(item, value)))
+		return `${path}: value is not allowed`;
+	const allowed = Array.isArray(schema["type"])
+		? schema["type"]
+		: typeof schema["type"] === "string"
+			? [schema["type"]]
+			: [];
+	const actual = schemaType(value);
+	if (
+		allowed.length &&
+		!allowed.includes(actual) &&
+		!(actual === "integer" && allowed.includes("number"))
+	)
+		return `${path}: expected ${allowed.join(" or ")}`;
+	if (typeof value === "string") {
+		if (typeof schema["minLength"] === "number" && value.length < schema["minLength"])
+			return `${path}: string is too short`;
+		if (typeof schema["maxLength"] === "number" && value.length > schema["maxLength"])
+			return `${path}: string is too long`;
+		if (typeof schema["pattern"] === "string" && !new RegExp(schema["pattern"]).test(value))
+			return `${path}: invalid format`;
+		if (schema["format"] === "uuid" && !z.string().uuid().safeParse(value).success)
+			return `${path}: invalid UUID`;
+		if (
+			schema["format"] === "date-time" &&
+			!z.string().datetime({ offset: true }).safeParse(value).success
+		)
+			return `${path}: invalid date-time`;
+	}
+	if (typeof value === "number") {
+		if (typeof schema["minimum"] === "number" && value < schema["minimum"])
+			return `${path}: below minimum`;
+		if (typeof schema["maximum"] === "number" && value > schema["maximum"])
+			return `${path}: above maximum`;
+	}
+	if (Array.isArray(value)) {
+		if (typeof schema["minItems"] === "number" && value.length < schema["minItems"])
+			return `${path}: too few items`;
+		if (typeof schema["maxItems"] === "number" && value.length > schema["maxItems"])
+			return `${path}: too many items`;
+		if (
+			schema["uniqueItems"] === true &&
+			new Set(value.map((item) => JSON.stringify(item))).size !== value.length
+		)
+			return `${path}: items must be unique`;
+		if (schema["items"] && typeof schema["items"] === "object")
+			for (let index = 0; index < value.length; index += 1) {
+				const error = validateJsonSchema(
+					value[index],
+					schema["items"] as JsonSchema,
+					`${path}.${String(index)}`,
+					root,
+					base,
+				);
+				if (error) return error;
+			}
+	}
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const record = value as Record<string, unknown>;
+		if (
+			typeof schema["maxProperties"] === "number" &&
+			Object.keys(record).length > schema["maxProperties"]
+		)
+			return `${path}: too many fields`;
+		const required = Array.isArray(schema["required"]) ? schema["required"] : [];
+		for (const key of required)
+			if (typeof key === "string" && !Object.hasOwn(record, key)) return `${path}.${key}: required`;
+		const properties =
+			schema["properties"] && typeof schema["properties"] === "object"
+				? (schema["properties"] as Record<string, JsonSchema>)
+				: {};
+		for (const [key, item] of Object.entries(record)) {
+			const propertySchema = properties[key];
+			if (propertySchema) {
+				const error = validateJsonSchema(item, propertySchema, `${path}.${key}`, root, base);
+				if (error) return error;
+			} else if (schema["additionalProperties"] === false) return `${path}.${key}: unknown field`;
+		}
+	}
+	return null;
+}
+
+function canonicalJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	if (value && typeof value === "object")
+		return `{${Object.entries(value as Record<string, unknown>)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+			.join(",")}}`;
+	return JSON.stringify(value);
+}
+
 declare module "fastify" {
 	interface FastifyRequest {
 		principal?: Principal;
@@ -75,6 +281,17 @@ const assistantContextSchema = z
 		payload: selectedMarkSchema.extend({
 			value: z.unknown().refine((value) => value !== undefined, "value is required"),
 		}),
+	})
+	.strict();
+const opCallSchema = z
+	.object({
+		schema_version: z.literal(1),
+		id: z.string().uuid(),
+		op: z.string().regex(/^[a-z0-9_]+(?:\.[a-z0-9_]+)+$/),
+		args: z.record(z.string(), z.unknown()),
+		task_id: z.number().int().nullable().optional(),
+		reason: z.string().max(2_000).nullable().optional(),
+		dry_run: z.boolean().default(false),
 	})
 	.strict();
 
@@ -325,6 +542,49 @@ export async function buildServer(
 		});
 	}
 
+	const opRateBuckets = new Map<string, { tokens: number; updatedAt: number; lastSeen: number }>();
+	let opRateChecks = 0;
+	async function opRateLimit(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+		const principal = req.principal;
+		if (!principal || reply.sent) return;
+		const now = Date.now();
+		const capacity = 30;
+		const refillPerMs = capacity / 60_000;
+		const previous = opRateBuckets.get(principal.id);
+		const tokens = Math.min(
+			capacity,
+			(previous?.tokens ?? capacity) + (now - (previous?.updatedAt ?? now)) * refillPerMs,
+		);
+		opRateChecks += 1;
+		if (opRateChecks % 256 === 0 || opRateBuckets.size >= 10_000) {
+			for (const [key, bucket] of opRateBuckets)
+				if (now - bucket.lastSeen > 10 * 60_000) opRateBuckets.delete(key);
+			if (opRateBuckets.size >= 10_000) {
+				const oldest = [...opRateBuckets].sort(
+					([, left], [, right]) => left.lastSeen - right.lastSeen,
+				)[0]?.[0];
+				if (oldest) opRateBuckets.delete(oldest);
+			}
+		}
+		if (tokens < 1) {
+			const retryAfterS = Math.max(1, Math.ceil((1 - tokens) / refillPerMs / 1_000));
+			opRateBuckets.set(principal.id, { tokens, updatedAt: now, lastSeen: now });
+			await reply
+				.code(429)
+				.header("retry-after", String(retryAfterS))
+				.send({
+					error: {
+						code: "rate_limited",
+						message: "command request rate exceeded",
+						retryable: true,
+						retry_after_s: retryAfterS,
+					},
+				});
+			return;
+		}
+		opRateBuckets.set(principal.id, { tokens: tokens - 1, updatedAt: now, lastSeen: now });
+	}
+
 	async function maybePropose(
 		principal: Principal,
 		operation: string,
@@ -363,6 +623,599 @@ export async function buildServer(
 			error: { code: error.code, message: error.message, retryable: error.retryable },
 		});
 	}
+
+	type OpCall = z.infer<typeof opCallSchema>;
+	type OpTarget = Record<string, unknown> & { scope?: string; owner?: string | null };
+	const relationRank: Record<GrantRelation, number> = {
+		viewer: 0,
+		editor: 1,
+		operator: 2,
+		owner: 3,
+	};
+
+	function opEnvelope(
+		call: Pick<OpCall, "id">,
+		body: Record<string, unknown>,
+	): Record<string, unknown> {
+		return { schema_version: 1, in_reply_to: call.id, ...body };
+	}
+
+	function opError(
+		reply: FastifyReply,
+		call: Pick<OpCall, "id">,
+		status: number,
+		code: string,
+		message: string,
+		retryable = false,
+	) {
+		return reply.code(status).send(
+			opEnvelope(call, {
+				ok: false,
+				status: null,
+				result: null,
+				error: { code, message, retryable },
+				audit_seq: null,
+				executor: null,
+				undo: null,
+			}),
+		);
+	}
+
+	async function loadOpTarget(
+		entry: OpEntry,
+		args: Record<string, unknown>,
+	): Promise<OpTarget | null> {
+		const rawId =
+			args["id"] ??
+			args["dashboard_id"] ??
+			args["item_id"] ??
+			args["proposal_id"] ??
+			args["request_id"];
+		if (typeof rawId === "number" && services.tracker) {
+			const task = services.tracker.tasks(2_000).find((row) => Number(row["id"]) === rawId);
+			if (task) {
+				const project = typeof task.project_name === "string" ? task.project_name : null;
+				const owner = typeof task.owner === "string" ? task.owner : null;
+				return {
+					...task,
+					project_id: project,
+					...(owner ? { owner } : {}),
+					scope:
+						task.visibility === "private" && owner
+							? `user:${owner}`
+							: project
+								? `project:${project}`
+								: "fleet",
+				};
+			}
+		}
+		if (typeof rawId === "string") {
+			const items = await services.db.admin<
+				{
+					id: string;
+					scope: string;
+					created_by: string | null;
+					responsible_human: string | null;
+					payload: Record<string, unknown>;
+				}[]
+			>`select id, scope, created_by, responsible_human, payload from items_min where id = ${rawId}`;
+			const item = items[0];
+			if (item)
+				return {
+					...item.payload,
+					id: item.id,
+					scope: item.scope,
+					...((item.created_by ?? item.responsible_human)
+						? { owner: item.created_by ?? item.responsible_human }
+						: {}),
+					created_by: item.created_by,
+				};
+			const events = await services.db.admin<
+				{ scope: string; dimensions: Record<string, unknown>; meta: Record<string, unknown> }[]
+			>`select scope, dimensions, meta from events where subject = ${rawId} order by seq desc limit 1`;
+			if (events[0]) return { ...events[0].meta, ...events[0].dimensions, scope: events[0].scope };
+		}
+		if (typeof args["pubkey_fp"] === "string") {
+			const edges = await services.db.admin<
+				{ subject: string; scope: string; dimensions: Record<string, unknown> }[]
+			>`select subject, scope, dimensions from events
+			  where dimensions->>'pubkey_fp' = ${args["pubkey_fp"]} order by seq desc limit 1`;
+			if (edges[0])
+				return { ...edges[0].dimensions, handle: edges[0].subject, scope: edges[0].scope };
+		}
+		if (entry.op === "subscription.set" || entry.op === "subscription.remove") {
+			const owner = typeof args["owner"] === "string" ? args["owner"] : null;
+			return owner ? { owner, scope: `user:${owner}` } : null;
+		}
+		return null;
+	}
+
+	function pathValue(value: unknown, path: string): unknown {
+		let current = value;
+		for (const part of path.split(".")) {
+			if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+			current = (current as Record<string, unknown>)[part];
+		}
+		return current;
+	}
+
+	function resolveScopeTemplate(
+		template: string,
+		args: Record<string, unknown>,
+		target: OpTarget | null,
+	): string | null {
+		let unresolved = false;
+		const resolved = template.replace(/\$\{([^}]+)\}/g, (_match, expression: string) => {
+			const value = expression.startsWith("target.")
+				? pathValue(target, expression.slice(7))
+				: expression.startsWith("item.")
+					? pathValue(args["item"], expression.slice(5))
+					: pathValue(args, expression);
+			if (value === undefined || value === null || typeof value === "object") {
+				unresolved = true;
+				return "";
+			}
+			return String(value);
+		});
+		return unresolved ? null : resolved;
+	}
+
+	async function hasGrant(
+		principal: Principal,
+		object: string,
+		minimum: GrantRelation,
+	): Promise<boolean> {
+		const subjects = [principal.id, ...principal.tiers.map((tier) => `tier:${tier}`)];
+		const rows = await services.db.admin<{ relation: GrantRelation }[]>`
+			select relation from grants where subject = any(${services.db.admin.array(subjects)})
+			  and object = ${object} and condition is null and valid_at <= now()
+			  and (invalid_at is null or invalid_at > now())`;
+		return rows.some((row) => relationRank[row.relation] >= relationRank[minimum]);
+	}
+
+	async function authorizeOp(
+		entry: OpEntry,
+		principal: Principal,
+		args: Record<string, unknown>,
+	): Promise<
+		{ ok: true; object: string | null; target: OpTarget | null } | { ok: false; message: string }
+	> {
+		const target = await loadOpTarget(entry, args);
+		const rule = entry.authz.rule;
+		if (rule === "read") return { ok: true, object: null, target };
+		if (rule === "self") {
+			for (const key of ["owner", "for_user", "user", "principal_id"])
+				if (typeof args[key] === "string" && args[key] !== principal.id)
+					return { ok: false, message: "self operation cannot target another principal" };
+			return {
+				ok: true,
+				object: principal.kind === "agent" ? principal.id : `user:${principal.id}`,
+				target,
+			};
+		}
+		if (rule === "scope_visible") {
+			if (!target?.scope || !principal.scopes.includes(target.scope))
+				return { ok: false, message: "target is not visible to the caller" };
+			return { ok: true, object: target.scope, target };
+		}
+		const owner = target?.owner ?? target?.["created_by"] ?? target?.["responsible_human"];
+		if (
+			rule === "own_or_grant" &&
+			(entry.op === "subscription.set" || entry.op === "subscription.remove") &&
+			args["owner"] === undefined
+		)
+			return { ok: true, object: `user:${principal.id}`, target };
+		const createsOwned = entry.op === "dashboard.save" || entry.op === "dashboard.pin";
+		if (rule === "own" && (createsOwned || owner === principal.id))
+			return {
+				ok: true,
+				object:
+					target?.scope ?? (principal.kind === "agent" ? principal.id : `user:${principal.id}`),
+				target,
+			};
+		if (rule === "own" || rule === "own_or_grant") {
+			if (owner === principal.id) return { ok: true, object: target?.scope ?? null, target };
+			if (rule === "own") return { ok: false, message: "target is not owned by the caller" };
+		}
+		const relation = entry.authz.relation;
+		if (!relation) return { ok: false, message: "catalog grant rule is incomplete" };
+		for (const template of entry.authz.scope_any ?? []) {
+			const object = resolveScopeTemplate(template, args, target);
+			if (object && (await hasGrant(principal, object, relation)))
+				return { ok: true, object, target };
+		}
+		return { ok: false, message: `${relation} relation required on the target` };
+	}
+
+	async function executorEvidence(
+		entry: OpEntry,
+		target: OpTarget | null,
+		args: Record<string, unknown>,
+	): Promise<{
+		kind: string;
+		ref: string | null;
+		liveness: "alive" | "suspect" | "down" | "unknown";
+	}> {
+		if (entry.executor === "console-api")
+			return { kind: entry.executor, ref: null, liveness: "alive" };
+		if (entry.executor !== "manager")
+			return { kind: entry.executor, ref: null, liveness: "unknown" };
+		const ref = String(args["handle"] ?? target?.["handle"] ?? "");
+		if (!ref) return { kind: entry.executor, ref: null, liveness: "unknown" };
+		const rows = await services.db.admin<{ observed_at: string | Date }[]>`
+			select observed_at from current_state where kind = 'heartbeat' and subject = ${ref}`;
+		if (!rows[0]) return { kind: entry.executor, ref, liveness: "unknown" };
+		const age = (Date.now() - new Date(rows[0].observed_at).getTime()) / 1_000;
+		return {
+			kind: entry.executor,
+			ref,
+			liveness: age <= 90 ? "alive" : age <= 300 ? "suspect" : "down",
+		};
+	}
+
+	async function recordedOutcome(id: string): Promise<Record<string, unknown> | null> {
+		const outcomeId = uuidv5(`op-outcome:${id}`);
+		const rows = await services.db.admin<{ meta: Record<string, unknown> }[]>`
+			select meta from events where id = ${outcomeId} order by seq desc limit 1`;
+		const result = rows[0]?.meta?.["op_result"];
+		return result && typeof result === "object" && !Array.isArray(result)
+			? (result as Record<string, unknown>)
+			: null;
+	}
+
+	async function auditIntent(
+		call: OpCall,
+		principal: Principal,
+		callHash: string,
+	): Promise<{ ok: true; seq: number; duplicate: boolean } | { ok: false; code: string }> {
+		const argsHash = createHash("sha256").update(canonicalJson(call.args)).digest("hex");
+		const emission = {
+			schema_version: 1,
+			id: call.id,
+			type: "audit.op.intent",
+			ts: new Date().toISOString(),
+			source: { service: "console-api", host: null, agent: null },
+			subject: `op:${call.id}`,
+			subject_kind: "other",
+			severity: "info",
+			task_id: call.task_id ?? null,
+			scope: "fleet",
+			dimensions: {
+				op: call.op,
+				principal: principal.id,
+				outcome: "attempted",
+				dry_run: call.dry_run,
+			},
+			meta: {
+				retention_class: "audit",
+				call_hash: callHash,
+				args_hash: argsHash,
+				reason: call.reason ?? null,
+			},
+		};
+		const outcome = await services.emit(
+			"system:console-api",
+			emission,
+			Buffer.byteLength(JSON.stringify(emission)),
+		);
+		if (outcome.ok)
+			return { ok: true, seq: outcome.seq as number, duplicate: outcome.duplicate ?? false };
+		if (outcome.code === "id_reused") {
+			const rows = await services.db.admin<{ seq: string; meta: Record<string, unknown> }[]>`
+				select seq, meta from events where id = ${call.id} order by seq desc limit 1`;
+			if (rows[0]?.meta?.["call_hash"] === callHash)
+				return { ok: true, seq: Number(rows[0].seq), duplicate: true };
+		}
+		return { ok: false, code: outcome.code ?? "audit_unavailable" };
+	}
+
+	async function auditOutcome(
+		call: OpCall,
+		principal: Principal,
+		result: Record<string, unknown>,
+		outcome: "ok" | "failed" | "executor_died",
+	): Promise<boolean> {
+		const emission = {
+			schema_version: 1,
+			id: uuidv5(`op-outcome:${call.id}`),
+			type: "audit.op.outcome",
+			ts: new Date().toISOString(),
+			source: { service: "console-api", host: null, agent: null },
+			subject: `op:${call.id}`,
+			subject_kind: "other",
+			severity: outcome === "ok" ? "info" : "danger",
+			task_id: call.task_id ?? null,
+			scope: "fleet",
+			dimensions: { op: call.op, principal: principal.id, outcome },
+			meta: { retention_class: "audit", in_reply_to: call.id, op_result: result },
+		};
+		const emitted = await services.emit(
+			"system:console-api",
+			emission,
+			Buffer.byteLength(JSON.stringify(emission)),
+		);
+		return emitted.ok;
+	}
+
+	async function dispatchInternalOp(
+		call: OpCall,
+		principal: Principal,
+	): Promise<Record<string, unknown>> {
+		switch (call.op) {
+			case "stats.query":
+				if (call.args["mode"] === "sql") {
+					if (!principal.lanes.includes("operator") && !principal.lanes.includes("admin"))
+						throw new QueryError("lane_denied", "sql mode requires operator+");
+					throw new QueryError("not_implemented", "sql mode is not implemented");
+				}
+				return (await runStructured(
+					services.db.app,
+					principal.scopes,
+					call.args as unknown as QueryRequest,
+				)) as unknown as Record<string, unknown>;
+			case "viz.render":
+				return { panel: call.args["panel"], registered: true };
+			case "text.surface":
+				return {
+					panel: {
+						schema_version: 2,
+						type: "text",
+						title: "Note",
+						prose: call.args["prose"],
+						bindings: call.args["bindings"] ?? [],
+					},
+				};
+			case "context.receive":
+				if (!services.assistantRuntime)
+					throw new AssistantRuntimeError(
+						"assistant_runtime_unavailable",
+						"per-user assistant runtime is not configured",
+						true,
+					);
+				return (await services.assistantRuntime.send(principal, {
+					id: call.id,
+					kind: "context",
+					content: JSON.stringify(call.args["payload"]),
+				})) as unknown as Record<string, unknown>;
+			default:
+				throw new AssistantRuntimeError(
+					"executor_unreachable",
+					`${call.op} has no configured console-api adapter`,
+					true,
+				);
+		}
+	}
+
+	// --- authoritative named-op command plane --------------------------------------------------
+	// Custom bounded token bucket above is the rate limiter; CodeQL does not model Fastify-local
+	// preHandlers as rate-limiting middleware. lgtm[js/missing-rate-limiting]
+	app.post("/api/v1/op", { preHandler: [auth, opRateLimit] }, async (req, reply) => {
+		const parsed = opCallSchema.safeParse(req.body);
+		if (!parsed.success)
+			return reply.code(400).send({
+				error: {
+					code: "bad_op_call",
+					message: parsed.error.issues[0]?.message ?? "invalid op call",
+					retryable: false,
+				},
+			});
+		const call = parsed.data;
+		const entry = OP_BY_NAME.get(call.op);
+		if (!entry)
+			return opError(reply, call, 404, "unknown_op", "operation is not in the canonical catalog");
+		const argsError = validateJsonSchema(call.args, entry.args);
+		if (argsError) return opError(reply, call, 400, "invalid_args", argsError);
+		if (entry.requires_reason && !call.reason?.trim())
+			return opError(reply, call, 400, "reason_required", "this operation requires a reason");
+		if (entry.human_only && (req.principal as Principal).kind !== "human")
+			return opError(
+				reply,
+				call,
+				403,
+				"human_required",
+				"operation is restricted to human principals",
+			);
+		const principal = req.principal as Principal;
+		if (!principal.lanes.includes(entry.lane))
+			return opError(reply, call, 403, "lane_denied", `${entry.lane} lane required`);
+		const preloadedTarget =
+			entry.confirm === "typed-name" ? await loadOpTarget(entry, call.args) : null;
+		if (entry.confirm === "typed-name") {
+			const expected =
+				call.args["handle"] ??
+				call.args["service"] ??
+				call.args["box_id"] ??
+				preloadedTarget?.["handle"] ??
+				call.args["id"];
+			if (
+				typeof expected !== "string" ||
+				String(call.args["confirm_name"] ?? "")
+					.trim()
+					.toLowerCase() !== expected.trim().toLowerCase()
+			)
+				return opError(
+					reply,
+					call,
+					400,
+					"confirmation_mismatch",
+					"typed confirmation does not match the target",
+				);
+		}
+		const authorization = await authorizeOp(entry, principal, call.args);
+		if (!authorization.ok) return opError(reply, call, 403, "scope_denied", authorization.message);
+		const executor = await executorEvidence(entry, authorization.target, call.args);
+		if (executor.liveness !== "alive")
+			return reply.code(503).send(
+				opEnvelope(call, {
+					ok: false,
+					status: null,
+					result: null,
+					error: {
+						code: "executor_unreachable",
+						message: `${entry.executor} has no positive alive evidence`,
+						retryable: true,
+					},
+					audit_seq: null,
+					executor,
+					undo: null,
+				}),
+			);
+		if (!call.dry_run && entry.testable === "dry-run-only")
+			return opError(
+				reply,
+				call,
+				409,
+				"dry_run_required",
+				"this operation is enabled only for dry-run",
+			);
+		if (!call.dry_run && entry.executor !== "console-api")
+			return opError(
+				reply,
+				call,
+				503,
+				"executor_unreachable",
+				`${entry.executor} has no configured command adapter`,
+				true,
+			);
+		if (!call.dry_run && !INTERNAL_OP_ADAPTERS.has(call.op))
+			return opError(
+				reply,
+				call,
+				503,
+				"executor_unreachable",
+				`${call.op} has no configured command adapter`,
+				true,
+			);
+		const isRead = entry.authz.rule === "read";
+		const callHash = createHash("sha256").update(canonicalJson(call)).digest("hex");
+		let auditSeq: number | null = null;
+		if (!isRead) {
+			const intent = await auditIntent(call, principal, callHash);
+			if (!intent.ok)
+				return opError(
+					reply,
+					call,
+					intent.code === "id_reused" ? 409 : 503,
+					intent.code,
+					intent.code === "id_reused"
+						? "operation id was already used with a different body"
+						: "intent audit could not be committed",
+					intent.code !== "id_reused",
+				);
+			auditSeq = intent.seq;
+			if (intent.duplicate) {
+				const existing = await recordedOutcome(call.id);
+				if (existing) return reply.send(existing);
+				return opError(
+					reply,
+					call,
+					409,
+					"op_in_flight",
+					"operation was already accepted and is awaiting reconciliation",
+					true,
+				);
+			}
+		}
+		if (call.dry_run) {
+			const result = opEnvelope(call, {
+				ok: true,
+				status: "applied",
+				result: { dry_run: true, op: call.op },
+				error: null,
+				audit_seq: auditSeq,
+				executor,
+				undo: null,
+			});
+			if (!isRead && !(await auditOutcome(call, principal, result, "ok")))
+				return opError(reply, call, 503, "audit_unavailable", "dry-run outcome audit failed", true);
+			return reply.send(result);
+		}
+		if (
+			!isRead &&
+			(await shouldProposeMutation(
+				services.db.admin,
+				principal,
+				authorization.object,
+				entry.authz.relation ?? "editor",
+			))
+		) {
+			try {
+				const proposed = await maybePropose(
+					principal,
+					call.op,
+					call.id,
+					call.args,
+					authorization.object,
+					entry.authz.relation ?? "editor",
+				);
+				if (!proposed)
+					throw new ProposalError("proposal_unavailable", "proposal route did not activate", true);
+				const result = opEnvelope(call, { ...proposed, audit_seq: auditSeq, executor, undo: null });
+				if (!(await auditOutcome(call, principal, result, "ok")))
+					return opError(
+						reply,
+						call,
+						503,
+						"audit_unavailable",
+						"proposal completed but outcome audit failed",
+						true,
+					);
+				return reply.send(result);
+			} catch (error) {
+				if (error instanceof ProposalError) {
+					const failed = opEnvelope(call, {
+						ok: false,
+						status: null,
+						result: null,
+						error: { code: error.code, message: error.message, retryable: error.retryable },
+						audit_seq: auditSeq,
+						executor,
+						undo: null,
+					});
+					await auditOutcome(call, principal, failed, "failed");
+					return reply.code(error.code === "id_reused" ? 409 : 503).send(failed);
+				}
+				throw error;
+			}
+		}
+		try {
+			const success = opEnvelope(call, {
+				ok: true,
+				status: "applied",
+				result: await dispatchInternalOp(call, principal),
+				error: null,
+				audit_seq: auditSeq,
+				executor,
+				undo: null,
+			});
+			if (!isRead && !(await auditOutcome(call, principal, success, "ok")))
+				return opError(
+					reply,
+					call,
+					503,
+					"audit_unavailable",
+					"effect completed but outcome audit failed",
+					true,
+				);
+			return reply.send(success);
+		} catch (error) {
+			monitor.captureException(sanitizedException(error));
+			const known = error instanceof AssistantRuntimeError || error instanceof QueryError;
+			const code = known ? error.code : "op_failed";
+			const retryable = error instanceof AssistantRuntimeError ? error.retryable : false;
+			const failed = opEnvelope(call, {
+				ok: false,
+				status: null,
+				result: null,
+				error: { code, message: known ? error.message : "operation failed", retryable },
+				audit_seq: auditSeq,
+				executor,
+				undo: null,
+			});
+			if (!isRead) await auditOutcome(call, principal, failed, "failed");
+			return reply.code(retryable ? 503 : 400).send(failed);
+		}
+	});
 
 	// --- health (unauthenticated) --------------------------------------------------------------
 	app.get("/api/v1/health", async () => {
