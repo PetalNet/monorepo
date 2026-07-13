@@ -61,8 +61,9 @@ async fn share_request_accept_lifecycle(pool: PgPool) {
     let bob = user(&pool, "bob").await;
     let carol = user(&pool, "carol").await;
 
-    // Create a request; nonexistent target gets the identical 200 and records
-    // nothing (enumeration-safe); duplicates in both directions are idempotent.
+    // Create a request; a nonexistent target is an explicit non-recording 200
+    // so the client errors instead of showing a false success (task 727).
+    // Duplicates in both directions remain idempotent.
     let (status, v) = send(
         &app,
         "POST",
@@ -81,7 +82,8 @@ async fn share_request_accept_lifecycle(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(v, v2, "success and pretend-success must be identical");
+    assert_eq!(v["recorded"], true);
+    assert_eq!(v2["recorded"], false);
     let (status, _) = send(
         &app,
         "POST",

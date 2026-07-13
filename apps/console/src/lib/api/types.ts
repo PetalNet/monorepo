@@ -9,6 +9,20 @@
 
 type Extra = Record<string, unknown>;
 
+export interface ReadEnvelope<T extends Extra> extends Extra {
+	schema_version: 1;
+	freshness: {
+		source: string;
+		observed_at: string;
+		window_s?: number | null;
+		[key: string]: unknown;
+	};
+	items: T[];
+	next_cursor: string | null;
+	total?: number | null;
+	truncated?: boolean;
+}
+
 // ---- principal / me (section 1.2) ----
 export type PrincipalKind = "human" | "agent" | "system";
 export type Lane = "viewer" | "editor" | "operator" | "admin" | "term_admin";
@@ -78,6 +92,42 @@ export interface BoxUpdateItem extends Extra {
 	updated_at: string;
 }
 
+export interface BoxUpdatePackage extends Extra {
+	name: string;
+	from?: string;
+	to?: string;
+	security: boolean;
+}
+export interface BoxUpdateVulnerability extends Extra {
+	cve_id: string;
+	severity: "critical" | "high" | "moderate" | "low";
+	package: string;
+	fixed_in?: string | null;
+}
+export interface BoxUpdateRaw extends Extra {
+	box_id: string;
+	packages: BoxUpdatePackage[];
+	vulns: BoxUpdateVulnerability[];
+	collected_at: string;
+}
+
+export interface ExecutorItem extends Extra {
+	kind:
+		| "manager"
+		| "dispatcher"
+		| "control-plane"
+		| "tracker"
+		| "library"
+		| "box-agent"
+		| "edge"
+		| "probe-runner"
+		| "console-api";
+	ref?: string | null;
+	liveness: "alive" | "suspect" | "down" | "unknown";
+	last_seen_epoch?: number | null;
+	detail?: string | null;
+}
+
 // ---- attention (GET /attention, section 5.3) ----
 export type AttentionGrade = "p0" | "blocker" | "review" | "artifact";
 export interface FixOp extends Extra {
@@ -126,6 +176,41 @@ export interface ApiError {
 	code: string; // snake_case
 	message: string;
 	retryable: boolean;
+}
+
+// ---- roster (GET /roster) — server-side join, one row per agent ----
+export type HeartbeatState =
+	| "starting"
+	| "running"
+	| "rate_limited"
+	| "waiting"
+	| "crashed"
+	| "stopped";
+export type Autonomy = "auto" | "ask" | "readonly" | "paused";
+export type BudgetLightColor = "green" | "yellow" | "red";
+export interface RosterItem extends Extra {
+	handle: string;
+	host?: string | null;
+	status?: FleetStatus | null;
+	current_tool?: string | null;
+	task_id?: number | null;
+	task_title?: string | null;
+	heartbeat_state?: HeartbeatState | null;
+	crash_count?: number | null;
+	channel_lock_state?: "held" | "released" | "lockout" | null;
+	autonomy?: Autonomy | null;
+	lane?: string | null;
+	light?: BudgetLightColor | null;
+	tokens_spent?: number | null;
+	tier?: string | null;
+	lease_expires_at?: string | null;
+	fence?: number | null;
+	workers_active: number;
+	updated_at: string;
+	observed_at: string;
+	fleet_updated_at?: string | null;
+	started_at?: string | null;
+	registry_last_seen_epoch?: number | null;
 }
 
 // ---- comms projection (derived view for the Envelope / mail rail) ----

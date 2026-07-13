@@ -19,6 +19,9 @@
 		/** Gating executor liveness (pre-flight per /executors). */
 		executorLive?: boolean;
 		variant?: "primary" | "tonal" | "ghost" | "danger";
+		/** Display label override (e.g. "Restore" for a preset-arg variant of an op);
+		 * the wire op + audit note stay `def.op`. Defaults to the catalog verb. */
+		label?: string;
 		/** Optional stale note surfaced in the soft-confirm ("state is 84s stale"). */
 		staleNote?: string | null;
 		onfired?: (op: string) => void;
@@ -29,6 +32,7 @@
 		lanes,
 		executorLive = true,
 		variant = "tonal",
+		label,
 		staleNote = null,
 		onfired,
 	}: Props = $props();
@@ -43,7 +47,7 @@
 	);
 
 	async function fire() {
-		if (def.confirm === "soft" && !confirming) {
+		if (def.confirm !== "none" && !confirming) {
 			confirming = true;
 			return;
 		}
@@ -82,7 +86,7 @@
 		{#if confirming}
 			Confirm{staleNote ? ` (${staleNote})` : ""}
 		{:else}
-			{def.verb}
+			{label ?? def.verb}
 		{/if}
 	</button>
 {/if}

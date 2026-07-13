@@ -131,6 +131,46 @@ mod tests {
         println!("Decrypted: {}", decrypted);
     }
 
+    /// Task 726 regression: replacing a device identity mid-share requires a
+    /// fresh group at the SAME deterministic DM id. Both directions must work
+    /// after the new device consumes its KeyPackage and processes the Welcome.
+    #[test]
+    fn pairwise_group_rekeys_after_peer_reregistration() {
+        let gid = b"dm:alice@point.dev:bob@point.dev";
+        let mut alice = PointCrypto::new("alice@point.dev").unwrap();
+        let mut old_bob = PointCrypto::new("bob@point.dev").unwrap();
+
+        let old_kp = old_bob.generate_key_package().unwrap();
+        alice.create_group(gid).unwrap();
+        let old_add = alice.add_member(gid, &old_kp).unwrap();
+        old_bob.process_welcome(&old_add.welcome).unwrap();
+        let before = alice.encrypt(gid, b"before re-registration").unwrap();
+        assert_eq!(
+            old_bob.decrypt(gid, &before).unwrap(),
+            b"before re-registration"
+        );
+
+        // Bob installs/registers afresh: the old instance no longer represents
+        // his device, and only this package has a usable private half.
+        let mut new_bob = PointCrypto::new("bob@point.dev").unwrap();
+        let fresh_kp = new_bob.generate_key_package().unwrap();
+
+        // The initiator overwrites its stale deterministic group, consumes the
+        // fresh package, and the peer overwrites its stale group via Welcome.
+        alice.create_group(gid).unwrap();
+        let fresh_add = alice.add_member(gid, &fresh_kp).unwrap();
+        new_bob.process_welcome(&fresh_add.welcome).unwrap();
+
+        let to_bob = alice.encrypt(gid, b"new epoch to bob").unwrap();
+        assert_eq!(new_bob.decrypt(gid, &to_bob).unwrap(), b"new epoch to bob");
+        let to_alice = new_bob.encrypt(gid, b"new epoch to alice").unwrap();
+        assert_eq!(
+            alice.decrypt(gid, &to_alice).unwrap(),
+            b"new epoch to alice"
+        );
+        assert!(old_bob.decrypt(gid, &to_bob).is_err());
+    }
+
     #[test]
     fn test_e2e_zero_knowledge_server() {
         // ============================================================

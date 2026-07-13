@@ -42,6 +42,8 @@ class Person {
     this.distanceLabel,
     this.lat,
     this.lon,
+    this.rekeyedAt,
+    this.shareSince,
   });
 
   final String userId;
@@ -53,6 +55,15 @@ class Person {
   final String? distanceLabel;
   final double? lat;
   final double? lon;
+
+  /// Server generation marker for this peer's MLS identity. When this moves
+  /// past the generation used by our pairwise group, the deterministic
+  /// initiator must replace that group and send a fresh Welcome.
+  final DateTime? rekeyedAt;
+
+  /// Epoch of the accepted relationship. A remove + re-add advances this even
+  /// when neither MLS identity changed, forcing a fresh pairwise group.
+  final DateTime? shareSince;
 
   bool get hasLocation => lat != null && lon != null;
 }

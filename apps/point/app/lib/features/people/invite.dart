@@ -19,7 +19,8 @@ String inviteLinkFor(String userId) =>
 String? handleFromInvite(Uri uri) {
   final segs = uri.pathSegments.where((s) => s.isNotEmpty).toList();
   final isCustom = uri.scheme == _scheme && uri.host == _addHost;
-  final isHttp = (uri.scheme == 'https' || uri.scheme == 'http') &&
+  final isHttp =
+      (uri.scheme == 'https' || uri.scheme == 'http') &&
       segs.isNotEmpty &&
       segs.first == _addHost;
   if (isCustom) {
@@ -32,12 +33,23 @@ String? handleFromInvite(Uri uri) {
   return null;
 }
 
-/// Normalize a typed address into a full `name@server` user id: a bare username
-/// gets the caller's own [selfDomain] appended (same-server add); an address
-/// that already carries `@server` is used as-is (cross-server).
+/// A valid user id is exactly `local@domain`: one `@`, both sides non-empty,
+/// and no separator characters from OTHER address schemes (`:`, `/`, spaces).
+/// Task 727: a Matrix-style `janet:server` pasted here used to slip past a
+/// bare `contains('@')` check and get the home domain appended, producing
+/// `janet:server@server` — which resolves to nobody while the UI toasted
+/// "Request sent".
+final _handleShape = RegExp(r'^[^@:/\s]+@[^@:/\s]+$');
+
+/// Normalize a typed address into a full `name@server` user id: a bare
+/// username gets the caller's own [selfDomain] appended (same-server add); an
+/// address that already carries `@server` is used as-is (cross-server).
+/// Returns the empty string when the input is malformed (already-qualified in
+/// a foreign shape, multiple `@`, empty parts) — the caller must treat that
+/// as an input error, never send it.
 String normalizeHandle(String raw, {required String selfDomain}) {
-  final s = raw.trim();
+  final s = raw.trim().toLowerCase();
   if (s.isEmpty) return s;
-  if (s.contains('@')) return s.toLowerCase();
-  return '${s.toLowerCase()}@${selfDomain.toLowerCase()}';
+  final qualified = s.contains('@') ? s : '$s@${selfDomain.toLowerCase()}';
+  return _handleShape.hasMatch(qualified) ? qualified : '';
 }

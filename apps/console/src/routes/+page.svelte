@@ -11,6 +11,7 @@
 	import SurfaceSign, { type Hud } from "$lib/components/SurfaceSign.svelte";
 	import TownHall from "$lib/components/TownHall.svelte";
 	import { registry as mockRegistry } from "$lib/data/mock";
+	import { clockNow } from "$lib/stores/clock.svelte";
 
 	let { data } = $props();
 	const c = $derived(data.cockpit);
@@ -28,7 +29,7 @@
 	let context = $state<ContextPayload | null>(scene0 === "asked" ? { label: "Tuesday · $9.84" } : null);
 	let askRef = $state<AskDock | null>(null);
 
-	const now = Date.now();
+	const now = $derived(clockNow());
 	const greeting = (() => {
 		const h = new Date().getHours();
 		const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
