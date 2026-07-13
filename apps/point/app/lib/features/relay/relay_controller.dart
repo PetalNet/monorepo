@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -19,9 +20,106 @@ final cryptoServiceProvider = Provider<CryptoService>((_) => CryptoService());
 
 /// A decrypted location fix from a peer (surfaced to the map/People layer).
 class PeerFix {
-  const PeerFix({required this.userId, required this.data});
+  const PeerFix({required this.userId, required this.data, this.receivedAt});
   final String userId;
   final Map<String, dynamic> data;
+  final DateTime? receivedAt;
+
+  double? get lat => (data['lat'] as num?)?.toDouble();
+  double? get lon => (data['lon'] as num?)?.toDouble();
+  int? get timestamp => (data['timestamp'] as num?)?.toInt();
+}
+
+/// Previous and target fixes for one live marker, including both the sender's
+/// sample time and our receipt time. The presentation layer owns interpolation;
+/// relay ordering remains based solely on the signed payload timestamp.
+class PeerMarkerMotion {
+  const PeerMarkerMotion._({
+    required this.previous,
+    required this.target,
+    required this.glideDuration,
+  });
+
+  factory PeerMarkerMotion.initial(PeerFix target) => PeerMarkerMotion._(
+    previous: null,
+    target: target,
+    glideDuration: Duration.zero,
+  );
+
+  static const _minimumGlide = Duration(milliseconds: 180);
+  static const _maximumGlide = Duration(milliseconds: 800);
+  static const _staleAfter = Duration(minutes: 3);
+  static const _maximumPlausibleSpeedMetersPerSecond = 120.0;
+
+  final PeerFix? previous;
+  final PeerFix target;
+  final Duration glideDuration;
+
+  PeerMarkerMotion advance(PeerFix next, {DateTime? now}) {
+    final previousTimestamp = target.timestamp;
+    final nextTimestamp = next.timestamp;
+    final interval = previousTimestamp == null || nextTimestamp == null
+        ? null
+        : Duration(milliseconds: nextTimestamp - previousTimestamp);
+    final received = next.receivedAt ?? now ?? DateTime.now();
+    final sourceAt = nextTimestamp == null
+        ? received
+        : DateTime.fromMillisecondsSinceEpoch(nextTimestamp);
+    final age = (now ?? received).difference(sourceAt);
+    final distance = _distanceMeters(target, next);
+    final seconds = interval == null ? 0.0 : interval.inMilliseconds / 1000;
+    final impossible =
+        distance == null ||
+        seconds <= 0 ||
+        distance / seconds > _maximumPlausibleSpeedMetersPerSecond;
+    final stale =
+        age > _staleAfter ||
+        age.isNegative ||
+        (interval != null && interval > _staleAfter);
+
+    if (interval == null || impossible || stale) {
+      return PeerMarkerMotion._(
+        previous: target,
+        target: next,
+        glideDuration: Duration.zero,
+      );
+    }
+
+    final cadencePortion = interval.inMilliseconds ~/ 4;
+    final boundedMilliseconds = cadencePortion.clamp(
+      _minimumGlide.inMilliseconds,
+      _maximumGlide.inMilliseconds,
+    );
+    return PeerMarkerMotion._(
+      previous: target,
+      target: next,
+      glideDuration: Duration(milliseconds: boundedMilliseconds),
+    );
+  }
+
+  Duration duration({required bool reducedMotion}) =>
+      reducedMotion ? Duration.zero : glideDuration;
+
+  static double? _distanceMeters(PeerFix from, PeerFix to) {
+    final lat1 = from.lat;
+    final lon1 = from.lon;
+    final lat2 = to.lat;
+    final lon2 = to.lon;
+    if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) {
+      return null;
+    }
+    const earthRadiusMeters = 6371000.0;
+    double radians(double degrees) => degrees * math.pi / 180;
+    final deltaLat = radians(lat2 - lat1);
+    final deltaLon = radians(lon2 - lon1);
+    final a =
+        math.sin(deltaLat / 2) * math.sin(deltaLat / 2) +
+        math.cos(radians(lat1)) *
+            math.cos(radians(lat2)) *
+            math.sin(deltaLon / 2) *
+            math.sin(deltaLon / 2);
+    return earthRadiusMeters * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
 }
 
 /// Assembles the verified M2 pieces into the shipping relay path:
@@ -634,7 +732,9 @@ class RelayController {
     final timestamp = data['timestamp'] as int? ?? 0;
     if (timestamp <= (_latestFixTimestamp[userId] ?? 0)) return false;
     _latestFixTimestamp[userId] = timestamp;
-    _peerFixes.add(PeerFix(userId: userId, data: data));
+    _peerFixes.add(
+      PeerFix(userId: userId, data: data, receivedAt: DateTime.now()),
+    );
     final session = _session;
     if (session != null) await _writeFixCursors(session.userId);
     return true;
@@ -817,8 +917,8 @@ void removeRelayTarget(
   shareSince.remove(peer);
 }
 
-Map<String, PeerFix> withoutPeerFix(
-  Map<String, PeerFix> fixes,
+Map<String, T> withoutPeerFix<T>(
+  Map<String, T> fixes,
   String userId,
 ) => {...fixes}..remove(userId);
 
@@ -874,11 +974,17 @@ final relayControllerProvider = Provider<RelayController>((ref) {
 /// Latest decrypted position per peer, fed by the relay's `peerFixes` (H2 — the
 /// receive path now terminates somewhere the map watches, not a dead stream).
 /// Keyed by peer user id.
-class LivePresence extends Notifier<Map<String, PeerFix>> {
+class LivePresence extends Notifier<Map<String, PeerMarkerMotion>> {
   @override
-  Map<String, PeerFix> build() {
+  Map<String, PeerMarkerMotion> build() {
     final sub = _ref().peerFixes.listen((fix) {
-      state = {...state, fix.userId: fix};
+      final current = state[fix.userId];
+      state = {
+        ...state,
+        fix.userId: current == null
+            ? PeerMarkerMotion.initial(fix)
+            : current.advance(fix),
+      };
     });
     ref.onDispose(sub.cancel);
     return const {};
@@ -893,7 +999,9 @@ class LivePresence extends Notifier<Map<String, PeerFix>> {
 }
 
 final livePresenceProvider =
-    NotifierProvider<LivePresence, Map<String, PeerFix>>(LivePresence.new);
+    NotifierProvider<LivePresence, Map<String, PeerMarkerMotion>>(
+      LivePresence.new,
+    );
 
 /// Persists the relay queue in secure storage, namespaced per user.
 class _SecureRelayStore implements RelayStore {

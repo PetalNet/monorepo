@@ -11,6 +11,9 @@ import 'package:point_app/features/map/presentation/person_map_sheet.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/map/presentation/self_marker.dart';
 import 'package:point_app/features/people/people_presence.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
+import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/presence_tokens.dart';
@@ -30,30 +33,136 @@ class MapScreen extends ConsumerStatefulWidget {
   ConsumerState<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends ConsumerState<MapScreen> {
+@immutable
+class MapFollowState {
+  const MapFollowState.idle() : userId = null;
+  const MapFollowState.following(this.userId);
+
+  final String? userId;
+
+  bool get isFollowing => userId != null;
+
+  MapFollowState follow(String userId) => MapFollowState.following(userId);
+  MapFollowState onUserGesture() => const MapFollowState.idle();
+
+  @override
+  bool operator ==(Object other) =>
+      other is MapFollowState && other.userId == userId;
+
+  @override
+  int get hashCode => userId.hashCode;
+}
+
+class _MapScreenState extends ConsumerState<MapScreen>
+    with SingleTickerProviderStateMixin {
   final _mapController = MapController();
+  late final AnimationController _cameraAnimation;
   bool _centeredOnSelf = false;
+  bool _mapReady = false;
+  MapFollowState _follow = const MapFollowState.idle();
+  LatLng? _cameraFrom;
+  LatLng? _cameraTarget;
+  double _cameraZoomFrom = MapScreen._neighborhoodZoom;
+  double _cameraZoomTarget = MapScreen._neighborhoodZoom;
+  ({LatLng point, String? followUserId})? _pendingMove;
+
+  @override
+  void initState() {
+    super.initState();
+    _cameraAnimation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+    )..addListener(_onCameraTick);
+  }
 
   @override
   void dispose() {
+    _cameraAnimation.dispose();
     _mapController.dispose();
     super.dispose();
   }
 
-  void _moveTo(LatLng point) =>
+  bool get _reducedMotion {
+    final preference = ref.read(settingsProvider).motion;
+    return preference == MotionPreference.reduced ||
+        (preference == MotionPreference.system &&
+            MediaQuery.disableAnimationsOf(context));
+  }
+
+  void _onCameraTick() {
+    final from = _cameraFrom;
+    final target = _cameraTarget;
+    if (!_mapReady || from == null || target == null) return;
+    final t = Curves.easeOutQuart.transform(_cameraAnimation.value);
+    final point = MapLatLngTween(begin: from, end: target).lerp(t);
+    final zoom = _cameraZoomFrom + (_cameraZoomTarget - _cameraZoomFrom) * t;
+    _mapController.move(point, zoom);
+  }
+
+  void _moveTo(LatLng point, {String? followUserId}) {
+    setState(() {
+      _follow = followUserId == null
+          ? const MapFollowState.idle()
+          : _follow.follow(followUserId);
+    });
+    if (!_mapReady) {
+      _pendingMove = (point: point, followUserId: followUserId);
+      return;
+    }
+    if (_reducedMotion) {
+      _cameraAnimation.stop();
       _mapController.move(point, MapScreen._neighborhoodZoom);
+      return;
+    }
+    _cameraFrom = _mapController.camera.center;
+    _cameraTarget = point;
+    _cameraZoomFrom = _mapController.camera.zoom;
+    _cameraZoomTarget = MapScreen._neighborhoodZoom;
+    _cameraAnimation.forward(from: 0);
+  }
+
+  void _onMapPositionChanged(MapCamera _, bool hasGesture) {
+    if (!hasGesture) return;
+    _cameraAnimation.stop();
+    if (!_follow.isFollowing) return;
+    setState(() => _follow = _follow.onUserGesture());
+  }
+
+  void _onMarkerPosition(String userId, LatLng point) {
+    if (_follow.userId != userId || _cameraAnimation.isAnimating) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_mapReady || _follow.userId != userId) return;
+      _cameraAnimation.stop();
+      _mapController.move(point, _mapController.camera.zoom);
+    });
+  }
+
+  void _onMapReady() {
+    _mapReady = true;
+    final pending = _pendingMove;
+    _pendingMove = null;
+    if (pending == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _moveTo(pending.point, followUserId: pending.followUserId);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final self = ref.watch(selfLocationProvider).value;
     final selfPoint = self != null ? LatLng(self.lat, self.lon) : null;
+    final motions = ref.watch(livePresenceProvider);
+    final reducedMotion = _reducedMotion;
 
     // Start the camera on YOU the first time a fix lands, then never yank it.
     ref.listen(selfLocationProvider, (_, next) {
       final fix = next.value;
       if (fix != null && !_centeredOnSelf) {
         _centeredOnSelf = true;
-        _moveTo(LatLng(fix.lat, fix.lon));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _moveTo(LatLng(fix.lat, fix.lon));
+        });
       }
     });
 
@@ -102,13 +211,34 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
+              onMapReady: _onMapReady,
+              onPositionChanged: _onMapPositionChanged,
             ),
             children: [
               _BasemapLayer(),
-              _PeopleMarkers(people: located, onFocus: _moveTo),
+              _PeopleMarkers(
+                people: located,
+                motions: motions,
+                reducedMotion: reducedMotion,
+                onFocus: (person) => _moveTo(
+                  LatLng(person.lat!, person.lon!),
+                  followUserId: person.userId,
+                ),
+                onPosition: _onMarkerPosition,
+              ),
               if (selfPoint != null) _SelfMarkerLayer(point: selfPoint),
             ],
           ),
+          if (_follow.isFollowing)
+            _FollowBadge(
+              name: located
+                  .where((person) => person.userId == _follow.userId)
+                  .firstOrNull
+                  ?.displayName,
+              onStop: () => setState(
+                () => _follow = _follow.onUserGesture(),
+              ),
+            ),
         ],
       ),
     );
@@ -182,31 +312,153 @@ class _SelfMarkerLayer extends ConsumerWidget {
 /// The sharers' marker layer — isolated so only it rebuilds on presence change.
 /// Tapping a marker opens the compact person sheet.
 class _PeopleMarkers extends StatelessWidget {
-  const _PeopleMarkers({required this.people, required this.onFocus});
+  const _PeopleMarkers({
+    required this.people,
+    required this.motions,
+    required this.reducedMotion,
+    required this.onFocus,
+    required this.onPosition,
+  });
   final List<Person> people;
-  final void Function(LatLng) onFocus;
+  final Map<String, PeerMarkerMotion> motions;
+  final bool reducedMotion;
+  final void Function(Person) onFocus;
+  final void Function(String, LatLng) onPosition;
 
   @override
   Widget build(BuildContext context) {
-    return MarkerLayer(
-      markers: [
-        for (final p in people)
-          Marker(
-            point: LatLng(p.lat!, p.lon!),
-            width: 144,
-            height: 92,
-            alignment: Alignment.topCenter,
-            child: PresenceMarker(
-              person: p,
-              onTap: () => PersonMapSheet.show(
-                context,
-                person: p,
-                onFocus: () => onFocus(LatLng(p.lat!, p.lon!)),
-                onOpenDetail: () => context.push(PersonDetailRoute(p.userId)),
-              ),
+    return Stack(
+      children: [
+        for (final person in people)
+          _AnimatedPersonMarkerLayer(
+            person: person,
+            motion: motions[person.userId],
+            reducedMotion: reducedMotion,
+            onPosition: onPosition,
+            onTap: () => PersonMapSheet.show(
+              context,
+              person: person,
+              onFocus: () => onFocus(person),
+              onOpenDetail: () =>
+                  context.push(PersonDetailRoute(person.userId)),
             ),
           ),
       ],
+    );
+  }
+}
+
+class _AnimatedPersonMarkerLayer extends StatelessWidget {
+  const _AnimatedPersonMarkerLayer({
+    required this.person,
+    required this.motion,
+    required this.reducedMotion,
+    required this.onPosition,
+    required this.onTap,
+  });
+
+  final Person person;
+  final PeerMarkerMotion? motion;
+  final bool reducedMotion;
+  final void Function(String, LatLng) onPosition;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = LatLng(person.lat!, person.lon!);
+    final previous = motion?.previous;
+    final begin = previous?.lat == null || previous?.lon == null
+        ? target
+        : LatLng(previous!.lat!, previous.lon!);
+    return TweenAnimationBuilder<LatLng>(
+      tween: MapLatLngTween(begin: begin, end: target),
+      duration: motion?.duration(reducedMotion: reducedMotion) ?? Duration.zero,
+      curve: Curves.easeOutQuart,
+      builder: (context, point, child) {
+        onPosition(person.userId, point);
+        return MarkerLayer(
+          markers: [
+            Marker(
+              point: point,
+              width: 144,
+              height: 92,
+              alignment: Alignment.topCenter,
+              child: child!,
+            ),
+          ],
+        );
+      },
+      child: PresenceMarker(person: person, onTap: onTap),
+    );
+  }
+}
+
+class MapLatLngTween extends Tween<LatLng> {
+  MapLatLngTween({required super.begin, required super.end});
+
+  @override
+  LatLng lerp(double t) {
+    final start = begin!;
+    final finish = end!;
+    final longitudeDelta =
+        (finish.longitude - start.longitude + 540) % 360 - 180;
+    final longitude = start.longitude + longitudeDelta * t;
+    return LatLng(
+      start.latitude + (finish.latitude - start.latitude) * t,
+      (longitude + 540) % 360 - 180,
+    );
+  }
+}
+
+class _FollowBadge extends StatelessWidget {
+  const _FollowBadge({required this.name, required this.onStop});
+
+  final String? name;
+  final VoidCallback onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: context.space.sm,
+      left: context.space.lg,
+      right: context.space.lg,
+      child: Center(
+        child: Material(
+          color: context.colors.inverseSurface,
+          borderRadius: BorderRadius.circular(context.radii.full),
+          child: InkWell(
+            onTap: onStop,
+            borderRadius: BorderRadius.circular(context.radii.full),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: context.space.md),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.near_me,
+                      color: context.colors.onInverseSurface,
+                    ),
+                    SizedBox(width: context.space.sm),
+                    Text(
+                      name == null ? 'Following' : 'Following $name',
+                      style: context.text.labelLarge?.copyWith(
+                        color: context.colors.onInverseSurface,
+                      ),
+                    ),
+                    SizedBox(width: context.space.sm),
+                    Icon(
+                      Icons.close,
+                      color: context.colors.onInverseSurface,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
