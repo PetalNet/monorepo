@@ -115,6 +115,32 @@ test("keyboard shortcuts focus ask and navigate", async ({ page }) => {
 	await expect(page).toHaveURL(/\/observability$/);
 });
 
+test("command palette searches scoped objects and opens the selected result", async ({ page }) => {
+	await page.goto("/");
+	await page.waitForTimeout(1_000);
+	await page.getByRole("button", { name: "Open command palette" }).click();
+	const palette = page.locator("dialog.palette");
+	await expect(palette).toBeVisible();
+	const search = page.getByRole("combobox", { name: "Search surfaces, objects, and agents" });
+	await expect(search).toBeFocused();
+	await search.fill("carson");
+	await expect(page.getByRole("option", { name: /Carson 2/ })).toBeVisible();
+	await search.press("ArrowDown");
+	await search.press("Enter");
+	await expect(page).toHaveURL(/\/agents\?agent=carson-2$/);
+	await expect(page.getByPlaceholder("Filter residents")).toHaveValue("carson-2");
+});
+
+test("command palette trigger remains available in the collapsed rail", async ({ page }) => {
+	await page.setViewportSize({ width: 1024, height: 768 });
+	await page.goto("/");
+	await page.waitForTimeout(500);
+	await page.getByRole("button", { name: "Open command palette" }).click();
+	await expect(page.locator("dialog.palette")).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(page.locator("dialog.palette")).toBeHidden();
+});
+
 test("phone lens keeps attention and ask while hiding desktop rail", async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto("/");

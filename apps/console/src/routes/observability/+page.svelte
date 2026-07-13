@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from "$app/state";
 	import AskDock from "$lib/components/AskDock.svelte";
 	import Icon from "$lib/components/Icon.svelte";
 	import IconButton from "$lib/components/IconButton.svelte";
@@ -20,6 +21,7 @@
 	let nowMs = $state(Date.now());
 	let autoViz = $state<{ type: string; result: QueryResult | null; loading: boolean; error: boolean } | null>(null);
 	let peekDialog = $state<HTMLDialogElement | null>(null);
+	let handledStat = $state<string | null>(null);
 	const filteredCatalog = $derived(a.catalog.filter((entry) => entry.type.toLowerCase().includes(filter.toLowerCase())));
 	const behind = $derived(Object.values(a.queries).some((q) => isStale(q, nowMs)));
 	const freshnessLag = $derived(lagSeconds(a.queries.freshness, nowMs));
@@ -83,6 +85,14 @@
 		}
 		if (e.key === "f" && !(e.target instanceof HTMLInputElement)) document.querySelector<HTMLInputElement>("#catalog-filter")?.focus();
 	}
+	$effect(() => {
+		const statistic = page.url.searchParams.get("stat");
+		if (!statistic || statistic === handledStat) return;
+		handledStat = statistic;
+		view = "catalog";
+		filter = statistic;
+		if (a.catalog.some((entry) => entry.type === statistic)) void catalogOpen(statistic);
+	});
 </script>
 
 <svelte:window onkeydown={keys} />

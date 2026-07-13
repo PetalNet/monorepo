@@ -274,6 +274,13 @@ raw+archive lake) and `relationships` (statistics joined to materialized edges).
 views publish their direct dimension/measure descriptors in `semantic_views.fields`; validation and
 aggregation use those descriptors, and undeclared columns are not addressable.
 
+`GET /api/v1/palette/search?q=<text>&limit=<1..32>` is the shell's bounded, scope-filtered object
+retrieval seam. It ranks visible agents, tasks, Library items, hosts, and semantic statistics into a
+single deterministic result shape (`id`, `kind`, `label`, `description`, `href`, `meta`, `score`) in
+a read envelope whose `freshness` records the palette assembly time.
+Each source fails independently and is reported as `live|unavailable`; static surfaces and safe
+navigation actions remain in the frontend because they carry no operational data or authorization.
+
 ### 3.3 Typed entity reads — `GET /api/v1/<entity>`
 
 Every read returns the `read-envelope` (freshness + items + pagination). **Every entity item

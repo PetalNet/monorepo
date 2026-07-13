@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from "$app/state";
 	import type { HeartbeatItem, RosterItem } from "$lib/api/types";
 	import FleetStrip from "$lib/components/FleetStrip.svelte";
 	import Icon from "$lib/components/Icon.svelte";
@@ -14,7 +15,7 @@
 	const now = $derived(clockNow());
 	const roster = $derived(deriveRoster(a.roster, now));
 
-	let filter = $state("");
+	let filter = $state(page.url.searchParams.get("agent") ?? "");
 	let view = $state<"residents" | "architects">("residents");
 	function match(rows: RosterItem[]): RosterItem[] {
 		const q = filter.trim().toLowerCase();

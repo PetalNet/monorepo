@@ -53,6 +53,30 @@ function bodyFor(path, method) {
 		]);
 	if (path === "/api/v1/box-updates") return envelope([]);
 	if (path === "/api/v1/catalog") return envelope([]);
+	if (path === "/api/v1/palette/search")
+		return {
+			schema_version: 1,
+			freshness: { source: "palette", observed_at: new Date().toISOString(), window_s: 0 },
+			query: "carson",
+			items: [
+				{
+					id: "agent:carson-2",
+					kind: "agent",
+					label: "Carson 2",
+					description: "@carson-2 · builder · .14",
+					href: "/agents?agent=carson-2",
+					meta: "resident",
+					score: 200,
+				},
+			],
+			sources: {
+				agents: "live",
+				tasks: "live",
+				library: "live",
+				hosts: "live",
+				statistics: "live",
+			},
+		};
 	if (path === "/api/v1/assistant/messages" && method === "POST")
 		return {
 			schema_version: 1,

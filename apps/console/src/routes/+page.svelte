@@ -229,7 +229,7 @@
 	{:else}
 		<div class="home-grid" oncontextmenu={askAboutClick} role="presentation">
 			<div class="home-main">
-				<div data-ask="Town Hall, the attention board">
+				<div id="attention" data-ask="Town Hall, the attention board">
 					<TownHall items={c.attention} lanes={data.me.lanes} />
 				</div>
 				<div class="phone-hide"><SavedDashboards items={c.saved} lanes={data.me.lanes} userId={data.me.id} /></div>

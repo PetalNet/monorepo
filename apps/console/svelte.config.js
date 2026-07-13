@@ -11,7 +11,9 @@ const config = {
 	compilerOptions: { experimental: { async: true } },
 	kit: {
 		adapter: adapter(),
-		experimental: { remoteFunctions: true },
+		experimental: {
+			remoteFunctions: true,
+		},
 		csp: {
 			mode: "auto",
 			directives: {
@@ -25,6 +27,7 @@ const config = {
 				"object-src": ["none"],
 				"script-src": ["self", ...(e2e ? ["unsafe-inline"] : [])],
 				"style-src": ["self", "unsafe-inline"],
+				"worker-src": ["self", "blob:"],
 			},
 		},
 	},

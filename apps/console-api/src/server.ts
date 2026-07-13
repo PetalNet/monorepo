@@ -41,6 +41,7 @@ import {
 	listDashboards,
 	loadDashboard,
 	readLibraryItem,
+	searchLibraryPaletteItems,
 	saveDashboard,
 } from "./dashboard/store.ts";
 import { withScopes } from "./db/pool.ts";
@@ -53,8 +54,10 @@ import {
 	sanitizedException,
 	type ExceptionMonitor,
 } from "./observability.ts";
+import { rankPaletteCandidates, type PaletteCandidate } from "./palette/search.ts";
 import { readQueryRecord } from "./query/history.ts";
 import { runStructured, QueryError, type QueryRequest } from "./query/structured.ts";
+import { searchEntity } from "./reads/entities.ts";
 import { readRoster, readExecutors } from "./reads/roster.ts";
 import { registerEntityReadRoutes } from "./reads/routes.ts";
 import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
@@ -2209,6 +2212,163 @@ export async function buildServer(
 			Number(query.limit ?? 8),
 		);
 		return { schema_version: 1, items };
+	});
+
+	// --- global command palette ------------------------------------------------------------------
+	// One scope-filtered retrieval seam for the shell. Surfaces and safe quick actions stay local
+	// (they are static capability-aware navigation); operational objects are always read as-caller.
+	app.get("/api/v1/palette/search", { preHandler: auth }, async (req, reply) => {
+		const principal = req.principal as Principal;
+		const query = req.query as Record<string, unknown>;
+		const text = typeof query["q"] === "string" ? query["q"].trim() : "";
+		if (!text || text.length > 100)
+			return reply.code(400).send({
+				error: {
+					code: "bad_palette_query",
+					message: "q is required (max 100 chars)",
+					retryable: false,
+				},
+			});
+		const rawLimit = query["limit"];
+		if (
+			rawLimit !== undefined &&
+			(typeof rawLimit !== "string" ||
+				!/^\d+$/.test(rawLimit) ||
+				Number(rawLimit) < 1 ||
+				Number(rawLimit) > 32)
+		)
+			return reply.code(400).send({
+				error: {
+					code: "bad_palette_query",
+					message: "limit must be an integer from 1 to 32",
+					retryable: false,
+				},
+			});
+		const limit = rawLimit === undefined ? 24 : Number(rawLimit);
+		const [agents, tasks, library, hosts, statistics] = await Promise.allSettled([
+			Promise.resolve().then(() =>
+				services.tracker ? readAgents(services.tracker, principal.scopes).items : [],
+			),
+			Promise.resolve().then(() =>
+				services.tracker ? readTasks(services.tracker, principal.scopes).items : [],
+			),
+			searchLibraryPaletteItems(services.db.app, principal.scopes, text, limit),
+			searchEntity(services.db.app, principal.scopes, "box_update", text, limit),
+			searchSemanticCorpus(services.db.app, principal.scopes, text, limit, "statistic"),
+		]);
+
+		const candidates: PaletteCandidate[] = [];
+		if (agents.status === "fulfilled") {
+			for (const agent of agents.value) {
+				const handle = String(agent["handle"] ?? "");
+				if (!handle) continue;
+				const displayName = String(agent["display_name"] ?? handle);
+				const host = typeof agent["host"] === "string" ? agent["host"] : null;
+				const role = typeof agent["role"] === "string" ? agent["role"] : "agent";
+				candidates.push({
+					id: `agent:${handle}`,
+					kind: "agent",
+					label: displayName,
+					description: `@${handle} · ${role}${host ? ` · ${host}` : ""}`,
+					href: `/agents?agent=${encodeURIComponent(handle)}`,
+					keywords: [handle, role, host ?? "", String(agent["capabilities"] ?? "")],
+					meta: agent["active"] === 0 ? "inactive" : "resident",
+				});
+			}
+		}
+		if (tasks.status === "fulfilled") {
+			for (const task of tasks.value) {
+				const id = Number(task["id"]);
+				const title = String(task["title"] ?? "");
+				if (!Number.isSafeInteger(id) || id < 1 || !title) continue;
+				const status = String(task["status"] ?? "unknown");
+				const project = typeof task["project_name"] === "string" ? task["project_name"] : null;
+				const owner = String(
+					task["claimed_by"] ?? task["assignee"] ?? task["owner"] ?? "unassigned",
+				);
+				candidates.push({
+					id: `task:${String(id)}`,
+					kind: "task",
+					label: title,
+					description: `/task/${String(id)} · ${status}${project ? ` · ${project}` : ""}`,
+					href: `/work?task=${String(id)}`,
+					keywords: [String(id), status, project ?? "", owner],
+					meta: owner,
+				});
+			}
+		}
+		if (library.status === "fulfilled") {
+			const items = Array.isArray(library.value["items"])
+				? (library.value["items"] as Record<string, unknown>[])
+				: [];
+			for (const item of items) {
+				const id = String(item["id"] ?? "");
+				const title = String(item["title"] ?? "");
+				if (!id || !title) continue;
+				const kind = String(item["kind"] ?? "item");
+				const project = String(item["project"] ?? "unfiled");
+				candidates.push({
+					id: `library:${id}`,
+					kind: "library",
+					label: title,
+					description: `${kind} · ${project}`,
+					href: `/library?item=${encodeURIComponent(id)}`,
+					keywords: [id, kind, project, String(item["status"] ?? "")],
+					meta: String(item["status"] ?? ""),
+				});
+			}
+		}
+		if (hosts.status === "fulfilled") {
+			for (const host of hosts.value.items) {
+				const hostname = String(host["hostname"] ?? host["box_id"] ?? host["subject"] ?? "");
+				if (!hostname) continue;
+				const status = String(host["status"] ?? "unknown").replaceAll("_", " ");
+				candidates.push({
+					id: `host:${hostname}`,
+					kind: "host",
+					label: hostname,
+					description: `Host · ${status}`,
+					href: `/hosts?host=${encodeURIComponent(hostname)}`,
+					keywords: [String(host["box_id"] ?? ""), status, String(host["os_family"] ?? "")],
+					meta: String(host["last_checked_at"] ?? host["observed_at"] ?? ""),
+				});
+			}
+		}
+		if (statistics.status === "fulfilled") {
+			for (const statistic of statistics.value) {
+				if (statistic.kind !== "statistic") continue;
+				candidates.push({
+					id: `statistic:${statistic.source_ref}`,
+					kind: "statistic",
+					label: statistic.source_ref,
+					description: statistic.content.slice(0, 120),
+					href: `/observability?stat=${encodeURIComponent(statistic.source_ref)}`,
+					keywords: [statistic.kind, statistic.content],
+					meta: statistic.kind,
+				});
+			}
+		}
+
+		const sourceRanked = ["agent", "task", "library", "host", "statistic"].flatMap((kind) =>
+			rankPaletteCandidates(
+				text,
+				candidates.filter((candidate) => candidate.kind === kind),
+				limit,
+			),
+		);
+		return {
+			schema_version: 1,
+			freshness: { source: "palette", observed_at: new Date().toISOString(), window_s: 0 },
+			query: text,
+			items: rankPaletteCandidates(text, sourceRanked, limit),
+			sources: {
+				agents: agents.status === "fulfilled" && services.tracker ? "live" : "unavailable",
+				tasks: tasks.status === "fulfilled" && services.tracker ? "live" : "unavailable",
+				library: library.status === "fulfilled" ? "live" : "unavailable",
+				hosts: hosts.status === "fulfilled" ? "live" : "unavailable",
+				statistics: statistics.status === "fulfilled" ? "live" : "unavailable",
+			},
+		};
 	});
 
 	// --- typed entity reads (RLS-scoped projections, N1b) -----------------------------------------

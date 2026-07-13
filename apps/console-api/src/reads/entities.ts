@@ -105,6 +105,66 @@ export async function readEntity(
 	}));
 }
 
+/** Scope-filtered fuzzy retrieval for command surfaces; ranking occurs before the source limit. */
+export async function searchEntity(
+	app: Sql,
+	scopes: readonly string[],
+	kind: ProjectionKind,
+	query: string,
+	limit = 32,
+): Promise<ReadEnvelope> {
+	const needle = query.trim().toLocaleLowerCase();
+	const escaped = needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+	const subsequence = `%${[...needle]
+		.map((character) =>
+			character.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_"),
+		)
+		.join("%")}%`;
+	const bounded = Math.min(Math.max(1, Math.floor(limit)), 32);
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<StateRow[]>`
+			select subject, state, observed_at, unreachable_since, seq
+			from current_state
+			where kind = ${kind}
+			  and lower(concat_ws(' ', subject, state::text)) like ${subsequence} escape E'\\\\'
+			order by
+			  (lower(subject) = ${needle}) desc,
+			  (lower(subject) like ${`${escaped}%`} escape E'\\\\') desc,
+			  (position(${needle} in lower(concat_ws(' ', subject, state::text))) > 0) desc,
+			  char_length(subject) asc, subject asc
+			limit ${bounded + 1}`,
+	);
+	const page = rows.slice(0, bounded);
+	let newest = "1970-01-01T00:00:00Z";
+	const items = page.map((row) => {
+		const observedAt =
+			typeof row.observed_at === "string"
+				? row.observed_at
+				: new Date(row.observed_at).toISOString();
+		if (observedAt > newest) newest = observedAt;
+		return {
+			...row.state,
+			subject: row.subject,
+			observed_at: observedAt,
+			unreachable_since:
+				row.unreachable_since === null
+					? null
+					: typeof row.unreachable_since === "string"
+						? row.unreachable_since
+						: new Date(row.unreachable_since).toISOString(),
+		};
+	});
+	return {
+		schema_version: 1,
+		freshness: { source: "lake", observed_at: newest, window_s: null },
+		items,
+		next_cursor: null,
+		truncated: rows.length > page.length,
+	};
+}
+
 /** Read a typed projection without leaking projector-only subject/freshness fields into the item. */
 export async function readTypedEntity(
 	app: Sql,

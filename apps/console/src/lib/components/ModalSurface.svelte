@@ -3,7 +3,7 @@
 
 	interface Props {
 		open: boolean;
-		variant: "dialog" | "drawer";
+		variant: "dialog" | "drawer" | "palette";
 		labelledby: string;
 		children: Snippet;
 		onclose?: () => void;
@@ -47,6 +47,7 @@
 	.modal-surface::backdrop{background:color-mix(in srgb,var(--text) 24%,transparent)}
 	.modal-surface :global(.dialog-close){position:absolute;right:var(--s-3);top:var(--s-3)}
 	.dialog{width:480px;max-width:calc(100% - var(--s-5));max-height:calc(100dvh - var(--s-5));margin:auto;background:var(--s2);border-radius:var(--r-lg)}
+	.palette{width:640px;max-width:calc(100% - var(--s-5));max-height:min(680px,calc(100dvh - var(--s-5)));margin:10dvh auto auto;padding:0;background:var(--s1);border-radius:var(--r-lg);overflow:hidden}
 	.drawer{inset:0 0 0 auto;width:420px;max-width:calc(100% - var(--s-4));height:100dvh;max-height:none;margin:0;background:var(--s1);border-radius:var(--r-lg) 0 0 var(--r-lg)}
-	@media(max-width:767px){.drawer{width:100%;max-width:100%;border-radius:0}}
+	@media(max-width:767px){.drawer{width:100%;max-width:100%;border-radius:0}.palette{inset:0;width:100%;max-width:100%;max-height:100dvh;height:100dvh;margin:0;border-radius:0}}
 </style>

@@ -647,6 +647,45 @@ export async function listLibraryItems(
 	};
 }
 
+/** Scope-filtered fuzzy Library retrieval for the global palette. */
+export async function searchLibraryPaletteItems(
+	app: Sql,
+	scopes: readonly string[],
+	query: string,
+	limit = 32,
+): Promise<Record<string, unknown>> {
+	const needle = query.trim().toLocaleLowerCase();
+	const escaped = needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+	const subsequence = `%${[...needle]
+		.map((character) =>
+			character.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_"),
+		)
+		.join("%")}%`;
+	const bounded = Math.min(Math.max(1, Math.floor(limit)), 32);
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<LibraryItemRow[]>`
+			select i.*, 0::real as rank
+			from library_items i
+			where lower(concat_ws(' ', i.title, i.kind, i.project, i.status, i.properties->>'body'))
+			  like ${subsequence} escape E'\\\\'
+			order by
+			  (lower(i.title) = ${needle}) desc,
+			  (lower(i.title) like ${`${escaped}%`} escape E'\\\\') desc,
+			  (position(${needle} in lower(i.title)) > 0) desc,
+			  char_length(i.title) asc, i.updated_at desc, i.id desc
+			limit ${bounded}`,
+	);
+	return {
+		schema_version: 1,
+		freshness: { source: "library", observed_at: new Date().toISOString(), window_s: 60 },
+		items: rows.map(libraryItemEnvelope),
+		next_cursor: null,
+		truncated: false,
+	};
+}
+
 export async function readLibraryItem(
 	app: Sql,
 	scopes: readonly string[],
