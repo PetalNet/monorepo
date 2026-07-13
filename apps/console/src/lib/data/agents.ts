@@ -68,6 +68,8 @@ export function mockArchitects(): HeartbeatItem[] {
 				pid: 2_000 + index,
 				state: row.heartbeat_state,
 				session_id: `mock-${row.handle}`,
+				tmux_session: `agent-${row.handle}`,
+				pane_id: `%${String(index + 1)}`,
 				io_ok: row.channel_lock_state !== "lockout",
 				crash_count: row.crash_count ?? 0,
 				started_at_epoch: Math.floor(Date.parse(row.started_at ?? row.updated_at) / 1_000),

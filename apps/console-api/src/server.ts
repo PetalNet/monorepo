@@ -927,6 +927,7 @@ export async function buildServer(
 	type TerminalSession = {
 		principalId: string;
 		target: TerminalTarget;
+		writable: boolean;
 		attached: boolean;
 		closed: boolean;
 		seq: number;
@@ -996,6 +997,21 @@ export async function buildServer(
 		if (!principal.lanes.includes("term_admin")) return "term_admin lane required";
 		if (!(await hasGrant(principal, "fleet", "owner"))) return "owner relation required on fleet";
 		return null;
+	}
+
+	async function visibleResidentTarget(
+		principal: Principal,
+		target: TerminalTarget,
+	): Promise<boolean> {
+		const heartbeats = await readEntity(services.db.app, principal.scopes, "heartbeat", {
+			limit: 1000,
+		});
+		return heartbeats.items.some(
+			(item) =>
+				item["host"] === target.host &&
+				item["tmux_session"] === target.tmuxSession &&
+				item["pane_id"] === target.paneId,
+		);
 	}
 
 	async function ownedTerminalSession(
@@ -3081,6 +3097,135 @@ export async function buildServer(
 	);
 
 	app.post(
+		"/api/v1/terminal/peek",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const principal = req.principal as Principal;
+			const denial = await authorizeTerminal(principal);
+			if (denial) {
+				const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
+				return reply.code(auditSeq === null ? 503 : 403).send({
+					error: {
+						code: auditSeq === null ? "audit_unavailable" : "term_denied",
+						message: auditSeq === null ? "terminal denial could not be retained" : denial,
+						retryable: auditSeq === null,
+					},
+				});
+			}
+			const parsed = terminalTargetSchema.safeParse(req.body);
+			if (!parsed.success)
+				return reply.code(400).send({
+					error: { code: "invalid_target", message: "invalid terminal target", retryable: false },
+				});
+			if (!(await terminal.health()))
+				return reply.code(503).send({
+					error: { code: "pty_unavailable", message: "PTY adapter unavailable", retryable: true },
+				});
+			const streamId = crypto.randomUUID();
+			const target: TerminalTarget = {
+				host: parsed.data.host,
+				tmuxSession: parsed.data.tmux_session,
+				paneId: parsed.data.pane_id,
+			};
+			if (!(await visibleResidentTarget(principal, target)))
+				return reply.code(404).send({
+					error: {
+						code: "pane_not_visible",
+						message: "resident terminal pane is not visible",
+						retryable: false,
+					},
+				});
+			const auditSeq = await emitTerminalAudit(principal, "watch", target, streamId);
+			if (auditSeq === null)
+				return reply.code(503).send({
+					error: {
+						code: "audit_unavailable",
+						message: "watch audit could not be retained",
+						retryable: true,
+					},
+				});
+			const session: TerminalSession = {
+				principalId: principal.id,
+				target,
+				writable: false,
+				attached: false,
+				closed: false,
+				seq: 0,
+				timer: null,
+				end: () => {},
+			};
+			terminalSessions.set(streamId, session);
+			session.timer = setTimeout(() => {
+				session.closed = true;
+				terminalSessions.delete(streamId);
+			}, 30_000);
+			session.timer.unref();
+			try {
+				const snapshot = await terminal.capture(target, parsed.data.scrollback_lines);
+				session.seq += 1;
+				return {
+					schema_version: 1,
+					stream_id: streamId,
+					seq: session.seq,
+					audit_seq: auditSeq,
+					data_b64: snapshot.toString("base64"),
+				};
+			} catch (error) {
+				if (session.timer) clearTimeout(session.timer);
+				terminalSessions.delete(streamId);
+				monitor.captureException(sanitizedException(error));
+				return reply.code(502).send({
+					error: {
+						code: "pty_capture_failed",
+						message: "terminal capture failed",
+						retryable: true,
+					},
+				});
+			}
+		},
+	);
+
+	app.get(
+		"/api/v1/terminal/peek/:streamId",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 120, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const session = await ownedTerminalSession(req, reply);
+			if (!session) return reply;
+			if (session.timer) clearTimeout(session.timer);
+			session.timer = setTimeout(() => {
+				session.closed = true;
+				terminalSessions.delete((req.params as { streamId: string }).streamId);
+			}, 30_000);
+			session.timer.unref();
+			try {
+				const snapshot = await terminal.capture(session.target, 10_000);
+				session.seq += 1;
+				return {
+					schema_version: 1,
+					stream_id: (req.params as { streamId: string }).streamId,
+					seq: session.seq,
+					data_b64: snapshot.toString("base64"),
+				};
+			} catch (error) {
+				monitor.captureException(sanitizedException(error));
+				return reply.code(502).send({
+					error: {
+						code: "pty_capture_failed",
+						message: "terminal capture failed",
+						retryable: true,
+					},
+				});
+			}
+		},
+	);
+
+	app.post(
 		"/api/v1/terminal/streams",
 		{
 			preHandler: [auth, opRateLimit],
@@ -3127,6 +3272,7 @@ export async function buildServer(
 			const session: TerminalSession = {
 				principalId: principal.id,
 				target,
+				writable: true,
 				attached: false,
 				closed: false,
 				seq: 0,
@@ -3217,6 +3363,14 @@ export async function buildServer(
 		async (req, reply) => {
 			const session = await ownedTerminalSession(req, reply);
 			if (!session) return reply;
+			if (!session.writable)
+				return reply.code(409).send({
+					error: {
+						code: "watch_only",
+						message: "read-only peek sessions cannot attach",
+						retryable: false,
+					},
+				});
 			const principal = req.principal as Principal;
 			const streamId = (req.params as { streamId: string }).streamId;
 			const auditSeq = await emitTerminalAudit(principal, "attach", session.target, streamId);

@@ -1,14 +1,19 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import { onMount } from "svelte";
 	import type { HeartbeatItem, RosterItem } from "$lib/api/types";
 	import FleetStrip from "$lib/components/FleetStrip.svelte";
 	import Icon from "$lib/components/Icon.svelte";
+	import IconButton from "$lib/components/IconButton.svelte";
+	import ModalSurface from "$lib/components/ModalSurface.svelte";
+	import PTYView from "$lib/components/PTYView.svelte";
 	import RosterRow from "$lib/components/RosterRow.svelte";
 	import SurfaceSign from "$lib/components/SurfaceSign.svelte";
 	import StatusPill from "$lib/components/StatusPill.svelte";
 	import { deriveRoster } from "$lib/data/agents";
 	import { clockNow } from "$lib/stores/clock.svelte";
 	import CommsLog from "./CommsLog.svelte";
+	import { closeTerminalPeek, openTerminalPeek, pollTerminalPeek } from "./terminal-peek.remote";
 
 	let { data } = $props();
 	const a = $derived(data.agents);
@@ -19,6 +24,26 @@
 	let filter = $state(page.url.searchParams.get("agent") ?? "");
 	let view = $state<"residents" | "architects">("residents");
 	let correspondenceOpen = $state(page.url.searchParams.has("comms"));
+	let peekSession = $state<HeartbeatItem | null>(null);
+	let peekDialog = $state<HTMLDialogElement | null>(null);
+	let peekStreamId = $state<string | null>(null);
+	let peekLines = $state<string[]>([]);
+	let peekSeq = $state(0);
+	let peekState = $state<"connecting" | "live" | "stalled" | "ended" | "error">("connecting");
+	let peekError = $state<string | null>(null);
+	let peekGeneration = 0;
+	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+	let stallTimer: ReturnType<typeof setTimeout> | null = null;
+	const decoder = new TextDecoder();
+	const canPeek = $derived(data.me.lanes.includes("term_admin"));
+	const residentSessions = $derived.by(() => {
+		const sessions = new Map<string, HeartbeatItem>();
+		for (const heartbeat of data.architects) {
+			if (heartbeat.handle && heartbeat.tmux_session && heartbeat.pane_id)
+				sessions.set(heartbeat.handle, heartbeat);
+		}
+		return sessions;
+	});
 	function match(rows: RosterItem[]): RosterItem[] {
 		const q = filter.trim().toLowerCase();
 		return q ? rows.filter((r) => r.handle.toLowerCase().includes(q)) : rows;
@@ -74,12 +99,89 @@
 	function managerStale(heartbeat: HeartbeatItem): boolean {
 		return now - Date.parse(heartbeat.observed_at) > 90_000;
 	}
+	function peekDisabledReason(heartbeat: HeartbeatItem): string | null {
+		if (now - Date.parse(heartbeat.observed_at) > 300_000) return "Manager command lane is not answering";
+		if (!heartbeat.io_ok) return "Resident pane I/O is unavailable";
+		return null;
+	}
 	function flipKey(event: KeyboardEvent) {
 		if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
 		event.preventDefault();
 		view = view === "residents" ? "architects" : "residents";
 		(event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLElement>(`[data-view="${view}"]`)?.focus();
 	}
+	function decodeSnapshot(encoded: string): string[] {
+		const raw = atob(encoded);
+		return decoder.decode(Uint8Array.from(raw, (character) => character.charCodeAt(0))).split("\n").slice(-10_000);
+	}
+	function schedulePoll(generation: number) {
+		pollTimer = setTimeout(() => void pollPeek(generation), 1_000);
+	}
+	async function pollPeek(generation: number) {
+		if (generation !== peekGeneration || !peekStreamId) return;
+		stallTimer = setTimeout(() => {
+			if (generation === peekGeneration) peekState = "stalled";
+		}, 5_000);
+		try {
+			const snapshot = await pollTerminalPeek({ stream_id: peekStreamId, tick: peekSeq });
+			if (generation !== peekGeneration) return;
+			if (stallTimer) clearTimeout(stallTimer);
+			stallTimer = null;
+			peekLines = decodeSnapshot(snapshot.data_b64);
+			peekSeq = snapshot.seq;
+			peekState = "live";
+			peekError = null;
+			schedulePoll(generation);
+		} catch (cause) {
+			if (generation !== peekGeneration) return;
+			if (stallTimer) clearTimeout(stallTimer);
+			stallTimer = null;
+			peekState = "error";
+			peekError = cause instanceof Error ? cause.message : "pty_unavailable";
+		}
+	}
+	async function watchSession(session: HeartbeatItem) {
+		await closePeek();
+		peekSession = session;
+		peekState = "connecting";
+		peekLines = [];
+		peekSeq = 0;
+		peekError = null;
+		const generation = ++peekGeneration;
+		try {
+			const snapshot = await openTerminalPeek({ host: session.host, tmux_session: session.tmux_session!, pane_id: session.pane_id! });
+			if (generation !== peekGeneration) {
+				await closeTerminalPeek({ stream_id: snapshot.stream_id }).catch(() => undefined);
+				return;
+			}
+			peekStreamId = snapshot.stream_id;
+			peekSeq = snapshot.seq;
+			peekLines = decodeSnapshot(snapshot.data_b64);
+			peekState = "live";
+			schedulePoll(generation);
+		} catch (cause) {
+			if (generation !== peekGeneration) return;
+			peekState = "error";
+			peekError = cause instanceof Error ? cause.message : "pty_unavailable";
+		}
+	}
+	async function closePeek() {
+		peekGeneration += 1;
+		if (pollTimer) clearTimeout(pollTimer);
+		if (stallTimer) clearTimeout(stallTimer);
+		pollTimer = null;
+		stallTimer = null;
+		const streamId = peekStreamId;
+		peekStreamId = null;
+		peekSession = null;
+		if (streamId) await closeTerminalPeek({ stream_id: streamId }).catch(() => undefined);
+	}
+	onMount(() => () => {
+		peekGeneration += 1;
+		if (pollTimer) clearTimeout(pollTimer);
+		if (stallTimer) clearTimeout(stallTimer);
+		if (peekStreamId) void closeTerminalPeek({ stream_id: peekStreamId }).catch(() => undefined);
+	});
 </script>
 
 <div class="util">
@@ -131,7 +233,8 @@
 					<span class="count">{lane.rows.length}</span>
 				</div>
 				{#each lane.rows as row (row.handle)}
-					<RosterRow {row} lanes={data.me.lanes} {now} />
+					{@const residentSession = canPeek ? residentSessions.get(row.handle) : null}
+					<RosterRow {row} lanes={data.me.lanes} {now} session={residentSession} peekDisabledReason={residentSession ? peekDisabledReason(residentSession) : null} onwatch={watchSession} />
 				{/each}
 			{/if}
 		{/each}
@@ -154,7 +257,7 @@
 					<div><dt>Observed</dt><dd>{new Date(architect.heartbeat.observed_at).toLocaleTimeString()}</dd></div>
 				</dl>
 				<div class="residents"><span>Residents</span>{#each architect.residents as resident}<a href="/agents?agent={resident}">{resident}</a>{:else}<em>No resident handle reported</em>{/each}</div>
-				<p>Architect present. Supervising {architect.residents.length} resident{architect.residents.length === 1 ? "" : "s"}.</p>
+				<footer class="architect-foot"><p>Architect present. Supervising {architect.residents.length} resident{architect.residents.length === 1 ? "" : "s"}.</p>{#if canPeek && architect.heartbeat.tmux_session && architect.heartbeat.pane_id}<button type="button" disabled={peekDisabledReason(architect.heartbeat) !== null} title={peekDisabledReason(architect.heartbeat) ?? "Watch read-only terminal"} onclick={() => watchSession(architect.heartbeat)}><Icon name="eye" size={13} />Watch session</button>{/if}</footer>
 			</section>
 		{:else}
 			<div class="unverified"><Icon name="circle-help" size={20} /><p>{data.sources.managers === "unavailable" ? "Manager heartbeat read unavailable." : "No manager heartbeats are visible."}</p></div>
@@ -166,6 +269,16 @@
 {#if correspondenceOpen}
 	<div id="correspondence-region"><CommsLog /></div>
 {/if}
+
+<ModalSurface bind:element={peekDialog} open={peekSession !== null} variant="drawer" size="wide" labelledby="terminal-peek-title" onclose={closePeek}>
+	{#if peekSession}
+		<div class="peek-drawer">
+			<IconButton class="dialog-close" name="x" label="Close terminal peek" autofocus onclick={() => peekDialog?.close()} />
+			<div class="peek-title"><Icon name="eye" size={16} /><div><h2 id="terminal-peek-title">Watch {peekSession.handle ?? "resident"}</h2><p>Read-only live terminal</p></div></div>
+			<PTYView session={peekSession} lines={peekLines} state={peekState} seq={peekSeq} errorCode={peekError} onretry={() => watchSession(peekSession!)} />
+		</div>
+	{/if}
+</ModalSurface>
 
 <style>
 	.util {
@@ -274,6 +387,12 @@
 	.architect dt { color: var(--text-3); font: 500 0.6875rem var(--mono); }
 	.architect dd { margin: 2px 0 0; color: var(--text-2); font: 500 0.75rem var(--mono); overflow-wrap: anywhere; }
 	.architect dd.danger { color: var(--danger-text); }
+	.architect-foot { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); }
+	.architect-foot p { margin: 0; flex: 1; }
+	.architect-foot button { min-height: 32px; padding: 0 var(--s-2); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); display: inline-flex; align-items: center; gap: var(--s-1); font: 500 0.75rem var(--sans); }
+	.architect-foot button:hover { background: var(--s2); }
+	.architect-foot button:disabled { color: var(--text-3); cursor: not-allowed; }
+	.architect-foot button:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
 	.residents { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2); padding-top: var(--s-3); border-top: 1px solid var(--rule); }
 	.residents span { color: var(--text-3); font: 500 0.6875rem var(--mono); }
 	.residents a { min-height: 32px; display: inline-flex; align-items: center; padding: 0 var(--s-2); border-radius: var(--r-pill); background: var(--s2); color: var(--text-2); font: 500 0.6875rem var(--mono); text-decoration: none; }
@@ -321,4 +440,8 @@
 		color: var(--text-2);
 		max-width: 46ch;
 	}
+	.peek-drawer { display: grid; gap: var(--s-4); min-width: 0; }
+	.peek-title { min-height: 40px; display: flex; align-items: center; gap: var(--s-2); padding-right: var(--s-5); }
+	.peek-title h2 { margin: 0; font: 500 0.875rem var(--sans); }
+	.peek-title p { margin: 2px 0 0; color: var(--text-3); font: 400 0.6875rem var(--mono); }
 </style>

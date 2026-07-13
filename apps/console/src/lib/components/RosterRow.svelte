@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { humanAge, rosterState, rosterTone } from "$lib/api/derive";
 	import { opDef } from "$lib/api/ops";
-	import type { RosterItem } from "$lib/api/types";
+	import type { HeartbeatItem, RosterItem } from "$lib/api/types";
+	import Icon from "./Icon.svelte";
 	import { hueForHandle, initial } from "$lib/util";
 	import BudgetLight from "./BudgetLight.svelte";
 	import Countdown from "./Countdown.svelte";
@@ -20,8 +21,11 @@
 		row: RosterItem;
 		lanes: string[];
 		now?: number;
+		session?: HeartbeatItem | null;
+		peekDisabledReason?: string | null;
+		onwatch?: (session: HeartbeatItem) => void;
 	}
-	let { row, lanes, now = Date.now() }: Props = $props();
+	let { row, lanes, now = Date.now(), session = null, peekDisabledReason = null, onwatch }: Props = $props();
 
 	let menuOpen = $state(false);
 
@@ -68,6 +72,11 @@
 		<IconButton name="ellipsis" label="Actions for {row.handle}" onclick={() => (menuOpen = !menuOpen)} />
 		{#if menuOpen}
 			<div class="menu" role="menu">
+				{#if session?.tmux_session && session.pane_id && onwatch}
+					<button class="menu-action" role="menuitem" disabled={peekDisabledReason !== null} title={peekDisabledReason ?? "Watch read-only terminal"} onclick={() => { menuOpen = false; onwatch?.(session!); }}>
+						<Icon name="eye" size={13} />Watch session
+					</button>
+				{/if}
 				{#if restart}
 					<OpButton def={restart} args={{ handle: row.handle }} {lanes} variant="ghost" />
 				{/if}
@@ -171,6 +180,21 @@
 		gap: 2px;
 		min-width: 140px;
 	}
+	.menu-action {
+		min-height: 32px;
+		padding: 0 var(--s-2);
+		border: 0;
+		border-radius: var(--r-sm);
+		background: transparent;
+		color: var(--text);
+		display: flex;
+		align-items: center;
+		gap: var(--s-2);
+		font: 500 0.75rem var(--sans);
+	}
+	.menu-action:hover { background: var(--s2); }
+	.menu-action:disabled { color: var(--text-3); cursor: not-allowed; }
+	.menu-action:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
 	@media (max-width: 767px) {
 		.row {
 			grid-template-columns: 24px minmax(0, 1fr) auto;

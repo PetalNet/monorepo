@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from "$app/state";
 	import { onMount } from "svelte";
 	import {
 		connectTerminal,
@@ -45,6 +46,13 @@
 	onMount(() => {
 		const updateViewport = () => keyboardViewport = globalThis.innerWidth >= 1024;
 		updateViewport();
+		const requested = {
+			host: page.url.searchParams.get("host"),
+			session: page.url.searchParams.get("session"),
+			pane: page.url.searchParams.get("pane"),
+		};
+		const handedOff = data.sessions.find((candidate) => candidate.host === requested.host && candidate.tmux_session === requested.session && candidate.pane_id === requested.pane);
+		if (handedOff) void watch(handedOff);
 		const clock = globalThis.setInterval(() => now = Date.now(), 1000);
 		globalThis.addEventListener("resize", updateViewport);
 		return () => { stopFrames?.(); globalThis.clearInterval(clock); globalThis.removeEventListener("resize", updateViewport); };
