@@ -437,8 +437,59 @@ const STATEMENTS: readonly string[] = [
 	`create table if not exists tiers (
 	   name            text primary key,
 	   authentik_group text,
+	   description     text not null default '',
+	   default_relations jsonb not null default '[]'::jsonb,
 	   propose_only    boolean not null default false
 	 )`,
+	`alter table tiers add column if not exists description text not null default ''`,
+	`alter table tiers add column if not exists default_relations jsonb not null default '[]'::jsonb`,
+	`update tiers set
+	   description = case name
+	     when 'owner' then 'Full administration of explicitly visible resources.'
+	     when 'moderator' then 'Operate explicitly visible resources without changing ownership.'
+	     when 'collaborator' then 'View explicitly shared resources and propose changes for owner promotion.'
+	     when 'guest' then 'No implicit access; every visible resource requires an explicit grant.'
+	     else description end,
+	   default_relations = case name
+	     when 'owner' then '["owner"]'::jsonb
+	     when 'moderator' then '["operator"]'::jsonb
+	     when 'collaborator' then '["viewer"]'::jsonb
+	     else default_relations end
+	 where name in ('owner', 'moderator', 'collaborator', 'guest')
+	   and description = '' and default_relations = '[]'::jsonb`,
+	`do $$ begin
+	   if not exists (select 1 from pg_constraint where conname = 'tiers_name_format') then
+	     alter table tiers add constraint tiers_name_format
+	       check (name ~ '^[a-z][a-z0-9_-]{0,63}$');
+	   end if;
+	   if not exists (select 1 from pg_constraint where conname = 'tiers_default_relations_valid') then
+	     alter table tiers add constraint tiers_default_relations_valid check (
+	       jsonb_typeof(default_relations) = 'array'
+	       and default_relations <@ '["viewer", "editor", "operator", "owner"]'::jsonb
+	     );
+	   end if;
+	 end $$`,
+	`create table if not exists proposal_mutations (
+	   principal_id    text not null,
+	   request_id      uuid not null,
+	   request_hash    text not null,
+	   operation       text not null,
+	   proposal_task_id bigint,
+	   state           text not null default 'ready',
+	   dispatch_started_at timestamptz,
+	   created_at      timestamptz not null default now(),
+	   primary key (principal_id, request_id),
+	   constraint proposal_mutations_state_valid check (state in ('ready', 'dispatching', 'complete'))
+	 )`,
+	`alter table proposal_mutations add column if not exists state text not null default 'ready'`,
+	`alter table proposal_mutations add column if not exists dispatch_started_at timestamptz`,
+	`update proposal_mutations set state = 'complete' where proposal_task_id is not null`,
+	`do $$ begin
+	   if not exists (select 1 from pg_constraint where conname = 'proposal_mutations_state_valid') then
+	     alter table proposal_mutations add constraint proposal_mutations_state_valid
+	       check (state in ('ready', 'dispatching', 'complete'));
+	   end if;
+	 end $$`,
 
 	// --- N1b: current-state projection (latest per entity), keyed by the PROJECTION bucket -----
 	// kind is the projection-map target (fleet|heartbeat|registry|governance|card|worker|
@@ -644,7 +695,7 @@ const STATEMENTS: readonly string[] = [
 
 	// --- grants -------------------------------------------------------------------------------
 	`revoke all on all tables in schema public from console_ro`,
-	`revoke all on grants, grant_set_state, grant_mutations from console_app, console_ro`,
+	`revoke all on grants, grant_set_state, grant_mutations, proposal_mutations from console_app, console_ro`,
 	`revoke create on schema public from console_ro`,
 	`revoke select on semantic_registry from console_app, console_ro`,
 	`grant usage on schema public to console_app, console_ro, console_writer`,
@@ -661,6 +712,7 @@ const STATEMENTS: readonly string[] = [
 	`grant usage, select on sequence semantic_proposals_id_seq to console_writer`,
 	`grant insert, update, select, delete on current_state, items_min to console_writer`,
 	`grant insert, select on dashboard_mutations to console_writer`,
+	`grant insert, update, select on proposal_mutations to console_writer`,
 	`grant insert, update, select on projection_checkpoint to console_writer`,
 	`grant insert, update, select on bridge_cursor to console_writer`,
 	`grant insert, select on bridge_dead_letter to console_writer`,

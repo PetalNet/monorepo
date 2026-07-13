@@ -91,7 +91,7 @@ export const dashboardSaveSchema = z
 		schema_version: z.literal(1),
 		id: z.string().uuid(),
 		title: z.string().trim().min(1).max(200),
-		scope: z.string().max(500).optional(),
+		scope: z.string().trim().min(1).max(500).optional(),
 		layout: z.record(z.string(), z.unknown()).optional(),
 		panels: z.array(panelSpecSchema).max(60),
 		branch: z

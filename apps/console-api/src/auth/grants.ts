@@ -123,6 +123,18 @@ async function authorizationObjects(sql: Sql, object: string): Promise<string[]>
 	return [...new Set([object, ...(rows[0] ? [rows[0].scope] : [])])].sort();
 }
 
+export async function canViewGrantObject(
+	sql: Sql,
+	principal: Principal,
+	object: string,
+): Promise<boolean> {
+	if (principal.scopes.includes(object)) return true;
+	if (!object.startsWith("item:")) return false;
+	const rows = await sql<{ scope: string }[]>`
+		select scope from items_min where ${object} = 'item:' || id`;
+	return rows[0] ? principal.scopes.includes(rows[0].scope) : false;
+}
+
 export async function listGrants(
 	writer: Sql,
 	principal: Principal,

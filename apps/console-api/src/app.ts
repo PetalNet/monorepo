@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 
 import { OpenAiCompatibleAssistantCompiler, type AssistantCompiler } from "./assistant/compiler.ts";
 import { resolveScopes } from "./auth/principal.ts";
+import { TrackerProposalWriter } from "./auth/proposals.ts";
 import { Appender, type AppendResult } from "./bus/appender.ts";
 import { Broker } from "./bus/broker.ts";
 import { makeReplay } from "./bus/replay.ts";
@@ -16,7 +17,7 @@ import { authorizeEmission } from "./ingest/authz.ts";
 import { loadRegistration } from "./ingest/registrations.ts";
 import { scrubEmission } from "./ingest/scrubber.ts";
 import { Projector } from "./projector/index.ts";
-import { TrackerReader } from "./reads/tracker.ts";
+import { TrackerReader, type TrackerProposalLookup } from "./reads/tracker.ts";
 
 export interface EmitOutcome {
 	readonly ok: boolean;
@@ -34,6 +35,8 @@ export interface Services {
 	readonly projector: Projector;
 	/** Read-only tracker access (null when TRACKER_DB_PATH is unset). */
 	readonly tracker: TrackerReader | null;
+	readonly trackerProposals: TrackerProposalWriter | null;
+	readonly trackerProposalLookup: TrackerProposalLookup | null;
 	readonly assistant: AssistantCompiler | null;
 	/** Process-local key only in dev; production must supply CONSOLE_API_CURSOR_SECRET. */
 	readonly cursorSecret: string;
@@ -69,6 +72,23 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 	const projector = new Projector(db.writer);
 	await projector.replayToHead();
 	const tracker = env.trackerDbPath ? new TrackerReader(env.trackerDbPath) : null;
+	const proposalConfig = [env.trackerRpcUrl, env.trackerRpcToken, env.trackerProposalProject];
+	if (proposalConfig.some(Boolean) && !proposalConfig.every(Boolean))
+		throw new Error(
+			"TRACKER_RPC_URL, TRACKER_RPC_TOKEN, and TRACKER_PROPOSAL_PROJECT must be configured together",
+		);
+	if (env.trackerRpcUrl && !env.devAuth && new URL(env.trackerRpcUrl).protocol !== "https:")
+		throw new Error("TRACKER_RPC_URL must use https outside dev-auth mode");
+	if (env.trackerRpcUrl && !tracker)
+		throw new Error("TRACKER_DB_PATH is required for idempotent tracker proposal reconciliation");
+	const trackerProposals =
+		env.trackerRpcUrl && env.trackerRpcToken && env.trackerProposalProject
+			? new TrackerProposalWriter({
+					url: env.trackerRpcUrl,
+					token: env.trackerRpcToken,
+					project: env.trackerProposalProject,
+				})
+			: null;
 	const assistant =
 		env.assistantLlmUrl && env.assistantLlmModel
 			? new OpenAiCompatibleAssistantCompiler({
@@ -152,6 +172,8 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		broker,
 		projector,
 		tracker,
+		trackerProposals,
+		trackerProposalLookup: tracker,
 		assistant,
 		cursorSecret,
 		onGrantChange(listener) {

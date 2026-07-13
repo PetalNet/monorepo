@@ -51,6 +51,16 @@ export interface TrackerRow {
 	[k: string]: unknown;
 }
 
+export interface TrackerProposalLookup {
+	findProposalTaskId(criteria: {
+		readonly requestId: string;
+		readonly principalId: string;
+		readonly operation: string;
+		readonly requestHash: string;
+		readonly project: string;
+	}): number | null;
+}
+
 /** Read-only tracker access over node:sqlite. Never writes — the tasks app is the sole writer. */
 export class TrackerReader {
 	readonly #db: DatabaseSync;
@@ -65,6 +75,47 @@ export class TrackerReader {
 
 	#all(sql: string): TrackerRow[] {
 		return this.#db.prepare(sql).all() as TrackerRow[];
+	}
+
+	/** Reconcile a console proposal after an ambiguous HTTP outcome without writing tracker SQLite. */
+	findProposalTaskId(criteria: {
+		requestId: string;
+		principalId: string;
+		operation: string;
+		requestHash: string;
+		project: string;
+	}): number | null {
+		const candidates = this.#db
+			.prepare(
+				`select t.id, t.body from tasks t join projects p on p.id = t.project_id
+				 where t.kind = 'idea' and p.name = ?
+				   and instr(t.body, ?) > 0
+				 order by t.id limit 1000`,
+			)
+			.all(criteria.project, criteria.requestId) as { id?: unknown; body?: unknown }[];
+		for (const row of candidates) {
+			if (typeof row.body !== "string") continue;
+			const match = /^Console propose-not-commit request\.[^\n]*\n\n```json\n([\s\S]+)\n```$/.exec(
+				row.body,
+			);
+			if (!match?.[1]) continue;
+			try {
+				const envelope = JSON.parse(match[1]) as Record<string, unknown>;
+				if (
+					envelope["schema_version"] === 1 &&
+					envelope["request_id"] === criteria.requestId &&
+					envelope["proposed_by"] === criteria.principalId &&
+					envelope["operation"] === criteria.operation &&
+					envelope["request_hash"] === criteria.requestHash &&
+					Number.isSafeInteger(row.id) &&
+					Number(row.id) > 0
+				)
+					return Number(row.id);
+			} catch {
+				// Ignore non-console ideas and malformed envelopes in the shared tracker project.
+			}
+		}
+		return null;
 	}
 
 	/** Active + recent tasks, mapped to console scope. claim_token is never selected. */

@@ -17,11 +17,41 @@ interface RegSeed {
 	maxSeverity: string;
 }
 
-const TIERS: readonly { name: string; group: string | null; proposeOnly: boolean }[] = [
-	{ name: "owner", group: "owner", proposeOnly: false },
-	{ name: "moderator", group: "moderator", proposeOnly: false },
-	{ name: "collaborator", group: "collaborator", proposeOnly: true },
-	{ name: "guest", group: "guest", proposeOnly: false },
+const TIERS: readonly {
+	name: string;
+	group: string | null;
+	description: string;
+	defaultRelations: string[];
+	proposeOnly: boolean;
+}[] = [
+	{
+		name: "owner",
+		group: "owner",
+		description: "Full administration of explicitly visible resources.",
+		defaultRelations: ["owner"],
+		proposeOnly: false,
+	},
+	{
+		name: "moderator",
+		group: "moderator",
+		description: "Operate explicitly visible resources without changing ownership.",
+		defaultRelations: ["operator"],
+		proposeOnly: false,
+	},
+	{
+		name: "collaborator",
+		group: "collaborator",
+		description: "View explicitly shared resources and propose changes for owner promotion.",
+		defaultRelations: ["viewer"],
+		proposeOnly: true,
+	},
+	{
+		name: "guest",
+		group: "guest",
+		description: "No implicit access; every visible resource requires an explicit grant.",
+		defaultRelations: [],
+		proposeOnly: false,
+	},
 ];
 
 const GRANTS: readonly GrantSeed[] = [
@@ -97,8 +127,9 @@ const REGISTRATIONS: readonly RegSeed[] = [
 
 export async function seedBootstrap(admin: Sql): Promise<void> {
 	for (const t of TIERS) {
-		await admin`insert into tiers (name, authentik_group, propose_only) values (${t.name}, ${t.group}, ${t.proposeOnly})
-			on conflict (name) do update set authentik_group = excluded.authentik_group, propose_only = excluded.propose_only`;
+		await admin`insert into tiers (name, authentik_group, description, default_relations, propose_only)
+			values (${t.name}, ${t.group}, ${t.description}, ${admin.json(t.defaultRelations)}, ${t.proposeOnly})
+			on conflict (name) do nothing`;
 	}
 	for (const g of GRANTS) {
 		const exists =
