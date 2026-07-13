@@ -36,10 +36,9 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Peer-invite deep links (spec 01). The custom scheme opens the app
-                 directly (e.g. from a scanned QR); the https App Link opens it
-                 when point.petalcat.dev serves a matching assetlinks.json,
-                 otherwise the OS offers the app in a chooser. -->
+            <!-- Peer-invite deep links (spec 01). The HTTPS host is Point's
+                 stable landing service, not the user's selected home server;
+                 the URL carries the full federated handle for self-hosting. -->
             <intent-filter android:label="Add on Point">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
@@ -50,7 +49,7 @@
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="https" android:host="point.petalcat.dev" android:pathPrefix="/add"/>
+                <data android:scheme="https" android:host="point.petalcat.dev" android:pathPrefix="/add/"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

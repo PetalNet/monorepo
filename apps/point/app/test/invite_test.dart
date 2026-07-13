@@ -1,25 +1,37 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:point_app/features/people/invite.dart';
+import 'package:point_app/features/people/presentation/add_person_screen.dart';
 import 'package:point_app/services/api/point_api.dart';
+import 'package:point_app/theme/app_theme.dart';
 
 void main() {
   group('invite link round-trip', () {
-    test('link encodes the user id and parses back', () {
+    test('generates stable HTTPS and preserves a self-hosted handle', () {
       final link = inviteLinkFor('parker@point.petalcat.dev');
-      expect(link, 'point://add/parker%40point.petalcat.dev');
+      expect(
+        link,
+        'https://point.petalcat.dev/add/parker@point.petalcat.dev',
+      );
       expect(
         handleFromInvite(Uri.parse(link)),
         'parker@point.petalcat.dev',
       );
-    });
-
-    test('accepts an https add link', () {
       expect(
         handleFromInvite(
-          Uri.parse('https://point.petalcat.dev/add/eli%40x.dev'),
+          Uri.parse(inviteLinkFor('eli@self-hosted.example')),
         ),
+        'eli@self-hosted.example',
+      );
+    });
+
+    test('accepts legacy custom-scheme links', () {
+      expect(
+        handleFromInvite(Uri.parse('point://add/eli%40x.dev')),
         'eli@x.dev',
       );
     });
@@ -30,7 +42,71 @@ void main() {
         handleFromInvite(Uri.parse('https://point.petalcat.dev/')),
         isNull,
       );
-      expect(handleFromInvite(Uri.parse('https://evil.example/add/x')), 'x');
+      expect(
+        handleFromInvite(Uri.parse('https://evil.example/add/eli%40x.dev')),
+        isNull,
+      );
+      expect(
+        handleFromInvite(
+          Uri.parse('http://point.petalcat.dev/add/eli%40x.dev'),
+        ),
+        isNull,
+      );
+      expect(
+        handleFromInvite(
+          Uri.parse('https://point.petalcat.dev/add/not-a-handle'),
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('fallback invite code', () {
+    test('round-trips a full federated handle without server lookup', () {
+      final code = inviteCodeFor('Mara@Fieldstone.Social');
+      expect(code, startsWith('P1-'));
+      expect(handleFromInviteCode(code), 'mara@fieldstone.social');
+      expect(
+        normalizeHandle(code.toLowerCase(), selfDomain: 'unused.example'),
+        'mara@fieldstone.social',
+      );
+      expect(
+        normalizeHandle(
+          code.replaceAll('-', '').toLowerCase(),
+          selfDomain: 'unused.example',
+        ),
+        'mara@fieldstone.social',
+      );
+    });
+
+    test('malformed compact code is rejected, not treated as a username', () {
+      final compact = inviteCodeFor(
+        'eli@self-hosted.example',
+      ).replaceAll('-', '');
+      final replacement = compact.endsWith('0') ? '1' : '0';
+      final mistyped =
+          '${compact.substring(0, compact.length - 1)}$replacement';
+      expect(
+        normalizeHandle(mistyped, selfDomain: 'point.dev'),
+        isEmpty,
+      );
+    });
+
+    test('checksum rejects a mistyped code', () {
+      final code = inviteCodeFor('eli@self-hosted.example');
+      final replacement = code.endsWith('0') ? '1' : '0';
+      final mistyped = '${code.substring(0, code.length - 1)}$replacement';
+      expect(handleFromInviteCode(mistyped), isNull);
+      expect(
+        normalizeHandle(mistyped, selfDomain: 'point.dev'),
+        isEmpty,
+      );
+    });
+
+    test('share copy includes both resilient paths', () {
+      final text = inviteShareTextFor('eli@self-hosted.example');
+      expect(text, contains(inviteLinkFor('eli@self-hosted.example')));
+      expect(text, contains(inviteCodeFor('eli@self-hosted.example')));
     });
   });
 
@@ -106,4 +182,71 @@ void main() {
       );
     },
   );
+
+  group('native share state', () {
+    Widget host(InviteShareCallback onShare) => MaterialApp(
+      theme: AppTheme.dark(pureBlack: true),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: InviteCard(
+            userId: 'eli@self-hosted.example',
+            onShare: onShare,
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('disables duplicate shares until the sheet returns', (
+      tester,
+    ) async {
+      final pending = Completer<void>();
+      String? sharedText;
+      Rect? sharedOrigin;
+      await tester.pumpWidget(
+        host((text, origin) {
+          sharedText = text;
+          sharedOrigin = origin;
+          return pending.future;
+        }),
+      );
+
+      await tester.tap(find.text('Share invite'));
+      await tester.pump();
+
+      expect(find.text('Sharing…'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNull,
+      );
+      expect(sharedText, inviteShareTextFor('eli@self-hosted.example'));
+      expect(sharedOrigin, isNotNull);
+      expect(sharedOrigin!.size, isNot(Size.zero));
+
+      pending.complete();
+      await tester.pump();
+      expect(find.text('Share invite'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNotNull,
+      );
+    });
+
+    testWidgets('recovers and explains when the native sheet fails', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host((_, _) async => throw StateError('platform unavailable')),
+      );
+
+      await tester.tap(find.text('Share invite'));
+      await tester.pump();
+
+      expect(find.text('Could not open the share sheet.'), findsOneWidget);
+      expect(find.text('Share invite'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNotNull,
+      );
+    });
+  });
 }
