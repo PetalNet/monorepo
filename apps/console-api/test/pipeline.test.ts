@@ -2496,6 +2496,156 @@ describe("structured query", () => {
 		}
 	});
 
+	it("serves the scoped Rev3 Library, personal holds, curation, and registry capabilities", async () => {
+		const visibleId = `lib_${randomBytes(12).toString("hex")}`;
+		const targetId = `lib_${randomBytes(12).toString("hex")}`;
+		const hiddenId = `lib_${randomBytes(12).toString("hex")}`;
+		await services.db.writer`
+			insert into library_items
+			  (id, entity_id, kind, title, scope, project, status, properties, created_by,
+			   responsible_human, protection)
+			values
+			  (${visibleId}, ${visibleId}, 'how-to', 'Fleet retry discipline', 'fleet', 'console',
+			   'verified-shared', ${services.db.writer.json({ body: "bounded retry with jitter" })}, 'janet', 'binding-user', 'semi'),
+			  (${targetId}, ${targetId}, 'doc', 'Library item model', 'fleet', 'console',
+			   'verified-shared', ${services.db.writer.json({ body: "one item and typed links" })}, 'janet', 'binding-user', 'semi'),
+			  (${hiddenId}, ${hiddenId}, 'doc', 'Private book', 'user:secret', 'secret',
+			   'draft', ${services.db.writer.json({ body: "must not leak" })}, 'janet', 'secret', 'full')`;
+		await services.db.writer`
+			insert into library_links (from_id, to_id, rel_type, reason, scope)
+			values (${visibleId}, ${targetId}, 'references', 'Uses the Rev3 model', 'fleet')`;
+		await services.db.writer`
+			insert into library_holds (item_id, for_principal, reason, scope)
+			values (${visibleId}, 'binding-user', 'recommended', 'fleet')`;
+		await services.db.writer`
+			insert into library_curation
+			  (id, item_id, proposal_type, reason, scope, links_in, active_task_links)
+			values (${`cur_${randomBytes(12).toString("hex")}`}, ${targetId}, 'dedup',
+			  'Possible duplicate', 'fleet', 1, 0)`;
+		await services.db.writer`
+			insert into current_state (kind, subject, scope, state, observed_at, seq)
+			values ('registry', 'agent:library-test', 'fleet',
+			  ${services.db.writer.json({ provides: ["kb.search", "mcp.library"], host: ".14", transport: "mcp" })},
+			  now(), 990001)
+			on conflict (kind, subject) do update set state = excluded.state,
+			  observed_at = excluded.observed_at, seq = excluded.seq`;
+		const server = await buildServer(services, true);
+		const headers = {
+			"x-dev-principal": JSON.stringify({
+				kind: "human",
+				id: "binding-user",
+				scopes: ["fleet", "user:binding-user"],
+				lanes: ["viewer"],
+			}),
+		};
+		try {
+			const items = await server.inject({
+				method: "GET",
+				url: "/api/v1/library/items?limit=500",
+				headers,
+			});
+			expect(items.statusCode, items.body).toBe(200);
+			expect(items.json().items).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: visibleId, kind: "how-to", project: "console" }),
+				]),
+			);
+			expect(items.json().items).not.toEqual(
+				expect.arrayContaining([expect.objectContaining({ id: hiddenId })]),
+			);
+			const detail = await server.inject({
+				method: "GET",
+				url: `/api/v1/library/items/${visibleId}`,
+				headers,
+			});
+			expect(detail.statusCode, detail.body).toBe(200);
+			expect(detail.json()).toMatchObject({
+				freshness: { source: "library" },
+				item: { id: visibleId, entity_id: visibleId },
+			});
+			const hiddenDetail = await server.inject({
+				method: "GET",
+				url: `/api/v1/library/items/${hiddenId}`,
+				headers,
+			});
+			expect(hiddenDetail.statusCode).toBe(404);
+			const firstPage = await server.inject({
+				method: "GET",
+				url: "/api/v1/library/items?limit=1",
+				headers,
+			});
+			expect(firstPage.json()).toMatchObject({
+				truncated: true,
+				next_cursor: expect.any(String),
+			});
+			const secondPage = await server.inject({
+				method: "GET",
+				url: `/api/v1/library/items?limit=1&cursor=${encodeURIComponent(String(firstPage.json().next_cursor))}`,
+				headers,
+			});
+			expect(secondPage.statusCode, secondPage.body).toBe(200);
+			expect(secondPage.json().items[0].id).not.toBe(firstPage.json().items[0].id);
+
+			const search = await server.inject({
+				method: "GET",
+				url: "/api/v1/library/search?q=jitter",
+				headers,
+			});
+			expect(search.statusCode, search.body).toBe(200);
+			expect(search.json()).toMatchObject({
+				search: { mode: "lexical", dense_index: "unavailable", degraded: true },
+				items: [expect.objectContaining({ id: visibleId })],
+			});
+
+			const [links, holds, curation, capabilities] = await Promise.all([
+				server.inject({ method: "GET", url: "/api/v1/library/links", headers }),
+				server.inject({ method: "GET", url: "/api/v1/library/holds", headers }),
+				server.inject({ method: "GET", url: "/api/v1/library/curation", headers }),
+				server.inject({ method: "GET", url: "/api/v1/library/capabilities", headers }),
+			]);
+			expect(links.json().items).toContainEqual(
+				expect.objectContaining({ from_id: visibleId, to_id: targetId, rel_type: "references" }),
+			);
+			expect(holds.json().items).toContainEqual(
+				expect.objectContaining({ item_id: visibleId, reason: "recommended" }),
+			);
+			expect(curation.json().items).toContainEqual(
+				expect.objectContaining({ item_id: targetId, proposal_type: "dedup" }),
+			);
+			expect(capabilities.json().items).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						capability: "mcp.library",
+						provider: "agent:library-test",
+						fresh: true,
+					}),
+				]),
+			);
+			const firstCapabilityPage = await server.inject({
+				method: "GET",
+				url: "/api/v1/library/capabilities?limit=1",
+				headers,
+			});
+			expect(firstCapabilityPage.json()).toMatchObject({
+				truncated: true,
+				next_cursor: expect.any(String),
+				items: [expect.objectContaining({ provider: "agent:library-test" })],
+			});
+			const secondCapabilityPage = await server.inject({
+				method: "GET",
+				url: `/api/v1/library/capabilities?limit=1&cursor=${encodeURIComponent(String(firstCapabilityPage.json().next_cursor))}`,
+				headers,
+			});
+			expect(secondCapabilityPage.statusCode, secondCapabilityPage.body).toBe(200);
+			expect(secondCapabilityPage.json().items).toHaveLength(1);
+			expect(secondCapabilityPage.json().items[0].capability).not.toBe(
+				firstCapabilityPage.json().items[0].capability,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it("replays query refs through the chart render API", async () => {
 		const query = await runStructured(services.db.app, ["fleet"], {
 			schema_version: 1,

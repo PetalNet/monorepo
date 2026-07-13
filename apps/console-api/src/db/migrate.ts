@@ -603,18 +603,109 @@ const STATEMENTS: readonly string[] = [
 	   revoked_at  timestamptz
 	 )`,
 
-	// minimal Library items table (dashboards/artifacts projection) — Phase-1 wire surface.
-	`create table if not exists items_min (
+	// Rev3 Library is the canonical polymorphic store.  The legacy items_min name is retained below
+	// only as a security-invoker compatibility view for older grant code and rolling deployments.
+	`do $$ begin
+	   if to_regclass('public.library_items') is null
+	      and exists (select 1 from pg_class where oid = to_regclass('public.items_min') and relkind = 'r') then
+	     alter table items_min rename to library_items;
+	   end if;
+	 end $$`,
+	`create table if not exists library_items (
 	   id                 text primary key,
+	   entity_id          text,
 	   kind               text not null,
 	   title              text not null,
 	   scope              text not null,
+	   project            text not null default 'unsorted',
+	   status             text not null default 'draft',
+	   body_ref           text,
+	   render_mode        text not null default 'markdown',
+	   confidence         double precision,
+	   source_url         text,
+	   properties         jsonb not null default '{}'::jsonb,
+	   version            integer not null default 1,
+	   valid_from         timestamptz not null default now(),
+	   valid_to           timestamptz,
+	   tx_from            timestamptz not null default now(),
 	   is_home            boolean not null default false,
 	   created_by         text,
 	   responsible_human  text,
+	   handed_off_to      text,
+	   protection         text not null default 'open',
 	   payload            jsonb not null default '{}'::jsonb,
 	   updated_at         timestamptz not null default now()
 	 )`,
+	`alter table library_items add column if not exists entity_id text`,
+	`alter table library_items add column if not exists project text not null default 'unsorted'`,
+	`alter table library_items add column if not exists status text not null default 'draft'`,
+	`alter table library_items add column if not exists body_ref text`,
+	`alter table library_items add column if not exists render_mode text not null default 'markdown'`,
+	`alter table library_items add column if not exists confidence double precision`,
+	`alter table library_items add column if not exists source_url text`,
+	`alter table library_items add column if not exists properties jsonb not null default '{}'::jsonb`,
+	`alter table library_items add column if not exists version integer not null default 1`,
+	`alter table library_items add column if not exists valid_from timestamptz not null default now()`,
+	`alter table library_items add column if not exists valid_to timestamptz`,
+	`alter table library_items add column if not exists tx_from timestamptz not null default now()`,
+	`alter table library_items add column if not exists handed_off_to text`,
+	`alter table library_items add column if not exists protection text not null default 'open'`,
+	`update library_items set entity_id = id where entity_id is null`,
+	`create or replace function library_item_identity_default() returns trigger
+	 language plpgsql as $$ begin
+	   if new.entity_id is null then new.entity_id := new.id; end if;
+	   return new;
+	 end $$`,
+	`drop trigger if exists library_item_identity_default on library_items`,
+	`create trigger library_item_identity_default before insert on library_items
+	 for each row execute function library_item_identity_default()`,
+	`update library_items
+	 set properties = properties || jsonb_build_object('artifact_type', 'dashboard'),
+	     project = case when project = 'unsorted' then 'dashboards' else project end,
+	     status = case when status = 'draft' then 'verified-shared' else status end,
+	     render_mode = 'html', protection = case when protection = 'open' then 'semi' else protection end
+	 where kind = 'artifact' and payload ? 'panels' and properties->>'artifact_type' is null`,
+	`alter table library_items alter column entity_id set not null`,
+	`create index if not exists library_items_scope_tx_idx on library_items (scope, tx_from desc, id desc)`,
+	`create index if not exists library_items_search_idx on library_items using gin
+	   (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(properties->>'body','')))`,
+	`create table if not exists library_links (
+	   id          bigint generated always as identity primary key,
+	   from_id     text not null references library_items(id),
+	   to_id       text not null references library_items(id),
+	   rel_type    text not null,
+	   reason      text,
+	   scope       text not null,
+	   created_at  timestamptz not null default now(),
+	   unique (from_id, to_id, rel_type)
+	 )`,
+	`create index if not exists library_links_from_idx on library_links (from_id)`,
+	`create index if not exists library_links_to_idx on library_links (to_id)`,
+	`create table if not exists library_holds (
+	   id             bigint generated always as identity primary key,
+	   item_id        text not null references library_items(id),
+	   for_principal  text not null,
+	   reason         text not null,
+	   scope          text not null,
+	   held_at        timestamptz not null default now(),
+	   unique (item_id, for_principal, reason)
+	 )`,
+	`create table if not exists library_curation (
+	   id                text primary key,
+	   item_id           text not null references library_items(id),
+	   proposal_type     text not null,
+	   reason            text not null,
+	   scope             text not null,
+	   state             text not null default 'review',
+	   links_in          integer not null default 0,
+	   active_task_links integer not null default 0,
+	   run_id            text,
+	   proposed_at       timestamptz not null default now()
+	 )`,
+	`drop view if exists items_min`,
+	`create view items_min with (security_invoker = true) as
+	 select id, kind, title, scope, is_home, created_by, responsible_human, payload, updated_at
+	 from library_items`,
 	`create table if not exists dashboard_mutations (
 	   principal_id text not null,
 	   request_id   uuid not null,
@@ -629,8 +720,14 @@ const STATEMENTS: readonly string[] = [
 	`alter table current_state force row level security`,
 	`alter table delivery_config enable row level security`,
 	`alter table delivery_config force row level security`,
-	`alter table items_min enable row level security`,
-	`alter table items_min force row level security`,
+	`alter table library_items enable row level security`,
+	`alter table library_items force row level security`,
+	`alter table library_links enable row level security`,
+	`alter table library_links force row level security`,
+	`alter table library_holds enable row level security`,
+	`alter table library_holds force row level security`,
+	`alter table library_curation enable row level security`,
+	`alter table library_curation force row level security`,
 	`alter table events enable row level security`,
 	`alter table events force row level security`,
 	`alter table event_archive enable row level security`,
@@ -705,14 +802,39 @@ const STATEMENTS: readonly string[] = [
 	   if not exists (select 1 from pg_policies where tablename='delivery_config' and policyname='delivery_config_writer_all') then
 	     create policy delivery_config_writer_all on delivery_config to console_writer using (true) with check (true);
 	   end if;
-	   drop policy if exists items_min_scope_select on items_min;
-	   create policy items_min_scope_select on items_min for select to console_app, console_ro
+	   drop policy if exists library_items_scope_select on library_items;
+	   create policy library_items_scope_select on library_items for select to console_app, console_ro
 	     using (
 	       scope = any (string_to_array(current_setting('app.scopes', true), ','))
 	       or ('item:' || id) = any (string_to_array(current_setting('app.scopes', true), ','))
 	     );
-	   if not exists (select 1 from pg_policies where tablename='items_min' and policyname='items_min_writer_all') then
-	     create policy items_min_writer_all on items_min to console_writer using (true) with check (true);
+	   if not exists (select 1 from pg_policies where tablename='library_items' and policyname='library_items_writer_all') then
+	     create policy library_items_writer_all on library_items to console_writer using (true) with check (true);
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='library_links' and policyname='library_links_scope_select') then
+	     create policy library_links_scope_select on library_links for select to console_app, console_ro
+	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='library_links' and policyname='library_links_writer_all') then
+	     create policy library_links_writer_all on library_links to console_writer using (true) with check (true);
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='library_holds' and policyname='library_holds_scope_select') then
+	     create policy library_holds_scope_select on library_holds for select to console_app
+	       using (
+	         scope = any (string_to_array(current_setting('app.scopes', true), ','))
+	         and (('user:' || for_principal) = any (string_to_array(current_setting('app.scopes', true), ','))
+	           or ('agent:' || for_principal) = any (string_to_array(current_setting('app.scopes', true), ',')))
+	       );
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='library_holds' and policyname='library_holds_writer_all') then
+	     create policy library_holds_writer_all on library_holds to console_writer using (true) with check (true);
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='library_curation' and policyname='library_curation_scope_select') then
+	     create policy library_curation_scope_select on library_curation for select to console_app
+	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='library_curation' and policyname='library_curation_writer_all') then
+	     create policy library_curation_writer_all on library_curation to console_writer using (true) with check (true);
 	   end if;
 	   if not exists (select 1 from pg_policies where tablename='semantic_registry' and policyname='semantic_registry_writer_all') then
 	     create policy semantic_registry_writer_all on semantic_registry to console_writer using (true) with check (true);
@@ -770,9 +892,9 @@ const STATEMENTS: readonly string[] = [
 	`revoke create on schema public from console_ro`,
 	`revoke select on semantic_registry from console_app, console_ro`,
 	`grant usage on schema public to console_app, console_ro, console_writer`,
-	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, delivery_config, items_min, semantic_registry_scoped, semantic_views to console_ro`,
+	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, delivery_config, library_items, library_links, items_min, semantic_registry_scoped, semantic_views to console_ro`,
 	// console_app: scoped reads across the read surface.
-	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, delivery_config, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
+	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, delivery_config, library_items, library_links, library_holds, library_curation, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
 	`grant insert on query_history, semantic_documents to console_app`,
 	// console_writer: the appender + projector (non-superuser) — insert events/edges/blobs, upsert current_state.
 	`grant insert, select on emission_ids, events, event_archive, edges, blobs to console_writer`,
@@ -781,7 +903,9 @@ const STATEMENTS: readonly string[] = [
 	`grant usage, select on sequence grants_id_seq, grant_zookie_seq to console_writer`,
 	`grant usage, select on sequence emission_ids_seq_seq to console_writer`,
 	`grant usage, select on sequence semantic_proposals_id_seq to console_writer`,
-	`grant insert, update, select, delete on current_state, items_min to console_writer`,
+	`grant insert, update, select, delete on current_state, library_items, library_links, library_holds, library_curation to console_writer`,
+	`grant usage, select on sequence library_links_id_seq, library_holds_id_seq to console_writer`,
+	`grant insert, update, select, delete on items_min to console_writer`,
 	`grant insert, update, select, delete on delivery_config to console_writer`,
 	`grant insert, select on dashboard_mutations to console_writer`,
 	`grant insert, update, select on proposal_mutations to console_writer`,

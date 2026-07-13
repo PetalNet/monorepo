@@ -148,7 +148,7 @@ function requestHash(input: DashboardInput): string {
 async function dashboardById(sql: Sql, id: string): Promise<ItemRow | null> {
 	const rows = await sql<ItemRow[]>`
 		select id, title, scope, is_home, created_by, responsible_human, payload, updated_at
-		from items_min where id = ${id}`;
+		from library_items where id = ${id}`;
 	return rows[0] ?? null;
 }
 
@@ -196,8 +196,13 @@ export async function saveDashboard(
 			return itemEnvelope(item);
 		}
 		const rows = await tx<ItemRow[]>`
-			insert into items_min (id, kind, title, scope, created_by, responsible_human, payload)
-			values (${id}, 'artifact', ${input.title}, ${scope}, ${principal.id}, ${principal.kind === "human" ? principal.id : null}, ${tx.json(payload as never)})
+			insert into library_items
+			  (id, entity_id, kind, title, scope, project, status, render_mode, created_by,
+			   responsible_human, protection, properties, payload)
+			values
+			  (${id}, ${id}, 'artifact', ${input.title}, ${scope}, 'unsorted', 'verified-shared',
+			   'html', ${principal.id}, ${principal.kind === "human" ? principal.id : null},
+			   'semi', ${tx.json({ artifact_type: "dashboard" })}, ${tx.json(payload as never)})
 			returning id, title, scope, is_home, created_by, responsible_human, payload, updated_at`;
 		return itemEnvelope(rows[0]!);
 	});
@@ -266,7 +271,8 @@ export async function listDashboards(
 		async (tx) => tx<ListItemRow[]>`
 			select id, title, scope, is_home, created_by, responsible_human, payload, updated_at,
 			       extract(epoch from updated_at)::text as cursor_position
-			from items_min where kind = 'artifact' and payload ? 'panels'
+			from library_items where kind = 'artifact'
+			  and (properties->>'artifact_type' = 'dashboard' or payload ? 'panels')
 			  and (${cursor?.position ?? null}::numeric is null
 			       or (extract(epoch from updated_at), id) < (${cursor?.position ?? null}::numeric, ${cursor?.id ?? null}::text))
 			order by updated_at desc, id desc limit ${limit + 1}`,
@@ -294,6 +300,54 @@ function dashboardCursor(secret: string, row: Pick<ListItemRow, "cursor_position
 	return `${encoded}.${signature}`;
 }
 
+interface LibraryPageOptions {
+	limit?: number;
+	cursor?: string;
+}
+
+function libraryPageOffset(
+	secret: string,
+	cursor: string | undefined,
+	fingerprint: string,
+): number {
+	if (!cursor) return 0;
+	try {
+		const [encoded, signature, extra] = cursor.split(".");
+		if (!encoded || !signature || extra) throw new Error("invalid cursor");
+		const expected = createHmac("sha256", secret).update(encoded).digest();
+		const supplied = Buffer.from(signature, "base64url");
+		if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
+			throw new Error("invalid cursor");
+		const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as {
+			v?: unknown;
+			offset?: unknown;
+			fingerprint?: unknown;
+		};
+		if (
+			decoded.v !== 1 ||
+			!Number.isSafeInteger(decoded.offset) ||
+			Number(decoded.offset) < 0 ||
+			Number(decoded.offset) > 1_000_000 ||
+			decoded.fingerprint !== fingerprint
+		)
+			throw new Error("invalid cursor");
+		return Number(decoded.offset);
+	} catch {
+		throw new DashboardError("bad_cursor", "invalid Library cursor");
+	}
+}
+
+function libraryPageCursor(secret: string, offset: number, fingerprint: string): string {
+	const encoded = Buffer.from(JSON.stringify({ v: 1, offset, fingerprint })).toString("base64url");
+	const signature = createHmac("sha256", secret).update(encoded).digest("base64url");
+	return `${encoded}.${signature}`;
+}
+
+function libraryLimit(raw: number | undefined): number {
+	const value = Number(raw ?? 200);
+	return Number.isFinite(value) ? Math.min(1_000, Math.max(1, Math.floor(value))) : 200;
+}
+
 async function readDashboardRow(
 	app: Sql,
 	scopes: readonly string[],
@@ -302,7 +356,8 @@ async function readDashboardRow(
 	return withScopes(app, scopes, async (tx) => {
 		const rows = await tx<ItemRow[]>`
 			select id, title, scope, is_home, created_by, responsible_human, payload, updated_at
-			from items_min where id = ${id} and kind = 'artifact' and payload ? 'panels'`;
+			from library_items where id = ${id} and kind = 'artifact'
+			  and (properties->>'artifact_type' = 'dashboard' or payload ? 'panels')`;
 		return rows[0] ?? null;
 	});
 }
@@ -440,7 +495,8 @@ export async function setHomeDashboard(
 ): Promise<Record<string, unknown>> {
 	const rows = await writer<ItemRow[]>`
 		select id, title, scope, is_home, created_by, responsible_human, payload, updated_at
-		from items_min where id = ${id} and kind = 'artifact' and payload ? 'panels'`;
+		from library_items where id = ${id} and kind = 'artifact'
+		  and (properties->>'artifact_type' = 'dashboard' or payload ? 'panels')`;
 	const target = rows[0];
 	if (!target || !principal.scopes.includes(target.scope))
 		throw new DashboardError("dashboard_not_found", "dashboard not found");
@@ -450,9 +506,355 @@ export async function setHomeDashboard(
 	)
 		throw new DashboardError("scope_denied", "only the dashboard owner may set it as home");
 	await writer.begin(async (tx) => {
-		await tx`update items_min set is_home = false
-		  where kind = 'artifact' and payload ? 'panels' and created_by = ${principal.id}`;
-		await tx`update items_min set is_home = true, updated_at = now() where id = ${id}`;
+		await tx`update library_items set is_home = false
+		  where kind = 'artifact'
+		    and (properties->>'artifact_type' = 'dashboard' or payload ? 'panels')
+		    and created_by = ${principal.id}`;
+		await tx`update library_items set is_home = true, updated_at = now() where id = ${id}`;
 	});
 	return { schema_version: 1, id, is_home: true };
+}
+
+const LIBRARY_KINDS = new Set([
+	"task",
+	"project",
+	"doc",
+	"artifact",
+	"research",
+	"fact",
+	"decision",
+	"how-to",
+]);
+
+interface LibraryItemRow {
+	id: string;
+	entity_id: string;
+	kind: string;
+	title: string;
+	scope: string;
+	project: string;
+	status: string;
+	body_ref: string | null;
+	render_mode: string;
+	confidence: number | null;
+	source_url: string | null;
+	properties: Record<string, unknown>;
+	version: number;
+	tx_from: string | Date;
+	created_by: string | null;
+	responsible_human: string | null;
+	handed_off_to: string | null;
+	protection: string;
+	updated_at: string | Date;
+	rank: number;
+}
+
+export interface LibraryReadOptions extends LibraryPageOptions {
+	query?: string;
+	kind?: string;
+	limit?: number;
+}
+
+function libraryItemEnvelope(row: LibraryItemRow): Record<string, unknown> {
+	return {
+		schema_version: 1,
+		id: row.id,
+		entity_id: row.entity_id,
+		kind: row.kind,
+		title: row.title,
+		scope: row.scope,
+		project: row.project,
+		status: row.status,
+		body_ref: row.body_ref,
+		render_mode: row.render_mode,
+		confidence: row.confidence,
+		source_url: row.source_url,
+		properties: row.properties,
+		version: row.version,
+		tx_from: iso(row.tx_from),
+		updated_at: iso(row.updated_at),
+		protection: row.protection,
+		provenance: {
+			created_by_agent: row.created_by,
+			responsible_human: row.responsible_human,
+			handed_off_to_agent: row.handed_off_to,
+		},
+		...(row.rank > 0
+			? {
+					why_matched: {
+						lexical_rank: row.rank,
+						dense_score: null,
+						mode: "lexical",
+					},
+				}
+			: {}),
+	};
+}
+
+/** Rev3 item/search read. Scope filtering happens in Library RLS before ranking. */
+export async function listLibraryItems(
+	app: Sql,
+	scopes: readonly string[],
+	cursorSecret: string,
+	opts: LibraryReadOptions = {},
+): Promise<Record<string, unknown>> {
+	const query = opts.query?.trim().slice(0, 500) || null;
+	const kind = opts.kind?.trim() || null;
+	if (kind && !LIBRARY_KINDS.has(kind))
+		throw new DashboardError("bad_library_kind", "unknown Library item kind");
+	const limit = libraryLimit(opts.limit);
+	const fingerprint = createHash("sha256")
+		.update(JSON.stringify({ source: "items", query, kind }))
+		.digest("base64url");
+	const offset = libraryPageOffset(cursorSecret, opts.cursor, fingerprint);
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<LibraryItemRow[]>`
+			with ranked as (
+			  select i.*,
+			    case when ${query}::text is null then 0::real else ts_rank_cd(
+			      to_tsvector('english', coalesce(i.title,'') || ' ' || coalesce(i.properties->>'body','')),
+			      websearch_to_tsquery('english', ${query}::text)
+			    ) end as rank
+			  from library_items i
+			  where (${kind}::text is null or i.kind = ${kind})
+			    and (${query}::text is null or
+			      to_tsvector('english', coalesce(i.title,'') || ' ' || coalesce(i.properties->>'body',''))
+			        @@ websearch_to_tsquery('english', ${query}::text))
+			)
+			select id, entity_id, kind, title, scope, project, status, body_ref, render_mode,
+			       confidence, source_url, properties, version, tx_from, created_by,
+			       responsible_human, handed_off_to, protection, updated_at, rank
+			from ranked order by rank desc, tx_from desc, id desc limit ${limit + 1} offset ${offset}`,
+	);
+	const page = rows.slice(0, limit);
+	return {
+		schema_version: 1,
+		freshness: { source: "library", observed_at: new Date().toISOString(), window_s: 60 },
+		search: {
+			query,
+			mode: query ? "lexical" : null,
+			dense_index: "unavailable",
+			degraded: Boolean(query),
+		},
+		items: page.map(libraryItemEnvelope),
+		next_cursor:
+			rows.length > page.length
+				? libraryPageCursor(cursorSecret, offset + page.length, fingerprint)
+				: null,
+		truncated: rows.length > page.length,
+	};
+}
+
+export async function readLibraryItem(
+	app: Sql,
+	scopes: readonly string[],
+	itemId: string,
+): Promise<Record<string, unknown> | null> {
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<LibraryItemRow[]>`
+			select id, entity_id, kind, title, scope, project, status, body_ref, render_mode,
+			       confidence, source_url, properties, version, tx_from, created_by,
+			       responsible_human, handed_off_to, protection, updated_at, 0::real as rank
+			from library_items where id = ${itemId}`,
+	);
+	return rows[0]
+		? {
+				schema_version: 1,
+				freshness: { source: "library", observed_at: new Date().toISOString(), window_s: 60 },
+				item: libraryItemEnvelope(rows[0]),
+			}
+		: null;
+}
+
+export async function listLibraryLinks(
+	app: Sql,
+	scopes: readonly string[],
+	cursorSecret: string,
+	itemId?: string,
+	opts: LibraryPageOptions = {},
+): Promise<Record<string, unknown>> {
+	const limit = libraryLimit(opts.limit);
+	const fingerprint = createHash("sha256")
+		.update(JSON.stringify({ source: "links", itemId: itemId ?? null }))
+		.digest("base64url");
+	const offset = libraryPageOffset(cursorSecret, opts.cursor, fingerprint);
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<
+			{
+				from_id: string;
+				to_id: string;
+				rel_type: string;
+				reason: string | null;
+				scope: string;
+				created_at: string | Date;
+			}[]
+		>`
+			select l.from_id, l.to_id, l.rel_type, l.reason, l.scope, l.created_at
+			from library_links l
+			join library_items source on source.id = l.from_id
+			join library_items target on target.id = l.to_id
+			where (${itemId ?? null}::text is null or l.from_id = ${itemId ?? null} or l.to_id = ${itemId ?? null})
+			order by l.created_at desc, l.id desc limit ${limit + 1} offset ${offset}`,
+	);
+	const page = rows.slice(0, limit);
+	return {
+		schema_version: 1,
+		freshness: { source: "library-links", observed_at: new Date().toISOString(), window_s: 60 },
+		items: page.map((row) => ({ schema_version: 1, ...row, created_at: iso(row.created_at) })),
+		next_cursor:
+			rows.length > page.length
+				? libraryPageCursor(cursorSecret, offset + page.length, fingerprint)
+				: null,
+		truncated: rows.length > page.length,
+	};
+}
+
+export async function listLibraryHolds(
+	app: Sql,
+	scopes: readonly string[],
+	principalId: string,
+	cursorSecret: string,
+	opts: LibraryPageOptions = {},
+): Promise<Record<string, unknown>> {
+	const limit = libraryLimit(opts.limit);
+	const fingerprint = createHash("sha256")
+		.update(JSON.stringify({ source: "holds", principalId }))
+		.digest("base64url");
+	const offset = libraryPageOffset(cursorSecret, opts.cursor, fingerprint);
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<
+			{ item_id: string; reason: string; scope: string; held_at: string | Date }[]
+		>`select item_id, reason, scope, held_at from library_holds
+		  where for_principal = ${principalId} order by held_at desc, id desc
+		  limit ${limit + 1} offset ${offset}`,
+	);
+	const page = rows.slice(0, limit);
+	return {
+		schema_version: 1,
+		freshness: { source: "librarian-holds", observed_at: new Date().toISOString(), window_s: 60 },
+		items: page.map((row) => ({ schema_version: 1, ...row, held_at: iso(row.held_at) })),
+		next_cursor:
+			rows.length > page.length
+				? libraryPageCursor(cursorSecret, offset + page.length, fingerprint)
+				: null,
+		truncated: rows.length > page.length,
+	};
+}
+
+export async function listLibraryCuration(
+	app: Sql,
+	scopes: readonly string[],
+	cursorSecret: string,
+	opts: LibraryPageOptions = {},
+): Promise<Record<string, unknown>> {
+	const limit = libraryLimit(opts.limit);
+	const fingerprint = createHash("sha256").update("library:curation").digest("base64url");
+	const offset = libraryPageOffset(cursorSecret, opts.cursor, fingerprint);
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<
+			{
+				id: string;
+				item_id: string;
+				proposal_type: string;
+				reason: string;
+				scope: string;
+				state: string;
+				links_in: number;
+				active_task_links: number;
+				run_id: string | null;
+				proposed_at: string | Date;
+			}[]
+		>`select id, item_id, proposal_type, reason, scope, state, links_in, active_task_links,
+		         run_id, proposed_at from library_curation
+		  where state = 'review' order by proposed_at desc, id desc
+		  limit ${limit + 1} offset ${offset}`,
+	);
+	const page = rows.slice(0, limit);
+	return {
+		schema_version: 1,
+		freshness: {
+			source: "librarian-curation",
+			observed_at: new Date().toISOString(),
+			window_s: null,
+		},
+		items: page.map((row) => ({ schema_version: 1, ...row, proposed_at: iso(row.proposed_at) })),
+		next_cursor:
+			rows.length > page.length
+				? libraryPageCursor(cursorSecret, offset + page.length, fingerprint)
+				: null,
+		truncated: rows.length > page.length,
+	};
+}
+
+/** Fleet capability inventory comes from the operational registry projection, never semantics. */
+export async function listLibraryCapabilities(
+	app: Sql,
+	scopes: readonly string[],
+	cursorSecret: string,
+	opts: LibraryPageOptions = {},
+): Promise<Record<string, unknown>> {
+	const limit = libraryLimit(opts.limit);
+	const fingerprint = createHash("sha256").update("library:capabilities").digest("base64url");
+	const offset = libraryPageOffset(cursorSecret, opts.cursor, fingerprint);
+	const rows = await withScopes(
+		app,
+		scopes,
+		async (tx) => tx<
+			{
+				subject: string;
+				scope: string;
+				state: Record<string, unknown>;
+				observed_at: string | Date;
+			}[]
+		>`
+			select subject, scope, state, observed_at from current_state
+			where kind = 'registry' order by subject`,
+	);
+	const allItems = rows.flatMap((row) => {
+		const raw = row.state["provides"] ?? row.state["capabilities"] ?? [];
+		const capabilities = Array.isArray(raw)
+			? raw.filter((value): value is string => typeof value === "string")
+			: typeof raw === "string"
+				? raw
+						.split(",")
+						.map((value) => value.trim())
+						.filter(Boolean)
+				: [];
+		return capabilities.map((capability) => ({
+			schema_version: 1,
+			capability,
+			provider: row.subject,
+			scope: row.scope,
+			host: typeof row.state["host"] === "string" ? row.state["host"] : null,
+			transport: typeof row.state["transport"] === "string" ? row.state["transport"] : null,
+			observed_at: iso(row.observed_at),
+			fresh: Date.now() - new Date(row.observed_at).getTime() <= 90_000,
+		}));
+	});
+	const page = allItems.slice(offset, offset + limit + 1);
+	const items = page.slice(0, limit);
+	return {
+		schema_version: 1,
+		freshness: {
+			source: "fleet-tool-registry",
+			observed_at: new Date().toISOString(),
+			window_s: 90,
+		},
+		items,
+		next_cursor:
+			page.length > items.length
+				? libraryPageCursor(cursorSecret, offset + items.length, fingerprint)
+				: null,
+		truncated: page.length > items.length,
+	};
 }
