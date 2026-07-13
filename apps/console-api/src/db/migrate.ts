@@ -697,6 +697,26 @@ const STATEMENTS: readonly string[] = [
 	 )`,
 	`create index if not exists library_links_from_idx on library_links (from_id)`,
 	`create index if not exists library_links_to_idx on library_links (to_id)`,
+	`create table if not exists library_item_revisions (
+	   item_id     text not null references library_items(id),
+	   version     integer not null,
+	   tx_from     timestamptz not null,
+	   snapshot    jsonb not null,
+	   primary key (item_id, version)
+	 )`,
+	`insert into library_item_revisions (item_id, version, tx_from, snapshot)
+	 select id, version, tx_from, to_jsonb(library_items) from library_items
+	 on conflict (item_id, version) do nothing`,
+	`create or replace function record_library_item_revision() returns trigger
+	 language plpgsql as $$ begin
+	   insert into library_item_revisions (item_id, version, tx_from, snapshot)
+	   values (new.id, new.version, new.tx_from, to_jsonb(new))
+	   on conflict (item_id, version) do update set tx_from = excluded.tx_from, snapshot = excluded.snapshot;
+	   return new;
+	 end $$`,
+	`drop trigger if exists record_library_item_revision on library_items`,
+	`create trigger record_library_item_revision after insert or update on library_items
+	 for each row execute function record_library_item_revision()`,
 	`create table if not exists library_holds (
 	   id             bigint generated always as identity primary key,
 	   item_id        text not null references library_items(id),
@@ -919,7 +939,7 @@ const STATEMENTS: readonly string[] = [
 	`grant usage on schema public to console_app, console_ro, console_writer`,
 	`grant select on events, event_archive, lake_events, statistic_relationships, current_state, delivery_config, signal_source_modes, library_items, library_links, items_min, semantic_registry_scoped, semantic_views to console_ro`,
 	// console_app: scoped reads across the read surface.
-	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, delivery_config, signal_source_modes, library_items, library_links, library_holds, library_curation, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
+	`grant select on events, event_archive, lake_events, statistic_relationships, edges, blobs, current_state, delivery_config, signal_source_modes, library_items, library_item_revisions, library_links, library_holds, library_curation, items_min, semantic_registry_scoped, semantic_proposals, emission_quarantine, semantic_views, semantic_documents, query_history, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
 	`grant insert on query_history, semantic_documents to console_app`,
 	// console_writer: the appender + projector (non-superuser) — insert events/edges/blobs, upsert current_state.
 	`grant insert, select on emission_ids, events, event_archive, edges, blobs to console_writer`,
@@ -928,7 +948,7 @@ const STATEMENTS: readonly string[] = [
 	`grant usage, select on sequence grants_id_seq, grant_zookie_seq to console_writer`,
 	`grant usage, select on sequence emission_ids_seq_seq to console_writer`,
 	`grant usage, select on sequence semantic_proposals_id_seq to console_writer`,
-	`grant insert, update, select, delete on current_state, library_items, library_links, library_holds, library_curation to console_writer`,
+	`grant insert, update, select, delete on current_state, library_items, library_item_revisions, library_links, library_holds, library_curation to console_writer`,
 	`grant usage, select on sequence library_links_id_seq, library_holds_id_seq to console_writer`,
 	`grant insert, update, select, delete on items_min to console_writer`,
 	`grant insert, update, select, delete on delivery_config to console_writer`,

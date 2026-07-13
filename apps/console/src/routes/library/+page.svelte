@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import { goto } from "$app/navigation";
 	import Icon from "$lib/components/Icon.svelte";
-	import IconButton from "$lib/components/IconButton.svelte";
 	import LibraryGraphView from "$lib/components/LibraryGraphView.svelte";
 	import LibraryItemCard from "$lib/components/LibraryItemCard.svelte";
 	import LibraryKanbanView from "$lib/components/LibraryKanbanView.svelte";
 	import LibraryManagerSession, { type LibraryChatMessage } from "$lib/components/LibraryManagerSession.svelte";
 	import LibraryViewSwitcher, { type LibraryView } from "$lib/components/LibraryViewSwitcher.svelte";
-	import ModalSurface from "$lib/components/ModalSurface.svelte";
-	import { libraryLinks, libraryProvenance, type LibraryItemView, type LibraryKind } from "$lib/data/library";
+	import { libraryLinks, type LibraryItemView, type LibraryKind } from "$lib/data/library";
 	import type { KnowledgeLane, WorkLane } from "$lib/data/library-views";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
 	import { getLibrarySurface, searchLibrary, sendLibraryManagerMessage, updateLibraryStatus, type LibraryManagerAction } from "./library-manager.remote";
@@ -24,7 +23,6 @@
 	let managerBusy = $state(false);
 	let managerSessionId = $state<string|null>(null);
 	let selected = $state<LibraryItemView|null>(null);
-	let drawer = $state<HTMLDialogElement|null>(null);
 	let search = $state<HTMLInputElement|null>(null);
 	let searchResults=$state<LibraryItemView[]|null>(null);
 	let searchState=$state<"idle"|"searching"|"failed">("idle");
@@ -33,16 +31,15 @@
 	const surfaceItems = $derived(lib.items.map((item) => statusOverrides[item.id] ? {...item,...statusOverrides[item.id]} : item));
 	const results = $derived((searchResults??surfaceItems).filter((item) => (!kind || item.kind === kind) && (!project || item.project === project) && (!scope || item.scope === scope) && (!creator || item.creator === creator) && (!status || item.status === status) && (searchResults!==null || `${item.title} ${item.project} ${item.kind} ${item.creator}`.toLowerCase().includes(query.toLowerCase()))));
 	const links=$derived(lib.links ?? libraryLinks);
-	const provenance=$derived(lib.provenance ?? libraryProvenance);
 	const canUpdateStatus=$derived(data.lanes.includes("editor") && lib.libraryExecutorLive === true);
-	function open(item: LibraryItemView){ selected=item; }
+	function open(item: LibraryItemView){ void goto(`/library/${encodeURIComponent(item.id)}`); }
 	async function runSearch(nextQuery:string){query=nextQuery;view="table";if(lib.isMock||!nextQuery.trim()){searchResults=null;searchState="idle";return;}searchState="searching";try{searchResults=await searchLibrary({query:nextQuery});searchState="idle";}catch{searchResults=[];searchState="failed";}}
 	async function submit(e:SubmitEvent){e.preventDefault();await runSearch(query);}
 	function applyManagerAction(action:LibraryManagerAction){const {intent}=action;if(intent.view&&["desk","graph","kanban","table"].includes(intent.view))view=intent.view==="desk"?"list":intent.view;if(typeof intent.query==="string"){query=intent.query;searchResults=action.items;searchState="idle";view="table";}if(typeof intent.item_id==="string")selected=action.item??(searchResults??surfaceItems).find(item=>item.id===intent.item_id)??null;if(intent.focus==="curation")queueMicrotask(()=>document.querySelector<HTMLElement>(".curation")?.scrollIntoView({behavior:"smooth",block:"center"}));}
 	async function ask(message:string){const userMessage:LibraryChatMessage={id:crypto.randomUUID(),role:"user",content:message};messages=[...messages,userMessage];managerBusy=true;try{const response=await sendLibraryManagerMessage({message,view:view==="list"?"desk":view,query,selected_item_id:selected?.id??null});managerSessionId=response.session_id;messages=[...messages,{id:response.message_id,role:"assistant",content:response.content}];if(response.library_action)applyManagerAction(response.library_action);}catch(error){messages=[...messages,{id:crypto.randomUUID(),role:"error",content:`The manager session could not continue. ${(error as Error).message}`}];}finally{managerBusy=false;}}
 	async function moveStatus(item:LibraryItemView,next:WorkLane|KnowledgeLane){const previous=statusOverrides[item.id];statusOverrides={...statusOverrides,[item.id]:{status:next,version:item.version}};try{const result=await updateLibraryStatus({id:item.id,status:next,expected_version:item.version});statusOverrides={...statusOverrides,[item.id]:{status:result.status,version:result.version}};snackbar.push({message:result.status==="CONFLICT"?"library.item.update found a conflict · adjudication required":`library.item.update applied · ${next}`,op:"library.item.update",tone:result.status==="CONFLICT"?"warn":"good"});}catch(error){if(previous)statusOverrides={...statusOverrides,[item.id]:previous};else{const {[item.id]:_removed,...rest}=statusOverrides;statusOverrides=rest;}snackbar.push({message:`library.item.update failed: ${(error as Error).message}`,op:"library.item.update",tone:"danger"});}}
 	function keys(e:KeyboardEvent){ if(e.key==="f" && !(e.target instanceof HTMLInputElement)&&!(e.target instanceof HTMLSelectElement)){e.preventDefault();search?.focus();} if(["1","2","3","4"].includes(e.key)&&!(e.target instanceof HTMLInputElement)&&!(e.target instanceof HTMLSelectElement)) view=(["list","graph","kanban","table"] as const)[Number(e.key)-1]; }
-	$effect(()=>{const id=page.url.searchParams.get("item");if(!id||id===handledItem)return;handledItem=id;selected=lib.items.find((item)=>item.id===id)??null;});
+	$effect(()=>{const id=page.url.searchParams.get("item");if(!id||id===handledItem)return;handledItem=id;void goto(`/library/${encodeURIComponent(id)}`,{replaceState:true});});
 	$effect(()=>{if(page.url.searchParams.get("focus")!=="search")return;queueMicrotask(()=>search?.focus());});
 </script>
 <svelte:window onkeydown={keys}/>
@@ -61,7 +58,6 @@
 {:else}
 	<LibraryGraphView items={surfaceItems} {links} degraded={lib.sources?.links==="unavailable"} loading={loadingSurface} onopen={open}/>
 {/if}
-<ModalSurface bind:element={drawer} open={selected!==null} variant="drawer" labelledby="library-item-title" onclose={()=>selected=null}>{#if selected}<div class="library-drawer"><IconButton class="dialog-close" name="x" label="Close item" autofocus onclick={()=>drawer?.close()}/><header><Icon name="book-open" size={16}/><h2 id="library-item-title">{selected.title}</h2></header><div class="chips"><span>{selected.kind}</span><span>{selected.status}</span><span><Icon name="shield" size={11}/> {selected.protection??"unknown"}</span><span>{selected.scope}</span><span>conf {selected.confidence?.toFixed(2)||"—"}</span></div><article>{selected.body}</article><section><h3>Typed links</h3>{#each links[selected.id] ?? [] as link}<button class="link" onclick={()=>{const target=lib.items.find(i=>i.id===link.targetId);if(target)selected=target}}><Icon name={link.direction==="out"?"arrow-right":"arrow-left"} size={12}/><code>{link.rel}</code><span>{lib.items.find(i=>i.id===link.targetId)?.title??"target not visible"}</span>{#if link.reason}<small>{link.reason}</small>{/if}</button>{:else}<p>No typed links filed.</p>{/each}</section><section><h3>Provenance</h3><p>created-by-agent:{selected.creator} · responsible-human:{provenance[selected.id]?.responsibleHuman??"unassigned"} · handed-off-to-agent:{selected.handedOffTo??"none"} · v{selected.version}</p></section><footer>v{selected.version} · tx_from {provenance[selected.id]?.txFrom??"unavailable"} · what did we believe when</footer></div>{/if}</ModalSurface>
 {/if}
 <style>
 	.sign { display:flex; align-items:center; gap:var(--s-3); min-height:40px; }
@@ -106,17 +102,6 @@
 	.row small,.row em { color:var(--text-3); font:400 .6875rem var(--mono); }
 	.row em { margin-top:var(--s-1); color:var(--jade-text); }
 	.row code { text-align:right; }
-	.chips { display:flex; flex-wrap:wrap; gap:var(--s-1); margin:var(--s-3) 0; }
-	.chips span { display:flex; align-items:center; gap:var(--s-1); padding:var(--s-1) var(--s-2); border-radius:var(--r-pill); background:var(--s2); font:400 .6875rem var(--mono); }
-	.link { display:grid; grid-template-columns:16px 90px 1fr; gap:var(--s-2); align-items:center; width:100%; min-height:40px; border:0; border-radius:var(--r-xs); background:transparent; color:var(--text-2); text-align:left; }
-	.link:hover { background:var(--s2); }
-	.link small { grid-column:3; color:var(--text-3); }
-	.library-drawer header { display:flex; gap:var(--s-2); padding-right:var(--s-4); }
-	.library-drawer header h2 { font:400 1.0625rem var(--sign); }
-	.library-drawer article { margin:var(--s-4) 0; color:var(--text-2); line-height:1.6; }
-	.library-drawer section { padding:var(--s-3) 0; border-top:1px solid var(--rule); }
-	.library-drawer h3 { color:var(--text-3); font:500 .6875rem var(--mono); text-transform:uppercase; }
-	.library-drawer section p,.library-drawer>footer { display:flex; align-items:center; gap:var(--s-2); margin-top:var(--s-2); color:var(--text-3); font:400 .6875rem var(--mono); }
 	@keyframes view-in { from { opacity:.72; } }
 	@media(max-width:900px) { .sign>span,.bud { display:none; } .sign form { width:220px; } .desk { grid-template-columns:1fr; } }
 	@media(max-width:767px) { .sign { flex-wrap:wrap; } .sign form { order:4; width:100%; } .desk aside,.desk main .panel:not(:first-child) { display:none; } .two { grid-template-columns:1fr; } .head,.row { grid-template-columns:1fr 56px; } .head span:nth-child(2),.head span:nth-child(4),.row>code:nth-of-type(1),.row>code:nth-of-type(3) { display:none; } }
