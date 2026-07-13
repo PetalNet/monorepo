@@ -42,6 +42,7 @@ const typeSpecs = [
 	["OpResult", "schemas/op-result.schema.json"],
 	["GovernanceItem", "schemas/entities/governance.schema.json"],
 	["RosterItem", "schemas/entities/roster.schema.json"],
+	["CommsEvent", "schemas/entities/comms-event.schema.json"],
 ];
 
 const schemas = Object.fromEntries(
@@ -348,12 +349,6 @@ ${typeSpecs
 export type GovernancePool = {
 \tpool_tokens: number; pool_spent: number; fleet_mode: "parallel" | "sequential"; cascade_active: boolean; [key: string]: unknown;
 };
-export type CommsMethod = "comms.card" | "comms.rpc" | "comms.mail";
-export interface CommsEvent extends Record<string, unknown> {
-\tid: string; method: CommsMethod; sender: string; recipient: string; task_id?: number | null;
-\tin_reply_to?: string | null; ts: string; card_id?: string | null;
-}
-
 const CONTRACT_SCHEMAS = ${JSON.stringify(Object.fromEntries(Object.entries(resolvedSchemas).map(([name, schema]) => [name, compactSchema(schema)])))} as unknown as Record<ContractType, JsonSchema>;
 export type ContractType = ${typeSpecs.map(([name]) => JSON.stringify(name)).join(" | ")};
 /** @public Generated compatibility fixtures for contract consumers and tests. */

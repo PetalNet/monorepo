@@ -277,7 +277,7 @@ export const attentionCracked: AttentionItem[] = [
 
 export const comms: CommsEvent[] = [
 	{
-		id: "c1",
+		id: "105734c2-763e-4e51-8571-35d8492b0274",
 		method: "comms.card",
 		sender: "janet",
 		recipient: "carson-2",
@@ -285,7 +285,13 @@ export const comms: CommsEvent[] = [
 		ts: iso(120_000),
 		card_id: "card-1",
 	},
-	{ id: "c2", method: "comms.rpc", sender: "dispatcher", recipient: "fleet", ts: iso(2_000) },
+	{
+		id: "b675823d-0ea4-4fa9-b673-f8978e1298fc",
+		method: "comms.rpc",
+		sender: "dispatcher",
+		recipient: "point-fable",
+		ts: iso(2_000),
+	},
 ];
 
 // The Agents surface reads /roster (a server-side join). One row per agent.
