@@ -6,7 +6,7 @@ import 'package:point_app/features/me/me_profile_provider.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
-import 'package:point_app/features/relay/realtime_sync_models.dart';
+import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
@@ -61,14 +61,16 @@ class RealtimeSyncCoordinator {
       );
     }
 
-    final errors = <String>[];
+    final errors = <RealtimeSyncFailure>[];
     final relay = _ref.read(relayControllerProvider);
     final relayEpoch = relay.sessionEpoch;
     MailboxDrainDiff mailbox;
     try {
       mailbox = await relay.processMailbox();
     } on Object {
-      mailbox = const MailboxDrainDiff(errors: ['mailbox_unavailable']);
+      mailbox = const MailboxDrainDiff(
+        errors: [RealtimeSyncFailure.mailboxUnavailable],
+      );
     }
     if (!relay.isSessionCurrent(relayEpoch, session.userId)) {
       return _sessionChanged(reason, mailbox);
@@ -80,7 +82,7 @@ class RealtimeSyncCoordinator {
     try {
       people = await _ref.read(peopleControllerProvider.notifier).refresh();
     } on Object {
-      errors.add('shares_unavailable');
+      errors.add(RealtimeSyncFailure.sharesUnavailable);
     }
     if (!relay.isSessionCurrent(relayEpoch, session.userId)) {
       return _sessionChanged(reason, mailbox);
@@ -92,7 +94,7 @@ class RealtimeSyncCoordinator {
     try {
       incoming = await _ref.read(requestsControllerProvider.notifier).refresh();
     } on Object {
-      errors.add('incoming_requests_unavailable');
+      errors.add(RealtimeSyncFailure.incomingRequestsUnavailable);
     }
     if (!relay.isSessionCurrent(relayEpoch, session.userId)) {
       return _sessionChanged(reason, mailbox);
@@ -107,7 +109,7 @@ class RealtimeSyncCoordinator {
           .read(outgoingRequestsControllerProvider.notifier)
           .refresh();
     } on Object {
-      errors.add('outgoing_requests_unavailable');
+      errors.add(RealtimeSyncFailure.outgoingRequestsUnavailable);
     }
     if (!relay.isSessionCurrent(relayEpoch, session.userId)) {
       return _sessionChanged(reason, mailbox);
@@ -119,7 +121,7 @@ class RealtimeSyncCoordinator {
     try {
       temps = await _ref.read(tempSharesControllerProvider.notifier).refresh();
     } on Object {
-      errors.add('temp_shares_unavailable');
+      errors.add(RealtimeSyncFailure.tempSharesUnavailable);
     }
     if (!relay.isSessionCurrent(relayEpoch, session.userId)) {
       return _sessionChanged(reason, mailbox);
@@ -130,7 +132,7 @@ class RealtimeSyncCoordinator {
     try {
       ghost = await _ref.read(ghostControllerProvider.notifier).refresh();
     } on Object {
-      errors.add('ghost_unavailable');
+      errors.add(RealtimeSyncFailure.ghostUnavailable);
     }
     if (!relay.isSessionCurrent(relayEpoch, session.userId)) {
       return _sessionChanged(reason, mailbox);
@@ -141,7 +143,7 @@ class RealtimeSyncCoordinator {
     try {
       profile = await _ref.refresh(meProfileProvider.future);
     } on Object {
-      errors.add('profile_unavailable');
+      errors.add(RealtimeSyncFailure.profileUnavailable);
     }
     if (!relay.isSessionCurrent(relayEpoch, session.userId)) {
       return _sessionChanged(reason, mailbox);
@@ -149,9 +151,21 @@ class RealtimeSyncCoordinator {
 
     CurrentFixSyncDiff currentFixes;
     try {
-      currentFixes = await relay.reconcileCurrentFixes(people);
+      final currentPeers = {
+        ...people.map((person) => person.userId),
+        for (final temp in temps)
+          if (temp.toUserId == session.userId &&
+              temp.expiresAt.isAfter(DateTime.now()))
+            temp.fromUserId,
+      };
+      currentFixes = await relay.reconcileCurrentFixes(currentPeers);
     } on Object {
-      currentFixes = const CurrentFixSyncDiff(errors: ['current_unavailable']);
+      currentFixes = const CurrentFixSyncDiff(
+        errors: [RealtimeSyncFailure.currentFixUnavailable],
+      );
+    }
+    if (!relay.isSessionCurrent(relayEpoch, session.userId)) {
+      return _sessionChanged(reason, mailbox);
     }
 
     final previousPeopleIds = previousPeople.map((p) => p.userId).toSet();
@@ -187,13 +201,13 @@ class RealtimeSyncCoordinator {
   ) => RealtimeSyncDiff(
     reason: reason,
     mailbox: mailbox,
-    errors: const ['session_changed'],
+    errors: const [RealtimeSyncFailure.sessionChanged],
   );
 
   void _handleResult(RealtimeSyncDiff diff) {
     if (diff.healthy) {
       _cancelRetry();
-    } else if (!diff.errors.contains('session_changed')) {
+    } else {
       _scheduleRetry();
     }
   }

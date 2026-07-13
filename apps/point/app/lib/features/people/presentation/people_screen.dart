@@ -6,8 +6,8 @@ import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
-import 'package:point_app/features/relay/realtime_sync_coordinator.dart';
-import 'package:point_app/features/relay/realtime_sync_models.dart';
+import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
+import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -44,43 +44,81 @@ class PeopleScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
+      body: _PeopleBody(
+        people: people,
+        requests: requests,
+        temps: temps.values.toList(),
         onRefresh: () => ref
             .read(realtimeSyncCoordinatorProvider)
             .syncNow(RealtimeSyncReason.manualRefresh),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: (people.isEmpty && requests.isEmpty && temps.isEmpty)
-                ? const _RefreshableEmptyPeople()
-                : ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: EdgeInsets.only(top: context.space.sm),
-                    children: [
-                      if (requests.isNotEmpty)
-                        _RequestsSection(requests: requests),
-                      if (temps.isNotEmpty)
-                        _TempSection(
-                          temps: temps.values.toList(),
-                          people: people,
-                        ),
-                      if ((requests.isNotEmpty || temps.isNotEmpty) &&
-                          people.isNotEmpty)
-                        Divider(
-                          height: context.space.xl,
-                          color: context.colors.outline.withValues(alpha: 0.4),
-                        ),
-                      for (final p in people)
-                        PersonRow(
-                          person: p,
-                          onTap: () =>
-                              context.push(PersonDetailRoute(p.userId)),
-                        ),
-                    ],
-                  ),
-          ),
+      ),
+    );
+  }
+}
+
+class _PeopleBody extends StatelessWidget {
+  const _PeopleBody({
+    required this.people,
+    required this.requests,
+    required this.temps,
+    required this.onRefresh,
+  });
+
+  final List<Person> people;
+  final List<ShareRequest> requests;
+  final List<TempShare> temps;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: (people.isEmpty && requests.isEmpty && temps.isEmpty)
+              ? const _RefreshableEmptyPeople()
+              : _PeopleList(
+                  people: people,
+                  requests: requests,
+                  temps: temps,
+                ),
         ),
       ),
+    );
+  }
+}
+
+class _PeopleList extends StatelessWidget {
+  const _PeopleList({
+    required this.people,
+    required this.requests,
+    required this.temps,
+  });
+
+  final List<Person> people;
+  final List<ShareRequest> requests;
+  final List<TempShare> temps;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.only(top: context.space.sm),
+      children: [
+        if (requests.isNotEmpty) _RequestsSection(requests: requests),
+        if (temps.isNotEmpty) _TempSection(temps: temps, people: people),
+        if ((requests.isNotEmpty || temps.isNotEmpty) && people.isNotEmpty)
+          Divider(
+            height: context.space.xl,
+            color: context.colors.outline.withValues(alpha: 0.4),
+          ),
+        for (final person in people)
+          PersonRow(
+            person: person,
+            onTap: () => context.push(PersonDetailRoute(person.userId)),
+          ),
+      ],
     );
   }
 }

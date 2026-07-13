@@ -7,8 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/people/requests_controller.dart';
-import 'package:point_app/features/relay/realtime_sync_coordinator.dart';
-import 'package:point_app/features/relay/realtime_sync_models.dart';
+import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
+import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
 import 'package:point_app/features/relay/reconnect_policy.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
@@ -170,6 +170,32 @@ class _MailboxCrypto extends _NoopCrypto {
   }
 }
 
+class _SnapshotCrypto extends _NoopCrypto {
+  @override
+  bool hasGroup(Uint8List groupId) => true;
+
+  @override
+  Future<Uint8List> decrypt(Uint8List groupId, Uint8List ciphertext) async =>
+      Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'lat': 41.9,
+            'lon': -87.6,
+            'speed': 0.0,
+            'timestamp': 3000,
+          }),
+        ),
+      );
+}
+
+class _RejectingMailboxCrypto extends _NoopCrypto {
+  @override
+  Future<MailboxApplyResult> processMailboxWelcome(
+    String messageId,
+    Uint8List welcome,
+  ) => throw StateError('crypto rejected row');
+}
+
 class _WsHarness {
   final channels = <_FakeChannel>[];
 
@@ -311,7 +337,10 @@ void main() {
       sockets.channels.last.push({'type': 'auth.ok'});
       final welcomeDiff = await reconnectSync;
       expect(welcomeDiff.mailbox.applied, 1);
-      expect(welcomeDiff.mailbox.errors, contains('mailbox_ack_failed'));
+      expect(
+        welcomeDiff.mailbox.errors,
+        contains(RealtimeSyncFailure.mailboxAckFailed),
+      );
       final retriedWelcome = await ackRetry;
       expect(retriedWelcome.mailbox.alreadyApplied, 1);
       expect(api.acked, contains('welcome-1'));
@@ -460,11 +489,105 @@ void main() {
 
     final diff = await relay.processMailbox();
     expect(diff.quarantined, 1);
+    expect(diff.quarantinedMessageIds, {'poison-1'});
     expect(diff.applied, 1);
     expect(api.quarantined, ['poison-1']);
     expect(api.acked, ['welcome-2']);
     expect(crypto.applied, ['welcome-2']);
   });
+
+  test('crypto poison is quarantined after three bounded attempts', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final api = _FakeApi()
+      ..mailbox.add({
+        'id': 'crypto-poison',
+        'message_type': 'welcome',
+        'group_id': 'dm:a:b',
+        'sender_id': _parkerId,
+        'payload': base64Encode([1, 2, 3]),
+        'created_at': '2026-07-13T00:00:00Z',
+      });
+    final container = _container(
+      api: api,
+      crypto: _RejectingMailboxCrypto(),
+      sockets: _WsHarness(),
+    );
+    addTearDown(container.dispose);
+    await container.read(authControllerProvider.future);
+    final relay = container.read(relayControllerProvider);
+    await relay.start(_janet);
+
+    final first = await relay.processMailbox();
+    final second = await relay.processMailbox();
+    final third = await relay.processMailbox();
+
+    expect(first.errors, contains(RealtimeSyncFailure.mailboxApplyFailed));
+    expect(second.errors, contains(RealtimeSyncFailure.mailboxApplyFailed));
+    expect(third.quarantinedMessageIds, {'crypto-poison'});
+    expect(api.quarantined, ['crypto-poison']);
+  });
+
+  test('current-fix catch-up includes incoming temporary sharers', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final api = _FakeApi()
+      ..temps.add(
+        TempShare(
+          id: 'temp-incoming',
+          fromUserId: _parkerId,
+          toUserId: _janet.userId,
+          expiresAt: DateTime.now().add(const Duration(hours: 1)),
+        ),
+      )
+      ..current[_parkerId] = const [
+        EncryptedCurrentFix(
+          blob: 'AA==',
+          clientTimestamp: 3000,
+          recipientType: 'user',
+          recipientId: 'janet@point.test',
+        ),
+      ];
+    final container = _container(
+      api: api,
+      crypto: _SnapshotCrypto(),
+      sockets: _WsHarness(),
+    );
+    addTearDown(container.dispose);
+    await container.read(authControllerProvider.future);
+    final coordinator = container.read(realtimeSyncCoordinatorProvider);
+    final relay = container.read(relayControllerProvider);
+    await relay.start(_janet);
+    final fix = relay.peerFixes.first;
+
+    final diff = await coordinator.syncNow(RealtimeSyncReason.appResumed);
+
+    expect(diff.currentFixes.updatedPeers, {_parkerId});
+    expect((await fix).data['timestamp'], 3000);
+  });
+
+  test(
+    'wake before relay startup retries after the relay becomes ready',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final api = _FakeApi();
+      final container = _container(
+        api: api,
+        crypto: _NoopCrypto(),
+        sockets: _WsHarness(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authControllerProvider.future);
+      final coordinator = container.read(realtimeSyncCoordinatorProvider);
+      final retry = coordinator.diffs
+          .firstWhere((diff) => diff.reason == RealtimeSyncReason.retry)
+          .timeout(const Duration(seconds: 3));
+
+      final wake = await coordinator.syncNow(RealtimeSyncReason.pushWake);
+      expect(wake.errors, contains(RealtimeSyncFailure.sessionChanged));
+      await container.read(relayControllerProvider).start(_janet);
+
+      expect((await retry).healthy, isTrue);
+    },
+  );
 
   test('overlapping triggers are serialized', () async {
     FlutterSecureStorage.setMockInitialValues({});
@@ -548,7 +671,7 @@ void main() {
     final diff = await sync;
     await stopping;
 
-    expect(diff.errors, contains('session_changed'));
+    expect(diff.errors, contains(RealtimeSyncFailure.sessionChanged));
     expect(crypto.applied, isEmpty);
     expect(api.acked, isEmpty);
   });

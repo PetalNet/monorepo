@@ -10,12 +10,33 @@ enum RealtimeSyncReason {
   retry,
 }
 
+/// Machine-checkable reconciliation failures. These values are part of the
+/// coordinator contract: retry decisions must never depend on string spelling.
+enum RealtimeSyncFailure {
+  sessionChanged,
+  mailboxUnavailable,
+  mailboxMalformed,
+  mailboxQuarantineFailed,
+  mailboxAckFailed,
+  mailboxApplyFailed,
+  mailboxFailureStateUnavailable,
+  sharesUnavailable,
+  incomingRequestsUnavailable,
+  outgoingRequestsUnavailable,
+  tempSharesUnavailable,
+  ghostUnavailable,
+  profileUnavailable,
+  currentFixUnavailable,
+  currentFixFailed,
+}
+
 class MailboxDrainDiff {
   const MailboxDrainDiff({
     this.applied = 0,
     this.alreadyApplied = 0,
     this.acknowledged = 0,
     this.quarantined = 0,
+    this.quarantinedMessageIds = const {},
     this.deferred = 0,
     this.errors = const [],
   });
@@ -25,7 +46,8 @@ class MailboxDrainDiff {
   final int acknowledged;
   final int quarantined;
   final int deferred;
-  final List<String> errors;
+  final Set<String> quarantinedMessageIds;
+  final List<RealtimeSyncFailure> errors;
 
   bool get healthy => errors.isEmpty && deferred == 0;
 }
@@ -37,7 +59,7 @@ class CurrentFixSyncDiff {
   });
 
   final Set<String> updatedPeers;
-  final List<String> errors;
+  final List<RealtimeSyncFailure> errors;
 }
 
 class RealtimeSyncDiff {
@@ -71,7 +93,7 @@ class RealtimeSyncDiff {
   final bool ghostChanged;
   final bool profileChanged;
   final CurrentFixSyncDiff currentFixes;
-  final List<String> errors;
+  final List<RealtimeSyncFailure> errors;
 
   bool get healthy =>
       mailbox.healthy && currentFixes.errors.isEmpty && errors.isEmpty;

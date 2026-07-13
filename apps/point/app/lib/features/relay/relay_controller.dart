@@ -8,7 +8,7 @@ import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/people/people_controller.dart';
-import 'package:point_app/features/relay/realtime_sync_models.dart';
+import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:point_app/features/relay/ws_service.dart';
 import 'package:point_app/services/api/models.dart';
@@ -66,6 +66,7 @@ class RelayController {
   final _peerFixes = StreamController<PeerFix>.broadcast();
   final _syncRequests = StreamController<RealtimeSyncReason>.broadcast();
   final Map<String, int> _latestFixTimestamp = {};
+  final Map<String, Map<String, int>> _mailboxFailuresByUser = {};
 
   /// Decrypted peer fixes for the presence/map layer.
   Stream<PeerFix> get peerFixes => _peerFixes.stream;
@@ -387,7 +388,8 @@ class RelayController {
     var acknowledged = 0;
     var quarantined = 0;
     var deferred = 0;
-    final errors = <String>[];
+    final errors = <RealtimeSyncFailure>[];
+    final quarantinedMessageIds = <String>{};
     final blockedGroups = <String>{};
     try {
       final messages = await api.mlsMessages(session.token)
@@ -399,7 +401,9 @@ class RelayController {
           return (a['id'] as String? ?? '').compareTo(b['id'] as String? ?? '');
         });
       if (!isSessionCurrent(epoch, session.userId)) {
-        return const MailboxDrainDiff(errors: ['session_changed']);
+        return const MailboxDrainDiff(
+          errors: [RealtimeSyncFailure.sessionChanged],
+        );
       }
       for (final message in messages) {
         if (!isSessionCurrent(epoch, session.userId)) {
@@ -409,7 +413,7 @@ class RelayController {
             acknowledged: acknowledged,
             quarantined: quarantined,
             deferred: deferred,
-            errors: const ['session_changed'],
+            errors: const [RealtimeSyncFailure.sessionChanged],
           );
         }
         final id = message['id'] as String?;
@@ -424,8 +428,9 @@ class RelayController {
                 reason: 'malformed_envelope',
               )) {
             quarantined++;
+            quarantinedMessageIds.add(id);
           } else {
-            errors.add('mailbox_malformed');
+            errors.add(RealtimeSyncFailure.mailboxMalformed);
           }
           continue;
         }
@@ -453,6 +458,7 @@ class RelayController {
                 reason: 'unknown_message_type',
               )) {
                 quarantined++;
+                quarantinedMessageIds.add(id);
                 failures.remove(id);
                 continue;
               }
@@ -489,10 +495,11 @@ class RelayController {
             reason: 'malformed_payload',
           )) {
             quarantined++;
+            quarantinedMessageIds.add(id);
             failures.remove(id);
           } else {
             blockedGroups.add(groupId);
-            errors.add('mailbox_quarantine_failed');
+            errors.add(RealtimeSyncFailure.mailboxQuarantineFailed);
           }
         } on Object catch (e) {
           if (appliedDurably) {
@@ -500,7 +507,7 @@ class RelayController {
             // quarantine this valid message again; the next drain recognizes
             // its local id and retries only the idempotent ACK.
             blockedGroups.add(groupId);
-            errors.add('mailbox_ack_failed');
+            errors.add(RealtimeSyncFailure.mailboxAckFailed);
             continue;
           }
           final count = (failures[id] ?? 0) + 1;
@@ -512,24 +519,28 @@ class RelayController {
                 reason: 'crypto_rejected',
               )) {
             quarantined++;
+            quarantinedMessageIds.add(id);
             failures.remove(id);
           } else {
             blockedGroups.add(groupId);
-            errors.add('mailbox_apply_failed');
+            errors.add(RealtimeSyncFailure.mailboxApplyFailed);
             if (kDebugMode) debugPrint('apply MLS mailbox row $id failed: $e');
           }
         }
       }
     } on Object catch (e) {
-      errors.add('mailbox_unavailable');
+      errors.add(RealtimeSyncFailure.mailboxUnavailable);
       if (kDebugMode) debugPrint('drain MLS mailbox failed: $e');
     }
-    await _writeMailboxFailures(session.userId, failures);
+    if (!await _writeMailboxFailures(session.userId, failures)) {
+      errors.add(RealtimeSyncFailure.mailboxFailureStateUnavailable);
+    }
     return MailboxDrainDiff(
       applied: applied,
       alreadyApplied: alreadyApplied,
       acknowledged: acknowledged,
       quarantined: quarantined,
+      quarantinedMessageIds: quarantinedMessageIds,
       deferred: deferred,
       errors: errors,
     );
@@ -566,31 +577,35 @@ class RelayController {
     }
   }
 
-  Future<CurrentFixSyncDiff> reconcileCurrentFixes(List<Person> people) =>
-      _queueSessionWork(() => _reconcileCurrentFixes(people));
+  Future<CurrentFixSyncDiff> reconcileCurrentFixes(
+    Iterable<String> peerUserIds,
+  ) => _queueSessionWork(() => _reconcileCurrentFixes(peerUserIds));
 
-  Future<CurrentFixSyncDiff> _reconcileCurrentFixes(List<Person> people) async {
+  Future<CurrentFixSyncDiff> _reconcileCurrentFixes(
+    Iterable<String> peerUserIds,
+  ) async {
     final session = _session;
     if (session == null) return const CurrentFixSyncDiff();
     final epoch = _sessionEpoch;
     final api = _ref.read(apiProvider);
     final crypto = _ref.read(cryptoServiceProvider);
     final updated = <String>{};
-    final errors = <String>[];
-    for (final person in people) {
+    final errors = <RealtimeSyncFailure>[];
+    for (final peerUserId in peerUserIds.toSet()) {
       try {
-        final rows = await api.currentFixes(session.token, person.userId);
+        final rows = await api.currentFixes(session.token, peerUserId);
         if (!isSessionCurrent(epoch, session.userId)) {
-          return const CurrentFixSyncDiff(errors: ['session_changed']);
+          return const CurrentFixSyncDiff(
+            errors: [RealtimeSyncFailure.sessionChanged],
+          );
         }
         for (final row in rows) {
-          if (row.clientTimestamp <=
-              (_latestFixTimestamp[person.userId] ?? 0)) {
+          if (row.clientTimestamp <= (_latestFixTimestamp[peerUserId] ?? 0)) {
             continue;
           }
           final groupId = row.recipientType == 'group'
               ? CryptoService.groupIdFor(row.recipientId)
-              : CryptoService.pairwiseGroupId(session.userId, person.userId);
+              : CryptoService.pairwiseGroupId(session.userId, peerUserId);
           if (!crypto.hasGroup(groupId)) continue;
           final plaintext = await crypto.decrypt(
             groupId,
@@ -598,14 +613,14 @@ class RelayController {
           );
           final data =
               jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
-          if (await _acceptPeerFix(person.userId, data)) {
-            updated.add(person.userId);
+          if (await _acceptPeerFix(peerUserId, data)) {
+            updated.add(peerUserId);
           }
         }
       } on Object catch (e) {
-        errors.add('current_fix_failed:${person.userId}');
+        errors.add(RealtimeSyncFailure.currentFixFailed);
         if (kDebugMode) {
-          debugPrint('current fix reconcile for ${person.userId} failed: $e');
+          debugPrint('current fix reconcile for $peerUserId failed: $e');
         }
       }
     }
@@ -629,27 +644,35 @@ class RelayController {
       'point.mls.mailbox.failures.$userId';
 
   Future<Map<String, int>> _readMailboxFailures(String userId) async {
+    final inMemory = _mailboxFailuresByUser.putIfAbsent(userId, () => {});
     try {
       final raw = await _storage.read(key: _mailboxFailuresKey(userId));
-      if (raw == null) return {};
+      if (raw == null) return Map.of(inMemory);
       final json = jsonDecode(raw) as Map<String, dynamic>;
-      return json.map((id, count) => MapEntry(id, count as int));
+      for (final entry in json.entries) {
+        final stored = entry.value as int;
+        if (stored > (inMemory[entry.key] ?? 0)) inMemory[entry.key] = stored;
+      }
+      return Map.of(inMemory);
     } on Object {
-      return {};
+      return Map.of(inMemory);
     }
   }
 
-  Future<void> _writeMailboxFailures(
+  Future<bool> _writeMailboxFailures(
     String userId,
     Map<String, int> failures,
   ) async {
+    _mailboxFailuresByUser[userId] = Map.of(failures);
     try {
       await _storage.write(
         key: _mailboxFailuresKey(userId),
         value: jsonEncode(failures),
       );
+      return true;
     } on Object catch (e) {
       if (kDebugMode) debugPrint('persist mailbox failures failed: $e');
+      return false;
     }
   }
 
