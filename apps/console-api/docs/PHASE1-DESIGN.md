@@ -172,7 +172,7 @@ service-user-owned `0600`/root `0644`, never agent-writable (H4/M3), via
 
 ## 9. Deploy + test
 
-- **Dev/test**: `timescale/timescaledb-ha:pg16` TEMP containers (per-run, tmpfs); disposable
+- **Dev/test**: `timescale/timescaledb:latest-pg16` TEMP containers (per-run, tmpfs); disposable
   manager on a scratch tmux session + throwaway handle for `agent.*`; temp tracker DB — the
   harness **fails closed if `TASKS_DB_PATH` is unset or resolves to a live path** (default is
   live — security M4). Test Matrix uses a dedicated test-only bot token + room, never the prod
