@@ -1,5 +1,5 @@
 // /roster and /executors (N1b-2, PHASE1B-DESIGN §5). /roster joins the lake current_state
-// (fleet/heartbeat/registry/governance) with the tracker (agents/leases), each source scoped
+// (fleet/heartbeat/registry/governance/workers) with the tracker (agents/leases), each source scoped
 // BEFORE association. A per-source `visibility` marker distinguishes "no row" from "not yours" so
 // the frontend never renders authz-denied as "no data" (Rule 10). It is a mixed-source join, not
 // an atomic snapshot — each source carries its own observed_at.
@@ -43,10 +43,17 @@ export async function readRoster(
 		async (tx) =>
 			tx<CurrentRow[]>`
 			select kind, subject, state, observed_at from current_state
-			where kind in ('fleet','heartbeat','registry','governance')`,
+			where kind in ('fleet','heartbeat','registry','governance','worker')`,
 	);
 	const byHandle = new Map<string, Partial<Record<string, CurrentRow>>>();
+	const workersByHandle = new Map<string, number>();
 	for (const r of rows) {
+		if (r.kind === "worker") {
+			const owner = r.state["handle"];
+			if (typeof owner === "string")
+				workersByHandle.set(owner, (workersByHandle.get(owner) ?? 0) + 1);
+			continue;
+		}
 		const obs =
 			typeof r.observed_at === "string" ? r.observed_at : new Date(r.observed_at).toISOString();
 		const entry = byHandle.get(r.subject) ?? {};
@@ -63,6 +70,7 @@ export async function readRoster(
 	// row and no agents entry — it must still appear on the roster; codex N1b-2 re-review P1).
 	const handles = new Set<string>([
 		...byHandle.keys(),
+		...workersByHandle.keys(),
 		...agentByHandle.keys(),
 		...leaseByWorker.keys(),
 	]);
@@ -70,6 +78,7 @@ export async function readRoster(
 		const cs = byHandle.get(handle) ?? {};
 		return {
 			handle,
+			workers_active: workersByHandle.get(handle) ?? 0,
 			fleet: source(cs["fleet"]),
 			heartbeat: source(cs["heartbeat"]),
 			registry: source(cs["registry"]),

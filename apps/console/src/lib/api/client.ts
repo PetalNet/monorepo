@@ -11,6 +11,7 @@
  */
 import { env } from "$env/dynamic/public";
 
+import { flattenRosterItem, type JoinedRosterItem } from "./derive";
 import type {
 	AttentionItem,
 	ApiError,
@@ -32,9 +33,12 @@ import type {
 	OpResult,
 	ReadEnvelope,
 	QueryResult,
+	RegistryItem,
+	RosterItem,
 	StructuredQuery,
 	SubscriptionItem,
 	TaskItem,
+	WorkerItem,
 } from "./types";
 
 export type DataMode = "mock" | "live";
@@ -198,6 +202,35 @@ export async function readGovernance(
 		credentials: "include",
 	});
 	return json<ReadEnvelope<GovernanceItem> & { pool?: GovernancePool }>(res);
+}
+
+export async function readRoster(fetchFn: typeof fetch = fetch): Promise<ReadEnvelope<RosterItem>> {
+	const res = await fetchFn(`${base()}/roster`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	const envelope = await json<ReadEnvelope<JoinedRosterItem>>(res);
+	return { ...envelope, items: envelope.items.map(flattenRosterItem) };
+}
+
+export async function readRegistry(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<RegistryItem>> {
+	const res = await fetchFn(`${base()}/registry?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<RegistryItem>>(res);
+}
+
+export async function readWorkers(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<WorkerItem>> {
+	const res = await fetchFn(`${base()}/workers?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<WorkerItem>>(res);
 }
 export async function readTasks(fetchFn: typeof fetch = fetch): Promise<ReadEnvelope<TaskItem>> {
 	let cursor: string | null = null;

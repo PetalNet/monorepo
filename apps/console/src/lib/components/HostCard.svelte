@@ -39,10 +39,10 @@
 			{#if host.rebootRequired}<Icon name="shield-check" size={12} />{/if}
 		</div>
 		<div class="occ">
-			{host.residents.length} resident{host.residents.length === 1 ? "" : "s"} · {host.containers} containers
+			{host.residents.length} resident{host.residents.length === 1 ? "" : "s"} · {host.containers ?? "—"} containers
 		</div>
 		<div class="tick" class:warn={host.updateStatus !== "up_to_date"}>
-			{#if host.securityCritical > 0}
+			{#if (host.securityCritical ?? 0) > 0}
 				{host.securityCritical} security-critical
 			{:else if host.updateStatus === "updates_overdue"}
 				updates overdue
@@ -50,6 +50,8 @@
 				updates pending
 			{:else if host.updateStatus === "error_collecting"}
 				can't collect updates
+			{:else if host.updateStatus === null}
+				update posture unavailable
 			{:else}
 				up to date
 			{/if}

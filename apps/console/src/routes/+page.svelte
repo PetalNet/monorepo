@@ -185,7 +185,7 @@
 		<!-- Live, not connected: honest placeholder, never fabricated fixtures (veto #20). -->
 		<div class="unverified">
 			<Icon name="circle-help" size={20} />
-			<p>Can't verify the neighborhood yet. The cockpit reads land with the backend's 2nd pass.</p>
+			<p>Can't verify the neighborhood. No live read or last-known snapshot is available.</p>
 			<span>Ask Janet anything — every surface is still live.</span>
 		</div>
 	{:else}
