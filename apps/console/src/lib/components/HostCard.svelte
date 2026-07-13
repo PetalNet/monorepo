@@ -2,6 +2,7 @@
 	import type { HostView } from "$lib/data/hosts";
 	import Icon from "./Icon.svelte";
 	import StatusDot from "./StatusDot.svelte";
+	import StatusPill from "./StatusPill.svelte";
 
 	/**
 	 * HostCard (07-hosts §3.1): a host as a house. Roof band is jade — the place
@@ -38,6 +39,7 @@
 			<b>{host.host}</b>
 			{#if host.rebootRequired}<Icon name="shield-check" size={12} />{/if}
 		</div>
+		<div class="phone-status"><StatusPill {tone} label={host.liveness} /></div>
 		<div class="occ">
 			{host.residents.length} resident{host.residents.length === 1 ? "" : "s"} · {host.containers ?? "—"} containers
 		</div>
@@ -126,5 +128,64 @@
 	}
 	.tick.warn {
 		color: var(--warn-text);
+	}
+	.phone-status {
+		display: none;
+	}
+	@media (max-width: 767px) {
+		.house {
+			height: 48px;
+			overflow: visible;
+		}
+		.roof,
+		.body {
+			display: none;
+		}
+		.pad {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-rows: 24px 16px;
+			column-gap: var(--s-2);
+			height: 48px;
+			padding: var(--s-1) var(--s-2);
+		}
+		.name {
+			grid-column: 1;
+			grid-row: 1;
+			min-width: 0;
+		}
+		.name > :global(.dot) {
+			display: none;
+		}
+		.name b {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		.name :global(svg) {
+			margin-inline-start: 0;
+		}
+		.phone-status {
+			display: block;
+			grid-column: 2;
+			grid-row: 1;
+		}
+		.occ,
+		.tick {
+			align-self: start;
+			margin-top: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		.occ {
+			grid-column: 1;
+			grid-row: 2;
+		}
+		.tick {
+			grid-column: 2;
+			grid-row: 2;
+			text-align: end;
+		}
 	}
 </style>
