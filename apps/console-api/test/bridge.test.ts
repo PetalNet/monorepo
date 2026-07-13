@@ -25,7 +25,7 @@ describe("uuidv5", () => {
 });
 
 describe("system-outbox tailer", () => {
-	it("maps bot warnings to bot.message emissions with severity from the prefix", () => {
+	it("maps known warnings to statistics and unknown warnings to bot.message", () => {
 		const dir = makeOutbox({
 			"100-shawn.json": { sender: "shawn", body: "[warn] host-janitor: .14 disk 91% used" },
 			"101-derek.json": { sender: "derek", body: "[fail] container update stuck" },
@@ -34,14 +34,36 @@ describe("system-outbox tailer", () => {
 		try {
 			const { emissions, cursor } = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
 			expect(emissions).toHaveLength(3);
-			expect(emissions.map((e) => e.type)).toEqual(["bot.message", "bot.message", "bot.message"]);
-			// the SUBJECT is the trustworthy source, not the (spoofable) claimed sender
-			expect(new Set(emissions.map((e) => e.subject))).toEqual(new Set(["system-outbox"]));
+			expect(emissions.map((e) => e.type)).toEqual(["host.disk.pct", "bot.message", "bot.message"]);
+			// fallback messages use the trustworthy source, not the spoofable claimed sender
+			expect(emissions[1]?.subject).toBe("system-outbox");
 			const bySender = (s: string) => emissions.find((e) => e.dimensions?.["sender"] === s);
 			expect(bySender("shawn")?.severity).toBe("warn");
 			expect(bySender("derek")?.severity).toBe("danger");
 			expect(bySender("michael")?.severity).toBe("info");
 			expect(cursor).toBe("102-michael.json");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("maps recognized operational messages to typed statistics", () => {
+		const dir = makeOutbox({
+			"100-disk.json": { sender: "shawn", body: "[warn] .14 disk 91% used" },
+			"101-container.json": { sender: "derek", body: "container console-api update available" },
+			"102-box.json": { sender: "michael", body: "box .15 update status changed: updates_pending" },
+		});
+		try {
+			const { emissions } = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
+			expect(emissions.map((e) => e.type)).toEqual([
+				"host.disk.pct",
+				"container.update_available",
+				"box.update_status_changed",
+			]);
+			expect(emissions[0]?.subject).toBe(".14");
+			expect(emissions[0]?.measures?.["pct"]).toBe(91);
+			expect(emissions[1]?.subject).toBe("console-api");
+			expect(emissions[2]?.dimensions?.["status"]).toBe("updates_pending");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -125,14 +147,16 @@ describe("system-outbox tailer", () => {
 	it("coerces wrong-typed fields instead of crashing the whole source", () => {
 		const dir = makeOutbox({
 			"100-x.json": { sender: 1, body: { nested: true } }, // both wrong types
+			"150-null.json": null,
 			"200-y.json": { sender: "shawn", body: "[warn] ok" },
 		});
 		try {
 			const { emissions } = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
-			expect(emissions).toHaveLength(2); // neither throws; the bad record gets safe defaults
+			expect(emissions).toHaveLength(3); // neither throws; bad roots/fields get safe defaults
 			expect(emissions[0]?.dimensions?.["sender"]).toBe("unknown");
 			expect(emissions[0]?.severity).toBe("info");
-			expect(emissions[1]?.dimensions?.["sender"]).toBe("shawn");
+			expect(emissions[1]?.dimensions?.["sender"]).toBe("unknown");
+			expect(emissions[2]?.dimensions?.["sender"]).toBe("shawn");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -147,12 +171,25 @@ describe("system-outbox tailer", () => {
 		const dir = makeOutbox({ "200-real.json": { sender: "shawn", body: "[warn] real" } });
 		symlinkSync(join(secret, "elsewhere.json"), join(dir, "sent", "100-link.json"));
 		try {
-			const { emissions } = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
+			const { emissions, losses } = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
 			expect(emissions).toHaveLength(1); // the symlink is skipped, the real file is read
 			expect(emissions[0]?.dimensions?.["file"]).toBe("200-real.json");
+			expect(losses).toEqual([{ file: "100-link.json", reason: "non_regular" }]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 			rmSync(secret, { recursive: true, force: true });
+		}
+	});
+
+	it("reports oversize records as stable losses before advancing", () => {
+		const dir = makeOutbox({ "200-real.json": { sender: "shawn", body: "ok" } });
+		writeFileSync(join(dir, "sent", "100-huge.json"), "x".repeat(65 * 1024));
+		try {
+			const result = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
+			expect(result.losses).toEqual([{ file: "100-huge.json", reason: "oversize" }]);
+			expect(result.cursor).toBe("200-real.json");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 });

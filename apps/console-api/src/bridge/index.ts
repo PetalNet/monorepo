@@ -69,6 +69,24 @@ export class Bridge {
 		if (!r.ok) throw new Error(`bridge emit rejected: ${r.code ?? "unknown"} (${e.type})`);
 	}
 
+	async #quarantine(
+		source: string,
+		file: string,
+		emissionId: string | null,
+		code: string,
+	): Promise<void> {
+		await this.#writer`insert into bridge_dead_letter (source, source_cursor, emission_id, error_code)
+			values (${source}, ${file}, ${emissionId}, ${code}) on conflict (source, source_cursor) do nothing`;
+	}
+
+	#gap(source: string, file: string, reason: string, ts: string): Emission {
+		return {
+			...this.#control(source, "bridge.gap_detected", ts, "warn"),
+			id: uuidv5(`bridge.gap_detected:${source}:${file}:${reason}`),
+			dimensions: { source_cursor: file, reason },
+		};
+	}
+
 	#control(source: string, type: string, ts: string, severity: Emission["severity"]): Emission {
 		return {
 			schema_version: 1,
@@ -116,7 +134,23 @@ export class Bridge {
 			await this.#emitOne(this.#control(source, "bridge.source.recovered", now, "info"));
 		if (result.anomaly)
 			await this.#emitOne(this.#control(source, "bridge.source.anomaly", now, "warn"));
-		for (const e of result.emissions) await this.#emitOne(e);
+		for (const loss of result.losses) {
+			await this.#quarantine(source, loss.file, null, loss.reason);
+			await this.#emitOne(this.#gap(source, loss.file, loss.reason, now));
+		}
+		for (const e of result.emissions) {
+			const r = await this.#emit(PRODUCER, e, Buffer.byteLength(JSON.stringify(e)));
+			if (r.ok) continue;
+			// Record-level validation/scrubber failures are poison records, not source outages. Keep no
+			// secret payload in the DLQ: only the durable source pointer, emission id, and error class.
+			if (["invalid_emission", "payload_too_large", "secret_detected"].includes(r.code ?? "")) {
+				const file = String(e.dimensions?.["file"] ?? e.id);
+				await this.#quarantine(source, file, e.id, r.code ?? "invalid_emission");
+				await this.#emitOne(this.#gap(source, file, r.code ?? "invalid_emission", now));
+				continue;
+			}
+			throw new Error(`bridge emit rejected: ${r.code ?? "unknown"} (${e.type})`);
+		}
 		if (result.cursor !== prev.cursor || result.belowCount !== prev.belowCount)
 			await this.#setCursor(source, { cursor: result.cursor, belowCount: result.belowCount });
 	}

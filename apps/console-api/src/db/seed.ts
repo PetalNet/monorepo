@@ -82,7 +82,7 @@ const REGISTRATIONS: readonly RegSeed[] = [
 	{
 		subject: "bridge:system-outbox",
 		services: ["bridge"],
-		prefixes: ["bridge", "bot"],
+		prefixes: ["bridge", "bot", "host", "container", "box"],
 		scopes: ["fleet"],
 		maxSeverity: "danger",
 	},

@@ -257,3 +257,14 @@ RLS/authz assessment (codex): no privilege leak on `bridge_cursor` — unscoped,
 `console_ro` grant, `console_writer` has exactly SELECT/INSERT/UPDATE. `bot.message` and the
 `bridge.source.*` control events are all permitted by the seeded `bridge`/`bot` prefixes at `fleet`
 scope with `≤danger` severity, so the now-throwing emit path cannot reject them.
+
+### N1b-3 final Terra review — findings applied
+
+The required fresh `gpt-5.6-terra` review found five additional gaps. All are fixed and covered by
+the 58-test focused suite: recognized system-outbox messages now map to `host.disk.pct`,
+`container.update_available`, and `box.update_status_changed` (unknowns remain `bot.message`);
+non-object JSON is normalized; file reads use descriptor-bound `O_NOFOLLOW` + `fstat`; stable
+non-regular/oversize losses emit `bridge.gap_detected`; and record-level validation/secret failures
+are metadata-only quarantined in `bridge_dead_letter` so one poison record cannot block later files.
+Transient append/deploy failures still leave the cursor unchanged. The published contract now says
+checkpoint-after-accept (the physically accurate cross-HTTP guarantee) and documents quarantine.

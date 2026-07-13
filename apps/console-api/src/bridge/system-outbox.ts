@@ -1,10 +1,9 @@
 // System-outbox source (N1b-3, PHASE1B-DESIGN §3 — the /task/681 driving use case). The lab's
 // service bots (shawn/derek/michael) drop warnings as JSON files; today they flood Matrix. This
-// tailer turns each into a typed `bot.message` bus signal so the console consumes them and Matrix
-// goes quiet — "you go look, not get pinged". The body is kept verbatim (truncated); severity is
-// read from the `[warn]`/`[fail]`/`[recovered]`/`[info]` prefix.
+// tailer maps known operational messages to their statistic types and preserves unknown messages as
+// `bot.message`, so the console consumes them and Matrix can eventually go quiet.
 
-import { lstatSync, readdirSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Emission } from "../emission.ts";
@@ -13,6 +12,11 @@ import { uuidv5 } from "./uuid5.ts";
 interface OutboxFile {
 	sender?: unknown;
 	body?: unknown;
+}
+
+export interface TailLoss {
+	readonly file: string;
+	readonly reason: "non_regular" | "oversize";
 }
 
 // A bot message is a small line. Anything bigger is either not ours or malicious; cap the read so a
@@ -41,6 +45,75 @@ export interface TailResult {
 	readonly belowCount: number;
 	/** A file appeared at/below the cursor (non-monotonic insert); this pass rescanned to recover it. */
 	readonly anomaly: boolean;
+	/** Stable records skipped deliberately; the caller must emit gap + quarantine metadata. */
+	readonly losses: readonly TailLoss[];
+}
+
+type ReadResult =
+	| { readonly kind: "ok"; readonly raw: string }
+	| { readonly kind: "loss"; readonly reason: TailLoss["reason"] }
+	| { readonly kind: "barrier" };
+
+function readRegularFile(path: string): ReadResult {
+	let fd: number;
+	try {
+		// O_NOFOLLOW closes the lstat/read TOCTOU window: even a swap immediately before open fails.
+		fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "ELOOP"
+			? { kind: "loss", reason: "non_regular" }
+			: { kind: "barrier" };
+	}
+	try {
+		const stat = fstatSync(fd);
+		if (!stat.isFile()) return { kind: "loss", reason: "non_regular" };
+		if (stat.size > MAX_FILE_BYTES) return { kind: "loss", reason: "oversize" };
+		return { kind: "ok", raw: readFileSync(fd, "utf8") };
+	} finally {
+		closeSync(fd);
+	}
+}
+
+function operationalType(body: string): {
+	type: string;
+	subject: string;
+	subjectKind: Emission["subject_kind"];
+	dimensions?: Record<string, string | boolean>;
+	measures?: Record<string, number>;
+	meta?: Emission["meta"];
+} | null {
+	const disk =
+		/(?:host\s+)?(\.\d+|[a-z0-9][a-z0-9.-]*)\s+disk[^\n]{0,40}?(\d+(?:\.\d+)?)\s*%/i.exec(body);
+	if (disk?.[1] && disk[2])
+		return {
+			type: "host.disk.pct",
+			subject: disk[1].toLowerCase(),
+			subjectKind: "host",
+			measures: { pct: Number(disk[2]) },
+			meta: { fields: { pct: { unit: "percent", kind: "gauge", cardinality: "low" } } },
+		};
+	const container = /container\s+([a-z0-9][a-z0-9_.-]*)[^\n]{0,100}?update(?:s)?\s+available/i.exec(
+		body,
+	);
+	if (container?.[1])
+		return {
+			type: "container.update_available",
+			subject: container[1].toLowerCase(),
+			subjectKind: "service",
+			dimensions: { container: container[1].toLowerCase() },
+		};
+	const box =
+		/box\s+(\.\d+|[a-z0-9][a-z0-9.-]*)[^\n]{0,100}?update status (?:changed|is)\s*:?\s*([a-z_ -]+)/i.exec(
+			body,
+		);
+	if (box?.[1])
+		return {
+			type: "box.update_status_changed",
+			subject: box[1].toLowerCase(),
+			subjectKind: "host",
+			dimensions: { status: (box[2] ?? "changed").trim().slice(0, 64) },
+		};
+	return null;
 }
 
 /**
@@ -79,40 +152,49 @@ export function tailSystemOutbox(
 	// On anomaly, rescan from the start and rebuild the cursor over the clean prefix; else fast path.
 	const candidates = anomaly ? all : all.filter((n) => n > cursor);
 	const emissions: Emission[] = [];
+	const losses: TailLoss[] = [];
 	let newCursor = anomaly ? "" : cursor;
 	for (const name of candidates) {
 		const full = join(sentDir, name);
-		let stat;
+		let read: ReadResult;
 		try {
-			stat = lstatSync(full);
+			read = readRegularFile(full);
 		} catch {
 			break; // vanished mid-scan: barrier, retry next poll
 		}
-		if (!stat.isFile() || stat.size > MAX_FILE_BYTES) {
+		if (read.kind === "barrier") break;
+		if (read.kind === "loss") {
+			losses.push({ file: name, reason: read.reason });
 			newCursor = name; // not our data / oversize: a stable condition — skip past it
 			continue;
 		}
 		let parsed: OutboxFile;
 		try {
-			parsed = JSON.parse(readFileSync(full, "utf8")) as OutboxFile;
+			const value: unknown = JSON.parse(read.raw);
+			parsed = value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 		} catch {
 			break; // partial/unparseable: transient barrier — leave the cursor before it, retry
 		}
 		newCursor = name;
-		const sender = (typeof parsed.sender === "string" ? parsed.sender : "unknown").toLowerCase();
+		const sender = (typeof parsed.sender === "string" ? parsed.sender : "unknown")
+			.toLowerCase()
+			.slice(0, 128);
 		const body = (typeof parsed.body === "string" ? parsed.body : "").slice(0, 500);
+		const operational = operationalType(body);
 		emissions.push({
 			schema_version: 1,
 			id: uuidv5(`system-outbox:${name}`),
-			type: "bot.message",
+			type: operational?.type ?? "bot.message",
 			ts,
 			source: { service: "bridge", host: ".14", agent: null },
-			subject: SUBJECT,
-			subject_kind: "service",
+			subject: operational?.subject ?? SUBJECT,
+			subject_kind: operational?.subjectKind ?? "service",
 			severity: severityOf(body),
 			action: null,
 			scope: "fleet",
-			dimensions: { sender, message: body, file: name },
+			dimensions: { sender, message: body, file: name, ...operational?.dimensions },
+			measures: operational?.measures,
+			meta: operational?.meta,
 		});
 	}
 	return {
@@ -120,5 +202,6 @@ export function tailSystemOutbox(
 		cursor: newCursor,
 		belowCount: all.filter((n) => n <= newCursor).length,
 		anomaly,
+		losses,
 	};
 }
