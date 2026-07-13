@@ -16,14 +16,41 @@ import 'package:point_app/theme/presence_tokens.dart';
 /// position + "dark since" is shown; they stop plotting as a live pin.
 const darkAfter = Duration(minutes: 3);
 
+/// How confidently the client can describe a peer fix at the current time.
+enum FixFreshness { current, recent, stale, uncertain }
+
+/// Derive freshness from the signed sample clock. A small future skew is
+/// tolerated; a larger one is called uncertain instead of overstating it as
+/// an update that happened "now".
+FixFreshness fixFreshness(int? epochMillis, {DateTime? now}) {
+  if (epochMillis == null) return FixFreshness.uncertain;
+  final delta = (now ?? DateTime.now()).difference(
+    DateTime.fromMillisecondsSinceEpoch(epochMillis),
+  );
+  if (delta < const Duration(minutes: -1)) return FixFreshness.uncertain;
+  if (delta < const Duration(seconds: 45)) return FixFreshness.current;
+  if (delta <= darkAfter) return FixFreshness.recent;
+  return FixFreshness.stale;
+}
+
 /// A short "how long ago" label: `now`, `4m`, `2h`, `3d`.
 String relativeSince(int epochMillis, {DateTime? now}) {
   final then = DateTime.fromMillisecondsSinceEpoch(epochMillis);
   final delta = (now ?? DateTime.now()).difference(then);
+  if (delta < const Duration(minutes: -1)) return 'time uncertain';
   if (delta.inSeconds < 45) return 'now';
   if (delta.inMinutes < 60) return '${delta.inMinutes}m';
   if (delta.inHours < 24) return '${delta.inHours}h';
   return '${delta.inDays}d';
+}
+
+/// Human-scale horizontal precision. Invalid or absent values are omitted so
+/// old payloads and platform failures never produce a misleading radius.
+String? formatAccuracy(double? meters) {
+  if (meters == null || !meters.isFinite || meters <= 0) return null;
+  if (meters < 1) return '±<1 m';
+  if (meters < 1000) return '±${meters.round()} m';
+  return '±${(meters / 1000).toStringAsFixed(1)} km';
 }
 
 /// Local wall-clock time for a "dark since" line, honoring the clock-format
@@ -99,10 +126,10 @@ Person mergePresence(
       distanceLabel: p.distanceLabel,
     );
   }
-  final ts = (fix.data['timestamp'] as num?)?.toInt();
-  final staleFix =
-      ts != null &&
-      at.difference(DateTime.fromMillisecondsSinceEpoch(ts)) > darkAfter;
+  final ts = fix.timestamp;
+  final freshness = fixFreshness(ts, now: at);
+  final staleFix = freshness == FixFreshness.stale;
+  final uncertainFix = freshness == FixFreshness.uncertain;
   final offline = serverPresence?.online == false;
   final dark = offline || staleFix;
   final domain = p.userId.contains('@') ? p.userId.split('@').last : null;
@@ -113,15 +140,36 @@ Person mergePresence(
     final darkAt = offline
         ? serverPresence!.observedAt.millisecondsSinceEpoch
         : ts!;
-    subtitle = 'Dark since ${clockHm(darkAt, format: timeFormat)}';
+    final precision = formatAccuracy(fix.accuracy);
+    subtitle = [
+      'Last place',
+      'Dark since ${clockHm(darkAt, format: timeFormat)}',
+      if (precision != null) precision,
+    ].join(' · ');
+  } else if (uncertainFix) {
+    final precision = formatAccuracy(fix.accuracy);
+    subtitle = [
+      'Last place',
+      'Update time uncertain',
+      if (precision != null) precision,
+    ].join(' · ');
   } else {
-    final ago = ts != null ? relativeSince(ts, now: at) : 'now';
-    subtitle = federated ? '${p.userId} · $ago' : 'Sharing · $ago';
+    final ago = ts != null ? relativeSince(ts, now: at) : 'time uncertain';
+    final precision = formatAccuracy(fix.accuracy);
+    subtitle = [
+      if (federated) p.userId else 'Sharing',
+      if (precision != null) precision,
+      ago,
+    ].join(' · ');
   }
   return Person(
     userId: p.userId,
     displayName: p.displayName,
-    presence: dark ? PresenceState.stale : PresenceState.live,
+    presence: dark
+        ? PresenceState.stale
+        : uncertainFix
+        ? PresenceState.away
+        : PresenceState.live,
     subtitle: subtitle,
     distanceLabel: p.distanceLabel,
     lat: lat,

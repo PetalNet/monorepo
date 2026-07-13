@@ -189,7 +189,7 @@ class _PersonMapSheetState extends State<PersonMapSheet> {
                           widget.person.subtitle.isEmpty
                               ? widget.person.userId
                               : widget.person.subtitle,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: context.text.bodySmall?.copyWith(
                             fontFamily: AppTheme.monoFamily,

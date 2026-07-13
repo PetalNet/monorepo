@@ -33,7 +33,23 @@ class PeerFix {
   double? get lat => (data['lat'] as num?)?.toDouble();
   double? get lon => (data['lon'] as num?)?.toDouble();
   int? get timestamp => (data['timestamp'] as num?)?.toInt();
+  double? get accuracy {
+    final value = (data['accuracy'] as num?)?.toDouble();
+    return value != null && value.isFinite && value > 0 ? value : null;
+  }
 }
+
+/// The plaintext shape encrypted into each pairwise MLS group.
+///
+/// Accuracy is additive for cross-version compatibility: older clients ignore
+/// it, while newer clients continue to accept payloads that predate the field.
+Map<String, num> locationFixPayload(Fix fix) => {
+  'lat': fix.lat,
+  'lon': fix.lon,
+  'speed': fix.speed,
+  if (fix.accuracy.isFinite && fix.accuracy > 0) 'accuracy': fix.accuracy,
+  'timestamp': fix.timestampMs,
+};
 
 /// The server's privacy-filtered liveness signal for a peer. `online: false`
 /// deliberately carries no cause: ghosting, a dead phone, and lost signal all
@@ -356,9 +372,7 @@ class RelayController {
     _syncDiffSub = _ref
         .read(realtimeSyncCoordinatorProvider)
         .diffs
-        .listen(
-          (diff) => recordSyncResult(healthy: diff.healthy),
-        );
+        .listen((diff) => recordSyncResult(healthy: diff.healthy));
     _wsSub = ws.incoming.listen(_onIncoming);
     _wsHealthSub = ws.health.listen(_onWsHealth);
     _wsStateSub = ws.connectionStates.listen((state) {
@@ -503,14 +517,7 @@ class RelayController {
     final ws = _ws;
     if (session == null || ws == null) return;
     final crypto = _ref.read(cryptoServiceProvider);
-    final payload = utf8.encode(
-      jsonEncode({
-        'lat': fix.lat,
-        'lon': fix.lon,
-        'speed': fix.speed,
-        'timestamp': fix.timestampMs,
-      }),
-    );
+    final payload = utf8.encode(jsonEncode(locationFixPayload(fix)));
     // Snapshot: setShareTargets can mutate the set across the encrypt await
     // (M3 — ConcurrentModificationError).
     for (final target in _shareTargets.toList()) {
@@ -1271,9 +1278,7 @@ class RelayHealthNotifier extends Notifier<RelayHealth> {
   @override
   RelayHealth build() {
     final relay = ref.read(relayControllerProvider);
-    final healthSub = relay.healthUpdates.listen(
-      (health) => state = health,
-    );
+    final healthSub = relay.healthUpdates.listen((health) => state = health);
     ref.onDispose(() {
       unawaited(healthSub.cancel());
     });
@@ -1402,9 +1407,11 @@ class RelayHealthBanner extends ConsumerWidget {
         switchInCurve: Curves.easeOutQuart,
         switchOutCurve: Curves.easeOutQuart,
         child: ColoredBox(
-          key: ValueKey(
-            (current.status, current.queueDepth, current.locationBlocked),
-          ),
+          key: ValueKey((
+            current.status,
+            current.queueDepth,
+            current.locationBlocked,
+          )),
           color: context.colors.surfaceContainer,
           child: Padding(
             padding: EdgeInsets.symmetric(

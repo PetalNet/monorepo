@@ -185,6 +185,31 @@ void main() {
     );
     semantics.dispose();
   });
+
+  testWidgets(
+    'shows last-place freshness and precision without truncating it',
+    (tester) async {
+      await _pumpSheet(
+        tester,
+        person: const Person(
+          userId: 'mara@example.test',
+          displayName: 'Mara',
+          presence: PresenceState.stale,
+          subtitle: 'Last place · Dark since 16:05 · ±24 m',
+          lat: 41.878113,
+          lon: -87.629799,
+        ),
+        directionsOpener: ({required latitude, required longitude}) async =>
+            DirectionsOutcome.opened,
+      );
+
+      final detail = tester.widget<Text>(
+        find.text('Last place · Dark since 16:05 · ±24 m'),
+      );
+      expect(detail.maxLines, 2);
+      expect(detail.overflow, TextOverflow.ellipsis);
+    },
+  );
 }
 
 const _person = Person(
@@ -198,6 +223,7 @@ const _person = Person(
 Future<void> _pumpSheet(
   WidgetTester tester, {
   required DirectionsOpener directionsOpener,
+  Person person = _person,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -207,7 +233,7 @@ Future<void> _pumpSheet(
           builder: (context) => TextButton(
             onPressed: () => PersonMapSheet.show(
               context,
-              person: _person,
+              person: person,
               onFocus: () {},
               onOpenDetail: () {},
               directionsOpener: directionsOpener,
