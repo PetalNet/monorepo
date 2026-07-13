@@ -114,7 +114,7 @@ impl Client {
             .await
             .expect("ws connect");
         socket
-            .send(Message::Text(
+            .send(Message::text(
                 json!({ "type": "auth", "token": self.token }).to_string(),
             ))
             .await
@@ -279,7 +279,7 @@ async fn register_share_encrypt_deliver_decrypt_ghost() {
     );
 
     alice_ws
-        .send(Message::Text(
+        .send(Message::text(
             json!({
                 "type": "location.update",
                 "recipient_type": "user",
@@ -314,7 +314,7 @@ async fn register_share_encrypt_deliver_decrypt_ghost() {
     alice.put("/api/ghost", json!({ "active": true })).await;
     let ghost_ct = alice_mls.encrypt(&gid, b"ghosted fix").expect("encrypt2");
     alice_ws
-        .send(Message::Text(
+        .send(Message::text(
             json!({
                 "type": "location.update",
                 "recipient_type": "user",
@@ -334,7 +334,7 @@ async fn register_share_encrypt_deliver_decrypt_ghost() {
         .encrypt(&gid, location.as_bytes())
         .expect("encrypt3");
     alice_ws
-        .send(Message::Text(
+        .send(Message::text(
             json!({
                 "type": "location.update",
                 "recipient_type": "user",

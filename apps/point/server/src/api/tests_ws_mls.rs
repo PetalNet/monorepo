@@ -641,7 +641,7 @@ async fn expect_frame(ws: &mut Ws, typ: &str, ms: u64) -> Value {
 
 async fn ws_connect_auth(url: &str, token: &str, expect_uid: &str) -> Ws {
     let (mut ws, _) = connect_async(url).await.expect("ws connect");
-    ws.send(Message::Text(
+    ws.send(Message::text(
         json!({ "type": "auth", "token": token }).to_string(),
     ))
     .await
@@ -653,7 +653,7 @@ async fn ws_connect_auth(url: &str, token: &str, expect_uid: &str) -> Ws {
 }
 
 async fn ws_send(ws: &mut Ws, frame: Value) {
-    ws.send(Message::Text(frame.to_string())).await.unwrap();
+    ws.send(Message::text(frame.to_string())).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -720,7 +720,7 @@ async fn ws_presence_snapshot_makes_ghosting_indistinguishable_from_offline(pool
 async fn ws_auth_bad_token_closes_quietly(pool: PgPool) {
     let url = spawn_ws_server(&pool).await;
     let (mut ws, _) = connect_async(url.as_str()).await.unwrap();
-    ws.send(Message::Text(
+    ws.send(Message::text(
         json!({ "type": "auth", "token": "garbage" }).to_string(),
     ))
     .await

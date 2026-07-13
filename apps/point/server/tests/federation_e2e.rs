@@ -87,7 +87,7 @@ impl Client {
     {
         let url = format!("{}/ws", self.base.replacen("http", "ws", 1));
         let (mut sock, _) = tokio_tungstenite::connect_async(url).await.expect("ws");
-        sock.send(Message::Text(
+        sock.send(Message::text(
             json!({ "type": "auth", "token": self.token }).to_string(),
         ))
         .await
