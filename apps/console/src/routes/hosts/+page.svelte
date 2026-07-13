@@ -96,6 +96,9 @@
 	.filter input:focus {
 		outline: none;
 	}
+	.filter:focus-within {
+		box-shadow: 0 0 0 2px var(--petal);
+	}
 	.hud {
 		display: flex;
 		gap: var(--s-2);

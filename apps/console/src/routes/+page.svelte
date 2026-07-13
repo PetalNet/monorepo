@@ -104,12 +104,7 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
-		const el = e.target as HTMLElement | null;
-		const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
-		if (e.key === "/" && !typing) {
-			e.preventDefault();
-			askRef?.focus();
-		} else if (e.key === "Escape") {
+		if (e.key === "Escape") {
 			context = null;
 		}
 	}
@@ -123,12 +118,14 @@
 	<div class="dash">
 		<Panel title="Total spend" sub="Mon to now, all agents" span={4}
 			prov={{ source: "stats.query", rows: "7 rows", freshness: "2s ago" }}
+			onshowmath={() => askAbout("Show the provenance for Total spend")}
 			onaskabout={() => askAbout("Total spend · $41.20")}>
 			<div class="stat-big">$41.20<small>this week</small></div>
 			<div class="delta-up">+18% vs last week</div>
 		</Panel>
 		<Panel title="Daily spend by agent" sub="Tuesday carries the spike" span={8}
 			prov={{ source: "stats.query", rows: "42 rows", freshness: "2s ago" }}
+			onshowmath={() => askAbout("Show the provenance for Daily spend by agent")}
 			onaskabout={() => askAbout("Daily spend by agent")}>
 			<svg class="chart" viewBox="0 0 560 96" preserveAspectRatio="none" role="img"
 				aria-label="Daily spend line chart, Tuesday peak">
@@ -142,6 +139,7 @@
 		</Panel>
 		<Panel title="Why Tuesday" span={7}
 			prov={{ source: "5 bound stats", rows: null, freshness: "all live" }}
+			onshowmath={() => askAbout("Show the provenance for Why Tuesday")}
 			onaskabout={() => askAbout("Why Tuesday")}>
 			<p class="prose">
 				Tuesday's spike is <span class="istat">$9.84</span>, of which
@@ -152,6 +150,7 @@
 		</Panel>
 		<Panel title="Top spenders" span={5}
 			prov={{ source: "stats.query", rows: "3 of 9 rows", freshness: "2s ago" }}
+			onshowmath={() => askAbout("Show the provenance for Top spenders")}
 			onaskabout={() => askAbout("Top spenders")}>
 			<table class="mini-table">
 				<thead>

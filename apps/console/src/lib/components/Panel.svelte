@@ -23,6 +23,7 @@
 		prov?: Provenance | null;
 		children: Snippet;
 		onaskabout?: () => void;
+		onshowmath?: () => void;
 	}
 	let {
 		title,
@@ -32,6 +33,7 @@
 		prov = null,
 		children,
 		onaskabout,
+		onshowmath,
 	}: Props = $props();
 
 	function contextMenu(e: MouseEvent) {
@@ -39,6 +41,7 @@
 		e.preventDefault();
 		onaskabout();
 	}
+
 </script>
 
 <article
@@ -55,7 +58,14 @@
 		<div class="prov">
 			<Icon name="receipt-text" size={12} />
 			<span>{prov.source}{prov.rows ? ` · ${prov.rows}` : ""} · {prov.freshness}</span>
-			<a href="#show-the-math" onclick={(e) => e.preventDefault()}>Show the math.</a>
+			{#if onaskabout}
+				<button class="context" type="button" onclick={onaskabout} aria-label="Ask about {title}" title="Ask about this panel">
+					<Icon name="mouse-pointer-2" size={12} />
+				</button>
+			{/if}
+			{#if onshowmath || onaskabout}
+				<button class="math" type="button" onclick={onshowmath ?? onaskabout}>Show the math.</button>
+			{/if}
 		</div>
 	{/if}
 </article>
@@ -99,11 +109,24 @@
 	.prov :global(svg) {
 		flex: none;
 	}
-	.prov a {
+	.prov button {
 		color: var(--petal-text);
-		text-decoration: none;
-		margin-inline-start: auto;
+		border: 0;
+		background: transparent;
+		padding: 0 var(--s-1);
+		min-height: 32px;
 		font-weight: 500;
+	}
+	.prov .context {
+		width: 32px;
+		padding: 0;
+		margin-inline-start: auto;
+		display: grid;
+		place-items: center;
+	}
+	.prov button:focus-visible {
+		outline: 2px solid var(--petal);
+		outline-offset: 2px;
 	}
 	@keyframes settle {
 		from {
