@@ -364,6 +364,17 @@ another repo to learn a field. Aggregated reads carry per-item `observed_at` (Ru
 | `/grants?object=...`               | `../grant-list.schema.json`               | ReBAC tuples                                             | owner-only current grant enumeration; mutations use `POST /grants` + `grant-mutation.schema.json`                                                                                                     |
 | `/tiers`                           | `schemas/tier-list.schema.json`           | permission-level rows                                    | authenticated catalog for user/share pickers; adding a level is a data insert                                                                                                                         |
 
+The admin-only terminal transport also exposes `POST /terminal/peek` and
+`GET /terminal/peek/{stream_id}` for the Agents & Managers read-only drill-in. Opening a peek
+validates the same `term_admin` + fleet-owner gate as the full Terminal surface, durably emits
+`term.watch` before the first PTY capture, and returns a server-owned stream id plus a base64 snapshot.
+The target must match a scope-visible resident heartbeat; syntactically valid arbitrary SSH targets are
+rejected. Polling re-authorizes the owner on every request, and idle peek sessions expire after 30 seconds.
+The existing
+`POST /terminal/streams/{stream_id}/detach` closes the peek. This path has no attach or input route;
+the shared attach endpoint also rejects peek stream ids server-side. Write remains exclusive to the full
+Terminal surface.
+
 The Network surface also uses `GET /network/key-ceremony`, a composed read over the same
 scope-filtered `edge` projection plus the live health of the configured private doorman
 administration adapter. Its `{registry, executor}` response deliberately reports

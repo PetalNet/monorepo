@@ -942,6 +942,73 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 			await server.close();
 		}
 	}, 30_000);
+
+	it("opens and polls an audited read-only peek session", async () => {
+		await services.db.writer`
+			insert into current_state (kind, subject, scope, state, observed_at, seq)
+			values ('heartbeat', 'terminal-peek-agent', 'fleet',
+				${services.db.writer.json({ host: ".14", handle: "terminal-peek-agent", tmux_session: "agents", pane_id: "%12" })},
+				now(), 990014)
+			on conflict (kind, subject) do update set state = excluded.state,
+				observed_at = excluded.observed_at, seq = excluded.seq`;
+		let auditWasVisibleAtCapture = false;
+		let captures = 0;
+		const peekAdapter: TerminalAdapter = {
+			async health() {
+				return true;
+			},
+			async capture() {
+				captures += 1;
+				const rows = await services.db.admin`
+					select 1 from events
+					where type = 'term.watch' and dimensions->>'principal' = ${principal.id}`;
+				auditWasVisibleAtCapture = rows.length > 0;
+				return Buffer.from(`peek ${String(captures)}`);
+			},
+			async input() {
+				throw new Error("peek must not expose input");
+			},
+		};
+		const server = await buildServer(services, true, undefined, null, peekAdapter);
+		try {
+			const opened = await server.inject({
+				method: "POST",
+				url: "/api/v1/terminal/peek",
+				headers,
+				payload: { host: ".14", tmux_session: "agents", pane_id: "%12", scrollback_lines: 500 },
+			});
+			expect(opened.statusCode).toBe(200);
+			expect(auditWasVisibleAtCapture).toBe(true);
+			expect(Buffer.from(opened.json().data_b64, "base64").toString()).toBe("peek 1");
+			const streamId = String(opened.json().stream_id);
+			const polled = await server.inject({
+				method: "GET",
+				url: `/api/v1/terminal/peek/${streamId}`,
+				headers,
+			});
+			expect(polled.statusCode).toBe(200);
+			expect(polled.json()).toMatchObject({ stream_id: streamId, seq: 2 });
+			expect(Buffer.from(polled.json().data_b64, "base64").toString()).toBe("peek 2");
+			const attach = await server.inject({
+				method: "POST",
+				url: `/api/v1/terminal/streams/${streamId}/attach`,
+				headers,
+				payload: {},
+			});
+			expect(attach.statusCode).toBe(409);
+			expect(attach.json().error.code).toBe("watch_only");
+			const arbitrary = await server.inject({
+				method: "POST",
+				url: "/api/v1/terminal/peek",
+				headers,
+				payload: { host: "other.example", tmux_session: "agents", pane_id: "%12" },
+			});
+			expect(arbitrary.statusCode).toBe(404);
+			expect(arbitrary.json().error.code).toBe("pane_not_visible");
+		} finally {
+			await server.close();
+		}
+	});
 });
 
 describe("emit pipeline", () => {
