@@ -24,7 +24,6 @@
   "devDependencies": {
     "@sveltejs/adapter-node": "catalog:dev",
     "@sveltejs/vite-plugin-svelte": "catalog:dev",
-    "@types/bcryptjs": "catalog:types",
     "@types/qrcode": "catalog:types",
     "@types/sortablejs": "catalog:types",
     "autoprefixer": "catalog:dev",

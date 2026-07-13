@@ -1,6 +1,6 @@
 import { prisma } from "$lib/server/db";
 import { fail, redirect } from "@sveltejs/kit";
-import bcrypt from "bcryptjs";
+import { compare, hash } from "bcryptjs";
 
 import type { PageServerLoad, Actions } from "./$types";
 
@@ -73,7 +73,7 @@ export const actions: Actions = {
 				return fail(404, { error: "User not found" });
 			}
 
-			const validPassword = await bcrypt.compare(password, user.passwordHash);
+			const validPassword = await compare(password, user.passwordHash);
 
 			if (!validPassword) {
 				return fail(400, { error: "Incorrect password" });
@@ -133,14 +133,14 @@ export const actions: Actions = {
 				return fail(404, { error: "User not found" });
 			}
 
-			const validPassword = await bcrypt.compare(currentPassword, user.passwordHash);
+			const validPassword = await compare(currentPassword, user.passwordHash);
 
 			if (!validPassword) {
 				return fail(400, { error: "Current password is incorrect" });
 			}
 
 			// Hash new password
-			const passwordHash = await bcrypt.hash(newPassword, 10);
+			const passwordHash = await hash(newPassword, 10);
 
 			// Update password
 			await prisma.user.update({
