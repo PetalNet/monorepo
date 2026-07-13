@@ -7,6 +7,7 @@ import {
 	readTasks,
 	runQuery,
 } from "$lib/api/client";
+import { readLiveLibrary } from "$lib/data/library";
 import {
 	mockBuildFeed,
 	mockLeases,
@@ -39,7 +40,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			tiers: shell.me.tiers,
 			isMock: true,
 		};
-	const [tasks, leases, cards, executors, history, attention] = await Promise.all([
+	const [tasks, leases, cards, executors, history, attention, library] = await Promise.all([
 		readTasks(fetch).catch(() => null),
 		readLeases(fetch).catch(() => null),
 		readCards(fetch).catch(() => null),
@@ -64,6 +65,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			fetch,
 		).catch(() => null),
 		readAttention(fetch).catch(() => null),
+		readLiveLibrary(fetch).catch(() => null),
 	]);
 	const events: WorkEvent[] = (history?.rows ?? []).flatMap((row) => {
 		const taskId = Number(row[3]);
@@ -81,15 +83,41 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 	});
 	const alive = (kind: string) =>
 		(executors?.items ?? []).some((item) => item.kind === kind && item.liveness === "alive");
+	const taskByTitle = new Map((tasks?.items ?? []).map((task) => [task.title.toLowerCase(), task]));
+	const feed = (library?.items ?? [])
+		.filter((item) => item.kind === "artifact")
+		.map((item) => {
+			const linkedTask = taskByTitle.get(item.title.toLowerCase());
+			const taskMatch = /\/task\/(\d+)/.exec(item.body);
+			const status = item.status.toLowerCase();
+			return {
+				id: item.id,
+				taskId: linkedTask?.id ?? (taskMatch ? Number(taskMatch[1]) : 0),
+				title: item.title,
+				agent: item.creator,
+				state: status.includes("fail")
+					? ("failed" as const)
+					: status.includes("build") || status === "draft"
+						? ("building" as const)
+						: ("shipped" as const),
+				...(status.includes("fail") ? { step: "Library artifact" } : {}),
+				updatedAt:
+					linkedTask?.updated_at ??
+					library?.provenance?.[item.id]?.txFrom ??
+					new Date(0).toISOString(),
+			};
+		})
+		.toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+		.slice(0, 12);
 	return {
 		tasks: tasks?.items ?? [],
 		leases: leases?.items ?? [],
 		wanted: cards?.items ?? [],
 		events,
-		feed: [],
+		feed,
 		tasksAvailable: tasks !== null,
 		wantedAvailable: cards !== null,
-		feedAvailable: false,
+		feedAvailable: library?.connected === true,
 		attentionAvailable: attention !== null,
 		ackedReviewTaskIds: (attention?.items ?? [])
 			.filter((item) => item.grade === "review" && item.acked_by && item.task_id)
