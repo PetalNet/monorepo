@@ -1,12 +1,14 @@
 //! Share lifecycle: requests, permanent (bidirectional) shares, temporary
-//! (directional, expiring) shares. Enumeration-safe throughout: probing a user
-//! id that doesn't exist gets the same response as one that does — the server
-//! just records nothing (docs/legacy/server-map.md §7, DECISIONS D-005).
+//! (directional, expiring) shares. Task 727 deliberately returns a recorded
+//! flag for direct handle resolution so the client cannot claim a request was
+//! sent when no account exists; relationship state remains non-enumerable.
 
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::{Extension, Json};
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -66,10 +68,8 @@ pub struct ShareRequestBody {
     pub to_user_id: String,
 }
 
-/// POST /api/shares/request — always the same generic 200 whether the target
-/// exists, already has a pending request either way, or already shares with
-/// the caller. Anything else would let a caller enumerate accounts or probe
-/// relationship state.
+/// POST /api/shares/request — reports whether a handle resolved and was
+/// recordable, while keeping pending/existing relationship states identical.
 ///
 /// Idempotency ladder (H2): an existing accepted share, or a *pending* request
 /// in either direction, is a no-op 200. Otherwise the request is UPSERTed to
@@ -94,11 +94,27 @@ pub async fn create_request(
         return Err(AppError::BadRequest("invalid target".into()));
     }
 
-    let recorded = json!({ "ok": true });
+    if matches!(super::federation::domain_of(&to_user), Some(domain) if !domain.eq_ignore_ascii_case(&state.config.domain))
+    {
+        let identity_key = BASE64.encode(state.server_signing_key.verifying_key().as_bytes());
+        super::federation::send_federated(
+            &state,
+            &user.user_id,
+            &to_user,
+            "share.request",
+            json!({ "identity_key": identity_key }),
+        )
+        .await?;
+        return Ok(Json(json!({ "ok": true, "recorded": true })));
+    }
 
-    // Nonexistent target: pretend-success, record nothing.
+    let recorded = json!({ "ok": true, "recorded": true });
+
+    // Task 727: syntactically valid but nonexistent handles must not produce a
+    // false "Request sent" in the client. The explicit flag keeps the HTTP
+    // shape stable while allowing the UI to report that resolution failed.
     if !user_exists(&state, &to_user).await? {
-        return Ok(Json(recorded));
+        return Ok(Json(json!({ "ok": true, "recorded": false })));
     }
     // Target does not accept inbound asks: the same pretend-success, so the
     // setting itself cannot be probed (Wave B, who_can_add_me). Local
@@ -109,7 +125,7 @@ pub async fn create_request(
         .fetch_optional(&state.pool)
         .await?;
     if matches!(gate, Some((ref v,)) if v == "nobody") {
-        return Ok(Json(recorded));
+        return Ok(Json(json!({ "ok": true, "recorded": false })));
     }
     // Already sharing: idempotent generic 200, record nothing.
     if share_exists(&state, &user.user_id, &to_user).await? {
@@ -296,6 +312,9 @@ pub struct ShareRow {
     pub user_id: String,
     pub display_name: String,
     pub since: DateTime<Utc>,
+    /// When this peer's MLS identity last changed (task 726): the client
+    /// rebuilds its pairwise group when this is newer than the group it holds.
+    pub rekeyed_at: DateTime<Utc>,
 }
 
 /// GET /api/shares — my active permanent shares.
@@ -306,7 +325,8 @@ pub async fn list_shares(
     let rows = sqlx::query_as::<_, ShareRow>(
         "SELECT CASE WHEN us.user_a = $1 THEN us.user_b ELSE us.user_a END AS user_id,
                 u.display_name,
-                us.created_at AS since
+                us.created_at AS since,
+                u.rekeyed_at
          FROM user_shares us
          JOIN users u ON u.id = CASE WHEN us.user_a = $1 THEN us.user_b ELSE us.user_a END
          WHERE us.user_a = $1 OR us.user_b = $1
@@ -352,6 +372,44 @@ pub async fn delete_share(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+
+    if matches!(super::federation::domain_of(&other), Some(domain) if !domain.eq_ignore_ascii_case(&state.config.domain))
+    {
+        if let Err(error) = super::federation::send_federated(
+            &state,
+            &user.user_id,
+            &other,
+            "share.remove",
+            json!({}),
+        )
+        .await
+        {
+            tracing::warn!(peer = %other, ?error, "federated share teardown delivery failed");
+        }
+    }
+
+    // Live teardown (task 728): both parties' devices learn the share is gone
+    // NOW — the removed peer drops the remover from People/Map at once and
+    // stops encrypting fixes to them, instead of showing a stale "Dark since"
+    // marker until some unrelated refresh. Best-effort (zero connections is
+    // fine): a disconnected device receives the same contentless wake used by
+    // other sharing changes, then refreshes GET /api/shares. The wake reveals
+    // no peer or event detail to the distributor.
+    let to_other = json!({ "type": "share.removed", "user_id": user.user_id }).to_string();
+    let to_actor = json!({ "type": "share.removed", "user_id": other }).to_string();
+    state.hub.send_to_user(&other, &to_other);
+    state.hub.send_to_user(&user.user_id, &to_actor);
+    // Unconditional because liveness is per user, while push endpoints are per
+    // device: one connected phone must not suppress teardown on another phone.
+    for target in [&other, &user.user_id] {
+        tokio::spawn(crate::push::wake_user(
+            state.pool.clone(),
+            target.clone(),
+            crate::push::Wake::new("share_removed"),
+            state.config.federation_allow_private,
+        ));
+    }
+
     Ok(Json(json!({ "ok": true })))
 }
 

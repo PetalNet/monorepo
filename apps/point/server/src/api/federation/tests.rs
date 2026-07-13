@@ -272,3 +272,43 @@ async fn share_accept_with_matching_pending_outbound_creates_the_share(pool: PgP
     .unwrap();
     assert_eq!(status, "accepted");
 }
+
+#[sqlx::test]
+async fn federated_share_remove_tears_down_local_half(pool: PgPool) {
+    let state = test_state(pool.clone(), true);
+    let local = uid("alice");
+    let remote = "bob@remote.example";
+    seed_local_user(&pool, &local).await;
+    ensure_federated_user(&pool, remote).await.unwrap();
+    let (lo, hi) = if remote < local.as_str() {
+        (remote, local.as_str())
+    } else {
+        (local.as_str(), remote)
+    };
+    sqlx::query("INSERT INTO user_shares (user_a, user_b) VALUES ($1, $2)")
+        .bind(lo)
+        .bind(hi)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO share_requests (from_user_id, to_user_id, status) VALUES ($1, $2, 'accepted')",
+    )
+    .bind(&local)
+    .bind(remote)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let out = handle_share_remove(&state, remote, &local).await.unwrap();
+    assert_eq!(out["ok"], true);
+    let (shares,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM user_shares")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let (requests,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM share_requests")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!((shares, requests), (0, 0));
+}

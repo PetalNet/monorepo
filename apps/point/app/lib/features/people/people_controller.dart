@@ -24,6 +24,15 @@ class PeopleController extends AsyncNotifier<List<Person>> {
     state = await AsyncValue.guard(build);
   }
 
+  /// Apply a live share teardown before the network refresh completes. This
+  /// removes the peer from People + Map in the same WS turn and prevents a
+  /// stale "Dark since" row lingering after the relationship is gone.
+  void removeLocally(String userId) {
+    final current = state.value;
+    if (current == null) return;
+    state = AsyncData(withoutSharedPerson(current, userId));
+  }
+
   Person _personFromShare(Map<String, dynamic> share) {
     final userId = share['user_id'] as String;
     final displayName =
@@ -34,11 +43,18 @@ class PeopleController extends AsyncNotifier<List<Person>> {
       // No live presence yet (WS lands in M2); default to away, no location.
       presence: PresenceState.away,
       subtitle: userId,
+      rekeyedAt: DateTime.tryParse(share['rekeyed_at'] as String? ?? ''),
+      shareSince: DateTime.tryParse(share['since'] as String? ?? ''),
     );
   }
 }
 
+/// Pure client half of a live teardown. The Map is derived from this same
+/// accepted-person list, so removing here drops the peer from both surfaces.
+List<Person> withoutSharedPerson(List<Person> people, String userId) =>
+    people.where((p) => p.userId != userId).toList();
+
 final peopleControllerProvider =
     AsyncNotifierProvider<PeopleController, List<Person>>(
-  PeopleController.new,
-);
+      PeopleController.new,
+    );

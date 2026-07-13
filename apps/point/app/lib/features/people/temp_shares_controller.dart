@@ -27,7 +27,9 @@ class TempSharesController extends AsyncNotifier<List<TempShare>> {
   Future<void> share(String toUserId, {required int minutes}) async {
     final session = ref.read(authControllerProvider).value;
     if (session == null) return;
-    await ref.read(apiProvider).createTempShare(session.token, toUserId, minutes);
+    await ref
+        .read(apiProvider)
+        .createTempShare(session.token, toUserId, minutes);
     await refresh();
   }
 
@@ -42,8 +44,8 @@ class TempSharesController extends AsyncNotifier<List<TempShare>> {
 
 final tempSharesControllerProvider =
     AsyncNotifierProvider<TempSharesController, List<TempShare>>(
-  TempSharesController.new,
-);
+      TempSharesController.new,
+    );
 
 /// MY outgoing, not-yet-expired temp shares, keyed by the person I'm sharing to.
 /// Pure so it's unit-testable without a container.
@@ -64,8 +66,7 @@ Map<String, TempShare> myOutgoingTemps(
 List<String> computeShareTargets(
   List<String> ongoingIds,
   Iterable<String> tempTargets,
-) =>
-    {...ongoingIds, ...tempTargets}.toList();
+) => {...ongoingIds, ...tempTargets}.toList();
 
 /// MY active outgoing temp shares, keyed by target. Watches the presence clock
 /// so an expired "till HH:MM" drops on its own.
@@ -82,7 +83,12 @@ final outgoingTempsProvider = Provider<Map<String, TempShare>>((ref) {
 /// one-way temp is asymmetric; the recipient never initiates). Null while the
 /// shares list is loading, so the relay never clears targets on a transient
 /// no-value.
-typedef ShareTargets = ({List<String> all, Set<String> tempOnly});
+typedef ShareTargets = ({
+  List<String> all,
+  Set<String> tempOnly,
+  Map<String, DateTime> peerRekeyedAt,
+  Map<String, DateTime> shareSince,
+});
 
 final shareTargetsProvider = Provider<ShareTargets?>((ref) {
   final peopleAsync = ref.watch(peopleControllerProvider);
@@ -92,5 +98,13 @@ final shareTargetsProvider = Provider<ShareTargets?>((ref) {
   return (
     all: computeShareTargets(ongoing.toList(), temps),
     tempOnly: temps.difference(ongoing),
+    peerRekeyedAt: {
+      for (final person in peopleAsync.value!)
+        if (person.rekeyedAt != null) person.userId: person.rekeyedAt!,
+    },
+    shareSince: {
+      for (final person in peopleAsync.value!)
+        if (person.shareSince != null) person.userId: person.shareSince!,
+    },
   );
 });

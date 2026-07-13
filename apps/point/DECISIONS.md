@@ -579,3 +579,45 @@ Verdict was "core fix sound, no critical leak" plus three majors, all addressed:
 - Minors: background cold starts seed the engine from the real lifecycle state (no foreground-cadence
   GPS behind a dark screen on a push wake); pre-start lifecycle/sharing events are pinned to never
   touch the sensors.
+
+## 2026-07-13 — D-029 · v1.2.2: MLS identity generations and live share teardown
+
+The one-way disappearance after re-registration was a stale deterministic DM group, not the
+location engine: the new device uploaded usable KeyPackages, but both clients saw the old group id
+and skipped formation, so no fresh package was consumed and no Welcome was emitted. Three calls
+define the repair:
+
+- **KeyPackage replacement advances an identity generation.** `users.rekeyed_at` changes only when
+  `POST /api/mls/keys` uses `replace=true`; active peers receive `peer.rekeyed`, and `GET /api/shares`
+  carries the durable marker for offline convergence. A client with created OR wiped local MLS state
+  replaces the server pool—`created` can be a fresh install of an existing account, so treating it
+  as an ordinary top-up can preserve packages whose private halves are gone.
+- **The older identity initiates the replacement group.** Both clients compare their own and their
+  peer's generation. The older side overwrites the stale deterministic DM group, consumes the newer
+  side's current one-time KeyPackage, and sends a new Welcome; the newer side waits and overwrites its
+  stale group when that Welcome arrives. This generation ordering supersedes D-019's username
+  tie-break for all unequal-generation pair formation (including a first share); equal generations
+  retain the lexicographic tie-break. Formation waits until the client's own generation is loaded,
+  so startup cannot race into the fallback. Handled peer-identity and share epochs are persisted as
+  separate secure-storage markers (one timestamp must never mask the other), so restarts do not
+  drain the pool and remove→re-add always forms a new epoch. This ordering is load-bearing: in the
+  Janet incident it makes petalcat consume a fresh Janet package, which is the observable acceptance
+  proof.
+- **Share deletion is a committed teardown event.** After the relationship and historical request
+  rows are deleted, the server sends `share.removed` to every live device on both sides and a
+  contentless wake to either side that is offline. Clients
+  immediately remove the peer from their encrypt target set, People, Map, and cached presence before
+  refreshing the authoritative lists. A racing old client still cannot deliver or persist another
+  fix because the server authorization row is already gone. Federated peers receive the equivalent
+  signed `share.remove` S2S message; exact cross-server handles enter through the signed federation
+  send path rather than being mistaken for missing local users.
+
+The add-by-handle parser is also strict at the UI boundary: a bare name gets the home domain, an
+already canonical `name@server` is preserved, and foreign/malformed qualified shapes (including
+`name:server`) error locally instead of becoming `name:server@home` followed by a false success
+toast. For a syntactically valid but nonexistent canonical handle, the request endpoint returns
+`recorded=false` and the client shows a resolution error. This intentionally supersedes D-005's
+account-existence ambiguity for direct handle adds: an explicit exact-handle workflow cannot both
+confirm failure and hide whether that exact handle resolves; relationship state remains hidden.
+Regression coverage spans the real Postgres/WS key-claim + Welcome path, two-way OpenMLS
+decrypt after device replacement, relay generation selection, handle shapes, and teardown delivery.

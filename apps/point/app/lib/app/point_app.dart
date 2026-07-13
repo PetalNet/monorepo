@@ -150,8 +150,9 @@ class _PointAppState extends ConsumerState<PointApp>
     // go-dark-default policy (a cold-start restore must never override a
     // live sharing choice). The controller flags it, because both sign-in
     // and restore arrive here from AsyncLoading.
-    final explicit =
-        ref.read(authControllerProvider.notifier).consumeExplicitSignIn();
+    final explicit = ref
+        .read(authControllerProvider.notifier)
+        .consumeExplicitSignIn();
     try {
       // Bounded: the go-dark server write has no client timeout, and routing
       // must never hang on it (or on broken settings storage) — the engine
@@ -384,7 +385,12 @@ class _PointAppState extends ConsumerState<PointApp>
         if (next == null) return;
         ref
             .read(relayControllerProvider)
-            .setShareTargets(next.all, forceInitiate: next.tempOnly);
+            .setShareTargets(
+              next.all,
+              forceInitiate: next.tempOnly,
+              peerRekeyedAt: next.peerRekeyedAt,
+              shareSince: next.shareSince,
+            );
       });
 
     final appearance = ref.watch(settingsProvider.select((s) => s.appearance));

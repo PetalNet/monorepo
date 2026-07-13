@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use uuid::Uuid;
 
-use super::tests::{app, register, send, token_of, DOMAIN};
+use super::tests::{app, register, send, test_state, token_of, DOMAIN};
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -68,6 +68,17 @@ async fn seed_group(pool: &PgPool, owner: &str, members: &[&str]) -> Uuid {
 async fn count(pool: &PgPool, sql: &str) -> i64 {
     let (n,): (i64,) = sqlx::query_as(sql).fetch_one(pool).await.unwrap();
     n
+}
+
+async fn spawn_ws_server_with_router(pool: &PgPool) -> (String, axum::Router) {
+    let router = super::router(test_state(pool.clone(), true));
+    let client_router = router.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    (format!("ws://{addr}/ws"), client_router)
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +287,102 @@ async fn key_package_upload_limits(pool: PgPool) {
     assert_eq!(lr_rows[0].0, b"lr-2", "re-upload replaces it");
 }
 
+/// Task 726 regression: replacing Bob's MLS identity while the share exists
+/// must advertise a new generation. The live initiator then claims one of the
+/// replacement packages and writes a NEW Welcome instead of reusing its stale
+/// deterministic group forever.
+#[sqlx::test]
+async fn peer_reregistration_triggers_fresh_key_claim_and_welcome(pool: PgPool) {
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+    let (url, router) = spawn_ws_server_with_router(&pool).await;
+    let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+
+    let (_, before_shares) = send(&router, "GET", "/api/shares", Some(&alice), None).await;
+    let before_generation = before_shares[0]["rekeyed_at"].as_str().unwrap().to_string();
+
+    // Establish the original epoch and mailbox row.
+    upload_keys(&router, &bob, &["old-bob-kp"], None).await;
+    let claim_path = format!("/api/mls/keys/{}/claim", uid("bob"));
+    send(&router, "POST", &claim_path, Some(&alice), None).await;
+    send(
+        &router,
+        "POST",
+        "/api/mls/welcome",
+        Some(&alice),
+        Some(json!({
+            "recipient_id": uid("bob"),
+            "group_id": "dm:alice:bob",
+            "payload": b64(b"old-welcome"),
+        })),
+    )
+    .await;
+    let welcomes_before = count(
+        &pool,
+        "SELECT COUNT(*) FROM mls_messages WHERE message_type = 'welcome'",
+    )
+    .await;
+
+    tokio::time::sleep(Duration::from_millis(2)).await;
+    let fresh: Vec<String> = ["fresh-bob-kp-0", "fresh-bob-kp-1"]
+        .iter()
+        .map(|p| b64(p.as_bytes()))
+        .collect();
+    let (status, body) = send(
+        &router,
+        "POST",
+        "/api/mls/keys",
+        Some(&bob),
+        Some(json!({ "key_packages": fresh, "replace": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let nudge = expect_frame(&mut alice_ws, "peer.rekeyed", 2000).await;
+    assert_eq!(nudge["user_id"], uid("bob"));
+    let (_, after_shares) = send(&router, "GET", "/api/shares", Some(&alice), None).await;
+    assert_ne!(after_shares[0]["rekeyed_at"], before_generation);
+
+    // This is the client reaction to that generation marker: claim a current
+    // package and relay the replacement group's Welcome.
+    let (status, claimed) = send(&router, "POST", &claim_path, Some(&alice), None).await;
+    assert_eq!(status, StatusCode::OK, "{claimed}");
+    assert!(
+        [b64(b"fresh-bob-kp-0"), b64(b"fresh-bob-kp-1")]
+            .contains(&claimed["key_package"].as_str().unwrap().to_string()),
+        "the claim must come from Bob's replacement pool: {claimed}",
+    );
+    send(
+        &router,
+        "POST",
+        "/api/mls/welcome",
+        Some(&alice),
+        Some(json!({
+            "recipient_id": uid("bob"),
+            "group_id": "dm:alice:bob",
+            "payload": b64(b"fresh-welcome"),
+        })),
+    )
+    .await;
+
+    let consumed = count(
+        &pool,
+        "SELECT COUNT(*) FROM key_packages WHERE user_id = 'bob@test.example' AND encode(key_package, 'escape') LIKE 'fresh-bob-kp-%' AND consumed_at IS NOT NULL",
+    )
+    .await;
+    assert_eq!(consumed, 1, "fresh replacement package must be consumed");
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT COUNT(*) FROM mls_messages WHERE message_type = 'welcome'",
+        )
+        .await,
+        welcomes_before + 1,
+        "re-pair must append a new Welcome",
+    );
+}
+
 // ---------------------------------------------------------------------------
 // MLS: welcome / commit / ack
 // ---------------------------------------------------------------------------
@@ -444,13 +551,7 @@ async fn commit_fans_out_to_group_and_explicit_recipients(pool: PgPool) {
 /// Real axum server on an ephemeral port; all WS connections in a test share
 /// its hub. Returns the ws:// URL.
 async fn spawn_ws_server(pool: &PgPool) -> String {
-    let router = app(pool, true);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(listener, router).await.unwrap();
-    });
-    format!("ws://{addr}/ws")
+    spawn_ws_server_with_router(pool).await.0
 }
 
 /// Next JSON frame within `ms`, skipping transport frames. None = closed or
@@ -681,6 +782,53 @@ async fn ws_location_update_to_non_sharing_user_is_silently_dropped(pool: PgPool
     assert_eq!(
         count(&pool, "SELECT COUNT(*) FROM location_history").await,
         0
+    );
+}
+
+/// Task 728 regression: severing a share pushes a live teardown to BOTH
+/// devices, and the committed authz change immediately drops later location
+/// updates even if the removing client has not processed its notice yet.
+#[sqlx::test]
+async fn delete_share_notifies_both_peers_and_stops_delivery(pool: PgPool) {
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+    let (url, router) = spawn_ws_server_with_router(&pool).await;
+    let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+    let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+
+    let (status, body) = send(
+        &router,
+        "DELETE",
+        &format!("/api/shares/{}", uid("bob")),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let alice_notice = expect_frame(&mut alice_ws, "share.removed", 2000).await;
+    let bob_notice = expect_frame(&mut bob_ws, "share.removed", 2000).await;
+    assert_eq!(alice_notice["user_id"], uid("bob"));
+    assert_eq!(bob_notice["user_id"], uid("alice"));
+
+    // A device racing the teardown cannot continue pushing through the server.
+    ws_send(
+        &mut alice_ws,
+        json!({
+            "type": "location.update",
+            "recipient_type": "user",
+            "recipient_id": uid("bob"),
+            "blob": b64(b"must-be-dropped"),
+            "timestamp": 42,
+        }),
+    )
+    .await;
+    assert!(recv_frame(&mut bob_ws, 300).await.is_none());
+    assert_eq!(
+        count(&pool, "SELECT COUNT(*) FROM location_updates").await,
+        0,
+        "removed peers must not persist or receive new fixes",
     );
 }
 

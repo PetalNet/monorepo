@@ -118,6 +118,15 @@ pub async fn upload_keys(
         .bind(&user.user_id)
         .execute(&mut *tx)
         .await?;
+        // Task 726: a replaced pool means a replaced MLS identity — every
+        // pairwise group keyed to the old identity is now dead. Stamp it so
+        // sharers' clients detect the re-registration and rebuild (the live
+        // `peer.rekeyed` nudge below covers online peers; this column covers
+        // offline ones at their next shares fetch).
+        sqlx::query("UPDATE users SET rekeyed_at = now() WHERE id = $1")
+            .bind(&user.user_id)
+            .execute(&mut *tx)
+            .await?;
     }
     let (stored,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM key_packages
@@ -168,6 +177,24 @@ pub async fn upload_keys(
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
+
+    if body.replace {
+        // Live nudge (task 726): tell everyone currently sharing with me that
+        // my MLS identity changed, so the tie-break initiator re-forms our
+        // pairwise group against a FRESH key package now instead of at their
+        // next cold start. Best-effort; offline peers converge via rekeyed_at.
+        let peers: Vec<(String,)> = sqlx::query_as(
+            "SELECT CASE WHEN user_a = $1 THEN user_b ELSE user_a END
+             FROM user_shares WHERE user_a = $1 OR user_b = $1",
+        )
+        .bind(&user.user_id)
+        .fetch_all(&state.pool)
+        .await?;
+        let notice = json!({ "type": "peer.rekeyed", "user_id": user.user_id }).to_string();
+        for (peer,) in &peers {
+            state.hub.send_to_user(peer, &notice);
+        }
+    }
 
     Ok(Json(json!({
         "stored": regular.len(),
@@ -275,18 +302,22 @@ pub async fn claim_key(
 
 /// GET /api/mls/keys/count — my own pool level, for client replenish logic.
 pub async fn key_count(State(state): State<AppState>, user: AuthUser) -> ApiResult<Json<Value>> {
-    let (count, has_last_resort): (i64, bool) = sqlx::query_as(
-        "SELECT
+    let (count, has_last_resort, rekeyed_at): (i64, bool, chrono::DateTime<chrono::Utc>) =
+        sqlx::query_as(
+            "SELECT
              (SELECT COUNT(*) FROM key_packages
               WHERE user_id = $1 AND consumed_at IS NULL AND NOT is_last_resort),
-             EXISTS(SELECT 1 FROM key_packages WHERE user_id = $1 AND is_last_resort)",
-    )
-    .bind(&user.user_id)
-    .fetch_one(&state.pool)
-    .await?;
-    Ok(Json(
-        json!({ "count": count, "has_last_resort": has_last_resort }),
-    ))
+             EXISTS(SELECT 1 FROM key_packages WHERE user_id = $1 AND is_last_resort),
+             (SELECT rekeyed_at FROM users WHERE id = $1)",
+        )
+        .bind(&user.user_id)
+        .fetch_one(&state.pool)
+        .await?;
+    Ok(Json(json!({
+        "count": count,
+        "has_last_resort": has_last_resort,
+        "rekeyed_at": rekeyed_at,
+    })))
 }
 
 // ---------------------------------------------------------------------------

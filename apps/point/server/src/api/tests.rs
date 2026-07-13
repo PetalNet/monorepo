@@ -757,8 +757,9 @@ async fn who_can_add_me_nobody_silently_drops_requests(pool: PgPool) {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["who_can_add_me"], "nobody");
 
-    // Bob's ask returns the same generic ok as any other outcome...
-    let (status, _) = send(
+    // Bob gets an honest non-recorded result, so the client never claims the
+    // blocked request was sent.
+    let (status, result) = send(
         &app,
         "POST",
         "/api/shares/request",
@@ -767,7 +768,8 @@ async fn who_can_add_me_nobody_silently_drops_requests(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    // ...but nothing lands in Alice's inbox.
+    assert_eq!(result["recorded"], false);
+    // Nothing lands in Alice's inbox.
     let (_, reqs) = send(&app, "GET", "/api/shares/requests", Some(&alice), None).await;
     assert_eq!(reqs.as_array().map(Vec::len), Some(0));
 

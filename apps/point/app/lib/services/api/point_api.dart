@@ -189,6 +189,10 @@ class PointApi {
       body: jsonEncode({'to_user_id': toUserId}),
     );
     if (r.statusCode != 200) _fail(r);
+    final body = jsonDecode(r.body) as Map<String, dynamic>;
+    if (body['recorded'] == false) {
+      throw const ApiException('That handle could not be found.', 404);
+    }
   }
 
   Future<void> acceptRequest(String token, String id) async {
@@ -337,7 +341,9 @@ class PointApi {
   }
 
   /// Non-consuming probe of the local pool (for replenish logic).
-  Future<({int available, bool hasLastResort})> keyCount(String token) async {
+  Future<({int available, bool hasLastResort, DateTime rekeyedAt})> keyCount(
+    String token,
+  ) async {
     final r = await _client.get(
       _u('/api/mls/keys/count'),
       headers: _headers(token),
@@ -348,6 +354,7 @@ class PointApi {
       // The server serializes the pool level as `count`.
       available: v['count'] as int? ?? 0,
       hasLastResort: v['has_last_resort'] as bool? ?? false,
+      rekeyedAt: DateTime.parse(v['rekeyed_at'] as String),
     );
   }
 

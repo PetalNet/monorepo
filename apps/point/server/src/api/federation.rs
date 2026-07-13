@@ -200,12 +200,49 @@ async fn dispatch(
     match message_type {
         "share.request" => handle_share_request(state, sender, recipient, payload).await,
         "share.accept" => handle_share_accept(state, sender, recipient, payload).await,
+        "share.remove" => handle_share_remove(state, sender, recipient).await,
         "mls.key_request" => handle_key_request(state, sender, recipient, payload).await,
         "mls.welcome" => handle_mls_relay(state, sender, recipient, payload, "welcome").await,
         "mls.commit" => handle_mls_relay(state, sender, recipient, payload, "commit").await,
         "location.update" => handle_location_update(state, sender, recipient, payload).await,
         _ => Err(AppError::BadRequest("unknown message_type".into())),
     }
+}
+
+async fn handle_share_remove(state: &AppState, sender: &str, recipient: &str) -> ApiResult<Value> {
+    let (lo, hi) = if sender < recipient {
+        (sender, recipient)
+    } else {
+        (recipient, sender)
+    };
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("DELETE FROM user_shares WHERE user_a = $1 AND user_b = $2")
+        .bind(lo)
+        .bind(hi)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "DELETE FROM share_requests
+         WHERE (from_user_id = $1 AND to_user_id = $2)
+            OR (from_user_id = $2 AND to_user_id = $1)",
+    )
+    .bind(sender)
+    .bind(recipient)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    state.hub.send_to_user(
+        recipient,
+        &json!({ "type": "share.removed", "user_id": sender }).to_string(),
+    );
+    tokio::spawn(crate::push::wake_user(
+        state.pool.clone(),
+        recipient.to_string(),
+        crate::push::Wake::new("share_removed"),
+        state.config.federation_allow_private,
+    ));
+    Ok(json!({ "ok": true }))
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +555,25 @@ pub async fn send(
     user: AuthUser,
     Json(body): Json<SendBody>,
 ) -> ApiResult<Json<Value>> {
-    let recipient = body.recipient.trim().to_lowercase();
+    let value = send_federated(
+        &state,
+        &user.user_id,
+        &body.recipient,
+        &body.message_type,
+        body.payload,
+    )
+    .await?;
+    Ok(Json(value))
+}
+
+pub(crate) async fn send_federated(
+    state: &AppState,
+    sender: &str,
+    recipient: &str,
+    message_type: &str,
+    payload: Value,
+) -> ApiResult<Value> {
+    let recipient = recipient.trim().to_lowercase();
     let remote_domain = domain_of(&recipient)
         .ok_or_else(|| AppError::BadRequest("recipient has no domain".into()))?
         .to_string();
@@ -527,7 +582,7 @@ pub async fn send(
             "recipient is local; use the local API".into(),
         ));
     }
-    if !is_federatable_type(&body.message_type) {
+    if !is_federatable_type(message_type) {
         return Err(AppError::BadRequest("unknown message_type".into()));
     }
 
@@ -535,7 +590,7 @@ pub async fn send(
     // locally (ensuring the remote shadow exists for the FK), so the peer's
     // later `share.accept` passes our anti-forgery check. Mirrors what the
     // remote does on receiving our share.request.
-    if body.message_type == "share.request" {
+    if message_type == "share.request" {
         ensure_federated_user(&state.pool, &recipient).await?;
         sqlx::query(
             "INSERT INTO share_requests (from_user_id, to_user_id) VALUES ($1, $2)
@@ -543,17 +598,17 @@ pub async fn send(
              DO UPDATE SET status = 'pending', updated_at = now()
              WHERE share_requests.status <> 'pending'",
         )
-        .bind(&user.user_id)
+        .bind(sender)
         .bind(&recipient)
         .execute(&state.pool)
         .await?;
     }
 
     let msg = FederatedMessage {
-        sender: user.user_id.clone(),
+        sender: sender.to_string(),
         recipient,
-        message_type: body.message_type,
-        payload: body.payload,
+        message_type: message_type.to_string(),
+        payload,
         timestamp: Utc::now().timestamp(),
     };
     // Sign the exact bytes we send — the peer verifies these same bytes.
@@ -561,8 +616,8 @@ pub async fn send(
         .map_err(|e| AppError::Internal(format!("serialize federated message: {e}")))?;
     let sig = federation_keys::sign(&state.server_signing_key, &raw);
 
-    let (status, value) = deliver(&state, &remote_domain, &raw, &sig).await?;
-    Ok(Json(json!({ "status": status, "response": value })))
+    let (status, value) = deliver(state, &remote_domain, &raw, &sig).await?;
+    Ok(json!({ "status": status, "response": value }))
 }
 
 #[derive(Deserialize)]
@@ -815,7 +870,7 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 /// Domain component of a `name@domain` id.
-fn domain_of(user_id: &str) -> Option<&str> {
+pub(crate) fn domain_of(user_id: &str) -> Option<&str> {
     user_id
         .rsplit_once('@')
         .map(|(_, d)| d)
@@ -831,6 +886,7 @@ fn is_federatable_type(t: &str) -> bool {
         t,
         "share.request"
             | "share.accept"
+            | "share.remove"
             | "mls.key_request"
             | "mls.welcome"
             | "mls.commit"
