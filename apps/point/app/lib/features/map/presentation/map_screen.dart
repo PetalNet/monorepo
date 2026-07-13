@@ -11,6 +11,7 @@ import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/location/self_location_provider.dart';
 import 'package:point_app/features/map/map_tiles.dart';
+import 'package:point_app/features/map/presentation/live_tracking_health_banner.dart';
 import 'package:point_app/features/map/presentation/person_map_sheet.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
 import 'package:point_app/features/map/presentation/self_marker.dart';
@@ -263,19 +264,31 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ],
           ),
           const MapAvailabilityOverlay(),
-          if (_follow.isFollowing)
-            Positioned(
-              top: context.space.sm,
-              left: context.space.sm,
-              right: context.space.sm,
-              child: _FollowBadge(
-                name: located
-                    .where((person) => person.userId == _follow.userId)
-                    .firstOrNull
-                    ?.displayName,
-                onStop: () => setState(() => _follow = _follow.onUserGesture()),
+          Positioned(
+            top: context.space.sm,
+            left: context.space.sm,
+            right: context.space.sm,
+            child: SafeArea(
+              bottom: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const LiveTrackingHealthBanner(),
+                  if (_follow.isFollowing) ...[
+                    SizedBox(height: context.space.sm),
+                    _FollowBadge(
+                      name: located
+                          .where((person) => person.userId == _follow.userId)
+                          .firstOrNull
+                          ?.displayName,
+                      onStop: () =>
+                          setState(() => _follow = _follow.onUserGesture()),
+                    ),
+                  ],
+                ],
               ),
             ),
+          ),
         ],
       ),
     );

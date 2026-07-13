@@ -1,19 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/routes.dart';
+import 'package:point_app/features/location/tracking_permissions.dart';
 import 'package:point_app/features/onboarding/onboarding_flow.dart';
 import 'package:point_app/features/onboarding/presentation/onboarding_scaffold.dart';
 import 'package:point_app/theme/theme_x.dart';
 
-/// Onboarding: the location ask. Sits after the privacy story so the grant is
-/// earned, not ambushed. Foreground access unlocks Continue; the screen
-/// teaches the "Allow all the time" upgrade that makes background sharing
-/// reliable, with live state that re-checks whenever the user comes back
-/// from Android settings.
+/// A truthful four-step Android permission ladder. Each return from system
+/// settings re-reads OS state before advancing to the next missing grant.
 class LocationPermissionScreen extends ConsumerStatefulWidget {
   const LocationPermissionScreen({super.key});
 
@@ -25,8 +22,8 @@ class LocationPermissionScreen extends ConsumerStatefulWidget {
 class _LocationPermissionScreenState
     extends ConsumerState<LocationPermissionScreen>
     with WidgetsBindingObserver {
-  LocationPermission _permission = LocationPermission.denied;
-  bool _checked = false;
+  TrackingPermissionHealth? _health;
+  bool _checking = true;
 
   @override
   void initState() {
@@ -47,32 +44,23 @@ class _LocationPermissionScreenState
   }
 
   Future<void> _check() async {
+    if (mounted) setState(() => _checking = true);
     try {
-      final p = await Geolocator.checkPermission();
+      final health = await ref.read(trackingPermissionsProvider).check();
       if (!mounted) return;
       setState(() {
-        _permission = p;
-        _checked = true;
+        _health = health;
+        _checking = false;
       });
+      ref.invalidate(trackingPermissionHealthProvider);
     } on Object {
-      if (!mounted) return;
-      setState(() => _checked = true);
+      if (mounted) setState(() => _checking = false);
     }
   }
 
-  bool get _granted =>
-      _permission == LocationPermission.always ||
-      _permission == LocationPermission.whileInUse;
-
-  Future<void> _request() async {
-    try {
-      final p = await Geolocator.requestPermission();
-      if (!mounted) return;
-      setState(() => _permission = p);
-    } on Object {
-      // The system dialog failed to show (or platform unsupported); the
-      // status row keeps telling the truth.
-    }
+  Future<void> _run(Future<void> Function() action) async {
+    await action();
+    await _check();
   }
 
   Future<void> _done() async {
@@ -81,166 +69,157 @@ class _LocationPermissionScreenState
 
   @override
   Widget build(BuildContext context) {
-    final always = _permission == LocationPermission.always;
-    final foreverDenied = _permission == LocationPermission.deniedForever;
+    final permissions = ref.read(trackingPermissionsProvider);
+    final health = _health;
+    final foreground = health?.foregroundLocation ?? false;
+    final ready = health?.liveTrackingReady ?? false;
+    final nextIssue = health?.firstIssue;
 
-    // One state, one primary: full grant finishes; a while-in-use grant leads
-    // with the settings upgrade (Continue anyway beneath); a hard deny can
-    // only be fixed in settings; otherwise ask.
-    final (primaryLabel, onPrimary) = switch ((
-      _granted,
-      always,
-      foreverDenied,
-    )) {
-      (true, true, _) => ('Done', _done),
-      (true, false, _) => (
-        'Open settings',
-        () => unawaited(Geolocator.openAppSettings()),
-      ),
-      (false, _, true) => (
-        'Open settings',
-        () => unawaited(Geolocator.openAppSettings()),
-      ),
-      (false, _, false) => ('Allow location', _request),
-    };
+    final (label, action) = health == null
+        ? ('Check permissions', _check)
+        : switch (nextIssue) {
+            TrackingPermissionIssue.foregroundLocation => (
+              'Allow while using Point',
+              () => _run(permissions.requestForegroundLocation),
+            ),
+            TrackingPermissionIssue.backgroundLocation => (
+              'Open location settings',
+              () => _run(permissions.openBackgroundLocationSettings),
+            ),
+            TrackingPermissionIssue.notifications => (
+              'Allow notifications',
+              () => _run(permissions.requestNotifications),
+            ),
+            TrackingPermissionIssue.battery => (
+              'Allow background activity',
+              () => _run(permissions.requestBatteryExemption),
+            ),
+            null => ('Finish setup', _done),
+          };
 
     return OnboardingScaffold(
       step: OnboardingProgress.location,
-      headline: 'Location,\nall the time.',
+      headline: 'Enable live\ntracking.',
       body:
-          'Sharing where you are is the whole job, so Point needs '
-          'location access even while it is closed. It stays encrypted, '
-          'only your people can see it, and one switch turns it all off.',
-      primaryLabel: primaryLabel,
-      onPrimary: !_checked ? null : onPrimary,
-      secondaryLabel: _granted && !always ? 'Continue anyway' : null,
-      onSecondary: _granted && !always ? _done : null,
+          'Point needs four Android settings to keep your encrypted location '
+          'moving when the screen is off. You stay in control, and going dark '
+          'still stops sharing.',
+      primaryLabel: label,
+      onPrimary: _checking ? null : action,
+      primaryLoading: _checking,
+      secondaryLabel: foreground && !ready
+          ? 'Continue with limited tracking'
+          : null,
+      onSecondary: foreground && !ready ? _done : null,
       children: [
-        _PermissionStatus(
-          checked: _checked,
-          permission: _permission,
+        _PermissionStep(
+          number: 1,
+          title: 'Location while using Point',
+          body: 'Finds your position while Point is on screen.',
+          complete: health?.foregroundLocation ?? false,
+          active: nextIssue == TrackingPermissionIssue.foregroundLocation,
         ),
-        SizedBox(height: context.space.lg),
-        if (foreverDenied)
-          Text(
-            'Android will not show the request again, so the switch lives '
-            'in settings now. Open settings, tap Permissions, then '
-            'Location, and choose Allow all the time.',
-            style: context.text.bodySmall?.copyWith(
-              color: context.colors.onSurfaceVariant,
-            ),
-          )
-        else if (_granted && !always) ...[
-          Text(
-            'One step left for reliable sharing while the screen is off: '
-            'open settings, tap Permissions, then Location, and choose '
-            'Allow all the time.',
-            style: context.text.bodySmall?.copyWith(
-              color: context.colors.onSurfaceVariant,
-            ),
-          ),
-        ] else if (!_granted)
-          const _AskSteps(),
+        _PermissionStep(
+          number: 2,
+          title: 'Location all the time',
+          body:
+              'Keeps trusted people updated after you lock your phone. In '
+              'Android settings, choose “Allow all the time.”',
+          complete: health?.backgroundLocation ?? false,
+          active: nextIssue == TrackingPermissionIssue.backgroundLocation,
+        ),
+        _PermissionStep(
+          number: 3,
+          title: 'Tracking notification',
+          body:
+              'Shows when live tracking is running and keeps Android’s '
+              'foreground service healthy.',
+          complete: health?.notifications ?? false,
+          active: nextIssue == TrackingPermissionIssue.notifications,
+        ),
+        _PermissionStep(
+          number: 4,
+          title: 'Unrestricted battery use',
+          body:
+              'Prevents Doze and phone battery managers from silently '
+              'suspending live updates.',
+          complete: health?.batteryUnrestricted ?? false,
+          active: nextIssue == TrackingPermissionIssue.battery,
+          last: true,
+        ),
       ],
     );
   }
 }
 
-/// Live permission readout, presence-grammar shapes: filled = all the time,
-/// ring = while in use, faint hollow = not yet.
-class _PermissionStatus extends StatelessWidget {
-  const _PermissionStatus({required this.checked, required this.permission});
+class _PermissionStep extends StatelessWidget {
+  const _PermissionStep({
+    required this.number,
+    required this.title,
+    required this.body,
+    required this.complete,
+    required this.active,
+    this.last = false,
+  });
 
-  final bool checked;
-  final LocationPermission permission;
+  final int number;
+  final String title;
+  final String body;
+  final bool complete;
+  final bool active;
+  final bool last;
 
   @override
   Widget build(BuildContext context) {
     final ink = context.colors.onSurface;
-    final always = permission == LocationPermission.always;
-    final whileInUse = permission == LocationPermission.whileInUse;
-    final label = !checked
-        ? 'Checking'
-        : switch (permission) {
-            LocationPermission.always => 'Allowed all the time. Thank you.',
-            LocationPermission.whileInUse => 'Allowed while the app is open.',
-            LocationPermission.deniedForever =>
-              'Turned off in Android settings.',
-            _ => 'Not allowed yet.',
-          };
-    return Container(
-      padding: EdgeInsets.all(context.space.lg),
-      decoration: BoxDecoration(
-        color: context.colors.surfaceContainer,
-        borderRadius: context.radii.brMd,
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: always ? ink : Colors.transparent,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: always || whileInUse
-                    ? ink
-                    : context.colors.onSurfaceVariant.withValues(alpha: 0.5),
-                width: 1.5,
+    final muted = context.colors.onSurfaceVariant;
+    return Semantics(
+      label:
+          '$title. ${complete
+              ? 'Enabled'
+              : active
+              ? 'Next step'
+              : 'Not enabled'}',
+      child: Padding(
+        padding: EdgeInsets.only(bottom: last ? 0 : context.space.lg),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: complete ? ink : Colors.transparent,
+                shape: BoxShape.circle,
+                border: Border.all(color: active || complete ? ink : muted),
+              ),
+              child: complete
+                  ? Icon(Icons.check, size: 17, color: context.colors.surface)
+                  : Text(
+                      '$number',
+                      style: context.text.labelMedium?.copyWith(
+                        color: active ? ink : muted,
+                      ),
+                    ),
+            ),
+            SizedBox(width: context.space.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: context.text.titleSmall),
+                  SizedBox(height: context.space.xs),
+                  Text(
+                    body,
+                    style: context.text.bodySmall?.copyWith(color: muted),
+                  ),
+                ],
               ),
             ),
-          ),
-          SizedBox(width: context.space.md),
-          Expanded(child: Text(label, style: context.text.titleSmall)),
-        ],
+          ],
+        ),
       ),
-    );
-  }
-}
-
-/// What Android is about to ask, spelled out so nobody is surprised.
-class _AskSteps extends StatelessWidget {
-  const _AskSteps();
-
-  static const _steps = [
-    'Tap Allow location below.',
-    'Pick While using the app.',
-    'Later, choose Allow all the time in settings for sharing that survives a locked phone.',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final (i, step) in _steps.indexed)
-          Padding(
-            padding: EdgeInsets.only(bottom: context.space.sm),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 24,
-                  child: Text(
-                    '${i + 1}',
-                    style: context.text.bodySmall?.copyWith(
-                      fontFamily: 'JetBrains Mono',
-                      color: context.colors.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    step,
-                    style: context.text.bodyMedium?.copyWith(
-                      color: context.colors.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
     );
   }
 }
