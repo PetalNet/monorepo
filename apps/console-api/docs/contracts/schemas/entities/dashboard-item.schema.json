@@ -42,6 +42,18 @@
 		"scope": {
 			"type": "string",
 			"description": "Readable scope tag governing who sees this dashboard (ReBAC below the tools; rows outside the caller's grant do not arrive)."
+		},
+		"is_investigation": {
+			"type": "boolean",
+			"description": "True when this artifact carries a BranchContext and is therefore a node in an investigation graph."
+		},
+		"parent_id": {
+			"type": ["string", "null"],
+			"description": "GraphNode edge. Null identifies an investigation root."
+		},
+		"parent_question": {
+			"type": ["string", "null"],
+			"description": "Question on the parent node that supplied this branch context."
 		}
 	},
 	"required": [
@@ -52,7 +64,10 @@
 		"created_by",
 		"updated_at",
 		"panel_count",
-		"scope"
+		"scope",
+		"is_investigation",
+		"parent_id",
+		"parent_question"
 	],
 	"additionalProperties": true
 }

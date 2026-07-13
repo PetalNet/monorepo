@@ -118,3 +118,28 @@ export const dashboardSaveSchema = z
 export const renderRequestSchema = z
 	.object({ query_ref: z.string().min(1).max(100), panel: panelSpecSchema })
 	.strict();
+
+export const investigationBranchSchema = z
+	.object({
+		schema_version: z.literal(1),
+		id: z.string().uuid(),
+		title: z.string().trim().min(1).max(200),
+		scope: z.string().trim().min(1).max(500).optional(),
+		parent_dashboard_id: z.string().min(1).max(100).nullable(),
+		parent_question: z.string().max(2_000).nullable(),
+		panel: z
+			.object({
+				title: z.string().trim().min(1).max(200),
+				type: z.enum(["bar", "line", "stat", "table", "scatter"]),
+				query_ref: z.string().min(1).max(100),
+			})
+			.strict(),
+		selected_mark: z
+			.object({
+				element_kind: z.string().min(1).max(100),
+				field: z.string().min(1).max(200),
+				value: z.union([z.string(), z.number(), z.boolean()]),
+			})
+			.strict(),
+	})
+	.strict();

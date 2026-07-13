@@ -5,6 +5,7 @@ import Bell from "@lucide/svelte/icons/bell";
 import BellOff from "@lucide/svelte/icons/bell-off";
 import BookOpen from "@lucide/svelte/icons/book-open";
 import ChartLine from "@lucide/svelte/icons/chart-line";
+import ChevronDown from "@lucide/svelte/icons/chevron-down";
 import ChevronRight from "@lucide/svelte/icons/chevron-right";
 import CircleAlert from "@lucide/svelte/icons/circle-alert";
 import CircleCheck from "@lucide/svelte/icons/circle-check";
@@ -44,6 +45,7 @@ import Milestone from "@lucide/svelte/icons/milestone";
 import MousePointer2 from "@lucide/svelte/icons/mouse-pointer-2";
 import Package from "@lucide/svelte/icons/package";
 import PhoneForwarded from "@lucide/svelte/icons/phone-forwarded";
+import Pin from "@lucide/svelte/icons/pin";
 import Quote from "@lucide/svelte/icons/quote";
 import Radio from "@lucide/svelte/icons/radio";
 import RadioTower from "@lucide/svelte/icons/radio-tower";
@@ -86,6 +88,7 @@ export const ICONS = {
 	"book-open": BookOpen,
 	"chart-line": ChartLine,
 	"chevron-right": ChevronRight,
+	"chevron-down": ChevronDown,
 	"circle-alert": CircleAlert,
 	"circle-check": CircleCheck,
 	"circle-dashed": CircleDashed,
@@ -123,6 +126,7 @@ export const ICONS = {
 	milestone: Milestone,
 	"mouse-pointer-2": MousePointer2,
 	package: Package,
+	pin: Pin,
 	"phone-forwarded": PhoneForwarded,
 	quote: Quote,
 	radio: Radio,
