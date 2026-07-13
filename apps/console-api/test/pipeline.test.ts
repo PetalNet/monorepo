@@ -26,7 +26,7 @@ import { runStructured } from "../src/query/structured.ts";
 import { readEntity } from "../src/reads/entities.ts";
 import { readRoster, readExecutors } from "../src/reads/roster.ts";
 import { searchSemanticCorpus } from "../src/semantic/search.ts";
-import { buildServer, validateJsonSchema } from "../src/server.ts";
+import { buildServer, resolvedOpCapabilities, validateJsonSchema } from "../src/server.ts";
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -1317,6 +1317,73 @@ describe("Phase 3 ReBAC control plane", () => {
 });
 
 describe("Phase 4 permission levels", () => {
+	it("resolves commit versus propose posture in named-op preflight without tier-name checks", async () => {
+		expect(resolvedOpCapabilities("task.update", "human", true)).toEqual({ force: false });
+		expect(resolvedOpCapabilities("task.update", "human", false)).toEqual({ force: true });
+		expect(resolvedOpCapabilities("task.update", "agent", false)).toEqual({ force: false });
+		await services.db.admin`
+			insert into tiers (name, authentik_group, description, default_relations, propose_only)
+			values ('custom_operator', 'custom-operators', 'Custom data-driven operator.', '["operator"]', true)`;
+		await services.db.admin`
+			insert into grants (subject, relation, object, granted_by)
+			values ('tier:custom_operator', 'operator', 'fleet', 'test')`;
+		const principal = {
+			kind: "human",
+			id: "custom-operator",
+			tiers: ["custom_operator"],
+			lanes: ["viewer", "editor", "operator"],
+			scopes: [],
+		};
+		const server = await buildServer(services, true);
+		const taskPreflight = (force: boolean) =>
+			server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers: { "x-dev-principal": JSON.stringify(principal) },
+				payload: {
+					schema_version: 1,
+					op: "task.update",
+					id: randomUUID(),
+					args: { id: 42, patch: { status: "review" }, force },
+					dry_run: true,
+				},
+			});
+		const preflight = () =>
+			server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers: { "x-dev-principal": JSON.stringify(principal) },
+				payload: {
+					schema_version: 1,
+					op: "signal.snooze",
+					id: randomUUID(),
+					args: { type_pattern: "task.**", duration_s: 3600 },
+					dry_run: true,
+				},
+			});
+		try {
+			const deniedForce = await taskPreflight(true);
+			expect(deniedForce.statusCode, deniedForce.body).toBe(403);
+			expect(deniedForce.json().error).toMatchObject({ code: "force_denied" });
+			const proposalPath = await taskPreflight(false);
+			expect(proposalPath.statusCode, proposalPath.body).toBe(503);
+			expect(proposalPath.json().error).toMatchObject({ code: "executor_unreachable" });
+
+			const proposed = await preflight();
+			expect(proposed.statusCode, proposed.body).toBe(200);
+			expect(proposed.json().result).toMatchObject({ dry_run: true, effect: "propose" });
+
+			await services.db.admin`
+				insert into grants (subject, relation, object, granted_by)
+				values ('custom-operator', 'operator', 'user:custom-operator', 'test')`;
+			const committed = await preflight();
+			expect(committed.statusCode, committed.body).toBe(200);
+			expect(committed.json().result).toMatchObject({ dry_run: true, effect: "commit" });
+		} finally {
+			await server.close();
+		}
+	});
+
 	it("publishes seeded and inserted permission levels through the authenticated catalog", async () => {
 		await services.db.admin`
 			insert into tiers (name, authentik_group, description, default_relations, propose_only)
