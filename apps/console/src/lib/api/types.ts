@@ -128,6 +128,41 @@ export interface ApiError {
 	retryable: boolean;
 }
 
+// ---- roster (GET /roster) — server-side join, one row per agent ----
+export type HeartbeatState =
+	| "starting"
+	| "running"
+	| "rate_limited"
+	| "waiting"
+	| "crashed"
+	| "stopped";
+export type Autonomy = "auto" | "ask" | "readonly" | "paused";
+export type BudgetLightColor = "green" | "yellow" | "red";
+export interface RosterItem extends Extra {
+	handle: string;
+	host?: string | null;
+	status?: FleetStatus | null;
+	current_tool?: string | null;
+	task_id?: number | null;
+	task_title?: string | null;
+	heartbeat_state?: HeartbeatState | null;
+	crash_count?: number | null;
+	channel_lock_state?: "held" | "released" | "lockout" | null;
+	autonomy?: Autonomy | null;
+	lane?: string | null;
+	light?: BudgetLightColor | null;
+	tokens_spent?: number | null;
+	tier?: string | null;
+	lease_expires_at?: string | null;
+	fence?: number | null;
+	workers_active: number;
+	updated_at: string;
+	observed_at: string;
+	fleet_updated_at?: string | null;
+	started_at?: string | null;
+	registry_last_seen_epoch?: number | null;
+}
+
 // ---- comms projection (derived view for the Envelope / mail rail) ----
 export type CommsMethod = "comms.card" | "comms.rpc" | "comms.mail";
 export interface CommsEvent extends Extra {
