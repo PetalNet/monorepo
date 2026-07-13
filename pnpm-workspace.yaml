@@ -89,7 +89,7 @@ catalogs:
     leaflet.markercluster: ^1.5.3
     nanoid: ^5.0.0
     postgres: ^3.4.7
-    uuid: ^13.0.0
+    uuid: ^14.0.0
     qrcode: ^1.5.4
     sortablejs: ^1.15.6
     svelte: ^5.48.2
