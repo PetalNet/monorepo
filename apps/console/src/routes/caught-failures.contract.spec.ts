@@ -74,7 +74,6 @@ describe("caught loader failure contracts", () => {
 		await loadNetwork({ fetch: fetchStub, parent: async () => shell } as never);
 
 		expect(contexts()).toEqual([
-			{ surface: "network", endpoint: "/edge/registry" },
 			{ surface: "network", endpoint: "/executors" },
 			{ surface: "network", endpoint: "/edge/sessions" },
 		]);

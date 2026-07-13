@@ -1,18 +1,6 @@
-import {
-	dataMode,
-	readEdgeRegistry,
-	readEdgeSessions,
-	readExecutors,
-	runQuery,
-} from "$lib/api/client";
-import type { EdgeRegistryItem, QueryResult } from "$lib/api/types";
-import {
-	mockEdgeHealth,
-	mockPendingKey,
-	mockRegistry,
-	mockSessions,
-	mockWireEvents,
-} from "$lib/data/network";
+import { dataMode, readEdgeSessions, readExecutors, runQuery } from "$lib/api/client";
+import type { QueryResult } from "$lib/api/types";
+import { mockEdgeHealth, mockSessions, mockWireEvents } from "$lib/data/network";
 import { captureCaughtFailure } from "$lib/glitchtip";
 
 import type { PageLoad } from "./$types";
@@ -28,9 +16,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 	if (dataMode() === "mock") {
 		return {
 			sessions: mockSessions,
-			registry: shell.scene === "asked" ? [mockPendingKey, ...mockRegistry] : mockRegistry,
 			sessionsAvailable: true,
-			registryAvailable: true,
 			health: mockEdgeHealth,
 			wire: mockWireEvents,
 			observedAt: mockEdgeHealth.updatedAt,
@@ -40,14 +26,6 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			controlPlaneLive: true,
 			error: null,
 		};
-	}
-	let registry: EdgeRegistryItem[] = [],
-		registryAvailable = true;
-	try {
-		registry = (await readEdgeRegistry(fetch)).items;
-	} catch (error) {
-		captureCaughtFailure(error, { surface: "network", endpoint: "/edge/registry" });
-		registryAvailable = false;
 	}
 	const executors = await readExecutors(fetch).catch((error) => {
 		captureCaughtFailure(error, { surface: "network", endpoint: "/executors" });
@@ -134,9 +112,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 		const response = await readEdgeSessions(fetch);
 		return {
 			sessions: response.items,
-			registry,
 			sessionsAvailable: true,
-			registryAvailable,
 			health,
 			wire,
 			observedAt: response.freshness.observed_at,
@@ -144,15 +120,13 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			edgeLive: alive("edge"),
 			managerLive: alive("manager"),
 			controlPlaneLive: alive("control-plane"),
-			error: registryAvailable ? null : "Key registry unavailable",
+			error: null,
 		};
 	} catch (error) {
 		captureCaughtFailure(error, { surface: "network", endpoint: "/edge/sessions" });
 		return {
 			sessions: [],
-			registry,
 			sessionsAvailable: false,
-			registryAvailable,
 			health,
 			wire,
 			observedAt: null,

@@ -3198,7 +3198,7 @@ const OPS = {
 		"op": "edge.enroll.approve",
 		"verb": "Approve enrollment",
 		"lane": "admin",
-		"executor": "control-plane",
+		"executor": "edge",
 		"confirm": "none",
 		"undo": false,
 		"humanOnly": false,

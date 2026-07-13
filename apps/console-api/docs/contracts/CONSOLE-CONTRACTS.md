@@ -341,6 +341,13 @@ another repo to learn a field. Aggregated reads carry per-item `observed_at` (Ru
 | `/grants?object=...`               | `../grant-list.schema.json`           | ReBAC tuples                                             | owner-only current grant enumeration; mutations use `POST /grants` + `grant-mutation.schema.json`                                                                                                     |
 | `/tiers`                           | `schemas/tier-list.schema.json`       | permission-level rows                                    | authenticated catalog for user/share pickers; adding a level is a data insert                                                                                                                         |
 
+The Network surface also uses `GET /network/key-ceremony`, a composed read over the same
+scope-filtered `edge` projection plus the live health of the configured private doorman
+administration adapter. Its `{registry, executor}` response deliberately reports
+`executor.configured=false` or `executor.live=false` instead of making enrollment controls
+look available without positive edge evidence. The registry remains doorman-owned; console-api
+does not mutate `current_state` to simulate a key lifecycle.
+
 History reads (comms log, audit trails, the Void, delivery log, restart counts) are
 `stats.query` reads over persisted emissions. `audit.op` emissions pin `subject` = the target
 entity, so per-target derivations (restart counts per handle) are one `group_by`.
@@ -466,6 +473,20 @@ heartbeat is never bridged 1:1). Raw retention 30d ⇒ low-GB range; rollups car
 ### 5.1 The op envelope — `POST /api/v1/op`
 
 `schemas/op-call.schema.json` / `op-result.schema.json` (normative). Semantics:
+
+The `edge.enroll.approve`, `edge.enroll.deny`, and `edge.key.revoke` adapters are enabled only
+when `CONSOLE_DOORMAN_ADMIN_URL` and `CONSOLE_DOORMAN_ADMIN_TOKEN` are configured together.
+The URL must be HTTPS outside dev-auth mode unless it is loopback, and the token must contain at
+least 32 characters. Console-api checks the adapter's private `health` route before accepting an
+operation, then POSTs the idempotency key (`request_id`), fingerprint, acting principal, and the
+operation-specific binding or reason to `approve`, `deny`, or `revoke`. The edge must durably
+apply the mutation and emit the matching lifecycle event before returning success. Missing or
+unhealthy configuration fails closed with `executor_unreachable`; no projected success is
+synthesized.
+
+An admitted `edge.enroll.request` also creates a fleet-visible attention projection tagged with
+`lane: admin`; the attention read omits lane-tagged items unless the resolved principal has that
+lane. `edge.enroll.approved` and `edge.enroll.denied` resolve the stable enrollment attention item.
 
 - **Authorization = lane ∩ authz ∩ executor-liveness.** The router checks the Principal's lane,
   then the per-op `authz` rule (own / grant: relation on target scope resolved from args —

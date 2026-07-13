@@ -51,6 +51,9 @@ export interface Env {
 	readonly costMeterUrl?: string | null;
 	readonly costMeterHostHeader?: string | null;
 	readonly costMeterToken?: string | null;
+	/** Private doorman-edge administration API used by the Network Key Ceremony. */
+	readonly doormanAdminUrl?: string | null;
+	readonly doormanAdminToken?: string | null;
 	/** Matrix is the decided off-console notification channel; all three values configure it. */
 	readonly matrix?: MatrixConfig | null;
 	/** Strict browser boundary. Null only in explicit dev-auth mode. */
@@ -90,6 +93,25 @@ export function loadEnv(): Env {
 		process.env["CONSOLE_API_MATRIX_ACCESS_TOKEN"],
 		process.env["CONSOLE_API_MATRIX_OWNER_BINDINGS"],
 	];
+	const doormanValues = [
+		process.env["CONSOLE_DOORMAN_ADMIN_URL"],
+		process.env["CONSOLE_DOORMAN_ADMIN_TOKEN"],
+	];
+	if (doormanValues.some(Boolean) && !doormanValues.every(Boolean))
+		throw new Error(
+			"CONSOLE_DOORMAN_ADMIN_URL and CONSOLE_DOORMAN_ADMIN_TOKEN must be configured together",
+		);
+	if (doormanValues.every(Boolean)) {
+		const endpoint = new URL(doormanValues[0]!);
+		if (
+			!devAuth &&
+			endpoint.protocol !== "https:" &&
+			!new Set(["127.0.0.1", "::1", "localhost"]).has(endpoint.hostname)
+		)
+			throw new Error("CONSOLE_DOORMAN_ADMIN_URL must use https or a loopback host");
+		if (doormanValues[1]!.length < 32)
+			throw new Error("CONSOLE_DOORMAN_ADMIN_TOKEN must contain at least 32 characters");
+	}
 	if (matrixValues.some(Boolean) && !matrixValues.every(Boolean))
 		throw new Error(
 			"CONSOLE_API_MATRIX_HOMESERVER, CONSOLE_API_MATRIX_ACCESS_TOKEN, and CONSOLE_API_MATRIX_OWNER_BINDINGS must be configured together",
@@ -173,6 +195,8 @@ export function loadEnv(): Env {
 		costMeterHostHeader:
 			process.env["CONSOLE_COST_METER_HOST"] ?? (configuredCostMeterUrl ? null : "localhost:8080"),
 		costMeterToken: process.env["CONSOLE_COST_METER_TOKEN"] ?? null,
+		doormanAdminUrl: doormanValues[0] ?? null,
+		doormanAdminToken: doormanValues[1] ?? null,
 		matrix,
 		browserAuth,
 	};

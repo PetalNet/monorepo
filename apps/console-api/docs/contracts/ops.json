@@ -1714,7 +1714,7 @@
 				"relation": "owner",
 				"scope_any": ["fleet"]
 			},
-			"executor": "control-plane",
+			"executor": "edge",
 			"args": {
 				"type": "object",
 				"required": ["pubkey_fp", "handle"],
@@ -1729,9 +1729,9 @@
 				},
 				"additionalProperties": false
 			},
-			"effect": "Key Ceremony approve: TokenAuthority mints the enrollment binding (gating executor = control-plane; the edge is notified as a hop); closes the enrollment gap",
-			"emits": ["edge.enrolled"],
-			"testable": "dry-run-only",
+			"effect": "Key Ceremony approve: the private doorman administration API durably binds the authenticated pubkey to the approved handle; closes the enrollment gap",
+			"emits": ["edge.enroll.approved"],
+			"testable": "disposable",
 			"phase": 1
 		},
 		{
@@ -1754,9 +1754,9 @@
 				"additionalProperties": false
 			},
 			"effect": "deny pending enrollment",
-			"emits": ["edge.enroll_denied"],
+			"emits": ["edge.enroll.denied"],
 			"requires_reason": true,
-			"testable": "dry-run-only",
+			"testable": "disposable",
 			"phase": 1
 		},
 		{
@@ -1783,11 +1783,11 @@
 				"additionalProperties": false
 			},
 			"effect": "revoke enrolled key; sessions drop; destructive",
-			"emits": ["edge.key_revoked"],
+			"emits": ["edge.key.revoked"],
 			"destructive": true,
 			"confirm": "typed-name",
 			"requires_reason": true,
-			"testable": "dry-run-only",
+			"testable": "disposable",
 			"phase": 1
 		},
 		{

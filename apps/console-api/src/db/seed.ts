@@ -138,7 +138,7 @@ const REGISTRATIONS: readonly RegSeed[] = [
 	{
 		subject: "bridge:doorman",
 		services: ["bridge", "doorman"],
-		prefixes: ["bridge", "doorman"],
+		prefixes: ["bridge", "doorman", "edge"],
 		scopes: ["fleet"],
 		maxSeverity: "danger",
 	},

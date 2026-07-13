@@ -20,6 +20,7 @@ import { migrate } from "../src/db/migrate.ts";
 import { assertRuntimeRolesHardened, openDb } from "../src/db/pool.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
+import { DoormanKeyCeremonyClient } from "../src/network/key-ceremony.ts";
 import { reportSelfEmissionFailure, type ExceptionMonitor } from "../src/observability.ts";
 import { readQueryRecord } from "../src/query/history.ts";
 import { runStructured } from "../src/query/structured.ts";
@@ -177,6 +178,137 @@ beforeAll(async () => {
 afterAll(async () => {
 	await services?.close();
 	await temp?.stop();
+});
+
+describe("doorman key ceremony", () => {
+	it("resolves the enrolled handle by fingerprint before revoking and audits the real adapter result", async () => {
+		const fingerprint = randomBytes(32).toString("hex");
+		const requestEvent = emission({
+			type: "edge.enroll.request",
+			source: { service: "doorman", host: ".14", agent: null },
+			subject: fingerprint,
+			dimensions: { pubkey_fp: fingerprint },
+			meta: {
+				retention_class: "audit",
+				entity: {
+					pubkey_fp: fingerprint,
+					requested_handle: "mc34",
+					source_ip: "10.0.0.34",
+					first_seen_at: new Date().toISOString(),
+					state: "pending",
+				},
+			},
+		});
+		const requested = await services.emit(
+			"bridge:doorman",
+			requestEvent,
+			Buffer.byteLength(JSON.stringify(requestEvent)),
+		);
+		expect(requested.ok).toBe(true);
+		await waitProjected("edge", fingerprint, requested.seq as number);
+		const event = emission({
+			type: "edge.enroll.approved",
+			source: { service: "doorman", host: ".14", agent: null },
+			subject: fingerprint,
+			dimensions: { pubkey_fp: fingerprint },
+			meta: {
+				retention_class: "audit",
+				entity: { pubkey_fp: fingerprint, handle: "mc34", state: "enrolled" },
+			},
+		});
+		const emitted = await services.emit(
+			"bridge:doorman",
+			event,
+			Buffer.byteLength(JSON.stringify(event)),
+		);
+		expect(emitted.ok).toBe(true);
+		await waitProjected("edge", fingerprint, emitted.seq as number);
+
+		const requests: Array<{ url: string; body: Record<string, string> | null }> = [];
+		const adapter = new DoormanKeyCeremonyClient({
+			url: "http://127.0.0.1:8043/v1/key-ceremony/",
+			token: "test-token",
+			fetch: async (input, init) => {
+				const url = String(input);
+				requests.push({
+					url,
+					body: init?.body ? (JSON.parse(String(init.body)) as Record<string, string>) : null,
+				});
+				if (url.endsWith("/health")) return Response.json({ ok: true });
+				return Response.json({
+					ok: true,
+					result: {
+						pubkey_fp: fingerprint,
+						handle: "mc34",
+						state: "revoked",
+						applied_at: new Date().toISOString(),
+					},
+				});
+			},
+		});
+		const server = await buildServer({ ...services, keyCeremony: adapter }, true);
+		const opId = randomUUID();
+		try {
+			const attentionRows = await services.db.admin<{ seq: string }[]>`
+				select seq from events where type = 'attention.resolved'
+				  and dimensions->>'pubkey_fp' = ${fingerprint} order by seq desc limit 1`;
+			await waitProjected("attention", `edge-enroll:${fingerprint}`, Number(attentionRows[0]!.seq));
+			const principal = {
+				kind: "human",
+				id: "parker",
+				tiers: ["owner"],
+				lanes: ["viewer", "editor", "operator", "admin"],
+				scopes: ["fleet"],
+			};
+			const adminAttention = await server.inject({
+				method: "GET",
+				url: "/api/v1/attention",
+				headers: { "x-dev-principal": JSON.stringify(principal) },
+			});
+			const viewerAttention = await server.inject({
+				method: "GET",
+				url: "/api/v1/attention",
+				headers: {
+					"x-dev-principal": JSON.stringify({ ...principal, lanes: ["viewer"] }),
+				},
+			});
+			expect(adminAttention.json().items).toEqual(
+				expect.arrayContaining([expect.objectContaining({ id: `edge-enroll:${fingerprint}` })]),
+			);
+			expect(viewerAttention.json().items).not.toEqual(
+				expect.arrayContaining([expect.objectContaining({ id: `edge-enroll:${fingerprint}` })]),
+			);
+
+			const response = await server.inject({
+				method: "POST",
+				url: "/api/v1/op",
+				headers: {
+					"content-type": "application/json",
+					"x-dev-principal": JSON.stringify(principal),
+				},
+				payload: {
+					schema_version: 1,
+					id: opId,
+					op: "edge.key.revoke",
+					args: { pubkey_fp: fingerprint, confirm_name: "mc34" },
+					reason: "device retired",
+					dry_run: false,
+				},
+			});
+			expect(response.statusCode).toBe(200);
+			expect(response.json()).toMatchObject({ ok: true, status: "applied" });
+			expect(requests.at(-1)).toMatchObject({
+				url: "http://127.0.0.1:8043/v1/key-ceremony/revoke",
+				body: { pubkey_fp: fingerprint, handle: "mc34", reason: "device retired" },
+			});
+			const audit = await services.db.admin<{ present: boolean }[]>`
+				select exists(select 1 from events where type = 'audit.op.outcome'
+				  and meta->>'in_reply_to' = ${opId}) as present`;
+			expect(audit[0]?.present).toBe(true);
+		} finally {
+			await server.close();
+		}
+	});
 });
 
 describe("terminal server gate and frame transport (BR-014)", () => {
