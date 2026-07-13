@@ -59,7 +59,13 @@ export async function readRoster(
 	const agentByHandle = new Map(agents.map((a) => [String(a["handle"]), a]));
 	const leaseByWorker = new Map(leases.map((l) => [String(l["worker"]), l]));
 
-	const handles = new Set<string>([...byHandle.keys(), ...agentByHandle.keys()]);
+	// union lake handles + agent identities + lease WORKERS (a worker may hold a lease with no lake
+	// row and no agents entry — it must still appear on the roster; codex N1b-2 re-review P1).
+	const handles = new Set<string>([
+		...byHandle.keys(),
+		...agentByHandle.keys(),
+		...leaseByWorker.keys(),
+	]);
 	const items = [...handles].sort().map((handle) => {
 		const cs = byHandle.get(handle) ?? {};
 		return {

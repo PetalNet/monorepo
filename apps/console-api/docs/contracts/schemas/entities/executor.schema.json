@@ -20,8 +20,8 @@
 			"description": "Which executor class this instance belongs to (the op catalog's `executor` field routes to one of these)."
 		},
 		"ref": {
-			"type": "string",
-			"description": "Instance id within the kind — e.g. 'janet@.202' (a manager), '.15' (a box-agent)."
+			"type": ["string", "null"],
+			"description": "Instance id within the kind — e.g. 'janet@.202' (a manager), '.15' (a box-agent). null for a class-level executor with no instance evidence yet (liveness 'unknown')."
 		},
 		"liveness": {
 			"enum": ["alive", "suspect", "down", "unknown"],
@@ -36,6 +36,6 @@
 			"description": "Short human-readable detail (e.g. 'state=rate_limited', 'ws connected'); null when nothing to add."
 		}
 	},
-	"required": ["kind", "ref", "liveness"],
+	"required": ["kind", "liveness"],
 	"additionalProperties": true
 }
