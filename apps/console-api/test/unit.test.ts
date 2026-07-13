@@ -74,6 +74,8 @@ describe("emit authorization", () => {
 		allowedTypePrefixes: ["host", "container"],
 		allowedScopes: ["fleet"],
 		maxSeverity: "warn",
+		maxEmitPerMinute: 6000,
+		maxNewTypesPerHour: 20,
 	};
 	it("allows a permitted emission", () => {
 		expect(authorizeEmission(reg, emission()).ok).toBe(true);

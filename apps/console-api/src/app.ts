@@ -20,6 +20,7 @@ export interface EmitOutcome {
 	readonly duplicate?: boolean;
 	readonly code?: string;
 	readonly message?: string;
+	readonly retryAfterS?: number;
 }
 
 export interface Services {
@@ -82,10 +83,20 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 			return { ok: false, code: authz.code ?? "emit_denied", message: authz.message ?? "denied" };
 		let result: AppendResult;
 		try {
-			result = await appender.append(e);
+			result = await appender.append(e, producerSubject, {
+				maxEmitPerMinute: reg.maxEmitPerMinute,
+				maxNewTypesPerHour: reg.maxNewTypesPerHour,
+			});
 		} catch (err) {
 			return { ok: false, code: "append_failed", message: String(err) };
 		}
+		if (!result.ok)
+			return {
+				ok: false,
+				code: result.code,
+				message: result.message,
+				...(result.retryAfterS ? { retryAfterS: result.retryAfterS } : {}),
+			};
 		return { ok: true, seq: result.seq, duplicate: result.duplicate };
 	}
 

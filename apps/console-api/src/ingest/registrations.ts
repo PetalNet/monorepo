@@ -11,6 +11,8 @@ interface RegRow {
 	allowed_prefixes: string[];
 	allowed_scopes: string[];
 	max_severity: string;
+	max_emit_per_min: number;
+	max_new_types_per_hour: number;
 }
 
 const SEVS = new Set(["debug", "info", "warn", "danger", "p0"]);
@@ -20,7 +22,8 @@ export async function loadRegistration(
 	subject: string,
 ): Promise<ProducerRegistration | null> {
 	const rows = await sql<RegRow[]>`
-		select subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity
+		select subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity,
+			max_emit_per_min, max_new_types_per_hour
 		from producer_registrations where subject = ${subject}`;
 	const r = rows[0];
 	if (!r) return null;
@@ -31,5 +34,7 @@ export async function loadRegistration(
 		allowedTypePrefixes: r.allowed_prefixes,
 		allowedScopes: r.allowed_scopes,
 		maxSeverity,
+		maxEmitPerMinute: r.max_emit_per_min,
+		maxNewTypesPerHour: r.max_new_types_per_hour,
 	};
 }

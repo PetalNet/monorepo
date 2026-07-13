@@ -7,6 +7,13 @@ import { nanoid } from "nanoid";
 
 import type { Sql } from "../db/pool.ts";
 import { withScopes } from "../db/pool.ts";
+import { embedText, EMBEDDING_MODEL, vectorLiteral } from "../semantic/embedding.ts";
+import {
+	mergeSemanticShape,
+	type DimensionDescriptor,
+	type MeasureDescriptor,
+	type SemanticShape,
+} from "../semantic/registry.ts";
 
 export interface QueryRequest {
 	schema_version: 1;
@@ -45,6 +52,14 @@ export class QueryError extends Error {
 	}
 }
 
+function queryCorpusText(req: QueryRequest): string {
+	const selected = (req.select ?? [])
+		.map((field) => `${field.agg ?? "value"}:${field.field}`)
+		.join(" ");
+	const filters = Object.keys(req.where ?? {}).join(" ");
+	return `successful query source ${req.from ?? "unknown"} select ${selected || "count"} group ${(req.group_by ?? []).join(" ") || "none"} filter-fields ${filters || "none"} bucket ${req.time?.bucket ?? "none"}`;
+}
+
 const IDENT_RE = /^[a-z0-9_]+$/;
 const PSEUDO: Record<string, string> = {
 	type: "type",
@@ -59,6 +74,9 @@ const PSEUDO: Record<string, string> = {
 	"source.service": "source_service",
 	"source.host": "source_host",
 	"source.agent": "source_agent",
+	edge_rel: "edge_rel",
+	edge_to_kind: "edge_to_kind",
+	edge_to_id: "edge_to_id",
 };
 const AGGS = new Set([
 	"sum",
@@ -81,19 +99,206 @@ const WHERE_OPS: Record<string, string> = {
 	lte: "<=",
 	like: "like",
 };
+const NUMERIC_PSEUDO = new Set(["seq", "task_id"]);
+const TEMPORAL_PSEUDO = new Set(["ts", "received_at"]);
+
+interface ResolvedSource {
+	relation: string;
+	typeFilter: string | null;
+	dimensions: Record<string, DimensionDescriptor> | null;
+	measures: Record<string, MeasureDescriptor> | null;
+	allowedPseudo: ReadonlySet<string>;
+	directFields: ReadonlySet<string>;
+}
+
+const EVENT_PSEUDO = new Set(Object.keys(PSEUDO).filter((field) => !field.startsWith("edge_")));
+const RELATIONSHIP_PSEUDO = new Set(Object.keys(PSEUDO));
+
+async function resolveSource(
+	app: Sql,
+	scopes: readonly string[],
+	from: string,
+): Promise<ResolvedSource> {
+	if (from === "events")
+		return {
+			relation: "lake_events",
+			typeFilter: null,
+			dimensions: null,
+			measures: null,
+			allowedPseudo: EVENT_PSEUDO,
+			directFields: new Set(),
+		};
+	if (/^[a-z0-9_]+(\.[a-z0-9_]+)+$/.test(from)) {
+		// With no grants, every well-formed type is intentionally indistinguishable: execute against
+		// fail-closed RLS and return no rows rather than leaking catalog existence through errors.
+		if (scopes.length === 0)
+			return {
+				relation: "lake_events",
+				typeFilter: from,
+				dimensions: null,
+				measures: null,
+				allowedPseudo: EVENT_PSEUDO,
+				directFields: new Set(),
+			};
+		const visible = await withScopes(
+			app,
+			scopes,
+			async (tx) =>
+				tx<
+					{
+						dimensions: Record<string, DimensionDescriptor>;
+						measures: Record<string, MeasureDescriptor>;
+					}[]
+				>`select dimensions, measures from semantic_registry_scoped
+				   where type = ${from} order by scope`,
+		);
+		if (!visible[0]) throw new QueryError("bad_from", `unknown source ${from}`);
+		let shape: SemanticShape = { dimensions: {}, measures: {}, joins: [] };
+		for (const visibleShape of visible) {
+			const merged = mergeSemanticShape(shape, { ...visibleShape, joins: [] });
+			if (merged.drift.length > 0)
+				throw new QueryError(
+					"ambiguous_semantics",
+					`source ${from} has incompatible field semantics across caller scopes`,
+				);
+			shape = merged.shape;
+		}
+		return {
+			relation: "lake_events",
+			typeFilter: from,
+			dimensions: shape.dimensions,
+			measures: shape.measures,
+			allowedPseudo: EVENT_PSEUDO,
+			directFields: new Set(),
+		};
+	}
+	if (!IDENT_RE.test(from)) throw new QueryError("bad_from", `unknown source ${from}`);
+	const views = await withScopes(
+		app,
+		scopes,
+		async (tx) =>
+			tx<{ relation_name: string; fields: Record<string, unknown> }[]>`
+				select v.relation_name, v.fields
+				from semantic_views v
+				join pg_class c on c.relname = v.relation_name and c.relkind = 'v'
+				join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+				where v.name = ${from} and v.enabled
+				  and coalesce(c.reloptions, '{}'::text[]) @> array['security_invoker=true']`,
+	);
+	const relation = views[0]?.relation_name;
+	if (!relation || !IDENT_RE.test(relation))
+		throw new QueryError("bad_from", `unknown source ${from}`);
+	const declared = views[0]?.fields ?? {};
+	const dimensions: Record<string, DimensionDescriptor> = {};
+	const measures: Record<string, MeasureDescriptor> = {};
+	const directFields = new Set<string>();
+	for (const [field, raw] of Object.entries(declared)) {
+		if (field === "shape" || !IDENT_RE.test(field) || raw === null || typeof raw !== "object")
+			continue;
+		const descriptor = raw as Record<string, unknown>;
+		directFields.add(field);
+		if (typeof descriptor["kind"] === "string" || descriptor["type"] === "number")
+			measures[field] = {
+				kind: ["gauge", "counter", "delta", "timestamp"].includes(String(descriptor["kind"]))
+					? (descriptor["kind"] as MeasureDescriptor["kind"])
+					: null,
+				unit: typeof descriptor["unit"] === "string" ? descriptor["unit"] : null,
+			};
+		else
+			dimensions[field] = {
+				type: descriptor["type"] === "boolean" ? "boolean" : "string",
+				cardinality: null,
+			};
+	}
+	const basePseudo =
+		declared["shape"] === "event"
+			? relation === "statistic_relationships"
+				? RELATIONSHIP_PSEUDO
+				: EVENT_PSEUDO
+			: new Set<string>();
+	return {
+		relation,
+		typeFilter: null,
+		dimensions,
+		measures,
+		allowedPseudo: new Set([...basePseudo, ...directFields].filter((field) => PSEUDO[field])),
+		directFields,
+	};
+}
+
+function assertKnownField(source: ResolvedSource, field: string): void {
+	if (source.allowedPseudo.has(field)) return;
+	if (!source.dimensions?.[field] && !source.measures?.[field])
+		throw new QueryError(
+			"bad_field",
+			`field ${field} is not registered on ${source.typeFilter ?? "registered view"}${nearestFields(source, field)}`,
+		);
+}
+
+function nearestFields(source: ResolvedSource, field: string): string {
+	const candidates = [
+		...source.allowedPseudo,
+		...Object.keys(source.dimensions ?? {}),
+		...Object.keys(source.measures ?? {}),
+	]
+		.map((candidate) => ({ candidate, distance: editDistance(field, candidate) }))
+		.sort((a, b) => a.distance - b.distance || a.candidate.localeCompare(b.candidate))
+		.slice(0, 3)
+		.map(({ candidate }) => candidate);
+	return candidates.length > 0 ? `; nearest: ${candidates.join(", ")}` : "";
+}
+
+function editDistance(a: string, b: string): number {
+	let previous = [...Array(b.length + 1).keys()];
+	for (let i = 1; i <= a.length; i += 1) {
+		const current = [i];
+		for (let j = 1; j <= b.length; j += 1)
+			current[j] = Math.min(
+				(current[j - 1] ?? 0) + 1,
+				(previous[j] ?? 0) + 1,
+				(previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1),
+			);
+		previous = current;
+	}
+	return previous[b.length] ?? Math.max(a.length, b.length);
+}
+
+function assertAggregation(source: ResolvedSource, field: string, agg: string): void {
+	if (agg === "count") return;
+	assertKnownField(source, field);
+	const measure = source.measures?.[field];
+	if (agg === "count_distinct") return;
+	if (!measure)
+		throw new QueryError("agg_mismatch", `${agg} requires a registered measure: ${field}`);
+	if (agg === "sum" && measure.kind !== "counter" && measure.kind !== "delta")
+		throw new QueryError(
+			"agg_mismatch",
+			`sum requires counter|delta semantics; ${field} is ${measure.kind ?? "unclassified"}`,
+		);
+	if (agg === "avg" && measure.kind === "counter")
+		throw new QueryError("agg_mismatch", `avg is invalid for counter semantics: ${field}`);
+}
 
 // Column expression for a field. Measures (numeric) and dimensions (text) live in JSONB.
-function fieldExpr(field: string, numeric: boolean): string {
+function fieldExpr(source: ResolvedSource, field: string, numeric: boolean): string {
 	const p = PSEUDO[field];
 	if (p) return p;
 	if (!IDENT_RE.test(field)) throw new QueryError("bad_field", `illegal field ${field}`);
+	if (source.directFields.has(field)) return field;
+	if (source.dimensions?.[field]?.type === "boolean")
+		return `(case when jsonb_typeof(dimensions->'${field}') = 'boolean' then (dimensions->>'${field}')::boolean end)`;
 	return numeric ? `(measures->>'${field}')::numeric` : `dimensions->>'${field}'`;
 }
 
-function aggExpr(field: string, agg: string): string {
+function outputType(source: ResolvedSource, field: string): "string" | "number" | "boolean" {
+	if (source.measures?.[field] || NUMERIC_PSEUDO.has(field)) return "number";
+	if (source.dimensions?.[field]?.type === "boolean") return "boolean";
+	return "string";
+}
+
+function aggExpr(source: ResolvedSource, field: string, agg: string, isMeasure: boolean): string {
 	if (agg === "count") return "count(*)";
-	const numeric = agg !== "count_distinct";
-	const col = fieldExpr(field, numeric && agg !== "last");
+	const col = fieldExpr(source, field, isMeasure);
 	switch (agg) {
 		case "count_distinct":
 			return `count(distinct ${col})`;
@@ -109,7 +314,7 @@ function aggExpr(field: string, agg: string): string {
 			return `percentile_cont(${pct}) within group (order by ${col})`;
 		}
 		case "last":
-			return `(array_agg(${fieldExpr(field, false)} order by received_at desc))[1]`;
+			return `(array_agg(${fieldExpr(source, field, isMeasure)} order by received_at desc))[1]`;
 		default:
 			throw new QueryError("bad_agg", `unsupported aggregation ${agg}`);
 	}
@@ -128,10 +333,7 @@ export async function runStructured(
 	req: QueryRequest,
 ): Promise<QueryResult> {
 	if (!req.from) throw new QueryError("missing_from", "structured query requires `from`");
-	// N1a serves the `events` view (the Void) and single emission types (from = a type).
-	const isType = req.from !== "events";
-	if (isType && !/^[a-z0-9_]+(\.[a-z0-9_]+)+$/.test(req.from))
-		throw new QueryError("bad_from", `unknown source ${req.from}`);
+	const source = await resolveSource(app, scopes, req.from);
 
 	const selects: string[] = [];
 	const cols: { name: string; type: string }[] = [];
@@ -153,27 +355,34 @@ export async function runStructured(
 	}
 
 	for (const g of req.group_by ?? []) {
-		const expr = fieldExpr(g, false);
+		assertKnownField(source, g);
+		if (source.measures?.[g]) throw new QueryError("bad_field", `cannot group by measure ${g}`);
+		const expr = fieldExpr(source, g, false);
 		const alias = PSEUDO[g] ? g.replace(".", "_") : g;
 		if (!IDENT_RE.test(alias)) throw new QueryError("bad_field", `illegal group field ${g}`);
 		selects.push(`${expr} as ${alias}`);
-		cols.push({ name: alias, type: "string" });
+		cols.push({ name: alias, type: outputType(source, g) });
 		groupExprs.push(expr);
 	}
 
 	for (const s of req.select ?? []) {
+		assertKnownField(source, s.field);
 		if (s.as && !IDENT_RE.test(s.as)) throw new QueryError("bad_alias", `illegal alias ${s.as}`);
 		if (s.agg) {
 			if (!AGGS.has(s.agg)) throw new QueryError("bad_agg", `unsupported aggregation ${s.agg}`);
+			assertAggregation(source, s.field, s.agg);
 			const alias = s.as ?? `${s.agg}_${s.field.replace(/[^a-z0-9_]/g, "_")}`;
-			selects.push(`${aggExpr(s.field, s.agg)} as ${alias}`);
+			selects.push(
+				`${aggExpr(source, s.field, s.agg, Boolean(source.measures?.[s.field]))} as ${alias}`,
+			);
 			cols.push({ name: alias, type: "number" });
 		} else {
-			const expr = fieldExpr(s.field, false);
+			const numeric = Boolean(source.measures?.[s.field]);
+			const expr = fieldExpr(source, s.field, numeric);
 			const alias = s.as ?? (PSEUDO[s.field] ? s.field.replace(".", "_") : s.field);
 			if (!IDENT_RE.test(alias)) throw new QueryError("bad_alias", `illegal alias ${alias}`);
 			selects.push(`${expr} as ${alias}`);
-			cols.push({ name: alias, type: "string" });
+			cols.push({ name: alias, type: outputType(source, s.field) });
 			groupExprs.push(expr);
 		}
 	}
@@ -184,8 +393,8 @@ export async function runStructured(
 
 	const whereParts: string[] = [];
 	const params: unknown[] = [];
-	if (isType) {
-		params.push(req.from);
+	if (source.typeFilter) {
+		params.push(source.typeFilter);
 		whereParts.push(`type = $${String(params.length)}`);
 	}
 	if (req.time?.from) {
@@ -197,29 +406,72 @@ export async function runStructured(
 		whereParts.push(`received_at <= $${String(params.length)}::timestamptz`);
 	}
 	for (const [field, cond] of Object.entries(req.where ?? {})) {
-		const numeric =
-			typeof cond === "object" &&
-			cond !== null &&
-			"op" in cond &&
-			["gt", "gte", "lt", "lte"].includes((cond as { op: string }).op);
-		const expr = fieldExpr(field, numeric);
+		assertKnownField(source, field);
+		const isMeasure = Boolean(source.measures?.[field]);
+		const isBoolean = source.dimensions?.[field]?.type === "boolean";
+		const expr = fieldExpr(source, field, isMeasure);
 		if (cond !== null && typeof cond === "object" && "op" in cond) {
 			const c = cond as { op: string; value: unknown };
+			if (c.op === "is_null" || c.op === "not_null") {
+				whereParts.push(`${expr} is ${c.op === "not_null" ? "not " : ""}null`);
+				continue;
+			}
+			if (c.op === "in") {
+				if (!Array.isArray(c.value) || c.value.length === 0 || c.value.length > 1000)
+					throw new QueryError("bad_where", "in requires an array of 1..1000 values");
+				if (isMeasure && c.value.some((value) => typeof value !== "number"))
+					throw new QueryError("bad_where", `measure ${field} requires numeric filter values`);
+				if (isBoolean && c.value.some((value) => typeof value !== "boolean"))
+					throw new QueryError("bad_where", `field ${field} requires boolean filter values`);
+				params.push(c.value);
+				whereParts.push(`${expr} = any($${String(params.length)})`);
+				continue;
+			}
 			const op = WHERE_OPS[c.op];
 			if (!op) throw new QueryError("bad_where", `unsupported where op ${c.op}`);
+			if (isBoolean && c.op !== "eq" && c.op !== "ne")
+				throw new QueryError("bad_where", `operator ${c.op} is invalid for boolean field ${field}`);
+			if (c.op === "like" && (isMeasure || NUMERIC_PSEUDO.has(field) || TEMPORAL_PSEUDO.has(field)))
+				throw new QueryError("bad_where", `like requires a textual field: ${field}`);
+			if ((isMeasure || NUMERIC_PSEUDO.has(field)) && typeof c.value !== "number")
+				throw new QueryError("bad_where", `field ${field} requires a numeric filter value`);
+			if (isBoolean && typeof c.value !== "boolean")
+				throw new QueryError("bad_where", `field ${field} requires a boolean filter value`);
 			params.push(c.value);
 			whereParts.push(`${expr} ${op} $${String(params.length)}`);
 		} else {
+			if (cond === null) {
+				whereParts.push(`${expr} is null`);
+				continue;
+			}
+			if ((isMeasure || NUMERIC_PSEUDO.has(field)) && typeof cond !== "number")
+				throw new QueryError("bad_where", `field ${field} requires a numeric filter value`);
+			if (isBoolean && typeof cond !== "boolean")
+				throw new QueryError("bad_where", `field ${field} requires a boolean filter value`);
 			params.push(cond);
 			whereParts.push(`${expr} = $${String(params.length)}`);
 		}
 	}
 
 	const orderParts: string[] = [];
+	const selectedAliases = new Set(cols.map(({ name }) => name));
+	const groupedQuery = groupExprs.length > 0 || (req.select ?? []).some((select) => select.agg);
 	for (const o of req.order ?? []) {
 		const alias = PSEUDO[o.field] ? o.field.replace(".", "_") : o.field;
 		if (!IDENT_RE.test(alias)) throw new QueryError("bad_order", `illegal order field ${o.field}`);
-		orderParts.push(`${alias} ${o.dir === "desc" ? "desc" : "asc"}`);
+		if (selectedAliases.has(alias))
+			orderParts.push(`${alias} ${o.dir === "desc" ? "desc" : "asc"}`);
+		else {
+			if (groupedQuery)
+				throw new QueryError(
+					"bad_order",
+					`grouped queries must order by a selected alias: ${alias}`,
+				);
+			assertKnownField(source, o.field);
+			orderParts.push(
+				`${fieldExpr(source, o.field, Boolean(source.measures?.[o.field]))} ${o.dir === "desc" ? "desc" : "asc"}`,
+			);
+		}
 	}
 
 	// coerce limit to a sane positive int so a non-numeric/negative value is a clean 400, not a raw
@@ -230,31 +482,50 @@ export async function runStructured(
 	const limit = Number.isFinite(rawLimit)
 		? Math.min(Math.max(1, Math.floor(rawLimit)), 100000)
 		: 1000;
-	let sqlText = `select ${selects.join(", ")} from lake_events`;
+	let sqlText = `select ${selects.join(", ")} from ${source.relation}`;
 	if (whereParts.length) sqlText += ` where ${whereParts.join(" and ")}`;
 	if (groupExprs.length) sqlText += ` group by ${groupExprs.join(", ")}`;
 	if (orderParts.length) sqlText += ` order by ${orderParts.join(", ")}`;
 	sqlText += ` limit ${String(limit + 1)}`;
 
-	// query_ref is a durable id for provenance peek + re-run; the ref→SQL mapping is persisted with
-	// the observability engine in Phase 2 (N1a returns the id, storage lands there).
+	// Durable provenance + re-run id. Successful query structure also enters the scope-filtered RAG
+	// corpus; filter values remain only in the RLS-protected query record, never the search document.
 	const ref = `q_${nanoid(16)}`;
-
 	const start = Date.now();
-	const rows = await withScopes(app, scopes, async (tx) => tx.unsafe(sqlText, params as never[]));
-	const arr = rows as unknown as Record<string, unknown>[];
-	const truncated = arr.length > limit;
-	const out = (truncated ? arr.slice(0, limit) : arr).map((r) =>
-		cols.map((c) => r[c.name] ?? null),
-	);
-	return {
-		schema_version: 1,
-		columns: cols,
-		rows: out,
-		row_count: out.length,
-		execution_ms: Date.now() - start,
-		freshness: { source: "lake", observed_at: new Date().toISOString(), window_s: null },
-		query_ref: ref,
-		...(truncated ? { truncated: true } : {}),
-	};
+	return withScopes(app, scopes, async (tx) => {
+		const rows = await tx.unsafe(sqlText, params as never[]);
+		const arr = rows as unknown as Record<string, unknown>[];
+		const truncated = arr.length > limit;
+		const out = (truncated ? arr.slice(0, limit) : arr).map((r) =>
+			cols.map((c) => {
+				const value = r[c.name] ?? null;
+				return c.type === "number" && value !== null ? Number(value) : value;
+			}),
+		);
+		const executionMs = Date.now() - start;
+		const content = queryCorpusText(req);
+		const embedding = vectorLiteral(embedText(content));
+		await tx`
+			insert into query_history
+				(query_ref, request, sql_text, params, scopes, columns, row_count, execution_ms)
+			values
+				(${ref}, ${tx.json(req as never)}, ${sqlText}, ${tx.json(params as never)},
+				 ${tx.json([...scopes])}, ${tx.json(cols as never)}, ${out.length}, ${executionMs})`;
+		await tx`
+			insert into semantic_documents
+				(id, kind, source_ref, content, scopes, embedding, embedding_model)
+			values
+				(${`query:${ref}`}, 'query', ${ref}, ${content}, ${tx.json([...scopes])},
+				 ${embedding}::vector, ${EMBEDDING_MODEL})`;
+		return {
+			schema_version: 1,
+			columns: cols,
+			rows: out,
+			row_count: out.length,
+			execution_ms: executionMs,
+			freshness: { source: "lake", observed_at: new Date().toISOString(), window_s: null },
+			query_ref: ref,
+			...(truncated ? { truncated: true } : {}),
+		};
+	});
 }
