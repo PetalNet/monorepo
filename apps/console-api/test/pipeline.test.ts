@@ -782,6 +782,172 @@ describe("substrate observability", () => {
 	});
 });
 
+describe("live browser auth boundary", () => {
+	const consoleOrigin = "https://console.petalcat.dev";
+	const proxyNonce = "test-only-forward-auth-nonce-32-bytes";
+	const browserAuth = {
+		consoleOrigin,
+		proxyNonce,
+		trustedProxies: ["127.0.0.1"],
+	};
+
+	it("accepts the trusted proxy identity and resolves current ReBAC grants", async () => {
+		const server = await buildServer(services, false, undefined, browserAuth);
+		await server.listen({ host: "127.0.0.1", port: 0 });
+		const apiAddress = server.server.address();
+		if (!apiAddress || typeof apiAddress === "string") throw new Error("missing API test address");
+		const proxy = createHttpServer(async (request, response) => {
+			const upstreamHeaders = new Headers();
+			for (const name of ["accept", "cookie", "origin"])
+				if (request.headers[name]) upstreamHeaders.set(name, String(request.headers[name]));
+			// This is the deployed boundary contract: strip the exact trusted set, then populate only
+			// the Authentik response values and the boot nonce before forwarding to console-api.
+			upstreamHeaders.set("x-authentik-username", "parker");
+			upstreamHeaders.set("x-authentik-groups", "owner");
+			upstreamHeaders.set("x-authentik-email", "parker@example.test");
+			upstreamHeaders.set("x-console-auth-proxy-nonce", proxyNonce);
+			const upstream = await fetch(
+				`http://127.0.0.1:${String(apiAddress.port)}${request.url ?? "/"}`,
+				{ method: request.method, headers: upstreamHeaders },
+			);
+			response.writeHead(upstream.status, Object.fromEntries(upstream.headers.entries()));
+			response.end(Buffer.from(await upstream.arrayBuffer()));
+		});
+		await new Promise<void>((resolve, reject) => {
+			proxy.once("error", reject);
+			proxy.listen(0, "127.0.0.1", resolve);
+		});
+		const proxyAddress = proxy.address();
+		if (!proxyAddress || typeof proxyAddress === "string")
+			throw new Error("missing proxy test address");
+		try {
+			const response = await fetch(`http://127.0.0.1:${String(proxyAddress.port)}/api/v1/me`, {
+				headers: {
+					origin: consoleOrigin,
+					cookie: "authentik_session=opaque-test-cookie",
+					"x-authentik-username": "eli",
+				},
+			});
+			expect(response.status).toBe(200);
+			expect(response.headers.get("access-control-allow-origin")).toBe(consoleOrigin);
+			expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+			const principal = await response.json();
+			expect(principal).toMatchObject({
+				kind: "human",
+				id: "parker",
+				tiers: ["owner"],
+				lanes: ["viewer", "editor", "operator", "admin"],
+				scopes: ["fleet", "user:parker"],
+			});
+			expect(principal.lanes).not.toContain("term_admin");
+		} finally {
+			await new Promise<void>((resolve) => proxy.close(() => resolve()));
+			await server.close();
+		}
+	});
+
+	it("answers only exact-origin credentialed preflights", async () => {
+		const server = await buildServer(services, false, undefined, browserAuth);
+		try {
+			const allowed = await server.inject({
+				method: "OPTIONS",
+				url: "/api/v1/me",
+				headers: {
+					origin: consoleOrigin,
+					"access-control-request-method": "GET",
+				},
+			});
+			expect(allowed.statusCode).toBe(204);
+			expect(allowed.headers["access-control-allow-origin"]).toBe(consoleOrigin);
+			expect(allowed.headers["access-control-allow-credentials"]).toBe("true");
+
+			const denied = await server.inject({
+				method: "OPTIONS",
+				url: "/api/v1/me",
+				headers: {
+					origin: "https://evil.example",
+					"access-control-request-method": "GET",
+				},
+			});
+			expect(denied.statusCode).toBe(403);
+			expect(denied.headers["access-control-allow-origin"]).toBeUndefined();
+			expect(denied.json().error.code).toBe("origin_denied");
+		} finally {
+			await server.close();
+		}
+	});
+
+	it.each([
+		["missing nonce", null],
+		["stale nonce", { "x-console-auth-proxy-nonce": `${proxyNonce}x` }],
+		["unexpected Authentik claim", { "x-authentik-uid": "forged" }],
+		["underscore-folded claim", { x_authentik_username: "forged" }],
+	])("rejects %s", async (_label, hostileHeaders) => {
+		const server = await buildServer(services, false, undefined, browserAuth);
+		try {
+			const headers: Record<string, string> = {
+				"x-authentik-username": "parker",
+				"x-authentik-groups": "owner",
+				"x-console-auth-proxy-nonce": proxyNonce,
+			};
+			if (hostileHeaders) Object.assign(headers, hostileHeaders);
+			else delete headers["x-console-auth-proxy-nonce"];
+			const response = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				headers,
+			});
+			expect(response.statusCode).toBe(401);
+			expect(response.json().error.code).toBe("unauthorized");
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("refuses to enable browser auth without a trusted proxy", async () => {
+		await expect(
+			buildServer(services, false, undefined, { ...browserAuth, trustedProxies: [] }),
+		).rejects.toThrow(/trusted proxy/);
+	});
+
+	it("rejects duplicate trusted identity headers", async () => {
+		const server = await buildServer(services, false, undefined, browserAuth);
+		try {
+			const response = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				headers: {
+					"x-authentik-username": ["parker", "eli"],
+					"x-authentik-groups": "owner",
+					"x-console-auth-proxy-nonce": proxyNonce,
+				},
+			});
+			expect(response.statusCode).toBe(401);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("rejects a valid forwarded identity from a direct untrusted peer", async () => {
+		const server = await buildServer(services, false, undefined, browserAuth);
+		try {
+			const response = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				remoteAddress: "192.0.2.10",
+				headers: {
+					"x-authentik-username": "parker",
+					"x-authentik-groups": "owner",
+					"x-console-auth-proxy-nonce": proxyNonce,
+				},
+			});
+			expect(response.statusCode).toBe(401);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 describe("RLS scope isolation", () => {
 	it("a caller sees only rows in its granted scopes", async () => {
 		await services.emit(

@@ -2,6 +2,9 @@
 // server-stamped Principal, then the four-plane routes. N1a ships Query + Bus + emit + health/me;
 // the Command and Library planes land in N1c/N1d.
 
+import { timingSafeEqual } from "node:crypto";
+
+import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -18,7 +21,7 @@ import {
 	listGrants,
 	mutateGrant,
 } from "./auth/grants.ts";
-import { resolveBearer, devPrincipal, type Principal } from "./auth/principal.ts";
+import { resolveBearer, resolveScopes, devPrincipal, type Principal } from "./auth/principal.ts";
 import { ProposalError, proposeMutation } from "./auth/proposals.ts";
 import { type GrantRelation, listTiers, shouldProposeMutation } from "./auth/tiers.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
@@ -75,6 +78,91 @@ const assistantContextSchema = z
 	})
 	.strict();
 
+export interface BrowserAuthConfig {
+	readonly consoleOrigin: string;
+	readonly proxyNonce: string;
+	readonly trustedProxies: readonly string[];
+}
+
+const AUTHENTIK_HEADERS = new Set([
+	"x-authentik-username",
+	"x-authentik-groups",
+	"x-authentik-email",
+]);
+const AUTH_PROXY_NONCE_HEADER = "x-console-auth-proxy-nonce";
+const LANE_ORDER = ["viewer", "editor", "operator", "admin"] as const;
+
+function hasControlCharacter(value: string): boolean {
+	return [...value].some((character) => {
+		const codePoint = character.codePointAt(0) ?? 0;
+		return codePoint < 0x20 || codePoint === 0x7f;
+	});
+}
+
+function strictForwardAuthHeaders(
+	req: FastifyRequest,
+	expectedNonce: string,
+): { username: string; groups: string[] } | null {
+	const seen = new Map<string, string[]>();
+	const raw = req.raw.rawHeaders;
+	for (let index = 0; index < raw.length; index += 2) {
+		const rawName = raw[index] ?? "";
+		const value = raw[index + 1] ?? "";
+		const name = rawName.trim().toLowerCase();
+		if (rawName.includes("_") && rawName.toLowerCase().includes("authentik")) return null;
+		if (name.startsWith("x-authentik-") && !AUTHENTIK_HEADERS.has(name)) return null;
+		if (AUTHENTIK_HEADERS.has(name) || name === AUTH_PROXY_NONCE_HEADER) {
+			if (hasControlCharacter(value)) return null;
+			const values = seen.get(name) ?? [];
+			values.push(value);
+			seen.set(name, values);
+		}
+	}
+	for (const values of seen.values()) if (values.length !== 1) return null;
+	const nonce = seen.get(AUTH_PROXY_NONCE_HEADER)?.[0];
+	if (!nonce || nonce.length !== expectedNonce.length) return null;
+	if (!timingSafeEqual(Buffer.from(nonce), Buffer.from(expectedNonce))) return null;
+	const username = seen.get("x-authentik-username")?.[0]?.trim() ?? "";
+	if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(username)) return null;
+	const groups = (seen.get("x-authentik-groups")?.[0] ?? "")
+		.split("|")
+		.map((group) => group.trim())
+		.filter(Boolean);
+	if (groups.length === 0 || new Set(groups).size !== groups.length) return null;
+	return { username, groups };
+}
+
+async function resolveForwardAuth(
+	services: Services,
+	req: FastifyRequest,
+	config: BrowserAuthConfig,
+): Promise<Principal | null> {
+	const remoteAddress = req.raw.socket.remoteAddress;
+	const normalizedRemote = remoteAddress?.startsWith("::ffff:")
+		? remoteAddress.slice("::ffff:".length)
+		: remoteAddress;
+	if (!normalizedRemote || !config.trustedProxies.includes(normalizedRemote)) return null;
+	const identity = strictForwardAuthHeaders(req, config.proxyNonce);
+	if (!identity) return null;
+	const rows = await services.db.admin<
+		{ name: string; default_relations: string[] }[]
+	>`select name, default_relations from tiers
+	  where authentik_group = any(${services.db.admin.array(identity.groups)})
+	  order by name`;
+	if (rows.length === 0) return null;
+	const tiers = rows.map((row) => row.name);
+	let laneCeiling = -1;
+	for (const row of rows) {
+		for (const relation of row.default_relations) {
+			const lane = relation === "owner" ? "admin" : relation;
+			laneCeiling = Math.max(laneCeiling, LANE_ORDER.indexOf(lane as (typeof LANE_ORDER)[number]));
+		}
+	}
+	const lanes = laneCeiling < 0 ? [] : LANE_ORDER.slice(0, laneCeiling + 1);
+	const { scopes, zookie } = await resolveScopes(services.db.admin, identity.username, tiers);
+	return { kind: "human", id: identity.username, tiers, lanes, scopes, zookie };
+}
+
 function parseCatalogCursor(
 	cursor: string | undefined,
 ): { type: string; inclusive: boolean } | null {
@@ -108,8 +196,31 @@ export async function buildServer(
 	services: Services,
 	devAuth: boolean,
 	monitor: ExceptionMonitor = inertExceptionMonitor,
+	browserAuth: BrowserAuthConfig | null = null,
 ) {
-	const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
+	if (browserAuth?.trustedProxies.length === 0)
+		throw new Error("browser auth requires at least one trusted proxy");
+	const app = Fastify({
+		logger: false,
+		bodyLimit: 1024 * 1024,
+		...(browserAuth ? { trustProxy: [...browserAuth.trustedProxies] } : {}),
+	});
+	if (browserAuth) {
+		app.addHook("onRequest", async (req, reply) => {
+			const origin = req.headers.origin;
+			if (origin && origin !== browserAuth.consoleOrigin)
+				return reply.code(403).send({
+					error: { code: "origin_denied", message: "origin is not allowed", retryable: false },
+				});
+		});
+		await app.register(cors, {
+			origin: browserAuth.consoleOrigin,
+			credentials: true,
+			methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+			allowedHeaders: ["accept", "authorization", "content-type"],
+			strictPreflight: true,
+		});
+	}
 	await app.register(websocket);
 	async function emitSelf(raw: Record<string, unknown>): Promise<void> {
 		try {
@@ -192,6 +303,13 @@ export async function buildServer(
 				return;
 			}
 		}
+		if (browserAuth) {
+			const p = await resolveForwardAuth(services, req, browserAuth);
+			if (p) {
+				req.principal = p;
+				return;
+			}
+		}
 		if (devAuth) {
 			const dev = req.headers["x-dev-principal"];
 			if (typeof dev === "string") {
@@ -202,9 +320,9 @@ export async function buildServer(
 				}
 			}
 		}
-		await reply
-			.code(401)
-			.send({ error: { code: "unauthorized", message: "bearer required", retryable: false } });
+		await reply.code(401).send({
+			error: { code: "unauthorized", message: "valid credentials required", retryable: false },
+		});
 	}
 
 	async function maybePropose(
@@ -964,7 +1082,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 	const env = loadEnv();
 	const monitor = initExceptionMonitor(env.glitchtipDsn);
 	const services = await buildServices(env);
-	const server = await buildServer(services, env.devAuth, monitor);
+	const server = await buildServer(services, env.devAuth, monitor, env.browserAuth);
 	await server.listen({ host: env.host, port: env.port });
 	process.stdout.write(`console-api listening on ${env.host}:${String(env.port)}\n`);
 }

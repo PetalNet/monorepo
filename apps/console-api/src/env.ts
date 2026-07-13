@@ -1,6 +1,8 @@
 // Runtime configuration, read once at boot. Nothing here is secret-bearing beyond
 // connection URLs (which carry credentials) — those come from the environment, never code.
 
+import { isIP } from "node:net";
+
 export interface Env {
 	/** Admin/owner connection: migrations, seeding, the appender's INSERT path. */
 	readonly databaseUrl: string;
@@ -43,6 +45,12 @@ export interface Env {
 	readonly assistantManagerUrl?: string | null;
 	readonly assistantManagerToken?: string | null;
 	readonly publicConsoleUrl?: string | null;
+	/** Strict browser boundary. Null only in explicit dev-auth mode. */
+	readonly browserAuth: {
+		readonly consoleOrigin: string;
+		readonly proxyNonce: string;
+		readonly trustedProxies: readonly string[];
+	} | null;
 }
 
 function required(name: string): string {
@@ -54,6 +62,34 @@ function required(name: string): string {
 export function loadEnv(): Env {
 	const databaseUrl = required("DATABASE_URL");
 	const devAuth = process.env["CONSOLE_API_DEV_AUTH"] === "1";
+	const consoleOrigin = process.env["CONSOLE_API_CORS_ORIGIN"];
+	const proxyNonce = process.env["CONSOLE_API_AUTH_PROXY_NONCE"];
+	const trustedProxies = (process.env["CONSOLE_API_TRUSTED_PROXIES"] ?? "")
+		.split(",")
+		.map((proxy) => proxy.trim())
+		.filter(Boolean);
+	let browserAuth: Env["browserAuth"] = null;
+	if (consoleOrigin || proxyNonce || trustedProxies.length > 0) {
+		if (!consoleOrigin || !proxyNonce || trustedProxies.length === 0)
+			throw new Error(
+				"CONSOLE_API_CORS_ORIGIN, CONSOLE_API_AUTH_PROXY_NONCE, and CONSOLE_API_TRUSTED_PROXIES must be configured together",
+			);
+		const parsedOrigin = new URL(consoleOrigin);
+		if (
+			(parsedOrigin.protocol !== "https:" && parsedOrigin.protocol !== "http:") ||
+			parsedOrigin.origin !== consoleOrigin
+		)
+			throw new Error("CONSOLE_API_CORS_ORIGIN must be one exact HTTP(S) origin");
+		if (proxyNonce.length < 32)
+			throw new Error("CONSOLE_API_AUTH_PROXY_NONCE must contain at least 32 characters");
+		if (trustedProxies.some((proxy) => isIP(proxy) === 0))
+			throw new Error("CONSOLE_API_TRUSTED_PROXIES must contain only exact IP addresses");
+		browserAuth = { consoleOrigin, proxyNonce, trustedProxies };
+	} else if (!devAuth) {
+		throw new Error(
+			"browser auth is required outside dev: configure exact CORS origin, per-boot proxy nonce, and trusted proxies",
+		);
+	}
 	return {
 		databaseUrl,
 		appDatabaseUrl: process.env["APP_DATABASE_URL"] ?? databaseUrl,
@@ -76,5 +112,6 @@ export function loadEnv(): Env {
 		assistantManagerUrl: process.env["CONSOLE_ASSISTANT_MANAGER_URL"] ?? null,
 		assistantManagerToken: process.env["CONSOLE_ASSISTANT_MANAGER_TOKEN"] ?? null,
 		publicConsoleUrl: process.env["CONSOLE_API_PUBLIC_URL"] ?? null,
+		browserAuth,
 	};
 }

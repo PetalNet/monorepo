@@ -69,6 +69,7 @@ catalogs:
     "@types/sortablejs": ^1.15.8
 
   prod:
+    "@fastify/cors": ^11.3.0
     "@fastify/websocket": ^11.2.0
     "@fontsource/geist-mono": ^5.2.8
     "@fontsource/geist-sans": ^5.2.5
