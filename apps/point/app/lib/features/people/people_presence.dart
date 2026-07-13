@@ -14,7 +14,7 @@ import 'package:point_app/theme/presence_tokens.dart';
 /// interpretation of "no location is leaving their device" (ghost, dead phone,
 /// or no signal are indistinguishable, by design). Their frozen last-known
 /// position + "dark since" remains visible on both Map and People.
-const darkAfter = Duration(minutes: 3);
+const darkAfter = Duration(minutes: 15);
 
 /// How confidently the client can describe a peer fix at the current time.
 enum FixFreshness { current, recent, stale, uncertain }

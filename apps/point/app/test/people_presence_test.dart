@@ -44,10 +44,13 @@ void main() {
         fixFreshness(ago(const Duration(seconds: 45)), now: now),
         FixFreshness.recent,
       );
-      expect(fixFreshness(ago(darkAfter), now: now), FixFreshness.recent);
+      expect(
+        fixFreshness(ago(const Duration(minutes: 15)), now: now),
+        FixFreshness.recent,
+      );
       expect(
         fixFreshness(
-          ago(darkAfter + const Duration(milliseconds: 1)),
+          ago(const Duration(minutes: 15, milliseconds: 1)),
           now: now,
         ),
         FixFreshness.stale,

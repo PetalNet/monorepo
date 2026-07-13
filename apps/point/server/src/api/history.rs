@@ -66,7 +66,9 @@ pub async fn get_history(
                         SELECT gv.group_id::text
                         FROM group_members gv
                         JOIN group_members gt ON gt.group_id = gv.group_id
-                        WHERE gv.user_id = $4 AND gt.user_id = $1 AND gt.sharing)))
+                        WHERE gv.user_id = $4 AND gt.user_id = $1 AND gt.sharing
+                          AND lh.created_at >= gv.joined_at
+                          AND lh.created_at >= gt.joined_at)))
          ORDER BY lh.client_timestamp {order}
          LIMIT $5"
     );
@@ -95,16 +97,17 @@ pub async fn get_history(
     Ok(Json(out))
 }
 
-/// GET /api/current/{user_id} — current, non-expired encrypted fixes for the
-/// target, scoped to audiences the viewer is authorized to consume. This is
-/// the reconnect snapshot counterpart to best-effort `location.broadcast`.
+/// GET /api/current/{user_id} — the target's last-known encrypted fixes,
+/// scoped to audiences the viewer is authorized to consume. Rows are retained
+/// until replaced or access is revoked; clients derive live/dark freshness
+/// from the signed sample timestamp instead of a server-side expiry window.
 pub async fn get_current(
     State(state): State<AppState>,
     user: AuthUser,
     Path(target): Path<String>,
 ) -> ApiResult<Json<Vec<Value>>> {
     let target = target.trim().to_lowercase();
-    if !authz::can_view(&state.pool, &user.user_id, &target).await? {
+    if !authz::can_view_last_known(&state.pool, &user.user_id, &target).await? {
         return Err(AppError::NotFound);
     }
 
@@ -115,14 +118,15 @@ pub async fn get_current(
          FROM location_updates lu
          JOIN entities e ON e.id = lu.sender_entity_id
          WHERE e.owner_id = $1 AND e.kind = 'person'
-           AND lu.created_at + make_interval(secs => lu.ttl_seconds) > now()
            AND ($2
                 OR (lu.recipient_type = 'user' AND lu.recipient_id = $3)
                 OR (lu.recipient_type = 'group' AND lu.recipient_id IN (
                         SELECT gv.group_id::text
                         FROM group_members gv
                         JOIN group_members gt ON gt.group_id = gv.group_id
-                        WHERE gv.user_id = $3 AND gt.user_id = $1 AND gt.sharing)))
+                        WHERE gv.user_id = $3 AND gt.user_id = $1 AND gt.sharing
+                          AND lu.created_at >= gv.joined_at
+                          AND lu.created_at >= gt.joined_at)))
          ORDER BY lu.client_timestamp",
     )
     .bind(&target)

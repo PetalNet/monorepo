@@ -81,7 +81,8 @@ async fn run(config: Config) {
         server_signing_key: Arc::new(server_signing_key),
     };
 
-    // Periodic cleanup: expired live fixes, expired temp shares, >30d history.
+    // Periodic cleanup: expired temp shares and >30d history. Current-location
+    // rows are one-per-audience last-known snapshots and do not age out.
     tokio::spawn(cleanup_task(state.clone()));
 
     let app = api::router(state.clone());
@@ -114,19 +115,22 @@ async fn cleanup_task(state: AppState) {
     loop {
         interval.tick().await;
         let res: Result<(), sqlx::Error> = async {
-            sqlx::query(
-                "DELETE FROM location_updates
-                 WHERE created_at + make_interval(secs => ttl_seconds) < now()",
-            )
-            .execute(&state.pool)
-            .await?;
+            let mut tx = state.pool.begin().await?;
             let expired: Vec<(uuid::Uuid, String, Option<String>)> = sqlx::query_as(
                 "DELETE FROM temporary_shares
                  WHERE expires_at < now()
                  RETURNING id, from_user_id, to_user_id",
             )
-            .fetch_all(&state.pool)
+            .fetch_all(&mut *tx)
             .await?;
+            for (_, from_user_id, to_user_id) in &expired {
+                let Some(to_user_id) = to_user_id else {
+                    continue;
+                };
+                api::shares::purge_directional_last_known(&mut tx, from_user_id, to_user_id)
+                    .await?;
+            }
+            tx.commit().await?;
             for (id, from_user_id, to_user_id) in expired {
                 let Some(to_user_id) = to_user_id else {
                     continue;

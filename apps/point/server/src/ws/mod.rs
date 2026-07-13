@@ -35,8 +35,9 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const AUTH_TIMEOUT: Duration = Duration::from_millis(500);
 
-/// Live fixes expire after this many seconds (reaped by the cleanup task).
-const LIVE_FIX_TTL_SECS: i32 = 300;
+/// Compatibility/advisory TTL carried on last-known rows. The server retains
+/// and serves the latest row indefinitely; clients derive freshness by age.
+const LAST_KNOWN_ADVISORY_TTL_SECS: i32 = 86_400;
 /// A single encrypted fix is small; 16KB decoded is already generous.
 const MAX_LOCATION_BLOB_BYTES: usize = 16 * 1024;
 /// Max items per `location.batch_update`.
@@ -500,7 +501,7 @@ async fn store_live_fix(
     .bind(rid)
     .bind(blob)
     .bind(ts)
-    .bind(LIVE_FIX_TTL_SECS)
+    .bind(LAST_KNOWN_ADVISORY_TTL_SECS)
     .execute(pool)
     .await
     .map(|_| ())

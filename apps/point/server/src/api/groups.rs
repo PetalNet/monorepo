@@ -179,11 +179,14 @@ pub async fn delete_group(
     if owner_id != user.user_id {
         return Err(AppError::Forbidden);
     }
+    let mut tx = state.pool.begin().await?;
+    purge_group_last_known(&mut tx, id).await?;
     // Members, invites cascade (schema FKs).
     sqlx::query("DELETE FROM groups WHERE id = $1")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -243,6 +246,7 @@ pub async fn update_my_membership(
         .as_deref()
         .map(|p| validate_precision(Some(p)))
         .transpose()?;
+    let mut tx = state.pool.begin().await?;
     let result = sqlx::query(
         "UPDATE group_members SET sharing = COALESCE($3, sharing),
                                   precision = COALESCE($4, precision)
@@ -252,11 +256,25 @@ pub async fn update_my_membership(
     .bind(&user.user_id)
     .bind(body.sharing)
     .bind(&precision)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound); // not a member == group doesn't exist for you
     }
+    if body.sharing == Some(false) {
+        sqlx::query(
+            "DELETE FROM location_updates lu
+             USING entities e
+             WHERE lu.sender_entity_id = e.id AND e.kind = 'person'
+               AND e.owner_id = $1 AND lu.recipient_type = 'group'
+               AND lu.recipient_id = $2",
+        )
+        .bind(&user.user_id)
+        .bind(id.to_string())
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -425,7 +443,9 @@ pub async fn add_member(
     if share.is_none() {
         return Err(AppError::BadRequest("cannot add this user".into()));
     }
-    // Already a member: idempotent success.
+    // Already a member: idempotent success. The current-location read path
+    // compares snapshot time to joined_at, so a new/rejoining member cannot
+    // receive pre-membership last-known rows while continuing members keep them.
     sqlx::query(
         "INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)
          ON CONFLICT (group_id, user_id) DO NOTHING",
@@ -476,10 +496,13 @@ pub async fn remove_member(
             ));
         }
         // Last member out: remove the group itself (memberships cascade).
+        let mut tx = state.pool.begin().await?;
+        purge_group_last_known(&mut tx, id).await?;
         sqlx::query("DELETE FROM groups WHERE id = $1")
             .bind(id)
-            .execute(&state.pool)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         return Ok(Json(json!({ "ok": true })));
     }
 
@@ -492,6 +515,23 @@ pub async fn remove_member(
         return Err(AppError::NotFound);
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Group membership changes alter the authorized audience. Clearing the small,
+/// bounded current snapshot prevents a later join/rejoin from replaying fixes
+/// encrypted for the previous audience; the next live post reseeds it.
+async fn purge_group_last_known(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "DELETE FROM location_updates
+         WHERE recipient_type = 'group' AND recipient_id = $1",
+    )
+    .bind(id.to_string())
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
