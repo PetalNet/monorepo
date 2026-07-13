@@ -44,7 +44,7 @@
 	.chip {
 		display: inline-flex;
 		align-items: center;
-		height: 24px;
+		min-height: 32px;
 		padding: 0 var(--s-2);
 		border-radius: var(--r-xs);
 		background: var(--s2);
