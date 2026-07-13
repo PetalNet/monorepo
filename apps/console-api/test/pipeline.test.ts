@@ -1090,6 +1090,107 @@ describe("live browser auth boundary", () => {
 		}
 	});
 
+	it("bounds and strictly validates authenticated WS subscription input", async () => {
+		const server = await buildServer(services, true);
+		await server.ready();
+		const devPrincipalHeader = JSON.stringify({
+			kind: "human",
+			id: "ws-input-test",
+			tiers: ["owner"],
+			lanes: ["viewer"],
+			scopes: ["fleet"],
+			zookie: "1",
+		});
+		const socket = await server.injectWS("/api/v1/bus/ws", {
+			headers: { "x-dev-principal": devPrincipalHeader },
+			rawHeaders: ["x-dev-principal", devPrincipalHeader],
+			socket: { remoteAddress: "127.0.0.1" },
+		});
+		const frames: Record<string, unknown>[] = [];
+		socket.on("message", (data) => frames.push(JSON.parse(data.toString())));
+		const send = (frame: Record<string, unknown> | string): void => {
+			socket.send(typeof frame === "string" ? frame : JSON.stringify(frame));
+		};
+		const errorCode = (subId: string): unknown =>
+			(
+				frames.find(
+					(frame) =>
+						frame["kind"] === "ack" &&
+						frame["sub_id"] === subId &&
+						typeof frame["error"] === "object",
+				)?.["error"] as Record<string, unknown> | undefined
+			)?.["code"];
+
+		try {
+			send("{" + "x".repeat(16 * 1024));
+			send({
+				schema_version: 1,
+				action: "subscribe",
+				sub_id: "unknown-field",
+				pattern: "**",
+				extra: true,
+			});
+			send({
+				schema_version: 1,
+				action: "subscribe",
+				sub_id: "complex-pattern",
+				pattern: Array.from({ length: 33 }, () => "a").join("."),
+			});
+			await expect
+				.poll(
+					() => ({
+						oversized: errorCode("?"),
+						strict: errorCode("unknown-field"),
+						complexity: errorCode("complex-pattern"),
+					}),
+					{ timeout: 2_000 },
+				)
+				.toEqual({
+					oversized: "frame_too_large",
+					strict: "invalid_frame",
+					complexity: "invalid_frame",
+				});
+
+			for (let index = 0; index < 64; index += 1)
+				send({
+					schema_version: 1,
+					action: "subscribe",
+					sub_id: `bounded-${String(index)}`,
+					pattern: "test.**",
+				});
+			await expect
+				.poll(
+					() =>
+						frames.filter(
+							(frame) =>
+								frame["kind"] === "ack" &&
+								String(frame["sub_id"]).startsWith("bounded-") &&
+								!("error" in frame),
+						).length,
+					{ timeout: 2_000 },
+				)
+				.toBe(64);
+			send({ schema_version: 1, action: "subscribe", sub_id: "over-limit", pattern: "**" });
+			await expect
+				.poll(() => errorCode("over-limit"), { timeout: 2_000 })
+				.toBe("subscription_limit");
+
+			send({ schema_version: 1, action: "unsubscribe", sub_id: "bounded-0" });
+			send({ schema_version: 1, action: "subscribe", sub_id: "replacement", pattern: "**" });
+			await expect
+				.poll(
+					() =>
+						frames.some((frame) => frame["kind"] === "ack" && frame["sub_id"] === "replacement"),
+					{ timeout: 2_000 },
+				)
+				.toBe(true);
+			expect(errorCode("replacement")).toBeUndefined();
+		} finally {
+			socket.terminate();
+			await server.close();
+		}
+	});
+
 	it("accepts the trusted proxy identity and resolves current ReBAC grants", async () => {
 		const server = await buildServer(services, false, undefined, browserAuth);
 		await server.listen({ host: "127.0.0.1", port: 0 });

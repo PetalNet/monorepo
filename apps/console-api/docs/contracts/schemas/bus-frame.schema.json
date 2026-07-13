@@ -35,10 +35,12 @@
 					"enum": ["debug", "info", "warn", "danger", "p0"]
 				},
 				"source_service": {
-					"type": "string"
+					"type": "string",
+					"maxLength": 64
 				},
 				"subject": {
-					"type": "string"
+					"type": "string",
+					"maxLength": 256
 				}
 			},
 			"description": "One filter shape everywhere (ephemeral WS subs and standing subscriptions)."
@@ -56,17 +58,22 @@
 				},
 				"sub_id": {
 					"type": "string",
+					"minLength": 1,
 					"maxLength": 64
 				},
 				"pattern": {
 					"type": "string",
-					"description": "Glob over emission type. Semantics: dot-segment aware; `*` matches within one segment, `**` (or a trailing `.*`) matches across segments \u2014 `doorman.*` matches doorman.link and doorman.link.flap (trailing-glob convenience); `*.flap` matches any single-segment prefix."
+					"minLength": 1,
+					"maxLength": 128,
+					"pattern": "^(?:[a-z0-9_]+|\\*|\\*\\*)(?:\\.(?:[a-z0-9_]+|\\*|\\*\\*)){0,31}$",
+					"description": "Glob over emission type. Semantics: dot-segment aware; `*` matches within one segment, `**` (or a trailing `.*`) matches across segments \u2014 `doorman.*` matches doorman.link and doorman.link.flap (trailing-glob convenience); `*.flap` matches any single-segment prefix. Bounded to 128 characters and 32 segments."
 				},
 				"filter": {
 					"$ref": "#/$defs/filter"
 				},
 				"since": {
 					"type": "integer",
+					"minimum": 0,
 					"description": "EXCLUSIVE lake seq to resume after. Omit for live-only."
 				}
 			}
@@ -83,7 +90,9 @@
 					"const": "unsubscribe"
 				},
 				"sub_id": {
-					"type": "string"
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 64
 				}
 			}
 		},
