@@ -15,6 +15,6 @@ export const load: PageLoad = async ({ parent }): Promise<{ cockpit: CockpitData
 	if (dataMode() === "live") {
 		return { cockpit: liveEmptyCockpit(me.display_name ?? me.id) };
 	}
-	const healthScene = scene === "crack" ? "crack" : "clear";
+	const healthScene = scene === "crack" ? "crack" : scene === "busy" ? "busy" : "clear";
 	return { cockpit: mockCockpit(healthScene) };
 };

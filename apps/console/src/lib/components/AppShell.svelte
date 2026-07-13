@@ -14,7 +14,7 @@
 		me: Me;
 		verdict: HealthVerdict;
 		stateFact?: string | null;
-		badges?: Record<string, number | "down" | "p0" | null>;
+		badges?: Record<string, number | "down" | "p0" | "warn" | "muted" | null>;
 		children: Snippet;
 	}
 	let { me, verdict, stateFact = null, badges = {}, children }: Props = $props();

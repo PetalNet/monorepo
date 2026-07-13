@@ -38,7 +38,13 @@ const OFFLINE_ME: Me = {
 export const load: LayoutLoad = async ({ url, fetch }): Promise<ShellData> => {
 	const sceneParam = url.searchParams.get("scene");
 	const scene: Scene =
-		sceneParam === "crack" ? "crack" : sceneParam === "asked" ? "asked" : "clear";
+		sceneParam === "crack"
+			? "crack"
+			: sceneParam === "busy"
+				? "busy"
+				: sceneParam === "asked"
+					? "asked"
+					: "clear";
 
 	if (dataMode() === "live") {
 		try {
@@ -59,7 +65,7 @@ export const load: LayoutLoad = async ({ url, fetch }): Promise<ShellData> => {
 		}
 	}
 
-	const healthScene: Scene = scene === "crack" ? "crack" : "clear";
+	const healthScene: Scene = scene === "crack" ? "crack" : scene === "busy" ? "busy" : "clear";
 	const c = mockCockpit(healthScene);
 	const health: ShellHealth = { verdict: c.verdict, stateFact: c.stateFact, badges: c.badges };
 	return { me: mockMe, health, scene, connected: true };

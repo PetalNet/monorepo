@@ -4,6 +4,7 @@
 	import type { AttentionItem } from "$lib/api/types";
 	import Icon from "./Icon.svelte";
 	import OpButton from "./OpButton.svelte";
+	import StatusDot from "./StatusDot.svelte";
 
 	/**
 	 * AttentionCard (foundations §3.7/§4.4): fact-first reason, source signal, age,
@@ -36,7 +37,13 @@
 
 <article class="att" class:crack={isCrack} class:acked={item.acked_by}>
 	<div class="head" class:crack={isCrack}>
-		{#if isCrack}<Icon name="triangle-alert" size={14} />{/if}
+		{#if isCrack}
+			<Icon name="triangle-alert" size={14} />
+		{:else if item.grade === "blocker"}
+			<StatusDot tone="warn" />
+		{:else}
+			<StatusDot tone="idle" />
+		{/if}
 		<span>{item.summary}</span>
 	</div>
 

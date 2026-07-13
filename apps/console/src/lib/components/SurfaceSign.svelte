@@ -37,7 +37,7 @@
 			{:else if verdict === "cant_verify"}
 				<Icon name="circle-help" size={14} />{stateFact ?? "Can't verify."}
 			{:else if verdict === "needs_you"}
-				<Icon name="circle-help" size={14} />Mostly fine. Something needs you.
+				<Icon name="circle-help" size={14} />{stateFact ?? "Mostly fine. Something needs you."}
 			{:else}
 				<Icon name="circle-check" size={14} />Welcome! Everything is fine.
 			{/if}
@@ -111,5 +111,14 @@
 		gap: var(--s-2);
 		margin-top: var(--s-3);
 		flex-wrap: wrap;
+	}
+	/* Phone: greeting condenses to one line, date dropped (foundations §2.1). */
+	@media (max-width: 767px) {
+		.date {
+			display: none;
+		}
+		h1.hero {
+			font-size: 1.5rem;
+		}
 	}
 </style>

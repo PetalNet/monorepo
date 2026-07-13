@@ -40,8 +40,23 @@
 		day: "numeric",
 	});
 
+	// needs-you chip: dot graded by the max severity of the set (§2.2); count splits
+	// "N new · M held" when items are acked (§4.4).
+	const needTone = $derived(
+		c.badges["/"] === "p0"
+			? "danger"
+			: c.badges["/"] === "warn"
+				? "warn"
+				: c.hud.needsNew + c.hud.needsHeld > 0
+					? "info"
+					: "idle",
+	);
 	const hud = $derived<Hud[]>([
-		{ tone: c.hud.needYou > 0 ? "danger" : "idle", count: c.hud.needYou, label: "need you" },
+		{
+			tone: needTone,
+			count: c.hud.needsNew,
+			label: c.hud.needsHeld > 0 ? `new · ${c.hud.needsHeld} held` : "need you",
+		},
 		{ tone: "good", count: c.hud.inFlight, label: "in flight" },
 		{ tone: "good", count: c.hud.hostsUp, label: `up · ${c.hud.hostsDown} down` },
 	]);
@@ -178,9 +193,9 @@
 				<div data-ask="Town Hall, the attention board">
 					<TownHall items={c.attention} lanes={data.me.lanes} />
 				</div>
-				<SavedDashboards items={c.saved} />
+				<div class="phone-hide"><SavedDashboards items={c.saved} /></div>
 			</div>
-			<aside class="rail">
+			<aside class="rail phone-hide">
 				<RailCard heading="The neighborhood">
 					<div class="rail-meta">{c.railHosts.filter((h) => !h.dark).length} houses · {c.hud.inFlight} workers up</div>
 					<div class="house-row">
@@ -348,6 +363,13 @@
 		}
 		.dash :global(.panel) {
 			grid-column: span 12 !important;
+		}
+	}
+	/* Phone lens (<768, foundations §2.1): attention list + chat dock only. The
+	 * fleet rail, mail, and saved dashboards are one ask away, not on the phone. */
+	@media (max-width: 767px) {
+		.phone-hide {
+			display: none;
 		}
 	}
 </style>
