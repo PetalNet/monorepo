@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:point_app/features/me/presentation/settings_widgets.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// The safety-critical ghost switch (mockup screen 2). Large tactile pill,
@@ -22,16 +23,21 @@ class GhostToggle extends StatelessWidget {
     const width = 132.0;
     const height = 64.0;
     const thumb = 52.0;
+    final duration = ReducedMotionScope.of(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 200);
 
     return Semantics(
       toggled: sharing,
       label: 'Location sharing',
-      hint: sharing ? 'On. Double tap to go dark.' : 'Off. Double tap to share.',
+      hint: sharing
+          ? 'On. Double tap to go dark.'
+          : 'Off. Double tap to share.',
       button: true,
       child: GestureDetector(
         onTap: () => onChanged(!sharing),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: duration,
           curve: Curves.easeOutCubic,
           width: width,
           height: height,
@@ -42,7 +48,7 @@ class GhostToggle extends StatelessWidget {
             border: Border.all(color: ink, width: 1.5),
           ),
           child: AnimatedAlign(
-            duration: const Duration(milliseconds: 200),
+            duration: duration,
             curve: Curves.easeOutCubic,
             alignment: sharing ? Alignment.centerRight : Alignment.centerLeft,
             child: Container(

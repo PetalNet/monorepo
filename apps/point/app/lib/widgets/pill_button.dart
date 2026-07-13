@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:point_app/features/me/presentation/settings_widgets.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// A full-width pill primary — inverse-filled (onSurface bg, surface ink), the
@@ -27,7 +28,9 @@ class PillButton extends StatelessWidget {
       enabled: !disabled,
       label: label,
       child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 160),
+        duration: ReducedMotionScope.of(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 160),
         opacity: disabled ? 0.4 : 1,
         child: Material(
           color: ink,

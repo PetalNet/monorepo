@@ -1,5 +1,43 @@
 import 'package:flutter/material.dart';
+import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/theme/theme_x.dart';
+
+/// Resolves the app's motion setting against the platform accessibility flag.
+///
+/// Full motion is an explicit override; only the system setting follows the
+/// operating system's disable-animations preference.
+bool resolveReducedMotion({
+  required MotionPreference preference,
+  required bool systemDisabled,
+}) => switch (preference) {
+  MotionPreference.system => systemDisabled,
+  MotionPreference.reduced => true,
+  MotionPreference.full => false,
+};
+
+/// Publishes the effective motion preference to every animated primitive.
+///
+/// The MediaQuery fallback keeps isolated widgets and tests respectful of the
+/// OS even when they are rendered outside the app root.
+class ReducedMotionScope extends InheritedWidget {
+  const ReducedMotionScope({
+    required this.reduced,
+    required super.child,
+    super.key,
+  });
+
+  final bool reduced;
+
+  static bool of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<ReducedMotionScope>()
+          ?.reduced ??
+      MediaQuery.disableAnimationsOf(context);
+
+  @override
+  bool updateShouldNotify(ReducedMotionScope oldWidget) =>
+      reduced != oldWidget.reduced;
+}
 
 /// Muted uppercase section label between setting groups.
 class SettingsSection extends StatelessWidget {
@@ -187,7 +225,9 @@ class _RadioDot extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: ReducedMotionScope.of(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 160),
         width: selected ? 9 : 0,
         height: selected ? 9 : 0,
         decoration: BoxDecoration(color: ink, shape: BoxShape.circle),

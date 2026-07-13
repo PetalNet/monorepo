@@ -24,6 +24,7 @@ import 'package:point_app/features/me/presentation/me_screen.dart';
 import 'package:point_app/features/me/presentation/notifications_settings_screen.dart';
 import 'package:point_app/features/me/presentation/privacy_settings_screen.dart';
 import 'package:point_app/features/me/presentation/recovery_screen.dart';
+import 'package:point_app/features/me/presentation/settings_widgets.dart';
 import 'package:point_app/features/onboarding/onboarding_flow.dart';
 import 'package:point_app/features/onboarding/onboarding_gate.dart';
 import 'package:point_app/features/onboarding/presentation/distributor_guide_screen.dart';
@@ -192,10 +193,7 @@ class _PointAppState extends ConsumerState<PointApp>
         );
       case PersonPushDestination(:final userId):
         unawaited(
-          _config.router.set([
-            const MainShell(),
-            PersonDetailRoute(userId),
-          ]),
+          _config.router.set([const MainShell(), PersonDetailRoute(userId)]),
         );
     }
   }
@@ -300,16 +298,14 @@ class _PointAppState extends ConsumerState<PointApp>
 
   /// The Look & feel motion setting, resolved against the OS accessibility
   /// flag when set to follow the system. Read at transition/switch time.
-  bool get _reducedMotion => switch (ref.read(settingsProvider).motion) {
-    MotionPreference.reduced => true,
-    MotionPreference.full => false,
-    MotionPreference.system =>
-      WidgetsBinding
-          .instance
-          .platformDispatcher
-          .accessibilityFeatures
-          .disableAnimations,
-  };
+  bool get _reducedMotion => resolveReducedMotion(
+    preference: ref.read(settingsProvider).motion,
+    systemDisabled: WidgetsBinding
+        .instance
+        .platformDispatcher
+        .accessibilityFeatures
+        .disableAnimations,
+  );
 
   /// Route-pair transitions (the acceptance-bar `pageWrapper`): full-screen
   /// modals (Ghost, Device-link) slide up; everything else fades.
@@ -493,28 +489,30 @@ class _PointAppState extends ConsumerState<PointApp>
       });
 
     final appearance = ref.watch(settingsProvider.select((s) => s.appearance));
+    ref.watch(settingsProvider.select((s) => s.motion));
     final textScale = ref.watch(settingsProvider.select((s) => s.textScale));
     return MaterialApp.router(
       title: 'Point',
       scaffoldMessengerKey: _messengerKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(
-        pureBlack: appearance == Appearance.pureBlack,
-      ),
+      darkTheme: AppTheme.dark(pureBlack: appearance == Appearance.pureBlack),
       themeMode: appearance == Appearance.light
           ? ThemeMode.light
           : ThemeMode.dark,
       // The app text-size setting COMPOSES with the OS scale: the OS scaler
       // applies first, then ours, so an accessibility choice is respected.
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(
-          textScaler: _ComposedScaler(
-            MediaQuery.textScalerOf(context),
-            textScale,
+      builder: (context, child) => ReducedMotionScope(
+        reduced: _reducedMotion,
+        child: MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: _ComposedScaler(
+              MediaQuery.textScalerOf(context),
+              textScale,
+            ),
           ),
+          child: child ?? const SizedBox.shrink(),
         ),
-        child: child ?? const SizedBox.shrink(),
       ),
       routerConfig: _config,
     );

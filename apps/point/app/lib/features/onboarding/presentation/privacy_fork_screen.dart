@@ -3,6 +3,7 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/routes.dart';
+import 'package:point_app/features/me/presentation/settings_widgets.dart';
 import 'package:point_app/features/onboarding/onboarding_flow.dart';
 import 'package:point_app/features/onboarding/presentation/onboarding_scaffold.dart';
 import 'package:point_app/features/settings/settings_controller.dart';
@@ -100,6 +101,9 @@ class _ForkOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ink = context.colors.onSurface;
+    final duration = ReducedMotionScope.of(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 160);
     return Semantics(
       button: true,
       selected: selected,
@@ -111,7 +115,7 @@ class _ForkOption extends StatelessWidget {
           onTap: onTap,
           borderRadius: context.radii.brMd,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
+            duration: duration,
             padding: EdgeInsets.all(context.space.lg),
             decoration: BoxDecoration(
               borderRadius: context.radii.brMd,
@@ -159,8 +163,11 @@ class _RadioDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ink = context.colors.onSurface;
+    final duration = ReducedMotionScope.of(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 160);
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
+      duration: duration,
       width: 18,
       height: 18,
       decoration: BoxDecoration(
@@ -169,7 +176,7 @@ class _RadioDot extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: duration,
         width: selected ? 9 : 0,
         height: selected ? 9 : 0,
         decoration: BoxDecoration(color: ink, shape: BoxShape.circle),
