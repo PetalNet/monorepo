@@ -77,8 +77,8 @@ class PointApi {
       body: jsonEncode({
         'username': username,
         'password': password,
-        if (displayName != null) 'display_name': displayName,
-        if (inviteCode != null) 'invite_code': inviteCode,
+        'display_name': ?displayName,
+        'invite_code': ?inviteCode,
       }),
     );
     if (r.statusCode != 200) _fail(r);
@@ -164,10 +164,7 @@ class PointApi {
   fetchAvatarVersioned(String token, String userId, {String? etag}) async {
     final r = await _client.get(
       _u('/api/users/${Uri.encodeComponent(userId)}/avatar'),
-      headers: {
-        ..._headers(token),
-        if (etag != null) 'if-none-match': etag,
-      },
+      headers: {..._headers(token), 'if-none-match': ?etag},
     );
     if (r.statusCode == 304) {
       return (bytes: null, etag: r.headers['etag'] ?? etag, notModified: true);
@@ -176,11 +173,7 @@ class PointApi {
       return (bytes: null, etag: null, notModified: false);
     }
     if (r.statusCode != 200) _fail(r);
-    return (
-      bytes: r.bodyBytes,
-      etag: r.headers['etag'],
-      notModified: false,
-    );
+    return (bytes: r.bodyBytes, etag: r.headers['etag'], notModified: false);
   }
 
   // --- Sharing / people ---------------------------------------------------
@@ -198,9 +191,7 @@ class PointApi {
     );
     if (r.statusCode != 200) _fail(r);
     return (jsonDecode(r.body) as List<dynamic>)
-        .map(
-          (e) => IncomingRequestRecord.fromJson(e as Map<String, dynamic>),
-        )
+        .map((e) => IncomingRequestRecord.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
@@ -211,9 +202,7 @@ class PointApi {
     );
     if (r.statusCode != 200) _fail(r);
     return (jsonDecode(r.body) as List<dynamic>)
-        .map(
-          (e) => OutgoingRequestRecord.fromJson(e as Map<String, dynamic>),
-        )
+        .map((e) => OutgoingRequestRecord.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
@@ -358,7 +347,7 @@ class PointApi {
       headers: _headers(token),
       body: jsonEncode({
         'key_packages': keyPackages,
-        if (lastResort != null) 'last_resort': lastResort,
+        'last_resort': ?lastResort,
         if (replace) 'replace': true,
       }),
     );

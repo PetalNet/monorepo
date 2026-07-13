@@ -149,7 +149,7 @@ class WsService {
     if (epoch != _connectionEpoch || _disposed) return;
     _authed = false;
     _emitHealth(WsConnectionState.disconnected);
-    _sub?.cancel();
+    unawaited(_sub?.cancel());
     _sub = null;
     _channel = null;
     _scheduleReconnect();

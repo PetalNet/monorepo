@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 /// Keeps every shell branch mounted (so per-branch state survives tab switches,
@@ -41,7 +43,7 @@ class _AnimatedBranchStackState extends State<AnimatedBranchStack>
       if (widget.reduced) {
         _controller.value = 1;
       } else {
-        _controller.forward(from: 0);
+        unawaited(_controller.forward(from: 0));
       }
     }
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';
@@ -198,9 +200,11 @@ class _GoDarkButton extends ConsumerWidget {
           borderRadius: context.radii.brLg,
           onTap: () {
             Haptics.commit(ref);
-            ref
-                .read(ghostControllerProvider.notifier)
-                .setSharing(sharing: dark);
+            unawaited(
+              ref
+                  .read(ghostControllerProvider.notifier)
+                  .setSharing(sharing: dark),
+            );
           },
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: context.space.lg),
@@ -239,9 +243,11 @@ class _ViewerRow extends ConsumerWidget {
       value: visible,
       onChanged: (v) {
         Haptics.commit(ref);
-        ref
-            .read(ghostControllerProvider.notifier)
-            .setHiddenFrom(person.userId, hidden: !v);
+        unawaited(
+          ref
+              .read(ghostControllerProvider.notifier)
+              .setHiddenFrom(person.userId, hidden: !v),
+        );
       },
       secondary: InitialsAvatar(name: person.displayName),
       title: Text(person.displayName, style: context.text.titleMedium),

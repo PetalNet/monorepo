@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
@@ -42,19 +43,23 @@ class _SoakAppState extends State<_SoakApp> with WidgetsBindingObserver {
       developer.log(line, name: 'POINT_SOAK');
       if (mounted) setState(() => _status = line);
     });
-    _start();
+    unawaited(_start());
   }
 
   Future<void> _start() async {
-    developer.log('START ts=${DateTime.now().toIso8601String()}',
-        name: 'POINT_SOAK');
+    developer.log(
+      'START ts=${DateTime.now().toIso8601String()}',
+      name: 'POINT_SOAK',
+    );
     await _service.start();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    developer.log('LIFECYCLE ${state.name} ts=${DateTime.now().toIso8601String()}',
-        name: 'POINT_SOAK');
+    developer.log(
+      'LIFECYCLE ${state.name} ts=${DateTime.now().toIso8601String()}',
+      name: 'POINT_SOAK',
+    );
     switch (state) {
       case AppLifecycleState.resumed:
         _service.onForeground();
@@ -70,7 +75,7 @@ class _SoakAppState extends State<_SoakApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _service.dispose();
+    unawaited(_service.dispose());
     super.dispose();
   }
 
@@ -87,19 +92,29 @@ class _SoakAppState extends State<_SoakApp> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text('Point — soak', style: AppTheme.dark().textTheme.headlineMedium),
+                Text(
+                  'Point — soak',
+                  style: AppTheme.dark().textTheme.headlineMedium,
+                ),
                 const SizedBox(height: 12),
                 Text('fixes: $_fixCount'),
                 const SizedBox(height: 8),
-                Text(_status, style: const TextStyle(fontFamily: 'JetBrains Mono', fontSize: 11)),
+                Text(
+                  _status,
+                  style: const TextStyle(
+                    fontFamily: 'JetBrains Mono',
+                    fontSize: 11,
+                  ),
+                ),
                 const SizedBox(height: 24),
                 FilledButton(
                   onPressed: () {
                     _sharing = !_sharing;
                     _service.setSharing(sharing: _sharing);
                     developer.log(
-                        'GHOST sharing=$_sharing ts=${DateTime.now().toIso8601String()}',
-                        name: 'POINT_SOAK');
+                      'GHOST sharing=$_sharing ts=${DateTime.now().toIso8601String()}',
+                      name: 'POINT_SOAK',
+                    );
                     setState(() {});
                   },
                   child: Text(_sharing ? 'Go dark (ghost)' : 'Share'),

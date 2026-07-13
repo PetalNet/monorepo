@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/app/config.dart';
@@ -19,7 +21,7 @@ class ServerUrlNotifier extends Notifier<String> {
   @override
   String build() {
     // Async-load any persisted choice; until then, the default applies.
-    _load();
+    unawaited(_load());
     return AppConfig.serverBaseUrl;
   }
 

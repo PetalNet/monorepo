@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -120,7 +122,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     _cameraTarget = point;
     _cameraZoomFrom = _mapController.camera.zoom;
     _cameraZoomTarget = MapScreen._neighborhoodZoom;
-    _cameraAnimation.forward(from: 0);
+    unawaited(_cameraAnimation.forward(from: 0));
   }
 
   void _onMapPositionChanged(MapCamera _, bool hasGesture) {
@@ -516,7 +518,9 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
         existing
           ..person = person
           ..exiting = false;
-        if (existing.controller.value < 1) existing.controller.forward();
+        if (existing.controller.value < 1) {
+          unawaited(existing.controller.forward());
+        }
         continue;
       }
       final controller = AnimationController(
@@ -528,7 +532,7 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
         person: person,
         controller: controller,
       );
-      controller.forward();
+      unawaited(controller.forward());
     }
 
     for (final entry in _entries.values.toList()) {

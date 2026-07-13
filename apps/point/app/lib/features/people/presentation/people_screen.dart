@@ -111,9 +111,9 @@ class PeopleScreen extends ConsumerWidget {
             onSelected: (action) {
               switch (action) {
                 case _PeopleAddAction.ongoing:
-                  context.push(const AddPersonRoute());
+                  unawaited(context.push(const AddPersonRoute()));
                 case _PeopleAddAction.temporary:
-                  TempShareSheet.showForHandle(context);
+                  unawaited(TempShareSheet.showForHandle(context));
               }
             },
             itemBuilder: (context) => const [
@@ -457,9 +457,11 @@ class _AnimatedDiffListState<T> extends State<_AnimatedDiffList<T>>
         entry
           ..item = item
           ..exiting = false;
-        widget.duration == Duration.zero
-            ? entry.controller.value = 1
-            : entry.controller.forward();
+        if (widget.duration == Duration.zero) {
+          entry.controller.value = 1;
+        } else {
+          unawaited(entry.controller.forward());
+        }
         next.add(entry);
         continue;
       }
@@ -469,7 +471,9 @@ class _AnimatedDiffListState<T> extends State<_AnimatedDiffList<T>>
         value: widget.duration == Duration.zero ? 1 : 0,
       );
       next.add(_DiffEntry(item: item, controller: controller));
-      if (widget.duration != Duration.zero) controller.forward();
+      if (widget.duration != Duration.zero) {
+        unawaited(controller.forward());
+      }
     }
 
     for (var oldIndex = 0; oldIndex < _entries.length; oldIndex++) {
@@ -1048,7 +1052,7 @@ class _TempSection extends ConsumerWidget {
                     TextButton(
                       onPressed: () {
                         Haptics.warning(ref);
-                        _stop(context, ref, t);
+                        unawaited(_stop(context, ref, t));
                       },
                       child: Text(
                         mutations[t.id]?.phase == TempShareMutationPhase.failed
@@ -1574,10 +1578,12 @@ class _RequestRow extends ConsumerWidget {
               icon: const Icon(Icons.close),
               onPressed: () {
                 Haptics.warning(ref);
-                _run(
-                  context: context,
-                  ref: ref,
-                  action: RequestMutationAction.decline,
+                unawaited(
+                  _run(
+                    context: context,
+                    ref: ref,
+                    action: RequestMutationAction.decline,
+                  ),
                 );
               },
             ),
@@ -1586,10 +1592,12 @@ class _RequestRow extends ConsumerWidget {
               icon: const Icon(Icons.check),
               onPressed: () {
                 Haptics.commit(ref);
-                _run(
-                  context: context,
-                  ref: ref,
-                  action: RequestMutationAction.accept,
+                unawaited(
+                  _run(
+                    context: context,
+                    ref: ref,
+                    action: RequestMutationAction.accept,
+                  ),
                 );
               },
             ),

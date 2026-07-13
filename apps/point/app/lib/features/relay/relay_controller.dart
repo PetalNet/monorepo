@@ -1143,10 +1143,7 @@ class RelayController {
           ? CryptoService.groupIdFor(row.recipientId)
           : CryptoService.pairwiseGroupId(session.userId, peerUserId);
       if (!crypto.hasGroup(groupId)) continue;
-      final plaintext = await crypto.decrypt(
-        groupId,
-        base64Decode(row.blob),
-      );
+      final plaintext = await crypto.decrypt(groupId, base64Decode(row.blob));
       final data = jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
       if (await _acceptPeerFix(
         peerUserId,
@@ -1255,9 +1252,7 @@ class RelayController {
         );
         decoded.add(fix);
       }
-      decoded.sort(
-        (a, b) => (b.timestamp ?? 0).compareTo(a.timestamp ?? 0),
-      );
+      decoded.sort((a, b) => (b.timestamp ?? 0).compareTo(a.timestamp ?? 0));
       for (final fix in decoded.take(_maxCachedPeers)) {
         _cachedPeerFixes[fix.userId] = fix;
         _latestFixTimestamp[fix.userId] = fix.timestamp!;
@@ -1269,9 +1264,7 @@ class RelayController {
       }
       // Broadcast for an already-mounted provider; a provider mounted later
       // reads [cachedPeerFixes] synchronously instead.
-      for (final fix in _cachedPeerFixes.values) {
-        _peerFixes.add(fix);
-      }
+      _cachedPeerFixes.values.forEach(_peerFixes.add);
     } on Object catch (e) {
       _latestFixTimestamp.clear();
       _cachedPeerFixes.clear();
@@ -1331,9 +1324,7 @@ class RelayController {
     final removed = _permanentCachedPeers
         .where((peer) => !authorizedPeers.contains(peer))
         .toList();
-    _permanentCachedPeers.removeWhere(
-      (peer) => !permanentPeers.contains(peer),
-    );
+    _permanentCachedPeers.removeWhere((peer) => !permanentPeers.contains(peer));
     final classificationChanged = !setEquals(
       previousPermanentPeers,
       _permanentCachedPeers,
@@ -1343,9 +1334,7 @@ class RelayController {
       _cachedPeerFixes.remove(peer);
       _latestFixTimestamp.remove(peer);
     }
-    for (final peer in removed) {
-      _ref.read(livePresenceProvider.notifier).remove(peer);
-    }
+    removed.forEach(_ref.read(livePresenceProvider.notifier).remove);
     await _writeFixCache(userId);
   }
 

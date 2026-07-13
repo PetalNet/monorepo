@@ -146,21 +146,17 @@ Person mergePresence(
     subtitle = [
       'Last place',
       'Dark since ${clockHm(darkSinceAt!, format: timeFormat)}',
-      if (precision != null) precision,
+      ?precision,
     ].join(' · ');
   } else if (uncertainFix) {
     final precision = formatAccuracy(fix.accuracy);
-    subtitle = [
-      'Last place',
-      'Update time uncertain',
-      if (precision != null) precision,
-    ].join(' · ');
+    subtitle = ['Last place', 'Update time uncertain', ?precision].join(' · ');
   } else {
     final ago = ts != null ? relativeSince(ts, now: at) : 'time uncertain';
     final precision = formatAccuracy(fix.accuracy);
     subtitle = [
       if (federated) p.userId else 'Sharing',
-      if (precision != null) precision,
+      ?precision,
       ago,
     ].join(' · ');
   }

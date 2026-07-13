@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/settings/app_settings.dart';
@@ -12,11 +14,11 @@ typedef HapticFeedbackDriver = void Function(HapticCue cue);
 void _playSystemHaptic(HapticCue cue) {
   switch (cue) {
     case HapticCue.selection:
-      HapticFeedback.selectionClick();
+      unawaited(HapticFeedback.selectionClick());
     case HapticCue.commit:
-      HapticFeedback.mediumImpact();
+      unawaited(HapticFeedback.mediumImpact());
     case HapticCue.warning:
-      HapticFeedback.heavyImpact();
+      unawaited(HapticFeedback.heavyImpact());
   }
 }
 
