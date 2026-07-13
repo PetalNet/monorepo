@@ -10,6 +10,7 @@ import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/people/people_controller.dart';
+import 'package:point_app/features/people/temp_shares_controller.dart';
 import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
 import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
@@ -605,6 +606,37 @@ class RelayController {
       case 'share.temp_created':
         // Someone started a temp share to me (or the server confirmed mine).
         _requestSync(RealtimeSyncReason.relayEvent);
+      case 'share.temp_removed':
+      case 'share.temp_expired':
+      case 'share.temp_revoked':
+        // Remove the exact relationship in the same turn as the teardown
+        // frame. The final name is accepted for servers from the short-lived
+        // pre-catalog implementation; current servers emit removed/expired.
+        final id = msg['id'] as String?;
+        final peer = msg['user_id'] as String?;
+        if (id != null && peer != null) {
+          final remaining = _ref
+              .read(tempSharesControllerProvider.notifier)
+              .removeLocally(id);
+          final permanentPeers =
+              _ref
+                  .read(peopleControllerProvider)
+                  .value
+                  ?.map((person) => person.userId) ??
+              const <String>[];
+          if (!retainsPeerLocationAfterTempTeardown(
+            remaining: remaining,
+            me: _session?.userId,
+            peer: peer,
+            permanentPeers: permanentPeers,
+            now: DateTime.now(),
+          )) {
+            _ref.read(livePresenceProvider.notifier).remove(peer);
+            _peerPresenceByUser.remove(peer);
+            _emitPeerPresence();
+          }
+        }
+        _requestSync(RealtimeSyncReason.relayEvent);
     }
   }
 
@@ -633,6 +665,10 @@ class RelayController {
     if (_peerPresenceByUser.isEmpty) return;
     _peerPresenceByUser.clear();
     _emitPeerPresence();
+  }
+
+  void _removePeerPresence(String peer) {
+    if (_peerPresenceByUser.remove(peer) != null) _emitPeerPresence();
   }
 
   void _requestSync(RealtimeSyncReason reason) {
@@ -1485,7 +1521,8 @@ class RelayHealthBanner extends ConsumerWidget {
 class LivePresence extends Notifier<Map<String, PeerMarkerMotion>> {
   @override
   Map<String, PeerMarkerMotion> build() {
-    final sub = _ref().peerFixes.listen((fix) {
+    final relay = _ref();
+    final sub = relay.peerFixes.listen((fix) {
       final current = state[fix.userId];
       state = {
         ...state,
@@ -1494,7 +1531,29 @@ class LivePresence extends Notifier<Map<String, PeerMarkerMotion>> {
             : current.advance(fix),
       };
     });
-    ref.onDispose(sub.cancel);
+    ref
+      ..onDispose(sub.cancel)
+      ..listen(incomingTempsProvider, (previous, next) {
+        final permanentPeers =
+            ref
+                .read(peopleControllerProvider)
+                .value
+                ?.map((person) => person.userId) ??
+            const <String>[];
+        final removed = peersLosingTempLocationAccess(
+          previous: previous,
+          next: next,
+          permanentPeers: permanentPeers,
+        );
+        if (removed.isEmpty) return;
+        state = {
+          for (final entry in state.entries)
+            if (!removed.contains(entry.key)) entry.key: entry.value,
+        };
+        for (final peer in removed) {
+          relay._removePeerPresence(peer);
+        }
+      });
     return const {};
   }
 

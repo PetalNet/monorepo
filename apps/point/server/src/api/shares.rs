@@ -33,6 +33,59 @@ fn both_party_audience<'a>(actor: &'a str, other: &'a str) -> [&'a str; 2] {
     [other, actor]
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum TempTeardown {
+    Removed,
+    Expired,
+}
+
+impl TempTeardown {
+    fn ws_type(self) -> &'static str {
+        match self {
+            Self::Removed => "share.temp_removed",
+            Self::Expired => "share.temp_expired",
+        }
+    }
+}
+
+/// Fan out one temporary-share teardown without exposing relationship detail
+/// to either user's push distributor. Frames are personalized so `user_id` is
+/// always the peer whose relationship changed on that device.
+pub(crate) fn notify_temp_teardown(
+    state: &AppState,
+    teardown: TempTeardown,
+    id: Uuid,
+    from_user_id: &str,
+    to_user_id: &str,
+) {
+    let to_recipient = json!({
+        "type": teardown.ws_type(),
+        "id": id,
+        "user_id": from_user_id,
+    })
+    .to_string();
+    let to_actor = json!({
+        "type": teardown.ws_type(),
+        "id": id,
+        "user_id": to_user_id,
+    })
+    .to_string();
+    state.hub.send_to_user(to_user_id, &to_recipient);
+    state.hub.send_to_user(from_user_id, &to_actor);
+
+    // TempRevoked is the notification catalog's content-free teardown wake.
+    // It is equally suitable for expiry: clients treat every wake as a prompt
+    // to pull authoritative state, and UnifiedPush receives no event kind.
+    for target in both_party_audience(from_user_id, to_user_id) {
+        tokio::spawn(crate::push::wake_user_for_event(
+            state.pool.clone(),
+            target.to_owned(),
+            crate::push::Event::TempRevoked,
+            state.config.federation_allow_private,
+        ));
+    }
+}
+
 /// Precision is an opaque client-side hint (payloads are E2E-encrypted); the
 /// server only keeps it from becoming a junk-storage channel: short lowercase
 /// token, default `exact`.
@@ -698,42 +751,27 @@ pub async fn delete_temp(
         return Err(AppError::NotFound);
     };
 
-    let to_recipient = json!({
-        "type": "share.temp_revoked",
-        "id": id,
-        "user_id": user.user_id,
-    })
-    .to_string();
-    let to_actor = json!({
-        "type": "share.temp_revoked",
-        "id": id,
-        "user_id": recipient,
-    })
-    .to_string();
-    state.hub.send_to_user(&recipient, &to_recipient);
-    state.hub.send_to_user(&user.user_id, &to_actor);
+    notify_temp_teardown(&state, TempTeardown::Removed, id, &user.user_id, &recipient);
     // Compatibility nudge for catalog-v0 clients; they already refresh temp
     // state on this frame and will simply observe that the row disappeared.
     let sync = json!({ "type": "share.temp_created" }).to_string();
     state.hub.send_to_user(&recipient, &sync);
     state.hub.send_to_user(&user.user_id, &sync);
-    for target in both_party_audience(&user.user_id, &recipient) {
-        tokio::spawn(crate::push::wake_user_for_event(
-            state.pool.clone(),
-            target.to_owned(),
-            crate::push::Event::TempRevoked,
-            state.config.federation_allow_private,
-        ));
-    }
     Ok(Json(json!({ "ok": true })))
 }
 
 #[cfg(test)]
 mod notification_event_tests {
-    use super::both_party_audience;
+    use super::{both_party_audience, TempTeardown};
 
     #[test]
     fn temporary_share_transitions_reach_actor_and_recipient_devices() {
         assert_eq!(both_party_audience("alice", "bob"), ["bob", "alice"],);
+    }
+
+    #[test]
+    fn temporary_share_teardown_has_distinct_live_event_types() {
+        assert_eq!(TempTeardown::Removed.ws_type(), "share.temp_removed");
+        assert_eq!(TempTeardown::Expired.ws_type(), "share.temp_expired");
     }
 }
