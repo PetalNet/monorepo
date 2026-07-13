@@ -42,7 +42,7 @@ engine (L1-L4), ReBAC, permission levels, and the dashboard-assistant runtime se
                     │ / managers /  │  │  canonical    │        │  semantic registry +  │   outbox, tracker
                     │ box-agents    │  │  helpers)     │        │  library + grants     │   events, card SQLite)
                     └───────────────┘  └───────────────┘        └───────────────────────┘
-```text
+```
 
 Command routing: `agent.*`/`channel.*` ops ride a new backchannel-rpc `agent.command` inlet to
 the manager (spool now, doorman when it lands; Matrix stays the never-dark floor).
