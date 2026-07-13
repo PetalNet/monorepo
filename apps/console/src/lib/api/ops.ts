@@ -34,6 +34,15 @@ const OPS = {
 		undo: false,
 		humanOnly: false,
 	},
+	"task.dispatch": {
+		op: "task.dispatch",
+		verb: "Dispatch",
+		lane: "operator",
+		executor: "dispatcher",
+		confirm: "none",
+		undo: false,
+		humanOnly: false,
+	},
 	"governance.action": {
 		op: "governance.action",
 		verb: "Pause",

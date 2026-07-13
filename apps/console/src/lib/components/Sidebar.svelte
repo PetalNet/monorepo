@@ -14,8 +14,8 @@
 		verdict: HealthVerdict;
 		/** The fact line for crack (first P0 summary) or "Bus silent Nm." for can't-verify. */
 		stateFact?: string | null;
-		/** Per-href badge values: number => count; "down"/"p0" => danger dot. */
-		badges?: Record<string, number | "down" | "p0" | null>;
+		/** Per-href badge values: number => count; severity token => graded dot. */
+		badges?: Record<string, number | "down" | "p0" | "warn" | "muted" | null>;
 	}
 	let { me, verdict, stateFact = null, badges = {} }: Props = $props();
 
@@ -44,6 +44,10 @@
 					{#if badge > 0}<span class="rail-dot" aria-hidden="true"></span>{/if}
 				{:else if badge === "down" || badge === "p0"}
 					<StatusDot tone="danger" size={6} />
+				{:else if badge === "warn"}
+					<StatusDot tone="warn" size={6} />
+				{:else if badge === "muted"}
+					<StatusDot tone="idle" size={6} />
 				{/if}
 			</a>
 		{/each}
@@ -67,7 +71,7 @@
 				<span>{stateFact ?? "Can't verify."}</span>
 			{:else if verdict === "needs_you"}
 				<Icon name="circle-help" size={12} />
-				<span>Mostly fine. Something needs you.</span>
+				<span>{stateFact ?? "Mostly fine. Something needs you."}</span>
 			{:else}
 				<Icon name="circle-check" size={12} />
 				<span>Welcome! Everything is fine.</span>

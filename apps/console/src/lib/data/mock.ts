@@ -174,6 +174,76 @@ export const railHosts: RailHost[] = [
 
 export const attentionEmpty: AttentionItem[] = [];
 
+// A busy-but-fine board: evidence fresh, attention set non-empty, no P0 member.
+// Drives the "Mostly fine. N things need you." greeting + the needs-you split.
+export const attentionBusy: AttentionItem[] = [
+	{
+		schema_version: 1,
+		id: "att_hopper_blocker",
+		grade: "blocker",
+		source: "task-card",
+		subject: "hopper-3",
+		summary: "hopper-3 asks: staging or prod DNS for the doorman test?",
+		ts: iso(720_000),
+		scope: "fleet",
+		task_id: 731,
+		// fix_ops carry server-pre-bound args exactly per ops.json (task.dispatch
+		// requires `body`; recipient is the addressed handle).
+		fix_ops: [
+			{
+				op: "task.dispatch",
+				args: {
+					recipient: "hopper-3",
+					task_id: 731,
+					body: "Use staging DNS for the doorman test.",
+				},
+			},
+		],
+		acked_by: null,
+	},
+	{
+		schema_version: 1,
+		id: "att_review_library",
+		grade: "review",
+		source: "tracker",
+		subject: "library-backfill",
+		summary: "Library backfill is review-ready. carson-2 wants your sign-off.",
+		ts: iso(1_500_000),
+		scope: "fleet",
+		task_id: 718,
+		// Review-ready lead action is "Open review" — a Work-surface navigation, not
+		// a mutating op; it lands with the Work surface. No fix_op button here.
+		fix_ops: [],
+		acked_by: null,
+	},
+	{
+		schema_version: 1,
+		id: "att_artifact_cost",
+		grade: "artifact",
+		source: "feed",
+		subject: "fleet-cost-report",
+		summary: "Requested and ready: the fleet cost report you asked for.",
+		ts: iso(180_000),
+		scope: "user:parker",
+		task_id: null,
+		fix_ops: [{ op: "dashboard.pin", args: { dashboard_id: "d2" } }],
+		acked_by: null,
+	},
+	{
+		schema_version: 1,
+		id: "att_review_held",
+		grade: "review",
+		source: "tracker",
+		subject: "point-mobile-spec",
+		summary: "Point mobile spec is review-ready.",
+		ts: iso(2_400_000),
+		scope: "fleet",
+		task_id: 705,
+		fix_ops: [],
+		acked_by: "janet",
+	},
+];
+
 export const attentionCracked: AttentionItem[] = [
 	{
 		schema_version: 1,

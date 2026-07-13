@@ -15,6 +15,11 @@
 		executorLive?: Record<string, boolean>;
 	}
 	let { items, lanes, executorLive = {} }: Props = $props();
+
+	const VISIBLE = 7;
+	let expanded = $state(false);
+	const shown = $derived(expanded ? items : items.slice(0, VISIBLE));
+	const overflow = $derived(Math.max(0, items.length - VISIBLE));
 </script>
 
 <section class="town">
@@ -26,10 +31,15 @@
 		<div class="town-empty"><Icon name="circle-check" size={14} /> All caught up.</div>
 	{:else}
 		<div class="stack">
-			{#each items as item (item.id)}
+			{#each shown as item (item.id)}
 				<AttentionCard {item} {lanes} {executorLive} />
 			{/each}
 		</div>
+		{#if overflow > 0}
+			<button class="more-row" onclick={() => (expanded = !expanded)}>
+				{expanded ? "Show less" : `${overflow} more`}
+			</button>
+		{/if}
 	{/if}
 </section>
 
@@ -69,5 +79,22 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--s-2);
+	}
+	.more-row {
+		width: 100%;
+		margin-top: var(--s-2);
+		padding: var(--s-2);
+		background: transparent;
+		border: 0;
+		border-top: 1px solid var(--rule);
+		color: var(--text-3);
+		font:
+			500 0.75rem var(--mono);
+		cursor: pointer;
+		border-radius: var(--r-xs);
+		transition: background var(--t);
+	}
+	.more-row:hover {
+		background: var(--s2);
 	}
 </style>
