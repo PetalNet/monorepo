@@ -2,6 +2,30 @@
 	"name": "@petalnet/console-api",
 	"version": "0.0.1",
 	"private": true,
-	"description": "Lab Console backend (second pass): the four-plane contract surface (P0, docs only — service lands in Phase 1).",
-	"type": "module"
+	"description": "Lab Console backend (second pass): the four-plane query/command/bus/library API over the Fleet+Manager substrate.",
+	"type": "module",
+	"bin": {
+		"console-api": "./dist/server.js",
+		"console-api-mint-token": "./dist/bin/mint-token.js",
+		"console-api-seed": "./dist/bin/seed.js"
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"start": "node ./dist/server.js",
+		"test": "vitest run",
+		"typecheck": "tsc -b"
+	},
+	"dependencies": {
+		"@fastify/websocket": "catalog:prod",
+		"fastify": "catalog:prod",
+		"nanoid": "catalog:prod",
+		"postgres": "catalog:prod",
+		"zod": "catalog:prod"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
 }
