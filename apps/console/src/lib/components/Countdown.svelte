@@ -32,7 +32,7 @@
 {#if reaped}
 	<span class="cd danger">reaped</span>
 {:else if remainingMs != null}
-	<span class="cd {tone}">{fmt(remainingMs)}</span>
+	<span class="cd {tone}">{remainingMs <= 0 ? "expired · awaiting reap" : fmt(remainingMs)}</span>
 {/if}
 
 <style>

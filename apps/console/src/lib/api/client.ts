@@ -12,6 +12,7 @@
 import { env } from "$env/dynamic/public";
 
 import type {
+	AttentionItem,
 	ApiError,
 	BoxUpdateItem,
 	BoxUpdateRaw,
@@ -22,6 +23,7 @@ import type {
 	DeliveryItem,
 	ExecutorItem,
 	HeartbeatItem,
+	LeaseItem,
 	EdgeRegistryItem,
 	EdgeSessionItem,
 	Me,
@@ -30,6 +32,7 @@ import type {
 	QueryResult,
 	StructuredQuery,
 	SubscriptionItem,
+	TaskItem,
 } from "./types";
 
 export type DataMode = "mock" | "live";
@@ -131,6 +134,40 @@ export async function readHeartbeats(
 	});
 	return json<ReadEnvelope<HeartbeatItem>>(res);
 }
+export async function readTasks(fetchFn: typeof fetch = fetch): Promise<ReadEnvelope<TaskItem>> {
+	let cursor: string | null = null;
+	let first: ReadEnvelope<TaskItem> | null = null;
+	const items: TaskItem[] = [];
+	do {
+		// Cursor pagination is sequential: each request depends on the previous cursor.
+		// oxlint-disable-next-line no-await-in-loop
+		const res: Response = await fetchFn(
+			`${base()}/tasks?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+			{
+				headers: { accept: "application/json" },
+				credentials: "include",
+			},
+		);
+		// oxlint-disable-next-line no-await-in-loop
+		const page: ReadEnvelope<TaskItem> = await json<ReadEnvelope<TaskItem>>(res);
+		first ??= page;
+		items.push(...page.items);
+		cursor = page.next_cursor;
+	} while (cursor);
+	return {
+		...(first as ReadEnvelope<TaskItem>),
+		items,
+		next_cursor: null,
+		total: first?.total ?? items.length,
+	};
+}
+export async function readLeases(fetchFn: typeof fetch = fetch): Promise<ReadEnvelope<LeaseItem>> {
+	const res = await fetchFn(`${base()}/leases?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<LeaseItem>>(res);
+}
 
 /** POST /api/v1/query — scope-filtered structured statistics query, run as the caller. */
 export async function runQuery(
@@ -211,6 +248,15 @@ export async function readCards(fetchFn: typeof fetch = fetch): Promise<ReadEnve
 		credentials: "include",
 	});
 	return json<ReadEnvelope<CardItem>>(res);
+}
+export async function readAttention(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<AttentionItem>> {
+	const res = await fetchFn(`${base()}/attention?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<AttentionItem>>(res);
 }
 export async function readHealth(fetchFn: typeof fetch = fetch): Promise<ConsoleHealth> {
 	const res = await fetchFn(`${base()}/health`, { headers: { accept: "application/json" } });

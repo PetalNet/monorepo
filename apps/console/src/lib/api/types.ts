@@ -144,6 +144,46 @@ export interface HeartbeatItem extends Extra {
 	host: string;
 	observed_at: string;
 }
+export type TaskStatus = "inbox" | "todo" | "doing" | "blocked" | "review" | "done" | "dropped";
+export interface TaskItem extends Extra {
+	id: number;
+	kind: string;
+	title: string;
+	body?: string;
+	status: TaskStatus;
+	priority: 0 | 1 | 2 | 3;
+	project_id?: number | null;
+	project_title?: string | null;
+	parent_id?: number | null;
+	assignee?: string;
+	claimed_by?: string;
+	lease_expires_at?: string | null;
+	blocked_on?: string;
+	verification_status?: "unverified" | "verified" | "rejected";
+	suggested_agent?: string;
+	effort?: string;
+	parallel_group?: string;
+	rank?: number;
+	up_next?: boolean;
+	owner?: string;
+	visibility?: "shared" | "private";
+	handoff_context?: string;
+	acceptance_criteria?: string;
+	result_summary?: string;
+	close_reason?: string;
+	created_at: string;
+	updated_at: string;
+	capability?: string;
+}
+export interface LeaseItem extends Extra {
+	schema_version: 1;
+	task_id: number;
+	worker: string;
+	fence?: number;
+	granted_at?: string;
+	lease_expires_at: string;
+	lease_seconds?: number;
+}
 
 // ---- accounting (POST /query, GET /catalog, GET /dashboards) ----
 export type QueryColumnType = "string" | "number" | "boolean" | "timestamp" | "json";
