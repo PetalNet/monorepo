@@ -4,13 +4,17 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"prebuild": "node scripts/generate-contracts.mjs --check",
 		"build": "vite build",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check": "node scripts/generate-contracts.mjs --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"contracts:check": "node scripts/generate-contracts.mjs --check",
+		"contracts:generate": "node scripts/generate-contracts.mjs",
 		"dev": "vite dev",
+		"lint": "oxlint src scripts --max-warnings=0",
 		"prepare": "svelte-kit sync || echo ''",
 		"preview": "vite preview",
-		"test": "node --test"
+		"test": "node --test --experimental-strip-types src/**/*.test.ts"
 	},
 	"dependencies": {
 		"@fontsource/geist-mono": "catalog:prod",

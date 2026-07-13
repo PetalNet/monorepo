@@ -1,0 +1,3 @@
+# Deterministic outputs generated from console-api's canonical JSON contracts.
+apps/console/src/lib/api/ops.ts
+apps/console/src/lib/api/types.ts
