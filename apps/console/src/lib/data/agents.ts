@@ -1,7 +1,8 @@
 /**
  * Agents surface view-model — assembles the Roster from /roster (a server-side join) and the fleet
  * summary for the FleetStrip. In mock mode it reads fixtures; live mode reads /roster + governance
- * and applies the shared derivations. Lanes and health are computed once here (§6.4).
+ * and applies the shared derivations. The raw roster is retained so time-derived lanes and health
+ * can be recomputed from the live UI clock (§6.4).
  */
 import { isRosterDown, rosterLane, rosterState } from "$lib/api/derive";
 import type { RosterItem } from "$lib/api/types";
@@ -21,13 +22,18 @@ export interface FleetHealth {
 }
 export interface AgentsData {
 	connected: boolean;
-	lanes: RosterLanes;
-	health: FleetHealth;
+	roster: RosterItem[];
 	summary: mock.FleetSummary;
 	total: number;
 }
 
-function assemble(roster: RosterItem[], summary: mock.FleetSummary, now: number): AgentsData {
+export function deriveRoster(
+	roster: RosterItem[],
+	now: number,
+): {
+	lanes: RosterLanes;
+	health: FleetHealth;
+} {
 	const lanes: RosterLanes = { needs: [], working: [], idle: [] };
 	const health: FleetHealth = { alive: 0, working: 0, idle: 0, down: 0 };
 	for (const row of roster) {
@@ -38,15 +44,18 @@ function assemble(roster: RosterItem[], summary: mock.FleetSummary, now: number)
 		else if (state === "alive") health.alive++;
 		else health.idle++;
 	}
-	return { connected: true, lanes, health, summary, total: roster.length };
+	return { lanes, health };
+}
+
+function assemble(roster: RosterItem[], summary: mock.FleetSummary): AgentsData {
+	return { connected: true, roster, summary, total: roster.length };
 }
 
 /** Live-mode placeholder until /roster is wired against the running console-api. */
 export function liveEmptyAgents(): AgentsData {
 	return {
 		connected: false,
-		lanes: { needs: [], working: [], idle: [] },
-		health: { alive: 0, working: 0, idle: 0, down: 0 },
+		roster: [],
 		summary: {
 			tokensSpent: 0,
 			tokensGranted: 1,
@@ -60,5 +69,5 @@ export function liveEmptyAgents(): AgentsData {
 }
 
 export function mockAgents(): AgentsData {
-	return assemble(mock.roster, mock.fleetSummary, Date.now());
+	return assemble(mock.roster, mock.fleetSummary);
 }

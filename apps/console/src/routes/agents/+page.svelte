@@ -4,12 +4,14 @@
 	import Icon from "$lib/components/Icon.svelte";
 	import RosterRow from "$lib/components/RosterRow.svelte";
 	import SurfaceSign from "$lib/components/SurfaceSign.svelte";
+	import { deriveRoster } from "$lib/data/agents";
 	import { clockNow } from "$lib/stores/clock.svelte";
 
 	let { data } = $props();
 	const a = $derived(data.agents);
 	// Live clock: countdowns tick and gone-quiet crosses its window without a refresh.
 	const now = $derived(clockNow());
+	const roster = $derived(deriveRoster(a.roster, now));
 
 	let filter = $state("");
 	function match(rows: RosterItem[]): RosterItem[] {
@@ -17,9 +19,9 @@
 		return q ? rows.filter((r) => r.handle.toLowerCase().includes(q)) : rows;
 	}
 	const lanes = $derived([
-		{ key: "Needs you", rows: match(a.lanes.needs) },
-		{ key: "Working", rows: match(a.lanes.working) },
-		{ key: "Idle", rows: match(a.lanes.idle) },
+		{ key: "Needs you", rows: match(roster.lanes.needs) },
+		{ key: "Working", rows: match(roster.lanes.working) },
+		{ key: "Idle", rows: match(roster.lanes.idle) },
 	]);
 </script>
 
@@ -39,7 +41,7 @@
 	</div>
 {:else}
 	<div class="strip-wrap">
-		<FleetStrip summary={a.summary} health={a.health} />
+		<FleetStrip summary={a.summary} health={roster.health} />
 	</div>
 
 	<div class="roster">
