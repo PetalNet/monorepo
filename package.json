@@ -27,6 +27,7 @@
 		"@manypkg/cli": "catalog:dev",
 		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
+		"@typescript/native": "catalog:dev",
 		"eslint": "catalog:dev",
 		"eslint-plugin-oxlint": "catalog:dev",
 		"eslint-plugin-package-json": "catalog:dev",
