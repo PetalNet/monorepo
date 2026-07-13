@@ -2034,7 +2034,8 @@ export async function buildServer(
 	});
 
 	// --- terminal gate + frame transport --------------------------------------------------------
-	app.get("/api/v1/terminal", { preHandler: auth }, async (req, reply) => {
+	// Fastify-local preHandlers enforce the bounded token bucket. lgtm[js/missing-rate-limiting]
+	app.get("/api/v1/terminal", { preHandler: [auth, opRateLimit] }, async (req, reply) => {
 		const principal = req.principal as Principal;
 		const denial = await authorizeTerminal(principal);
 		if (denial) {
@@ -2063,6 +2064,7 @@ export async function buildServer(
 		return { audit_writable: true, pty_live: await terminal.health(), audit_seq: auditSeq };
 	});
 
+	// Fastify-local preHandlers enforce the bounded token bucket. lgtm[js/missing-rate-limiting]
 	app.post("/api/v1/terminal/streams", { preHandler: [auth, opRateLimit] }, async (req, reply) => {
 		const principal = req.principal as Principal;
 		const denial = await authorizeTerminal(principal);
@@ -2182,6 +2184,7 @@ export async function buildServer(
 		reply.raw.on("close", close);
 	});
 
+	// Fastify-local preHandlers enforce the bounded token bucket. lgtm[js/missing-rate-limiting]
 	app.post(
 		"/api/v1/terminal/streams/:streamId/attach",
 		{ preHandler: [auth, opRateLimit] },
@@ -2200,6 +2203,7 @@ export async function buildServer(
 		},
 	);
 
+	// Fastify-local preHandlers enforce the bounded token bucket. lgtm[js/missing-rate-limiting]
 	app.post(
 		"/api/v1/terminal/streams/:streamId/input",
 		{ preHandler: [auth, opRateLimit] },
@@ -2239,6 +2243,7 @@ export async function buildServer(
 		},
 	);
 
+	// Fastify-local preHandlers enforce the bounded token bucket. lgtm[js/missing-rate-limiting]
 	app.post(
 		"/api/v1/terminal/streams/:streamId/detach",
 		{ preHandler: [auth, opRateLimit] },
