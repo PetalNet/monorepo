@@ -12,8 +12,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rand = "0.10"
-# ureq 2.x pinned deliberately (3.x changed the API) — same pin as apps/manager. tls = rustls.
-ureq = { version = "2.10", default-features = false, features = ["tls", "json"] }
+ureq = { version = "3.0", default-features = false, features = ["rustls", "json"] }
 
 [dev-dependencies]
 tempfile = "3"

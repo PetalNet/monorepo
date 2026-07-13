@@ -86,9 +86,11 @@ impl MatrixClient {
             token: creds.access_token.clone(),
             user_id: creds.user_id.clone(),
             room: room.to_string(),
-            agent: ureq::AgentBuilder::new()
-                .timeout_connect(Duration::from_secs(10))
-                .build(),
+            agent: ureq::Agent::config_builder()
+                .timeout_connect(Some(Duration::from_secs(10)))
+                .http_status_as_error(false)
+                .build()
+                .into(),
             // Seed the txn counter from wall clock so ids stay unique across
             // manager restarts (JS used Date.now(), which could collide on
             // same-millisecond sends).
@@ -106,24 +108,34 @@ impl MatrixClient {
         timeout: Duration,
     ) -> (u16, Value) {
         let url = format!("{}{}", self.homeserver, path);
-        let req = self
-            .agent
-            .request(method, &url)
-            .set("Authorization", &format!("Bearer {}", self.token))
-            .timeout(timeout);
-        let result = match body {
-            Some(b) => req.send_json(b.clone()),
-            None => req.call(),
+        let authorization = format!("Bearer {}", self.token);
+        let result = match (method, body) {
+            ("PUT", Some(b)) => self
+                .agent
+                .put(&url)
+                .header("Authorization", &authorization)
+                .config()
+                .timeout_global(Some(timeout))
+                .build()
+                .send_json(b),
+            ("GET", None) => self
+                .agent
+                .get(&url)
+                .header("Authorization", &authorization)
+                .config()
+                .timeout_global(Some(timeout))
+                .build()
+                .call(),
+            _ => {
+                eprintln!("[manager/matrix] unsupported request shape: {method}");
+                return (0, Value::Null);
+            }
         };
         match result {
-            Ok(resp) => {
-                let status = resp.status();
-                let v: Value = resp.into_json().unwrap_or(Value::Null);
+            Ok(mut resp) => {
+                let status = resp.status().as_u16();
+                let v: Value = resp.body_mut().read_json().unwrap_or(Value::Null);
                 (status, v)
-            }
-            Err(ureq::Error::Status(code, resp)) => {
-                let v: Value = resp.into_json().unwrap_or(Value::Null);
-                (code, v)
             }
             Err(e) => {
                 eprintln!("[manager/matrix] request error: {e}");
