@@ -19,11 +19,13 @@ export const load: PageLoad = async ({
 }): Promise<{
 	hosts: HostsData;
 	sources: Record<"updates" | "roster" | "registry" | "workers", "live" | "stale" | "unavailable">;
+	isMock: boolean;
 }> => {
 	if (dataMode() !== "live")
 		return {
 			hosts: mockHosts(),
 			sources: { updates: "live", roster: "live", registry: "live", workers: "live" },
+			isMock: true,
 		};
 	const [boxesRead, rosterRead, registryRead, workersRead] = await Promise.all([
 		readBoxUpdates(fetch).catch(() => null),
@@ -61,5 +63,6 @@ export const load: PageLoad = async ({
 			registry: registryRead ? "live" : cachedRegistry ? "stale" : "unavailable",
 			workers: workersRead ? "live" : cachedWorkers ? "stale" : "unavailable",
 		},
+		isMock: false,
 	};
 };

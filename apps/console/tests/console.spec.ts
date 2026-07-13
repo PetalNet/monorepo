@@ -66,6 +66,36 @@ test("ask reaches the caller-scoped assistant contract", async ({ page, request 
 		.toHaveLength(1);
 });
 
+test("Library front desk continues the manager session and applies its view tool receipt", async ({
+	page,
+	request,
+}) => {
+	await page.goto("/library");
+	const ask = page.getByRole("textbox", { name: "Ask the librarian" });
+	await ask.fill("Show me the graph");
+	await page.getByRole("button", { name: "Send to librarian" }).click();
+	await expect(page.getByText("I opened the dependency graph.", { exact: true })).toBeVisible();
+	await expect(page.getByLabel("Typed-link dependency graph")).toBeVisible();
+	await expect(page.getByText("session live", { exact: true })).toBeVisible();
+	await expect
+		.poll(async () => (await request.get(`${contract}/__test/messages`)).json())
+		.toHaveLength(1);
+});
+
+test("Library literal search crosses its Remote Function and renders the contracted result", async ({
+	page,
+}) => {
+	await page.goto("/library");
+	await page.waitForTimeout(500);
+	const search = page.getByRole("textbox", { name: "Search the stacks" });
+	await search.fill("retry");
+	await search.press("Enter");
+	await expect(page.getByText("Retry discipline", { exact: true })).toBeVisible();
+	await expect(
+		page.getByText("Library lexical match · dense index unavailable", { exact: true }),
+	).toBeVisible();
+});
+
 test("named command reaches the contract op plane", async ({ page, request }) => {
 	await page.goto("/network");
 	await page.waitForTimeout(500);

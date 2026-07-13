@@ -18,7 +18,8 @@ export type ProjectionKind =
 	| "edge"
 	| "edge_session"
 	| "attention"
-	| "subscription";
+	| "subscription"
+	| "availability";
 
 const CONTRACTED_READ_KINDS = new Set<ProjectionKind>([
 	"edge",
@@ -26,6 +27,7 @@ const CONTRACTED_READ_KINDS = new Set<ProjectionKind>([
 	"attention",
 	"subscription",
 	"box_update",
+	"availability",
 ]);
 
 /** Map an emission type to its projection bucket, or null if the type is not state-bearing. */
@@ -38,6 +40,8 @@ function projectionKind(type: string): ProjectionKind | null {
 	if (type.startsWith("card.")) return "card";
 	if (type.startsWith("worker.")) return "worker";
 	if (type === "box.update_status_changed") return "box_update";
+	if (type === "service.probe" || type === "service.down" || type === "service.up")
+		return "availability";
 	if (type.startsWith("attention.")) return "attention";
 	if (type.startsWith("subscription.")) return "subscription";
 	if (
@@ -85,10 +89,20 @@ function projectionSubject(e: Emission, kind: ProjectionKind): string {
 }
 
 /** The state payload persisted for an entity — salient emission fields the typed reads shape from. */
-function stateOf(e: Emission): Record<string, unknown> {
+function stateOf(e: Emission, receivedAt: string): Record<string, unknown> {
 	const typedEntity = typedEntityOf(e);
 	const bridgeSource = bridgeSourceOf(e);
 	const raw = e.meta?.["box_update_raw"];
+	const availabilityState =
+		e.type === "service.probe"
+			? {
+					last_probe_at: receivedAt,
+					last_probe_result: e.dimensions?.["ok"] ?? e.measures?.["ok"] ?? null,
+					probe_runner: e.source.agent ?? e.source.service,
+				}
+			: e.type === "service.down" || e.type === "service.up"
+				? { last_signal_type: e.type, last_signal_at: receivedAt }
+				: {};
 	return {
 		schema_version: 1,
 		subject: e.subject,
@@ -105,6 +119,7 @@ function stateOf(e: Emission): Record<string, unknown> {
 		...typedEntity,
 		...(raw && typeof raw === "object" && !Array.isArray(raw) ? { box_update_raw: raw } : {}),
 		...(bridgeSource ? { bridge_source: bridgeSource } : {}),
+		...availabilityState,
 	};
 }
 
@@ -125,11 +140,17 @@ const AGGREGATE_KINDS = new Set<ProjectionKind>([
 	"edge_session",
 ]);
 
-const MERGED_STATE_KINDS = new Set<ProjectionKind>(["edge_session", "attention", "subscription"]);
+const MERGED_STATE_KINDS = new Set<ProjectionKind>([
+	"edge_session",
+	"attention",
+	"subscription",
+	"availability",
+]);
 // A stable 64-bit key for the projector's pg advisory lock (guards concurrent replay).
 const REPLAY_LOCK_KEY = 738120;
 const CONTRACTED_REPLAY_LOCK_KEY = 738121;
-const CONTRACTED_REPLAY_NAME = "current_state_br008";
+// Bump whenever CONTRACTED_READ_KINDS gains a historical type so deployed checkpoints replay it.
+const CONTRACTED_REPLAY_NAME = "current_state_br009";
 
 export class Projector {
 	readonly #writer: Sql;
@@ -210,7 +231,8 @@ export class Projector {
 				from events
 				where seq > ${cursor} and (${replayHead}::bigint is null or seq <= ${replayHead})
 				  and (not ${contractedOnly} or type like 'attention.%' or type like 'subscription.%'
-				    or type in ('box.update_status_changed', 'doorman.degrade', 'doorman.recover')
+				    or type in ('box.update_status_changed', 'doorman.degrade', 'doorman.recover',
+				      'service.probe', 'service.down', 'service.up')
 				    or type like 'edge.enroll.%' or type like 'edge.key.%'
 				    or type like 'doorman.enroll.%' or type like 'doorman.session.%'
 				    or type like 'doorman.link.%' or type like 'edge.key_%')
@@ -345,7 +367,7 @@ export class Projector {
 		// is a no-op here and is alarmed separately below.
 		const rows = await sql<{ scope: string }[]>`
 			insert into current_state (kind, subject, scope, state, observed_at, producer_ts, seq, unreachable_since)
-			values (${kind}, ${subject}, ${e.scope}, ${sql.json(stateOf(e) as never)}, ${receivedAt}, ${e.ts}, ${seq}, null)
+			values (${kind}, ${subject}, ${e.scope}, ${sql.json(stateOf(e, receivedAt) as never)}, ${receivedAt}, ${e.ts}, ${seq}, null)
 			on conflict (kind, subject) do update
 				set state = case when ${MERGED_STATE_KINDS.has(kind)}
 					then current_state.state || excluded.state else excluded.state end,

@@ -66,6 +66,7 @@
 			<input
 				bind:this={inputEl}
 				bind:value
+				data-global-ask
 				placeholder={assistantDown ? "Janet unreachable. Surfaces still live." : greeting}
 				disabled={assistantDown}
 				aria-label="Ask Janet"
@@ -94,6 +95,7 @@
 				<input
 					bind:this={inputEl}
 					bind:value
+					data-global-ask
 					placeholder={assistantDown
 						? "Janet unreachable. Surfaces still live."
 						: "Ask about what you clicked, or anything else."}
