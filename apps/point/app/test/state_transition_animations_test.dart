@@ -304,6 +304,112 @@ void main() {
     expect(find.byType(PresenceMarker), findsNothing);
   });
 
+  testWidgets('coincident people collapse into one accessible cluster', (
+    tester,
+  ) async {
+    final container = _mapContainer();
+    addTearDown(container.dispose);
+    container.read(_peopleSourceProvider.notifier).people = const [
+      _mara,
+      Person(
+        userId: 'parker@point.dev',
+        displayName: 'Parker',
+        presence: PresenceState.stale,
+        subtitle: 'Last place · Dark',
+        lat: 38.627,
+        lon: -90.199,
+      ),
+    ];
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const MapScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PresenceMarker), findsNothing);
+    expect(find.bySemanticsLabel('2 people here'), findsOneWidget);
+    expect(find.text('Mara · now'), findsNothing);
+    expect(find.textContaining('Ghosted'), findsNothing);
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    semantics.dispose();
+  });
+
+  testWidgets('nearby people separate after the cluster zoom action', (
+    tester,
+  ) async {
+    final container = _mapContainer();
+    addTearDown(container.dispose);
+    container.read(_peopleSourceProvider.notifier).people = const [
+      _mara,
+      Person(
+        userId: 'parker@point.dev',
+        displayName: 'Parker',
+        presence: PresenceState.live,
+        lat: 38.627,
+        lon: -90.198,
+      ),
+    ];
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const MapScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('2 people here'));
+    await tester.pumpAndSettle();
+
+    expect(find.bySemanticsLabel('2 people here'), findsNothing);
+    expect(find.byType(PresenceMarker), findsNWidgets(2));
+  });
+
+  testWidgets('coincident cluster offers a people list at maximum zoom', (
+    tester,
+  ) async {
+    final container = _mapContainer();
+    addTearDown(container.dispose);
+    container.read(_peopleSourceProvider.notifier).people = const [
+      _mara,
+      Person(
+        userId: 'parker@point.dev',
+        displayName: 'Parker',
+        presence: PresenceState.live,
+        lat: 38.627,
+        lon: -90.199,
+      ),
+    ];
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const MapScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (var i = 0; i < 3; i++) {
+      await tester.tap(find.bySemanticsLabel('2 people here'));
+      await tester.pumpAndSettle();
+    }
+
+    expect(find.text('People here'), findsOneWidget);
+    expect(find.text('Mara'), findsOneWidget);
+    expect(find.text('Parker'), findsOneWidget);
+  });
+
   testWidgets(
     'fix past the old five-minute TTL stays mapped with dark last-known status',
     (tester) async {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -247,6 +248,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 motions: motions,
                 timeFormat: timeFormat,
                 reducedMotion: reducedMotion,
+                selectedUserId: _follow.userId,
                 onFocus: (person) {
                   Haptics.selection(ref);
                   _moveTo(
@@ -438,6 +440,7 @@ class _PeopleMarkers extends StatefulWidget {
     required this.motions,
     required this.timeFormat,
     required this.reducedMotion,
+    required this.selectedUserId,
     required this.onFocus,
     required this.onPosition,
   });
@@ -445,6 +448,7 @@ class _PeopleMarkers extends StatefulWidget {
   final Map<String, PeerMarkerMotion> motions;
   final TimeFormat timeFormat;
   final bool reducedMotion;
+  final String? selectedUserId;
   final void Function(Person) onFocus;
   final void Function(String, LatLng) onPosition;
 
@@ -574,26 +578,244 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
 
   @override
   Widget build(BuildContext context) {
+    final camera = MapCamera.of(context);
+    final layout = _MarkerLayout.resolve(
+      entries: _entries.values.toList(),
+      camera: camera,
+      selectedUserId: widget.selectedUserId,
+    );
     return Stack(
       children: [
-        for (final entry in _entries.values)
+        for (final cluster in layout.clusters)
+          _PeopleClusterMarker(
+            cluster: cluster,
+            camera: camera,
+            onTap: () => _openCluster(cluster, camera),
+          ),
+        for (final placement in layout.people)
           _AnimatedPersonMarkerLayer(
-            key: ValueKey('marker-transition-${entry.person.userId}'),
-            person: entry.person,
-            motion: widget.motions[entry.person.userId],
+            key: ValueKey('marker-transition-${placement.entry.person.userId}'),
+            person: placement.entry.person,
+            motion: widget.motions[placement.entry.person.userId],
             timeFormat: widget.timeFormat,
-            visibility: entry.controller,
-            exiting: entry.exiting,
+            showLabel: placement.showLabel,
+            visibility: placement.entry.controller,
+            exiting: placement.entry.exiting,
             reducedMotion: widget.reducedMotion,
             onPosition: widget.onPosition,
             onTap: () => PersonMapSheet.show(
               context,
-              person: entry.person,
-              onFocus: () => widget.onFocus(entry.person),
-              onOpenDetail: () =>
-                  context.push(PersonDetailRoute(entry.person.userId)),
+              person: placement.entry.person,
+              onFocus: () => widget.onFocus(placement.entry.person),
+              onOpenDetail: () => context.push(
+                PersonDetailRoute(placement.entry.person.userId),
+              ),
             ),
           ),
+      ],
+    );
+  }
+
+  void _openCluster(_MarkerCluster cluster, MapCamera camera) {
+    if (camera.zoom < 18) {
+      final center = cluster.center;
+      MapController.of(context).move(center, math.min(camera.zoom + 2, 18));
+      return;
+    }
+    unawaited(
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: ListView.builder(
+            shrinkWrap: true,
+            padding: EdgeInsets.only(bottom: sheetContext.space.sm),
+            itemCount: cluster.entries.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    sheetContext.space.lg,
+                    sheetContext.space.sm,
+                    sheetContext.space.lg,
+                    sheetContext.space.xs,
+                  ),
+                  child: Text(
+                    'People here',
+                    style: sheetContext.text.titleMedium,
+                  ),
+                );
+              }
+              final entry = cluster.entries[index - 1];
+              return ListTile(
+                leading: const Icon(Icons.person_outline),
+                title: Text(entry.person.displayName),
+                subtitle: Text(entry.person.subtitle),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(
+                    PersonMapSheet.show(
+                      context,
+                      person: entry.person,
+                      onFocus: () => widget.onFocus(entry.person),
+                      onOpenDetail: () => context.push(
+                        PersonDetailRoute(entry.person.userId),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MarkerLayout {
+  const _MarkerLayout({required this.people, required this.clusters});
+
+  factory _MarkerLayout.resolve({
+    required List<_MarkerEntry> entries,
+    required MapCamera camera,
+    required String? selectedUserId,
+  }) {
+    final ordered = [...entries]
+      ..sort((a, b) {
+        final aPriority = _priority(a.person, selectedUserId);
+        final bPriority = _priority(b.person, selectedUserId);
+        return bPriority.compareTo(aPriority);
+      });
+    final pending = [...ordered];
+    final people = <_PersonPlacement>[];
+    final clusters = <_MarkerCluster>[];
+    final labelBounds = <Rect>[];
+    // Identity dots are 48dp tap targets. Clustering at anything below their
+    // diameter would leave overlapping people visually and tappably ambiguous.
+    const clusterDistance = 48.0;
+
+    while (pending.isNotEmpty) {
+      final seed = pending.removeAt(0);
+      final seedPoint = _screenPoint(seed, camera);
+      final neighbors = <_MarkerEntry>[seed];
+      final isSelected = seed.person.userId == selectedUserId;
+      if (!isSelected) {
+        pending.removeWhere((candidate) {
+          if ((_screenPoint(candidate, camera) - seedPoint).distance >
+              clusterDistance) {
+            return false;
+          }
+          neighbors.add(candidate);
+          return true;
+        });
+      }
+      if (neighbors.length > 1) {
+        clusters.add(_MarkerCluster(entries: neighbors));
+        continue;
+      }
+
+      final person = seed.person;
+      final candidateBounds = Rect.fromCenter(
+        center: seedPoint + const Offset(0, 68),
+        width: 144,
+        height: 48,
+      );
+      final selected = person.userId == selectedUserId;
+      final separated = labelBounds.every(
+        (occupied) => !occupied.inflate(4).overlaps(candidateBounds),
+      );
+      final showLabel = selected || separated;
+      if (showLabel) labelBounds.add(candidateBounds);
+      people.add(_PersonPlacement(entry: seed, showLabel: showLabel));
+    }
+    return _MarkerLayout(people: people, clusters: clusters);
+  }
+
+  final List<_PersonPlacement> people;
+  final List<_MarkerCluster> clusters;
+
+  static int _priority(Person person, String? selectedUserId) {
+    if (person.userId == selectedUserId) return 3;
+    if (person.presence == PresenceState.live) return 2;
+    return 1;
+  }
+
+  static Offset _screenPoint(_MarkerEntry entry, MapCamera camera) =>
+      camera.projectAtZoom(LatLng(entry.person.lat!, entry.person.lon!)) -
+      camera.pixelOrigin;
+}
+
+class _PersonPlacement {
+  const _PersonPlacement({required this.entry, required this.showLabel});
+  final _MarkerEntry entry;
+  final bool showLabel;
+}
+
+class _MarkerCluster {
+  const _MarkerCluster({required this.entries});
+  final List<_MarkerEntry> entries;
+
+  LatLng get center {
+    final latitude =
+        entries.map((entry) => entry.person.lat!).reduce((a, b) => a + b) /
+        entries.length;
+    final longitudes = entries.map(
+      (entry) => entry.person.lon! * math.pi / 180,
+    );
+    final sinSum = longitudes.map(math.sin).reduce((a, b) => a + b);
+    final cosSum = longitudes.map(math.cos).reduce((a, b) => a + b);
+    final longitude = math.atan2(sinSum, cosSum) * 180 / math.pi;
+    return LatLng(latitude, longitude);
+  }
+}
+
+class _PeopleClusterMarker extends StatelessWidget {
+  const _PeopleClusterMarker({
+    required this.cluster,
+    required this.camera,
+    required this.onTap,
+  });
+
+  final _MarkerCluster cluster;
+  final MapCamera camera;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = cluster.entries.length;
+    return MarkerLayer(
+      markers: [
+        Marker(
+          point: cluster.center,
+          width: 48,
+          height: 48,
+          child: Semantics(
+            label: '$count people here',
+            hint: camera.zoom < 18
+                ? 'Zooms in to separate markers'
+                : 'Shows people at this location',
+            button: true,
+            excludeSemantics: true,
+            child: Material(
+              color: context.colors.inverseSurface,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                excludeFromSemantics: true,
+                onTap: onTap,
+                child: Center(
+                  child: Text(
+                    '$count',
+                    style: context.text.labelLarge?.copyWith(
+                      color: context.colors.onInverseSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -612,6 +834,7 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
     required this.person,
     required this.motion,
     required this.timeFormat,
+    required this.showLabel,
     required this.reducedMotion,
     required this.onPosition,
     required this.onTap,
@@ -623,6 +846,7 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
   final Person person;
   final PeerMarkerMotion? motion;
   final TimeFormat timeFormat;
+  final bool showLabel;
   final Animation<double>? visibility;
   final bool exiting;
   final bool reducedMotion;
@@ -643,6 +867,7 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
         child: PresenceMarker(
           person: person,
           timeFormat: timeFormat,
+          showLabel: showLabel,
           onTap: onTap,
         ),
       ),
@@ -671,8 +896,8 @@ class _AnimatedPersonMarkerLayer extends StatelessWidget {
           markers: [
             Marker(
               point: point,
-              width: 144,
-              height: 92,
+              width: showLabel ? 144 : 48,
+              height: showLabel ? 92 : 48,
               alignment: Alignment.topCenter,
               child: child!,
             ),

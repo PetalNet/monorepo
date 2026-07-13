@@ -22,12 +22,14 @@ class PresenceMarker extends StatelessWidget {
   const PresenceMarker({
     required this.person,
     this.timeFormat = TimeFormat.h24,
+    this.showLabel = true,
     this.onTap,
     super.key,
   });
 
   final Person person;
   final TimeFormat timeFormat;
+  final bool showLabel;
   final PresenceMarkerTap? onTap;
 
   @override
@@ -36,8 +38,10 @@ class PresenceMarker extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         _MarkerSharedElement(person: person, initials: _initials),
-        const SizedBox(height: 2),
-        _LabelPill(text: '${person.displayName} · $_when'),
+        if (showLabel) ...[
+          const SizedBox(height: 2),
+          _LabelPill(text: '${person.displayName} · $_when'),
+        ],
       ],
     );
 
@@ -287,11 +291,7 @@ class PersonMarkerTransition {
     final bounds = renderBox.localToGlobal(Offset.zero) & renderBox.size;
     final marker = Rect.fromLTWH(bounds.center.dx - 22, bounds.top, 44, 44);
     final token = ++_nextToken;
-    _origins[userId] = (
-      rect: marker,
-      capturedAt: DateTime.now(),
-      token: token,
-    );
+    _origins[userId] = (rect: marker, capturedAt: DateTime.now(), token: token);
     return token;
   }
 
