@@ -151,6 +151,14 @@ const STATEMENTS: readonly string[] = [
 	   updated_at   timestamptz not null default now()
 	 )`,
 
+	// bridge cursors: the high-water mark a co-located bridge has ingested per source (durable so a
+	// restart resumes; deterministic emission ids make re-processing safe regardless).
+	`create table if not exists bridge_cursor (
+	   source     text primary key,
+	   cursor     text not null default '',
+	   updated_at timestamptz not null default now()
+	 )`,
+
 	// executor signing keys: completions are executor-SIGNED, verified here; the bridge is relay-only.
 	`create table if not exists executor_keys (
 	   executor    text primary key,
@@ -239,6 +247,7 @@ const STATEMENTS: readonly string[] = [
 	`grant insert, select on events, edges, blobs to console_writer`,
 	`grant insert, update, select, delete on current_state, items_min to console_writer`,
 	`grant insert, update, select on projection_checkpoint to console_writer`,
+	`grant insert, update, select on bridge_cursor to console_writer`,
 ];
 
 export interface MigrateOpts {

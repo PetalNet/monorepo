@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import { buildServices, type Services } from "../src/app.ts";
+import { Bridge } from "../src/bridge/index.ts";
 import { migrate } from "../src/db/migrate.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
@@ -542,5 +543,39 @@ describe("roster + executors (N1b-2, lake half)", () => {
 			| { liveness: string }
 			| undefined;
 		expect(mgr?.liveness).toBe("alive"); // fresh heartbeat -> manager class alive
+	});
+});
+
+describe("bridge end-to-end (N1b-3 — bot-spam into the bus)", () => {
+	it("ingests system-outbox files into the lake via the real emit path, idempotently", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = mkdtempSync(join(tmpdir(), "e2e-outbox-"));
+		mkdirSync(join(dir, "sent"), { recursive: true });
+		writeFileSync(
+			join(dir, "sent", "900-shawn.json"),
+			JSON.stringify({ sender: "shawn", body: "[warn] disk 91%" }),
+		);
+
+		const bridge = new Bridge(services.db.writer, (subj, e, b) => services.emit(subj, e, b), {
+			systemOutboxDir: dir,
+		});
+		await bridge.pollOnce("2026-07-13T00:00:00Z");
+		const q1 = await runStructured(services.db.app, ["fleet"], {
+			schema_version: 1,
+			mode: "structured",
+			from: "bot.message",
+			select: [{ field: "subject" }],
+		});
+		expect(q1.rows.map((r) => r[0])).toContain("shawn");
+
+		// second poll: cursor advanced -> no re-emit; and even a forced re-tail dedups by deterministic id
+		const before = await services.db
+			.admin`select count(*)::int n from events where type='bot.message'`;
+		await bridge.pollOnce("2026-07-13T00:00:05Z");
+		const after = await services.db
+			.admin`select count(*)::int n from events where type='bot.message'`;
+		expect(after[0]?.["n"]).toBe(before[0]?.["n"]); // idempotent — no duplicate rows
 	});
 });

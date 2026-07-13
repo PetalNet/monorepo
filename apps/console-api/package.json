@@ -6,6 +6,7 @@
 	"type": "module",
 	"bin": {
 		"console-api": "./dist/server.js",
+		"console-api-bridge": "./dist/bin/bridge.js",
 		"console-api-mint-token": "./dist/bin/mint-token.js",
 		"console-api-seed": "./dist/bin/seed.js"
 	},
