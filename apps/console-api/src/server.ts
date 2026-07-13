@@ -583,6 +583,7 @@ export async function buildServer(
 		}
 	}
 	let requestSample = 0;
+	let wsClients = 0;
 	const requestStarted = new WeakMap<FastifyRequest, number>();
 	app.addHook("onRequest", async (req) => {
 		requestStarted.set(req, performance.now());
@@ -1462,17 +1463,61 @@ export async function buildServer(
 	// --- health (unauthenticated) --------------------------------------------------------------
 	app.get("/api/v1/health", async () => {
 		let lake: "ok" | "down" = "ok";
+		let bridges: {
+			source: string;
+			last_ingest_at: string | null;
+			observed_at: string | null;
+			lag_s: number | null;
+		}[] = [];
+		let ingest: { source: string; last_ingest_at: string; lag_s: number }[] = [];
+		let matrixSyncOkEpoch: number | null = null;
 		try {
-			await services.db.admin`select 1`;
-		} catch {
+			const now = Date.now();
+			const [bridgeRows, ingestRows, matrixRows] = await Promise.all([
+				services.db.admin<{ source: string; last_ingest_at: string | null }[]>`
+					select c.source, max(e.received_at)::text as last_ingest_at
+					from bridge_cursor c
+					left join events e on e.meta #>> '{bridge_source,id}' = c.source
+					group by c.source
+					order by c.source`,
+				services.db.admin<{ source: string; last_ingest_at: string }[]>`
+					select source_service as source, max(received_at)::text as last_ingest_at
+					from events group by source_service order by source_service`,
+				services.db.admin<{ sync_ok_epoch: string | null }[]>`
+					select max((measures ->> 'last_sync_ok_epoch')::double precision)::bigint::text
+					       as sync_ok_epoch
+					from events
+					where type = 'agent.heartbeat'
+					  and source_service = 'manager'
+					  and jsonb_typeof(measures -> 'last_sync_ok_epoch') = 'number'
+					  and (measures ->> 'last_sync_ok_epoch')::double precision > 0`,
+			]);
+			bridges = bridgeRows.map((row) => ({
+				source: row.source,
+				last_ingest_at: row.last_ingest_at,
+				observed_at: row.last_ingest_at,
+				lag_s: row.last_ingest_at
+					? Math.max(0, (now - Date.parse(row.last_ingest_at)) / 1000)
+					: null,
+			}));
+			ingest = ingestRows.map((row) => ({
+				source: row.source,
+				last_ingest_at: row.last_ingest_at,
+				lag_s: Math.max(0, (now - Date.parse(row.last_ingest_at)) / 1000),
+			}));
+			const matrixEpoch = Number(matrixRows[0]?.sync_ok_epoch);
+			matrixSyncOkEpoch = Number.isSafeInteger(matrixEpoch) && matrixEpoch > 0 ? matrixEpoch : null;
+		} catch (error) {
 			lake = "down";
+			monitor.captureException(sanitizedException(error));
 		}
 		return {
 			lake,
 			seq_head: services.broker.head,
-			bridges: [],
-			ws_clients: 0,
-			matrix_sync_ok_epoch: null,
+			bridges,
+			ingest,
+			ws_clients: wsClients,
+			matrix_sync_ok_epoch: matrixSyncOkEpoch,
 		};
 	});
 
@@ -2416,6 +2461,8 @@ export async function buildServer(
 	app.get("/api/v1/bus/ws", { websocket: true }, (socket, req) => {
 		const maxFrameBytes = 16 * 1024;
 		const maxSubscriptions = 64;
+		wsClients += 1;
+		let clientCounted = true;
 		let principal: Principal | null = null;
 		const authz = req.headers.authorization;
 		const connSubs = new Set<string>();
@@ -2596,6 +2643,10 @@ export async function buildServer(
 			})();
 		});
 		socket.on("close", () => {
+			if (clientCounted) {
+				clientCounted = false;
+				wsClients = Math.max(0, wsClients - 1);
+			}
 			clearInterval(heartbeatTimer);
 			if (revalidateTimer) clearInterval(revalidateTimer);
 			stopGrantWatch?.();
