@@ -82,6 +82,7 @@ const REGISTRATIONS: readonly RegSeed[] = [
 		prefixes: [
 			"console.api",
 			"audit",
+			"term",
 			"attention",
 			"subscription",
 			"delivery",

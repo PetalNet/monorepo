@@ -60,6 +60,24 @@ export interface BusSubscription {
 
 export type BusConnectionState = "connecting" | "open" | "error" | "closed";
 
+export interface TerminalAccess {
+	readonly audit_writable: boolean;
+	readonly pty_live: boolean;
+	readonly audit_seq: number;
+}
+
+export type TerminalFrame =
+	| {
+			schema_version: 1;
+			stream_id: string;
+			kind: "open";
+			seq: number;
+			audit_seq: number;
+			mode: "read";
+	  }
+	| { schema_version: 1; stream_id: string; kind: "snapshot"; seq: number; data_b64: string }
+	| { schema_version: 1; stream_id: string; kind: "error"; seq: number; code: string };
+
 /**
  * Browser bus transport. WebSocket handshakes use the browser's credential mode, so the trusted
  * Authentik cookie reaches the console proxy and the proxy stamps the upgrade identity. Resolve
@@ -184,6 +202,84 @@ export async function readExecutors(
 		credentials: "include",
 	});
 	return json<ReadEnvelope<ExecutorItem>>(res);
+}
+
+/** Authoritative server gate. A denied response is retained before console-api returns 403. */
+export async function readTerminalAccess(fetchFn: typeof fetch = fetch): Promise<TerminalAccess> {
+	const res = await fetchFn(`${base()}/terminal`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<TerminalAccess>(res);
+}
+
+/**
+ * Audit-before-first-frame terminal transport. The returned disposer aborts the streaming fetch;
+ * callers should also invoke terminalDetach when they intentionally close an established stream.
+ */
+export function connectTerminal(
+	target: { host: string; tmux_session: string; pane_id: string; scrollback_lines?: number },
+	onFrame: (frame: TerminalFrame) => void,
+	onError: (error: Error) => void,
+): () => void {
+	const controller = new AbortController();
+	void (async () => {
+		try {
+			const res = await fetch(`${base()}/terminal/streams`, {
+				method: "POST",
+				headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+				credentials: "include",
+				body: JSON.stringify(target),
+				signal: controller.signal,
+			});
+			if (!res.ok) await json<never>(res);
+			if (!res.body) throw new Error("terminal response has no frame stream");
+			const reader = res.body.getReader();
+			const decoder = new TextDecoder();
+			let pending = "";
+			for (;;) {
+				// Stream reads are ordered and each read advances the same reader.
+				// oxlint-disable-next-line no-await-in-loop
+				const { done, value } = await reader.read();
+				pending += decoder.decode(value, { stream: !done });
+				const lines = pending.split("\n");
+				pending = lines.pop() ?? "";
+				for (const line of lines) {
+					if (!line) continue;
+					onFrame(JSON.parse(line) as TerminalFrame);
+				}
+				if (done) break;
+			}
+		} catch (error) {
+			if (!controller.signal.aborted)
+				onError(error instanceof Error ? error : new Error("terminal stream failed"));
+		}
+	})();
+	return () => controller.abort();
+}
+
+async function terminalMutation<T>(streamId: string, action: string, body?: unknown): Promise<T> {
+	const res = await fetch(`${base()}/terminal/streams/${encodeURIComponent(streamId)}/${action}`, {
+		method: "POST",
+		headers: { "content-type": "application/json", accept: "application/json" },
+		credentials: "include",
+		...(body === undefined ? {} : { body: JSON.stringify(body) }),
+	});
+	return json<T>(res);
+}
+
+export async function terminalAttach(streamId: string): Promise<void> {
+	await terminalMutation(streamId, "attach");
+}
+
+export async function terminalInput(streamId: string, data: Uint8Array): Promise<void> {
+	let binary = "";
+	for (const byte of data) binary += String.fromCharCode(byte);
+	await terminalMutation(streamId, "input", { data_b64: btoa(binary) });
+}
+
+export async function terminalDetach(streamId: string): Promise<void> {
+	await terminalMutation(streamId, "detach");
 }
 export async function readHeartbeats(
 	fetchFn: typeof fetch = fetch,

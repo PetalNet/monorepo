@@ -2,9 +2,11 @@
 // server-stamped Principal, then the four-plane routes. Query, Command, Bus, and the current
 // Library seam are all served here; unavailable executor adapters fail closed.
 
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { promisify } from "node:util";
 
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
@@ -80,6 +82,110 @@ type OpEntry = {
 	undo?: boolean;
 	testable: "disposable" | "dry-run-only" | "live-canary";
 };
+
+export interface TerminalTarget {
+	readonly host: string;
+	readonly tmuxSession: string;
+	readonly paneId: string;
+}
+
+export interface TerminalAdapter {
+	health(): Promise<boolean>;
+	capture(target: TerminalTarget, scrollbackLines: number): Promise<Buffer>;
+	input(target: TerminalTarget, data: Buffer): Promise<void>;
+}
+
+const runFile = promisify(execFile);
+
+/** Production PTY seam: bounded, non-interactive ssh calls with every remote token validated. */
+export class SshTmuxTerminalAdapter implements TerminalAdapter {
+	private sshArgs(host: string): string[] {
+		return ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host];
+	}
+
+	private async assertTarget(target: TerminalTarget): Promise<void> {
+		const { stdout } = await runFile(
+			"ssh",
+			[
+				...this.sshArgs(target.host),
+				"tmux",
+				"display-message",
+				"-p",
+				"-t",
+				target.paneId,
+				"\\#{session_name}",
+			],
+			{ encoding: "utf8", maxBuffer: 4_096, timeout: 10_000 },
+		);
+		if (stdout.trim() !== target.tmuxSession) throw new Error("PTY target session mismatch");
+	}
+
+	async health(): Promise<boolean> {
+		try {
+			await runFile("ssh", ["-V"], { timeout: 2_000 });
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	async capture(target: TerminalTarget, scrollbackLines: number): Promise<Buffer> {
+		await this.assertTarget(target);
+		const { stdout } = await runFile(
+			"ssh",
+			[
+				...this.sshArgs(target.host),
+				"tmux",
+				"capture-pane",
+				"-p",
+				"-e",
+				"-S",
+				`-${String(scrollbackLines)}`,
+				"-t",
+				target.paneId,
+			],
+			{ encoding: "buffer", maxBuffer: 4 * 1024 * 1024, timeout: 10_000 },
+		);
+		return stdout;
+	}
+
+	async input(target: TerminalTarget, data: Buffer): Promise<void> {
+		await this.assertTarget(target);
+		await new Promise<void>((resolve, reject) => {
+			const child = spawn("ssh", [
+				...this.sshArgs(target.host),
+				"tmux",
+				"load-buffer",
+				"-b",
+				"console-input",
+				"-",
+				";",
+				"paste-buffer",
+				"-b",
+				"console-input",
+				"-d",
+				"-t",
+				target.paneId,
+			]);
+			let stderr = "";
+			const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
+			child.stderr.setEncoding("utf8");
+			child.stderr.on("data", (chunk: string) => {
+				if (stderr.length < 4_096) stderr += chunk.slice(0, 4_096 - stderr.length);
+			});
+			child.on("error", (error) => {
+				clearTimeout(timer);
+				reject(error);
+			});
+			child.on("close", (code) => {
+				clearTimeout(timer);
+				if (code === 0) resolve();
+				else reject(new Error(`ssh tmux input failed (${String(code)}): ${stderr}`));
+			});
+			child.stdin.end(data);
+		});
+	}
+}
 
 export function resolvedOpCapabilities(
 	op: string,
@@ -384,6 +490,10 @@ async function resolveForwardAuth(
 		}
 	}
 	const lanes = laneCeiling < 0 ? [] : LANE_ORDER.slice(0, laneCeiling + 1);
+	// TERM_ADMIN is deliberately non-hierarchical: admin alone never implies shell access. It is
+	// granted by a dedicated Authentik group/tier and therefore cannot leak through lane ordering.
+	if (identity.groups.includes("term_admin") || tiers.includes("term_admin"))
+		(lanes as string[]).push("term_admin");
 	const { scopes, zookie } = await resolveScopes(services.db.admin, identity.username, tiers);
 	return { kind: "human", id: identity.username, tiers, lanes, scopes, zookie };
 }
@@ -422,6 +532,7 @@ export async function buildServer(
 	devAuth: boolean,
 	monitor: ExceptionMonitor = inertExceptionMonitor,
 	browserAuth: BrowserAuthConfig | null = null,
+	terminal: TerminalAdapter = new SshTmuxTerminalAdapter(),
 ) {
 	if (browserAuth?.trustedProxies.length === 0)
 		throw new Error("browser auth requires at least one trusted proxy");
@@ -779,6 +890,105 @@ export async function buildServer(
 			  and object = ${object} and condition is null and valid_at <= now()
 			  and (invalid_at is null or invalid_at > now())`;
 		return rows.some((row) => relationRank[row.relation] >= relationRank[minimum]);
+	}
+
+	type TerminalSession = {
+		principalId: string;
+		target: TerminalTarget;
+		attached: boolean;
+		closed: boolean;
+		seq: number;
+		timer: ReturnType<typeof setTimeout> | null;
+		end: () => void;
+	};
+	const terminalSessions = new Map<string, TerminalSession>();
+	const terminalTargetSchema = z
+		.object({
+			host: z.string().regex(/^(?:\.[0-9]{1,3}|[A-Za-z0-9][A-Za-z0-9.-]{0,252})$/),
+			tmux_session: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+			pane_id: z.string().regex(/^%[0-9]+$/),
+			scrollback_lines: z.number().int().min(0).max(10_000).default(500),
+		})
+		.strict();
+	const terminalInputSchema = z
+		.object({
+			data_b64: z
+				.string()
+				.max(65_536)
+				.regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+		})
+		.strict();
+
+	async function emitTerminalAudit(
+		principal: Principal,
+		action: "access" | "watch" | "attach" | "input" | "detach" | "denied",
+		target: TerminalTarget | null,
+		streamId: string | null,
+		reason: string | null = null,
+	): Promise<number | null> {
+		const emission = {
+			schema_version: 1,
+			id: crypto.randomUUID(),
+			type: `term.${action}`,
+			ts: new Date().toISOString(),
+			source: { service: "console-api", host: null, agent: null },
+			subject: streamId ? `term-stream:${streamId}` : "terminal",
+			subject_kind: "other",
+			severity: action === "denied" ? "danger" : "info",
+			scope: "fleet",
+			dimensions: {
+				action,
+				principal: principal.id,
+				...(target
+					? {
+							host: target.host,
+							tmux_session: target.tmuxSession,
+							pane_id: target.paneId,
+						}
+					: {}),
+				...(streamId ? { stream_id: streamId } : {}),
+				...(reason ? { reason } : {}),
+			},
+			meta: { retention_class: "audit" },
+		};
+		const outcome = await services.emit(
+			"system:console-api",
+			emission,
+			Buffer.byteLength(JSON.stringify(emission)),
+		);
+		return outcome.ok ? (outcome.seq as number) : null;
+	}
+
+	async function authorizeTerminal(principal: Principal): Promise<string | null> {
+		if (principal.kind !== "human") return "human principal required";
+		if (!principal.lanes.includes("term_admin")) return "term_admin lane required";
+		if (!(await hasGrant(principal, "fleet", "owner"))) return "owner relation required on fleet";
+		return null;
+	}
+
+	async function ownedTerminalSession(
+		req: FastifyRequest,
+		reply: FastifyReply,
+	): Promise<TerminalSession | null> {
+		const principal = req.principal as Principal;
+		const denial = await authorizeTerminal(principal);
+		if (denial) {
+			await emitTerminalAudit(principal, "denied", null, null, denial);
+			reply.code(403).send({
+				error: { code: "term_denied", message: denial, retryable: false },
+			});
+			return null;
+		}
+		const streamId = (req.params as { streamId?: string }).streamId ?? "";
+		const session = terminalSessions.get(streamId);
+		if (!session || session.closed || session.principalId !== principal.id) {
+			await emitTerminalAudit(principal, "denied", null, streamId || null, "stream not owned");
+			reply.code(404).send({
+				error: { code: "stream_not_found", message: "terminal stream not found", retryable: false },
+			});
+			return null;
+		}
+		return session;
 	}
 
 	async function authorizeOp(
@@ -1821,6 +2031,268 @@ export async function buildServer(
 	app.get("/api/v1/executors", { preHandler: auth }, async (req) => {
 		const p = req.principal as Principal;
 		return readExecutors(services.db.app, p.scopes);
+	});
+
+	// --- terminal gate + frame transport --------------------------------------------------------
+	// `config.rateLimit` mirrors the custom bucket for Fastify/CodeQL route metadata; the preHandler
+	// is the runtime enforcement, avoiding a second limiter with divergent counters.
+	app.get(
+		"/api/v1/terminal",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const principal = req.principal as Principal;
+			const denial = await authorizeTerminal(principal);
+			if (denial) {
+				const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
+				if (auditSeq === null)
+					return reply.code(503).send({
+						error: {
+							code: "audit_unavailable",
+							message: "terminal denial could not be retained",
+							retryable: true,
+						},
+					});
+				return reply.code(403).send({
+					error: { code: "term_denied", message: "term_admin access required", retryable: false },
+				});
+			}
+			const auditSeq = await emitTerminalAudit(principal, "access", null, null);
+			if (auditSeq === null)
+				return reply.code(503).send({
+					error: {
+						code: "audit_unavailable",
+						message: "terminal audit write could not be verified",
+						retryable: true,
+					},
+				});
+			return { audit_writable: true, pty_live: await terminal.health(), audit_seq: auditSeq };
+		},
+	);
+
+	app.post(
+		"/api/v1/terminal/streams",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const principal = req.principal as Principal;
+			const denial = await authorizeTerminal(principal);
+			if (denial) {
+				const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
+				return reply.code(auditSeq === null ? 503 : 403).send({
+					error: {
+						code: auditSeq === null ? "audit_unavailable" : "term_denied",
+						message: auditSeq === null ? "terminal denial could not be retained" : denial,
+						retryable: auditSeq === null,
+					},
+				});
+			}
+			const parsed = terminalTargetSchema.safeParse(req.body);
+			if (!parsed.success)
+				return reply.code(400).send({
+					error: { code: "invalid_target", message: "invalid terminal target", retryable: false },
+				});
+			if (!(await terminal.health()))
+				return reply.code(503).send({
+					error: { code: "pty_unavailable", message: "PTY adapter unavailable", retryable: true },
+				});
+			const streamId = crypto.randomUUID();
+			const target: TerminalTarget = {
+				host: parsed.data.host,
+				tmuxSession: parsed.data.tmux_session,
+				paneId: parsed.data.pane_id,
+			};
+			// The retained watch audit is the hard boundary: no response frame or ssh call occurs first.
+			const auditSeq = await emitTerminalAudit(principal, "watch", target, streamId);
+			if (auditSeq === null)
+				return reply.code(503).send({
+					error: {
+						code: "audit_unavailable",
+						message: "watch audit could not be retained",
+						retryable: true,
+					},
+				});
+			const session: TerminalSession = {
+				principalId: principal.id,
+				target,
+				attached: false,
+				closed: false,
+				seq: 0,
+				timer: null,
+				end: () => {},
+			};
+			terminalSessions.set(streamId, session);
+			reply.hijack();
+			reply.raw.writeHead(200, {
+				"cache-control": "no-store",
+				"content-type": "application/x-ndjson; charset=utf-8",
+				"x-accel-buffering": "no",
+			});
+			const write = (frame: Record<string, unknown>): boolean =>
+				!reply.raw.destroyed &&
+				reply.raw.write(
+					`${JSON.stringify({ schema_version: 1, stream_id: streamId, ...frame })}\n`,
+				);
+			const waitForDrain = async (): Promise<void> => {
+				if (reply.raw.destroyed || !reply.raw.writableNeedDrain) return;
+				await new Promise<void>((resolve) => {
+					const done = (): void => {
+						reply.raw.off("drain", done);
+						reply.raw.off("close", done);
+						resolve();
+					};
+					reply.raw.once("drain", done);
+					reply.raw.once("close", done);
+				});
+			};
+			write({ kind: "open", seq: session.seq, audit_seq: auditSeq, mode: "read" });
+			let previous: Buffer | null = null;
+			const pump = async (): Promise<void> => {
+				if (session.closed || reply.raw.destroyed) return;
+				try {
+					const fresh = await resolveRequestPrincipal(req);
+					const revoked =
+						!fresh || fresh.id !== session.principalId || (await authorizeTerminal(fresh)) !== null;
+					if (revoked) {
+						session.closed = true;
+						session.seq += 1;
+						write({ kind: "error", seq: session.seq, code: "terminal_access_revoked" });
+						if (fresh)
+							await emitTerminalAudit(
+								fresh,
+								"denied",
+								target,
+								streamId,
+								"stream authorization revoked",
+							);
+						reply.raw.end();
+						return;
+					}
+					const frame = await terminal.capture(target, parsed.data.scrollback_lines);
+					if (!previous?.equals(frame)) {
+						previous = frame;
+						session.seq += 1;
+						if (!write({ kind: "snapshot", seq: session.seq, data_b64: frame.toString("base64") }))
+							await waitForDrain();
+					}
+				} catch (error) {
+					monitor.captureException(sanitizedException(error));
+					session.closed = true;
+					session.seq += 1;
+					write({ kind: "error", seq: session.seq, code: "pty_capture_failed" });
+					reply.raw.end();
+					return;
+				}
+				if (!session.closed && !reply.raw.destroyed) session.timer = setTimeout(pump, 750);
+			};
+			void pump();
+			const close = (): void => {
+				session.closed = true;
+				if (session.timer) clearTimeout(session.timer);
+				terminalSessions.delete(streamId);
+			};
+			session.end = () => reply.raw.end();
+			reply.raw.on("close", close);
+		},
+	);
+
+	app.post(
+		"/api/v1/terminal/streams/:streamId/attach",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const session = await ownedTerminalSession(req, reply);
+			if (!session) return reply;
+			const principal = req.principal as Principal;
+			const streamId = (req.params as { streamId: string }).streamId;
+			const auditSeq = await emitTerminalAudit(principal, "attach", session.target, streamId);
+			if (auditSeq === null)
+				return reply.code(503).send({
+					error: { code: "audit_unavailable", message: "attach audit failed", retryable: true },
+				});
+			session.attached = true;
+			return { ok: true, mode: "write", audit_seq: auditSeq };
+		},
+	);
+
+	app.post(
+		"/api/v1/terminal/streams/:streamId/input",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const session = await ownedTerminalSession(req, reply);
+			if (!session) return reply;
+			if (!session.attached)
+				return reply.code(409).send({
+					error: { code: "watch_only", message: "attach before sending input", retryable: false },
+				});
+			const parsed = terminalInputSchema.safeParse(req.body);
+			if (!parsed.success)
+				return reply.code(400).send({
+					error: { code: "invalid_input", message: "invalid terminal input", retryable: false },
+				});
+			const data = Buffer.from(parsed.data.data_b64, "base64");
+			if (data.length > 16_384)
+				return reply.code(413).send({
+					error: { code: "input_too_large", message: "terminal input too large", retryable: false },
+				});
+			const principal = req.principal as Principal;
+			const streamId = (req.params as { streamId: string }).streamId;
+			const auditSeq = await emitTerminalAudit(principal, "input", session.target, streamId);
+			if (auditSeq === null)
+				return reply.code(503).send({
+					error: { code: "audit_unavailable", message: "input audit failed", retryable: true },
+				});
+			try {
+				await terminal.input(session.target, data);
+				return { ok: true, audit_seq: auditSeq };
+			} catch (error) {
+				monitor.captureException(sanitizedException(error));
+				return reply.code(503).send({
+					error: { code: "pty_input_failed", message: "terminal input failed", retryable: true },
+				});
+			}
+		},
+	);
+
+	app.post(
+		"/api/v1/terminal/streams/:streamId/detach",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const session = await ownedTerminalSession(req, reply);
+			if (!session) return reply;
+			const principal = req.principal as Principal;
+			const streamId = (req.params as { streamId: string }).streamId;
+			const auditSeq = await emitTerminalAudit(principal, "detach", session.target, streamId);
+			if (auditSeq === null)
+				return reply.code(503).send({
+					error: { code: "audit_unavailable", message: "detach audit failed", retryable: true },
+				});
+			session.closed = true;
+			if (session.timer) clearTimeout(session.timer);
+			terminalSessions.delete(streamId);
+			session.end();
+			return { ok: true, audit_seq: auditSeq };
+		},
+	);
+
+	app.addHook("onClose", async () => {
+		for (const session of terminalSessions.values()) {
+			session.closed = true;
+			if (session.timer) clearTimeout(session.timer);
+		}
+		terminalSessions.clear();
 	});
 
 	// --- bus WS ----------------------------------------------------------------------------------
