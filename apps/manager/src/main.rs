@@ -13,6 +13,7 @@
 //! Config comes from the JSON file at $AGENT_MANAGER_CONFIG; nothing
 //! host-specific is compiled in. See config.example.json / the runbook.
 
+mod assistant;
 mod config;
 mod health;
 mod matrix;
@@ -58,6 +59,15 @@ fn die(msg: &str) -> ! {
 
 fn run_manager(work_dir_arg: Option<&str>) {
     let cfg = Config::load(work_dir_arg).unwrap_or_else(|e| die(&e));
+    let _glitchtip_guard = cfg.glitchtip_dsn.as_deref().map(|dsn| {
+        sentry::init((
+            dsn,
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                ..Default::default()
+            },
+        ))
+    });
     let creds = cfg.load_creds().unwrap_or_else(|e| die(&e));
     let session = SessionState::load_or_create(&cfg.state_path);
 
@@ -77,6 +87,10 @@ fn run_manager(work_dir_arg: Option<&str>) {
         cfg.tmux_session, cfg.pane_tag
     );
     println!("[manager] commands: start | stop | restart | status | kill session | /compact /context /cost /status");
+
+    if cfg.assistant_api_bind.is_some() {
+        assistant::spawn(cfg.clone()).unwrap_or_else(|e| die(&format!("assistant API: {e}")));
+    }
 
     // Graceful-shutdown flags: either signal flips `shutdown`; `sigterm`
     // records which one for the goodbye message.

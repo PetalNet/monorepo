@@ -23,5 +23,10 @@
 	"path_prepend": "~/.local/bin",
 	"kill_agent_on_shutdown": true,
 	"tmux_width": 220,
-	"tmux_height": 50
+	"tmux_height": 50,
+	"assistant_api_bind": "127.0.0.1:8091",
+	"assistant_api_token": "replace-with-at-least-32-random-characters",
+	"assistant_receipts_path": "~/.claude/shared/assistant-manager-receipts.json",
+	"assistant_model": "sonnet",
+	"glitchtip_dsn": "https://public-key@glitchtip.example/1"
 }

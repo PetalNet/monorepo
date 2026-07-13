@@ -742,6 +742,11 @@ mod tests {
             kill_agent_on_shutdown: true,
             tmux_width: 80,
             tmux_height: 24,
+            assistant_api_bind: None,
+            assistant_api_token: None,
+            assistant_receipts_path: dir.join(format!("{tag}-assistant-receipts.json")),
+            assistant_model: None,
+            glitchtip_dsn: None,
         };
         let (matrix_tx, matrix_rx) = channel();
         let (_cmd_tx, cmd_rx) = channel();

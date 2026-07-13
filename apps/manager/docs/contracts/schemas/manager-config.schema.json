@@ -91,9 +91,36 @@
 			"type": "integer",
 			"minimum": 1,
 			"default": 50
+		},
+		"assistant_api_bind": {
+			"type": "string",
+			"description": "Optional loopback-only authenticated HTTP listener for the Lab Console per-user assistant specialization. Configure with assistant_api_token."
+		},
+		"assistant_api_token": {
+			"type": "string",
+			"minLength": 32,
+			"description": "Bearer credential accepted only from console-api. Configure with assistant_api_bind."
+		},
+		"assistant_receipts_path": {
+			"type": "string",
+			"description": "Durable per-user session and message receipt ledger. MCP credentials are never persisted."
+		},
+		"assistant_model": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Optional Claude model/alias for per-user assistants. Tool, permission, session, and MCP arguments are manager-owned and cannot be overridden."
+		},
+		"glitchtip_dsn": {
+			"type": "string",
+			"format": "uri",
+			"description": "Optional Sentry-compatible GlitchTip DSN for manager exceptions. Secret-bearing request content is never attached."
 		}
 	},
 	"required": ["creds_path", "control_room"],
+	"dependentRequired": {
+		"assistant_api_bind": ["assistant_api_token"],
+		"assistant_api_token": ["assistant_api_bind"]
+	},
 	"additionalProperties": false,
 	"$defs": {
 		"matrixCreds": {
