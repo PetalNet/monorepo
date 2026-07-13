@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/presence_tokens.dart';
 import 'package:point_app/widgets/ghost_toggle.dart';
@@ -7,11 +10,107 @@ import 'package:point_app/widgets/initials_avatar.dart';
 import 'package:point_app/widgets/presence_dot.dart';
 
 Widget _host(Widget child) => MaterialApp(
-      theme: AppTheme.dark(),
-      home: Scaffold(body: Center(child: child)),
-    );
+  theme: AppTheme.dark(),
+  home: Scaffold(body: Center(child: child)),
+);
+
+Widget _relayHost(
+  RelayHealth health, {
+  VoidCallback? onAction,
+  bool reducedMotion = false,
+}) => ProviderScope(
+  child: MaterialApp(
+    theme: AppTheme.dark(pureBlack: true),
+    home: MediaQuery(
+      data: MediaQueryData(disableAnimations: reducedMotion),
+      child: Scaffold(
+        body: RelayHealthBanner(health: health, onAction: onAction),
+      ),
+    ),
+  ),
+);
 
 void main() {
+  FlutterSecureStorage.setMockInitialValues({});
+
+  group('RelayHealthBanner', () {
+    const states = {
+      RelayHealthStatus.connecting: 'Connecting',
+      RelayHealthStatus.live: 'Live',
+      RelayHealthStatus.reconnecting: 'Reconnecting',
+      RelayHealthStatus.offline: 'Offline',
+      RelayHealthStatus.cryptoBlocked: 'Secure sync blocked',
+    };
+
+    for (final entry in states.entries) {
+      testWidgets('renders ${entry.key.name} as text and semantics', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          _relayHost(
+            RelayHealth(
+              status: entry.key,
+              queueDepth: 0,
+              locationBlocked: false,
+            ),
+          ),
+        );
+        expect(find.text(entry.value), findsOneWidget);
+        expect(
+          find.bySemanticsLabel(RegExp('^${entry.value}\\.')),
+          findsOneWidget,
+        );
+      });
+    }
+
+    testWidgets('offline retry is reachable and reduced motion is instant', (
+      tester,
+    ) async {
+      var retries = 0;
+      await tester.pumpWidget(
+        _relayHost(
+          const RelayHealth.offline(),
+          reducedMotion: true,
+          onAction: () => retries++,
+        ),
+      );
+      expect(
+        tester.widget<AnimatedSwitcher>(find.byType(AnimatedSwitcher)).duration,
+        Duration.zero,
+      );
+      await tester.tap(find.text('Retry'));
+      expect(retries, 1);
+    });
+
+    testWidgets('queued and location-blocked states never claim Live', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _relayHost(
+          const RelayHealth(
+            status: RelayHealthStatus.live,
+            queueDepth: 2,
+            locationBlocked: false,
+          ),
+        ),
+      );
+      expect(find.text('Syncing 2 updates'), findsOneWidget);
+      expect(find.text('Live'), findsNothing);
+
+      await tester.pumpWidget(
+        _relayHost(
+          const RelayHealth(
+            status: RelayHealthStatus.live,
+            queueDepth: 0,
+            locationBlocked: true,
+          ),
+        ),
+      );
+      expect(find.text('Location unavailable'), findsOneWidget);
+      expect(find.text('Live'), findsNothing);
+    });
+  });
+
   group('PresenceDot (form-not-color primitive)', () {
     for (final state in PresenceState.values) {
       testWidgets('renders + labels ${state.name}', (tester) async {
@@ -34,8 +133,9 @@ void main() {
   });
 
   group('GhostToggle (safety-critical control)', () {
-    testWidgets('exposes toggle state to a11y and is a large tap target',
-        (tester) async {
+    testWidgets('exposes toggle state to a11y and is a large tap target', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _host(GhostToggle(sharing: true, onChanged: (_) {})),
       );

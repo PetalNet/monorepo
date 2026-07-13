@@ -3,18 +3,23 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/people/people_controller.dart';
+import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
 import 'package:point_app/features/relay/domain/realtime_sync_models.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:point_app/features/relay/ws_service.dart';
+import 'package:point_app/features/settings/app_settings.dart';
+import 'package:point_app/features/settings/settings_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/services/server_config.dart';
+import 'package:point_app/theme/theme_x.dart';
 
 final cryptoServiceProvider = Provider<CryptoService>((_) => CryptoService());
 
@@ -70,6 +75,41 @@ class PeerPresence {
   final DateTime observedAt;
   final num? battery;
   final String? activity;
+}
+
+enum RelayHealthStatus {
+  connecting,
+  live,
+  reconnecting,
+  offline,
+  cryptoBlocked,
+}
+
+/// Truthful local relay state for Map/People presentation. [lastSyncAt] is the
+/// last successful authoritative catch-up, not merely the last socket frame.
+@immutable
+class RelayHealth {
+  const RelayHealth({
+    required this.status,
+    required this.queueDepth,
+    required this.locationBlocked,
+    this.lastSyncAt,
+  });
+
+  const RelayHealth.offline()
+    : status = RelayHealthStatus.offline,
+      queueDepth = 0,
+      locationBlocked = false,
+      lastSyncAt = null;
+
+  final RelayHealthStatus status;
+  final DateTime? lastSyncAt;
+  final int queueDepth;
+  final bool locationBlocked;
+
+  bool get isLive =>
+      status == RelayHealthStatus.live && !locationBlocked && queueDepth == 0;
+  bool get isCached => !isLive;
 }
 
 /// Previous and target fixes for one live marker, including both the sender's
@@ -186,6 +226,9 @@ class RelayController {
   StreamSubscription<Fix>? _fixSub;
   StreamSubscription<Map<String, dynamic>>? _wsSub;
   StreamSubscription<WsConnectionState>? _wsStateSub;
+  StreamSubscription<WsHealth>? _wsHealthSub;
+  StreamSubscription<LocationHealth>? _locationHealthSub;
+  StreamSubscription<RealtimeSyncDiff>? _syncDiffSub;
   Session? _session;
   int _sessionEpoch = 0;
   Future<void> _lifecycleTail = Future<void>.value();
@@ -207,6 +250,15 @@ class RelayController {
   final _peerPresenceUpdates =
       StreamController<Map<String, PeerPresence>>.broadcast();
   final _syncRequests = StreamController<RealtimeSyncReason>.broadcast();
+  final _healthUpdates = StreamController<RelayHealth>.broadcast();
+  RelayHealth _health = const RelayHealth.offline();
+  WsConnectionState _wsConnection = WsConnectionState.disconnected;
+  bool _hasAuthenticated = false;
+  bool _syncHealthy = false;
+  bool _hasEverSynced = false;
+  bool _startupCryptoBlocked = false;
+  bool _mailboxCryptoBlocked = false;
+  final Set<String> _cryptoBlockedPeers = {};
   final Map<String, int> _latestFixTimestamp = {};
   final Map<String, PeerPresence> _peerPresenceByUser = {};
   final Map<String, Map<String, int>> _mailboxFailuresByUser = {};
@@ -222,6 +274,9 @@ class RelayController {
       _peerPresenceUpdates.stream;
 
   Stream<RealtimeSyncReason> get syncRequests => _syncRequests.stream;
+
+  RelayHealth get health => _health;
+  Stream<RelayHealth> get healthUpdates => _healthUpdates.stream;
 
   int get sessionEpoch => _sessionEpoch;
 
@@ -247,7 +302,14 @@ class RelayController {
     _identityGenerationReady = generationReady.future;
     final api = _ref.read(apiProvider);
     final crypto = _ref.read(cryptoServiceProvider);
-    final initResult = await crypto.init(session.userId);
+    late final MlsInit initResult;
+    try {
+      initResult = await crypto.init(session.userId);
+      _setStartupCryptoBlocked(false);
+    } on Object {
+      _setStartupCryptoBlocked(true);
+      rethrow;
+    }
 
     // Top up the one-time KeyPackage pool (multi-KP; GO-bar #4). On a re-key
     // (wiped state) the server still lists our OLD packages whose private
@@ -272,7 +334,9 @@ class RelayController {
       // Both sides compare identity generations to select exactly one rekey
       // initiator: the older identity consumes the newer identity's package.
       _selfRekeyedAt = (await api.keyCount(session.token)).rekeyedAt;
+      _setStartupCryptoBlocked(false);
     } on Object catch (e) {
+      if (initResult != MlsInit.restored) _setStartupCryptoBlocked(true);
       if (kDebugMode) debugPrint('keypackage top-up failed: $e');
     } finally {
       // setShareTargets can race session startup. Never choose a formation
@@ -289,7 +353,14 @@ class RelayController {
     final ws =
         _wsFactory?.call(wsUrl, queue) ?? WsService(wsUrl: wsUrl, queue: queue);
     _ws = ws;
+    _syncDiffSub = _ref
+        .read(realtimeSyncCoordinatorProvider)
+        .diffs
+        .listen(
+          (diff) => recordSyncResult(healthy: diff.healthy),
+        );
     _wsSub = ws.incoming.listen(_onIncoming);
+    _wsHealthSub = ws.health.listen(_onWsHealth);
     _wsStateSub = ws.connectionStates.listen((state) {
       if (state == WsConnectionState.authenticated) {
         _requestSync(RealtimeSyncReason.wsAuthenticated);
@@ -300,7 +371,10 @@ class RelayController {
     await ws.start(session.token);
 
     // Relay each local fix, encrypted per share.
-    _fixSub = _ref.read(locationServiceProvider).fixes.listen(_onLocalFix);
+    final location = _ref.read(locationServiceProvider);
+    _onLocationHealth(location.currentHealth);
+    _locationHealthSub = location.health.listen(_onLocationHealth);
+    _fixSub = location.fixes.listen(_onLocalFix);
   }
 
   /// Replace the server-side KeyPackage pool with a fresh one from the
@@ -337,16 +411,22 @@ class RelayController {
     Map<String, DateTime> peerRekeyedAt = const {},
     Map<String, DateTime> shareSince = const {},
   }) async {
+    final targets = userIds.toSet();
     _shareTargets
       ..clear()
-      ..addAll(userIds);
+      ..addAll(targets);
     _peerRekeyedAt
       ..clear()
       ..addAll(peerRekeyedAt);
     _shareSince
       ..clear()
       ..addAll(shareSince);
-    for (final target in userIds) {
+    final blockedBefore = _cryptoBlockedPeers.length;
+    _cryptoBlockedPeers.removeWhere((peer) => !targets.contains(peer));
+    if (_cryptoBlockedPeers.length != blockedBefore) {
+      _emitHealth(status: _relayStatus);
+    }
+    for (final target in targets) {
       await _ensureShareGroup(
         target,
         force: forceInitiate.contains(target),
@@ -436,8 +516,16 @@ class RelayController {
     for (final target in _shareTargets.toList()) {
       final gid = CryptoService.pairwiseGroupId(session.userId, target);
       if (!crypto.hasGroup(gid)) continue; // group forms at share-accept time
+      late final Uint8List ct;
       try {
-        final ct = await crypto.encrypt(gid, Uint8List.fromList(payload));
+        ct = await crypto.encrypt(gid, Uint8List.fromList(payload));
+        _setPeerCryptoBlocked(target, false);
+      } on Object catch (e) {
+        _setPeerCryptoBlocked(target, true);
+        if (kDebugMode) debugPrint('relay encrypt for $target failed: $e');
+        continue;
+      }
+      try {
         final frame = jsonEncode({
           'type': 'location.update',
           'recipient_type': 'user',
@@ -447,7 +535,7 @@ class RelayController {
         });
         await ws.send(target, frame);
       } on Object catch (e) {
-        if (kDebugMode) debugPrint('relay encrypt/send failed: $e');
+        if (kDebugMode) debugPrint('relay queue/send for $target failed: $e');
       }
     }
   }
@@ -485,6 +573,7 @@ class RelayController {
           _ref.read(peopleControllerProvider.notifier).removeLocally(peer);
           _ref.read(livePresenceProvider.notifier).remove(peer);
           _peerPresenceByUser.remove(peer);
+          _setPeerCryptoBlocked(peer, false);
           _emitPeerPresence();
         }
         _requestSync(RealtimeSyncReason.relayEvent);
@@ -525,6 +614,109 @@ class RelayController {
     if (!_syncRequests.isClosed) _syncRequests.add(reason);
   }
 
+  /// One command for the status affordance: retry transport while offline, or
+  /// run the existing authoritative reconciliation path while connected.
+  void retryOrSync() {
+    final ws = _ws;
+    if (ws == null) return;
+    if (ws.isConnected) {
+      unawaited(ws.flushNow());
+      _requestSync(RealtimeSyncReason.manualRefresh);
+    } else {
+      unawaited(ws.retryNow());
+    }
+  }
+
+  void _onWsHealth(WsHealth health) {
+    final newlyAuthenticated =
+        health.isAuthenticated &&
+        _wsConnection != WsConnectionState.authenticated;
+    _wsConnection = health.connection;
+    if (newlyAuthenticated) {
+      _hasAuthenticated = true;
+      _syncHealthy = false;
+    }
+    _emitHealth(status: _relayStatus, queueDepth: health.queueDepth);
+  }
+
+  /// The coordinator owns the complete authoritative-sync boundary. A socket
+  /// alone is never enough to claim Live.
+  void recordSyncResult({required bool healthy, DateTime? completedAt}) {
+    if (_session == null) return;
+    _syncHealthy = healthy;
+    if (healthy) _hasEverSynced = true;
+    _emitHealth(
+      status: _relayStatus,
+      lastSyncAt: healthy ? completedAt ?? DateTime.now() : null,
+    );
+  }
+
+  void _onLocationHealth(LocationHealth health) {
+    _emitHealth(
+      status: _relayStatus,
+      locationBlocked: health.status == LocationHealthStatus.blocked,
+    );
+  }
+
+  RelayHealthStatus get _relayStatus => switch (_wsConnection) {
+    _ when _startupCryptoBlocked && !_hasAuthenticated =>
+      RelayHealthStatus.cryptoBlocked,
+    WsConnectionState.authenticated =>
+      _hasCryptoBlock
+          ? RelayHealthStatus.cryptoBlocked
+          : _syncHealthy
+          ? RelayHealthStatus.live
+          : _hasEverSynced
+          ? RelayHealthStatus.reconnecting
+          : RelayHealthStatus.connecting,
+    WsConnectionState.connecting =>
+      _hasAuthenticated
+          ? RelayHealthStatus.reconnecting
+          : RelayHealthStatus.connecting,
+    WsConnectionState.disconnected => RelayHealthStatus.offline,
+  };
+
+  bool get _hasCryptoBlock =>
+      _startupCryptoBlocked ||
+      _mailboxCryptoBlocked ||
+      _cryptoBlockedPeers.isNotEmpty;
+
+  void _setStartupCryptoBlocked(bool blocked) {
+    if (_startupCryptoBlocked == blocked) return;
+    _startupCryptoBlocked = blocked;
+    _emitHealth(status: _relayStatus);
+  }
+
+  void _setMailboxCryptoBlocked(bool blocked) {
+    if (_mailboxCryptoBlocked == blocked) return;
+    _mailboxCryptoBlocked = blocked;
+    _emitHealth(status: _relayStatus);
+  }
+
+  void _setPeerCryptoBlocked(String peer, bool blocked) {
+    final changed = blocked
+        ? _cryptoBlockedPeers.add(peer)
+        : _cryptoBlockedPeers.remove(peer);
+    if (!changed) return;
+    _emitHealth(status: _relayStatus);
+  }
+
+  void _emitHealth({
+    required RelayHealthStatus status,
+    int? queueDepth,
+    bool? locationBlocked,
+    DateTime? lastSyncAt,
+  }) {
+    final next = RelayHealth(
+      status: status,
+      queueDepth: queueDepth ?? _health.queueDepth,
+      locationBlocked: locationBlocked ?? _health.locationBlocked,
+      lastSyncAt: lastSyncAt ?? _health.lastSyncAt,
+    );
+    _health = next;
+    if (!_healthUpdates.isClosed) _healthUpdates.add(next);
+  }
+
   void _scheduleGenerationRetry() {
     if (_generationRetryScheduled) return;
     _generationRetryScheduled = true;
@@ -546,7 +738,9 @@ class RelayController {
       final pt = await crypto.decrypt(gid, base64Decode(blob));
       final data = jsonDecode(utf8.decode(pt)) as Map<String, dynamic>;
       await _acceptPeerFix(sender, data);
+      _setPeerCryptoBlocked(sender, false);
     } on Object catch (e) {
+      _setPeerCryptoBlocked(sender, true);
       if (kDebugMode) debugPrint('peer fix decrypt failed: $e');
     }
   }
@@ -556,8 +750,16 @@ class RelayController {
   /// before the server row is ACKed. A poison row blocks only its own group;
   /// after three failed sync passes it is quarantined server-side so later
   /// commits can make progress without falsely marking the poison as applied.
-  Future<MailboxDrainDiff> processMailbox() =>
-      _queueSessionWork(_processMailbox);
+  Future<MailboxDrainDiff> processMailbox() async {
+    final diff = await _queueSessionWork(_processMailbox);
+    if (diff.errors.contains(RealtimeSyncFailure.mailboxApplyFailed)) {
+      _setMailboxCryptoBlocked(true);
+    } else if (!diff.errors.contains(RealtimeSyncFailure.mailboxUnavailable) &&
+        !diff.errors.contains(RealtimeSyncFailure.sessionChanged)) {
+      _setMailboxCryptoBlocked(false);
+    }
+    return diff;
+  }
 
   Future<MailboxDrainDiff> _processMailbox() async {
     final session = _session;
@@ -696,11 +898,7 @@ class RelayController {
           final count = (failures[id] ?? 0) + 1;
           failures[id] = count;
           if (count >= 3 &&
-              await _quarantine(
-                session.token,
-                id,
-                reason: 'crypto_rejected',
-              )) {
+              await _quarantine(session.token, id, reason: 'crypto_rejected')) {
             quarantined++;
             quarantinedMessageIds.add(id);
             failures.remove(id);
@@ -810,10 +1008,7 @@ class RelayController {
     return CurrentFixSyncDiff(updatedPeers: updated, errors: errors);
   }
 
-  Future<bool> _acceptPeerFix(
-    String userId,
-    Map<String, dynamic> data,
-  ) async {
+  Future<bool> _acceptPeerFix(String userId, Map<String, dynamic> data) async {
     final timestamp = data['timestamp'] as int? ?? 0;
     if (timestamp <= (_latestFixTimestamp[userId] ?? 0)) return false;
     _latestFixTimestamp[userId] = timestamp;
@@ -927,6 +1122,12 @@ class RelayController {
     _wsSub = null;
     await _wsStateSub?.cancel();
     _wsStateSub = null;
+    await _wsHealthSub?.cancel();
+    _wsHealthSub = null;
+    await _locationHealthSub?.cancel();
+    _locationHealthSub = null;
+    await _syncDiffSub?.cancel();
+    _syncDiffSub = null;
     await _ws?.dispose();
     _ws = null;
     _session = null;
@@ -937,6 +1138,15 @@ class RelayController {
     _identityGenerationReady = null;
     _generationRetryScheduled = false;
     _latestFixTimestamp.clear();
+    _wsConnection = WsConnectionState.disconnected;
+    _hasAuthenticated = false;
+    _syncHealthy = false;
+    _hasEverSynced = false;
+    _startupCryptoBlocked = false;
+    _mailboxCryptoBlocked = false;
+    _cryptoBlockedPeers.clear();
+    _health = const RelayHealth.offline();
+    if (!_healthUpdates.isClosed) _healthUpdates.add(_health);
     _clearPeerPresence();
   }
 
@@ -945,6 +1155,7 @@ class RelayController {
     await _peerFixes.close();
     await _peerPresenceUpdates.close();
     await _syncRequests.close();
+    await _healthUpdates.close();
   }
 
   String _wsUrlFor(String base) => '${base.replaceFirst('http', 'ws')}/ws';
@@ -1005,17 +1216,12 @@ void removeRelayTarget(
   shareSince.remove(peer);
 }
 
-Map<String, T> withoutPeerFix<T>(
-  Map<String, T> fixes,
-  String userId,
-) => {...fixes}..remove(userId);
+Map<String, T> withoutPeerFix<T>(Map<String, T> fixes, String userId) =>
+    {...fixes}..remove(userId);
 
 const _formationMarkerPrefix = 'point.mls.pair-formation.';
 
-typedef _HandledFormation = ({
-  DateTime? peerRekeyedAt,
-  DateTime? shareSince,
-});
+typedef _HandledFormation = ({DateTime? peerRekeyedAt, DateTime? shareSince});
 
 Future<_HandledFormation> _readHandledFormation(
   String self,
@@ -1058,6 +1264,195 @@ final relayControllerProvider = Provider<RelayController>((ref) {
   ref.onDispose(() => unawaited(c.dispose()));
   return c;
 });
+
+/// Presentation-facing relay truth. Map and People can watch this without
+/// depending on the mutable service, and the action uses the same provider.
+class RelayHealthNotifier extends Notifier<RelayHealth> {
+  @override
+  RelayHealth build() {
+    final relay = ref.read(relayControllerProvider);
+    final healthSub = relay.healthUpdates.listen(
+      (health) => state = health,
+    );
+    ref.onDispose(() {
+      unawaited(healthSub.cancel());
+    });
+    return relay.health;
+  }
+
+  void retryOrSync() => ref.read(relayControllerProvider).retryOrSync();
+}
+
+final relayHealthProvider = NotifierProvider<RelayHealthNotifier, RelayHealth>(
+  RelayHealthNotifier.new,
+);
+
+@immutable
+class RelayHealthPresentation {
+  const RelayHealthPresentation({
+    required this.title,
+    required this.detail,
+    required this.icon,
+    required this.actionLabel,
+  });
+
+  factory RelayHealthPresentation.from(RelayHealth health, {DateTime? now}) {
+    if (health.locationBlocked && health.status == RelayHealthStatus.live) {
+      return const RelayHealthPresentation(
+        title: 'Location unavailable',
+        detail: 'Last-known locations stay visible',
+        icon: Icons.location_off_outlined,
+        actionLabel: null,
+      );
+    }
+    if (health.queueDepth > 0 && health.status == RelayHealthStatus.live) {
+      final updates = health.queueDepth == 1 ? 'update' : 'updates';
+      return RelayHealthPresentation(
+        title: 'Syncing ${health.queueDepth} $updates',
+        detail: 'Locations stay cached until sent',
+        icon: Icons.sync_outlined,
+        actionLabel: 'Sync',
+      );
+    }
+    return switch (health.status) {
+      RelayHealthStatus.connecting => const RelayHealthPresentation(
+        title: 'Connecting',
+        detail: 'Last-known locations stay visible',
+        icon: Icons.more_horiz,
+        actionLabel: null,
+      ),
+      RelayHealthStatus.live => RelayHealthPresentation(
+        title: 'Live',
+        detail: _lastSyncLabel(health.lastSyncAt, now: now),
+        icon: Icons.check_circle,
+        actionLabel: 'Sync',
+      ),
+      RelayHealthStatus.reconnecting => const RelayHealthPresentation(
+        title: 'Reconnecting',
+        detail: 'Showing last-known locations',
+        icon: Icons.sync_outlined,
+        actionLabel: 'Retry',
+      ),
+      RelayHealthStatus.offline => const RelayHealthPresentation(
+        title: 'Offline',
+        detail: 'Showing last-known locations',
+        icon: Icons.cloud_off_outlined,
+        actionLabel: 'Retry',
+      ),
+      RelayHealthStatus.cryptoBlocked => const RelayHealthPresentation(
+        title: 'Secure sync blocked',
+        detail: 'Some location updates could not be opened',
+        icon: Icons.lock_outline,
+        actionLabel: 'Retry',
+      ),
+    };
+  }
+
+  final String title;
+  final String detail;
+  final IconData icon;
+  final String? actionLabel;
+
+  static String _lastSyncLabel(DateTime? lastSyncAt, {DateTime? now}) {
+    if (lastSyncAt == null) return 'Checking for updates';
+    final elapsed = (now ?? DateTime.now()).difference(lastSyncAt);
+    if (elapsed.inMinutes < 1) return 'Synced just now';
+    if (elapsed.inHours < 1) return 'Synced ${elapsed.inMinutes}m ago';
+    return 'Synced ${elapsed.inHours}h ago';
+  }
+}
+
+/// Shared, monochrome status surface for Map and People. Text and icon shape
+/// carry every state, and state changes become instant when motion is reduced.
+class RelayHealthBanner extends ConsumerWidget {
+  const RelayHealthBanner({
+    super.key,
+    this.health,
+    this.onAction,
+    this.showAction = true,
+  });
+
+  final RelayHealth? health;
+  final VoidCallback? onAction;
+  final bool showAction;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final RelayHealth current;
+    if (health case final supplied?) {
+      current = supplied;
+    } else {
+      current = ref.watch(relayHealthProvider);
+    }
+    final presentation = RelayHealthPresentation.from(current);
+    final motion = ref.watch(settingsProvider.select((value) => value.motion));
+    final reducedMotion =
+        motion == MotionPreference.reduced ||
+        (motion == MotionPreference.system &&
+            MediaQuery.disableAnimationsOf(context));
+    final action = showAction ? presentation.actionLabel : null;
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: '${presentation.title}. ${presentation.detail}',
+      child: AnimatedSwitcher(
+        duration: reducedMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 180),
+        switchInCurve: Curves.easeOutQuart,
+        switchOutCurve: Curves.easeOutQuart,
+        child: ColoredBox(
+          key: ValueKey(
+            (current.status, current.queueDepth, current.locationBlocked),
+          ),
+          color: context.colors.surfaceContainer,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: context.space.md,
+              vertical: context.space.xs,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  presentation.icon,
+                  size: 20,
+                  color: context.colors.onSurfaceVariant,
+                ),
+                SizedBox(width: context.space.sm),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(presentation.title, style: context.text.labelLarge),
+                      Text(
+                        presentation.detail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.text.bodySmall?.copyWith(
+                          color: context.colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (action != null)
+                  TextButton(
+                    onPressed:
+                        onAction ??
+                        () => ref
+                            .read(relayHealthProvider.notifier)
+                            .retryOrSync(),
+                    child: Text(action),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// Latest decrypted position per peer, fed by the relay's `peerFixes` (H2 — the
 /// receive path now terminates somewhere the map watches, not a dead stream).

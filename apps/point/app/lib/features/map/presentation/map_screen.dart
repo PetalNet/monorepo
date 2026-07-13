@@ -230,14 +230,31 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ],
           ),
           const MapAvailabilityOverlay(),
-          if (_follow.isFollowing)
-            _FollowBadge(
-              name: located
-                  .where((person) => person.userId == _follow.userId)
-                  .firstOrNull
-                  ?.displayName,
-              onStop: () => setState(() => _follow = _follow.onUserGesture()),
+          Positioned(
+            top: context.space.sm,
+            left: context.space.sm,
+            right: context.space.sm,
+            child: Column(
+              children: [
+                const RelayHealthBanner(),
+                if (_follow.isFollowing)
+                  Padding(
+                    padding: EdgeInsets.only(top: context.space.sm),
+                    child: _FollowBadge(
+                      name: located
+                          .where(
+                            (person) => person.userId == _follow.userId,
+                          )
+                          .firstOrNull
+                          ?.displayName,
+                      onStop: () => setState(
+                        () => _follow = _follow.onUserGesture(),
+                      ),
+                    ),
+                  ),
+              ],
             ),
+          ),
         ],
       ),
     );
@@ -484,36 +501,37 @@ class _FollowBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      top: context.space.sm,
-      left: context.space.lg,
-      right: context.space.lg,
-      child: Center(
-        child: Material(
-          color: context.colors.inverseSurface,
+    return Center(
+      child: Material(
+        color: context.colors.inverseSurface,
+        borderRadius: BorderRadius.circular(context.radii.full),
+        child: InkWell(
+          onTap: onStop,
           borderRadius: BorderRadius.circular(context.radii.full),
-          child: InkWell(
-            onTap: onStop,
-            borderRadius: BorderRadius.circular(context.radii.full),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 48),
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: context.space.md),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.near_me, color: context.colors.onInverseSurface),
-                    SizedBox(width: context.space.sm),
-                    Text(
-                      name == null ? 'Following' : 'Following $name',
-                      style: context.text.labelLarge?.copyWith(
-                        color: context.colors.onInverseSurface,
-                      ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: context.space.md),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.near_me,
+                    color: context.colors.onInverseSurface,
+                  ),
+                  SizedBox(width: context.space.sm),
+                  Text(
+                    name == null ? 'Following' : 'Following $name',
+                    style: context.text.labelLarge?.copyWith(
+                      color: context.colors.onInverseSurface,
                     ),
-                    SizedBox(width: context.space.sm),
-                    Icon(Icons.close, color: context.colors.onInverseSurface),
-                  ],
-                ),
+                  ),
+                  SizedBox(width: context.space.sm),
+                  Icon(
+                    Icons.close,
+                    color: context.colors.onInverseSurface,
+                  ),
+                ],
               ),
             ),
           ),
