@@ -36,7 +36,7 @@ Projection map (emission `type` → `kind`): `fleet.event.*`→fleet · `agent.h
 
 Table (migration, mirrors `events` RLS mechanics — P2):
 
-```
+```sql
 current_state(
   kind text, subject text,
   scope text not null,             -- INVARIANT per (kind,subject) — see below
@@ -170,6 +170,20 @@ per-source visibility markers, null≠denied; bridge — deterministic id (resta
 after-accept, batch contiguous checkpoint, snapshot same-content invisibility documented,
 gap/unreachable emissions; completions — valid signature accepted + ledger transitions, forged/
 unsigned/wrong-executor rejected. Fail-closed if `TASKS_DB_PATH` unset/live.
+
+## 7b. Sub-PR split (build-with-consumer, per the knip:prod gate)
+
+N1b lands as two PRs so each ships with its prod consumer (the repo's `knip --strict` gate rejects
+unused-in-prod exports — the lab's build-with-consumer discipline):
+
+- **N1b-1 (this PR):** the `current_state` projection (boot-replay + seq-guard + scope invariance)
+  and the 8 lake-sourced typed reads (`/fleet`, `/heartbeats`, `/registry`, `/governance`,
+  `/cards`, `/box-updates`, `/workers`, `/edge/registry`). Migration for current_state +
+  projection_checkpoint (+ forward tables executor_keys, items_min for N1b-2/N1c).
+- **N1b-2:** the tracker HTTP reader + `/tasks`, `/leases`, `/agents`, `/roster`, `/executors`
+  (uses the §4 visibility→scope mapping + leasePublic in prod); the `console-bridge` Rust crate.
+- **Completion-verify (§6)** moves to **N1c** where its consumer (the command ledger) lives — the
+  executor-signed + verified path is the same, built alongside the op router that reads it.
 
 ## 8. Acceptance
 

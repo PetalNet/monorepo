@@ -129,7 +129,55 @@ const STATEMENTS: readonly string[] = [
 	   propose_only    boolean not null default false
 	 )`,
 
+	// --- N1b: current-state projection (latest per entity), keyed by the PROJECTION bucket -----
+	// kind is the projection-map target (fleet|heartbeat|registry|governance|card|worker|
+	// box_update|edge), NOT the emission subject_kind (which is `agent` for four of them).
+	`create table if not exists current_state (
+	   kind              text not null,
+	   subject           text not null,
+	   scope             text not null,
+	   state             jsonb not null,
+	   observed_at       timestamptz not null,
+	   producer_ts       timestamptz,
+	   unreachable_since timestamptz,
+	   seq               bigint not null,
+	   primary key (kind, subject)
+	 )`,
+
+	// projector durability: the seq up to which current_state reflects the lake.
+	`create table if not exists projection_checkpoint (
+	   name         text primary key,
+	   through_seq  bigint not null default 0,
+	   updated_at   timestamptz not null default now()
+	 )`,
+
+	// executor signing keys: completions are executor-SIGNED, verified here; the bridge is relay-only.
+	`create table if not exists executor_keys (
+	   executor    text primary key,
+	   algorithm   text not null default 'ed25519',
+	   public_key  text not null,
+	   created_at  timestamptz not null default now(),
+	   revoked_at  timestamptz
+	 )`,
+
+	// minimal Library items table (dashboards/artifacts projection) — Phase-1 wire surface.
+	`create table if not exists items_min (
+	   id                 text primary key,
+	   kind               text not null,
+	   title              text not null,
+	   scope              text not null,
+	   is_home            boolean not null default false,
+	   created_by         text,
+	   responsible_human  text,
+	   payload            jsonb not null default '{}'::jsonb,
+	   updated_at         timestamptz not null default now()
+	 )`,
+
 	// --- RLS: enable + force on every scoped base table, then the policy ----------------------
+	`alter table current_state enable row level security`,
+	`alter table current_state force row level security`,
+	`alter table items_min enable row level security`,
+	`alter table items_min force row level security`,
 	`alter table events enable row level security`,
 	`alter table events force row level security`,
 	`alter table edges enable row level security`,
@@ -164,17 +212,33 @@ const STATEMENTS: readonly string[] = [
 	   if not exists (select 1 from pg_policies where tablename='blobs' and policyname='blobs_writer_all') then
 	     create policy blobs_writer_all on blobs to console_writer using (true) with check (true);
 	   end if;
+	   if not exists (select 1 from pg_policies where tablename='current_state' and policyname='current_state_scope_select') then
+	     create policy current_state_scope_select on current_state for select to console_app, console_ro
+	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='current_state' and policyname='current_state_writer_all') then
+	     create policy current_state_writer_all on current_state to console_writer using (true) with check (true);
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='items_min' and policyname='items_min_scope_select') then
+	     create policy items_min_scope_select on items_min for select to console_app, console_ro
+	       using (scope = any (string_to_array(current_setting('app.scopes', true), ',')));
+	   end if;
+	   if not exists (select 1 from pg_policies where tablename='items_min' and policyname='items_min_writer_all') then
+	     create policy items_min_writer_all on items_min to console_writer using (true) with check (true);
+	   end if;
 	 end $$`,
 
 	// --- grants -------------------------------------------------------------------------------
 	`revoke all on all tables in schema public from console_ro`,
 	`grant usage on schema public to console_app, console_ro, console_writer`,
-	`grant select on events to console_ro`,
+	`grant select on events, current_state, items_min to console_ro`,
 	// console_app: scoped reads across the read surface.
-	`grant select on events, edges, blobs, semantic_registry, grants, producer_registrations, tiers, api_tokens to console_app`,
+	`grant select on events, edges, blobs, current_state, items_min, semantic_registry, grants, producer_registrations, tiers, api_tokens, executor_keys to console_app`,
 	`grant insert, update, select on semantic_registry to console_app, console_writer`,
-	// console_writer: the appender (non-superuser) — insert events/edges/blobs, see all for dedup.
+	// console_writer: the appender + projector (non-superuser) — insert events/edges/blobs, upsert current_state.
 	`grant insert, select on events, edges, blobs to console_writer`,
+	`grant insert, update, select, delete on current_state, items_min to console_writer`,
+	`grant insert, update, select on projection_checkpoint to console_writer`,
 ];
 
 export interface MigrateOpts {
