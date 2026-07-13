@@ -61,15 +61,36 @@ class _AddPersonScreenState extends ConsumerState<AddPersonScreen> {
     });
     try {
       await ref.read(apiProvider).sendShareRequest(session.token, target);
-      await ref.read(outgoingRequestsControllerProvider.notifier).refresh();
-      if (!mounted) return;
-      setState(() => _sentTarget = target);
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = e.message;
+        });
+      }
+      return;
     } on Object {
-      if (mounted) setState(() => _error = 'Could not send the request.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = 'Could not send the request.';
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _sentTarget = target;
+    });
+    try {
+      await ref.read(outgoingRequestsControllerProvider.notifier).refresh();
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sent. Pull to refresh requests.')),
+        );
+      }
     }
   }
 
@@ -165,7 +186,6 @@ class _RequestedState extends StatelessWidget {
               children: [
                 Icon(
                   Icons.schedule,
-                  size: 48,
                   color: context.colors.onSurface,
                 ),
                 SizedBox(height: context.space.lg),

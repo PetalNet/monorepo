@@ -304,15 +304,14 @@ pub async fn reject_request(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Value>> {
     let requester: Option<(String,)> = sqlx::query_as(
-        "UPDATE share_requests SET status = 'rejected', updated_at = now()
+        "SELECT from_user_id FROM share_requests
          WHERE id = $1 AND to_user_id = $2 AND status = 'pending'
            AND (created_at >= now() - interval '30 days'
                 OR EXISTS (
                     SELECT 1 FROM users
                     WHERE users.id = share_requests.from_user_id
                       AND users.is_federated
-                ))
-         RETURNING from_user_id",
+                ))",
     )
     .bind(id)
     .bind(&user.user_id)
@@ -321,6 +320,35 @@ pub async fn reject_request(
     let Some((requester,)) = requester else {
         return Err(AppError::NotFound);
     };
+    let remote = matches!(
+        super::federation::domain_of(&requester),
+        Some(domain) if !domain.eq_ignore_ascii_case(&state.config.domain)
+    );
+    if remote {
+        // share.remove already has the signed federation semantics needed to
+        // clear the peer's matching pending row and wake its client. With no
+        // accepted share yet, it is precisely a terminal request event.
+        super::federation::send_federated(
+            &state,
+            &user.user_id,
+            &requester,
+            "share.remove",
+            json!({ "reason": "rejected", "request_id": id }),
+        )
+        .await?;
+    }
+    let result = sqlx::query(
+        "UPDATE share_requests SET status = 'rejected', updated_at = now()
+         WHERE id = $1 AND to_user_id = $2 AND status = 'pending'
+        ",
+    )
+    .bind(id)
+    .bind(&user.user_id)
+    .execute(&state.pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
 
     // Rejection is a lifecycle event, not a silent disappearance. Live
     // requester devices can clear their outgoing queue immediately; offline
@@ -331,12 +359,22 @@ pub async fn reject_request(
         "request_id": id,
     })
     .to_string();
-    state.hub.send_to_user(&requester, &notify);
-    // Older clients do not yet distinguish terminal request events, but they
-    // already treat share.request as an authoritative request-list nudge.
-    // Send that compatibility nudge too so their outgoing queue reconciles.
-    let sync = json!({ "type": "share.request", "request_id": id }).to_string();
-    state.hub.send_to_user(&requester, &sync);
+    if !remote {
+        if state.hub.is_online(&requester) {
+            state.hub.send_to_user(&requester, &notify);
+            // Older clients do not yet distinguish terminal request events,
+            // but already treat share.request as an authoritative list nudge.
+            let sync = json!({ "type": "share.request", "request_id": id }).to_string();
+            state.hub.send_to_user(&requester, &sync);
+        } else {
+            tokio::spawn(crate::push::wake_user(
+                state.pool.clone(),
+                requester,
+                crate::push::Wake::new("share_request"),
+                state.config.federation_allow_private,
+            ));
+        }
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -349,9 +387,9 @@ pub async fn cancel_request(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Value>> {
     let recipient: Option<(String,)> = sqlx::query_as(
-        "DELETE FROM share_requests
+        "SELECT to_user_id FROM share_requests
          WHERE id = $1 AND from_user_id = $2 AND status = 'pending'
-         RETURNING to_user_id",
+        ",
     )
     .bind(id)
     .bind(&user.user_id)
@@ -360,6 +398,31 @@ pub async fn cancel_request(
     let Some((recipient,)) = recipient else {
         return Err(AppError::NotFound);
     };
+    let remote = matches!(
+        super::federation::domain_of(&recipient),
+        Some(domain) if !domain.eq_ignore_ascii_case(&state.config.domain)
+    );
+    if remote {
+        super::federation::send_federated(
+            &state,
+            &user.user_id,
+            &recipient,
+            "share.remove",
+            json!({ "reason": "cancelled", "request_id": id }),
+        )
+        .await?;
+    }
+    let result = sqlx::query(
+        "DELETE FROM share_requests
+         WHERE id = $1 AND from_user_id = $2 AND status = 'pending'",
+    )
+    .bind(id)
+    .bind(&user.user_id)
+    .execute(&state.pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
 
     let notify = json!({
         "type": "share.cancelled",
@@ -367,9 +430,20 @@ pub async fn cancel_request(
         "request_id": id,
     })
     .to_string();
-    state.hub.send_to_user(&recipient, &notify);
-    let sync = json!({ "type": "share.request", "request_id": id }).to_string();
-    state.hub.send_to_user(&recipient, &sync);
+    if !remote {
+        if state.hub.is_online(&recipient) {
+            state.hub.send_to_user(&recipient, &notify);
+            let sync = json!({ "type": "share.request", "request_id": id }).to_string();
+            state.hub.send_to_user(&recipient, &sync);
+        } else {
+            tokio::spawn(crate::push::wake_user(
+                state.pool.clone(),
+                recipient,
+                crate::push::Wake::new("share_request"),
+                state.config.federation_allow_private,
+            ));
+        }
+    }
     Ok(Json(json!({ "ok": true })))
 }
 

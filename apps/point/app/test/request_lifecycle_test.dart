@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -176,5 +178,56 @@ void main() {
     expect(find.textContaining('Cancelled'), findsWidgets);
     expect(find.textContaining('Could not cancel. Try again.'), findsNothing);
     expect(find.text('Cancel'), findsNothing);
+  });
+
+  testWidgets('decline transitions optimistically then reconciles', (
+    tester,
+  ) async {
+    var declined = false;
+    final response = Completer<http.Response>();
+    final api = PointApi(
+      baseUrl: 'https://point.dev',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/reject')) {
+          final result = await response.future;
+          declined = true;
+          return result;
+        }
+        if (request.url.path.endsWith('/outgoing')) {
+          return http.Response('[]', 200);
+        }
+        return http.Response(
+          declined
+              ? '[]'
+              : '[{"id":"r1","from_user_id":"mara@point.dev",'
+                    '"from_display_name":"Mara",'
+                    '"created_at":"2026-07-13T15:30:00Z"}]',
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_SignedInAuth.new),
+          apiProvider.overrideWithValue(api),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const RequestsScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Decline'));
+    await tester.pump();
+    expect(find.text('Declined'), findsOneWidget);
+
+    response.complete(http.Response('{"ok":true}', 200));
+    await tester.pumpAndSettle();
+    expect(declined, isTrue);
+    expect(find.text('Mara'), findsNothing);
   });
 }

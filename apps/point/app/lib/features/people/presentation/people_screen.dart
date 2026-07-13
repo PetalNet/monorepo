@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
+import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/people/temp_shares_controller.dart';
@@ -525,7 +526,7 @@ class _RequestsLoading extends StatelessWidget {
       itemBuilder: (context, index) => Padding(
         padding: EdgeInsets.symmetric(vertical: context.space.sm),
         child: Container(
-          height: 56,
+          height: context.space.xxl + context.space.xl,
           decoration: BoxDecoration(
             color: context.colors.surfaceContainer,
             borderRadius: context.radii.brSm,
@@ -567,7 +568,7 @@ class _RequestsError extends StatelessWidget {
   }
 }
 
-enum _OutgoingRequestState { pending, expired, cancelling, failed, cancelled }
+enum _OutgoingRequestState { pending, expired, failed, cancelled }
 
 class _OutgoingRequestRow extends ConsumerStatefulWidget {
   const _OutgoingRequestRow({required this.request, super.key});
@@ -590,7 +591,7 @@ class _OutgoingRequestRowState extends ConsumerState<_OutgoingRequestRow> {
     if (session == null) return;
     setState(() {
       _retryAction = false;
-      _state = _OutgoingRequestState.cancelling;
+      _state = _OutgoingRequestState.cancelled;
     });
     try {
       await ref
@@ -621,7 +622,8 @@ class _OutgoingRequestRowState extends ConsumerState<_OutgoingRequestRow> {
     if (session == null) return;
     setState(() {
       _retryAction = true;
-      _state = _OutgoingRequestState.cancelling;
+      _retried = true;
+      _state = _OutgoingRequestState.pending;
     });
     try {
       final api = ref.read(apiProvider);
@@ -666,8 +668,6 @@ class _OutgoingRequestRowState extends ConsumerState<_OutgoingRequestRow> {
             ? 'Pending'
             : 'Requested ${relativeSince(createdAt.millisecondsSinceEpoch)}',
       _OutgoingRequestState.expired => 'Expired. Send it again?',
-      _OutgoingRequestState.cancelling =>
-        _retryAction ? 'Retrying' : 'Cancelling',
       _OutgoingRequestState.failed =>
         _retryAction
             ? 'Could not retry. Try again.'
@@ -683,10 +683,6 @@ class _OutgoingRequestRowState extends ConsumerState<_OutgoingRequestRow> {
       subtitle: Text('$status\n${request.toUserId}'),
       isThreeLine: true,
       trailing: switch (_state) {
-        _OutgoingRequestState.cancelling => const SizedBox.square(
-          dimension: 24,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
         _OutgoingRequestState.cancelled => const Icon(Icons.check),
         _OutgoingRequestState.expired => TextButton(
           onPressed: _retry,
@@ -724,18 +720,17 @@ class _RequestRowState extends ConsumerState<_RequestRow> {
   String? _error;
 
   Future<void> _run({
-    required String progress,
     required String complete,
+    required bool refreshPeople,
     required Future<void> Function() action,
   }) async {
     setState(() {
       _busy = true;
-      _transition = progress;
+      _transition = complete;
       _error = null;
     });
     try {
       await action();
-      if (mounted) setState(() => _transition = complete);
     } on Object {
       if (mounted) {
         setState(() {
@@ -743,15 +738,32 @@ class _RequestRowState extends ConsumerState<_RequestRow> {
           _error = 'Could not update. Try again.';
         });
       }
+      return;
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$complete.')));
+    try {
+      await ref.read(requestsControllerProvider.notifier).refresh();
+      if (refreshPeople) {
+        await ref.read(peopleControllerProvider.notifier).refresh();
+      }
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$complete. Pull to refresh the list.')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final r = widget.request;
-    final ctrl = ref.read(requestsControllerProvider.notifier);
+    final session = ref.read(authControllerProvider).value;
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: context.space.lg,
@@ -799,29 +811,35 @@ class _RequestRowState extends ConsumerState<_RequestRow> {
           if (_busy)
             Padding(
               padding: EdgeInsets.all(context.space.sm),
-              child: const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+              child: const Icon(Icons.schedule),
             )
           else ...[
             IconButton(
               tooltip: 'Decline',
               icon: const Icon(Icons.close),
               onPressed: () => _run(
-                progress: 'Declining',
                 complete: 'Declined',
-                action: () => ctrl.decline(r),
+                refreshPeople: false,
+                action: () async {
+                  if (session == null) return;
+                  await ref
+                      .read(apiProvider)
+                      .rejectRequest(session.token, r.id);
+                },
               ),
             ),
             IconButton.filled(
               tooltip: 'Accept',
               icon: const Icon(Icons.check),
               onPressed: () => _run(
-                progress: 'Accepting',
                 complete: 'Accepted',
-                action: () => ctrl.accept(r),
+                refreshPeople: true,
+                action: () async {
+                  if (session == null) return;
+                  await ref
+                      .read(apiProvider)
+                      .acceptRequest(session.token, r.id);
+                },
               ),
             ),
           ],
