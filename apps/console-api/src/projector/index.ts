@@ -81,22 +81,23 @@ export class Projector {
 	 * Takes a transaction-scoped advisory lock so two instances cannot replay concurrently.
 	 */
 	async replayToHead(): Promise<void> {
-		await this.#writer`select pg_advisory_lock(${REPLAY_LOCK_KEY})`;
-		try {
-			await this.#replayLocked();
-		} finally {
-			await this.#writer`select pg_advisory_unlock(${REPLAY_LOCK_KEY})`;
-		}
+		// One transaction for the whole boot replay. pg_advisory_XACT_lock is bound to THIS
+		// transaction's backend and auto-releases at commit — safe over a pooled connection, unlike a
+		// session-level lock whose unlock could land on a different pooled backend (codex re-review).
+		await this.#writer.begin(async (tx) => {
+			await tx`select pg_advisory_xact_lock(${REPLAY_LOCK_KEY})`;
+			await this.#replayLocked(tx as Sql);
+		});
 	}
 
-	async #replayLocked(): Promise<void> {
-		const ck = await this.#writer<{ through_seq: string }[]>`
+	async #replayLocked(tx: Sql): Promise<void> {
+		const ck = await tx<{ through_seq: string }[]>`
 			insert into projection_checkpoint (name, through_seq) values (${this.name}, 0)
 			on conflict (name) do update set name = excluded.name
 			returning through_seq`;
 		let cursor = Number(ck[0]?.through_seq ?? 0);
 		for (;;) {
-			const rows = await this.#writer<
+			const rows = await tx<
 				{
 					seq: string;
 					type: string;
@@ -136,13 +137,14 @@ export class Projector {
 					measures: r.measures as Emission["measures"],
 				};
 				await this.#apply(
+					tx,
 					Number(r.seq),
 					e,
 					typeof r.received_at === "string" ? r.received_at : new Date(r.received_at).toISOString(),
 				);
 				cursor = Number(r.seq);
 				// monotonic checkpoint (codex P1): only ever advance, never regress.
-				await this.#writer`update projection_checkpoint set through_seq = ${cursor}, updated_at = now()
+				await tx`update projection_checkpoint set through_seq = ${cursor}, updated_at = now()
 					where name = ${this.name} and through_seq < ${cursor}`;
 			}
 			if (rows.length < 5000) break;
@@ -155,7 +157,7 @@ export class Projector {
 	 */
 	onEvent(seq: number, e: Emission, receivedAt: string): void {
 		const run = this.#tail.then(async () => {
-			await this.#apply(seq, e, receivedAt);
+			await this.#apply(this.#writer, seq, e, receivedAt);
 			// advance ONLY if the previous seq is already checkpointed (contiguous); a no-op otherwise.
 			await this.#writer`update projection_checkpoint set through_seq = ${seq}, updated_at = now()
 				where name = ${this.name} and through_seq = ${seq - 1}`;
@@ -165,12 +167,12 @@ export class Projector {
 		});
 	}
 
-	async #apply(seq: number, e: Emission, receivedAt: string): Promise<void> {
+	async #apply(sql: Sql, seq: number, e: Emission, receivedAt: string): Promise<void> {
 		// bridge.source.unreachable marks the affected entities dark (positive down-evidence, L2).
 		// seq-guarded (codex P1): only mark a row dark if its last state is not newer than this signal,
 		// so a delayed old unreachable cannot re-mark a freshly-healthy entity.
 		if (e.type === "bridge.source.unreachable") {
-			await this.#writer`update current_state set unreachable_since = ${receivedAt}
+			await sql`update current_state set unreachable_since = ${receivedAt}
 				where subject = ${e.subject} and unreachable_since is null and seq <= ${seq}`;
 			return;
 		}
@@ -189,9 +191,9 @@ export class Projector {
 		// Scope invariance (codex P1): the update predicate requires the SAME scope, so a differing
 		// scope never applies new state under the old scope (which would flip visibility). A mismatch
 		// is a no-op here and is alarmed separately below.
-		const rows = await this.#writer<{ scope: string }[]>`
+		const rows = await sql<{ scope: string }[]>`
 			insert into current_state (kind, subject, scope, state, observed_at, producer_ts, seq, unreachable_since)
-			values (${kind}, ${e.subject}, ${e.scope}, ${this.#writer.json(stateOf(e) as never)}, ${receivedAt}, ${e.ts}, ${seq}, null)
+			values (${kind}, ${e.subject}, ${e.scope}, ${sql.json(stateOf(e) as never)}, ${receivedAt}, ${e.ts}, ${seq}, null)
 			on conflict (kind, subject) do update
 				set state = excluded.state, observed_at = excluded.observed_at, producer_ts = excluded.producer_ts,
 					seq = excluded.seq, unreachable_since = null
@@ -199,7 +201,7 @@ export class Projector {
 			returning scope`;
 		if (rows.length === 0) {
 			// either a stale seq (no-op) or a scope mismatch — check for the latter to alarm.
-			const cur = await this.#writer<
+			const cur = await sql<
 				{ scope: string; seq: string }[]
 			>`select scope, seq from current_state where kind = ${kind} and subject = ${e.subject}`;
 			const c = cur[0];
