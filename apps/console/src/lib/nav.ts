@@ -54,6 +54,14 @@ const NAV: NavEntry[] = [
 		sign: "Accounting",
 	},
 	{
+		label: "Cost",
+		icon: "coins",
+		href: "/cost",
+		key: "p",
+		badge: "count",
+		sign: "The Point System",
+	},
+	{
 		label: "Signals",
 		icon: "radio-tower",
 		href: "/signals",
