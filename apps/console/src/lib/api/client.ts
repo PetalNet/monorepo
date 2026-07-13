@@ -15,10 +15,14 @@ import type {
 	ApiError,
 	BoxUpdateItem,
 	BoxUpdateRaw,
+	CatalogEntry,
+	DashboardItem,
 	ExecutorItem,
 	Me,
 	OpResult,
 	ReadEnvelope,
+	QueryResult,
+	StructuredQuery,
 } from "./types";
 
 export type DataMode = "mock" | "live";
@@ -106,6 +110,42 @@ export async function readExecutors(
 		credentials: "include",
 	});
 	return json<ReadEnvelope<ExecutorItem>>(res);
+}
+
+/** POST /api/v1/query — scope-filtered structured statistics query, run as the caller. */
+export async function runQuery(
+	request: StructuredQuery,
+	fetchFn: typeof fetch = fetch,
+): Promise<QueryResult> {
+	const res = await fetchFn(`${base()}/query`, {
+		method: "POST",
+		headers: { "content-type": "application/json", accept: "application/json" },
+		credentials: "include",
+		body: JSON.stringify(request),
+	});
+	return json<QueryResult>(res);
+}
+
+/** GET /api/v1/catalog — readable, scope-filtered semantic catalog. */
+export async function readCatalog(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<CatalogEntry>> {
+	const res = await fetchFn(`${base()}/catalog?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<CatalogEntry>>(res);
+}
+
+/** GET /api/v1/dashboards — Library-backed dashboard list projection. */
+export async function readDashboards(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<DashboardItem>> {
+	const res = await fetchFn(`${base()}/dashboards?limit=100`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<DashboardItem>>(res);
 }
 
 /**
