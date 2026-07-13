@@ -13,6 +13,9 @@ import { loadEnv } from "./env.ts";
 import type { ProjectionKind } from "./projector/index.ts";
 import { runStructured, QueryError, type QueryRequest } from "./query/structured.ts";
 import { readEntity } from "./reads/entities.ts";
+import { readRoster, readExecutors } from "./reads/roster.ts";
+import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
+import type { TrackerReader } from "./reads/tracker.ts";
 
 declare module "fastify" {
 	interface FastifyRequest {
@@ -180,6 +183,39 @@ export async function buildServer(services: Services, devAuth: boolean) {
 			});
 		});
 	}
+
+	// --- tracker-sourced reads (single-writer store, mapped to console scope, N1b-2) -------------
+	function trackerOr503(reply: FastifyReply): boolean {
+		if (services.tracker) return true;
+		void reply.code(503).send({
+			error: {
+				code: "tracker_unavailable",
+				message: "TRACKER_DB_PATH not configured",
+				retryable: true,
+			},
+		});
+		return false;
+	}
+	app.get("/api/v1/tasks", { preHandler: auth }, async (req, reply) => {
+		if (!trackerOr503(reply)) return reply;
+		return readTasks(services.tracker as TrackerReader, (req.principal as Principal).scopes);
+	});
+	app.get("/api/v1/leases", { preHandler: auth }, async (req, reply) => {
+		if (!trackerOr503(reply)) return reply;
+		return readLeases(services.tracker as TrackerReader, (req.principal as Principal).scopes);
+	});
+	app.get("/api/v1/agents", { preHandler: auth }, async (req, reply) => {
+		if (!trackerOr503(reply)) return reply;
+		return readAgents(services.tracker as TrackerReader, (req.principal as Principal).scopes);
+	});
+	app.get("/api/v1/roster", { preHandler: auth }, async (req) => {
+		const p = req.principal as Principal;
+		return readRoster(services.db.app, services.tracker, p.scopes);
+	});
+	app.get("/api/v1/executors", { preHandler: auth }, async (req) => {
+		const p = req.principal as Principal;
+		return readExecutors(services.db.app, p.scopes);
+	});
 
 	// --- bus WS ----------------------------------------------------------------------------------
 	app.get("/api/v1/bus/ws", { websocket: true }, (socket, req) => {

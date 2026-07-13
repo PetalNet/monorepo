@@ -12,6 +12,7 @@ import { authorizeEmission } from "./ingest/authz.ts";
 import { loadRegistration } from "./ingest/registrations.ts";
 import { scrubEmission } from "./ingest/scrubber.ts";
 import { Projector } from "./projector/index.ts";
+import { TrackerReader } from "./reads/tracker.ts";
 
 export interface EmitOutcome {
 	readonly ok: boolean;
@@ -26,6 +27,8 @@ export interface Services {
 	readonly appender: Appender;
 	readonly broker: Broker;
 	readonly projector: Projector;
+	/** Read-only tracker access (null when TRACKER_DB_PATH is unset). */
+	readonly tracker: TrackerReader | null;
 	emit(producerSubject: string, raw: unknown, bytes: number): Promise<EmitOutcome>;
 	close(): Promise<void>;
 }
@@ -45,6 +48,7 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 	// serving reads, then live off fan-out (N1b). Writes as console_writer (non-superuser).
 	const projector = new Projector(db.writer);
 	await projector.replayToHead();
+	const tracker = env.trackerDbPath ? new TrackerReader(env.trackerDbPath) : null;
 	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
 		projector.onEvent(seq, e, receivedAt);
@@ -90,8 +94,10 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		appender,
 		broker,
 		projector,
+		tracker,
 		emit,
 		async close() {
+			tracker?.close();
 			await db.close();
 		},
 	};
