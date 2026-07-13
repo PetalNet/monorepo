@@ -33,8 +33,14 @@ import type { SubscribeSpec } from "./bus/broker.ts";
 import {
 	DashboardError,
 	dashboardTargetScope,
+	listLibraryCapabilities,
+	listLibraryCuration,
+	listLibraryHolds,
+	listLibraryItems,
+	listLibraryLinks,
 	listDashboards,
 	loadDashboard,
+	readLibraryItem,
 	saveDashboard,
 } from "./dashboard/store.ts";
 import { withScopes } from "./db/pool.ts";
@@ -1853,6 +1859,113 @@ export async function buildServer(
 				error: { code: "dashboard_not_found", message: "dashboard not found", retryable: false },
 			});
 		return dashboard;
+	});
+
+	// --- Rev3 Library: one scope-filtered item/link store + the fleet capability registry ------
+	async function libraryRead(
+		reply: FastifyReply,
+		read: () => Promise<Record<string, unknown>>,
+	): Promise<Record<string, unknown>> {
+		try {
+			return await read();
+		} catch (error) {
+			if (error instanceof DashboardError)
+				return reply
+					.code(400)
+					.send({ error: { code: error.code, message: error.message, retryable: false } });
+			throw error;
+		}
+	}
+	app.get("/api/v1/library/items", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const query = req.query as { q?: string; kind?: string; limit?: string; cursor?: string };
+		return libraryRead(reply, () =>
+			listLibraryItems(services.db.app, p.scopes, services.cursorSecret, {
+				...(query.q ? { query: query.q } : {}),
+				...(query.kind ? { kind: query.kind } : {}),
+				...(query.limit ? { limit: Number(query.limit) } : {}),
+				...(query.cursor ? { cursor: query.cursor } : {}),
+			}),
+		);
+	});
+	app.get("/api/v1/library/search", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const query = req.query as { q?: string; kind?: string; limit?: string; cursor?: string };
+		if (!query.q?.trim())
+			return reply.code(400).send({
+				error: { code: "bad_library_query", message: "q is required", retryable: false },
+			});
+		return libraryRead(reply, () =>
+			listLibraryItems(services.db.app, p.scopes, services.cursorSecret, {
+				query: query.q!,
+				...(query.kind ? { kind: query.kind } : {}),
+				...(query.limit ? { limit: Number(query.limit) } : {}),
+				...(query.cursor ? { cursor: query.cursor } : {}),
+			}),
+		);
+	});
+	app.get("/api/v1/library/items/:itemId", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const { itemId } = req.params as { itemId: string };
+		if (!/^[A-Za-z0-9:_-]{1,128}$/.test(itemId))
+			return reply.code(404).send({
+				error: {
+					code: "library_item_not_found",
+					message: "Library item not found",
+					retryable: false,
+				},
+			});
+		const item = await readLibraryItem(services.db.app, p.scopes, itemId);
+		return (
+			item ??
+			reply.code(404).send({
+				error: {
+					code: "library_item_not_found",
+					message: "Library item not found",
+					retryable: false,
+				},
+			})
+		);
+	});
+	app.get("/api/v1/library/links", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const query = req.query as { item_id?: string; limit?: string; cursor?: string };
+		return libraryRead(reply, () =>
+			listLibraryLinks(services.db.app, p.scopes, services.cursorSecret, query.item_id, {
+				...(query.limit ? { limit: Number(query.limit) } : {}),
+				...(query.cursor ? { cursor: query.cursor } : {}),
+			}),
+		);
+	});
+	app.get("/api/v1/library/holds", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const query = req.query as { limit?: string; cursor?: string };
+		return libraryRead(reply, () =>
+			listLibraryHolds(services.db.app, p.scopes, p.id, services.cursorSecret, {
+				...(query.limit ? { limit: Number(query.limit) } : {}),
+				...(query.cursor ? { cursor: query.cursor } : {}),
+			}),
+		);
+	});
+	app.get("/api/v1/library/curation", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const query = req.query as { limit?: string; cursor?: string };
+		return libraryRead(reply, () =>
+			listLibraryCuration(services.db.app, p.scopes, services.cursorSecret, {
+				...(query.limit ? { limit: Number(query.limit) } : {}),
+				...(query.cursor ? { cursor: query.cursor } : {}),
+			}),
+		);
+	});
+	app.get("/api/v1/library/capabilities", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const query = req.query as { limit?: string; cursor?: string };
+		return libraryRead(reply, () =>
+			listLibraryCapabilities(services.db.app, p.scopes, services.cursorSecret, {
+				...(query.limit ? { limit: Number(query.limit) } : {}),
+				...(query.cursor ? { cursor: query.cursor } : {}),
+			}),
+		);
 	});
 
 	// --- catalog ---------------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+import { env } from "$env/dynamic/public";
+
 export type LibraryKind =
 	| "task"
 	| "project"
@@ -19,12 +21,19 @@ export interface LibraryItemView {
 	creator: string;
 	confidence?: number;
 	hold?: string;
+	protection?: string;
+	handedOffTo?: string;
 	body: string;
 }
 export interface LibraryData {
 	items: LibraryItemView[];
 	isMock: boolean;
 	connected: boolean;
+	links?: Record<string, LibraryLinkFixture[]>;
+	provenance?: Record<string, { responsibleHuman: string; txFrom: string }>;
+	capabilities?: LibraryCapabilityView[];
+	curation?: LibraryCurationView[];
+	sources?: Record<string, "live" | "unavailable">;
 }
 
 export const mockLibrary: LibraryData = {
@@ -138,11 +147,11 @@ export const mockLibrary: LibraryData = {
 	],
 };
 
-export const liveEmptyLibrary: LibraryData = { items: [], isMock: false, connected: false };
+const liveEmptyLibrary: LibraryData = { items: [], isMock: false, connected: false };
 
 export interface LibraryLinkFixture {
 	direction: "in" | "out";
-	rel: "belongs-to" | "references" | "derived-from";
+	rel: "belongs-to" | "references" | "derived-from" | "supersedes" | "duplicate-of";
 	targetId: string;
 	reason?: string;
 }
@@ -177,3 +186,242 @@ export const libraryProvenance: Record<string, { responsibleHuman: string; txFro
 	"kb-7": { responsibleHuman: "parker", txFrom: "2026-07-10T08:14:00Z" },
 	"kb-8": { responsibleHuman: "parker", txFrom: "2026-07-13T05:55:00Z" },
 };
+
+export interface LibraryCapabilityView {
+	capability: string;
+	provider: string;
+	host: string | null;
+	transport: string | null;
+	observedAt: string;
+	fresh: boolean;
+}
+
+export interface LibraryCurationView {
+	id: string;
+	itemId: string;
+	type: string;
+	reason: string;
+	linksIn: number;
+	activeTaskLinks: number;
+	proposedAt: string;
+}
+
+interface ApiEnvelope<T> {
+	items: T[];
+	next_cursor?: string | null;
+}
+
+interface ApiLibraryItem {
+	id: string;
+	kind: LibraryKind;
+	title: string;
+	scope: string;
+	project: string;
+	status: string;
+	protection: string;
+	confidence: number | null;
+	properties: Record<string, unknown>;
+	version: number;
+	tx_from: string;
+	updated_at: string;
+	provenance: {
+		created_by_agent: string | null;
+		responsible_human: string | null;
+		handed_off_to_agent: string | null;
+	};
+}
+
+interface ApiLibraryLink {
+	from_id: string;
+	to_id: string;
+	rel_type: LibraryLinkFixture["rel"];
+	reason: string | null;
+}
+
+interface ApiLibraryHold {
+	item_id: string;
+	reason: string;
+}
+
+interface ApiLibraryCapability {
+	capability: string;
+	provider: string;
+	host: string | null;
+	transport: string | null;
+	observed_at: string;
+	fresh: boolean;
+}
+
+interface ApiLibraryCuration {
+	id: string;
+	item_id: string;
+	proposal_type: string;
+	reason: string;
+	links_in: number;
+	active_task_links: number;
+	proposed_at: string;
+}
+
+function apiBase(): string {
+	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+}
+
+async function readEnvelope<T>(path: string, fetchFn: typeof fetch): Promise<ApiEnvelope<T>> {
+	const response = await fetchFn(`${apiBase()}${path}`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	if (!response.ok) throw new Error(`Library source ${path} returned ${String(response.status)}`);
+	return (await response.json()) as ApiEnvelope<T>;
+}
+
+async function readAllPages<T>(path: string, fetchFn: typeof fetch): Promise<ApiEnvelope<T>> {
+	const items: T[] = [];
+	const seen = new Set<string>();
+	let cursor: string | null = null;
+	do {
+		const separator = path.includes("?") ? "&" : "?";
+		// Cursor pages are ordered and each request depends on the previous response.
+		// oxlint-disable-next-line no-await-in-loop
+		const page: ApiEnvelope<T> = await readEnvelope<T>(
+			cursor ? `${path}${separator}cursor=${encodeURIComponent(cursor)}` : path,
+			fetchFn,
+		);
+		items.push(...page.items);
+		cursor = page.next_cursor ?? null;
+		if (cursor && seen.has(cursor)) throw new Error("Library pagination repeated a cursor");
+		if (cursor) seen.add(cursor);
+	} while (cursor);
+	return { items, next_cursor: null };
+}
+
+function relativeTime(value: string): string {
+	const elapsed = Math.max(0, Date.now() - new Date(value).getTime());
+	const minutes = Math.floor(elapsed / 60_000);
+	if (minutes < 60) return `${String(minutes)}m`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 48) return `${String(hours)}h`;
+	return `${String(Math.floor(hours / 24))}d`;
+}
+
+function mapLibraryItem(item: ApiLibraryItem, hold?: string): LibraryItemView {
+	return {
+		id: item.id,
+		title: item.title,
+		kind: item.kind,
+		project: item.project,
+		scope: item.scope,
+		status: item.status,
+		version: item.version,
+		updated: relativeTime(item.updated_at),
+		creator: item.provenance.created_by_agent ?? "unknown",
+		protection: item.protection,
+		...(item.provenance.handed_off_to_agent
+			? { handedOffTo: item.provenance.handed_off_to_agent }
+			: {}),
+		...(item.confidence === null ? {} : { confidence: item.confidence }),
+		...(hold ? { hold } : {}),
+		body:
+			typeof item.properties["body"] === "string"
+				? item.properties["body"]
+				: item.kind === "artifact"
+					? "Rendered Library artifact."
+					: "Body is stored by reference in the Library.",
+	};
+}
+
+export async function searchLiveLibrary(
+	query: string,
+	fetchFn: typeof fetch = fetch,
+): Promise<LibraryItemView[]> {
+	const envelope = await readAllPages<ApiLibraryItem>(
+		`/library/search?limit=1000&q=${encodeURIComponent(query)}`,
+		fetchFn,
+	);
+	return envelope.items.map((item) => mapLibraryItem(item));
+}
+
+/** Map the scope-filtered Rev3 read surface; optional sources fail independently and honestly. */
+export async function readLiveLibrary(fetchFn: typeof fetch = fetch): Promise<LibraryData> {
+	const [itemsResult, linksResult, holdsResult, curationResult, capabilitiesResult] =
+		await Promise.allSettled([
+			readAllPages<ApiLibraryItem>("/library/items?limit=1000", fetchFn),
+			readAllPages<ApiLibraryLink>("/library/links?limit=1000", fetchFn),
+			readAllPages<ApiLibraryHold>("/library/holds?limit=1000", fetchFn),
+			readAllPages<ApiLibraryCuration>("/library/curation?limit=1000", fetchFn),
+			readAllPages<ApiLibraryCapability>("/library/capabilities?limit=1000", fetchFn),
+		]);
+	if (itemsResult.status === "rejected") return liveEmptyLibrary;
+	const holds = holdsResult.status === "fulfilled" ? holdsResult.value.items : [];
+	const holdByItem = new Map(
+		holds.map((hold) => [
+			hold.item_id,
+			hold.reason === "recommended" ? "Recommended: librarian pick" : `Held: ${hold.reason}`,
+		]),
+	);
+	const items = itemsResult.value.items.map((item) =>
+		mapLibraryItem(item, holdByItem.get(item.id)),
+	);
+	const links: Record<string, LibraryLinkFixture[]> = {};
+	if (linksResult.status === "fulfilled") {
+		for (const link of linksResult.value.items) {
+			(links[link.from_id] ??= []).push({
+				direction: "out",
+				rel: link.rel_type,
+				targetId: link.to_id,
+				...(link.reason ? { reason: link.reason } : {}),
+			});
+			(links[link.to_id] ??= []).push({
+				direction: "in",
+				rel: link.rel_type,
+				targetId: link.from_id,
+				...(link.reason ? { reason: link.reason } : {}),
+			});
+		}
+	}
+	return {
+		items,
+		isMock: false,
+		connected: true,
+		links,
+		provenance: Object.fromEntries(
+			itemsResult.value.items.map((item) => [
+				item.id,
+				{
+					responsibleHuman: item.provenance.responsible_human ?? "unassigned",
+					txFrom: item.tx_from,
+				},
+			]),
+		),
+		capabilities:
+			capabilitiesResult.status === "fulfilled"
+				? capabilitiesResult.value.items.map((item) => ({
+						capability: item.capability,
+						provider: item.provider,
+						host: item.host,
+						transport: item.transport,
+						observedAt: item.observed_at,
+						fresh: item.fresh,
+					}))
+				: [],
+		curation:
+			curationResult.status === "fulfilled"
+				? curationResult.value.items.map((item) => ({
+						id: item.id,
+						itemId: item.item_id,
+						type: item.proposal_type,
+						reason: item.reason,
+						linksIn: item.links_in,
+						activeTaskLinks: item.active_task_links,
+						proposedAt: item.proposed_at,
+					}))
+				: [],
+		sources: {
+			items: "live",
+			links: linksResult.status === "fulfilled" ? "live" : "unavailable",
+			holds: holdsResult.status === "fulfilled" ? "live" : "unavailable",
+			curation: curationResult.status === "fulfilled" ? "live" : "unavailable",
+			capabilities: capabilitiesResult.status === "fulfilled" ? "live" : "unavailable",
+		},
+	};
+}
