@@ -4,6 +4,7 @@ import type { Principal } from "../auth/principal.ts";
 import { readAvailability } from "../availability/service.ts";
 import type { Sql } from "../db/pool.ts";
 import type { ProjectionKind } from "../projector/index.ts";
+import { decodeCommsCursor, readCommsLog, type CommsType } from "./comms.ts";
 import {
 	readBoxUpdateRaw,
 	readDeliveryConfig,
@@ -138,6 +139,66 @@ export function registerEntityReadRoutes(
 				},
 			});
 		return readAvailability(services.app, principal.scopes, windowS);
+	});
+	server.get("/api/v1/comms", { preHandler: services.auth }, async (request, reply) => {
+		const principal = request.principal as Principal;
+		const query = request.query as {
+			type?: string;
+			agent?: string;
+			task_id?: string;
+			limit?: string;
+			cursor?: string;
+		};
+		const types = new Set<CommsType>(["task-card", "rpc", "mail"]);
+		if (query.type && !types.has(query.type as CommsType))
+			return reply.code(400).send({
+				error: {
+					code: "bad_comms_type",
+					message: "type must be task-card, rpc, or mail",
+					retryable: false,
+				},
+			});
+		if (query.agent && !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(query.agent))
+			return reply.code(400).send({
+				error: {
+					code: "bad_comms_agent",
+					message: "agent must be a resident or service handle",
+					retryable: false,
+				},
+			});
+		const taskId = query.task_id === undefined ? undefined : Number(query.task_id);
+		if (taskId !== undefined && (!Number.isSafeInteger(taskId) || taskId <= 0))
+			return reply.code(400).send({
+				error: {
+					code: "bad_comms_task",
+					message: "task_id must be a positive integer",
+					retryable: false,
+				},
+			});
+		if (query.cursor !== undefined && decodeCommsCursor(query.cursor) === null)
+			return reply.code(400).send({
+				error: {
+					code: "bad_comms_cursor",
+					message: "cursor is invalid",
+					retryable: false,
+				},
+			});
+		const limit = query.limit === undefined ? undefined : Number(query.limit);
+		if (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0))
+			return reply.code(400).send({
+				error: {
+					code: "bad_comms_limit",
+					message: "limit must be a positive integer",
+					retryable: false,
+				},
+			});
+		return readCommsLog(services.app, principal.scopes, {
+			...(query.type ? { type: query.type as CommsType } : {}),
+			...(query.agent ? { agent: query.agent } : {}),
+			...(taskId !== undefined ? { taskId } : {}),
+			...(limit !== undefined ? { limit } : {}),
+			...(query.cursor ? { cursor: query.cursor } : {}),
+		});
 	});
 	for (const route of ENTITY_ROUTES) {
 		server.get(`/api/v1/${route.path}`, { preHandler: services.auth }, async (request, reply) => {

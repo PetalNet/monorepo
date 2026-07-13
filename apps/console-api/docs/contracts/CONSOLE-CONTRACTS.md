@@ -357,6 +357,7 @@ another repo to learn a field. Aggregated reads carry per-item `observed_at` (Ru
 | `/dashboards`                      | `entities/dashboard-item.schema.json` | Library items                                            | incl. `is_home`; content via Library plane                                                                                                                                                            |
 | `/executors`                       | `entities/executor.schema.json`       | registry + heartbeats + service probes                   | **pre-flight liveness for every ActionRow** — all ten executor kinds of the catalog (managers, dispatcher, control-plane, tracker, library, per-box box-agents, edge, probe-runner, pty, console-api) |
 | `/roster`                          | `entities/roster.schema.json`         | server-side join                                         | the Agents surface in ONE read (fleet × heartbeat × registry × agents × governance × leases × workers)                                                                                                |
+| `/comms`                           | `entities/comms-event.schema.json`    | persisted bus emissions                                  | newest-first correspondence history; filters `type=task-card\|rpc\|mail`, `agent`, `task_id`; opaque descending cursor                                                                                |
 | `/me`                              | `entities/me.schema.json`             | auth                                                     | Principal + display/grant name (session chip)                                                                                                                                                         |
 | `/grants?object=...`               | `../grant-list.schema.json`           | ReBAC tuples                                             | owner-only current grant enumeration; mutations use `POST /grants` + `grant-mutation.schema.json`                                                                                                     |
 | `/tiers`                           | `schemas/tier-list.schema.json`       | permission-level rows                                    | authenticated catalog for user/share pickers; adding a level is a data insert                                                                                                                         |
@@ -368,8 +369,9 @@ administration adapter. Its `{registry, executor}` response deliberately reports
 look available without positive edge evidence. The registry remains doorman-owned; console-api
 does not mutate `current_state` to simulate a key lifecycle.
 
-History reads (comms log, audit trails, the Void, delivery log, restart counts) are
-`stats.query` reads over persisted emissions. `audit.op` emissions pin `subject` = the target
+History reads (audit trails, the Void, delivery log, restart counts) are `stats.query` reads over
+persisted emissions. The Agents comms log has the fixed, scope-filtered `/comms` projection because
+it normalizes all three envelope types into one stable row contract. `audit.op` emissions pin `subject` = the target
 entity, so per-target derivations (restart counts per handle) are one `group_by`.
 
 ## 4. Bus plane

@@ -8,6 +8,7 @@
 	import StatusPill from "$lib/components/StatusPill.svelte";
 	import { deriveRoster } from "$lib/data/agents";
 	import { clockNow } from "$lib/stores/clock.svelte";
+	import CommsLog from "./CommsLog.svelte";
 
 	let { data } = $props();
 	const a = $derived(data.agents);
@@ -17,6 +18,7 @@
 
 	let filter = $state(page.url.searchParams.get("agent") ?? "");
 	let view = $state<"residents" | "architects">("residents");
+	let correspondenceOpen = $state(page.url.searchParams.has("comms"));
 	function match(rows: RosterItem[]): RosterItem[] {
 		const q = filter.trim().toLowerCase();
 		return q ? rows.filter((r) => r.handle.toLowerCase().includes(q)) : rows;
@@ -90,6 +92,18 @@
 		<Icon name="users-round" size={14} />
 		<input bind:value={filter} placeholder={view === "residents" ? "Filter residents" : "Filter architects"} aria-label={view === "residents" ? "Filter residents" : "Filter architects"} />
 	</label>
+	<button
+		type="button"
+		class="correspondence-toggle"
+		class:on={correspondenceOpen}
+		aria-expanded={correspondenceOpen}
+		aria-controls="correspondence-region"
+		title={correspondenceOpen ? "Close Correspondence" : "Open Correspondence"}
+		onclick={() => (correspondenceOpen = !correspondenceOpen)}
+	>
+		<Icon name="mailbox" size={16} />
+		<span>Correspondence</span>
+	</button>
 </div>
 
 {#if !a.connected}
@@ -149,6 +163,10 @@
 	{/if}
 {/if}
 
+{#if correspondenceOpen}
+	<div id="correspondence-region"><CommsLog /></div>
+{/if}
+
 <style>
 	.util {
 		display: flex;
@@ -206,6 +224,23 @@
 	.filter:focus-within {
 		box-shadow: 0 0 0 2px var(--petal);
 	}
+	.correspondence-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--s-2);
+		min-height: 32px;
+		padding: 0 var(--s-2);
+		border: 0;
+		border-radius: var(--r-sm);
+		background: transparent;
+		color: var(--text-2);
+		font: 500 0.75rem var(--sans);
+		transition: background var(--t), color var(--t);
+	}
+	.correspondence-toggle:hover { background: var(--s2); color: var(--text); }
+	.correspondence-toggle.on { background: var(--petal-soft); color: var(--petal-text); }
+	.correspondence-toggle:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
 	.strip-wrap {
 		margin-top: var(--s-3);
 	}
@@ -248,6 +283,7 @@
 		.util { align-items: flex-start; }
 		.flip { order: 3; margin-inline-start: 0; }
 		.filter { width: 100%; order: 4; }
+		.correspondence-toggle { margin-inline-start: auto; }
 		.architects { grid-template-columns: 1fr; gap: var(--s-2); }
 		.architect { padding: var(--s-3); }
 		.architect dl { grid-template-columns: repeat(2, 1fr); margin: var(--s-3) 0; }

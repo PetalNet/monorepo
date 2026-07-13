@@ -13,6 +13,7 @@ import {
 } from "../src/bridge/index.ts";
 import { sourceCursorRef, tailSystemOutbox } from "../src/bridge/system-outbox.ts";
 import { uuidv5 } from "../src/bridge/uuid5.ts";
+import { parseEmission } from "../src/emission.ts";
 
 function makeOutbox(files: Record<string, unknown>): string {
 	const dir = mkdtempSync(join(tmpdir(), "console-outbox-"));
@@ -441,13 +442,13 @@ describe("subsystem bridge adapters", () => {
 		const db = new DatabaseSync(path);
 		db.exec(`create table cards (
 			card_id text primary key, task_id integer, sender text, sender_class text,
-			recipient text, priority integer, thread text, requires_reply integer,
+			recipient text, priority integer, thread text, body text, requires_reply integer,
 			interrupt_policy text, needs text, state text, claimed_by text, fence integer,
 			reaps integer, reply_to text, parent_id text, delivered integer, addressed integer,
 			created_at_ms integer, updated_at_ms integer
 		)`);
 		db.prepare(
-			`insert into cards values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`insert into cards values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		).run(
 			"card-1",
 			42,
@@ -456,6 +457,7 @@ describe("subsystem bridge adapters", () => {
 			"janet",
 			0,
 			null,
+			"Verify the dispatcher correspondence path.",
 			1,
 			"principal_command",
 			"[]",
@@ -482,11 +484,22 @@ describe("subsystem bridge adapters", () => {
 				severity: "danger",
 				dimensions: { state: "claimed", claimed_by: "janet" },
 			});
+			expect(first.emissions[1]).toMatchObject({
+				type: "comms.card",
+				source: { service: "dispatcher", agent: "parker" },
+				subject: "janet",
+				task_id: 42,
+				dimensions: { card_id: "card-1", method: "task.dispatch", requires_reply: true },
+				meta: { body_preview: "Verify the dispatcher correspondence path." },
+			});
+			expect(
+				parseEmission(first.emissions[1], Buffer.byteLength(JSON.stringify(first.emissions[1]))).ok,
+			).toBe(true);
 			expect(adapter.poll(first.cursor, "2026-07-13T00:00:03Z").emissions).toHaveLength(0);
 			const concurrent = new DatabaseSync(path);
 			concurrent
 				.prepare(
-					`insert into cards values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					`insert into cards values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				)
 				.run(
 					"card-0",
@@ -496,6 +509,7 @@ describe("subsystem bridge adapters", () => {
 					"chidi",
 					1,
 					null,
+					"Pick up task 43.",
 					0,
 					"defer",
 					"[]",

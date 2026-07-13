@@ -743,7 +743,7 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 		try {
 			const rows = db
 				.prepare(
-					`select card_id, task_id, sender, sender_class, recipient, priority, thread,
+					`select card_id, task_id, sender, sender_class, recipient, priority, thread, body,
 						requires_reply, interrupt_policy, needs, state, claimed_by, fence, reaps,
 						reply_to, parent_id, delivered, addressed, created_at_ms, updated_at_ms
 					 from cards
@@ -774,12 +774,12 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 					Number(row["updated_at_ms"]) > previous.updatedAt ||
 					!seen.has(fingerprints.get(row) ?? ""),
 			);
-			const emissions = freshRows.map((row) => {
+			const emissions = freshRows.flatMap((row) => {
 				const cardId = text(row["card_id"]);
 				const state = text(row["state"]);
 				if (!cardId || !state) throw new Error("dispatcher card row lacks card_id/state");
 				const priority = Number(row["priority"] ?? 3);
-				return {
+				const stateEmission = {
 					schema_version: 1 as const,
 					id: uuidv5(`dispatcher:${fingerprints.get(row) ?? ""}`),
 					type: "card.state_changed",
@@ -810,6 +810,42 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 						reaps: Number(row["reaps"] ?? 0),
 					},
 				} satisfies Emission;
+				const sender = text(row["sender"]);
+				const recipient = text(row["recipient"]);
+				if (!sender || !recipient) return [stateEmission];
+				const thread = text(row["thread"]);
+				const replyTo = text(row["reply_to"]);
+				const body = text(row["body"]);
+				const correspondence = {
+					schema_version: 1 as const,
+					id: uuidv5(`dispatcher:comms:${cardId}`),
+					type: "comms.card",
+					ts: new Date(Number(row["created_at_ms"]) || Date.parse(now)).toISOString(),
+					source: { service: "dispatcher", host: ".14", agent: sender },
+					subject: recipient,
+					subject_kind: "agent" as const,
+					severity: (priority === 0
+						? "danger"
+						: priority === 1
+							? "warn"
+							: "info") as Emission["severity"],
+					task_id: Number(row["task_id"]),
+					scope: "fleet",
+					dimensions: {
+						method: "task.dispatch",
+						card_id: cardId,
+						recipient,
+						requires_reply: Boolean(row["requires_reply"]),
+						...(thread ? { thread } : {}),
+						...(replyTo ? { in_reply_to: replyTo } : {}),
+					},
+					meta: {
+						body_preview: body?.slice(0, 240) ?? null,
+						sender_class: String(row["sender_class"] ?? ""),
+						priority,
+					},
+				} satisfies Emission;
+				return [stateEmission, correspondence];
 			});
 			const maxUpdatedAt = rows.reduce(
 				(max, row) => Math.max(max, Number(row["updated_at_ms"])),
