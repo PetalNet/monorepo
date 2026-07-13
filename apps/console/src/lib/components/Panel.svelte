@@ -18,11 +18,21 @@
 		title: string;
 		sub?: string | null;
 		span?: number;
+		/** Zero-based position when a composed panel list opts into the 24ms settle stagger. */
+		settleIndex?: number | null;
 		prov?: Provenance | null;
 		children: Snippet;
 		onaskabout?: () => void;
 	}
-	let { title, sub = null, span = 4, prov = null, children, onaskabout }: Props = $props();
+	let {
+		title,
+		sub = null,
+		span = 4,
+		settleIndex = null,
+		prov = null,
+		children,
+		onaskabout,
+	}: Props = $props();
 
 	function contextMenu(e: MouseEvent) {
 		if (!onaskabout) return;
@@ -33,7 +43,7 @@
 
 <article
 	class="panel"
-	style="grid-column: span {span}"
+	style="grid-column: span {span}; --panel-settle-index: {Math.max(0, settleIndex ?? 0)}"
 	oncontextmenu={contextMenu}
 	role="group"
 	aria-label={title}
@@ -59,6 +69,7 @@
 		flex-direction: column;
 		min-width: 0;
 		animation: settle var(--dur-mid) var(--ease-standard) both;
+		animation-delay: calc(var(--panel-settle-index) * var(--dur-stagger));
 	}
 	h4 {
 		font:

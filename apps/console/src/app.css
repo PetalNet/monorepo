@@ -243,6 +243,7 @@
 	--dur-base: 160ms;
 	--dur-mid: 240ms;
 	--dur-slow: 360ms;
+	--dur-stagger: 24ms;
 	--t: var(--dur-base) var(--ease-standard);
 }
 
@@ -292,8 +293,14 @@ time,
 	*,
 	*::before,
 	*::after {
-		animation-duration: 0.001s !important;
-		transition-duration: 0.001s !important;
+		animation: none !important;
+		transition: none !important;
+		scroll-behavior: auto !important;
+	}
+
+	/* Deliberate exception: opt in only when opacity itself communicates state. */
+	.reduced-motion-opacity-crossfade {
+		transition: opacity var(--dur-fast) linear !important;
 	}
 }
 
