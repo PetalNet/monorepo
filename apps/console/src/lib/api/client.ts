@@ -21,7 +21,6 @@ import type {
 	CardItem,
 	ConsoleHealth,
 	DashboardItem,
-	DeliveryItem,
 	ExecutorItem,
 	HeartbeatItem,
 	GovernanceItem,
@@ -426,15 +425,6 @@ export async function readSubscriptions(
 		credentials: "include",
 	});
 	return json<ReadEnvelope<SubscriptionItem>>(res);
-}
-export async function readDelivery(
-	fetchFn: typeof fetch = fetch,
-): Promise<ReadEnvelope<DeliveryItem>> {
-	const res = await fetchFn(`${base()}/delivery?limit=10`, {
-		headers: { accept: "application/json" },
-		credentials: "include",
-	});
-	return json<ReadEnvelope<DeliveryItem>>(res);
 }
 export async function readCards(fetchFn: typeof fetch = fetch): Promise<ReadEnvelope<CardItem>> {
 	const res = await fetchFn(`${base()}/cards?limit=1000`, {

@@ -1,21 +1,6 @@
-import {
-	dataMode,
-	readCards,
-	readDelivery,
-	readExecutors,
-	readHealth,
-	readSubscriptions,
-	runQuery,
-} from "$lib/api/client";
+import { dataMode, readCards, readExecutors, readSubscriptions, runQuery } from "$lib/api/client";
 import type { SignalEmission } from "$lib/api/types";
-import {
-	mockCards,
-	mockDelivery,
-	mockReceipts,
-	mockSignals,
-	mockSubscriptions,
-	type DeliveryReceiptView,
-} from "$lib/data/signals";
+import { mockCards, mockSignals, mockSubscriptions } from "$lib/data/signals";
 
 import type { PageLoad } from "./$types";
 
@@ -26,23 +11,17 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			isMock: true,
 			signals: mockSignals,
 			subscriptions: mockSubscriptions,
-			delivery: mockDelivery,
 			cards: mockCards,
-			receipts: mockReceipts,
-			receiptsAvailable: true,
-			matrixSyncOkEpoch: Math.floor(Date.now() / 1000),
 			errors: [],
 			lanes: shell.me.lanes,
 			consoleLive: true,
 			dispatcherLive: true,
 		};
 	const errors: string[] = [];
-	const [subs, delivery, cards, executors, health, history, receipts] = await Promise.all([
+	const [subs, cards, executors, history] = await Promise.all([
 		readSubscriptions(fetch).catch(() => (errors.push("Subscription store unavailable"), null)),
-		readDelivery(fetch).catch(() => (errors.push("Delivery config unavailable"), null)),
 		readCards(fetch).catch(() => (errors.push("Wanted board unavailable"), null)),
 		readExecutors(fetch).catch(() => null),
-		readHealth(fetch).catch(() => null),
 		runQuery(
 			{
 				schema_version: 1,
@@ -66,26 +45,6 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			},
 			fetch,
 		).catch(() => (errors.push("Signal history query failed"), null)),
-		runQuery(
-			{
-				schema_version: 1,
-				mode: "structured",
-				from: "delivery.receipt",
-				select: [
-					{ field: "seq" },
-					{ field: "ts" },
-					{ field: "tier" },
-					{ field: "signal_ref" },
-					{ field: "subject" },
-					{ field: "status" },
-					{ field: "error_code" },
-					{ field: "retryable" },
-				],
-				order: [{ field: "seq", dir: "desc" }],
-				limit: 50,
-			},
-			fetch,
-		).catch(() => (errors.push("Delivery receipt query failed"), null)),
 	]);
 	const signals: SignalEmission[] = (history?.rows ?? []).map((row) => ({
 		schema_version: 1,
@@ -104,25 +63,11 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 	}));
 	const alive = (kind: string) =>
 		(executors?.items ?? []).some((e) => e.kind === kind && e.liveness === "alive");
-	const receiptViews: DeliveryReceiptView[] = (receipts?.rows ?? []).map((r) => ({
-		seq: String(r[0]),
-		ts: String(r[1]),
-		tier: String(r[2]),
-		signal: String(r[3]),
-		subject: String(r[4] ?? ""),
-		status: String(r[5]),
-		error: r[6] == null ? null : String(r[6]),
-		retryable: r[7] === true || r[7] === "true",
-	}));
 	return {
 		isMock: false,
 		signals,
 		subscriptions: subs?.items ?? [],
-		delivery: delivery?.items[0] ?? null,
 		cards: cards?.items ?? [],
-		receipts: receiptViews,
-		receiptsAvailable: receipts !== null,
-		matrixSyncOkEpoch: health?.matrix_sync_ok_epoch ?? null,
 		errors,
 		lanes: shell.me.lanes,
 		consoleLive: alive("console-api"),

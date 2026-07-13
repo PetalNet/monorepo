@@ -3,6 +3,8 @@
 
 import { isIP } from "node:net";
 
+import type { MatrixConfig } from "./notifications/matrix.ts";
+
 export interface Env {
 	/** Admin/owner connection: migrations, seeding, the appender's INSERT path. */
 	readonly databaseUrl: string;
@@ -49,6 +51,8 @@ export interface Env {
 	readonly costMeterUrl?: string | null;
 	readonly costMeterHostHeader?: string | null;
 	readonly costMeterToken?: string | null;
+	/** Matrix is the decided off-console notification channel; all three values configure it. */
+	readonly matrix?: MatrixConfig | null;
 	/** Strict browser boundary. Null only in explicit dev-auth mode. */
 	readonly browserAuth: {
 		readonly consoleOrigin: string;
@@ -81,6 +85,46 @@ export function loadEnv(): Env {
 		.split(",")
 		.map((proxy) => proxy.trim())
 		.filter(Boolean);
+	const matrixValues = [
+		process.env["CONSOLE_API_MATRIX_HOMESERVER"],
+		process.env["CONSOLE_API_MATRIX_ACCESS_TOKEN"],
+		process.env["CONSOLE_API_MATRIX_OWNER_BINDINGS"],
+	];
+	if (matrixValues.some(Boolean) && !matrixValues.every(Boolean))
+		throw new Error(
+			"CONSOLE_API_MATRIX_HOMESERVER, CONSOLE_API_MATRIX_ACCESS_TOKEN, and CONSOLE_API_MATRIX_OWNER_BINDINGS must be configured together",
+		);
+	let matrix: MatrixConfig | null = null;
+	if (matrixValues.every(Boolean)) {
+		const homeserver = new URL(matrixValues[0]!);
+		if (homeserver.protocol !== "https:" || homeserver.pathname !== "/")
+			throw new Error("CONSOLE_API_MATRIX_HOMESERVER must be an HTTPS origin");
+		let ownerBindings: unknown;
+		try {
+			ownerBindings = JSON.parse(matrixValues[2]!);
+		} catch {
+			throw new Error("CONSOLE_API_MATRIX_OWNER_BINDINGS must be a JSON object");
+		}
+		if (
+			!ownerBindings ||
+			typeof ownerBindings !== "object" ||
+			Array.isArray(ownerBindings) ||
+			Object.entries(ownerBindings).some(
+				([owner, userId]) =>
+					!/^[a-z0-9][a-z0-9._-]*$/.test(owner) ||
+					typeof userId !== "string" ||
+					!/^@[^:]+:.+$/.test(userId),
+			)
+		)
+			throw new Error(
+				"CONSOLE_API_MATRIX_OWNER_BINDINGS must map console principals to Matrix user ids",
+			);
+		matrix = {
+			homeserver: homeserver.origin,
+			accessToken: matrixValues[1]!,
+			ownerBindings: ownerBindings as Record<string, string>,
+		};
+	}
 	let browserAuth: Env["browserAuth"] = null;
 	if (consoleOrigin || proxyNonce || trustedProxies.length > 0) {
 		if (!consoleOrigin || !proxyNonce || trustedProxies.length === 0)
@@ -129,6 +173,7 @@ export function loadEnv(): Env {
 		costMeterHostHeader:
 			process.env["CONSOLE_COST_METER_HOST"] ?? (configuredCostMeterUrl ? null : "localhost:8080"),
 		costMeterToken: process.env["CONSOLE_COST_METER_TOKEN"] ?? null,
+		matrix,
 		browserAuth,
 	};
 }
