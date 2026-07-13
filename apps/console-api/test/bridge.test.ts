@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, it, expect } from "vitest";
 
 import {
+	Bridge,
 	DispatcherSqliteAdapter,
 	FleetSnapshotAdapter,
 	JsonlSpoolAdapter,
@@ -13,7 +14,9 @@ import {
 } from "../src/bridge/index.ts";
 import { sourceCursorRef, tailSystemOutbox } from "../src/bridge/system-outbox.ts";
 import { uuidv5 } from "../src/bridge/uuid5.ts";
+import type { Sql } from "../src/db/pool.ts";
 import { parseEmission } from "../src/emission.ts";
+import type { Emission } from "../src/emission.ts";
 
 function makeOutbox(files: Record<string, unknown>): string {
 	const dir = mkdtempSync(join(tmpdir(), "console-outbox-"));
@@ -88,6 +91,11 @@ describe("system-outbox tailer", () => {
 			"100-disk.json": { sender: "shawn", body: "[warn] .14 disk 91% used" },
 			"101-container.json": { sender: "derek", body: "container console-api update available" },
 			"102-box.json": { sender: "michael", body: "box .15 update status changed: updates_pending" },
+			"103-oom.json": { sender: "shawn", body: "[fail] host .14 OOM detected; memory thrashing" },
+			"104-oom-clear.json": {
+				sender: "shawn",
+				body: "[recovered] host .14 OOM cleared; memory stable",
+			},
 		});
 		try {
 			const { emissions } = tailSystemOutbox(dir, "", 0, "2026-07-13T00:00:00Z");
@@ -95,6 +103,8 @@ describe("system-outbox tailer", () => {
 				"host.disk.pct",
 				"container.update_available",
 				"bot.message",
+				"host.oom",
+				"host.oom.cleared",
 			]);
 			expect(emissions[0]?.subject).toBe(".14");
 			expect(emissions[0]?.measures?.["pct"]).toBe(91);
@@ -103,6 +113,67 @@ describe("system-outbox tailer", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("turns doorman source loss and recovery into typed crack facts", async () => {
+		let available = false;
+		const emitted: Emission[] = [];
+		const sql = (async () => []) as unknown as Sql;
+		const bridge = new Bridge(
+			sql,
+			async (_producer, emission) => {
+				emitted.push(emission);
+				return { ok: true };
+			},
+			{
+				adapters: [
+					{
+						source: "doorman",
+						producerSubject: "bridge:doorman",
+						poll: () => {
+							if (!available) throw new Error("doorman spool unavailable");
+							return { cursor: "", emissions: [] };
+						},
+					},
+				],
+			},
+		);
+
+		await bridge.pollOnce("2026-07-13T00:00:00Z");
+		await bridge.pollOnce("2026-07-13T00:00:01Z");
+		available = true;
+		await bridge.pollOnce("2026-07-13T00:00:02Z");
+
+		expect(emitted.map((event) => event.type)).toEqual([
+			"bridge.source.unreachable",
+			"doorman.dark",
+			"bridge.source.recovered",
+			"doorman.recover",
+		]);
+	});
+
+	it("emits positive doorman recovery evidence on the first healthy poll after restart", async () => {
+		const emitted: Emission[] = [];
+		const sql = (async () => []) as unknown as Sql;
+		const bridge = new Bridge(
+			sql,
+			async (_producer, emission) => {
+				emitted.push(emission);
+				return { ok: true };
+			},
+			{
+				adapters: [
+					{
+						source: "doorman",
+						producerSubject: "bridge:doorman",
+						poll: () => ({ cursor: "", emissions: [] }),
+					},
+				],
+			},
+		);
+		await bridge.pollOnce("2026-07-13T00:00:00Z");
+		await bridge.pollOnce("2026-07-13T00:00:01Z");
+		expect(emitted.map((event) => event.type)).toEqual(["doorman.recover"]);
 	});
 
 	it("only returns files past the cursor, with deterministic ids (restart-safe)", () => {

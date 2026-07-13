@@ -606,6 +606,12 @@ artifacts, dead-letters, security-critical updates, delivery failures). `fix_ops
 collapse (`incident_key` = source+subject+window) + flap damping live here. The Signals
 InterruptRecord ack path: `interrupt.fired` emissions carry `attention_id` in dimensions.
 
+The facade-crack reconciler turns the four contracted infrastructure facts into P0 attention:
+`agent.crashed`, `service.down`, `host.oom` (the `box.oom` compatibility alias is accepted), and
+`doorman.dark`. Matching recovery facts (`agent.heartbeat`, `service.up`, `host.oom.cleared`, and
+`doorman.recover`) resolve the same stable incident automatically. Producers report subsystem truth;
+console-api alone owns the P0 policy, summary copy, incident key, and pre-bound recovery operations.
+
 ## 6. Library plane (Rev3, the one store)
 
 Wire surface as before (items, grow-only typed links, hybrid search below-the-ranker

@@ -2,15 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	capture: vi.fn(),
-	readAttention: vi.fn(),
 	readBoxUpdateRaw: vi.fn(),
 	readBoxUpdates: vi.fn(),
 	readCatalog: vi.fn(),
-	readDashboards: vi.fn(),
 	readEdgeSessions: vi.fn(),
 	readExecutors: vi.fn(),
-	readHealth: vi.fn(),
-	readRoster: vi.fn(),
 	runQuery: vi.fn(),
 }));
 
@@ -18,19 +14,14 @@ vi.mock("$app/environment", () => ({ browser: false }));
 vi.mock("$lib/glitchtip", () => ({ captureCaughtFailure: mocks.capture }));
 vi.mock("$lib/api/client", () => ({
 	dataMode: () => "live",
-	readAttention: mocks.readAttention,
 	readBoxUpdateRaw: mocks.readBoxUpdateRaw,
 	readBoxUpdates: mocks.readBoxUpdates,
 	readCatalog: mocks.readCatalog,
-	readDashboards: mocks.readDashboards,
 	readEdgeSessions: mocks.readEdgeSessions,
 	readExecutors: mocks.readExecutors,
-	readHealth: mocks.readHealth,
-	readRoster: mocks.readRoster,
 	runQuery: mocks.runQuery,
 }));
 
-import { load as loadCockpit } from "./+page";
 import { load as loadNetwork } from "./network/+page";
 import { load as loadObservability } from "./observability/+page";
 import { load as loadUpdates } from "./updates/+page";
@@ -51,23 +42,6 @@ beforeEach(() => {
 });
 
 describe("caught loader failure contracts", () => {
-	it("maps Cockpit reads to stable endpoint labels", async () => {
-		await loadCockpit({
-			fetch: fetchStub,
-			parent: async () => shell,
-		} as never);
-
-		expect(mocks.capture).toHaveBeenCalledTimes(4);
-		expect(contexts()).toEqual(
-			expect.arrayContaining(
-				["/attention", "/roster", "/health", "/dashboards"].map((endpoint) => ({
-					surface: "cockpit",
-					endpoint,
-				})),
-			),
-		);
-	});
-
 	it("maps Network reads to stable endpoint labels", async () => {
 		await loadNetwork({ fetch: fetchStub, parent: async () => shell } as never);
 

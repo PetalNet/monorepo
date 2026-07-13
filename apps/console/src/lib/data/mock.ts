@@ -165,6 +165,7 @@ export interface RailHost {
 	host: string;
 	workersUp: number;
 	dark: boolean;
+	tone?: "good" | "warn" | "danger" | "idle";
 }
 export const railHosts: RailHost[] = [
 	{ host: ".202", workersUp: 1, dark: false },

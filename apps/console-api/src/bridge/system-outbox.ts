@@ -119,6 +119,24 @@ function operationalType(body: string): {
 	measures?: Record<string, number>;
 	meta?: Emission["meta"];
 } | null {
+	const oom =
+		/(?:\b(?:host|box)\s+)?(\.\d+|[a-z0-9][a-z0-9.-]*)[^\n]{0,80}?\b(?:oom|out[- ]of[- ]memory|memory thrash(?:ing)?)\b/i.exec(
+			body,
+		);
+	if (oom?.[1]) {
+		const recovered =
+			/\b(?:oom|out[- ]of[- ]memory|memory thrash(?:ing)?)\b[^\n]{0,48}\b(?:clear(?:ed)?|recover(?:ed)?|stable)\b/i.test(
+				body,
+			) ||
+			/\b(?:clear(?:ed)?|recover(?:ed)?|stable)\b[^\n]{0,48}\b(?:oom|out[- ]of[- ]memory|memory thrash(?:ing)?)\b/i.test(
+				body,
+			);
+		return {
+			type: recovered ? "host.oom.cleared" : "host.oom",
+			subject: oom[1].toLowerCase(),
+			subjectKind: "host",
+		};
+	}
 	const disk =
 		/(?:host\s+)?(\.\d+|[a-z0-9][a-z0-9.-]*)\s+disk[^\n]{0,40}?(\d+(?:\.\d+)?)\s*%/i.exec(body);
 	if (disk?.[1] === ".14" && disk[2])
