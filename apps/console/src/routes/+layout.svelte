@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
+	import favicon from "$lib/assets/favicon.svg";
 	import "@fontsource/geist-sans/400.css";
 	import "@fontsource/geist-sans/500.css";
 	import "@fontsource/geist-mono/400.css";
@@ -39,6 +40,10 @@
 		}
 	}
 </script>
+
+<svelte:head>
+	<link rel="icon" href={favicon} />
+</svelte:head>
 
 <svelte:window onkeydown={onKey} />
 
