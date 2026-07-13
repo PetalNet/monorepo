@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
+import 'package:point_app/features/me/avatar_provider.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/people/requests_controller.dart';
@@ -26,15 +27,37 @@ class PeopleScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final peopleValue = ref.watch(peopleControllerProvider);
     final people = ref.watch(peopleWithPresenceProvider);
-    final requests = ref.watch(requestsControllerProvider).value ?? const [];
-    final outgoing =
-        ref.watch(outgoingRequestsControllerProvider).value ?? const [];
+    final requestsValue = ref.watch(requestsControllerProvider);
+    final outgoingValue = ref.watch(outgoingRequestsControllerProvider);
+    final requests = requestsValue.value ?? const <ShareRequest>[];
+    final outgoing = outgoingValue.value ?? const <OutgoingShareRequest>[];
     final temps = ref.watch(outgoingTempsProvider);
-
-    void openRequests() => Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const RequestsScreen()),
+    final supplementalValues = [requestsValue, outgoingValue];
+    final hasVisibleSupplementalData =
+        requests.isNotEmpty || outgoing.isNotEmpty || temps.isNotEmpty;
+    final isInitialLoading =
+        (peopleValue.isLoading && !peopleValue.hasValue) ||
+        (people.isEmpty &&
+            supplementalValues.any(
+              (value) => value.isLoading && !value.hasValue,
+            ));
+    final hasInitialError =
+        peopleValue.hasError &&
+        !peopleValue.hasValue &&
+        !hasVisibleSupplementalData;
+    final hasRefreshError =
+        !hasInitialError &&
+        (peopleValue.hasError ||
+            supplementalValues.any((value) => value.hasError));
+    final hasAvatarError = people.any(
+      (person) => ref.watch(avatarProvider(person.userId)).hasError,
     );
+
+    void openRequests() => Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const RequestsScreen()));
 
     return Scaffold(
       appBar: AppBar(
@@ -71,6 +94,15 @@ class PeopleScreen extends ConsumerWidget {
         requests: requests,
         outgoing: outgoing,
         temps: temps.values.toList(),
+        isInitialLoading: isInitialLoading,
+        hasInitialError: hasInitialError,
+        hasRefreshError: hasRefreshError,
+        hasAvatarError: hasAvatarError,
+        onRetryAvatars: () {
+          for (final person in people) {
+            ref.invalidate(avatarProvider(person.userId));
+          }
+        },
         onOpenRequests: openRequests,
         onRefresh: () => ref
             .read(realtimeSyncCoordinatorProvider)
@@ -86,6 +118,11 @@ class _PeopleBody extends StatelessWidget {
     required this.requests,
     required this.outgoing,
     required this.temps,
+    required this.isInitialLoading,
+    required this.hasInitialError,
+    required this.hasRefreshError,
+    required this.hasAvatarError,
+    required this.onRetryAvatars,
     required this.onOpenRequests,
     required this.onRefresh,
   });
@@ -94,6 +131,11 @@ class _PeopleBody extends StatelessWidget {
   final List<ShareRequest> requests;
   final List<OutgoingShareRequest> outgoing;
   final List<TempShare> temps;
+  final bool isInitialLoading;
+  final bool hasInitialError;
+  final bool hasRefreshError;
+  final bool hasAvatarError;
+  final VoidCallback onRetryAvatars;
   final VoidCallback onOpenRequests;
   final Future<void> Function() onRefresh;
 
@@ -104,19 +146,30 @@ class _PeopleBody extends StatelessWidget {
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
-          child:
-              (people.isEmpty &&
-                  requests.isEmpty &&
-                  outgoing.isEmpty &&
-                  temps.isEmpty)
-              ? const _RefreshableEmptyPeople()
-              : _PeopleList(
-                  people: people,
-                  requests: requests,
-                  outgoing: outgoing,
-                  temps: temps,
-                  onOpenRequests: onOpenRequests,
-                ),
+          child: switch ((hasInitialError, isInitialLoading)) {
+            (true, _) => _PeopleUnavailable(onRetry: onRefresh),
+            (false, true) => const _PeopleLoading(),
+            _
+                when people.isEmpty &&
+                    requests.isEmpty &&
+                    outgoing.isEmpty &&
+                    temps.isEmpty =>
+              _RefreshableEmptyPeople(
+                hasRefreshError: hasRefreshError,
+                onRetry: onRefresh,
+              ),
+            _ => _PeopleList(
+              people: people,
+              requests: requests,
+              outgoing: outgoing,
+              temps: temps,
+              hasRefreshError: hasRefreshError,
+              hasAvatarError: hasAvatarError,
+              onRetry: onRefresh,
+              onRetryAvatars: onRetryAvatars,
+              onOpenRequests: onOpenRequests,
+            ),
+          },
         ),
       ),
     );
@@ -129,6 +182,10 @@ class _PeopleList extends StatelessWidget {
     required this.requests,
     required this.outgoing,
     required this.temps,
+    required this.hasRefreshError,
+    required this.hasAvatarError,
+    required this.onRetry,
+    required this.onRetryAvatars,
     required this.onOpenRequests,
   });
 
@@ -136,6 +193,10 @@ class _PeopleList extends StatelessWidget {
   final List<ShareRequest> requests;
   final List<OutgoingShareRequest> outgoing;
   final List<TempShare> temps;
+  final bool hasRefreshError;
+  final bool hasAvatarError;
+  final Future<void> Function() onRetry;
+  final VoidCallback onRetryAvatars;
   final VoidCallback onOpenRequests;
 
   @override
@@ -144,11 +205,10 @@ class _PeopleList extends StatelessWidget {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.only(top: context.space.sm),
       children: [
+        if (hasRefreshError) _PeopleRefreshError(onRetry: onRetry),
+        if (hasAvatarError) _AvatarRefreshError(onRetry: onRetryAvatars),
         if (requests.isNotEmpty)
-          _RequestsSection(
-            requests: requests,
-            onOpenRequests: onOpenRequests,
-          ),
+          _RequestsSection(requests: requests, onOpenRequests: onOpenRequests),
         if (outgoing.isNotEmpty)
           _OutgoingRequestsSummary(
             count: outgoing.length,
@@ -172,7 +232,13 @@ class _PeopleList extends StatelessWidget {
 }
 
 class _RefreshableEmptyPeople extends StatelessWidget {
-  const _RefreshableEmptyPeople();
+  const _RefreshableEmptyPeople({
+    required this.hasRefreshError,
+    required this.onRetry,
+  });
+
+  final bool hasRefreshError;
+  final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -180,11 +246,206 @@ class _RefreshableEmptyPeople extends StatelessWidget {
       builder: (context, constraints) => ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
+          if (hasRefreshError) _PeopleRefreshError(onRetry: onRetry),
           SizedBox(
-            height: constraints.maxHeight,
+            height: hasRefreshError
+                ? (constraints.maxHeight - 96).clamp(0, double.infinity)
+                : constraints.maxHeight,
             child: const _EmptyPeople(),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PeopleLoading extends StatelessWidget {
+  const _PeopleLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      key: const ValueKey('people-loading'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.symmetric(
+        horizontal: context.space.lg,
+        vertical: context.space.md,
+      ),
+      itemCount: 5,
+      itemBuilder: (context, index) => const _PeopleSkeletonRow(),
+    );
+  }
+}
+
+class _PeopleSkeletonRow extends StatelessWidget {
+  const _PeopleSkeletonRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Loading person',
+      child: ExcludeSemantics(
+        child: SizedBox(
+          height: 80,
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: context.colors.surfaceContainerHigh,
+                ),
+              ),
+              SizedBox(width: context.space.md),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FractionallySizedBox(
+                      widthFactor: 0.48,
+                      child: Container(
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: context.colors.surfaceContainerHigh,
+                          borderRadius: context.radii.brSm,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: context.space.sm),
+                    FractionallySizedBox(
+                      widthFactor: 0.72,
+                      child: Container(
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: context.colors.surfaceContainer,
+                          borderRadius: context.radii.brSm,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PeopleUnavailable extends StatelessWidget {
+  const _PeopleUnavailable({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => ListView(
+        key: const ValueKey('people-unavailable'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: constraints.maxHeight,
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(context.space.xl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.cloud_off_outlined, size: 32),
+                    SizedBox(height: context.space.md),
+                    Text('People unavailable', style: context.text.titleLarge),
+                    SizedBox(height: context.space.sm),
+                    Text(
+                      'Check your connection to your Point server, then try again.',
+                      textAlign: TextAlign.center,
+                      style: context.text.bodyMedium?.copyWith(
+                        color: context.colors.onSurfaceVariant,
+                      ),
+                    ),
+                    SizedBox(height: context.space.xl),
+                    FilledButton.icon(
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PeopleRefreshError extends StatelessWidget {
+  const _PeopleRefreshError({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      container: true,
+      label: 'Some information could not load. Showing what is available.',
+      child: ColoredBox(
+        color: context.colors.surfaceContainer,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: context.space.lg),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 64),
+            child: Row(
+              children: [
+                const Icon(Icons.cloud_off_outlined),
+                SizedBox(width: context.space.md),
+                const Expanded(
+                  child: Text(
+                    'Some information could not load. Showing what is available.',
+                  ),
+                ),
+                TextButton(onPressed: onRetry, child: const Text('Retry')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarRefreshError extends StatelessWidget {
+  const _AvatarRefreshError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      container: true,
+      label: 'Some photos could not load.',
+      child: ColoredBox(
+        color: context.colors.surfaceContainer,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: context.space.lg),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 64),
+            child: Row(
+              children: [
+                const Icon(Icons.account_circle_outlined),
+                SizedBox(width: context.space.md),
+                const Expanded(child: Text('Some photos could not load.')),
+                TextButton(onPressed: onRetry, child: const Text('Retry')),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

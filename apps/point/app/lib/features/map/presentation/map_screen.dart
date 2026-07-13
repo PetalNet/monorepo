@@ -229,17 +229,83 @@ class _MapScreenState extends ConsumerState<MapScreen>
               if (selfPoint != null) _SelfMarkerLayer(point: selfPoint),
             ],
           ),
+          const MapAvailabilityOverlay(),
           if (_follow.isFollowing)
             _FollowBadge(
               name: located
                   .where((person) => person.userId == _follow.userId)
                   .firstOrNull
                   ?.displayName,
-              onStop: () => setState(
-                () => _follow = _follow.onUserGesture(),
-              ),
+              onStop: () => setState(() => _follow = _follow.onUserGesture()),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Honest map-discovery state shown above the privacy-preserving blank tile
+/// layer. The copy intentionally reveals no server URL or transport detail.
+class MapAvailabilityOverlay extends ConsumerWidget {
+  const MapAvailabilityOverlay({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tileInfo = ref.watch(serverTileInfoProvider);
+    if (!tileInfo.isLoading && !tileInfo.hasError && tileInfo.hasValue) {
+      return const SizedBox.shrink();
+    }
+
+    final failed = tileInfo.hasError;
+    return Positioned.fill(
+      child: ColoredBox(
+        color: context.colors.surface.withValues(alpha: 0.92),
+        child: Center(
+          child: Semantics(
+            liveRegion: true,
+            container: true,
+            label: failed ? 'Map unavailable' : 'Loading map',
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 320),
+              margin: EdgeInsets.all(context.space.xl),
+              padding: EdgeInsets.all(context.space.xl),
+              decoration: BoxDecoration(
+                color: context.colors.surfaceContainer,
+                borderRadius: context.radii.brLg,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    failed ? Icons.map_outlined : Icons.layers_outlined,
+                    size: 32,
+                  ),
+                  SizedBox(height: context.space.md),
+                  Text(
+                    failed ? 'Map unavailable' : 'Loading map',
+                    style: context.text.titleMedium,
+                  ),
+                  if (failed) ...[
+                    SizedBox(height: context.space.sm),
+                    Text(
+                      'Point could not discover a private map source.',
+                      textAlign: TextAlign.center,
+                      style: context.text.bodyMedium?.copyWith(
+                        color: context.colors.onSurfaceVariant,
+                      ),
+                    ),
+                    SizedBox(height: context.space.lg),
+                    FilledButton.icon(
+                      onPressed: () => ref.invalidate(serverTileInfoProvider),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -436,10 +502,7 @@ class _FollowBadge extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.near_me,
-                      color: context.colors.onInverseSurface,
-                    ),
+                    Icon(Icons.near_me, color: context.colors.onInverseSurface),
                     SizedBox(width: context.space.sm),
                     Text(
                       name == null ? 'Following' : 'Following $name',
@@ -448,10 +511,7 @@ class _FollowBadge extends StatelessWidget {
                       ),
                     ),
                     SizedBox(width: context.space.sm),
-                    Icon(
-                      Icons.close,
-                      color: context.colors.onInverseSurface,
-                    ),
+                    Icon(Icons.close, color: context.colors.onInverseSurface),
                   ],
                 ),
               ),

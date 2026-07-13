@@ -21,13 +21,15 @@ class PeopleController extends AsyncNotifier<List<Person>> {
   /// visible and, critically, keeps `.value` non-null so the share-target
   /// listener never briefly sees `[]` and stops encrypting to everyone.
   Future<List<Person>> refresh() async {
-    final previous = state.value ?? const <Person>[];
     final next = await AsyncValue.guard(build);
     if (next.hasValue) {
       state = next;
       return next.value!;
     }
-    state = AsyncData(previous);
+    // Assigning the error through AsyncNotifier preserves the previous value in
+    // Riverpod's multi-state AsyncValue. Consumers can therefore keep showing
+    // trusted last-good people while also telling the user the refresh failed.
+    state = next;
     Error.throwWithStackTrace(next.error!, next.stackTrace!);
   }
 
@@ -62,6 +64,4 @@ List<Person> withoutSharedPerson(List<Person> people, String userId) =>
     people.where((p) => p.userId != userId).toList();
 
 final peopleControllerProvider =
-    AsyncNotifierProvider<PeopleController, List<Person>>(
-      PeopleController.new,
-    );
+    AsyncNotifierProvider<PeopleController, List<Person>>(PeopleController.new);
