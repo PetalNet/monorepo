@@ -9,6 +9,8 @@ import { z } from "zod";
 
 import { buildServices, type Services } from "./app.ts";
 import { ask } from "./assistant/engine.ts";
+import { AssistantRuntimeError } from "./assistant/runtime.ts";
+import { handleAssistantMcp, resolveAssistantToolPrincipal } from "./assistant/tools.ts";
 import {
 	canViewGrantObject,
 	GrantError,
@@ -29,6 +31,7 @@ import {
 } from "./dashboard/store.ts";
 import { withScopes } from "./db/pool.ts";
 import { loadEnv } from "./env.ts";
+import { scrubUnknown } from "./ingest/scrubber.ts";
 import {
 	initExceptionMonitor,
 	inertExceptionMonitor,
@@ -45,7 +48,11 @@ import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
 import type { TrackerReader } from "./reads/tracker.ts";
 import { materializePanel } from "./render/engine.ts";
 import type { PanelSpecV2 } from "./render/types.ts";
-import { dashboardSaveSchema, renderRequestSchema } from "./render/validation.ts";
+import {
+	dashboardSaveSchema,
+	renderRequestSchema,
+	selectedMarkSchema,
+} from "./render/validation.ts";
 import { mergeSemanticShape, type SemanticShape } from "./semantic/registry.ts";
 import { searchSemanticCorpus } from "./semantic/search.ts";
 
@@ -56,6 +63,17 @@ declare module "fastify" {
 }
 
 const askRequestSchema = z.object({ question: z.string().min(1).max(2_000) }).strict();
+const assistantMessageSchema = z
+	.object({ id: z.string().uuid(), message: z.string().min(1).max(100_000).regex(/\S/) })
+	.strict();
+const assistantContextSchema = z
+	.object({
+		id: z.string().uuid(),
+		payload: selectedMarkSchema.extend({
+			value: z.unknown().refine((value) => value !== undefined, "value is required"),
+		}),
+	})
+	.strict();
 
 function parseCatalogCursor(
 	cursor: string | undefined,
@@ -448,6 +466,102 @@ export async function buildServer(
 				},
 			});
 		return ask(services.db, services.assistant, p.scopes, parsed.data.question.trim());
+	});
+	function runtimeFailure(reply: FastifyReply, error: AssistantRuntimeError) {
+		const status = error.code === "id_reused" ? 409 : error.code === "secret_detected" ? 400 : 503;
+		return reply.code(status).send({
+			error: { code: error.code, message: error.message, retryable: error.retryable },
+		});
+	}
+	app.get("/api/v1/assistant/session", { preHandler: auth }, async (req) => {
+		const p = req.principal as Principal;
+		const rows = await services.db.writer<
+			{
+				manager_session_id: string | null;
+				state: string;
+				window_layout: unknown;
+				last_context: unknown;
+			}[]
+		>`select manager_session_id, state, window_layout, last_context from assistant_sessions
+		  where principal_id = ${p.id}`;
+		return {
+			schema_version: 1,
+			session: rows[0]
+				? {
+						session_id: rows[0].manager_session_id,
+						state: rows[0].state,
+						window_layout: rows[0].window_layout,
+						last_context: rows[0].last_context,
+					}
+				: null,
+		};
+	});
+	app.post("/api/v1/assistant/messages", { preHandler: auth }, async (req, reply) => {
+		const parsed = assistantMessageSchema.safeParse(req.body);
+		if (!parsed.success)
+			return reply.code(400).send({
+				error: { code: "bad_message", message: "invalid assistant message", retryable: false },
+			});
+		if (!services.assistantRuntime)
+			return reply.code(503).send({
+				error: {
+					code: "assistant_runtime_unavailable",
+					message: "per-user assistant runtime is not configured",
+					retryable: true,
+				},
+			});
+		try {
+			return await services.assistantRuntime.send(req.principal as Principal, {
+				id: parsed.data.id,
+				kind: "user",
+				content: parsed.data.message,
+			});
+		} catch (error) {
+			if (error instanceof AssistantRuntimeError) return runtimeFailure(reply, error);
+			throw error;
+		}
+	});
+	app.post("/api/v1/assistant/context", { preHandler: auth }, async (req, reply) => {
+		const parsed = assistantContextSchema.safeParse(req.body);
+		if (!parsed.success)
+			return reply.code(400).send({
+				error: { code: "bad_context", message: "invalid selected context", retryable: false },
+			});
+		if (!scrubUnknown(parsed.data.payload, "context.payload").ok)
+			return reply.code(400).send({
+				error: { code: "secret_detected", message: "context contains a secret", retryable: false },
+			});
+		if (!services.assistantRuntime)
+			return reply.code(503).send({
+				error: {
+					code: "assistant_runtime_unavailable",
+					message: "per-user assistant runtime is not configured",
+					retryable: true,
+				},
+			});
+		try {
+			return await services.assistantRuntime.send(req.principal as Principal, {
+				id: parsed.data.id,
+				kind: "context",
+				content: JSON.stringify(parsed.data.payload),
+			});
+		} catch (error) {
+			if (error instanceof AssistantRuntimeError) return runtimeFailure(reply, error);
+			throw error;
+		}
+	});
+	app.post("/api/v1/assistant/mcp", async (req, reply) => {
+		const match = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization ?? ""));
+		const principal = match?.[1]
+			? await resolveAssistantToolPrincipal(services.db.admin, match[1])
+			: null;
+		if (!principal)
+			return reply.code(401).send({
+				jsonrpc: "2.0",
+				id: (req.body as { id?: unknown } | null)?.id ?? null,
+				error: { code: -32_000, message: "Unauthorized" },
+			});
+		return handleAssistantMcp(services, principal, req.body);
 	});
 	app.post("/api/v1/render", { preHandler: auth }, async (req, reply) => {
 		const p = req.principal as Principal;

@@ -39,6 +39,10 @@ export interface Env {
 	readonly assistantLlmUrl?: string | null;
 	readonly assistantLlmModel?: string | null;
 	readonly assistantLlmApiKey?: string | null;
+	/** Phase 5 per-user Claude Code manager seam. */
+	readonly assistantManagerUrl?: string | null;
+	readonly assistantManagerToken?: string | null;
+	readonly publicConsoleUrl?: string | null;
 }
 
 function required(name: string): string {
@@ -69,5 +73,8 @@ export function loadEnv(): Env {
 		assistantLlmUrl: process.env["CONSOLE_ASSISTANT_LLM_URL"] ?? null,
 		assistantLlmModel: process.env["CONSOLE_ASSISTANT_LLM_MODEL"] ?? null,
 		assistantLlmApiKey: process.env["CONSOLE_ASSISTANT_LLM_API_KEY"] ?? null,
+		assistantManagerUrl: process.env["CONSOLE_ASSISTANT_MANAGER_URL"] ?? null,
+		assistantManagerToken: process.env["CONSOLE_ASSISTANT_MANAGER_TOKEN"] ?? null,
+		publicConsoleUrl: process.env["CONSOLE_API_PUBLIC_URL"] ?? null,
 	};
 }

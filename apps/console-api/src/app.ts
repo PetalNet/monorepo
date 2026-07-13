@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 
 import { OpenAiCompatibleAssistantCompiler, type AssistantCompiler } from "./assistant/compiler.ts";
+import { AssistantRuntime, ClaudeCodeAssistantManager } from "./assistant/runtime.ts";
 import { resolveScopes } from "./auth/principal.ts";
 import { TrackerProposalWriter } from "./auth/proposals.ts";
 import { Appender, type AppendResult } from "./bus/appender.ts";
@@ -38,6 +39,7 @@ export interface Services {
 	readonly trackerProposals: TrackerProposalWriter | null;
 	readonly trackerProposalLookup: TrackerProposalLookup | null;
 	readonly assistant: AssistantCompiler | null;
+	readonly assistantRuntime: AssistantRuntime | null;
 	/** Process-local key only in dev; production must supply CONSOLE_API_CURSOR_SECRET. */
 	readonly cursorSecret: string;
 	onGrantChange(listener: (zookie: string) => void): () => void;
@@ -96,6 +98,31 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 					model: env.assistantLlmModel,
 					...(env.assistantLlmApiKey !== undefined ? { apiKey: env.assistantLlmApiKey } : {}),
 				})
+			: null;
+	const runtimeConfig = [env.assistantManagerUrl, env.assistantManagerToken, env.publicConsoleUrl];
+	if (runtimeConfig.some(Boolean) && !runtimeConfig.every(Boolean))
+		throw new Error(
+			"CONSOLE_ASSISTANT_MANAGER_URL, CONSOLE_ASSISTANT_MANAGER_TOKEN, and CONSOLE_API_PUBLIC_URL must be configured together",
+		);
+	if (
+		!env.devAuth &&
+		[env.assistantManagerUrl, env.publicConsoleUrl].some(
+			(value) => value && new URL(value).protocol !== "https:",
+		)
+	)
+		throw new Error(
+			"assistant manager and public console URLs must use https outside dev-auth mode",
+		);
+	const assistantRuntime =
+		env.assistantManagerUrl && env.assistantManagerToken && env.publicConsoleUrl
+			? new AssistantRuntime(
+					db.writer,
+					new ClaudeCodeAssistantManager({
+						url: env.assistantManagerUrl,
+						token: env.assistantManagerToken,
+						publicConsoleUrl: env.publicConsoleUrl,
+					}),
+				)
 			: null;
 	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
@@ -175,6 +202,7 @@ export async function buildServices(env: Env, opts?: { migrate?: boolean }): Pro
 		trackerProposals,
 		trackerProposalLookup: tracker,
 		assistant,
+		assistantRuntime,
 		cursorSecret,
 		onGrantChange(listener) {
 			grantListeners.add(listener);

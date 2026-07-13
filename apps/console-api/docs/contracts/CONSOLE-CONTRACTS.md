@@ -580,7 +580,29 @@ refusal⇒`refusal`). `dashboard.save` carries the **`branch` block** (`parent_d
 parent_question, filters, selected_mark, assumptions` — the ExplorationGraph/BranchContext
 lineage) and a board-level `time` range; `context.receive` payloads are SelectedMark-complete
 (`element_kind, field?, value, datum?, query_ref?, entity_ref?`). The per-user assistant
-session is Phase 5; the tool seam is fixed now.
+session runtime is live in Phase 5 (2026-07-13):
+
+- `POST /api/v1/assistant/messages` (`schemas/assistant-message.schema.json` →
+  `schemas/assistant-message-result.schema.json`) idempotently ensures one specialized Claude Code
+  manager session per server-stamped principal and sends the message to that real session.
+- `POST /api/v1/assistant/context` (`schemas/assistant-context.schema.json`) delivers the selected
+  mark as the most recent `context` message in the same session. `GET /api/v1/assistant/session`
+  returns the caller's current manager session state, window layout, and last selected context.
+- The manager receives a rotating 15-minute credential for the Streamable-HTTP-style JSON-RPC MCP
+  endpoint at `POST /api/v1/assistant/mcp`; it never receives the user's browser/API credential.
+  Every tool call re-resolves the principal's current ReBAC scopes. The six tools are
+  `stats.query`, `viz.render`, `text.surface`, `window.arrange`, `dashboard.manage`
+  (save/load/set-home), and `context.receive`; each binds the existing query, render, or Library
+  implementation, while window/context state is durably held in the per-user session registry.
+  Mutating dashboard calls pass through the same propose-not-commit policy as the public dashboard
+  route; `set_home` includes a UUID `request_id` for proposal/idempotency fencing.
+- Configure the seam atomically with `CONSOLE_ASSISTANT_MANAGER_URL`,
+  `CONSOLE_ASSISTANT_MANAGER_TOKEN`, and `CONSOLE_API_PUBLIC_URL`. Both URLs must use HTTPS outside
+  dev-auth. Missing/down configuration fails closed; the stateless `/api/v1/ask` compiler remains a
+  separate grounded single-question endpoint rather than pretending to be a Claude Code session.
+  The manager contract MUST deduplicate `(external_session_id, message_id)` and expose
+  `POST /v1/sessions/{id}/messages/lookup`; console-api reconciles durable `dispatching` rows against
+  that receipt before any retry, closing remote-success/local-crash ambiguity without storing prose.
 
 ## 10. Observability of the surface itself
 
@@ -604,8 +626,10 @@ secret-free structured stderr record; they are never silently swallowed.
 `GET /graph` walk endpoint (Phase 2; edge _storage_ Phase 1) · doorman deep shapes (Phase 1 with
 `PetalNet/doorman`) · PTY + `service.logs` stream
 framing (Phase 1, Terminal spec owns frames; audit-before-first-frame generalized in §5.1) ·
-librarian autonomy (own effort) · per-user claude-code manager runtime + session transcripts
-on the bus (Phase 5) · view registration governance (Phase 2).
+librarian autonomy (own effort) · view registration governance (Phase 2). Full transcript export to
+the lake via scope-checked `body_ref` remains a follow-on to the live Phase 5 session seam; the
+runtime persists only request hashes, dispatch state, and manager receipt IDs for recovery—not
+transcript or tool-result bodies—and does not put message bodies into statistic dimensions or logs.
 
 ## 12. Migration + failure notes
 

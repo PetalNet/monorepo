@@ -490,6 +490,56 @@ const STATEMENTS: readonly string[] = [
 	       check (state in ('ready', 'dispatching', 'complete'));
 	   end if;
 	 end $$`,
+	`create table if not exists assistant_sessions (
+	   principal_id       text primary key,
+	   principal_kind     text not null,
+	   tiers              jsonb not null default '[]'::jsonb,
+	   lanes              jsonb not null default '[]'::jsonb,
+	   external_session_id text not null unique,
+	   manager_session_id text unique,
+	   state              text not null default 'creating',
+	   window_layout      jsonb not null default '{"ops":[]}'::jsonb,
+	   last_context       jsonb,
+	   last_context_seq   bigint not null default 0,
+	   created_at         timestamptz not null default now(),
+	   updated_at         timestamptz not null default now(),
+	   constraint assistant_sessions_kind_valid check (principal_kind in ('human','agent','system')),
+	   constraint assistant_sessions_state_valid check (state in ('creating','ready','failed'))
+	 )`,
+	`create table if not exists assistant_tool_tokens (
+	   token_sha256 text primary key,
+	   principal_id text not null references assistant_sessions(principal_id) on delete cascade,
+	   expires_at   timestamptz not null,
+	   created_at   timestamptz not null default now()
+	 )`,
+	`create index if not exists assistant_tool_tokens_expiry on assistant_tool_tokens (expires_at)`,
+	`create table if not exists assistant_messages (
+	   principal_id     text not null references assistant_sessions(principal_id) on delete cascade,
+	   message_id       uuid not null,
+	   message_seq      bigserial unique,
+	   kind             text not null,
+	   request_hash     text not null,
+	   response_id      text,
+	   state            text not null default 'ready',
+	   dispatch_started_at timestamptz,
+	   created_at       timestamptz not null default now(),
+	   completed_at     timestamptz,
+	   primary key (principal_id, message_id),
+	   constraint assistant_messages_kind_valid check (kind in ('user','context')),
+	   constraint assistant_messages_state_valid check (state in ('ready','dispatching','complete'))
+	 )`,
+	`alter table assistant_sessions add column if not exists last_context_seq bigint not null default 0`,
+	`alter table assistant_messages add column if not exists message_seq bigserial`,
+	`alter table assistant_messages add column if not exists request_hash text`,
+	`alter table assistant_messages add column if not exists state text not null default 'ready'`,
+	`alter table assistant_messages add column if not exists dispatch_started_at timestamptz`,
+	`update assistant_messages set state = 'complete' where response_id is not null`,
+	`do $$ begin
+	   if not exists (select 1 from pg_constraint where conname = 'assistant_messages_state_valid') then
+	     alter table assistant_messages add constraint assistant_messages_state_valid
+	       check (state in ('ready','dispatching','complete'));
+	   end if;
+	 end $$`,
 
 	// --- N1b: current-state projection (latest per entity), keyed by the PROJECTION bucket -----
 	// kind is the projection-map target (fleet|heartbeat|registry|governance|card|worker|
@@ -695,7 +745,8 @@ const STATEMENTS: readonly string[] = [
 
 	// --- grants -------------------------------------------------------------------------------
 	`revoke all on all tables in schema public from console_ro`,
-	`revoke all on grants, grant_set_state, grant_mutations, proposal_mutations from console_app, console_ro`,
+	`revoke all on grants, grant_set_state, grant_mutations, proposal_mutations,
+	   assistant_sessions, assistant_tool_tokens, assistant_messages from console_app, console_ro`,
 	`revoke create on schema public from console_ro`,
 	`revoke select on semantic_registry from console_app, console_ro`,
 	`grant usage on schema public to console_app, console_ro, console_writer`,
@@ -713,6 +764,9 @@ const STATEMENTS: readonly string[] = [
 	`grant insert, update, select, delete on current_state, items_min to console_writer`,
 	`grant insert, select on dashboard_mutations to console_writer`,
 	`grant insert, update, select on proposal_mutations to console_writer`,
+	`grant insert, update, select on assistant_sessions, assistant_messages to console_writer`,
+	`grant insert, update, select, delete on assistant_tool_tokens to console_writer`,
+	`grant usage, select on sequence assistant_messages_message_seq_seq to console_writer`,
 	`grant insert, update, select on projection_checkpoint to console_writer`,
 	`grant insert, update, select on bridge_cursor to console_writer`,
 	`grant insert, select on bridge_dead_letter to console_writer`,
