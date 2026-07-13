@@ -2034,162 +2034,179 @@ export async function buildServer(
 	});
 
 	// --- terminal gate + frame transport --------------------------------------------------------
-	// Fastify-local preHandlers enforce the bounded token bucket; CodeQL does not model them.
-	app.get("/api/v1/terminal", { preHandler: [auth, opRateLimit] }, async (req, reply) => {
-		// lgtm[js/missing-rate-limiting]
-		const principal = req.principal as Principal;
-		const denial = await authorizeTerminal(principal);
-		if (denial) {
-			const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
+	// `config.rateLimit` mirrors the custom bucket for Fastify/CodeQL route metadata; the preHandler
+	// is the runtime enforcement, avoiding a second limiter with divergent counters.
+	app.get(
+		"/api/v1/terminal",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const principal = req.principal as Principal;
+			const denial = await authorizeTerminal(principal);
+			if (denial) {
+				const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
+				if (auditSeq === null)
+					return reply.code(503).send({
+						error: {
+							code: "audit_unavailable",
+							message: "terminal denial could not be retained",
+							retryable: true,
+						},
+					});
+				return reply.code(403).send({
+					error: { code: "term_denied", message: "term_admin access required", retryable: false },
+				});
+			}
+			const auditSeq = await emitTerminalAudit(principal, "access", null, null);
 			if (auditSeq === null)
 				return reply.code(503).send({
 					error: {
 						code: "audit_unavailable",
-						message: "terminal denial could not be retained",
+						message: "terminal audit write could not be verified",
 						retryable: true,
 					},
 				});
-			return reply.code(403).send({
-				error: { code: "term_denied", message: "term_admin access required", retryable: false },
-			});
-		}
-		const auditSeq = await emitTerminalAudit(principal, "access", null, null);
-		if (auditSeq === null)
-			return reply.code(503).send({
-				error: {
-					code: "audit_unavailable",
-					message: "terminal audit write could not be verified",
-					retryable: true,
-				},
-			});
-		return { audit_writable: true, pty_live: await terminal.health(), audit_seq: auditSeq };
-	});
+			return { audit_writable: true, pty_live: await terminal.health(), audit_seq: auditSeq };
+		},
+	);
 
-	app.post("/api/v1/terminal/streams", { preHandler: [auth, opRateLimit] }, async (req, reply) => {
-		// lgtm[js/missing-rate-limiting]
-		const principal = req.principal as Principal;
-		const denial = await authorizeTerminal(principal);
-		if (denial) {
-			const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
-			return reply.code(auditSeq === null ? 503 : 403).send({
-				error: {
-					code: auditSeq === null ? "audit_unavailable" : "term_denied",
-					message: auditSeq === null ? "terminal denial could not be retained" : denial,
-					retryable: auditSeq === null,
-				},
+	app.post(
+		"/api/v1/terminal/streams",
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
+		async (req, reply) => {
+			const principal = req.principal as Principal;
+			const denial = await authorizeTerminal(principal);
+			if (denial) {
+				const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
+				return reply.code(auditSeq === null ? 503 : 403).send({
+					error: {
+						code: auditSeq === null ? "audit_unavailable" : "term_denied",
+						message: auditSeq === null ? "terminal denial could not be retained" : denial,
+						retryable: auditSeq === null,
+					},
+				});
+			}
+			const parsed = terminalTargetSchema.safeParse(req.body);
+			if (!parsed.success)
+				return reply.code(400).send({
+					error: { code: "invalid_target", message: "invalid terminal target", retryable: false },
+				});
+			if (!(await terminal.health()))
+				return reply.code(503).send({
+					error: { code: "pty_unavailable", message: "PTY adapter unavailable", retryable: true },
+				});
+			const streamId = crypto.randomUUID();
+			const target: TerminalTarget = {
+				host: parsed.data.host,
+				tmuxSession: parsed.data.tmux_session,
+				paneId: parsed.data.pane_id,
+			};
+			// The retained watch audit is the hard boundary: no response frame or ssh call occurs first.
+			const auditSeq = await emitTerminalAudit(principal, "watch", target, streamId);
+			if (auditSeq === null)
+				return reply.code(503).send({
+					error: {
+						code: "audit_unavailable",
+						message: "watch audit could not be retained",
+						retryable: true,
+					},
+				});
+			const session: TerminalSession = {
+				principalId: principal.id,
+				target,
+				attached: false,
+				closed: false,
+				seq: 0,
+				timer: null,
+				end: () => {},
+			};
+			terminalSessions.set(streamId, session);
+			reply.hijack();
+			reply.raw.writeHead(200, {
+				"cache-control": "no-store",
+				"content-type": "application/x-ndjson; charset=utf-8",
+				"x-accel-buffering": "no",
 			});
-		}
-		const parsed = terminalTargetSchema.safeParse(req.body);
-		if (!parsed.success)
-			return reply.code(400).send({
-				error: { code: "invalid_target", message: "invalid terminal target", retryable: false },
-			});
-		if (!(await terminal.health()))
-			return reply.code(503).send({
-				error: { code: "pty_unavailable", message: "PTY adapter unavailable", retryable: true },
-			});
-		const streamId = crypto.randomUUID();
-		const target: TerminalTarget = {
-			host: parsed.data.host,
-			tmuxSession: parsed.data.tmux_session,
-			paneId: parsed.data.pane_id,
-		};
-		// The retained watch audit is the hard boundary: no response frame or ssh call occurs first.
-		const auditSeq = await emitTerminalAudit(principal, "watch", target, streamId);
-		if (auditSeq === null)
-			return reply.code(503).send({
-				error: {
-					code: "audit_unavailable",
-					message: "watch audit could not be retained",
-					retryable: true,
-				},
-			});
-		const session: TerminalSession = {
-			principalId: principal.id,
-			target,
-			attached: false,
-			closed: false,
-			seq: 0,
-			timer: null,
-			end: () => {},
-		};
-		terminalSessions.set(streamId, session);
-		reply.hijack();
-		reply.raw.writeHead(200, {
-			"cache-control": "no-store",
-			"content-type": "application/x-ndjson; charset=utf-8",
-			"x-accel-buffering": "no",
-		});
-		const write = (frame: Record<string, unknown>): boolean =>
-			!reply.raw.destroyed &&
-			reply.raw.write(`${JSON.stringify({ schema_version: 1, stream_id: streamId, ...frame })}\n`);
-		const waitForDrain = async (): Promise<void> => {
-			if (reply.raw.destroyed || !reply.raw.writableNeedDrain) return;
-			await new Promise<void>((resolve) => {
-				const done = (): void => {
-					reply.raw.off("drain", done);
-					reply.raw.off("close", done);
-					resolve();
-				};
-				reply.raw.once("drain", done);
-				reply.raw.once("close", done);
-			});
-		};
-		write({ kind: "open", seq: session.seq, audit_seq: auditSeq, mode: "read" });
-		let previous: Buffer | null = null;
-		const pump = async (): Promise<void> => {
-			if (session.closed || reply.raw.destroyed) return;
-			try {
-				const fresh = await resolveRequestPrincipal(req);
-				const revoked =
-					!fresh || fresh.id !== session.principalId || (await authorizeTerminal(fresh)) !== null;
-				if (revoked) {
+			const write = (frame: Record<string, unknown>): boolean =>
+				!reply.raw.destroyed &&
+				reply.raw.write(
+					`${JSON.stringify({ schema_version: 1, stream_id: streamId, ...frame })}\n`,
+				);
+			const waitForDrain = async (): Promise<void> => {
+				if (reply.raw.destroyed || !reply.raw.writableNeedDrain) return;
+				await new Promise<void>((resolve) => {
+					const done = (): void => {
+						reply.raw.off("drain", done);
+						reply.raw.off("close", done);
+						resolve();
+					};
+					reply.raw.once("drain", done);
+					reply.raw.once("close", done);
+				});
+			};
+			write({ kind: "open", seq: session.seq, audit_seq: auditSeq, mode: "read" });
+			let previous: Buffer | null = null;
+			const pump = async (): Promise<void> => {
+				if (session.closed || reply.raw.destroyed) return;
+				try {
+					const fresh = await resolveRequestPrincipal(req);
+					const revoked =
+						!fresh || fresh.id !== session.principalId || (await authorizeTerminal(fresh)) !== null;
+					if (revoked) {
+						session.closed = true;
+						session.seq += 1;
+						write({ kind: "error", seq: session.seq, code: "terminal_access_revoked" });
+						if (fresh)
+							await emitTerminalAudit(
+								fresh,
+								"denied",
+								target,
+								streamId,
+								"stream authorization revoked",
+							);
+						reply.raw.end();
+						return;
+					}
+					const frame = await terminal.capture(target, parsed.data.scrollback_lines);
+					if (!previous?.equals(frame)) {
+						previous = frame;
+						session.seq += 1;
+						if (!write({ kind: "snapshot", seq: session.seq, data_b64: frame.toString("base64") }))
+							await waitForDrain();
+					}
+				} catch (error) {
+					monitor.captureException(sanitizedException(error));
 					session.closed = true;
 					session.seq += 1;
-					write({ kind: "error", seq: session.seq, code: "terminal_access_revoked" });
-					if (fresh)
-						await emitTerminalAudit(
-							fresh,
-							"denied",
-							target,
-							streamId,
-							"stream authorization revoked",
-						);
+					write({ kind: "error", seq: session.seq, code: "pty_capture_failed" });
 					reply.raw.end();
 					return;
 				}
-				const frame = await terminal.capture(target, parsed.data.scrollback_lines);
-				if (!previous?.equals(frame)) {
-					previous = frame;
-					session.seq += 1;
-					if (!write({ kind: "snapshot", seq: session.seq, data_b64: frame.toString("base64") }))
-						await waitForDrain();
-				}
-			} catch (error) {
-				monitor.captureException(sanitizedException(error));
+				if (!session.closed && !reply.raw.destroyed) session.timer = setTimeout(pump, 750);
+			};
+			void pump();
+			const close = (): void => {
 				session.closed = true;
-				session.seq += 1;
-				write({ kind: "error", seq: session.seq, code: "pty_capture_failed" });
-				reply.raw.end();
-				return;
-			}
-			if (!session.closed && !reply.raw.destroyed) session.timer = setTimeout(pump, 750);
-		};
-		void pump();
-		const close = (): void => {
-			session.closed = true;
-			if (session.timer) clearTimeout(session.timer);
-			terminalSessions.delete(streamId);
-		};
-		session.end = () => reply.raw.end();
-		reply.raw.on("close", close);
-	});
+				if (session.timer) clearTimeout(session.timer);
+				terminalSessions.delete(streamId);
+			};
+			session.end = () => reply.raw.end();
+			reply.raw.on("close", close);
+		},
+	);
 
 	app.post(
 		"/api/v1/terminal/streams/:streamId/attach",
-		{ preHandler: [auth, opRateLimit] },
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
 		async (req, reply) => {
-			// lgtm[js/missing-rate-limiting]
 			const session = await ownedTerminalSession(req, reply);
 			if (!session) return reply;
 			const principal = req.principal as Principal;
@@ -2206,9 +2223,11 @@ export async function buildServer(
 
 	app.post(
 		"/api/v1/terminal/streams/:streamId/input",
-		{ preHandler: [auth, opRateLimit] },
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
 		async (req, reply) => {
-			// lgtm[js/missing-rate-limiting]
 			const session = await ownedTerminalSession(req, reply);
 			if (!session) return reply;
 			if (!session.attached)
@@ -2246,9 +2265,11 @@ export async function buildServer(
 
 	app.post(
 		"/api/v1/terminal/streams/:streamId/detach",
-		{ preHandler: [auth, opRateLimit] },
+		{
+			preHandler: [auth, opRateLimit],
+			config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+		},
 		async (req, reply) => {
-			// lgtm[js/missing-rate-limiting]
 			const session = await ownedTerminalSession(req, reply);
 			if (!session) return reply;
 			const principal = req.principal as Principal;
