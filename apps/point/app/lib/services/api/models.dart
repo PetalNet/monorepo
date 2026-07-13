@@ -42,6 +42,7 @@ class Person {
     this.distanceLabel,
     this.lat,
     this.lon,
+    this.profileVersion,
     this.rekeyedAt,
     this.shareSince,
   });
@@ -55,6 +56,11 @@ class Person {
   final String? distanceLabel;
   final double? lat;
   final double? lon;
+
+  /// Authoritative identity generation from the shares snapshot. It advances
+  /// when the peer changes profile data, allowing missed live avatar events to
+  /// reconcile on reconnect without blindly redownloading image bytes.
+  final DateTime? profileVersion;
 
   /// Server generation marker for this peer's MLS identity. When this moves
   /// past the generation used by our pairwise group, the deterministic

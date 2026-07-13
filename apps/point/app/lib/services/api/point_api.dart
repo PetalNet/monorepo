@@ -154,13 +154,33 @@ class PointApi {
   /// A person's photo-dot bytes, or null when they have none (or the server
   /// gates it: strangers see the same 404 as no-avatar).
   Future<Uint8List?> fetchAvatar(String token, String userId) async {
+    final result = await fetchAvatarVersioned(token, userId);
+    return result.bytes;
+  }
+
+  /// Conditional avatar fetch used by the live profile cache. A 304 carries no
+  /// bytes; callers retain the bytes previously associated with [etag].
+  Future<({Uint8List? bytes, String? etag, bool notModified})>
+  fetchAvatarVersioned(String token, String userId, {String? etag}) async {
     final r = await _client.get(
-      _u('/api/users/$userId/avatar'),
-      headers: _headers(token),
+      _u('/api/users/${Uri.encodeComponent(userId)}/avatar'),
+      headers: {
+        ..._headers(token),
+        if (etag != null) 'if-none-match': etag,
+      },
     );
-    if (r.statusCode == 404) return null;
+    if (r.statusCode == 304) {
+      return (bytes: null, etag: r.headers['etag'] ?? etag, notModified: true);
+    }
+    if (r.statusCode == 404) {
+      return (bytes: null, etag: null, notModified: false);
+    }
     if (r.statusCode != 200) _fail(r);
-    return r.bodyBytes;
+    return (
+      bytes: r.bodyBytes,
+      etag: r.headers['etag'],
+      notModified: false,
+    );
   }
 
   // --- Sharing / people ---------------------------------------------------

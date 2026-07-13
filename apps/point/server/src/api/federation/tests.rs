@@ -4,8 +4,9 @@
 //! against a fresh migrated Postgres, matching the `api::tests` harness.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::PgPool;
 
 use super::*;
@@ -311,4 +312,58 @@ async fn federated_share_remove_tears_down_local_half(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!((shares, requests), (0, 0));
+}
+
+#[sqlx::test]
+async fn federated_profile_update_refreshes_shadow_and_notifies_local_peer(pool: PgPool) {
+    let state = test_state(pool.clone(), true);
+    let local = uid("alice");
+    let remote = "bob@remote.example";
+    seed_local_user(&pool, &local).await;
+    ensure_federated_user(&pool, remote).await.unwrap();
+    let (lo, hi) = if remote < local.as_str() {
+        (remote, local.as_str())
+    } else {
+        (local.as_str(), remote)
+    };
+    sqlx::query("INSERT INTO user_shares (user_a, user_b) VALUES ($1, $2)")
+        .bind(lo)
+        .bind(hi)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(2);
+    state
+        .hub
+        .add_connection(&local, tx, Arc::new(tokio::sync::Notify::new()));
+
+    let png = [&[0x89u8, b'P', b'N', b'G'][..], &[0u8; 8][..]].concat();
+    let out = handle_profile_updated(
+        &state,
+        remote,
+        &local,
+        &json!({
+            "profile_version": 42,
+            "display_name": "Bob Remote",
+            "avatar_changed": true,
+            "avatar": BASE64.encode(&png),
+            "avatar_mime": "image/png",
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["ok"], true);
+
+    let (name, avatar): (String, Option<Vec<u8>>) =
+        sqlx::query_as("SELECT display_name, avatar FROM users WHERE id = $1")
+            .bind(remote)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(name, "Bob Remote");
+    assert_eq!(avatar, Some(png));
+    let event: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
+    assert_eq!(event["type"], "profile.updated");
+    assert_eq!(event["user_id"], remote);
+    assert_eq!(event["profile_version"], 42);
 }

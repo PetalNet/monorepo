@@ -201,12 +201,112 @@ async fn dispatch(
         "share.request" => handle_share_request(state, sender, recipient, payload).await,
         "share.accept" => handle_share_accept(state, sender, recipient, payload).await,
         "share.remove" => handle_share_remove(state, sender, recipient).await,
+        "profile.updated" => handle_profile_updated(state, sender, recipient, payload).await,
         "mls.key_request" => handle_key_request(state, sender, recipient, payload).await,
         "mls.welcome" => handle_mls_relay(state, sender, recipient, payload, "welcome").await,
         "mls.commit" => handle_mls_relay(state, sender, recipient, payload, "commit").await,
         "location.update" => handle_location_update(state, sender, recipient, payload).await,
         _ => Err(AppError::BadRequest("unknown message_type".into())),
     }
+}
+
+async fn handle_profile_updated(
+    state: &AppState,
+    sender: &str,
+    recipient: &str,
+    payload: &Value,
+) -> ApiResult<Value> {
+    if !authz::can_view_profile(&state.pool, recipient, sender).await? {
+        return Err(AppError::Forbidden);
+    }
+    let display_name = payload
+        .get("display_name")
+        .and_then(Value::as_str)
+        .map(super::auth::sanitize_display_name)
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| AppError::BadRequest("invalid profile display_name".into()))?;
+    let profile_version = payload
+        .get("profile_version")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| AppError::BadRequest("invalid profile_version".into()))?;
+    let avatar_changed = payload
+        .get("avatar_changed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let avatar = if avatar_changed {
+        match payload.get("avatar") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(encoded)) => {
+                let bytes = BASE64
+                    .decode(encoded)
+                    .map_err(|_| AppError::BadRequest("invalid profile avatar".into()))?;
+                if bytes.is_empty() || bytes.len() > super::account::MAX_AVATAR_BYTES {
+                    return Err(AppError::BadRequest("invalid profile avatar".into()));
+                }
+                Some(bytes)
+            }
+            _ => return Err(AppError::BadRequest("invalid profile avatar".into())),
+        }
+    } else {
+        None
+    };
+    let avatar_mime = if avatar_changed {
+        payload.get("avatar_mime").and_then(Value::as_str)
+    } else {
+        None
+    };
+    if let Some(bytes) = &avatar {
+        let Some(mime) = avatar_mime else {
+            return Err(AppError::BadRequest("invalid profile avatar mime".into()));
+        };
+        if !super::account::avatar_bytes_match_mime(bytes, mime) {
+            return Err(AppError::BadRequest("invalid profile avatar mime".into()));
+        }
+    }
+
+    let result = if avatar_changed {
+        sqlx::query(
+            "UPDATE users
+             SET display_name = $1, avatar = $2, avatar_mime = $3, updated_at = now()
+             WHERE id = $4 AND is_federated",
+        )
+        .bind(&display_name)
+        .bind(&avatar)
+        .bind(avatar_mime)
+        .bind(sender)
+        .execute(&state.pool)
+        .await?
+    } else {
+        sqlx::query(
+            "UPDATE users SET display_name = $1, updated_at = now()
+             WHERE id = $2 AND is_federated",
+        )
+        .bind(&display_name)
+        .bind(sender)
+        .execute(&state.pool)
+        .await?
+    };
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    sqlx::query("UPDATE entities SET display_name = $1 WHERE owner_id = $2 AND kind = 'person'")
+        .bind(&display_name)
+        .bind(sender)
+        .execute(&state.pool)
+        .await?;
+
+    state.hub.send_to_user(
+        recipient,
+        &json!({
+            "type": "profile.updated",
+            "user_id": sender,
+            "profile_version": profile_version,
+            "avatar_changed": avatar_changed,
+        })
+        .to_string(),
+    );
+    Ok(json!({ "ok": true }))
 }
 
 async fn handle_share_remove(state: &AppState, sender: &str, recipient: &str) -> ApiResult<Value> {
@@ -887,6 +987,7 @@ fn is_federatable_type(t: &str) -> bool {
         "share.request"
             | "share.accept"
             | "share.remove"
+            | "profile.updated"
             | "mls.key_request"
             | "mls.welcome"
             | "mls.commit"
