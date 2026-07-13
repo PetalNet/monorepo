@@ -58,6 +58,17 @@ function typedEntityOf(e: Emission): Record<string, unknown> {
 		: {};
 }
 
+function bridgeSourceOf(e: Emission): { kind: "bridge_source"; id: string } | null {
+	const source = e.meta?.["bridge_source"];
+	if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+	const reference = source as Record<string, unknown>;
+	return reference["kind"] === "bridge_source" &&
+		typeof reference["id"] === "string" &&
+		reference["id"]
+		? { kind: "bridge_source", id: reference["id"] }
+		: null;
+}
+
 function projectionSubject(e: Emission, kind: ProjectionKind): string {
 	const typedEntity = typedEntityOf(e);
 	if (kind === "edge_session") {
@@ -70,6 +81,7 @@ function projectionSubject(e: Emission, kind: ProjectionKind): string {
 /** The state payload persisted for an entity — salient emission fields the typed reads shape from. */
 function stateOf(e: Emission): Record<string, unknown> {
 	const typedEntity = typedEntityOf(e);
+	const bridgeSource = bridgeSourceOf(e);
 	const raw = e.meta?.["box_update_raw"];
 	return {
 		schema_version: 1,
@@ -86,6 +98,7 @@ function stateOf(e: Emission): Record<string, unknown> {
 		...e.measures,
 		...typedEntity,
 		...(raw && typeof raw === "object" && !Array.isArray(raw) ? { box_update_raw: raw } : {}),
+		...(bridgeSource ? { bridge_source: bridgeSource } : {}),
 	};
 }
 
@@ -278,12 +291,23 @@ export class Projector {
 	}
 
 	async #apply(sql: Sql, seq: number, e: Emission, receivedAt: string): Promise<void> {
-		// bridge.source.unreachable marks the affected entities dark (positive down-evidence, L2).
-		// seq-guarded (codex P1): only mark a row dark if its last state is not newer than this signal,
-		// so a delayed old unreachable cannot re-mark a freshly-healthy entity.
-		if (e.type === "bridge.source.unreachable") {
-			await sql`update current_state set unreachable_since = ${receivedAt}
-				where subject = ${e.subject} and unreachable_since is null and seq <= ${seq}`;
+		// Bridge liveness controls identify a source, not one entity. Apply them to every row tagged
+		// by that source while preserving scope and sequence isolation. Recovery must clear unchanged
+		// snapshots too: a healthy poll can legitimately have no new entity emission to upsert.
+		if (e.type === "bridge.source.unreachable" || e.type === "bridge.source.recovered") {
+			const source = bridgeSourceOf(e);
+			if (!source) {
+				this.#alarm("projection.bad_source_control", e.subject, "missing typed bridge source");
+				return;
+			}
+			if (e.type === "bridge.source.unreachable")
+				await sql`update current_state set unreachable_since = ${receivedAt}
+					where scope = ${e.scope} and state#>>'{bridge_source,id}' = ${source.id}
+					  and unreachable_since is null and seq <= ${seq}`;
+			else
+				await sql`update current_state set unreachable_since = null
+					where scope = ${e.scope} and state#>>'{bridge_source,id}' = ${source.id}
+					  and unreachable_since is not null and seq <= ${seq}`;
 			return;
 		}
 		const kind = projectionKind(e.type);
