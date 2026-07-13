@@ -52,6 +52,24 @@ Map<String, num> locationFixPayload(Fix fix) => {
   'timestamp': fix.timestampMs,
 };
 
+bool _isValidPeerFix(Map<String, dynamic> data) {
+  final lat = (data['lat'] as num?)?.toDouble();
+  final lon = (data['lon'] as num?)?.toDouble();
+  final timestampValue = data['timestamp'] as num?;
+  final timestamp = timestampValue?.toInt();
+  return lat != null &&
+      lon != null &&
+      timestamp != null &&
+      timestampValue == timestamp &&
+      lat.isFinite &&
+      lon.isFinite &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lon >= -180 &&
+      lon <= 180 &&
+      timestamp > 0;
+}
+
 /// The server's privacy-filtered liveness signal for a peer. `online: false`
 /// deliberately carries no cause: ghosting, a dead phone, and lost signal all
 /// become the same neutral dark state in the presentation layer.
@@ -250,6 +268,8 @@ class RelayController {
   int _sessionEpoch = 0;
   Future<void> _lifecycleTail = Future<void>.value();
   Future<void> _sessionWorkTail = Future<void>.value();
+  Future<void> _fixCacheWriteTail = Future<void>.value();
+  int _lastPeopleAuthorizationRevision = 0;
 
   /// Server ids of peers we currently share with (their pairwise groups).
   final Set<String> _shareTargets = {};
@@ -277,11 +297,18 @@ class RelayController {
   bool _mailboxCryptoBlocked = false;
   final Set<String> _cryptoBlockedPeers = {};
   final Map<String, int> _latestFixTimestamp = {};
+  final Map<String, PeerFix> _cachedPeerFixes = {};
+  final Set<String> _permanentCachedPeers = {};
   final Map<String, PeerPresence> _peerPresenceByUser = {};
   final Map<String, Map<String, int>> _mailboxFailuresByUser = {};
 
   /// Decrypted peer fixes for the presence/map layer.
   Stream<PeerFix> get peerFixes => _peerFixes.stream;
+
+  /// Secure-storage snapshot used when the UI starts listening after relay
+  /// initialization. Values remain age-labelled by their signed sample time.
+  Map<String, PeerFix> get cachedPeerFixes =>
+      Map.unmodifiable(_cachedPeerFixes);
 
   /// Presence events received so far, including peers without a location fix.
   Map<String, PeerPresence> get peerPresence =>
@@ -364,7 +391,7 @@ class RelayController {
     }
 
     // Durable WS (survives disconnect; jittered reconnect).
-    await _loadFixCursors(session.userId);
+    await _loadFixCache(session.userId);
     final wsUrl = _wsUrlFor(_ref.read(serverUrlProvider));
     final queue = RelayQueue(store: _SecureRelayStore(session.userId));
     final ws =
@@ -1033,32 +1060,62 @@ class RelayController {
     final crypto = _ref.read(cryptoServiceProvider);
     final updated = <String>{};
     final errors = <RealtimeSyncFailure>[];
-    for (final peerUserId in peerUserIds.toSet()) {
+    final authorizedPeers = peerUserIds.toSet();
+    final peopleRevision = _ref
+        .read(peopleControllerProvider.notifier)
+        .authorizationRevision;
+    if (peopleRevision > _lastPeopleAuthorizationRevision) {
+      _lastPeopleAuthorizationRevision = peopleRevision;
+      final permanentPeers =
+          _ref
+              .read(peopleControllerProvider)
+              .value
+              ?.map((person) => person.userId)
+              .toSet() ??
+          const <String>{};
+      await _retainAuthorizedPeerFixes(
+        authorizedPeers,
+        permanentPeers,
+        session.userId,
+      );
+    }
+    for (final peerUserId in authorizedPeers) {
       try {
-        final rows = await api.currentFixes(session.token, peerUserId);
+        final current = await api.currentFixes(session.token, peerUserId);
         if (!isSessionCurrent(epoch, session.userId)) {
           return const CurrentFixSyncDiff(
             errors: [RealtimeSyncFailure.sessionChanged],
           );
         }
-        for (final row in rows) {
-          if (row.clientTimestamp <= (_latestFixTimestamp[peerUserId] ?? 0)) {
-            continue;
-          }
-          final groupId = row.recipientType == 'group'
-              ? CryptoService.groupIdFor(row.recipientId)
-              : CryptoService.pairwiseGroupId(session.userId, peerUserId);
-          if (!crypto.hasGroup(groupId)) continue;
-          final plaintext = await crypto.decrypt(
-            groupId,
-            base64Decode(row.blob),
+        var accepted = await _decryptSnapshotRows(
+          peerUserId,
+          current,
+          crypto: crypto,
+          session: session,
+        );
+
+        // Current rows expire after five minutes. If they cannot seed this
+        // peer, ask encrypted history for a small newest-first window so a
+        // normal 15-minute heartbeat still has a frozen last-known place.
+        if (!accepted) {
+          final history = await api.locationHistory(
+            session.token,
+            peerUserId,
+            since: _latestFixTimestamp[peerUserId] ?? 0,
           );
-          final data =
-              jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
-          if (await _acceptPeerFix(peerUserId, data)) {
-            updated.add(peerUserId);
+          if (!isSessionCurrent(epoch, session.userId)) {
+            return const CurrentFixSyncDiff(
+              errors: [RealtimeSyncFailure.sessionChanged],
+            );
           }
+          accepted = await _decryptSnapshotRows(
+            peerUserId,
+            history,
+            crypto: crypto,
+            session: session,
+          );
         }
+        if (accepted) updated.add(peerUserId);
       } on Object catch (e) {
         errors.add(RealtimeSyncFailure.currentFixFailed);
         if (kDebugMode) {
@@ -1069,15 +1126,65 @@ class RelayController {
     return CurrentFixSyncDiff(updatedPeers: updated, errors: errors);
   }
 
-  Future<bool> _acceptPeerFix(String userId, Map<String, dynamic> data) async {
-    final timestamp = data['timestamp'] as int? ?? 0;
+  Future<bool> _decryptSnapshotRows(
+    String peerUserId,
+    Iterable<EncryptedCurrentFix> rows, {
+    required CryptoService crypto,
+    required Session session,
+  }) async {
+    var accepted = false;
+    final newestFirst = rows.toList()
+      ..sort((a, b) => b.clientTimestamp.compareTo(a.clientTimestamp));
+    for (final row in newestFirst) {
+      if (row.clientTimestamp <= (_latestFixTimestamp[peerUserId] ?? 0)) {
+        continue;
+      }
+      final groupId = row.recipientType == 'group'
+          ? CryptoService.groupIdFor(row.recipientId)
+          : CryptoService.pairwiseGroupId(session.userId, peerUserId);
+      if (!crypto.hasGroup(groupId)) continue;
+      final plaintext = await crypto.decrypt(
+        groupId,
+        base64Decode(row.blob),
+      );
+      final data = jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
+      if (await _acceptPeerFix(
+        peerUserId,
+        data,
+        expectedTimestamp: row.clientTimestamp,
+      )) {
+        accepted = true;
+      }
+    }
+    return accepted;
+  }
+
+  Future<bool> _acceptPeerFix(
+    String userId,
+    Map<String, dynamic> data, {
+    int? expectedTimestamp,
+  }) async {
+    if (!_isValidPeerFix(data)) return false;
+    final timestamp = (data['timestamp'] as num).toInt();
+    if (expectedTimestamp != null && timestamp != expectedTimestamp) {
+      return false;
+    }
     if (timestamp <= (_latestFixTimestamp[userId] ?? 0)) return false;
-    _latestFixTimestamp[userId] = timestamp;
-    _peerFixes.add(
-      PeerFix(userId: userId, data: data, receivedAt: DateTime.now()),
+    final fix = PeerFix(
+      userId: userId,
+      data: Map<String, dynamic>.from(data),
+      receivedAt: DateTime.now(),
     );
+    _latestFixTimestamp[userId] = timestamp;
+    _cachedPeerFixes[userId] = fix;
+    final permanent = _ref
+        .read(peopleControllerProvider)
+        .value
+        ?.any((person) => person.userId == userId);
+    if (permanent ?? false) _permanentCachedPeers.add(userId);
+    _peerFixes.add(fix);
     final session = _session;
-    if (session != null) await _writeFixCursors(session.userId);
+    if (session != null) await _writeFixCache(session.userId);
     return true;
   }
 
@@ -1117,32 +1224,129 @@ class RelayController {
     }
   }
 
-  String _fixCursorsKey(String userId) => 'point.relay.fix-cursors.$userId';
+  static const _maxCachedPeers = 64;
 
-  Future<void> _loadFixCursors(String userId) async {
+  String _fixCacheKey(String userId) => 'point.relay.fix-cache.$userId';
+
+  Future<void> _loadFixCache(String userId) async {
     _latestFixTimestamp.clear();
+    _cachedPeerFixes.clear();
+    _permanentCachedPeers.clear();
     _clearPeerPresence();
     try {
-      final raw = await _storage.read(key: _fixCursorsKey(userId));
+      final raw = await _storage.read(key: _fixCacheKey(userId));
       if (raw == null) return;
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-      _latestFixTimestamp.addAll(
-        json.map((peer, timestamp) => MapEntry(peer, timestamp as int)),
+      final root = jsonDecode(raw) as Map<String, dynamic>;
+      final entries = root['fixes'] as Map<String, dynamic>?;
+      if (root['version'] != 1 || entries == null) return;
+      final decoded = <PeerFix>[];
+      for (final entry in entries.entries) {
+        final encoded = entry.value;
+        if (encoded is! Map<String, dynamic>) continue;
+        final data = encoded['data'];
+        if (data is! Map<String, dynamic> || !_isValidPeerFix(data)) continue;
+        final receivedAt = DateTime.tryParse(
+          encoded['received_at'] as String? ?? '',
+        );
+        final fix = PeerFix(
+          userId: entry.key,
+          data: Map<String, dynamic>.from(data),
+          receivedAt: receivedAt,
+        );
+        decoded.add(fix);
+      }
+      decoded.sort(
+        (a, b) => (b.timestamp ?? 0).compareTo(a.timestamp ?? 0),
       );
+      for (final fix in decoded.take(_maxCachedPeers)) {
+        _cachedPeerFixes[fix.userId] = fix;
+        _latestFixTimestamp[fix.userId] = fix.timestamp!;
+        final encoded = entries[fix.userId];
+        if (encoded is Map<String, dynamic> &&
+            encoded['access'] == 'permanent') {
+          _permanentCachedPeers.add(fix.userId);
+        }
+      }
+      // Broadcast for an already-mounted provider; a provider mounted later
+      // reads [cachedPeerFixes] synchronously instead.
+      for (final fix in _cachedPeerFixes.values) {
+        _peerFixes.add(fix);
+      }
     } on Object catch (e) {
-      if (kDebugMode) debugPrint('load current-fix cursors failed: $e');
+      _latestFixTimestamp.clear();
+      _cachedPeerFixes.clear();
+      _permanentCachedPeers.clear();
+      if (kDebugMode) debugPrint('load peer-fix cache failed: $e');
     }
   }
 
-  Future<void> _writeFixCursors(String userId) async {
-    try {
-      await _storage.write(
-        key: _fixCursorsKey(userId),
-        value: jsonEncode(_latestFixTimestamp),
+  Future<void> _writeFixCache(String userId) async {
+    final entries = _cachedPeerFixes.entries.toList()
+      ..sort(
+        (a, b) => (b.value.timestamp ?? 0).compareTo(a.value.timestamp ?? 0),
       );
-    } on Object catch (e) {
-      if (kDebugMode) debugPrint('persist current-fix cursors failed: $e');
+    final value = jsonEncode({
+      'version': 1,
+      'fixes': {
+        for (final entry in entries.take(_maxCachedPeers))
+          entry.key: {
+            'data': entry.value.data,
+            'received_at': entry.value.receivedAt?.toUtc().toIso8601String(),
+            'access': _permanentCachedPeers.contains(entry.key)
+                ? 'permanent'
+                : 'temporary',
+          },
+      },
+    });
+    _fixCacheWriteTail = _fixCacheWriteTail.catchError((Object _) {}).then((
+      _,
+    ) async {
+      try {
+        await _storage.write(key: _fixCacheKey(userId), value: value);
+      } on Object catch (e) {
+        if (kDebugMode) debugPrint('persist peer-fix cache failed: $e');
+      }
+    });
+    await _fixCacheWriteTail;
+  }
+
+  Future<void> removePeerFix(String userId) async {
+    final removed = _cachedPeerFixes.remove(userId) != null;
+    _latestFixTimestamp.remove(userId);
+    _permanentCachedPeers.remove(userId);
+    if (!removed) return;
+    final session = _session;
+    if (session != null) await _writeFixCache(session.userId);
+  }
+
+  Future<void> _retainAuthorizedPeerFixes(
+    Set<String> authorizedPeers,
+    Set<String> permanentPeers,
+    String userId,
+  ) async {
+    final previousPermanentPeers = Set<String>.of(_permanentCachedPeers);
+    _permanentCachedPeers.addAll(
+      _cachedPeerFixes.keys.where(permanentPeers.contains),
+    );
+    final removed = _permanentCachedPeers
+        .where((peer) => !authorizedPeers.contains(peer))
+        .toList();
+    _permanentCachedPeers.removeWhere(
+      (peer) => !permanentPeers.contains(peer),
+    );
+    final classificationChanged = !setEquals(
+      previousPermanentPeers,
+      _permanentCachedPeers,
+    );
+    if (removed.isEmpty && !classificationChanged) return;
+    for (final peer in removed) {
+      _cachedPeerFixes.remove(peer);
+      _latestFixTimestamp.remove(peer);
     }
+    for (final peer in removed) {
+      _ref.read(livePresenceProvider.notifier).remove(peer);
+    }
+    await _writeFixCache(userId);
   }
 
   Future<T> _queueSessionWork<T>(Future<T> Function() action) {
@@ -1177,6 +1381,7 @@ class RelayController {
   Future<void> _stopInternal() async {
     _sessionEpoch++;
     await _sessionWorkTail.catchError((Object _) {});
+    await _fixCacheWriteTail.catchError((Object _) {});
     await _fixSub?.cancel();
     _fixSub = null;
     await _wsSub?.cancel();
@@ -1198,7 +1403,10 @@ class RelayController {
     _selfRekeyedAt = null;
     _identityGenerationReady = null;
     _generationRetryScheduled = false;
+    _lastPeopleAuthorizationRevision = 0;
     _latestFixTimestamp.clear();
+    _cachedPeerFixes.clear();
+    _permanentCachedPeers.clear();
     _wsConnection = WsConnectionState.disconnected;
     _hasAuthenticated = false;
     _syncHealthy = false;
@@ -1552,9 +1760,13 @@ class LivePresence extends Notifier<Map<String, PeerMarkerMotion>> {
         };
         for (final peer in removed) {
           relay._removePeerPresence(peer);
+          unawaited(relay.removePeerFix(peer));
         }
       });
-    return const {};
+    return {
+      for (final entry in relay.cachedPeerFixes.entries)
+        entry.key: PeerMarkerMotion.initial(entry.value),
+    };
   }
 
   RelayController _ref() => ref.read(relayControllerProvider);
@@ -1562,6 +1774,7 @@ class LivePresence extends Notifier<Map<String, PeerMarkerMotion>> {
   void remove(String userId) {
     if (!state.containsKey(userId)) return;
     state = withoutPeerFix(state, userId);
+    unawaited(_ref().removePeerFix(userId));
   }
 }
 

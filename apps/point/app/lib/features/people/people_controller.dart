@@ -11,6 +11,12 @@ import 'package:point_app/theme/presence_tokens.dart';
 class PeopleController extends AsyncNotifier<List<Person>> {
   final Map<String, int> _profileVersions = {};
   int _refreshGeneration = 0;
+  int _authorizationRevision = 0;
+
+  /// Advances only after an authoritative shares response succeeds. The relay
+  /// uses this to distinguish a real omission (revoke) from an offline refresh
+  /// that must retain the last-known encrypted-at-rest location cache.
+  int get authorizationRevision => _authorizationRevision;
 
   @override
   Future<List<Person>> build() async {
@@ -18,6 +24,7 @@ class PeopleController extends AsyncNotifier<List<Person>> {
     if (session == null) return const [];
     final api = ref.read(apiProvider);
     final shares = await api.activeShares(session.token);
+    _authorizationRevision++;
     return shares.map(_personFromShare).toList();
   }
 
