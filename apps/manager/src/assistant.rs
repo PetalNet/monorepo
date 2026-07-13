@@ -238,10 +238,10 @@ fn handle(mut request: Request, cfg: &Config, token: &str, state: &Arc<Mutex<Sta
     {
         return json(request, 400, serde_json::json!({"error":"invalid_message"}));
     }
-    let request_hash = format!(
-        "{:x}",
-        Sha256::digest(format!("{}\0{}", body.kind, body.content).as_bytes())
-    );
+    let request_hash = Sha256::digest(format!("{}\0{}", body.kind, body.content).as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     let key = format!("{session_id}\0{}", body.message_id);
     let session = {
         let mut guard = state.lock().expect("assistant ledger poisoned");
