@@ -33,6 +33,7 @@ dependencies:
   share_plus: ^13.2.0
   package_info_plus: ^10.2.0
   image: ^4.8.0
+  flutter_local_notifications: ^22.0.1
   # dynamic_color is intentionally NOT a dependency: the spec locks dynamic_color
   # OFF (fixed monochrome, no Material You wallpaper hues) — D-015.
 

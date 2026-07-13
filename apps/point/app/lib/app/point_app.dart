@@ -60,7 +60,13 @@ class _PointAppState extends ConsumerState<PointApp>
     with WidgetsBindingObserver {
   late final KaiselRouterConfig<AppRoute> _config;
   final AppLinks _appLinks = AppLinks();
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   StreamSubscription<Uri>? _linkSub;
+  StreamSubscription<PushNotice>? _pushNoticeSub;
+  StreamSubscription<PushDestination>? _pushDestinationSub;
+  PushDestination? _pendingPushDestination;
+  void Function(int)? _switchShellBranch;
+  int _activeShellBranch = 0;
 
   @override
   void initState() {
@@ -80,8 +86,6 @@ class _PointAppState extends ConsumerState<PointApp>
     if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
       ref.read(locationServiceProvider).onBackground();
     }
-    // Wire the UnifiedPush receiver callbacks once, at startup.
-    unawaited(ref.read(pushServiceProvider).init());
     final loggedIn = ref.read(authControllerProvider.notifier).loggedIn;
     _config = KaiselRouterConfig<AppRoute>(
       initial: const SplashRoute(),
@@ -89,6 +93,12 @@ class _PointAppState extends ConsumerState<PointApp>
       pageWrapper: _pageWrapper,
       builder: _pageForRoute,
     );
+    // Subscribe before initialization so a cold-start notification payload
+    // cannot be emitted before the app has a destination listener.
+    final push = ref.read(pushServiceProvider);
+    _pushNoticeSub = push.foregroundNotices.listen(_onForegroundPushNotice);
+    _pushDestinationSub = push.destinations.listen(_openPushDestination);
+    unawaited(push.init());
     // Invite deep links (point://add/<handle> and .../add/<handle>): the link
     // the app was launched from, plus any received while running.
     unawaited(
@@ -106,6 +116,8 @@ class _PointAppState extends ConsumerState<PointApp>
   @override
   void dispose() {
     unawaited(_linkSub?.cancel());
+    unawaited(_pushNoticeSub?.cancel());
+    unawaited(_pushDestinationSub?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -123,6 +135,68 @@ class _PointAppState extends ConsumerState<PointApp>
       ]);
     } else {
       ref.read(pendingInviteProvider.notifier).hold(handle);
+    }
+  }
+
+  void _onForegroundPushNotice(PushNotice notice) {
+    if (_isPushTargetVisible(notice.destination)) return;
+    final messenger = _messengerKey.currentState;
+    if (messenger == null) return;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(notice.title),
+          action: SnackBarAction(
+            label: 'Open',
+            onPressed: () => _openPushDestination(notice.destination),
+          ),
+        ),
+        snackBarAnimationStyle: _reducedMotion
+            ? AnimationStyle.noAnimation
+            : const AnimationStyle(
+                duration: Duration(milliseconds: 180),
+                reverseDuration: Duration(milliseconds: 120),
+              ),
+      );
+  }
+
+  bool _isPushTargetVisible(PushDestination destination) =>
+      switch (destination) {
+        RequestsPushDestination() =>
+          _config.router.stack.lastOrNull is MainShell &&
+              _activeShellBranch == 1,
+        PersonPushDestination(:final userId) =>
+          switch (_config.router.stack.lastOrNull) {
+            PersonDetailRoute(userId: final visibleId) => visibleId == userId,
+            _ => false,
+          },
+      };
+
+  void _openPushDestination(PushDestination destination) {
+    final signedIn = ref.read(authControllerProvider).value != null;
+    final shellReady = _config.router.stack.any((route) => route is MainShell);
+    if (!signedIn || !shellReady) {
+      _pendingPushDestination = destination;
+      return;
+    }
+    _pendingPushDestination = null;
+    switch (destination) {
+      case RequestsPushDestination():
+        unawaited(
+          _config.router.set([const MainShell()]).then((_) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _switchShellBranch?.call(1);
+            });
+          }),
+        );
+      case PersonPushDestination(:final userId):
+        unawaited(
+          _config.router.set([
+            const MainShell(),
+            PersonDetailRoute(userId),
+          ]),
+        );
     }
   }
 
@@ -179,6 +253,8 @@ class _PointAppState extends ConsumerState<PointApp>
     // Launch gate: resume the first incomplete required step, or open the
     // shell (with any held deep-link invite).
     await continueOnboarding(ref, _config.router);
+    final pendingPush = _pendingPushDestination;
+    if (pendingPush != null && mounted) _openPushDestination(pendingPush);
   }
 
   /// The signed-out stack. A fresh install (no server ever chosen) starts at
@@ -307,21 +383,26 @@ class _PointAppState extends ConsumerState<PointApp>
               branches: branches,
               reduced: _reducedMotion,
             ),
-        chromeBuilder: (context, active, content, switchBranch) => ShellChrome(
-          activeBranch: active,
-          branchContent: content,
-          onSwitch: (branch) {
-            Haptics.tick(ref);
-            switchBranch(branch);
-            if (branch == 1) {
-              unawaited(
-                ref
-                    .read(realtimeSyncCoordinatorProvider)
-                    .syncNow(RealtimeSyncReason.peopleTabActivated),
-              );
-            }
-          },
-        ),
+        chromeBuilder: (context, active, content, switchBranch) {
+          _activeShellBranch = active;
+          _switchShellBranch = switchBranch;
+          return ShellChrome(
+            activeBranch: active,
+            branchContent: content,
+            onSwitch: (branch) {
+              Haptics.tick(ref);
+              _activeShellBranch = branch;
+              switchBranch(branch);
+              if (branch == 1) {
+                unawaited(
+                  ref
+                      .read(realtimeSyncCoordinatorProvider)
+                      .syncNow(RealtimeSyncReason.peopleTabActivated),
+                );
+              }
+            },
+          );
+        },
       ),
     };
   }
@@ -357,6 +438,7 @@ class _PointAppState extends ConsumerState<PointApp>
         // or race the go-dark default (the v1.2 location regression).
         unawaited(_establishSession());
       case SessionTransition.teardown:
+        _pendingPushDestination = null;
         ref.read(locationServiceProvider).setSharing(sharing: false);
         ref.read(relayControllerProvider).stop();
         // Drop this device's push registration for the account LEAVING (prev
@@ -414,6 +496,7 @@ class _PointAppState extends ConsumerState<PointApp>
     final textScale = ref.watch(settingsProvider.select((s) => s.textScale));
     return MaterialApp.router(
       title: 'Point',
+      scaffoldMessengerKey: _messengerKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(
