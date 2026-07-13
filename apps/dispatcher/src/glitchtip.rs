@@ -67,10 +67,12 @@ pub fn capture_message(message: &str, level: &str) {
     let message = message.to_string();
     std::thread::spawn(move || {
         let resp = ureq::post(&url)
-            .set("X-Sentry-Auth", &auth)
-            .set("Content-Type", "application/json")
-            .timeout(std::time::Duration::from_secs(5))
-            .send_string(&body.to_string());
+            .header("X-Sentry-Auth", &auth)
+            .header("Content-Type", "application/json")
+            .config()
+            .timeout_global(Some(std::time::Duration::from_secs(5)))
+            .build()
+            .send(&body.to_string());
         if let Err(e) = resp {
             eprintln!("glitchtip: failed to report ({message:.60}…): {e}");
         }

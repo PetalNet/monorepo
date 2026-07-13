@@ -522,24 +522,25 @@ mod tests {
         spawn(cfg).unwrap();
         let base = format!("http://127.0.0.1:{port}");
         let ensure: serde_json::Value = ureq::post(&format!("{base}/v1/sessions/ensure"))
-			.set("authorization", &format!("Bearer {token}"))
+			.header("authorization", &format!("Bearer {token}"))
 			.send_json(serde_json::json!({"schema_version":1,"external_session_id":"principal-hash","profile":"lab-console-dashboard","mcp":{"url":"http://console.test/api/v1/assistant/mcp","bearer_token":"abcdefghijklmnopqrstuvwxyz-123456"}}))
-			.unwrap().into_json().unwrap();
+			.unwrap().body_mut().read_json().unwrap();
         let session = ensure["session_id"].as_str().unwrap();
         let url = format!("{base}/v1/sessions/{session}/messages");
         let payload = serde_json::json!({"schema_version":1,"message_id":"message-1","kind":"user","content":"hello"});
         for _ in 0..2 {
             let response: serde_json::Value = ureq::post(&url)
-                .set("authorization", &format!("Bearer {token}"))
+                .header("authorization", &format!("Bearer {token}"))
                 .send_json(payload.clone())
                 .unwrap()
-                .into_json()
+                .body_mut()
+                .read_json()
                 .unwrap();
             assert_eq!(response["content"], "manager reply");
         }
         let second = serde_json::json!({"schema_version":1,"message_id":"message-2","kind":"user","content":"again"});
         ureq::post(&url)
-            .set("authorization", &format!("Bearer {token}"))
+            .header("authorization", &format!("Bearer {token}"))
             .send_json(second)
             .unwrap();
         let invocations = std::fs::read_to_string(&calls).unwrap();
@@ -549,8 +550,14 @@ mod tests {
         assert!(invocations.contains("--strict-mcp-config"));
         assert!(invocations.contains("--permission-mode dontAsk"));
         assert!(invocations.contains("--allowedTools mcp__lab-console__*"));
-        let conflict = ureq::post(&url).set("authorization", &format!("Bearer {token}")).send_json(serde_json::json!({"schema_version":1,"message_id":"message-1","kind":"user","content":"changed"})).unwrap_err();
-        assert_eq!(conflict.into_response().unwrap().status(), 409);
+        let conflict = ureq::post(&url)
+            .header("authorization", &format!("Bearer {token}"))
+            .config()
+            .http_status_as_error(false)
+            .build()
+            .send_json(serde_json::json!({"schema_version":1,"message_id":"message-1","kind":"user","content":"changed"}))
+            .unwrap();
+        assert_eq!(conflict.status(), 409);
         let saved = std::fs::read_to_string(root.join("receipts.json")).unwrap();
         assert!(!saved.contains("abcdefghijklmnopqrstuvwxyz-123456"));
     }
