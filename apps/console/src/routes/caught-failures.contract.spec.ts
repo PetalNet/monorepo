@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
 	readBoxUpdates: vi.fn(),
 	readCatalog: vi.fn(),
 	readDashboards: vi.fn(),
-	readEdgeRegistry: vi.fn(),
 	readEdgeSessions: vi.fn(),
 	readExecutors: vi.fn(),
 	readHealth: vi.fn(),
@@ -24,7 +23,6 @@ vi.mock("$lib/api/client", () => ({
 	readBoxUpdates: mocks.readBoxUpdates,
 	readCatalog: mocks.readCatalog,
 	readDashboards: mocks.readDashboards,
-	readEdgeRegistry: mocks.readEdgeRegistry,
 	readEdgeSessions: mocks.readEdgeSessions,
 	readExecutors: mocks.readExecutors,
 	readHealth: mocks.readHealth,
@@ -74,7 +72,6 @@ describe("caught loader failure contracts", () => {
 		await loadNetwork({ fetch: fetchStub, parent: async () => shell } as never);
 
 		expect(contexts()).toEqual([
-			{ surface: "network", endpoint: "/edge/registry" },
 			{ surface: "network", endpoint: "/executors" },
 			{ surface: "network", endpoint: "/edge/sessions" },
 		]);

@@ -213,9 +213,18 @@ export function registerEntityReadRoutes(
 					},
 				});
 			if (!route.typed) return readEntity(services.app, principal.scopes, route.kind, opts);
-			return route.kind === "delivery_config"
-				? readDeliveryConfig(services.app, principal.scopes, opts)
-				: readTypedEntity(services.app, principal.scopes, route.kind, opts);
+			const result =
+				route.kind === "delivery_config"
+					? readDeliveryConfig(services.app, principal.scopes, opts)
+					: readTypedEntity(services.app, principal.scopes, route.kind, opts);
+			const envelope = await result;
+			if (route.kind !== "attention") return envelope;
+			return {
+				...envelope,
+				items: envelope.items.filter(
+					(item) => typeof item["lane"] !== "string" || principal.lanes.includes(item["lane"]),
+				),
+			};
 		});
 	}
 	server.get(

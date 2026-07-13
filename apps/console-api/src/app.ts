@@ -7,6 +7,7 @@ import { OpenAiCompatibleAssistantCompiler, type AssistantCompiler } from "./ass
 import { AssistantRuntime, ClaudeCodeAssistantManager } from "./assistant/runtime.ts";
 import { resolveScopes } from "./auth/principal.ts";
 import { TrackerProposalWriter } from "./auth/proposals.ts";
+import { uuidv5 } from "./bridge/uuid5.ts";
 import { Appender, type AppendResult } from "./bus/appender.ts";
 import { Broker } from "./bus/broker.ts";
 import { makeReplay } from "./bus/replay.ts";
@@ -19,6 +20,7 @@ import type { Env } from "./env.ts";
 import { authorizeEmission } from "./ingest/authz.ts";
 import { loadRegistration } from "./ingest/registrations.ts";
 import { scrubEmission } from "./ingest/scrubber.ts";
+import { DoormanKeyCeremonyClient } from "./network/key-ceremony.ts";
 import { DeliveryService } from "./notifications/delivery.ts";
 import { HttpMatrixTransport } from "./notifications/matrix.ts";
 import {
@@ -54,6 +56,7 @@ export interface Services {
 	readonly assistantRuntime: AssistantRuntime | null;
 	readonly costMeter?: CostMeter;
 	readonly delivery: DeliveryService;
+	readonly keyCeremony: DoormanKeyCeremonyClient | null;
 	/** Process-local key only in dev; production must supply CONSOLE_API_CURSOR_SECRET. */
 	readonly cursorSecret: string;
 	onGrantChange(listener: (zookie: string) => void): () => void;
@@ -164,6 +167,13 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 				...(env.costMeterToken ? { token: env.costMeterToken } : {}),
 			})
 		: undefined;
+	const keyCeremony =
+		env.doormanAdminUrl && env.doormanAdminToken
+			? new DoormanKeyCeremonyClient({
+					url: env.doormanAdminUrl,
+					token: env.doormanAdminToken,
+				})
+			: null;
 	let delivery: DeliveryService | null = null;
 	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
@@ -286,6 +296,70 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 					monitor.captureException(sanitizedException(error, "signal storm detection failed")),
 				);
 		}
+		if (
+			e.type === "edge.enroll.request" ||
+			e.type === "edge.enroll.approved" ||
+			e.type === "edge.enroll.denied"
+		) {
+			const entity = e.meta?.["entity"];
+			const typedEntity =
+				entity && typeof entity === "object" && !Array.isArray(entity)
+					? (entity as Record<string, unknown>)
+					: {};
+			const fingerprint = e.dimensions?.["pubkey_fp"] ?? typedEntity["pubkey_fp"];
+			if (typeof fingerprint === "string" && fingerprint) {
+				const resolved = e.type !== "edge.enroll.request";
+				const now = new Date().toISOString();
+				const subject = `edge-enroll:${fingerprint}`;
+				const attention = {
+					schema_version: 1,
+					id: uuidv5(`key-ceremony-attention:${e.id}:${resolved ? "resolved" : "opened"}`),
+					type: resolved ? "attention.resolved" : "attention.created",
+					ts: now,
+					source: { service: "console-api", host: null, agent: null },
+					subject,
+					subject_kind: "other",
+					severity: "info",
+					action: "/network",
+					scope: "fleet",
+					dimensions: {
+						lane: "admin",
+						pubkey_fp: fingerprint,
+						...(resolved ? { resolved_via: "auto" } : {}),
+					},
+					meta: {
+						retention_class: "audit",
+						entity: resolved
+							? { resolved_at: now, resolved_by: "system:key-ceremony", resolved_via: "auto" }
+							: {
+									schema_version: 1,
+									id: subject,
+									grade: "review",
+									source: "edge.enroll.request",
+									subject: "Pending edge enrollment",
+									summary: "A device is waiting for an admin to review its doorman key.",
+									ts: e.ts,
+									scope: "fleet",
+									lane: "admin",
+									incident_key: subject,
+									fix_ops: [],
+									resolved_at: null,
+								},
+					},
+				};
+				const attentionResult = await emit(
+					"system:console-api",
+					attention,
+					Buffer.byteLength(JSON.stringify(attention)),
+				);
+				if (!attentionResult.ok)
+					monitor.captureException(
+						new Error(
+							`key ceremony attention emission failed: ${attentionResult.code ?? "unknown"}`,
+						),
+					);
+			}
+		}
 		return { ok: true, seq: result.seq, duplicate: result.duplicate };
 	}
 
@@ -326,6 +400,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		assistantRuntime,
 		...(costMeter ? { costMeter } : {}),
 		delivery,
+		keyCeremony,
 		cursorSecret,
 		onGrantChange(listener) {
 			grantListeners.add(listener);

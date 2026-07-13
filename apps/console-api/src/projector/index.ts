@@ -44,7 +44,13 @@ function projectionKind(type: string): ProjectionKind | null {
 		return "availability";
 	if (type.startsWith("attention.")) return "attention";
 	if (type.startsWith("subscription.")) return "subscription";
-	if (type.startsWith("doorman.enroll.") || type.startsWith("edge.key_")) return "edge";
+	if (
+		type.startsWith("edge.enroll.") ||
+		type.startsWith("edge.key.") ||
+		type.startsWith("doorman.enroll.") ||
+		type.startsWith("edge.key_")
+	)
+		return "edge";
 	if (
 		type.startsWith("doorman.session.") ||
 		type.startsWith("doorman.link.") ||
@@ -227,6 +233,7 @@ export class Projector {
 				  and (not ${contractedOnly} or type like 'attention.%' or type like 'subscription.%'
 				    or type in ('box.update_status_changed', 'doorman.degrade', 'doorman.recover',
 				      'service.probe', 'service.down', 'service.up')
+				    or type like 'edge.enroll.%' or type like 'edge.key.%'
 				    or type like 'doorman.enroll.%' or type like 'doorman.session.%'
 				    or type like 'doorman.link.%' or type like 'edge.key_%')
 				order by seq asc limit 5000`;

@@ -11,11 +11,11 @@ export type CaughtFailureEndpoint =
 	| "/box-updates/:box_id/raw"
 	| "/catalog"
 	| "/dashboards"
-	| "/edge/registry"
 	| "/edge/sessions"
 	| "/executors"
 	| "/health"
 	| "/me"
+	| "/network/key-ceremony"
 	| "/roster"
 	| `/query/${"events" | "freshness" | "queries" | "emitters"}`;
 

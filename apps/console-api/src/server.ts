@@ -51,6 +51,7 @@ import {
 import { withScopes } from "./db/pool.ts";
 import { loadEnv } from "./env.ts";
 import { scrubUnknown } from "./ingest/scrubber.ts";
+import { KeyCeremonyError } from "./network/key-ceremony.ts";
 import { MatrixDeliveryError } from "./notifications/matrix.ts";
 import {
 	initExceptionMonitor,
@@ -63,7 +64,7 @@ import { rankPaletteCandidates, type PaletteCandidate } from "./palette/search.t
 import { branchQuery } from "./query/branch.ts";
 import { readQueryRecord } from "./query/history.ts";
 import { runStructured, QueryError, type QueryRequest } from "./query/structured.ts";
-import { searchEntity } from "./reads/entities.ts";
+import { readEntity, searchEntity } from "./reads/entities.ts";
 import { readRoster, readExecutors } from "./reads/roster.ts";
 import { registerEntityReadRoutes } from "./reads/routes.ts";
 import { readTasks, readLeases, readAgents } from "./reads/tracker-reads.ts";
@@ -236,6 +237,9 @@ const OP_BY_NAME = new Map(opCatalog.ops.map((entry) => [entry.op, entry]));
 if (OP_BY_NAME.size !== opCatalog.ops.length) throw new Error("duplicate operation in ops.json");
 const INTERNAL_OP_ADAPTERS = new Set([
 	"task.claim",
+	"edge.enroll.approve",
+	"edge.enroll.deny",
+	"edge.key.revoke",
 	"stats.query",
 	"viz.render",
 	"text.surface",
@@ -862,11 +866,11 @@ export async function buildServer(
 		}
 		if (typeof args["pubkey_fp"] === "string") {
 			const edges = await services.db.admin<
-				{ subject: string; scope: string; dimensions: Record<string, unknown> }[]
-			>`select subject, scope, dimensions from events
-			  where dimensions->>'pubkey_fp' = ${args["pubkey_fp"]} order by seq desc limit 1`;
-			if (edges[0])
-				return { ...edges[0].dimensions, handle: edges[0].subject, scope: edges[0].scope };
+				{ subject: string; scope: string; state: Record<string, unknown> }[]
+			>`select subject, scope, state from current_state
+			  where kind = 'edge' and state->>'pubkey_fp' = ${args["pubkey_fp"]}
+			  order by seq desc limit 1`;
+			if (edges[0]) return { ...edges[0].state, subject: edges[0].subject, scope: edges[0].scope };
 		}
 		if (entry.op === "subscription.set" || entry.op === "subscription.remove") {
 			const owner = typeof args["owner"] === "string" ? args["owner"] : null;
@@ -1080,6 +1084,14 @@ export async function buildServer(
 		ref: string | null;
 		liveness: "alive" | "suspect" | "down" | "unknown";
 	}> {
+		if (INTERNAL_OP_ADAPTERS.has(entry.op) && entry.op.startsWith("edge.")) {
+			const alive = (await services.keyCeremony?.health()) === true;
+			return {
+				kind: entry.executor,
+				ref: "key-ceremony",
+				liveness: alive ? "alive" : services.keyCeremony ? "down" : "unknown",
+			};
+		}
 		if (entry.executor === "console-api")
 			return { kind: entry.executor, ref: null, liveness: "alive" };
 		if (entry.executor !== "manager")
@@ -1186,6 +1198,46 @@ export async function buildServer(
 		principal: Principal,
 	): Promise<Record<string, unknown>> {
 		switch (call.op) {
+			case "edge.enroll.approve":
+				if (!services.keyCeremony)
+					throw new KeyCeremonyError(
+						"doorman_unconfigured",
+						"Doorman key ceremony is not configured",
+						true,
+					);
+				return (await services.keyCeremony.approve({
+					requestId: call.id,
+					pubkeyFp: String(call.args["pubkey_fp"]),
+					handle: String(call.args["handle"]),
+					principal: principal.id,
+				})) as unknown as Record<string, unknown>;
+			case "edge.enroll.deny":
+				if (!services.keyCeremony)
+					throw new KeyCeremonyError(
+						"doorman_unconfigured",
+						"Doorman key ceremony is not configured",
+						true,
+					);
+				return (await services.keyCeremony.deny({
+					requestId: call.id,
+					pubkeyFp: String(call.args["pubkey_fp"]),
+					reason: call.reason?.trim() ?? "",
+					principal: principal.id,
+				})) as unknown as Record<string, unknown>;
+			case "edge.key.revoke":
+				if (!services.keyCeremony)
+					throw new KeyCeremonyError(
+						"doorman_unconfigured",
+						"Doorman key ceremony is not configured",
+						true,
+					);
+				return (await services.keyCeremony.revoke({
+					requestId: call.id,
+					pubkeyFp: String(call.args["pubkey_fp"]),
+					handle: String(call.args["confirm_name"]),
+					reason: call.reason?.trim() ?? "",
+					principal: principal.id,
+				})) as unknown as Record<string, unknown>;
 			case "task.claim":
 				if (!services.trackerCommands)
 					throw new TrackerCommandError(
@@ -1411,7 +1463,7 @@ export async function buildServer(
 				"dry_run_required",
 				"this operation is enabled only for dry-run",
 			);
-		if (!call.dry_run && entry.executor !== "console-api")
+		if (!call.dry_run && entry.executor !== "console-api" && !INTERNAL_OP_ADAPTERS.has(call.op))
 			return opError(
 				reply,
 				call,
@@ -1544,12 +1596,14 @@ export async function buildServer(
 				error instanceof AssistantRuntimeError ||
 				error instanceof QueryError ||
 				error instanceof TrackerCommandError ||
-				error instanceof MatrixDeliveryError;
+				error instanceof MatrixDeliveryError ||
+				error instanceof KeyCeremonyError;
 			const code = known ? error.code : "op_failed";
 			const retryable =
 				error instanceof AssistantRuntimeError ||
 				error instanceof TrackerCommandError ||
-				error instanceof MatrixDeliveryError
+				error instanceof MatrixDeliveryError ||
+				error instanceof KeyCeremonyError
 					? error.retryable
 					: false;
 			const failed = opEnvelope(call, {
@@ -2558,6 +2612,29 @@ export async function buildServer(
 
 	// --- typed entity reads (RLS-scoped projections, N1b) -----------------------------------------
 	registerEntityReadRoutes(app, { app: services.db.app, auth });
+	app.get("/api/v1/network/key-ceremony", { preHandler: auth }, async (req) => {
+		const principal = req.principal as Principal;
+		const registry = await readEntity(services.db.app, principal.scopes, "edge", {
+			limit: 1_000,
+			requiredFields: ["pubkey_fp", "state"],
+		});
+		const configured = services.keyCeremony !== null;
+		const live = configured ? await services.keyCeremony!.health() : false;
+		return {
+			schema_version: 1,
+			registry,
+			executor: {
+				kind: "edge",
+				configured,
+				live,
+				detail: !configured
+					? "Doorman key ceremony is not configured"
+					: live
+						? "Doorman key ceremony answered its private health check"
+						: "Doorman key ceremony is not answering",
+			},
+		};
+	});
 
 	// --- tracker-sourced reads (single-writer store, mapped to console scope, N1b-2) -------------
 	function trackerOr503(reply: FastifyReply): boolean {
