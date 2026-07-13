@@ -1,0 +1,21 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/comms-event.schema.json",
+	"title": "Correspondence event",
+	"description": "One scope-filtered row from the persisted inter-agent correspondence log. Unknown fields are tolerated for additive evolution.",
+	"type": "object",
+	"required": ["id", "method", "sender", "recipient", "ts"],
+	"additionalProperties": true,
+	"properties": {
+		"id": { "type": "string", "format": "uuid" },
+		"method": { "enum": ["comms.card", "comms.rpc", "comms.mail"] },
+		"sender": { "type": "string", "minLength": 1, "maxLength": 64 },
+		"recipient": { "type": "string", "minLength": 1, "maxLength": 256 },
+		"task_id": { "type": ["integer", "null"], "minimum": 1 },
+		"in_reply_to": { "type": ["string", "null"], "maxLength": 256 },
+		"ts": { "type": "string", "format": "date-time" },
+		"card_id": { "type": ["string", "null"], "maxLength": 256 },
+		"about": { "type": ["string", "null"], "maxLength": 256 },
+		"body_preview": { "type": ["string", "null"], "maxLength": 240 }
+	}
+}

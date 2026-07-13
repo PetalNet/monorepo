@@ -51,6 +51,7 @@ import Radio from "@lucide/svelte/icons/radio";
 import RadioTower from "@lucide/svelte/icons/radio-tower";
 import ReceiptText from "@lucide/svelte/icons/receipt-text";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+import Reply from "@lucide/svelte/icons/reply";
 import ScrollText from "@lucide/svelte/icons/scroll-text";
 import Search from "@lucide/svelte/icons/search";
 import Send from "@lucide/svelte/icons/send";
@@ -133,6 +134,7 @@ export const ICONS = {
 	"radio-tower": RadioTower,
 	"receipt-text": ReceiptText,
 	"refresh-cw": RefreshCw,
+	reply: Reply,
 	"scroll-text": ScrollText,
 	search: Search,
 	send: Send,

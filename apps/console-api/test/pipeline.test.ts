@@ -134,7 +134,7 @@ beforeAll(async () => {
 	await seedBootstrap(admin);
 	// a test producer that may emit the test types into the scopes these tests exercise
 	await admin`insert into producer_registrations (subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)
-		values ('test:emitter', ${admin.json(["console-api", "bridge"])}, ${admin.json(["host", "iso", "test", "audit", "service"])}, ${admin.json(["fleet", "user:*", "agent:*"])}, 'p0')
+		values ('test:emitter', ${admin.json(["console-api", "bridge"])}, ${admin.json(["host", "iso", "test", "audit", "service", "comms"])}, ${admin.json(["fleet", "user:*", "agent:*"])}, 'p0')
 		on conflict (subject) do nothing`;
 	await admin`insert into grants (subject, relation, object, granted_by)
 		select 'test:emitter', 'editor', scope, 'test'
@@ -297,6 +297,124 @@ describe("services availability read", () => {
 				},
 			});
 			expect(badWindow.statusCode).toBe(400);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe("correspondence history read", () => {
+	it("normalizes persisted comms, filters on the server, and keeps RLS boundaries", async () => {
+		const taskId = 880_000 + Math.floor(Math.random() * 10_000);
+		const cardId = `card-${String(taskId)}`;
+		const card = emission({
+			type: "comms.card",
+			source: { service: "console-api", host: ".14", agent: "janet" },
+			subject: "carson-2",
+			subject_kind: "agent",
+			task_id: taskId,
+			dimensions: { recipient: "carson-2", card_id: cardId, method: "task.dispatch" },
+		});
+		const rpc = emission({
+			type: "comms.rpc",
+			source: { service: "console-api", host: ".14", agent: "carson-2" },
+			subject: "janet",
+			subject_kind: "agent",
+			task_id: taskId,
+			dimensions: {
+				recipient: "janet",
+				in_reply_to: card.id,
+				method: "task.dispatch.response",
+			},
+		});
+		expect((await services.emit("test:emitter", card, 500)).ok).toBe(true);
+		expect((await services.emit("test:emitter", rpc, 500)).ok).toBe(true);
+
+		const server = await buildServer(services, true);
+		const visibleHeaders = {
+			"x-dev-principal": JSON.stringify({ kind: "human", id: "tester", scopes: ["fleet"] }),
+		};
+		try {
+			const response = await server.inject({
+				method: "GET",
+				url: `/api/v1/comms?type=task-card&agent=janet&task_id=${String(taskId)}`,
+				headers: visibleHeaders,
+			});
+			expect(response.statusCode, response.body).toBe(200);
+			const body = response.json();
+			expect(body).toMatchObject({ schema_version: 1, truncated: false });
+			expect(body.items).toEqual([
+				expect.objectContaining({
+					id: card.id,
+					method: "comms.card",
+					sender: "janet",
+					recipient: "carson-2",
+					task_id: taskId,
+					card_id: cardId,
+					about: "task.dispatch",
+				}),
+			]);
+			const itemSchema = JSON.parse(
+				readFileSync(
+					new URL("../docs/contracts/schemas/entities/comms-event.schema.json", import.meta.url),
+					"utf8",
+				),
+			) as Record<string, unknown>;
+			expect(validateJsonSchema(body.items[0], itemSchema, "comms item")).toBeNull();
+
+			const reply = await server.inject({
+				method: "GET",
+				url: `/api/v1/comms?type=rpc&agent=janet&task_id=${String(taskId)}`,
+				headers: visibleHeaders,
+			});
+			expect(reply.json().items).toEqual([
+				expect.objectContaining({ id: rpc.id, in_reply_to: card.id }),
+			]);
+			const firstPage = await server.inject({
+				method: "GET",
+				url: `/api/v1/comms?task_id=${String(taskId)}&limit=1`,
+				headers: visibleHeaders,
+			});
+			const firstPageBody = firstPage.json();
+			expect(firstPageBody).toMatchObject({ truncated: true, next_cursor: expect.any(String) });
+			expect(firstPageBody.next_cursor).not.toMatch(/^\d+$/);
+			const secondPage = await server.inject({
+				method: "GET",
+				url: `/api/v1/comms?task_id=${String(taskId)}&limit=1&cursor=${String(firstPageBody.next_cursor)}`,
+				headers: visibleHeaders,
+			});
+			expect(secondPage.json().items).toHaveLength(1);
+			expect(secondPage.json().items[0].id).not.toBe(firstPageBody.items[0].id);
+			const hidden = await server.inject({
+				method: "GET",
+				url: `/api/v1/comms?task_id=${String(taskId)}`,
+				headers: {
+					"x-dev-principal": JSON.stringify({
+						kind: "human",
+						id: "hidden",
+						scopes: ["user:hidden"],
+					}),
+				},
+			});
+			expect(hidden.json().items).toEqual([]);
+			expect(
+				(
+					await server.inject({
+						method: "GET",
+						url: "/api/v1/comms?type=nope",
+						headers: visibleHeaders,
+					})
+				).statusCode,
+			).toBe(400);
+			expect(
+				(
+					await server.inject({
+						method: "GET",
+						url: "/api/v1/comms?cursor=123",
+						headers: visibleHeaders,
+					})
+				).statusCode,
+			).toBe(400);
 		} finally {
 			await server.close();
 		}
