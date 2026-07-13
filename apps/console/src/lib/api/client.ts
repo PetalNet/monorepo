@@ -16,7 +16,10 @@ import type {
 	BoxUpdateItem,
 	BoxUpdateRaw,
 	CatalogEntry,
+	CardItem,
+	ConsoleHealth,
 	DashboardItem,
+	DeliveryItem,
 	ExecutorItem,
 	EdgeRegistryItem,
 	EdgeSessionItem,
@@ -25,12 +28,17 @@ import type {
 	ReadEnvelope,
 	QueryResult,
 	StructuredQuery,
+	SubscriptionItem,
 } from "./types";
 
 export type DataMode = "mock" | "live";
 
 export function dataMode(): DataMode {
 	return env.PUBLIC_CONSOLE_DATA_MODE === "live" ? "live" : "mock";
+}
+
+export function busWebSocketUrl(): string {
+	return `${base().replace(/^http/, "ws")}/bus/ws`;
 }
 
 function base(): string {
@@ -167,6 +175,36 @@ export async function readEdgeSessions(
 		credentials: "include",
 	});
 	return json<ReadEnvelope<EdgeSessionItem>>(res);
+}
+
+export async function readSubscriptions(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<SubscriptionItem>> {
+	const res = await fetchFn(`${base()}/subscriptions?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<SubscriptionItem>>(res);
+}
+export async function readDelivery(
+	fetchFn: typeof fetch = fetch,
+): Promise<ReadEnvelope<DeliveryItem>> {
+	const res = await fetchFn(`${base()}/delivery?limit=10`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<DeliveryItem>>(res);
+}
+export async function readCards(fetchFn: typeof fetch = fetch): Promise<ReadEnvelope<CardItem>> {
+	const res = await fetchFn(`${base()}/cards?limit=1000`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<ReadEnvelope<CardItem>>(res);
+}
+export async function readHealth(fetchFn: typeof fetch = fetch): Promise<ConsoleHealth> {
+	const res = await fetchFn(`${base()}/health`, { headers: { accept: "application/json" } });
+	return json<ConsoleHealth>(res);
 }
 
 /**

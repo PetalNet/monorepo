@@ -218,6 +218,69 @@ export interface EdgeSessionItem extends Extra {
 	links: EdgeLink[];
 }
 
+export type SignalSeverity = "debug" | "info" | "warn" | "danger" | "p0";
+export interface SignalEmission extends Extra {
+	schema_version: 1;
+	id: string;
+	type: string;
+	ts: string;
+	source: { service: string; host?: string | null; agent?: string | null; [key: string]: unknown };
+	subject: string;
+	subject_kind?: string | null;
+	severity: SignalSeverity;
+	action?: string | null;
+	task_id?: number | null;
+	scope: string;
+	dimensions?: Record<string, string | boolean>;
+	measures?: Record<string, number>;
+}
+export interface SubscriptionItem extends Extra {
+	schema_version: 1;
+	pattern: string;
+	filter?: { severity_gte?: SignalSeverity; source_service?: string; subject?: string } | null;
+	tier: "feed" | "digest" | "interrupt";
+	window?: string | null;
+	loud?: boolean;
+	note?: string | null;
+	owner: string;
+	updated_by?: string | null;
+	updated_at?: string | null;
+}
+export interface DeliveryItem extends Extra {
+	owner: string;
+	channel: "matrix";
+	target: string;
+	verified: boolean;
+	cocoon_until?: string | null;
+	next_digest_at?: string | null;
+	updated_at: string;
+	updated_by: string;
+}
+export interface ConsoleHealth extends Extra {
+	lake: "ok" | "down";
+	seq_head: number;
+	bridges: unknown[];
+	ws_clients?: number;
+	matrix_sync_ok_epoch?: number | null;
+}
+export interface CardItem extends Extra {
+	card_id: string;
+	task_id: number;
+	sender: string;
+	sender_class: "principal" | "agent" | "system";
+	recipient?: string | null;
+	priority: 0 | 1 | 2 | 3;
+	interrupt_policy: "defer" | "principal_command" | "safety" | "task_clarification";
+	body: string;
+	needs: string[];
+	state: "posted" | "parked" | "claimed" | "done" | "dead";
+	claimed_by?: string | null;
+	fence: number;
+	reaps: number;
+	created_at_ms: number;
+	updated_at_ms: number;
+}
+
 // ---- attention (GET /attention, section 5.3) ----
 export type AttentionGrade = "p0" | "blocker" | "review" | "artifact";
 export interface FixOp extends Extra {
