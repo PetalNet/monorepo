@@ -154,9 +154,10 @@ const STATEMENTS: readonly string[] = [
 	// bridge cursors: the high-water mark a co-located bridge has ingested per source (durable so a
 	// restart resumes; deterministic emission ids make re-processing safe regardless).
 	`create table if not exists bridge_cursor (
-	   source     text primary key,
-	   cursor     text not null default '',
-	   updated_at timestamptz not null default now()
+	   source      text primary key,
+	   cursor      text not null default '',
+	   below_count integer not null default 0,
+	   updated_at  timestamptz not null default now()
 	 )`,
 
 	// executor signing keys: completions are executor-SIGNED, verified here; the bridge is relay-only.

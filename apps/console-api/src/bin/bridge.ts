@@ -6,7 +6,15 @@ import { buildServices } from "../app.ts";
 import { Bridge } from "../bridge/index.ts";
 import { loadEnv } from "../env.ts";
 
-const POLL_MS = Number(process.env["BRIDGE_POLL_MS"] ?? "5000");
+// Clamp to a sane finite interval: an unset/NaN/zero/negative value must not become a hot loop, and
+// an absurdly large one shouldn't silently wedge the poller.
+function pollMs(raw: string | undefined): number {
+	const n = Number(raw);
+	if (!Number.isFinite(n) || n < 250) return 5000;
+	return Math.min(n, 3_600_000);
+}
+
+const POLL_MS = pollMs(process.env["BRIDGE_POLL_MS"]);
 
 async function main(): Promise<void> {
 	const env = loadEnv();

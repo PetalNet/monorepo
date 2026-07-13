@@ -568,7 +568,11 @@ describe("bridge end-to-end (N1b-3 — bot-spam into the bus)", () => {
 			from: "bot.message",
 			select: [{ field: "subject" }],
 		});
-		expect(q1.rows.map((r) => r[0])).toContain("shawn");
+		// the subject is the trustworthy source; the (spoofable) claimed sender rides as a dimension
+		expect(q1.rows.map((r) => r[0])).toContain("system-outbox");
+		const sender = await services.db
+			.admin`select dimensions->>'sender' s from events where type='bot.message'`;
+		expect(sender.map((r) => r["s"])).toContain("shawn");
 
 		// second poll: cursor advanced -> no re-emit; and even a forced re-tail dedups by deterministic id
 		const before = await services.db
