@@ -11,6 +11,7 @@ import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
 import { runStructured } from "../src/query/structured.ts";
 import { readEntity } from "../src/reads/entities.ts";
+import { readRoster, readExecutors } from "../src/reads/roster.ts";
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -124,6 +125,7 @@ beforeAll(async () => {
 			port: 0,
 			devAuth: true,
 			glitchtipDsn: null,
+			trackerDbPath: null,
 		},
 		{ migrate: false },
 	);
@@ -230,6 +232,7 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 					port: 0,
 					devAuth: false,
 					glitchtipDsn: null,
+					trackerDbPath: null,
 				},
 				{ migrate: false },
 			),
@@ -247,6 +250,7 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 				port: 0,
 				devAuth: false,
 				glitchtipDsn: null,
+				trackerDbPath: null,
 			},
 			{ migrate: false },
 		);
@@ -265,6 +269,7 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 					port: 0,
 					devAuth: false,
 					glitchtipDsn: null,
+					trackerDbPath: null,
 				},
 				{ migrate: false },
 			),
@@ -291,6 +296,7 @@ describe("post-restart replay (codex N1a P1)", () => {
 				port: 0,
 				devAuth: true,
 				glitchtipDsn: null,
+				trackerDbPath: null,
 			},
 			{ migrate: false },
 		);
@@ -483,5 +489,58 @@ describe("current_state projection (N1b)", () => {
 			await new Promise((res) => setTimeout(res, 20));
 		}
 		throw new Error("unreachable_since never set");
+	});
+});
+
+describe("roster + executors (N1b-2, lake half)", () => {
+	it("roster joins lake current_state per handle; tracker-absent halves are marked absent, not null-as-data", async () => {
+		const e = await services.emit(
+			"bridge:fleet",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "fleet.event.pre_tool",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".15", agent: "rosterbox" },
+				subject: "rosterbox",
+				subject_kind: "agent",
+				severity: "info",
+				scope: "fleet",
+				dimensions: { status: "working" },
+			},
+			300,
+		);
+		await waitProjected("fleet", "rosterbox", e.seq as number);
+		const env = await readRoster(services.db.app, null, ["fleet"]);
+		const row = env.items.find((i) => (i as { handle: string }).handle === "rosterbox") as
+			| { fleet: { visibility: string }; identity: { visibility: string } }
+			| undefined;
+		expect(row?.fleet.visibility).toBe("visible");
+		expect(row?.identity.visibility).toBe("absent"); // tracker not wired here — absent, not "no data"
+	});
+
+	it("executors derive liveness from lake current_state", async () => {
+		await services.emit(
+			"bridge:manager",
+			{
+				schema_version: 1,
+				id: randomUUID(),
+				type: "agent.heartbeat",
+				ts: new Date().toISOString(),
+				source: { service: "bridge", host: ".202", agent: "execbox" },
+				subject: "execbox",
+				subject_kind: "agent",
+				severity: "info",
+				scope: "fleet",
+				dimensions: { state: "running" },
+			},
+			300,
+		);
+		await waitProjected("heartbeat", "execbox", 1);
+		const env = await readExecutors(services.db.app, ["fleet"]);
+		const mgr = env.items.find((i) => (i as { kind: string }).kind === "manager") as
+			| { liveness: string }
+			| undefined;
+		expect(mgr?.liveness).toBe("alive"); // fresh heartbeat -> manager class alive
 	});
 });

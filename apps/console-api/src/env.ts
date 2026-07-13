@@ -24,6 +24,11 @@ export interface Env {
 	 */
 	readonly devAuth: boolean;
 	readonly glitchtipDsn: string | null;
+	/**
+	 * Read-only path to the tasks tracker SQLite (single-writer store read for /tasks /leases
+	 * /agents).
+	 */
+	readonly trackerDbPath: string | null;
 }
 
 function required(name: string): string {
@@ -43,5 +48,6 @@ export function loadEnv(): Env {
 		port: Number(process.env["CONSOLE_API_PORT"] ?? "8080"),
 		devAuth: process.env["CONSOLE_API_DEV_AUTH"] === "1",
 		glitchtipDsn: process.env["CONSOLE_API_GLITCHTIP_DSN"] ?? null,
+		trackerDbPath: process.env["TRACKER_DB_PATH"] ?? null,
 	};
 }
