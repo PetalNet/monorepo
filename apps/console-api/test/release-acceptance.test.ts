@@ -42,7 +42,7 @@ async function startTempDb(): Promise<TempDb> {
 		`POSTGRES_PASSWORD=${adminPassword}`,
 		"-p",
 		"0:5432",
-		"timescale/timescaledb-ha:pg16",
+		"timescale/timescaledb:latest-pg16",
 	]);
 	const { stdout } = await exec("docker", ["port", name, "5432/tcp"]);
 	const port = Number(stdout.trim().split(":").pop());
