@@ -74,6 +74,55 @@ export async function assertRuntimeRolesHardened(db: Db, devAuth: boolean): Prom
 		throw new Error(
 			"APP_DATABASE_URL must connect as console_app, not console_writer (writer bypasses scope)",
 		);
+	if (db.ro === db.admin || db.ro === db.app)
+		throw new Error("RO_DATABASE_URL must connect as the distinct console_ro role in prod");
+	const roRows = await db.ro<
+		{
+			rolsuper: boolean;
+			rolbypassrls: boolean;
+			rolinherit: boolean;
+			who: string;
+			read_only: string;
+			privileged_membership: boolean;
+			write_privilege: boolean;
+			create_privilege: boolean;
+		}[]
+	>`select rolsuper, rolbypassrls, current_user as who,
+		rolinherit, current_setting('default_transaction_read_only') as read_only,
+		exists (
+			select 1 from pg_roles inherited
+			where inherited.rolname <> current_user
+			  and (inherited.rolsuper or inherited.rolbypassrls
+			       or inherited.rolname in ('console_app', 'console_writer'))
+			  and pg_has_role(current_user, inherited.oid, 'MEMBER')
+		) as privileged_membership,
+		exists (
+			select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+			where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+			  and (has_table_privilege(current_user, c.oid, 'INSERT')
+			    or has_table_privilege(current_user, c.oid, 'UPDATE')
+			    or has_table_privilege(current_user, c.oid, 'DELETE')
+			    or has_table_privilege(current_user, c.oid, 'TRUNCATE')
+			    or has_table_privilege(current_user, c.oid, 'TRIGGER'))
+		) as write_privilege,
+		(has_schema_privilege(current_user, 'public', 'CREATE')
+		 or has_database_privilege(current_user, current_database(), 'CREATE')) as create_privilege
+	  from pg_roles where rolname = current_user`;
+	const ro = roRows[0];
+	if (
+		!ro ||
+		ro.who !== "console_ro" ||
+		ro.rolsuper ||
+		ro.rolbypassrls ||
+		ro.rolinherit ||
+		ro.read_only !== "on" ||
+		ro.privileged_membership ||
+		ro.write_privilege ||
+		ro.create_privilege
+	)
+		throw new Error(
+			"console_ro must be NOINHERIT NOSUPERUSER NOBYPASSRLS, default read-only, and hold no effective write/create privilege",
+		);
 }
 
 /**

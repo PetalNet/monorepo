@@ -174,6 +174,27 @@ expose only their declared pseudo-fields; dynamic type fields require querying t
 The request schema reserves `rate`, `fill: zero|previous`, and `coverage`, but this build refuses
 those honestly (`bad_agg`/`unsupported_fill`/`unsupported_coverage`) rather than fabricating data.
 
+### 3.1.1 Dashboard compiler — `POST /api/v1/ask`
+
+L3 is live (2026-07-13). The strict request is `schemas/ask-request.schema.json`; the response is
+`schemas/ask-result.schema.json`. The engine retrieves only the caller's semantic corpus, then asks
+the configured OpenAI-compatible compiler for a **structured query intent**, never SQL. The server
+validates sources, fields, aggregation semantics, and explicitly stated filter values; compiles SQL
+itself; dry-plans and executes it as the distinct `console_ro` role; and persists the result through
+the existing query-ref provenance path. `console_ro` is `NOSUPERUSER NOBYPASSRLS`, has only SELECT
+grants, and defaults every transaction to read-only. Its statement timeout is 20s (5s for EXPLAIN).
+
+Execution-guided repair is bounded to two total compiler attempts. Feedback contains a typed safe
+validation code/message, never raw database detail, retrieved private values, or arbitrary SQL. No
+scopes or no matching caller-visible semantics produces an explicit refusal without execution.
+Successful answers contain grounded plain prose, top-level follow-up `suggestions`, PanelSpec v2
+with `query_ref`, the query result, retrieval refs, and `shown_sql` (server-compiled placeholder SQL
+and caller-visible params). Refusals return HTTP 200 with `status: "refused"`, a refusal panel, and
+null result/SQL. Missing compiler
+configuration (`CONSOLE_ASSISTANT_LLM_URL` + `CONSOLE_ASSISTANT_LLM_MODEL`, optional API key) is a
+retryable 503; malformed questions are 400. Existing GlitchTip/Sentry exception capture covers this
+route without request bodies, prompts, model responses, or bearer data.
+
 ### 3.2 The statistics catalog — `GET /api/v1/catalog`
 
 The semantic layer, readable, scope-filtered: `schemas/entities/catalog-entry.schema.json`
@@ -482,8 +503,8 @@ secret-free structured stderr record; they are never silently swallowed.
 
 ## 11. Out of scope for P0 (lands in the named phase)
 
-`POST /ask` + engine internals (Phase 2) · `GET /graph` walk endpoint (Phase 2; edge _storage_
-Phase 1) · doorman deep shapes (Phase 1 with `PetalNet/doorman`) · PTY + `service.logs` stream
+`GET /graph` walk endpoint (Phase 2; edge _storage_ Phase 1) · doorman deep shapes (Phase 1 with
+`PetalNet/doorman`) · PTY + `service.logs` stream
 framing (Phase 1, Terminal spec owns frames; audit-before-first-frame generalized in §5.1) ·
 librarian autonomy (own effort) · per-user claude-code manager runtime + session transcripts
 on the bus (Phase 5) · view registration governance (Phase 2).

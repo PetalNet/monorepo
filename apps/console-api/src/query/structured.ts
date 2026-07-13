@@ -44,12 +44,36 @@ export interface QueryResult {
 	truncated?: boolean;
 }
 
+export interface PreparedStructuredQuery {
+	readonly request: QueryRequest;
+	readonly sqlText: string;
+	readonly params: readonly unknown[];
+	readonly columns: readonly { name: string; type: string }[];
+	readonly limit: number;
+}
+
 export class QueryError extends Error {
 	readonly code: string;
 	constructor(code: string, message: string) {
 		super(message);
 		this.code = code;
 	}
+}
+
+class StructuredExecutionError extends QueryError {
+	constructor() {
+		super("execution_rejected", "structured execution rejected; revise fields or aggregation");
+		this.name = "StructuredExecutionError";
+	}
+}
+
+function repairableExecutionCode(error: unknown): string | null {
+	const code =
+		error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
+			? (error as { code: string }).code
+			: null;
+	if (!code || code === "42501") return null;
+	return /^(22|42)/.test(code) ? code : null;
 }
 
 function queryCorpusText(req: QueryRequest): string {
@@ -327,11 +351,11 @@ function bucketSeconds(bucket: string): number {
 	return n * { s: 1, m: 60, h: 3600, d: 86400 }[m[2] as "s" | "m" | "h" | "d"];
 }
 
-export async function runStructured(
+export async function prepareStructured(
 	app: Sql,
 	scopes: readonly string[],
 	req: QueryRequest,
-): Promise<QueryResult> {
+): Promise<PreparedStructuredQuery> {
 	if (!req.from) throw new QueryError("missing_from", "structured query requires `from`");
 	const source = await resolveSource(app, scopes, req.from);
 
@@ -487,45 +511,122 @@ export async function runStructured(
 	if (groupExprs.length) sqlText += ` group by ${groupExprs.join(", ")}`;
 	if (orderParts.length) sqlText += ` order by ${orderParts.join(", ")}`;
 	sqlText += ` limit ${String(limit + 1)}`;
+	return { request: req, sqlText, params, columns: cols, limit };
+}
 
-	// Durable provenance + re-run id. Successful query structure also enters the scope-filtered RAG
-	// corpus; filter values remain only in the RLS-protected query record, never the search document.
+/** Validate the server-compiled statement with the dedicated read-only role without executing it. */
+export async function dryPlanStructured(
+	ro: Sql,
+	scopes: readonly string[],
+	prepared: PreparedStructuredQuery,
+): Promise<void> {
+	try {
+		await withScopes(ro, scopes, async (tx) => {
+			await tx`set local statement_timeout = '5s'`;
+			await tx.unsafe(`explain (format json) ${prepared.sqlText}`, prepared.params as never[]);
+		});
+	} catch (error) {
+		const code = repairableExecutionCode(error);
+		if (code) throw new StructuredExecutionError();
+		throw error;
+	}
+}
+
+async function persistQueryInTx(
+	tx: Sql,
+	scopes: readonly string[],
+	prepared: PreparedStructuredQuery,
+	result: Omit<QueryResult, "query_ref">,
+): Promise<QueryResult> {
 	const ref = `q_${nanoid(16)}`;
-	const start = Date.now();
-	return withScopes(app, scopes, async (tx) => {
-		const rows = await tx.unsafe(sqlText, params as never[]);
-		const arr = rows as unknown as Record<string, unknown>[];
-		const truncated = arr.length > limit;
-		const out = (truncated ? arr.slice(0, limit) : arr).map((r) =>
-			cols.map((c) => {
-				const value = r[c.name] ?? null;
-				return c.type === "number" && value !== null ? Number(value) : value;
-			}),
-		);
-		const executionMs = Date.now() - start;
-		const content = queryCorpusText(req);
-		const embedding = vectorLiteral(embedText(content));
-		await tx`
+	const content = queryCorpusText(prepared.request);
+	const embedding = vectorLiteral(embedText(content));
+	await tx`
 			insert into query_history
 				(query_ref, request, sql_text, params, scopes, columns, row_count, execution_ms)
 			values
-				(${ref}, ${tx.json(req as never)}, ${sqlText}, ${tx.json(params as never)},
-				 ${tx.json([...scopes])}, ${tx.json(cols as never)}, ${out.length}, ${executionMs})`;
-		await tx`
+				(${ref}, ${tx.json(prepared.request as never)}, ${prepared.sqlText},
+				 ${tx.json(prepared.params as never)}, ${tx.json([...scopes])},
+				 ${tx.json(prepared.columns as never)}, ${result.row_count}, ${result.execution_ms})`;
+	await tx`
 			insert into semantic_documents
 				(id, kind, source_ref, content, scopes, embedding, embedding_model)
 			values
 				(${`query:${ref}`}, 'query', ${ref}, ${content}, ${tx.json([...scopes])},
 				 ${embedding}::vector, ${EMBEDDING_MODEL})`;
-		return {
-			schema_version: 1,
-			columns: cols,
-			rows: out,
-			row_count: out.length,
-			execution_ms: executionMs,
-			freshness: { source: "lake", observed_at: new Date().toISOString(), window_s: null },
-			query_ref: ref,
-			...(truncated ? { truncated: true } : {}),
-		};
+	return { ...result, query_ref: ref };
+}
+
+async function persistQuery(
+	app: Sql,
+	scopes: readonly string[],
+	prepared: PreparedStructuredQuery,
+	result: Omit<QueryResult, "query_ref">,
+): Promise<QueryResult> {
+	return withScopes(app, scopes, (tx) => persistQueryInTx(tx, scopes, prepared, result));
+}
+
+async function executePreparedInTx(
+	tx: Sql,
+	prepared: PreparedStructuredQuery,
+	start: number,
+): Promise<Omit<QueryResult, "query_ref">> {
+	const rows = await tx.unsafe(prepared.sqlText, prepared.params as never[]);
+	const arr = rows as unknown as Record<string, unknown>[];
+	const truncated = arr.length > prepared.limit;
+	const out = (truncated ? arr.slice(0, prepared.limit) : arr).map((row) =>
+		prepared.columns.map((column) => {
+			const value = row[column.name] ?? null;
+			return column.type === "number" && value !== null ? Number(value) : value;
+		}),
+	);
+	return {
+		schema_version: 1,
+		columns: [...prepared.columns],
+		rows: out,
+		row_count: out.length,
+		execution_ms: Date.now() - start,
+		freshness: { source: "lake", observed_at: new Date().toISOString(), window_s: null },
+		...(truncated ? { truncated: true } : {}),
+	};
+}
+
+/**
+ * Execute only server-compiled structured SQL. `executionSql` is console_ro for the assistant path;
+ * direct structured API calls retain their existing console_app execution role.
+ */
+export async function runPreparedStructured(
+	app: Sql,
+	executionSql: Sql,
+	scopes: readonly string[],
+	prepared: PreparedStructuredQuery,
+): Promise<QueryResult> {
+	const start = Date.now();
+	let result: Omit<QueryResult, "query_ref">;
+	try {
+		result = await withScopes(executionSql, scopes, async (tx) => {
+			if (executionSql !== app) {
+				await tx`set local statement_timeout = '20s'`;
+			}
+			return executePreparedInTx(tx, prepared, start);
+		});
+	} catch (error) {
+		const code = repairableExecutionCode(error);
+		if (code) throw new StructuredExecutionError();
+		throw error;
+	}
+	return persistQuery(app, scopes, prepared, result);
+}
+
+export async function runStructured(
+	app: Sql,
+	scopes: readonly string[],
+	req: QueryRequest,
+): Promise<QueryResult> {
+	const prepared = await prepareStructured(app, scopes, req);
+	const start = Date.now();
+	return withScopes(app, scopes, async (tx) => {
+		const result = await executePreparedInTx(tx, prepared, start);
+		return persistQueryInTx(tx, scopes, prepared, result);
 	});
 }

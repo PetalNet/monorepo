@@ -29,6 +29,10 @@ export interface Env {
 	 * /agents).
 	 */
 	readonly trackerDbPath: string | null;
+	/** OpenAI-compatible chat-completions endpoint used by the scoped dashboard compiler. */
+	readonly assistantLlmUrl?: string | null;
+	readonly assistantLlmModel?: string | null;
+	readonly assistantLlmApiKey?: string | null;
 }
 
 function required(name: string): string {
@@ -49,5 +53,8 @@ export function loadEnv(): Env {
 		devAuth: process.env["CONSOLE_API_DEV_AUTH"] === "1",
 		glitchtipDsn: process.env["CONSOLE_API_GLITCHTIP_DSN"] ?? null,
 		trackerDbPath: process.env["TRACKER_DB_PATH"] ?? null,
+		assistantLlmUrl: process.env["CONSOLE_ASSISTANT_LLM_URL"] ?? null,
+		assistantLlmModel: process.env["CONSOLE_ASSISTANT_LLM_MODEL"] ?? null,
+		assistantLlmApiKey: process.env["CONSOLE_ASSISTANT_LLM_API_KEY"] ?? null,
 	};
 }

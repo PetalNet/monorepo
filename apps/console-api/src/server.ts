@@ -5,8 +5,10 @@
 import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
 
 import { buildServices, type Services } from "./app.ts";
+import { ask } from "./assistant/engine.ts";
 import { resolveBearer, devPrincipal, type Principal } from "./auth/principal.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
 import { withScopes } from "./db/pool.ts";
@@ -33,6 +35,8 @@ declare module "fastify" {
 		principal?: Principal;
 	}
 }
+
+const askRequestSchema = z.object({ question: z.string().min(1).max(2_000) }).strict();
 
 function parseCatalogCursor(
 	cursor: string | undefined,
@@ -307,6 +311,27 @@ export async function buildServer(
 					.send({ error: { code: err.code, message: err.message, retryable: false } });
 			throw err;
 		}
+	});
+	app.post("/api/v1/ask", { preHandler: auth }, async (req, reply) => {
+		const p = req.principal as Principal;
+		const parsed = askRequestSchema.safeParse(req.body);
+		if (!parsed.success || !parsed.data.question.trim())
+			return reply.code(400).send({
+				error: {
+					code: "bad_question",
+					message: "question is required (max 2000 chars)",
+					retryable: false,
+				},
+			});
+		if (!services.assistant)
+			return reply.code(503).send({
+				error: {
+					code: "assistant_unavailable",
+					message: "dashboard assistant compiler is not configured",
+					retryable: true,
+				},
+			});
+		return ask(services.db, services.assistant, p.scopes, parsed.data.question.trim());
 	});
 
 	// --- catalog ---------------------------------------------------------------------------------
