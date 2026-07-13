@@ -8,6 +8,8 @@ export interface Snack {
 	message: string;
 	op?: string;
 	undo?: { op: string; args: Record<string, unknown> };
+	onUndo?: () => void | Promise<void>;
+	actionLabel?: "Undo" | "Retry";
 	tone: "good" | "warn" | "danger";
 }
 

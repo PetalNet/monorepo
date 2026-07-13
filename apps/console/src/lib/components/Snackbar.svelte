@@ -11,15 +11,51 @@
 	const MAX_VISIBLE = 2;
 	const visible = $derived(snackbar.items.slice(-MAX_VISIBLE));
 	const hidden = $derived(Math.max(0, snackbar.items.length - MAX_VISIBLE));
+	let host = $state<HTMLDivElement | null>(null);
+	let popoverRevision = 0;
 
-	async function undo(id: number, u: { op: string; args: Record<string, unknown> }) {
+	// A native modal dialog occupies the browser top layer. Re-open the snackbar popover whenever
+	// its contents change so it is ordered above that dialog and its Undo remains clickable.
+	$effect(() => {
+		const count = snackbar.items.length;
+		const revision = ++popoverRevision;
+		if (!host) return;
+		if (host.matches(":popover-open")) host.hidePopover();
+		const openDialog = document.querySelector<HTMLDialogElement>("dialog[open]");
+		const container = openDialog ?? document.body;
+		if (host.parentElement !== container) container.append(host);
+		if (count > 0)
+			queueMicrotask(() => {
+				if (revision === popoverRevision && host && !host.matches(":popover-open"))
+					host.showPopover();
+			});
+	});
+
+	async function undo(
+		id: number,
+		u: { op: string; args: Record<string, unknown> },
+		onUndo?: () => void | Promise<void>,
+	) {
 		snackbar.dismiss(id);
-		await runOp(u.op, u.args);
-		snackbar.push({ message: `${u.op} sent`, op: u.op, tone: "good" });
+		try {
+			if (onUndo) await onUndo();
+			else await runOp(u.op, u.args);
+			snackbar.push({ message: `${u.op} sent`, op: u.op, tone: "good" });
+		} catch (error) {
+			const reason = error instanceof Error && error.message ? ` · ${error.message}` : "";
+			snackbar.push({
+				message: `${u.op} failed${reason}`,
+				op: u.op,
+				tone: "danger",
+				undo: u,
+				onUndo,
+				actionLabel: "Retry",
+			});
+		}
 	}
 </script>
 
-<div class="snack-stack" aria-live="polite">
+<div bind:this={host} class="snack-stack" aria-live="polite" popover="manual">
 	{#if hidden > 0}
 		<div class="more">{hidden} more</div>
 	{/if}
@@ -28,7 +64,7 @@
 			<Icon name={s.tone === "danger" ? "triangle-alert" : "circle-check"} size={14} />
 			<span>{s.message}</span>
 			{#if s.undo}
-				<button onclick={() => undo(s.id, s.undo!)}>Undo</button>
+				<button onclick={() => undo(s.id, s.undo!, s.onUndo)}>{s.actionLabel ?? "Undo"}</button>
 			{/if}
 		</div>
 	{/each}
@@ -44,6 +80,11 @@
 		flex-direction: column;
 		gap: var(--s-2);
 		align-items: flex-start;
+		margin: 0;
+		border: 0;
+		padding: 0;
+		background: transparent;
+		overflow: visible;
 	}
 	.more {
 		font:

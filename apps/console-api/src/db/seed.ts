@@ -89,6 +89,7 @@ const REGISTRATIONS: readonly RegSeed[] = [
 			"signal",
 			"lake",
 			"bridge",
+			"updates",
 		],
 		scopes: ["fleet", "user:*", "agent:*", "project:*", "restricted:*"],
 		maxSeverity: "p0",
