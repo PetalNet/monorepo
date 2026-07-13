@@ -1,41 +1,41 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://petalcat.dev/schemas/console/entities/executor.schema.json",
-  "title": "Executor liveness item (GET /executors)",
-  "description": "NEW liveness view over every service that executes ops or produces reads — the availability-gating source for ActionRows (no live executor -> the op renders unavailable, honestly). One row per executor instance. Liveness derivation follows the fleet's 90/300s semantics (apps/control-plane/src/registry.rs SUSPECT_AFTER_SECS/DOWN_AFTER_SECS) where the executor is heartbeat-based; 'unknown' is served when the executor has no liveness evidence source yet (positive evidence required — silence never renders as health, Rule 10). Filters: `kind`, `liveness`. Consumers MUST ignore unknown fields.",
-  "type": "object",
-  "properties": {
-    "kind": {
-      "enum": [
-        "manager",
-        "dispatcher",
-        "control-plane",
-        "tracker",
-        "library",
-        "box-agent",
-        "edge",
-        "probe-runner",
-        "console-api"
-      ],
-      "description": "Which executor class this instance belongs to (the op catalog's `executor` field routes to one of these)."
-    },
-    "ref": {
-      "type": "string",
-      "description": "Instance id within the kind — e.g. 'janet@.202' (a manager), '.15' (a box-agent)."
-    },
-    "liveness": {
-      "enum": ["alive", "suspect", "down", "unknown"],
-      "description": "Derived server-side from the instance's evidence source: alive; suspect >90s stale; down >300s; unknown = no evidence source wired yet (NOT healthy)."
-    },
-    "last_seen_epoch": {
-      "type": ["integer", "null"],
-      "description": "Epoch seconds of the last positive evidence (heartbeat/report); null when liveness=unknown."
-    },
-    "detail": {
-      "type": ["string", "null"],
-      "description": "Short human-readable detail (e.g. 'state=rate_limited', 'ws connected'); null when nothing to add."
-    }
-  },
-  "required": ["kind", "ref", "liveness"],
-  "additionalProperties": true
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/executor.schema.json",
+	"title": "Executor liveness item (GET /executors)",
+	"description": "NEW liveness view over every service that executes ops or produces reads — the availability-gating source for ActionRows (no live executor -> the op renders unavailable, honestly). One row per executor instance. Liveness derivation follows the fleet's 90/300s semantics (apps/control-plane/src/registry.rs SUSPECT_AFTER_SECS/DOWN_AFTER_SECS) where the executor is heartbeat-based; 'unknown' is served when the executor has no liveness evidence source yet (positive evidence required — silence never renders as health, Rule 10). Filters: `kind`, `liveness`. Consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"kind": {
+			"enum": [
+				"manager",
+				"dispatcher",
+				"control-plane",
+				"tracker",
+				"library",
+				"box-agent",
+				"edge",
+				"probe-runner",
+				"console-api"
+			],
+			"description": "Which executor class this instance belongs to (the op catalog's `executor` field routes to one of these)."
+		},
+		"ref": {
+			"type": "string",
+			"description": "Instance id within the kind — e.g. 'janet@.202' (a manager), '.15' (a box-agent)."
+		},
+		"liveness": {
+			"enum": ["alive", "suspect", "down", "unknown"],
+			"description": "Derived server-side from the instance's evidence source: alive; suspect >90s stale; down >300s; unknown = no evidence source wired yet (NOT healthy)."
+		},
+		"last_seen_epoch": {
+			"type": ["integer", "null"],
+			"description": "Epoch seconds of the last positive evidence (heartbeat/report); null when liveness=unknown."
+		},
+		"detail": {
+			"type": ["string", "null"],
+			"description": "Short human-readable detail (e.g. 'state=rate_limited', 'ws connected'); null when nothing to add."
+		}
+	},
+	"required": ["kind", "ref", "liveness"],
+	"additionalProperties": true
 }

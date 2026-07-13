@@ -1,91 +1,100 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://petalcat.dev/schemas/console/entities/edge-session.schema.json",
-  "title": "Edge session item (GET /edge/sessions)",
-  "description": "One edge client's live session with its transport links — the Network surface's session table. Source of truth: doorman's session state (Phase 1 formalization per CONSOLE-CONTRACTS.md section 3.3; shapes per the Network spec, coordinated with PetalNet/doorman). A session survives link flaps by resuming; `links` are the underlying transports (primary/standby) with per-link health. state=floor means the session has fallen back to the last-resort transport. Filters: `handle`, `state`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
-  "type": "object",
-  "properties": {
-    "session_id": {
-      "type": "string",
-      "description": "Unique session id (stable across resumes)."
-    },
-    "handle": {
-      "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]*$",
-      "description": "Canonical handle of the enrolled edge client (edge-registry.handle)."
-    },
-    "host": {
-      "type": "string",
-      "description": "Machine label in canonical form ('.N' for lab dot-hosts)."
-    },
-    "state": {
-      "enum": ["open", "resuming", "floor", "closed"],
-      "description": "Session lifecycle: open = healthy; resuming = re-establishing after a link loss; floor = degraded to the last-resort transport; closed = ended."
-    },
-    "established_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "RFC 3339 UTC — when the session was first established."
-    },
-    "resumes_count": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "How many times the session has resumed after a drop."
-    },
-    "last_seen_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "RFC 3339 UTC — most recent traffic/keepalive on the session."
-    },
-    "handshakes_clean_count": {
-      "type": ["integer", "null"],
-      "minimum": 0,
-      "description": "Count of clean (fully verified) handshakes on this session; null when the daemon does not report it."
-    },
-    "links": {
-      "type": "array",
-      "description": "The transport links carrying this session.",
-      "items": {
-        "type": "object",
-        "properties": {
-          "link_id": {
-            "type": "string",
-            "description": "Unique link id within the session."
-          },
-          "role": {
-            "enum": ["primary", "standby"],
-            "description": "primary carries traffic; standby is kept warm for failover."
-          },
-          "state": {
-            "enum": ["active", "warm", "down"],
-            "description": "Link health: active = carrying traffic; warm = ready standby; down = lost."
-          },
-          "rtt_ms": {
-            "type": ["number", "null"],
-            "minimum": 0,
-            "description": "Last measured round-trip time in ms; null when unmeasured/down."
-          },
-          "established_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "RFC 3339 UTC — when this link came up."
-          },
-          "last_flap_at": {
-            "type": ["string", "null"],
-            "format": "date-time",
-            "description": "RFC 3339 UTC — most recent flap (down/up transition); null = never flapped."
-          },
-          "flap_count_24h": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Flaps in the trailing 24 hours (link stability signal)."
-          }
-        },
-        "required": ["link_id", "role", "state", "established_at", "flap_count_24h"],
-        "additionalProperties": true
-      }
-    }
-  },
-  "required": ["session_id", "handle", "host", "state", "established_at", "resumes_count", "last_seen_at", "links"],
-  "additionalProperties": true
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/edge-session.schema.json",
+	"title": "Edge session item (GET /edge/sessions)",
+	"description": "One edge client's live session with its transport links — the Network surface's session table. Source of truth: doorman's session state (Phase 1 formalization per CONSOLE-CONTRACTS.md section 3.3; shapes per the Network spec, coordinated with PetalNet/doorman). A session survives link flaps by resuming; `links` are the underlying transports (primary/standby) with per-link health. state=floor means the session has fallen back to the last-resort transport. Filters: `handle`, `state`, plus the shared limit/cursor/since. Consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"session_id": {
+			"type": "string",
+			"description": "Unique session id (stable across resumes)."
+		},
+		"handle": {
+			"type": "string",
+			"pattern": "^[a-z0-9][a-z0-9._-]*$",
+			"description": "Canonical handle of the enrolled edge client (edge-registry.handle)."
+		},
+		"host": {
+			"type": "string",
+			"description": "Machine label in canonical form ('.N' for lab dot-hosts)."
+		},
+		"state": {
+			"enum": ["open", "resuming", "floor", "closed"],
+			"description": "Session lifecycle: open = healthy; resuming = re-establishing after a link loss; floor = degraded to the last-resort transport; closed = ended."
+		},
+		"established_at": {
+			"type": "string",
+			"format": "date-time",
+			"description": "RFC 3339 UTC — when the session was first established."
+		},
+		"resumes_count": {
+			"type": "integer",
+			"minimum": 0,
+			"description": "How many times the session has resumed after a drop."
+		},
+		"last_seen_at": {
+			"type": "string",
+			"format": "date-time",
+			"description": "RFC 3339 UTC — most recent traffic/keepalive on the session."
+		},
+		"handshakes_clean_count": {
+			"type": ["integer", "null"],
+			"minimum": 0,
+			"description": "Count of clean (fully verified) handshakes on this session; null when the daemon does not report it."
+		},
+		"links": {
+			"type": "array",
+			"description": "The transport links carrying this session.",
+			"items": {
+				"type": "object",
+				"properties": {
+					"link_id": {
+						"type": "string",
+						"description": "Unique link id within the session."
+					},
+					"role": {
+						"enum": ["primary", "standby"],
+						"description": "primary carries traffic; standby is kept warm for failover."
+					},
+					"state": {
+						"enum": ["active", "warm", "down"],
+						"description": "Link health: active = carrying traffic; warm = ready standby; down = lost."
+					},
+					"rtt_ms": {
+						"type": ["number", "null"],
+						"minimum": 0,
+						"description": "Last measured round-trip time in ms; null when unmeasured/down."
+					},
+					"established_at": {
+						"type": "string",
+						"format": "date-time",
+						"description": "RFC 3339 UTC — when this link came up."
+					},
+					"last_flap_at": {
+						"type": ["string", "null"],
+						"format": "date-time",
+						"description": "RFC 3339 UTC — most recent flap (down/up transition); null = never flapped."
+					},
+					"flap_count_24h": {
+						"type": "integer",
+						"minimum": 0,
+						"description": "Flaps in the trailing 24 hours (link stability signal)."
+					}
+				},
+				"required": ["link_id", "role", "state", "established_at", "flap_count_24h"],
+				"additionalProperties": true
+			}
+		}
+	},
+	"required": [
+		"session_id",
+		"handle",
+		"host",
+		"state",
+		"established_at",
+		"resumes_count",
+		"last_seen_at",
+		"links"
+	],
+	"additionalProperties": true
 }

@@ -1,2605 +1,2102 @@
 {
-  "$comment": "Console command-plane op catalog (P0, board round 1 applied). THIS FILE IS CANONICAL \u2014 the CONSOLE-CONTRACTS.md \u00a75.2 table is generated from it; drift is a CI failure. The frontend renders ActionRows from this catalog; a UI button without an entry here is a defect (no op -> no button). Validated by op-catalog.schema.json. Field semantics: `lane` = coarse capability lane (closed enum: viewer|editor|operator|admin|term_admin) required on the Principal. `authz` = the per-resource check the op router MUST additionally pass: rule `own` (target resource must belong to the caller), `grant` (caller needs `relation` on one of `scope_any`, templates substitute op args), `own_or_grant` (own, else grant path), `read` (no resource authorization; scope filtering applies to the result). Both lane AND authz must pass BEFORE the intent audit. `human_only: true` = agents structurally excluded regardless of lanes. `executor` = the single liveness-gating executor (other parties are hops inside the effect). `testable`: disposable (sub-agents/temp DBs) | dry-run-only (only via dry_run:true outside prod) | live-canary (needs a written runbook). `confirm`: none | soft | typed-name (frontend renders; server enforces for typed-name via args.confirm_name). Args are JSON Schema fragments (draft 2020-12). Authz scope templates resolve in order: (1) op args by name (${handle}), (2) attributes of the loaded target resource (${target.project_id} \u2014 the router loads the resource named by the id arg before authorizing), (3) ${item.<field>} = nested arg path. An unresolvable entry within scope_any is SKIPPED (evaluation continues down the list); if ALL entries are unresolvable the op fails closed (scope_denied). CI rule: every ${var} must be a required arg, ${target.*} (declared resolution via the id arg), or ${item.*} nested-arg path. New authz rules: scope_visible (caller holds viewer on the TARGET's scope \u2014 for shared operational state like attention items), self (op only creates/affects caller-keyed state; no foreign-principal args accepted).",
-  "schema_version": 2,
-  "lanes": [
-    "viewer",
-    "editor",
-    "operator",
-    "admin",
-    "term_admin"
-  ],
-  "spec_name_aliases": {
-    "terminal.open": "term.watch",
-    "governance.pause": "governance.action{action:pause}",
-    "governance.override": "governance.action",
-    "dashboard.set-home": "dashboard.set_home",
-    "research": "kb.research"
-  },
-  "ops": [
-    {
-      "op": "attention.ack",
-      "lane": "viewer",
-      "authz": {
-        "rule": "scope_visible"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "marks item claimed-by caller; dims + sorts below new; idempotent on id",
-      "emits": [
-        "attention.acked"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "attention.snooze",
-      "lane": "viewer",
-      "authz": {
-        "rule": "scope_visible"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "duration_s": {
-            "type": "integer",
-            "minimum": 60,
-            "maximum": 604800,
-            "default": 3600
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "auto-expiring snooze, visibly listed",
-      "emits": [
-        "attention.snoozed"
-      ],
-      "undo": true,
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "attention.resolve",
-      "lane": "viewer",
-      "authz": {
-        "rule": "scope_visible"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "channel-agnostic resolution; IDEMPOTENT on id (concurrent UI+agent resolve emits once); clears the one shared state",
-      "emits": [
-        "attention.resolved"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "task.get_ready",
-      "lane": "viewer",
-      "authz": {
-        "rule": "read"
-      },
-      "executor": "tracker",
-      "args": {
-        "type": "object",
-        "properties": {
-          "capability": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "read: ready queue ordered by up_next/rank/priority; no audit emission (read op)",
-      "emits": [],
-      "lineage": "tracker MCP get_ready",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "task.up_next",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "project:${target.project_id}",
-          "fleet"
-        ]
-      },
-      "executor": "tracker",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "position": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "pin into the up-next lane",
-      "emits": [
-        "task.transitioned"
-      ],
-      "lineage": "tracker MCP up_next",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "task.claim",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "project:${target.project_id}",
-          "fleet"
-        ]
-      },
-      "executor": "tracker",
-      "args": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "capability": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "atomic CAS todo->doing + lease + fence++; two claimers never both win; loser gets error code claim_lost. Result carries the full lease INCLUDING claim_token for AGENT callers only (delivered over the authenticated channel, never persisted client-side by browsers); browser callers get leasePublic + a server-held session lease. SECRETS: the dedup-recorded result is stored SCRUBBED (idempotent replay returns leasePublic; a lost token is re-driven via CAS -> claim_lost); the task.claimed emission carries leasePublic ONLY; task.claim results are on the self-instrumentation never-capture list",
-      "emits": [
-        "task.claimed"
-      ],
-      "lineage": "tracker claimNext / queue-lease",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "task.update",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "project:${target.project_id}",
-          "fleet"
-        ]
-      },
-      "executor": "tracker",
-      "args": {
-        "type": "object",
-        "required": [
-          "id",
-          "patch"
-        ],
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "patch": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "status": {
-                "enum": [
-                  "inbox",
-                  "todo",
-                  "doing",
-                  "blocked",
-                  "review",
-                  "done",
-                  "dropped"
-                ]
-              },
-              "priority": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 3
-              },
-              "title": {
-                "type": "string"
-              },
-              "body": {
-                "type": "string"
-              },
-              "assignee": {
-                "type": "string"
-              },
-              "blocked_on": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "verification_status": {
-                "enum": [
-                  "unverified",
-                  "verified",
-                  "rejected"
-                ]
-              },
-              "rank": {
-                "type": "number"
-              },
-              "up_next": {
-                "type": "boolean"
-              }
-            }
-          },
-          "lease": {
-            "type": "object",
-            "required": [
-              "fence",
-              "claim_token"
-            ],
-            "properties": {
-              "fence": {
-                "type": "integer"
-              },
-              "claim_token": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false,
-            "description": "REQUIRED for agent callers on lease-guarded transitions (out of doing: review|blocked|done). Tracker rejects stale fence (stale_fence) and wrong holder (not_lease_holder). NEVER supplied by browsers."
-          },
-          "force": {
-            "type": "boolean",
-            "default": false,
-            "description": "Human principals (tier owner|moderator) may force a transition without holding the lease; audited; tracker clears the lease + increments fence."
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "status/priority/blockers/verification transitions; store guards illegal transitions (illegal_transition); verify = verification_status:verified + status:done in ONE call (the store cascades); reject = verification_status:rejected + status:todo + lease cleared",
-      "emits": [
-        "task.transitioned"
-      ],
-      "lineage": "tracker updateTask + queue-lease fence rules",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "task.close",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "project:${target.project_id}",
-          "fleet"
-        ]
-      },
-      "executor": "tracker",
-      "args": {
-        "type": "object",
-        "required": [
-          "id",
-          "status"
-        ],
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "status": {
-            "enum": [
-              "done",
-              "dropped"
-            ]
-          },
-          "lease": {
-            "type": "object",
-            "required": [
-              "fence",
-              "claim_token"
-            ],
-            "properties": {
-              "fence": {
-                "type": "integer"
-              },
-              "claim_token": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          },
-          "force": {
-            "type": "boolean",
-            "default": false
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "close with reason (why-ledger); same lease/force rules as task.update",
-      "emits": [
-        "task.closed"
-      ],
-      "requires_reason": true,
-      "lineage": "tracker closeTask",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "task.dispatch",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${recipient}",
-          "fleet"
-        ]
-      },
-      "executor": "dispatcher",
-      "args": {
-        "type": "object",
-        "required": [
-          "body"
-        ],
-        "properties": {
-          "task_id": {
-            "type": "integer"
-          },
-          "recipient": {
-            "type": "string"
-          },
-          "body": {
-            "type": "string",
-            "maxLength": 65536
-          },
-          "priority": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 3
-          },
-          "needs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "interrupt_policy": {
-            "enum": [
-              "defer",
-              "principal_command",
-              "safety",
-              "task_clarification"
-            ],
-            "default": "defer"
-          },
-          "thread": {
-            "type": "string"
-          },
-          "requires_reply": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "files/loads tracker task, posts task-card; sender_class stamped from the Principal (never honored from args); interrupt policy enforced dispatcher-side (spoofed principal_command demotes to defer); absent recipient = pool card, authorized via the fleet entry (the agent:${recipient} entry is skipped when unresolvable)",
-      "emits": [
-        "card.posted"
-      ],
-      "lineage": "dispatcher dispatch()",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "agent.start",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "manager",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "start the supervised session; ASYNC: result status=accepted, completion via agent.lifecycle emission carrying the op id",
-      "emits": [
-        "agent.lifecycle"
-      ],
-      "lineage": "Matrix !start",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "agent.stop",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "manager",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "stop the supervised session; ASYNC as agent.start",
-      "emits": [
-        "agent.lifecycle"
-      ],
-      "lineage": "Matrix !stop",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "agent.restart",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "manager",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "restart; allowed on stale target state (recovery gates on manager liveness; confirm notes staleness); ASYNC as agent.start",
-      "emits": [
-        "agent.lifecycle"
-      ],
-      "confirm": "soft",
-      "lineage": "Matrix !restart",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "agent.kill_session",
-      "lane": "admin",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "manager",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle",
-          "confirm_name"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          },
-          "confirm_name": {
-            "type": "string",
-            "description": "must equal handle (compared post-normalization per Rule 4)"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "mint a fresh session id \u2014 truly new conversation; destructive; ASYNC",
-      "emits": [
-        "agent.lifecycle"
-      ],
-      "destructive": true,
-      "confirm": "typed-name",
-      "lineage": "Matrix !kill session",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "agent.autonomy",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "tracker",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle",
-          "autonomy"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          },
-          "autonomy": {
-            "enum": [
-              "auto",
-              "ask",
-              "readonly",
-              "paused"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "set roster autonomy",
-      "emits": [
-        "agent.autonomy_changed"
-      ],
-      "lineage": "tasks.db agents.autonomy",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "governance.action",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "control-plane",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle",
-          "action"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          },
-          "action": {
-            "enum": [
-              "pause",
-              "throttle",
-              "downgrade",
-              "restore"
-            ]
-          },
-          "delay_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 600000
-          },
-          "to": {
-            "enum": [
-              "haiku",
-              "sonnet",
-              "opus"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "manual governance override; edge-triggered like autonomous actions; ASYNC (accepted -> governance.action emission)",
-      "emits": [
-        "governance.action"
-      ],
-      "lineage": "governance.action spool envelope",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "governance.tier",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "control-plane",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle",
-          "tier"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          },
-          "tier": {
-            "enum": [
-              "haiku",
-              "sonnet",
-              "opus"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "pin model tier (manager applies via model_override_path); ASYNC",
-      "emits": [
-        "governance.action"
-      ],
-      "lineage": "model override file",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "fleet.mode",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "control-plane",
-      "args": {
-        "type": "object",
-        "required": [
-          "mode"
-        ],
-        "properties": {
-          "mode": {
-            "enum": [
-              "parallel",
-              "sequential"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "fleet-wide mode broadcast; cascade auto-engages, this is the manual path; ASYNC",
-      "emits": [
-        "fleet.mode"
-      ],
-      "confirm": "soft",
-      "lineage": "fleet.mode broadcast envelope",
-      "testable": "live-canary",
-      "phase": 1
-    },
-    {
-      "op": "channel.reclaim",
-      "lane": "admin",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "manager",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "NEW: resolve channel_lock lockout. Semantics: the op targets the RIGHTFUL manager (the one holding heartbeat ownership for the handle); it re-asserts the single-owner lock and fences the contender out (contender's sends are already forbidden in lockout per N0.1; this op forces the contender's release + re-acquire). If the contender is on another host, its own manager receives a stand-down envelope. ASYNC; completion via channel.lock_changed",
-      "emits": [
-        "channel.lock_changed"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "signal.snooze",
-      "lane": "viewer",
-      "authz": {
-        "rule": "self"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "type_pattern"
-        ],
-        "properties": {
-          "type_pattern": {
-            "type": "string",
-            "description": "glob over emission type \u2014 the thing being muted (per-caller mute, not global)"
-          },
-          "duration_s": {
-            "type": "integer",
-            "minimum": 60,
-            "maximum": 86400,
-            "default": 3600
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "timed per-user mute (Quiet 1h), auto-expires, visibly listed; storm auto-mute uses this attributed to system:bus",
-      "emits": [
-        "signal.snoozed"
-      ],
-      "undo": true,
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "subscription.set",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own_or_grant",
-        "relation": "operator",
-        "scope_any": [
-          "user:${target.owner}"
-        ]
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "pattern",
-          "tier"
-        ],
-        "properties": {
-          "pattern": {
-            "type": "string"
-          },
-          "tier": {
-            "enum": [
-              "feed",
-              "digest",
-              "interrupt"
-            ]
-          },
-          "loud": {
-            "type": "boolean",
-            "default": false
-          },
-          "note": {
-            "type": "string",
-            "maxLength": 500
-          },
-          "owner": {
-            "type": "string",
-            "description": "defaults to caller; setting another owner requires the grant path"
-          },
-          "window": {
-            "type": "string",
-            "pattern": "^([0-9]{2}:[0-9]{2}|[0-9]+[mh])$",
-            "description": "digest window: a daily HH:MM or an interval (30m, 4h); default 18:00"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "upsert standing subscription; interrupt tier only accepted where the pattern's severity floor can reach p0/safety/principal-command (else error interrupt_ineligible)",
-      "emits": [
-        "subscription.changed"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "subscription.remove",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own_or_grant",
-        "relation": "operator",
-        "scope_any": [
-          "user:${target.owner}"
-        ]
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "pattern"
-        ],
-        "properties": {
-          "pattern": {
-            "type": "string"
-          },
-          "owner": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "remove standing subscription",
-      "emits": [
-        "subscription.changed"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "card.repost",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${target.recipient}",
-          "fleet"
-        ]
-      },
-      "executor": "dispatcher",
-      "args": {
-        "type": "object",
-        "required": [
-          "card_id"
-        ],
-        "properties": {
-          "card_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "dead-letter triage: repost to the board (fresh fence)",
-      "emits": [
-        "card.posted"
-      ],
-      "lineage": "board.post",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "card.park",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "agent:${target.recipient}",
-          "fleet"
-        ]
-      },
-      "executor": "dispatcher",
-      "args": {
-        "type": "object",
-        "required": [
-          "card_id"
-        ],
-        "properties": {
-          "card_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "park until capacity/wake",
-      "emits": [
-        "card.parked"
-      ],
-      "lineage": "board.park",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "stats.query",
-      "lane": "viewer",
-      "authz": {
-        "rule": "read"
-      },
-      "executor": "console-api",
-      "args": {
-        "$ref": "schemas/query-request.schema.json"
-      },
-      "effect": "tool-surface alias of POST /api/v1/query; read as-user; returns query_ref; no audit emission (read op). SQL mode additionally requires lane operator",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "viz.render",
-      "lane": "viewer",
-      "authz": {
-        "rule": "read"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "panel"
-        ],
-        "properties": {
-          "panel": {
-            "$ref": "schemas/panel-spec-v2.schema.json"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "validate + register a panel spec (render is client-side; this pins provenance)",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "text.surface",
-      "lane": "viewer",
-      "authz": {
-        "rule": "read"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "prose"
-        ],
-        "properties": {
-          "prose": {
-            "type": "string",
-            "maxLength": 65536
-          },
-          "bindings": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "query_ref",
-                "column"
-              ],
-              "properties": {
-                "query_ref": {
-                  "type": "string"
-                },
-                "column": {
-                  "type": "string"
-                },
-                "agg": {
-                  "type": "string"
-                }
-              },
-              "additionalProperties": false
-            }
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "text panel with live proved inline stats",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "window.arrange",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own_or_grant",
-        "relation": "editor",
-        "scope_any": [
-          "item:${dashboard_id}"
-        ]
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "dashboard_id",
-          "ops"
-        ],
-        "properties": {
-          "dashboard_id": {
-            "type": "string"
-          },
-          "ops": {
-            "type": "array",
-            "maxItems": 100,
-            "items": {
-              "type": "object",
-              "required": [
-                "verb"
-              ],
-              "properties": {
-                "verb": {
-                  "enum": [
-                    "place",
-                    "size",
-                    "group",
-                    "highlight",
-                    "clear",
-                    "pin"
-                  ]
-                },
-                "panel_index": {
-                  "type": "integer"
-                },
-                "layout": {
-                  "type": "object"
-                }
-              },
-              "additionalProperties": true
-            }
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "layout mutations as data on the 12-col grid model",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "dashboard.save",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own"
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "title",
-          "panels"
-        ],
-        "properties": {
-          "title": {
-            "type": "string",
-            "maxLength": 200
-          },
-          "layout": {
-            "type": "object"
-          },
-          "panels": {
-            "type": "array",
-            "maxItems": 60,
-            "items": {
-              "$ref": "schemas/panel-spec-v2.schema.json"
-            }
-          },
-          "branch": {
-            "type": "object",
-            "description": "investigation lineage: parent_dashboard_id, parent_question, filters, selected_mark, assumptions"
-          },
-          "time": {
-            "type": "object",
-            "properties": {
-              "from": {
-                "type": "string"
-              },
-              "to": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "refresh_s": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              }
-            }
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "dashboard = Library item (kind artifact; Phase 1 ships the minimal items table this rides on)",
-      "emits": [
-        "library.item.added"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "dashboard.load",
-      "lane": "viewer",
-      "authz": {
-        "rule": "read"
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "read; shared dashboards re-run queries AS the viewer (scope refusal is per-panel); no audit emission (read op)",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "dashboard.set_home",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own"
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "pin as the per-user home (is_home flips in the /dashboards projection)",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "dashboard.pin",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own"
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "panel"
-        ],
-        "properties": {
-          "panel": {
-            "$ref": "schemas/panel-spec-v2.schema.json"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "add a panel to the caller's home dashboard",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "dashboard.delete",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own_or_grant",
-        "relation": "owner",
-        "scope_any": [
-          "user:${target.owner}"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "delete a saved dashboard (own dashboards; soft confirm \u2014 dashboards are cheap, unlike library item.delete)",
-      "emits": [
-        "library.item.deleted"
-      ],
-      "confirm": "soft",
-      "undo": true,
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "dashboard.share",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own"
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id",
-          "subject"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "subject": {
-            "type": "string",
-            "description": "principal or tier:<name>"
-          },
-          "relation": {
-            "enum": [
-              "viewer",
-              "editor"
-            ],
-            "default": "viewer"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "grant view/edit on a dashboard within the sharer's scope (a scope-grant on the item; viewers' panels still re-run as-viewer)",
-      "emits": [
-        "grant.changed"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "context.receive",
-      "lane": "viewer",
-      "authz": {
-        "rule": "self"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "payload"
-        ],
-        "properties": {
-          "payload": {
-            "type": "object",
-            "required": [
-              "element_kind",
-              "value"
-            ],
-            "properties": {
-              "element_kind": {
-                "type": "string"
-              },
-              "field": {
-                "type": "string"
-              },
-              "value": {},
-              "datum": {
-                "type": "object"
-              },
-              "query_ref": {
-                "type": "string"
-              },
-              "entity_ref": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "clicked context -> most recent chat message of the caller's assistant session (SelectedMark-complete: field+value+datum)",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 5
-    },
-    {
-      "op": "kb.search",
-      "lane": "viewer",
-      "authz": {
-        "rule": "read"
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "q"
-        ],
-        "properties": {
-          "q": {
-            "type": "string",
-            "maxLength": 2000
-          },
-          "kinds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "limit": {
-            "type": "integer",
-            "maximum": 100,
-            "default": 20
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "hybrid BM25+dense+RRF, scope-filtered below the ranker, why-matched returned; no audit emission (read op)",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "kb.research",
-      "lane": "editor",
-      "authz": {
-        "rule": "read"
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "query"
-        ],
-        "properties": {
-          "query": {
-            "type": "string",
-            "maxLength": 4000
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "sole-egress research: check-before-web, write-back via consolidation gate; rate-limited per caller (query bodies leave the perimeter \u2014 logged) (egress gated: lane editor+, not plain viewer)",
-      "emits": [
-        "library.research"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "library.item.create",
-      "lane": "editor",
-      "authz": {
-        "rule": "grant",
-        "relation": "editor",
-        "scope_any": [
-          "${item.scope}"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "item"
-        ],
-        "properties": {
-          "item": {
-            "type": "object",
-            "required": [
-              "kind",
-              "title",
-              "scope"
-            ],
-            "additionalProperties": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "create item in a scope the caller can edit",
-      "emits": [
-        "library.item.added"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "library.item.update",
-      "lane": "editor",
-      "authz": {
-        "rule": "grant",
-        "relation": "editor",
-        "scope_any": [
-          "item:${id}"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id",
-          "patch"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "patch": {
-            "type": "object"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "update; prose merges CRDT; status via MV-Register (CONFLICT surfaces, never silent LWW)",
-      "emits": [
-        "library.item.changed"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "library.link.add",
-      "lane": "editor",
-      "authz": {
-        "rule": "grant",
-        "relation": "editor",
-        "scope_any": [
-          "item:${from_id}"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "from_id",
-          "to_id",
-          "rel_type"
-        ],
-        "properties": {
-          "from_id": {
-            "type": "string"
-          },
-          "to_id": {
-            "type": "string"
-          },
-          "rel_type": {
-            "enum": [
-              "belongs-to",
-              "supersedes",
-              "derived-from",
-              "duplicate-of",
-              "references"
-            ]
-          },
-          "reason": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "grow-only typed link; requires viewer on to_id (a foreign supersedes/duplicate-of cannot distort a target you cannot see)",
-      "emits": [
-        "library.link.added"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "library.hold",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "user:${for_user}",
-          "fleet"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "item_id",
-          "for_user"
-        ],
-        "properties": {
-          "item_id": {
-            "type": "string"
-          },
-          "for_user": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "held-shelf: hold an item aside for a user",
-      "emits": [
-        "library.held"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "curation.propose",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "item:${item_id}",
-          "fleet"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "type",
-          "item_id",
-          "reason"
-        ],
-        "properties": {
-          "type": {
-            "enum": [
-              "weed",
-              "merge",
-              "dedup",
-              "retire",
-              "follow-up"
-            ]
-          },
-          "item_id": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "reviewable curation proposal with blast radius",
-      "emits": [
-        "curation.proposed"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "curation.approve",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "item:${target.item_id}",
-          "fleet"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "proposal_id"
-        ],
-        "properties": {
-          "proposal_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "apply proposal (human-gated: requires owner relation, held by humans)",
-      "emits": [
-        "curation.applied"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "curation.reject",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "item:${target.item_id}",
-          "fleet"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "proposal_id"
-        ],
-        "properties": {
-          "proposal_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "reject with note",
-      "emits": [
-        "curation.rejected"
-      ],
-      "requires_reason": true,
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "item.weed",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "item:${id}",
-          "fleet"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "invalidate (reversible)",
-      "emits": [
-        "library.item.changed"
-      ],
-      "undo": true,
-      "requires_reason": true,
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "item.merge",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "item:${id}",
-          "fleet"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id",
-          "into_id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "into_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "forward supersede, idempotent",
-      "emits": [
-        "library.item.changed"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "item.delete",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "item:${id}"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id",
-          "confirm_name"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "confirm_name": {
-            "type": "string",
-            "description": "(compared post-normalization per Rule 4)"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "rare, human-gated (owner relation, human principals); never offered to agents",
-      "emits": [
-        "library.item.deleted"
-      ],
-      "destructive": true,
-      "confirm": "typed-name",
-      "requires_reason": true,
-      "human_only": true,
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "promotion.request",
-      "lane": "viewer",
-      "authz": {
-        "rule": "own"
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "personal-draft -> verified-shared request",
-      "emits": [
-        "promotion.requested"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "promotion.approve",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "library",
-      "args": {
-        "type": "object",
-        "required": [
-          "request_id"
-        ],
-        "properties": {
-          "request_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "approve promotion",
-      "emits": [
-        "promotion.approved"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "service.restart",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "box-agent",
-      "args": {
-        "type": "object",
-        "required": [
-          "host",
-          "service"
-        ],
-        "properties": {
-          "host": {
-            "type": "string"
-          },
-          "service": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "restart a container/service on the host; ASYNC (accepted -> service.lifecycle)",
-      "emits": [
-        "service.lifecycle"
-      ],
-      "confirm": "soft",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "service.stop",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "box-agent",
-      "args": {
-        "type": "object",
-        "required": [
-          "host",
-          "service",
-          "confirm_name"
-        ],
-        "properties": {
-          "host": {
-            "type": "string"
-          },
-          "service": {
-            "type": "string"
-          },
-          "confirm_name": {
-            "type": "string",
-            "description": "must equal service (compared post-normalization per Rule 4)"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "stop a service; destructive; ASYNC",
-      "emits": [
-        "service.lifecycle"
-      ],
-      "destructive": true,
-      "confirm": "typed-name",
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "service.logs",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "box-agent",
-      "args": {
-        "type": "object",
-        "required": [
-          "host",
-          "service"
-        ],
-        "properties": {
-          "host": {
-            "type": "string"
-          },
-          "service": {
-            "type": "string"
-          },
-          "lines": {
-            "type": "integer",
-            "maximum": 2000,
-            "default": 200
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "BOUNDED log snapshot in the result payload (P0). Live streaming is carved out with the term.* frame contract (\u00a711); no audit emission (read op); the Rule-6 secret scrubber/redaction applies to the returned log snapshot",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "host.probe",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "probe-runner",
-      "args": {
-        "type": "object",
-        "required": [
-          "target"
-        ],
-        "properties": {
-          "target": {
-            "type": "string",
-            "description": "MUST be a registered probe target (service in the probe registry) \u2014 arbitrary URLs/IPs rejected (ssrf_rejected); no user-supplied network destinations"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "re-check availability now",
-      "emits": [
-        "probe.result"
-      ],
-      "testable": "disposable",
-      "phase": 2
-    },
-    {
-      "op": "host.reboot",
-      "lane": "admin",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "box-agent",
-      "args": {
-        "type": "object",
-        "required": [
-          "box_id",
-          "confirm_name"
-        ],
-        "properties": {
-          "box_id": {
-            "type": "string"
-          },
-          "confirm_name": {
-            "type": "string",
-            "description": "must equal box_id (compared post-normalization per Rule 4)"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "reboot the box; destructive; ASYNC",
-      "emits": [
-        "host.lifecycle"
-      ],
-      "destructive": true,
-      "confirm": "typed-name",
-      "testable": "dry-run-only",
-      "phase": 1
-    },
-    {
-      "op": "updates.check",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "box-agent",
-      "args": {
-        "type": "object",
-        "required": [
-          "box_id"
-        ],
-        "properties": {
-          "box_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "collector re-check now; ASYNC",
-      "emits": [
-        "box.update_status_changed"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "updates.approve",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "box_id"
-        ],
-        "properties": {
-          "box_id": {
-            "type": "string"
-          },
-          "packages": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "staged-approval: record approval (console-api is the approval ledger); apply is separate; undo = revoke approval before apply",
-      "emits": [
-        "updates.approved"
-      ],
-      "undo": true,
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "updates.apply",
-      "lane": "operator",
-      "authz": {
-        "rule": "grant",
-        "relation": "operator",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "box-agent",
-      "args": {
-        "type": "object",
-        "required": [
-          "box_id"
-        ],
-        "properties": {
-          "box_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "apply approved updates; availability = apply_mode x agent_vs_agentless x executor liveness (agentless boxes: op never exists -> caption, not disabled); ASYNC",
-      "emits": [
-        "box.update_status_changed"
-      ],
-      "confirm": "soft",
-      "testable": "dry-run-only",
-      "phase": 1
-    },
-    {
-      "op": "edge.enroll.approve",
-      "lane": "admin",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "control-plane",
-      "args": {
-        "type": "object",
-        "required": [
-          "pubkey_fp",
-          "handle"
-        ],
-        "properties": {
-          "pubkey_fp": {
-            "type": "string"
-          },
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "Key Ceremony approve: TokenAuthority mints the enrollment binding (gating executor = control-plane; the edge is notified as a hop); closes the enrollment gap",
-      "emits": [
-        "edge.enrolled"
-      ],
-      "testable": "dry-run-only",
-      "phase": 1
-    },
-    {
-      "op": "edge.enroll.deny",
-      "lane": "admin",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "edge",
-      "args": {
-        "type": "object",
-        "required": [
-          "pubkey_fp"
-        ],
-        "properties": {
-          "pubkey_fp": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "deny pending enrollment",
-      "emits": [
-        "edge.enroll_denied"
-      ],
-      "requires_reason": true,
-      "testable": "dry-run-only",
-      "phase": 1
-    },
-    {
-      "op": "edge.key.revoke",
-      "lane": "admin",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "edge",
-      "args": {
-        "type": "object",
-        "required": [
-          "pubkey_fp",
-          "confirm_name"
-        ],
-        "properties": {
-          "pubkey_fp": {
-            "type": "string"
-          },
-          "confirm_name": {
-            "type": "string",
-            "description": "must equal the enrolled handle (compared post-normalization per Rule 4)"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "revoke enrolled key; sessions drop; destructive",
-      "emits": [
-        "edge.key_revoked"
-      ],
-      "destructive": true,
-      "confirm": "typed-name",
-      "requires_reason": true,
-      "testable": "dry-run-only",
-      "phase": 1
-    },
-    {
-      "op": "doorman.session.drop",
-      "lane": "admin",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "edge",
-      "args": {
-        "type": "object",
-        "required": [
-          "session_id"
-        ],
-        "properties": {
-          "session_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "drop a live session; ASYNC",
-      "emits": [
-        "doorman.session.closed"
-      ],
-      "confirm": "soft",
-      "testable": "dry-run-only",
-      "phase": 1
-    },
-    {
-      "op": "doorman.redial",
-      "lane": "admin",
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "agent:${handle}",
-          "fleet"
-        ]
-      },
-      "executor": "manager",
-      "args": {
-        "type": "object",
-        "required": [
-          "handle"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]*$"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "ask the agent's manager to redial; rides the Matrix floor when the tunnel is down; ASYNC",
-      "emits": [
-        "doorman.redial"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "term.watch",
-      "lane": "term_admin",
-      "human_only": true,
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "pty",
-      "args": {
-        "type": "object",
-        "required": [
-          "host",
-          "tmux_session",
-          "pane_id"
-        ],
-        "properties": {
-          "host": {
-            "type": "string"
-          },
-          "tmux_session": {
-            "type": "string"
-          },
-          "pane_id": {
-            "type": "string"
-          },
-          "scrollback_lines": {
-            "type": "integer",
-            "maximum": 10000,
-            "default": 500
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "open read stream (concurrent streams capped); audit line commits BEFORE first frame or the stream never opens; stream torn down immediately on lane/grant revocation",
-      "emits": [
-        "term.session"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "term.attach",
-      "lane": "term_admin",
-      "human_only": true,
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "pty",
-      "args": {
-        "type": "object",
-        "required": [
-          "stream_id"
-        ],
-        "properties": {
-          "stream_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "escalate to write mode (entry-by-consent); stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
-      "emits": [
-        "term.session"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "term.input",
-      "lane": "term_admin",
-      "human_only": true,
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "pty",
-      "args": {
-        "type": "object",
-        "required": [
-          "stream_id",
-          "seq",
-          "data_b64"
-        ],
-        "properties": {
-          "stream_id": {
-            "type": "string"
-          },
-          "seq": {
-            "type": "integer"
-          },
-          "data_b64": {
-            "type": "string",
-            "maxLength": 65536
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "keystrokes; input stored as sealed blobs (opening is itself audited, 90d retention); the request envelope is EXCLUDED from access logs and console.api.* self-emissions; stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "term.resize",
-      "lane": "term_admin",
-      "human_only": true,
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "pty",
-      "args": {
-        "type": "object",
-        "required": [
-          "stream_id",
-          "cols",
-          "rows"
-        ],
-        "properties": {
-          "stream_id": {
-            "type": "string"
-          },
-          "cols": {
-            "type": "integer"
-          },
-          "rows": {
-            "type": "integer"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "resize; stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "term.scrollback",
-      "lane": "term_admin",
-      "human_only": true,
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "pty",
-      "args": {
-        "type": "object",
-        "required": [
-          "stream_id",
-          "lines"
-        ],
-        "properties": {
-          "stream_id": {
-            "type": "string"
-          },
-          "lines": {
-            "type": "integer",
-            "maximum": 10000
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "fetch scrollback; no audit emission (read op within an audited stream); stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
-      "emits": [],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "term.detach",
-      "lane": "term_admin",
-      "human_only": true,
-      "authz": {
-        "rule": "grant",
-        "relation": "owner",
-        "scope_any": [
-          "fleet"
-        ]
-      },
-      "executor": "pty",
-      "args": {
-        "type": "object",
-        "required": [
-          "stream_id"
-        ],
-        "properties": {
-          "stream_id": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "close stream; stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
-      "emits": [
-        "term.session"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "delivery.test",
-      "lane": "viewer",
-      "authz": {
-        "rule": "self"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": false
-      },
-      "effect": "send vetted test body via Matrix; rate-capped (3/hour); result renders the receipt honestly",
-      "emits": [
-        "delivery.receipt"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "delivery.set_target",
-      "lane": "viewer",
-      "authz": {
-        "rule": "self"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "channel",
-          "target"
-        ],
-        "properties": {
-          "channel": {
-            "const": "matrix"
-          },
-          "target": {
-            "type": "string",
-            "description": "MUST be an address provably bound to the owner: the owner's own Matrix id, or a room the owner's verified Matrix id is joined to (checked at set time + on delivery). Arbitrary rooms rejected (target_not_owned) \u2014 interrupt-tier signals carry user-scoped data"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "set + auto-test; verified flips only on a delivered receipt; receipts scoped user:<owner>",
-      "emits": [
-        "delivery.receipt"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "delivery.resend",
-      "lane": "viewer",
-      "authz": {
-        "rule": "self"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "receipt_ref"
-        ],
-        "properties": {
-          "receipt_ref": {
-            "type": "string",
-            "description": "seq of the failed delivery.receipt emission"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "re-deliver a failed delivery (only where the receipt marks retryable); an op with an audit line like any other; the receipt at receipt_ref MUST be scoped user:<caller> (foreign receipt refs -> scope_denied; seq guessing yields nothing)",
-      "emits": [
-        "delivery.receipt"
-      ],
-      "testable": "disposable",
-      "phase": 1
-    },
-    {
-      "op": "delivery.cocoon",
-      "lane": "viewer",
-      "authz": {
-        "rule": "self"
-      },
-      "executor": "console-api",
-      "args": {
-        "type": "object",
-        "required": [
-          "until"
-        ],
-        "properties": {
-          "until": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "additionalProperties": false
-      },
-      "effect": "quiet hours; echoed as cocoon_until in the /delivery read; severity p0 + interrupt_policy safety ALWAYS pass (enforced at dispatch)",
-      "emits": [
-        "delivery.cocoon_changed"
-      ],
-      "undo": true,
-      "testable": "disposable",
-      "phase": 1
-    }
-  ]
+	"$comment": "Console command-plane op catalog (P0, board round 1 applied). THIS FILE IS CANONICAL \u2014 the CONSOLE-CONTRACTS.md \u00a75.2 table is generated from it; drift is a CI failure. The frontend renders ActionRows from this catalog; a UI button without an entry here is a defect (no op -> no button). Validated by op-catalog.schema.json. Field semantics: `lane` = coarse capability lane (closed enum: viewer|editor|operator|admin|term_admin) required on the Principal. `authz` = the per-resource check the op router MUST additionally pass: rule `own` (target resource must belong to the caller), `grant` (caller needs `relation` on one of `scope_any`, templates substitute op args), `own_or_grant` (own, else grant path), `read` (no resource authorization; scope filtering applies to the result). Both lane AND authz must pass BEFORE the intent audit. `human_only: true` = agents structurally excluded regardless of lanes. `executor` = the single liveness-gating executor (other parties are hops inside the effect). `testable`: disposable (sub-agents/temp DBs) | dry-run-only (only via dry_run:true outside prod) | live-canary (needs a written runbook). `confirm`: none | soft | typed-name (frontend renders; server enforces for typed-name via args.confirm_name). Args are JSON Schema fragments (draft 2020-12). Authz scope templates resolve in order: (1) op args by name (${handle}), (2) attributes of the loaded target resource (${target.project_id} \u2014 the router loads the resource named by the id arg before authorizing), (3) ${item.<field>} = nested arg path. An unresolvable entry within scope_any is SKIPPED (evaluation continues down the list); if ALL entries are unresolvable the op fails closed (scope_denied). CI rule: every ${var} must be a required arg, ${target.*} (declared resolution via the id arg), or ${item.*} nested-arg path. New authz rules: scope_visible (caller holds viewer on the TARGET's scope \u2014 for shared operational state like attention items), self (op only creates/affects caller-keyed state; no foreign-principal args accepted).",
+	"schema_version": 2,
+	"lanes": ["viewer", "editor", "operator", "admin", "term_admin"],
+	"spec_name_aliases": {
+		"terminal.open": "term.watch",
+		"governance.pause": "governance.action{action:pause}",
+		"governance.override": "governance.action",
+		"dashboard.set-home": "dashboard.set_home",
+		"research": "kb.research"
+	},
+	"ops": [
+		{
+			"op": "attention.ack",
+			"lane": "viewer",
+			"authz": {
+				"rule": "scope_visible"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "marks item claimed-by caller; dims + sorts below new; idempotent on id",
+			"emits": ["attention.acked"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "attention.snooze",
+			"lane": "viewer",
+			"authz": {
+				"rule": "scope_visible"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"duration_s": {
+						"type": "integer",
+						"minimum": 60,
+						"maximum": 604800,
+						"default": 3600
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "auto-expiring snooze, visibly listed",
+			"emits": ["attention.snoozed"],
+			"undo": true,
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "attention.resolve",
+			"lane": "viewer",
+			"authz": {
+				"rule": "scope_visible"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "channel-agnostic resolution; IDEMPOTENT on id (concurrent UI+agent resolve emits once); clears the one shared state",
+			"emits": ["attention.resolved"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "task.get_ready",
+			"lane": "viewer",
+			"authz": {
+				"rule": "read"
+			},
+			"executor": "tracker",
+			"args": {
+				"type": "object",
+				"properties": {
+					"capability": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "read: ready queue ordered by up_next/rank/priority; no audit emission (read op)",
+			"emits": [],
+			"lineage": "tracker MCP get_ready",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "task.up_next",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["project:${target.project_id}", "fleet"]
+			},
+			"executor": "tracker",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "integer"
+					},
+					"position": {
+						"type": "integer",
+						"minimum": 0
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "pin into the up-next lane",
+			"emits": ["task.transitioned"],
+			"lineage": "tracker MCP up_next",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "task.claim",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["project:${target.project_id}", "fleet"]
+			},
+			"executor": "tracker",
+			"args": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "integer"
+					},
+					"capability": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "atomic CAS todo->doing + lease + fence++; two claimers never both win; loser gets error code claim_lost. Result carries the full lease INCLUDING claim_token for AGENT callers only (delivered over the authenticated channel, never persisted client-side by browsers); browser callers get leasePublic + a server-held session lease. SECRETS: the dedup-recorded result is stored SCRUBBED (idempotent replay returns leasePublic; a lost token is re-driven via CAS -> claim_lost); the task.claimed emission carries leasePublic ONLY; task.claim results are on the self-instrumentation never-capture list",
+			"emits": ["task.claimed"],
+			"lineage": "tracker claimNext / queue-lease",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "task.update",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["project:${target.project_id}", "fleet"]
+			},
+			"executor": "tracker",
+			"args": {
+				"type": "object",
+				"required": ["id", "patch"],
+				"properties": {
+					"id": {
+						"type": "integer"
+					},
+					"patch": {
+						"type": "object",
+						"additionalProperties": false,
+						"properties": {
+							"status": {
+								"enum": ["inbox", "todo", "doing", "blocked", "review", "done", "dropped"]
+							},
+							"priority": {
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 3
+							},
+							"title": {
+								"type": "string"
+							},
+							"body": {
+								"type": "string"
+							},
+							"assignee": {
+								"type": "string"
+							},
+							"blocked_on": {
+								"type": ["string", "null"]
+							},
+							"verification_status": {
+								"enum": ["unverified", "verified", "rejected"]
+							},
+							"rank": {
+								"type": "number"
+							},
+							"up_next": {
+								"type": "boolean"
+							}
+						}
+					},
+					"lease": {
+						"type": "object",
+						"required": ["fence", "claim_token"],
+						"properties": {
+							"fence": {
+								"type": "integer"
+							},
+							"claim_token": {
+								"type": "string"
+							}
+						},
+						"additionalProperties": false,
+						"description": "REQUIRED for agent callers on lease-guarded transitions (out of doing: review|blocked|done). Tracker rejects stale fence (stale_fence) and wrong holder (not_lease_holder). NEVER supplied by browsers."
+					},
+					"force": {
+						"type": "boolean",
+						"default": false,
+						"description": "Human principals (tier owner|moderator) may force a transition without holding the lease; audited; tracker clears the lease + increments fence."
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "status/priority/blockers/verification transitions; store guards illegal transitions (illegal_transition); verify = verification_status:verified + status:done in ONE call (the store cascades); reject = verification_status:rejected + status:todo + lease cleared",
+			"emits": ["task.transitioned"],
+			"lineage": "tracker updateTask + queue-lease fence rules",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "task.close",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["project:${target.project_id}", "fleet"]
+			},
+			"executor": "tracker",
+			"args": {
+				"type": "object",
+				"required": ["id", "status"],
+				"properties": {
+					"id": {
+						"type": "integer"
+					},
+					"status": {
+						"enum": ["done", "dropped"]
+					},
+					"lease": {
+						"type": "object",
+						"required": ["fence", "claim_token"],
+						"properties": {
+							"fence": {
+								"type": "integer"
+							},
+							"claim_token": {
+								"type": "string"
+							}
+						},
+						"additionalProperties": false
+					},
+					"force": {
+						"type": "boolean",
+						"default": false
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "close with reason (why-ledger); same lease/force rules as task.update",
+			"emits": ["task.closed"],
+			"requires_reason": true,
+			"lineage": "tracker closeTask",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "task.dispatch",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${recipient}", "fleet"]
+			},
+			"executor": "dispatcher",
+			"args": {
+				"type": "object",
+				"required": ["body"],
+				"properties": {
+					"task_id": {
+						"type": "integer"
+					},
+					"recipient": {
+						"type": "string"
+					},
+					"body": {
+						"type": "string",
+						"maxLength": 65536
+					},
+					"priority": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 3
+					},
+					"needs": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					},
+					"interrupt_policy": {
+						"enum": ["defer", "principal_command", "safety", "task_clarification"],
+						"default": "defer"
+					},
+					"thread": {
+						"type": "string"
+					},
+					"requires_reply": {
+						"type": "boolean"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "files/loads tracker task, posts task-card; sender_class stamped from the Principal (never honored from args); interrupt policy enforced dispatcher-side (spoofed principal_command demotes to defer); absent recipient = pool card, authorized via the fleet entry (the agent:${recipient} entry is skipped when unresolvable)",
+			"emits": ["card.posted"],
+			"lineage": "dispatcher dispatch()",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "agent.start",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "manager",
+			"args": {
+				"type": "object",
+				"required": ["handle"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "start the supervised session; ASYNC: result status=accepted, completion via agent.lifecycle emission carrying the op id",
+			"emits": ["agent.lifecycle"],
+			"lineage": "Matrix !start",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "agent.stop",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "manager",
+			"args": {
+				"type": "object",
+				"required": ["handle"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "stop the supervised session; ASYNC as agent.start",
+			"emits": ["agent.lifecycle"],
+			"lineage": "Matrix !stop",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "agent.restart",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "manager",
+			"args": {
+				"type": "object",
+				"required": ["handle"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "restart; allowed on stale target state (recovery gates on manager liveness; confirm notes staleness); ASYNC as agent.start",
+			"emits": ["agent.lifecycle"],
+			"confirm": "soft",
+			"lineage": "Matrix !restart",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "agent.kill_session",
+			"lane": "admin",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "manager",
+			"args": {
+				"type": "object",
+				"required": ["handle", "confirm_name"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					},
+					"confirm_name": {
+						"type": "string",
+						"description": "must equal handle (compared post-normalization per Rule 4)"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "mint a fresh session id \u2014 truly new conversation; destructive; ASYNC",
+			"emits": ["agent.lifecycle"],
+			"destructive": true,
+			"confirm": "typed-name",
+			"lineage": "Matrix !kill session",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "agent.autonomy",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "tracker",
+			"args": {
+				"type": "object",
+				"required": ["handle", "autonomy"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					},
+					"autonomy": {
+						"enum": ["auto", "ask", "readonly", "paused"]
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "set roster autonomy",
+			"emits": ["agent.autonomy_changed"],
+			"lineage": "tasks.db agents.autonomy",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "governance.action",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "control-plane",
+			"args": {
+				"type": "object",
+				"required": ["handle", "action"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					},
+					"action": {
+						"enum": ["pause", "throttle", "downgrade", "restore"]
+					},
+					"delay_ms": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 600000
+					},
+					"to": {
+						"enum": ["haiku", "sonnet", "opus"]
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "manual governance override; edge-triggered like autonomous actions; ASYNC (accepted -> governance.action emission)",
+			"emits": ["governance.action"],
+			"lineage": "governance.action spool envelope",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "governance.tier",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "control-plane",
+			"args": {
+				"type": "object",
+				"required": ["handle", "tier"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					},
+					"tier": {
+						"enum": ["haiku", "sonnet", "opus"]
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "pin model tier (manager applies via model_override_path); ASYNC",
+			"emits": ["governance.action"],
+			"lineage": "model override file",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "fleet.mode",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "control-plane",
+			"args": {
+				"type": "object",
+				"required": ["mode"],
+				"properties": {
+					"mode": {
+						"enum": ["parallel", "sequential"]
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "fleet-wide mode broadcast; cascade auto-engages, this is the manual path; ASYNC",
+			"emits": ["fleet.mode"],
+			"confirm": "soft",
+			"lineage": "fleet.mode broadcast envelope",
+			"testable": "live-canary",
+			"phase": 1
+		},
+		{
+			"op": "channel.reclaim",
+			"lane": "admin",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "manager",
+			"args": {
+				"type": "object",
+				"required": ["handle"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "NEW: resolve channel_lock lockout. Semantics: the op targets the RIGHTFUL manager (the one holding heartbeat ownership for the handle); it re-asserts the single-owner lock and fences the contender out (contender's sends are already forbidden in lockout per N0.1; this op forces the contender's release + re-acquire). If the contender is on another host, its own manager receives a stand-down envelope. ASYNC; completion via channel.lock_changed",
+			"emits": ["channel.lock_changed"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "signal.snooze",
+			"lane": "viewer",
+			"authz": {
+				"rule": "self"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["type_pattern"],
+				"properties": {
+					"type_pattern": {
+						"type": "string",
+						"description": "glob over emission type \u2014 the thing being muted (per-caller mute, not global)"
+					},
+					"duration_s": {
+						"type": "integer",
+						"minimum": 60,
+						"maximum": 86400,
+						"default": 3600
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "timed per-user mute (Quiet 1h), auto-expires, visibly listed; storm auto-mute uses this attributed to system:bus",
+			"emits": ["signal.snoozed"],
+			"undo": true,
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "subscription.set",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own_or_grant",
+				"relation": "operator",
+				"scope_any": ["user:${target.owner}"]
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["pattern", "tier"],
+				"properties": {
+					"pattern": {
+						"type": "string"
+					},
+					"tier": {
+						"enum": ["feed", "digest", "interrupt"]
+					},
+					"loud": {
+						"type": "boolean",
+						"default": false
+					},
+					"note": {
+						"type": "string",
+						"maxLength": 500
+					},
+					"owner": {
+						"type": "string",
+						"description": "defaults to caller; setting another owner requires the grant path"
+					},
+					"window": {
+						"type": "string",
+						"pattern": "^([0-9]{2}:[0-9]{2}|[0-9]+[mh])$",
+						"description": "digest window: a daily HH:MM or an interval (30m, 4h); default 18:00"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "upsert standing subscription; interrupt tier only accepted where the pattern's severity floor can reach p0/safety/principal-command (else error interrupt_ineligible)",
+			"emits": ["subscription.changed"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "subscription.remove",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own_or_grant",
+				"relation": "operator",
+				"scope_any": ["user:${target.owner}"]
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["pattern"],
+				"properties": {
+					"pattern": {
+						"type": "string"
+					},
+					"owner": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "remove standing subscription",
+			"emits": ["subscription.changed"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "card.repost",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${target.recipient}", "fleet"]
+			},
+			"executor": "dispatcher",
+			"args": {
+				"type": "object",
+				"required": ["card_id"],
+				"properties": {
+					"card_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "dead-letter triage: repost to the board (fresh fence)",
+			"emits": ["card.posted"],
+			"lineage": "board.post",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "card.park",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["agent:${target.recipient}", "fleet"]
+			},
+			"executor": "dispatcher",
+			"args": {
+				"type": "object",
+				"required": ["card_id"],
+				"properties": {
+					"card_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "park until capacity/wake",
+			"emits": ["card.parked"],
+			"lineage": "board.park",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "stats.query",
+			"lane": "viewer",
+			"authz": {
+				"rule": "read"
+			},
+			"executor": "console-api",
+			"args": {
+				"$ref": "schemas/query-request.schema.json"
+			},
+			"effect": "tool-surface alias of POST /api/v1/query; read as-user; returns query_ref; no audit emission (read op). SQL mode additionally requires lane operator",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "viz.render",
+			"lane": "viewer",
+			"authz": {
+				"rule": "read"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["panel"],
+				"properties": {
+					"panel": {
+						"$ref": "schemas/panel-spec-v2.schema.json"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "validate + register a panel spec (render is client-side; this pins provenance)",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "text.surface",
+			"lane": "viewer",
+			"authz": {
+				"rule": "read"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["prose"],
+				"properties": {
+					"prose": {
+						"type": "string",
+						"maxLength": 65536
+					},
+					"bindings": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"required": ["query_ref", "column"],
+							"properties": {
+								"query_ref": {
+									"type": "string"
+								},
+								"column": {
+									"type": "string"
+								},
+								"agg": {
+									"type": "string"
+								}
+							},
+							"additionalProperties": false
+						}
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "text panel with live proved inline stats",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "window.arrange",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own_or_grant",
+				"relation": "editor",
+				"scope_any": ["item:${dashboard_id}"]
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["dashboard_id", "ops"],
+				"properties": {
+					"dashboard_id": {
+						"type": "string"
+					},
+					"ops": {
+						"type": "array",
+						"maxItems": 100,
+						"items": {
+							"type": "object",
+							"required": ["verb"],
+							"properties": {
+								"verb": {
+									"enum": ["place", "size", "group", "highlight", "clear", "pin"]
+								},
+								"panel_index": {
+									"type": "integer"
+								},
+								"layout": {
+									"type": "object"
+								}
+							},
+							"additionalProperties": true
+						}
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "layout mutations as data on the 12-col grid model",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "dashboard.save",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own"
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["title", "panels"],
+				"properties": {
+					"title": {
+						"type": "string",
+						"maxLength": 200
+					},
+					"layout": {
+						"type": "object"
+					},
+					"panels": {
+						"type": "array",
+						"maxItems": 60,
+						"items": {
+							"$ref": "schemas/panel-spec-v2.schema.json"
+						}
+					},
+					"branch": {
+						"type": "object",
+						"description": "investigation lineage: parent_dashboard_id, parent_question, filters, selected_mark, assumptions"
+					},
+					"time": {
+						"type": "object",
+						"properties": {
+							"from": {
+								"type": "string"
+							},
+							"to": {
+								"type": ["string", "null"]
+							},
+							"refresh_s": {
+								"type": ["integer", "null"]
+							}
+						}
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "dashboard = Library item (kind artifact; Phase 1 ships the minimal items table this rides on)",
+			"emits": ["library.item.added"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "dashboard.load",
+			"lane": "viewer",
+			"authz": {
+				"rule": "read"
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "read; shared dashboards re-run queries AS the viewer (scope refusal is per-panel); no audit emission (read op)",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "dashboard.set_home",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own"
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "pin as the per-user home (is_home flips in the /dashboards projection)",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "dashboard.pin",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own"
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["panel"],
+				"properties": {
+					"panel": {
+						"$ref": "schemas/panel-spec-v2.schema.json"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "add a panel to the caller's home dashboard",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "dashboard.delete",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own_or_grant",
+				"relation": "owner",
+				"scope_any": ["user:${target.owner}"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "delete a saved dashboard (own dashboards; soft confirm \u2014 dashboards are cheap, unlike library item.delete)",
+			"emits": ["library.item.deleted"],
+			"confirm": "soft",
+			"undo": true,
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "dashboard.share",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own"
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id", "subject"],
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"subject": {
+						"type": "string",
+						"description": "principal or tier:<name>"
+					},
+					"relation": {
+						"enum": ["viewer", "editor"],
+						"default": "viewer"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "grant view/edit on a dashboard within the sharer's scope (a scope-grant on the item; viewers' panels still re-run as-viewer)",
+			"emits": ["grant.changed"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "context.receive",
+			"lane": "viewer",
+			"authz": {
+				"rule": "self"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["payload"],
+				"properties": {
+					"payload": {
+						"type": "object",
+						"required": ["element_kind", "value"],
+						"properties": {
+							"element_kind": {
+								"type": "string"
+							},
+							"field": {
+								"type": "string"
+							},
+							"value": {},
+							"datum": {
+								"type": "object"
+							},
+							"query_ref": {
+								"type": "string"
+							},
+							"entity_ref": {
+								"type": "string"
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "clicked context -> most recent chat message of the caller's assistant session (SelectedMark-complete: field+value+datum)",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 5
+		},
+		{
+			"op": "kb.search",
+			"lane": "viewer",
+			"authz": {
+				"rule": "read"
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["q"],
+				"properties": {
+					"q": {
+						"type": "string",
+						"maxLength": 2000
+					},
+					"kinds": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					},
+					"limit": {
+						"type": "integer",
+						"maximum": 100,
+						"default": 20
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "hybrid BM25+dense+RRF, scope-filtered below the ranker, why-matched returned; no audit emission (read op)",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "kb.research",
+			"lane": "editor",
+			"authz": {
+				"rule": "read"
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["query"],
+				"properties": {
+					"query": {
+						"type": "string",
+						"maxLength": 4000
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "sole-egress research: check-before-web, write-back via consolidation gate; rate-limited per caller (query bodies leave the perimeter \u2014 logged) (egress gated: lane editor+, not plain viewer)",
+			"emits": ["library.research"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "library.item.create",
+			"lane": "editor",
+			"authz": {
+				"rule": "grant",
+				"relation": "editor",
+				"scope_any": ["${item.scope}"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["item"],
+				"properties": {
+					"item": {
+						"type": "object",
+						"required": ["kind", "title", "scope"],
+						"additionalProperties": true
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "create item in a scope the caller can edit",
+			"emits": ["library.item.added"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "library.item.update",
+			"lane": "editor",
+			"authz": {
+				"rule": "grant",
+				"relation": "editor",
+				"scope_any": ["item:${id}"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id", "patch"],
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"patch": {
+						"type": "object"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "update; prose merges CRDT; status via MV-Register (CONFLICT surfaces, never silent LWW)",
+			"emits": ["library.item.changed"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "library.link.add",
+			"lane": "editor",
+			"authz": {
+				"rule": "grant",
+				"relation": "editor",
+				"scope_any": ["item:${from_id}"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["from_id", "to_id", "rel_type"],
+				"properties": {
+					"from_id": {
+						"type": "string"
+					},
+					"to_id": {
+						"type": "string"
+					},
+					"rel_type": {
+						"enum": ["belongs-to", "supersedes", "derived-from", "duplicate-of", "references"]
+					},
+					"reason": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "grow-only typed link; requires viewer on to_id (a foreign supersedes/duplicate-of cannot distort a target you cannot see)",
+			"emits": ["library.link.added"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "library.hold",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["user:${for_user}", "fleet"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["item_id", "for_user"],
+				"properties": {
+					"item_id": {
+						"type": "string"
+					},
+					"for_user": {
+						"type": "string"
+					},
+					"reason": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "held-shelf: hold an item aside for a user",
+			"emits": ["library.held"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "curation.propose",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["item:${item_id}", "fleet"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["type", "item_id", "reason"],
+				"properties": {
+					"type": {
+						"enum": ["weed", "merge", "dedup", "retire", "follow-up"]
+					},
+					"item_id": {
+						"type": "string"
+					},
+					"reason": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "reviewable curation proposal with blast radius",
+			"emits": ["curation.proposed"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "curation.approve",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["item:${target.item_id}", "fleet"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["proposal_id"],
+				"properties": {
+					"proposal_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "apply proposal (human-gated: requires owner relation, held by humans)",
+			"emits": ["curation.applied"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "curation.reject",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["item:${target.item_id}", "fleet"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["proposal_id"],
+				"properties": {
+					"proposal_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "reject with note",
+			"emits": ["curation.rejected"],
+			"requires_reason": true,
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "item.weed",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["item:${id}", "fleet"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "invalidate (reversible)",
+			"emits": ["library.item.changed"],
+			"undo": true,
+			"requires_reason": true,
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "item.merge",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["item:${id}", "fleet"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id", "into_id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"into_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "forward supersede, idempotent",
+			"emits": ["library.item.changed"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "item.delete",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["item:${id}"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id", "confirm_name"],
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"confirm_name": {
+						"type": "string",
+						"description": "(compared post-normalization per Rule 4)"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "rare, human-gated (owner relation, human principals); never offered to agents",
+			"emits": ["library.item.deleted"],
+			"destructive": true,
+			"confirm": "typed-name",
+			"requires_reason": true,
+			"human_only": true,
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "promotion.request",
+			"lane": "viewer",
+			"authz": {
+				"rule": "own"
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["id"],
+				"properties": {
+					"id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "personal-draft -> verified-shared request",
+			"emits": ["promotion.requested"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "promotion.approve",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "library",
+			"args": {
+				"type": "object",
+				"required": ["request_id"],
+				"properties": {
+					"request_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "approve promotion",
+			"emits": ["promotion.approved"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "service.restart",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "box-agent",
+			"args": {
+				"type": "object",
+				"required": ["host", "service"],
+				"properties": {
+					"host": {
+						"type": "string"
+					},
+					"service": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "restart a container/service on the host; ASYNC (accepted -> service.lifecycle)",
+			"emits": ["service.lifecycle"],
+			"confirm": "soft",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "service.stop",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "box-agent",
+			"args": {
+				"type": "object",
+				"required": ["host", "service", "confirm_name"],
+				"properties": {
+					"host": {
+						"type": "string"
+					},
+					"service": {
+						"type": "string"
+					},
+					"confirm_name": {
+						"type": "string",
+						"description": "must equal service (compared post-normalization per Rule 4)"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "stop a service; destructive; ASYNC",
+			"emits": ["service.lifecycle"],
+			"destructive": true,
+			"confirm": "typed-name",
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "service.logs",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "box-agent",
+			"args": {
+				"type": "object",
+				"required": ["host", "service"],
+				"properties": {
+					"host": {
+						"type": "string"
+					},
+					"service": {
+						"type": "string"
+					},
+					"lines": {
+						"type": "integer",
+						"maximum": 2000,
+						"default": 200
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "BOUNDED log snapshot in the result payload (P0). Live streaming is carved out with the term.* frame contract (\u00a711); no audit emission (read op); the Rule-6 secret scrubber/redaction applies to the returned log snapshot",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "host.probe",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "probe-runner",
+			"args": {
+				"type": "object",
+				"required": ["target"],
+				"properties": {
+					"target": {
+						"type": "string",
+						"description": "MUST be a registered probe target (service in the probe registry) \u2014 arbitrary URLs/IPs rejected (ssrf_rejected); no user-supplied network destinations"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "re-check availability now",
+			"emits": ["probe.result"],
+			"testable": "disposable",
+			"phase": 2
+		},
+		{
+			"op": "host.reboot",
+			"lane": "admin",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "box-agent",
+			"args": {
+				"type": "object",
+				"required": ["box_id", "confirm_name"],
+				"properties": {
+					"box_id": {
+						"type": "string"
+					},
+					"confirm_name": {
+						"type": "string",
+						"description": "must equal box_id (compared post-normalization per Rule 4)"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "reboot the box; destructive; ASYNC",
+			"emits": ["host.lifecycle"],
+			"destructive": true,
+			"confirm": "typed-name",
+			"testable": "dry-run-only",
+			"phase": 1
+		},
+		{
+			"op": "updates.check",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "box-agent",
+			"args": {
+				"type": "object",
+				"required": ["box_id"],
+				"properties": {
+					"box_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "collector re-check now; ASYNC",
+			"emits": ["box.update_status_changed"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "updates.approve",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["box_id"],
+				"properties": {
+					"box_id": {
+						"type": "string"
+					},
+					"packages": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "staged-approval: record approval (console-api is the approval ledger); apply is separate; undo = revoke approval before apply",
+			"emits": ["updates.approved"],
+			"undo": true,
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "updates.apply",
+			"lane": "operator",
+			"authz": {
+				"rule": "grant",
+				"relation": "operator",
+				"scope_any": ["fleet"]
+			},
+			"executor": "box-agent",
+			"args": {
+				"type": "object",
+				"required": ["box_id"],
+				"properties": {
+					"box_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "apply approved updates; availability = apply_mode x agent_vs_agentless x executor liveness (agentless boxes: op never exists -> caption, not disabled); ASYNC",
+			"emits": ["box.update_status_changed"],
+			"confirm": "soft",
+			"testable": "dry-run-only",
+			"phase": 1
+		},
+		{
+			"op": "edge.enroll.approve",
+			"lane": "admin",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "control-plane",
+			"args": {
+				"type": "object",
+				"required": ["pubkey_fp", "handle"],
+				"properties": {
+					"pubkey_fp": {
+						"type": "string"
+					},
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "Key Ceremony approve: TokenAuthority mints the enrollment binding (gating executor = control-plane; the edge is notified as a hop); closes the enrollment gap",
+			"emits": ["edge.enrolled"],
+			"testable": "dry-run-only",
+			"phase": 1
+		},
+		{
+			"op": "edge.enroll.deny",
+			"lane": "admin",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "edge",
+			"args": {
+				"type": "object",
+				"required": ["pubkey_fp"],
+				"properties": {
+					"pubkey_fp": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "deny pending enrollment",
+			"emits": ["edge.enroll_denied"],
+			"requires_reason": true,
+			"testable": "dry-run-only",
+			"phase": 1
+		},
+		{
+			"op": "edge.key.revoke",
+			"lane": "admin",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "edge",
+			"args": {
+				"type": "object",
+				"required": ["pubkey_fp", "confirm_name"],
+				"properties": {
+					"pubkey_fp": {
+						"type": "string"
+					},
+					"confirm_name": {
+						"type": "string",
+						"description": "must equal the enrolled handle (compared post-normalization per Rule 4)"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "revoke enrolled key; sessions drop; destructive",
+			"emits": ["edge.key_revoked"],
+			"destructive": true,
+			"confirm": "typed-name",
+			"requires_reason": true,
+			"testable": "dry-run-only",
+			"phase": 1
+		},
+		{
+			"op": "doorman.session.drop",
+			"lane": "admin",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "edge",
+			"args": {
+				"type": "object",
+				"required": ["session_id"],
+				"properties": {
+					"session_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "drop a live session; ASYNC",
+			"emits": ["doorman.session.closed"],
+			"confirm": "soft",
+			"testable": "dry-run-only",
+			"phase": 1
+		},
+		{
+			"op": "doorman.redial",
+			"lane": "admin",
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["agent:${handle}", "fleet"]
+			},
+			"executor": "manager",
+			"args": {
+				"type": "object",
+				"required": ["handle"],
+				"properties": {
+					"handle": {
+						"type": "string",
+						"pattern": "^[a-z0-9][a-z0-9._-]*$"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "ask the agent's manager to redial; rides the Matrix floor when the tunnel is down; ASYNC",
+			"emits": ["doorman.redial"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "term.watch",
+			"lane": "term_admin",
+			"human_only": true,
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "pty",
+			"args": {
+				"type": "object",
+				"required": ["host", "tmux_session", "pane_id"],
+				"properties": {
+					"host": {
+						"type": "string"
+					},
+					"tmux_session": {
+						"type": "string"
+					},
+					"pane_id": {
+						"type": "string"
+					},
+					"scrollback_lines": {
+						"type": "integer",
+						"maximum": 10000,
+						"default": 500
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "open read stream (concurrent streams capped); audit line commits BEFORE first frame or the stream never opens; stream torn down immediately on lane/grant revocation",
+			"emits": ["term.session"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "term.attach",
+			"lane": "term_admin",
+			"human_only": true,
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "pty",
+			"args": {
+				"type": "object",
+				"required": ["stream_id"],
+				"properties": {
+					"stream_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "escalate to write mode (entry-by-consent); stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
+			"emits": ["term.session"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "term.input",
+			"lane": "term_admin",
+			"human_only": true,
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "pty",
+			"args": {
+				"type": "object",
+				"required": ["stream_id", "seq", "data_b64"],
+				"properties": {
+					"stream_id": {
+						"type": "string"
+					},
+					"seq": {
+						"type": "integer"
+					},
+					"data_b64": {
+						"type": "string",
+						"maxLength": 65536
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "keystrokes; input stored as sealed blobs (opening is itself audited, 90d retention); the request envelope is EXCLUDED from access logs and console.api.* self-emissions; stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "term.resize",
+			"lane": "term_admin",
+			"human_only": true,
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "pty",
+			"args": {
+				"type": "object",
+				"required": ["stream_id", "cols", "rows"],
+				"properties": {
+					"stream_id": {
+						"type": "string"
+					},
+					"cols": {
+						"type": "integer"
+					},
+					"rows": {
+						"type": "integer"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "resize; stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "term.scrollback",
+			"lane": "term_admin",
+			"human_only": true,
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "pty",
+			"args": {
+				"type": "object",
+				"required": ["stream_id", "lines"],
+				"properties": {
+					"stream_id": {
+						"type": "string"
+					},
+					"lines": {
+						"type": "integer",
+						"maximum": 10000
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "fetch scrollback; no audit emission (read op within an audited stream); stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "term.detach",
+			"lane": "term_admin",
+			"human_only": true,
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["fleet"]
+			},
+			"executor": "pty",
+			"args": {
+				"type": "object",
+				"required": ["stream_id"],
+				"properties": {
+					"stream_id": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "close stream; stream ops are valid ONLY for the principal that opened the stream (cross-principal use = a new audited term.watch)",
+			"emits": ["term.session"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "delivery.test",
+			"lane": "viewer",
+			"authz": {
+				"rule": "self"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"properties": {},
+				"additionalProperties": false
+			},
+			"effect": "send vetted test body via Matrix; rate-capped (3/hour); result renders the receipt honestly",
+			"emits": ["delivery.receipt"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "delivery.set_target",
+			"lane": "viewer",
+			"authz": {
+				"rule": "self"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["channel", "target"],
+				"properties": {
+					"channel": {
+						"const": "matrix"
+					},
+					"target": {
+						"type": "string",
+						"description": "MUST be an address provably bound to the owner: the owner's own Matrix id, or a room the owner's verified Matrix id is joined to (checked at set time + on delivery). Arbitrary rooms rejected (target_not_owned) \u2014 interrupt-tier signals carry user-scoped data"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "set + auto-test; verified flips only on a delivered receipt; receipts scoped user:<owner>",
+			"emits": ["delivery.receipt"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "delivery.resend",
+			"lane": "viewer",
+			"authz": {
+				"rule": "self"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["receipt_ref"],
+				"properties": {
+					"receipt_ref": {
+						"type": "string",
+						"description": "seq of the failed delivery.receipt emission"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "re-deliver a failed delivery (only where the receipt marks retryable); an op with an audit line like any other; the receipt at receipt_ref MUST be scoped user:<caller> (foreign receipt refs -> scope_denied; seq guessing yields nothing)",
+			"emits": ["delivery.receipt"],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
+			"op": "delivery.cocoon",
+			"lane": "viewer",
+			"authz": {
+				"rule": "self"
+			},
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["until"],
+				"properties": {
+					"until": {
+						"type": "string",
+						"format": "date-time"
+					}
+				},
+				"additionalProperties": false
+			},
+			"effect": "quiet hours; echoed as cocoon_until in the /delivery read; severity p0 + interrupt_policy safety ALWAYS pass (enforced at dispatch)",
+			"emits": ["delivery.cocoon_changed"],
+			"undo": true,
+			"testable": "disposable",
+			"phase": 1
+		}
+	]
 }

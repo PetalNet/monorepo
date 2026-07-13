@@ -1,282 +1,224 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://petalcat.dev/schemas/console/bus-frame.schema.json",
-  "title": "Bus WebSocket frames (WS /api/v1/bus/ws)",
-  "description": "Every frame carries schema_version. Client->server: subscribe|unsubscribe. Server->client: ack|event|heartbeat|gap|resync_required. Ordering + resume protocol: seq is assigned by ONE serialized appender in durable-commit order; fan-out happens only AFTER commit, in seq order. `since` is EXCLUSIVE (first delivered event has seq > since). On subscribe with `since`, the server replays matching events with seq <= replay_through_seq (from the ack), then switches to live; the boundary is exact, no duplicates, no gaps within the subscription. Global seq gaps in a filtered stream are NORMAL (events outside your pattern/scope) and must not be treated as loss. Duplicates cannot occur within one subscription; across reconnects the client's own since discipline dedups. Consumers MUST ignore unknown fields on server frames.",
-  "oneOf": [
-    {
-      "$ref": "#/$defs/subscribe"
-    },
-    {
-      "$ref": "#/$defs/unsubscribe"
-    },
-    {
-      "$ref": "#/$defs/ack"
-    },
-    {
-      "$ref": "#/$defs/event"
-    },
-    {
-      "$ref": "#/$defs/heartbeat"
-    },
-    {
-      "$ref": "#/$defs/gap"
-    },
-    {
-      "$ref": "#/$defs/resync"
-    }
-  ],
-  "$defs": {
-    "filter": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "severity_gte": {
-          "enum": [
-            "debug",
-            "info",
-            "warn",
-            "danger",
-            "p0"
-          ]
-        },
-        "source_service": {
-          "type": "string"
-        },
-        "subject": {
-          "type": "string"
-        }
-      },
-      "description": "One filter shape everywhere (ephemeral WS subs and standing subscriptions)."
-    },
-    "subscribe": {
-      "type": "object",
-      "required": [
-        "schema_version",
-        "action",
-        "sub_id",
-        "pattern"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "action": {
-          "const": "subscribe"
-        },
-        "sub_id": {
-          "type": "string",
-          "maxLength": 64
-        },
-        "pattern": {
-          "type": "string",
-          "description": "Glob over emission type. Semantics: dot-segment aware; `*` matches within one segment, `**` (or a trailing `.*`) matches across segments \u2014 `doorman.*` matches doorman.link and doorman.link.flap (trailing-glob convenience); `*.flap` matches any single-segment prefix."
-        },
-        "filter": {
-          "$ref": "#/$defs/filter"
-        },
-        "since": {
-          "type": "integer",
-          "description": "EXCLUSIVE lake seq to resume after. Omit for live-only."
-        }
-      }
-    },
-    "unsubscribe": {
-      "type": "object",
-      "required": [
-        "schema_version",
-        "action",
-        "sub_id"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "action": {
-          "const": "unsubscribe"
-        },
-        "sub_id": {
-          "type": "string"
-        }
-      }
-    },
-    "ack": {
-      "type": "object",
-      "required": [
-        "schema_version",
-        "kind",
-        "sub_id",
-        "replay_through_seq"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "kind": {
-          "const": "ack"
-        },
-        "sub_id": {
-          "type": "string"
-        },
-        "replay_through_seq": {
-          "type": "integer",
-          "description": "Replayed events have seq <= this; live events have seq > this. The exact replay/live boundary."
-        },
-        "error": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "required": [
-            "code",
-            "message",
-            "retryable"
-          ],
-          "properties": {
-            "code": {
-              "type": "string",
-              "pattern": "^[a-z0-9_]+$"
-            },
-            "message": {
-              "type": "string"
-            },
-            "retryable": {
-              "type": "boolean"
-            }
-          },
-          "description": "Subscribe rejection (pattern_invalid | since_below_retention | scope_denied ...); on error the subscription is not active."
-        }
-      }
-    },
-    "event": {
-      "type": "object",
-      "required": [
-        "schema_version",
-        "kind",
-        "sub_id",
-        "seq",
-        "emission"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "kind": {
-          "const": "event"
-        },
-        "sub_id": {
-          "type": "string"
-        },
-        "seq": {
-          "type": "integer"
-        },
-        "emission": {
-          "$ref": "emission.schema.json"
-        }
-      }
-    },
-    "heartbeat": {
-      "type": "object",
-      "required": [
-        "schema_version",
-        "kind",
-        "ts",
-        "seq_head"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "kind": {
-          "const": "heartbeat"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "seq_head": {
-          "type": "integer",
-          "description": "Global committed head. Disclosure of cross-scope event volume is accepted at lab scale (single-org trust); revisit if the console leaves the LAN."
-        },
-        "ingest": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": {
-            "type": "number"
-          },
-          "description": "bridge source -> lag seconds; the liveness evidence that the WORLD is flowing, not just the socket. 'Everything is fine' requires this fresh, not just the frame."
-        }
-      }
-    },
-    "gap": {
-      "type": "object",
-      "required": [
-        "schema_version",
-        "kind",
-        "sub_id",
-        "from_seq",
-        "to_seq",
-        "reason"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "kind": {
-          "const": "gap"
-        },
-        "sub_id": {
-          "type": "string"
-        },
-        "from_seq": {
-          "type": "integer"
-        },
-        "to_seq": {
-          "type": "integer"
-        },
-        "reason": {
-          "enum": [
-            "backpressure",
-            "server_restart"
-          ],
-          "description": "Slow-consumer overflow: the bounded per-subscriber queue dropped events in (from_seq, to_seq]; the client heals by re-subscribing with since=from_seq. Honest loss signaling, never silent."
-        }
-      }
-    },
-    "resync": {
-      "type": "object",
-      "required": [
-        "schema_version",
-        "kind",
-        "oldest_seq"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "kind": {
-          "const": "resync_required"
-        },
-        "sub_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "oldest_seq": {
-          "type": "integer",
-          "description": "Requested since is below the retention horizon; re-read state from the query plane, then subscribe with since >= oldest_seq."
-        }
-      }
-    }
-  }
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/bus-frame.schema.json",
+	"title": "Bus WebSocket frames (WS /api/v1/bus/ws)",
+	"description": "Every frame carries schema_version. Client->server: subscribe|unsubscribe. Server->client: ack|event|heartbeat|gap|resync_required. Ordering + resume protocol: seq is assigned by ONE serialized appender in durable-commit order; fan-out happens only AFTER commit, in seq order. `since` is EXCLUSIVE (first delivered event has seq > since). On subscribe with `since`, the server replays matching events with seq <= replay_through_seq (from the ack), then switches to live; the boundary is exact, no duplicates, no gaps within the subscription. Global seq gaps in a filtered stream are NORMAL (events outside your pattern/scope) and must not be treated as loss. Duplicates cannot occur within one subscription; across reconnects the client's own since discipline dedups. Consumers MUST ignore unknown fields on server frames.",
+	"oneOf": [
+		{
+			"$ref": "#/$defs/subscribe"
+		},
+		{
+			"$ref": "#/$defs/unsubscribe"
+		},
+		{
+			"$ref": "#/$defs/ack"
+		},
+		{
+			"$ref": "#/$defs/event"
+		},
+		{
+			"$ref": "#/$defs/heartbeat"
+		},
+		{
+			"$ref": "#/$defs/gap"
+		},
+		{
+			"$ref": "#/$defs/resync"
+		}
+	],
+	"$defs": {
+		"filter": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"severity_gte": {
+					"enum": ["debug", "info", "warn", "danger", "p0"]
+				},
+				"source_service": {
+					"type": "string"
+				},
+				"subject": {
+					"type": "string"
+				}
+			},
+			"description": "One filter shape everywhere (ephemeral WS subs and standing subscriptions)."
+		},
+		"subscribe": {
+			"type": "object",
+			"required": ["schema_version", "action", "sub_id", "pattern"],
+			"additionalProperties": false,
+			"properties": {
+				"schema_version": {
+					"const": 1
+				},
+				"action": {
+					"const": "subscribe"
+				},
+				"sub_id": {
+					"type": "string",
+					"maxLength": 64
+				},
+				"pattern": {
+					"type": "string",
+					"description": "Glob over emission type. Semantics: dot-segment aware; `*` matches within one segment, `**` (or a trailing `.*`) matches across segments \u2014 `doorman.*` matches doorman.link and doorman.link.flap (trailing-glob convenience); `*.flap` matches any single-segment prefix."
+				},
+				"filter": {
+					"$ref": "#/$defs/filter"
+				},
+				"since": {
+					"type": "integer",
+					"description": "EXCLUSIVE lake seq to resume after. Omit for live-only."
+				}
+			}
+		},
+		"unsubscribe": {
+			"type": "object",
+			"required": ["schema_version", "action", "sub_id"],
+			"additionalProperties": false,
+			"properties": {
+				"schema_version": {
+					"const": 1
+				},
+				"action": {
+					"const": "unsubscribe"
+				},
+				"sub_id": {
+					"type": "string"
+				}
+			}
+		},
+		"ack": {
+			"type": "object",
+			"required": ["schema_version", "kind", "sub_id", "replay_through_seq"],
+			"additionalProperties": true,
+			"properties": {
+				"schema_version": {
+					"const": 1
+				},
+				"kind": {
+					"const": "ack"
+				},
+				"sub_id": {
+					"type": "string"
+				},
+				"replay_through_seq": {
+					"type": "integer",
+					"description": "Replayed events have seq <= this; live events have seq > this. The exact replay/live boundary."
+				},
+				"error": {
+					"type": ["object", "null"],
+					"required": ["code", "message", "retryable"],
+					"properties": {
+						"code": {
+							"type": "string",
+							"pattern": "^[a-z0-9_]+$"
+						},
+						"message": {
+							"type": "string"
+						},
+						"retryable": {
+							"type": "boolean"
+						}
+					},
+					"description": "Subscribe rejection (pattern_invalid | since_below_retention | scope_denied ...); on error the subscription is not active."
+				}
+			}
+		},
+		"event": {
+			"type": "object",
+			"required": ["schema_version", "kind", "sub_id", "seq", "emission"],
+			"additionalProperties": true,
+			"properties": {
+				"schema_version": {
+					"const": 1
+				},
+				"kind": {
+					"const": "event"
+				},
+				"sub_id": {
+					"type": "string"
+				},
+				"seq": {
+					"type": "integer"
+				},
+				"emission": {
+					"$ref": "emission.schema.json"
+				}
+			}
+		},
+		"heartbeat": {
+			"type": "object",
+			"required": ["schema_version", "kind", "ts", "seq_head"],
+			"additionalProperties": true,
+			"properties": {
+				"schema_version": {
+					"const": 1
+				},
+				"kind": {
+					"const": "heartbeat"
+				},
+				"ts": {
+					"type": "string",
+					"format": "date-time"
+				},
+				"seq_head": {
+					"type": "integer",
+					"description": "Global committed head. Disclosure of cross-scope event volume is accepted at lab scale (single-org trust); revisit if the console leaves the LAN."
+				},
+				"ingest": {
+					"type": ["object", "null"],
+					"additionalProperties": {
+						"type": "number"
+					},
+					"description": "bridge source -> lag seconds; the liveness evidence that the WORLD is flowing, not just the socket. 'Everything is fine' requires this fresh, not just the frame."
+				}
+			}
+		},
+		"gap": {
+			"type": "object",
+			"required": ["schema_version", "kind", "sub_id", "from_seq", "to_seq", "reason"],
+			"additionalProperties": true,
+			"properties": {
+				"schema_version": {
+					"const": 1
+				},
+				"kind": {
+					"const": "gap"
+				},
+				"sub_id": {
+					"type": "string"
+				},
+				"from_seq": {
+					"type": "integer"
+				},
+				"to_seq": {
+					"type": "integer"
+				},
+				"reason": {
+					"enum": ["backpressure", "server_restart"],
+					"description": "Slow-consumer overflow: the bounded per-subscriber queue dropped events in (from_seq, to_seq]; the client heals by re-subscribing with since=from_seq. Honest loss signaling, never silent."
+				}
+			}
+		},
+		"resync": {
+			"type": "object",
+			"required": ["schema_version", "kind", "oldest_seq"],
+			"additionalProperties": true,
+			"properties": {
+				"schema_version": {
+					"const": 1
+				},
+				"kind": {
+					"const": "resync_required"
+				},
+				"sub_id": {
+					"type": ["string", "null"]
+				},
+				"oldest_seq": {
+					"type": "integer",
+					"description": "Requested since is below the retention horizon; re-read state from the query plane, then subscribe with since >= oldest_seq."
+				}
+			}
+		}
+	}
 }

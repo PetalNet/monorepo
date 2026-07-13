@@ -1,34 +1,34 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://petalcat.dev/schemas/console/entities/registry.schema.json",
-  "title": "Capacity registry item (GET /registry)",
-  "description": "One agent's capacity row from the control plane's registry. As-built source of truth: the `capacity` table in apps/control-plane/src/registry.rs (columns handle, provides, free_slots, host, last_seen_epoch), fed by `agent.capacity` envelopes. Liveness is DERIVED by the consumer from last_seen_epoch staleness, never served as stored state: alive; suspect when age > 90s (SUSPECT_AFTER_SECS); down when age > 300s (DOWN_AFTER_SECS) — the same 90/300 constants the control plane's own routing uses. Consumers MUST ignore unknown fields.",
-  "type": "object",
-  "properties": {
-    "handle": {
-      "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]*$",
-      "description": "Canonical lowercase agent handle (registry primary key)."
-    },
-    "provides": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Capability tags this agent provides (stored as a JSON array; set semantics — order is not meaningful)."
-    },
-    "free_slots": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "How many more work items the agent reports it can take."
-    },
-    "host": {
-      "type": ["string", "null"],
-      "description": "Host label, canonical form ('.N' for lab dot-hosts); null when unreported."
-    },
-    "last_seen_epoch": {
-      "type": "integer",
-      "description": "Epoch seconds of the last capacity report. Consumers derive liveness from its age: alive / suspect >90s / down >300s."
-    }
-  },
-  "required": ["handle", "provides", "free_slots", "last_seen_epoch"],
-  "additionalProperties": true
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/registry.schema.json",
+	"title": "Capacity registry item (GET /registry)",
+	"description": "One agent's capacity row from the control plane's registry. As-built source of truth: the `capacity` table in apps/control-plane/src/registry.rs (columns handle, provides, free_slots, host, last_seen_epoch), fed by `agent.capacity` envelopes. Liveness is DERIVED by the consumer from last_seen_epoch staleness, never served as stored state: alive; suspect when age > 90s (SUSPECT_AFTER_SECS); down when age > 300s (DOWN_AFTER_SECS) — the same 90/300 constants the control plane's own routing uses. Consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"handle": {
+			"type": "string",
+			"pattern": "^[a-z0-9][a-z0-9._-]*$",
+			"description": "Canonical lowercase agent handle (registry primary key)."
+		},
+		"provides": {
+			"type": "array",
+			"items": { "type": "string" },
+			"description": "Capability tags this agent provides (stored as a JSON array; set semantics — order is not meaningful)."
+		},
+		"free_slots": {
+			"type": "integer",
+			"minimum": 0,
+			"description": "How many more work items the agent reports it can take."
+		},
+		"host": {
+			"type": ["string", "null"],
+			"description": "Host label, canonical form ('.N' for lab dot-hosts); null when unreported."
+		},
+		"last_seen_epoch": {
+			"type": "integer",
+			"description": "Epoch seconds of the last capacity report. Consumers derive liveness from its age: alive / suspect >90s / down >300s."
+		}
+	},
+	"required": ["handle", "provides", "free_slots", "last_seen_epoch"],
+	"additionalProperties": true
 }

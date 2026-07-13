@@ -1,16 +1,17 @@
 # Lab Console — Contract Surface (P0, board round 1 applied)
 
-_Branch `feat/console-p0-contracts` · console-backend Fable, 2026-07-12 · REVIEWABLE SPEC ONLY —
+\_Branch `feat/console-p0-contracts` · console-backend Fable, 2026-07-12 · REVIEWABLE SPEC ONLY —
 no service code in this node. This is the contract the console FRONTEND builds against and the
 work list the console-backend phases implement. Machine-readable schemas: [`schemas/`](schemas/)
-+ [`schemas/entities/`](schemas/entities/) (JSON Schema draft 2020-12; CI validates examples
-with ajv **format assertion ON** — `format` is enforced, not annotation). Board round 1
-(5 personas + codex) findings and resolutions: [DECISIONS-P0.md](../DECISIONS-P0.md).
-Grounded in: the console specs (`console-fable/specs/src/`, esp. `00-foundations` §6),
-WAYFINDER-DECISIONS.md, SYSTEM-MAP-as-built.md, the N0.1 contracts, GRAPHING-BACKEND-BRIEF.md._
+
+- [`schemas/entities/`](schemas/entities/) (JSON Schema draft 2020-12; CI validates examples
+  with ajv **format assertion ON** — `format` is enforced, not annotation). Board round 1
+  (5 personas + codex) findings and resolutions: [DECISIONS-P0.md](../DECISIONS-P0.md).
+  Grounded in: the console specs (`console-fable/specs/src/`, esp. `00-foundations` §6),
+  WAYFINDER-DECISIONS.md, SYSTEM-MAP-as-built.md, the N0.1 contracts, GRAPHING-BACKEND-BRIEF.md.\_
 
 The console binds to **four planes**. Where the UI specs and this document disagree, the specs'
-*requirements* win and this document has a bug; where this document and an implementation
+_requirements_ win and this document has a bug; where this document and an implementation
 disagree, this document wins and the implementation has a bug. UI-spec op-name drift is resolved
 in `ops.json.spec_name_aliases` (the catalog name is the wire name).
 
@@ -46,7 +47,7 @@ in `ops.json.spec_name_aliases` (the catalog name is the wire name).
 8. **Everything emits, everything lands** (/task/710). Every occurrence emits a typed event
    unconditionally AND persists as a queryable statistic. Bus = signals; lake = data.
    Anti-recursion: `console.api.*` self-instrumentation is exempt from self-instrumentation,
-   WS *deliveries* are not individually instrumented (per-subscriber counters aggregate), and
+   WS _deliveries_ are not individually instrumented (per-subscriber counters aggregate), and
    debug-severity self-emissions are sampled.
 9. **Named-op symmetry** (/task/683). Every mutation is a named op, identical for humans and
    agents, lane- AND target-authorized, audited. No op → no button.
@@ -60,12 +61,12 @@ in `ops.json.spec_name_aliases` (the catalog name is the wire name).
 
 ## 1. The four planes
 
-| Plane   | Contract | Transport | Today's shape it formalizes |
-| ------- | -------- | --------- | --------------------------- |
-| Query   | `stats.query` as-user + typed entity reads, freshness metadata | HTTPS JSON (`POST /api/v1/query`, `GET /api/v1/<entity>`) | tasks.db rows, heartbeat.json, `data/fleet/*.json`, dispatcher SQLite, capacity SQLite, box_update rows, term_audit |
-| Command | Named ops, 1:1 with UI actions, lane+target authorized, two-phase audited | HTTPS JSON (`POST /api/v1/op`) | Matrix `!commands`, spool envelopes, governance actions, token mint/rotate, tracker mutations |
-| Bus     | Scoped subscribe over typed signals; authorized unconditional emit | WebSocket (`/api/v1/bus/ws`, frames: `schemas/bus-frame.schema.json`) + HTTPS emit (`POST /api/v1/emit`) | fleet-event stream, backchannel-rpc events, dispatcher card lifecycle, the Matrix bot-spam this retires |
-| Library | Rev3 item + link API: hybrid search, typed links, provenance, curation | HTTPS JSON (`/api/v1/library/*`) | tasks / artifacts / feed_items / projects converging into the one store |
+| Plane   | Contract                                                                  | Transport                                                                                                | Today's shape it formalizes                                                                                         |
+| ------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Query   | `stats.query` as-user + typed entity reads, freshness metadata            | HTTPS JSON (`POST /api/v1/query`, `GET /api/v1/<entity>`)                                                | tasks.db rows, heartbeat.json, `data/fleet/*.json`, dispatcher SQLite, capacity SQLite, box_update rows, term_audit |
+| Command | Named ops, 1:1 with UI actions, lane+target authorized, two-phase audited | HTTPS JSON (`POST /api/v1/op`)                                                                           | Matrix `!commands`, spool envelopes, governance actions, token mint/rotate, tracker mutations                       |
+| Bus     | Scoped subscribe over typed signals; authorized unconditional emit        | WebSocket (`/api/v1/bus/ws`, frames: `schemas/bus-frame.schema.json`) + HTTPS emit (`POST /api/v1/emit`) | fleet-event stream, backchannel-rpc events, dispatcher card lifecycle, the Matrix bot-spam this retires             |
+| Library | Rev3 item + link API: hybrid search, typed links, provenance, curation    | HTTPS JSON (`/api/v1/library/*`)                                                                         | tasks / artifacts / feed_items / projects converging into the one store                                             |
 
 One service owns the surface: **`console-api`** (`apps/console-api`) — a gateway + substrate,
 not a re-implementation: commands route to their real executors, reads serve from the lake and
@@ -78,7 +79,7 @@ emergency path, and neither is this service pretending otherwise.
 - Base URL `https://console-api.petalcat.dev/api/v1` (LAN-only until the doorman enrollment
   gate lands).
 - JSON; errors everywhere are `{code (snake_case), message, retryable}` (backchannel-rpc).
-- `schema_version` rides every contracted JSON *body* (op envelopes, emissions, WS frames,
+- `schema_version` rides every contracted JSON _body_ (op envelopes, emissions, WS frames,
   read envelopes). Bare transport acknowledgements (`202 {seq}`, health) are pinned by their
   own schemas instead of carrying versions.
 - Idempotency: every mutating request carries client-minted `id` (UUID). Duplicate
@@ -94,11 +95,11 @@ emergency path, and neither is this service pretending otherwise.
 
 ### 1.2 Authentication + principal
 
-| Caller | Mechanism |
-| ------ | --------- |
-| Human (browser) | Authentik SSO via a **dedicated** console-api forwardAuth middleware: per-boot nonce, strip-set == authResponseHeaders, full assist-`auth.py` parity (reject extra/duplicate/underscore-folded/control-char `x-authentik-*` headers, canonicalize names). **Hard precondition:** the shared `:80` entrypoint's `forwardedHeaders.trustedIPs` gap is closed before console-api serves a single authenticated route — this surface carries `host.reboot` and `term.*`, not browser automation. |
-| Agent / service | `Authorization: Bearer <token>`. Vault keeps plaintext for re-issue (as-built CP4); console-api's *verification* table stores sha256 only. Revocation is checked **per request**, independent of the grant zookie; rotation grace is bounded and dual-validity audited. |
-| System (bridges, internal) | Same bearer path, `system:` subjects, distinct trusted producer registrations (§4.3). |
+| Caller                     | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Human (browser)            | Authentik SSO via a **dedicated** console-api forwardAuth middleware: per-boot nonce, strip-set == authResponseHeaders, full assist-`auth.py` parity (reject extra/duplicate/underscore-folded/control-char `x-authentik-*` headers, canonicalize names). **Hard precondition:** the shared `:80` entrypoint's `forwardedHeaders.trustedIPs` gap is closed before console-api serves a single authenticated route — this surface carries `host.reboot` and `term.*`, not browser automation. |
+| Agent / service            | `Authorization: Bearer <token>`. Vault keeps plaintext for re-issue (as-built CP4); console-api's _verification_ table stores sha256 only. Revocation is checked **per request**, independent of the grant zookie; rotation grace is bounded and dual-validity audited.                                                                                                                                                                                                                      |
+| System (bridges, internal) | Same bearer path, `system:` subjects, distinct trusted producer registrations (§4.3).                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 Every request resolves to a server-stamped **Principal** (`schemas/principal.schema.json`).
 `sender_class` derivation: `principal` requires `kind == human && tier ∈ {owner, moderator}`;
@@ -111,7 +112,7 @@ One emission shape serves both doctrines — signal (bus) and statistic (lake) a
 envelope (`schemas/emission.schema.json`, normative; see its field docs). Highlights:
 
 - **Per-field typing**: `meta.fields.<name> = {unit, kind: gauge|counter|delta|timestamp,
-  cardinality}` — the Phase-0 statistic-contract requirement that makes L2 auto-derivation
+cardinality}` — the Phase-0 statistic-contract requirement that makes L2 auto-derivation
   honest (aggregation validation consults `kind`; `sum` over a gauge is rejected).
 - **Edges baked at ingest**: `subject_kind` types the subject node; optional
   `links: [{rel, to: {kind, id}}]` materializes relationships with the statistic attached, so
@@ -123,7 +124,7 @@ envelope (`schemas/emission.schema.json`, normative; see its field docs). Highli
 - **Bounds**: envelope ≤16 KiB, ≤24 dimensions/measures, ≤16 links, batch ≤500 items.
 - **Severity** is first-class (`debug|info|warn|danger|p0`), producer-capped (§4.3). The
   dispatcher bridging map (priority 0→p0, 1→danger, 2→warn, 3→info; safety→p0; governance
-  red→danger, yellow→warn) affects severity display only — interrupt *eligibility* remains the
+  red→danger, yellow→warn) affects severity display only — interrupt _eligibility_ remains the
   dispatcher's LOCKED `interrupt_policy` domain.
 - **Accepted = durable + fanned out**; high-frequency metrics use the same shape and door.
 
@@ -161,26 +162,26 @@ Every read returns the `read-envelope` (freshness + items + pagination). **Every
 shape is pinned in [`schemas/entities/`](schemas/entities/)** — the frontend never reads
 another repo to learn a field. Aggregated reads carry per-item `observed_at` (Rule 10).
 
-| Entity (GET) | Schema | Source of truth | Notes |
-| ------------ | ------ | --------------- | ----- |
-| `/fleet` | `entities/fleet.schema.json` | fleet events (bridged; lake-persisted) | aggregated across boxes; `offline` consumer-derived |
-| `/heartbeats` | `entities/heartbeat.schema.json` | manager heartbeat files (bridged) | rows ARE manager heartbeats (one per manager; architects view groups by host); legacy `schema: 1` normalized |
-| `/registry` | `entities/registry.schema.json` | control-plane capacity SQLite | liveness derived 90/300s |
-| `/agents` | `entities/agent.schema.json` | tracker `agents` table | identity converges to a Library item later; read stays stable |
-| `/tasks` | `entities/task.schema.json` | tracker (single writer stays the tasks app) | filters: status, project_id, assignee, since |
-| `/leases` | `entities/lease.schema.json` | tracker | `leasePublic` only |
-| `/cards` | `entities/card.schema.json` | dispatcher SQLite (read-only poll) | filters: state, recipient |
-| `/box-updates` | `entities/box-update.schema.json` | box_update_status collector | `GET /box-updates/{box_id}/raw` → `box-update-raw` (packages[], vulns[]) |
-| `/workers` | `entities/worker.schema.json` | subagents.json (bridged) → box-agent inventory (Phase 1) | carries `host` — HouseTile needs no join |
-| `/governance` | `entities/governance.schema.json` | control-plane (persisted in Phase 1) | per-agent + pool `$defs` |
-| `/attention` | `../attention-item.schema.json` | attention store (§5.3) | `fix_ops` args pre-bound server-side |
-| `/subscriptions` | `../subscription.schema.json` | subscription store | incl. digest `window` |
-| `/delivery` | `entities/delivery.schema.json` | delivery config | incl. `cocoon_until`, `next_digest_at`; line health also reads `/health.matrix_sync_ok_epoch` |
-| `/edge/registry`, `/edge/sessions` | `entities/edge-*.schema.json` | doorman (Phase 1 formalization) | |
-| `/dashboards` | `entities/dashboard-item.schema.json` | Library items | incl. `is_home`; content via Library plane |
-| `/executors` | `entities/executor.schema.json` | registry + heartbeats + service probes | **pre-flight liveness for every ActionRow** — all ten executor kinds of the catalog (managers, dispatcher, control-plane, tracker, library, per-box box-agents, edge, probe-runner, pty, console-api) |
-| `/roster` | `entities/roster.schema.json` | server-side join | the Agents surface in ONE read (fleet × heartbeat × registry × agents × governance × leases × workers) |
-| `/me` | `entities/me.schema.json` | auth | Principal + display/grant name (session chip) |
+| Entity (GET)                       | Schema                                | Source of truth                                          | Notes                                                                                                                                                                                                 |
+| ---------------------------------- | ------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/fleet`                           | `entities/fleet.schema.json`          | fleet events (bridged; lake-persisted)                   | aggregated across boxes; `offline` consumer-derived                                                                                                                                                   |
+| `/heartbeats`                      | `entities/heartbeat.schema.json`      | manager heartbeat files (bridged)                        | rows ARE manager heartbeats (one per manager; architects view groups by host); legacy `schema: 1` normalized                                                                                          |
+| `/registry`                        | `entities/registry.schema.json`       | control-plane capacity SQLite                            | liveness derived 90/300s                                                                                                                                                                              |
+| `/agents`                          | `entities/agent.schema.json`          | tracker `agents` table                                   | identity converges to a Library item later; read stays stable                                                                                                                                         |
+| `/tasks`                           | `entities/task.schema.json`           | tracker (single writer stays the tasks app)              | filters: status, project_id, assignee, since                                                                                                                                                          |
+| `/leases`                          | `entities/lease.schema.json`          | tracker                                                  | `leasePublic` only                                                                                                                                                                                    |
+| `/cards`                           | `entities/card.schema.json`           | dispatcher SQLite (read-only poll)                       | filters: state, recipient                                                                                                                                                                             |
+| `/box-updates`                     | `entities/box-update.schema.json`     | box_update_status collector                              | `GET /box-updates/{box_id}/raw` → `box-update-raw` (packages[], vulns[])                                                                                                                              |
+| `/workers`                         | `entities/worker.schema.json`         | subagents.json (bridged) → box-agent inventory (Phase 1) | carries `host` — HouseTile needs no join                                                                                                                                                              |
+| `/governance`                      | `entities/governance.schema.json`     | control-plane (persisted in Phase 1)                     | per-agent + pool `$defs`                                                                                                                                                                              |
+| `/attention`                       | `../attention-item.schema.json`       | attention store (§5.3)                                   | `fix_ops` args pre-bound server-side                                                                                                                                                                  |
+| `/subscriptions`                   | `../subscription.schema.json`         | subscription store                                       | incl. digest `window`                                                                                                                                                                                 |
+| `/delivery`                        | `entities/delivery.schema.json`       | delivery config                                          | incl. `cocoon_until`, `next_digest_at`; line health also reads `/health.matrix_sync_ok_epoch`                                                                                                         |
+| `/edge/registry`, `/edge/sessions` | `entities/edge-*.schema.json`         | doorman (Phase 1 formalization)                          |                                                                                                                                                                                                       |
+| `/dashboards`                      | `entities/dashboard-item.schema.json` | Library items                                            | incl. `is_home`; content via Library plane                                                                                                                                                            |
+| `/executors`                       | `entities/executor.schema.json`       | registry + heartbeats + service probes                   | **pre-flight liveness for every ActionRow** — all ten executor kinds of the catalog (managers, dispatcher, control-plane, tracker, library, per-box box-agents, edge, probe-runner, pty, console-api) |
+| `/roster`                          | `entities/roster.schema.json`         | server-side join                                         | the Agents surface in ONE read (fleet × heartbeat × registry × agents × governance × leases × workers)                                                                                                |
+| `/me`                              | `entities/me.schema.json`             | auth                                                     | Principal + display/grant name (session chip)                                                                                                                                                         |
 
 History reads (comms log, audit trails, the Void, delivery log, restart counts) are
 `stats.query` reads over persisted emissions. `audit.op` emissions pin `subject` = the target
@@ -254,14 +255,14 @@ console-api tail is only for .14-local sources). Bridges ride the same emit vali
 everyone (scope-required, schema-validated, distinct `bridge` producer registrations) — no
 direct lake writes. Delivery guarantees, per source:
 
-| Source | Types | Guarantee |
-| ------ | ----- | --------- |
-| `data/fleet/<handle>.json` (per box) | `fleet.event.*` | **snapshot semantics, lossy by construction** (file = latest event; events between polls are lost) — documented; native manager/hook emit replaces it early in Phase 1 |
-| manager heartbeat files | `agent.heartbeat` (state-change + ≥15s keepalive, **never 1:1 at 1s**), `agent.crashed`, `channel.lockout` | state-change exact; keepalive sampled |
-| dispatcher card lifecycle | `card.*`, comms events | **read-only SQLite poll** (no triggers, no second writer — DP2); cursor on `updated_at_ms` + card fence |
-| control-plane spool events | `governance.action`, `fleet.mode`, `discipline.nag`, `usage.report` | at-least-once from spool lines; deterministic ids dedup |
-| `~/.claude/shared/system-outbox/` | `host.disk.pct`, `container.update_available`, `box.update_status_changed`, … (the bot-spam retirement path) | at-least-once; **the Matrix warning path is NOT decommissioned until `lake.disk.watermark` has fired in anger once** |
-| tracker events table | `task.*`, `artifact.created` | at-least-once from the event log id cursor |
+| Source                               | Types                                                                                                        | Guarantee                                                                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data/fleet/<handle>.json` (per box) | `fleet.event.*`                                                                                              | **snapshot semantics, lossy by construction** (file = latest event; events between polls are lost) — documented; native manager/hook emit replaces it early in Phase 1 |
+| manager heartbeat files              | `agent.heartbeat` (state-change + ≥15s keepalive, **never 1:1 at 1s**), `agent.crashed`, `channel.lockout`   | state-change exact; keepalive sampled                                                                                                                                  |
+| dispatcher card lifecycle            | `card.*`, comms events                                                                                       | **read-only SQLite poll** (no triggers, no second writer — DP2); cursor on `updated_at_ms` + card fence                                                                |
+| control-plane spool events           | `governance.action`, `fleet.mode`, `discipline.nag`, `usage.report`                                          | at-least-once from spool lines; deterministic ids dedup                                                                                                                |
+| `~/.claude/shared/system-outbox/`    | `host.disk.pct`, `container.update_available`, `box.update_status_changed`, … (the bot-spam retirement path) | at-least-once; **the Matrix warning path is NOT decommissioned until `lake.disk.watermark` has fired in anger once**                                                   |
+| tracker events table                 | `task.*`, `artifact.created`                                                                                 | at-least-once from the event log id cursor                                                                                                                             |
 
 Bridge mechanics (normative): deterministic **UUIDv5 emission ids** (source+cursor/content
 hash) so restarts cannot double-land; durable cursors, checkpointed transactionally with the
@@ -297,7 +298,7 @@ heartbeat is never bridged 1:1). Raw retention 30d ⇒ low-GB range; rollups car
   fail closed, Matrix is the command floor). `audit.op.outcome` (`ok|failed|executor_died`)
   commits on completion, linked by the op `id`. An executor that dies mid-op renders as
   attempted-without-completion, never as "ran". Read ops skip audit (the three `audit_seq:
-  null` cases are enumerated in the schema).
+null` cases are enumerated in the schema).
 - **Async executors.** Spool/RPC-dispatched ops return `status: "accepted"` (in-flight, NOT
   success); completion arrives as the op's declared `emits[]` type carrying the op id — the
   bus closes the loop. Synchronous ops return `status: "applied"`. The `agent.command`
@@ -366,15 +367,17 @@ are validated at render/refetch time (no `javascript:`/internal-URL execution �
 ### 7.1 Scope tags — as before (`user: | agent: | project: | fleet | restricted:`), flat (Rule 11).
 
 ### 7.2 Grants — `schemas/scope-grant.schema.json` (normative; `invalid_at > valid_at`
+
 validator rule; relation `editor` on a scope doubles as the emit grant per §4.3). Enforcement:
 scope-filter injection + Postgres RLS backstop (`security_invoker = on` on every view) +
 op-router lane∩authz. Zookie comparison point: principal resolution checks the grant-set head;
 WS re-fences on change (§4.1); bearer revocation is per-request and separate (§1.2).
 
 ### 7.3 Permission levels — tier rows `{name, authentik_group, default_relations,
+
 propose_only}`, seeds owner/moderator/collaborator/guest; adding a level is an insert.
-`propose_only` routes via the §5.2 transformation. Terminal stays human-only regardless of
-tier (structural, not a grant). `GET /tiers` (names + descriptions, for share/grant pickers)
+`propose_only`routes via the §5.2 transformation. Terminal stays human-only regardless of
+tier (structural, not a grant).`GET /tiers` (names + descriptions, for share/grant pickers)
 lands with Phase 4.
 
 ## 8. Freshness windows (normative)
@@ -404,7 +407,7 @@ session is Phase 5; the tool seam is fixed now.
 
 Every request/op/emit is an emission per Rule 8 (with Rule 8's anti-recursion + sampling; the
 `Authorization` header and `term.input` bodies are never captured). Glitchtip carries
-*exceptions*; the lake carries *events* — one error, both places, by class not by duplication
+_exceptions_; the lake carries _events_ — one error, both places, by class not by duplication
 (exception→Glitchtip + a `console.api.error` emission without the stack). Retention classes
 are contractual: `audit.*`, `term.*`, `edge.*`, security events **including admin/term-lane
 authorization denials** ≥1y (archived, never blanket-purged); raw telemetry 30d; rollups 1y. `lake.disk.watermark` is a Phase 1 crack
@@ -412,7 +415,7 @@ source with an emergency retention-shrink runbook.
 
 ## 11. Out of scope for P0 (lands in the named phase)
 
-`POST /ask` + engine internals (Phase 2) · `GET /graph` walk endpoint (Phase 2; edge *storage*
+`POST /ask` + engine internals (Phase 2) · `GET /graph` walk endpoint (Phase 2; edge _storage_
 Phase 1) · doorman deep shapes (Phase 1 with `PetalNet/doorman`) · PTY + `service.logs` stream
 framing (Phase 1, Terminal spec owns frames; audit-before-first-frame generalized in §5.1) ·
 librarian autonomy (own effort) · per-user claude-code manager runtime + session transcripts

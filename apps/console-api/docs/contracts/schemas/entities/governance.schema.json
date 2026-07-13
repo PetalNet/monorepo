@@ -1,119 +1,86 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://petalcat.dev/schemas/console/entities/governance.schema.json",
-  "title": "Governance item (GET /governance)",
-  "description": "One agent's cost/rate governance state \u2014 the BudgetLight and fleet strip. As-built source of truth: apps/control-plane/src/governance.rs (Light, Usage, BudgetGrant, Tier, FleetMode; state persisted in Phase 1 \u2014 today in-memory in the Governor). Per-agent items join the agent's Usage report with its live BudgetGrant lease and derived Light. `grant_expires_epoch` serves BudgetGrant.expires_epoch; a missing/expired grant serves granted_tokens/grant_expires_epoch null and light=red (no live grant = nothing budgeted). The fleet-wide pool summary is the $defs/pool object, returned alongside the items (envelope extension field `pool`). Consumers MUST ignore unknown fields.",
-  "type": "object",
-  "properties": {
-    "agent": {
-      "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]*$",
-      "description": "Canonical lowercase agent handle."
-    },
-    "light": {
-      "enum": [
-        "green",
-        "yellow",
-        "red"
-      ],
-      "description": "Traffic light: green < 70% of grant, yellow >= 70% (downgrade fires here, BEFORE the 429), red >= 90% or any rate-limit hit or no live grant."
-    },
-    "tokens_spent": {
-      "type": "number",
-      "minimum": 0,
-      "description": "Tokens spent in the current governance window (Usage.tokens_spent)."
-    },
-    "granted_tokens": {
-      "type": [
-        "number",
-        "null"
-      ],
-      "minimum": 0,
-      "description": "The agent's live budget grant (BudgetGrant.granted_tokens); null = no live grant."
-    },
-    "grant_expires_epoch": {
-      "type": [
-        "integer",
-        "null"
-      ],
-      "description": "Epoch seconds the grant lease expires (BudgetGrant.expires_epoch \u2014 unspent budget returns to the pool); null = no live grant."
-    },
-    "tier": {
-      "oneOf": [
-        {
-          "enum": [
-            "haiku",
-            "sonnet",
-            "opus"
-          ]
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Model tier the agent is CURRENTLY running (self-reported via its manager; Usage.tier); null = not reported this window."
-    },
-    "rate_limit_hits": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Rate-limit (429) hits in the current window (Usage.rate_limit_hits). Any hit = red."
-    },
-    "last_rate_limited_epoch": {
-      "type": [
-        "integer",
-        "null"
-      ],
-      "description": "Epoch seconds of the most recent rate-limit hit; null (as-built 0) = none. Feeds cascade detection."
-    },
-    "rate_limit_reset_epoch": {
-      "type": [
-        "integer",
-        "null"
-      ],
-      "description": "Mirror of heartbeat's reset instant when known."
-    }
-  },
-  "required": [
-    "agent",
-    "light",
-    "tokens_spent",
-    "rate_limit_hits"
-  ],
-  "additionalProperties": true,
-  "$defs": {
-    "pool": {
-      "type": "object",
-      "description": "Fleet-wide pool summary (one object per read, not per agent). pool_tokens = Governor.pool_tokens (the per-window fleet pool); pool_spent = sum of live grants' spend (derived \u2014 the as-built Governor exposes pool_available(); pool_spent = pool_tokens - available - unspent-granted remainder is computed by the serving layer); fleet_mode/cascade_active from Governor.fleet_mode() (sequential when >= 3 agents rate-limited within 300s). Consumers MUST ignore unknown fields.",
-      "properties": {
-        "pool_tokens": {
-          "type": "number",
-          "minimum": 0,
-          "description": "Fleet-wide token pool per governance window."
-        },
-        "pool_spent": {
-          "type": "number",
-          "minimum": 0,
-          "description": "Tokens spent fleet-wide in the current window."
-        },
-        "fleet_mode": {
-          "enum": [
-            "parallel",
-            "sequential"
-          ],
-          "description": "sequential = cascade detected: agents run one-at-a-time until the window clears."
-        },
-        "cascade_active": {
-          "type": "boolean",
-          "description": "true iff fleet_mode=sequential (convenience boolean for the fleet strip)."
-        }
-      },
-      "required": [
-        "pool_tokens",
-        "pool_spent",
-        "fleet_mode",
-        "cascade_active"
-      ],
-      "additionalProperties": true
-    }
-  }
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/governance.schema.json",
+	"title": "Governance item (GET /governance)",
+	"description": "One agent's cost/rate governance state \u2014 the BudgetLight and fleet strip. As-built source of truth: apps/control-plane/src/governance.rs (Light, Usage, BudgetGrant, Tier, FleetMode; state persisted in Phase 1 \u2014 today in-memory in the Governor). Per-agent items join the agent's Usage report with its live BudgetGrant lease and derived Light. `grant_expires_epoch` serves BudgetGrant.expires_epoch; a missing/expired grant serves granted_tokens/grant_expires_epoch null and light=red (no live grant = nothing budgeted). The fleet-wide pool summary is the $defs/pool object, returned alongside the items (envelope extension field `pool`). Consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"agent": {
+			"type": "string",
+			"pattern": "^[a-z0-9][a-z0-9._-]*$",
+			"description": "Canonical lowercase agent handle."
+		},
+		"light": {
+			"enum": ["green", "yellow", "red"],
+			"description": "Traffic light: green < 70% of grant, yellow >= 70% (downgrade fires here, BEFORE the 429), red >= 90% or any rate-limit hit or no live grant."
+		},
+		"tokens_spent": {
+			"type": "number",
+			"minimum": 0,
+			"description": "Tokens spent in the current governance window (Usage.tokens_spent)."
+		},
+		"granted_tokens": {
+			"type": ["number", "null"],
+			"minimum": 0,
+			"description": "The agent's live budget grant (BudgetGrant.granted_tokens); null = no live grant."
+		},
+		"grant_expires_epoch": {
+			"type": ["integer", "null"],
+			"description": "Epoch seconds the grant lease expires (BudgetGrant.expires_epoch \u2014 unspent budget returns to the pool); null = no live grant."
+		},
+		"tier": {
+			"oneOf": [
+				{
+					"enum": ["haiku", "sonnet", "opus"]
+				},
+				{
+					"type": "null"
+				}
+			],
+			"description": "Model tier the agent is CURRENTLY running (self-reported via its manager; Usage.tier); null = not reported this window."
+		},
+		"rate_limit_hits": {
+			"type": "integer",
+			"minimum": 0,
+			"description": "Rate-limit (429) hits in the current window (Usage.rate_limit_hits). Any hit = red."
+		},
+		"last_rate_limited_epoch": {
+			"type": ["integer", "null"],
+			"description": "Epoch seconds of the most recent rate-limit hit; null (as-built 0) = none. Feeds cascade detection."
+		},
+		"rate_limit_reset_epoch": {
+			"type": ["integer", "null"],
+			"description": "Mirror of heartbeat's reset instant when known."
+		}
+	},
+	"required": ["agent", "light", "tokens_spent", "rate_limit_hits"],
+	"additionalProperties": true,
+	"$defs": {
+		"pool": {
+			"type": "object",
+			"description": "Fleet-wide pool summary (one object per read, not per agent). pool_tokens = Governor.pool_tokens (the per-window fleet pool); pool_spent = sum of live grants' spend (derived \u2014 the as-built Governor exposes pool_available(); pool_spent = pool_tokens - available - unspent-granted remainder is computed by the serving layer); fleet_mode/cascade_active from Governor.fleet_mode() (sequential when >= 3 agents rate-limited within 300s). Consumers MUST ignore unknown fields.",
+			"properties": {
+				"pool_tokens": {
+					"type": "number",
+					"minimum": 0,
+					"description": "Fleet-wide token pool per governance window."
+				},
+				"pool_spent": {
+					"type": "number",
+					"minimum": 0,
+					"description": "Tokens spent fleet-wide in the current window."
+				},
+				"fleet_mode": {
+					"enum": ["parallel", "sequential"],
+					"description": "sequential = cascade detected: agents run one-at-a-time until the window clears."
+				},
+				"cascade_active": {
+					"type": "boolean",
+					"description": "true iff fleet_mode=sequential (convenience boolean for the fleet strip)."
+				}
+			},
+			"required": ["pool_tokens", "pool_spent", "fleet_mode", "cascade_active"],
+			"additionalProperties": true
+		}
+	}
 }

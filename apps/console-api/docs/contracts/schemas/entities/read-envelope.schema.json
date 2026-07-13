@@ -1,70 +1,53 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://petalcat.dev/schemas/console/entities/read-envelope.schema.json",
-  "title": "Typed entity read envelope (GET /api/v1/<entity>)",
-  "description": "The shared SERVER->CLIENT envelope every typed entity read returns (CONSOLE-CONTRACTS.md section 3.3). `items` is an array of the per-entity item shape pinned by the sibling schemas in this directory (fleet, heartbeat, registry, ...). Query params convention for every entity read: `limit` (integer, default 200, max 1000), `cursor` (opaque, from a previous response's next_cursor), `since` (RFC 3339 date-time; only items updated at/after this instant), plus per-entity filters noted in each entity schema's description. Freshness is computed, never trusted (Rule 10): consumers derive staleness client-side from `freshness` (and per-item observed_at where present); silence never renders as health. Consumers MUST ignore unknown fields.",
-  "type": "object",
-  "properties": {
-    "schema_version": {
-      "const": 1,
-      "description": "Envelope contract version."
-    },
-    "freshness": {
-      "type": "object",
-      "description": "Read-level freshness metadata: where this view was served from and when it was last observed true. Per-item staleness (e.g. fleet observed_at, *_epoch fields) refines this per row.",
-      "properties": {
-        "source": {
-          "type": "string",
-          "description": "Which substrate served this read (e.g. 'lake', 'tracker', 'dispatcher-sqlite', 'capacity-sqlite', 'bridge-cache')."
-        },
-        "observed_at": {
-          "type": "string",
-          "format": "date-time",
-          "description": "RFC 3339 UTC \u2014 when the served state was last observed/refreshed from its source of truth."
-        },
-        "window_s": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "description": "The staleness window (seconds) appropriate to this source, for client-side staleness derivation; null when the source has no defined window."
-        }
-      },
-      "required": [
-        "source",
-        "observed_at"
-      ],
-      "additionalProperties": true
-    },
-    "items": {
-      "type": "array",
-      "description": "The page of entity items. Item shape = the entity schema for the endpoint (schemas/entities/<entity>.schema.json). Item shape per endpoint: CI validates each endpoint with a composed schema (this envelope with items.items = the endpoint's entity schema, e.g. fleet.schema.json)."
-    },
-    "next_cursor": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "description": "Opaque pagination cursor; present (non-null) when more pages exist. Pass back verbatim as `cursor`. null = last page."
-    },
-    "total": {
-      "type": [
-        "integer",
-        "null"
-      ],
-      "description": "Total matching items across all pages when cheaply known; null when the source cannot count without a scan."
-    },
-    "truncated": {
-      "type": "boolean",
-      "default": false,
-      "description": "True when limit or the server byte cap clipped the page \u2014 silent truncation is banned."
-    }
-  },
-  "required": [
-    "schema_version",
-    "freshness",
-    "items",
-    "next_cursor"
-  ],
-  "additionalProperties": true
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://petalcat.dev/schemas/console/entities/read-envelope.schema.json",
+	"title": "Typed entity read envelope (GET /api/v1/<entity>)",
+	"description": "The shared SERVER->CLIENT envelope every typed entity read returns (CONSOLE-CONTRACTS.md section 3.3). `items` is an array of the per-entity item shape pinned by the sibling schemas in this directory (fleet, heartbeat, registry, ...). Query params convention for every entity read: `limit` (integer, default 200, max 1000), `cursor` (opaque, from a previous response's next_cursor), `since` (RFC 3339 date-time; only items updated at/after this instant), plus per-entity filters noted in each entity schema's description. Freshness is computed, never trusted (Rule 10): consumers derive staleness client-side from `freshness` (and per-item observed_at where present); silence never renders as health. Consumers MUST ignore unknown fields.",
+	"type": "object",
+	"properties": {
+		"schema_version": {
+			"const": 1,
+			"description": "Envelope contract version."
+		},
+		"freshness": {
+			"type": "object",
+			"description": "Read-level freshness metadata: where this view was served from and when it was last observed true. Per-item staleness (e.g. fleet observed_at, *_epoch fields) refines this per row.",
+			"properties": {
+				"source": {
+					"type": "string",
+					"description": "Which substrate served this read (e.g. 'lake', 'tracker', 'dispatcher-sqlite', 'capacity-sqlite', 'bridge-cache')."
+				},
+				"observed_at": {
+					"type": "string",
+					"format": "date-time",
+					"description": "RFC 3339 UTC \u2014 when the served state was last observed/refreshed from its source of truth."
+				},
+				"window_s": {
+					"type": ["number", "null"],
+					"description": "The staleness window (seconds) appropriate to this source, for client-side staleness derivation; null when the source has no defined window."
+				}
+			},
+			"required": ["source", "observed_at"],
+			"additionalProperties": true
+		},
+		"items": {
+			"type": "array",
+			"description": "The page of entity items. Item shape = the entity schema for the endpoint (schemas/entities/<entity>.schema.json). Item shape per endpoint: CI validates each endpoint with a composed schema (this envelope with items.items = the endpoint's entity schema, e.g. fleet.schema.json)."
+		},
+		"next_cursor": {
+			"type": ["string", "null"],
+			"description": "Opaque pagination cursor; present (non-null) when more pages exist. Pass back verbatim as `cursor`. null = last page."
+		},
+		"total": {
+			"type": ["integer", "null"],
+			"description": "Total matching items across all pages when cheaply known; null when the source cannot count without a scan."
+		},
+		"truncated": {
+			"type": "boolean",
+			"default": false,
+			"description": "True when limit or the server byte cap clipped the page \u2014 silent truncation is banned."
+		}
+	},
+	"required": ["schema_version", "freshness", "items", "next_cursor"],
+	"additionalProperties": true
 }

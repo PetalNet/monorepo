@@ -11,8 +11,9 @@ security APPROVE-WITH-FIXES · ops APPROVE-WITH-FIXES · data APPROVE-WITH-FIXES
 ~80 deduped findings; every HIGH/P0 accepted and applied. The classes and their resolutions:
 
 ### Authorization (security H1/H2, codex P0-1/2, architect H5)
+
 - **Per-op `authz` descriptor** added to every ops.json entry (`rule: own|grant|own_or_grant|
-  read`, relation, `scope_any` templates); router authorizes lane ∩ target-grant BEFORE the
+read`, relation, `scope_any` templates); router authorizes lane ∩ target-grant BEFORE the
   intent audit. Lane vocabulary closed (5 lanes); owner-gating expressed as grant relations,
   not a phantom lane.
 - **Emit-authz matrix** (§4.3): producer registrations bind source identity; reserved
@@ -27,6 +28,7 @@ security APPROVE-WITH-FIXES · ops APPROVE-WITH-FIXES · data APPROVE-WITH-FIXES
   principal propagated as a verifiable assertion across executor hops.
 
 ### Op lifecycle + audit honesty (codex P0-4, architect H3, security M6)
+
 - **Two-phase audit**: `audit.op.intent` (outcome: attempted) before dispatch;
   `audit.op.outcome` (ok|failed|executor_died) on completion, linked by op id. Executor death
   renders attempted-without-completion, never "ran".
@@ -39,11 +41,13 @@ security APPROVE-WITH-FIXES · ops APPROVE-WITH-FIXES · data APPROVE-WITH-FIXES
   `force` for human principals, audited) — the N0.1 fence rule preserved end-to-end.
 
 ### Bus soundness (architect H4, codex P0-5, ops H3, security M4)
+
 - Serialized appender; fan-out after commit in seq order; `since` exclusive; subscribe ack
   with `replay_through_seq`; bounded queues + gap frames; retention → resync_required;
   re-fence on grant change. All in `bus-frame.schema.json` (new, normative).
 
 ### Bridges (codex P0-6, ops H4/H5/M2, architect M4/M5/L7)
+
 - Per-box bridge processes POSTing /emit; deterministic UUIDv5 ids + durable cursors;
   per-source delivery guarantees tabled in §4.4 (snapshot lossiness documented; dispatcher =
   read-only poll per DP2); gap_detected/cursor_reset/source-unreachable emissions; producers
@@ -51,6 +55,7 @@ security APPROVE-WITH-FIXES · ops APPROVE-WITH-FIXES · data APPROVE-WITH-FIXES
   lake.disk.watermark proves itself.
 
 ### The contract actually pinned (codex P0-8/9, architect H1/H2/H6, frontend H1-H5)
+
 - **`schemas/entities/` shipped** — 20 schemas, field lists verified against as-built code
   (corrections: dispatcher cards `result` column; full tracker column set incl. capability/
   owner_machine/responsible; collector DDL at /home/docker/update-collector; governance
@@ -68,6 +73,7 @@ security APPROVE-WITH-FIXES · ops APPROVE-WITH-FIXES · data APPROVE-WITH-FIXES
   validators). Mode-discriminated query-request; oneOf op-result; type-conditional PanelSpec.
 
 ### Statistic-contract fidelity (data H1/H2, M1-M5)
+
 - Per-field typing `meta.fields` (unit/kind gauge|counter|delta|timestamp/cardinality) —
   aggregation honesty validated at query time (agg_mismatch).
 - Edges baked at ingest: subject_kind + links[] on the emission; edge storage Phase 1;
@@ -76,6 +82,7 @@ security APPROVE-WITH-FIXES · ops APPROVE-WITH-FIXES · data APPROVE-WITH-FIXES
   suggestions; branch block on dashboard.save; SelectedMark-complete context.receive.
 
 ### Ops/physics (ops H1/H2/H6/H7, M5/M6)
+
 - TimescaleDB pinned (real rollup mechanism; lake:rollup freshness source); volume budget
   0.2-0.3M rows/day as acceptance gate (heartbeats NEVER bridged 1:1 at 1s); disk/volume
   decision = hard precondition; retention classes contractual (audit ≥1y); /health with
@@ -83,6 +90,7 @@ security APPROVE-WITH-FIXES · ops APPROVE-WITH-FIXES · data APPROVE-WITH-FIXES
   untestable-on-disposables ops.
 
 ### Explicitly NOT adopted
+
 - OpenFGA/SpiceDB (lean tuples stand, per /task/724 research).
 - Multi-instance bus / LISTEN-NOTIFY now (single-writer stated; escape hatch documented).
 - Per-subscriber seq counters (global seq_head disclosure accepted at lab scale — noted in
@@ -98,8 +106,9 @@ mechanically verified all six round-1 HIGHs genuinely resolved (op names, catalo
 authz completeness, $ref resolution, schema compilation).
 
 Round-2 fixes applied (same commit):
+
 - **Template resolvability** (codex P1, security H1, architect M2): `${target.*}` resolution
-  order documented + CI rule; task.* → `project:${target.project_id}`; dashboard.delete →
+  order documented + CI rule; task.\* → `project:${target.project_id}`; dashboard.delete →
   `user:${target.owner}`; library.item.create → `${item.scope}`; curation.approve/reject →
   `item:${target.item_id}`; unresolvable scope_any ENTRY skips (all-unresolvable fails
   closed); absent task.dispatch recipient = pool card via the fleet entry.
@@ -110,7 +119,7 @@ Round-2 fixes applied (same commit):
   scrubbed (replay = leasePublic); `task.claimed` emission = leasePublic only; task.claim
   results on the self-instrumentation never-capture list (Rule 6 updated).
 - **New authz rules** (security M1/M2): `scope_visible` for attention mutations; `self` for
-  signal.snooze/delivery.*/context.receive; window.arrange → own_or_grant editor on the
+  signal.snooze/delivery.\*/context.receive; window.arrange → own_or_grant editor on the
   dashboard item; card.repost/park least-privilege via `agent:${target.recipient}`;
   term stream ops bound to the opening principal; kb.research lane editor+; delivery.resend
   receipt must be caller-scoped; service.logs results scrubbed; delivery-time grant
