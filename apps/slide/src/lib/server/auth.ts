@@ -1,9 +1,9 @@
-import bcrypt from "bcryptjs";
+import { compare, hash } from "bcryptjs";
 
 import { prisma } from "./db";
 
 export async function createUser(email: string, password: string, name: string) {
-	const passwordHash = await bcrypt.hash(password, 10);
+	const passwordHash = await hash(password, 10);
 
 	const user = await prisma.user.create({
 		data: {
@@ -25,7 +25,7 @@ export async function verifyUser(email: string, password: string) {
 		return null;
 	}
 
-	const validPassword = await bcrypt.compare(password, user.passwordHash);
+	const validPassword = await compare(password, user.passwordHash);
 
 	if (!validPassword) {
 		return null;
