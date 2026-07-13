@@ -47,6 +47,7 @@ import {
 	searchLibraryPaletteItems,
 	saveDashboard,
 	setHomeDashboard,
+	updateLibraryItemStatus,
 } from "./dashboard/store.ts";
 import { withScopes } from "./db/pool.ts";
 import { loadEnv } from "./env.ts";
@@ -245,6 +246,7 @@ const INTERNAL_OP_ADAPTERS = new Set([
 	"text.surface",
 	"context.receive",
 	"signal.source_mode",
+	"library.item.update",
 	"delivery.test",
 	"delivery.set_target",
 	"delivery.resend",
@@ -1097,6 +1099,14 @@ export async function buildServer(
 		}
 		if (entry.executor === "console-api")
 			return { kind: entry.executor, ref: null, liveness: "alive" };
+		if (entry.executor === "library") {
+			try {
+				await services.db.app`select 1 from library_items limit 1`;
+				return { kind: entry.executor, ref: "library_items", liveness: "alive" };
+			} catch {
+				return { kind: entry.executor, ref: "library_items", liveness: "down" };
+			}
+		}
 		if (entry.executor !== "manager")
 			return { kind: entry.executor, ref: null, liveness: "unknown" };
 		const ref = String(args["handle"] ?? target?.["handle"] ?? "");
@@ -1246,6 +1256,26 @@ export async function buildServer(
 					reason: call.reason?.trim() ?? "",
 					principal: principal.id,
 				})) as unknown as Record<string, unknown>;
+			case "library.item.update": {
+				const patch = call.args["patch"] as Record<string, unknown>;
+				if (
+					typeof patch?.["status"] !== "string" ||
+					!Number.isSafeInteger(patch?.["expected_version"]) ||
+					Number(patch["expected_version"]) < 1 ||
+					Object.keys(patch).some((key) => key !== "status" && key !== "expected_version")
+				)
+					throw new AssistantRuntimeError(
+						"invalid_library_patch",
+						"this adapter accepts only status and expected_version",
+						false,
+					);
+				return updateLibraryItemStatus(
+					services.db.writer,
+					String(call.args["id"]),
+					String(patch["status"]),
+					Number(patch["expected_version"]),
+				);
+			}
 			case "task.claim":
 				if (!services.trackerCommands)
 					throw new TrackerCommandError(
@@ -1859,6 +1889,7 @@ export async function buildServer(
 			monitor.captureException(sanitizedException(error));
 			const known =
 				error instanceof AssistantRuntimeError ||
+				error instanceof DashboardError ||
 				error instanceof QueryError ||
 				error instanceof TrackerCommandError ||
 				error instanceof MatrixDeliveryError ||

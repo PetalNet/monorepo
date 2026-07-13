@@ -34,11 +34,13 @@ export interface LibraryData {
 	capabilities?: LibraryCapabilityView[];
 	curation?: LibraryCurationView[];
 	sources?: Record<string, "live" | "unavailable">;
+	libraryExecutorLive?: boolean;
 }
 
 export const mockLibrary: LibraryData = {
 	isMock: true,
 	connected: true,
+	libraryExecutorLive: true,
 	items: [
 		{
 			id: "kb-1",
@@ -144,6 +146,42 @@ export const mockLibrary: LibraryData = {
 			creator: "janet",
 			body: "Rendered accounting artifact.",
 		},
+		{
+			id: "kb-9",
+			title: "Verify Library view keyboard paths",
+			kind: "task",
+			project: "library",
+			scope: "project:library",
+			status: "todo",
+			version: 1,
+			updated: "12m",
+			creator: "janet",
+			body: "Walk each graph edge and each status lane without a pointer.",
+		},
+		{
+			id: "kb-10",
+			title: "Backfill typed relationships",
+			kind: "task",
+			project: "library",
+			scope: "project:library",
+			status: "doing",
+			version: 2,
+			updated: "7m",
+			creator: "carson-2",
+			body: "Attach governed relationship types to the imported Library corpus.",
+		},
+		{
+			id: "kb-11",
+			title: "Promotion status disagreement",
+			kind: "doc",
+			project: "library",
+			scope: "project:library",
+			status: "CONFLICT",
+			version: 5,
+			updated: "3m",
+			creator: "point-fable",
+			body: "Two writers proposed different promotion states. Human adjudication is required.",
+		},
 	],
 };
 
@@ -175,6 +213,9 @@ export const libraryLinks: Record<string, LibraryLinkFixture[]> = {
 	"kb-6": [{ direction: "in", rel: "references", targetId: "kb-1" }],
 	"kb-7": [{ direction: "in", rel: "derived-from", targetId: "kb-1" }],
 	"kb-8": [],
+	"kb-9": [{ direction: "out", rel: "references", targetId: "kb-6" }],
+	"kb-10": [{ direction: "out", rel: "belongs-to", targetId: "kb-6" }],
+	"kb-11": [{ direction: "out", rel: "references", targetId: "kb-5" }],
 };
 export const libraryProvenance: Record<string, { responsibleHuman: string; txFrom: string }> = {
 	"kb-1": { responsibleHuman: "parker", txFrom: "2026-07-11T04:12:00Z" },
@@ -185,6 +226,9 @@ export const libraryProvenance: Record<string, { responsibleHuman: string; txFro
 	"kb-6": { responsibleHuman: "eli", txFrom: "2026-07-12T18:05:00Z" },
 	"kb-7": { responsibleHuman: "parker", txFrom: "2026-07-10T08:14:00Z" },
 	"kb-8": { responsibleHuman: "parker", txFrom: "2026-07-13T05:55:00Z" },
+	"kb-9": { responsibleHuman: "eli", txFrom: "2026-07-13T19:48:00Z" },
+	"kb-10": { responsibleHuman: "parker", txFrom: "2026-07-13T19:53:00Z" },
+	"kb-11": { responsibleHuman: "eli", txFrom: "2026-07-13T19:57:00Z" },
 };
 
 export interface LibraryCapabilityView {

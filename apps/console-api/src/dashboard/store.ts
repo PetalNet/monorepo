@@ -714,6 +714,80 @@ export async function readLibraryItem(
 		: null;
 }
 
+const WORK_LIBRARY_STATUSES = new Set(["todo", "doing", "review", "done"]);
+const KNOWLEDGE_LIBRARY_STATUSES = new Set([
+	"draft",
+	"verified-shared",
+	"superseded",
+	"invalidated",
+]);
+
+/**
+ * Apply the Library status register write behind the audited named-op plane. A stale version is
+ * preserved as an explicit CONFLICT with both candidate values; it never becomes a silent LWW.
+ */
+export async function updateLibraryItemStatus(
+	writer: Sql,
+	id: string,
+	status: string,
+	expectedVersion: number,
+): Promise<Record<string, unknown>> {
+	return writer.begin(async (tx) => {
+		const rows = await tx<
+			{
+				id: string;
+				kind: string;
+				status: string;
+				version: number;
+				properties: Record<string, unknown>;
+			}[]
+		>`select id, kind, status, version, properties from library_items where id = ${id} for update`;
+		const current = rows[0];
+		if (!current) throw new DashboardError("library_item_not_found", "Library item not found");
+		const allowed = current.kind === "task" ? WORK_LIBRARY_STATUSES : KNOWLEDGE_LIBRARY_STATUSES;
+		if (!allowed.has(status))
+			throw new DashboardError(
+				"bad_library_status",
+				current.kind === "task"
+					? "task items use todo, doing, review, or done"
+					: "knowledge items use draft, verified-shared, superseded, or invalidated",
+			);
+		if (current.version !== expectedVersion) {
+			const conflict = {
+				values: [current.status, status],
+				expected_version: expectedVersion,
+				observed_version: current.version,
+				observed_at: new Date().toISOString(),
+			};
+			const updated = await tx<{ version: number }[]>`
+				update library_items
+				set status = 'CONFLICT',
+				    properties = jsonb_set(properties, '{status_conflict}', ${tx.json(conflict)}::jsonb, true),
+				    version = version + 1, tx_from = now(), updated_at = now()
+				where id = ${id} returning version`;
+			return {
+				schema_version: 1,
+				id,
+				status: "CONFLICT",
+				version: updated[0]?.version ?? current.version + 1,
+				conflict,
+			};
+		}
+		const updated = await tx<{ version: number; updated_at: string | Date }[]>`
+			update library_items
+			set status = ${status}, version = version + 1, tx_from = now(), updated_at = now(),
+			    properties = properties - 'status_conflict'
+			where id = ${id} returning version, updated_at`;
+		return {
+			schema_version: 1,
+			id,
+			status,
+			version: updated[0]?.version ?? current.version + 1,
+			updated_at: updated[0] ? iso(updated[0].updated_at) : new Date().toISOString(),
+		};
+	});
+}
+
 export async function listLibraryLinks(
 	app: Sql,
 	scopes: readonly string[],
