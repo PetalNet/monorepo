@@ -205,6 +205,42 @@ const OPS = {
 		undo: false,
 		humanOnly: false,
 	},
+	"edge.enroll.approve": {
+		op: "edge.enroll.approve",
+		verb: "Approve enrollment",
+		lane: "admin",
+		executor: "control-plane",
+		confirm: "none",
+		undo: false,
+		humanOnly: false,
+	},
+	"edge.enroll.deny": {
+		op: "edge.enroll.deny",
+		verb: "Deny",
+		lane: "admin",
+		executor: "edge",
+		confirm: "soft",
+		undo: false,
+		humanOnly: false,
+	},
+	"doorman.session.drop": {
+		op: "doorman.session.drop",
+		verb: "Drop session",
+		lane: "admin",
+		executor: "edge",
+		confirm: "soft",
+		undo: false,
+		humanOnly: false,
+	},
+	"doorman.redial": {
+		op: "doorman.redial",
+		verb: "Redial",
+		lane: "admin",
+		executor: "manager",
+		confirm: "none",
+		undo: false,
+		humanOnly: false,
+	},
 } satisfies Record<string, OpDef>;
 
 export function opDef(op: string): OpDef | undefined {
