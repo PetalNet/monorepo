@@ -13,6 +13,7 @@ import { ask } from "../src/assistant/engine.ts";
 import { AssistantRuntime, ClaudeCodeAssistantManager } from "../src/assistant/runtime.ts";
 import { resolveBearer, sha256 } from "../src/auth/principal.ts";
 import { TrackerProposalWriter } from "../src/auth/proposals.ts";
+import type { BetterAuthSessionVerifier } from "../src/auth/session.ts";
 import { Bridge } from "../src/bridge/index.ts";
 import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
 import { Appender } from "../src/bus/appender.ts";
@@ -835,7 +836,7 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 	};
 
 	it("returns 403 only after retaining a non-admin deep-link denial", async () => {
-		const server = await buildServer(services, true, undefined, null, adapter);
+		const server = await buildServer(services, true, undefined, adapter);
 		const deniedId = `terminal-viewer-${randomBytes(5).toString("hex")}`;
 		try {
 			const response = await server.inject({
@@ -880,7 +881,7 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 				inputs.push(data);
 			},
 		};
-		const server = await buildServer(services, true, undefined, null, orderedAdapter);
+		const server = await buildServer(services, true, undefined, orderedAdapter);
 		const origin = await server.listen({ host: "127.0.0.1", port: 0 });
 		const controller = new AbortController();
 		try {
@@ -969,7 +970,7 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 				throw new Error("peek must not expose input");
 			},
 		};
-		const server = await buildServer(services, true, undefined, null, peekAdapter);
+		const server = await buildServer(services, true, undefined, peekAdapter);
 		try {
 			const opened = await server.inject({
 				method: "POST",
@@ -1688,460 +1689,75 @@ describe("substrate observability", () => {
 	});
 });
 
-describe("live browser auth boundary", () => {
+describe("Better Auth browser boundary", () => {
 	const consoleOrigin = "https://console.petalcat.dev";
-	const proxyNonce = "test-only-forward-auth-nonce-32-bytes";
-	const browserAuth = {
+	const betterAuth: BetterAuthSessionVerifier = {
 		consoleOrigin,
-		proxyNonce,
-		trustedProxies: ["127.0.0.1"],
+		async getIdentity(headers) {
+			return String(headers.cookie ?? "").includes("__Host-console.session_token=valid-session")
+				? {
+						username: "parker",
+						groups: ["owner"],
+						subject: "authentik-parker",
+						sessionId: "valid-session",
+					}
+				: null;
+		},
+		async getIdentityBySessionId(sessionId) {
+			return sessionId === "valid-session"
+				? { username: "parker", groups: ["owner"], subject: "authentik-parker", sessionId }
+				: null;
+		},
+		async close() {},
 	};
 
-	it("authenticates the browser WS upgrade and replays the exact frontend subscriptions", async () => {
-		const seeded = await services.emit(
-			"test:emitter",
-			emission({ type: "test.ws_seed", subject: "ws-seed" }),
-			300,
-		);
-		expect(seeded.ok).toBe(true);
-		const headAtUpgrade = services.broker.head;
-		const server = await buildServer(services, false, undefined, browserAuth);
-		await server.ready();
-		const forwardedHeaders = {
-			origin: consoleOrigin,
-			cookie: "authentik_session=opaque-test-cookie",
-			"x-authentik-username": "parker",
-			"x-authentik-groups": "owner",
-			"x-console-auth-proxy-nonce": proxyNonce,
-		};
-		const socket = await server.injectWS("/api/v1/bus/ws", {
-			headers: {
-				...forwardedHeaders,
-			},
-			rawHeaders: Object.entries(forwardedHeaders).flatMap(([name, value]) => [name, value]),
-			socket: { remoteAddress: "127.0.0.1" },
-		});
-		const frames: Record<string, unknown>[] = [];
-		socket.on("message", (data) => frames.push(JSON.parse(data.toString())));
-		const subscriptions = [
-			{ sub_id: "console-signals", pattern: "**" },
-			{ sub_id: "console-work-0", pattern: "task.**" },
-			{ sub_id: "console-work-1", pattern: "card.**" },
-			{ sub_id: "console-work-2", pattern: "artifact.**" },
-		];
-		for (const subscription of subscriptions)
-			socket.send(JSON.stringify({ schema_version: 1, action: "subscribe", ...subscription }));
-		await expect
-			.poll(() => frames.filter((frame) => frame["kind"] === "ack").length, { timeout: 2_000 })
-			.toBe(4);
-		const eventStart = services.broker.head;
-		for (const [index, type] of [
-			"task.review.requested",
-			"card.posted",
-			"artifact.build.completed",
-		].entries())
-			services.broker.onEvent(
-				eventStart + index + 1,
-				emission({ type, subject: type, scope: "fleet" }),
-			);
-
+	it("accepts only a valid Better Auth session and maps current ReBAC grants", async () => {
+		const server = await buildServer(services, false, undefined, undefined, betterAuth);
 		try {
-			const expectedTypes = new Set([
-				"task.review.requested",
-				"card.posted",
-				"artifact.build.completed",
-			]);
-			await expect
-				.poll(
-					() => ({
-						targetEvents: new Set(
-							frames
-								.filter((frame) => frame["kind"] === "event")
-								.map(
-									(frame) =>
-										(frame["emission"] as Record<string, unknown> | undefined)?.["type"] ?? "",
-								)
-								.filter((type) => expectedTypes.has(String(type))),
-						).size,
-						heartbeats: frames.filter((frame) => frame["kind"] === "heartbeat").length,
-					}),
-					{ timeout: 16_000 },
-				)
-				.toEqual({ targetEvents: 3, heartbeats: 2 });
-			const heartbeats = frames.filter((frame) => frame["kind"] === "heartbeat");
-			expect(heartbeats[0]).toMatchObject({
-				schema_version: 1,
-				kind: "heartbeat",
-				seq_head: headAtUpgrade,
-			});
-			expect(heartbeats[1]).toMatchObject({
-				schema_version: 1,
-				kind: "heartbeat",
-				seq_head: eventStart + 3,
-			});
-			expect(heartbeats[0]?.["ts"]).toEqual(expect.any(String));
-			expect(heartbeats[0]?.["ingest"]).toMatchObject({ "console-api": expect.any(Number) });
-			expect(
-				Date.parse(String(heartbeats[1]?.["ts"])) - Date.parse(String(heartbeats[0]?.["ts"])),
-			).toBeGreaterThanOrEqual(14_000);
-		} finally {
-			socket.terminate();
-			await server.close();
-		}
-	});
-
-	it("bounds and strictly validates authenticated WS subscription input", async () => {
-		const server = await buildServer(services, true);
-		await server.ready();
-		const devPrincipalHeader = JSON.stringify({
-			kind: "human",
-			id: "ws-input-test",
-			tiers: ["owner"],
-			lanes: ["viewer"],
-			scopes: ["fleet"],
-			zookie: "1",
-		});
-		const socket = await server.injectWS("/api/v1/bus/ws", {
-			headers: { "x-dev-principal": devPrincipalHeader },
-			rawHeaders: ["x-dev-principal", devPrincipalHeader],
-			socket: { remoteAddress: "127.0.0.1" },
-		});
-		const frames: Record<string, unknown>[] = [];
-		socket.on("message", (data) => frames.push(JSON.parse(data.toString())));
-		const send = (frame: Record<string, unknown> | string): void => {
-			socket.send(typeof frame === "string" ? frame : JSON.stringify(frame));
-		};
-		const errorCode = (subId: string): unknown =>
-			(
-				frames.find(
-					(frame) =>
-						frame["kind"] === "ack" &&
-						frame["sub_id"] === subId &&
-						typeof frame["error"] === "object",
-				)?.["error"] as Record<string, unknown> | undefined
-			)?.["code"];
-
-		try {
-			send("{" + "x".repeat(16 * 1024));
-			send({
-				schema_version: 1,
-				action: "subscribe",
-				sub_id: "unknown-field",
-				pattern: "**",
-				extra: true,
-			});
-			send({
-				schema_version: 1,
-				action: "subscribe",
-				sub_id: "complex-pattern",
-				pattern: Array.from({ length: 33 }, () => "a").join("."),
-			});
-			await expect
-				.poll(
-					() => ({
-						oversized: errorCode("?"),
-						strict: errorCode("unknown-field"),
-						complexity: errorCode("complex-pattern"),
-					}),
-					{ timeout: 2_000 },
-				)
-				.toEqual({
-					oversized: "frame_too_large",
-					strict: "invalid_frame",
-					complexity: "invalid_frame",
-				});
-
-			for (let index = 0; index < 64; index += 1)
-				send({
-					schema_version: 1,
-					action: "subscribe",
-					sub_id: `bounded-${String(index)}`,
-					pattern: "test.**",
-				});
-			await expect
-				.poll(
-					() =>
-						frames.filter(
-							(frame) =>
-								frame["kind"] === "ack" &&
-								String(frame["sub_id"]).startsWith("bounded-") &&
-								!("error" in frame),
-						).length,
-					{ timeout: 2_000 },
-				)
-				.toBe(64);
-			send({ schema_version: 1, action: "subscribe", sub_id: "over-limit", pattern: "**" });
-			await expect
-				.poll(() => errorCode("over-limit"), { timeout: 2_000 })
-				.toBe("subscription_limit");
-
-			send({ schema_version: 1, action: "unsubscribe", sub_id: "bounded-0" });
-			send({ schema_version: 1, action: "subscribe", sub_id: "replacement", pattern: "**" });
-			await expect
-				.poll(
-					() =>
-						frames.some((frame) => frame["kind"] === "ack" && frame["sub_id"] === "replacement"),
-					{ timeout: 2_000 },
-				)
-				.toBe(true);
-			expect(errorCode("replacement")).toBeUndefined();
-		} finally {
-			socket.terminate();
-			await server.close();
-		}
-	});
-
-	it("keeps identical subscription IDs isolated when another socket closes", async () => {
-		const server = await buildServer(services, true);
-		await server.ready();
-		const connect = async (id: string) => {
-			const principal = JSON.stringify({
-				kind: "human",
-				id,
-				tiers: ["owner"],
-				lanes: ["viewer"],
-				scopes: ["fleet"],
-				zookie: "1",
-			});
-			return server.injectWS("/api/v1/bus/ws", {
-				headers: { "x-dev-principal": principal },
-				rawHeaders: ["x-dev-principal", principal],
-				socket: { remoteAddress: "127.0.0.1" },
-			});
-		};
-		const victim = await connect("subscription-victim");
-		const attacker = await connect("subscription-attacker");
-		const victimFrames: Record<string, unknown>[] = [];
-		const attackerFrames: Record<string, unknown>[] = [];
-		victim.on("message", (data) => victimFrames.push(JSON.parse(data.toString())));
-		attacker.on("message", (data) => attackerFrames.push(JSON.parse(data.toString())));
-		const eventType = `test.subscription_ownership.${randomUUID().replaceAll("-", "")}`;
-		const subscribe = JSON.stringify({
-			schema_version: 1,
-			action: "subscribe",
-			sub_id: "shared-client-id",
-			pattern: eventType,
-		});
-
-		try {
-			victim.send(subscribe);
-			attacker.send(subscribe);
-			await expect
-				.poll(
-					() =>
-						[victimFrames, attackerFrames].every((frames) =>
-							frames.some(
-								(frame) =>
-									frame["kind"] === "ack" &&
-									frame["sub_id"] === "shared-client-id" &&
-									!("error" in frame),
-							),
-						),
-					{ timeout: 2_000 },
-				)
-				.toBe(true);
-
-			const attackerClosed = new Promise<void>((resolve) => {
-				attacker.once("close", () => resolve());
-			});
-			attacker.terminate();
-			await attackerClosed;
-			services.broker.onEvent(
-				services.broker.head + 1,
-				emission({ type: eventType, scope: "fleet", subject: "ownership-proof" }),
-			);
-			await expect
-				.poll(
-					() =>
-						victimFrames.filter(
-							(frame) => frame["kind"] === "event" && frame["sub_id"] === "shared-client-id",
-						).length,
-					{ timeout: 2_000 },
-				)
-				.toBe(1);
-		} finally {
-			victim.terminate();
-			attacker.terminate();
-			await server.close();
-		}
-	});
-
-	it("accepts the trusted proxy identity and resolves current ReBAC grants", async () => {
-		const server = await buildServer(services, false, undefined, browserAuth);
-		await server.listen({ host: "127.0.0.1", port: 0 });
-		const apiAddress = server.server.address();
-		if (!apiAddress || typeof apiAddress === "string") throw new Error("missing API test address");
-		const proxy = createHttpServer(async (request, response) => {
-			const upstreamHeaders = new Headers();
-			for (const name of ["accept", "cookie", "origin"])
-				if (request.headers[name]) upstreamHeaders.set(name, String(request.headers[name]));
-			// This is the deployed boundary contract: strip the exact trusted set, then populate only
-			// the Authentik response values and the boot nonce before forwarding to console-api.
-			upstreamHeaders.set("x-authentik-username", "parker");
-			upstreamHeaders.set("x-authentik-groups", "owner");
-			upstreamHeaders.set("x-authentik-email", "parker@example.test");
-			upstreamHeaders.set("x-console-auth-proxy-nonce", proxyNonce);
-			const upstream = await fetch(
-				`http://127.0.0.1:${String(apiAddress.port)}${request.url ?? "/"}`,
-				{ method: request.method, headers: upstreamHeaders },
-			);
-			response.writeHead(upstream.status, Object.fromEntries(upstream.headers.entries()));
-			response.end(Buffer.from(await upstream.arrayBuffer()));
-		});
-		await new Promise<void>((resolve, reject) => {
-			proxy.once("error", reject);
-			proxy.listen(0, "127.0.0.1", resolve);
-		});
-		const proxyAddress = proxy.address();
-		if (!proxyAddress || typeof proxyAddress === "string")
-			throw new Error("missing proxy test address");
-		try {
-			const response = await fetch(`http://127.0.0.1:${String(proxyAddress.port)}/api/v1/me`, {
+			const spoofed = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
 				headers: {
-					origin: consoleOrigin,
-					cookie: "authentik_session=opaque-test-cookie",
-					"x-authentik-username": "eli",
+					"x-authentik-username": "parker",
+					"x-authentik-groups": "owner",
 				},
 			});
-			expect(response.status).toBe(200);
-			expect(response.headers.get("access-control-allow-origin")).toBe(consoleOrigin);
-			expect(response.headers.get("access-control-allow-credentials")).toBe("true");
-			const principal = await response.json();
-			expect(principal).toMatchObject({
+			expect(spoofed.statusCode).toBe(401);
+
+			const authenticated = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				headers: {
+					origin: consoleOrigin,
+					cookie: "__Host-console.session_token=valid-session",
+				},
+			});
+			expect(authenticated.statusCode, authenticated.body).toBe(200);
+			expect(authenticated.headers["access-control-allow-origin"]).toBe(consoleOrigin);
+			expect(authenticated.json()).toMatchObject({
 				kind: "human",
 				id: "parker",
 				tiers: ["owner"],
 				lanes: ["viewer", "editor", "operator", "admin"],
 				scopes: ["fleet", "user:parker"],
 			});
-			expect(principal.lanes).not.toContain("term_admin");
 		} finally {
-			await new Promise<void>((resolve) => proxy.close(() => resolve()));
 			await server.close();
 		}
 	});
 
-	it("answers only exact-origin credentialed preflights", async () => {
-		const server = await buildServer(services, false, undefined, browserAuth);
+	it("rejects cross-origin requests even with a valid session", async () => {
+		const server = await buildServer(services, false, undefined, undefined, betterAuth);
 		try {
-			const allowed = await server.inject({
-				method: "OPTIONS",
-				url: "/api/v1/me",
-				headers: {
-					origin: consoleOrigin,
-					"access-control-request-method": "GET",
-				},
-			});
-			expect(allowed.statusCode).toBe(204);
-			expect(allowed.headers["access-control-allow-origin"]).toBe(consoleOrigin);
-			expect(allowed.headers["access-control-allow-credentials"]).toBe("true");
-
-			const denied = await server.inject({
-				method: "OPTIONS",
+			const response = await server.inject({
+				method: "GET",
 				url: "/api/v1/me",
 				headers: {
 					origin: "https://evil.example",
-					"access-control-request-method": "GET",
+					cookie: "__Host-console.session_token=valid-session",
 				},
 			});
-			expect(denied.statusCode).toBe(403);
-			expect(denied.headers["access-control-allow-origin"]).toBeUndefined();
-			expect(denied.json().error.code).toBe("origin_denied");
-		} finally {
-			await server.close();
-		}
-	});
-
-	it("adds the non-hierarchical terminal lane only for the dedicated Authentik group", async () => {
-		const server = await buildServer(services, false, undefined, browserAuth);
-		try {
-			const response = await server.inject({
-				method: "GET",
-				url: "/api/v1/me",
-				headers: {
-					"x-authentik-username": "parker",
-					"x-authentik-groups": "owner|term_admin",
-					"x-console-auth-proxy-nonce": proxyNonce,
-				},
-			});
-			expect(response.statusCode).toBe(200);
-			expect(response.json().lanes).toEqual([
-				"viewer",
-				"editor",
-				"operator",
-				"admin",
-				"term_admin",
-			]);
-		} finally {
-			await server.close();
-		}
-	});
-
-	it.each([
-		["missing nonce", null],
-		["stale nonce", { "x-console-auth-proxy-nonce": `${proxyNonce}x` }],
-		["unexpected Authentik claim", { "x-authentik-uid": "forged" }],
-		["underscore-folded claim", { x_authentik_username: "forged" }],
-	])("rejects %s", async (_label, hostileHeaders) => {
-		const server = await buildServer(services, false, undefined, browserAuth);
-		try {
-			const headers: Record<string, string> = {
-				"x-authentik-username": "parker",
-				"x-authentik-groups": "owner",
-				"x-console-auth-proxy-nonce": proxyNonce,
-			};
-			if (hostileHeaders) Object.assign(headers, hostileHeaders);
-			else delete headers["x-console-auth-proxy-nonce"];
-			const response = await server.inject({
-				method: "GET",
-				url: "/api/v1/me",
-				headers,
-			});
-			expect(response.statusCode).toBe(401);
-			expect(response.json().error.code).toBe("unauthorized");
-		} finally {
-			await server.close();
-		}
-	});
-
-	it("refuses to enable browser auth without a trusted proxy", async () => {
-		await expect(
-			buildServer(services, false, undefined, { ...browserAuth, trustedProxies: [] }),
-		).rejects.toThrow(/trusted proxy/);
-	});
-
-	it("rejects duplicate trusted identity headers", async () => {
-		const server = await buildServer(services, false, undefined, browserAuth);
-		try {
-			const response = await server.inject({
-				method: "GET",
-				url: "/api/v1/me",
-				headers: {
-					"x-authentik-username": ["parker", "eli"],
-					"x-authentik-groups": "owner",
-					"x-console-auth-proxy-nonce": proxyNonce,
-				},
-			});
-			expect(response.statusCode).toBe(401);
-		} finally {
-			await server.close();
-		}
-	});
-
-	it("rejects a valid forwarded identity from a direct untrusted peer", async () => {
-		const server = await buildServer(services, false, undefined, browserAuth);
-		try {
-			const response = await server.inject({
-				method: "GET",
-				url: "/api/v1/me",
-				remoteAddress: "192.0.2.10",
-				headers: {
-					"x-authentik-username": "parker",
-					"x-authentik-groups": "owner",
-					"x-console-auth-proxy-nonce": proxyNonce,
-				},
-			});
-			expect(response.statusCode).toBe(401);
+			expect(response.statusCode).toBe(403);
 		} finally {
 			await server.close();
 		}

@@ -28,6 +28,16 @@ export function createBetterAuthSessionVerifier(
 		secret: config.secret,
 		database: pool,
 		account: { encryptOAuthTokens: true, storeAccountCookie: false },
+		trustedOrigins: [new URL(config.baseUrl).origin],
+		advanced: {
+			useSecureCookies: false,
+			cookiePrefix:
+				new URL(config.baseUrl).protocol === "https:" ? "__Host-console" : "console",
+			defaultCookieAttributes: {
+				secure: new URL(config.baseUrl).protocol === "https:",
+				path: "/",
+			},
+		},
 		session: { expiresIn: 5 * 60, updateAge: 0 },
 		user: {
 			additionalFields: {

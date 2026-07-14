@@ -89,8 +89,8 @@ export type TerminalFrame =
 	  };
 
 /**
- * Browser bus transport. WebSocket handshakes use the browser's credential mode, so the trusted
- * Authentik cookie reaches the console proxy and the proxy stamps the upgrade identity. Resolve
+ * Browser bus transport. WebSocket handshakes carry the host-only Better Auth cookie to the
+ * same-origin console-api, which validates the session directly. Resolve
  * subscriptions lazily so reconnects can resume from the latest sequence observed by the caller.
  */
 export function connectBus(
@@ -173,10 +173,8 @@ async function json<T>(res: Response): Promise<T> {
 
 /**
  * GET /api/v1/me — the caller's Principal + display/grant name (session chip). `credentials:
- * "include"` so the browser sends the Authentik session cookie to console-api even cross-origin
- * (the human forwardAuth flow, §1.2); without it a cross-origin console-api never sees the session
- * and every human falls to the offline principal. The API side owns the matching credentialed CORS
- * (BLOCKERS).
+ * "include"` sends the Better Auth session cookie to same-origin console-api; without it the API
+ * cannot validate the caller. The API side owns the matching exact-origin credentialed CORS.
  */
 export async function readMe(fetchFn: typeof fetch = fetch): Promise<Me> {
 	const res = await fetchFn(`${base()}/me`, {
@@ -551,7 +549,7 @@ export async function runOp(
 	const res = await (opts.fetchFn ?? fetch)(`${base()}/op`, {
 		method: "POST",
 		headers: { "content-type": "application/json", accept: "application/json" },
-		credentials: "include", // send the Authentik session for command authz (§1.2)
+		credentials: "include", // send the Better Auth session for command authz (§1.2)
 		body: JSON.stringify({
 			schema_version: 1,
 			op,

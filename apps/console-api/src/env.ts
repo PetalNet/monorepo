@@ -1,8 +1,6 @@
 // Runtime configuration, read once at boot. Nothing here is secret-bearing beyond
 // connection URLs (which carry credentials) — those come from the environment, never code.
 
-import { isIP } from "node:net";
-
 import type { MatrixConfig } from "./notifications/matrix.ts";
 
 export interface Env {
@@ -57,12 +55,6 @@ export interface Env {
 	readonly doormanAdminToken?: string | null;
 	/** Matrix is the decided off-console notification channel; all three values configure it. */
 	readonly matrix?: MatrixConfig | null;
-	/** Strict browser boundary. Null only in explicit dev-auth mode. */
-	readonly browserAuth: {
-		readonly consoleOrigin: string;
-		readonly proxyNonce: string;
-		readonly trustedProxies: readonly string[];
-	} | null;
 	readonly betterAuth: { readonly baseUrl: string; readonly secret: string } | null;
 }
 
@@ -90,12 +82,6 @@ export function loadEnv(): Env {
 		!new Set(["127.0.0.1", "::1", "localhost"]).has(parsedCostMeterUrl.hostname)
 	)
 		throw new Error("CONSOLE_COST_METER_URL must use https or a loopback host");
-	const consoleOrigin = process.env["CONSOLE_API_CORS_ORIGIN"];
-	const proxyNonce = process.env["CONSOLE_API_AUTH_PROXY_NONCE"];
-	const trustedProxies = (process.env["CONSOLE_API_TRUSTED_PROXIES"] ?? "")
-		.split(",")
-		.map((proxy) => proxy.trim())
-		.filter(Boolean);
 	const matrixValues = [
 		process.env["CONSOLE_API_MATRIX_HOMESERVER"],
 		process.env["CONSOLE_API_MATRIX_ACCESS_TOKEN"],
@@ -155,24 +141,6 @@ export function loadEnv(): Env {
 			ownerBindings: ownerBindings as Record<string, string>,
 		};
 	}
-	let browserAuth: Env["browserAuth"] = null;
-	if (consoleOrigin || proxyNonce || trustedProxies.length > 0) {
-		if (!consoleOrigin || !proxyNonce || trustedProxies.length === 0)
-			throw new Error(
-				"CONSOLE_API_CORS_ORIGIN, CONSOLE_API_AUTH_PROXY_NONCE, and CONSOLE_API_TRUSTED_PROXIES must be configured together",
-			);
-		const parsedOrigin = new URL(consoleOrigin);
-		if (
-			(parsedOrigin.protocol !== "https:" && parsedOrigin.protocol !== "http:") ||
-			parsedOrigin.origin !== consoleOrigin
-		)
-			throw new Error("CONSOLE_API_CORS_ORIGIN must be one exact HTTP(S) origin");
-		if (proxyNonce.length < 32)
-			throw new Error("CONSOLE_API_AUTH_PROXY_NONCE must contain at least 32 characters");
-		if (trustedProxies.some((proxy) => isIP(proxy) === 0))
-			throw new Error("CONSOLE_API_TRUSTED_PROXIES must contain only exact IP addresses");
-		browserAuth = { consoleOrigin, proxyNonce, trustedProxies };
-	}
 	const betterAuthUrl = process.env["BETTER_AUTH_URL"];
 	const betterAuthSecret = process.env["BETTER_AUTH_SECRET"];
 	if (Boolean(betterAuthUrl) !== Boolean(betterAuthSecret))
@@ -186,10 +154,8 @@ export function loadEnv(): Env {
 			throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
 		betterAuth = { baseUrl: betterAuthUrl, secret: betterAuthSecret };
 	}
-	if (!devAuth && !betterAuth && !browserAuth)
-		throw new Error(
-			"browser auth is required outside dev: configure Better Auth or trusted forward-auth",
-		);
+	if (!devAuth && !betterAuth)
+		throw new Error("browser auth is required outside dev: configure Better Auth");
 	return {
 		databaseUrl,
 		appDatabaseUrl: process.env["APP_DATABASE_URL"] ?? databaseUrl,
@@ -221,7 +187,6 @@ export function loadEnv(): Env {
 		doormanAdminUrl: doormanValues[0] ?? null,
 		doormanAdminToken: doormanValues[1] ?? null,
 		matrix,
-		browserAuth,
 		betterAuth,
 	};
 }

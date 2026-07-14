@@ -34,8 +34,11 @@ export const auth = betterAuth({
 	account: { encryptOAuthTokens: true, storeAccountCookie: false },
 	trustedOrigins: [new URL(baseURL).origin],
 	advanced: {
-		useSecureCookies: new URL(baseURL).protocol === "https:",
-		cookiePrefix: "__Host-console",
+		// Avoid Better Auth's automatic `__Secure-` prefix and explicitly satisfy the stronger
+		// __Host contract: Secure, Path=/, and no Domain attribute.
+		useSecureCookies: false,
+		cookiePrefix: new URL(baseURL).protocol === "https:" ? "__Host-console" : "console",
+		defaultCookieAttributes: { secure: new URL(baseURL).protocol === "https:", path: "/" },
 	},
 	session: { expiresIn: 5 * 60, updateAge: 0 },
 	user: {

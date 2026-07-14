@@ -4,7 +4,6 @@
 
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
@@ -458,74 +457,7 @@ const opCallSchema = z
 	})
 	.strict();
 
-export interface BrowserAuthConfig {
-	readonly consoleOrigin: string;
-	readonly proxyNonce: string;
-	readonly trustedProxies: readonly string[];
-}
-
-const AUTHENTIK_HEADERS = new Set([
-	"x-authentik-username",
-	"x-authentik-groups",
-	"x-authentik-email",
-]);
-const AUTH_PROXY_NONCE_HEADER = "x-console-auth-proxy-nonce";
 const LANE_ORDER = ["viewer", "editor", "operator", "admin"] as const;
-
-function hasControlCharacter(value: string): boolean {
-	return [...value].some((character) => {
-		const codePoint = character.codePointAt(0) ?? 0;
-		return codePoint < 0x20 || codePoint === 0x7f;
-	});
-}
-
-function strictForwardAuthHeaders(
-	req: FastifyRequest,
-	expectedNonce: string,
-): { username: string; groups: string[] } | null {
-	const seen = new Map<string, string[]>();
-	const raw = req.raw.rawHeaders;
-	for (let index = 0; index < raw.length; index += 2) {
-		const rawName = raw[index] ?? "";
-		const value = raw[index + 1] ?? "";
-		const name = rawName.trim().toLowerCase();
-		if (rawName.includes("_") && rawName.toLowerCase().includes("authentik")) return null;
-		if (name.startsWith("x-authentik-") && !AUTHENTIK_HEADERS.has(name)) return null;
-		if (AUTHENTIK_HEADERS.has(name) || name === AUTH_PROXY_NONCE_HEADER) {
-			if (hasControlCharacter(value)) return null;
-			const values = seen.get(name) ?? [];
-			values.push(value);
-			seen.set(name, values);
-		}
-	}
-	for (const values of seen.values()) if (values.length !== 1) return null;
-	const nonce = seen.get(AUTH_PROXY_NONCE_HEADER)?.[0];
-	if (!nonce || nonce.length !== expectedNonce.length) return null;
-	if (!timingSafeEqual(Buffer.from(nonce), Buffer.from(expectedNonce))) return null;
-	const username = seen.get("x-authentik-username")?.[0]?.trim() ?? "";
-	if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(username)) return null;
-	const groups = (seen.get("x-authentik-groups")?.[0] ?? "")
-		.split("|")
-		.map((group) => group.trim())
-		.filter(Boolean);
-	if (groups.length === 0 || new Set(groups).size !== groups.length) return null;
-	return { username, groups };
-}
-
-async function resolveForwardAuth(
-	services: Services,
-	req: FastifyRequest,
-	config: BrowserAuthConfig,
-): Promise<Principal | null> {
-	const remoteAddress = req.raw.socket.remoteAddress;
-	const normalizedRemote = remoteAddress?.startsWith("::ffff:")
-		? remoteAddress.slice("::ffff:".length)
-		: remoteAddress;
-	if (!normalizedRemote || !config.trustedProxies.includes(normalizedRemote)) return null;
-	const identity = strictForwardAuthHeaders(req, config.proxyNonce);
-	if (!identity) return null;
-	return resolveHumanIdentity(services, identity);
-}
 
 async function resolveHumanIdentity(
 	services: Services,
@@ -603,19 +535,15 @@ export async function buildServer(
 	services: Services,
 	devAuth: boolean,
 	monitor: ExceptionMonitor = inertExceptionMonitor,
-	browserAuth: BrowserAuthConfig | null = null,
 	terminal: TerminalAdapter = new SshTmuxTerminalAdapter(),
 	betterAuth: BetterAuthSessionVerifier | null = null,
 	devAuthHost: string | null = null,
 ) {
-	if (browserAuth?.trustedProxies.length === 0)
-		throw new Error("browser auth requires at least one trusted proxy");
 	const app = Fastify({
 		logger: false,
 		bodyLimit: 1024 * 1024,
-		...(browserAuth ? { trustProxy: [...browserAuth.trustedProxies] } : {}),
 	});
-	const browserOrigin = browserAuth?.consoleOrigin ?? betterAuth?.consoleOrigin;
+	const browserOrigin = betterAuth?.consoleOrigin;
 	if (browserOrigin) {
 		app.addHook("onRequest", async (req, reply) => {
 			const origin = req.headers.origin;
@@ -722,10 +650,6 @@ export async function buildServer(
 				const principal = await resolveHumanIdentity(services, identity);
 				if (principal) return principal;
 			}
-		}
-		if (browserAuth) {
-			const p = await resolveForwardAuth(services, req, browserAuth);
-			if (p) return p;
 		}
 		if (devAuth) {
 			if (devAuthHost && req.hostname !== devAuthHost) return null;
@@ -2021,7 +1945,7 @@ export async function buildServer(
 	});
 
 	// --- health (unauthenticated) --------------------------------------------------------------
-	app.get("/api/v1/health", async () => {
+	app.get("/api/v1/health", { preHandler: auth }, async () => {
 		const requestedAt = Date.now();
 		if (healthCache && requestedAt - healthCacheAt < 5_000)
 			return { ...healthCache, ws_clients: wsClients, ws_subscriptions: wsSubscriptions };
@@ -3872,7 +3796,7 @@ export async function buildServer(
 				}
 			}
 		};
-		const refreshable = Boolean(bearer || browserAuth || betterAuth);
+		const refreshable = Boolean(bearer || betterAuth);
 		const stopGrantWatch = refreshable
 			? services.onGrantChange(() => {
 					principal = null;
@@ -3994,7 +3918,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 		services,
 		env.devAuth,
 		monitor,
-		env.browserAuth,
 		undefined,
 		betterAuth,
 		env.devAuthHost,

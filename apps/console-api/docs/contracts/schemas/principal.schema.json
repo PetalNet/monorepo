@@ -2,7 +2,7 @@
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$id": "https://petalcat.dev/schemas/console/principal.schema.json",
 	"title": "Principal (server-stamped caller identity)",
-	"description": "Resolved and server-stamped by console-api. The current production-capable path is a bearer token backed by api_tokens; trusted Authentik forward-auth mapping for browser humans remains an upstream deployment prerequisite. Dev headers are accepted only when CONSOLE_API_DEV_AUTH is enabled. NEVER trust identity fields from an ordinary client payload. Consumers MUST ignore unknown fields. kind is bound by the credential record, never inferred from the id string. Token revocation is checked per request (sha256 lookup), independent of the grant zookie.",
+	"description": "Resolved and server-stamped by console-api. Browser humans use a directly validated Better Auth session; agents and services use bearer tokens backed by api_tokens. NEVER trust identity fields from an ordinary client payload. Consumers MUST ignore unknown fields. kind is bound by the credential record, never inferred from the id string. Token and session revocation are checked per request, independent of the grant zookie.",
 	"type": "object",
 	"required": ["schema_version", "kind", "id", "tiers", "lanes", "scopes", "zookie"],
 	"additionalProperties": true,
@@ -22,7 +22,7 @@
 			"items": {
 				"type": "string"
 			},
-			"description": "Permission levels (DB-defined rows, not an enum): owner, moderator, collaborator, guest, plus future tiers. Currently server-stamped from the bearer token record; trusted Authentik-group mapping remains upstream.",
+			"description": "Permission levels (DB-defined rows, not an enum): owner, moderator, collaborator, guest, plus future tiers. Server-stamped from the bearer token record or the directly validated Better Auth identity.",
 			"uniqueItems": true
 		},
 		"lanes": {

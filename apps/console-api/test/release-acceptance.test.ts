@@ -273,7 +273,6 @@ describe("BR-032 hermetic release acceptance", () => {
 			{ ...services, assistant: compiler, assistantRuntime },
 			false,
 			undefined,
-			null,
 			undefined,
 			betterAuth,
 		);
@@ -684,7 +683,8 @@ describe("BR-032 hermetic release acceptance", () => {
 			// cannot retain Alpha's former RLS scope.
 			const alphaAfterRevoke = await mcpQuery(toolTokens.get("release-alpha") ?? "");
 			expect(alphaAfterRevoke.statusCode, alphaAfterRevoke.body).toBe(200);
-			expect(alphaAfterRevoke.json().result.structuredContent.rows).toEqual([]);
+			expect(alphaAfterRevoke.json().result).toMatchObject({ isError: true });
+			expect(alphaAfterRevoke.body).not.toContain("alpha-only");
 			const alphaLibraryAfterRevoke = await server.inject({
 				method: "POST",
 				url: "/api/v1/assistant/mcp",
@@ -699,9 +699,9 @@ describe("BR-032 hermetic release acceptance", () => {
 					},
 				},
 			});
-			expect(JSON.stringify(alphaLibraryAfterRevoke.json())).not.toContain(
-				"Alpha isolation marker",
-			);
+			expect(
+				alphaLibraryAfterRevoke.json().result.structuredContent.data.items,
+			).toEqual([]);
 
 			// Logout invalidates the originating Better Auth session binding immediately. Presenting
 			// Beta's cookie after the swap resolves Beta, never Alpha, and Beta's old MCP token dies.
