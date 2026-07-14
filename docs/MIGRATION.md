@@ -33,6 +33,16 @@ Then, the things that bit slide:
 
 ## Migrated
 
+- `courier` → `apps/courier` — reliability-first, from-scratch Rust rewrite and
+  drop-in successor to `matrix-bot` (Matrix E2EE relay bot + plugin crates), **not**
+  a pnpm app. No `package.json` (pnpm/`vp`/knip ignore it); oxfmt owns
+  `.toml`/`.md`, `cargo fmt` owns `.rs`. Its crates remain in their own Cargo
+  workspace; `Cargo.lock` is kept for `--locked` validation. CI runs workspace
+  fmt, pedantic clippy, all-targets build, and tests with the sqlite/OpenSSL build
+  dependencies installed. Dropped standalone Docker/systemd deploy files and
+  trimmed deploy docs; lab routing and deployment are central. Full-history,
+  all-refs secrets audit found no real secrets.
+
 - `janet-manager` → `apps/manager` — Rust supervisor for a persistent Claude Code
   agent session (manager-rs, N1.1-hardened: heartbeat v2 + contract conformance +
   state-machine tests), **not** a pnpm app. No `package.json` (pnpm/`vp`/knip ignore

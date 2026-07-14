@@ -54,6 +54,7 @@
 		"ignoreProjects": [
 			"apps/box-agent",
 			"apps/control-plane",
+			"apps/courier",
 			"apps/dispatcher",
 			"apps/manager",
 			"apps/point"
