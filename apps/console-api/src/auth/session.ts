@@ -10,12 +10,19 @@ export interface BetterAuthSessionVerifier {
 }
 export interface BetterAuthSessionConfig { readonly databaseUrl: string; readonly baseUrl: string; readonly secret: string; }
 
+function hasControlCharacter(value: string): boolean {
+	return [...value].some((character) => {
+		const codePoint = character.codePointAt(0) ?? 0;
+		return codePoint < 0x20 || codePoint === 0x7f;
+	});
+}
+
 export function parseBetterAuthIdentity(user: Record<string, unknown>): BetterAuthSessionIdentity | null {
 	const username = user["authentikUsername"];
 	const encodedGroups = user["authentikGroups"];
 	const subject = user["authentikSubject"];
 	if (typeof username !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(username)) return null;
-	if (typeof subject !== "string" || subject.length === 0 || subject.length > 255 || /[\u0000-\u001f\u007f]/.test(subject)) return null;
+	if (typeof subject !== "string" || subject.length === 0 || subject.length > 255 || hasControlCharacter(subject)) return null;
 	if (typeof encodedGroups !== "string") return null;
 	try {
 		const groups = JSON.parse(encodedGroups) as unknown;
