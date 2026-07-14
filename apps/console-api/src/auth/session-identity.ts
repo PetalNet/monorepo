@@ -2,6 +2,7 @@ export interface BetterAuthSessionIdentity {
 	readonly username: string;
 	readonly groups: readonly string[];
 	readonly subject?: string;
+	readonly sessionId?: string;
 }
 
 function hasControlCharacter(value: string): boolean {

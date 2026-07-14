@@ -22,8 +22,6 @@ const issuer =
 	(building
 		? "https://authentik.invalid/application/o/console/"
 		: required("AUTHENTIK_OIDC_ISSUER"));
-const cookieDomain = env.BETTER_AUTH_COOKIE_DOMAIN;
-
 export const auth = betterAuth({
 	appName: "Lab Console",
 	baseURL,
@@ -37,8 +35,9 @@ export const auth = betterAuth({
 	trustedOrigins: [new URL(baseURL).origin],
 	advanced: {
 		useSecureCookies: new URL(baseURL).protocol === "https:",
-		...(cookieDomain ? { crossSubDomainCookies: { enabled: true, domain: cookieDomain } } : {}),
+		cookiePrefix: "__Host-console",
 	},
+	session: { expiresIn: 5 * 60, updateAge: 0 },
 	user: {
 		additionalFields: {
 			authentikUsername: { type: "string", required: true, input: false },

@@ -214,24 +214,33 @@ interface SessionPrincipalRow {
 	principal_kind: Principal["kind"];
 	tiers: string[];
 	lanes: string[];
+	auth_source: string;
+	auth_session_id: string | null;
 }
 
 export async function resolveAssistantToolPrincipal(
 	admin: Sql,
 	token: string,
+	resolveBetterAuthSession?: (sessionId: string) => Promise<Principal | null>,
 ): Promise<Principal | null> {
 	const rows = await admin<SessionPrincipalRow[]>`
-		select s.principal_id, current.kind as principal_kind, current.tiers, current.lanes
+		select s.principal_id, s.principal_kind, s.tiers, s.lanes, s.auth_source, s.auth_session_id
 		from assistant_tool_tokens t join assistant_sessions s on s.principal_id = t.principal_id
-		join lateral (
-		  select a.kind, a.tiers, a.lanes from api_tokens a
-		  where a.subject = s.principal_id and a.revoked_at is null
-		    and a.kind = s.principal_kind and a.tiers = s.tiers and a.lanes = s.lanes
-		  limit 1
-		) current on true
 		where t.token_sha256 = ${sha256(token)} and t.expires_at > now()`;
 	const row = rows[0];
 	if (!row) return null;
+	if (row.auth_source === "better-auth") {
+		if (!row.auth_session_id || !resolveBetterAuthSession) return null;
+		const current = await resolveBetterAuthSession(row.auth_session_id);
+		if (!current || current.id !== row.principal_id || current.kind !== row.principal_kind)
+			return null;
+		return current;
+	}
+	const current = await admin<{ kind: Principal["kind"]; tiers: string[]; lanes: string[] }[]>`
+		select kind, tiers, lanes from api_tokens where subject = ${row.principal_id}
+		  and revoked_at is null and kind = ${row.principal_kind} and tiers = ${admin.json(row.tiers)}
+		  and lanes = ${admin.json(row.lanes)} limit 1`;
+	if (!current[0]) return null;
 	const { scopes, zookie } = await resolveScopes(admin, row.principal_id, row.tiers);
 	return {
 		kind: row.principal_kind,

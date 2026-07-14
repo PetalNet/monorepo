@@ -171,6 +171,7 @@ export class AssistantRuntime {
 		principal: Principal,
 		input: { id: string; kind: "user" | "context"; content: string },
 	): Promise<AssistantMessageResult> {
+		const auth = principal as Principal & { authSource?: string; authSessionId?: string };
 		const scrubbed = scrubUnknown(input.content, "assistant.message");
 		if (!scrubbed.ok)
 			throw new AssistantRuntimeError(
@@ -181,10 +182,11 @@ export class AssistantRuntime {
 			.update(`lab-console-dashboard\0${principal.id}`)
 			.digest("hex");
 		await this.writer`
-			insert into assistant_sessions (principal_id, principal_kind, tiers, lanes, external_session_id)
-			values (${principal.id}, ${principal.kind}, ${this.writer.json([...principal.tiers])}, ${this.writer.json([...principal.lanes])}, ${externalId})
+			insert into assistant_sessions (principal_id, principal_kind, tiers, lanes, auth_source, auth_session_id, external_session_id)
+			values (${principal.id}, ${principal.kind}, ${this.writer.json([...principal.tiers])}, ${this.writer.json([...principal.lanes])}, ${auth.authSource ?? "legacy"}, ${auth.authSessionId ?? null}, ${externalId})
 			on conflict (principal_id) do update set
 			  principal_kind = excluded.principal_kind, tiers = excluded.tiers, lanes = excluded.lanes,
+			  auth_source = excluded.auth_source, auth_session_id = excluded.auth_session_id,
 			  updated_at = now()`;
 		interface MessageRow {
 			request_hash: string;
