@@ -188,8 +188,8 @@
 	function statValue(panel: MaterializedPanel): Scalar {
 		const row = panel.result?.rows[0] ?? [];
 		return (
-			[...row].reverse().find((cell) => typeof cell === "number") ??
-			[...row].reverse().find((cell) => cell !== null) ??
+			row.toReversed().find((cell) => typeof cell === "number") ??
+			row.toReversed().find((cell) => cell !== null) ??
 			"—"
 		);
 	}
@@ -230,8 +230,8 @@
 	}
 	function points(panel: MaterializedPanel): string {
 		const values = (panel.result?.rows ?? []).map((row) =>
-			[...row]
-				.reverse()
+			row
+				.toReversed()
 				.find((cell): cell is number => typeof cell === "number"),
 		);
 		const numeric = values.filter(
@@ -383,15 +383,17 @@
 			sessionRestoring = true;
 			void getAssistantSession()
 				.then(({ session }) => {
-					if (!session) return;
+					if (!session) return null;
 					windowLayout = layout(session.window_layout);
 					if (session.last_context?.value)
 						context = {
 							label: String(session.last_context.value).slice(0, 64),
 						};
+					return session;
 				})
 				.catch(() => {
 					/* A missing prior session is an empty state, not an assistant outage. */
+					return null;
 				})
 				.finally(() => (sessionRestoring = false));
 		}
