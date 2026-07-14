@@ -38,7 +38,7 @@ export const load: LayoutServerLoad = async ({ url, fetch, locals }): Promise<Sh
 		if (url.searchParams.has("error"))
 			captureCaughtFailure(new Error("OIDC callback returned an authentication error"), {
 				surface: "console-login",
-				endpoint: "/api/auth/callback/authentik",
+				endpoint: "/api/auth/oauth2/callback/authentik",
 			});
 		return {
 			authenticated: false,

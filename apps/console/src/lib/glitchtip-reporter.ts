@@ -18,7 +18,7 @@ export type CaughtFailureEndpoint =
 	| "/me"
 	| "/network/key-ceremony"
 	| "/roster"
-	| "/api/auth/callback/authentik"
+	| "/api/auth/oauth2/callback/authentik"
 	| "/api/auth/sign-in/oauth2"
 	| `/query/${"events" | "freshness" | "queries" | "emitters"}`;
 
