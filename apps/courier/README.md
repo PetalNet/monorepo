@@ -48,13 +48,10 @@ then `cargo run --release`. All flags are also environment variables
 
 ## Cutover from matrix-bot
 
-1. Stop nothing yet — build and `--check-config` against a copy of the
-   existing config.
-2. Point `MATRIX_STORE` / `MATRIX_SESSION_FILE` at a COPY of the old data
-   directory, or start fresh (fresh start = new device; re-login +
-   `MATRIX_RECOVERY_KEY` restores E2EE history keys).
-3. Stop the old container, start courier, watch for `Relay health` lines
-   and run `!diag`.
+Courier accepts matrix-bot's config schema, environment variables, and
+on-disk state layout. Preserve the existing state directory during a centrally
+managed rollout, then verify relay health with the `Relay health` logs and
+`!diag`.
 
 ## Renaming (courier is a placeholder)
 

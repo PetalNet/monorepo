@@ -1,7 +1,6 @@
 # NOTE ON RENAMING: "courier" is a placeholder service name. To rename the
 # project, see README.md § Renaming — the name appears only in crate names
-# (courier, courier-*), the `service_name` module in crates/courier/src/, and
-# the Docker/systemd deploy files.
+# (courier, courier-*) and the `service_name` module in crates/courier/src/.
 [workspace]
 resolver = "3"
 members = ["crates/*"]
