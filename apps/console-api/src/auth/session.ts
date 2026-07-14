@@ -34,6 +34,8 @@ export function createBetterAuthSessionVerifier(
 			cookiePrefix: new URL(config.baseUrl).protocol === "https:" ? "__Host-console" : "console",
 			defaultCookieAttributes: {
 				secure: new URL(config.baseUrl).protocol === "https:",
+				httpOnly: true,
+				sameSite: "lax",
 				path: "/",
 			},
 		},

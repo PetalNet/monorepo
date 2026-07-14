@@ -6,6 +6,8 @@ import { genericOAuth } from "better-auth/plugins";
 import { sveltekitCookies } from "better-auth/svelte-kit";
 import { Pool } from "pg";
 
+import { authentikUsername } from "./authentik-profile";
+
 const AUTHENTIK_PROVIDER_ID = "authentik";
 
 function required(name: string): string {
@@ -38,7 +40,12 @@ export const auth = betterAuth({
 		// __Host contract: Secure, Path=/, and no Domain attribute.
 		useSecureCookies: false,
 		cookiePrefix: new URL(baseURL).protocol === "https:" ? "__Host-console" : "console",
-		defaultCookieAttributes: { secure: new URL(baseURL).protocol === "https:", path: "/" },
+		defaultCookieAttributes: {
+			secure: new URL(baseURL).protocol === "https:",
+			httpOnly: true,
+			sameSite: "lax",
+			path: "/",
+		},
 	},
 	session: { expiresIn: 5 * 60, updateAge: 0 },
 	user: {
@@ -62,8 +69,7 @@ export const auth = betterAuth({
 					scopes: ["openid", "profile", "email", "groups"],
 					overrideUserInfo: true,
 					mapProfileToUser(profile) {
-						const username =
-							typeof profile.preferred_username === "string" ? profile.preferred_username : "";
+						const username = authentikUsername(profile);
 						const groups = Array.isArray(profile.groups)
 							? profile.groups.filter((group): group is string => typeof group === "string")
 							: [];
