@@ -699,9 +699,7 @@ describe("BR-032 hermetic release acceptance", () => {
 					},
 				},
 			});
-			expect(
-				alphaLibraryAfterRevoke.json().result.structuredContent.data.items,
-			).toEqual([]);
+			expect(alphaLibraryAfterRevoke.json().result.structuredContent.data.items).toEqual([]);
 
 			// Logout invalidates the originating Better Auth session binding immediately. Presenting
 			// Beta's cookie after the swap resolves Beta, never Alpha, and Beta's old MCP token dies.

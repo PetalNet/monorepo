@@ -90,8 +90,8 @@ export type TerminalFrame =
 
 /**
  * Browser bus transport. WebSocket handshakes carry the host-only Better Auth cookie to the
- * same-origin console-api, which validates the session directly. Resolve
- * subscriptions lazily so reconnects can resume from the latest sequence observed by the caller.
+ * same-origin console-api, which validates the session directly. Resolve subscriptions lazily so
+ * reconnects can resume from the latest sequence observed by the caller.
  */
 export function connectBus(
 	subscriptions: () => readonly BusSubscription[],

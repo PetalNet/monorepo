@@ -1,7 +1,7 @@
 import { building } from "$app/environment";
 import { glitchtipEnabled, sentryOptions } from "$lib/glitchtip";
-import { authGateDecision } from "$lib/server/auth-gate-policy";
 import { auth, authConfigured } from "$lib/server/auth";
+import { authGateDecision } from "$lib/server/auth-gate-policy";
 import { handleErrorWithSentry, sentryHandle } from "@sentry/sveltekit";
 import * as Sentry from "@sentry/sveltekit";
 import { redirect, type Handle } from "@sveltejs/kit";
