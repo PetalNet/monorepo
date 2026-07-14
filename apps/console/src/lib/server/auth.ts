@@ -6,7 +6,7 @@ import { genericOAuth } from "better-auth/plugins";
 import { sveltekitCookies } from "better-auth/svelte-kit";
 import { Pool } from "pg";
 
-import { authentikUsername } from "./authentik-profile";
+import { authentikProfileUser, authentikUserFields } from "./authentik-profile";
 
 const AUTHENTIK_PROVIDER_ID = "authentik";
 
@@ -48,12 +48,11 @@ export const auth = betterAuth({
 		},
 	},
 	session: { expiresIn: 5 * 60, updateAge: 0 },
+	// These are the only core endpoints that accept arbitrary user fields. Keep them disabled so
+	// Authentik-owned identity fields can only enter through the validated OAuth profile below.
+	disabledPaths: ["/sign-up/email", "/update-user"],
 	user: {
-		additionalFields: {
-			authentikUsername: { type: "string", required: true, input: false },
-			authentikGroups: { type: "string", required: true, input: false },
-			authentikSubject: { type: "string", required: true, input: false },
-		},
+		additionalFields: authentikUserFields,
 	},
 	plugins: [
 		genericOAuth({
@@ -69,17 +68,7 @@ export const auth = betterAuth({
 					scopes: ["openid", "profile", "email", "groups"],
 					overrideUserInfo: true,
 					mapProfileToUser(profile) {
-						const username = authentikUsername(profile);
-						const groups = Array.isArray(profile.groups)
-							? profile.groups.filter((group): group is string => typeof group === "string")
-							: [];
-						return {
-							name: typeof profile.name === "string" ? profile.name : username,
-							email: typeof profile.email === "string" ? profile.email : "",
-							authentikUsername: username,
-							authentikGroups: JSON.stringify(groups),
-							authentikSubject: typeof profile.sub === "string" ? profile.sub : "",
-						} as never;
+						return authentikProfileUser(profile) as never;
 					},
 				},
 			],

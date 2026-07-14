@@ -14,7 +14,7 @@
 		"lint": "oxlint src scripts --max-warnings=0",
 		"prepare": "svelte-kit sync || echo ''",
 		"preview": "vite preview",
-		"test": "node --test --experimental-strip-types src/**/*.test.ts && vitest run src/routes/caught-failures.contract.spec.ts",
+		"test": "node --test --experimental-strip-types src/**/*.test.ts src/lib/server/authentik-profile.test.ts && vitest run src/routes/caught-failures.contract.spec.ts",
 		"test:e2e": "playwright test"
 	},
 	"dependencies": {
