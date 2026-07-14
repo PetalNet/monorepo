@@ -76,9 +76,11 @@ export function loadEnv(): Env {
 	const databaseUrl = required("DATABASE_URL");
 	const devAuth = process.env["CONSOLE_API_DEV_AUTH"] === "1";
 	if (
-		devAuth && process.env["NODE_ENV"] === "production" &&
+		devAuth &&
+		process.env["NODE_ENV"] === "production" &&
 		process.env["CONSOLE_API_DEV_AUTH_HOST"] !== "console-demo.petalcat.dev"
-	) throw new Error("production dev-auth is restricted to console-demo.petalcat.dev");
+	)
+		throw new Error("production dev-auth is restricted to console-demo.petalcat.dev");
 	const configuredCostMeterUrl = process.env["CONSOLE_COST_METER_URL"];
 	const costMeterUrl = configuredCostMeterUrl ?? "http://127.0.0.1:8098/api/v1";
 	const parsedCostMeterUrl = new URL(costMeterUrl);
@@ -178,12 +180,16 @@ export function loadEnv(): Env {
 	let betterAuth: Env["betterAuth"] = null;
 	if (betterAuthUrl && betterAuthSecret) {
 		const parsed = new URL(betterAuthUrl);
-		if (!devAuth && parsed.protocol !== "https:") throw new Error("BETTER_AUTH_URL must use https outside dev-auth mode");
-		if (betterAuthSecret.length < 32) throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
+		if (!devAuth && parsed.protocol !== "https:")
+			throw new Error("BETTER_AUTH_URL must use https outside dev-auth mode");
+		if (betterAuthSecret.length < 32)
+			throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
 		betterAuth = { baseUrl: betterAuthUrl, secret: betterAuthSecret };
 	}
 	if (!devAuth && !betterAuth && !browserAuth)
-		throw new Error("browser auth is required outside dev: configure Better Auth or trusted forward-auth");
+		throw new Error(
+			"browser auth is required outside dev: configure Better Auth or trusted forward-auth",
+		);
 	return {
 		databaseUrl,
 		appDatabaseUrl: process.env["APP_DATABASE_URL"] ?? databaseUrl,
@@ -192,7 +198,8 @@ export function loadEnv(): Env {
 		host: process.env["CONSOLE_API_HOST"] ?? "127.0.0.1",
 		port: Number(process.env["CONSOLE_API_PORT"] ?? "8080"),
 		devAuth,
-		devAuthHost: devAuth && process.env["NODE_ENV"] === "production" ? "console-demo.petalcat.dev" : null,
+		devAuthHost:
+			devAuth && process.env["NODE_ENV"] === "production" ? "console-demo.petalcat.dev" : null,
 		glitchtipDsn: process.env["CONSOLE_API_GLITCHTIP_DSN"] ?? null,
 		...(process.env["CONSOLE_API_CURSOR_SECRET"]
 			? { cursorSecret: process.env["CONSOLE_API_CURSOR_SECRET"] }

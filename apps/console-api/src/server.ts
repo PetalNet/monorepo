@@ -26,8 +26,12 @@ import {
 	mutateGrant,
 } from "./auth/grants.ts";
 import { resolveBearer, resolveScopes, devPrincipal, type Principal } from "./auth/principal.ts";
-import { createBetterAuthSessionVerifier, type BetterAuthSessionVerifier, type BetterAuthSessionIdentity } from "./auth/session.ts";
 import { ProposalError, proposeMutation } from "./auth/proposals.ts";
+import {
+	createBetterAuthSessionVerifier,
+	type BetterAuthSessionVerifier,
+	type BetterAuthSessionIdentity,
+} from "./auth/session.ts";
 import { type GrantRelation, listTiers, shouldProposeMutation } from "./auth/tiers.ts";
 import { uuidv5 } from "./bridge/uuid5.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
@@ -3969,9 +3973,21 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 	const monitor = initExceptionMonitor(env.glitchtipDsn);
 	const services = await buildServices(env, { monitor });
 	const betterAuth = env.betterAuth
-		? createBetterAuthSessionVerifier({ databaseUrl: env.databaseUrl, baseUrl: env.betterAuth.baseUrl, secret: env.betterAuth.secret })
+		? createBetterAuthSessionVerifier({
+				databaseUrl: env.databaseUrl,
+				baseUrl: env.betterAuth.baseUrl,
+				secret: env.betterAuth.secret,
+			})
 		: null;
-	const server = await buildServer(services, env.devAuth, monitor, env.browserAuth, undefined, betterAuth, env.devAuthHost);
+	const server = await buildServer(
+		services,
+		env.devAuth,
+		monitor,
+		env.browserAuth,
+		undefined,
+		betterAuth,
+		env.devAuthHost,
+	);
 	await server.listen({ host: env.host, port: env.port });
 	process.stdout.write(`console-api listening on ${env.host}:${String(env.port)}\n`);
 }

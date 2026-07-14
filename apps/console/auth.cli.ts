@@ -7,15 +7,27 @@ import { Pool } from "pg";
 export const auth = betterAuth({
 	secret: process.env["BETTER_AUTH_SECRET"] ?? "schema-generation-placeholder-secret",
 	baseURL: process.env["BETTER_AUTH_URL"] ?? "http://localhost:5173",
-	database: new Pool({ connectionString: process.env["DATABASE_URL"] ?? "postgres://localhost/console" }),
+	database: new Pool({
+		connectionString: process.env["DATABASE_URL"] ?? "postgres://localhost/console",
+	}),
 	account: { encryptOAuthTokens: true, storeAccountCookie: false },
-	user: { additionalFields: {
-		authentikUsername: { type: "string", required: true, input: false },
-		authentikGroups: { type: "string", required: true, input: false },
-		authentikSubject: { type: "string", required: true, input: false },
-	} },
-	plugins: [genericOAuth({ config: [{
-		providerId: "authentik", clientId: "schema", clientSecret: "schema",
-		discoveryUrl: "https://authentik.invalid/.well-known/openid-configuration",
-	}] })],
+	user: {
+		additionalFields: {
+			authentikUsername: { type: "string", required: true, input: false },
+			authentikGroups: { type: "string", required: true, input: false },
+			authentikSubject: { type: "string", required: true, input: false },
+		},
+	},
+	plugins: [
+		genericOAuth({
+			config: [
+				{
+					providerId: "authentik",
+					clientId: "schema",
+					clientSecret: "schema",
+					discoveryUrl: "https://authentik.invalid/.well-known/openid-configuration",
+				},
+			],
+		}),
+	],
 });
