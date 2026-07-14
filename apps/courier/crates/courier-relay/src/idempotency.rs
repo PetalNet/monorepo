@@ -64,7 +64,7 @@ mod tests {
             relay_txn_id(&ev, &room_a, "caption")
         );
         // Different source events must not collide either.
-        let ev2: OwnedEventId = "$abd:hs".try_into().expect("valid event id");
+        let ev2: OwnedEventId = "$bad:hs".try_into().expect("valid event id");
         assert_ne!(
             relay_txn_id(&ev, &room_a, "relay"),
             relay_txn_id(&ev2, &room_a, "relay")
