@@ -26,9 +26,9 @@ Configure both console services with the same `DATABASE_URL`, `BETTER_AUTH_URL`,
 Authentik client. Set `BETTER_AUTH_COOKIE_DOMAIN=.petalcat.dev` so the browser sends the secure,
 HTTP-only session cookie to both console and console-api.
 
-The generated schema is committed at `migrations/001-better-auth.sql` and the idempotent console-api
-boot migration creates the same tables. Regenerate after Better Auth schema changes with
-`pnpm --filter @petalnet/console auth:schema` against a disposable console Postgres database.
+The Better Auth CLI-generated schema is committed at `migrations/001-better-auth.sql` and the
+idempotent console-api boot migration creates the same tables. Regenerate it with the Better Auth
+CLI against a disposable console Postgres database after schema changes.
 
 `CONSOLE_API_DEV_AUTH=1` remains a separate, explicit console-api bypass. It does not create or
 accept Better Auth sessions. In a production-mode process it also requires

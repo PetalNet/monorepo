@@ -106,7 +106,6 @@ catalogs:
     tailwindcss: ^3.4.17
 
 catalog:
-  "@better-auth/cli": ^1.4.21
   "@types/pg": ^8.20.0
   better-auth: ^1.6.23
   pg: ^8.22.0

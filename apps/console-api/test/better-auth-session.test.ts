@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { devPrincipal } from "../src/auth/principal.ts";
-import { parseBetterAuthIdentity } from "../src/auth/session.ts";
+import { parseBetterAuthIdentity } from "../src/auth/session-identity.ts";
 
 describe("Better Auth session identity", () => {
 	it("accepts only the normalized Authentik identity persisted by the OIDC mapper", () => {

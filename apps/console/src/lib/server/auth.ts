@@ -6,7 +6,7 @@ import { genericOAuth } from "better-auth/plugins";
 import { sveltekitCookies } from "better-auth/svelte-kit";
 import { Pool } from "pg";
 
-export const AUTHENTIK_PROVIDER_ID = "authentik";
+const AUTHENTIK_PROVIDER_ID = "authentik";
 
 function required(name: string): string {
 	const value = env[name];

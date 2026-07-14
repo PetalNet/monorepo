@@ -4,7 +4,6 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"auth:schema": "better-auth generate --config auth.cli.ts --output ../console-api/migrations/001-better-auth.sql --yes",
 		"prebuild": "node scripts/generate-contracts.mjs --check",
 		"build": "vite build",
 		"check": "node scripts/generate-contracts.mjs --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -33,7 +32,6 @@
 		"zod": "catalog:prod"
 	},
 	"devDependencies": {
-		"@better-auth/cli": "catalog:",
 		"@playwright/test": "catalog:dev",
 		"@sveltejs/adapter-node": "catalog:dev",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
