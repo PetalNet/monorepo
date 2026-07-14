@@ -37,9 +37,8 @@ cargo fmt --all --check
 ## Run
 
 Copy `.env.example` to `.env` and `config.example.yaml` to `config.yaml`,
-then `cargo run --release`, or use Docker Compose (`docker compose up -d
---build`; state persists in `./data`). All flags are also environment
-variables (`courier --help`); flags override env.
+then `cargo run --release`. All flags are also environment variables
+(`courier --help`); flags override env.
 
 - `--check-config` parses and prints the config, then exits.
 - `--mcp-server time` runs the internal MCP time server instead of the bot.
@@ -50,11 +49,10 @@ variables (`courier --help`); flags override env.
 ## Cutover from matrix-bot
 
 1. Stop nothing yet — build and `--check-config` against a copy of the
-   existing `config.docker.yaml`.
-2. Point `MATRIX_STORE` / `MATRIX_SESSION_FILE` (or the compose `./data`
-   volume) at a COPY of the old data directory, or start fresh (fresh start
-   = new device; re-login + `MATRIX_RECOVERY_KEY` restores E2EE history
-   keys).
+   existing config.
+2. Point `MATRIX_STORE` / `MATRIX_SESSION_FILE` at a COPY of the old data
+   directory, or start fresh (fresh start = new device; re-login +
+   `MATRIX_RECOVERY_KEY` restores E2EE history keys).
 3. Stop the old container, start courier, watch for `Relay health` lines
    and run `!diag`.
 
@@ -62,10 +60,9 @@ variables (`courier --help`); flags override env.
 
 1. `crates/courier/src/service.rs` — `SERVICE_NAME` (CLI name + default
    device display name).
-2. Crate dirs + names: `crates/courier*` and the `[workspace.dependencies]`
-   path entries, `--bin courier` in the Dockerfile, the compose
-   `container_name`, the systemd unit, and the `courier=info,courier_ai=debug`
-   log directives in `crates/courier/src/logging.rs` / deploy files.
+2. Crate dirs + names: `crates/courier*`, the `[workspace.dependencies]`
+   path entries, and the `courier=info,courier_ai=debug` log directives in
+   `crates/courier/src/logging.rs`.
 3. `grep -ri courier` to catch stragglers. Everything else is name-neutral.
 
 ## Git hygiene
