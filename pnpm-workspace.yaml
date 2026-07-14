@@ -104,3 +104,8 @@ catalogs:
   # Apps still on Tailwind v3 (consolidated to latest v3); not upgraded to v4 yet.
   legacy:
     tailwindcss: ^3.4.17
+
+catalog:
+  "@types/pg": ^8.20.0
+  better-auth: ^1.6.23
+  pg: ^8.22.0

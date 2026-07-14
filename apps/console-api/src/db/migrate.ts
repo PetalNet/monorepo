@@ -80,6 +80,44 @@ const STATEMENTS: readonly string[] = [
 	   name       text primary key,
 	   applied_at timestamptz not null default now()
 	 )`,
+
+	// Better Auth core schema, generated from apps/console/auth.cli.ts. These tables own only
+	// OIDC accounts and sessions; authorization continues through console grants/tiers below.
+	`create table if not exists "user" (
+	   "id" text primary key, "name" text not null, "email" text not null unique,
+	   "emailVerified" boolean not null, "image" text,
+	   "createdAt" timestamptz default current_timestamp not null,
+	   "updatedAt" timestamptz default current_timestamp not null,
+	   "authentikUsername" text not null, "authentikGroups" text not null,
+	   "authentikSubject" text not null
+	 )`,
+	`alter table "user" add column if not exists "authentikSubject" text`,
+	`create table if not exists better_auth_principals (
+	   oidc_subject text primary key, principal_id text not null unique,
+	   created_at timestamptz not null default now()
+	 )`,
+	`create table if not exists "session" (
+	   "id" text primary key, "expiresAt" timestamptz not null, "token" text not null unique,
+	   "createdAt" timestamptz default current_timestamp not null, "updatedAt" timestamptz not null,
+	   "ipAddress" text, "userAgent" text,
+	   "userId" text not null references "user" ("id") on delete cascade
+	 )`,
+	`create table if not exists "account" (
+	   "id" text primary key, "accountId" text not null, "providerId" text not null,
+	   "userId" text not null references "user" ("id") on delete cascade,
+	   "accessToken" text, "refreshToken" text, "idToken" text,
+	   "accessTokenExpiresAt" timestamptz, "refreshTokenExpiresAt" timestamptz,
+	   "scope" text, "password" text, "createdAt" timestamptz default current_timestamp not null,
+	   "updatedAt" timestamptz not null
+	 )`,
+	`create table if not exists "verification" (
+	   "id" text primary key, "identifier" text not null, "value" text not null,
+	   "expiresAt" timestamptz not null, "createdAt" timestamptz default current_timestamp not null,
+	   "updatedAt" timestamptz default current_timestamp not null
+	 )`,
+	`create index if not exists "session_userId_idx" on "session" ("userId")`,
+	`create index if not exists "account_userId_idx" on "account" ("userId")`,
+	`create index if not exists "verification_identifier_idx" on "verification" ("identifier")`,
 	// Phase-1 may still be serving while deploy migrations start. Take the lock before the snapshot
 	// backfill and hold it through conversion so no old writer can commit an ungated UUID/seq.
 	`lock table events in access exclusive mode`,

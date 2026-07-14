@@ -24,7 +24,9 @@
 		"@petalnet/types": "workspace:*",
 		"@sentry/sveltekit": "catalog:prod",
 		"@sveltejs/kit": "catalog:prod",
+		"better-auth": "catalog:",
 		"daisyui": "catalog:prod",
+		"pg": "catalog:",
 		"svelte": "catalog:prod",
 		"tailwindcss": "catalog:prod",
 		"zod": "catalog:prod"
@@ -35,6 +37,7 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",
 		"@types/node": "catalog:types",
+		"@types/pg": "catalog:",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",

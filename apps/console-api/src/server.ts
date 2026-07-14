@@ -27,6 +27,11 @@ import {
 } from "./auth/grants.ts";
 import { resolveBearer, resolveScopes, devPrincipal, type Principal } from "./auth/principal.ts";
 import { ProposalError, proposeMutation } from "./auth/proposals.ts";
+import {
+	createBetterAuthSessionVerifier,
+	type BetterAuthSessionVerifier,
+	type BetterAuthSessionIdentity,
+} from "./auth/session.ts";
 import { type GrantRelation, listTiers, shouldProposeMutation } from "./auth/tiers.ts";
 import { uuidv5 } from "./bridge/uuid5.ts";
 import type { SubscribeSpec } from "./bus/broker.ts";
@@ -519,10 +524,25 @@ async function resolveForwardAuth(
 	if (!normalizedRemote || !config.trustedProxies.includes(normalizedRemote)) return null;
 	const identity = strictForwardAuthHeaders(req, config.proxyNonce);
 	if (!identity) return null;
+	return resolveHumanIdentity(services, identity);
+}
+
+async function resolveHumanIdentity(
+	services: Services,
+	identity: BetterAuthSessionIdentity,
+): Promise<Principal | null> {
+	if (identity.subject) {
+		await services.db.admin`
+			insert into better_auth_principals (oidc_subject, principal_id)
+			values (${identity.subject}, ${identity.username}) on conflict do nothing`;
+		const binding = await services.db.admin<{ principal_id: string }[]>`
+			select principal_id from better_auth_principals where oidc_subject = ${identity.subject}`;
+		if (binding[0]?.principal_id !== identity.username) return null;
+	}
 	const rows = await services.db.admin<
 		{ name: string; default_relations: string[] }[]
 	>`select name, default_relations from tiers
-	  where authentik_group = any(${services.db.admin.array(identity.groups)})
+	  where authentik_group = any(${services.db.admin.array([...identity.groups])})
 	  order by name`;
 	if (rows.length === 0) return null;
 	const tiers = rows.map((row) => row.name);
@@ -577,6 +597,8 @@ export async function buildServer(
 	monitor: ExceptionMonitor = inertExceptionMonitor,
 	browserAuth: BrowserAuthConfig | null = null,
 	terminal: TerminalAdapter = new SshTmuxTerminalAdapter(),
+	betterAuth: BetterAuthSessionVerifier | null = null,
+	devAuthHost: string | null = null,
 ) {
 	if (browserAuth?.trustedProxies.length === 0)
 		throw new Error("browser auth requires at least one trusted proxy");
@@ -585,16 +607,17 @@ export async function buildServer(
 		bodyLimit: 1024 * 1024,
 		...(browserAuth ? { trustProxy: [...browserAuth.trustedProxies] } : {}),
 	});
-	if (browserAuth) {
+	const browserOrigin = browserAuth?.consoleOrigin ?? betterAuth?.consoleOrigin;
+	if (browserOrigin) {
 		app.addHook("onRequest", async (req, reply) => {
 			const origin = req.headers.origin;
-			if (origin && origin !== browserAuth.consoleOrigin)
+			if (origin && origin !== browserOrigin)
 				return reply.code(403).send({
 					error: { code: "origin_denied", message: "origin is not allowed", retryable: false },
 				});
 		});
 		await app.register(cors, {
-			origin: browserAuth.consoleOrigin,
+			origin: browserOrigin,
 			credentials: true,
 			methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 			allowedHeaders: ["accept", "authorization", "content-type"],
@@ -685,11 +708,19 @@ export async function buildServer(
 			const p = await resolveBearer(services.db.admin, authz.slice(7));
 			if (p) return p;
 		}
+		if (betterAuth) {
+			const identity = await betterAuth.getIdentity(req.headers);
+			if (identity) {
+				const principal = await resolveHumanIdentity(services, identity);
+				if (principal) return principal;
+			}
+		}
 		if (browserAuth) {
 			const p = await resolveForwardAuth(services, req, browserAuth);
 			if (p) return p;
 		}
 		if (devAuth) {
+			if (devAuthHost && req.hostname !== devAuthHost) return null;
 			const dev = req.headers["x-dev-principal"];
 			if (typeof dev === "string") {
 				const p = devPrincipal(dev);
@@ -3941,7 +3972,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 	const env = loadEnv();
 	const monitor = initExceptionMonitor(env.glitchtipDsn);
 	const services = await buildServices(env, { monitor });
-	const server = await buildServer(services, env.devAuth, monitor, env.browserAuth);
+	const betterAuth = env.betterAuth
+		? createBetterAuthSessionVerifier({
+				databaseUrl: env.databaseUrl,
+				baseUrl: env.betterAuth.baseUrl,
+				secret: env.betterAuth.secret,
+			})
+		: null;
+	const server = await buildServer(
+		services,
+		env.devAuth,
+		monitor,
+		env.browserAuth,
+		undefined,
+		betterAuth,
+		env.devAuthHost,
+	);
 	await server.listen({ host: env.host, port: env.port });
 	process.stdout.write(`console-api listening on ${env.host}:${String(env.port)}\n`);
 }

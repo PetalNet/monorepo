@@ -3,7 +3,8 @@ export type CaughtFailureSurface =
 	| "cockpit"
 	| "network"
 	| "updates"
-	| "observability";
+	| "observability"
+	| "console-login";
 
 export type CaughtFailureEndpoint =
 	| "/attention"
@@ -17,6 +18,7 @@ export type CaughtFailureEndpoint =
 	| "/me"
 	| "/network/key-ceremony"
 	| "/roster"
+	| "/api/auth/sign-in/oauth2"
 	| `/query/${"events" | "freshness" | "queries" | "emitters"}`;
 
 export interface CaughtFailureContext {
