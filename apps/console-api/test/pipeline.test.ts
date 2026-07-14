@@ -1697,7 +1697,7 @@ describe("Better Auth browser boundary", () => {
 			return String(headers.cookie ?? "").includes("__Host-console.session_token=valid-session")
 				? {
 						username: "parker",
-						groups: ["owner"],
+						groups: ["authentik Admins"],
 						subject: "authentik-parker",
 						sessionId: "valid-session",
 					}
@@ -1705,7 +1705,12 @@ describe("Better Auth browser boundary", () => {
 		},
 		async getIdentityBySessionId(sessionId) {
 			return sessionId === "valid-session"
-				? { username: "parker", groups: ["owner"], subject: "authentik-parker", sessionId }
+				? {
+						username: "parker",
+						groups: ["authentik Admins"],
+						subject: "authentik-parker",
+						sessionId,
+					}
 				: null;
 		},
 		async close() {},
@@ -1741,6 +1746,60 @@ describe("Better Auth browser boundary", () => {
 				lanes: ["viewer", "editor", "operator", "admin"],
 				scopes: ["fleet", "user:parker"],
 			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	it.each(["owner", "moderator", "collaborator", "guest", "authentik admins", "admin "])(
+		"does not inherit a console tier from the non-admin Authentik group %s",
+		async (group) => {
+			const nonAdminVerifier: BetterAuthSessionVerifier = {
+				...betterAuth,
+				async getIdentity() {
+					return {
+						username: "parker",
+						groups: [group],
+						subject: "authentik-parker",
+						sessionId: "valid-session",
+					};
+				},
+			};
+			const server = await buildServer(services, false, undefined, undefined, nonAdminVerifier);
+			try {
+				const response = await server.inject({
+					method: "GET",
+					url: "/api/v1/me",
+					headers: { origin: consoleOrigin, cookie: "__Host-console.session_token=valid-session" },
+				});
+				expect(response.statusCode).toBe(401);
+			} finally {
+				await server.close();
+			}
+		},
+	);
+
+	it("maps the exact admin group alias to the owner tier", async () => {
+		const adminAliasVerifier: BetterAuthSessionVerifier = {
+			...betterAuth,
+			async getIdentity() {
+				return {
+					username: "parker",
+					groups: ["admin", "owner", "moderator"],
+					subject: "authentik-parker",
+					sessionId: "valid-session",
+				};
+			},
+		};
+		const server = await buildServer(services, false, undefined, undefined, adminAliasVerifier);
+		try {
+			const response = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				headers: { origin: consoleOrigin, cookie: "__Host-console.session_token=valid-session" },
+			});
+			expect(response.statusCode, response.body).toBe(200);
+			expect(response.json().tiers).toEqual(["owner"]);
 		} finally {
 			await server.close();
 		}

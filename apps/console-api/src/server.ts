@@ -471,10 +471,16 @@ async function resolveHumanIdentity(
 			select principal_id from better_auth_principals where oidc_subject = ${identity.subject}`;
 		if (binding[0]?.principal_id !== identity.username) return null;
 	}
+	// Authentik owns only administrator inheritance. The console currently models an admin as the
+	// owner tier; keep that explicit so a future distinct admin tier can refine the mapping. Other
+	// tiers are Better-Auth-managed and must not be inferred from similarly named Authentik groups.
+	const inheritsAdmin =
+		identity.groups.includes("authentik Admins") || identity.groups.includes("admin");
+	if (!inheritsAdmin) return null;
 	const rows = await services.db.admin<
 		{ name: string; default_relations: string[] }[]
 	>`select name, default_relations from tiers
-	  where authentik_group = any(${services.db.admin.array([...identity.groups])})
+	  where name = 'owner'
 	  order by name`;
 	if (rows.length === 0) return null;
 	const tiers = rows.map((row) => row.name);
