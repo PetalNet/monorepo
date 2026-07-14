@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
@@ -13,7 +13,10 @@ import { ask } from "../src/assistant/engine.ts";
 import { AssistantRuntime, ClaudeCodeAssistantManager } from "../src/assistant/runtime.ts";
 import { resolveBearer, sha256 } from "../src/auth/principal.ts";
 import { TrackerProposalWriter } from "../src/auth/proposals.ts";
-import type { BetterAuthSessionVerifier } from "../src/auth/session.ts";
+import {
+	createBetterAuthSessionVerifier,
+	type BetterAuthSessionVerifier,
+} from "../src/auth/session.ts";
 import { Bridge } from "../src/bridge/index.ts";
 import { sourceCursorRef } from "../src/bridge/system-outbox.ts";
 import { Appender } from "../src/bus/appender.ts";
@@ -1691,6 +1694,57 @@ describe("substrate observability", () => {
 
 describe("Better Auth browser boundary", () => {
 	const consoleOrigin = "https://console.petalcat.dev";
+
+	it("resolves an Authentik admin through the real persisted-session verifier", async () => {
+		const secret = "test-secret-at-least-thirty-two-characters";
+		const userId = `janet-${randomUUID()}`;
+		const sessionId = `session-${randomUUID()}`;
+		const sessionToken = `token-${randomUUID()}`;
+		await services.db.admin`
+			insert into "user" (
+				"id", "name", "email", "emailVerified", "updatedAt",
+				"authentikUsername", "authentikGroups", "authentikSubject"
+			) values (
+				${userId}, 'Janet', ${`${userId}@example.test`}, true, now(),
+				'janet', ${JSON.stringify(["authentik Admins", "media"])}, ${"a".repeat(64)}
+			)`;
+		await services.db.admin`
+			insert into "session" (
+				"id", "expiresAt", "token", "updatedAt", "userId"
+			) values (
+				${sessionId}, now() + interval '5 minutes', ${sessionToken}, now(), ${userId}
+			)`;
+
+		const verifier = createBetterAuthSessionVerifier({
+			databaseUrl: temp.adminUrl,
+			baseUrl: consoleOrigin,
+			secret,
+		});
+		const signature = createHmac("sha256", secret).update(sessionToken).digest("base64");
+		const cookie = `__Host-console.session_token=${encodeURIComponent(`${sessionToken}.${signature}`)}`;
+		const server = await buildServer(services, false, undefined, undefined, verifier);
+		try {
+			const identity = await verifier.getIdentity({ cookie });
+			expect(identity).toEqual({
+				username: "janet",
+				groups: ["authentik Admins", "media"],
+				subject: "a".repeat(64),
+				sessionId,
+			});
+
+			const response = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				headers: { origin: consoleOrigin, cookie },
+			});
+			expect(response.statusCode, response.body).toBe(200);
+			expect(response.json()).toMatchObject({ id: "janet", tiers: ["owner"] });
+		} finally {
+			await server.close();
+			await verifier.close();
+		}
+	});
+
 	const betterAuth: BetterAuthSessionVerifier = {
 		consoleOrigin,
 		async getIdentity(headers) {

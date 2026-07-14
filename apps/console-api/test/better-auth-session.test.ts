@@ -8,10 +8,14 @@ describe("Better Auth session identity", () => {
 		expect(
 			parseBetterAuthIdentity({
 				authentikUsername: "parker",
-				authentikGroups: JSON.stringify(["owner", "term_admin"]),
+				authentikGroups: JSON.stringify(["authentik Admins", "term_admin"]),
 				authentikSubject: "ak-user-123",
 			}),
-		).toEqual({ username: "parker", groups: ["owner", "term_admin"], subject: "ak-user-123" });
+		).toEqual({
+			username: "parker",
+			groups: ["authentik Admins", "term_admin"],
+			subject: "ak-user-123",
+		});
 	});
 
 	it.each([
@@ -30,6 +34,14 @@ describe("Better Auth session identity", () => {
 			{
 				authentikUsername: "parker",
 				authentikGroups: '["owner","owner"]',
+				authentikSubject: "sub",
+			},
+		],
+		[
+			"group with edge whitespace",
+			{
+				authentikUsername: "parker",
+				authentikGroups: '["authentik Admins "]',
 				authentikSubject: "sub",
 			},
 		],
