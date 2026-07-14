@@ -191,7 +191,7 @@ describe("BR-032 hermetic release acceptance", () => {
 			consoleOrigin,
 			async getIdentity(headers) {
 				const token = /session-(release-(?:alpha|beta))/.exec(String(headers.cookie ?? ""))?.[0];
-				return token ? activeSessions.get(token) ?? null : null;
+				return token ? (activeSessions.get(token) ?? null) : null;
 			},
 			async getIdentityBySessionId(sessionId) {
 				return activeSessions.get(sessionId) ?? null;
@@ -699,7 +699,9 @@ describe("BR-032 hermetic release acceptance", () => {
 					},
 				},
 			});
-			expect(JSON.stringify(alphaLibraryAfterRevoke.json())).not.toContain("Alpha isolation marker");
+			expect(JSON.stringify(alphaLibraryAfterRevoke.json())).not.toContain(
+				"Alpha isolation marker",
+			);
 
 			// Logout invalidates the originating Better Auth session binding immediately. Presenting
 			// Beta's cookie after the swap resolves Beta, never Alpha, and Beta's old MCP token dies.
