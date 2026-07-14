@@ -73,8 +73,20 @@ export type TerminalFrame =
 			audit_seq: number;
 			mode: "read";
 	  }
-	| { schema_version: 1; stream_id: string; kind: "snapshot"; seq: number; data_b64: string }
-	| { schema_version: 1; stream_id: string; kind: "error"; seq: number; code: string };
+	| {
+			schema_version: 1;
+			stream_id: string;
+			kind: "snapshot";
+			seq: number;
+			data_b64: string;
+	  }
+	| {
+			schema_version: 1;
+			stream_id: string;
+			kind: "error";
+			seq: number;
+			code: string;
+	  };
 
 /**
  * Browser bus transport. WebSocket handshakes use the browser's credential mode, so the trusted
@@ -95,7 +107,13 @@ export function connectBus(
 		socket.addEventListener("open", () => {
 			onState("open");
 			for (const subscription of subscriptions())
-				socket?.send(JSON.stringify({ schema_version: 1, action: "subscribe", ...subscription }));
+				socket?.send(
+					JSON.stringify({
+						schema_version: 1,
+						action: "subscribe",
+						...subscription,
+					}),
+				);
 		});
 		socket.addEventListener("message", (message) => {
 			try {
@@ -216,7 +234,12 @@ export async function readTerminalAccess(fetchFn: typeof fetch = fetch): Promise
  * callers should also invoke terminalDetach when they intentionally close an established stream.
  */
 export function connectTerminal(
-	target: { host: string; tmux_session: string; pane_id: string; scrollback_lines?: number },
+	target: {
+		host: string;
+		tmux_session: string;
+		pane_id: string;
+		scrollback_lines?: number;
+	},
 	onFrame: (frame: TerminalFrame) => void,
 	onError: (error: Error) => void,
 ): () => void {
@@ -225,7 +248,10 @@ export function connectTerminal(
 		try {
 			const res = await fetch(`${base()}/terminal/streams`, {
 				method: "POST",
-				headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+				headers: {
+					"content-type": "application/json",
+					accept: "application/x-ndjson",
+				},
 				credentials: "include",
 				body: JSON.stringify(target),
 				signal: controller.signal,
@@ -259,7 +285,10 @@ export function connectTerminal(
 async function terminalMutation<T>(streamId: string, action: string, body?: unknown): Promise<T> {
 	const res = await fetch(`${base()}/terminal/streams/${encodeURIComponent(streamId)}/${action}`, {
 		method: "POST",
-		headers: { "content-type": "application/json", accept: "application/json" },
+		headers: {
+			"content-type": "application/json",
+			accept: "application/json",
+		},
 		credentials: "include",
 		...(body === undefined ? {} : { body: JSON.stringify(body) }),
 	});
@@ -433,7 +462,9 @@ export async function readAttention(
 	return json<ReadEnvelope<AttentionItem>>(res);
 }
 export async function readHealth(fetchFn: typeof fetch = fetch): Promise<ConsoleHealth> {
-	const res = await fetchFn(`${base()}/health`, { headers: { accept: "application/json" } });
+	const res = await fetchFn(`${base()}/health`, {
+		headers: { accept: "application/json" },
+	});
 	return json<ConsoleHealth>(res);
 }
 
@@ -452,6 +483,27 @@ export interface AssistantMessageResult {
 	message_id: string;
 	content: string;
 	tool_results: unknown[];
+}
+
+export interface AssistantSessionResult {
+	schema_version: 1;
+	session: {
+		session_id: string | null;
+		state: string;
+		window_layout: unknown;
+		last_context: AssistantContextPayload | null;
+	} | null;
+}
+
+/** Restore the caller-scoped assistant window and selected context. */
+export async function getAssistantSession(
+	fetchFn: typeof fetch = fetch,
+): Promise<AssistantSessionResult> {
+	const res = await fetchFn(`${base()}/assistant/session`, {
+		headers: { accept: "application/json" },
+		credentials: "include",
+	});
+	return json<AssistantSessionResult>(res);
 }
 
 /** Deliver selected UI context through the caller-scoped assistant runtime. */
@@ -500,7 +552,13 @@ export async function runOp(
 		method: "POST",
 		headers: { "content-type": "application/json", accept: "application/json" },
 		credentials: "include", // send the Authentik session for command authz (§1.2)
-		body: JSON.stringify({ schema_version: 1, op, id, args, dry_run: opts.dry_run ?? false }),
+		body: JSON.stringify({
+			schema_version: 1,
+			op,
+			id,
+			args,
+			dry_run: opts.dry_run ?? false,
+		}),
 	});
 	return json<OpResult>(res);
 }

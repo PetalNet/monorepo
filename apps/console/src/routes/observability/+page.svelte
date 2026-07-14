@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import AskDock from "$lib/components/AskDock.svelte";
 	import Icon from "$lib/components/Icon.svelte";
 	import IconButton from "$lib/components/IconButton.svelte";
 	import ModalSurface from "$lib/components/ModalSurface.svelte";
@@ -19,7 +18,6 @@
 	let filter = $state("");
 	let activeStat = $state<string | null>(null);
 	let peek = $state<{ title: string; result: QueryResult } | null>(null);
-	let context = $state<{ label: string } | null>(null);
 	let nowMs = $state(Date.now());
 	let autoViz = $state<{ type: string; result: QueryResult | null; loading: boolean; error: boolean } | null>(null);
 	let peekDialog = $state<HTMLDialogElement | null>(null);
@@ -57,7 +55,6 @@
 	function source(result: QueryResult | null) { return result ? `${result.freshness.source} · ${result.row_count} ${result.row_count === 1 ? "row" : "rows"} · ${age(result.freshness.observed_at)}` : "query unavailable · 0 rows · not current"; }
 	async function catalogOpen(type: string) {
 		activeStat = type;
-		context = { label: type };
 		autoViz = { type, result: null, loading: true, error: false };
 		if (a.isMock) {
 			autoViz = { type, result: a.queries.queries, loading: false, error: false };
@@ -201,8 +198,6 @@
 {:else}
 	<section class="catalog-full"><div class="strip"><h2>Statistics catalog</h2><span>{filteredCatalog.length} visible types</span></div><label><Icon name="search" size={14}/><input id="catalog-filter" bind:value={filter} placeholder="Filter statistics" aria-label="Filter statistics"/></label>{#each filteredCatalog as entry}<button onclick={() => catalogOpen(entry.type)}><code>{entry.type}</code><span>{Object.keys(entry.dimensions).length} dimensions · {Object.keys(entry.measures).length} measures</span><time>{age(entry.last_emit)}</time><Icon name="chevron-right" size={14}/></button>{/each}</section>
 {/if}
-
-<AskDock mode="docked" {context} assistantDown={true} onclearcontext={() => context = null}/>
 
 <ModalSurface bind:element={peekDialog} open={peek!==null} variant="dialog" labelledby="query-detail-title" onclose={() => peek = null}>{#if peek}<div class="peek"><IconButton class="dialog-close" name="x" label="Close query detail" autofocus onclick={() => peekDialog?.close()}/><h2 id="query-detail-title">{peek.title}</h2><h3>Question</h3><p>Curated Accounting query</p><h3>Query · structured reference</h3><pre>{JSON.stringify({ query_ref: peek.result.query_ref }, null, 2)}</pre><h3>Result meta</h3><p class="mono">{peek.result.row_count} rows · {peek.result.execution_ms ?? "—"}ms · {peek.result.freshness.observed_at}</p><footer><button onclick={() => navigator.clipboard.writeText(peek?.result.query_ref ?? "")}>Copy query ref</button><button onclick={() => peekDialog?.close()}>Done</button></footer></div>{/if}</ModalSurface>
 
