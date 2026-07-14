@@ -8,7 +8,7 @@ provider. Do not enable Better Auth's `oidcProvider` plugin.
 Create a confidential OAuth2/OIDC provider and application for `console.petalcat.dev`:
 
 - Client type: confidential; authorization-code flow.
-- Redirect URI (exact): `https://console-demo.petalcat.dev/api/auth/callback/authentik`.
+- Redirect URI (exact): `https://console-demo.petalcat.dev/api/auth/oauth2/callback/authentik`.
 - Scopes: `openid profile email groups`.
 - Subject mode: stable Authentik user ID. The profile must include `preferred_username`, `email`,
   `name`, and a `groups` array. Existing group names must remain unchanged because they map to the
