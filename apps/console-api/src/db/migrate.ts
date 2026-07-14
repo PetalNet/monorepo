@@ -533,6 +533,8 @@ const STATEMENTS: readonly string[] = [
 	   principal_kind     text not null,
 	   tiers              jsonb not null default '[]'::jsonb,
 	   lanes              jsonb not null default '[]'::jsonb,
+	   auth_source        text not null default 'legacy',
+	   auth_session_id    text,
 	   external_session_id text not null unique,
 	   manager_session_id text unique,
 	   state              text not null default 'creating',
@@ -567,6 +569,8 @@ const STATEMENTS: readonly string[] = [
 	   constraint assistant_messages_state_valid check (state in ('ready','dispatching','complete'))
 	 )`,
 	`alter table assistant_sessions add column if not exists last_context_seq bigint not null default 0`,
+	`alter table assistant_sessions add column if not exists auth_source text not null default 'legacy'`,
+	`alter table assistant_sessions add column if not exists auth_session_id text`,
 	`alter table assistant_messages add column if not exists message_seq bigserial`,
 	`alter table assistant_messages add column if not exists request_hash text`,
 	`alter table assistant_messages add column if not exists state text not null default 'ready'`,

@@ -23,8 +23,10 @@ Configure both console services with the same `DATABASE_URL`, `BETTER_AUTH_URL`,
 `BETTER_AUTH_SECRET`. Store a freshly generated secret in the lab vault as
 `console-better-auth-secret`; never put it in Git. Configure SvelteKit with
 `AUTHENTIK_OIDC_ISSUER`, `AUTHENTIK_OIDC_CLIENT_ID`, and `AUTHENTIK_OIDC_CLIENT_SECRET` from the
-Authentik client. Set `BETTER_AUTH_COOKIE_DOMAIN=.petalcat.dev` so the browser sends the secure,
-HTTP-only session cookie to both console and console-api.
+Authentik client. Better Auth uses a host-only `__Host-console.*` cookie; do not configure a parent
+cookie domain. Browser API calls go through the same-origin `/api/console/*` reverse-proxy/BFF,
+which must strip client-supplied identity headers before forwarding. Better Auth sessions expire
+after five minutes and are not extended, bounding Authentik group and `TERM_ADMIN` revocation lag.
 
 The Better Auth CLI-generated schema is committed at `migrations/001-better-auth.sql` and the
 idempotent console-api boot migration creates the same tables. Regenerate it with the Better Auth

@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildServices, type Services } from "../src/app.ts";
 import type { AssistantCompiler } from "../src/assistant/compiler.ts";
 import { AssistantRuntime, ClaudeCodeAssistantManager } from "../src/assistant/runtime.ts";
+import type { BetterAuthSessionVerifier } from "../src/auth/session.ts";
 import { migrate } from "../src/db/migrate.ts";
 import { seedBootstrap } from "../src/db/seed.ts";
 import type { Emission } from "../src/emission.ts";
@@ -84,7 +85,6 @@ async function startTempDb(): Promise<TempDb> {
 }
 
 const consoleOrigin = "https://console.release.test";
-const proxyNonce = "release-acceptance-forward-auth-nonce";
 const alphaScope = "user:release-alpha";
 const betaScope = "user:release-beta";
 const statisticType = `release.acceptance_${randomBytes(5).toString("hex")}`;
@@ -92,10 +92,7 @@ const statisticType = `release.acceptance_${randomBytes(5).toString("hex")}`;
 function browserHeaders(username: "release-alpha" | "release-beta") {
 	return {
 		origin: consoleOrigin,
-		cookie: "authentik_session=opaque-release-test-cookie",
-		"x-authentik-username": username,
-		"x-authentik-groups": "moderator",
-		"x-console-auth-proxy-nonce": proxyNonce,
+		cookie: `__Host-console.session_token=session-${username}`,
 	};
 }
 
@@ -140,6 +137,11 @@ beforeAll(async () => {
 		(subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)
 		values ('release:emitter', '["console-api"]', '["release", "attention"]',
 			'["user:release-alpha", "user:release-beta"]', 'danger')`;
+	await admin`insert into library_items (id, entity_id, kind, title, scope, project, status)
+		values ('release-alpha-library', 'release-alpha-library', 'doc', 'Alpha isolation marker',
+			${alphaScope}, 'release', 'verified-shared'),
+		       ('release-beta-library', 'release-beta-library', 'doc', 'Beta isolation marker',
+			${betaScope}, 'release', 'verified-shared')`;
 	await admin.end();
 
 	services = await buildServices(
@@ -165,6 +167,23 @@ afterAll(async () => {
 
 describe("BR-032 hermetic release acceptance", () => {
 	it("spans two trusted humans without leaking reads, bus events, operations, or artifacts", async () => {
+		const activeSessions = new Map([
+			["session-release-alpha", { username: "release-alpha", groups: ["moderator", "term_admin"], subject: "oidc-alpha", sessionId: "session-release-alpha" }],
+			["session-release-beta", { username: "release-beta", groups: ["moderator"], subject: "oidc-beta", sessionId: "session-release-beta" }],
+		]);
+		const betterAuth: BetterAuthSessionVerifier = {
+			consoleOrigin,
+			async getIdentity(headers) {
+				const token = /session-(release-(?:alpha|beta))/.exec(String(headers.cookie ?? ""))?.[0];
+				return token ? activeSessions.get(token) ?? null : null;
+			},
+			async getIdentityBySessionId(sessionId) {
+				return activeSessions.get(sessionId) ?? null;
+			},
+			async close() {},
+		};
+		const managerSessions = new Map<string, string>();
+		const toolTokens = new Map<string, string>();
 		const manager = createHttpServer((request, response) => {
 			let text = "";
 			request.setEncoding("utf8");
@@ -175,7 +194,16 @@ describe("BR-032 hermetic release acceptance", () => {
 				const body = JSON.parse(text) as Record<string, unknown>;
 				response.writeHead(200, { "content-type": "application/json" });
 				if (request.url === "/v1/sessions/ensure") {
-					response.end(JSON.stringify({ session_id: "release-alpha-session" }));
+					const externalId = String(body["external_session_id"]);
+					const principalId = String((body["principal"] as { id?: unknown }).id);
+					const expected = managerSessions.get(externalId);
+					if (expected && expected !== principalId) {
+						response.writeHead(409).end();
+						return;
+					}
+					managerSessions.set(externalId, principalId);
+					toolTokens.set(principalId, String((body["mcp"] as { bearer_token?: unknown }).bearer_token));
+					response.end(JSON.stringify({ session_id: `release-${principalId}-session` }));
 					return;
 				}
 				response.end(
@@ -226,11 +254,9 @@ describe("BR-032 hermetic release acceptance", () => {
 			{ ...services, assistant: compiler, assistantRuntime },
 			false,
 			undefined,
-			{
-				consoleOrigin,
-				proxyNonce,
-				trustedProxies: ["127.0.0.1"],
-			},
+			null,
+			undefined,
+			betterAuth,
 		);
 		const alphaHeaders = browserHeaders("release-alpha");
 		const betaHeaders = browserHeaders("release-beta");
@@ -244,10 +270,22 @@ describe("BR-032 hermetic release acceptance", () => {
 			expect(betaMe.statusCode, betaMe.body).toBe(200);
 			expect(alphaMe.json()).toMatchObject({
 				id: "release-alpha",
-				lanes: ["viewer", "editor", "operator"],
+				lanes: ["viewer", "editor", "operator", "term_admin"],
 				scopes: [alphaScope],
 			});
 			expect(betaMe.json().scopes).toEqual([betaScope]);
+			activeSessions.set("session-release-alpha", {
+				username: "release-alpha",
+				groups: ["moderator"],
+				subject: "oidc-alpha",
+				sessionId: "session-release-alpha",
+			});
+			const alphaAfterTierRemoval = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				headers: alphaHeaders,
+			});
+			expect(alphaAfterTierRemoval.json().lanes).toEqual(["viewer", "editor", "operator"]);
 
 			expect(await services.emit("release:emitter", event(alphaScope, "alpha"), 400)).toMatchObject(
 				{
@@ -284,6 +322,96 @@ describe("BR-032 hermetic release acceptance", () => {
 			expect(betaQuery.statusCode, betaQuery.body).toBe(200);
 			expect(alphaQuery.json().rows).toEqual([["alpha", 1]]);
 			expect(betaQuery.json().rows).toEqual([["beta", 1]]);
+
+			// Both Better Auth sessions concurrently create independently keyed manager sessions. The
+			// same message id is valid in each principal ledger and cannot collide across users.
+			const sharedMessageId = randomUUID();
+			const [alphaAssistant, betaAssistant] = await Promise.all([
+				server.inject({
+					method: "POST",
+					url: "/api/v1/assistant/messages",
+					headers: alphaHeaders,
+					payload: { id: sharedMessageId, message: "Read only my release data." },
+				}),
+				server.inject({
+					method: "POST",
+					url: "/api/v1/assistant/messages",
+					headers: betaHeaders,
+					payload: { id: sharedMessageId, message: "Read only my release data." },
+				}),
+			]);
+			expect(alphaAssistant.statusCode, alphaAssistant.body).toBe(200);
+			expect(betaAssistant.statusCode, betaAssistant.body).toBe(200);
+			expect(alphaAssistant.json().session_id).toBe("release-release-alpha-session");
+			expect(betaAssistant.json().session_id).toBe("release-release-beta-session");
+			expect(managerSessions.size).toBe(2);
+			expect(toolTokens.get("release-alpha")).not.toBe(toolTokens.get("release-beta"));
+			await Promise.all([
+				server.inject({
+					method: "POST",
+					url: "/api/v1/assistant/context",
+					headers: alphaHeaders,
+					payload: { id: randomUUID(), payload: { element_kind: "row", value: "alpha-only" } },
+				}),
+				server.inject({
+					method: "POST",
+					url: "/api/v1/assistant/context",
+					headers: betaHeaders,
+					payload: { id: randomUUID(), payload: { element_kind: "row", value: "beta-only" } },
+				}),
+			]);
+			const assistantState = await services.db.admin<
+				{ principal_id: string; last_context: { element_kind: string; value: string } }[]
+			>`select principal_id, last_context from assistant_sessions
+			  where principal_id in ('release-alpha', 'release-beta') order by principal_id`;
+			expect(assistantState).toEqual([
+				{ principal_id: "release-alpha", last_context: { element_kind: "row", value: "alpha-only" } },
+				{ principal_id: "release-beta", last_context: { element_kind: "row", value: "beta-only" } },
+			]);
+
+			const mcpQuery = (token: string) =>
+				server.inject({
+					method: "POST",
+					url: "/api/v1/assistant/mcp",
+					headers: { authorization: `Bearer ${token}` },
+					payload: {
+						jsonrpc: "2.0",
+						id: 1,
+						method: "tools/call",
+						params: { name: "stats.query", arguments: query },
+					},
+				});
+			const [alphaMcp, betaMcp] = await Promise.all([
+				mcpQuery(toolTokens.get("release-alpha") ?? ""),
+				mcpQuery(toolTokens.get("release-beta") ?? ""),
+			]);
+			expect(alphaMcp.statusCode, alphaMcp.body).toBe(200);
+			expect(betaMcp.statusCode, betaMcp.body).toBe(200);
+			expect(alphaMcp.json().result.structuredContent.rows).toEqual([["alpha", 1]]);
+			expect(betaMcp.json().result.structuredContent.rows).toEqual([["beta", 1]]);
+			const libraryMcp = await Promise.all(
+				[toolTokens.get("release-alpha"), toolTokens.get("release-beta")].map((token, id) =>
+					server.inject({
+						method: "POST",
+						url: "/api/v1/assistant/mcp",
+						headers: { authorization: `Bearer ${token ?? ""}` },
+						payload: {
+							jsonrpc: "2.0",
+							id: id + 10,
+							method: "tools/call",
+							params: {
+								name: "library.surface",
+								arguments: { action: "search", query: "isolation marker", limit: 20 },
+							},
+						},
+					}),
+				),
+			);
+			expect(libraryMcp.every((response) => response.statusCode === 200)).toBe(true);
+			expect(JSON.stringify(libraryMcp[0]?.json())).toContain("Alpha isolation marker");
+			expect(JSON.stringify(libraryMcp[0]?.json())).not.toContain("Beta isolation marker");
+			expect(JSON.stringify(libraryMcp[1]?.json())).toContain("Beta isolation marker");
+			expect(JSON.stringify(libraryMcp[1]?.json())).not.toContain("Alpha isolation marker");
 
 			// Query references are capabilities only within every originating scope.
 			const forbiddenQuery = await server.inject({
@@ -352,7 +480,7 @@ describe("BR-032 hermetic release acceptance", () => {
 				ok: true,
 				status: "applied",
 				result: {
-					session_id: "release-alpha-session",
+					session_id: "release-release-alpha-session",
 					content: "Context accepted for the scoped release session.",
 				},
 			});
@@ -520,6 +648,39 @@ describe("BR-032 hermetic release acceptance", () => {
 					{ timeout: 2_000 },
 				)
 				.toBe(true);
+
+			// The already-minted manager token is re-resolved after revocation, so its next MCP read
+			// cannot retain Alpha's former RLS scope.
+			const alphaAfterRevoke = await mcpQuery(toolTokens.get("release-alpha") ?? "");
+			expect(alphaAfterRevoke.statusCode, alphaAfterRevoke.body).toBe(200);
+			expect(alphaAfterRevoke.json().result.structuredContent.rows).toEqual([]);
+			const alphaLibraryAfterRevoke = await server.inject({
+				method: "POST",
+				url: "/api/v1/assistant/mcp",
+				headers: { authorization: `Bearer ${toolTokens.get("release-alpha") ?? ""}` },
+				payload: {
+					jsonrpc: "2.0",
+					id: 99,
+					method: "tools/call",
+					params: {
+						name: "library.surface",
+						arguments: { action: "search", query: "Alpha isolation marker", limit: 20 },
+					},
+				},
+			});
+			expect(JSON.stringify(alphaLibraryAfterRevoke.json())).not.toContain("Alpha isolation marker");
+
+			// Logout invalidates the originating Better Auth session binding immediately. Presenting
+			// Beta's cookie after the swap resolves Beta, never Alpha, and Beta's old MCP token dies.
+			activeSessions.delete("session-release-beta");
+			const loggedOutMcp = await mcpQuery(toolTokens.get("release-beta") ?? "");
+			expect(loggedOutMcp.statusCode).toBe(401);
+			const loggedOutMe = await server.inject({
+				method: "GET",
+				url: "/api/v1/me",
+				headers: betaHeaders,
+			});
+			expect(loggedOutMe.statusCode).toBe(401);
 			scopeFenceSocket.terminate();
 		} finally {
 			await server.close();

@@ -121,7 +121,7 @@ export function connectBus(
 }
 
 function base(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+	return env.PUBLIC_CONSOLE_API_BASE ?? "/api/console/v1";
 }
 
 class ConsoleApiError extends Error {

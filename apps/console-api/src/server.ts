@@ -559,7 +559,15 @@ async function resolveHumanIdentity(
 	if (identity.groups.includes("term_admin") || tiers.includes("term_admin"))
 		(lanes as string[]).push("term_admin");
 	const { scopes, zookie } = await resolveScopes(services.db.admin, identity.username, tiers);
-	return { kind: "human", id: identity.username, tiers, lanes, scopes, zookie };
+	return {
+		kind: "human",
+		id: identity.username,
+		tiers,
+		lanes,
+		scopes,
+		zookie,
+		...(identity.sessionId ? { authSource: "better-auth", authSessionId: identity.sessionId } : {}),
+	} as Principal;
 }
 
 function parseCatalogCursor(
@@ -2515,7 +2523,10 @@ export async function buildServer(
 	app.post("/api/v1/assistant/mcp", async (req, reply) => {
 		const match = /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization ?? ""));
 		const principal = match?.[1]
-			? await resolveAssistantToolPrincipal(services.db.admin, match[1])
+			? await resolveAssistantToolPrincipal(services.db.admin, match[1], async (sessionId) => {
+					const identity = await betterAuth?.getIdentityBySessionId(sessionId);
+					return identity ? resolveHumanIdentity(services, identity) : null;
+				})
 			: null;
 		if (!principal)
 			return reply.code(401).send({
@@ -3861,7 +3872,7 @@ export async function buildServer(
 				}
 			}
 		};
-		const refreshable = Boolean(bearer || browserAuth);
+		const refreshable = Boolean(bearer || browserAuth || betterAuth);
 		const stopGrantWatch = refreshable
 			? services.onGrantChange(() => {
 					principal = null;
