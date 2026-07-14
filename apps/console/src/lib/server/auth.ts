@@ -57,7 +57,7 @@ export const auth = betterAuth({
 					clientSecret: required("AUTHENTIK_OIDC_CLIENT_SECRET"),
 					discoveryUrl: `${issuer.replace(/\/$/, "")}/.well-known/openid-configuration`,
 					issuer,
-					requireIssuerValidation: true,
+					requireIssuerValidation: false, // Authentik has no RFC 9207 iss authz-response param (discovery iss_supported=null); ID-token iss still validates + single provider = no AS mix-up risk
 					pkce: true,
 					scopes: ["openid", "profile", "email", "groups"],
 					overrideUserInfo: true,
