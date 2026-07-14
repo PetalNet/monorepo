@@ -14,16 +14,16 @@ environment variables, and the same on-disk state layout
 
 Reliability mechanisms are first-class, not bolted on:
 
-| Mechanism | Where |
-|---|---|
-| Deadline + bounded retries on EVERY external call (sends, media download/upload, lookups, alias resolution, AI/MCP calls) | `courier-core/src/bound.rs`, used everywhere |
-| Per-leg delivery health: per-destination success/failure tracking, pre-registered from config, periodic reports, loud `LEG IS DEAD` escalation, `!diag` | `courier-core/src/health.rs`, `courier/src/engine.rs` (reporter) |
-| Fault isolation: every plugin invocation runs in its own task with a hard budget and panic containment | `courier-core/src/supervise.rs`, `courier/src/dispatch.rs` |
-| Supervised sync loop: transient errors retry forever with capped backoff; only auth death exits (for restart + re-login) | `courier/src/engine.rs` |
-| OS-thread watchdog (exit 70 on stalled sync loop) + startup guard — works even when the async runtime is wedged | `courier-core/src/watchdog.rs` |
-| Idempotent relay: persisted per-(event, target) delivery ledger + stable transaction ids; restart/retry never loses or duplicates a message | `courier-relay/src/ledger.rs`, `courier-relay/src/idempotency.rs` |
-| Ledger-driven startup backfill replays exactly what's missing | `courier-relay/src/lib.rs` |
-| Per-source-room ordering: relay work is serialized per room via fair locks | `courier-relay/src/lib.rs` |
+| Mechanism                                                                                                                                               | Where                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Deadline + bounded retries on EVERY external call (sends, media download/upload, lookups, alias resolution, AI/MCP calls)                               | `courier-core/src/bound.rs`, used everywhere                      |
+| Per-leg delivery health: per-destination success/failure tracking, pre-registered from config, periodic reports, loud `LEG IS DEAD` escalation, `!diag` | `courier-core/src/health.rs`, `courier/src/engine.rs` (reporter)  |
+| Fault isolation: every plugin invocation runs in its own task with a hard budget and panic containment                                                  | `courier-core/src/supervise.rs`, `courier/src/dispatch.rs`        |
+| Supervised sync loop: transient errors retry forever with capped backoff; only auth death exits (for restart + re-login)                                | `courier/src/engine.rs`                                           |
+| OS-thread watchdog (exit 70 on stalled sync loop) + startup guard — works even when the async runtime is wedged                                         | `courier-core/src/watchdog.rs`                                    |
+| Idempotent relay: persisted per-(event, target) delivery ledger + stable transaction ids; restart/retry never loses or duplicates a message             | `courier-relay/src/ledger.rs`, `courier-relay/src/idempotency.rs` |
+| Ledger-driven startup backfill replays exactly what's missing                                                                                           | `courier-relay/src/lib.rs`                                        |
+| Per-source-room ordering: relay work is serialized per room via fair locks                                                                              | `courier-relay/src/lib.rs`                                        |
 
 ## Build
 
