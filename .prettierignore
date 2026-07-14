@@ -1,3 +1,6 @@
 # Deterministic outputs generated from console-api's canonical JSON contracts.
 apps/console/src/lib/api/ops.ts
 apps/console/src/lib/api/types.ts
+
+# Third-party agent skills are tracked verbatim for skills-lock.json hashes.
+.agents/skills/

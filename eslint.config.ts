@@ -9,6 +9,9 @@ import { defineConfig, includeIgnoreFile } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
+	{
+		ignores: [".agents/skills/**"],
+	},
 	includeIgnoreFile(path.resolve(".gitignore"), {
 		gitignoreResolution: true,
 	}),
