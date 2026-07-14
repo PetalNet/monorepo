@@ -68,8 +68,8 @@ catalogs:
       specifier: ^8.4.49
       version: 8.5.15
     prisma:
-      specifier: ^5.22.0
-      version: 5.22.0
+      specifier: ^7.0.0
+      version: 7.8.0
     svelte-check:
       specifier: ^4.3.5
       version: 4.6.0
@@ -121,8 +121,8 @@ catalogs:
       specifier: ^1.29.0
       version: 1.29.0
     '@prisma/client':
-      specifier: ^5.22.0
-      version: 5.22.0
+      specifier: ^7.0.0
+      version: 7.8.0
     '@sentry/node':
       specifier: ^10.63.0
       version: 10.65.0
@@ -468,7 +468,7 @@ importers:
     dependencies:
       '@prisma/client':
         specifier: catalog:prod
-        version: 5.22.0(prisma@5.22.0)
+        version: 7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))
       '@sveltejs/kit':
         specifier: catalog:prod
         version: 2.66.0(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(yaml@2.9.0))
@@ -511,7 +511,7 @@ importers:
         version: 8.5.15
       prisma:
         specifier: catalog:dev
-        version: 5.22.0
+        version: 7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       svelte-check:
         specifier: catalog:dev
         version: 4.6.0(@typescript/typescript6@6.0.2)(picomatch@4.0.4)(svelte@5.56.3(@typescript-eslint/types@8.61.1))
@@ -2077,15 +2077,6 @@ packages:
   '@prisma/client-runtime-utils@7.8.0':
     resolution: {integrity: sha512-5NQZztQ0oY/ADFkmd9gPuweH5A1/CCY8YQPorLLO0Mu6a87mY5gsnDkzmFmIHs9NFaLnZojzgddFVN4RpKYrdw==}
 
-  '@prisma/client@5.22.0':
-    resolution: {integrity: sha512-M0SVXfyHnQREBKxCgyo7sffrKttwE6R8PMq330MIUF0pTwjUhLbW84pFDlf06B27XyCR++VtjugEnIHdr07SVA==}
-    engines: {node: '>=16.13'}
-    peerDependencies:
-      prisma: '*'
-    peerDependenciesMeta:
-      prisma:
-        optional: true
-
   '@prisma/client@7.8.0':
     resolution: {integrity: sha512-HFp3Dawv/3sU3JtlPha90IB+48lS7zHiH4LKZPjmcE8YH5P9DOXGPvo8dqOtO7MqLDd1p2hOWMcFlRT1DMblHw==}
     engines: {node: ^20.19 || ^22.12 || >=24.0}
@@ -2101,9 +2092,6 @@ packages:
   '@prisma/config@7.8.0':
     resolution: {integrity: sha512-HFESzd9rx2ZQxlK+TL7tu1HPvCqrHiL6LCxYykI2c34mvaUuIVVl3lYuicJD/MNnzgPnyeBEMlK4WTomJCV5jw==}
 
-  '@prisma/debug@5.22.0':
-    resolution: {integrity: sha512-AUt44v3YJeggO2ZU5BkXI7M4hu9BF2zzH2iF2V5pyXT/lRTyWiElZ7It+bRH1EshoMRxHgpYg4VB6rCM+mG5jQ==}
-
   '@prisma/debug@7.2.0':
     resolution: {integrity: sha512-YSGTiSlBAVJPzX4ONZmMotL+ozJwQjRmZweQNIq/ER0tQJKJynNkRB3kyvt37eOfsbMCXk3gnLF6J9OJ4QWftw==}
 
@@ -2113,26 +2101,14 @@ packages:
   '@prisma/dev@0.24.3':
     resolution: {integrity: sha512-ffHlQuKXZiaDt9Go0OnCTdJZrHxK0k7omJKNV86/VjpsXu5EIHZLK0T7JSWgvNlJwh56kW9JFu9v0qJciFzepg==}
 
-  '@prisma/engines-version@5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2':
-    resolution: {integrity: sha512-2PTmxFR2yHW/eB3uqWtcgRcgAbG1rwG9ZriSvQw+nnb7c4uCr3RAcGMb6/zfE88SKlC1Nj2ziUvc96Z379mHgQ==}
-
   '@prisma/engines-version@7.8.0-6.3c6e192761c0362d496ed980de936e2f3cebcd3a':
     resolution: {integrity: sha512-fJPQxCkLgA5EayWaW8eArgCvjJ+N+Kz3VyeNKMEeYiQC4alNkxRKFVAGxv/ZUzuJISKqdw+zGeDbS6mn6RCPOA==}
-
-  '@prisma/engines@5.22.0':
-    resolution: {integrity: sha512-UNjfslWhAt06kVL3CjkuYpHAWSO6L4kDCVPegV6itt7nD1kSJavd3vhgAEhjglLJJKEdJ7oIqDJ+yHk6qO8gPA==}
 
   '@prisma/engines@7.8.0':
     resolution: {integrity: sha512-jx3rCnNNrt5uzbkKlegtQ2GZHxSlihMCzutgT/BP6UIDF1r9tDI39hV/0T/cHZgzJ3ELbuQPXlVZy+Y1n0pcgw==}
 
-  '@prisma/fetch-engine@5.22.0':
-    resolution: {integrity: sha512-bkrD/Mc2fSvkQBV5EpoFcZ87AvOgDxbG99488a5cexp5Ccny+UM6MAe/UFkUC0wLYD9+9befNOqGiIJhhq+HbA==}
-
   '@prisma/fetch-engine@7.8.0':
     resolution: {integrity: sha512-gwB0Euiz/DDRyxFRpLXYlK3RfaZUj1c5dAYMuhZYfApg7arknJlcb9bIsOHDppJmbqYaVA+yBIiFMDBfprsNPQ==}
-
-  '@prisma/get-platform@5.22.0':
-    resolution: {integrity: sha512-pHhpQdr1UPFpt+zFfnPazhulaZYCUqeIcPpJViYoq9R+D/yw4fjE+CtnsnKzPYm0ddUbeXUzjGVGIRVgPDCk4Q==}
 
   '@prisma/get-platform@7.2.0':
     resolution: {integrity: sha512-k1V0l0Td1732EHpAfi2eySTezyllok9dXb6UQanajkJQzPUGi3vO2z7jdkz67SypFTdmbnyGYxvEvYZdZsMAVA==}
@@ -5246,11 +5222,6 @@ packages:
     resolution: {integrity: sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==}
     engines: {node: ^10.13.0 || ^12.13.0 || ^14.15.0 || >=15.0.0}
 
-  prisma@5.22.0:
-    resolution: {integrity: sha512-vtpjW3XuYCSnMsNVBjLMNkTj6OZbudcPPTPYHqX0CJfpcdWciI1dM8uHETwmDxxiqEwCIE6WvXucWUetJgfu/A==}
-    engines: {node: '>=16.13'}
-    hasBin: true
-
   prisma@7.8.0:
     resolution: {integrity: sha512-yfN4yrw7HV9kEJhoy1+jgah0jafEIQsf7uWouSsM8MvJtlubsk+kM7AIBWZ8+GJl74Yj3c+nbYqBkMOxtsZ3Lw==}
     engines: {node: ^20.19 || ^22.12 || >=24.0}
@@ -6305,15 +6276,12 @@ snapshots:
   '@electric-sql/pglite-socket@0.1.1(@electric-sql/pglite@0.4.1)':
     dependencies:
       '@electric-sql/pglite': 0.4.1
-    optional: true
 
   '@electric-sql/pglite-tools@0.3.1(@electric-sql/pglite@0.4.1)':
     dependencies:
       '@electric-sql/pglite': 0.4.1
-    optional: true
 
-  '@electric-sql/pglite@0.4.1':
-    optional: true
+  '@electric-sql/pglite@0.4.1': {}
 
   '@emnapi/core@1.10.0':
     dependencies:
@@ -6680,7 +6648,6 @@ snapshots:
   '@hono/node-server@1.19.11(hono@4.12.26)':
     dependencies:
       hono: 4.12.26
-    optional: true
 
   '@hono/node-server@1.19.14(hono@4.12.26)':
     dependencies:
@@ -6736,8 +6703,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@kurkle/color@0.3.4':
-    optional: true
+  '@kurkle/color@0.3.4': {}
 
   '@libsql/client@0.17.4':
     dependencies:
@@ -7233,12 +7199,7 @@ snapshots:
 
   '@polka/url@1.0.0-next.29': {}
 
-  '@prisma/client-runtime-utils@7.8.0':
-    optional: true
-
-  '@prisma/client@5.22.0(prisma@5.22.0)':
-    optionalDependencies:
-      prisma: 5.22.0
+  '@prisma/client-runtime-utils@7.8.0': {}
 
   '@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))':
     dependencies:
@@ -7246,7 +7207,6 @@ snapshots:
     optionalDependencies:
       prisma: 7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       typescript: '@typescript/typescript6@6.0.2'
-    optional: true
 
   '@prisma/config@7.8.0':
     dependencies:
@@ -7256,15 +7216,10 @@ snapshots:
       empathic: 2.0.0
     transitivePeerDependencies:
       - magicast
-    optional: true
 
-  '@prisma/debug@5.22.0': {}
+  '@prisma/debug@7.2.0': {}
 
-  '@prisma/debug@7.2.0':
-    optional: true
-
-  '@prisma/debug@7.8.0':
-    optional: true
+  '@prisma/debug@7.8.0': {}
 
   '@prisma/dev@0.24.3(@typescript/typescript6@6.0.2)':
     dependencies:
@@ -7287,19 +7242,8 @@ snapshots:
       zeptomatch: 2.1.0
     transitivePeerDependencies:
       - typescript
-    optional: true
 
-  '@prisma/engines-version@5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2': {}
-
-  '@prisma/engines-version@7.8.0-6.3c6e192761c0362d496ed980de936e2f3cebcd3a':
-    optional: true
-
-  '@prisma/engines@5.22.0':
-    dependencies:
-      '@prisma/debug': 5.22.0
-      '@prisma/engines-version': 5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2
-      '@prisma/fetch-engine': 5.22.0
-      '@prisma/get-platform': 5.22.0
+  '@prisma/engines-version@7.8.0-6.3c6e192761c0362d496ed980de936e2f3cebcd3a': {}
 
   '@prisma/engines@7.8.0':
     dependencies:
@@ -7307,37 +7251,22 @@ snapshots:
       '@prisma/engines-version': 7.8.0-6.3c6e192761c0362d496ed980de936e2f3cebcd3a
       '@prisma/fetch-engine': 7.8.0
       '@prisma/get-platform': 7.8.0
-    optional: true
-
-  '@prisma/fetch-engine@5.22.0':
-    dependencies:
-      '@prisma/debug': 5.22.0
-      '@prisma/engines-version': 5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2
-      '@prisma/get-platform': 5.22.0
 
   '@prisma/fetch-engine@7.8.0':
     dependencies:
       '@prisma/debug': 7.8.0
       '@prisma/engines-version': 7.8.0-6.3c6e192761c0362d496ed980de936e2f3cebcd3a
       '@prisma/get-platform': 7.8.0
-    optional: true
-
-  '@prisma/get-platform@5.22.0':
-    dependencies:
-      '@prisma/debug': 5.22.0
 
   '@prisma/get-platform@7.2.0':
     dependencies:
       '@prisma/debug': 7.2.0
-    optional: true
 
   '@prisma/get-platform@7.8.0':
     dependencies:
       '@prisma/debug': 7.8.0
-    optional: true
 
-  '@prisma/query-plan-executor@7.2.0':
-    optional: true
+  '@prisma/query-plan-executor@7.2.0': {}
 
   '@prisma/streams-local@0.1.2':
     dependencies:
@@ -7345,7 +7274,6 @@ snapshots:
       better-result: 2.9.2
       env-paths: 3.0.0
       proper-lockfile: 4.1.2
-    optional: true
 
   '@prisma/studio-core@0.27.3(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
@@ -7356,17 +7284,14 @@ snapshots:
       react-dom: 19.2.7(react@19.2.7)
     transitivePeerDependencies:
       - '@types/react-dom'
-    optional: true
 
-  '@radix-ui/primitive@1.1.3':
-    optional: true
+  '@radix-ui/primitive@1.1.3': {}
 
   '@radix-ui/react-compose-refs@1.1.2(@types/react@19.2.17)(react@19.2.7)':
     dependencies:
       react: 19.2.7
     optionalDependencies:
       '@types/react': 19.2.17
-    optional: true
 
   '@radix-ui/react-primitive@2.1.3(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
@@ -7375,7 +7300,6 @@ snapshots:
       react-dom: 19.2.7(react@19.2.7)
     optionalDependencies:
       '@types/react': 19.2.17
-    optional: true
 
   '@radix-ui/react-slot@1.2.3(@types/react@19.2.17)(react@19.2.7)':
     dependencies:
@@ -7383,7 +7307,6 @@ snapshots:
       react: 19.2.7
     optionalDependencies:
       '@types/react': 19.2.17
-    optional: true
 
   '@radix-ui/react-toggle@1.1.10(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
@@ -7394,7 +7317,6 @@ snapshots:
       react-dom: 19.2.7(react@19.2.7)
     optionalDependencies:
       '@types/react': 19.2.17
-    optional: true
 
   '@radix-ui/react-use-controllable-state@1.2.2(@types/react@19.2.17)(react@19.2.7)':
     dependencies:
@@ -7403,7 +7325,6 @@ snapshots:
       react: 19.2.7
     optionalDependencies:
       '@types/react': 19.2.17
-    optional: true
 
   '@radix-ui/react-use-effect-event@0.0.2(@types/react@19.2.17)(react@19.2.7)':
     dependencies:
@@ -7411,14 +7332,12 @@ snapshots:
       react: 19.2.7
     optionalDependencies:
       '@types/react': 19.2.17
-    optional: true
 
   '@radix-ui/react-use-layout-effect@1.1.1(@types/react@19.2.17)(react@19.2.7)':
     dependencies:
       react: 19.2.7
     optionalDependencies:
       '@types/react': 19.2.17
-    optional: true
 
   '@rolldown/binding-android-arm64@1.0.3':
     optional: true
@@ -8014,7 +7933,6 @@ snapshots:
   '@types/react@19.2.17':
     dependencies:
       csstype: 3.2.3
-    optional: true
 
   '@types/resolve@1.20.2': {}
 
@@ -8388,8 +8306,7 @@ snapshots:
     dependencies:
       fast-glob: 3.3.3
 
-  aws-ssl-profiles@1.1.2:
-    optional: true
+  aws-ssl-profiles@1.1.2: {}
 
   axobject-query@4.1.0: {}
 
@@ -8449,8 +8366,7 @@ snapshots:
     optionalDependencies:
       zod: 4.4.3
 
-  better-result@2.9.2:
-    optional: true
+  better-result@2.9.2: {}
 
   better-sqlite3@12.11.1:
     dependencies:
@@ -8530,7 +8446,6 @@ snapshots:
       perfect-debounce: 2.1.0
       pkg-types: 2.3.1
       rc9: 3.0.1
-    optional: true
 
   cacache@19.0.1:
     dependencies:
@@ -8574,7 +8489,6 @@ snapshots:
   chart.js@4.5.1:
     dependencies:
       '@kurkle/color': 0.3.4
-    optional: true
 
   chokidar@3.6.0:
     dependencies:
@@ -8595,7 +8509,6 @@ snapshots:
   chokidar@5.0.0:
     dependencies:
       readdirp: 5.0.0
-    optional: true
 
   chownr@1.1.4:
     optional: true
@@ -8629,8 +8542,7 @@ snapshots:
 
   commondir@1.0.1: {}
 
-  confbox@0.2.4:
-    optional: true
+  confbox@0.2.4: {}
 
   config-chain@1.1.13:
     dependencies:
@@ -8666,8 +8578,7 @@ snapshots:
 
   cssesc@3.0.0: {}
 
-  csstype@3.2.3:
-    optional: true
+  csstype@3.2.3: {}
 
   d3-queue@2.0.3: {}
 
@@ -8694,22 +8605,19 @@ snapshots:
 
   deep-is@0.1.4: {}
 
-  deepmerge-ts@7.1.5:
-    optional: true
+  deepmerge-ts@7.1.5: {}
 
   deepmerge@4.3.1: {}
 
   defu@6.1.7: {}
 
-  denque@2.1.0:
-    optional: true
+  denque@2.1.0: {}
 
   depd@2.0.0: {}
 
   dequal@2.0.3: {}
 
-  destr@2.0.5:
-    optional: true
+  destr@2.0.5: {}
 
   detect-indent@7.0.2: {}
 
@@ -8777,7 +8685,6 @@ snapshots:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 3.23.2
-    optional: true
 
   electron-to-chromium@1.5.376: {}
 
@@ -8785,8 +8692,7 @@ snapshots:
 
   emoji-regex@9.2.2: {}
 
-  empathic@2.0.0:
-    optional: true
+  empathic@2.0.0: {}
 
   encodeurl@2.0.0: {}
 
@@ -8804,8 +8710,7 @@ snapshots:
       graceful-fs: 4.2.11
       tapable: 2.3.3
 
-  env-paths@3.0.0:
-    optional: true
+  env-paths@3.0.0: {}
 
   err-code@2.0.3: {}
 
@@ -9081,13 +8986,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  exsolve@1.1.0:
-    optional: true
+  exsolve@1.1.0: {}
 
   fast-check@3.23.2:
     dependencies:
       pure-rand: 6.1.0
-    optional: true
 
   fast-decode-uri-component@1.0.1: {}
 
@@ -9238,7 +9141,6 @@ snapshots:
   generate-function@2.3.1:
     dependencies:
       is-property: 1.0.2
-    optional: true
 
   gensync@1.0.0-beta.2: {}
 
@@ -9257,8 +9159,7 @@ snapshots:
       hasown: 2.0.4
       math-intrinsics: 1.1.0
 
-  get-port-please@3.2.0:
-    optional: true
+  get-port-please@3.2.0: {}
 
   get-proto@1.0.1:
     dependencies:
@@ -9269,8 +9170,7 @@ snapshots:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
-  giget@3.3.0:
-    optional: true
+  giget@3.3.0: {}
 
   git-hooks-list@4.2.1: {}
 
@@ -9312,11 +9212,9 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  grammex@3.1.12:
-    optional: true
+  grammex@3.1.12: {}
 
-  graphmatch@1.1.1:
-    optional: true
+  graphmatch@1.1.1: {}
 
   has-symbols@1.1.0: {}
 
@@ -9351,8 +9249,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  http-status-codes@2.3.0:
-    optional: true
+  http-status-codes@2.3.0: {}
 
   https-proxy-agent@5.0.1:
     dependencies:
@@ -9426,8 +9323,7 @@ snapshots:
 
   is-promise@4.0.0: {}
 
-  is-property@1.0.2:
-    optional: true
+  is-property@1.0.2: {}
 
   is-reference@1.2.1:
     dependencies:
@@ -9620,8 +9516,7 @@ snapshots:
     dependencies:
       p-locate: 5.0.0
 
-  long@5.3.2:
-    optional: true
+  long@5.3.2: {}
 
   longest-streak@3.1.0: {}
 
@@ -9633,8 +9528,7 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lru.min@1.1.4:
-    optional: true
+  lru.min@1.1.4: {}
 
   lz-string@1.5.0: {}
 
@@ -10083,7 +9977,6 @@ snapshots:
       named-placeholders: 1.1.6
       seq-queue: 0.0.5
       sqlstring: 2.3.3
-    optional: true
 
   mz@2.7.0:
     dependencies:
@@ -10094,7 +9987,6 @@ snapshots:
   named-placeholders@1.1.6:
     dependencies:
       lru.min: 1.1.4
-    optional: true
 
   nanoid@3.3.14: {}
 
@@ -10159,8 +10051,7 @@ snapshots:
 
   obug@2.1.3: {}
 
-  ohash@2.0.11:
-    optional: true
+  ohash@2.0.11: {}
 
   on-exit-leak-free@2.1.2: {}
 
@@ -10351,8 +10242,7 @@ snapshots:
 
   pathe@2.0.3: {}
 
-  perfect-debounce@2.1.0:
-    optional: true
+  perfect-debounce@2.1.0: {}
 
   pg-cloudflare@1.4.0:
     optional: true
@@ -10428,7 +10318,6 @@ snapshots:
       confbox: 0.2.4
       exsolve: 1.1.0
       pathe: 2.0.3
-    optional: true
 
   playwright-core@1.61.1: {}
 
@@ -10517,12 +10406,6 @@ snapshots:
       ansi-styles: 5.2.0
       react-is: 17.0.2
 
-  prisma@5.22.0:
-    dependencies:
-      '@prisma/engines': 5.22.0
-    optionalDependencies:
-      fsevents: 2.3.3
-
   prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
       '@prisma/config': 7.8.0
@@ -10540,7 +10423,6 @@ snapshots:
       - magicast
       - react
       - react-dom
-    optional: true
 
   proc-log@5.0.0: {}
 
@@ -10564,7 +10446,6 @@ snapshots:
       graceful-fs: 4.2.11
       retry: 0.12.0
       signal-exit: 3.0.7
-    optional: true
 
   proto-list@1.2.4: {}
 
@@ -10583,8 +10464,7 @@ snapshots:
 
   punycode@2.3.1: {}
 
-  pure-rand@6.1.0:
-    optional: true
+  pure-rand@6.1.0: {}
 
   qrcode@1.5.4:
     dependencies:
@@ -10613,7 +10493,6 @@ snapshots:
     dependencies:
       defu: 6.1.7
       destr: 2.0.5
-    optional: true
 
   rc@1.2.8:
     dependencies:
@@ -10626,12 +10505,10 @@ snapshots:
     dependencies:
       react: 19.2.7
       scheduler: 0.27.0
-    optional: true
 
   react-is@17.0.2: {}
 
-  react@19.2.7:
-    optional: true
+  react@19.2.7: {}
 
   read-cache@1.0.0:
     dependencies:
@@ -10649,8 +10526,7 @@ snapshots:
 
   readdirp@4.1.2: {}
 
-  readdirp@5.0.0:
-    optional: true
+  readdirp@5.0.0: {}
 
   real-require@0.2.0: {}
 
@@ -10664,8 +10540,7 @@ snapshots:
     dependencies:
       rc: 1.2.8
 
-  remeda@2.33.4:
-    optional: true
+  remeda@2.33.4: {}
 
   require-directory@2.1.1: {}
 
@@ -10779,8 +10654,7 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  scheduler@0.27.0:
-    optional: true
+  scheduler@0.27.0: {}
 
   secure-json-parse@4.1.0: {}
 
@@ -10810,8 +10684,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  seq-queue@0.0.5:
-    optional: true
+  seq-queue@0.0.5: {}
 
   serve-static@2.2.1:
     dependencies:
@@ -10866,8 +10739,7 @@ snapshots:
 
   siginfo@2.0.0: {}
 
-  signal-exit@3.0.7:
-    optional: true
+  signal-exit@3.0.7: {}
 
   signal-exit@4.1.0: {}
 
@@ -10953,8 +10825,7 @@ snapshots:
 
   split2@4.2.0: {}
 
-  sqlstring@2.3.3:
-    optional: true
+  sqlstring@2.3.3: {}
 
   ssri@12.0.0:
     dependencies:
@@ -10964,8 +10835,7 @@ snapshots:
 
   statuses@2.0.2: {}
 
-  std-env@3.10.0:
-    optional: true
+  std-env@3.10.0: {}
 
   std-env@4.1.0: {}
 
@@ -11289,7 +11159,6 @@ snapshots:
   valibot@1.2.0(@typescript/typescript6@6.0.2):
     optionalDependencies:
       typescript: '@typescript/typescript6@6.0.2'
-    optional: true
 
   validate-npm-package-license@3.0.4:
     dependencies:
@@ -11510,7 +11379,6 @@ snapshots:
     dependencies:
       grammex: 3.1.12
       graphmatch: 1.1.1
-    optional: true
 
   zimmerframe@1.1.4: {}
 
