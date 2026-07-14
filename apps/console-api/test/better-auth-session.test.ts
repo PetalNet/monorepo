@@ -46,4 +46,18 @@ describe("Better Auth session identity", () => {
 			devPrincipal(JSON.stringify({ authentikUsername: "parker", authentikGroups: '["owner"]' })),
 		).toBeNull();
 	});
+
+	it("accepts Authentik group names that contain spaces", () => {
+		expect(
+			parseBetterAuthIdentity({
+				authentikUsername: "janet",
+				authentikGroups: JSON.stringify(["authentik Admins", "media"]),
+				authentikSubject: "ak-user-janet",
+			}),
+		).toEqual({
+			username: "janet",
+			groups: ["authentik Admins", "media"],
+			subject: "ak-user-janet",
+		});
+	});
 });

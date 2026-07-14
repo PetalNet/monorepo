@@ -34,7 +34,7 @@ export function parseBetterAuthIdentity(
 			groups.length === 0 ||
 			groups.length > 128 ||
 			groups.some(
-				(group) => typeof group !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(group),
+				(group) => typeof group !== "string" || !/^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,127}$/.test(group),
 			) ||
 			new Set(groups).size !== groups.length
 		)
