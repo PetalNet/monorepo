@@ -1,5 +1,5 @@
 // Principal resolution (contract §1.2, §7). Server-stamped, never trusted from the client.
-// `kind` is bound to the auth path (bearer mint record => agent/system; Authentik header => human).
+// `kind` is bound to the auth path (bearer mint record => agent/system; Better Auth => human).
 // Token revocation is checked per request (sha256 lookup), independent of the grant zookie.
 
 import { createHash } from "node:crypto";

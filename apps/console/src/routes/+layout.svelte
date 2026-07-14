@@ -32,6 +32,7 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
+		if (!data.authenticated) return;
 		if (isTyping(e.target)) return;
 		if (e.key === "/") {
 			e.preventDefault();
@@ -39,7 +40,9 @@
 			return;
 		}
 		if (awaitingG) {
-			const entry = visibleNav(data.me.lanes).find((n) => n.key === e.key.toLowerCase());
+			const entry = data.authenticated
+				? visibleNav(data.me.lanes).find((n) => n.key === e.key.toLowerCase())
+				: undefined;
 			awaitingG = false;
 			clearTimeout(gTimer);
 			if (entry) {
@@ -61,12 +64,16 @@
 
 <svelte:window onkeydown={onKey} />
 
-<AppShell
-	me={data.me}
-	verdict={data.health.verdict}
-	stateFact={data.health.stateFact}
-	badges={data.health.badges}
-	connected={data.connected}
->
+{#if data.authenticated}
+	<AppShell
+		me={data.me}
+		verdict={data.health.verdict}
+		stateFact={data.health.stateFact}
+		badges={data.health.badges}
+		connected={data.connected}
+	>
+		{@render children()}
+	</AppShell>
+{:else}
 	{@render children()}
-</AppShell>
+{/if}

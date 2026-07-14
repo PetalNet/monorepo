@@ -40,7 +40,7 @@ in `ops.json.spec_name_aliases` (the catalog name is the wire name).
    never-capture list for self-instrumentation.
 7. **Caller identity is server-stamped.** Nothing trusts a client-asserted principal, scope,
    `sender_class`, capability lane, or **emission source** (§4.3). The API authenticates, then
-   stamps. `Principal.kind` binds at the auth path (Authentik header ⇒ human; bearer mint
+   stamps. `Principal.kind` binds at the auth path (Better Auth session ⇒ human; bearer mint
    record ⇒ agent/system), never inferred from an id string. The principal is carried as a
    verifiable assertion across every executor hop (tracker RPC, manager inlet) — an executor
    never accepts "who this is for" as a plain argument.
@@ -100,11 +100,11 @@ emergency path, and neither is this service pretending otherwise.
 
 ### 1.2 Authentication + principal
 
-| Caller                     | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Human (browser)            | Authentik SSO via a **dedicated** console-api forwardAuth middleware: per-boot nonce, strip-set == authResponseHeaders, full assist-`auth.py` parity (reject extra/duplicate/underscore-folded/control-char `x-authentik-*` headers, canonicalize names). **Hard precondition:** the shared `:80` entrypoint's `forwardedHeaders.trustedIPs` gap is closed before console-api serves a single authenticated route — this surface carries `host.reboot` and `term.*`, not browser automation. |
-| Agent / service            | `Authorization: Bearer <token>`. Vault keeps plaintext for re-issue (as-built CP4); console-api's _verification_ table stores sha256 only. Revocation is checked **per request**, independent of the grant zookie; rotation grace is bounded and dual-validity audited.                                                                                                                                                                                                                      |
-| System (bridges, internal) | Same bearer path, `system:` subjects, distinct trusted producer registrations (§4.3).                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Caller                     | Mechanism                                                                                                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Human (browser)            | Authentik OIDC through Better Auth. The SvelteKit server creates a short-lived `__Host-console` session; console-api validates that same-origin session directly against the shared Console Postgres database. Authentik identity headers are not an authentication mechanism. |
+| Agent / service            | `Authorization: Bearer <token>`. Vault keeps plaintext for re-issue (as-built CP4); console-api's _verification_ table stores sha256 only. Revocation is checked **per request**, independent of the grant zookie; rotation grace is bounded and dual-validity audited.        |
+| System (bridges, internal) | Same bearer path, `system:` subjects, distinct trusted producer registrations (§4.3).                                                                                                                                                                                          |
 
 Every request resolves to a server-stamped **Principal** (`schemas/principal.schema.json`).
 `sender_class` derivation: `principal` requires `kind == human && tier ∈ {owner, moderator}`;
@@ -695,9 +695,8 @@ insert, with no code-name allowlist. `GET /api/v1/tiers` returns
 The strongest configured `default_relations` entry resolves overlapping `principal.tiers`, which the
 current production-capable bearer path server-stamps from `api_tokens`; owner/moderator therefore
 remain commit-capable without hard-coded tier names, and an equal-strength ambiguity fails closed to
-propose-only when any tied row requires it. Trusted Authentik forward-auth mapping for browser humans
-is not yet active and remains an upstream deployment prerequisite; dev headers exist only behind
-`CONSOLE_API_DEV_AUTH`.
+propose-only when any tied row requires it. Better Auth maps the signed Authentik subject, username,
+and groups onto the current tier and grant rows for browser humans.
 Bootstrap inserts missing baseline rows
 but never overwrites configured levels on later deploys. A propose-only caller's dashboard and grant
 mutations first prove the target is currently visible, then are filed through the tracker's canonical

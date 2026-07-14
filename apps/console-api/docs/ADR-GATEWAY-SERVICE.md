@@ -52,7 +52,7 @@ The `console-api` service owner is responsible for all of the following as one d
 
 - the Node 22 process built from `apps/console-api`, including database migrations;
 - the Console lake/Postgres roles and the single serialized sequence writer;
-- Traefik routing and the dedicated Authentik forward-auth middleware;
+- same-origin Traefik routing and Better Auth session configuration;
 - the `/api/v1/health` watchdog contract, resource limits, and restart policy;
 - `CONSOLE_API_GLITCHTIP_DSN` configuration and gateway error telemetry; and
 - compatibility of the HTTP, WebSocket, emission, and named-operation contracts.

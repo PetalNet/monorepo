@@ -33,7 +33,7 @@
 			{pending ? "Opening PetalNet SSO…" : "Continue with PetalNet SSO"}
 		</button>
 		<p id="sso-note" class="note">Authentication is handled by Authentik. Lab Console stores only its own session.</p>
-		{#if failed || page.url.searchParams.has("error")}<p class="error" role="alert">Sign-in could not be completed. Try again; if it continues, check GlitchTip for the console auth path.</p>{/if}
+		{#if failed || page.url.searchParams.has("error")}<p class="error" role="alert">Sign-in couldn't be completed. Please try again.</p>{/if}
 	</section>
 </main>
 
