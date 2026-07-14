@@ -168,8 +168,24 @@ afterAll(async () => {
 describe("BR-032 hermetic release acceptance", () => {
 	it("spans two trusted humans without leaking reads, bus events, operations, or artifacts", async () => {
 		const activeSessions = new Map([
-			["session-release-alpha", { username: "release-alpha", groups: ["moderator", "term_admin"], subject: "oidc-alpha", sessionId: "session-release-alpha" }],
-			["session-release-beta", { username: "release-beta", groups: ["moderator"], subject: "oidc-beta", sessionId: "session-release-beta" }],
+			[
+				"session-release-alpha",
+				{
+					username: "release-alpha",
+					groups: ["moderator", "term_admin"],
+					subject: "oidc-alpha",
+					sessionId: "session-release-alpha",
+				},
+			],
+			[
+				"session-release-beta",
+				{
+					username: "release-beta",
+					groups: ["moderator"],
+					subject: "oidc-beta",
+					sessionId: "session-release-beta",
+				},
+			],
 		]);
 		const betterAuth: BetterAuthSessionVerifier = {
 			consoleOrigin,
@@ -202,7 +218,10 @@ describe("BR-032 hermetic release acceptance", () => {
 						return;
 					}
 					managerSessions.set(externalId, principalId);
-					toolTokens.set(principalId, String((body["mcp"] as { bearer_token?: unknown }).bearer_token));
+					toolTokens.set(
+						principalId,
+						String((body["mcp"] as { bearer_token?: unknown }).bearer_token),
+					);
 					response.end(JSON.stringify({ session_id: `release-${principalId}-session` }));
 					return;
 				}
@@ -351,13 +370,19 @@ describe("BR-032 hermetic release acceptance", () => {
 					method: "POST",
 					url: "/api/v1/assistant/context",
 					headers: alphaHeaders,
-					payload: { id: randomUUID(), payload: { element_kind: "row", value: "alpha-only" } },
+					payload: {
+						id: randomUUID(),
+						payload: { element_kind: "row", value: "alpha-only" },
+					},
 				}),
 				server.inject({
 					method: "POST",
 					url: "/api/v1/assistant/context",
 					headers: betaHeaders,
-					payload: { id: randomUUID(), payload: { element_kind: "row", value: "beta-only" } },
+					payload: {
+						id: randomUUID(),
+						payload: { element_kind: "row", value: "beta-only" },
+					},
 				}),
 			]);
 			const assistantState = await services.db.admin<
@@ -365,8 +390,14 @@ describe("BR-032 hermetic release acceptance", () => {
 			>`select principal_id, last_context from assistant_sessions
 			  where principal_id in ('release-alpha', 'release-beta') order by principal_id`;
 			expect(assistantState).toEqual([
-				{ principal_id: "release-alpha", last_context: { element_kind: "row", value: "alpha-only" } },
-				{ principal_id: "release-beta", last_context: { element_kind: "row", value: "beta-only" } },
+				{
+					principal_id: "release-alpha",
+					last_context: { element_kind: "row", value: "alpha-only" },
+				},
+				{
+					principal_id: "release-beta",
+					last_context: { element_kind: "row", value: "beta-only" },
+				},
 			]);
 
 			const mcpQuery = (token: string) =>

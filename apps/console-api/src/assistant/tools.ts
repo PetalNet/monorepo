@@ -232,7 +232,8 @@ export async function resolveAssistantToolPrincipal(
 	if (row.auth_source === "better-auth") {
 		if (!row.auth_session_id || !resolveBetterAuthSession) return null;
 		const current = await resolveBetterAuthSession(row.auth_session_id);
-		if (!current || current.id !== row.principal_id || current.kind !== row.principal_kind) return null;
+		if (!current || current.id !== row.principal_id || current.kind !== row.principal_kind)
+			return null;
 		return current;
 	}
 	const current = await admin<{ kind: Principal["kind"]; tiers: string[]; lanes: string[] }[]>`
