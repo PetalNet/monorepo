@@ -127,7 +127,7 @@ beforeAll(async () => {
 
 	// The release principals intentionally receive no tier-wide fleet grant. Their only readable
 	// scopes are the two explicit, disjoint user scopes below.
-	await admin`delete from grants where subject = 'tier:moderator'`;
+	await admin`delete from grants where subject = 'tier:owner'`;
 	await admin`insert into grants (subject, relation, object, granted_by) values
 		('release-alpha', 'owner', ${alphaScope}, 'release-acceptance'),
 		('release-beta', 'owner', ${betaScope}, 'release-acceptance'),
@@ -172,7 +172,7 @@ describe("BR-032 hermetic release acceptance", () => {
 				"session-release-alpha",
 				{
 					username: "release-alpha",
-					groups: ["moderator", "term_admin"],
+					groups: ["authentik Admins", "term_admin"],
 					subject: "oidc-alpha",
 					sessionId: "session-release-alpha",
 				},
@@ -181,7 +181,7 @@ describe("BR-032 hermetic release acceptance", () => {
 				"session-release-beta",
 				{
 					username: "release-beta",
-					groups: ["moderator"],
+					groups: ["admin"],
 					subject: "oidc-beta",
 					sessionId: "session-release-beta",
 				},
@@ -288,13 +288,13 @@ describe("BR-032 hermetic release acceptance", () => {
 			expect(betaMe.statusCode, betaMe.body).toBe(200);
 			expect(alphaMe.json()).toMatchObject({
 				id: "release-alpha",
-				lanes: ["viewer", "editor", "operator", "term_admin"],
+				lanes: ["viewer", "editor", "operator", "admin", "term_admin"],
 				scopes: [alphaScope],
 			});
 			expect(betaMe.json().scopes).toEqual([betaScope]);
 			activeSessions.set("session-release-alpha", {
 				username: "release-alpha",
-				groups: ["moderator"],
+				groups: ["authentik Admins"],
 				subject: "oidc-alpha",
 				sessionId: "session-release-alpha",
 			});
@@ -303,7 +303,7 @@ describe("BR-032 hermetic release acceptance", () => {
 				url: "/api/v1/me",
 				headers: alphaHeaders,
 			});
-			expect(alphaAfterTierRemoval.json().lanes).toEqual(["viewer", "editor", "operator"]);
+			expect(alphaAfterTierRemoval.json().lanes).toEqual(["viewer", "editor", "operator", "admin"]);
 
 			expect(await services.emit("release:emitter", event(alphaScope, "alpha"), 400)).toMatchObject(
 				{

@@ -11,8 +11,9 @@ Create a confidential OAuth2/OIDC provider and application for `console.petalcat
 - Redirect URI (exact): `https://console-demo.petalcat.dev/api/auth/oauth2/callback/authentik`.
 - Scopes: `openid profile email groups`.
 - Subject mode: stable Authentik user ID. The profile must include `preferred_username`, `email`,
-  `name`, and a `groups` array. Existing group names must remain unchanged because they map to the
-  console `tiers.authentik_group` column and then to existing ReBAC grants.
+  `name`, and a `groups` array. Only exact membership in `authentik Admins` or `admin` is inherited
+  from Authentik; either maps to the console `owner` tier. Other tiers are managed in Better Auth
+  and are not inferred from Authentik group names.
 - Issuer: the Authentik application provider issuer, conventionally
   `https://auth.petalcat.dev/application/o/console/`. Its discovery document must be available at
   `<issuer-without-trailing-slash>/.well-known/openid-configuration`.

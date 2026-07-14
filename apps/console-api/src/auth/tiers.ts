@@ -51,8 +51,8 @@ async function hasDirectCommitGrant(
 /**
  * A tier's propose-only posture is the default, not a ceiling: a direct, unconditional
  * editor-or-stronger resource grant is the explicit trust elevation from task 724. When a principal
- * belongs to nested Authentik groups, the tier with the strongest configured default relation wins;
- * this keeps the policy data-driven instead of hard-coding tier names.
+ * belongs to overlapping tiers, the tier with the strongest configured default relation wins; this
+ * keeps the policy data-driven instead of hard-coding tier names.
  */
 export async function shouldProposeMutation(
 	sql: Sql,

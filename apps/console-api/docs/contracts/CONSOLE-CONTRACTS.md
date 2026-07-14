@@ -695,8 +695,9 @@ insert, with no code-name allowlist. `GET /api/v1/tiers` returns
 The strongest configured `default_relations` entry resolves overlapping `principal.tiers`, which the
 current production-capable bearer path server-stamps from `api_tokens`; owner/moderator therefore
 remain commit-capable without hard-coded tier names, and an equal-strength ambiguity fails closed to
-propose-only when any tied row requires it. Better Auth maps the signed Authentik subject, username,
-and groups onto the current tier and grant rows for browser humans.
+propose-only when any tied row requires it. For browser humans, Better Auth maps the signed Authentik
+subject and username, and only exact membership in `authentik Admins` or `admin` inherits the current
+`owner` tier. Other tiers are Better-Auth-managed and are not inferred from Authentik group names.
 Bootstrap inserts missing baseline rows
 but never overwrites configured levels on later deploys. A propose-only caller's dashboard and grant
 mutations first prove the target is currently visible, then are filed through the tracker's canonical
