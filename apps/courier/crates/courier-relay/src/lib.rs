@@ -250,6 +250,10 @@ impl Relay {
     /// Relay one event to every required target. Returns `true` only when
     /// EVERY required target has confirmed delivery (now or previously) —
     /// the caller must not advance the last-seen mark otherwise.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "delivery accounting must remain adjacent so the last-seen mark cannot advance before every relay leg completes"
+    )]
     async fn relay_event(
         &self,
         client: &Client,

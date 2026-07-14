@@ -46,6 +46,10 @@ use crate::args::Args;
 const STARTUP_DEADLINE: Duration = Duration::from_secs(30 * 60);
 
 #[tokio::main]
+#[allow(
+    clippy::too_many_lines,
+    reason = "startup steps are intentionally linear so initialization order and the watchdog deadline stay auditable"
+)]
 async fn main() -> Result<()> {
     logging::init_tracing();
 

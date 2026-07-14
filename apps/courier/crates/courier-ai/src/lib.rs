@@ -127,6 +127,10 @@ impl Plugin for AiTool {
         Ok(())
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "AI request orchestration is one stateful flow; splitting it risks obscuring tool-call ordering"
+    )]
     async fn run(&self, ctx: &PluginContext, args: &str, spec: &PluginSpec) -> Result<()> {
         use serde_json::Value;
 
