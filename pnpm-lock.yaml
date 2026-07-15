@@ -160,8 +160,8 @@ catalogs:
       specifier: ^1.5.3
       version: 1.5.3
     nanoid:
-      specifier: ^5.0.0
-      version: 5.1.15
+      specifier: ^6.0.0
+      version: 6.0.0
     postgres:
       specifier: ^3.4.7
       version: 3.4.7
@@ -434,7 +434,7 @@ importers:
         version: 5.10.0
       nanoid:
         specifier: catalog:prod
-        version: 5.1.15
+        version: 6.0.0
       pg:
         specifier: 'catalog:'
         version: 8.22.0
@@ -480,7 +480,7 @@ importers:
         version: 4.4.0
       nanoid:
         specifier: catalog:prod
-        version: 5.1.15
+        version: 6.0.0
       qrcode:
         specifier: catalog:prod
         version: 1.5.4
@@ -4874,9 +4874,9 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nanoid@5.1.15:
-    resolution: {integrity: sha512-kBg3RpGtIe+RpTbyXwoI6pk5yD7KUiI3sygUqgeBMRst42KmhB4RZC7eiO9Wa1HIpaCCtpE2DJ6OI4Wi5ebwFw==}
-    engines: {node: ^18 || >=20}
+  nanoid@6.0.0:
+    resolution: {integrity: sha512-mkUH+rPkwU2qPadJ0oJZOjeZ5Mxn8Q1UhevwkTRWNuUZzyia3h4rhzK39hxaHTk0o2OxB8W2SQ6A8k23ZDi1pQ==}
+    engines: {node: ^22 || ^24 || >=26}
     hasBin: true
 
   nanostores@1.4.0:
@@ -10098,7 +10098,7 @@ snapshots:
 
   nanoid@3.3.14: {}
 
-  nanoid@5.1.15: {}
+  nanoid@6.0.0: {}
 
   nanostores@1.4.0: {}
 
