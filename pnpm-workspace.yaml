@@ -48,7 +48,7 @@ catalogs:
     knip: ^6.16.1
     oxlint: ^1.67.0
     postcss: ^8.4.49
-    prisma: ^5.22.0
+    prisma: ^7.0.0
     svelte-check: ^4.3.5
     # Keep the TS 6 API at the name ecosystem tooling imports. The native TS 7
     # compiler is installed alongside it under the official alias below.
@@ -79,7 +79,7 @@ catalogs:
     "@libsql/client": ^0.17.0
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
-    "@prisma/client": ^5.22.0
+    "@prisma/client": ^7.0.0
     "@sentry/node": ^10.63.0
     "@sentry/sveltekit": ^10.63.0
     "@sveltejs/kit": ^2.50.1
