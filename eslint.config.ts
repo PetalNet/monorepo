@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import js from "@eslint/js";
 import json from "@eslint/json";
@@ -8,13 +9,24 @@ import * as packageJson from "eslint-plugin-package-json/experimental";
 import { defineConfig, includeIgnoreFile } from "eslint/config";
 import tseslint from "typescript-eslint";
 
+const root = fileURLToPath(new URL(".", import.meta.url));
+
 export default defineConfig([
-	includeIgnoreFile(path.resolve(".gitignore"), {
+	includeIgnoreFile(path.join(root, ".gitignore"), {
 		gitignoreResolution: true,
 	}),
 	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}"],
 		extends: [js.configs.recommended, tseslint.configs.recommended],
+	},
+	{
+		files: ["packages/better-auth-effect-qb-adapter/**/*.ts"],
+		extends: tseslint.configs.strictTypeChecked,
+		languageOptions: {
+			parserOptions: {
+				projectService: true,
+			},
+		},
 	},
 	{
 		files: ["**/*.md"],
@@ -48,5 +60,5 @@ export default defineConfig([
 		language: "json/jsonc",
 		extends: [json.configs.recommended],
 	},
-	...oxlint.buildFromOxlintConfigFile("./.oxlintrc.json"),
+	...oxlint.buildFromOxlintConfigFile(path.join(root, ".oxlintrc.json")),
 ]);

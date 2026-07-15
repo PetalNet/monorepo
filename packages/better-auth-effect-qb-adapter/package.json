@@ -8,7 +8,7 @@
 	},
 	"scripts": {
 		"check": "tsc --noEmit",
-		"lint": "eslint -c eslint.config.ts src test --max-warnings=0",
+		"lint": "eslint src test --max-warnings=0",
 		"test": "vitest run"
 	},
 	"dependencies": {
@@ -21,7 +21,6 @@
 		"@testcontainers/postgresql": "catalog:",
 		"@types/node": "catalog:types",
 		"eslint": "catalog:dev",
-		"eslint-plugin-svelte": "catalog:dev",
 		"typescript": "catalog:dev",
 		"typescript-eslint": "catalog:dev",
 		"vitest": "catalog:dev"

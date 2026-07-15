@@ -1,14 +1,10 @@
 import { ConsoleService, type ConsoleStatus } from "$lib/server/console/service";
-import { runServerEffect } from "$lib/server/runtime/run";
-import type { RequestHandler } from "./$types";
-import { Effect } from "effect";
+import { Handler } from "svelte-effect-runtime/server";
 
-export const GET: RequestHandler = async () => {
-	const status: ConsoleStatus = await runServerEffect(
-		Effect.gen(function* () {
-			const consoleService = yield* ConsoleService;
-			return yield* consoleService.status;
-		}),
-	);
+import type { RequestHandler } from "./$types";
+
+export const GET = Handler<RequestHandler>(function* () {
+	const consoleService = yield* ConsoleService;
+	const status: ConsoleStatus = yield* consoleService.status;
 	return Response.json(status);
-};
+});
