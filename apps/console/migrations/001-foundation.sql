@@ -6,9 +6,7 @@ create table "user" (
   "image" text,
   "createdAt" timestamptz not null default now(),
   "updatedAt" timestamptz not null default now(),
-  "authentikUsername" text not null,
-  "authentikGroups" text not null,
-  "authentikSubject" text not null unique
+  "tier" text not null default 'viewer' check ("tier" in ('owner', 'operator', 'editor', 'viewer'))
 );
 
 create table "session" (
@@ -68,7 +66,7 @@ create table "principal" (
 create table "principalTier" (
   "principalId" text not null references "principal" ("id") on delete cascade,
   "tierId" text not null references "tier" ("id") on delete cascade,
-  "source" text not null check ("source" in ('authentik', 'better-auth')),
+  "source" text not null check ("source" = 'better-auth'),
   "createdAt" timestamptz not null default now(),
   primary key ("principalId", "tierId")
 );

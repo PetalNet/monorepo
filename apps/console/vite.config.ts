@@ -20,7 +20,6 @@ export default defineConfig({
 			adapter: adapter(),
 			compilerOptions: { experimental: { async: true } },
 			kit: {
-				instrumentation: { server: true },
 				tracing: { server: true },
 				experimental: {
 					remoteFunctions: true,

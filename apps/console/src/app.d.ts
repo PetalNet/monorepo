@@ -3,7 +3,7 @@ declare global {
 		interface Locals {
 			session: import("better-auth").Session | null;
 			user: import("better-auth").User | null;
-			tier: "owner" | "viewer" | null;
+			tier: "owner" | "operator" | "editor" | "viewer" | null;
 		}
 	}
 }

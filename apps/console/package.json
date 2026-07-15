@@ -15,6 +15,7 @@
 	},
 	"dependencies": {
 		"@effect/sql-pg": "4.0.0-beta.98",
+		"@petalnet/better-auth-effect-qb-adapter": "workspace:*",
 		"@opentelemetry/api": "^1.9.0",
 		"@opentelemetry/auto-instrumentations-node": "^0.67.2",
 		"@opentelemetry/exporter-trace-otlp-proto": "^0.208.0",
@@ -25,18 +26,17 @@
 		"effect-db": "0.20.0",
 		"effect-qb": "0.20.0",
 		"import-in-the-middle": "^2.0.0",
-		"pg": "^8.16.3",
+		"pg": "catalog:",
 		"svelte": "^5.56.4",
 		"svelte-effect-runtime": "4.0.0",
 		"valibot": "^1.1.0"
 	},
 	"devDependencies": {
-		"@better-auth/test-utils": "1.6.23",
 		"@sveltejs/adapter-node": "^5.5.2",
 		"@sveltejs/kit": "3.0.0-next.8",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
 		"@types/node": "catalog:types",
-		"@types/pg": "^8.15.5",
+		"@types/pg": "catalog:",
 		"svelte-check": "^4.3.4",
 		"svelte-global-typescript": "1.0.1",
 		"svelte-plugin-composer": "1.0.1",

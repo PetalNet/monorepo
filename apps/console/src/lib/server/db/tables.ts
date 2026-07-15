@@ -11,9 +11,7 @@ export const users = Table.make("user", {
 	image: Column.text().pipe(Column.nullable),
 	createdAt: timestamp(),
 	updatedAt: timestamp(),
-	authentikUsername: Column.text(),
-	authentikGroups: Column.text(),
-	authentikSubject: Column.text(),
+	tier: Column.text(),
 });
 
 export const sessions = Table.make("session", {

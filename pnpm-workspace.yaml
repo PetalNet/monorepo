@@ -31,6 +31,8 @@ allowBuilds:
   msgpackr-extract: false
   prisma: true
   protobufjs: false
+  cpu-features: false
+  ssh2: false
 
 catalogs:
   dev:
@@ -108,6 +110,7 @@ catalogs:
     tailwindcss: ^3.4.17
 
 catalog:
+  "@testcontainers/postgresql": ^11.10.0
   "@types/pg": ^8.20.0
   better-auth: ^1.6.23
   pg: ^8.22.0

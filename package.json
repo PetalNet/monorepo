@@ -14,7 +14,7 @@
 		"lint:knip": "knip",
 		"lint:knip:prod": "knip --strict",
 		"manypkg": "manypkg check",
-		"test": "vp test -r",
+		"test": "vp run -r test",
 		"ts-references:check": "update-ts-references --check",
 		"ts-references:update": "update-ts-references",
 		"typecheck": "tsc -b",
@@ -46,7 +46,7 @@
 	"devEngines": {
 		"runtime": {
 			"name": "node",
-			"onFail": "error",
+			"onFail": "ignore",
 			"version": "^26.0.0"
 		}
 	},
