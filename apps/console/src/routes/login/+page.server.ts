@@ -8,7 +8,8 @@ export const load: PageServerLoad = ({ locals }) => ({ authenticated: Boolean(lo
 export const actions: Actions = {
 	claim: async ({ locals, request }) => {
 		if (!locals.user) redirect(303, "/login");
-		const code = String((await request.formData()).get("code") ?? "");
+		const submitted = (await request.formData()).get("code");
+		const code = typeof submitted === "string" ? submitted : "";
 		if (!await redeemAdminBootstrap(auth, locals.user.id, code)) return fail(400, { invalid: true });
 		redirect(303, "/");
 	},

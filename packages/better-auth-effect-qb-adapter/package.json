@@ -7,20 +7,23 @@
 	},
 	"scripts": {
 		"check": "tsc --noEmit",
-		"lint": "oxlint src test --max-warnings=0",
+		"lint": "eslint -c eslint.config.ts src test",
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@effect/sql-pg": "4.0.0-beta.98",
-		"better-auth": "1.6.23",
-		"effect": "4.0.0-beta.98",
-		"effect-qb": "0.20.0"
+		"@effect/sql-pg": "catalog:",
+		"better-auth": "catalog:",
+		"effect": "catalog:",
+		"effect-qb": "catalog:"
 	},
 	"devDependencies": {
-		"@better-auth/test-utils": "1.6.23",
+		"@better-auth/test-utils": "catalog:",
+		"eslint": "catalog:dev",
+		"eslint-plugin-svelte": "catalog:dev",
 		"@testcontainers/postgresql": "catalog:",
 		"@types/node": "catalog:types",
 		"typescript": "catalog:dev",
+		"typescript-eslint": "catalog:dev",
 		"vitest": "catalog:dev"
 	}
 }

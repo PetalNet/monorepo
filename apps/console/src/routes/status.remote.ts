@@ -1,4 +1,4 @@
-import { ConsoleService } from "$lib/server/effect/console-service";
+import { ConsoleService } from "$lib/server/console/service";
 import { Effect } from "effect";
 import { Query } from "svelte-effect-runtime";
 

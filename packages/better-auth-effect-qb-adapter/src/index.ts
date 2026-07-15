@@ -1,47 +1,52 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import type { CleanedWhere, CustomAdapter, DBTransactionAdapter, JoinConfig } from "better-auth/adapters";
 import { createAdapterFactory } from "better-auth/adapters";
-import { Context, Effect, ManagedRuntime, Redacted, Schema } from "effect";
-import { Column, Query, Table } from "effect-qb";
-import { Column as PgColumn, Executor } from "effect-qb/postgres";
+import { Context, Effect, ManagedRuntime, Redacted } from "effect";
 
 const MAX_LIMIT = 1000;
 const MAX_OFFSET = 100_000;
 const identifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const executor = Executor.make();
-const Q: any = Query;
-const escapedLike = (value: unknown) => String(value).replace(/[\\%_]/g, "\\$&");
 
 type RuntimeContext = Context.Context<never>;
+type DatabaseRow = Record<string, unknown>;
 type AdapterFactory = ReturnType<typeof createAdapterFactory> & { close: () => Promise<void> };
+interface FindOneArguments { model: string; where: CleanedWhere[]; select?: string[]; join?: JoinConfig }
+interface FindManyArguments { model: string; where?: CleanedWhere[]; limit: number; select?: string[]; sortBy?: { field: string; direction: "asc" | "desc" }; offset?: number; join?: JoinConfig }
+interface IncrementArguments { model: string; where: CleanedWhere[]; increment: Record<string, number>; set?: DatabaseRow }
+interface UpdateArguments<T> { model: string; where: CleanedWhere[]; update: T }
 
-const quoted = (value: string) => {
+const quote = (value: string) => {
 	if (!identifierPattern.test(value)) throw new Error(`Invalid database identifier: ${value}`);
-	return value;
+	return `"${value}"`;
 };
 
 const boundedInteger = (value: number, maximum: number, name: string) => {
 	if (!Number.isSafeInteger(value) || value < 0 || value > maximum)
-		throw new RangeError(`${name} must be between 0 and ${maximum}`);
+		throw new RangeError(`${name} must be between 0 and ${String(maximum)}`);
 	return value;
 };
 
-const columnForAttributes = (attributes: { type: unknown; required?: boolean }) => {
-	let column;
-	if (attributes.type === "boolean") column = Column.boolean();
-	else if (attributes.type === "number") column = PgColumn.float8();
-	else if (attributes.type === "date") column = PgColumn.timestamptz();
-	else if (attributes.type === "json" || Array.isArray(attributes.type) || (typeof attributes.type === "string" && attributes.type.endsWith("[]"))) column = Column.json(Schema.Unknown);
-	else column = Column.text();
-	return attributes.required ? column : column.pipe(Column.nullable);
+const escapeLike = (value: unknown) => String(value).replace(/[\\%_]/g, "\\$&");
+const databaseRow = (value: unknown): DatabaseRow => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("Expected a database row object");
+	return value as DatabaseRow;
+};
+const scalarString = (value: unknown) => {
+	if (typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") return String(value);
+	if (value instanceof Date) return value.toISOString();
+	throw new TypeError("Expected a scalar database value");
 };
 
 export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
 	const runtime = ManagedRuntime.make(PgClient.layer({ url: Redacted.make(databaseUrl), maxConnections: 10 }));
-	let transactionAdapter: DBTransactionAdapter | undefined;
 	const transactionContext = new AsyncLocalStorage<RuntimeContext>();
-	const run = <A>(effect: Effect.Effect<A, unknown, never>) =>
-		runtime.runPromise(transactionContext.getStore() ? Effect.provide(effect, transactionContext.getStore()!) : effect);
+	let transactionAdapter: DBTransactionAdapter | undefined;
+	const run = <A>(effect: Effect.Effect<A, unknown>) => {
+		const context = transactionContext.getStore();
+		return runtime.runPromise(context ? Effect.provide(effect, context) : effect);
+	};
 
 	const factory = createAdapterFactory({
 		config: {
@@ -54,146 +59,162 @@ export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
 			supportsArrays: true,
 			disableIdGeneration: false,
 			async transaction(callback) {
-				return runtime.runPromise(Effect.flatMap(PgClient.PgClient, (sql) => sql.withTransaction(Effect.flatMap(Effect.context<never>(), (context) => Effect.promise(async () => {
-					return transactionContext.run(context, () => callback(transactionAdapter!));
-				})))));
+				const adapter = transactionAdapter;
+				if (!adapter) throw new Error("Adapter transaction used before initialization");
+				return runtime.runPromise(
+					Effect.flatMap(PgClient.PgClient, (sql) =>
+						sql.withTransaction(
+							Effect.flatMap(Effect.context(), (context) =>
+								Effect.promise(() => transactionContext.run(context, () => callback(adapter))),
+							),
+						),
+					),
+				);
 			},
 		},
 		adapter: ({ schema, getModelName, getDefaultModelName, getFieldName }) => {
+			const fieldsFor = (name: string) => schema[getDefaultModelName(name)].fields;
+			const tableName = (name: string) => quote(getModelName(name));
+			const fieldName = (name: string, field: string) => {
+				const fields = fieldsFor(name);
+				if (field === "id") return "id";
+				if (field in fields) return getFieldName({ model: name, field });
+				if (Object.values(fields).some((attributes) => attributes.fieldName === field)) return field;
+				throw new Error(`Unknown field ${name}.${field}`);
+			};
+			const fieldIdentifier = (name: string, field: string) => quote(fieldName(name, field));
+			const selectedFields = (name: string, select?: string[]) =>
+				[...new Set(["id", ...(select?.length ? select : Object.keys(fieldsFor(name)))])]
+					.map((field) => fieldIdentifier(name, field))
+					.join(", ");
 			const normalize = <T>(name: string, value: T): T => {
-				if (!value || typeof value !== "object") return value;
-				const fields = schema[getDefaultModelName(name)]?.fields ?? {};
-				for (const [field, attributes] of Object.entries(fields)) {
+				if (value === null || typeof value !== "object") return value;
+				const record = value as DatabaseRow;
+				for (const [field, attributes] of Object.entries(fieldsFor(name))) {
 					const key = getFieldName({ model: name, field });
-					const record = value as Record<string, unknown>;
-					if (record[key] == null) continue;
-					if (attributes.type === "date" && !(record[key] instanceof Date)) record[key] = new Date(String(record[key]));
-					if (attributes.type === "number" && typeof record[key] !== "number") record[key] = Number(record[key]);
+					const current = record[key];
+					if (current === null || current === undefined) continue;
+					if (attributes.type === "date" && !(current instanceof Date)) record[key] = new Date(scalarString(current));
+					if (attributes.type === "number" && typeof current !== "number") record[key] = Number(current);
 				}
 				return value;
 			};
-			const mutationValues = (name: string, values: Record<string, unknown>) => {
-				const fields = schema[getDefaultModelName(name)]?.fields ?? {};
+			const mutationValues = (name: string, values: DatabaseRow) => {
+				const fields = fieldsFor(name);
 				return Object.fromEntries(Object.entries(values).map(([key, value]) => {
 					const attributes = Object.entries(fields).find(([field]) => getFieldName({ model: name, field }) === key)?.[1];
 					const arrayField = Array.isArray(attributes?.type) || (typeof attributes?.type === "string" && attributes.type.endsWith("[]"));
-					return [key, arrayField && Array.isArray(value) ? JSON.stringify(value) : value];
+					return [fieldName(name, key), arrayField && Array.isArray(value) ? JSON.stringify(value) : value];
 				}));
 			};
-			const model = (name: string) => {
-				const defaultName = getDefaultModelName(name);
-				const fields = schema[defaultName]?.fields;
-				if (!fields) throw new Error(`Unknown model ${name}`);
-				const columns = Object.fromEntries(Object.entries(fields).map(([field, attributes]) => [getFieldName({ model: name, field }), columnForAttributes(attributes)]));
-				if (!("id" in columns)) columns.id = Column.text();
-				return Table.make(quoted(getModelName(name)), columns);
-			};
-			const fieldName = (name: string, field: string) => {
-				const fields = schema[getDefaultModelName(name)]?.fields;
-				if (!fields) throw new Error(`Unknown model ${name}`);
-				if (field in fields) return quoted(getFieldName({ model: name, field }));
-				if (Object.values(fields).some((attributes) => attributes.fieldName === field)) return quoted(field);
-				throw new Error(`Unknown field ${name}.${field}`);
-			};
-			const selection = (table: any, name: string, select?: string[]) => Object.fromEntries((select?.length ? select.map((field) => fieldName(name, field)) : Object.keys(table.columns)).map((field) => [field, table.columns[field]]));
-			const predicate = (table: any, name: string, conditions: CleanedWhere[] | undefined) => {
-				if (!conditions?.length) return undefined;
-				const expressions = conditions.map((condition) => {
-					const column = table.columns[fieldName(name, condition.field)];
-					const value = condition.value as any;
+			const whereClause = (name: string, conditions: CleanedWhere[] | undefined, start = 1) => {
+				if (!conditions?.length) return { text: "", values: [] as unknown[] };
+				const values: unknown[] = [];
+				const expressions = conditions.map((condition, index) => {
+					const column = fieldIdentifier(name, condition.field);
+					const insensitive = condition.mode === "insensitive";
+					const operand = insensitive ? `LOWER(${column})` : column;
+					const connector = index === 0 ? "" : condition.connector === "OR" ? " OR " : " AND ";
+					if (condition.value === null && condition.operator === "eq") return `${connector}${column} IS NULL`;
+					if (condition.value === null && condition.operator === "ne") return `${connector}${column} IS NOT NULL`;
+					const append = (value: unknown) => {
+						values.push(value);
+						return `$${String(start + values.length - 1)}`;
+					};
+					const value = insensitive ? String(condition.value).toLocaleLowerCase("en-US") : condition.value;
 					switch (condition.operator) {
-						case "eq": return value === null ? Q.isNull(column) : condition.mode === "insensitive" ? Q.eq(Q.lower(column), String(value).toLocaleLowerCase("en-US")) : Q.eq(column, value);
-						case "ne": return value === null ? Q.isNotNull(column) : condition.mode === "insensitive" ? Q.neq(Q.lower(column), String(value).toLocaleLowerCase("en-US")) : Q.neq(column, value);
-						case "lt": return Q.lt(column, value);
-						case "lte": return Q.lte(column, value);
-						case "gt": return Q.gt(column, value);
-						case "gte": return Q.gte(column, value);
-						case "in": return condition.mode === "insensitive" ? Q.in(Q.lower(column), ...(Array.isArray(value) ? value.map((item) => String(item).toLocaleLowerCase("en-US")) : [])) : Q.in(column, ...(Array.isArray(value) ? value : []));
-						case "not_in": return condition.mode === "insensitive" ? Q.notIn(Q.lower(column), ...(Array.isArray(value) ? value.map((item) => String(item).toLocaleLowerCase("en-US")) : [])) : Q.notIn(column, ...(Array.isArray(value) ? value : []));
-						case "contains": return (condition.mode === "insensitive" ? Q.ilike : Q.like)(column, `%${escapedLike(value)}%`);
-						case "starts_with": return (condition.mode === "insensitive" ? Q.ilike : Q.like)(column, `${escapedLike(value)}%`);
-						case "ends_with": return (condition.mode === "insensitive" ? Q.ilike : Q.like)(column, `%${escapedLike(value)}`);
-						default: throw new Error(`Unsupported where operator: ${condition.operator}`);
+						case "eq": return `${connector}${operand} = ${append(value)}`;
+						case "ne": return `${connector}${operand} <> ${append(value)}`;
+						case "lt": return `${connector}${operand} < ${append(value)}`;
+						case "lte": return `${connector}${operand} <= ${append(value)}`;
+						case "gt": return `${connector}${operand} > ${append(value)}`;
+						case "gte": return `${connector}${operand} >= ${append(value)}`;
+						case "in":
+						case "not_in": {
+							const source = Array.isArray(condition.value) ? condition.value : [];
+							if (source.length === 0) return `${connector}${condition.operator === "in" ? "FALSE" : "TRUE"}`;
+							const placeholders = source.map((item) => append(insensitive ? String(item).toLocaleLowerCase("en-US") : item));
+							return `${connector}${operand} ${condition.operator === "in" ? "IN" : "NOT IN"} (${placeholders.join(", ")})`;
+						}
+						case "contains": return `${connector}${column} ${insensitive ? "ILIKE" : "LIKE"} ${append(`%${escapeLike(condition.value)}%`)} ESCAPE '\\'`;
+						case "starts_with": return `${connector}${column} ${insensitive ? "ILIKE" : "LIKE"} ${append(`${escapeLike(condition.value)}%`)} ESCAPE '\\'`;
+						case "ends_with": return `${connector}${column} ${insensitive ? "ILIKE" : "LIKE"} ${append(`%${escapeLike(condition.value)}`)} ESCAPE '\\'`;
 					}
 				});
-				return expressions.slice(1).reduce((combined: any, expression: any, index) => conditions[index + 1]?.connector === "OR" ? (Q.or as any)(combined, expression) : (Q.and as any)(combined, expression), expressions[0]);
+				return { text: ` WHERE ${expressions.join("")}`, values };
 			};
-			const execute = <T>(plan: any) => run(executor.execute(plan) as Effect.Effect<T, unknown, never>);
+			const query = <T extends object>(text: string, values: readonly unknown[] = []) =>
+				run(Effect.flatMap(PgClient.PgClient, (sql) => sql.unsafe<T>(text, values)) as Effect.Effect<readonly T[], unknown>);
+			const insertSql = (name: string, data: DatabaseRow, select?: string[]) => {
+				const values = mutationValues(name, data);
+				const entries = Object.entries(values);
+				const columns = entries.map(([field]) => quote(field)).join(", ");
+				const placeholders = entries.map((_, index) => `$${String(index + 1)}`).join(", ");
+				return { text: `INSERT INTO ${tableName(name)} (${columns}) VALUES (${placeholders}) RETURNING ${selectedFields(name, select)}`, values: entries.map(([, value]) => value) };
+			};
+			const updateSql = (name: string, data: DatabaseRow, where: CleanedWhere[], select = "*") => {
+				const values = mutationValues(name, data);
+				const entries = Object.entries(values);
+				const assignments = entries.map(([field], index) => `${quote(field)} = $${String(index + 1)}`).join(", ");
+				const predicate = whereClause(name, where, entries.length + 1);
+				return { text: `UPDATE ${tableName(name)} SET ${assignments}${predicate.text} RETURNING ${select}`, values: [...entries.map(([, value]) => value), ...predicate.values] };
+			};
+
 			const adapter: CustomAdapter = {
 				async create({ model: name, data, select }) {
-					const table = model(name) as any;
-					const plan = Q.insert(table, mutationValues(name, data) as any).pipe(Q.returning(selection(table, name, select) as any));
-					return normalize(name, ((await execute<any[]>(plan))[0])) as typeof data;
+					const statement = insertSql(name, data, select);
+					const row = (await query<DatabaseRow>(statement.text, statement.values))[0];
+					return normalize(name, row) as typeof data;
 				},
-				async update({ model: name, where, update }) {
-					if (!where.length) return null;
-					const table = model(name) as any;
-					const primary = table.columns.id ?? table.columns[Object.keys(table.columns)[0]];
-					const result = await run(Effect.flatMap(PgClient.PgClient, (sql) => sql.withTransaction(Effect.gen(function* () {
-						const selected = yield* executor.execute(Q.select({ id: primary }).pipe(Q.from(table), Q.where(predicate(table, name, where) as any), Q.limit(1), Q.lock("update")) as any) as any;
-						if (!selected[0]) return null;
-						const plan = Q.update(table, mutationValues(name, update as Record<string, unknown>) as any).pipe(Q.where(Q.eq(primary, selected[0].id)), Q.returning(selection(table, name) as any));
-						return (yield* executor.execute(plan as any) as any)[0] ?? null;
-					}))) as Effect.Effect<unknown, unknown, never>);
-					return normalize(name, result as typeof update | null);
+				async update<T>({ model: name, where, update }: UpdateArguments<T>) {
+					if (where.length === 0) return null;
+					const statement = updateSql(name, databaseRow(update), where, selectedFields(name));
+					return normalize(name, (await query<DatabaseRow>(statement.text, statement.values))[0] as T | undefined) ?? null;
 				},
 				async updateMany({ model: name, where, update }) {
-					const table = model(name) as any;
-					let plan: any = Q.update(table, mutationValues(name, update) as any);
-					if (where.length) plan = plan.pipe(Q.where(predicate(table, name, where) as any));
-					return (await execute<any[]>(plan.pipe(Q.returning({ id: table.columns[Object.keys(table.columns)[0]] })))).length;
+					const statement = updateSql(name, update, where, "1 AS changed");
+					return (await query<DatabaseRow>(statement.text, statement.values)).length;
 				},
-				async findOne<T>({ model: name, where, select }: { model: string; where: CleanedWhere[]; select?: string[]; join?: JoinConfig }) {
-					const table = model(name) as any;
-					const plan = Q.select(selection(table, name, select) as any).pipe(Q.from(table), Q.where(predicate(table, name, where) as any), Q.limit(1));
-					return normalize(name, (await execute<T[]>(plan))[0] ?? null);
+				async findOne<T>({ model: name, where, select }: FindOneArguments) {
+					const predicate = whereClause(name, where);
+					const rows = await query<DatabaseRow>(`SELECT ${selectedFields(name, select)} FROM ${tableName(name)}${predicate.text} LIMIT 1`, predicate.values);
+					return normalize(name, rows[0] as T | undefined) ?? null;
 				},
-				async findMany<T>({ model: name, where, limit, select, sortBy, offset = 0 }: { model: string; where?: CleanedWhere[]; limit: number; select?: string[]; sortBy?: { field: string; direction: "asc" | "desc" }; offset?: number; join?: JoinConfig }) {
-					const table = model(name) as any;
-					let plan: any = Q.select(selection(table, name, select) as any).pipe(Q.from(table));
-					if (where?.length) plan = plan.pipe(Q.where(predicate(table, name, where) as any));
-					if (sortBy) plan = plan.pipe(Q.orderBy(table.columns[fieldName(name, sortBy.field)], sortBy.direction));
-					plan = plan.pipe(Q.limit(boundedInteger(limit, MAX_LIMIT, "limit")), Q.offset(boundedInteger(offset, MAX_OFFSET, "offset")));
-					return (await execute<T[]>(plan)).map((row) => normalize(name, row));
+				async findMany<T>({ model: name, where, limit, select, sortBy, offset = 0 }: FindManyArguments) {
+					const predicate = whereClause(name, where);
+					const ordering = sortBy ? ` ORDER BY ${fieldIdentifier(name, sortBy.field)} ${sortBy.direction === "desc" ? "DESC" : "ASC"}` : "";
+					const rows = await query<DatabaseRow>(`SELECT ${selectedFields(name, select)} FROM ${tableName(name)}${predicate.text}${ordering} LIMIT ${String(boundedInteger(limit, MAX_LIMIT, "limit"))} OFFSET ${String(boundedInteger(offset, MAX_OFFSET, "offset"))}`, predicate.values);
+					return rows.map((row) => normalize(name, row) as T);
 				},
 				async delete({ model: name, where }) {
-					const table = model(name) as any;
-					await execute(Q.delete(table).pipe(Q.where(predicate(table, name, where) as any), Q.returning({ id: table.columns[Object.keys(table.columns)[0]] })));
+					const predicate = whereClause(name, where);
+					await query<DatabaseRow>(`DELETE FROM ${tableName(name)}${predicate.text}`, predicate.values);
 				},
 				async deleteMany({ model: name, where }) {
-					const table = model(name) as any;
-					let plan: any = Q.delete(table);
-					if (where.length) plan = plan.pipe(Q.where(predicate(table, name, where) as any));
-					return (await execute<any[]>(plan.pipe(Q.returning({ id: table.columns[Object.keys(table.columns)[0]] })))).length;
+					const predicate = whereClause(name, where);
+					return (await query<DatabaseRow>(`DELETE FROM ${tableName(name)}${predicate.text} RETURNING 1 AS changed`, predicate.values)).length;
 				},
-				async consumeOne<T>({ model: name, where }: { model: string; where: CleanedWhere[] }) {
-					const table = model(name) as any;
-					const primary = table.columns.id ?? table.columns[Object.keys(table.columns)[0]];
-					const candidate = Q.select({ id: primary }).pipe(Q.from(table), Q.where(predicate(table, name, where) as any), Q.limit(1), Q.lock("update", { skipLocked: true }));
-					const plan = Q.delete(table).pipe(Q.where(Q.inSubquery(primary, candidate)), Q.returning(selection(table, name) as any));
-					return normalize(name, (await execute<T[]>(plan))[0] ?? null);
+				async consumeOne<T>({ model: name, where }: FindOneArguments) {
+					const predicate = whereClause(name, where);
+					const rows = await query<DatabaseRow>(`DELETE FROM ${tableName(name)} WHERE ctid IN (SELECT ctid FROM ${tableName(name)}${predicate.text} LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING ${selectedFields(name)}`, predicate.values);
+					return normalize(name, rows[0] as T | undefined) ?? null;
 				},
-				async incrementOne<T>({ model: name, where, increment, set = {} }: { model: string; where: CleanedWhere[]; increment: Record<string, number>; set?: Record<string, unknown> }) {
-					const table = model(name) as any;
-					const result = await run(Effect.flatMap(PgClient.PgClient, (sql) => sql.withTransaction(Effect.gen(function* () {
-						const selected = yield* executor.execute(Q.select(selection(table, name) as any).pipe(Q.from(table), Q.where(predicate(table, name, where) as any), Q.limit(1), Q.lock("update")) as any) as any;
-						if (!selected[0]) return null;
-						const values = { ...set } as Record<string, unknown>;
-						for (const [field, amount] of Object.entries(increment)) {
-							const key = fieldName(name, field);
-							values[key] = Number(selected[0][key]) + amount;
-						}
-						const primary = table.columns.id ?? table.columns[Object.keys(table.columns)[0]];
-						const updated = yield* executor.execute(Q.update(table, mutationValues(name, values) as any).pipe(Q.where(Q.eq(primary, selected[0].id)), Q.returning(selection(table, name) as any)) as any) as any;
-						return updated[0] ?? null;
-					}))) as Effect.Effect<unknown, unknown, never>);
-					return normalize(name, result as T | null);
+				async incrementOne<T>({ model: name, where, increment, set = {} }: IncrementArguments) {
+					const setEntries = Object.entries(mutationValues(name, set));
+					const incrementEntries = Object.entries(increment);
+					const assignments = [
+						...setEntries.map(([field], index) => `${quote(field)} = $${String(index + 1)}`),
+						...incrementEntries.map(([field], index) => `${fieldIdentifier(name, field)} = ${fieldIdentifier(name, field)} + $${String(setEntries.length + index + 1)}`),
+					];
+					const predicate = whereClause(name, where, setEntries.length + incrementEntries.length + 1);
+					const values = [...setEntries.map(([, value]) => value), ...incrementEntries.map(([, value]) => value), ...predicate.values];
+					const rows = await query<DatabaseRow>(`UPDATE ${tableName(name)} SET ${assignments.join(", ")}${predicate.text} RETURNING ${selectedFields(name)}`, values);
+					return normalize(name, rows[0] as T | undefined) ?? null;
 				},
 				async count({ model: name, where }) {
-					const table = model(name) as any;
-					let plan: any = Q.select({ count: Q.count(table.columns[Object.keys(table.columns)[0]]) }).pipe(Q.from(table));
-					if (where?.length) plan = plan.pipe(Q.where(predicate(table, name, where) as any));
-					return Number((await execute<Array<{ count: number | string }>>(plan))[0]?.count ?? 0);
+					const predicate = whereClause(name, where);
+					const row = (await query<{ count: string | number }>(`SELECT COUNT(*) AS count FROM ${tableName(name)}${predicate.text}`, predicate.values))[0];
+					return Number(row.count);
 				},
 			};
 			return adapter;
@@ -208,4 +229,3 @@ export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
 	result.close = () => runtime.dispose();
 	return result;
 };
-import { AsyncLocalStorage } from "node:async_hooks";

@@ -44,6 +44,7 @@ catalogs:
     "@sveltejs/adapter-node": ^5.5.2
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.1.18
+    eslint-plugin-svelte: ^3.20.0
     autoprefixer: ^10.4.20
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
@@ -89,6 +90,7 @@ catalogs:
     "@sveltejs/kit": ^2.50.1
     bcryptjs: ^3.0.0
     daisyui: ^5.6.13
+    fontless: ^0.2.1
     date-fns: ^4.1.0
     drizzle-orm: ^0.45.1
     fastify: ^5.6.1
@@ -110,7 +112,23 @@ catalogs:
     tailwindcss: ^3.4.17
 
 catalog:
+  "@better-auth/test-utils": 1.6.23
+  "@effect/sql-pg": 4.0.0-beta.98
+  "@opentelemetry/api": ^1.9.0
+  "@opentelemetry/auto-instrumentations-node": ^0.67.2
+  "@opentelemetry/exporter-trace-otlp-proto": ^0.208.0
+  "@opentelemetry/sdk-node": ^0.208.0
+  "@sentry/sveltekit": ^10.58.0
+  "@sveltejs/kit": 3.0.0-next.8
   "@testcontainers/postgresql": ^11.10.0
   "@types/pg": ^8.20.0
-  better-auth: ^1.6.23
+  better-auth: 1.6.23
+  effect: 4.0.0-beta.98
+  effect-db: 0.20.0
+  effect-qb: 0.20.0
+  import-in-the-middle: ^2.0.0
   pg: ^8.22.0
+  svelte-effect-runtime: 4.0.0
+  svelte-global-typescript: 1.0.1
+  svelte-plugin-composer: 1.0.1
+  tsx: ^4.21.0

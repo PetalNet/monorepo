@@ -1,5 +1,7 @@
 import { sentrySvelteKit } from "@sentry/sveltekit";
 import adapter from "@sveltejs/adapter-node";
+import tailwindcss from "@tailwindcss/vite";
+import { fontless } from "fontless";
 import { effect } from "svelte-effect-runtime";
 import { ts } from "svelte-global-typescript";
 import { compose, kit } from "svelte-plugin-composer";
@@ -14,6 +16,11 @@ export default defineConfig({
 	plugins: [
 		effect(),
 		sentrySvelteKit({ telemetry: false }),
+		tailwindcss(),
+		fontless({ families: [
+			{ name: "Geist", provider: "fontsource", weights: [400, 500] },
+			{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
+		] }),
 		...compose([
 			ts(true),
 		kit({
