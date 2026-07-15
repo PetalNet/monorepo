@@ -8,13 +8,15 @@ import { compose, kit } from "svelte-plugin-composer";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+	ssr: {
+		external: ["better-auth"],
+	},
 	test: {
 		fileParallelism: false,
 		maxConcurrency: 1,
 		sequence: { concurrent: false },
 	},
 	plugins: [
-		effect(),
 		sentrySvelteKit({ telemetry: false }),
 		tailwindcss(),
 		fontless({ families: [
@@ -22,6 +24,7 @@ export default defineConfig({
 			{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
 		] }),
 		...compose([
+			effect(),
 			ts(true),
 		kit({
 			adapter: adapter(),

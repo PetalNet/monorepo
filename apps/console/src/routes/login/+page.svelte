@@ -4,7 +4,7 @@
 	import type { PageProps } from "./$types";
 	let { data, form }: PageProps = $props();
 
-	const signIn = () => authClient.signIn.oauth2({ providerId: "oidc", callbackURL: "/login" });
+	const signIn = () => authClient.signIn.social({ provider: "oidc", callbackURL: "/login" });
 </script>
 
 <svelte:head><title>Sign in · Lab Console</title></svelte:head>

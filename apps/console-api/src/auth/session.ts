@@ -1,6 +1,7 @@
+import { createEffectQbAdapter } from "@petalnet/better-auth-effect-qb-adapter";
 import { betterAuth } from "better-auth";
 import { fromNodeHeaders } from "better-auth/node";
-import { Pool } from "pg";
+import postgres from "postgres";
 
 import { parseBetterAuthIdentity, type BetterAuthSessionIdentity } from "./session-identity.ts";
 export type { BetterAuthSessionIdentity } from "./session-identity.ts";
@@ -21,12 +22,13 @@ export interface BetterAuthSessionConfig {
 export function createBetterAuthSessionVerifier(
 	config: BetterAuthSessionConfig,
 ): BetterAuthSessionVerifier {
-	const pool = new Pool({ connectionString: config.databaseUrl });
+	const sql = postgres(config.databaseUrl, { max: 8, onnotice: () => {} });
+	const authDatabase = createEffectQbAdapter(config.databaseUrl);
 	const auth = betterAuth({
 		appName: "Lab Console",
 		baseURL: config.baseUrl,
 		secret: config.secret,
-		database: pool,
+		database: authDatabase,
 		account: { encryptOAuthTokens: true, storeAccountCookie: false },
 		trustedOrigins: [new URL(config.baseUrl).origin],
 		advanced: {
@@ -59,17 +61,17 @@ export function createBetterAuthSessionVerifier(
 		},
 		async getIdentityBySessionId(sessionId) {
 			if (!/^[A-Za-z0-9_-]{1,255}$/.test(sessionId)) return null;
-			const result = await pool.query<{ user: Record<string, unknown> }>(
+			const result = await sql.unsafe<{ user: Record<string, unknown> }[]>(
 				`select row_to_json(u) as user from session s join "user" u on u.id = s."userId"
 				 where s.id = $1 and s."expiresAt" > now()
 				   and s."createdAt" > now() - interval '5 minutes'`,
 				[sessionId],
 			);
-			const identity = result.rows[0]?.user ? parseBetterAuthIdentity(result.rows[0].user) : null;
+			const identity = result[0]?.user ? parseBetterAuthIdentity(result[0].user) : null;
 			return identity ? { ...identity, sessionId } : null;
 		},
 		async close() {
-			await pool.end();
+			await Promise.all([sql.end(), authDatabase.close()]);
 		},
 	};
 }

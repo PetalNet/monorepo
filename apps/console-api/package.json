@@ -21,12 +21,12 @@
 	"dependencies": {
 		"@fastify/cors": "catalog:prod",
 		"@fastify/websocket": "catalog:prod",
+		"@petalnet/better-auth-effect-qb-adapter": "workspace:*",
 		"@petalnet/types": "workspace:*",
 		"@sentry/node": "catalog:prod",
 		"better-auth": "catalog:",
 		"fastify": "catalog:prod",
 		"nanoid": "catalog:prod",
-		"pg": "catalog:",
 		"postgres": "catalog:prod",
 		"uuid": "catalog:prod",
 		"zod": "catalog:prod"
@@ -34,7 +34,6 @@
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
-		"@types/pg": "catalog:",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"
 	}

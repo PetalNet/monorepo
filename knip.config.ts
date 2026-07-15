@@ -18,9 +18,16 @@ export default {
 			},
 		},
 		"apps/console": {
-			entry: ["tests/contract-server.mjs", "tests/e2e-vite.ts"],
-			...(strict ? { ignore: ["scripts/generate-contracts.mjs"] } : {}),
-			ignoreUnresolved: ["^/src/lib/api/client\\.ts$"],
+			entry: [
+				"effectdb.config.ts",
+				"src/hooks.{client,server}.ts",
+				"src/instrumentation.server.ts",
+				"src/routes/**/+{layout,layout.server,page,page.server,server}.{svelte,ts}",
+				"src/routes/**/*.remote.ts",
+			],
+			ignore: ["src/lib/server/db/tables.ts", ...(strict ? ["scripts/generate-contracts.mjs"] : [])],
+			ignoreDependencies: ["effect-qb", "import-in-the-middle"],
+			ignoreUnresolved: ["^\\$app/(env|server)$"],
 		},
 	},
 } satisfies KnipConfig;
