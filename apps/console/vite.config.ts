@@ -1,5 +1,32 @@
-import { sveltekit } from "@sveltejs/kit/vite";
-import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
+import { sentrySvelteKit } from "@sentry/sveltekit";
+import adapter from "@sveltejs/adapter-node";
+import { effect } from "svelte-effect-runtime";
+import { ts } from "svelte-global-typescript";
+import { compose, kit } from "svelte-plugin-composer";
+import { defineConfig } from "vitest/config";
 
-export default defineConfig({ plugins: [tailwindcss(), sveltekit()] });
+export default defineConfig({
+	test: {
+		fileParallelism: false,
+		maxConcurrency: 1,
+		sequence: { concurrent: false },
+	},
+	plugins: [
+		effect(),
+		sentrySvelteKit({ telemetry: false }),
+		...compose([
+			ts(true),
+		kit({
+			adapter: adapter(),
+			compilerOptions: { experimental: { async: true } },
+			kit: {
+				instrumentation: { server: true },
+				tracing: { server: true },
+				experimental: {
+					remoteFunctions: true,
+				},
+			},
+		}),
+		]),
+	],
+});
