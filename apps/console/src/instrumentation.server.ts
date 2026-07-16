@@ -17,6 +17,7 @@ if (otelEndpoint) {
 	// @opentelemetry/instrumentation's own copy; a mismatched major shares no hook registry and
 	// would silently instrument nothing.
 	const { registerOptions, waitForAllMessagesAcknowledged } = createAddHookMessageChannel();
+	// eslint-disable-next-line @typescript-eslint/no-deprecated -- import-in-the-middle 2.0.6 requires module.register(); registerHooks() is an incompatible synchronous API and IITM ships no alternative.
 	register("import-in-the-middle/hook.mjs", import.meta.url, registerOptions);
 	await waitForAllMessagesAcknowledged();
 

@@ -16,6 +16,13 @@ export default defineConfig([
 		gitignoreResolution: true,
 	}),
 	{
+		// This root config is an untyped baseline that lints every workspace's files. Type-aware
+		// eslint-disable directives (e.g. @typescript-eslint/no-deprecated) can't be evaluated
+		// without type information here, so this pass must not adjudicate directive usage —
+		// each workspace's own type-aware lint does, and would fail on a genuinely unused one.
+		linterOptions: { reportUnusedDisableDirectives: "off" },
+	},
+	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}"],
 		extends: [js.configs.recommended, tseslint.configs.recommended],
 	},

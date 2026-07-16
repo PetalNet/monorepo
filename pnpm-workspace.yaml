@@ -126,3 +126,4 @@ catalog:
   svelte-effect-runtime: 4.0.0
   svelte-global-typescript: 1.0.1
   svelte-plugin-composer: 1.0.1
+  runed: ^0.37.1

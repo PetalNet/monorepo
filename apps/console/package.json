@@ -28,6 +28,7 @@
 		"daisyui": "catalog:prod",
 		"effect": "catalog:",
 		"import-in-the-middle": "catalog:",
+		"runed": "catalog:",
 		"svelte": "catalog:prod",
 		"svelte-effect-runtime": "catalog:",
 		"tailwindcss": "catalog:prod"
