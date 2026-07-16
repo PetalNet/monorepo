@@ -34,7 +34,46 @@ void main() {
         m.onGpsFix(speed: 8, movedMetres: 20);
       }
       expect(m.activity, LocationActivity.fast);
-      expect(m.plan.gpsInterval, const EngineConfig().fastInterval);
+      expect(m.plan.gpsInterval, const EngineConfig().fastForeground);
+    });
+
+    test('DOCUMENTED cadence tables: foreground moving = 2s / 0m filter for '
+        'both driving and walking (location-strategy Layer 3)', () {
+      // Walking (active), foreground.
+      final walk = LocationStateMachine()..onForeground();
+      expect(walk.activity, LocationActivity.active);
+      expect(walk.plan.gpsInterval, const Duration(seconds: 2));
+      expect(walk.plan.distanceFilter, 0);
+
+      // Driving (fast), foreground.
+      final drive = LocationStateMachine()..onForeground();
+      for (var i = 0; i < 3; i++) {
+        drive.onGpsFix(speed: 8, movedMetres: 20);
+      }
+      expect(drive.activity, LocationActivity.fast);
+      expect(drive.plan.gpsInterval, const Duration(seconds: 2));
+      expect(drive.plan.distanceFilter, 0);
+    });
+
+    test('DOCUMENTED cadence tables: background moving = driving 10s/25m, '
+        'walking 15s/10m (location-strategy Layer 3)', () {
+      // Walking (active), background: 15s GPS, 10m filter.
+      final walk = LocationStateMachine()
+        ..onForeground()
+        ..onBackground();
+      expect(walk.activity, LocationActivity.active);
+      expect(walk.plan.gpsInterval, const Duration(seconds: 15));
+      expect(walk.plan.distanceFilter, 10);
+
+      // Driving (fast), background: 10s GPS, 25m filter.
+      final drive = LocationStateMachine()..onForeground();
+      for (var i = 0; i < 3; i++) {
+        drive.onGpsFix(speed: 8, movedMetres: 20);
+      }
+      drive.onBackground();
+      expect(drive.activity, LocationActivity.fast);
+      expect(drive.plan.gpsInterval, const Duration(seconds: 10));
+      expect(drive.plan.distanceFilter, 25);
     });
 
     test('fast demotes to active after sustained slowness', () {

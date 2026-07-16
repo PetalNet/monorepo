@@ -215,12 +215,14 @@ void main() {
         async.flushMicrotasks();
         expect(h.fixes, hasLength(1));
 
-        // …which ramps active → idle. The high-power GPS radio backs off, but
-        // the position stream STAYS OPEN at low power: geolocator only runs the
-        // Android foreground service while a stream is live, and that service is
-        // the only thing that keeps Doze from freezing the isolate (tracker
-        // 733 — used to `_stopGps()` here and go dark).
-        async.elapse(const Duration(seconds: 31));
+        // …which ramps active → idle after the DOCUMENTED foreground stillness
+        // window (2min — location-strategy ACTIVE→SLEEPING "2min (fg)"). The
+        // high-power GPS radio backs off, but the position stream STAYS OPEN at
+        // low power: geolocator only runs the Android foreground service while a
+        // stream is live, and that service is the only thing that keeps Doze
+        // from freezing the isolate (tracker 733 — used to `_stopGps()` here
+        // and go dark).
+        async.elapse(const Duration(minutes: 2, seconds: 1));
         expect(h.service.activity, LocationActivity.idle);
         expect(h.gps.hasListener, isTrue);
         expect(h.lastGpsSettings!.accuracy, LocationAccuracy.low);
@@ -230,8 +232,9 @@ void main() {
           reason: 'the FGS keep-alive must survive going parked',
         );
 
-        // The 5-minute hard floor still reports presence.
-        async.elapse(const Duration(minutes: 5));
+        // The DOCUMENTED 15-minute heartbeat still reports presence (NOT the
+        // 5-minute floor v1.2.10 shipped — that deviated from D-024/D-028).
+        async.elapse(const Duration(minutes: 15));
         expect(h.heartbeatRequests, 1);
         expect(h.fixes, hasLength(2));
         unawaited(h.close());
@@ -247,8 +250,8 @@ void main() {
         h.gps.add(_pos());
         async
           ..flushMicrotasks()
-          ..elapse(const Duration(seconds: 31)) // → idle, heartbeat armed
-          ..elapse(const Duration(minutes: 5)); // heartbeat request opens
+          ..elapse(const Duration(minutes: 2, seconds: 1)) // → idle, hb armed
+          ..elapse(const Duration(minutes: 15)); // heartbeat request opens
         expect(h.pendingHeartbeats, hasLength(1));
         final before = h.fixes.length;
 
@@ -272,9 +275,10 @@ void main() {
         expect(h.service.activity, LocationActivity.active);
 
         // No fix ever arrives (indoors): the acquisition window must close
-        // rather than hold HIGH-power GPS forever. It ramps to idle and drops
-        // to a low-power stream — it does not keep pinning high-accuracy GPS.
-        async.elapse(const Duration(seconds: 31));
+        // rather than hold HIGH-power GPS forever. After the foreground
+        // stillness window (2min) it ramps to idle and drops to a low-power
+        // stream — it does not keep pinning high-accuracy GPS.
+        async.elapse(const Duration(minutes: 2, seconds: 1));
         expect(h.service.activity, LocationActivity.idle);
         expect(h.gps.hasListener, isTrue);
         expect(h.lastGpsSettings!.accuracy, LocationAccuracy.low);
@@ -290,14 +294,15 @@ void main() {
         unawaited(h.service.start());
         async.flushMicrotasks();
 
-        // One real fix, then the app is backgrounded and the person sits still
-        // (sitting at work all day — the owner's actual symptom).
-        h.gps.add(_pos());
-        async.flushMicrotasks();
+        // Backgrounded, then one real fix, then the person sits still (sitting
+        // at work all day — the owner's actual symptom). Backgrounding before
+        // the fix arms the DOCUMENTED background stillness (30s — the fast kill
+        // for "Still (no zone)" in the Layer 3 background table).
         h.service.onBackground();
+        h.gps.add(_pos());
         async
           ..flushMicrotasks()
-          ..elapse(const Duration(seconds: 31)); // stillness → idle
+          ..elapse(const Duration(seconds: 31)); // background stillness → idle
         expect(h.service.activity, LocationActivity.idle);
 
         // The foreground-service position stream MUST stay open — it is the
@@ -310,14 +315,15 @@ void main() {
         );
 
         // Perfectly still: the low-power stream emits nothing (distanceFilter),
-        // yet a relay must still leave the device on the ~5-minute floor…
+        // yet a relay must still leave the device on the DOCUMENTED 15-minute
+        // heartbeat floor…
         final afterIdle = h.fixes.length;
-        async.elapse(const Duration(minutes: 5));
+        async.elapse(const Duration(minutes: 15));
         expect(h.fixes.length, afterIdle + 1);
         // …and keep leaving, floor after floor, for the whole still stretch.
-        async.elapse(const Duration(minutes: 5));
+        async.elapse(const Duration(minutes: 15));
         expect(h.fixes.length, afterIdle + 2);
-        async.elapse(const Duration(minutes: 5));
+        async.elapse(const Duration(minutes: 15));
         expect(h.fixes.length, afterIdle + 3);
 
         unawaited(h.close());
@@ -336,14 +342,14 @@ void main() {
         h.gps.add(seed);
         async
           ..flushMicrotasks()
-          ..elapse(const Duration(seconds: 31)); // → idle
+          ..elapse(const Duration(minutes: 2, seconds: 1)); // → idle (fg 2min)
         expect(h.service.activity, LocationActivity.idle);
 
         // The provider can no longer get a fresh fix (indoors / throttled).
         h.heartbeatShouldThrow = true;
         final before = h.fixes.length;
         async
-          ..elapse(const Duration(minutes: 5))
+          ..elapse(const Duration(minutes: 15))
           ..flushMicrotasks();
 
         // A relay STILL leaves — the last-known position, re-stamped now, so a
@@ -355,6 +361,88 @@ void main() {
         expect(floored.timestampMs, greaterThan(seed.timestamp.millisecondsSinceEpoch));
 
         unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('LAYER 1 wake-gate hysteresis: a single accelerometer bump does NOT '
+        'wake GPS; ~10s of SUSTAINED motion does (location-strategy Layer 1)',
+        () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+
+        // Park it (backgrounded + still) so the accelerometer wake-gate is the
+        // thing arbitrating GPS. The FGS-keepalive stream keeps the isolate
+        // awake, so the accel gate runs in the background too.
+        h.service.onBackground();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // → idle, accel armed
+        expect(h.service.activity, LocationActivity.idle);
+        expect(h.accel.hasListener, isTrue);
+
+        // A well-above-threshold sample (|magnitude| ≫ 1.2g): z well past 1g.
+        AccelerometerEvent motion() =>
+            AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
+
+        // A lone bump must be ignored (pocket jitter) — no wake.
+        h.accel.add(motion());
+        async.elapse(const Duration(seconds: 3)); // past the grace gap
+        expect(
+          h.service.activity,
+          LocationActivity.idle,
+          reason: 'a single bump must not wake GPS (hysteresis)',
+        );
+
+        // Sustained motion (a sample each second) for >10s DOES wake.
+        for (var i = 0; i < 11; i++) {
+          h.accel.add(motion());
+          async.elapse(const Duration(seconds: 1));
+        }
+        expect(
+          h.service.activity,
+          LocationActivity.active,
+          reason: '~10s of sustained motion wakes GPS to active',
+        );
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('DOCUMENTED stillness windows: foreground rams down after 2min, '
+        'background after 30s (location-strategy ACTIVE→SLEEPING)', () {
+      fakeAsync((async) {
+        // Foreground: 30s of stillness is NOT enough (2min window).
+        final fg = _Harness();
+        unawaited(fg.service.start());
+        fg.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31));
+        expect(
+          fg.service.activity,
+          LocationActivity.active,
+          reason: 'foreground stillness is 2min — 31s must NOT ramp down',
+        );
+        async.elapse(const Duration(minutes: 2));
+        expect(fg.service.activity, LocationActivity.idle);
+        unawaited(fg.close());
+        async.flushMicrotasks();
+
+        // Background: 30s of stillness DOES ramp down (fast kill near Doze).
+        final bg = _Harness();
+        unawaited(bg.service.start());
+        bg.service.onBackground();
+        bg.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31));
+        expect(bg.service.activity, LocationActivity.idle);
+        unawaited(bg.close());
         async.flushMicrotasks();
       });
     });

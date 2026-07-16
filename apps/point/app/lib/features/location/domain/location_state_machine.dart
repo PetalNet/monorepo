@@ -17,12 +17,20 @@ class EnginePlan {
   const EnginePlan({
     required this.activity,
     required this.gpsInterval,
+    required this.distanceFilter,
     required this.foregroundService,
     required this.gpsEnabled,
   });
 
   final LocationActivity activity;
   final Duration gpsInterval;
+
+  /// Metres of movement before the position stream emits a fix — the battery
+  /// lever. Foreground moving = 0 (every fix, 60fps-smooth); background widens
+  /// it to skip jitter (driving 25m / walking 10m); parked keeps it wide so the
+  /// low-power FGS-keepalive stream effectively never emits (location-strategy
+  /// v3, Layer 3 tables).
+  final int distanceFilter;
 
   /// The Android foreground service (with its persistent notification) runs
   /// only while actively sharing and not ghosted.
@@ -37,24 +45,51 @@ class EnginePlan {
       other is EnginePlan &&
       other.activity == activity &&
       other.gpsInterval == gpsInterval &&
+      other.distanceFilter == distanceFilter &&
       other.foregroundService == foregroundService &&
       other.gpsEnabled == gpsEnabled;
 
   @override
-  int get hashCode =>
-      Object.hash(activity, gpsInterval, foregroundService, gpsEnabled);
+  int get hashCode => Object.hash(
+        activity,
+        gpsInterval,
+        distanceFilter,
+        foregroundService,
+        gpsEnabled,
+      );
 }
 
-/// Tunables (legacy-derived). Kept in one place so the cadence is legible.
+/// Tunables. Kept in one place so the cadence is legible and matches the
+/// documented spec — location-strategy.html Layer 3 (Activity-Adaptive
+/// Tracking) foreground/background tables. `active` = walking (1-5 m/s),
+/// `fast` = driving (>5 m/s).
 class EngineConfig {
   const EngineConfig();
 
+  // Foreground moving cadence: driving AND walking both sample at 2s for
+  // butter-smooth, every-fix tracking (Layer 3 foreground table).
+  Duration get fastForeground => const Duration(seconds: 2);
   Duration get activeForeground => const Duration(seconds: 2);
-  Duration get activeBackground => const Duration(seconds: 12);
-  Duration get fastInterval => const Duration(seconds: 2);
+
+  // Background moving cadence: driving 10s, walking 15s (Layer 3 background
+  // table) — slower behind a dark screen to spare the GPS radio.
+  Duration get fastBackground => const Duration(seconds: 10);
+  Duration get activeBackground => const Duration(seconds: 15);
+
+  // Stillness ramp intermediate + the low-power FGS-keepalive stream cadence
+  // once parked (the 15-min presence heartbeat lives in LocationService).
   Duration get idleInterval => const Duration(seconds: 30);
   Duration get sleepingForeground => const Duration(seconds: 60);
   Duration get sleepingBackground => const Duration(seconds: 60);
+
+  // Distance filter (metres): foreground moving emits every fix (0m); the
+  // background widens it to skip pocket jitter — driving 25m, walking 10m
+  // (Layer 3 tables). Parked keeps a wide filter so the low-power keepalive
+  // stream effectively never fires (the heartbeat carries presence).
+  int get movingForegroundFilter => 0;
+  int get fastBackgroundFilter => 25;
+  int get activeBackgroundFilter => 10;
+  int get parkedFilter => 50;
 
   /// Speed (m/s) sustained to promote active → fast, and the count of fixes.
   double get fastSpeed => 5;
@@ -169,12 +204,14 @@ class LocationStateMachine {
       return const EnginePlan(
         activity: LocationActivity.ghost,
         gpsInterval: Duration(minutes: 5),
+        distanceFilter: 0,
         foregroundService: false,
         gpsEnabled: false,
       );
     }
     final interval = switch (_activity) {
-      LocationActivity.fast => config.fastInterval,
+      LocationActivity.fast =>
+        _foreground ? config.fastForeground : config.fastBackground,
       LocationActivity.active =>
         _foreground ? config.activeForeground : config.activeBackground,
       LocationActivity.idle => config.idleInterval,
@@ -182,9 +219,22 @@ class LocationStateMachine {
         _foreground ? config.sleepingForeground : config.sleepingBackground,
       LocationActivity.ghost => const Duration(minutes: 5),
     };
+    final distanceFilter = switch (_activity) {
+      LocationActivity.fast =>
+        _foreground ? config.movingForegroundFilter : config.fastBackgroundFilter,
+      LocationActivity.active =>
+        _foreground
+            ? config.movingForegroundFilter
+            : config.activeBackgroundFilter,
+      LocationActivity.idle ||
+      LocationActivity.sleeping =>
+        config.parkedFilter,
+      LocationActivity.ghost => 0,
+    };
     return EnginePlan(
       activity: _activity,
       gpsInterval: interval,
+      distanceFilter: distanceFilter,
       // Foreground service runs whenever sharing & sampling — this is what
       // keeps Android from killing background location (GO-bar #1).
       foregroundService: true,

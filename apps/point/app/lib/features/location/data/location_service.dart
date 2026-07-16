@@ -67,10 +67,14 @@ class LocationHealth {
 class LocationService {
   LocationService({
     EngineConfig config = const EngineConfig(),
-    // ~5-minute hard floor: how often a parked device re-relays presence so it
-    // never goes dark while still. Short enough to stay "live" to viewers,
-    // cheap because it's a single low-power (fused) fix, not a GPS lock.
-    this.heartbeat = const Duration(minutes: 5),
+    // 15-minute cheap network heartbeat while parked — the D-024/D-028 SHIPPED
+    // value (the engine's on-device evidence is "clean 15-minute heartbeats").
+    // location-strategy.html's "Sleeping" row says 20min, but the engine
+    // shipped 15, so honor shipped. A perfectly still device re-relays presence
+    // on this floor so it never goes dark, each tick a single low-power (fused)
+    // fix — or the last-known position if none can be had — never a GPS lock.
+    // (v1.2.10's ~5-minute floor deviated from this; realigned to 15min.)
+    this.heartbeat = const Duration(minutes: 15),
     Future<LocationPermission> Function()? checkPermission,
     Future<LocationPermission> Function()? requestPermission,
     Stream<Position> Function(LocationSettings)? positionStream,
@@ -123,7 +127,22 @@ class LocationService {
   Fix? _lastFix;
 
   static const _motionThreshold = 1.2; // m/s^2 over gravity baseline
+
+  // Stillness ramp-down (location-strategy.html ACTIVE→SLEEPING: "No move 30s
+  // (bg) / 2min (fg)"): how long without movement before GPS backs off. The
+  // background kills fast (Doze is near); the foreground lingers so a brief
+  // pause while looking at the map doesn't drop the live cadence.
+  static const _stillnessForeground = Duration(minutes: 2);
   static const _stillnessBackground = Duration(seconds: 30);
+
+  // Layer-1 wake hysteresis (location-strategy.html: "10s sustained movement
+  // before waking GPS ... prevents thrashing"). A single bump / pocket jitter
+  // must NOT wake the radio — only ~10s of sustained motion does. Timer-based
+  // so a still gap (no motion sample for _motionGraceGap) resets the accrual.
+  static const _motionWakeSustained = Duration(seconds: 10);
+  static const _motionGraceGap = Duration(seconds: 2);
+  Timer? _motionWakeTimer;
+  Timer? _motionGapTimer;
 
   LocationActivity get activity => _machine.activity;
   EnginePlan get plan => _machine.plan;
@@ -270,12 +289,9 @@ class LocationService {
     final moving =
         plan.activity == LocationActivity.fast ||
         plan.activity == LocationActivity.active;
-    // distanceFilter is the battery lever: only emit after real movement.
-    final distanceFilter = switch (plan.activity) {
-      LocationActivity.fast => 10,
-      LocationActivity.active => 5,
-      _ => 50,
-    };
+    // The plan owns the distance filter (the battery lever): 0m every-fix in
+    // the foreground, wider in the background / while parked (Layer 3 tables).
+    final distanceFilter = plan.distanceFilter;
     return AndroidSettings(
       // Parked = LOW power (fused/cell-wifi, PRIORITY_LOW_POWER): this stream
       // exists to keep the foreground service alive under Doze, not to burn the
@@ -326,18 +342,45 @@ class LocationService {
   void _startAccel() {
     if (_accelSub != null) return;
     _accelSub = _accelStream().listen((e) {
-      // Magnitude minus gravity ~ motion. A sustained bump wakes GPS.
+      // Magnitude minus gravity ~ motion. Only SUSTAINED motion wakes GPS (the
+      // Layer-1 hysteresis); a lone bump is ignored so we don't thrash the
+      // radio. This runs in the background too — the foreground service keeps
+      // the isolate awake, so the accelerometer keeps gating GPS while parked
+      // and backgrounded (before the FGS-survival fix the isolate froze here
+      // and background motion detection died).
       final magnitude = (e.x * e.x + e.y * e.y + e.z * e.z) - (9.81 * 9.81);
-      if (magnitude.abs() > _motionThreshold * 9.81) {
-        _machine.onMovementWake();
-        if (_machine.activity != _appliedActivity) _apply();
-      }
+      if (magnitude.abs() > _motionThreshold * 9.81) _onMotionSample();
     });
+  }
+
+  /// One above-threshold accelerometer sample. Wakes GPS only once motion has
+  /// been sustained for [_motionWakeSustained]; a still gap longer than
+  /// [_motionGraceGap] (no motion sample) resets the accrual. Purely
+  /// timer-driven so it's testable headless and needs no wall clock.
+  void _onMotionSample() {
+    // Keep the sustained-motion window alive: any real still gap cancels it.
+    _motionGapTimer?.cancel();
+    _motionGapTimer = Timer(_motionGraceGap, _resetMotionAccrual);
+    // Start counting toward the wake, once, from the first sample of a burst.
+    _motionWakeTimer ??= Timer(_motionWakeSustained, () {
+      _resetMotionAccrual();
+      _machine.onMovementWake();
+      if (_machine.activity != _appliedActivity) _apply();
+    });
+  }
+
+  void _resetMotionAccrual() {
+    _motionWakeTimer?.cancel();
+    _motionWakeTimer = null;
+    _motionGapTimer?.cancel();
+    _motionGapTimer = null;
   }
 
   void _armStillness() {
     _stillnessTimer?.cancel();
-    _stillnessTimer = Timer(_stillnessBackground, () {
+    final window =
+        _machine.foreground ? _stillnessForeground : _stillnessBackground;
+    _stillnessTimer = Timer(window, () {
       _machine.onStillness();
       _apply();
     });
@@ -437,11 +480,13 @@ class LocationService {
   void _stopAccel() {
     unawaited(_accelSub?.cancel());
     _accelSub = null;
+    _resetMotionAccrual();
   }
 
   Future<void> dispose() async {
     await _stopGpsAsync();
     await _accelSub?.cancel();
+    _resetMotionAccrual();
     _stillnessTimer?.cancel();
     _heartbeatTimer?.cancel();
     await _fixes.close();
