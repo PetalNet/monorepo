@@ -593,7 +593,17 @@ class RelayController {
           'recipient_type': 'user',
           'recipient_id': target,
           'blob': base64Encode(ct),
-          'timestamp': fix.timestampMs,
+          // OUTER frame timestamp drives the server's monotonic store gate
+          // (store_live_fix: WHERE EXCLUDED.client_timestamp >
+          // location_updates.client_timestamp). Emit the LIVENESS clock, not
+          // the position clock: a parked keepalive re-relays the SAME (frozen)
+          // position time, so sending `timestampMs` here left the gate at an
+          // equal value — a no-op upsert — and the stored current-fix (blob incl.
+          // liveness) never refreshed while parked, so a reconnecting/cold-start
+          // snapshot viewer went dark. `aliveAtMs` advances on every keepalive,
+          // so the gate passes and the fresh-liveness blob is stored. The real
+          // position time is preserved INSIDE the blob (`timestamp`).
+          'timestamp': fix.aliveAtMs,
         });
         await ws.send(target, frame);
       } on Object catch (e) {
@@ -1183,6 +1193,18 @@ class RelayController {
     return accepted;
   }
 
+  /// Test-only seam onto the liveness-dedup accept path. The relay's most
+  /// go-dark-critical rule — a parked keepalive re-relays the SAME position
+  /// with a NEWER `alive_at` and must be ACCEPTED, not dropped as a duplicate —
+  /// lives in [_acceptPeerFix]; exposing it lets that rule be exercised at the
+  /// controller level without a full WS/crypto harness.
+  @visibleForTesting
+  Future<bool> debugAcceptPeerFix(
+    String userId,
+    Map<String, dynamic> data, {
+    int? expectedTimestamp,
+  }) => _acceptPeerFix(userId, data, expectedTimestamp: expectedTimestamp);
+
   Future<bool> _acceptPeerFix(
     String userId,
     Map<String, dynamic> data, {
@@ -1190,9 +1212,6 @@ class RelayController {
   }) async {
     if (!_isValidPeerFix(data)) return false;
     final timestamp = (data['timestamp'] as num).toInt();
-    if (expectedTimestamp != null && timestamp != expectedTimestamp) {
-      return false;
-    }
     // Dedup/order on the LIVENESS clock, not the position clock. A parked
     // keepalive re-relays the SAME (older) position with a newer `alive_at`, so
     // ordering on `timestamp` would drop every keepalive as a duplicate and the
@@ -1200,6 +1219,15 @@ class RelayController {
     // old clients (their fixes and liveness coincided), so a moving stream is
     // unchanged.
     final liveness = (data['alive_at'] as num?)?.toInt() ?? timestamp;
+    // Snapshot rows validate against the OUTER frame timestamp the server
+    // stored as `client_timestamp` (row.clientTimestamp). Since the sender now
+    // emits the liveness clock as that outer frame timestamp (see _onLocalFix),
+    // validate on `liveness`, not the position `timestamp` — otherwise every
+    // parked keepalive (position < liveness) would be rejected here and a
+    // reconnecting snapshot viewer would go dark.
+    if (expectedTimestamp != null && liveness != expectedTimestamp) {
+      return false;
+    }
     if (liveness <= (_latestFixTimestamp[userId] ?? 0)) return false;
     final fix = PeerFix(
       userId: userId,

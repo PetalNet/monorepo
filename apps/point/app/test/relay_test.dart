@@ -1,10 +1,23 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:point_app/features/location/data/location_service.dart';
+import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/relay/reconnect_policy.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
+import 'package:point_app/services/api/models.dart';
+
+/// Keeps the accept path off platform plugins: the only provider the accept
+/// path reads is [peopleControllerProvider], and the real notifier's `build()` reads
+/// the session store (a secure-storage plugin, absent in a headless unit test).
+/// This stub short-circuits that so the go-dark dedup rule can be exercised at
+/// the controller level with no WS/crypto/auth harness.
+class _StubPeople extends PeopleController {
+  @override
+  Future<List<Person>> build() async => const [];
+}
 
 void main() {
   test('location payload carries encrypted horizontal accuracy additively', () {
@@ -196,6 +209,93 @@ void main() {
       expect(p.attempt, 0);
       // Next delay is back to base — not stuck high, not reset prematurely.
       expect(p.nextDelay().inMilliseconds, 1000);
+    });
+  });
+
+  group('_acceptPeerFix liveness-dedup (the go-dark-critical relay rule)', () {
+    RelayController relayIn(ProviderContainer container) {
+      addTearDown(container.dispose);
+      return container.read(relayControllerProvider);
+    }
+
+    ProviderContainer container() => ProviderContainer(
+      overrides: [peopleControllerProvider.overrideWith(_StubPeople.new)],
+    );
+
+    test('a keepalive with the SAME position but a NEWER alive_at is ACCEPTED, '
+        'not dropped as a duplicate', () async {
+      final relay = relayIn(container());
+      const user = 'eli@point.dev';
+      const positionTs = 1000; // the frozen (parked) position clock
+
+      // First keepalive establishes the peer + the liveness high-water mark.
+      expect(
+        await relay.debugAcceptPeerFix(user, {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': positionTs,
+          'alive_at': 2000,
+          'parked': 1,
+        }),
+        isTrue,
+      );
+
+      // Same POSITION time, NEWER liveness — the exact parked-keepalive shape.
+      // Dedup on `timestamp` would drop this as a duplicate and the device would
+      // wrongly go dark; dedup on `alive_at` accepts it.
+      expect(
+        await relay.debugAcceptPeerFix(user, {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': positionTs,
+          'alive_at': 5000,
+          'parked': 1,
+        }),
+        isTrue,
+        reason: 'a newer alive_at is fresh liveness, not a duplicate position',
+      );
+      // Liveness advanced, but the REAL position time is still preserved.
+      expect(relay.cachedPeerFixes[user]!.aliveAt, 5000);
+      expect(
+        relay.cachedPeerFixes[user]!.timestamp,
+        positionTs,
+        reason: 'the parked position clock is never faked forward',
+      );
+
+      // A keepalive whose liveness did NOT advance IS a duplicate → dropped.
+      expect(
+        await relay.debugAcceptPeerFix(user, {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': positionTs,
+          'alive_at': 4000,
+          'parked': 1,
+        }),
+        isFalse,
+        reason: 'no forward liveness ⇒ a genuine duplicate',
+      );
+    });
+
+    test('a snapshot row validates on the liveness clock the server stored as '
+        'client_timestamp (parked position < that outer timestamp)', () async {
+      final relay = relayIn(container());
+
+      // A reconnecting snapshot: the sender now emits `alive_at` (5000) as the
+      // OUTER frame timestamp, so the server stores client_timestamp = 5000
+      // while the blob's position `timestamp` stays 1000. The accept must
+      // validate `expectedTimestamp` against the LIVENESS clock — validating it
+      // against the position clock would reject every parked snapshot row and a
+      // reconnecting/cold-start viewer would go dark.
+      expect(
+        await relay.debugAcceptPeerFix('mara@point.dev', {
+          'lat': 1.0,
+          'lon': 2.0,
+          'timestamp': 1000,
+          'alive_at': 5000,
+          'parked': 1,
+        }, expectedTimestamp: 5000),
+        isTrue,
+      );
     });
   });
 }

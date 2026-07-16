@@ -23,8 +23,10 @@ const parkedHeartbeat = Duration(minutes: 30);
 /// INVARIANT: [darkAfter] > [parkedHeartbeat] with real margin. A parked-alive
 /// phone only checks in every [parkedHeartbeat] (30 min); the threshold adds
 /// ~15 min for acquisition + relay + the 30s viewer tick + clock skew so a
-/// still-but-alive device between keepalives is never mistaken for dead. This
-/// is asserted in code below and in the presence tests.
+/// still-but-alive device between keepalives is never mistaken for dead. The
+/// presence tests enforce this invariant against the REAL runtime heartbeat
+/// (LocationService.heartbeat), so [parkedHeartbeat] and the threshold cannot
+/// silently drift out of the safe ordering.
 const darkAfter = Duration(minutes: 45);
 
 /// How confidently the client can describe a peer fix at the current time.

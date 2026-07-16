@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
@@ -57,18 +58,29 @@ void main() {
       );
     });
 
-    test('(a) the dark threshold sits strictly above the parked heartbeat with '
-        'real margin (heartbeat 30m < dark 45m) — the go-dark invariant', () {
-      expect(parkedHeartbeat, const Duration(minutes: 30));
+    test('(a) the dark threshold sits strictly above the ACTUAL runtime parked '
+        'heartbeat with real margin — the go-dark invariant', () {
+      // Bind the REAL heartbeat the engine ships (LocationService.heartbeat),
+      // not a hand-copied literal, so the invariant can never silently pass
+      // against a stale mirror while the runtime floor drifts underneath it.
+      final heartbeat = LocationService().heartbeat;
+      // The presence-layer mirror exists only so the pure presence math can
+      // reason about the floor; pin it to the real value so it, too, can't drift.
+      expect(
+        parkedHeartbeat,
+        heartbeat,
+        reason: 'people_presence.parkedHeartbeat must mirror the real '
+            'LocationService.heartbeat',
+      );
       expect(darkAfter, const Duration(minutes: 45));
       expect(
-        parkedHeartbeat < darkAfter,
+        heartbeat < darkAfter,
         isTrue,
-        reason: 'a parked-alive phone checks in every 30m; the dark verdict '
-            'must wait past that with margin or a live phone reads as dead',
+        reason: 'a parked-alive phone checks in every $heartbeat; the dark '
+            'verdict must wait past that with margin or a live phone reads dead',
       );
       expect(
-        darkAfter - parkedHeartbeat,
+        darkAfter - heartbeat,
         greaterThanOrEqualTo(const Duration(minutes: 10)),
         reason: 'margin covers acquisition + relay + the 30s viewer tick + skew',
       );
