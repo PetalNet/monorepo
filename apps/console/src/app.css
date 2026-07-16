@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-	themes: lab-light --default, lab-dark --prefersdark;
+	themes:
+		lab-light --default,
+		lab-dark --prefersdark;
 }
 @plugin "daisyui/theme" {
 	name: "lab-light";

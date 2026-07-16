@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 
-import svelte from "eslint-plugin-svelte";
 import oxlint from "eslint-plugin-oxlint";
+import svelte from "eslint-plugin-svelte";
 import tseslint from "typescript-eslint";
 
 const typedFiles = ["**/*.{ts,svelte}"];
@@ -21,5 +21,7 @@ export default tseslint.config(
 			},
 		},
 	},
-	...oxlint.buildFromOxlintConfigFile(fileURLToPath(new URL("../../.oxlintrc.json", import.meta.url))),
+	...oxlint.buildFromOxlintConfigFile(
+		fileURLToPath(new URL("../../.oxlintrc.json", import.meta.url)),
+	),
 );

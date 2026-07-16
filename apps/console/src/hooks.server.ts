@@ -18,9 +18,13 @@ const authentication: Handle = async ({ event, resolve }) => {
 	const session = await auth.api.getSession({ headers: event.request.headers });
 	event.locals.session = session?.session ?? null;
 	event.locals.user = session?.user ?? null;
-	event.locals.tier = session && "tier" in session.user ? session.user.tier as "owner" | "operator" | "editor" | "viewer" : null;
+	event.locals.tier =
+		session && "tier" in session.user
+			? (session.user.tier as "owner" | "operator" | "editor" | "viewer")
+			: null;
 
-	if (!session && !isUnauthenticatedRoute(event.url.pathname)) redirect(303, `/login?next=${encodeURIComponent(event.url.pathname)}`);
+	if (!session && !isUnauthenticatedRoute(event.url.pathname))
+		redirect(303, `/login?next=${encodeURIComponent(event.url.pathname)}`);
 	return svelteKitHandler({ event, resolve, auth, building });
 };
 

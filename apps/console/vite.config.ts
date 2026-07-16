@@ -19,23 +19,25 @@ export default defineConfig({
 	plugins: [
 		sentrySvelteKit({ telemetry: false }),
 		tailwindcss(),
-		fontless({ families: [
-			{ name: "Geist", provider: "fontsource", weights: [400, 500] },
-			{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
-		] }),
+		fontless({
+			families: [
+				{ name: "Geist", provider: "fontsource", weights: [400, 500] },
+				{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
+			],
+		}),
 		...compose([
 			effect(),
 			ts(true),
-		kit({
-			adapter: adapter(),
-			compilerOptions: { experimental: { async: true } },
-			kit: {
-				tracing: { server: true },
-				experimental: {
-					remoteFunctions: true,
+			kit({
+				adapter: adapter(),
+				compilerOptions: { experimental: { async: true } },
+				kit: {
+					tracing: { server: true },
+					experimental: {
+						remoteFunctions: true,
+					},
 				},
-			},
-		}),
+			}),
 		]),
 	],
 });
