@@ -1,9 +1,21 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:point_app/features/location/domain/location_state_machine.dart';
+import 'package:point_app/features/location/foreground_service.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+
+/// The effective geolocator settings that reach the platform — the reopen guard
+/// keys on this (R15). `foregroundNotificationConfig` is deliberately absent:
+/// we run our own foreground service (DEFECT #2), so geolocator's is always null
+/// and never part of the identity.
+typedef _GpsKey = ({
+  LocationAccuracy accuracy,
+  int distanceFilter,
+  int intervalMs,
+});
 
 /// A location fix ready for the relay (still plaintext here — encryption happens
 /// in the crypto/relay layer before it leaves the device).
@@ -73,13 +85,21 @@ class LocationHealth {
 ///   the accelerometer path keeps its battery edge over always-on-GPS trackers.
 /// - **Adaptive GPS cadence** — the position stream's `distanceFilter`/accuracy
 ///   are reconfigured from the plan (fast/active/idle).
-/// - **Foreground service under Doze** — a persistent notification + wakelock
-///   keeps Android from freezing the isolate. Geolocator only runs that service
-///   while a position stream is open, so the engine keeps a low-power stream
-///   alive even while parked. Tearing it down when still is exactly what made a
-///   backgrounded, stationary phone go dark for hours under Doze (tracker 733):
-///   with no service the isolate freezes and every Dart timer / sensor callback
-///   stops firing.
+/// - **Foreground service under Doze (OUR OWN — DEFECT #2)** — a persistent
+///   notification + wakelock keeps Android from freezing the isolate. We run our
+///   OWN native foreground service ([ForegroundServiceController]), started when
+///   sharing begins and kept alive the whole session — NOT geolocator's. This
+///   decouples the FGS's lifetime from the GPS stream: geolocator caches its
+///   position stream and ignores new `LocationSettings` while a listener is
+///   active, so adaptive cadence only takes effect if the stream is fully
+///   canceled + reopened (the cache resets on cancel). With our FGS holding the
+///   process foreground, that cancel→reopen is safe — it never trips the
+///   Android-12 "FGS-with-location can't start from background" block, because
+///   ours never stops. geolocator is told NOT to run its own FGS
+///   (`foregroundNotificationConfig: null`). Tearing the survival service down
+///   when still is exactly what made a backgrounded, stationary phone go dark
+///   for hours under Doze (tracker 733): with no service the isolate freezes and
+///   every Dart timer / sensor callback stops firing.
 /// - **Hard-floor heartbeat (parked keepalive)** — while parked, a periodic
 ///   tick re-relays presence so a perfectly still device still reports in; it
 ///   fires only because the foreground service keeps the isolate awake. It
@@ -109,12 +129,14 @@ class LocationService {
     Stream<Position> Function(LocationSettings)? positionStream,
     Future<Position> Function(LocationSettings)? currentPosition,
     Stream<AccelerometerEvent> Function()? accelStream,
+    ForegroundServiceController? foregroundService,
   }) : _machine = LocationStateMachine(config: config),
        _checkPermission = checkPermission ?? Geolocator.checkPermission,
        _requestPermission = requestPermission ?? Geolocator.requestPermission,
        _positionStream = positionStream ?? _geolocatorStream,
        _currentPosition = currentPosition ?? _geolocatorCurrent,
-       _accelStream = accelStream ?? accelerometerEventStream;
+       _accelStream = accelStream ?? accelerometerEventStream,
+       _fgs = foregroundService ?? const PlatformForegroundServiceController();
 
   static Stream<Position> _geolocatorStream(LocationSettings settings) =>
       Geolocator.getPositionStream(locationSettings: settings);
@@ -132,6 +154,13 @@ class LocationService {
   final Stream<Position> Function(LocationSettings) _positionStream;
   final Future<Position> Function(LocationSettings) _currentPosition;
   final Stream<AccelerometerEvent> Function() _accelStream;
+
+  /// Our own persistent Android foreground service (DEFECT #2). Started when
+  /// sharing begins, stopped only on ghost / dispose — its lifetime is
+  /// deliberately decoupled from the GPS stream so cadence can change (cancel +
+  /// reopen the geolocator stream) without ever dropping the FGS.
+  final ForegroundServiceController _fgs;
+  bool _fgsRunning = false;
 
   /// The hard floor while stationary (idle/sleeping): the high-power GPS radio
   /// is off, but on this cadence the engine re-relays a fix (a cheap fused/
@@ -161,9 +190,22 @@ class LocationService {
   static const _gpsRetryMax = Duration(minutes: 2);
   Duration _gpsRetryBackoff = _gpsRetryBase;
   LocationActivity _appliedActivity = LocationActivity.idle;
-  EnginePlan? _appliedGpsPlan;
+
+  // The EFFECTIVE geolocator settings currently applied — accuracy, distance
+  // filter, and interval, i.e. exactly what reaches the platform. R15: keying
+  // the reopen guard on this (not the whole plan / the activity) means an
+  // active↔fast flip in the foreground — same 2s/0m/high settings — does NOT
+  // reopen the GPS stream and thrash the radio at every city stop-and-go.
+  _GpsKey? _appliedGpsKey;
   Fix? _lastFix;
 
+  // R14: the Layer-1 accel wake threshold, in m/s² of LINEAR acceleration over
+  // the gravity baseline. The old gate mixed units — it compared a SQUARED
+  // magnitude (|a|² − g²) against a linear threshold (1.2·g), so it fired at
+  // ~0.6 m/s² collinear (2× too twitchy — a buzzing desk woke GPS) yet needed
+  // ~3.43 m/s² of pure lateral (under-detecting smooth car accel). Now the
+  // magnitude is linear (|a| − g) and compared against a linear threshold, so
+  // it's a consistent ~1.2 m/s² in every direction (the documented value).
   static const _motionThreshold = 1.2; // m/s^2 over gravity baseline
 
   // Stillness ramp-down (location-strategy.html ACTIVE→SLEEPING: "No move 30s
@@ -252,9 +294,11 @@ class LocationService {
 
     if (!plan.gpsEnabled) {
       // Ghost / hard stop: everything off (including any pending GPS re-arm —
-      // a hard stop must not self-heal back into broadcasting).
+      // a hard stop must not self-heal back into broadcasting) AND our own
+      // foreground service (DEFECT #2): ghost is the one place the FGS drops.
       _stopGps();
       _stopAccel();
+      _stopForegroundService();
       _gpsRetryTimer?.cancel();
       _gpsRetryTimer = null;
       _stillnessTimer?.cancel();
@@ -270,25 +314,47 @@ class LocationService {
       return;
     }
 
+    // DEFECT #2: our own foreground service runs the WHOLE time we're sharing —
+    // started here (idempotent), before any GPS stream opens, so the process is
+    // foreground-promoted and geolocator's stream can be canceled + reopened to
+    // change cadence without ever tripping the Android-12 background FGS block.
+    _startForegroundService();
+
+    // R8: the parked keepalive heartbeat is a hard floor that must keep running
+    // regardless of activity. The old engine canceled it on every foreground
+    // (active/fast) transition, so a person indoors with no GPS fix who keeps
+    // reopening the app was left unboundedly dark — each reopen jumped to active
+    // and killed the only floor. Start it unconditionally (idempotent); only
+    // ghost / dispose stop it.
+    _startHeartbeat();
+
     switch (plan.activity) {
       case LocationActivity.idle:
       case LocationActivity.sleeping:
         // Parked: the accelerometer promotes to active on real motion, and a
         // periodic hard-floor heartbeat re-relays presence while perfectly
-        // still. Crucially we KEEP a low-power (fused/network) position stream
-        // open — geolocator only runs the Android foreground service while a
-        // stream is live, and that service (+ wakelock) is the only thing that
-        // stops Android Doze from freezing the isolate. Stopping GPS here — as
-        // the engine used to — killed the service, froze the heartbeat timer
-        // and the accelerometer, and the phone went dark for hours (tracker
-        // 733). The stream is low accuracy + a wide distanceFilter, so the GPS
-        // radio stays effectively off; it is the FGS keep-alive, not a GPS burst.
+        // still. Our own foreground service (started above) + its wakelock is
+        // what stops Android Doze from freezing the isolate — NOT the position
+        // stream (DEFECT #2 decoupled them). We still keep a low-power
+        // (fused/network) stream open as a cheap movement signal; it is low
+        // accuracy + a wide distanceFilter, so the GPS radio stays effectively
+        // off. Stopping the FGS while still — as the engine used to, by tearing
+        // down geolocator's stream-bound service — froze the heartbeat timer and
+        // the accelerometer and the phone went dark for hours (tracker 733).
         final enteringParked =
             _appliedActivity != LocationActivity.idle &&
             _appliedActivity != LocationActivity.sleeping;
         _startAccel();
         _startGps(plan);
-        _startHeartbeat();
+        // R16: keep ramping DOWN while parked. Idle must re-arm the stillness
+        // window so it demotes idle → sleeping (30s poll → 60s), instead of
+        // getting stuck in IDLE forever (2× the parked wakes). Only idle arms it
+        // (sleeping is the floor — arming there would just churn a timer that
+        // can't demote further).
+        if (plan.activity == LocationActivity.idle &&
+            _stillnessTimer?.isActive != true) {
+          _armStillness();
+        }
         // R7: close the initial dark gap. The moment we park, relay a keepalive
         // NOW rather than waiting out the first 30-minute heartbeat — otherwise
         // a device that just went still is briefly indistinguishable from dead.
@@ -296,9 +362,9 @@ class LocationService {
       case LocationActivity.active:
       case LocationActivity.fast:
       case LocationActivity.ghost:
-        // Moving: accelerometer + heartbeat off, GPS on at the plan's cadence.
+        // Moving: accelerometer off (motion is obvious), GPS on at the plan's
+        // cadence. The heartbeat floor stays running (R8) — started above.
         _stopAccel();
-        _stopHeartbeat();
         _startGps(plan);
         // Acquisition bound: a GPS that cannot fix (indoors, stalled
         // provider) must not pin high-power active forever — with no fix to
@@ -309,23 +375,36 @@ class LocationService {
     _appliedActivity = plan.activity;
   }
 
+  /// DEFECT #2 — CANCEL-THEN-REOPEN. geolocator caches its position stream and
+  /// IGNORES new LocationSettings while a listener is active
+  /// (geolocator_android: `if (_positionStream != null) return _positionStream!`),
+  /// so to change cadence we must fully cancel — drop to zero listeners, which
+  /// synchronously resets its cache
+  /// (`asBroadcastStream(onCancel: () => _positionStream = null)`; a stream
+  /// controller's onCancel runs synchronously) — and THEN reopen with the new
+  /// settings. Because the cache reset is synchronous, we cancel and reopen in
+  /// one synchronous step: no listener gap where an incoming fix could be lost,
+  /// and the reopen is guaranteed to build a fresh stream honoring the new
+  /// settings. Our own foreground service keeps the process foreground-promoted
+  /// throughout, so this cancel→reopen never trips the Android-12
+  /// "FGS-with-location can't start from background" block that once forced a
+  /// make-before-break. (Make-before-break was the battery-drain half of the
+  /// bug: it never dropped to zero listeners, so geolocator handed back the
+  /// cached stream and the OLD cadence — adaptive cadence silently froze after
+  /// the first fix.)
   void _startGps(EnginePlan plan) {
-    // Reconfigure when the effective GPS plan changed — NOT just the activity.
-    // Foreground↔background keeps the activity `active` but changes the interval
-    // (2s ↔ 12s), so we must reopen the stream on an interval/accuracy change or
-    // the background cadence never takes effect.
-    if (_gpsSub != null && _appliedGpsPlan == plan) return;
-    // R3/R4 — MAKE-BEFORE-BREAK. The old engine `_stopGps()`'d here, then
-    // re-listened: that tears down the running foreground service, and on
-    // Android 12+ a *new* foreground-service-with-location cannot be started
-    // FROM BACKGROUND — so a parked→active wake in the background killed the
-    // FGS and the phone went dark for hours. Instead we open the replacement
-    // stream FIRST (the process is already foreground-promoted by the live FGS,
-    // so its FGS start is allowed), then cancel the previous one — the survival
-    // service never has a gap.
+    final key = _gpsKey(plan);
+    // R15: the effective settings already applied — same accuracy, distance
+    // filter, and interval — so there is nothing to change. Don't reopen an
+    // identical stream (an active↔fast flip in the foreground is the same
+    // 2s/0m/high stream) and thrash the GPS radio at every city stop-and-go.
+    if (_gpsSub != null && _appliedGpsKey == key) return;
     final previous = _gpsSub;
-    _appliedGpsPlan = plan;
+    _appliedGpsKey = key;
     final settings = _androidSettings(plan);
+    // Cancel FIRST (synchronously resets geolocator's settings cache), then open
+    // the replacement in the same tick.
+    unawaited(previous?.cancel());
     _gpsSub = _positionStream(settings).listen(
       _onPosition,
       onError: (Object e) {
@@ -337,19 +416,41 @@ class LocationService {
           ),
         );
         // R4 — self-heal. Don't latch dark on a dead subscription. Clearing the
-        // applied plan defeats the no-op guard so the next _apply reopens a
-        // fresh stream (make-before-break), and a backed-off timer re-arms in
-        // case nothing else triggers an _apply. The erroring subscription is
-        // left in place so a stream that merely hiccuped still delivers its next
-        // value; the reopen replaces a truly-dead one.
-        _appliedGpsPlan = null;
+        // applied key defeats the no-op guard so the next _apply reopens a fresh
+        // stream, and a backed-off timer re-arms if nothing else triggers an
+        // _apply. The erroring subscription is left in place so a stream that
+        // merely hiccuped still delivers its next value; the reopen replaces a
+        // truly-dead one.
+        _appliedGpsKey = null;
         _scheduleGpsRetry();
         if (kDebugMode) debugPrint('gps error: $e');
       },
     );
-    // Cancel the previous survival stream only AFTER the replacement is
-    // subscribed (never before its replacement is up).
-    unawaited(previous?.cancel());
+  }
+
+  _GpsKey _gpsKey(EnginePlan plan) {
+    final moving =
+        plan.activity == LocationActivity.fast ||
+        plan.activity == LocationActivity.active;
+    return (
+      // Parked = LOW power (fused/cell-wifi); moving = high accuracy. Same
+      // derivation as _androidSettings, so the key tracks what geolocator gets.
+      accuracy: moving ? LocationAccuracy.high : LocationAccuracy.low,
+      distanceFilter: plan.distanceFilter,
+      intervalMs: plan.gpsInterval.inMilliseconds,
+    );
+  }
+
+  void _startForegroundService() {
+    if (_fgsRunning) return;
+    _fgsRunning = true;
+    unawaited(_fgs.start());
+  }
+
+  void _stopForegroundService() {
+    if (!_fgsRunning) return;
+    _fgsRunning = false;
+    unawaited(_fgs.stop());
   }
 
   /// R4 — re-arm GPS after an error with exponential backoff, so a dead
@@ -378,21 +479,19 @@ class LocationService {
     final distanceFilter = plan.distanceFilter;
     return AndroidSettings(
       // Parked = LOW power (fused/cell-wifi, PRIORITY_LOW_POWER): this stream
-      // exists to keep the foreground service alive under Doze, not to burn the
-      // GPS radio. Moving = high accuracy for a real track.
+      // exists as a low-cost movement/keepalive signal, not to burn the GPS
+      // radio. Moving = high accuracy for a real track.
       accuracy: moving ? LocationAccuracy.high : LocationAccuracy.low,
       distanceFilter: distanceFilter,
       intervalDuration: plan.gpsInterval,
-      // The foreground service is what survives background + doze; only shown
-      // while actively sharing (plan.foregroundService).
-      foregroundNotificationConfig: plan.foregroundService
-          ? const ForegroundNotificationConfig(
-              notificationTitle: 'Point',
-              notificationText: 'Sharing your location',
-              enableWakeLock: true,
-              notificationIcon: AndroidResource(name: 'ic_launcher'),
-            )
-          : null,
+      // DEFECT #2: geolocator runs NO foreground service of its own — we leave
+      // `foregroundNotificationConfig` at its null default. WE run our own
+      // persistent FGS ([ForegroundServiceController]) that survives background
+      // + Doze, so its lifetime is decoupled from this stream: the stream can be
+      // canceled + reopened to change cadence without the Android-12 background
+      // FGS-start block. If geolocator kept its FGS, the cancel needed to defeat
+      // its settings cache would tear that FGS down and the reopen would be
+      // blocked from background.
     );
   }
 
@@ -437,8 +536,15 @@ class LocationService {
       // the isolate awake, so the accelerometer keeps gating GPS while parked
       // and backgrounded (before the FGS-survival fix the isolate froze here
       // and background motion detection died).
-      final magnitude = (e.x * e.x + e.y * e.y + e.z * e.z) - (9.81 * 9.81);
-      if (magnitude.abs() > _motionThreshold * 9.81) _onMotionSample();
+      // R14: LINEAR acceleration magnitude minus gravity, in m/s² — the same
+      // unit as the threshold, so the gate is a consistent ~1.2 m/s² in every
+      // direction. (The old gate compared a SQUARED magnitude, |a|²−g², against
+      // a linear 1.2·g, mixing units: it fired at ~0.6 m/s² collinear — a
+      // buzzing desk — yet needed ~3.43 m/s² of pure lateral, under-detecting
+      // smooth car acceleration.)
+      final magnitude =
+          math.sqrt(e.x * e.x + e.y * e.y + e.z * e.z) - 9.81;
+      if (magnitude.abs() > _motionThreshold) _onMotionSample();
     });
   }
 
@@ -551,11 +657,6 @@ class LocationService {
     _fixes.add(fix);
   }
 
-  void _stopHeartbeat() {
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-  }
-
   void _emit(Position p) {
     final fix = Fix(
       lat: p.latitude,
@@ -574,7 +675,7 @@ class LocationService {
   void _stopGps() {
     unawaited(_gpsSub?.cancel());
     _gpsSub = null;
-    _appliedGpsPlan = null;
+    _appliedGpsKey = null;
   }
 
   void _stopAccel() {
@@ -587,6 +688,7 @@ class LocationService {
     await _stopGpsAsync();
     await _accelSub?.cancel();
     _resetMotionAccrual();
+    _stopForegroundService();
     _gpsRetryTimer?.cancel();
     _stillnessTimer?.cancel();
     _heartbeatTimer?.cancel();

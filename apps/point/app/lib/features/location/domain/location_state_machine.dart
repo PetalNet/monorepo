@@ -91,11 +91,15 @@ class EngineConfig {
   int get activeBackgroundFilter => 10;
   int get parkedFilter => 50;
 
-  /// Speed (m/s) sustained to promote active → fast, and the count of fixes.
+  /// Speed (m/s) that must be STRICTLY EXCEEDED to promote active → fast, and
+  /// the count of fixes. Spec (location-strategy Layer 3) is a strict `> 5 m/s`
+  /// boundary: a 5.0 m/s jogger is walking (active), not driving (fast). A `>=`
+  /// here (R17) classed exactly-5.0 as driving — off by one against the spec.
   double get fastSpeed => 5;
   int get fastFixes => 3;
 
-  /// Speed (m/s) under which to demote fast → active, and the count.
+  /// Speed (m/s) under which (STRICTLY) to demote fast → active, and the count.
+  /// Spec is strict `< 2 m/s`; a `<=` (R17) demoted at exactly 2.0.
   double get slowSpeed => 2;
   int get slowFixes => 5;
 
@@ -181,11 +185,11 @@ class LocationStateMachine {
       _activity = LocationActivity.active;
     }
 
-    if (speed >= config.fastSpeed) {
+    if (speed > config.fastSpeed) {
       _fastStreak++;
       _slowStreak = 0;
       if (_fastStreak >= config.fastFixes) _activity = LocationActivity.fast;
-    } else if (speed <= config.slowSpeed) {
+    } else if (speed < config.slowSpeed) {
       _slowStreak++;
       _fastStreak = 0;
       if (_activity == LocationActivity.fast &&

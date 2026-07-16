@@ -76,6 +76,44 @@ void main() {
       expect(drive.plan.distanceFilter, 25);
     });
 
+    test('R17: speed-tier boundaries are STRICT — a 5.0 m/s jogger is NOT '
+        'driving, and exactly 2.0 m/s does not demote', () {
+      // Exactly 5.0 m/s sustained must stay active (spec is > 5, not >= 5): a
+      // fast jogger / cyclist at the boundary is walking-tier, not driving.
+      final jog = LocationStateMachine()..onForeground();
+      for (var i = 0; i < 5; i++) {
+        jog.onGpsFix(speed: 5, movedMetres: 10);
+      }
+      expect(
+        jog.activity,
+        LocationActivity.active,
+        reason: 'exactly 5.0 m/s must not promote to fast (strict > 5)',
+      );
+
+      // Just over the boundary DOES promote.
+      final drive = LocationStateMachine()..onForeground();
+      for (var i = 0; i < 3; i++) {
+        drive.onGpsFix(speed: 5.01, movedMetres: 10);
+      }
+      expect(drive.activity, LocationActivity.fast);
+
+      // Demotion is strict < 2: exactly 2.0 m/s must NOT demote a driver.
+      for (var i = 0; i < 10; i++) {
+        drive.onGpsFix(speed: 2, movedMetres: 5);
+      }
+      expect(
+        drive.activity,
+        LocationActivity.fast,
+        reason: 'exactly 2.0 m/s must not demote (strict < 2)',
+      );
+
+      // Just under the boundary DOES demote.
+      for (var i = 0; i < 5; i++) {
+        drive.onGpsFix(speed: 1.99, movedMetres: 2);
+      }
+      expect(drive.activity, LocationActivity.active);
+    });
+
     test('fast demotes to active after sustained slowness', () {
       final m = LocationStateMachine()..onForeground();
       for (var i = 0; i < 3; i++) {

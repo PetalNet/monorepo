@@ -119,32 +119,71 @@ void main() {
       expect(q2.items.first.frame, 'frame1');
     });
 
-    test('drain removes in order and shrinks the persisted queue', () async {
+    test('peek reads in order WITHOUT removing; ackThrough removes through seq '
+        'and persists (R10 — removal only after a confirmed send)', () async {
       final store = MemoryRelayStore();
       final q = RelayQueue(store: store);
       await q.load();
       for (var i = 0; i < 5; i++) {
         await q.enqueue('bob@x', 'f$i');
       }
-      final batch = await q.drain(max: 3);
+      final batch = q.peek(max: 3);
       expect(batch.map((e) => e.frame), ['f0', 'f1', 'f2']);
-      expect(q.length, 2);
+      // Peek must NOT remove — the durable copy stays until delivery is
+      // confirmed. A restore right now still has all five.
+      expect(q.length, 5);
+      final reloadedPeek = RelayQueue(store: store);
+      await reloadedPeek.load();
+      expect(reloadedPeek.length, 5);
 
+      // Confirmed → remove exactly the delivered batch (by seq) and persist.
+      await q.ackThrough(batch.last.seq);
+      expect(q.items.map((e) => e.frame), ['f3', 'f4']);
       final reloaded = RelayQueue(store: store);
       await reloaded.load();
       expect(reloaded.length, 2);
     });
 
-    test('requeueFront restores order after a failed flush', () async {
+    test('R10 mid-delivery kill: a crash between peek (send) and ack loses '
+        'NOTHING — the whole batch survives to resend, incl. the last fix',
+        () async {
       final store = MemoryRelayStore();
       final q = RelayQueue(store: store);
       await q.load();
       await q.enqueue('bob@x', 'f0');
       await q.enqueue('bob@x', 'f1');
-      final batch = await q.drain();
-      await q.enqueue('bob@x', 'f2'); // arrived during the failed send
-      await q.requeueFront(batch);
-      expect(q.items.map((e) => e.frame), ['f0', 'f1', 'f2']);
+      await q.enqueue('carol@x', 'f2'); // the last pre-offline fix
+
+      // Peek the batch and "send" it (sink.add) — but the process is killed
+      // before any ack persists. Model the kill as a restore from the store.
+      final batch = q.peek(max: 20);
+      expect(batch, hasLength(3));
+      // No ackThrough happened (killed mid-flight).
+      final afterKill = RelayQueue(store: store);
+      await afterKill.load();
+      expect(
+        afterKill.items.map((e) => e.frame),
+        ['f0', 'f1', 'f2'],
+        reason: 'D-019: a mid-delivery kill drops nothing — never removed '
+            'before a confirmed send',
+      );
+    });
+
+    test('ackThrough is seq-keyed, so a capacity eviction of an in-flight item '
+        'never removes the wrong (newer) fix', () async {
+      final store = MemoryRelayStore();
+      final q = RelayQueue(store: store, capacity: 3);
+      await q.load();
+      await q.enqueue('bob@x', 'b0'); // seq 0
+      await q.enqueue('bob@x', 'b1'); // seq 1
+      final batch = q.peek(max: 2); // [b0(0), b1(1)] in flight
+      // A newer bob fix arrives + evicts the stale in-flight b0 (capacity).
+      await q.enqueue('bob@x', 'b2'); // seq 2, evicts b0
+      await q.enqueue('bob@x', 'b3'); // seq 3, evicts b1
+      // Confirm the in-flight batch (through seq 1). b0/b1 are already gone; the
+      // newer b2/b3 (higher seq) must be preserved, not dropped.
+      await q.ackThrough(batch.last.seq);
+      expect(q.items.map((e) => e.frame), ['b2', 'b3']);
     });
 
     test('evicts stale same-audience items when over capacity', () async {

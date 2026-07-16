@@ -34,9 +34,19 @@ class _FakeChannel implements WebSocketChannel {
 class _FakeSink implements WebSocketSink {
   void Function(dynamic)? onAdd;
   bool throwOnAdd = false;
+
+  /// Throw once the add count reaches this many (models a socket that dies
+  /// mid-batch) — R10.
+  int? throwOnAddNumber;
+  int addCount = 0;
+
   @override
   void add(dynamic data) {
+    addCount++;
     if (throwOnAdd) throw StateError('socket send failed');
+    if (throwOnAddNumber != null && addCount >= throwOnAddNumber!) {
+      throw StateError('socket died mid-batch');
+    }
     onAdd?.call(data);
   }
 
@@ -77,6 +87,42 @@ void main() {
       expect(ws.isConnected, isTrue);
       expect(channel.sent.sublist(1), ['fix-A', 'fix-B']);
       expect(queue.isEmpty, isTrue);
+      await ws.dispose();
+    });
+
+    test('R10: a socket that dies MID-BATCH removes nothing from the durable '
+        'queue — the whole batch stays queued to resend (never removed before '
+        'a confirmed send)', () async {
+      final queue = RelayQueue(store: MemoryRelayStore());
+      await queue.load();
+
+      late _FakeChannel channel;
+      final ws = WsService(
+        wsUrl: 'ws://test/ws',
+        queue: queue,
+        policy: ReconnectPolicy(base: const Duration(hours: 1), jitter: 0),
+        connect: (_) => channel = _FakeChannel(),
+      );
+      await ws.start('t');
+      channel.push({'type': 'auth.ok'});
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // Enqueue onto the durable queue AFTER auth (so nothing auto-flushed) and
+      // arm the socket to die on the 2nd frame of the batch. Reset the add
+      // counter past the auth frame the handshake already sent.
+      await queue.enqueue('bob@x', 'fix-A');
+      await queue.enqueue('bob@x', 'fix-B');
+      await queue.enqueue('carol@x', 'fix-C');
+      channel._sink.addCount = 0;
+      channel._sink.throwOnAddNumber = 2;
+      await ws.flushNow();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // The old drain-first path would have removed the whole batch up front and
+      // lost fix-B/fix-C on the failure; peek-then-ack removes nothing until the
+      // FULL batch is accepted, so all three survive.
+      expect(queue.length, 3, reason: 'nothing removed on a mid-batch failure');
+      expect(queue.items.map((e) => e.frame), ['fix-A', 'fix-B', 'fix-C']);
       await ws.dispose();
     });
 

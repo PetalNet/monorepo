@@ -178,19 +178,26 @@ class WsService {
     _flushing = true;
     try {
       while (_authed && !_queue.isEmpty) {
-        final batch = await _queue.drain(max: 20);
-        _emitHealth();
+        // R10: PEEK — do not remove yet. The durable copy stays until the send
+        // is confirmed, so a crash mid-flight can't lose the batch.
+        final batch = _queue.peek(max: 20);
+        if (batch.isEmpty) break;
         try {
           for (final item in batch) {
             _channel!.sink.add(item.frame);
           }
         } on Object {
-          // Send failed mid-batch — put them back at the front and stop.
-          await _queue.requeueFront(batch);
-          _emitHealth();
+          // Send failed mid-batch. The batch was never removed (peek, not
+          // drain), so nothing is lost — it stays durably queued in order and
+          // resends on reconnect. Mark the socket dead and stop.
           _onClosed(_connectionEpoch);
           break;
         }
+        // The socket accepted the whole batch: only NOW remove it from the
+        // durable queue + persist (R10 — never before the send). If the process
+        // dies before this line, the batch survives to resend after restart.
+        await _queue.ackThrough(batch.last.seq);
+        _emitHealth();
       }
     } finally {
       _flushing = false;
