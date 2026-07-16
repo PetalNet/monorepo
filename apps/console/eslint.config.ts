@@ -21,6 +21,11 @@ export default tseslint.config(
 			},
 		},
 	},
+	{
+		name: "eslint/disable-type-checked-for-js",
+		files: ["**/*.{js,cjs,mjs}"],
+		...tseslint.configs.disableTypeChecked,
+	},
 	...oxlint.buildFromOxlintConfigFile(
 		fileURLToPath(new URL("../../.oxlintrc.json", import.meta.url)),
 	),

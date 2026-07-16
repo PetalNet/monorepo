@@ -3,15 +3,12 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
-	"bin": {
-		"console-migrate": "./src/lib/server/db/migrate.ts"
-	},
 	"scripts": {
 		"build": "vite build",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"dev": "vite dev",
 		"lint": "svelte-kit sync && eslint -c eslint.config.ts src tests vite.config.ts playwright.config.ts --max-warnings=0",
-		"migrate": "node --experimental-strip-types src/lib/server/db/migrate.ts",
+		"migrate": "effectdb migrate up",
 		"prepare": "svelte-kit sync",
 		"preview": "vite preview",
 		"test": "vitest run",
@@ -30,6 +27,7 @@
 		"better-auth": "catalog:",
 		"daisyui": "catalog:prod",
 		"effect": "catalog:",
+		"import-in-the-middle": "catalog:",
 		"svelte": "catalog:prod",
 		"svelte-effect-runtime": "catalog:",
 		"tailwindcss": "catalog:prod"

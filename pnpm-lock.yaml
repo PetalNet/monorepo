@@ -45,6 +45,9 @@ catalogs:
     effect-qb:
       specifier: 0.20.0
       version: 0.20.0
+    import-in-the-middle:
+      specifier: ^2.0.0
+      version: 2.0.6
     svelte-effect-runtime:
       specifier: 4.0.0
       version: 4.0.0
@@ -416,6 +419,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.98
+      import-in-the-middle:
+        specifier: 'catalog:'
+        version: 2.0.6
       svelte:
         specifier: catalog:prod
         version: 5.56.3(@typescript-eslint/types@8.61.1)
