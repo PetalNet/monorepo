@@ -161,6 +161,18 @@ class LocationService {
   /// reopen the geolocator stream) without ever dropping the FGS.
   final ForegroundServiceController _fgs;
   bool _fgsRunning = false;
+  // Defect #4: whether the FGS is WANTED (sharing, not ghosted/disposed). The
+  // async start/stop path keys on this so a stop that lands while a start is in
+  // flight always wins — no orphan FGS left running past a hard stop.
+  bool _fgsWanted = false;
+  // Defect #4: a start attempt is in flight (awaiting the platform confirm), so
+  // a re-entrant _startForegroundService doesn't fire a second one.
+  bool _fgsArming = false;
+  // Defect #4: re-arm timer. A refused native FGS start (Android 12+ can refuse
+  // a foreground-service-with-location start from the background) must not leave
+  // us believing the survival service is up — we retry instead of latching.
+  Timer? _fgsRetryTimer;
+  static const _fgsRetryBackoff = Duration(seconds: 5);
 
   /// The hard floor while stationary (idle/sleeping): the high-power GPS radio
   /// is off, but on this cadence the engine re-relays a fix (a cheap fused/
@@ -442,12 +454,49 @@ class LocationService {
   }
 
   void _startForegroundService() {
-    if (_fgsRunning) return;
-    _fgsRunning = true;
-    unawaited(_fgs.start());
+    // Defect #4: do NOT latch `_fgsRunning = true` before the async start — the
+    // native start can be refused (Android 12+ background FGS-with-location
+    // block) and latching optimistically left us believing our survival service
+    // held the process foreground when it did not, a Doze go-dark. Confirm the
+    // platform actually started it, then latch; retry on refusal.
+    _fgsWanted = true;
+    if (_fgsRunning || _fgsArming) return;
+    _fgsArming = true;
+    unawaited(_armForegroundService());
+  }
+
+  Future<void> _armForegroundService() async {
+    var started = false;
+    try {
+      started = await _fgs.start();
+    } finally {
+      _fgsArming = false;
+    }
+    // A stop (ghost/dispose) may have landed while the start was in flight — the
+    // hard stop must win, so undo a start that confirmed too late rather than
+    // leaving an orphan FGS running.
+    if (!_fgsWanted) {
+      if (started) unawaited(_fgs.stop());
+      _fgsRunning = false;
+      return;
+    }
+    if (started) {
+      _fgsRunning = true;
+      _fgsRetryTimer?.cancel();
+      _fgsRetryTimer = null;
+      return;
+    }
+    // Refused — re-arm with a fixed backoff so we recover when the OS next
+    // allows the start (e.g. the app returns to the foreground), instead of
+    // going dark under Doze with no foreground service.
+    _fgsRetryTimer?.cancel();
+    _fgsRetryTimer = Timer(_fgsRetryBackoff, _startForegroundService);
   }
 
   void _stopForegroundService() {
+    _fgsWanted = false;
+    _fgsRetryTimer?.cancel();
+    _fgsRetryTimer = null;
     if (!_fgsRunning) return;
     _fgsRunning = false;
     unawaited(_fgs.stop());
@@ -523,8 +572,28 @@ class LocationService {
     _machine.onGpsFix(speed: p.speed, movedMetres: moved);
     _fixes.add(fix);
     _armStillness();
-    // Cadence may have changed (active↔fast) — reconcile.
-    if (_machine.activity != _appliedActivity) _apply();
+    // Cadence may have changed (active↔fast) — reconcile, but DEFER it off this
+    // position-stream callback's firing stack (Defect #1). _apply → _startGps
+    // cancels the current stream and reopens with the new cadence, relying on
+    // geolocator's onCancel resetting its settings cache SYNCHRONOUSLY so the
+    // reopen builds a fresh stream. That holds for lifecycle-driven reopens, but
+    // NOT here: cancelling a broadcast subscription from WITHIN its own event
+    // dispatch makes Dart defer onCancel until firing ends, so the cache would
+    // still be set and the reopen would hand back the STALE cached stream (old
+    // cadence — e.g. background active→fast >5 m/s stuck at 15s/10m instead of
+    // 10s/25m). scheduleMicrotask runs the reconcile after this dispatch
+    // unwinds, when the cancel takes effect synchronously and the reopen is
+    // honored. Re-check under the fresh machine state — another event may have
+    // already reconciled by the time the microtask runs.
+    if (_machine.activity != _appliedActivity) {
+      scheduleMicrotask(() {
+        if (_started &&
+            _machine.plan.gpsEnabled &&
+            _machine.activity != _appliedActivity) {
+          _apply();
+        }
+      });
+    }
   }
 
   void _startAccel() {

@@ -66,10 +66,17 @@ class _FakeForegroundService implements ForegroundServiceController {
   int stopCount = 0;
   bool running = false;
 
+  /// Defect #5: when true the platform REFUSES the next start(s) (Android-12
+  /// background FGS-with-location block) — start() reports failure and the FGS
+  /// does not come up, so the engine must re-arm instead of latching it running.
+  bool refuseStart = false;
+
   @override
-  Future<void> start() async {
+  Future<bool> start() async {
     startCount++;
+    if (refuseStart) return false;
     running = true;
+    return true;
   }
 
   @override
@@ -248,6 +255,83 @@ void main() {
       expect(h.geo.openCount, 2);
       expect(h.geo.applied.last.intervalDuration, const Duration(seconds: 10));
       expect(h.geo.applied.last.distanceFilter, 25);
+
+      unawaited(h.service.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('Defect #1: a FIX-DRIVEN cadence change (background active→fast, >5 m/s) '
+      'ACTUALLY reopens the stream. The reopen fires from inside the position '
+      "callback; deferring it off that firing stack lets geolocator's onCancel "
+      'reset its cache so the new cadence is honored (not the stale cached one)',
+      () {
+    fakeAsync((async) {
+      final h = build();
+      unawaited(h.service.start());
+      async.flushMicrotasks();
+      expect(h.geo.openCount, 1); // foreground active — 2s/0m/high
+
+      // Background: active-bg is 15s/10m — a real cadence change (reopen #2),
+      // driven from OUTSIDE any firing stack (the existing tests' blind spot).
+      h.service.onBackground();
+      async.flushMicrotasks();
+      expect(h.geo.openCount, 2);
+      expect(h.geo.applied.last.intervalDuration, const Duration(seconds: 15));
+      expect(h.geo.applied.last.distanceFilter, 10);
+      expect(h.service.activity, LocationActivity.active);
+
+      // Three sustained >5 m/s fixes promote active→fast FROM WITHIN _onPosition
+      // — the reopen therefore fires from inside the position stream's own event
+      // dispatch. Dart defers a broadcast onCancel until firing ends, so a
+      // synchronous cancel-then-reopen HERE would hand back geolocator's STALE
+      // cached 15s/10m stream (the swallowed background cadence change). The
+      // engine now defers the reconcile off the firing stack, so the reopen sees
+      // the reset cache and honors the fast-bg 10s/25m cadence.
+      for (var i = 0; i < 3; i++) {
+        h.geo.emit(_pos(speed: 10, tsMs: 1752357600000 + i * 1000));
+        async.flushMicrotasks();
+      }
+      expect(h.service.activity, LocationActivity.fast);
+      expect(
+        h.geo.openCount,
+        3,
+        reason: 'fix-driven active→fast reopened the stream (deferred off the '
+            'firing stack); before the fix the cache swallowed it and it stuck '
+            'at 2',
+      );
+      expect(h.geo.applied.last.intervalDuration, const Duration(seconds: 10));
+      expect(h.geo.applied.last.distanceFilter, 25);
+      expect(h.geo.maxLive, 1, reason: 'no double stream across the reopen');
+
+      unawaited(h.service.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('Defect #5: a REFUSED native FGS start is not latched as running — the '
+      'engine re-arms and retries until the platform accepts it (no Doze '
+      'go-dark believing a dead FGS is up)', () {
+    fakeAsync((async) {
+      final h = build();
+      h.fgs.refuseStart = true; // Android-12 background FGS-start refused
+      unawaited(h.service.start());
+      async.flushMicrotasks();
+
+      // Attempted but refused: the FGS is NOT running and NOT (wrongly) latched.
+      // Before the fix the engine latched _fgsRunning=true before the async call
+      // and never retried.
+      expect(h.fgs.running, isFalse);
+      expect(h.fgs.startCount, 1);
+
+      // The OS now allows the start (app returned to foreground / window opened).
+      // The re-arm backoff fires and the retry succeeds.
+      h.fgs.refuseStart = false;
+      async
+        ..elapse(const Duration(seconds: 5))
+        ..flushMicrotasks();
+      expect(h.fgs.running, isTrue, reason: 're-armed and retried after refusal');
+      expect(h.fgs.startCount, greaterThanOrEqualTo(2));
 
       unawaited(h.service.dispose());
       async.flushMicrotasks();

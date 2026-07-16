@@ -61,12 +61,26 @@ class PointForegroundService : Service() {
         @Volatile
         var appEngineAttached: Boolean = false
 
-        fun start(context: Context) {
+        /**
+         * Request a start of the foreground service. Returns whether the OS
+         * ACCEPTED the start (Defect #5). On Android 12+ a
+         * foreground-service-with-location start from the background is refused
+         * with `ForegroundServiceStartNotAllowedException`, thrown synchronously
+         * here — caught so it never crashes the caller, and reported as `false`
+         * so the Dart engine re-arms instead of latching a dead FGS.
+         */
+        fun start(context: Context): Boolean {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putBoolean(KEY_ACTIVE_SHARE, true).apply()
             val intent = Intent(context, PointForegroundService::class.java)
                 .setAction(ACTION_START)
-            androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            return try {
+                androidx.core.content.ContextCompat.startForegroundService(context, intent)
+                true
+            } catch (e: Throwable) {
+                Log.e(TAG, "startForegroundService refused", e)
+                false
+            }
         }
 
         fun stop(context: Context) {
@@ -92,17 +106,34 @@ class PointForegroundService : Service() {
         }
 
         // Promote FIRST (a started FGS must call startForeground within seconds).
-        promoteToForeground()
+        // Defect #5: if the OS refuses the promotion (Android 12+ background
+        // FGS-with-location block), stop cleanly rather than lingering as a
+        // killable non-foreground service — the Dart engine confirms the start
+        // over the channel and re-arms, retrying when the OS next allows it.
+        if (!promoteToForeground()) {
+            Log.e(TAG, "foreground promotion refused — stopping (engine will re-arm)")
+            stopForegroundCompat()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         acquireWakeLock()
 
         // A null intent means the OS restarted us (START_STICKY) after a kill; an
         // ACTION_START from BootReceiver means a reboot. In both cases the app's
         // engine is not attached, so re-establish the Dart engine headless (R9).
-        // If the app IS attached (started from MainActivity), do nothing extra —
-        // the app already drives sampling.
         if (!appEngineAttached && backgroundEngine == null) {
             Log.d(TAG, "no app engine attached — starting headless engine (R9)")
             startHeadlessEngine()
+        } else if (appEngineAttached && backgroundEngine != null) {
+            // Defect #3 — double-engine leak. A boot / sticky-restart brought up
+            // the headless R9 engine (isolate A); now the app has opened
+            // (MainActivity set appEngineAttached) and re-invoked start with its
+            // own engine (isolate B) driving sampling. Two engines on one session
+            // = two GPS streams, two relays, two WS, and two MLS clients mutating
+            // the SAME secure storage concurrently (crypto-corruption hazard).
+            // Tear the headless one down; the app's engine owns the session now.
+            Log.d(TAG, "app engine attached — tearing down headless engine (R9 double-engine)")
+            teardownBackgroundEngine()
         }
 
         return START_STICKY
@@ -110,15 +141,26 @@ class PointForegroundService : Service() {
 
     override fun onDestroy() {
         releaseWakeLock()
+        teardownBackgroundEngine()
+        super.onDestroy()
+    }
+
+    private fun teardownBackgroundEngine() {
         backgroundEngine?.let {
             it.serviceControlSurface.detachFromService()
             it.destroy()
         }
         backgroundEngine = null
-        super.onDestroy()
     }
 
-    private fun promoteToForeground() {
+    /**
+     * Promote to a foreground service. Returns whether promotion SUCCEEDED
+     * (Defect #5): the in-service `startForeground` can also be refused on
+     * Android 12+, and an uncaught throw here crashes the process and kills the
+     * service → Doze go-dark. Caught, logged, reported so the caller stops
+     * cleanly and the Dart engine re-arms.
+     */
+    private fun promoteToForeground(): Boolean {
         createChannel()
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Point")
@@ -135,7 +177,16 @@ class PointForegroundService : Service() {
             } else {
                 0
             }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
+        return try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
+            true
+        } catch (e: Throwable) {
+            // Android 12+ can refuse a foreground-service-with-location start from
+            // the background (ForegroundServiceStartNotAllowedException). Swallow
+            // so it never crashes the process; the caller stops the service.
+            Log.e(TAG, "startForeground refused", e)
+            false
+        }
     }
 
     private fun stopForegroundCompat() {

@@ -45,8 +45,9 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "start" -> {
-                        PointForegroundService.start(applicationContext)
-                        result.success(null)
+                        // Defect #5: report whether the OS accepted the start so
+                        // the Dart engine confirms + re-arms instead of latching.
+                        result.success(PointForegroundService.start(applicationContext))
                     }
                     "stop" -> {
                         PointForegroundService.stop(applicationContext)

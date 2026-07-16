@@ -28,7 +28,14 @@ abstract interface class ForegroundServiceController {
   /// Start (or no-op if already running) the persistent location foreground
   /// service. Idempotent. Also persists the "active share" flag the native
   /// boot/restart path (R9) reads to resume sharing after a kill/reboot.
-  Future<void> start();
+  ///
+  /// Returns whether the platform ACCEPTED the start (Defect #4). An Android 12+
+  /// foreground-service-with-location start can be REFUSED from the background
+  /// (`ForegroundServiceStartNotAllowedException`, thrown synchronously by
+  /// `startForegroundService`); `false` tells the engine not to latch the FGS as
+  /// running and to re-arm. Platforms with no FGS (web/desktop) return `true` —
+  /// nothing to keep alive there, so no retry.
+  Future<bool> start();
 
   /// Stop the foreground service and clear the active-share flag. Idempotent.
   Future<void> stop();
@@ -46,16 +53,23 @@ class PlatformForegroundServiceController implements ForegroundServiceController
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   @override
-  Future<void> start() async {
-    if (!_supported) return;
+  Future<bool> start() async {
+    // No FGS off Android — nothing to keep alive, so report success (no retry).
+    if (!_supported) return true;
     try {
-      await _channel.invokeMethod<void>('start');
+      // The native side returns whether `startForegroundService` was accepted
+      // (Defect #4). A refused Android-12 background start comes back `false`
+      // (or throws) so the engine re-arms instead of latching a dead FGS.
+      final ok = await _channel.invokeMethod<bool>('start');
+      return ok ?? false;
     } on Object catch (e) {
       // A foreground-service start can be refused (missing permission, an OS
       // background-start window) or the channel may be unregistered on a
       // headless engine (R9), which raises MissingPluginException. Never let any
-      // of that crash the engine — the fixes still relay; surface it in debug.
+      // of that crash the engine — the fixes still relay; surface it in debug
+      // and report failure so the engine re-arms.
       if (kDebugMode) debugPrint('foreground service start failed: $e');
+      return false;
     }
   }
 

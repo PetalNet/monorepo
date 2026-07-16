@@ -55,9 +55,10 @@ class _FakeForegroundService implements ForegroundServiceController {
   bool running = false;
 
   @override
-  Future<void> start() async {
+  Future<bool> start() async {
     startCount++;
     running = true;
+    return true;
   }
 
   @override

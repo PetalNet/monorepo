@@ -29,6 +29,20 @@ void pointBackgroundMain() {
   unawaited(_run());
 }
 
+/// Defect #5 (R9) tree-shake retention anchor. `@pragma('vm:entry-point')`
+/// retains [pointBackgroundMain] the FUNCTION, but the native side looks it up
+/// by LIBRARY URI (`Dart_LookupLibrary('package:point_app/background_engine_main.dart')`),
+/// and a library with no members reachable from a root gets dropped from the
+/// release AOT — the lookup then fails and the boot-resume never runs (the phone
+/// shows "Sharing your location" while dark). `main.dart` imports this library
+/// and reads this list, giving the library a live reference from the reachable
+/// root so it stays in the snapshot's library table. Holds the entrypoint
+/// tear-off so the reference cannot be constant-folded away.
+@pragma('vm:entry-point')
+final List<void Function()> retainedBackgroundEntrypoints = <void Function()>[
+  pointBackgroundMain,
+];
+
 Future<void> _run() async {
   WidgetsFlutterBinding.ensureInitialized();
   // The native MLS engine (point-core via flutter_rust_bridge) — the relay
@@ -48,8 +62,15 @@ Future<void> _run() async {
       return;
     }
     // Lift any leftover signed-out hard-stop and start the battery engine.
+    // Defect #3: this is a HEADLESS resume — there is no UI, so the engine must
+    // run at the BACKGROUND cadence. Without this, the machine's default
+    // (foreground:true) makes start() jump to active-foreground (2s / 0m / high
+    // accuracy) — max-drain GPS behind a dark screen. onBackground() before
+    // start() flips it so start() applies the background plan instead of the
+    // foreground one (start() only jumps to active when it's still foreground).
     final engine = container.read(locationServiceProvider)
-      ..setSharing(sharing: true);
+      ..setSharing(sharing: true)
+      ..onBackground();
     await engine.start();
     // Start the relay so the engine's fixes are encrypted and sent. A cold
     // restore must never override a live sharing choice, which is exactly what
