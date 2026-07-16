@@ -388,25 +388,82 @@ void main() {
         AccelerometerEvent motion() =>
             AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
 
-        // A lone bump must be ignored (pocket jitter) — no wake.
+        // A lone bump must be ignored (pocket jitter) — no wake. Elapse PAST
+        // the full 10s sustained window: an impl with no grace-gap reset would
+        // let a lone bump's wake timer mature at 10s and fire here. The real
+        // engine cancels the accrual once the 2s grace gap passes with no
+        // further motion, so it must STILL be idle at 12s.
         h.accel.add(motion());
-        async.elapse(const Duration(seconds: 3)); // past the grace gap
+        async.elapse(const Duration(seconds: 12)); // well past the 10s window
         expect(
           h.service.activity,
           LocationActivity.idle,
-          reason: 'a single bump must not wake GPS (hysteresis)',
+          reason: 'a single bump must not wake GPS even 12s later (the grace '
+              'gap resets the accrual)',
         );
 
-        // Sustained motion (a sample each second) for >10s DOES wake.
-        for (var i = 0; i < 11; i++) {
+        // Pin the 10s threshold — low side: ~8s of SUSTAINED motion (a sample
+        // each second, gaps < the 2s grace) is below the window and must NOT
+        // wake.
+        for (var i = 0; i < 8; i++) {
+          h.accel.add(motion());
+          async.elapse(const Duration(seconds: 1));
+        }
+        expect(
+          h.service.activity,
+          LocationActivity.idle,
+          reason: '~8s of sustained motion is below the 10s wake threshold',
+        );
+
+        // Pin the 10s threshold — high side: carrying the SAME uninterrupted
+        // burst past ~10s DOES wake.
+        for (var i = 0; i < 3; i++) {
           h.accel.add(motion());
           async.elapse(const Duration(seconds: 1));
         }
         expect(
           h.service.activity,
           LocationActivity.active,
-          reason: '~10s of sustained motion wakes GPS to active',
+          reason: 'sustained motion reaching ~10s wakes GPS to active',
         );
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('LAYER 1 hysteresis: periodic jitter (a bump every ~9s) never wakes — '
+        'isolated samples with >2s still gaps keep resetting the accrual', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+
+        // Same parked setup: backgrounded + still, accel gate arbitrating GPS.
+        h.service.onBackground();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // → idle, accel armed
+        expect(h.service.activity, LocationActivity.idle);
+        expect(h.accel.hasListener, isTrue);
+
+        AccelerometerEvent motion() =>
+            AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
+
+        // One bump every ~9s: each sample lands < the 10s wake window from the
+        // last (so an impl that never resets its accrual would mature its timer
+        // between bumps and wake), but the > 2s still gap between them resets
+        // the accrual every time — so it must NEVER accumulate to a wake.
+        for (var i = 0; i < 6; i++) {
+          h.accel.add(motion());
+          async.elapse(const Duration(seconds: 9));
+          expect(
+            h.service.activity,
+            LocationActivity.idle,
+            reason: 'periodic jitter (a bump every ~9s) must never wake GPS',
+          );
+        }
 
         unawaited(h.close());
         async.flushMicrotasks();
