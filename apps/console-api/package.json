@@ -22,7 +22,6 @@
 		"@fastify/cors": "catalog:prod",
 		"@fastify/websocket": "catalog:prod",
 		"@petalnet/better-auth-effect-qb-adapter": "workspace:*",
-		"@petalnet/types": "workspace:*",
 		"@sentry/node": "catalog:prod",
 		"better-auth": "catalog:",
 		"fastify": "catalog:prod",
@@ -33,6 +32,7 @@
 	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
+		"@petalnet/types": "workspace:*",
 		"@types/node": "catalog:types",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"

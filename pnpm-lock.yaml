@@ -45,9 +45,6 @@ catalogs:
     effect-qb:
       specifier: 0.20.0
       version: 0.20.0
-    import-in-the-middle:
-      specifier: ^2.0.0
-      version: 2.0.6
     svelte-effect-runtime:
       specifier: 4.0.0
       version: 4.0.0
@@ -407,6 +404,9 @@ importers:
       '@sentry/sveltekit':
         specifier: 'catalog:'
         version: 10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(encoding@0.1.13)(rollup@4.62.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@sveltejs/kit':
+        specifier: 'catalog:'
+        version: 3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       better-auth:
         specifier: 'catalog:'
         version: 1.7.0-rc.1(b8d51781264f7bb3445042298e12bf72)
@@ -416,24 +416,15 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.98
-      effect-db:
-        specifier: 'catalog:'
-        version: 0.20.0(effect@4.0.0-beta.98)
-      effect-qb:
-        specifier: 'catalog:'
-        version: 0.20.0(effect@4.0.0-beta.98)
-      fontless:
-        specifier: catalog:prod
-        version: 0.2.1(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-      import-in-the-middle:
-        specifier: 'catalog:'
-        version: 2.0.6
       svelte:
         specifier: catalog:prod
         version: 5.56.3(@typescript-eslint/types@8.61.1)
       svelte-effect-runtime:
         specifier: 'catalog:'
         version: 4.0.0(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(effect@4.0.0-beta.98)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      tailwindcss:
+        specifier: catalog:prod
+        version: 4.3.1
     devDependencies:
       '@playwright/test':
         specifier: catalog:dev
@@ -441,9 +432,6 @@ importers:
       '@sveltejs/adapter-node':
         specifier: catalog:dev
         version: 5.5.4(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))
-      '@sveltejs/kit':
-        specifier: 'catalog:'
-        version: 3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       '@sveltejs/vite-plugin-svelte':
         specifier: catalog:dev
         version: 7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
@@ -453,12 +441,21 @@ importers:
       '@types/node':
         specifier: catalog:types
         version: 25.9.4
+      effect-db:
+        specifier: 'catalog:'
+        version: 0.20.0(effect@4.0.0-beta.98)
+      effect-qb:
+        specifier: 'catalog:'
+        version: 0.20.0(effect@4.0.0-beta.98)
       eslint:
         specifier: catalog:dev
         version: 10.5.0(jiti@2.7.0)
       eslint-plugin-svelte:
         specifier: catalog:dev
         version: 3.20.0(eslint@10.5.0(jiti@2.7.0))(svelte@5.56.3(@typescript-eslint/types@8.61.1))
+      fontless:
+        specifier: catalog:prod
+        version: 0.2.1(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       svelte-check:
         specifier: catalog:dev
         version: 4.6.0(@typescript/typescript6@6.0.2)(picomatch@4.0.4)(svelte@5.56.3(@typescript-eslint/types@8.61.1))
@@ -468,9 +465,6 @@ importers:
       svelte-plugin-composer:
         specifier: 'catalog:'
         version: 1.0.1(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(svelte@5.56.3(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-      tailwindcss:
-        specifier: catalog:prod
-        version: 4.3.1
       typescript:
         specifier: catalog:dev
         version: '@typescript/typescript6@6.0.2'
@@ -495,9 +489,6 @@ importers:
       '@petalnet/better-auth-effect-qb-adapter':
         specifier: workspace:*
         version: link:../../packages/better-auth-effect-qb-adapter
-      '@petalnet/types':
-        specifier: workspace:*
-        version: link:../../packages/types
       '@sentry/node':
         specifier: catalog:prod
         version: 10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.208.0(@opentelemetry/api@1.9.1))
@@ -523,6 +514,9 @@ importers:
       '@petalnet/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
+      '@petalnet/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@types/node':
         specifier: catalog:types
         version: 25.9.4
@@ -621,9 +615,6 @@ importers:
       typescript:
         specifier: catalog:dev
         version: '@typescript/typescript6@6.0.2'
-      typescript-eslint:
-        specifier: catalog:dev
-        version: 8.61.1(@typescript/typescript6@6.0.2)(eslint@10.5.0(jiti@2.7.0))
       vitest:
         specifier: catalog:dev
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@25.9.4)(@vitest/browser-preview@4.1.10)(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))

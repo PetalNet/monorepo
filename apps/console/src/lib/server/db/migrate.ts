@@ -1,5 +1,8 @@
+#!/usr/bin/env -S node --experimental-strip-types
+
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+
 import { PgClient } from "@effect/sql-pg";
 import { Effect, Redacted } from "effect";
 

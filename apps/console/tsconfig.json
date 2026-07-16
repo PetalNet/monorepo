@@ -9,7 +9,14 @@
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": true,
-		"moduleResolution": "bundler"
+		"moduleResolution": "bundler",
+		"rootDirs": ["src", ".svelte-kit/types/src"]
 	},
-	"include": ["src/**/*.ts", "src/**/*.svelte", "tests/**/*.ts", "vite.config.ts", "playwright.config.ts"]
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.svelte",
+		"tests/**/*.ts",
+		"vite.config.ts",
+		"playwright.config.ts"
+	]
 }

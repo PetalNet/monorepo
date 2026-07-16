@@ -22,7 +22,6 @@
 		"@types/node": "catalog:types",
 		"eslint": "catalog:dev",
 		"typescript": "catalog:dev",
-		"typescript-eslint": "catalog:dev",
 		"vitest": "catalog:dev"
 	}
 }

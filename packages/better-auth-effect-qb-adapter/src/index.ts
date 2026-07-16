@@ -20,23 +20,23 @@ type AdapterFactory = ReturnType<typeof createAdapterFactory> & { close: () => P
 interface FindOneArguments {
 	model: string;
 	where: CleanedWhere[];
-	select?: string[];
-	join?: JoinConfig;
+	select?: string[] | undefined;
+	join?: JoinConfig | undefined;
 }
 interface FindManyArguments {
 	model: string;
-	where?: CleanedWhere[];
+	where?: CleanedWhere[] | undefined;
 	limit: number;
-	select?: string[];
-	sortBy?: { field: string; direction: "asc" | "desc" };
-	offset?: number;
-	join?: JoinConfig;
+	select?: string[] | undefined;
+	sortBy?: { field: string; direction: "asc" | "desc" } | undefined;
+	offset?: number | undefined;
+	join?: JoinConfig | undefined;
 }
 interface IncrementArguments {
 	model: string;
 	where: CleanedWhere[];
 	increment: Record<string, number>;
-	set?: DatabaseRow;
+	set?: DatabaseRow | undefined;
 }
 interface UpdateArguments<T> {
 	model: string;
@@ -107,7 +107,12 @@ export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
 			},
 		},
 		adapter: ({ schema, getModelName, getDefaultModelName, getFieldName }) => {
-			const fieldsFor = (name: string) => schema[getDefaultModelName(name)].fields;
+			const fieldsFor = (name: string) => {
+				const modelName = getDefaultModelName(name);
+				const model = Object.entries(schema).find(([key]) => key === modelName)?.[1];
+				if (!model) throw new Error(`Unknown model ${name}`);
+				return model.fields;
+			};
 			const tableName = (name: string) => quote(getModelName(name));
 			const fieldName = (name: string, field: string) => {
 				const fields = fieldsFor(name);
@@ -201,6 +206,8 @@ export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
 							return `${connector}${column} ${insensitive ? "ILIKE" : "LIKE"} ${append(`${escapeLike(condition.value)}%`)} ESCAPE '\\'`;
 						case "ends_with":
 							return `${connector}${column} ${insensitive ? "ILIKE" : "LIKE"} ${append(`%${escapeLike(condition.value)}`)} ESCAPE '\\'`;
+						default:
+							throw new Error("Unsupported where operator");
 					}
 				});
 				return { text: ` WHERE ${expressions.join("")}`, values };
@@ -231,7 +238,8 @@ export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
 			const adapter: CustomAdapter = {
 				async create({ model: name, data, select }) {
 					const statement = insertSql(name, data, select);
-					const row = (await run(query<DatabaseRow>(statement.text, statement.values)))[0];
+					const row = (await run(query<DatabaseRow>(statement.text, statement.values))).at(0);
+					if (!row) throw new Error(`Insert into ${name} returned no row`);
 					return normalize(name, row) as typeof data;
 				},
 				async update<T>({ model: name, where, update }: UpdateArguments<T>) {
@@ -342,7 +350,8 @@ export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
 								predicate.values,
 							),
 						)
-					)[0];
+					).at(0);
+					if (!row) throw new Error(`Count for ${name} returned no row`);
 					return Number(row.count);
 				},
 			};
