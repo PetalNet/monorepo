@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -39,23 +41,67 @@ abstract interface class ForegroundServiceController {
 
   /// Stop the foreground service and clear the active-share flag. Idempotent.
   Future<void> stop();
+
+  /// Defect #1-remnant: the survival-critical PROMOTION result, delivered
+  /// asynchronously AFTER [start] returns. [start]'s bool only reports whether
+  /// the OS ACCEPTED the start REQUEST (`startForegroundService` did not throw);
+  /// the process is only truly foreground-promoted once the service's async
+  /// `startForeground` runs (in `onStartCommand`). That promotion can STILL be
+  /// refused on Android 12+ (a background FGS-with-location start) — the service
+  /// then stops itself, so the FGS is DOWN while [start] already reported
+  /// "accepted". This stream emits `false` on such a refusal (the engine must
+  /// un-latch the FGS and re-arm) and `true` on a confirmed promotion. Platforms
+  /// with no FGS (web/desktop) never emit — there is nothing to promote.
+  Stream<bool> get promotions;
 }
 
 /// The real Android implementation over a platform channel. On non-Android
 /// targets (web/desktop tests, the geolocator web impl) every call is a no-op —
 /// there is no background service there.
 class PlatformForegroundServiceController implements ForegroundServiceController {
-  const PlatformForegroundServiceController();
+  PlatformForegroundServiceController();
 
   static const _channel = MethodChannel('dev.petalcat.point/foreground_service');
+
+  final _promotions = StreamController<bool>.broadcast();
+  bool _handlerBound = false;
 
   bool get _supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   @override
+  Stream<bool> get promotions => _promotions.stream;
+
+  /// Defect #1-remnant: bind the native→Dart promotion handler once, lazily on
+  /// the first [start]. Deferred out of the constructor so merely BUILDING the
+  /// controller needs no Flutter binding — a unit test that constructs
+  /// `LocationService()` only to read a constant must not require
+  /// `ensureInitialized()`, and `setMethodCallHandler` asserts without a binary
+  /// messenger. By the time [start] runs the app has a binding, and the native
+  /// side only reports a promotion AFTER a start request, so the handler is
+  /// always bound before any `onForegroundPromotion` can arrive.
+  void _bindPromotionHandler() {
+    if (_handlerBound) return;
+    _handlerBound = true;
+    _channel.setMethodCallHandler(_handlePlatformCall);
+  }
+
+  Future<Object?> _handlePlatformCall(MethodCall call) async {
+    // Native → Dart: the service reports whether the async `startForeground`
+    // PROMOTION succeeded (Defect #1-remnant). `start`'s return value only
+    // covered the synchronous accept of `startForegroundService`.
+    if (call.method == 'onForegroundPromotion') {
+      final promoted = call.arguments as bool? ?? false;
+      if (!_promotions.isClosed) _promotions.add(promoted);
+    }
+    return null;
+  }
+
+  @override
   Future<bool> start() async {
     // No FGS off Android — nothing to keep alive, so report success (no retry).
     if (!_supported) return true;
+    _bindPromotionHandler();
     try {
       // The native side returns whether `startForegroundService` was accepted
       // (Defect #4). A refused Android-12 background start comes back `false`

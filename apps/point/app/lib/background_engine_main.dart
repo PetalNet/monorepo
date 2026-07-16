@@ -69,6 +69,14 @@ Future<void> _run() async {
     // start() flips it so start() applies the background plan instead of the
     // foreground one (start() only jumps to active when it's still foreground).
     final engine = container.read(locationServiceProvider)
+      // Defect #2-new (battery): the native PointForegroundService already
+      // self-promoted the FGS BEFORE it launched this headless engine, and the
+      // FGS MethodChannel is registered ONLY in MainActivity's app engine — not
+      // here. So this engine must NOT start/retry its own FGS: a start() would
+      // throw MissingPluginException and the confirm-then-retry (#4) would arm a
+      // 5s re-arm timer FOREVER (it can never succeed), unbounded wakeful churn
+      // in the resumed state. Mark the FGS externally-owned so start() skips it.
+      ..markForegroundServiceExternallyOwned()
       ..setSharing(sharing: true)
       ..onBackground();
     await engine.start();

@@ -54,6 +54,11 @@ class _FakeForegroundService implements ForegroundServiceController {
   int stopCount = 0;
   bool running = false;
 
+  final _promotions = StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get promotions => _promotions.stream;
+
   @override
   Future<bool> start() async {
     startCount++;

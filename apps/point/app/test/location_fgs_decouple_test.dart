@@ -71,6 +71,15 @@ class _FakeForegroundService implements ForegroundServiceController {
   /// does not come up, so the engine must re-arm instead of latching it running.
   bool refuseStart = false;
 
+  final _promotions = StreamController<bool>.broadcast(sync: true);
+
+  @override
+  Stream<bool> get promotions => _promotions.stream;
+
+  /// Defect #1-remnant: drive the async native `startForeground` PROMOTION
+  /// result the engine now keys on (separate from the accepted start below).
+  void emitPromotion({required bool promoted}) => _promotions.add(promoted);
+
   @override
   Future<bool> start() async {
     startCount++;
@@ -335,6 +344,80 @@ void main() {
 
       unawaited(h.service.dispose());
       async.flushMicrotasks();
+    });
+  });
+
+  test('Defect #1-remnant: an ACCEPTED start whose async startForeground '
+      'PROMOTION is later REFUSED is NOT left latched — the engine un-latches '
+      'and re-arms, then a CONFIRMED promotion stops the churn. (The accepted '
+      'startForegroundService is not proof the service reached foreground.)', () {
+    fakeAsync((async) {
+      final h = build();
+      unawaited(h.service.start());
+      async.flushMicrotasks();
+      // The start REQUEST was accepted — but that is the synchronous accept, not
+      // the survival-critical promotion.
+      expect(h.fgs.startCount, 1);
+
+      // The async startForeground PROMOTION is then refused (the service stops
+      // itself → FGS actually DOWN). The native side reports the failure; and a
+      // retry keeps being refused until the OS window opens.
+      h.fgs
+        ..refuseStart = true
+        ..emitPromotion(promoted: false);
+
+      // Before the fix this was invisible to Dart (start() had already returned
+      // true) so nothing re-armed and the engine believed a dead FGS was up.
+      // Now it re-arms: the backoff fires and retries.
+      async
+        ..flushMicrotasks()
+        ..elapse(const Duration(seconds: 5))
+        ..flushMicrotasks();
+      expect(h.fgs.startCount, greaterThanOrEqualTo(2),
+          reason: 're-armed after the promotion refusal');
+
+      // The OS now allows it: a CONFIRMED promotion latches and cancels the
+      // re-arm — no unbounded churn once the survival service is truly up.
+      h.fgs
+        ..refuseStart = false
+        ..emitPromotion(promoted: true);
+      final settled = h.fgs.startCount;
+      async
+        ..elapse(const Duration(seconds: 30))
+        ..flushMicrotasks();
+      expect(h.fgs.startCount, settled,
+          reason: 'a confirmed promotion stops the retries');
+
+      unawaited(h.service.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('Defect #2-new (R9 headless resume): a FGS marked externally-owned is '
+      'never started/stopped/retried by the engine — no unbounded 5s wakeful '
+      'churn behind the native service that already holds the foreground', () {
+    fakeAsync((async) {
+      final h = build();
+      // Even a channel that would refuse (the headless engine has no FGS channel
+      // registered) must never be touched once the FGS is externally-owned.
+      h.fgs.refuseStart = true;
+      h.service.markForegroundServiceExternallyOwned();
+      unawaited(h.service.start());
+      async
+        ..flushMicrotasks()
+        // Long past every 5s re-arm the old headless path would have spun.
+        ..elapse(const Duration(minutes: 5))
+        ..flushMicrotasks();
+
+      expect(h.fgs.startCount, 0, reason: 'engine never starts its own FGS');
+      expect(h.fgs.stopCount, 0);
+      // The rest of the resume is unaffected — GPS still comes up.
+      expect(h.geo.openCount, greaterThanOrEqualTo(1));
+
+      unawaited(h.service.dispose());
+      async.flushMicrotasks();
+      // Dispose must not reach for the externally-owned FGS either.
+      expect(h.fgs.stopCount, 0);
     });
   });
 }

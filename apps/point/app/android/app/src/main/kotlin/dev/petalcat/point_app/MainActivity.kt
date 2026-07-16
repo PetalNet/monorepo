@@ -25,6 +25,8 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         PointForegroundService.appEngineAttached = false
+        // Defect #1-remnant: drop the promotion bridge with the engine it targets.
+        PointForegroundService.promotionListener = null
         super.onDestroy()
     }
 
@@ -41,21 +43,30 @@ class MainActivity : FlutterActivity() {
                 }
             }
         // DEFECT #2: start/stop OUR OWN persistent location foreground service.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, fgsChannelName)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "start" -> {
-                        // Defect #5: report whether the OS accepted the start so
-                        // the Dart engine confirms + re-arms instead of latching.
-                        result.success(PointForegroundService.start(applicationContext))
-                    }
-                    "stop" -> {
-                        PointForegroundService.stop(applicationContext)
-                        result.success(null)
-                    }
-                    else -> result.notImplemented()
+        val fgsChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, fgsChannelName)
+        fgsChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    // Defect #5: report whether the OS accepted the start so
+                    // the Dart engine confirms + re-arms instead of latching.
+                    result.success(PointForegroundService.start(applicationContext))
                 }
+                "stop" -> {
+                    PointForegroundService.stop(applicationContext)
+                    result.success(null)
+                }
+                else -> result.notImplemented()
             }
+        }
+        // Defect #1-remnant: the accepted start is NOT the survival-critical
+        // signal — the async `startForeground` PROMOTION (in the service's
+        // onStartCommand) is. Bridge its result back to the Dart engine so it
+        // latches the FGS running only on a CONFIRMED promotion and re-arms on a
+        // promotion refusal. invokeMethod must run on the platform (UI) thread.
+        PointForegroundService.promotionListener = { promoted ->
+            runOnUiThread { fgsChannel.invokeMethod("onForegroundPromotion", promoted) }
+        }
     }
 
     private fun isIgnoringBatteryOptimizations(): Boolean {

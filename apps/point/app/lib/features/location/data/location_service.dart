@@ -136,7 +136,14 @@ class LocationService {
        _positionStream = positionStream ?? _geolocatorStream,
        _currentPosition = currentPosition ?? _geolocatorCurrent,
        _accelStream = accelStream ?? accelerometerEventStream,
-       _fgs = foregroundService ?? const PlatformForegroundServiceController();
+       _fgs = foregroundService ?? PlatformForegroundServiceController() {
+    // Defect #1-remnant: the FGS's AUTHORITATIVE state is the async
+    // startForeground PROMOTION, reported over [ForegroundServiceController.
+    // promotions] AFTER start() returns. start()'s bool is only the synchronous
+    // accept of the start request; a promotion refusal (the service stops
+    // itself) must un-latch the FGS and re-arm, which start() alone can't see.
+    _fgsPromotionSub = _fgs.promotions.listen(_onForegroundPromotion);
+  }
 
   static Stream<Position> _geolocatorStream(LocationSettings settings) =>
       Geolocator.getPositionStream(locationSettings: settings);
@@ -161,6 +168,18 @@ class LocationService {
   /// reopen the geolocator stream) without ever dropping the FGS.
   final ForegroundServiceController _fgs;
   bool _fgsRunning = false;
+  // Defect #2-new (R9 headless resume): TRUE when the foreground service is
+  // owned by the NATIVE side, not this Dart engine. On the boot/kill-resume path
+  // `PointForegroundService` self-promotes the FGS BEFORE launching this
+  // headless engine, and the FGS start/stop MethodChannel is registered ONLY in
+  // MainActivity's app engine — never here. So this engine must NOT start/stop/
+  // retry the FGS over the (unregistered) channel: a start() would throw
+  // MissingPluginException → the Defect-#4 confirm-then-retry would arm the 5s
+  // re-arm timer FOREVER (it can never succeed), unbounded wakeful churn in the
+  // battery-critical resumed state. The native service already holds the process
+  // foreground for the whole headless session. See [markForegroundServiceExternallyOwned].
+  bool _fgsExternallyOwned = false;
+  StreamSubscription<bool>? _fgsPromotionSub;
   // Defect #4: whether the FGS is WANTED (sharing, not ghosted/disposed). The
   // async start/stop path keys on this so a stop that lands while a start is in
   // flight always wins — no orphan FGS left running past a hard stop.
@@ -453,7 +472,21 @@ class LocationService {
     );
   }
 
+  /// R9 headless resume (Defect #2-new): mark the foreground service as owned by
+  /// the native service. Call BEFORE [start] on the boot/kill-resume headless
+  /// engine so this engine never starts/stops/retries its own FGS over a channel
+  /// that is not registered here — the native service already holds the process
+  /// foreground. See [_fgsExternallyOwned].
+  void markForegroundServiceExternallyOwned() {
+    _fgsExternallyOwned = true;
+  }
+
   void _startForegroundService() {
+    // Defect #2-new: on the R9 headless resume the native service owns the FGS;
+    // don't start/retry it over the (unregistered) channel — a start() would
+    // throw MissingPluginException and the Defect-#4 retry would then spin the
+    // 5s re-arm timer forever. The native side already holds the foreground.
+    if (_fgsExternallyOwned) return;
     // Defect #4: do NOT latch `_fgsRunning = true` before the async start — the
     // native start can be refused (Android 12+ background FGS-with-location
     // block) and latching optimistically left us believing our survival service
@@ -493,7 +526,37 @@ class LocationService {
     _fgsRetryTimer = Timer(_fgsRetryBackoff, _startForegroundService);
   }
 
+  /// Defect #1-remnant: the AUTHORITATIVE FGS result, delivered after start()
+  /// returns. start()'s bool only reported that the OS ACCEPTED the start
+  /// request; the process is truly foreground-promoted only when the native
+  /// `startForeground` succeeds (async, in the service's onStartCommand). A
+  /// refusal there stops the service — the FGS is DOWN while start() said "ok" —
+  /// so un-latch and re-arm instead of believing a dead survival service is up.
+  void _onForegroundPromotion(bool promoted) {
+    // Native owns the FGS on the headless resume — nothing to track here.
+    if (_fgsExternallyOwned) return;
+    // A stop (ghost/dispose) already won — don't resurrect the FGS.
+    if (!_fgsWanted) return;
+    if (promoted) {
+      // Confirmed foreground-promoted: latch and drop any pending re-arm.
+      _fgsRunning = true;
+      _fgsRetryTimer?.cancel();
+      _fgsRetryTimer = null;
+      return;
+    }
+    // Promotion refused (usually a missing FOREGROUND_SERVICE_LOCATION/location
+    // permission a retry can't fix, but also a transient background-start window
+    // that reopening the app clears). Don't latch a dead FGS — re-arm, mirroring
+    // the Defect-#4 accept-refusal path.
+    _fgsRunning = false;
+    _fgsRetryTimer?.cancel();
+    _fgsRetryTimer = Timer(_fgsRetryBackoff, _startForegroundService);
+  }
+
   void _stopForegroundService() {
+    // Native owns the FGS lifecycle on the headless resume — don't touch it (the
+    // stop channel isn't registered here anyway). Defect #2-new.
+    if (_fgsExternallyOwned) return;
     _fgsWanted = false;
     _fgsRetryTimer?.cancel();
     _fgsRetryTimer = null;
@@ -758,6 +821,7 @@ class LocationService {
     await _accelSub?.cancel();
     _resetMotionAccrual();
     _stopForegroundService();
+    await _fgsPromotionSub?.cancel();
     _gpsRetryTimer?.cancel();
     _stillnessTimer?.cancel();
     _heartbeatTimer?.cancel();
