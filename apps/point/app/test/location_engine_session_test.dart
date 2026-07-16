@@ -50,9 +50,19 @@ class _Harness {
     service = LocationService(
       checkPermission: () async => _permission,
       requestPermission: () async => _permission,
-      positionStream: (_) => gps.stream,
+      positionStream: (settings) {
+        lastGpsSettings = settings;
+        gpsSettings.add(settings);
+        return gps.stream;
+      },
       currentPosition: (_) {
         heartbeatRequests++;
+        // A parked provider that cannot get a fresh fix (indoors, Doze
+        // throttled) must still fail toward relaying — the engine floors the
+        // last-known position rather than going silent.
+        if (heartbeatShouldThrow) {
+          return Future<Position>.error(StateError('no fix'));
+        }
         final c = Completer<Position>();
         pendingHeartbeats.add(c);
         if (autocompleteHeartbeats) c.complete(_pos());
@@ -69,7 +79,12 @@ class _Harness {
   final fixes = <Fix>[];
   int heartbeatRequests = 0;
   bool autocompleteHeartbeats = true;
+  bool heartbeatShouldThrow = false;
   final pendingHeartbeats = <Completer<Position>>[];
+  // The settings the engine last opened / every open of the position stream —
+  // lets a test read the applied accuracy + foreground-service config.
+  LocationSettings? lastGpsSettings;
+  final gpsSettings = <LocationSettings>[];
   late final LocationService service;
   late final StreamSubscription<Fix> sub;
 
@@ -187,8 +202,8 @@ void main() {
       },
     );
 
-    test('stationary send loop: stillness ramps down, heartbeat keeps fixes '
-        'flowing', () {
+    test('stationary send loop: stillness ramps down to a LOW-power stream '
+        '(FGS kept alive), heartbeat keeps fixes flowing', () {
       fakeAsync((async) {
         final h = _Harness();
         unawaited(h.service.start());
@@ -200,13 +215,23 @@ void main() {
         async.flushMicrotasks();
         expect(h.fixes, hasLength(1));
 
-        // …which ramps active → idle: GPS off, heartbeat armed.
+        // …which ramps active → idle. The high-power GPS radio backs off, but
+        // the position stream STAYS OPEN at low power: geolocator only runs the
+        // Android foreground service while a stream is live, and that service is
+        // the only thing that keeps Doze from freezing the isolate (tracker
+        // 733 — used to `_stopGps()` here and go dark).
         async.elapse(const Duration(seconds: 31));
         expect(h.service.activity, LocationActivity.idle);
-        expect(h.gps.hasListener, isFalse);
+        expect(h.gps.hasListener, isTrue);
+        expect(h.lastGpsSettings!.accuracy, LocationAccuracy.low);
+        expect(
+          (h.lastGpsSettings! as AndroidSettings).foregroundNotificationConfig,
+          isNotNull,
+          reason: 'the FGS keep-alive must survive going parked',
+        );
 
-        // The 15-minute heartbeat still reports presence.
-        async.elapse(const Duration(minutes: 15));
+        // The 5-minute hard floor still reports presence.
+        async.elapse(const Duration(minutes: 5));
         expect(h.heartbeatRequests, 1);
         expect(h.fixes, hasLength(2));
         unawaited(h.close());
@@ -223,7 +248,7 @@ void main() {
         async
           ..flushMicrotasks()
           ..elapse(const Duration(seconds: 31)) // → idle, heartbeat armed
-          ..elapse(const Duration(minutes: 15)); // heartbeat request opens
+          ..elapse(const Duration(minutes: 5)); // heartbeat request opens
         expect(h.pendingHeartbeats, hasLength(1));
         final before = h.fixes.length;
 
@@ -247,10 +272,88 @@ void main() {
         expect(h.service.activity, LocationActivity.active);
 
         // No fix ever arrives (indoors): the acquisition window must close
-        // rather than hold high-power GPS forever.
+        // rather than hold HIGH-power GPS forever. It ramps to idle and drops
+        // to a low-power stream — it does not keep pinning high-accuracy GPS.
         async.elapse(const Duration(seconds: 31));
         expect(h.service.activity, LocationActivity.idle);
-        expect(h.gps.hasListener, isFalse);
+        expect(h.gps.hasListener, isTrue);
+        expect(h.lastGpsSettings!.accuracy, LocationAccuracy.low);
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('THE DOZE REGRESSION: backgrounded + perfectly still keeps the '
+        'foreground service alive and relays on a periodic floor', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+
+        // One real fix, then the app is backgrounded and the person sits still
+        // (sitting at work all day — the owner's actual symptom).
+        h.gps.add(_pos());
+        async.flushMicrotasks();
+        h.service.onBackground();
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // stillness → idle
+        expect(h.service.activity, LocationActivity.idle);
+
+        // The foreground-service position stream MUST stay open — it is the
+        // Doze exemption. Under the old engine this was torn down and the phone
+        // went dark for hours.
+        expect(h.gps.hasListener, isTrue);
+        expect(
+          (h.lastGpsSettings! as AndroidSettings).foregroundNotificationConfig,
+          isNotNull,
+        );
+
+        // Perfectly still: the low-power stream emits nothing (distanceFilter),
+        // yet a relay must still leave the device on the ~5-minute floor…
+        final afterIdle = h.fixes.length;
+        async.elapse(const Duration(minutes: 5));
+        expect(h.fixes.length, afterIdle + 1);
+        // …and keep leaving, floor after floor, for the whole still stretch.
+        async.elapse(const Duration(minutes: 5));
+        expect(h.fixes.length, afterIdle + 2);
+        async.elapse(const Duration(minutes: 5));
+        expect(h.fixes.length, afterIdle + 3);
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('the floor fails toward relaying: a failed fresh fix still re-relays '
+        'the last-known position (never goes dark)', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+
+        final seed = _pos(lat: 38.70, lon: -90.44);
+        h.gps.add(seed);
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // → idle
+        expect(h.service.activity, LocationActivity.idle);
+
+        // The provider can no longer get a fresh fix (indoors / throttled).
+        h.heartbeatShouldThrow = true;
+        final before = h.fixes.length;
+        async
+          ..elapse(const Duration(minutes: 5))
+          ..flushMicrotasks();
+
+        // A relay STILL leaves — the last-known position, re-stamped now, so a
+        // viewer keeps seeing the person instead of a dark dot.
+        expect(h.fixes.length, before + 1);
+        final floored = h.fixes.last;
+        expect(floored.lat, seed.latitude);
+        expect(floored.lon, seed.longitude);
+        expect(floored.timestampMs, greaterThan(seed.timestamp.millisecondsSinceEpoch));
+
         unawaited(h.close());
         async.flushMicrotasks();
       });

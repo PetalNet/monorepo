@@ -43,20 +43,34 @@ class LocationHealth {
 /// The concrete battery engine (GO-bar #1/#5/#6). Drives the pure
 /// [LocationStateMachine] with real sensors and applies each [EnginePlan]:
 ///
-/// - **Layer 1 (accel wake-gate)** — while idle/sleeping the GPS radio is OFF
-///   and only the accelerometer runs; motion re-arms GPS. This is the primary
-///   battery win over always-on-GPS trackers.
+/// - **Layer 1 (accel wake-gate)** — while idle/sleeping the high-power GPS
+///   radio is off; the accelerometer runs and promotes to active on real
+///   motion. A cheap LOW-power (fused/network) position stream stays open so
+///   the accelerometer path keeps its battery edge over always-on-GPS trackers.
 /// - **Adaptive GPS cadence** — the position stream's `distanceFilter`/accuracy
 ///   are reconfigured from the plan (fast/active/idle).
-/// - **Foreground service** — a persistent notification keeps Android from
-///   killing background location while sharing (the hook legacy never wired).
+/// - **Foreground service under Doze** — a persistent notification + wakelock
+///   keeps Android from freezing the isolate. Geolocator only runs that service
+///   while a position stream is open, so the engine keeps a low-power stream
+///   alive even while parked. Tearing it down when still is exactly what made a
+///   backgrounded, stationary phone go dark for hours under Doze (tracker 733):
+///   with no service the isolate freezes and every Dart timer / sensor callback
+///   stops firing.
+/// - **Hard-floor heartbeat** — while parked, a periodic tick re-relays the
+///   last-known position (with a fresh timestamp) so a perfectly still device
+///   still reports presence; it fires only because the foreground service keeps
+///   the isolate awake. It fails toward relaying: on a failed fresh fix it still
+///   floors the last-known position rather than going silent.
 /// - **Ghost hard-stop** — cancels GPS *and* the foreground service.
 ///
 /// Emits [Fix]es on [fixes]; the relay layer subscribes.
 class LocationService {
   LocationService({
     EngineConfig config = const EngineConfig(),
-    this.heartbeat = const Duration(minutes: 15),
+    // ~5-minute hard floor: how often a parked device re-relays presence so it
+    // never goes dark while still. Short enough to stay "live" to viewers,
+    // cheap because it's a single low-power (fused) fix, not a GPS lock.
+    this.heartbeat = const Duration(minutes: 5),
     Future<LocationPermission> Function()? checkPermission,
     Future<LocationPermission> Function()? requestPermission,
     Stream<Position> Function(LocationSettings)? positionStream,
@@ -86,10 +100,11 @@ class LocationService {
   final Future<Position> Function(LocationSettings) _currentPosition;
   final Stream<AccelerometerEvent> Function() _accelStream;
 
-  /// While stationary (idle/sleeping) GPS is OFF for battery, but a cheap
-  /// low-accuracy (network/fused) fix on this cadence keeps presence fresh so a
-  /// viewer still sees "at home". This is the battery-first heartbeat — GPS
-  /// bursts only when actually moving (the win over always-poll trackers).
+  /// The hard floor while stationary (idle/sleeping): the high-power GPS radio
+  /// is off, but on this cadence the engine re-relays a fix (a cheap fused/
+  /// network sample, or the last-known position if none can be had) so a viewer
+  /// still sees "at home" and the phone never goes dark while parked. GPS bursts
+  /// only when actually moving (the win over always-poll trackers).
   final Duration heartbeat;
 
   final _fixes = StreamController<Fix>.broadcast();
@@ -198,10 +213,18 @@ class LocationService {
     switch (plan.activity) {
       case LocationActivity.idle:
       case LocationActivity.sleeping:
-        // Layer 1: GPS OFF, accelerometer armed to wake on motion, plus a cheap
-        // periodic network fix so a stationary person still reports presence.
-        _stopGps();
+        // Parked: the accelerometer promotes to active on real motion, and a
+        // periodic hard-floor heartbeat re-relays presence while perfectly
+        // still. Crucially we KEEP a low-power (fused/network) position stream
+        // open — geolocator only runs the Android foreground service while a
+        // stream is live, and that service (+ wakelock) is the only thing that
+        // stops Android Doze from freezing the isolate. Stopping GPS here — as
+        // the engine used to — killed the service, froze the heartbeat timer
+        // and the accelerometer, and the phone went dark for hours (tracker
+        // 733). The stream is low accuracy + a wide distanceFilter, so the GPS
+        // radio stays effectively off; it is the FGS keep-alive, not a GPS burst.
         _startAccel();
+        _startGps(plan);
         _startHeartbeat();
       case LocationActivity.active:
       case LocationActivity.fast:
@@ -254,7 +277,10 @@ class LocationService {
       _ => 50,
     };
     return AndroidSettings(
-      accuracy: moving ? LocationAccuracy.high : LocationAccuracy.medium,
+      // Parked = LOW power (fused/cell-wifi, PRIORITY_LOW_POWER): this stream
+      // exists to keep the foreground service alive under Doze, not to burn the
+      // GPS radio. Moving = high accuracy for a real track.
+      accuracy: moving ? LocationAccuracy.high : LocationAccuracy.low,
       distanceFilter: distanceFilter,
       intervalDuration: plan.gpsInterval,
       // The foreground service is what survives background + doze; only shown
@@ -322,8 +348,9 @@ class LocationService {
     _heartbeatTimer = Timer.periodic(heartbeat, (timer) async {
       // Cheap fix while parked: low accuracy uses network/fused, not the GPS
       // radio, so it costs a fraction of a real GPS lock.
+      Position? p;
       try {
-        final p = await _currentPosition(
+        p = await _currentPosition(
           const LocationSettings(
             accuracy: LocationAccuracy.low,
             // Fail fast instead of spinning if a fix can't be had (measured:
@@ -331,22 +358,54 @@ class LocationService {
             timeLimit: Duration(seconds: 20),
           ),
         );
-        // Ghost (or dispose) can land while the request is in flight, and a
-        // hard stop only cancels FUTURE ticks — a fix must never leak out
-        // past go-dark (safety-critical; v1.2.1 review).
-        if (!timer.isActive || !_machine.plan.gpsEnabled) return;
-        _emit(p);
       } on Object catch (e) {
-        _emitHealth(
-          LocationHealth(
-            status: LocationHealthStatus.blocked,
-            lastFixAt: _currentHealth.lastFixAt,
-            failure: LocationHealthFailure.heartbeat,
-          ),
-        );
+        // Swallow — the floor below still relays. A failed fresh fix (indoors,
+        // a Doze-throttled provider) must NOT be the thing that goes dark.
         if (kDebugMode) debugPrint('heartbeat fix error: $e');
       }
+      // Ghost (or dispose) can land while the request is in flight, and a hard
+      // stop only cancels FUTURE ticks — nothing must leak out past go-dark
+      // (safety-critical; v1.2.1 review).
+      if (!timer.isActive || !_machine.plan.gpsEnabled) return;
+      if (p != null) {
+        _emit(p);
+        return;
+      }
+      // Hard floor: no fresh fix, but re-relay the LAST-KNOWN position with a
+      // current timestamp so a still, backgrounded phone still reports presence
+      // instead of going dark. Sent directly through [fixes], never buffered.
+      _emitFloor();
     });
+  }
+
+  /// Re-relay the last-known position stamped `now` so a parked device stays
+  /// visible even when no fresh fix can be acquired. With no fix ever taken yet
+  /// there is nothing to floor on — surface a degraded heartbeat instead.
+  void _emitFloor() {
+    final last = _lastFix;
+    if (last == null) {
+      _emitHealth(
+        LocationHealth(
+          status: LocationHealthStatus.blocked,
+          lastFixAt: _currentHealth.lastFixAt,
+          failure: LocationHealthFailure.heartbeat,
+        ),
+      );
+      return;
+    }
+    final now = DateTime.now();
+    final fix = Fix(
+      lat: last.lat,
+      lon: last.lon,
+      speed: 0,
+      accuracy: last.accuracy,
+      timestampMs: now.millisecondsSinceEpoch,
+    );
+    _lastFix = fix;
+    _emitHealth(
+      LocationHealth(status: LocationHealthStatus.live, lastFixAt: now),
+    );
+    _fixes.add(fix);
   }
 
   void _stopHeartbeat() {
