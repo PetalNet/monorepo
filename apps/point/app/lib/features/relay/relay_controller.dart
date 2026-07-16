@@ -33,7 +33,23 @@ class PeerFix {
 
   double? get lat => (data['lat'] as num?)?.toDouble();
   double? get lon => (data['lon'] as num?)?.toDouble();
+
+  /// When the POSITION was actually sampled. For a parked keepalive this is the
+  /// real (older) sample time, NOT the moment the keepalive was sent.
   int? get timestamp => (data['timestamp'] as num?)?.toInt();
+
+  /// When the DEVICE last proved it is alive (the fix/keepalive leaving the
+  /// device) — the clock that decides alive vs dark. Older clients omit
+  /// `alive_at`, so fall back to the position time (their fixes and liveness
+  /// coincided).
+  int? get aliveAt =>
+      (data['alive_at'] as num?)?.toInt() ?? timestamp;
+
+  /// True when this is a parked keepalive/floor: the device is alive as of
+  /// [aliveAt] but hasn't moved since [timestamp]. Absent on old payloads.
+  /// Carried as `1` in the num-typed payload; a bool is accepted defensively.
+  bool get parked => data['parked'] == 1 || data['parked'] == true;
+
   double? get accuracy {
     final value = (data['accuracy'] as num?)?.toDouble();
     return value != null && value.isFinite && value > 0 ? value : null;
@@ -42,14 +58,22 @@ class PeerFix {
 
 /// The plaintext shape encrypted into each pairwise MLS group.
 ///
-/// Accuracy is additive for cross-version compatibility: older clients ignore
-/// it, while newer clients continue to accept payloads that predate the field.
+/// Additive for cross-version compatibility (older clients ignore unknown
+/// fields; newer clients accept payloads that predate them):
+/// - `accuracy` — horizontal precision (omitted when invalid);
+/// - `alive_at` — device liveness clock; only emitted when it differs from
+///   `timestamp` (a parked keepalive), so a live fix stays byte-for-byte as
+///   before and its liveness falls out of `timestamp`;
+/// - `parked` — marks a keepalive so the viewer renders "parked", not a
+///   falsely-fresh "live". Only emitted when true.
 Map<String, num> locationFixPayload(Fix fix) => {
   'lat': fix.lat,
   'lon': fix.lon,
   'speed': fix.speed,
   if (fix.accuracy.isFinite && fix.accuracy > 0) 'accuracy': fix.accuracy,
   'timestamp': fix.timestampMs,
+  if (fix.aliveAtMs != fix.timestampMs) 'alive_at': fix.aliveAtMs,
+  if (fix.parked) 'parked': 1,
 };
 
 bool _isValidPeerFix(Map<String, dynamic> data) {
@@ -1169,13 +1193,20 @@ class RelayController {
     if (expectedTimestamp != null && timestamp != expectedTimestamp) {
       return false;
     }
-    if (timestamp <= (_latestFixTimestamp[userId] ?? 0)) return false;
+    // Dedup/order on the LIVENESS clock, not the position clock. A parked
+    // keepalive re-relays the SAME (older) position with a newer `alive_at`, so
+    // ordering on `timestamp` would drop every keepalive as a duplicate and the
+    // device would wrongly go dark. `alive_at` falls back to `timestamp` for
+    // old clients (their fixes and liveness coincided), so a moving stream is
+    // unchanged.
+    final liveness = (data['alive_at'] as num?)?.toInt() ?? timestamp;
+    if (liveness <= (_latestFixTimestamp[userId] ?? 0)) return false;
     final fix = PeerFix(
       userId: userId,
       data: Map<String, dynamic>.from(data),
       receivedAt: DateTime.now(),
     );
-    _latestFixTimestamp[userId] = timestamp;
+    _latestFixTimestamp[userId] = liveness;
     _cachedPeerFixes[userId] = fix;
     final permanent = _ref
         .read(peopleControllerProvider)
@@ -1258,7 +1289,9 @@ class RelayController {
       decoded.sort((a, b) => (b.timestamp ?? 0).compareTo(a.timestamp ?? 0));
       for (final fix in decoded.take(_maxCachedPeers)) {
         _cachedPeerFixes[fix.userId] = fix;
-        _latestFixTimestamp[fix.userId] = fix.timestamp!;
+        // Seed the dedup high-water mark on the liveness clock (falls back to
+        // the position time for old cached payloads).
+        _latestFixTimestamp[fix.userId] = fix.aliveAt ?? fix.timestamp!;
         final encoded = entries[fix.userId];
         if (encoded is Map<String, dynamic> &&
             encoded['access'] == 'permanent') {

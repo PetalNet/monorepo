@@ -44,6 +44,53 @@ void main() {
     );
   });
 
+  test('a live fix omits alive_at/parked; a parked keepalive carries the REAL '
+      'position time plus a newer liveness clock', () {
+    // A live fix: aliveAt == position, not parked → byte-for-byte as before
+    // (old clients keep parsing it; the payload gains nothing).
+    const live = Fix(
+      lat: 1,
+      lon: 2,
+      speed: 3,
+      accuracy: 0,
+      timestampMs: 1000,
+    );
+    final livePayload = locationFixPayload(live);
+    expect(livePayload.containsKey('alive_at'), isFalse);
+    expect(livePayload.containsKey('parked'), isFalse);
+    expect(livePayload['timestamp'], 1000);
+
+    // A parked keepalive: real (older) position time is preserved, liveness is
+    // stamped now, and the parked flag is set.
+    const keepalive = Fix(
+      lat: 1,
+      lon: 2,
+      speed: 0,
+      accuracy: 0,
+      timestampMs: 1000, // REAL last-sample time — NOT re-stamped to now
+      aliveAtMs: 5000, // alive as of now
+      parked: true,
+    );
+    final payload = locationFixPayload(keepalive);
+    expect(payload['timestamp'], 1000, reason: 'position time is not faked');
+    expect(payload['alive_at'], 5000, reason: 'liveness carried separately');
+    expect(payload['parked'], 1);
+
+    // And the receiver reads both clocks + the flag back out.
+    final peer = PeerFix(userId: 'p@x', data: Map<String, dynamic>.from(payload));
+    expect(peer.timestamp, 1000);
+    expect(peer.aliveAt, 5000);
+    expect(peer.parked, isTrue);
+
+    // An old payload (no alive_at/parked): liveness falls back to position.
+    const old = PeerFix(
+      userId: 'p@x',
+      data: {'lat': 1, 'lon': 2, 'timestamp': 1000},
+    );
+    expect(old.aliveAt, 1000);
+    expect(old.parked, isFalse);
+  });
+
   group('RelayQueue (durable outbound queue, GO-bar #3)', () {
     test('persists across a reload (survives restart)', () async {
       final store = MemoryRelayStore();

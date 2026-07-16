@@ -1,7 +1,11 @@
 name: point_app
 description: "Point — Matrix for location. E2E-encrypted, federatable location sharing."
 publish_to: "none"
-version: 1.2.7+12
+# R13 — committed source of truth for versionName+versionCode (build-name /
+# build-number). `<name>+<code>`; the code MUST increase monotonically. The
+# tool/check_version_code.sh guard fails the build if it regresses vs the last
+# published code in tool/published_version_code.
+version: 1.2.12+2017
 
 environment:
   sdk: ^3.10.0

@@ -313,8 +313,10 @@ void main() {
     'fresh open reconciles an aged current fix into a dark marker at last-known',
     (tester) async {
       final now = DateTime(2026, 7, 13, 12);
+      // > darkAfter (45m, raised in 1.2.12 above the 30-min parked heartbeat)
+      // so an aged cached fix reconciles to a dark marker.
       final timestamp = now
-          .subtract(const Duration(minutes: 16))
+          .subtract(const Duration(minutes: 50))
           .millisecondsSinceEpoch;
       FlutterSecureStorage.setMockInitialValues({});
       final api = _FakeApi()

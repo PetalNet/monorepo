@@ -7,6 +7,18 @@ import 'package:sensors_plus/sensors_plus.dart';
 
 /// A location fix ready for the relay (still plaintext here — encryption happens
 /// in the crypto/relay layer before it leaves the device).
+///
+/// Two clocks, deliberately separate (the 1.2.11 go-dark fix):
+/// - [timestampMs] is when the POSITION was actually sampled. It is NEVER
+///   fabricated to `now`; a parked keepalive carries the real (older) sample
+///   time so a viewer can tell "moving right now" from "sitting where they were
+///   an hour ago".
+/// - [aliveAtMs] is when the DEVICE last proved it is alive (this fix leaving
+///   the device). For a live GPS fix the two coincide; for a parked keepalive
+///   [aliveAtMs] is `now` while [timestampMs] stays old. Dark/alive is driven by
+///   [aliveAtMs]; position freshness by [timestampMs].
+/// - [parked] marks a keepalive/floor (position older than liveness) so the
+///   viewer renders "parked · here since T" instead of a falsely-fresh "live".
 class Fix {
   const Fix({
     required this.lat,
@@ -14,12 +26,24 @@ class Fix {
     required this.speed,
     required this.accuracy,
     required this.timestampMs,
-  });
+    int? aliveAtMs,
+    this.parked = false,
+  }) : aliveAtMs = aliveAtMs ?? timestampMs;
   final double lat;
   final double lon;
   final double speed;
   final double accuracy;
+
+  /// When the position was actually sampled (never re-stamped to `now`).
   final int timestampMs;
+
+  /// When the device last proved it is alive (this fix leaving the device).
+  /// Equals [timestampMs] for a live fix; `now` for a parked keepalive.
+  final int aliveAtMs;
+
+  /// True for a keepalive/floor: the position is [timestampMs] (older) but the
+  /// device is alive as of [aliveAtMs].
+  final bool parked;
 }
 
 enum LocationHealthStatus { idle, acquiring, live, blocked }
@@ -56,25 +80,30 @@ class LocationHealth {
 ///   backgrounded, stationary phone go dark for hours under Doze (tracker 733):
 ///   with no service the isolate freezes and every Dart timer / sensor callback
 ///   stops firing.
-/// - **Hard-floor heartbeat** — while parked, a periodic tick re-relays the
-///   last-known position (with a fresh timestamp) so a perfectly still device
-///   still reports presence; it fires only because the foreground service keeps
-///   the isolate awake. It fails toward relaying: on a failed fresh fix it still
-///   floors the last-known position rather than going silent.
+/// - **Hard-floor heartbeat (parked keepalive)** — while parked, a periodic
+///   tick re-relays presence so a perfectly still device still reports in; it
+///   fires only because the foreground service keeps the isolate awake. It
+///   carries the REAL last-sample position time plus a separate alive-as-of-now
+///   signal (a parked keepalive), so a viewer sees "parked · here since T", not
+///   a falsely-fresh "live" — and a genuinely dead phone (no keepalive) darks.
+///   It fails toward relaying: on a failed fresh fix it still floors the
+///   last-known position rather than going silent.
 /// - **Ghost hard-stop** — cancels GPS *and* the foreground service.
 ///
 /// Emits [Fix]es on [fixes]; the relay layer subscribes.
 class LocationService {
   LocationService({
     EngineConfig config = const EngineConfig(),
-    // 15-minute cheap network heartbeat while parked — the D-024/D-028 SHIPPED
-    // value (the engine's on-device evidence is "clean 15-minute heartbeats").
-    // location-strategy.html's "Sleeping" row says 20min, but the engine
-    // shipped 15, so honor shipped. A perfectly still device re-relays presence
-    // on this floor so it never goes dark, each tick a single low-power (fused)
-    // fix — or the last-known position if none can be had — never a GPS lock.
-    // (v1.2.10's ~5-minute floor deviated from this; realigned to 15min.)
-    this.heartbeat = const Duration(minutes: 15),
+    // 30-minute cheap network heartbeat while parked (idle/parked keepalive —
+    // Parker's 1.2.12 decision). A perfectly still device re-relays presence on
+    // this floor so it never goes dark, each tick a single low-power (fused) fix
+    // — or the last-known position if none can be had — never a GPS lock. The
+    // viewer's dark threshold (people_presence.dart `darkAfter`) MUST sit above
+    // this with real margin (heartbeat 30m < dark 45m) so a parked-alive phone
+    // between keepalives is never mistaken for dead. INVARIANT: heartbeat period
+    // strictly < dark threshold. (1.2.10 shipped a ~5-min floor; 1.2.11 a 15-min
+    // one — 1.2.12 lands on 30 min with the distinct parked-presence state.)
+    this.heartbeat = const Duration(minutes: 30),
     Future<LocationPermission> Function()? checkPermission,
     Future<LocationPermission> Function()? requestPermission,
     Stream<Position> Function(LocationSettings)? positionStream,
@@ -122,6 +151,15 @@ class LocationService {
   StreamSubscription<AccelerometerEvent>? _accelSub;
   Timer? _stillnessTimer;
   Timer? _heartbeatTimer;
+
+  // GPS self-heal (R4): a subscription that errors out must not latch dark. We
+  // clear the applied plan (so the next _apply reopens a fresh stream) and, if
+  // nothing else drives an _apply, a backed-off timer re-arms. A fresh fix
+  // resets the backoff and cancels the pending retry.
+  Timer? _gpsRetryTimer;
+  static const _gpsRetryBase = Duration(seconds: 5);
+  static const _gpsRetryMax = Duration(minutes: 2);
+  Duration _gpsRetryBackoff = _gpsRetryBase;
   LocationActivity _appliedActivity = LocationActivity.idle;
   EnginePlan? _appliedGpsPlan;
   Fix? _lastFix;
@@ -213,9 +251,12 @@ class LocationService {
     final plan = _machine.plan;
 
     if (!plan.gpsEnabled) {
-      // Ghost / hard stop: everything off.
+      // Ghost / hard stop: everything off (including any pending GPS re-arm —
+      // a hard stop must not self-heal back into broadcasting).
       _stopGps();
       _stopAccel();
+      _gpsRetryTimer?.cancel();
+      _gpsRetryTimer = null;
       _stillnessTimer?.cancel();
       _heartbeatTimer?.cancel();
       _heartbeatTimer = null;
@@ -242,9 +283,16 @@ class LocationService {
         // and the accelerometer, and the phone went dark for hours (tracker
         // 733). The stream is low accuracy + a wide distanceFilter, so the GPS
         // radio stays effectively off; it is the FGS keep-alive, not a GPS burst.
+        final enteringParked =
+            _appliedActivity != LocationActivity.idle &&
+            _appliedActivity != LocationActivity.sleeping;
         _startAccel();
         _startGps(plan);
         _startHeartbeat();
+        // R7: close the initial dark gap. The moment we park, relay a keepalive
+        // NOW rather than waiting out the first 30-minute heartbeat — otherwise
+        // a device that just went still is briefly indistinguishable from dead.
+        if (enteringParked && _lastFix != null) _emitFloor();
       case LocationActivity.active:
       case LocationActivity.fast:
       case LocationActivity.ghost:
@@ -267,7 +315,15 @@ class LocationService {
     // (2s ↔ 12s), so we must reopen the stream on an interval/accuracy change or
     // the background cadence never takes effect.
     if (_gpsSub != null && _appliedGpsPlan == plan) return;
-    _stopGps();
+    // R3/R4 — MAKE-BEFORE-BREAK. The old engine `_stopGps()`'d here, then
+    // re-listened: that tears down the running foreground service, and on
+    // Android 12+ a *new* foreground-service-with-location cannot be started
+    // FROM BACKGROUND — so a parked→active wake in the background killed the
+    // FGS and the phone went dark for hours. Instead we open the replacement
+    // stream FIRST (the process is already foreground-promoted by the live FGS,
+    // so its FGS start is allowed), then cancel the previous one — the survival
+    // service never has a gap.
+    final previous = _gpsSub;
     _appliedGpsPlan = plan;
     final settings = _androidSettings(plan);
     _gpsSub = _positionStream(settings).listen(
@@ -280,9 +336,37 @@ class LocationService {
             failure: LocationHealthFailure.gps,
           ),
         );
+        // R4 — self-heal. Don't latch dark on a dead subscription. Clearing the
+        // applied plan defeats the no-op guard so the next _apply reopens a
+        // fresh stream (make-before-break), and a backed-off timer re-arms in
+        // case nothing else triggers an _apply. The erroring subscription is
+        // left in place so a stream that merely hiccuped still delivers its next
+        // value; the reopen replaces a truly-dead one.
+        _appliedGpsPlan = null;
+        _scheduleGpsRetry();
         if (kDebugMode) debugPrint('gps error: $e');
       },
     );
+    // Cancel the previous survival stream only AFTER the replacement is
+    // subscribed (never before its replacement is up).
+    unawaited(previous?.cancel());
+  }
+
+  /// R4 — re-arm GPS after an error with exponential backoff, so a dead
+  /// subscription recovers on its own instead of leaving the device dark.
+  /// Foreground/connectivity changes also re-arm (they call [_apply]).
+  void _scheduleGpsRetry() {
+    _gpsRetryTimer?.cancel();
+    _gpsRetryTimer = Timer(_gpsRetryBackoff, () {
+      _gpsRetryTimer = null;
+      _gpsRetryBackoff = Duration(
+        milliseconds: (_gpsRetryBackoff.inMilliseconds * 2).clamp(
+          _gpsRetryBase.inMilliseconds,
+          _gpsRetryMax.inMilliseconds,
+        ),
+      );
+      if (_started && _machine.plan.gpsEnabled) _apply();
+    });
   }
 
   LocationSettings _androidSettings(EnginePlan plan) {
@@ -329,6 +413,11 @@ class LocationService {
             fix.lon,
           );
     _lastFix = fix;
+    // A live fix proves the subscription is healthy: cancel any pending re-arm
+    // and reset the backoff (R4).
+    _gpsRetryTimer?.cancel();
+    _gpsRetryTimer = null;
+    _gpsRetryBackoff = _gpsRetryBase;
     _emitHealth(
       LocationHealth(status: LocationHealthStatus.live, lastFixAt: p.timestamp),
     );
@@ -421,9 +510,16 @@ class LocationService {
     });
   }
 
-  /// Re-relay the last-known position stamped `now` so a parked device stays
-  /// visible even when no fresh fix can be acquired. With no fix ever taken yet
-  /// there is nothing to floor on — surface a degraded heartbeat instead.
+  /// Parked keepalive: re-relay the last-KNOWN position so a still device stays
+  /// visible, but carry the REAL last-sample time as [Fix.timestampMs] and only
+  /// stamp `now` onto the SEPARATE liveness clock ([Fix.aliveAtMs]), flagged
+  /// [Fix.parked]. This is the 1.2.11 go-dark fix: the old floor re-stamped the
+  /// POSITION time to `now`, which made a dead phone look "live, at home" and,
+  /// worse, meant a genuinely dead device could not be told apart from a parked
+  /// one. Now the viewer reads the two clocks: recent liveness + older position
+  /// ⇒ "parked · here since T"; no liveness past the dark threshold ⇒ dark.
+  /// With no fix ever taken yet there is nothing to floor on — surface a
+  /// degraded heartbeat instead.
   void _emitFloor() {
     final last = _lastFix;
     if (last == null) {
@@ -442,7 +538,11 @@ class LocationService {
       lon: last.lon,
       speed: 0,
       accuracy: last.accuracy,
-      timestampMs: now.millisecondsSinceEpoch,
+      // REAL sample time — never re-stamped to now.
+      timestampMs: last.timestampMs,
+      // Alive as of now (the keepalive's departure), driving alive/dark.
+      aliveAtMs: now.millisecondsSinceEpoch,
+      parked: true,
     );
     _lastFix = fix;
     _emitHealth(
@@ -487,6 +587,7 @@ class LocationService {
     await _stopGpsAsync();
     await _accelSub?.cancel();
     _resetMotionAccrual();
+    _gpsRetryTimer?.cancel();
     _stillnessTimer?.cancel();
     _heartbeatTimer?.cancel();
     await _fixes.close();

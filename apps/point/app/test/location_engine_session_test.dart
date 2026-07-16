@@ -232,11 +232,19 @@ void main() {
           reason: 'the FGS keep-alive must survive going parked',
         );
 
-        // The DOCUMENTED 15-minute heartbeat still reports presence (NOT the
-        // 5-minute floor v1.2.10 shipped — that deviated from D-024/D-028).
-        async.elapse(const Duration(minutes: 15));
-        expect(h.heartbeatRequests, 1);
+        // R7: entering parked relays an IMMEDIATE keepalive (no currentPosition
+        // request — a floor of the last-known) so there's no dark gap before the
+        // first 30-minute timer. That's the 2nd fix, and it must NOT have burned
+        // a heartbeat request.
         expect(h.fixes, hasLength(2));
+        expect(h.heartbeatRequests, 0);
+        expect(h.fixes.last.parked, isTrue);
+
+        // The DOCUMENTED 30-minute parked heartbeat then reports presence (R1 —
+        // Parker's 1.2.12 value; 1.2.11 shipped 15min).
+        async.elapse(const Duration(minutes: 30));
+        expect(h.heartbeatRequests, 1);
+        expect(h.fixes, hasLength(3));
         unawaited(h.close());
         async.flushMicrotasks();
       });
@@ -251,7 +259,7 @@ void main() {
         async
           ..flushMicrotasks()
           ..elapse(const Duration(minutes: 2, seconds: 1)) // → idle, hb armed
-          ..elapse(const Duration(minutes: 15)); // heartbeat request opens
+          ..elapse(const Duration(minutes: 30)); // heartbeat request opens
         expect(h.pendingHeartbeats, hasLength(1));
         final before = h.fixes.length;
 
@@ -314,16 +322,17 @@ void main() {
           isNotNull,
         );
 
-        // Perfectly still: the low-power stream emits nothing (distanceFilter),
-        // yet a relay must still leave the device on the DOCUMENTED 15-minute
-        // heartbeat floor…
+        // R7: entering parked already relayed an immediate keepalive (so there's
+        // no dark gap before the first timer). Count from AFTER that…
         final afterIdle = h.fixes.length;
-        async.elapse(const Duration(minutes: 15));
+        // …then the low-power stream emits nothing (distanceFilter), yet a relay
+        // must still leave the device on the DOCUMENTED 30-minute heartbeat
+        // floor, keeping-alive over the whole still stretch.
+        async.elapse(const Duration(minutes: 30));
         expect(h.fixes.length, afterIdle + 1);
-        // …and keep leaving, floor after floor, for the whole still stretch.
-        async.elapse(const Duration(minutes: 15));
+        async.elapse(const Duration(minutes: 30));
         expect(h.fixes.length, afterIdle + 2);
-        async.elapse(const Duration(minutes: 15));
+        async.elapse(const Duration(minutes: 30));
         expect(h.fixes.length, afterIdle + 3);
 
         unawaited(h.close());
@@ -349,16 +358,29 @@ void main() {
         h.heartbeatShouldThrow = true;
         final before = h.fixes.length;
         async
-          ..elapse(const Duration(minutes: 15))
+          ..elapse(const Duration(minutes: 30))
           ..flushMicrotasks();
 
-        // A relay STILL leaves — the last-known position, re-stamped now, so a
-        // viewer keeps seeing the person instead of a dark dot.
+        // A relay STILL leaves so the viewer keeps seeing the person — but as a
+        // PARKED keepalive (R2): the last-known position at its REAL sample time
+        // (NOT re-stamped to now), with the liveness clock advanced to now. That
+        // is the 1.2.11 go-dark fix — a dead phone can no longer masquerade as
+        // "live, at home".
         expect(h.fixes.length, before + 1);
         final floored = h.fixes.last;
         expect(floored.lat, seed.latitude);
         expect(floored.lon, seed.longitude);
-        expect(floored.timestampMs, greaterThan(seed.timestamp.millisecondsSinceEpoch));
+        expect(
+          floored.timestampMs,
+          seed.timestamp.millisecondsSinceEpoch,
+          reason: 'position time is the REAL sample time, never faked to now',
+        );
+        expect(
+          floored.aliveAtMs,
+          greaterThan(seed.timestamp.millisecondsSinceEpoch),
+          reason: 'liveness advances to now, separately from position',
+        );
+        expect(floored.parked, isTrue);
 
         unawaited(h.close());
         async.flushMicrotasks();
@@ -500,6 +522,109 @@ void main() {
           ..elapse(const Duration(seconds: 31));
         expect(bg.service.activity, LocationActivity.idle);
         unawaited(bg.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('(e) entering parked relays an IMMEDIATE keepalive so there is no dark '
+        'gap before the first 30-minute heartbeat', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+        final seed = _pos(lat: 38.71, lon: -90.45);
+        h.gps.add(seed);
+        async.flushMicrotasks();
+        final beforePark = h.fixes.length; // the live fix
+
+        // Ramp to parked (fg stillness 2min). No heartbeat has fired yet.
+        async.elapse(const Duration(minutes: 2, seconds: 1));
+        expect(h.service.activity, LocationActivity.idle);
+
+        // A keepalive left IMMEDIATELY on parking — before the first 30-min
+        // tick — as a PARKED floor of the last-known position (real sample
+        // time), costing no currentPosition request.
+        expect(h.fixes.length, beforePark + 1);
+        expect(h.heartbeatRequests, 0);
+        final ka = h.fixes.last;
+        expect(ka.parked, isTrue);
+        expect(ka.lat, seed.latitude);
+        expect(ka.timestampMs, seed.timestamp.millisecondsSinceEpoch);
+        expect(ka.aliveAtMs, greaterThanOrEqualTo(ka.timestampMs));
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('(f) R3/R4 FGS survival: a parked→active wake in the BACKGROUND swaps '
+        'the GPS stream MAKE-BEFORE-BREAK — the survival foreground service is '
+        'never torn down before its replacement is up (Android 12+ blocks a '
+        'restart from background → dark for hours)', () {
+      fakeAsync((async) {
+        final events = <String>[];
+        final accel = StreamController<AccelerometerEvent>.broadcast(sync: true);
+        final opened = <StreamController<Position>>[];
+        final service = LocationService(
+          checkPermission: () async => LocationPermission.always,
+          requestPermission: () async => LocationPermission.always,
+          positionStream: (settings) {
+            final c = StreamController<Position>.broadcast(
+              onCancel: () => events.add('cancel'),
+              sync: true,
+            );
+            opened.add(c);
+            events.add('listen');
+            return c.stream;
+          },
+          currentPosition: (_) async => _pos(),
+          accelStream: () => accel.stream,
+        );
+        unawaited(service.start());
+        async.flushMicrotasks();
+
+        // Park it in the background: one real fix (arms the 30s background
+        // stillness) then sit still → idle, the low-power FGS-keepalive stream
+        // the only thing holding the foreground service.
+        service.onBackground();
+        opened.last.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31));
+        expect(service.activity, LocationActivity.idle);
+        expect(events, contains('listen'));
+
+        // Observe only the wake transition.
+        events.clear();
+        AccelerometerEvent motion() =>
+            AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
+        // ~11s of sustained motion crosses the 10s wake gate.
+        for (var i = 0; i < 11; i++) {
+          accel.add(motion());
+          async.elapse(const Duration(seconds: 1));
+        }
+        async.flushMicrotasks();
+        expect(
+          service.activity,
+          LocationActivity.active,
+          reason: 'sustained motion wakes GPS to active',
+        );
+
+        // The replacement stream is OPENED before the old one is CANCELED —
+        // never the reverse (the old engine did cancel→listen, leaving an FGS
+        // gap Android 12+ refuses to restart from the background).
+        final listenAt = events.indexOf('listen');
+        final cancelAt = events.indexOf('cancel');
+        expect(listenAt, isNonNegative, reason: 'a replacement stream opened');
+        expect(cancelAt, isNonNegative, reason: 'the old stream was canceled');
+        expect(
+          listenAt,
+          lessThan(cancelAt),
+          reason: 'make-before-break: new stream up BEFORE the old is torn down',
+        );
+
+        unawaited(service.dispose());
+        unawaited(accel.close());
         async.flushMicrotasks();
       });
     });
