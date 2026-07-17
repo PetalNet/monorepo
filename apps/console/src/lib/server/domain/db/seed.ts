@@ -153,18 +153,18 @@ const REGISTRATIONS: readonly RegSeed[] = [
 ];
 
 export async function seedBootstrap(admin: Sql): Promise<void> {
-	for (const t of TIERS) {
+	for await (const t of TIERS) {
 		await admin`insert into tiers (name, authentik_group, description, default_relations, propose_only)
 			values (${t.name}, ${t.group}, ${t.description}, ${admin.json(t.defaultRelations)}, ${t.proposeOnly})
 			on conflict (name) do nothing`;
 	}
-	for (const g of GRANTS) {
+	for await (const g of GRANTS) {
 		const exists =
 			await admin`select 1 from grants where subject = ${g.subject} and relation = ${g.relation} and object = ${g.object} and invalid_at is null`;
 		if (exists.length === 0)
 			await admin`insert into grants (subject, relation, object, granted_by) values (${g.subject}, ${g.relation}, ${g.object}, 'seed')`;
 	}
-	for (const r of REGISTRATIONS) {
+	for await (const r of REGISTRATIONS) {
 		await admin`insert into producer_registrations (subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)
 			values (${r.subject}, ${admin.json(r.services)}, ${admin.json(r.prefixes)}, ${admin.json(r.scopes)}, ${r.maxSeverity})
 			on conflict (subject) do update set

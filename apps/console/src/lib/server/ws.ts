@@ -29,6 +29,7 @@ export function attachConsoleWebSockets(
 				principals.set(webSocket, principal);
 				sockets.emit("connection", webSocket, request);
 			});
+			return undefined;
 		});
 	};
 	server.on("upgrade", onUpgrade);

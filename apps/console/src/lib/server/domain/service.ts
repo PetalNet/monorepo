@@ -1,6 +1,11 @@
 import { Context, Effect, Layer } from "effect";
 
 import { loadEnv } from "./env";
+import {
+	clearSharedConsoleServices,
+	getSharedConsoleServices,
+	setSharedConsoleServices,
+} from "./shared-services";
 import { buildServices, type Services } from "./substrate";
 
 /**
@@ -27,21 +32,16 @@ export class ConsoleDomainUnavailable extends Error {
 
 let processServices: Promise<Services> | undefined;
 
-const unifiedGlobal = globalThis as typeof globalThis & {
-	__LAB_CONSOLE_SERVICES__?: Promise<Services>;
-};
-
 const acquire = (): Promise<Services> => {
-	processServices ??=
-		unifiedGlobal.__LAB_CONSOLE_SERVICES__ ?? buildServices(loadEnv(), { migrate: false });
-	unifiedGlobal.__LAB_CONSOLE_SERVICES__ = processServices;
+	processServices ??= getSharedConsoleServices() ?? buildServices(loadEnv(), { migrate: false });
+	setSharedConsoleServices(processServices);
 	return processServices;
 };
 
 export const closeConsoleDomain = async (): Promise<void> => {
 	const active = processServices;
 	processServices = undefined;
-	delete unifiedGlobal.__LAB_CONSOLE_SERVICES__;
+	clearSharedConsoleServices();
 	if (active) await (await active).close();
 };
 

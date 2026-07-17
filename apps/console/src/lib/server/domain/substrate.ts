@@ -314,10 +314,10 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 			e.type === "edge.enroll.approved" ||
 			e.type === "edge.enroll.denied"
 		) {
-			const entity = e.meta?.["entity"];
+			const enrollmentEntity = e.meta?.["entity"];
 			const typedEntity =
-				entity && typeof entity === "object" && !Array.isArray(entity)
-					? (entity as Record<string, unknown>)
+				enrollmentEntity && typeof enrollmentEntity === "object" && !Array.isArray(enrollmentEntity)
+					? (enrollmentEntity as Record<string, unknown>)
 					: {};
 			const fingerprint = e.dimensions?.["pubkey_fp"] ?? typedEntity["pubkey_fp"];
 			if (typeof fingerprint === "string" && fingerprint) {

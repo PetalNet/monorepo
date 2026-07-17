@@ -244,7 +244,7 @@ export class Projector {
 						where name = ${checkpointName}`;
 				break;
 			}
-			for (const r of rows) {
+			for await (const r of rows) {
 				const e: Emission = {
 					schema_version: 1,
 					id: "",
@@ -313,6 +313,7 @@ export class Projector {
 		this.#tail = run
 			.catch((err: unknown) => {
 				this.#alarm("projection.apply_failed", e.subject, String(err));
+				return undefined;
 			})
 			.finally(() => {
 				this.#pending -= 1;

@@ -100,7 +100,7 @@ async function rebindDashboardPayload(
 		return result;
 	}
 	const panels: PanelSpecV2[] = [];
-	for (const raw of input.panels as PanelSpecV2[]) {
+	for await (const raw of input.panels as PanelSpecV2[]) {
 		let panel: PanelSpecV2 = {
 			...raw,
 			render: null,
@@ -114,7 +114,7 @@ async function rebindDashboardPayload(
 		}
 		if (typeof raw.prose === "string") {
 			let prose = raw.prose;
-			for (const match of statBindings(raw.prose)) {
+			for await (const match of statBindings(raw.prose)) {
 				const originalRef = match[1];
 				if (!originalRef) continue;
 				const result = await bind(originalRef);
@@ -411,7 +411,7 @@ export async function materializeTextPanel(
 		return nativePanel(panel);
 	const bindings: NonNullable<RenderArtifact["bindings"]> = [];
 	let prose = panel.prose;
-	for (const match of statBindings(panel.prose)) {
+	for await (const match of statBindings(panel.prose)) {
 		const [binding, queryRef, column] = match;
 		if (!queryRef || !column) continue;
 		const record = await readQueryRecord(app, scopes, queryRef);
@@ -466,7 +466,7 @@ export async function loadDashboard(
 	const row = await readDashboardRow(app, scopes, id);
 	if (!row) return null;
 	const materialized: MaterializedPanel[] = [];
-	for (const panel of row.payload.panels) {
+	for await (const panel of row.payload.panels) {
 		if (!panel.query_ref) {
 			materialized.push(
 				panel.type === "text"

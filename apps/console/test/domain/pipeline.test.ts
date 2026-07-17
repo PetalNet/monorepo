@@ -327,7 +327,7 @@ describe("services availability read", () => {
 		const downSubject = `.15/library-${suffix}`;
 		const malformedSubject = `.14/malformed-${suffix}`;
 		const projected = new Map<string, number>();
-		for (const [subject, ok, latency] of [
+		for await (const [subject, ok, latency] of [
 			[degradedSubject, true, 610],
 			[degradedSubject, true, 720],
 			[degradedSubject, true, 880],
@@ -375,7 +375,7 @@ describe("services availability read", () => {
 		);
 		expect(malformed.ok).toBe(true);
 		projected.set(malformedSubject, malformed.seq as number);
-		for (const [subject, seq] of projected) await waitProjected("availability", subject, seq);
+		for await (const [subject, seq] of projected) await waitProjected("availability", subject, seq);
 
 		const server = await buildServer(services, true);
 		try {
@@ -638,7 +638,7 @@ describe("staged update approval reversal", () => {
 				result: { approval_id: approveId, box_id: boxId },
 				undo: { op: "updates.revoke", args: { approval_id: approveId } },
 			});
-			for (const [packages, code] of [
+			for await (const [packages, code] of [
 				[["openssl"], "approval_already_pending"],
 				[["not-a-real-package"], "approval_package_stale"],
 			] as const) {
@@ -1446,7 +1446,7 @@ describe("L2 semantic layer", () => {
 
 	it("uses governed view descriptors and validates typed filters before SQL", async () => {
 		const type = `test.view_metric_${randomBytes(4).toString("hex")}`;
-		for (const [requests, zone] of [
+		for await (const [requests, zone] of [
 			[1, "north"],
 			[2, "south"],
 		] as const)
@@ -3793,7 +3793,7 @@ describe("current_state projection (N1b)", () => {
 		);
 
 		await bridge.pollOnce("2026-07-13T00:00:00Z");
-		for (const subject of affected) await waitProjected("fleet", subject, 1);
+		for await (const subject of affected) await waitProjected("fleet", subject, 1);
 		const other = await services.emit(
 			"bridge:fleet",
 			emission({
@@ -4041,7 +4041,7 @@ describe("current_state projection (N1b)", () => {
 			lanes: ["viewer"],
 		});
 		try {
-			for (const [path, itemSchema, identity] of [
+			for await (const [path, itemSchema, identity] of [
 				["edge/registry", "entities/edge-registry", ["pubkey_fp", fingerprint]],
 				["edge/sessions", "entities/edge-session", ["session_id", sessionId]],
 				["subscriptions", "subscription", ["pattern", subscription.pattern]],
@@ -4100,7 +4100,7 @@ describe("current_state projection (N1b)", () => {
 				validateJsonSchema(rawResponse.json(), schemas("entities/box-update-raw"), "item"),
 			).toBeNull();
 
-			for (const path of ["subscriptions", "delivery", "attention"]) {
+			for await (const path of ["subscriptions", "delivery", "attention"]) {
 				const hidden = await server.inject({
 					method: "GET",
 					url: `/api/v1/${path}`,

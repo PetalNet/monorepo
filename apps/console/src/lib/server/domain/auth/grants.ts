@@ -181,7 +181,7 @@ export async function mutateGrant(
 		// Lock the object and (for item sharing) its containing scope in deterministic order. A
 		// concurrent revoke of the caller's direct or inherited owner edge cannot commit between the
 		// authorization check and this mutation.
-		for (const object of await authorizationObjects(tx as unknown as Sql, input.object))
+		for await (const object of await authorizationObjects(tx as unknown as Sql, input.object))
 			await tx`select pg_advisory_xact_lock(hashtextextended(${object}, 705706))`;
 		if (!(await ownsObject(tx as unknown as Sql, principal, input.object)))
 			throw new GrantError("grant_denied", "owner relation required");

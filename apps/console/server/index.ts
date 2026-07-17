@@ -2,11 +2,12 @@ import { createServer } from "node:http";
 
 import { buildServices } from "../src/lib/server/domain/substrate";
 import { loadEnv } from "../src/lib/server/domain/env";
+import { setSharedConsoleServices } from "../src/lib/server/domain/shared-services";
 import { attachConsoleWebSockets } from "../src/lib/server/ws";
 import { principalResolver } from "./principal";
 
 const services = buildServices(loadEnv(), { migrate: false });
-(globalThis as typeof globalThis & { __LAB_CONSOLE_SERVICES__?: typeof services }).__LAB_CONSOLE_SERVICES__ = services;
+setSharedConsoleServices(services);
 
 const [{ handler }, active] = await Promise.all([import("../build/handler.js"), services]);
 const server = createServer(handler);

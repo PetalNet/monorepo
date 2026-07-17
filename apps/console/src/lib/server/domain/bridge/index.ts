@@ -153,7 +153,7 @@ export class Bridge {
 		try {
 			if (this.#config.systemOutboxDir)
 				await this.#pollSystemOutbox(this.#config.systemOutboxDir, now);
-			for (const adapter of this.#config.adapters ?? []) await this.#pollAdapter(adapter, now);
+			for await (const adapter of this.#config.adapters ?? []) await this.#pollAdapter(adapter, now);
 		} finally {
 			this.#polling = false;
 		}
@@ -196,7 +196,7 @@ export class Bridge {
 				this.#control(adapter.source, "doorman.recover", now, "info"),
 			);
 		this.#healthySeen.add(adapter.source);
-		for (const loss of batch.losses ?? []) {
+		for await (const loss of batch.losses ?? []) {
 			const ref = sourceCursorRef(loss.cursor);
 			await this.#quarantine(adapter.source, ref, null, loss.reason);
 			await this.#emitOne(
@@ -204,7 +204,7 @@ export class Bridge {
 				this.#gap(adapter.source, ref, loss.reason, now),
 			);
 		}
-		for (const raw of batch.emissions) {
+		for await (const raw of batch.emissions) {
 			const e = this.#tagSource(adapter.source, raw);
 			const r = await this.#emit(adapter.producerSubject, e, Buffer.byteLength(JSON.stringify(e)));
 			if (r.ok) continue;
@@ -255,12 +255,12 @@ export class Bridge {
 				SYSTEM_OUTBOX_PRODUCER,
 				this.#control(source, "bridge.source.anomaly", now, "warn"),
 			);
-		for (const loss of result.losses) {
+		for await (const loss of result.losses) {
 			const ref = sourceCursorRef(loss.file);
 			await this.#quarantine(source, ref, null, loss.reason);
 			await this.#emitOne(SYSTEM_OUTBOX_PRODUCER, this.#gap(source, ref, loss.reason, now));
 		}
-		for (const raw of result.emissions) {
+		for await (const raw of result.emissions) {
 			const e = this.#tagSource(source, raw);
 			const r = await this.#emit(SYSTEM_OUTBOX_PRODUCER, e, Buffer.byteLength(JSON.stringify(e)));
 			if (r.ok) continue;

@@ -184,7 +184,7 @@ export class CrackAttentionReconciler {
 					when type in ('doorman.dark', 'doorman.recover') then 'doorman-dark'
 				end,
 				seq desc`;
-		for (const row of rows)
+		for await (const row of rows)
 			await this.enqueue({
 				schema_version: 1,
 				id: row.id,

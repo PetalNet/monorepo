@@ -130,7 +130,7 @@ export async function installCapabilityBundle(
 	const pointer = `${installDir}.${process.pid}.${Date.now()}.link`;
 	await mkdir(staging, { recursive: true, mode: 0o700 });
 	try {
-		for (const file of bundle.files) {
+		for await (const file of bundle.files) {
 			const destination = join(staging, safeRelativePath(file.path));
 			await mkdir(dirname(destination), { recursive: true, mode: 0o755 });
 			await writeFile(destination, decodeBase64(file.content_b64), { mode: file.mode, flag: "wx" });

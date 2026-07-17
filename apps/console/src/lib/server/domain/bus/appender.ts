@@ -242,7 +242,7 @@ export class Appender {
 			// materialize edges
 			if (e.links && e.links.length > 0) {
 				const fromKind = e.subject_kind ?? "other";
-				for (const link of e.links) {
+				for await (const link of e.links) {
 					await tx`insert into edges (from_kind, from_id, rel, to_kind, to_id, scope, seq)
 						values (${fromKind}, ${e.subject}, ${link.rel}, ${link.to.kind}, ${link.to.id}, ${e.scope}, ${seq})`;
 				}
@@ -277,7 +277,7 @@ export class Appender {
 					emit_count = semantic_registry_scoped.emit_count + 1,
 					dimensions = excluded.dimensions, measures = excluded.measures,
 					joins = excluded.joins, updated_at = now()`;
-			for (const drift of merged.drift)
+			for await (const drift of merged.drift)
 				await tx`
 					insert into semantic_proposals
 						(kind, producer_subject, statistic_type, scope, payload)
@@ -288,7 +288,7 @@ export class Appender {
 						  and kind = 'registry_drift' and statistic_type = ${e.type}
 						  and payload->>'field' = ${drift.field} and payload->>'kind' = ${drift.kind}
 					)`;
-			for (const [field, value] of Object.entries(e.dimensions ?? {})) {
+			for await (const [field, value] of Object.entries(e.dimensions ?? {})) {
 				await tx`
 					insert into semantic_field_values_scoped (statistic_type, scope, field, value_hash)
 					select ${e.type}, ${e.scope}, ${field}, ${dimensionValueHash(value)}

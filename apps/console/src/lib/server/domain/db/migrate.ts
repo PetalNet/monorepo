@@ -1070,7 +1070,7 @@ async function backfillSemanticDocuments(admin: Sql): Promise<void> {
 			scope: string;
 		}[]
 	>`select type, dimensions, measures, joins, scope from semantic_registry_scoped`;
-	for (const row of statistics) {
+	for await (const row of statistics) {
 		const content = semanticDocument(row.type, row);
 		const embedding = vectorLiteral(embedText(content));
 		await admin`
@@ -1086,7 +1086,7 @@ async function backfillSemanticDocuments(admin: Sql): Promise<void> {
 	const views = await admin<
 		{ name: string; description: string; fields: Record<string, unknown>; scopes: string[] }[]
 	>`select name, description, fields, scopes from semantic_views where enabled`;
-	for (const view of views) {
+	for await (const view of views) {
 		const content = `registered view ${view.name} ${view.description} fields ${JSON.stringify(view.fields)}`;
 		const embedding = vectorLiteral(embedText(content));
 		await admin`
@@ -1132,7 +1132,7 @@ async function backfillEmissionFingerprints(admin: Sql): Promise<void> {
 		  where g.payload_sha256 is null and e.seq > ${afterSeq}::bigint
 		  order by e.seq limit 500`;
 		if (rows.length === 0) break;
-		for (const row of rows) {
+		for await (const row of rows) {
 			const fingerprint = emissionFingerprint({
 				schema_version: 1,
 				id: row.id,

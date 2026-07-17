@@ -38,7 +38,7 @@ async function main(): Promise<void> {
 			await tx`insert into api_tokens (token_sha256, subject, kind, tiers, lanes)
 				values (${sha256(token)}, ${subject}, ${kind}, ${tx.json(tiers)}, ${tx.json(lanes)})`;
 			if (kind !== "agent") return;
-			for (const grantSubject of [subject, owner].filter((value): value is string =>
+			for await (const grantSubject of [subject, owner].filter((value): value is string =>
 				Boolean(value),
 			)) {
 				const existing = await tx`select 1 from grants
