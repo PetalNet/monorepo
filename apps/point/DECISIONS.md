@@ -626,7 +626,7 @@ decrypt after device replacement, relay generation selection, handle shapes, and
 
 The spec's pseudo-code computes `m_per_deg_lon = 111_320 · cos(true_lat)` and reuses it for the
 inverse projection (`lon = cx / m_per_deg_lon`). Taken literally, the reported longitude varies
-continuously with `true_lat` *inside* one cell — two fixes in the same cell at different latitudes
+continuously with `true_lat` _inside_ one cell — two fixes in the same cell at different latitudes
 return different longitudes, violating the spec's own headline property ("repeated fixes inside the
 same cell yield the **identical** shown point — nothing to average") and re-opening the averaging
 attack the function exists to kill: at lat 60° / lon 179° the within-cell lon drift is on the order
@@ -662,7 +662,7 @@ verified by a 2000-sample haversine property test. Acceptance criteria trump pse
 ## 2026-07-17 — D-032 · 1.3 P0: FFI surface for stable_fuzz + bringing point_mls up to the lint gate
 
 - **One bridge call returns center + cell id.** `api::fuzz::stable_fuzz` returns a `FuzzedPoint
-  {lat, lon, cell_x, cell_y}` rather than mirroring the two core functions: the P2 caller needs
+{lat, lon, cell_x, cell_y}` rather than mirroring the two core functions: the P2 caller needs
   the cell id on every fix anyway (re-emit-on-cell-change contract), and one sync FFI hop beats
   two. `fuzz_radius_presets_m()` exposes the build-time presets so Dart never hardcodes them.
 - **`point_mls` was never fmt/clippy-clean** (CI only `cargo build`s it). The P0 gate demands
@@ -670,9 +670,9 @@ verified by a 2000-sample haversine property test. Acceptance criteria trump pse
   `[lints.rust] unexpected_cfgs` check-cfg entry for `cfg(frb_expand)` — the documented
   flutter_rust_bridge macro artifact — instead of blanket-allowing the lint.
 - **Dart smoke test loads the real cdylib** (`test/stable_fuzz_ffi_test.dart` via `RustLib.init()`
-  + `LD_LIBRARY_PATH=rust/target/release`, same mechanism CI already uses for the MLS tests), and
-  re-asserts determinism, per-audience grid divergence, cell-crossing, and the presets across the
-  bridge — proving load + call, not a stub.
+  - `LD_LIBRARY_PATH=rust/target/release`, same mechanism CI already uses for the MLS tests), and
+    re-asserts determinism, per-audience grid divergence, cell-crossing, and the presets across the
+    bridge — proving load + call, not a stub.
 
 ## 2026-07-17 — D-033 · 1.3 P0: client entity/audience/edge model shape (no UI, no fix-loop wiring)
 
@@ -687,7 +687,7 @@ verified by a 2000-sample haversine property test. Acceptance criteria trump pse
   is what P2 must pass to `stable_fuzz` as `audience_id` (grid selector), so it lives on the
   model, not in call sites. Sealed class, two variants, per spec §2.4.
 - **Per-audience defaults are a separate keyspace** (`audience_defaults` beside `edges`), not
-  sentinel edges. `ShareSetting.perAudienceDefault` marks *provenance* on a resolved setting
+  sentinel edges. `ShareSetting.perAudienceDefault` marks _provenance_ on a resolved setting
   (true = inherited from the audience default / initial default; false = explicitly set on the
   edge) — `setEdge` forces it false, `setAudienceDefault` forces it true, and
   `effectiveSetting` resolves explicit edge → audience default → `ShareSetting.initial`
