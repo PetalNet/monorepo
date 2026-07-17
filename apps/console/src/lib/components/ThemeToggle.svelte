@@ -1,36 +1,18 @@
 <script lang="ts">
 	import { Moon, Sun } from "@lucide/svelte";
-	import { PersistedState } from "runed";
-	import { onMount } from "svelte";
+	import { mode, setMode, setTheme } from "mode-watcher";
 	import { fade } from "svelte/transition";
 
-	type Theme = "light" | "dark";
-
-	// Seed from the theme the anti-FOUC head script already resolved (stored choice or OS
-	// preference) so a first visit persists that, rather than overwriting it with a hardcoded default.
-	const initialTheme: Theme =
-		typeof document !== "undefined" && document.documentElement.dataset.theme === "dark"
-			? "dark"
-			: "light";
-
-	// runed's localStorage-backed reactive state; cross-tab sync is on by default.
-	const theme = new PersistedState<Theme>("theme", initialTheme);
-
-	// The store reads localStorage synchronously, which can diverge from the SSR default; only
-	// reflect the real value once mounted so hydration stays consistent.
-	let mounted = $state(false);
-	const displayed = $derived<Theme>(mounted ? theme.current : "light");
-
-	onMount(() => {
-		mounted = true;
-	});
+	const displayed = $derived(mode.current ?? "light");
 
 	$effect(() => {
-		document.documentElement.dataset.theme = theme.current;
+		// DaisyUI selects its two named themes through data-theme. mode-watcher owns the persisted
+		// preference, system-mode resolution, SSR bootstrap, and transition suppression.
+		setTheme(displayed);
 	});
 
 	function toggle() {
-		theme.current = theme.current === "dark" ? "light" : "dark";
+		setMode(displayed === "dark" ? "light" : "dark");
 	}
 </script>
 
