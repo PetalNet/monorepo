@@ -90,7 +90,7 @@ const projectedKinds = {
 } as const;
 
 /** Canonical read plane shared by surface-specific remote delegates and REST handlers. */
-const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
+export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 	Effect.gen(function* () {
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
@@ -145,16 +145,6 @@ const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 		);
 	}),
 );
-
-type ReadEffect<A> =
-	ReturnType<typeof readPlaneRemote> extends Effect.Effect<unknown, infer E, infer R>
-		? Effect.Effect<A, E, R>
-		: never;
-
-/** Correlates each plane literal with its domain result at the remote boundary. */
-export function readPlane<P extends ReadPlane>(plane: P): ReadEffect<ReadPlaneResult[P]> {
-	return readPlaneRemote(plane) as unknown as ReadEffect<ReadPlaneResult[P]>;
-}
 
 export const runStructuredQuery = Query("unchecked", (request: StructuredQuery) =>
 	Effect.gen(function* () {

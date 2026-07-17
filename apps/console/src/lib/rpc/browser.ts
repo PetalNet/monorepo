@@ -11,10 +11,10 @@ import type { ReadPlane, ReadPlaneResult } from "$lib/operations.remote";
 import {
 	executeNamedOp,
 	getAssistantSessionRemote,
-	readPlane,
 	runStructuredQuery,
 	sendAssistantRemote,
 } from "$lib/operations.remote";
+import { readPlane } from "$lib/rpc/read-plane";
 import type { QueryResult } from "$lib/server/domain/query/structured";
 import { Effect } from "effect";
 
