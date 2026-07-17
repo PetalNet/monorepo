@@ -171,6 +171,17 @@ class WsService {
 
   Future<void> flushNow() => _flush();
 
+  /// Send an ephemeral control frame (e.g. a viewer's Layer-4 watcher-wake
+  /// nudge). Unlike [send] it is NOT persisted to the durable [RelayQueue], so
+  /// a transient signal is never resent after a reconnect — a stale "wake up"
+  /// replayed minutes later would be wrong. Dropped silently if the socket is
+  /// not authenticated (the frame is advisory; a real interaction reconciles
+  /// state anyway).
+  void sendEphemeral(String frame) {
+    if (!_authed) return;
+    _channel?.sink.add(frame);
+  }
+
   bool _flushing = false;
 
   Future<void> _flush() async {
@@ -178,19 +189,26 @@ class WsService {
     _flushing = true;
     try {
       while (_authed && !_queue.isEmpty) {
-        final batch = await _queue.drain(max: 20);
-        _emitHealth();
+        // R10: PEEK — do not remove yet. The durable copy stays until the send
+        // is confirmed, so a crash mid-flight can't lose the batch.
+        final batch = _queue.peek(max: 20);
+        if (batch.isEmpty) break;
         try {
           for (final item in batch) {
             _channel!.sink.add(item.frame);
           }
         } on Object {
-          // Send failed mid-batch — put them back at the front and stop.
-          await _queue.requeueFront(batch);
-          _emitHealth();
+          // Send failed mid-batch. The batch was never removed (peek, not
+          // drain), so nothing is lost — it stays durably queued in order and
+          // resends on reconnect. Mark the socket dead and stop.
           _onClosed(_connectionEpoch);
           break;
         }
+        // The socket accepted the whole batch: only NOW remove it from the
+        // durable queue + persist (R10 — never before the send). If the process
+        // dies before this line, the batch survives to resend after restart.
+        await _queue.ackThrough(batch.last.seq);
+        _emitHealth();
       }
     } finally {
       _flushing = false;

@@ -28,6 +28,35 @@ extensions.configure<ApplicationExtension> {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // R11/R12 — the Rust bridge (point_mls/point_core) ships arm64-v8a .so
+        // only. Restrict packaged native code to arm64-v8a so the built APK is
+        // honestly arm64-only and F-Droid stops advertising it to 32-bit/x86
+        // devices (where the missing libs → an instant crash, the 1.2.11
+        // symptom). Also drops the stray x86_64 jniLibs the Rust script emits.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+    }
+
+    // R11/R12 — belt to abiFilters' suspenders. `abiFilters` / `--target-platform
+    // android-arm64` restrict Flutter's OWN engine libs, but PREBUILT jniLibs
+    // slip through: the Rust script's x86_64 libpoint_*.so and a plugin's
+    // libdartjni.so stubs for armeabi-v7a/x86_64. Any non-arm64 `lib/<abi>/`
+    // directory makes F-Droid advertise the APK to that ABI's devices — which
+    // then crash on the missing arm64-only bridge. Physically exclude every
+    // non-arm64 ABI from packaging so the APK is honestly arm64-only.
+    packaging {
+        jniLibs {
+            excludes += setOf(
+                "**/armeabi/**",
+                "**/armeabi-v7a/**",
+                "**/x86/**",
+                "**/x86_64/**",
+                "**/mips/**",
+                "**/mips64/**",
+            )
+        }
     }
 
     buildTypes {

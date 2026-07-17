@@ -33,7 +33,23 @@ class PeerFix {
 
   double? get lat => (data['lat'] as num?)?.toDouble();
   double? get lon => (data['lon'] as num?)?.toDouble();
+
+  /// When the POSITION was actually sampled. For a parked keepalive this is the
+  /// real (older) sample time, NOT the moment the keepalive was sent.
   int? get timestamp => (data['timestamp'] as num?)?.toInt();
+
+  /// When the DEVICE last proved it is alive (the fix/keepalive leaving the
+  /// device) — the clock that decides alive vs dark. Older clients omit
+  /// `alive_at`, so fall back to the position time (their fixes and liveness
+  /// coincided).
+  int? get aliveAt =>
+      (data['alive_at'] as num?)?.toInt() ?? timestamp;
+
+  /// True when this is a parked keepalive/floor: the device is alive as of
+  /// [aliveAt] but hasn't moved since [timestamp]. Absent on old payloads.
+  /// Carried as `1` in the num-typed payload; a bool is accepted defensively.
+  bool get parked => data['parked'] == 1 || data['parked'] == true;
+
   double? get accuracy {
     final value = (data['accuracy'] as num?)?.toDouble();
     return value != null && value.isFinite && value > 0 ? value : null;
@@ -42,14 +58,22 @@ class PeerFix {
 
 /// The plaintext shape encrypted into each pairwise MLS group.
 ///
-/// Accuracy is additive for cross-version compatibility: older clients ignore
-/// it, while newer clients continue to accept payloads that predate the field.
+/// Additive for cross-version compatibility (older clients ignore unknown
+/// fields; newer clients accept payloads that predate them):
+/// - `accuracy` — horizontal precision (omitted when invalid);
+/// - `alive_at` — device liveness clock; only emitted when it differs from
+///   `timestamp` (a parked keepalive), so a live fix stays byte-for-byte as
+///   before and its liveness falls out of `timestamp`;
+/// - `parked` — marks a keepalive so the viewer renders "parked", not a
+///   falsely-fresh "live". Only emitted when true.
 Map<String, num> locationFixPayload(Fix fix) => {
   'lat': fix.lat,
   'lon': fix.lon,
   'speed': fix.speed,
   if (fix.accuracy.isFinite && fix.accuracy > 0) 'accuracy': fix.accuracy,
   'timestamp': fix.timestampMs,
+  if (fix.aliveAtMs != fix.timestampMs) 'alive_at': fix.aliveAtMs,
+  if (fix.parked) 'parked': 1,
 };
 
 bool _isValidPeerFix(Map<String, dynamic> data) {
@@ -543,6 +567,17 @@ class RelayController {
     }
   }
 
+  /// Viewer-side Layer-4 nudge: ask [targetUserId]'s device(s) to wake and
+  /// relay one fresh fix (the user opened that person's live view). Ephemeral —
+  /// it bypasses the durable queue so a stale "wake up" is never resent on
+  /// reconnect. The server re-checks entitlement (can_view) and dedupes, so an
+  /// over-eager or unentitled nudge is harmlessly dropped there.
+  void nudgeWatch(String targetUserId) {
+    _ws?.sendEphemeral(
+      jsonEncode({'type': 'location.nudge', 'target_user_id': targetUserId}),
+    );
+  }
+
   Future<void> _onLocalFix(Fix fix) async {
     final session = _session;
     final ws = _ws;
@@ -569,7 +604,17 @@ class RelayController {
           'recipient_type': 'user',
           'recipient_id': target,
           'blob': base64Encode(ct),
-          'timestamp': fix.timestampMs,
+          // OUTER frame timestamp drives the server's monotonic store gate
+          // (store_live_fix: WHERE EXCLUDED.client_timestamp >
+          // location_updates.client_timestamp). Emit the LIVENESS clock, not
+          // the position clock: a parked keepalive re-relays the SAME (frozen)
+          // position time, so sending `timestampMs` here left the gate at an
+          // equal value — a no-op upsert — and the stored current-fix (blob incl.
+          // liveness) never refreshed while parked, so a reconnecting/cold-start
+          // snapshot viewer went dark. `aliveAtMs` advances on every keepalive,
+          // so the gate passes and the fresh-liveness blob is stored. The real
+          // position time is preserved INSIDE the blob (`timestamp`).
+          'timestamp': fix.aliveAtMs,
         });
         await ws.send(target, frame);
       } on Object catch (e) {
@@ -584,6 +629,16 @@ class RelayController {
         await _onBroadcast(msg);
       case 'presence.update':
         _onPresenceUpdate(msg);
+      case 'location.nudge':
+        // Layer-4 watcher-wake (target side): a viewer opened my live view.
+        // Honor it only if the requester is someone I actually share with —
+        // defense-in-depth behind the server's can_view gate — then wake the
+        // engine for ONE fix, which relays through _onLocalFix and lets the
+        // engine fall back to its prior parked state on its own.
+        final nudger = msg['from'] as String?;
+        if (nudger != null && _shareTargets.contains(nudger)) {
+          unawaited(_ref.read(locationServiceProvider).wakeForOneFix());
+        }
       case 'mls.message':
         _requestSync(RealtimeSyncReason.mailboxNotice);
       case 'share.request':
@@ -1159,6 +1214,18 @@ class RelayController {
     return accepted;
   }
 
+  /// Test-only seam onto the liveness-dedup accept path. The relay's most
+  /// go-dark-critical rule — a parked keepalive re-relays the SAME position
+  /// with a NEWER `alive_at` and must be ACCEPTED, not dropped as a duplicate —
+  /// lives in [_acceptPeerFix]; exposing it lets that rule be exercised at the
+  /// controller level without a full WS/crypto harness.
+  @visibleForTesting
+  Future<bool> debugAcceptPeerFix(
+    String userId,
+    Map<String, dynamic> data, {
+    int? expectedTimestamp,
+  }) => _acceptPeerFix(userId, data, expectedTimestamp: expectedTimestamp);
+
   Future<bool> _acceptPeerFix(
     String userId,
     Map<String, dynamic> data, {
@@ -1166,16 +1233,29 @@ class RelayController {
   }) async {
     if (!_isValidPeerFix(data)) return false;
     final timestamp = (data['timestamp'] as num).toInt();
-    if (expectedTimestamp != null && timestamp != expectedTimestamp) {
+    // Dedup/order on the LIVENESS clock, not the position clock. A parked
+    // keepalive re-relays the SAME (older) position with a newer `alive_at`, so
+    // ordering on `timestamp` would drop every keepalive as a duplicate and the
+    // device would wrongly go dark. `alive_at` falls back to `timestamp` for
+    // old clients (their fixes and liveness coincided), so a moving stream is
+    // unchanged.
+    final liveness = (data['alive_at'] as num?)?.toInt() ?? timestamp;
+    // Snapshot rows validate against the OUTER frame timestamp the server
+    // stored as `client_timestamp` (row.clientTimestamp). Since the sender now
+    // emits the liveness clock as that outer frame timestamp (see _onLocalFix),
+    // validate on `liveness`, not the position `timestamp` — otherwise every
+    // parked keepalive (position < liveness) would be rejected here and a
+    // reconnecting snapshot viewer would go dark.
+    if (expectedTimestamp != null && liveness != expectedTimestamp) {
       return false;
     }
-    if (timestamp <= (_latestFixTimestamp[userId] ?? 0)) return false;
+    if (liveness <= (_latestFixTimestamp[userId] ?? 0)) return false;
     final fix = PeerFix(
       userId: userId,
       data: Map<String, dynamic>.from(data),
       receivedAt: DateTime.now(),
     );
-    _latestFixTimestamp[userId] = timestamp;
+    _latestFixTimestamp[userId] = liveness;
     _cachedPeerFixes[userId] = fix;
     final permanent = _ref
         .read(peopleControllerProvider)
@@ -1258,7 +1338,9 @@ class RelayController {
       decoded.sort((a, b) => (b.timestamp ?? 0).compareTo(a.timestamp ?? 0));
       for (final fix in decoded.take(_maxCachedPeers)) {
         _cachedPeerFixes[fix.userId] = fix;
-        _latestFixTimestamp[fix.userId] = fix.timestamp!;
+        // Seed the dedup high-water mark on the liveness clock (falls back to
+        // the position time for old cached payloads).
+        _latestFixTimestamp[fix.userId] = fix.aliveAt ?? fix.timestamp!;
         final encoded = entries[fix.userId];
         if (encoded is Map<String, dynamic> &&
             encoded['access'] == 'permanent') {

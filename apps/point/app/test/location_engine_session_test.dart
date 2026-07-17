@@ -11,6 +11,7 @@ import 'package:point_app/app/session_transition.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/domain/location_state_machine.dart';
 import 'package:point_app/features/location/engine_session.dart';
+import 'package:point_app/features/location/foreground_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/settings/app_settings.dart';
 import 'package:point_app/services/api/models.dart';
@@ -44,32 +45,77 @@ Position _pos({double lat = 38.69, double lon = -90.43, double speed = 0}) =>
       speedAccuracy: 0,
     );
 
+/// Records our own foreground-service start/stop calls (DEFECT #2). `running`
+/// is the invariant the tests watch: it must go true when sharing begins and
+/// STAY true across every parked↔active transition and GPS-stream reopen — only
+/// ghost / dispose may drop it.
+class _FakeForegroundService implements ForegroundServiceController {
+  int startCount = 0;
+  int stopCount = 0;
+  bool running = false;
+
+  final _promotions = StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get promotions => _promotions.stream;
+
+  @override
+  Future<bool> start() async {
+    startCount++;
+    running = true;
+    return true;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCount++;
+    running = false;
+  }
+}
+
 class _Harness {
   _Harness({LocationPermission permission = LocationPermission.always})
     : _permission = permission {
     service = LocationService(
       checkPermission: () async => _permission,
       requestPermission: () async => _permission,
-      positionStream: (_) => gps.stream,
+      positionStream: (settings) {
+        lastGpsSettings = settings;
+        gpsSettings.add(settings);
+        return gps.stream;
+      },
       currentPosition: (_) {
         heartbeatRequests++;
+        // A parked provider that cannot get a fresh fix (indoors, Doze
+        // throttled) must still fail toward relaying — the engine floors the
+        // last-known position rather than going silent.
+        if (heartbeatShouldThrow) {
+          return Future<Position>.error(StateError('no fix'));
+        }
         final c = Completer<Position>();
         pendingHeartbeats.add(c);
         if (autocompleteHeartbeats) c.complete(_pos());
         return c.future;
       },
       accelStream: () => accel.stream,
+      foregroundService: fgs,
     );
     sub = service.fixes.listen(fixes.add);
   }
 
   final LocationPermission _permission;
+  final fgs = _FakeForegroundService();
   final gps = StreamController<Position>.broadcast(sync: true);
   final accel = StreamController<AccelerometerEvent>.broadcast(sync: true);
   final fixes = <Fix>[];
   int heartbeatRequests = 0;
   bool autocompleteHeartbeats = true;
+  bool heartbeatShouldThrow = false;
   final pendingHeartbeats = <Completer<Position>>[];
+  // The settings the engine last opened / every open of the position stream —
+  // lets a test read the applied accuracy + foreground-service config.
+  LocationSettings? lastGpsSettings;
+  final gpsSettings = <LocationSettings>[];
   late final LocationService service;
   late final StreamSubscription<Fix> sub;
 
@@ -84,6 +130,42 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('LocationService acquisition path', () {
+    test('watcher-wake acquires ONE out-of-band fix and relays it', () async {
+      final h = _Harness();
+      await h.service.start();
+      expect(h.fixes, isEmpty);
+      final priorActivity = h.service.activity;
+
+      await h.service.wakeForOneFix();
+      await Future<void>.delayed(Duration.zero); // broadcast stream delivery
+      // One fresh fix relayed, via the one-shot seam (not the GPS stream).
+      expect(h.fixes, hasLength(1));
+      expect(h.heartbeatRequests, greaterThan(0));
+      // The wake does not move the machine — it returns to its prior state.
+      expect(h.service.activity, priorActivity);
+      await h.close();
+    });
+
+    test('a watcher cannot wake a device that went dark (ghost)', () async {
+      final h = _Harness();
+      await h.service.start();
+      h.service.setSharing(sharing: false); // hard stop / go dark
+      await h.service.wakeForOneFix();
+      expect(h.fixes, isEmpty, reason: 'no fix may leak past a go-dark');
+      expect(h.service.plan.gpsEnabled, isFalse);
+      await h.close();
+    });
+
+    test('rapid watcher-wakes coalesce to one fix (throttle)', () async {
+      final h = _Harness();
+      await h.service.start();
+      await h.service.wakeForOneFix();
+      await h.service.wakeForOneFix(); // within the throttle window -> ignored
+      await Future<void>.delayed(Duration.zero); // broadcast stream delivery
+      expect(h.fixes, hasLength(1));
+      await h.close();
+    });
+
     test('start() with the app open goes active and delivers fixes', () async {
       final h = _Harness();
       await h.service.start();
@@ -187,8 +269,8 @@ void main() {
       },
     );
 
-    test('stationary send loop: stillness ramps down, heartbeat keeps fixes '
-        'flowing', () {
+    test('stationary send loop: stillness ramps down to a LOW-power stream '
+        '(FGS kept alive), heartbeat keeps fixes flowing', () {
       fakeAsync((async) {
         final h = _Harness();
         unawaited(h.service.start());
@@ -200,15 +282,41 @@ void main() {
         async.flushMicrotasks();
         expect(h.fixes, hasLength(1));
 
-        // …which ramps active → idle: GPS off, heartbeat armed.
-        async.elapse(const Duration(seconds: 31));
+        // …which ramps active → idle after the DOCUMENTED foreground stillness
+        // window (2min — location-strategy ACTIVE→SLEEPING "2min (fg)"). The
+        // high-power GPS radio backs off, but the position stream STAYS OPEN at
+        // low power: geolocator only runs the Android foreground service while a
+        // stream is live, and that service is the only thing that keeps Doze
+        // from freezing the isolate (tracker 733 — used to `_stopGps()` here
+        // and go dark).
+        async.elapse(const Duration(minutes: 2, seconds: 1));
         expect(h.service.activity, LocationActivity.idle);
-        expect(h.gps.hasListener, isFalse);
+        expect(h.gps.hasListener, isTrue);
+        expect(h.lastGpsSettings!.accuracy, LocationAccuracy.low);
+        expect(
+          h.fgs.running,
+          isTrue,
+          reason: 'our own foreground service must survive going parked',
+        );
+        expect(
+          (h.lastGpsSettings! as AndroidSettings).foregroundNotificationConfig,
+          isNull,
+          reason: 'geolocator runs no FGS of its own — DEFECT #2, we own it',
+        );
 
-        // The 15-minute heartbeat still reports presence.
-        async.elapse(const Duration(minutes: 15));
-        expect(h.heartbeatRequests, 1);
+        // R7: entering parked relays an IMMEDIATE keepalive (no currentPosition
+        // request — a floor of the last-known) so there's no dark gap before the
+        // first 30-minute timer. That's the 2nd fix, and it must NOT have burned
+        // a heartbeat request.
         expect(h.fixes, hasLength(2));
+        expect(h.heartbeatRequests, 0);
+        expect(h.fixes.last.parked, isTrue);
+
+        // The DOCUMENTED 30-minute parked heartbeat then reports presence (R1 —
+        // Parker's 1.2.12 value; 1.2.11 shipped 15min).
+        async.elapse(const Duration(minutes: 30));
+        expect(h.heartbeatRequests, 1);
+        expect(h.fixes, hasLength(3));
         unawaited(h.close());
         async.flushMicrotasks();
       });
@@ -222,8 +330,8 @@ void main() {
         h.gps.add(_pos());
         async
           ..flushMicrotasks()
-          ..elapse(const Duration(seconds: 31)) // → idle, heartbeat armed
-          ..elapse(const Duration(minutes: 15)); // heartbeat request opens
+          ..elapse(const Duration(minutes: 2, seconds: 1)) // → idle, hb armed
+          ..elapse(const Duration(minutes: 30)); // heartbeat request opens
         expect(h.pendingHeartbeats, hasLength(1));
         final before = h.fixes.length;
 
@@ -247,10 +355,486 @@ void main() {
         expect(h.service.activity, LocationActivity.active);
 
         // No fix ever arrives (indoors): the acquisition window must close
-        // rather than hold high-power GPS forever.
-        async.elapse(const Duration(seconds: 31));
+        // rather than hold HIGH-power GPS forever. After the foreground
+        // stillness window (2min) it ramps to idle and drops to a low-power
+        // stream — it does not keep pinning high-accuracy GPS.
+        async.elapse(const Duration(minutes: 2, seconds: 1));
         expect(h.service.activity, LocationActivity.idle);
-        expect(h.gps.hasListener, isFalse);
+        expect(h.gps.hasListener, isTrue);
+        expect(h.lastGpsSettings!.accuracy, LocationAccuracy.low);
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('THE DOZE REGRESSION: backgrounded + perfectly still keeps the '
+        'foreground service alive and relays on a periodic floor', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+
+        // Backgrounded, then one real fix, then the person sits still (sitting
+        // at work all day — the owner's actual symptom). Backgrounding before
+        // the fix arms the DOCUMENTED background stillness (30s — the fast kill
+        // for "Still (no zone)" in the Layer 3 background table).
+        h.service.onBackground();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // background stillness → idle
+        expect(h.service.activity, LocationActivity.idle);
+
+        // The low-power position stream MUST stay open and our own foreground
+        // service MUST still be running — it is the Doze exemption. Under the
+        // old engine the survival service was torn down and the phone went dark
+        // for hours.
+        expect(h.gps.hasListener, isTrue);
+        expect(h.fgs.running, isTrue);
+        expect(
+          (h.lastGpsSettings! as AndroidSettings).foregroundNotificationConfig,
+          isNull,
+          reason: 'geolocator runs no FGS of its own — DEFECT #2',
+        );
+
+        // R7: entering parked already relayed an immediate keepalive (so there's
+        // no dark gap before the first timer). Count from AFTER that…
+        final afterIdle = h.fixes.length;
+        // …then the low-power stream emits nothing (distanceFilter), yet a relay
+        // must still leave the device on the DOCUMENTED 30-minute heartbeat
+        // floor, keeping-alive over the whole still stretch.
+        async.elapse(const Duration(minutes: 30));
+        expect(h.fixes.length, afterIdle + 1);
+        async.elapse(const Duration(minutes: 30));
+        expect(h.fixes.length, afterIdle + 2);
+        async.elapse(const Duration(minutes: 30));
+        expect(h.fixes.length, afterIdle + 3);
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('the floor fails toward relaying: a failed fresh fix still re-relays '
+        'the last-known position (never goes dark)', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+
+        final seed = _pos(lat: 38.70, lon: -90.44);
+        h.gps.add(seed);
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(minutes: 2, seconds: 1)); // → idle (fg 2min)
+        expect(h.service.activity, LocationActivity.idle);
+
+        // The provider can no longer get a fresh fix (indoors / throttled).
+        h.heartbeatShouldThrow = true;
+        final before = h.fixes.length;
+        async
+          ..elapse(const Duration(minutes: 30))
+          ..flushMicrotasks();
+
+        // A relay STILL leaves so the viewer keeps seeing the person — but as a
+        // PARKED keepalive (R2): the last-known position at its REAL sample time
+        // (NOT re-stamped to now), with the liveness clock advanced to now. That
+        // is the 1.2.11 go-dark fix — a dead phone can no longer masquerade as
+        // "live, at home".
+        expect(h.fixes.length, before + 1);
+        final floored = h.fixes.last;
+        expect(floored.lat, seed.latitude);
+        expect(floored.lon, seed.longitude);
+        expect(
+          floored.timestampMs,
+          seed.timestamp.millisecondsSinceEpoch,
+          reason: 'position time is the REAL sample time, never faked to now',
+        );
+        expect(
+          floored.aliveAtMs,
+          greaterThan(seed.timestamp.millisecondsSinceEpoch),
+          reason: 'liveness advances to now, separately from position',
+        );
+        expect(floored.parked, isTrue);
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('LAYER 1 wake-gate hysteresis: a single accelerometer bump does NOT '
+        'wake GPS; ~10s of SUSTAINED motion does (location-strategy Layer 1)',
+        () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+
+        // Park it (backgrounded + still) so the accelerometer wake-gate is the
+        // thing arbitrating GPS. The FGS-keepalive stream keeps the isolate
+        // awake, so the accel gate runs in the background too.
+        h.service.onBackground();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // → idle, accel armed
+        expect(h.service.activity, LocationActivity.idle);
+        expect(h.accel.hasListener, isTrue);
+
+        // A well-above-threshold sample (|magnitude| ≫ 1.2g): z well past 1g.
+        AccelerometerEvent motion() =>
+            AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
+
+        // A lone bump must be ignored (pocket jitter) — no wake. Elapse PAST
+        // the full 10s sustained window: an impl with no grace-gap reset would
+        // let a lone bump's wake timer mature at 10s and fire here. The real
+        // engine cancels the accrual once the 2s grace gap passes with no
+        // further motion, so it must STILL be idle at 12s.
+        h.accel.add(motion());
+        async.elapse(const Duration(seconds: 12)); // well past the 10s window
+        expect(
+          h.service.activity,
+          LocationActivity.idle,
+          reason: 'a single bump must not wake GPS even 12s later (the grace '
+              'gap resets the accrual)',
+        );
+
+        // Pin the 10s threshold — low side: ~8s of SUSTAINED motion (a sample
+        // each second, gaps < the 2s grace) is below the window and must NOT
+        // wake.
+        for (var i = 0; i < 8; i++) {
+          h.accel.add(motion());
+          async.elapse(const Duration(seconds: 1));
+        }
+        expect(
+          h.service.activity,
+          LocationActivity.idle,
+          reason: '~8s of sustained motion is below the 10s wake threshold',
+        );
+
+        // Pin the 10s threshold — high side: carrying the SAME uninterrupted
+        // burst past ~10s DOES wake.
+        for (var i = 0; i < 3; i++) {
+          h.accel.add(motion());
+          async.elapse(const Duration(seconds: 1));
+        }
+        expect(
+          h.service.activity,
+          LocationActivity.active,
+          reason: 'sustained motion reaching ~10s wakes GPS to active',
+        );
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('LAYER 1 hysteresis: periodic jitter (a bump every ~9s) never wakes — '
+        'isolated samples with >2s still gaps keep resetting the accrual', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+
+        // Same parked setup: backgrounded + still, accel gate arbitrating GPS.
+        h.service.onBackground();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // → idle, accel armed
+        expect(h.service.activity, LocationActivity.idle);
+        expect(h.accel.hasListener, isTrue);
+
+        AccelerometerEvent motion() =>
+            AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
+
+        // One bump every ~9s: each sample lands < the 10s wake window from the
+        // last (so an impl that never resets its accrual would mature its timer
+        // between bumps and wake), but the > 2s still gap between them resets
+        // the accrual every time — so it must NEVER accumulate to a wake.
+        for (var i = 0; i < 6; i++) {
+          h.accel.add(motion());
+          async.elapse(const Duration(seconds: 9));
+          // Never WAKES (to active). It may ramp deeper to sleeping (R16) — that
+          // is not a wake — so assert only that jitter never promotes to active.
+          expect(
+            h.service.activity,
+            isNot(LocationActivity.active),
+            reason: 'periodic jitter (a bump every ~9s) must never wake GPS',
+          );
+        }
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('DOCUMENTED stillness windows: foreground rams down after 2min, '
+        'background after 30s (location-strategy ACTIVE→SLEEPING)', () {
+      fakeAsync((async) {
+        // Foreground: 30s of stillness is NOT enough (2min window).
+        final fg = _Harness();
+        unawaited(fg.service.start());
+        fg.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31));
+        expect(
+          fg.service.activity,
+          LocationActivity.active,
+          reason: 'foreground stillness is 2min — 31s must NOT ramp down',
+        );
+        async.elapse(const Duration(minutes: 2));
+        expect(fg.service.activity, LocationActivity.idle);
+        unawaited(fg.close());
+        async.flushMicrotasks();
+
+        // Background: 30s of stillness DOES ramp active → idle (fast kill near
+        // Doze). Let start() settle to active-foreground FIRST, then background,
+        // so this exercises the active→idle demotion (not an already-idle
+        // machine that would ramp straight to sleeping).
+        final bg = _Harness();
+        unawaited(bg.service.start());
+        async.flushMicrotasks();
+        bg.service.onBackground();
+        bg.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31));
+        expect(bg.service.activity, LocationActivity.idle);
+        unawaited(bg.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('R8: foregrounding does NOT cancel the parked heartbeat — a person '
+        'indoors with no GPS fix who reopens the app still gets a keepalive '
+        '(the old engine canceled it on every foreground → unbounded dark)', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start()); // active; heartbeat armed at t=0
+        async.flushMicrotasks();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(minutes: 2, seconds: 1)); // → idle (parked)
+        expect(h.service.activity, LocationActivity.idle);
+        expect(h.heartbeatRequests, 0, reason: 'no heartbeat has fired yet');
+
+        // Reopen the app (→ active). The OLD engine canceled the heartbeat here,
+        // so it never matured and the phone went dark; it must keep running.
+        h.service.onForeground();
+
+        // No GPS fix ever arrives (indoors). Cross the 30-minute heartbeat:
+        // because foreground didn't cancel it, it fires.
+        async.elapse(const Duration(minutes: 30));
+        expect(
+          h.heartbeatRequests,
+          greaterThanOrEqualTo(1),
+          reason: 'the heartbeat survived the foreground and fired',
+        );
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('R14 wake-gate is ~1.2 m/s²: sustained 0.8 m/s² (which the old '
+        'squared-vs-linear gate wrongly fired at ~0.6) must NOT wake; 2.0 m/s² '
+        'does', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+        h.service.onBackground();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // → idle, accel armed
+        expect(h.service.activity, LocationActivity.idle);
+
+        // 0.8 m/s² of LINEAR excess (z = g + 0.8). The old gate compared |a|²−g²
+        // (= ~16, well over its 1.2·g ≈ 11.8) so it woke on a buzzing desk; the
+        // fixed linear gate (|a|−g = 0.8 < 1.2) must NOT wake, even sustained.
+        AccelerometerEvent weak() =>
+            AccelerometerEvent(0, 0, 9.81 + 0.8, DateTime.now());
+        for (var i = 0; i < 14; i++) {
+          h.accel.add(weak());
+          async.elapse(const Duration(seconds: 1));
+        }
+        expect(
+          h.service.activity,
+          LocationActivity.idle,
+          reason: '0.8 m/s² is below the ~1.2 m/s² wake threshold',
+        );
+
+        // 2.0 m/s² linear excess IS above threshold → sustained motion wakes.
+        AccelerometerEvent strong() =>
+            AccelerometerEvent(0, 0, 9.81 + 2.0, DateTime.now());
+        for (var i = 0; i < 11; i++) {
+          h.accel.add(strong());
+          async.elapse(const Duration(seconds: 1));
+        }
+        expect(h.service.activity, LocationActivity.active);
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('R16: a parked device ramps idle → SLEEPING (60s), it is not left '
+        'stuck in IDLE polling at 30s (which doubled the parked wakes)', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+        h.service.onBackground();
+        h.gps.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31)); // active → idle (bg stillness)
+        expect(h.service.activity, LocationActivity.idle);
+
+        // The idle branch must RE-ARM stillness so it demotes to sleeping — the
+        // old engine armed stillness only while moving, so idle was terminal.
+        async.elapse(const Duration(seconds: 31));
+        expect(
+          h.service.activity,
+          LocationActivity.sleeping,
+          reason: 'idle must re-arm stillness and reach sleeping',
+        );
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('(e) entering parked relays an IMMEDIATE keepalive so there is no dark '
+        'gap before the first 30-minute heartbeat', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+        final seed = _pos(lat: 38.71, lon: -90.45);
+        h.gps.add(seed);
+        async.flushMicrotasks();
+        final beforePark = h.fixes.length; // the live fix
+
+        // Ramp to parked (fg stillness 2min). No heartbeat has fired yet.
+        async.elapse(const Duration(minutes: 2, seconds: 1));
+        expect(h.service.activity, LocationActivity.idle);
+
+        // A keepalive left IMMEDIATELY on parking — before the first 30-min
+        // tick — as a PARKED floor of the last-known position (real sample
+        // time), costing no currentPosition request.
+        expect(h.fixes.length, beforePark + 1);
+        expect(h.heartbeatRequests, 0);
+        final ka = h.fixes.last;
+        expect(ka.parked, isTrue);
+        expect(ka.lat, seed.latitude);
+        expect(ka.timestampMs, seed.timestamp.millisecondsSinceEpoch);
+        expect(ka.aliveAtMs, greaterThanOrEqualTo(ka.timestampMs));
+
+        unawaited(h.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('(f) DEFECT #2: a parked→active wake in the BACKGROUND swaps the GPS '
+        'stream CANCEL-THEN-REOPEN (old canceled BEFORE new opened, to reset '
+        "geolocator's settings cache) while OUR foreground service never drops "
+        '(so the reopen never trips the Android-12 background FGS block)', () {
+      fakeAsync((async) {
+        final events = <String>[];
+        final accel = StreamController<AccelerometerEvent>.broadcast(sync: true);
+        final opened = <StreamController<Position>>[];
+        final fgs = _FakeForegroundService();
+        final service = LocationService(
+          checkPermission: () async => LocationPermission.always,
+          requestPermission: () async => LocationPermission.always,
+          positionStream: (settings) {
+            final c = StreamController<Position>.broadcast(
+              onCancel: () => events.add('cancel'),
+              sync: true,
+            );
+            opened.add(c);
+            events.add('listen');
+            return c.stream;
+          },
+          currentPosition: (_) async => _pos(),
+          accelStream: () => accel.stream,
+          foregroundService: fgs,
+        );
+        unawaited(service.start());
+        async.flushMicrotasks();
+        expect(fgs.running, isTrue, reason: 'FGS up as soon as sharing starts');
+
+        // Park it in the background: one real fix (arms the 30s background
+        // stillness) then sit still → idle.
+        service.onBackground();
+        opened.last.add(_pos());
+        async
+          ..flushMicrotasks()
+          ..elapse(const Duration(seconds: 31));
+        expect(service.activity, LocationActivity.idle);
+        expect(events, contains('listen'));
+
+        // Observe only the wake transition.
+        events.clear();
+        AccelerometerEvent motion() =>
+            AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
+        // ~11s of sustained motion crosses the 10s wake gate.
+        for (var i = 0; i < 11; i++) {
+          accel.add(motion());
+          async.elapse(const Duration(seconds: 1));
+        }
+        async.flushMicrotasks();
+        expect(
+          service.activity,
+          LocationActivity.active,
+          reason: 'sustained motion wakes GPS to active',
+        );
+
+        // CANCEL-THEN-REOPEN: the old stream is CANCELED before the replacement
+        // is opened — the reverse of the old make-before-break — because
+        // geolocator ignores new settings while a listener is active, so we must
+        // drop to zero listeners (cache resets) first. Safe now only because our
+        // own FGS keeps the process foreground the whole time.
+        final cancelAt = events.indexOf('cancel');
+        final listenAt = events.indexOf('listen');
+        expect(cancelAt, isNonNegative, reason: 'the old stream was canceled');
+        expect(listenAt, isNonNegative, reason: 'a replacement stream opened');
+        expect(
+          cancelAt,
+          lessThan(listenAt),
+          reason: 'cancel-then-reopen: old down BEFORE new up (cache reset)',
+        );
+
+        // The whole time, our foreground service never dropped.
+        expect(fgs.running, isTrue);
+        expect(fgs.stopCount, 0, reason: 'FGS must never stop across a wake');
+
+        unawaited(service.dispose());
+        unawaited(accel.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('ghost stops our foreground service; leaving ghost restarts it', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.service.start());
+        async.flushMicrotasks();
+        expect(h.fgs.running, isTrue);
+
+        h.service.setSharing(sharing: false); // ghost
+        expect(h.fgs.running, isFalse, reason: 'ghost is the one FGS drop');
+        expect(h.fgs.stopCount, 1);
+
+        h.service.setSharing(sharing: true); // un-ghost
+        async.flushMicrotasks();
+        expect(h.fgs.running, isTrue, reason: 'sharing again restarts the FGS');
+
         unawaited(h.close());
         async.flushMicrotasks();
       });

@@ -65,7 +65,11 @@ class PersonDetailScreen extends ConsumerWidget {
         body: SafeArea(
           child: Column(
             children: [
-              _FocusMap(person: person),
+              _WatchNudger(
+                userId: userId,
+                enabled: ongoingPerson != null || incomingTemp != null,
+                child: _FocusMap(person: person),
+              ),
               Expanded(
                 child: ListView(
                   padding: EdgeInsets.all(context.space.lg),
@@ -847,4 +851,64 @@ class _StopSharingTile extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Adaptive re-nudge cadence for a live view (location-strategy Layer 4:
+/// ~15s while the person is moving, ~45s if they recently moved, ~2min if
+/// stale). Derived from the freshest known POSITION sample age; a missing fix
+/// eases to the middle rate. Pure so it can be unit-tested.
+Duration watchNudgeCadence(int? positionTimestampMs, {DateTime? now}) {
+  if (positionTimestampMs == null) return const Duration(seconds: 45);
+  final ageMs =
+      (now ?? DateTime.now()).millisecondsSinceEpoch - positionTimestampMs;
+  if (ageMs < 30 * 1000) return const Duration(seconds: 15); // moving / fresh
+  if (ageMs < 2 * 60 * 1000) return const Duration(seconds: 45); // recent
+  return const Duration(minutes: 2); // stale
+}
+
+/// Viewer-side Layer-4 watch loop. While this person's live view is open, ask
+/// their device to wake and relay a fresh fix — immediately on open, then at an
+/// adaptive cadence ([watchNudgeCadence]). Stops when the view closes. The
+/// server dedupes across watchers, so several people watching one person still
+/// yields ~one wake per 15s. A layout-transparent wrapper: it returns its child
+/// unchanged.
+class _WatchNudger extends ConsumerStatefulWidget {
+  const _WatchNudger({
+    required this.userId,
+    required this.enabled,
+    required this.child,
+  });
+
+  final String userId;
+  final bool enabled;
+  final Widget child;
+
+  @override
+  ConsumerState<_WatchNudger> createState() => _WatchNudgerState();
+}
+
+class _WatchNudgerState extends ConsumerState<_WatchNudger> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.enabled) _tick();
+  }
+
+  void _tick() {
+    _timer?.cancel();
+    ref.read(relayControllerProvider).nudgeWatch(widget.userId);
+    final motion = ref.read(livePresenceProvider)[widget.userId];
+    _timer = Timer(watchNudgeCadence(motion?.target.timestamp), _tick);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

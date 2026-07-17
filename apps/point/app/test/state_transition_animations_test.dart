@@ -454,7 +454,9 @@ void main() {
       expect(find.byKey(const ValueKey(PresenceState.live)), findsOneWidget);
 
       final now = DateTime(2026, 7, 13, 12);
-      final darkAt = now.subtract(const Duration(minutes: 16));
+      // > darkAfter (45m) so liveness reads dark (1.2.12 raised the threshold
+      // above the 30-min parked heartbeat).
+      final darkAt = now.subtract(const Duration(minutes: 50));
       final stale = mergePresence(
         _mara,
         PeerFix(

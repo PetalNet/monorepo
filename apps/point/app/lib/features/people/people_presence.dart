@@ -10,11 +10,24 @@ import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/presence_tokens.dart';
 
-/// After this long without a fresh fix, a person reads as DARK — the honest
-/// interpretation of "no location is leaving their device" (ghost, dead phone,
-/// or no signal are indistinguishable, by design). Their frozen last-known
-/// position + "dark since" remains visible on both Map and People.
-const darkAfter = Duration(minutes: 15);
+/// The client's parked keepalive/heartbeat period (LocationService.heartbeat).
+/// Mirrored here only so the dark threshold can be proven to sit above it.
+const parkedHeartbeat = Duration(minutes: 30);
+
+/// After this long with NO liveness signal — no fresh fix AND no parked
+/// keepalive — a person reads as DARK: the honest interpretation of "nothing is
+/// leaving their device" (ghost, dead phone, or no signal are indistinguishable,
+/// by design). Their frozen last-known position + "dark since" stays visible on
+/// Map and People.
+///
+/// INVARIANT: [darkAfter] > [parkedHeartbeat] with real margin. A parked-alive
+/// phone only checks in every [parkedHeartbeat] (30 min); the threshold adds
+/// ~15 min for acquisition + relay + the 30s viewer tick + clock skew so a
+/// still-but-alive device between keepalives is never mistaken for dead. The
+/// presence tests enforce this invariant against the REAL runtime heartbeat
+/// (LocationService.heartbeat), so [parkedHeartbeat] and the threshold cannot
+/// silently drift out of the safe ordering.
+const darkAfter = Duration(minutes: 45);
 
 /// How confidently the client can describe a peer fix at the current time.
 enum FixFreshness { current, recent, stale, uncertain }
@@ -95,13 +108,27 @@ final presenceClockProvider = StreamProvider<DateTime>(
 );
 
 /// Merge a [Person] with server liveness and their latest decrypted [PeerFix].
+///
+/// The peer fix carries TWO clocks (the 1.2.11 go-dark fix): the POSITION
+/// sample time ([PeerFix.timestamp]) and the DEVICE liveness time
+/// ([PeerFix.aliveAt] — when the fix/keepalive left the device), plus a
+/// [PeerFix.parked] flag. Dark/alive is decided by LIVENESS, not position, so a
+/// parked device that keeps checking in stays visible while a genuinely dead one
+/// (no keepalive) darks; and position is never fabricated to `now`, so a
+/// stationary phone reads "parked · here since T" instead of a falsely-fresh
+/// "live". (Old clients omit the new fields — [PeerFix.aliveAt] falls back to
+/// the position time and [PeerFix.parked] to false, preserving prior behavior.)
+///
 /// The privacy-safe state table is:
 /// - server offline ⇒ `stale` immediately, regardless of fix freshness;
 /// - server online + no fix ⇒ `live` but locationless;
-/// - fresh fix ⇒ `live`, located, status line (federated `@server` kept quiet);
-/// - stale fix (older than [darkAfter]) ⇒ `stale` = DARK: frozen last-known
-///   coordinate retained with "Dark since HH:MM" and a dark map marker;
-/// - no server signal ⇒ fix freshness remains the conservative fallback.
+/// - moving (fresh position, not parked) ⇒ `live`, located, "Sharing · ago";
+/// - PARKED (recent liveness, older position) ⇒ `live`, located, "Parked ·
+///   here since HH:MM" — alive + stationary, NOT falsely-fresh, NOT dark;
+/// - no liveness past [darkAfter] (dead phone / ghost / lost signal) ⇒ `stale`
+///   = DARK: frozen last-known coordinate + "Dark since HH:MM" (the last
+///   keepalive), dark map marker;
+/// - no server signal ⇒ fix liveness remains the conservative fallback.
 Person mergePresence(
   Person p,
   PeerFix? fix, {
@@ -126,20 +153,28 @@ Person mergePresence(
       distanceLabel: p.distanceLabel,
     );
   }
-  final ts = fix.timestamp;
-  final freshness = fixFreshness(ts, now: at);
-  final staleFix = freshness == FixFreshness.stale;
-  final uncertainFix = freshness == FixFreshness.uncertain;
+  final ts = fix.timestamp; // POSITION sample time (may be old while parked).
+  final aliveTs = fix.aliveAt; // DEVICE liveness time (drives alive/dark).
+  final parked = fix.parked;
+  // Dark is a LIVENESS verdict: has the device gone quiet past [darkAfter]?
+  final livenessStale = fixFreshness(aliveTs, now: at) == FixFreshness.stale;
+  // Position-clock trust (a far-future sample time is not plotted as live).
+  final uncertainFix = fixFreshness(ts, now: at) == FixFreshness.uncertain;
   final offline = serverPresence?.online == false;
-  final dark = offline || staleFix;
+  final dark = offline || livenessStale;
+  // "Dark since" the last thing we heard: the server's observation when the
+  // server called it, otherwise the last liveness/keepalive time.
   final darkSinceAt = dark
       ? offline
             ? serverPresence!.observedAt.millisecondsSinceEpoch
-            : ts!
+            : (aliveTs ?? ts)!
       : null;
   final domain = p.userId.contains('@') ? p.userId.split('@').last : null;
   final federated =
       domain != null && selfDomain != null && domain != selfDomain;
+  // Parked = alive keepalive with an older position: render stationary, not a
+  // falsely-fresh "now". Only when we actually have a position sample time.
+  final showParked = !dark && !uncertainFix && parked && ts != null;
   final String subtitle;
   if (dark) {
     final precision = formatAccuracy(fix.accuracy);
@@ -151,6 +186,13 @@ Person mergePresence(
   } else if (uncertainFix) {
     final precision = formatAccuracy(fix.accuracy);
     subtitle = ['Last place', 'Update time uncertain', ?precision].join(' · ');
+  } else if (showParked) {
+    final precision = formatAccuracy(fix.accuracy);
+    subtitle = [
+      if (federated) p.userId else 'Parked',
+      'here since ${clockHm(ts, format: timeFormat)}',
+      ?precision,
+    ].join(' · ');
   } else {
     final ago = ts != null ? relativeSince(ts, now: at) : 'time uncertain';
     final precision = formatAccuracy(fix.accuracy);
