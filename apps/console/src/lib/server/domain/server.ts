@@ -410,11 +410,11 @@ export function validateJsonSchema(
 				? (schema["properties"] as Record<string, JsonSchema>)
 				: {};
 		for (const [key, item] of Object.entries(record)) {
-			const propertySchema = properties[key];
-			{
+			if (Object.hasOwn(properties, key)) {
+				const propertySchema = properties[key];
 				const error = validateJsonSchema(item, propertySchema, `${path}.${key}`, root, base);
 				if (error) return error;
-			}
+			} else if (schema["additionalProperties"] === false) return `${path}.${key}: unknown field`;
 		}
 	}
 	return null;
@@ -646,8 +646,9 @@ export async function buildServer(
 	let healthCacheAt = 0;
 	let healthEmissionAt = 0;
 	const requestStarted = new WeakMap<FastifyRequest, number>();
-	app.addHook("onRequest", (req) => {
+	app.addHook("onRequest", (req, _reply, done) => {
 		requestStarted.set(req, performance.now());
+		done();
 	});
 	app.addHook("onResponse", async (req, reply) => {
 		// Successful self-observation is sampled 1:10; every failed request is retained. Only bounded
@@ -866,7 +867,8 @@ export async function buildServer(
 				const proposals = await services.db.admin<
 					{ id: string; scope: string; proposed_by: string | null }[]
 				>`select id, scope, proposed_by from library_curation where id = ${rawId}`;
-				return { ...proposals[0], owner: proposals[0].proposed_by };
+				const proposal = proposals.at(0);
+				if (proposal) return { ...proposal, owner: proposal.proposed_by };
 			}
 			const items = await services.db.admin<
 				{
@@ -900,7 +902,8 @@ export async function buildServer(
 			>`select subject, scope, state from current_state
 			  where kind = 'edge' and state->>'pubkey_fp' = ${args["pubkey_fp"]}
 			  order by seq desc limit 1`;
-			return { ...edges[0].state, subject: edges[0].subject, scope: edges[0].scope };
+			const edge = edges.at(0);
+			if (edge) return { ...edge.state, subject: edge.subject, scope: edge.scope };
 		}
 		if (entry.op === "subscription.set" || entry.op === "subscription.remove") {
 			const owner = typeof args["owner"] === "string" ? args["owner"] : null;
@@ -1535,7 +1538,13 @@ export async function buildServer(
 						    )
 						  )
 						limit 1`;
-					const pending = active[0];
+					const pending = active.at(0);
+					if (!pending)
+						throw new AssistantRuntimeError(
+							"approval_not_pending",
+							"this approval was already revoked or applied",
+							false,
+						);
 
 					const now = new Date().toISOString();
 					const revoked = {
@@ -2388,14 +2397,17 @@ export async function buildServer(
 			}[]
 		>`select manager_session_id, state, window_layout, last_context from assistant_sessions
 		  where principal_id = ${p.id}`;
+		const session = rows.at(0);
 		return {
 			schema_version: 1,
-			session: {
-				session_id: rows[0].manager_session_id,
-				state: rows[0].state,
-				window_layout: rows[0].window_layout,
-				last_context: rows[0].last_context,
-			},
+			session: session
+				? {
+						session_id: session.manager_session_id,
+						state: session.state,
+						window_layout: session.window_layout,
+						last_context: session.last_context,
+					}
+				: null,
 		};
 	});
 	app.post("/api/v1/assistant/messages", { preHandler: auth }, async (req, reply) => {

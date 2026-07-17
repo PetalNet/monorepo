@@ -162,9 +162,15 @@ export async function proposeMutation(
 		values (${principal.id}, ${input.requestId}, ${hash}, ${input.operation})
 		on conflict (principal_id, request_id) do nothing
 		returning request_hash, proposal_task_id::text, state, dispatch_started_at`;
-	const row = inserted[0];
-
-	if (row.request_hash !== hash)
+	let row = inserted.at(0);
+	if (!row) {
+		const existing = await writer<MutationRow[]>`
+			select request_hash, proposal_task_id::text, state, dispatch_started_at
+			from proposal_mutations
+			where principal_id = ${principal.id} and request_id = ${input.requestId}`;
+		row = existing.at(0);
+	}
+	if (!row || row.request_hash !== hash)
 		throw new ProposalError("id_reused", "mutation id was already used with a different body");
 
 	const result = (taskId: number): Record<string, unknown> => ({

@@ -385,8 +385,8 @@ export class Projector {
 			const cur = await sql<
 				{ scope: string; seq: string }[]
 			>`select scope, seq from current_state where kind = ${kind} and subject = ${subject}`;
-			const c = cur[0];
-			if (c.scope !== e.scope && Number(c.seq) < seq) {
+			const c = cur.at(0);
+			if (c && c.scope !== e.scope && Number(c.seq) < seq) {
 				this.#alarm(
 					"projection.scope_conflict",
 					subject,
@@ -395,8 +395,8 @@ export class Projector {
 			}
 			return;
 		}
-		const storedScope = rows[0].scope;
-		if (storedScope !== e.scope) {
+		const storedScope = rows.at(0)?.scope;
+		if (storedScope !== undefined && storedScope !== e.scope) {
 			this.#alarm(
 				"projection.scope_conflict",
 				e.subject,

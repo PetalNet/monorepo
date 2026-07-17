@@ -53,13 +53,14 @@ export class SignalSourceModes {
 				on conflict (source_service) do update set mode = excluded.mode, note = excluded.note,
 					updated_at = excluded.updated_at, updated_by = excluded.updated_by
 				returning source_service, mode, note, updated_at, updated_by`;
-			const row = rows[0];
+			const row = rows.at(0);
+			if (!row) throw new Error("signal source mode was not persisted");
 
 			await tx`
 				insert into signal_source_mode_outbox
 					(id, source_service, mode, note, updated_at, updated_by)
 				values (${eventId}, ${sourceService}, ${mode}, ${note}, ${now}, ${actor})`;
-			return { ...row, previous_mode: previous[0].mode };
+			return { ...row, previous_mode: previous.at(0)?.mode ?? "normal" };
 		});
 
 		await this.#publish({ id: eventId, ...saved }).catch(() => false);

@@ -77,11 +77,11 @@ export class Bridge {
 		const rows = await sql<
 			{ cursor: string; below_count: number; below_hash: string }[]
 		>`select cursor, below_count, below_hash from bridge_cursor where source = ${source}`;
-		const row = rows[0];
+		const row = rows.at(0);
 		return {
-			cursor: row.cursor,
-			belowCount: row.below_count,
-			belowHash: row.below_hash,
+			cursor: row?.cursor ?? "",
+			belowCount: row?.below_count ?? 0,
+			belowHash: row?.below_hash ?? "",
 		};
 	}
 
@@ -657,13 +657,14 @@ export class JsonlSpoolAdapter implements BridgeAdapter {
 					continue;
 				}
 				const fileId = `${String(stat.dev)}:${String(stat.ino)}`;
-				const prior = previous[file];
-				let byteOffset = prior.byteOffset;
-				let lineNumber = prior.line;
+				const prior = Object.hasOwn(previous, file) ? previous[file] : undefined;
+				let byteOffset = prior?.byteOffset ?? 0;
+				let lineNumber = prior?.line ?? 0;
 				if (
-					prior.fileId !== fileId ||
-					stat.size < byteOffset ||
-					(prior.tailHash !== "" && prior.tailHash !== spoolTailHash(fd, byteOffset))
+					prior &&
+					(prior.fileId !== fileId ||
+						stat.size < byteOffset ||
+						(prior.tailHash !== "" && prior.tailHash !== spoolTailHash(fd, byteOffset)))
 				) {
 					losses.push({ cursor: `${file}:${String(lineNumber)}`, reason: "cursor_reset" });
 					byteOffset = 0;

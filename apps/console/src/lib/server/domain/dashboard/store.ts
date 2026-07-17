@@ -712,11 +712,14 @@ export async function readLibraryItem(
 			       responsible_human, handed_off_to, protection, updated_at, 0::real as rank
 			from library_items where id = ${itemId}`,
 	);
-	return {
-		schema_version: 1,
-		freshness: { source: "library", observed_at: new Date().toISOString(), window_s: 60 },
-		item: libraryItemEnvelope(rows[0]),
-	};
+	const row = rows.at(0);
+	return row
+		? {
+				schema_version: 1,
+				freshness: { source: "library", observed_at: new Date().toISOString(), window_s: 60 },
+				item: libraryItemEnvelope(row),
+			}
+		: null;
 }
 
 export async function readLibraryItemHistory(

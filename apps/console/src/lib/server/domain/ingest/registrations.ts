@@ -25,7 +25,8 @@ export async function loadRegistration(
 		select subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity,
 			max_emit_per_min, max_new_types_per_hour
 		from producer_registrations where subject = ${subject}`;
-	const r = rows[0];
+	const r = rows.at(0);
+	if (!r) return null;
 
 	const maxSeverity: Severity = SEVS.has(r.max_severity) ? (r.max_severity as Severity) : "info";
 	return {

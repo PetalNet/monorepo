@@ -62,8 +62,9 @@ export function mergeSemanticShape(
 	const measures = structuredClone(existing.measures);
 	const drift: SemanticDrift[] = [];
 	for (const [field, next] of Object.entries(incoming.dimensions)) {
-		const current = dimensions[field];
-		if (current.type !== next.type)
+		const current = Object.hasOwn(dimensions, field) ? dimensions[field] : undefined;
+		if (!current) dimensions[field] = next;
+		else if (current.type !== next.type)
 			drift.push({
 				field,
 				kind: "dimension_type",
@@ -73,7 +74,11 @@ export function mergeSemanticShape(
 		else if (!current.cardinality && next.cardinality) current.cardinality = next.cardinality;
 	}
 	for (const [field, next] of Object.entries(incoming.measures)) {
-		const current = measures[field];
+		const current = Object.hasOwn(measures, field) ? measures[field] : undefined;
+		if (!current) {
+			measures[field] = next;
+			continue;
+		}
 
 		if (current.kind && next.kind && current.kind !== next.kind)
 			drift.push({

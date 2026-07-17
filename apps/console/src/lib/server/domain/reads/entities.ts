@@ -303,7 +303,8 @@ export async function readBoxUpdateRaw(
 			tx<{ state: Record<string, unknown> }[]>`
 			select state from current_state where kind = 'box_update' and subject = ${boxId}`,
 	);
-	const state = rows[0].state;
+	const state = rows.at(0)?.state;
+	if (!state) return null;
 
 	const nested = state["box_update_raw"] ?? state["raw"];
 	const candidate =

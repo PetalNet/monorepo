@@ -199,11 +199,12 @@ export class AssistantRuntime {
 		const known = await this.writer<MessageRow[]>`
 			select request_hash, response_id, state, dispatch_started_at, message_seq::text
 			from assistant_messages where principal_id = ${principal.id} and message_id = ${input.id}`;
-		if (known[0].request_hash !== requestHash)
+		const knownMessage = known.at(0);
+		if (knownMessage && knownMessage.request_hash !== requestHash)
 			throw new AssistantRuntimeError("id_reused", "message id was reused with different content");
-		if (known[0].state === "dispatching") {
-			const started = known[0].dispatch_started_at
-				? new Date(known[0].dispatch_started_at).getTime()
+		if (knownMessage?.state === "dispatching") {
+			const started = knownMessage.dispatch_started_at
+				? new Date(knownMessage.dispatch_started_at).getTime()
 				: Date.now();
 			if (Date.now() - started < STALE_MESSAGE_MS)
 				throw new AssistantRuntimeError(
@@ -250,10 +251,10 @@ export class AssistantRuntime {
 				tool_results: response.toolResults,
 			};
 		};
-		if (known[0].state === "complete" || known[0].state === "dispatching") {
+		if (knownMessage?.state === "complete" || knownMessage?.state === "dispatching") {
 			const receipt = await this.manager.lookupMessage(sessionId, input.id);
-			if (receipt) return finish(receipt, known[0].message_seq);
-			if (known[0].state === "complete")
+			if (receipt) return finish(receipt, knownMessage.message_seq);
+			if (knownMessage.state === "complete")
 				throw new AssistantRuntimeError(
 					"assistant_receipt_unavailable",
 					"manager lost a completed message receipt",
