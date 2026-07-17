@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1994066408;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1510737196;
 
 // Section: executor
 
@@ -633,6 +633,35 @@ fn wire__crate__api__crypto__PointMls_safety_number_impl(
         },
     )
 }
+fn wire__crate__api__fuzz__fuzz_radius_presets_m_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "fuzz_radius_presets_m",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let output_ok = Result::<_, ()>::Ok(crate::api::fuzz::fuzz_radius_presets_m())?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__recovery__generate_recovery_code_impl(
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -727,6 +756,48 @@ fn wire__crate__api__recovery__recovery_encrypt_impl(
         },
     )
 }
+fn wire__crate__api__fuzz__stable_fuzz_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "stable_fuzz",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_true_lat = <f64>::sse_decode(&mut deserializer);
+            let api_true_lon = <f64>::sse_decode(&mut deserializer);
+            let api_radius_m = <f64>::sse_decode(&mut deserializer);
+            let api_sharer_id = <String>::sse_decode(&mut deserializer);
+            let api_audience_id = <String>::sse_decode(&mut deserializer);
+            let api_secret = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let output_ok = Result::<_, ()>::Ok(crate::api::fuzz::stable_fuzz(
+                    api_true_lat,
+                    api_true_lon,
+                    api_radius_m,
+                    api_sharer_id,
+                    api_audience_id,
+                    api_secret,
+                ))?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 
 // Section: related_funcs
 
@@ -780,6 +851,48 @@ impl SseDecode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
+impl SseDecode for f64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_f64::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for crate::api::fuzz::FuzzedPoint {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_lat = <f64>::sse_decode(deserializer);
+        let mut var_lon = <f64>::sse_decode(deserializer);
+        let mut var_cellX = <i64>::sse_decode(deserializer);
+        let mut var_cellY = <i64>::sse_decode(deserializer);
+        return crate::api::fuzz::FuzzedPoint {
+            lat: var_lat,
+            lon: var_lon,
+            cell_x: var_cellX,
+            cell_y: var_cellY,
+        };
+    }
+}
+
+impl SseDecode for i64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_i64::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for Vec<f64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<f64>::sse_decode(deserializer));
+        }
+        return ans_;
     }
 }
 
@@ -875,9 +988,11 @@ fn pde_ffi_dispatcher_sync_impl(
         7 => wire__crate__api__crypto__PointMls_has_group_impl(ptr, rust_vec_len, data_len),
         8 => wire__crate__api__crypto__PointMls_new_impl(ptr, rust_vec_len, data_len),
         11 => wire__crate__api__crypto__PointMls_restore_impl(ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__recovery__generate_recovery_code_impl(ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__recovery__recovery_decrypt_impl(ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__recovery__recovery_encrypt_impl(ptr, rust_vec_len, data_len),
+        13 => wire__crate__api__fuzz__fuzz_radius_presets_m_impl(ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__recovery__generate_recovery_code_impl(ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__recovery__recovery_decrypt_impl(ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__recovery__recovery_encrypt_impl(ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__fuzz__stable_fuzz_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -920,6 +1035,26 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::crypto::AddMemberResult>
         self
     }
 }
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::fuzz::FuzzedPoint {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.lat.into_into_dart().into_dart(),
+            self.lon.into_into_dart().into_dart(),
+            self.cell_x.into_into_dart().into_dart(),
+            self.cell_y.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::fuzz::FuzzedPoint {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::fuzz::FuzzedPoint>
+    for crate::api::fuzz::FuzzedPoint
+{
+    fn into_into_dart(self) -> crate::api::fuzz::FuzzedPoint {
+        self
+    }
+}
 
 impl SseEncode for PointMls {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -958,6 +1093,40 @@ impl SseEncode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
+impl SseEncode for f64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_f64::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for crate::api::fuzz::FuzzedPoint {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <f64>::sse_encode(self.lat, serializer);
+        <f64>::sse_encode(self.lon, serializer);
+        <i64>::sse_encode(self.cell_x, serializer);
+        <i64>::sse_encode(self.cell_y, serializer);
+    }
+}
+
+impl SseEncode for i64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_i64::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for Vec<f64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <f64>::sse_encode(item, serializer);
+        }
     }
 }
 

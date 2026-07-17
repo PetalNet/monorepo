@@ -27,7 +27,9 @@ impl PointMls {
     #[frb(sync)]
     pub fn new(identity: String) -> Result<PointMls, String> {
         PointCrypto::new(&identity)
-            .map(|c| PointMls { inner: Mutex::new(c) })
+            .map(|c| PointMls {
+                inner: Mutex::new(c),
+            })
             .map_err(|e| e.to_string())
     }
 
@@ -36,7 +38,9 @@ impl PointMls {
     #[frb(sync)]
     pub fn restore(state: Vec<u8>) -> Result<PointMls, String> {
         PointCrypto::restore(&state)
-            .map(|c| PointMls { inner: Mutex::new(c) })
+            .map(|c| PointMls {
+                inner: Mutex::new(c),
+            })
             .map_err(|e| e.to_string())
     }
 
@@ -48,11 +52,15 @@ impl PointMls {
 
     /// A fresh one-time KeyPackage to upload to the server pool.
     pub fn generate_key_package(&self) -> Result<Vec<u8>, String> {
-        self.lock().generate_key_package().map_err(|e| e.to_string())
+        self.lock()
+            .generate_key_package()
+            .map_err(|e| e.to_string())
     }
 
     pub fn create_group(&self, group_id: Vec<u8>) -> Result<Vec<u8>, String> {
-        self.lock().create_group(&group_id).map_err(|e| e.to_string())
+        self.lock()
+            .create_group(&group_id)
+            .map_err(|e| e.to_string())
     }
 
     pub fn add_member(
@@ -71,37 +79,27 @@ impl PointMls {
 
     /// Join a group from a Welcome; returns the group id.
     pub fn process_welcome(&self, welcome: Vec<u8>) -> Result<Vec<u8>, String> {
-        self.lock().process_welcome(&welcome).map_err(|e| e.to_string())
+        self.lock()
+            .process_welcome(&welcome)
+            .map_err(|e| e.to_string())
     }
 
     /// Apply a Commit (membership change) to an existing group.
-    pub fn process_commit(
-        &self,
-        group_id: Vec<u8>,
-        commit: Vec<u8>,
-    ) -> Result<(), String> {
+    pub fn process_commit(&self, group_id: Vec<u8>, commit: Vec<u8>) -> Result<(), String> {
         self.lock()
             .process_commit(&group_id, &commit)
             .map_err(|e| e.to_string())
     }
 
     /// Encrypt a location fix for a group. Returns opaque MLS ciphertext.
-    pub fn encrypt(
-        &self,
-        group_id: Vec<u8>,
-        plaintext: Vec<u8>,
-    ) -> Result<Vec<u8>, String> {
+    pub fn encrypt(&self, group_id: Vec<u8>, plaintext: Vec<u8>) -> Result<Vec<u8>, String> {
         self.lock()
             .encrypt(&group_id, &plaintext)
             .map_err(|e| e.to_string())
     }
 
     /// Decrypt a group ciphertext back to plaintext.
-    pub fn decrypt(
-        &self,
-        group_id: Vec<u8>,
-        ciphertext: Vec<u8>,
-    ) -> Result<Vec<u8>, String> {
+    pub fn decrypt(&self, group_id: Vec<u8>, ciphertext: Vec<u8>) -> Result<Vec<u8>, String> {
         self.lock()
             .decrypt(&group_id, &ciphertext)
             .map_err(|e| e.to_string())
@@ -115,7 +113,9 @@ impl PointMls {
     /// A Signal-style safety number for a pairwise group — both members compute
     /// the same value from their sorted identity keys, for out-of-band verify.
     pub fn safety_number(&self, group_id: Vec<u8>) -> Result<String, String> {
-        self.lock().safety_number(&group_id).map_err(|e| e.to_string())
+        self.lock()
+            .safety_number(&group_id)
+            .map_err(|e| e.to_string())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, PointCrypto> {
