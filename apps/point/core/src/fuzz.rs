@@ -1,5 +1,6 @@
 use hmac::{Hmac, KeyInit, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 
 pub const FUZZ_RADIUS_NEAR_M: f64 = 300.0;
 pub const FUZZ_RADIUS_MID_M: f64 = 1_000.0;
@@ -10,10 +11,70 @@ pub const FUZZ_RADIUS_PRESETS_M: [f64; 3] =
 
 const M_PER_DEG_LAT: f64 = 111_320.0;
 
+/// Latitude band cap. Beyond this the longitude projection factor
+/// (`cos(lat)`) collapses toward zero and the lon back-projection divides by
+/// ~0 — real polar / high-lat GPS fixes (Greenland, sensor noise, 89-90°) are
+/// clamped into this safe band instead of tripping a panic / producing inf.
+const MAX_ABS_LAT: f64 = 89.9;
+
+/// Radius floor. A radius of 0, NaN, negative, or sub-metre would make the grid
+/// math divide by zero or explode into i64 saturation; clamp to a sane cell size.
+const MIN_FUZZ_RADIUS_M: f64 = 1.0;
+
+/// Minimum HMAC-key length. A too-short / empty secret is stretched (not
+/// rejected) so grid offsets keep full-width entropy.
+const MIN_SECRET_LEN: usize = 16;
+
+/// Map any radius (incl. 0 / NaN / negative) to a positive, finite cell size.
+fn sanitize_radius(radius_m: f64) -> f64 {
+    if radius_m.is_finite() && radius_m > 0.0 {
+        radius_m.max(MIN_FUZZ_RADIUS_M)
+    } else {
+        FUZZ_RADIUS_MID_M
+    }
+}
+
+/// Clamp latitude into the safe projection band; NaN/inf -> equator.
+fn sanitize_lat(lat: f64) -> f64 {
+    if lat.is_finite() {
+        lat.clamp(-MAX_ABS_LAT, MAX_ABS_LAT)
+    } else {
+        0.0
+    }
+}
+
+/// Wrap longitude into [-180, 180); NaN/inf -> prime meridian.
+fn sanitize_lon(lon: f64) -> f64 {
+    wrap_lon(lon)
+}
+
+/// Wrap a longitude (degrees) into [-180, 180). Handles antimeridian overflow
+/// on both input and output. NaN/inf -> 0.0.
+fn wrap_lon(lon: f64) -> f64 {
+    if !lon.is_finite() {
+        return 0.0;
+    }
+    (lon + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// A secret at or above the floor is used verbatim (crypto/grid derivation
+/// unchanged); a shorter one is stretched to a full-width, domain-separated key.
+fn effective_secret(secret: &[u8]) -> Cow<'_, [u8]> {
+    if secret.len() >= MIN_SECRET_LEN {
+        Cow::Borrowed(secret)
+    } else {
+        let mut hasher = Sha256::new();
+        hasher.update(b"point-fuzz-secret-stretch-v1");
+        hasher.update(secret);
+        Cow::Owned(hasher.finalize().to_vec())
+    }
+}
+
 type HmacSha256 = Hmac<Sha256>;
 
 fn grid_origin_offsets(cell: f64, sharer_id: &str, audience_id: &str, secret: &[u8]) -> (f64, f64) {
-    let mut mac = HmacSha256::new_from_slice(secret).expect("hmac accepts any key length");
+    let secret = effective_secret(secret);
+    let mut mac = HmacSha256::new_from_slice(&secret).expect("hmac accepts any key length");
     mac.update(&(sharer_id.len() as u64).to_be_bytes());
     mac.update(sharer_id.as_bytes());
     mac.update(&(audience_id.len() as u64).to_be_bytes());
@@ -41,19 +102,12 @@ fn snap(
     audience_id: &str,
     secret: &[u8],
 ) -> Snapped {
-    assert!(
-        radius_m.is_finite() && radius_m > 0.0,
-        "radius_m must be positive and finite"
-    );
-    assert!(
-        true_lat.is_finite() && true_lat.abs() <= 89.0,
-        "true_lat out of supported range"
-    );
-    assert!(
-        true_lon.is_finite() && true_lon.abs() <= 180.0,
-        "true_lon out of supported range"
-    );
-    let cell = radius_m;
+    // Input-robustness: never panic on edge / hostile input (real 89-90° fixes,
+    // GPS NaN, radius=0, out-of-range lon). Sanitize into a safe domain; the
+    // crypto / grid-derivation below is unchanged.
+    let cell = sanitize_radius(radius_m);
+    let true_lat = sanitize_lat(true_lat);
+    let true_lon = sanitize_lon(true_lon);
     let (ox, oy) = grid_origin_offsets(cell, sharer_id, audience_id, secret);
     let y_m = true_lat * M_PER_DEG_LAT;
     let cell_y = ((y_m - oy) / cell).floor() as i64;
@@ -63,7 +117,9 @@ fn snap(
     let x_m = true_lon * m_per_deg_lon;
     let cell_x = ((x_m - ox) / cell).floor() as i64;
     let cx = cell_x as f64 * cell + ox + cell / 2.0;
-    let lon = cx / m_per_deg_lon;
+    // Wrap the snapped centre back into [-180, 180) so a cell straddling the
+    // antimeridian never emits a longitude outside the valid range.
+    let lon = wrap_lon(cx / m_per_deg_lon);
     Snapped {
         cell_x,
         cell_y,
@@ -319,6 +375,68 @@ mod tests {
         }
         assert!(max_d > 500.0);
         assert!(max_d <= 1000.0);
+    }
+
+    fn finite(p: (f64, f64)) -> bool {
+        p.0.is_finite() && p.1.is_finite()
+    }
+
+    #[test]
+    fn no_panic_on_edge_and_hostile_input() {
+        // Every case here previously tripped an assert or a divide-by-~zero.
+        // (lat, lon, radius)
+        let cases: &[(f64, f64, f64)] = &[
+            (89.9, 10.0, 1000.0),   // real high-latitude fix (Greenland/GPS)
+            (90.0, 10.0, 1000.0),   // north pole
+            (-90.0, 10.0, 1000.0),  // south pole
+            (45.0, 10.0, 0.0),      // radius = 0
+            (45.0, 10.0, f64::NAN), // radius = NaN
+            (f64::NAN, 10.0, 1000.0), // lat = NaN
+            (45.0, 200.0, 1000.0),  // lon > 180
+            (45.0, -200.0, 1000.0), // lon < -180
+            (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY), // fully hostile
+        ];
+        for &(lat, lon, radius) in cases {
+            let center = stable_fuzz(lat, lon, radius, SHARER, AUDIENCE, SECRET);
+            let cell = fuzz_cell_id(lat, lon, radius, SHARER, AUDIENCE, SECRET);
+            assert!(
+                finite(center),
+                "non-finite output for ({lat}, {lon}, {radius}): {center:?}"
+            );
+            assert!(
+                (-180.0..=180.0).contains(&center.1),
+                "output lon {} out of range for ({lat}, {lon}, {radius})",
+                center.1
+            );
+            assert!(
+                (-90.0..=90.0).contains(&center.0),
+                "output lat {} out of range for ({lat}, {lon}, {radius})",
+                center.0
+            );
+            // Determinism must survive sanitization too.
+            let again = stable_fuzz(lat, lon, radius, SHARER, AUDIENCE, SECRET);
+            assert_eq!(bits(center), bits(again));
+            let _ = cell;
+        }
+    }
+
+    #[test]
+    fn output_longitude_wrapped_near_antimeridian() {
+        for lon in [179.99_f64, -179.99, 180.0, -180.0, 200.0, -200.0, 359.5] {
+            let (_flat, flon) = stable_fuzz(0.0, lon, 5000.0, SHARER, AUDIENCE, SECRET);
+            assert!(
+                (-180.0..=180.0).contains(&flon),
+                "output lon {flon} out of range for input lon {lon}"
+            );
+        }
+    }
+
+    #[test]
+    fn short_and_empty_secret_do_not_panic() {
+        for secret in [b"" as &[u8], b"x", b"short", b"0123456789012345"] {
+            let p = stable_fuzz(48.8566, 2.3522, 1000.0, SHARER, AUDIENCE, secret);
+            assert!(finite(p), "non-finite output for secret len {}", secret.len());
+        }
     }
 
     #[test]

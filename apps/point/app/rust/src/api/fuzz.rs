@@ -1,4 +1,5 @@
 use flutter_rust_bridge::frb;
+use zeroize::Zeroize;
 
 pub struct FuzzedPoint {
     pub lat: f64,
@@ -14,8 +15,10 @@ pub fn stable_fuzz(
     radius_m: f64,
     sharer_id: String,
     audience_id: String,
-    secret: Vec<u8>,
+    mut secret: Vec<u8>,
 ) -> FuzzedPoint {
+    // point_core::fuzz sanitizes all numeric inputs (lat/lon/radius, NaN, out of
+    // range) and never panics, so no validation is needed at this FFI boundary.
     let (lat, lon) = point_core::fuzz::stable_fuzz(
         true_lat,
         true_lon,
@@ -32,6 +35,8 @@ pub fn stable_fuzz(
         &audience_id,
         &secret,
     );
+    // Wipe the sharer secret from this owned buffer once we're done with it.
+    secret.zeroize();
     FuzzedPoint {
         lat,
         lon,
