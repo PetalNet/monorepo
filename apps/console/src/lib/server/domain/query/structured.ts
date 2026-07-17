@@ -266,7 +266,7 @@ function nearestFields(source: ResolvedSource, field: string): string {
 		...Object.keys(source.measures ?? {}),
 	]
 		.map((candidate) => ({ candidate, distance: editDistance(field, candidate) }))
-		.sort((a, b) => a.distance - b.distance || a.candidate.localeCompare(b.candidate))
+		.toSorted((a, b) => a.distance - b.distance || a.candidate.localeCompare(b.candidate))
 		.slice(0, 3)
 		.map(({ candidate }) => candidate);
 	return candidates.length > 0 ? `; nearest: ${candidates.join(", ")}` : "";

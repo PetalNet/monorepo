@@ -734,7 +734,7 @@ describe("staged update approval reversal", () => {
 				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: approvalPayload() }),
 				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: approvalPayload() }),
 			]);
-			expect(concurrentApprovals.map((response) => response.statusCode).sort()).toEqual([200, 400]);
+			expect(concurrentApprovals.map((response) => response.statusCode).toSorted()).toEqual([200, 400]);
 			const concurrentApprovalId = concurrentApprovals
 				.find((response) => response.statusCode === 200)
 				?.json().result.approval_id as string;
@@ -749,7 +749,7 @@ describe("staged update approval reversal", () => {
 				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: revokePayload() }),
 				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: revokePayload() }),
 			]);
-			expect(concurrentRevokes.map((response) => response.statusCode).sort()).toEqual([200, 400]);
+			expect(concurrentRevokes.map((response) => response.statusCode).toSorted()).toEqual([200, 400]);
 
 			const appliedApprovalId = randomUUID();
 			const appliedApproval = await server.inject({

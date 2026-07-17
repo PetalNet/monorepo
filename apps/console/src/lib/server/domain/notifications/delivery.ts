@@ -189,7 +189,7 @@ export class DeliveryService {
 			  and ts >= now() - interval '10 minutes'
 			order by seq desc limit 2`;
 		if (rows.length < 2 || rows.some((row) => row.dimensions["status"] !== "failed")) return;
-		const failingSince = [...rows].sort((left, right) => left.ts.localeCompare(right.ts))[0]!.ts;
+		const failingSince = [...rows].toSorted((left, right) => left.ts.localeCompare(right.ts))[0]!.ts;
 		await this.#createAttention(owner, now, failingSince, "delivery.failed");
 	}
 

@@ -74,7 +74,7 @@ export async function readRoster(
 		...agentByHandle.keys(),
 		...leaseByWorker.keys(),
 	]);
-	const items = [...handles].sort().map((handle) => {
+	const items = [...handles].toSorted().map((handle) => {
 		const cs = byHandle.get(handle) ?? {};
 		return {
 			handle,

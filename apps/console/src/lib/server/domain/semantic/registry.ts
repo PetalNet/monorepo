@@ -50,7 +50,7 @@ export function deriveSemanticShape(e: Emission): SemanticShape {
 			const [rel, to_kind] = value.split("\u0000");
 			return { rel: rel ?? "related", to_kind: to_kind ?? "other" };
 		})
-		.sort((a, b) => `${a.rel}:${a.to_kind}`.localeCompare(`${b.rel}:${b.to_kind}`));
+		.toSorted((a, b) => `${a.rel}:${a.to_kind}`.localeCompare(`${b.rel}:${b.to_kind}`));
 	return { dimensions, measures, joins };
 }
 
@@ -103,7 +103,7 @@ export function mergeSemanticShape(
 		shape: {
 			dimensions,
 			measures,
-			joins: [...joinMap.values()].sort((a, b) =>
+			joins: [...joinMap.values()].toSorted((a, b) =>
 				`${a.rel}:${a.to_kind}`.localeCompare(`${b.rel}:${b.to_kind}`),
 			),
 		},

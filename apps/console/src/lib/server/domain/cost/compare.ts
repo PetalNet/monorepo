@@ -142,7 +142,7 @@ export async function compareCostPairWith(
 				read: finite(row["cache_read_per_mtok"]),
 			},
 		}))
-		.sort((a, b) => a.pattern.localeCompare(b.pattern));
+		.toSorted((a, b) => a.pattern.localeCompare(b.pattern));
 	const normalizeModel = (value: string) =>
 		value
 			.trim()

@@ -59,7 +59,7 @@ export async function resolveScopes(
 		// inject a phantom scope into the app.scopes GUC (sub-agent M4).
 		if (r.object && SCOPE_RE.test(r.object)) scopes.add(r.object);
 	}
-	return { scopes: [...scopes].sort(), zookie: rows[0]?.head ?? "0" };
+	return { scopes: [...scopes].toSorted(), zookie: rows[0]?.head ?? "0" };
 }
 
 export async function resolveBearer(sql: Sql, tokenPlaintext: string): Promise<Principal | null> {

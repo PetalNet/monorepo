@@ -192,7 +192,7 @@ export function tailSystemOutbox(
 	const sentDir = join(dir, "sent");
 	const all = readdirSync(sentDir)
 		.filter((n) => n.endsWith(".json"))
-		.sort();
+		.toSorted();
 	const below = all.filter((n) => n <= cursor);
 	const anomaly =
 		below.length !== knownBelowCount ||

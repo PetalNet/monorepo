@@ -253,7 +253,7 @@ export class Appender {
 			const emptyShape: SemanticShape = { dimensions: {}, measures: {}, joins: [] };
 			const globalMerged = mergeSemanticShape(registry[0] ?? emptyShape, incoming);
 			const merged = mergeSemanticShape(scopedRegistry[0] ?? emptyShape, incoming);
-			const scopes = [...new Set([...(registry[0]?.scopes ?? []), e.scope])].sort();
+			const scopes = [...new Set([...(registry[0]?.scopes ?? []), e.scope])].toSorted();
 			await tx`
 				insert into semantic_registry
 					(type, last_emit, first_producer, dimensions, measures, joins, scopes, emit_count)

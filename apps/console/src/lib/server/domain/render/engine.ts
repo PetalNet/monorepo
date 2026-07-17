@@ -124,7 +124,7 @@ function forecastValues(
 	const numericAxis = unsorted.every((point) => Number.isFinite(Number(point.x)));
 	const dateAxis = !numericAxis && dateCandidates.every(Number.isFinite);
 	if (!dateAxis && !numericAxis) return null;
-	const points = [...unsorted].sort((a, b) => {
+	const points = [...unsorted].toSorted((a, b) => {
 		const left = dateAxis ? Date.parse(String(a.x)) : Number(a.x);
 		const right = dateAxis ? Date.parse(String(b.x)) : Number(b.x);
 		return left - right || a.index - b.index;
@@ -170,7 +170,7 @@ function forecastValues(
 			: Math.max(residualStd, stdDev * 0.1) * confidenceMultiplier;
 	const xNumbers = dateAxis ? parsedDates : points.map((point) => Number(point.x));
 	const steps = xNumbers.slice(1).map((value, index) => value - xNumbers[index]!);
-	const positive = steps.filter((step) => step > 0).sort((a, b) => a - b);
+	const positive = steps.filter((step) => step > 0).toSorted((a, b) => a - b);
 	const step = positive[Math.floor(positive.length / 2)] ?? 1;
 	const actual = points.map((point) => ({ ...point.row, __series: "actual" }));
 	const predicted: Record<string, unknown>[] = [];

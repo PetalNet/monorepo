@@ -52,7 +52,7 @@ export class DashboardError extends Error {
 export function dashboardTargetScope(principal: Principal, requestedScope?: string): string | null {
 	if (requestedScope) return requestedScope;
 	const personal = principal.kind === "agent" ? principal.id : `user:${principal.id}`;
-	return principal.scopes.includes(personal) ? personal : ([...principal.scopes].sort()[0] ?? null);
+	return principal.scopes.includes(personal) ? personal : ([...principal.scopes].toSorted()[0] ?? null);
 }
 
 async function rebindQueryRef(

@@ -396,7 +396,7 @@ abstract class SnapshotAdapter implements BridgeAdapter {
 		const losses: AdapterLoss[] = [];
 		for (const name of readdirSync(this.#dir)
 			.filter((entry) => entry.endsWith(".json"))
-			.sort()) {
+			.toSorted()) {
 			const path = join(this.#dir, name);
 			try {
 				const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -631,7 +631,7 @@ export class JsonlSpoolAdapter implements BridgeAdapter {
 		const losses: AdapterLoss[] = [];
 		for (const file of readdirSync(this.#dir)
 			.filter((name) => name.endsWith(".jsonl"))
-			.sort()) {
+			.toSorted()) {
 			const path = join(this.#dir, file);
 			let fd: number;
 			try {
@@ -876,7 +876,7 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 			return {
 				cursor: JSON.stringify({
 					updatedAt: maxUpdatedAt,
-					fingerprints: [...new Set(boundaryFingerprints)].sort(),
+					fingerprints: [...new Set(boundaryFingerprints)].toSorted(),
 				}),
 				emissions,
 			};

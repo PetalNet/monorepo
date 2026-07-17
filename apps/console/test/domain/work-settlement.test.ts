@@ -35,7 +35,7 @@ describe("work auto-settlement", () => {
 		expect(result.settling[0]?.settles_at).toBe("2026-07-13T18:00:01.000Z");
 		expect(result.settling[0]?.created_at).toBe("2026-07-01T12:00:00.000Z");
 		expect(result.history.map((item) => item.id)).toEqual([2]);
-		expect([...result.settling, ...result.history].map((item) => item.id).sort()).toEqual([1, 2]);
+		expect([...result.settling, ...result.history].map((item) => item.id).toSorted()).toEqual([1, 2]);
 	});
 
 	it("files dropped work immediately and counts settlements by settlement time", () => {

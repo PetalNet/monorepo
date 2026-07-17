@@ -120,7 +120,7 @@ async function authorizationObjects(sql: Sql, object: string): Promise<string[]>
 	if (!object.startsWith("item:")) return [object];
 	const rows = await sql<{ scope: string }[]>`
 		select scope from items_min where ${object} = 'item:' || id`;
-	return [...new Set([object, ...(rows[0] ? [rows[0].scope] : [])])].sort();
+	return [...new Set([object, ...(rows[0] ? [rows[0].scope] : [])])].toSorted();
 }
 
 export async function canViewGrantObject(
