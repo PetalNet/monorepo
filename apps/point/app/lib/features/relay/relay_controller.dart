@@ -567,6 +567,17 @@ class RelayController {
     }
   }
 
+  /// Viewer-side Layer-4 nudge: ask [targetUserId]'s device(s) to wake and
+  /// relay one fresh fix (the user opened that person's live view). Ephemeral —
+  /// it bypasses the durable queue so a stale "wake up" is never resent on
+  /// reconnect. The server re-checks entitlement (can_view) and dedupes, so an
+  /// over-eager or unentitled nudge is harmlessly dropped there.
+  void nudgeWatch(String targetUserId) {
+    _ws?.sendEphemeral(
+      jsonEncode({'type': 'location.nudge', 'target_user_id': targetUserId}),
+    );
+  }
+
   Future<void> _onLocalFix(Fix fix) async {
     final session = _session;
     final ws = _ws;
@@ -618,6 +629,16 @@ class RelayController {
         await _onBroadcast(msg);
       case 'presence.update':
         _onPresenceUpdate(msg);
+      case 'location.nudge':
+        // Layer-4 watcher-wake (target side): a viewer opened my live view.
+        // Honor it only if the requester is someone I actually share with —
+        // defense-in-depth behind the server's can_view gate — then wake the
+        // engine for ONE fix, which relays through _onLocalFix and lets the
+        // engine fall back to its prior parked state on its own.
+        final nudger = msg['from'] as String?;
+        if (nudger != null && _shareTargets.contains(nudger)) {
+          unawaited(_ref.read(locationServiceProvider).wakeForOneFix());
+        }
       case 'mls.message':
         _requestSync(RealtimeSyncReason.mailboxNotice);
       case 'share.request':

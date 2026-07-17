@@ -171,6 +171,17 @@ class WsService {
 
   Future<void> flushNow() => _flush();
 
+  /// Send an ephemeral control frame (e.g. a viewer's Layer-4 watcher-wake
+  /// nudge). Unlike [send] it is NOT persisted to the durable [RelayQueue], so
+  /// a transient signal is never resent after a reconnect — a stale "wake up"
+  /// replayed minutes later would be wrong. Dropped silently if the socket is
+  /// not authenticated (the frame is advisory; a real interaction reconciles
+  /// state anyway).
+  void sendEphemeral(String frame) {
+    if (!_authed) return;
+    _channel?.sink.add(frame);
+  }
+
   bool _flushing = false;
 
   Future<void> _flush() async {

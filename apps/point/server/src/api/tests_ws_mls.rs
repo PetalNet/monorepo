@@ -609,6 +609,38 @@ async fn spawn_ws_server(pool: &PgPool) -> String {
     spawn_ws_server_with_router(pool).await.0
 }
 
+/// Like [spawn_ws_server] but also hands back the shared [Hub], so a test can
+/// observe server-side Layer-4 wake decisions (the dedup gate) directly.
+async fn spawn_ws_server_with_hub(pool: &PgPool) -> (String, std::sync::Arc<crate::ws::hub::Hub>) {
+    let state = test_state(pool.clone(), true);
+    let hub = state.hub.clone();
+    let router = super::router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    (format!("ws://{addr}/ws"), hub)
+}
+
+/// Poll the shared hub until a watcher-wake is recorded for `target`, or fail.
+async fn await_watch_wake(
+    hub: &crate::ws::hub::Hub,
+    target: &str,
+    ms: u64,
+) -> std::time::Instant {
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(ms);
+    loop {
+        if let Some(t) = hub.last_watch_wake(target) {
+            return t;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("no watcher-wake recorded for {target} within {ms}ms");
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// Next JSON frame within `ms`, skipping transport frames. None = closed or
 /// nothing arrived in time.
 async fn recv_frame(ws: &mut Ws, ms: u64) -> Option<Value> {
@@ -1485,4 +1517,87 @@ async fn ws_nudge_rate_limited(pool: PgPool) {
     }
     let frame = expect_frame(&mut alice_ws, "error", 2000).await;
     assert_eq!(frame["error"], "rate limited");
+}
+
+// ---------------------------------------------------------------------------
+// WS: Layer-4 watcher-wake (offline demand-wake push + dedup)
+// ---------------------------------------------------------------------------
+
+#[sqlx::test]
+async fn ws_nudge_offline_target_records_deduped_watch_wake(pool: PgPool) {
+    let (url, hub) = spawn_ws_server_with_hub(&pool).await;
+    let alice = user(&pool, "alice").await;
+    let _bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+
+    // Bob is OFFLINE (never connects). Alice may view him, so nudging him takes
+    // the demand-wake push branch, which records the dedup token.
+    let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+    ws_send(
+        &mut alice_ws,
+        json!({ "type": "location.nudge", "target_user_id": uid("bob") }),
+    )
+    .await;
+    let first = await_watch_wake(&hub, &uid("bob"), 2000).await;
+
+    // A second nudge inside the window must be DEDUPED: the recorded timestamp
+    // does not advance (one wake serves all watchers).
+    ws_send(
+        &mut alice_ws,
+        json!({ "type": "location.nudge", "target_user_id": uid("bob") }),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        hub.last_watch_wake(&uid("bob")),
+        Some(first),
+        "a second watcher-wake within the window must be deduped"
+    );
+}
+
+#[sqlx::test]
+async fn ws_nudge_online_target_relays_over_ws_without_push(pool: PgPool) {
+    let (url, hub) = spawn_ws_server_with_hub(&pool).await;
+    let alice = user(&pool, "alice").await;
+    let bob = user(&pool, "bob").await;
+    seed_share(&pool, &uid("alice"), &uid("bob")).await;
+
+    // Bob is ONLINE: the nudge is forwarded over his live socket and NO push
+    // wake is attempted (so the dedup gate stays untouched).
+    let mut bob_ws = ws_connect_auth(&url, &bob, &uid("bob")).await;
+    let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
+    ws_send(
+        &mut alice_ws,
+        json!({ "type": "location.nudge", "target_user_id": uid("bob") }),
+    )
+    .await;
+
+    let frame = expect_frame(&mut bob_ws, "location.nudge", 2000).await;
+    assert_eq!(frame["from"], uid("alice"));
+    assert!(
+        hub.last_watch_wake(&uid("bob")).is_none(),
+        "an online target must be woken over WS, never via push"
+    );
+}
+
+#[sqlx::test]
+async fn ws_nudge_offline_unentitled_viewer_never_wakes(pool: PgPool) {
+    let (url, hub) = spawn_ws_server_with_hub(&pool).await;
+    let _alice = user(&pool, "alice").await;
+    let carol = user(&pool, "carol").await;
+    let _bob = user(&pool, "bob").await;
+
+    // No share between carol and bob: carol cannot view bob, so nudging an
+    // offline bob must NOT wake him (can_view fails closed).
+    let mut carol_ws = ws_connect_auth(&url, &carol, &uid("carol")).await;
+    ws_send(
+        &mut carol_ws,
+        json!({ "type": "location.nudge", "target_user_id": uid("bob") }),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        hub.last_watch_wake(&uid("bob")).is_none(),
+        "an unentitled viewer must never wake the target"
+    );
 }

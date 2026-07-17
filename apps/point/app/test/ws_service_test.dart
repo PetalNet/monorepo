@@ -58,6 +58,53 @@ class _FakeSink implements WebSocketSink {
 
 void main() {
   group('WsService (GO-bar #3 orchestration)', () {
+    test('sendEphemeral bypasses the durable queue (never resent)', () async {
+      final queue = RelayQueue(store: MemoryRelayStore());
+      await queue.load();
+      late _FakeChannel channel;
+      final ws = WsService(
+        wsUrl: 'ws://test/ws',
+        queue: queue,
+        connect: (_) => channel = _FakeChannel(),
+      );
+      await ws.start('t');
+      channel.push({'type': 'auth.ok', 'user_id': 'me'});
+      await Future<void>.delayed(Duration.zero);
+
+      final before = channel.sent.length;
+      ws.sendEphemeral(
+        jsonEncode({'type': 'location.nudge', 'target_user_id': 'bob@x'}),
+      );
+      // Went straight to the socket, and was NOT persisted to the queue — so a
+      // later reconnect can never resend a stale wake.
+      expect(channel.sent.length, before + 1);
+      expect(queue.length, 0);
+      final f = jsonDecode(channel.sent.last) as Map<String, dynamic>;
+      expect(f['type'], 'location.nudge');
+      expect(f['target_user_id'], 'bob@x');
+      await ws.dispose();
+    });
+
+    test('sendEphemeral is dropped when the socket is not authenticated', () async {
+      final queue = RelayQueue(store: MemoryRelayStore());
+      await queue.load();
+      late _FakeChannel channel;
+      final ws = WsService(
+        wsUrl: 'ws://test/ws',
+        queue: queue,
+        connect: (_) => channel = _FakeChannel(),
+      );
+      await ws.start('t');
+      // Only the auth frame has been sent (no auth.ok yet).
+      final before = channel.sent.length;
+      ws.sendEphemeral(
+        jsonEncode({'type': 'location.nudge', 'target_user_id': 'bob@x'}),
+      );
+      expect(channel.sent.length, before, reason: 'dropped, not queued');
+      expect(queue.length, 0);
+      await ws.dispose();
+    });
+
     test('sends auth first, flushes the durable queue on auth.ok', () async {
       final queue = RelayQueue(store: MemoryRelayStore());
       await queue.load();

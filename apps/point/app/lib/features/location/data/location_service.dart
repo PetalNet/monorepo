@@ -313,6 +313,67 @@ class LocationService {
     _apply();
   }
 
+  // --- Layer-4 watcher-wake --------------------------------------------------
+
+  bool _wakeInFlight = false;
+  DateTime? _lastWakeAt;
+
+  /// Coalesce window for demand wakes: a burst of watchers (or WS nudges) can't
+  /// drive more than one out-of-band fix per this interval. The server already
+  /// dedupes OFFLINE push wakes to ~1/15s per person; this is the on-device
+  /// guard for the ONLINE (WS-forwarded) path, where several viewers each relay
+  /// a nudge.
+  static const _wakeMinInterval = Duration(seconds: 10);
+
+  /// A watcher opened this device's live view (Layer 4, demand-driven). Acquire
+  /// ONE fix out-of-band and relay it through the normal [fixes] path, WITHOUT
+  /// moving the state machine — so the engine returns to its prior sleep/parked
+  /// state on its own (there is no activity change to undo). Works from the
+  /// background: it reuses the same low-cost one-shot seam the parked keepalive
+  /// uses, kept alive by the foreground service.
+  ///
+  /// Respects sharing END-TO-END: a hard stop (ghost) or a not-yet-started
+  /// engine makes this a no-op — `plan.gpsEnabled` is false in ghost — so a
+  /// watcher can never wake a device that went dark, even if a wake slips
+  /// through. Coalesced (one in flight) and throttled ([_wakeMinInterval]).
+  Future<void> wakeForOneFix() async {
+    // Respect ghost / pre-permission: never sample when sharing is stopped.
+    if (!_started || !_machine.plan.gpsEnabled) return;
+    if (_wakeInFlight) return;
+    final now = DateTime.now();
+    final last = _lastWakeAt;
+    if (last != null && now.difference(last) < _wakeMinInterval) return;
+    _wakeInFlight = true;
+    _lastWakeAt = now;
+    try {
+      Position? p;
+      try {
+        p = await _currentPosition(
+          const LocationSettings(
+            // A demand fix wants a real, fresh position (the viewer is looking
+            // now), not the low-power keepalive sample.
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 20),
+          ),
+        );
+      } on Object catch (e) {
+        if (kDebugMode) debugPrint('watcher-wake fix error: $e');
+      }
+      // Ghost/dispose can land while the fix is in flight — never leak a fix
+      // past a go-dark (mirrors the heartbeat guard).
+      if (!_started || !_machine.plan.gpsEnabled) return;
+      if (p != null) {
+        _emit(p);
+      } else {
+        // No fresh fix (indoors / throttled provider): re-relay the last-known
+        // floor so the watcher still sees presence instead of a dark marker.
+        _emitFloor();
+      }
+    } finally {
+      _wakeInFlight = false;
+    }
+  }
+
   // --- engine application --------------------------------------------------
 
   /// Reconcile real sensors with the current [EnginePlan].

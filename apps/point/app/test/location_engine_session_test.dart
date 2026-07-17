@@ -130,6 +130,42 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('LocationService acquisition path', () {
+    test('watcher-wake acquires ONE out-of-band fix and relays it', () async {
+      final h = _Harness();
+      await h.service.start();
+      expect(h.fixes, isEmpty);
+      final priorActivity = h.service.activity;
+
+      await h.service.wakeForOneFix();
+      await Future<void>.delayed(Duration.zero); // broadcast stream delivery
+      // One fresh fix relayed, via the one-shot seam (not the GPS stream).
+      expect(h.fixes, hasLength(1));
+      expect(h.heartbeatRequests, greaterThan(0));
+      // The wake does not move the machine — it returns to its prior state.
+      expect(h.service.activity, priorActivity);
+      await h.close();
+    });
+
+    test('a watcher cannot wake a device that went dark (ghost)', () async {
+      final h = _Harness();
+      await h.service.start();
+      h.service.setSharing(sharing: false); // hard stop / go dark
+      await h.service.wakeForOneFix();
+      expect(h.fixes, isEmpty, reason: 'no fix may leak past a go-dark');
+      expect(h.service.plan.gpsEnabled, isFalse);
+      await h.close();
+    });
+
+    test('rapid watcher-wakes coalesce to one fix (throttle)', () async {
+      final h = _Harness();
+      await h.service.start();
+      await h.service.wakeForOneFix();
+      await h.service.wakeForOneFix(); // within the throttle window -> ignored
+      await Future<void>.delayed(Duration.zero); // broadcast stream delivery
+      expect(h.fixes, hasLength(1));
+      await h.close();
+    });
+
     test('start() with the app open goes active and delivers fixes', () async {
       final h = _Harness();
       await h.service.start();
