@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart'
     hide Person;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:point_app/features/location/location_providers.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/features/relay/data/realtime_sync_coordinator.dart';
@@ -220,6 +221,12 @@ class PushService {
   /// compare against the same snapshot and produce duplicate notifications.
   Future<void> _onWake(List<int> content) async {
     if (_ref.read(authControllerProvider).value == null) return;
+    // A wake is contentless (D-027), so it may be a watcher opening our live
+    // view (Layer 4). Wake the engine for one fresh fix — a no-op when we're
+    // not sharing (ghost / engine not started), so a share-request wake or a
+    // dark device stays calm. It relays through the normal fix path and the
+    // engine falls back to its prior parked state on its own.
+    unawaited(_ref.read(locationServiceProvider).wakeForOneFix());
     await _ref
         .read(realtimeSyncCoordinatorProvider)
         .syncNow(RealtimeSyncReason.pushWake);

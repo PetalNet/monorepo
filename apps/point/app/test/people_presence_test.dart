@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
@@ -45,15 +46,43 @@ void main() {
         FixFreshness.recent,
       );
       expect(
-        fixFreshness(ago(const Duration(minutes: 15)), now: now),
+        fixFreshness(ago(const Duration(minutes: 45)), now: now),
         FixFreshness.recent,
       );
       expect(
         fixFreshness(
-          ago(const Duration(minutes: 15, milliseconds: 1)),
+          ago(const Duration(minutes: 45, milliseconds: 1)),
           now: now,
         ),
         FixFreshness.stale,
+      );
+    });
+
+    test('(a) the dark threshold sits strictly above the ACTUAL runtime parked '
+        'heartbeat with real margin — the go-dark invariant', () {
+      // Bind the REAL heartbeat the engine ships (LocationService.heartbeat),
+      // not a hand-copied literal, so the invariant can never silently pass
+      // against a stale mirror while the runtime floor drifts underneath it.
+      final heartbeat = LocationService().heartbeat;
+      // The presence-layer mirror exists only so the pure presence math can
+      // reason about the floor; pin it to the real value so it, too, can't drift.
+      expect(
+        parkedHeartbeat,
+        heartbeat,
+        reason: 'people_presence.parkedHeartbeat must mirror the real '
+            'LocationService.heartbeat',
+      );
+      expect(darkAfter, const Duration(minutes: 45));
+      expect(
+        heartbeat < darkAfter,
+        isTrue,
+        reason: 'a parked-alive phone checks in every $heartbeat; the dark '
+            'verdict must wait past that with margin or a live phone reads dead',
+      );
+      expect(
+        darkAfter - heartbeat,
+        greaterThanOrEqualTo(const Duration(minutes: 10)),
+        reason: 'margin covers acquisition + relay + the 30s viewer tick + skew',
       );
     });
 
@@ -136,7 +165,7 @@ void main() {
     test(
       'stale fix (> darkAfter) → DARK: frozen last-known + "Dark since"',
       () {
-        final darkTs = ago(const Duration(minutes: 20));
+        final darkTs = ago(const Duration(minutes: 50));
         final fix = PeerFix(
           userId: 'eli@point.dev',
           data: {
@@ -157,6 +186,71 @@ void main() {
         );
       },
     );
+
+    test('(c) PARKED: recent keepalive + older position → alive & stationary, '
+        'NOT dark and NOT falsely-fresh "now"', () {
+      final parkedSince = ago(const Duration(hours: 2)); // hasn't moved in 2h
+      final fix = PeerFix(
+        userId: 'eli@point.dev',
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'accuracy': 12,
+          'timestamp': parkedSince, // REAL last-sample time (old)
+          'alive_at': ago(const Duration(minutes: 5)), // last keepalive (recent)
+          'parked': 1,
+        },
+      );
+      final merged = mergePresence(away, fix, now: now);
+      // Alive (not dark) …
+      expect(merged.presence, PresenceState.live);
+      expect(merged.hasLocation, isTrue);
+      // … but honestly parked since the real sample time — never "now"/"5m".
+      expect(merged.subtitle, 'Parked · here since ${clockHm(parkedSince)} · ±12 m');
+      expect(merged.subtitle, isNot(contains('now')));
+    });
+
+    test('(d) no keepalive past the threshold → DARK since the last keepalive '
+        '(a dead phone darks even though its last position looks placed)', () {
+      final lastKeepalive = ago(const Duration(minutes: 50)); // > darkAfter
+      final fix = PeerFix(
+        userId: 'eli@point.dev',
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'accuracy': 20,
+          'timestamp': ago(const Duration(hours: 3)), // parked long ago
+          'alive_at': lastKeepalive, // no keepalive since → dead
+          'parked': 1,
+        },
+      );
+      final merged = mergePresence(away, fix, now: now);
+      expect(merged.presence, PresenceState.stale);
+      expect(merged.hasLocation, isTrue);
+      // "Dark since" the LAST keepalive we heard, not the ancient position.
+      expect(
+        merged.subtitle,
+        'Last place · Dark since ${clockHm(lastKeepalive)} · ±20 m',
+      );
+    });
+
+    test('a parked keepalive that is itself recent (just parked) still reads '
+        'parked, not moving-live', () {
+      final justParked = ago(const Duration(seconds: 20));
+      final fix = PeerFix(
+        userId: 'eli@point.dev',
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': justParked,
+          'alive_at': justParked,
+          'parked': 1,
+        },
+      );
+      final merged = mergePresence(away, fix, now: now);
+      expect(merged.presence, PresenceState.live);
+      expect(merged.subtitle, 'Parked · here since ${clockHm(justParked)}');
+    });
 
     test('server offline makes a fresh fix dark immediately', () {
       final disconnectedAt = now.subtract(const Duration(seconds: 5));

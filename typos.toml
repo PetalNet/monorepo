@@ -13,6 +13,8 @@ extend-exclude = [
 ]
 
 [default.extend-words]
+# "mis-" prefix (e.g. mis-advertising) reads as a typo but is a valid English prefix.
+mis = "mis"
 # Proper nouns + identifiers that look like typos but aren't.
 Hass = "Hass"
 hass = "hass"
