@@ -386,14 +386,14 @@ mod tests {
         // Every case here previously tripped an assert or a divide-by-~zero.
         // (lat, lon, radius)
         let cases: &[(f64, f64, f64)] = &[
-            (89.9, 10.0, 1000.0),   // real high-latitude fix (Greenland/GPS)
-            (90.0, 10.0, 1000.0),   // north pole
-            (-90.0, 10.0, 1000.0),  // south pole
-            (45.0, 10.0, 0.0),      // radius = 0
-            (45.0, 10.0, f64::NAN), // radius = NaN
+            (89.9, 10.0, 1000.0),     // real high-latitude fix (Greenland/GPS)
+            (90.0, 10.0, 1000.0),     // north pole
+            (-90.0, 10.0, 1000.0),    // south pole
+            (45.0, 10.0, 0.0),        // radius = 0
+            (45.0, 10.0, f64::NAN),   // radius = NaN
             (f64::NAN, 10.0, 1000.0), // lat = NaN
-            (45.0, 200.0, 1000.0),  // lon > 180
-            (45.0, -200.0, 1000.0), // lon < -180
+            (45.0, 200.0, 1000.0),    // lon > 180
+            (45.0, -200.0, 1000.0),   // lon < -180
             (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY), // fully hostile
         ];
         for &(lat, lon, radius) in cases {
@@ -435,7 +435,11 @@ mod tests {
     fn short_and_empty_secret_do_not_panic() {
         for secret in [b"" as &[u8], b"x", b"short", b"0123456789012345"] {
             let p = stable_fuzz(48.8566, 2.3522, 1000.0, SHARER, AUDIENCE, secret);
-            assert!(finite(p), "non-finite output for secret len {}", secret.len());
+            assert!(
+                finite(p),
+                "non-finite output for secret len {}",
+                secret.len()
+            );
         }
     }
 
