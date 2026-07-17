@@ -36,7 +36,7 @@
 		appliedGraph = current;
 		nodes = current;
 		if (!activeId || !current.some(({ id }) => id === activeId))
-			activeId = (initialId && current.some(({ id }) => id === initialId) ? initialId : current[0]?.id) ?? null;
+			activeId = (initialId !== null && current.some(({ id }) => id === initialId) ? initialId : current.at(0)?.id) ?? null;
 	});
 
 	$effect(() => {
@@ -144,7 +144,7 @@
 		const index = rows.findIndex((row) => row.id === id);
 		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 			event.preventDefault();
-			const next = rows[index + (event.key === "ArrowDown" ? 1 : -1)];
+			const next = rows.at(index + (event.key === "ArrowDown" ? 1 : -1));
 			if (next) document.querySelector<HTMLButtonElement>(`[data-node-id="${CSS.escape(next.id)}"]`)?.focus();
 		}
 		if (event.key === "ArrowRight") { event.preventDefault(); collapsed = collapsed.filter((value) => value !== id); }

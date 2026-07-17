@@ -59,7 +59,7 @@ export async function resolveScopes(
 		// inject a phantom scope into the app.scopes GUC (sub-agent M4).
 		if (r.object && SCOPE_RE.test(r.object)) scopes.add(r.object);
 	}
-	return { scopes: [...scopes].toSorted(), zookie: rows[0].head ?? "0" };
+	return { scopes: [...scopes].toSorted(), zookie: rows[0].head };
 }
 
 export async function resolveBearer(sql: Sql, tokenPlaintext: string): Promise<Principal | null> {
@@ -68,7 +68,7 @@ export async function resolveBearer(sql: Sql, tokenPlaintext: string): Promise<P
 		select subject, kind, tiers, lanes from api_tokens
 		where token_sha256 = ${hash} and revoked_at is null`;
 	const row = rows[0];
-	if (!row) return null;
+
 	if (row.kind !== "human" && row.kind !== "agent" && row.kind !== "system") return null;
 	const { scopes, zookie } = await resolveScopes(sql, row.subject, row.tiers);
 	return { kind: row.kind, id: row.subject, tiers: row.tiers, lanes: row.lanes, scopes, zookie };

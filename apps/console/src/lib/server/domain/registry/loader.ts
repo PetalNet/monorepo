@@ -4,6 +4,8 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep 
 
 import { z } from "zod";
 
+import { asynchronously } from "#domain/iteration";
+
 const fileSchema = z
 	.object({
 		path: z.string().min(1).max(256),
@@ -130,7 +132,7 @@ export async function installCapabilityBundle(
 	const pointer = `${installDir}.${String(process.pid)}.${String(Date.now())}.link`;
 	await mkdir(staging, { recursive: true, mode: 0o700 });
 	try {
-		for (const file of bundle.files) {
+		for await (const file of asynchronously(bundle.files)) {
 			const destination = join(staging, safeRelativePath(file.path));
 			await mkdir(dirname(destination), { recursive: true, mode: 0o755 });
 			await writeFile(destination, decodeBase64(file.content_b64), { mode: file.mode, flag: "wx" });

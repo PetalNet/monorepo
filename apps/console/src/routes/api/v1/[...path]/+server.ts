@@ -36,14 +36,14 @@ const planes: Record<string, ReadPlane> = {
 export const GET = Handler<RequestHandler>(({ params }) =>
 	Effect.gen(function* () {
 		const plane = planes[params.path];
-		if (!plane) return new Response("Not found", { status: 404 });
+
 		return Response.json(yield* Effect.orDie(readPlane(plane)));
 	}),
 );
 
 export const POST = Handler<RequestHandler>(({ params, request }) =>
 	Effect.gen(function* () {
-		const body = yield* Effect.tryPromise(() => request.json());
+		const body: unknown = yield* Effect.tryPromise(() => request.json() as Promise<unknown>);
 		if (params.path === "query")
 			return Response.json(yield* Effect.orDie(runStructuredQuery(body as StructuredQuery)));
 		if (params.path === "op") {

@@ -176,7 +176,7 @@ async function resolveSource(
 				>`select dimensions, measures from semantic_registry_scoped
 				   where type = ${from} order by scope`,
 		);
-		if (!visible[0]) throw new QueryError("bad_from", `unknown source ${from}`);
+
 		let shape: SemanticShape = { dimensions: {}, measures: {}, joins: [] };
 		for (const visibleShape of visible) {
 			const merged = mergeSemanticShape(shape, { ...visibleShape, joins: [] });
@@ -212,7 +212,7 @@ async function resolveSource(
 	const relation = views[0].relation_name;
 	if (!relation || !IDENT_RE.test(relation))
 		throw new QueryError("bad_from", `unknown source ${from}`);
-	const declared = views[0].fields ?? {};
+	const declared = views[0].fields;
 	const dimensions: Record<string, DimensionDescriptor> = {};
 	const measures: Record<string, MeasureDescriptor> = {};
 	const directFields = new Set<string>();

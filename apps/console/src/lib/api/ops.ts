@@ -4001,7 +4001,8 @@ function validateSchema(schema: SchemaNode, value: unknown, path = "$", errors: 
 	if (Array.isArray(value)) {
 		if (schema.minItems !== undefined && value.length < schema.minItems) errors.push(path + " has too few items");
 		if (schema.maxItems !== undefined && value.length > schema.maxItems) errors.push(path + " has too many items");
-		if (schema.items) value.forEach((item, index) => validateSchema(schema.items!, item, path + "[" + index + "]", errors));
+		const itemSchema = schema.items;
+		if (itemSchema) value.forEach((item, index) => validateSchema(itemSchema, item, path + "[" + String(index) + "]", errors));
 	}
 	if (value !== null && typeof value === "object" && !Array.isArray(value)) {
 		const record = value as Record<string, unknown>;

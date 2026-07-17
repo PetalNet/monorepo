@@ -1,3 +1,5 @@
+import { asynchronously } from "#domain/iteration";
+
 import { uuidv5 } from "../bridge/uuid5.ts";
 import { matchPattern } from "../bus/broker.ts";
 import type { Sql } from "../db/pool.ts";
@@ -182,7 +184,8 @@ export class SignalStormDetector {
 			where kind = 'subscription'
 			  and coalesce((state->'storm'->>'active')::boolean, false) = true
 			  and (state->'storm'->>'expires_at')::timestamptz <= ${now.toISOString()}::timestamptz`;
-		for (const row of expired) await this.#emit(expiredStormEmission(row, now));
+		for await (const row of asynchronously(expired))
+			await this.#emit(expiredStormEmission(row, now));
 	}
 
 	async observe(emission: Emission): Promise<void> {
@@ -205,8 +208,8 @@ export class SignalStormDetector {
 	}
 
 	async #scanUntilCaughtUp(): Promise<void> {
-		for (const iteration of doWhileCondition(() => this.#rescan)) {
-			iteration;
+		for await (const iteration of asynchronously(doWhileCondition(() => this.#rescan))) {
+			void iteration;
 			this.#rescan = false;
 			await this.#detect();
 		}
@@ -226,7 +229,7 @@ export class SignalStormDetector {
 			select type, scope, severity, source_service, subject, count(*)::text as n
 			from events where received_at >= ${since}
 			group by type, scope, severity, source_service, subject`;
-		for (const subscription of subscriptions) {
+		for await (const subscription of asynchronously(subscriptions)) {
 			const pattern = subscription.state["pattern"];
 			const owner = subscription.state["owner"];
 			if (typeof pattern !== "string" || typeof owner !== "string") continue;

@@ -132,7 +132,7 @@ async function runCeremonyOp(
 			dry_run: false,
 		}),
 	});
-	if (!result.ok) error(400, result.error.message ?? `${op} was not applied`);
+	if (!result.ok) error(400, result.error.message);
 	return result.result ?? {};
 }
 

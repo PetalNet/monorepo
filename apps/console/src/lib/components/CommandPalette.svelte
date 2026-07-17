@@ -104,7 +104,7 @@
 		}
 		loading = true;
 		const current = ++requestId;
-		timer = setTimeout(async () => {
+		timer = setTimeout(() => void (async () => {
 			try {
 				const result = await searchCommandPalette({ query: queryText });
 				if (current === requestId) remote = result;
@@ -113,7 +113,7 @@
 			} finally {
 				if (current === requestId) loading = false;
 			}
-		}, 120);
+		})(), 120);
 	}
 
 	async function choose(item: PaletteItem) {

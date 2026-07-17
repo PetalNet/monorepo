@@ -1,3 +1,4 @@
+import { asynchronously } from "#domain/iteration";
 // The bus broker (contract §4.1, bus-frame.schema.json). Fan-out to scoped subscribers with an
 // EXACT replay→live cutover: register the live buffer BEFORE capturing the boundary, replay
 // seq<=boundary from the lake, flush the buffer for seq>boundary once, then stream live. Bounded
@@ -237,8 +238,10 @@ export class Broker {
 	async #drain(sub: Sub): Promise<void> {
 		sub.draining = true;
 		try {
-			for (const iteration of whileCondition(() => sub.queue.length > 0 && !sub.closed)) {
-				iteration;
+			for await (const iteration of asynchronously(
+				whileCondition(() => sub.queue.length > 0 && !sub.closed),
+			)) {
+				void iteration;
 				const item = sub.queue.shift();
 				if (!item) break;
 				sub.send(frame(sub.spec.subId, item.seq, item.emission));

@@ -21,6 +21,6 @@ export async function readQueryRecord(
 		const rows = await tx<QueryRecord[]>`
 			select query_ref, request, sql_text, columns, row_count, execution_ms, created_at
 			from query_history where query_ref = ${queryRef}`;
-		return rows[0] ?? null;
+		return rows[0];
 	});
 }

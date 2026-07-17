@@ -1,10 +1,11 @@
+import postgres from "postgres";
 // Postgres connections (postgres-js). Three roles per the ordered migration (contract §3):
 //   admin/owner  — migrations, seeding, the appender's INSERT path
 //   console_app  — runtime scoped reads (non-BYPASSRLS); scopes set per-transaction via SET LOCAL
 //   console_ro   — read-only SQL mode
 // The scoped helpers set `app.scopes` as a LOCAL GUC so RLS filters to exactly the caller's grant.
 
-import postgres from "postgres";
+import { asynchronously } from "#domain/iteration";
 
 import type { Env } from "../env.ts";
 
@@ -43,7 +44,7 @@ export function openDb(env: Env): Db {
 		writer,
 		async close() {
 			const all = new Set([admin, app, ro, writer]);
-			for (const c of all) await c.end({ timeout: 5 });
+			for await (const c of asynchronously(all)) await c.end({ timeout: 5 });
 		},
 	};
 }
@@ -66,7 +67,7 @@ export async function assertRuntimeRolesHardened(db: Db, devAuth: boolean): Prom
 			pg_has_role(current_user, 'console_writer', 'MEMBER') as is_writer
 		from pg_roles where rolname = current_user`;
 	const r = rows[0];
-	if (!r || r.rolsuper || r.rolbypassrls)
+	if (r.rolsuper || r.rolbypassrls)
 		throw new Error("console app role must be NOSUPERUSER NOBYPASSRLS (RLS bypass otherwise)");
 	// console_writer holds a `using(true)` policy on current_state/events (for the appender/projector);
 	// the READ connection must NOT be that role, or scoped reads would see every row (codex N1b-1 P0).
@@ -110,7 +111,6 @@ export async function assertRuntimeRolesHardened(db: Db, devAuth: boolean): Prom
 	  from pg_roles where rolname = current_user`;
 	const ro = roRows[0];
 	if (
-		!ro ||
 		ro.who !== "console_ro" ||
 		ro.rolsuper ||
 		ro.rolbypassrls ||

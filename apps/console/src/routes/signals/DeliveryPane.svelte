@@ -17,6 +17,7 @@
 		setDeliveryTarget,
 	} from "./delivery.remote";
 	import { onMount } from "svelte";
+	import { SvelteDate } from "svelte/reactivity";
 
 	interface Props {
 		busObservedAt: string | null;
@@ -44,7 +45,7 @@
 	);
 	let targetOpen = $state(false);
 	let target = $state("");
-	let busy = $state<"test" | "target" | "cocoon" | string | null>(null);
+	let busy = $state<string | null>(null);
 	let result = $state<{ tone: "good" | "danger"; text: string } | null>(null);
 
 	$effect(() => onhealthchange?.(health));
@@ -63,7 +64,7 @@
 	});
 
 	function nextSeven(): string {
-		const next = new Date();
+		const next = new SvelteDate();
 		next.setHours(7, 0, 0, 0);
 		if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
 		return next.toISOString();

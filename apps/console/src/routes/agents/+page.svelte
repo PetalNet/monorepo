@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { required } from "#format";
 	import type { PageProps } from "./$types";
 	import { page } from "$app/state";
 	import { onMount } from "svelte";
+	import { SvelteMap } from "svelte/reactivity";
 	import type { HeartbeatItem, RosterItem } from "$lib/api/types";
 	import FleetStrip from "$lib/components/FleetStrip.svelte";
 	import Icon from "$lib/components/Icon.svelte";
@@ -38,7 +40,7 @@
 	const decoder = new TextDecoder();
 	const canPeek = $derived(data.me.lanes.includes("term_admin"));
 	const residentSessions = $derived.by(() => {
-		const sessions = new Map<string, HeartbeatItem>();
+		const sessions = new SvelteMap<string, HeartbeatItem>();
 		for (const heartbeat of data.architects) {
 			if (heartbeat.handle && heartbeat.tmux_session && heartbeat.pane_id)
 				sessions.set(heartbeat.handle, heartbeat);
@@ -55,7 +57,7 @@
 		{ key: "Idle", rows: match(roster.lanes.idle) },
 	]);
 	const architects = $derived.by(() => {
-		const byHost = new Map<string, { host: string; heartbeat: HeartbeatItem; residents: string[] }>();
+		const byHost = new SvelteMap<string, { host: string; heartbeat: HeartbeatItem; residents: string[] }>();
 		const rank: Record<HeartbeatItem["state"], number> = {
 			crashed: 5,
 			stopped: 4,
@@ -126,7 +128,7 @@
 		try {
 			const snapshot = await pollTerminalPeek({ stream_id: peekStreamId, tick: peekSeq });
 			if (generation !== peekGeneration) return;
-			if (stallTimer) clearTimeout(stallTimer);
+			clearTimeout(stallTimer);
 			stallTimer = null;
 			peekLines = decodeSnapshot(snapshot.data_b64);
 			peekSeq = snapshot.seq;
@@ -150,7 +152,7 @@
 		peekError = null;
 		const generation = ++peekGeneration;
 		try {
-			const snapshot = await openTerminalPeek({ host: session.host, tmux_session: session.tmux_session!, pane_id: session.pane_id! });
+			const snapshot = await openTerminalPeek({ host: session.host, tmux_session: required(session.tmux_session), pane_id: required(session.pane_id) });
 			if (generation !== peekGeneration) {
 				await closeTerminalPeek({ stream_id: snapshot.stream_id }).catch(() => undefined);
 				return;
@@ -276,7 +278,7 @@
 		<div class="peek-drawer">
 			<IconButton class="dialog-close" name="x" label="Close terminal peek" autofocus onclick={() => peekDialog?.close()} />
 			<div class="peek-title"><Icon name="eye" size={16} /><div><h2 id="terminal-peek-title">Watch {peekSession.handle ?? "resident"}</h2><p>Read-only live terminal</p></div></div>
-			<PTYView session={peekSession} lines={peekLines} state={peekState} seq={peekSeq} errorCode={peekError} onretry={() => watchSession(peekSession!)} />
+			<PTYView session={peekSession} lines={peekLines} state={peekState} seq={peekSeq} errorCode={peekError} onretry={() => watchSession(required(peekSession))} />
 		</div>
 	{/if}
 </ModalSurface>

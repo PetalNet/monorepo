@@ -32,7 +32,8 @@ const shell = {
 	me: { id: "parker", lanes: ["admin"] },
 	scene: "clear",
 };
-const contexts = () => mocks.capture.mock.calls.map(([, context]) => context);
+const contexts = () =>
+	(mocks.capture.mock.calls as [unknown, Record<string, unknown>][]).map(([, context]) => context);
 const loadEvent = {
 	fetch: fetchStub,
 	parent: () => shell,

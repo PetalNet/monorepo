@@ -125,7 +125,7 @@ export const getLibraryItemDetail = query(idSchema, async (id): Promise<LibraryD
 	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") {
 		const item = mockLibrary.items.find((candidate) => candidate.id === id);
 		if (!item) error(404, "Library item not found");
-		const txFrom = libraryProvenance[id].txFrom ?? new Date().toISOString();
+		const txFrom = libraryProvenance[id].txFrom;
 		return {
 			item,
 			links: (libraryLinks[id] ?? []).map((link) => ({
@@ -139,7 +139,7 @@ export const getLibraryItemDetail = query(idSchema, async (id): Promise<LibraryD
 					txFrom: new Date(Date.parse(txFrom) - offset * 86400000).toISOString(),
 					item: { ...item, version: item.version - offset },
 				})),
-			responsibleHuman: libraryProvenance[id].responsibleHuman ?? "unassigned",
+			responsibleHuman: libraryProvenance[id].responsibleHuman,
 			txFrom,
 			isMock: true,
 		};

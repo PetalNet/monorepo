@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { required } from "#format";
 	import { browser } from "$app/env";
 	import { goto } from "$app/navigation";
 	import { dataMode, readDashboards, runOp } from "$lib/rpc/browser";
@@ -19,7 +20,7 @@
 	let { items, lanes, userId }: Props = $props();
 	let order = $state<string[]>([]);
 	let orderReady = $state(false);
-	let details = $state<Record<string, DashboardItem>>({});
+	let details = $state<Partial<Record<string, DashboardItem>>>({});
 	let detailError = $state(false);
 	let sharing = $state<string | null>(null);
 	let shareSubject = $state("");
@@ -27,8 +28,8 @@
 	let loading = $state<string | null>(null);
 	let loadError = $state<{ id: string; message: string } | null>(null);
 	const storageKey = $derived(`console:cockpit:dashboards:${userId}`);
-	const setHome = opDef("dashboard.set_home")!;
-	const remove = opDef("dashboard.delete")!;
+	const setHome = required(opDef("dashboard.set_home"));
+	const remove = required(opDef("dashboard.delete"));
 	const orderedItems = $derived(items.toSorted((a, b) => {
 		const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
 		return (ai < 0 ? Number.MAX_SAFE_INTEGER : ai) - (bi < 0 ? Number.MAX_SAFE_INTEGER : bi);

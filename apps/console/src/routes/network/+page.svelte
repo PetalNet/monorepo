@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { required } from "#format";
 	import type { PageProps } from "./$types";
 	const env = import.meta.env;
 	import { opDef } from "$lib/api/ops";
@@ -28,8 +29,8 @@
 	const ceremonyQuery = getKeyCeremony();
 	const ceremony = $derived(ceremonyQuery.current ?? null);
 
-	const redial = opDef("doorman.redial")!;
-	const drop = opDef("doorman.session.drop")!;
+	const redial = required(opDef("doorman.redial"));
+	const drop = required(opDef("doorman.session.drop"));
 	const now = Date.now();
 	const ageSeconds = (value: string) => Math.max(0, Math.round((now - Date.parse(value)) / 1000));
 	const isStale = (line: EdgeSessionItem) => ageSeconds(line.last_seen_at) > 90;
@@ -162,7 +163,7 @@
 				<span class="links">
 					<span class="sr">{line.links.map((link) => `${link.role} ${stale ? "unknown" : link.state}`).join(", ")}</span>
 					{#each line.links as link, __eachKey38 (__eachKey38)}<i class:unknown={stale} class:down={!stale && link.state === "down"} class:warm={!stale && link.state === "warm"} aria-hidden="true"></i>{/each}
-					<code>{stale ? "—" : line.links.map((link) => link.rtt_ms == null ? "—" : `${String(link.rtt_ms)}`).join(" · ")}ms</code>
+					<code>{stale ? "—" : line.links.map((link) => link.rtt_ms == null ? "—" : String(link.rtt_ms)).join(" · ")}ms</code>
 				</span>
 				<code>{age(line.established_at)}</code><code>{line.resumes_count}</code><code>{age(line.links.map((link) => link.last_flap_at).find(Boolean) ?? line.established_at)}</code>
 				<StatusPill tone={stale ? "idle" : line.state === "open" ? "good" : line.state === "floor" || line.state === "resuming" ? "warn" : "danger"} label={stale ? "unknown" : line.state} />

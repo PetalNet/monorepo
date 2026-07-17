@@ -62,7 +62,7 @@ export async function proposeCapability(
 		const duplicate = await tx<{ id: string }[]>`select id from library_curation
 			where capability = ${input.capability} and version = ${input.version}
 			and state in ('proposed','under-review','promoted') limit 1`;
-		if (duplicate[0])
+		if (duplicate.at(0))
 			throw new CapabilityContributionError(
 				"proposal_exists",
 				"this capability version is already proposed",

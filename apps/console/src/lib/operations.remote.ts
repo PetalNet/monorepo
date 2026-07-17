@@ -95,7 +95,7 @@ export const readPlane = Query("unchecked", (plane: ReadPlane) =>
 				readEntity(services.db.app, principal.scopes, "registry", { limit: 1_000 }),
 			);
 		const kind = projectedKinds[plane];
-		if (!kind) return yield* Effect.die(new Error(`Unsupported read plane: ${plane}`));
+
 		return yield* Effect.tryPromise(() =>
 			kind === "attention" || kind === "subscription"
 				? readTypedEntity(services.db.app, principal.scopes, kind, { limit: 1_000 })
@@ -166,14 +166,12 @@ export const getAssistantSessionRemote = Query(
 		const row = rows[0];
 		return {
 			schema_version: 1 as const,
-			session: row
-				? {
-						session_id: row.manager_session_id,
-						state: row.state,
-						window_layout: row.window_layout,
-						last_context: row.last_context,
-					}
-				: null,
+			session: {
+				session_id: row.manager_session_id,
+				state: row.state,
+				window_layout: row.window_layout,
+				last_context: row.last_context,
+			},
 		};
 	}),
 );

@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"imports": {
+		"#domain/iteration": "./src/lib/server/domain/iteration.ts",
 		"#format": "./src/lib/format.ts"
 	},
 	"scripts": {

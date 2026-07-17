@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { asynchronously } from "#domain/iteration";
+
 import { uuidv5 } from "../bridge/uuid5.ts";
 import type { Sql } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
@@ -184,7 +186,7 @@ export class CrackAttentionReconciler {
 					when type in ('doorman.dark', 'doorman.recover') then 'doorman-dark'
 				end,
 				seq desc`;
-		for (const row of rows)
+		for await (const row of asynchronously(rows))
 			await this.enqueue({
 				schema_version: 1,
 				id: row.id,

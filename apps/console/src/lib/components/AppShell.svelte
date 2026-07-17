@@ -261,8 +261,7 @@
 		const raw =
 			contributor.dataset.ask ??
 			contributor.getAttribute("aria-label") ??
-			contributor.textContent ??
-			contributor.tagName;
+			contributor.textContent;
 		const value =
 			raw.replace(/\s+/g, " ").trim().slice(0, 500) ||
 			contributor.tagName.toLowerCase();
@@ -397,7 +396,6 @@
 			sessionRestoring = true;
 			void getAssistantSession()
 				.then(({ session }) => {
-					if (!session) return null;
 					windowLayout = layout(session.window_layout);
 					if (session.last_context?.value)
 						context = {

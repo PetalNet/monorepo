@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { required } from "#format";
 	import { runOp } from "$lib/rpc/browser";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
 	import Icon from "./Icon.svelte";
@@ -19,15 +20,16 @@
 	$effect(() => {
 		const count = snackbar.items.length;
 		const revision = ++popoverRevision;
-		if (!host) return;
-		if (host.matches(":popover-open")) host.hidePopover();
+		const popoverHost = host;
+		if (!popoverHost) return;
+		if (popoverHost.matches(":popover-open")) popoverHost.hidePopover();
 		const openDialog = document.querySelector<HTMLDialogElement>("dialog[open]");
 		const container = openDialog ?? document.body;
-		if (host.parentElement !== container) container.append(host);
+		if (popoverHost.parentElement !== container) container.append(popoverHost);
 		if (count > 0)
 			queueMicrotask(() => {
-				if (revision === popoverRevision && host && !host.matches(":popover-open"))
-					host.showPopover();
+				if (revision === popoverRevision && !popoverHost.matches(":popover-open"))
+					popoverHost.showPopover();
 			});
 	});
 
@@ -64,7 +66,7 @@
 			<Icon name={s.tone === "danger" ? "triangle-alert" : "circle-check"} size={14} />
 			<span>{s.message}</span>
 			{#if s.undo}
-				<button onclick={() => undo(s.id, s.undo!, s.onUndo)}>{s.actionLabel ?? "Undo"}</button>
+				<button onclick={() => undo(s.id, required(s.undo), s.onUndo)}>{s.actionLabel ?? "Undo"}</button>
 			{/if}
 		</div>
 	{/each}

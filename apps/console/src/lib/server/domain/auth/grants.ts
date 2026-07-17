@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { asynchronously } from "#domain/iteration";
+
 import type { Db, Sql } from "../db/pool.ts";
 import { SCOPE_RE } from "../scope.ts";
 import type { Principal } from "./principal.ts";
@@ -120,7 +122,8 @@ async function authorizationObjects(sql: Sql, object: string): Promise<string[]>
 	if (!object.startsWith("item:")) return [object];
 	const rows = await sql<{ scope: string }[]>`
 		select scope from items_min where ${object} = 'item:' || id`;
-	return [...new Set([object, ...(rows[0] ? [rows[0].scope] : [])])].toSorted();
+	const scope = rows.at(0)?.scope;
+	return [...new Set(scope ? [object, scope] : [object])].toSorted();
 }
 
 export async function canViewGrantObject(
@@ -132,7 +135,7 @@ export async function canViewGrantObject(
 	if (!object.startsWith("item:")) return false;
 	const rows = await sql<{ scope: string }[]>`
 		select scope from items_min where ${object} = 'item:' || id`;
-	return rows[0] ? principal.scopes.includes(rows[0].scope) : false;
+	return principal.scopes.includes(rows[0].scope);
 }
 
 export async function listGrants(
@@ -151,7 +154,7 @@ export async function listGrants(
 		order by subject, relation, id`;
 	const head = await writer<{ zookie: string }[]>`
 		select zookie::text as zookie from grant_set_state where singleton`;
-	return { schema_version: 1, object, zookie: head[0].zookie ?? "0", items: rows.map(wireGrant) };
+	return { schema_version: 1, object, zookie: head[0].zookie, items: rows.map(wireGrant) };
 }
 
 function mutationHash(input: GrantMutation): string {
@@ -170,18 +173,22 @@ export async function mutateGrant(
 			values (${principal.id}, ${input.id}, ${requestHash}, ${tx.json({ pending: true })})
 			on conflict (principal_id, request_id) do nothing
 			returning request_hash, result`;
-		if (!claimed[0]) {
+		if (!claimed.at(0)) {
 			const existing = await tx<{ request_hash: string; result: Record<string, unknown> }[]>`
 				select request_hash, result from grant_mutations
 				where principal_id = ${principal.id} and request_id = ${input.id}`;
-			if (!existing[0] || existing[0].request_hash !== requestHash)
+			const previous = existing.at(0);
+			if (!previous || previous.request_hash !== requestHash)
 				throw new GrantError("id_reused", "mutation id was already used with a different body");
-			return existing[0].result;
+			return previous.result;
 		}
+
 		// Lock the object and (for item sharing) its containing scope in deterministic order. A
 		// concurrent revoke of the caller's direct or inherited owner edge cannot commit between the
 		// authorization check and this mutation.
-		for (const object of await authorizationObjects(tx as unknown as Sql, input.object))
+		for await (const object of asynchronously(
+			await authorizationObjects(tx as unknown as Sql, input.object),
+		))
 			await tx`select pg_advisory_xact_lock(hashtextextended(${object}, 705706))`;
 		if (!(await ownsObject(tx as unknown as Sql, principal, input.object)))
 			throw new GrantError("grant_denied", "owner relation required");
@@ -210,7 +217,7 @@ export async function mutateGrant(
 				schema_version: 1,
 				action: "revoked",
 				revoked_count: rows.length,
-				zookie: head[0].zookie ?? "0",
+				zookie: head[0].zookie,
 			};
 		}
 		await tx`update grant_mutations set result = ${tx.json(result as never)}

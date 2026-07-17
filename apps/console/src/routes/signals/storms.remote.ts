@@ -75,7 +75,7 @@ export const undoSignalStorm = command(undoArgs, async ({ pattern }) => {
 			dry_run: false,
 		}),
 	});
-	if (!result.ok) error(400, result.error.message ?? "Storm override could not be undone");
+	if (!result.ok) error(400, result.error.message);
 	void getSignalStorms().refresh();
 	return { pattern, tier: "feed" as const, restored: true };
 });

@@ -188,7 +188,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 				spend,
 				share: totalSpend > 0 ? Math.round((spend / totalSpend) * 100) : 0,
 			}))
-			.toSorted((left, right) => (right.spend ?? 0) - (left.spend ?? 0));
+			.toSorted((left, right) => right.spend - left.spend);
 	};
 	const dailyTotals = new Map<string, number>();
 	for (const session of liveSessions) {

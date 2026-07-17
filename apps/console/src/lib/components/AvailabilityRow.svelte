@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { required } from "#format";
 	import type { AvailabilitySnapshot } from "$lib/api/types";
 	import StatusPill from "./StatusPill.svelte";
 
@@ -11,8 +12,8 @@
 	let { item }: Props = $props();
 	const tone = $derived(item.state === "up" ? "good" : item.state === "degraded" ? "warn" : "danger");
 	const successful = $derived(item.points.filter((point) => point.ok && point.latency_ms !== null));
-	const minLatency = $derived(successful.length ? Math.min(...successful.map((point) => point.latency_ms!)) : 0);
-	const maxLatency = $derived(successful.length ? Math.max(...successful.map((point) => point.latency_ms!)) : 1);
+	const minLatency = $derived(successful.length ? Math.min(...successful.map((point) => required(point.latency_ms))) : 0);
+	const maxLatency = $derived(successful.length ? Math.max(...successful.map((point) => required(point.latency_ms))) : 1);
 	const range = $derived(Math.max(1, maxLatency - minLatency));
 
 	function segments(): string[] {

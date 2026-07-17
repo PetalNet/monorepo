@@ -9,7 +9,8 @@ import { closeSync, constants, fstatSync, openSync, readSync, readdirSync } from
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { formatUnknown } from "#format";
+import { asynchronously } from "#domain/iteration";
+import { formatUnknown, omitKeys } from "#format";
 
 import type { Sql } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
@@ -78,9 +79,9 @@ export class Bridge {
 		>`select cursor, below_count, below_hash from bridge_cursor where source = ${source}`;
 		const row = rows[0];
 		return {
-			cursor: row.cursor ?? "",
-			belowCount: row.below_count ?? 0,
-			belowHash: row.below_hash ?? "",
+			cursor: row.cursor,
+			belowCount: row.below_count,
+			belowHash: row.below_hash,
 		};
 	}
 
@@ -154,7 +155,8 @@ export class Bridge {
 		try {
 			if (this.#config.systemOutboxDir)
 				await this.#pollSystemOutbox(this.#config.systemOutboxDir, now);
-			for (const adapter of this.#config.adapters ?? []) await this.#pollAdapter(adapter, now);
+			for await (const adapter of asynchronously(this.#config.adapters ?? []))
+				await this.#pollAdapter(adapter, now);
 		} finally {
 			this.#polling = false;
 		}
@@ -197,7 +199,7 @@ export class Bridge {
 				this.#control(adapter.source, "doorman.recover", now, "info"),
 			);
 		this.#healthySeen.add(adapter.source);
-		for (const loss of batch.losses ?? []) {
+		for await (const loss of asynchronously(batch.losses ?? [])) {
 			const ref = sourceCursorRef(loss.cursor);
 			await this.#quarantine(adapter.source, ref, null, loss.reason);
 			await this.#emitOne(
@@ -205,7 +207,7 @@ export class Bridge {
 				this.#gap(adapter.source, ref, loss.reason, now),
 			);
 		}
-		for (const raw of batch.emissions) {
+		for await (const raw of asynchronously(batch.emissions)) {
 			const e = this.#tagSource(adapter.source, raw);
 			const r = await this.#emit(adapter.producerSubject, e, Buffer.byteLength(JSON.stringify(e)));
 			if (r.ok) continue;
@@ -256,12 +258,12 @@ export class Bridge {
 				SYSTEM_OUTBOX_PRODUCER,
 				this.#control(source, "bridge.source.anomaly", now, "warn"),
 			);
-		for (const loss of result.losses) {
+		for await (const loss of asynchronously(result.losses)) {
 			const ref = sourceCursorRef(loss.file);
 			await this.#quarantine(source, ref, null, loss.reason);
 			await this.#emitOne(SYSTEM_OUTBOX_PRODUCER, this.#gap(source, ref, loss.reason, now));
 		}
-		for (const raw of result.emissions) {
+		for await (const raw of asynchronously(result.emissions)) {
 			const e = this.#tagSource(source, raw);
 			const r = await this.#emit(SYSTEM_OUTBOX_PRODUCER, e, Buffer.byteLength(JSON.stringify(e)));
 			if (r.ok) continue;
@@ -424,8 +426,8 @@ abstract class SnapshotAdapter implements BridgeAdapter {
 				if (emit) emissions.push(...this.emissions(name, body, hash, now));
 				next[name] = {
 					observed: hash,
-					emitted: emit ? key : (prior.emitted ?? ""),
-					emittedAt: emit ? now : (prior.emittedAt ?? ""),
+					emitted: emit ? key : prior.emitted,
+					emittedAt: emit ? now : prior.emittedAt,
 				};
 			} catch {
 				losses.push({ cursor: name, reason: "invalid_record" });
@@ -502,10 +504,14 @@ export class ManagerHeartbeatAdapter extends SnapshotAdapter {
 		const handle = text(body["handle"]);
 		if (!handle) throw new Error(`manager heartbeat lacks handle: ${name}`);
 		const fields = safeFields(body);
-		for (const key of ["handle", "version", "session_id", "tmux_session", "pane_id"])
-			delete fields.dimensions[key];
-		delete fields.measures["schema_version"];
-		delete fields.measures["updated_at_epoch"];
+		fields.dimensions = omitKeys(fields.dimensions, [
+			"handle",
+			"version",
+			"session_id",
+			"tmux_session",
+			"pane_id",
+		]);
+		fields.measures = omitKeys(fields.measures, ["schema_version", "updated_at_epoch"]);
 		const crashed = body["state"] === "crashed";
 		const emissions: Emission[] = [
 			{
@@ -652,13 +658,12 @@ export class JsonlSpoolAdapter implements BridgeAdapter {
 				}
 				const fileId = `${String(stat.dev)}:${String(stat.ino)}`;
 				const prior = previous[file];
-				let byteOffset = prior.byteOffset ?? 0;
-				let lineNumber = prior.line ?? 0;
+				let byteOffset = prior.byteOffset;
+				let lineNumber = prior.line;
 				if (
-					prior &&
-					(prior.fileId !== fileId ||
-						stat.size < byteOffset ||
-						(prior.tailHash !== "" && prior.tailHash !== spoolTailHash(fd, byteOffset)))
+					prior.fileId !== fileId ||
+					stat.size < byteOffset ||
+					(prior.tailHash !== "" && prior.tailHash !== spoolTailHash(fd, byteOffset))
 				) {
 					losses.push({ cursor: `${file}:${String(lineNumber)}`, reason: "cursor_reset" });
 					byteOffset = 0;

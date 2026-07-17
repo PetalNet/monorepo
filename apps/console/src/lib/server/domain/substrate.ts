@@ -103,7 +103,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 	const headRow = await db.admin<
 		{ n: string }[]
 	>`select coalesce(max(seq), 0)::bigint as n from events`;
-	broker.setHead(Number(headRow[0].n ?? 0));
+	broker.setHead(Number(headRow[0].n));
 	// projector: cursored consumer of the lake into current_state. Boot-replay to head BEFORE
 	// serving reads, then live off fan-out (N1b). Writes as console_writer (non-superuser).
 	const projector = new Projector(db.writer);
@@ -428,8 +428,8 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		},
 		emit,
 		async close() {
-			if (stormExpiryTimer) clearInterval(stormExpiryTimer);
-			if (sourceModeOutboxTimer) clearInterval(sourceModeOutboxTimer);
+			clearInterval(stormExpiryTimer);
+			clearInterval(sourceModeOutboxTimer);
 			await crackAttention.drain();
 			await delivery.drain();
 			tracker?.close();

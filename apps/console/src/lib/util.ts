@@ -2,7 +2,7 @@
 
 /** First letter of a name, for avatar/initial chips. */
 export function initial(handle: string): string {
-	return (handle[0] ?? "?").toUpperCase();
+	return handle[0].toUpperCase();
 }
 
 /** Deterministic avatar hue for an agent handle (foundations §3.7 "hue by handle"). */

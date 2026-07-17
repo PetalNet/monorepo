@@ -1,3 +1,4 @@
+import { required as requiredValue } from "#format";
 // Runtime configuration, read once at boot. Nothing here is secret-bearing beyond
 // connection URLs (which carry credentials) — those come from the environment, never code.
 
@@ -96,7 +97,7 @@ export function loadEnv(): Env {
 			"CONSOLE_DOORMAN_ADMIN_URL and CONSOLE_DOORMAN_ADMIN_TOKEN must be configured together",
 		);
 	if (doormanValues.every(Boolean)) {
-		const endpoint = new URL(doormanValues[0]!);
+		const endpoint = new URL(requiredValue(doormanValues[0]));
 		if (
 			!devAuth &&
 			endpoint.protocol !== "https:" &&
@@ -112,12 +113,12 @@ export function loadEnv(): Env {
 		);
 	let matrix: MatrixConfig | null = null;
 	if (matrixValues.every(Boolean)) {
-		const homeserver = new URL(matrixValues[0]!);
+		const homeserver = new URL(requiredValue(matrixValues[0]));
 		if (homeserver.protocol !== "https:" || homeserver.pathname !== "/")
 			throw new Error("CONSOLE_API_MATRIX_HOMESERVER must be an HTTPS origin");
 		let ownerBindings: unknown;
 		try {
-			ownerBindings = JSON.parse(matrixValues[2]!);
+			ownerBindings = JSON.parse(requiredValue(matrixValues[2]));
 		} catch {
 			throw new Error("CONSOLE_API_MATRIX_OWNER_BINDINGS must be a JSON object");
 		}
@@ -137,7 +138,7 @@ export function loadEnv(): Env {
 			);
 		matrix = {
 			homeserver: homeserver.origin,
-			accessToken: matrixValues[1]!,
+			accessToken: requiredValue(matrixValues[1]),
 			ownerBindings: ownerBindings as Record<string, string>,
 		};
 	}

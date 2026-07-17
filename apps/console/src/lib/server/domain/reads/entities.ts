@@ -115,7 +115,7 @@ export async function searchEntity(
 ): Promise<ReadEnvelope> {
 	const needle = query.trim().toLocaleLowerCase();
 	const escaped = needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
-	const subsequence = `%${[...needle]
+	const subsequence = `%${Array.from(needle)
 		.map((character) =>
 			character.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_"),
 		)
@@ -304,7 +304,7 @@ export async function readBoxUpdateRaw(
 			select state from current_state where kind = 'box_update' and subject = ${boxId}`,
 	);
 	const state = rows[0].state;
-	if (!state) return null;
+
 	const nested = state["box_update_raw"] ?? state["raw"];
 	const candidate =
 		nested && typeof nested === "object" && !Array.isArray(nested)

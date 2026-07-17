@@ -256,7 +256,8 @@ function validateSchema(schema: SchemaNode, value: unknown, path = "$", errors: 
 \tif (Array.isArray(value)) {
 \t\tif (schema.minItems !== undefined && value.length < schema.minItems) errors.push(path + " has too few items");
 \t\tif (schema.maxItems !== undefined && value.length > schema.maxItems) errors.push(path + " has too many items");
-\t\tif (schema.items) value.forEach((item, index) => validateSchema(schema.items!, item, path + "[" + index + "]", errors));
+\t\tconst itemSchema = schema.items;
+\t\tif (itemSchema) value.forEach((item, index) => validateSchema(itemSchema, item, path + "[" + String(index) + "]", errors));
 \t}
 \tif (value !== null && typeof value === "object" && !Array.isArray(value)) {
 \t\tconst record = value as Record<string, unknown>;
@@ -298,12 +299,7 @@ const aliases = [
 	["TaskStatus", schemas.TaskItem.properties.status],
 ];
 
-const nested = [
-	[
-		"ApiError",
-		{ ...schemas.OpResult.properties.error, type: "object", additionalProperties: false },
-	],
-];
+const nested = [];
 
 const querySchema = clone(schemas.QueryResult);
 void querySchema;

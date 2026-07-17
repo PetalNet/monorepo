@@ -6,7 +6,7 @@ export interface BetterAuthSessionIdentity {
 }
 
 function hasControlCharacter(value: string): boolean {
-	return [...value].some((character) => {
+	return Array.from(value).some((character) => {
 		const codePoint = character.codePointAt(0) ?? 0;
 		return codePoint < 0x20 || codePoint === 0x7f;
 	});

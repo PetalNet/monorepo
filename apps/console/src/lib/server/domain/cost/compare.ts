@@ -8,6 +8,7 @@ import type {
 } from "@petalnet/types";
 import { z } from "zod";
 
+import { required } from "#format";
 import { formatUnknown } from "#format";
 
 import { QueryError, runStructured, type QueryResult } from "../query/structured.ts";
@@ -224,7 +225,7 @@ export async function compareCostPairWith(
 		accumulator.sessionIds.add(formatUnknown(row["session_id"] ?? "unknown"));
 	}
 	const side = (value: string): CostComparisonSide => {
-		const item = accumulators.get(value)!;
+		const item = required(accumulators.get(value));
 		const sessions = item.sessionIds.size;
 		const tokens =
 			item.input_tokens + item.output_tokens + item.cache_creation_tokens + item.cache_read_tokens;

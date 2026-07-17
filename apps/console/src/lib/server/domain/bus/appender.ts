@@ -1,7 +1,9 @@
+import { asynchronously } from "#domain/iteration";
 // THE single serialized appender (contract §4.1, §5). All emissions funnel through one async
 // queue, so seq is assigned in commit order (no assignment/commit race) and fan-out is strictly
 // post-commit in seq order. Dedup is transactional: ON CONFLICT (id) returns the ORIGINAL seq with
 // no fan-out. Edges are materialized from links atomically with the event.
+import { required } from "#format";
 
 import type { Sql } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
@@ -86,8 +88,8 @@ export class Appender {
 			// Idempotent retries never consume producer rate budget and preserve the original seq.
 			const duplicate = await tx<{ seq: string; payload_sha256: string | null }[]>`
 				select seq, payload_sha256 from emission_ids where id = ${e.id}`;
-			if (duplicate[0]) {
-				if (duplicate[0].payload_sha256 && duplicate[0].payload_sha256 !== payloadSha256)
+			for (const prior of duplicate.slice(0, 1)) {
+				if (prior.payload_sha256 && prior.payload_sha256 !== payloadSha256)
 					return {
 						ok: false as const,
 						code: "id_reused" as const,
@@ -95,7 +97,7 @@ export class Appender {
 					};
 				return {
 					ok: true as const,
-					seq: Number(duplicate[0].seq),
+					seq: Number(prior.seq),
 					duplicate: true,
 					receivedAt: "",
 				};
@@ -103,18 +105,18 @@ export class Appender {
 			const quarantined = await tx<
 				{ reason: string; payload_sha256: string | null; retry_after: string | null }[]
 			>`select reason, payload_sha256, retry_after from emission_quarantine where id = ${e.id}`;
-			if (quarantined[0]) {
-				if (quarantined[0].payload_sha256 && quarantined[0].payload_sha256 !== payloadSha256)
+			for (const quarantine of quarantined.slice(0, 1)) {
+				if (quarantine.payload_sha256 && quarantine.payload_sha256 !== payloadSha256)
 					return {
 						ok: false as const,
 						code: "id_reused" as const,
 						message: "emission id was already used with a different body",
 					};
-				const retryAt = quarantined[0].retry_after
-					? new Date(quarantined[0].retry_after).getTime()
-					: Number.POSITIVE_INFINITY;
+				const retryAfter = quarantine.retry_after;
+				const retryAt =
+					retryAfter === null ? Number.POSITIVE_INFINITY : new Date(required(retryAfter)).getTime();
 				if (retryAt > Date.now()) {
-					const code = quarantined[0].reason as "emit_rate_limited" | "new_type_rate_limited";
+					const code = quarantine.reason as "emit_rate_limited" | "new_type_rate_limited";
 					return {
 						ok: false as const,
 						code,
@@ -162,9 +164,9 @@ export class Appender {
 				returning minute_emit_count, hour_new_type_count`;
 			const rate = rates[0];
 			const rejectedCode =
-				(rate.minute_emit_count ?? 0) > limits.maxEmitPerMinute
+				rate.minute_emit_count > limits.maxEmitPerMinute
 					? ("emit_rate_limited" as const)
-					: (rate.hour_new_type_count ?? 0) > limits.maxNewTypesPerHour
+					: rate.hour_new_type_count > limits.maxNewTypesPerHour
 						? ("new_type_rate_limited" as const)
 						: null;
 			if (rejectedCode) {
@@ -219,7 +221,7 @@ export class Appender {
 				};
 			}
 			const seq = Number(ids[0].seq);
-			const receivedAt = ids[0].received_at ?? new Date().toISOString();
+			const receivedAt = ids[0].received_at;
 			await tx`
 				insert into events
 					(seq, id, type, ts, received_at, source_service, source_host, source_agent,
@@ -240,9 +242,10 @@ export class Appender {
 					 body_ref, meta from events
 					where received_at = ${receivedAt} and seq = ${seq}`;
 			// materialize edges
-			if (e.links && e.links.length > 0) {
+			const links = e.links ?? [];
+			if (links.length > 0) {
 				const fromKind = e.subject_kind ?? "other";
-				for (const link of e.links) {
+				for await (const link of asynchronously(links)) {
 					await tx`insert into edges (from_kind, from_id, rel, to_kind, to_id, scope, seq)
 						values (${fromKind}, ${e.subject}, ${link.rel}, ${link.to.kind}, ${link.to.id}, ${e.scope}, ${seq})`;
 				}
@@ -251,9 +254,12 @@ export class Appender {
 			// the event remains durable and the disagreement becomes a scoped curation proposal.
 			const incoming = deriveSemanticShape(e);
 			const emptyShape: SemanticShape = { dimensions: {}, measures: {}, joins: [] };
-			const globalMerged = mergeSemanticShape(registry[0] ?? emptyShape, incoming);
-			const merged = mergeSemanticShape(scopedRegistry[0] ?? emptyShape, incoming);
-			const scopes = [...new Set([...(registry[0].scopes ?? []), e.scope])].toSorted();
+			const registryRow = registry.at(0);
+			const global = registryRow ?? emptyShape;
+			const scoped = scopedRegistry.at(0) ?? emptyShape;
+			const globalMerged = mergeSemanticShape(global, incoming);
+			const merged = mergeSemanticShape(scoped, incoming);
+			const scopes = [...new Set([...(registryRow?.scopes ?? []), e.scope])].toSorted();
 			await tx`
 				insert into semantic_registry
 					(type, last_emit, first_producer, dimensions, measures, joins, scopes, emit_count)
@@ -277,7 +283,7 @@ export class Appender {
 					emit_count = semantic_registry_scoped.emit_count + 1,
 					dimensions = excluded.dimensions, measures = excluded.measures,
 					joins = excluded.joins, updated_at = now()`;
-			for (const drift of merged.drift)
+			for await (const drift of asynchronously(merged.drift))
 				await tx`
 					insert into semantic_proposals
 						(kind, producer_subject, statistic_type, scope, payload)
@@ -288,7 +294,7 @@ export class Appender {
 						  and kind = 'registry_drift' and statistic_type = ${e.type}
 						  and payload->>'field' = ${drift.field} and payload->>'kind' = ${drift.kind}
 					)`;
-			for (const [field, value] of Object.entries(e.dimensions ?? {})) {
+			for await (const [field, value] of asynchronously(Object.entries(e.dimensions ?? {}))) {
 				await tx`
 					insert into semantic_field_values_scoped (statistic_type, scope, field, value_hash)
 					select ${e.type}, ${e.scope}, ${field}, ${dimensionValueHash(value)}
@@ -299,7 +305,7 @@ export class Appender {
 					select count(*)::bigint as count from semantic_field_values_scoped
 					where statistic_type = ${e.type} and scope = ${e.scope} and field = ${field}`;
 				const descriptor = merged.shape.dimensions[field];
-				if (descriptor) descriptor.cardinality = cardinalityClass(Number(counts[0].count ?? 0));
+				descriptor.cardinality = cardinalityClass(Number(counts[0].count));
 			}
 			await tx`update semantic_registry_scoped
 				set dimensions = ${tx.json(merged.shape.dimensions as never)}
@@ -321,14 +327,13 @@ export class Appender {
 			const accepted = result as AcceptedInternal;
 			this.#fanOut(accepted.seq, e, accepted.receivedAt);
 		}
-		return result.ok
-			? { ok: true, seq: result.seq, duplicate: result.duplicate }
-			: {
-					ok: false,
-					code: result.code,
-					message: result.message,
-					...(result.retryAfterS ? { retryAfterS: result.retryAfterS } : {}),
-				};
+		if (result.ok) return { ok: true, seq: result.seq, duplicate: result.duplicate };
+		return {
+			ok: false,
+			code: result.code,
+			message: result.message,
+			...(result.retryAfterS ? { retryAfterS: result.retryAfterS } : {}),
+		};
 	}
 }
 

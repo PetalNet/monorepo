@@ -67,7 +67,7 @@ export function createBetterAuthSessionVerifier(
 				   and s."createdAt" > now() - interval '5 minutes'`,
 				[sessionId],
 			);
-			const identity = result[0].user ? parseBetterAuthIdentity(result[0].user) : null;
+			const identity = parseBetterAuthIdentity(result[0].user);
 			return identity ? { ...identity, sessionId } : null;
 		},
 		async close() {

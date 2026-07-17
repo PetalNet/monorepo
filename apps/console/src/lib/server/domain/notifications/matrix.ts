@@ -45,15 +45,14 @@ export class HttpMatrixTransport implements MatrixTransport {
 	async #request<T>(path: string, init?: RequestInit): Promise<T> {
 		let response: Response;
 		try {
+			const headers = new Headers(init?.headers);
+			headers.set("authorization", `Bearer ${this.#config.accessToken}`);
+			headers.set("accept", "application/json");
+			if (init?.body !== undefined) headers.set("content-type", "application/json");
 			response = await this.#fetch(`${this.#config.homeserver}${path}`, {
 				...init,
 				signal: init?.signal ?? AbortSignal.timeout(10_000),
-				headers: {
-					authorization: `Bearer ${this.#config.accessToken}`,
-					accept: "application/json",
-					...(init?.body !== undefined ? { "content-type": "application/json" } : {}),
-					...init?.headers,
-				},
+				headers,
 			});
 		} catch {
 			throw new MatrixDeliveryError("matrix_unreachable", "Matrix homeserver unreachable", true);

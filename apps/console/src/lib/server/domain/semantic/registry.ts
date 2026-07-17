@@ -48,7 +48,7 @@ export function deriveSemanticShape(e: Emission): SemanticShape {
 	const joins = [...new Set((e.links ?? []).map((link) => `${link.rel}\u0000${link.to.kind}`))]
 		.map((value) => {
 			const [rel, to_kind] = value.split("\u0000");
-			return { rel: rel ?? "related", to_kind: to_kind ?? "other" };
+			return { rel: rel, to_kind: to_kind };
 		})
 		.toSorted((a, b) => `${a.rel}:${a.to_kind}`.localeCompare(`${b.rel}:${b.to_kind}`));
 	return { dimensions, measures, joins };
@@ -63,8 +63,7 @@ export function mergeSemanticShape(
 	const drift: SemanticDrift[] = [];
 	for (const [field, next] of Object.entries(incoming.dimensions)) {
 		const current = dimensions[field];
-		if (!current) dimensions[field] = next;
-		else if (current.type !== next.type)
+		if (current.type !== next.type)
 			drift.push({
 				field,
 				kind: "dimension_type",
@@ -75,10 +74,7 @@ export function mergeSemanticShape(
 	}
 	for (const [field, next] of Object.entries(incoming.measures)) {
 		const current = measures[field];
-		if (!current) {
-			measures[field] = next;
-			continue;
-		}
+
 		if (current.kind && next.kind && current.kind !== next.kind)
 			drift.push({
 				field,

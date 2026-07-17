@@ -199,7 +199,7 @@ export class AssistantRuntime {
 		const known = await this.writer<MessageRow[]>`
 			select request_hash, response_id, state, dispatch_started_at, message_seq::text
 			from assistant_messages where principal_id = ${principal.id} and message_id = ${input.id}`;
-		if (known[0] && known[0].request_hash !== requestHash)
+		if (known[0].request_hash !== requestHash)
 			throw new AssistantRuntimeError("id_reused", "message id was reused with different content");
 		if (known[0].state === "dispatching") {
 			const started = known[0].dispatch_started_at
@@ -269,8 +269,9 @@ export class AssistantRuntime {
 			where principal_id = ${principal.id} and message_id = ${input.id}
 			  and (state = 'ready' or (state = 'dispatching' and dispatch_started_at < now() - interval '60 seconds'))
 			returning true as claimed`;
-		if (!claimed[0])
+		if (!claimed.at(0))
 			throw new AssistantRuntimeError("message_in_flight", "assistant message is in flight", true);
+
 		const rows = await this.writer<{ message_seq: string }[]>`
 			select message_seq::text from assistant_messages
 			where principal_id = ${principal.id} and message_id = ${input.id}`;

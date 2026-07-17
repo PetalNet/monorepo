@@ -26,7 +26,7 @@ export async function loadRegistration(
 			max_emit_per_min, max_new_types_per_hour
 		from producer_registrations where subject = ${subject}`;
 	const r = rows[0];
-	if (!r) return null;
+
 	const maxSeverity: Severity = SEVS.has(r.max_severity) ? (r.max_severity as Severity) : "info";
 	return {
 		subject: r.subject,

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { required } from "#format";
 	import type { AvailabilitySnapshot } from "$lib/api/types";
 	import { opDef } from "$lib/api/ops";
 	import AvailabilityRow from "./AvailabilityRow.svelte";
@@ -22,7 +23,7 @@
 		probeRunnerLive = false,
 		onrefresh,
 	}: Props = $props();
-	const probe = opDef("host.probe")!;
+	const probe = required(opDef("host.probe"));
 
 	function age(value: string | null | undefined): string {
 		if (!value) return "freshness unknown";
@@ -66,7 +67,7 @@
 
 	{#if loading && !snapshot}
 		<div class="skeletons" aria-label="Loading service availability">
-			{#each Array(5) as _, index (index)}
+			{#each Array.from({ length: 5 }, (_, index) => index) as index (index)}
 				<div class="skeleton-row"><i></i><i></i><i></i><i></i></div>
 			{/each}
 		</div>

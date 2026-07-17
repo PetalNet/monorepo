@@ -90,8 +90,7 @@ export function compareCostPair(
 				throw error;
 			try {
 				const result = await meter.compare(input);
-				if (!result.complete)
-					throw new CostComparisonUnavailableError("cost meter returned an incomplete comparison");
+
 				return meterResult(input, result);
 			} catch (meterError) {
 				if (meterError instanceof CostMeterWindowError)

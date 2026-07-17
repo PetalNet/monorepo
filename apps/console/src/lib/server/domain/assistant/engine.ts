@@ -1,3 +1,4 @@
+import { asynchronously } from "#domain/iteration";
 import { formatUnknown } from "#format";
 
 import type { Sql } from "../db/pool.ts";
@@ -83,12 +84,12 @@ function questionContainsLikePattern(question: string, raw: unknown): boolean {
 function relativeTimeIsGrounded(question: string, value: string): boolean {
 	const match = /^-([0-9]+)([smhd])$/.exec(value);
 	if (!match) return false;
-	const amount = match[1] ?? "";
+	const amount = match[1];
 	const unit = { s: "seconds?", m: "minutes?", h: "hours?", d: "days?" }[
 		match[2] as "s" | "m" | "h" | "d"
 	];
 	return new RegExp(
-		`(?:last|past|previous|within)\\s+${escapeRegex(amount)}\\s*(?:${unit}|${escapeRegex(match[2] ?? "")})\\b|\\b${escapeRegex(amount + (match[2] ?? ""))}\\b`,
+		`(?:last|past|previous|within)\\s+${escapeRegex(amount)}\\s*(?:${unit}|${escapeRegex(match[2])})\\b|\\b${escapeRegex(amount + match[2])}\\b`,
 		"iu",
 	).test(question);
 }
@@ -185,7 +186,7 @@ export async function ask(
 			0,
 		);
 	let feedback: { code: string; message: string } | undefined;
-	for (const attempt of [1, 2]) {
+	for await (const attempt of asynchronously([1, 2])) {
 		try {
 			const proposal = await compiler.compile({
 				question,

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { required } from "#format";
 	import { formatUnknown } from "#format";
 	import type { PageProps } from "./$types";
 	import { onMount } from "svelte";
@@ -69,10 +70,10 @@
 		),
 	);
 	const criticalCve = $derived(criticalFindings.length > 0);
-	const apply = opDef("updates.apply")!;
-	const check = opDef("updates.check")!;
-	const notify = opDef("task.dispatch")!;
-	const reboot = opDef("host.reboot")!;
+	const apply = required(opDef("updates.apply"));
+	const check = required(opDef("updates.check"));
+	const notify = required(opDef("task.dispatch"));
+	const reboot = required(opDef("host.reboot"));
 	let drawerEl = $state<HTMLDialogElement | null>(null);
 	let receiptEl = $state<HTMLDialogElement | null>(null);
 	let approvals = $state<UpdateApproval[]>([]);
@@ -134,12 +135,12 @@
 
 	onMount(() => {
 		if (dataMode() === "mock") return;
-		let disposed = false;
+		const controller = new AbortController();
 		let disconnect: (() => void) | null = null;
 		void (async () => {
 			const recoveryHead = await readHealth().then((health) => health.seq_head).catch(() => null);
 			await loadContainerHistory();
-			if (disposed) return;
+			if (controller.signal.aborted) return;
 			disconnect = connectBus(
 				() => [
 					{
@@ -198,7 +199,7 @@
 			);
 		})();
 		return () => {
-			disposed = true;
+			controller.abort();
 			disconnect?.();
 		};
 	});
@@ -272,15 +273,16 @@
 
 	async function revokeApproval(approval: UpdateApproval) {
 		if (!selected || approvalBusy) return;
+		const boxId = selected.boxId;
 		approvalBusy = `revoke:${approval.approval_id}`;
 		approvalError = null;
 		try {
-			await revokeUpdateApproval({ approval_id: approval.approval_id, box_id: selected.boxId });
+			await revokeUpdateApproval({ approval_id: approval.approval_id, box_id: boxId });
 			snackbar.push({ message: "updates.revoke applied · approval returned to pending", op: "updates.revoke", tone: "good" });
 		} catch (error) {
 			approvalError = (error as Error).message || "Approval could not be revoked.";
 		} finally {
-			if (selected) await loadApprovals(selected.boxId);
+			await loadApprovals(boxId);
 			approvalBusy = null;
 		}
 	}

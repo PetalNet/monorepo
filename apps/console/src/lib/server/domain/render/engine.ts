@@ -1,3 +1,5 @@
+import { required } from "#format";
+
 import type { QueryResult } from "../query/structured.ts";
 import type {
 	ForecastSpec,
@@ -151,7 +153,7 @@ function forecastValues(
 	const window = Math.min(points.length, Math.max(2, Math.trunc(spec.window ?? 3)));
 	const alpha = Math.min(1, Math.max(0.01, spec.alpha ?? 0.35));
 	const first = ys[0];
-	const last = ys.at(-1)!;
+	const last = required(ys.at(-1));
 	let smooth = first;
 	for (const value of ys.slice(1)) smooth = alpha * value + (1 - alpha) * smooth;
 	const n = ys.length;
@@ -192,7 +194,7 @@ function forecastValues(
 			default:
 				yValue = mean + slope * (n + offset - 1 - meanT);
 		}
-		const xValue = xNumbers.at(-1)! + step * offset;
+		const xValue = required(xNumbers.at(-1)) + step * offset;
 		predicted.push({
 			[x]: dateAxis ? new Date(xValue).toISOString() : xValue,
 			[y]: yValue,

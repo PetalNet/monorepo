@@ -78,7 +78,7 @@ async function runApprovalOp(
 			dry_run: false,
 		}),
 	});
-	if (!result.ok) error(400, result.error.message ?? "Approval operation failed");
+	if (!result.ok) error(400, result.error.message);
 	return result;
 }
 

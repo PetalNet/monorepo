@@ -88,7 +88,7 @@ function trailingOutage(points: readonly AvailabilityPoint[]): string | null {
 	let start: string | null = null;
 	for (let index = points.length - 1; index >= 0; index -= 1) {
 		const point = points[index];
-		if (!point || point.ok) break;
+		if (point.ok) break;
 		start = point.ts;
 	}
 	return start;

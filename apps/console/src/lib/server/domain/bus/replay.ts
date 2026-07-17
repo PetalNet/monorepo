@@ -1,3 +1,4 @@
+import { asynchronously } from "#domain/iteration";
 // Lake replay for a WS subscribe (contract §4.1). Runs inside withScopes so RLS filters to the
 // subscriber's scopes; pattern + filter are applied in SQL where cheap, JS otherwise.
 
@@ -68,8 +69,8 @@ export function makeReplay(app: Sql) {
 		const f = spec.filter;
 		await withScopes(app, spec.scopes, async (tx) => {
 			let cursor = since;
-			for (const iteration of indefinitely()) {
-				iteration;
+			for await (const iteration of asynchronously(indefinitely())) {
+				void iteration;
 				const rows = usePrefilter
 					? await tx<EventRow[]>`select * from events where seq > ${cursor} and seq <= ${throughSeq}
 							and (type = ${like} or type like ${like}) order by seq asc limit ${PAGE}`

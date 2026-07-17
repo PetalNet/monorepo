@@ -81,7 +81,7 @@
 	{#if loading}
 		<div class="comparison-skeleton" aria-label="Loading cost comparison">
 			<div class="skeleton heading"></div>
-			{#each Array(7) as _, __eachKey6 (__eachKey6)}
+			{#each Array.from({ length: 7 }, (_, index) => index) as index (index)}
 				<div class="skeleton row"></div>
 			{/each}
 		</div>
@@ -129,8 +129,8 @@
 				<div><dt>Source</dt><dd>{result.receipt.source}</dd></div>
 				<div><dt>Ledger query</dt><dd>{result.query_ref}</dd></div>
 				<div><dt>Price book</dt><dd>{result.pricing_query_ref}</dd></div>
-				<div><dt>Price version</dt><dd>{result.receipt.pricing.table_version ?? "query snapshot"}</dd></div>
-				<div><dt>Price digest</dt><dd>{result.receipt.pricing.digest ?? "carried by query receipt"}</dd></div>
+					<div><dt>Price version</dt><dd>{result.receipt.pricing.table_version}</dd></div>
+					<div><dt>Price digest</dt><dd>{result.receipt.pricing.digest}</dd></div>
 				<div><dt>Result</dt><dd>{result.receipt.row_count} aggregate rows · {result.receipt.session_count} sessions · {result.receipt.execution_ms ?? "—"} ms</dd></div>
 				<div><dt>Counted through</dt><dd>{new Date(result.observed_at).toLocaleString()}</dd></div>
 				<div><dt>Query</dt><dd>{result.receipt.query}</dd></div>

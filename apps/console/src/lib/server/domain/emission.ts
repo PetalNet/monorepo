@@ -113,7 +113,7 @@ export function parseEmission(raw: unknown, rawBytes: number): EmissionCheck {
 		return {
 			ok: false,
 			code: "invalid_emission",
-			message: first ? `${first.path.join(".")}: ${first.message}` : "invalid",
+			message: `${first.path.join(".")}: ${first.message}`,
 		};
 	}
 	const e = parsed.data;

@@ -1,3 +1,4 @@
+import { asynchronously } from "#domain/iteration";
 // The current-state projector (N1b, PHASE1B-DESIGN §2). A CURSORED consumer, not fire-and-forget:
 // on boot it replays the lake from its durable checkpoint to head (seq-guarded → idempotent), then
 // goes live off the appender's fan-out. Keyed by the projection-map BUCKET (kind), NOT the
@@ -199,15 +200,15 @@ export class Projector {
 			insert into projection_checkpoint (name, through_seq) values (${checkpointName}, 0)
 			on conflict (name) do update set name = excluded.name
 			returning through_seq`;
-		let cursor = Number(ck[0].through_seq ?? 0);
+		let cursor = Number(ck[0].through_seq);
 		const replayHead = contractedOnly
 			? Number(
 					(await tx<{ seq: string }[]>`select coalesce(max(seq), 0)::bigint as seq from events`)[0]
-						.seq ?? 0,
+						.seq,
 				)
 			: null;
-		for (const iteration of indefinitely()) {
-			iteration;
+		for await (const iteration of asynchronously(indefinitely())) {
+			void iteration;
 			const rows = await tx<
 				{
 					seq: string;
@@ -246,7 +247,7 @@ export class Projector {
 						where name = ${checkpointName}`;
 				break;
 			}
-			for (const r of rows) {
+			for await (const r of asynchronously(rows)) {
 				const e: Emission = {
 					schema_version: 1,
 					id: "",
@@ -385,7 +386,7 @@ export class Projector {
 				{ scope: string; seq: string }[]
 			>`select scope, seq from current_state where kind = ${kind} and subject = ${subject}`;
 			const c = cur[0];
-			if (c && c.scope !== e.scope && Number(c.seq) < seq) {
+			if (c.scope !== e.scope && Number(c.seq) < seq) {
 				this.#alarm(
 					"projection.scope_conflict",
 					subject,
@@ -395,7 +396,7 @@ export class Projector {
 			return;
 		}
 		const storedScope = rows[0].scope;
-		if (storedScope !== undefined && storedScope !== e.scope) {
+		if (storedScope !== e.scope) {
 			this.#alarm(
 				"projection.scope_conflict",
 				e.subject,

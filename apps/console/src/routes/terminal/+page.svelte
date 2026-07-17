@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { required } from "#format";
 	import type { PageProps } from "./$types";
 	import { page } from "$app/state";
 	import { onMount } from "svelte";
@@ -39,8 +40,8 @@
 	let inputQueue = Promise.resolve();
 	const decoder = new TextDecoder();
 	const encoder = new TextEncoder();
-	const restart = opDef("agent.restart")!;
-	const stop = opDef("agent.stop")!;
+	const restart = required(opDef("agent.restart"));
+	const stop = required(opDef("agent.stop"));
 	const sessions = $derived(data.sessions.filter((session) => `${String(session.tmux_session)} ${String(session.pane_id)} ${session.host} ${String(session.handle)}`.toLowerCase().includes(filter.toLowerCase())));
 	const age = (epoch: number) => { const seconds = Math.max(0, Math.round(now / 1000 - epoch)); return seconds < 60 ? `${String(seconds)}s` : seconds < 3600 ? `${String(Math.round(seconds / 60))}m` : seconds < 86400 ? `${String(Math.round(seconds / 3600))}h` : `${String(Math.round(seconds / 86400))}d`; };
 	const stale = (epoch: number) => now / 1000 - epoch > 30;
@@ -53,7 +54,7 @@
 			pane: page.url.searchParams.get("pane"),
 		};
 		const handedOff = data.sessions.find((candidate) => candidate.host === requested.host && candidate.tmux_session === requested.session && candidate.pane_id === requested.pane);
-		if (handedOff) void watch(handedOff);
+		if (handedOff) watch(handedOff);
 		const clock = globalThis.setInterval(() => now = Date.now(), 1000);
 		globalThis.addEventListener("resize", updateViewport);
 		return () => { stopFrames?.(); globalThis.clearInterval(clock); globalThis.removeEventListener("resize", updateViewport); };
@@ -83,7 +84,7 @@
 			return;
 		}
 		stopFrames = connectTerminal(
-			{ host: session.host, tmux_session: session.tmux_session!, pane_id: session.pane_id!, scrollback_lines: 500 },
+			{ host: session.host, tmux_session: required(session.tmux_session), pane_id: required(session.pane_id), scrollback_lines: 500 },
 			(frame) => { onTerminalFrame(frame); busy = false; },
 			(error) => { busy = false; streamState = "unavailable"; snackbar.push({ message: `term.watch failed: ${error.message}`, op: "term.watch", tone: "danger" }); },
 		);
@@ -139,7 +140,7 @@
 {:else}
 	<header class="sign"><h1 title="the Judge's Chambers">Terminal</h1><span>Chambers. Admins only. The Doorman logs everyone.</span><small>{data.sessions.length} live sessions · {data.auditWritable ? "audit current" : "audit unverified"}</small><code><Icon name="lock-keyhole" size={11} /> TERM_ADMIN · {data.grantName}</code></header>
 	{#if !data.auditWritable}<section class="crack"><Icon name="triangle-alert" size={18} /><div><b>Audit write health cannot be verified. New sessions are blocked until logging is proven writable.</b><span>{data.sessions.length} resident sessions remain visible. No entry without a ledger.</span></div><a href="/signals">Open Signals</a></section>{/if}
-		<div class="layout"><main><label class="filter"><Icon name="search" size={14} /><input bind:value={filter} placeholder="Filter sessions" aria-label="Filter terminal sessions" /></label><h2>Resident PTYs</h2>{#each sessions as session, __eachKey59 (__eachKey59)}<div class="session"><span class:good={session.state === "running" && session.io_ok} class="dot"></span><div><code>{session.tmux_session}:{session.pane_id}</code><small class:stale={stale(session.updated_at_epoch)}>{session.host} · up {age(session.started_at_epoch)} · activity {age(session.updated_at_epoch)}{stale(session.updated_at_epoch) ? " · stale" : ""}</small></div><span class="owner">{session.handle?.slice(0, 1).toUpperCase()} <b>{session.handle ?? "unbound"}</b></span><StatusPill tone={session.state === "running" ? "good" : session.state === "crashed" ? "danger" : "warn"} label={session.state} /><div class="actions"><button class="ghost" disabled={busy || !data.ptyLive || !data.auditWritable} title={!data.auditWritable ? "audit write health unverified" : !data.ptyLive ? "pty executor contract unavailable" : "term.watch"} onclick={() => watch(session)}><Icon name="eye" size={12} />Watch</button><button class="tonal" disabled={busy || !data.ptyLive || !data.auditWritable || !keyboardViewport} title={!keyboardViewport ? "Write needs a keyboard" : !data.auditWritable ? "audit write health unverified" : "Watch, then attach"} onclick={() => watch(session)}><Icon name="keyboard" size={12} />Attach</button><OpButton def={restart} args={{ handle: session.handle }} lanes={data.lanes} executorLive={data.managerLive} /><OpButton def={stop} args={{ handle: session.handle }} lanes={data.lanes} executorLive={data.managerLive} /></div></div>{:else}<div class="empty">No live sessions.<small>Resident PTYs appear when managers run.</small></div>{/each}<h2>Admin sessions</h2><div class="empty">Unavailable until the contracted admin-session projection lands.</div></main><aside><header><Icon name="scroll-text" size={14} /><h2>Audit trail</h2><span>Append-only. Queryable.</span></header>{#each data.audit as entry, __eachKey60 (__eachKey60)}<button class="audit" onclick={() => selectedAudit = entry}><time>{new Date(entry.ts).toLocaleTimeString()}</time><b>{entry.admin}</b><code class:deny={entry.action === "denied"}>{entry.action}</code><span>{entry.host} {entry.tmuxSession}:{entry.paneId}</span></button>{:else}<div class="empty">{data.auditAvailable ? "No entries yet." : "Audit query failed. Nothing rendered."}</div>{/each}</aside></div>
+		<div class="layout"><main><label class="filter"><Icon name="search" size={14} /><input bind:value={filter} placeholder="Filter sessions" aria-label="Filter terminal sessions" /></label><h2>Resident PTYs</h2>{#each sessions as session, __eachKey59 (__eachKey59)}<div class="session"><span class:good={session.state === "running" && session.io_ok} class="dot"></span><div><code>{session.tmux_session}:{session.pane_id}</code><small class:stale={stale(session.updated_at_epoch)}>{session.host} · up {age(session.started_at_epoch)} · activity {age(session.updated_at_epoch)}{stale(session.updated_at_epoch) ? " · stale" : ""}</small></div><span class="owner">{session.handle?.slice(0, 1).toUpperCase()} <b>{session.handle ?? "unbound"}</b></span><StatusPill tone={session.state === "running" ? "good" : session.state === "crashed" ? "danger" : "warn"} label={session.state} /><div class="actions"><button class="ghost" disabled={busy || !data.ptyLive || !data.auditWritable} title={!data.auditWritable ? "audit write health unverified" : !data.ptyLive ? "pty executor contract unavailable" : "term.watch"} onclick={() => { watch(session); }}><Icon name="eye" size={12} />Watch</button><button class="tonal" disabled={busy || !data.ptyLive || !data.auditWritable || !keyboardViewport} title={!keyboardViewport ? "Write needs a keyboard" : !data.auditWritable ? "audit write health unverified" : "Watch, then attach"} onclick={() => { watch(session); }}><Icon name="keyboard" size={12} />Attach</button><OpButton def={restart} args={{ handle: session.handle }} lanes={data.lanes} executorLive={data.managerLive} /><OpButton def={stop} args={{ handle: session.handle }} lanes={data.lanes} executorLive={data.managerLive} /></div></div>{:else}<div class="empty">No live sessions.<small>Resident PTYs appear when managers run.</small></div>{/each}<h2>Admin sessions</h2><div class="empty">Unavailable until the contracted admin-session projection lands.</div></main><aside><header><Icon name="scroll-text" size={14} /><h2>Audit trail</h2><span>Append-only. Queryable.</span></header>{#each data.audit as entry, __eachKey60 (__eachKey60)}<button class="audit" onclick={() => selectedAudit = entry}><time>{new Date(entry.ts).toLocaleTimeString()}</time><b>{entry.admin}</b><code class:deny={entry.action === "denied"}>{entry.action}</code><span>{entry.host} {entry.tmuxSession}:{entry.paneId}</span></button>{:else}<div class="empty">{data.auditAvailable ? "No entries yet." : "Audit query failed. Nothing rendered."}</div>{/each}</aside></div>
 {/if}
 
 <ModalSurface bind:element={auditDialog} open={selectedAudit!==null} variant="dialog" labelledby="audit-title" onclose={() => selectedAudit = null}>{#if selectedAudit}<div class="terminal-dialog"><IconButton class="dialog-close" name="x" label="Close audit detail" autofocus onclick={() => auditDialog?.close()}/><h2 id="audit-title">Audit · {selectedAudit.action}</h2><dl><dt>time</dt><dd>{selectedAudit.ts}</dd><dt>admin</dt><dd>{selectedAudit.admin}</dd><dt>target</dt><dd>{selectedAudit.host} {selectedAudit.tmuxSession}:{selectedAudit.paneId}</dd><dt>stream</dt><dd>{selectedAudit.streamId ?? "—"}</dd><dt>client</dt><dd>{selectedAudit.client ?? "—"}</dd><dt>input ref</dt><dd>{selectedAudit.inputRef ? "sealed · opening requires a separately audited op" : "—"}</dd></dl></div>{/if}</ModalSurface>

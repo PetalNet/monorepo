@@ -3,6 +3,8 @@ import { request as httpsRequest } from "node:https";
 
 import { z } from "zod";
 
+import { required } from "#format";
+
 import type { CostComparisonRequest } from "./compare.ts";
 
 export interface MeterSide {
@@ -204,8 +206,8 @@ export class AgentsViewCostMeter implements CostMeter {
 			session_counts: "true",
 		});
 		const summaryParams = new URLSearchParams({
-			from: params.get("from")!,
-			to: params.get("to")!,
+			from: required(params.get("from")),
+			to: required(params.get("to")),
 			timezone: input.timezone,
 			breakdowns: "false",
 			session_counts: "false",

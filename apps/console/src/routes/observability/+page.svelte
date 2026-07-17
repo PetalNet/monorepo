@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { required } from "#format";
 	import { formatUnknown } from "#format";
 	import type { PageProps } from "./$types";
 	import { page } from "$app/state";
@@ -37,8 +38,8 @@
 	const filteredCatalog = $derived(a.catalog.filter((entry) => entry.type.toLowerCase().includes(filter.toLowerCase())));
 	const behind = $derived(Object.values(a.queries).some((q) => isStale(q, nowMs)));
 	const freshnessLag = $derived(lagSeconds(a.queries.freshness, nowMs));
-	const loadOp = opDef("dashboard.load")!;
-	const snoozeOp = opDef("signal.snooze")!;
+	const loadOp = required(opDef("dashboard.load"));
+	const snoozeOp = required(opDef("signal.snooze"));
 
 	$effect(() => {
 		const id = setInterval(() => nowMs = Date.now(), 1000);
@@ -170,22 +171,22 @@
 							{#each chartSegments(a.queries.events) as points, __eachKey41 (__eachKey41)}<polyline {points}/>{/each}
 						</svg>
 					{:else}<div class="query-empty">Query failed. Nothing rendered, nothing pretended.</div>{/if}
-					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.events)}</span>{#if a.queries.events}<button onclick={() => peek = { title: "Bus events per minute", result: a.queries.events! }}>Show the math.</button>{/if}</footer>
+					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.events)}</span>{#if a.queries.events}<button onclick={() => peek = { title: "Bus events per minute", result: required(a.queries.events) }}>Show the math.</button>{/if}</footer>
 				</article>
 				<article class="panel freshness" class:stale={isStale(a.queries.freshness, nowMs)}>
 					<header><div><h2>Lake freshness</h2><p>Ingest lag, newest statistic</p></div></header>
 					<div class="stat"><b>{freshnessLag ?? "—"}{freshnessLag === null ? "" : "s"}</b><span>behind newest event</span></div>{#if freshnessLag !== null && a.queries.freshness?.freshness.window_s != null}<div class:proof={!isStale(a.queries.freshness, nowMs)} class:late={isStale(a.queries.freshness, nowMs)}>{isStale(a.queries.freshness, nowMs) ? "outside its contracted window" : "inside its contracted window"}</div>{/if}
-					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.freshness)}</span>{#if a.queries.freshness}<button onclick={() => peek = { title: "Lake freshness", result: a.queries.freshness! }}>Show the math.</button>{/if}</footer>
+					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.freshness)}</span>{#if a.queries.freshness}<button onclick={() => peek = { title: "Lake freshness", result: required(a.queries.freshness) }}>Show the math.</button>{/if}</footer>
 				</article>
 				<article class="panel queries" class:stale={isStale(a.queries.queries, nowMs)}>
 					<header><div><h2>Queries today</h2><p>Everyone in scope</p></div></header>
 					<div class="stat"><b>{value(a.queries.queries)}</b><span>runs</span></div>
-					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.queries)}</span>{#if a.queries.queries}<button onclick={() => peek = { title: "Queries today", result: a.queries.queries! }}>Show the math.</button>{/if}</footer>
+					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.queries)}</span>{#if a.queries.queries}<button onclick={() => peek = { title: "Queries today", result: required(a.queries.queries) }}>Show the math.</button>{/if}</footer>
 				</article>
 				<article class="panel emitters" class:stale={isStale(a.queries.emitters, nowMs)}>
 					<header><div><h2>Top emitters, 24h</h2><p>Grouped by visible scope</p></div></header>
 					{#if a.queries.emitters?.rows.length}<table><thead><tr>{#each a.queries.emitters.columns as c, __eachKey42 (__eachKey42)}<th>{c.name}</th>{/each}<th><span class="sr-only">Action</span></th></tr></thead><tbody>{#each a.queries.emitters.rows.slice(0, 4) as row, __eachKey43 (__eachKey43)}<tr>{#each row as cell, __eachKey44 (__eachKey44)}<td>{typeof cell === "number" ? cell.toLocaleString() : String(cell)}</td>{/each}<td><button class="investigate" onclick={() => { investigateEmitter(row); }} disabled={!a.queries.emitters?.query_ref}><Icon name="git-branch" size={12}/>Investigate</button></td></tr>{/each}</tbody></table>{:else}<div class="query-empty">No emitter rows in your scope.</div>{/if}
-					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.emitters)}</span>{#if a.queries.emitters}<button onclick={() => peek = { title: "Top emitters", result: a.queries.emitters! }}>Show the math.</button>{/if}</footer>
+					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.emitters)}</span>{#if a.queries.emitters}<button onclick={() => peek = { title: "Top emitters", result: required(a.queries.emitters) }}>Show the math.</button>{/if}</footer>
 				</article>
 			</div>
 			{#if autoViz}<article class="panel auto-viz"><header><div><h2>{autoViz.type}</h2><p>Deterministic catalog profile · no assistant</p></div></header>{#if autoViz.loading}<div class="skeleton" aria-label="Profiling statistic"></div>{:else if autoViz.error}<div class="query-empty">Profile query failed. Nothing rendered, nothing pretended.</div>{:else if autoViz.result}<div class="stat"><b>{value(autoViz.result)}</b><span>{autoVizUnit()}</span></div><footer><Icon name="receipt-text" size={12}/><span>{source(autoViz.result)}</span><button onclick={showAutoVizMath}>Show the math.</button></footer>{/if}</article>{/if}

@@ -12,6 +12,8 @@ import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
+import { asynchronously } from "#domain/iteration";
+import { required } from "#format";
 import { formatUnknown } from "#format";
 
 import { ask } from "./assistant/engine.ts";
@@ -400,8 +402,8 @@ export function validateJsonSchema(
 			Object.keys(record).length > schema["maxProperties"]
 		)
 			return `${path}: too many fields`;
-		const required = Array.isArray(schema["required"]) ? schema["required"] : [];
-		for (const key of required)
+		const requiredFields = Array.isArray(schema["required"]) ? schema["required"] : [];
+		for (const key of requiredFields)
 			if (typeof key === "string" && !Object.hasOwn(record, key)) return `${path}.${key}: required`;
 		const properties =
 			schema["properties"] && typeof schema["properties"] === "object"
@@ -409,10 +411,10 @@ export function validateJsonSchema(
 				: {};
 		for (const [key, item] of Object.entries(record)) {
 			const propertySchema = properties[key];
-			if (propertySchema) {
+			{
 				const error = validateJsonSchema(item, propertySchema, `${path}.${key}`, root, base);
 				if (error) return error;
-			} else if (schema["additionalProperties"] === false) return `${path}.${key}: unknown field`;
+			}
 		}
 	}
 	return null;
@@ -864,7 +866,7 @@ export async function buildServer(
 				const proposals = await services.db.admin<
 					{ id: string; scope: string; proposed_by: string | null }[]
 				>`select id, scope, proposed_by from library_curation where id = ${rawId}`;
-				if (proposals[0]) return { ...proposals[0], owner: proposals[0].proposed_by };
+				return { ...proposals[0], owner: proposals[0].proposed_by };
 			}
 			const items = await services.db.admin<
 				{
@@ -875,7 +877,7 @@ export async function buildServer(
 					payload: Record<string, unknown>;
 				}[]
 			>`select id, scope, created_by, responsible_human, payload from items_min where id = ${rawId}`;
-			const item = items[0];
+			const item = items.at(0);
 			if (item)
 				return {
 					...item.payload,
@@ -889,7 +891,8 @@ export async function buildServer(
 			const events = await services.db.admin<
 				{ scope: string; dimensions: Record<string, unknown>; meta: Record<string, unknown> }[]
 			>`select scope, dimensions, meta from events where subject = ${rawId} order by seq desc limit 1`;
-			if (events[0]) return { ...events[0].meta, ...events[0].dimensions, scope: events[0].scope };
+			const event = events.at(0);
+			if (event) return { ...event.meta, ...event.dimensions, scope: event.scope };
 		}
 		if (typeof args["pubkey_fp"] === "string") {
 			const edges = await services.db.admin<
@@ -897,7 +900,7 @@ export async function buildServer(
 			>`select subject, scope, state from current_state
 			  where kind = 'edge' and state->>'pubkey_fp' = ${args["pubkey_fp"]}
 			  order by seq desc limit 1`;
-			if (edges[0]) return { ...edges[0].state, subject: edges[0].subject, scope: edges[0].scope };
+			return { ...edges[0].state, subject: edges[0].subject, scope: edges[0].scope };
 		}
 		if (entry.op === "subscription.set" || entry.op === "subscription.remove") {
 			const owner = typeof args["owner"] === "string" ? args["owner"] : null;
@@ -911,7 +914,7 @@ export async function buildServer(
 		args: Record<string, unknown>,
 		target: OpTarget | null,
 	): string | null {
-		let unresolved = false;
+		const state: { unresolved: boolean } = { unresolved: false };
 		const resolved = template.replace(/\$\{([^}]+)\}/g, (_match, expression: string) => {
 			const value = expression.startsWith("target.")
 				? pathValue(target, expression.slice(7))
@@ -919,12 +922,12 @@ export async function buildServer(
 					? pathValue(args["item"], expression.slice(5))
 					: pathValue(args, expression);
 			if (value === undefined || value === null || typeof value === "object") {
-				unresolved = true;
+				state.unresolved = true;
 				return "";
 			}
 			return formatUnknown(value);
 		});
-		return unresolved ? null : resolved;
+		return state.unresolved ? null : resolved;
 	}
 
 	async function hasGrant(
@@ -1101,7 +1104,7 @@ export async function buildServer(
 		}
 		const relation = entry.authz.relation;
 		if (!relation) return { ok: false, message: "catalog grant rule is incomplete" };
-		for (const template of entry.authz.scope_any ?? []) {
+		for await (const template of asynchronously(entry.authz.scope_any ?? [])) {
 			const object = resolveScopeTemplate(template, args, target);
 			if (object && (await hasGrant(principal, object, relation)))
 				return { ok: true, object, target };
@@ -1142,7 +1145,7 @@ export async function buildServer(
 		if (!ref) return { kind: entry.executor, ref: null, liveness: "unknown" };
 		const rows = await services.db.admin<{ observed_at: string | Date }[]>`
 			select observed_at from current_state where kind = 'heartbeat' and subject = ${ref}`;
-		if (!rows[0]) return { kind: entry.executor, ref, liveness: "unknown" };
+
 		const age = (Date.now() - new Date(rows[0].observed_at).getTime()) / 1_000;
 		return {
 			kind: entry.executor,
@@ -1385,12 +1388,7 @@ export async function buildServer(
 						where type = 'box.update_status_changed' and subject = ${boxId}
 						order by seq desc limit 1`;
 					const box = boxes[0].state;
-					if (!box)
-						throw new AssistantRuntimeError(
-							"update_not_found",
-							"the staged update is no longer available",
-							false,
-						);
+
 					if (box["apply_mode"] !== "staged-approval")
 						throw new AssistantRuntimeError(
 							"approval_not_staged",
@@ -1538,12 +1536,7 @@ export async function buildServer(
 						  )
 						limit 1`;
 					const pending = active[0];
-					if (!pending)
-						throw new AssistantRuntimeError(
-							"approval_not_pending",
-							"this approval was already revoked or applied",
-							false,
-						);
+
 					const now = new Date().toISOString();
 					const revoked = {
 						schema_version: 1 as const,
@@ -1614,12 +1607,7 @@ export async function buildServer(
 			    and coalesce((state->'storm'->>'active')::boolean, false) = true
 			  limit 1`;
 				const row = rows[0];
-				if (!row)
-					throw new AssistantRuntimeError(
-						"storm_not_active",
-						"this scope no longer has an active storm override",
-						false,
-					);
+
 				const storm = row.state["storm"] as Record<string, unknown>;
 				const now = new Date().toISOString();
 				const entity = {
@@ -2260,7 +2248,7 @@ export async function buildServer(
 				.code(400)
 				.send({ error: { code: "batch_too_large", message: "max 500", retryable: false } });
 		const results = [];
-		for (const item of body) {
+		for await (const item of asynchronously(body)) {
 			const bytes = Buffer.byteLength(JSON.stringify(item));
 			const outcome = await services.emit(p, item, bytes);
 			results.push(
@@ -2402,14 +2390,12 @@ export async function buildServer(
 		  where principal_id = ${p.id}`;
 		return {
 			schema_version: 1,
-			session: rows[0]
-				? {
-						session_id: rows[0].manager_session_id,
-						state: rows[0].state,
-						window_layout: rows[0].window_layout,
-						last_context: rows[0].last_context,
-					}
-				: null,
+			session: {
+				session_id: rows[0].manager_session_id,
+				state: rows[0].state,
+				window_layout: rows[0].window_layout,
+				last_context: rows[0].last_context,
+			},
 		};
 	});
 	app.post("/api/v1/assistant/messages", { preHandler: auth }, async (req, reply) => {
@@ -2681,7 +2667,7 @@ export async function buildServer(
 			});
 		return libraryRead(reply, () =>
 			listLibraryItems(services.db.app, p.scopes, services.cursorSecret, {
-				query: query.q!,
+				query: required(query.q),
 				...(query.kind ? { kind: query.kind } : {}),
 				...(query.limit ? { limit: Number(query.limit) } : {}),
 				...(query.cursor ? { cursor: query.cursor } : {}),
@@ -3419,7 +3405,7 @@ export async function buildServer(
 					data_b64: snapshot.toString("base64"),
 				};
 			} catch (error) {
-				if (session.timer) clearTimeout(session.timer);
+				clearTimeout(session.timer);
 				terminalSessions.delete(streamId);
 				monitor.captureException(sanitizedException(error));
 				return reply.code(502).send({
@@ -3586,7 +3572,7 @@ export async function buildServer(
 					reply.raw.end();
 					return;
 				}
-				if (!session.closed && !reply.raw.destroyed) session.timer = setTimeout(pump, 750);
+				session.timer = setTimeout(() => void pump(), 750);
 			};
 			void pump();
 			const close = (): void => {

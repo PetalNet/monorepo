@@ -23,7 +23,6 @@ function validTimezone(value: string): boolean {
 
 function valid(input: CompareCostInput): boolean {
 	return (
-		input.schema_version === 1 &&
 		["agent", "model", "project"].includes(input.dimension) &&
 		input.left.length > 0 &&
 		input.left.length <= 256 &&

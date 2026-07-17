@@ -42,9 +42,7 @@
 			return;
 		}
 		if (awaitingG) {
-			const entry = data.authenticated
-				? visibleNav(data.me.lanes).find((n) => n.key === e.key.toLowerCase())
-				: undefined;
+			const entry = visibleNav(data.me.lanes).find((n) => n.key === e.key.toLowerCase());
 			awaitingG = false;
 			clearTimeout(gTimer);
 			if (entry) {

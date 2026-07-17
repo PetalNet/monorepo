@@ -25,7 +25,7 @@ export default {
 				"effectdb.config.ts",
 				"src/lib/server/db/tables.ts",
 				"server/index.ts",
-				"scripts/*.ts",
+				"scripts/*.{ts,mjs}",
 			],
 		},
 		"packages/better-auth-effect-qb-adapter": {

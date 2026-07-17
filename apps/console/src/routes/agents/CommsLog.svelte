@@ -16,6 +16,7 @@
 	let failed = $state(false);
 	let requestVersion = 0;
 	const taskInvalid = $derived(task.trim() !== "" && !/^[1-9]\d*$/.test(task.trim()));
+	function selectType(value: TypeFilter): void { type = value; }
 
 	function kind(item: CommsEvent): Exclude<TypeFilter, "all"> {
 		return item.method === "comms.card" ? "task-card" : item.method === "comms.rpc" ? "rpc" : "mail";
@@ -98,7 +99,7 @@
 				{ value: "rpc", label: "rpc" },
 				{ value: "mail", label: "mail" },
 			]}
-			onchange={(value) => (type = value)}
+			onchange={selectType}
 		/>
 		<label>
 			<Icon name="search" size={13} />
@@ -115,7 +116,7 @@
 			<thead><tr><th>Time</th><th>Route</th><th>Type</th><th>About</th><th>Body</th></tr></thead>
 			<tbody>
 				{#if loading}
-					{#each Array(6) as _, index (index)}
+					{#each Array.from({ length: 6 }, (_, index) => index) as index (index)}
 						<tr class="skeleton-row" aria-hidden="true"><td><span></span></td><td><span></span></td><td><span></span></td><td><span></span></td><td><span></span></td></tr>
 					{/each}
 				{:else if taskInvalid}

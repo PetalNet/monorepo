@@ -230,7 +230,7 @@ export async function resolveAssistantToolPrincipal(
 		from assistant_tool_tokens t join assistant_sessions s on s.principal_id = t.principal_id
 		where t.token_sha256 = ${sha256(token)} and t.expires_at > now()`;
 	const row = rows[0];
-	if (!row) return null;
+
 	if (row.auth_source === "better-auth") {
 		if (!row.auth_session_id || !resolveBetterAuthSession) return null;
 		const current = await resolveBetterAuthSession(row.auth_session_id);
@@ -242,7 +242,8 @@ export async function resolveAssistantToolPrincipal(
 		select kind, tiers, lanes from api_tokens where subject = ${row.principal_id}
 		  and revoked_at is null and kind = ${row.principal_kind} and tiers = ${admin.json(row.tiers)}
 		  and lanes = ${admin.json(row.lanes)} limit 1`;
-	if (!current[0]) return null;
+	if (!current.at(0)) return null;
+
 	const { scopes, zookie } = await resolveScopes(admin, row.principal_id, row.tiers);
 	return {
 		kind: row.principal_kind,
@@ -290,7 +291,7 @@ async function callTool(
 		const rows = await db.writer<{ window_layout: Record<string, unknown> }[]>`
 			update assistant_sessions set window_layout = ${db.writer.json({ ops: parsed.ops } as never)}, updated_at = now()
 			where principal_id = ${principal.id} returning window_layout`;
-		return { schema_version: 1, layout: rows[0].window_layout ?? { ops: [] } };
+		return { schema_version: 1, layout: rows[0].window_layout };
 	}
 	if (name === "dashboard.manage") {
 		const parsed = dashboardToolSchema.parse(args);

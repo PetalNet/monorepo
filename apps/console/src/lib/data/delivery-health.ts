@@ -108,15 +108,13 @@ export function deriveDeliveryLineHealth(input: DeliveryLineInput): DeliveryLine
 				? (qualifyingRuns[0]?.[0]?.ts ?? null)
 				: null;
 		const syncSince = matrixSyncStale
-			? new Date((matrixSyncAt ?? now) + MATRIX_FRESH_MS).toISOString()
+			? new Date(matrixSyncAt + MATRIX_FRESH_MS).toISOString()
 			: null;
 		const failingSince =
 			[receiptSince, syncSince].filter((value): value is string => value !== null).toSorted()[0] ??
 			null;
 		const details = [
-			matrixSyncStale && matrixSyncAt !== null
-				? `Matrix sync ${compactAge(now - matrixSyncAt)} stale`
-				: null,
+			matrixSyncStale ? `Matrix sync ${compactAge(now - matrixSyncAt)} stale` : null,
 			flapping ? `flapping, ${String(cycleCount)} cycles this hour` : null,
 			damping ? "holding one incident through the 10m damping interval" : null,
 		]

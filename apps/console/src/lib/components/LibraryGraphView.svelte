@@ -50,7 +50,8 @@
 		viewport?.releasePointerCapture(event.pointerId);
 	}
 	function walk(event: KeyboardEvent, id: string) {
-		const direction = ({ ArrowLeft:"left", ArrowRight:"right", ArrowUp:"up", ArrowDown:"down" } as const)[event.key as "ArrowLeft"|"ArrowRight"|"ArrowUp"|"ArrowDown"];
+		const directions: Partial<Record<string, "left" | "right" | "up" | "down">> = { ArrowLeft:"left", ArrowRight:"right", ArrowUp:"up", ArrowDown:"down" };
+		const direction = directions[event.key];
 		if (!direction) return;
 		const next = nextGraphNode(id, direction, links);
 		if (!next) return;
@@ -77,7 +78,7 @@
 	</header>
 	{#if degraded}<p class="degraded"><Icon name="triangle-alert" size={14}/>Link index is stale. Relationships are last-known and drawn dashed.</p>{/if}
 	{#if loading}
-		<div class="graph-loading" aria-label="Loading dependency graph">{#each Array(7) as _, index (index)}<span style={`left:${String(8+(index%4)*23)}%;top:${String(16+Math.floor(index/4)*40)}%`}></span>{/each}</div>
+		<div class="graph-loading" aria-label="Loading dependency graph">{#each Array.from({ length: 7 }, (_, index) => index) as index (index)}<span style={`left:${String(8+(index%4)*23)}%;top:${String(16+Math.floor(index/4)*40)}%`}></span>{/each}</div>
 	{:else if items.length === 0}
 		<div class="empty"><Icon name="git-branch" size={20}/><b>The stacks are open.</b><span>Nothing filed in this scope yet.</span></div>
 	{:else}

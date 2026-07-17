@@ -1,5 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
+import { asynchronously } from "#domain/iteration";
+
 import { canMutateScope } from "../auth/grants.ts";
 import type { Principal } from "../auth/principal.ts";
 import type { Sql } from "../db/pool.ts";
@@ -102,7 +104,7 @@ async function rebindDashboardPayload(
 		return result;
 	}
 	const panels: PanelSpecV2[] = [];
-	for (const raw of input.panels as PanelSpecV2[]) {
+	for await (const raw of asynchronously(input.panels as PanelSpecV2[])) {
 		let panel: PanelSpecV2 = {
 			...raw,
 			render: null,
@@ -116,7 +118,7 @@ async function rebindDashboardPayload(
 		}
 		if (typeof raw.prose === "string") {
 			let prose = raw.prose;
-			for (const match of statBindings(raw.prose)) {
+			for await (const match of asynchronously(statBindings(raw.prose))) {
 				const originalRef = match[1];
 				if (!originalRef) continue;
 				const result = await bind(originalRef);
@@ -151,7 +153,7 @@ async function dashboardById(sql: Sql, id: string): Promise<ItemRow | null> {
 	const rows = await sql<ItemRow[]>`
 		select id, title, scope, is_home, created_by, responsible_human, payload, updated_at
 		from library_items where id = ${id}`;
-	return rows[0] ?? null;
+	return rows[0];
 }
 
 export async function saveDashboard(
@@ -168,10 +170,11 @@ export async function saveDashboard(
 	const existing = await db.writer<MutationRow[]>`
 		select request_hash, dashboard_id from dashboard_mutations
 		where principal_id = ${principal.id} and request_id = ${input.id}`;
-	if (existing[0]) {
-		if (existing[0].request_hash !== hash)
+	const existingMutation = existing.at(0);
+	if (existingMutation) {
+		if (existingMutation.request_hash !== hash)
 			throw new DashboardError("id_reused", "mutation id was already used with a different body");
-		const item = await dashboardById(db.writer, existing[0].dashboard_id);
+		const item = await dashboardById(db.writer, existingMutation.dashboard_id);
 		if (!item) throw new Error("dashboard mutation points to a missing item");
 		if (item.scope !== scope || !principal.scopes.includes(item.scope))
 			throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
@@ -185,18 +188,20 @@ export async function saveDashboard(
 			values (${principal.id}, ${input.id}, ${hash}, ${id})
 			on conflict (principal_id, request_id) do nothing
 			returning request_hash, dashboard_id`;
-		if (!claimed[0]) {
+		if (!claimed.at(0)) {
 			const raced = await tx<MutationRow[]>`
 				select request_hash, dashboard_id from dashboard_mutations
 				where principal_id = ${principal.id} and request_id = ${input.id}`;
-			if (!raced[0] || raced[0].request_hash !== hash)
+			const previous = raced.at(0);
+			if (!previous || previous.request_hash !== hash)
 				throw new DashboardError("id_reused", "mutation id was already used with a different body");
-			const item = await dashboardById(tx as unknown as Sql, raced[0].dashboard_id);
+			const item = await dashboardById(tx as unknown as Sql, previous.dashboard_id);
 			if (!item) throw new Error("dashboard mutation points to a missing item");
 			if (item.scope !== scope || !principal.scopes.includes(item.scope))
 				throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
 			return itemEnvelope(item);
 		}
+
 		const rows = await tx<ItemRow[]>`
 			insert into library_items
 			  (id, entity_id, kind, title, scope, project, status, render_mode, created_by,
@@ -365,7 +370,7 @@ async function readDashboardRow(
 			select id, title, scope, is_home, created_by, responsible_human, payload, updated_at
 			from library_items where id = ${id} and kind = 'artifact'
 			  and (properties->>'artifact_type' = 'dashboard' or payload ? 'panels')`;
-		return rows[0] ?? null;
+		return rows[0];
 	});
 }
 
@@ -413,7 +418,7 @@ export async function materializeTextPanel(
 		return nativePanel(panel);
 	const bindings: NonNullable<RenderArtifact["bindings"]> = [];
 	let prose = panel.prose;
-	for (const match of statBindings(panel.prose)) {
+	for await (const match of asynchronously(statBindings(panel.prose))) {
 		const [binding, queryRef, column] = match;
 		if (!queryRef || !column) continue;
 		const record = await readQueryRecord(app, scopes, queryRef);
@@ -468,7 +473,7 @@ export async function loadDashboard(
 	const row = await readDashboardRow(app, scopes, id);
 	if (!row) return null;
 	const materialized: MaterializedPanel[] = [];
-	for (const panel of row.payload.panels) {
+	for await (const panel of asynchronously(row.payload.panels)) {
 		if (!panel.query_ref) {
 			materialized.push(
 				panel.type === "text"
@@ -505,7 +510,7 @@ export async function setHomeDashboard(
 		from library_items where id = ${id} and kind = 'artifact'
 		  and (properties->>'artifact_type' = 'dashboard' or payload ? 'panels')`;
 	const target = rows[0];
-	if (!target || !principal.scopes.includes(target.scope))
+	if (!principal.scopes.includes(target.scope))
 		throw new DashboardError("dashboard_not_found", "dashboard not found");
 	if (
 		target.created_by !== principal.id ||
@@ -663,7 +668,7 @@ export async function searchLibraryPaletteItems(
 ): Promise<Record<string, unknown>> {
 	const needle = query.trim().toLocaleLowerCase();
 	const escaped = needle.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
-	const subsequence = `%${[...needle]
+	const subsequence = `%${Array.from(needle)
 		.map((character) =>
 			character.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_"),
 		)
@@ -707,13 +712,11 @@ export async function readLibraryItem(
 			       responsible_human, handed_off_to, protection, updated_at, 0::real as rank
 			from library_items where id = ${itemId}`,
 	);
-	return rows[0]
-		? {
-				schema_version: 1,
-				freshness: { source: "library", observed_at: new Date().toISOString(), window_s: 60 },
-				item: libraryItemEnvelope(rows[0]),
-			}
-		: null;
+	return {
+		schema_version: 1,
+		freshness: { source: "library", observed_at: new Date().toISOString(), window_s: 60 },
+		item: libraryItemEnvelope(rows[0]),
+	};
 }
 
 export async function readLibraryItemHistory(
@@ -772,7 +775,7 @@ export async function updateLibraryItemStatus(
 			}[]
 		>`select id, kind, status, version, properties from library_items where id = ${id} for update`;
 		const current = rows[0];
-		if (!current) throw new DashboardError("library_item_not_found", "Library item not found");
+
 		const allowed = current.kind === "task" ? WORK_LIBRARY_STATUSES : KNOWLEDGE_LIBRARY_STATUSES;
 		if (!allowed.has(status))
 			throw new DashboardError(
@@ -798,7 +801,7 @@ export async function updateLibraryItemStatus(
 				schema_version: 1,
 				id,
 				status: "CONFLICT",
-				version: updated[0].version ?? current.version + 1,
+				version: updated[0].version,
 				conflict,
 			};
 		}
@@ -811,8 +814,8 @@ export async function updateLibraryItemStatus(
 			schema_version: 1,
 			id,
 			status,
-			version: updated[0].version ?? current.version + 1,
-			updated_at: updated[0] ? iso(updated[0].updated_at) : new Date().toISOString(),
+			version: updated[0].version,
+			updated_at: iso(updated[0].updated_at),
 		};
 	});
 }

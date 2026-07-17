@@ -102,7 +102,7 @@ export class DeliveryService {
 	async #config(owner: string): Promise<DeliveryConfigRow | null> {
 		const rows = await this.#db.writer<DeliveryConfigRow[]>`
 			select owner, scope, target, cocoon_until from delivery_config where owner = ${owner}`;
-		return rows[0] ?? null;
+		return rows[0];
 	}
 
 	async #emitRequired(emission: Emission): Promise<number> {
@@ -356,8 +356,7 @@ export class DeliveryService {
 			select seq, ts, subject, dimensions from events where seq::text = ${receiptRef}
 			  and type = 'delivery.receipt' and scope = ${`user:${owner}`} limit 1`;
 		const receipt = rows[0];
-		if (!receipt)
-			throw new MatrixDeliveryError("scope_denied", "Receipt is not visible to this line", false);
+
 		if (receipt.dimensions["status"] !== "failed" || receipt.dimensions["retryable"] !== true)
 			throw new MatrixDeliveryError("not_retryable", "Receipt is not retryable", false);
 		const config = await this.#config(owner);

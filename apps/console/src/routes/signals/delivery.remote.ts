@@ -117,20 +117,22 @@ export const getDeliverySurface = query(async (): Promise<DeliverySurfaceData> =
 			body: JSON.stringify(receiptQuery),
 		}),
 	]);
-	const value = <T>(index: number, label: string): T | null => {
+	const value = (index: number, label: string): unknown => {
 		const result = settled[index];
-		if (result.status === "fulfilled") return result.value as T;
+		if (result.status === "fulfilled") return result.value;
 		errors.push(label);
 		return null;
 	};
-	const delivery = value<ReadEnvelope<DeliveryItem>>(0, "Delivery config unavailable");
-	const subscriptions = value<ReadEnvelope<SubscriptionItem>>(1, "Subscriptions unavailable");
-	const executors = value<ReadEnvelope<ExecutorItem>>(2, "Executor evidence unavailable");
-	const health = value<ConsoleHealth & { ingest?: { last_ingest_at: string }[] }>(
-		3,
-		"Line health unavailable",
-	);
-	const receiptResult = value<QueryResult>(4, "Delivery receipt query failed");
+	const delivery = value(0, "Delivery config unavailable") as ReadEnvelope<DeliveryItem> | null;
+	const subscriptions = value(
+		1,
+		"Subscriptions unavailable",
+	) as ReadEnvelope<SubscriptionItem> | null;
+	const executors = value(2, "Executor evidence unavailable") as ReadEnvelope<ExecutorItem> | null;
+	const health = value(3, "Line health unavailable") as
+		| (ConsoleHealth & { ingest?: { last_ingest_at: string }[] })
+		| null;
+	const receiptResult = value(4, "Delivery receipt query failed") as QueryResult | null;
 	const receipts: DeliveryReceiptView[] = (receiptResult?.rows ?? []).map((row) => ({
 		seq: String(row[0]),
 		ts: String(row[1]),
@@ -178,7 +180,7 @@ async function runDeliveryOp(
 			dry_run: false,
 		}),
 	});
-	if (!result.ok) error(400, result.error.message ?? `${op} failed`);
+	if (!result.ok) error(400, result.error.message);
 	void getDeliverySurface().refresh();
 	return result.result ?? {};
 }
