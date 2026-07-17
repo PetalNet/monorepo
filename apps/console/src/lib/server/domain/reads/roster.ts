@@ -27,7 +27,7 @@ function source<T>(row: { state?: T; observed_at?: string } | undefined): Source
 	return {
 		visibility: "visible",
 		observed_at: row.observed_at ?? null,
-		data: (row.state ?? null) as T | null,
+		data: row.state ?? null,
 	};
 }
 

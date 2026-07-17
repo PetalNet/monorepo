@@ -54,7 +54,7 @@ const panelSpecSchema = z
 		live: z.record(z.string(), z.unknown()).nullable().optional(),
 		render: z.record(z.string(), z.unknown()).nullable().optional(),
 	})
-	.passthrough()
+	.loose()
 	.superRefine((panel, context) => {
 		if (
 			!["text", "refusal"].includes(panel.type) &&
@@ -89,7 +89,7 @@ export const selectedMarkSchema = z
 export const dashboardSaveSchema = z
 	.object({
 		schema_version: z.literal(1),
-		id: z.string().uuid(),
+		id: z.uuid(),
 		title: z.string().trim().min(1).max(200),
 		scope: z.string().trim().min(1).max(500).optional(),
 		layout: z.record(z.string(), z.unknown()).optional(),
@@ -122,7 +122,7 @@ export const renderRequestSchema = z
 export const investigationBranchSchema = z
 	.object({
 		schema_version: z.literal(1),
-		id: z.string().uuid(),
+		id: z.uuid(),
 		title: z.string().trim().min(1).max(200),
 		scope: z.string().trim().min(1).max(500).optional(),
 		parent_dashboard_id: z.string().min(1).max(100).nullable(),

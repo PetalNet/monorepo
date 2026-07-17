@@ -15,6 +15,6 @@ export function hueForHandle(handle: string): number {
 /** Compact token count: 612000 -> "612k", 1_420_000 -> "1.42M". */
 export function compactTokens(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-	if (n >= 1000) return `${Math.round(n / 1000)}k`;
+	if (n >= 1000) return `${String(Math.round(n / 1000))}k`;
 	return String(n);
 }

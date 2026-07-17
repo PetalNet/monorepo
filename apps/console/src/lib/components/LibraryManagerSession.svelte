@@ -1,12 +1,7 @@
 <script lang="ts">
 	import AgentPresence from "./AgentPresence.svelte";
 	import Icon from "./Icon.svelte";
-
-	export interface LibraryChatMessage {
-		id: string;
-		role: "user" | "assistant" | "error";
-		content: string;
-	}
+	import type { LibraryChatMessage } from "./types";
 
 	interface Props {
 		messages: LibraryChatMessage[];

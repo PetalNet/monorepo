@@ -1,3 +1,5 @@
+import { formatUnknown } from "#format";
+
 import type { Sql } from "../db/pool.ts";
 import {
 	dryPlanStructured,
@@ -148,12 +150,15 @@ function groundedAnswer(result: QueryResult): string {
 	if (result.row_count === 0) return "No matching data was found in the visible scopes.";
 	if (result.row_count === 1 && result.columns.length === 1) {
 		const name = result.columns[0]?.name ?? "value";
-		return `${name.replaceAll("_", " ")}: ${String(result.rows[0]?.[0] ?? "null")}.`;
+		return `${name.replaceAll("_", " ")}: ${formatUnknown(result.rows[0]?.[0] ?? "null")}.`;
 	}
 	const first = result.rows[0] ?? [];
 	const preview = result.columns
 		.slice(0, 3)
-		.map((column, index) => `${column.name.replaceAll("_", " ")} ${String(first[index] ?? "null")}`)
+		.map(
+			(column, index) =>
+				`${column.name.replaceAll("_", " ")} ${formatUnknown(first[index] ?? "null")}`,
+		)
 		.join(", ");
 	return `The query returned ${String(result.row_count)} row${result.row_count === 1 ? "" : "s"}${preview ? `; the first is ${preview}` : ""}.`;
 }
@@ -180,7 +185,7 @@ export async function ask(
 			0,
 		);
 	let feedback: { code: string; message: string } | undefined;
-	for await (const attempt of [1, 2]) {
+	for (const attempt of [1, 2]) {
 		try {
 			const proposal = await compiler.compile({
 				question,

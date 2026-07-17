@@ -171,7 +171,9 @@ export class OpenAiCompatibleAssistantCompiler implements AssistantCompiler {
 		feedback?: { code: string; message: string };
 	}): Promise<AssistantProposal> {
 		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), this.config.requestTimeoutMs ?? 30_000);
+		const timeout = setTimeout(() => {
+			controller.abort();
+		}, this.config.requestTimeoutMs ?? 30_000);
 		try {
 			const response = await fetch(this.config.url, {
 				method: "POST",
@@ -204,7 +206,7 @@ export class OpenAiCompatibleAssistantCompiler implements AssistantCompiler {
 			const parsed = proposalSchema.safeParse(extractJson(text));
 			if (!parsed.success)
 				throw new AssistantCompilerError("assistant model returned invalid structured intent");
-			return parsed.data as AssistantProposal;
+			return parsed.data;
 		} catch (error) {
 			if (error instanceof AssistantCompilerError) throw error;
 			throw new AssistantCompilerError(

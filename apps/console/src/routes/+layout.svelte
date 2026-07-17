@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { LayoutProps } from "./$types";
 	import { goto } from "$app/navigation";
 	import favicon from "$lib/assets/favicon.svg";
 	import { ModeWatcher } from "mode-watcher";
@@ -10,7 +11,7 @@
 	import AppShell from "$lib/components/AppShell.svelte";
 	import { visibleNav } from "$lib/nav";
 
-	let { data, children } = $props();
+	let { data, children }: LayoutProps = $props();
 
 	// Deterministic quick-nav (foundations §3.6): `g` then a surface key jumps
 	// surfaces, never routing through the assistant (no LLM in the emergency

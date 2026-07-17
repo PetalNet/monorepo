@@ -162,9 +162,9 @@ export class Appender {
 				returning minute_emit_count, hour_new_type_count`;
 			const rate = rates[0];
 			const rejectedCode =
-				(rate?.minute_emit_count ?? 0) > limits.maxEmitPerMinute
+				(rate.minute_emit_count ?? 0) > limits.maxEmitPerMinute
 					? ("emit_rate_limited" as const)
-					: (rate?.hour_new_type_count ?? 0) > limits.maxNewTypesPerHour
+					: (rate.hour_new_type_count ?? 0) > limits.maxNewTypesPerHour
 						? ("new_type_rate_limited" as const)
 						: null;
 			if (rejectedCode) {
@@ -181,7 +181,7 @@ export class Appender {
 						insert into semantic_proposals
 							(kind, producer_subject, statistic_type, scope, payload)
 						select 'new_type_rate_cap', ${producerSubject}, ${e.type}, ${e.scope},
-							${tx.json({ cap: limits.maxNewTypesPerHour } as never)}
+							${tx.json({ cap: limits.maxNewTypesPerHour })}
 						where not exists (
 							select 1 from semantic_proposals where status = 'pending'
 							  and kind = 'new_type_rate_cap' and producer_subject = ${producerSubject}
@@ -205,7 +205,7 @@ export class Appender {
 			if (ids.length === 0) {
 				const existing = await tx<{ seq: string; payload_sha256: string | null }[]>`
 					select seq, payload_sha256 from emission_ids where id = ${e.id}`;
-				if (existing[0]?.payload_sha256 && existing[0].payload_sha256 !== payloadSha256)
+				if (existing[0].payload_sha256 && existing[0].payload_sha256 !== payloadSha256)
 					return {
 						ok: false as const,
 						code: "id_reused" as const,
@@ -213,13 +213,13 @@ export class Appender {
 					};
 				return {
 					ok: true as const,
-					seq: Number(existing[0]?.seq),
+					seq: Number(existing[0].seq),
 					duplicate: true,
 					receivedAt: "",
 				};
 			}
-			const seq = Number(ids[0]?.seq);
-			const receivedAt = ids[0]?.received_at ?? new Date().toISOString();
+			const seq = Number(ids[0].seq);
+			const receivedAt = ids[0].received_at ?? new Date().toISOString();
 			await tx`
 				insert into events
 					(seq, id, type, ts, received_at, source_service, source_host, source_agent,
@@ -229,8 +229,8 @@ export class Appender {
 					(${seq}, ${e.id}, ${e.type}, ${e.ts}, ${receivedAt}, ${e.source.service}, ${e.source.host ?? null},
 					 ${e.source.agent ?? null}, ${e.subject}, ${e.subject_kind ?? null}, ${e.severity},
 					 ${e.action ?? null}, ${e.task_id ?? null}, ${e.scope},
-					 ${tx.json((e.dimensions ?? {}) as never)}, ${tx.json((e.measures ?? {}) as never)},
-					 ${tx.json((e.links ?? []) as never)}, ${e.body_ref ?? null}, ${tx.json((e.meta ?? {}) as never)})`;
+					 ${tx.json(e.dimensions ?? {})}, ${tx.json(e.measures ?? {})},
+					 ${tx.json(e.links ?? [])}, ${e.body_ref ?? null}, ${tx.json((e.meta ?? {}) as never)})`;
 			if (isArchiveClass(e))
 				await tx`insert into event_archive
 					(seq, id, type, ts, received_at, source_service, source_host, source_agent, subject,
@@ -242,7 +242,7 @@ export class Appender {
 			// materialize edges
 			if (e.links && e.links.length > 0) {
 				const fromKind = e.subject_kind ?? "other";
-				for await (const link of e.links) {
+				for (const link of e.links) {
 					await tx`insert into edges (from_kind, from_id, rel, to_kind, to_id, scope, seq)
 						values (${fromKind}, ${e.subject}, ${link.rel}, ${link.to.kind}, ${link.to.id}, ${e.scope}, ${seq})`;
 				}
@@ -253,7 +253,7 @@ export class Appender {
 			const emptyShape: SemanticShape = { dimensions: {}, measures: {}, joins: [] };
 			const globalMerged = mergeSemanticShape(registry[0] ?? emptyShape, incoming);
 			const merged = mergeSemanticShape(scopedRegistry[0] ?? emptyShape, incoming);
-			const scopes = [...new Set([...(registry[0]?.scopes ?? []), e.scope])].toSorted();
+			const scopes = [...new Set([...(registry[0].scopes ?? []), e.scope])].toSorted();
 			await tx`
 				insert into semantic_registry
 					(type, last_emit, first_producer, dimensions, measures, joins, scopes, emit_count)
@@ -277,7 +277,7 @@ export class Appender {
 					emit_count = semantic_registry_scoped.emit_count + 1,
 					dimensions = excluded.dimensions, measures = excluded.measures,
 					joins = excluded.joins, updated_at = now()`;
-			for await (const drift of merged.drift)
+			for (const drift of merged.drift)
 				await tx`
 					insert into semantic_proposals
 						(kind, producer_subject, statistic_type, scope, payload)
@@ -288,7 +288,7 @@ export class Appender {
 						  and kind = 'registry_drift' and statistic_type = ${e.type}
 						  and payload->>'field' = ${drift.field} and payload->>'kind' = ${drift.kind}
 					)`;
-			for await (const [field, value] of Object.entries(e.dimensions ?? {})) {
+			for (const [field, value] of Object.entries(e.dimensions ?? {})) {
 				await tx`
 					insert into semantic_field_values_scoped (statistic_type, scope, field, value_hash)
 					select ${e.type}, ${e.scope}, ${field}, ${dimensionValueHash(value)}
@@ -299,7 +299,7 @@ export class Appender {
 					select count(*)::bigint as count from semantic_field_values_scoped
 					where statistic_type = ${e.type} and scope = ${e.scope} and field = ${field}`;
 				const descriptor = merged.shape.dimensions[field];
-				if (descriptor) descriptor.cardinality = cardinalityClass(Number(counts[0]?.count ?? 0));
+				if (descriptor) descriptor.cardinality = cardinalityClass(Number(counts[0].count ?? 0));
 			}
 			await tx`update semantic_registry_scoped
 				set dimensions = ${tx.json(merged.shape.dimensions as never)}

@@ -12,7 +12,9 @@ if (browser) {
 	const interval = setInterval(() => {
 		current = Date.now();
 	}, 1000);
-	import.meta.hot?.dispose(() => clearInterval(interval));
+	import.meta.hot?.dispose(() => {
+		clearInterval(interval);
+	});
 }
 
 export function clockNow(): number {

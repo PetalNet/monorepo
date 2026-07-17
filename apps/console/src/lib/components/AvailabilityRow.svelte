@@ -44,7 +44,7 @@
 	function windowLabel(seconds: number): string {
 		if (seconds <= 25 * 3600) return "24h";
 		const days = Math.max(1, Math.round(seconds / 86_400));
-		return `${days}d`;
+		return `${String(days)}d`;
 	}
 
 	function percentage(value: number | null): string {
@@ -62,7 +62,7 @@
 		if (item.state === "down" && item.outage_since)
 			return `no response since ${shortTime(item.outage_since)}`;
 		if (item.state === "degraded" && item.p95_latency_ms !== null)
-			return `p95 ${Math.round(item.p95_latency_ms)} ms over ${Math.round(item.degraded_threshold_ms)} ms threshold`;
+			return `p95 ${String(Math.round(item.p95_latency_ms))} ms over ${String(Math.round(item.degraded_threshold_ms))} ms threshold`;
 		if (item.largest_gap)
 			return `gap ${shortTime(item.largest_gap.from)} to ${shortTime(item.largest_gap.to)} shown`;
 		if (item.window_s < 29 * 86_400) return `new check · ${windowLabel(item.window_s)} observed window`;
@@ -70,8 +70,8 @@
 	});
 	const accessibleLabel = $derived(
 		`${item.service} on ${item.host ?? "unknown host"}: ${item.state}; ` +
-			`${item.p50_latency_ms === null ? "latency unavailable" : `${Math.round(item.p50_latency_ms)} milliseconds p50`}; ` +
-			`${percentage(item.uptime_pct)} uptime over ${windowLabel(item.window_s)}; ${item.coverage_pct}% coverage`,
+			`${item.p50_latency_ms === null ? "latency unavailable" : `${String(Math.round(item.p50_latency_ms))} milliseconds p50`}; ` +
+			`${percentage(item.uptime_pct)} uptime over ${windowLabel(item.window_s)}; ${String(item.coverage_pct)}% coverage`,
 	);
 </script>
 
@@ -88,7 +88,7 @@
 		viewBox="0 0 96 20"
 		preserveAspectRatio="none"
 		role="img"
-		aria-label={`${item.service} response latency, latest ${item.points.length} probes`}
+		aria-label={`${item.service} response latency, latest ${String(item.points.length)} probes`}
 	>
 		<line class="baseline" x1="0" y1="18" x2="96" y2="18" />
 		{#each segments() as points, index (index)}
@@ -98,7 +98,7 @@
 			{#if !point.ok}<circle cx={failedX(index)} cy="18" r="1.5" />{/if}
 		{/each}
 	</svg>
-	<span class="latency">{item.p50_latency_ms === null ? "—" : `${Math.round(item.p50_latency_ms)} ms`} <small>p50</small></span>
+	<span class="latency">{item.p50_latency_ms === null ? "—" : `${String(Math.round(item.p50_latency_ms))} ms`} <small>p50</small></span>
 	<span class="uptime">
 		<span class="uptime-value">{percentage(item.uptime_pct)} <i>· {windowLabel(item.window_s)}</i></span>
 		{#if item.coverage_pct < 99.95}<span class="coverage">{item.coverage_pct.toFixed(item.coverage_pct % 1 ? 1 : 0)}% coverage</span>{/if}

@@ -24,7 +24,7 @@
 			aria-pressed={value === option.value}
 			disabled={option.disabled}
 			title={option.title}
-			onclick={() => onchange(option.value)}
+			onclick={() => { onchange(option.value); }}
 		>
 			{option.label}
 		</button>

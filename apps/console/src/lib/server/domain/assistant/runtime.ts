@@ -201,7 +201,7 @@ export class AssistantRuntime {
 			from assistant_messages where principal_id = ${principal.id} and message_id = ${input.id}`;
 		if (known[0] && known[0].request_hash !== requestHash)
 			throw new AssistantRuntimeError("id_reused", "message id was reused with different content");
-		if (known[0]?.state === "dispatching") {
+		if (known[0].state === "dispatching") {
 			const started = known[0].dispatch_started_at
 				? new Date(known[0].dispatch_started_at).getTime()
 				: Date.now();
@@ -250,7 +250,7 @@ export class AssistantRuntime {
 				tool_results: response.toolResults,
 			};
 		};
-		if (known[0]?.state === "complete" || known[0]?.state === "dispatching") {
+		if (known[0].state === "complete" || known[0].state === "dispatching") {
 			const receipt = await this.manager.lookupMessage(sessionId, input.id);
 			if (receipt) return finish(receipt, known[0].message_seq);
 			if (known[0].state === "complete")
@@ -274,10 +274,10 @@ export class AssistantRuntime {
 		const rows = await this.writer<{ message_seq: string }[]>`
 			select message_seq::text from assistant_messages
 			where principal_id = ${principal.id} and message_id = ${input.id}`;
-		const messageSeq = rows[0]?.message_seq;
+		const messageSeq = rows[0].message_seq;
 		if (!messageSeq) throw new Error("assistant message ledger row is missing");
 		try {
-			return finish(
+			return await finish(
 				await this.manager.sendMessage(sessionId, {
 					messageId: input.id,
 					kind: input.kind,
@@ -288,7 +288,7 @@ export class AssistantRuntime {
 		} catch (error) {
 			try {
 				const receipt = await this.manager.lookupMessage(sessionId, input.id);
-				if (receipt) return finish(receipt, messageSeq);
+				if (receipt) return await finish(receipt, messageSeq);
 			} catch {
 				// Preserve the original manager failure; the durable dispatch row will reconcile on retry.
 			}

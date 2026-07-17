@@ -102,7 +102,7 @@ async function rebindDashboardPayload(
 		return result;
 	}
 	const panels: PanelSpecV2[] = [];
-	for await (const raw of input.panels as PanelSpecV2[]) {
+	for (const raw of input.panels as PanelSpecV2[]) {
 		let panel: PanelSpecV2 = {
 			...raw,
 			render: null,
@@ -116,7 +116,7 @@ async function rebindDashboardPayload(
 		}
 		if (typeof raw.prose === "string") {
 			let prose = raw.prose;
-			for await (const match of statBindings(raw.prose)) {
+			for (const match of statBindings(raw.prose)) {
 				const originalRef = match[1];
 				if (!originalRef) continue;
 				const result = await bind(originalRef);
@@ -206,7 +206,7 @@ export async function saveDashboard(
 			   'html', ${principal.id}, ${principal.kind === "human" ? principal.id : null},
 			   'semi', ${tx.json({ artifact_type: "dashboard" })}, ${tx.json(payload as never)})
 			returning id, title, scope, is_home, created_by, responsible_human, payload, updated_at`;
-		return itemEnvelope(rows[0]!);
+		return itemEnvelope(rows[0]);
 	});
 }
 
@@ -241,7 +241,7 @@ export async function listDashboards(
 	cursorSecret: string,
 	opts: { limit?: number; cursor?: string } = {},
 ): Promise<Record<string, unknown>> {
-	const rawLimit = Number(opts.limit ?? 200);
+	const rawLimit = opts.limit ?? 200;
 	const limit = Number.isFinite(rawLimit)
 		? Math.min(1_000, Math.max(1, Math.floor(rawLimit)))
 		: 200;
@@ -351,7 +351,7 @@ function libraryPageCursor(secret: string, offset: number, fingerprint: string):
 }
 
 function libraryLimit(raw: number | undefined): number {
-	const value = Number(raw ?? 200);
+	const value = raw ?? 200;
 	return Number.isFinite(value) ? Math.min(1_000, Math.max(1, Math.floor(value))) : 200;
 }
 
@@ -413,7 +413,7 @@ export async function materializeTextPanel(
 		return nativePanel(panel);
 	const bindings: NonNullable<RenderArtifact["bindings"]> = [];
 	let prose = panel.prose;
-	for await (const match of statBindings(panel.prose)) {
+	for (const match of statBindings(panel.prose)) {
 		const [binding, queryRef, column] = match;
 		if (!queryRef || !column) continue;
 		const record = await readQueryRecord(app, scopes, queryRef);
@@ -468,7 +468,7 @@ export async function loadDashboard(
 	const row = await readDashboardRow(app, scopes, id);
 	if (!row) return null;
 	const materialized: MaterializedPanel[] = [];
-	for await (const panel of row.payload.panels) {
+	for (const panel of row.payload.panels) {
 		if (!panel.query_ref) {
 			materialized.push(
 				panel.type === "text"
@@ -798,7 +798,7 @@ export async function updateLibraryItemStatus(
 				schema_version: 1,
 				id,
 				status: "CONFLICT",
-				version: updated[0]?.version ?? current.version + 1,
+				version: updated[0].version ?? current.version + 1,
 				conflict,
 			};
 		}
@@ -811,7 +811,7 @@ export async function updateLibraryItemStatus(
 			schema_version: 1,
 			id,
 			status,
-			version: updated[0]?.version ?? current.version + 1,
+			version: updated[0].version ?? current.version + 1,
 			updated_at: updated[0] ? iso(updated[0].updated_at) : new Date().toISOString(),
 		};
 	});

@@ -69,7 +69,7 @@
 			void activeFilters;
 			void read();
 		}, 180);
-		return () => clearTimeout(timer);
+		return () => { clearTimeout(timer); };
 	});
 </script>
 
@@ -83,7 +83,7 @@
 			</div>
 		</div>
 		<span class="truth" class:error={failed} role="status" aria-live="polite">
-			{failed ? "Query unavailable" : loading ? "Reading the archive" : `${items.length} ${items.length === 1 ? "letter" : "letters"}`}
+			{failed ? "Query unavailable" : loading ? "Reading the archive" : `${String(items.length)} ${items.length === 1 ? "letter" : "letters"}`}
 		</span>
 	</header>
 
@@ -132,7 +132,7 @@
 							<td data-label="Type"><span class="type-chip">{kind(item)}</span></td>
 							<td data-label="About">
 								<div class="about">
-									{#if item.task_id}<a href={`/work?task=${item.task_id}`}>task {item.task_id}</a>{/if}
+									{#if item.task_id}<a href={`/work?task=${String(item.task_id)}`}>task {item.task_id}</a>{/if}
 									{#if item.about}<span>{item.about}</span>{/if}
 									{#if item.in_reply_to}<Icon name="reply" size={12} /><span class="sr-only">Reply</span>{/if}
 								</div>

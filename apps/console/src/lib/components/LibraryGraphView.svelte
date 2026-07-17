@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { buildLibraryGraph, nextGraphNode, type GraphWalkDirection } from "$lib/data/library-views";
+	import { buildLibraryGraph, nextGraphNode } from "$lib/data/library-views";
 	import type { LibraryItemView, LibraryLinkFixture } from "$lib/data/library";
 	import Icon from "./Icon.svelte";
 	import LibraryItemCard from "./LibraryItemCard.svelte";
@@ -52,7 +52,7 @@
 	function walk(event: KeyboardEvent, id: string) {
 		const direction = ({ ArrowLeft:"left", ArrowRight:"right", ArrowUp:"up", ArrowDown:"down" } as const)[event.key as "ArrowLeft"|"ArrowRight"|"ArrowUp"|"ArrowDown"];
 		if (!direction) return;
-		const next = nextGraphNode(id, direction as GraphWalkDirection, links);
+		const next = nextGraphNode(id, direction, links);
 		if (!next) return;
 		event.preventDefault();
 		viewport?.querySelector<HTMLButtonElement>(`[data-node-id="${CSS.escape(next)}"]`)?.focus();
@@ -61,7 +61,7 @@
 		const from = nodeById.get(fromId); const to = nodeById.get(toId);
 		if (!from || !to) return "";
 		const bend = Math.max(48, (to.x - from.x) * .48);
-		return `M ${from.x + 20} ${from.y} C ${from.x + bend} ${from.y}, ${to.x - bend} ${to.y}, ${to.x - 20} ${to.y}`;
+		return `M ${String(from.x + 20)} ${String(from.y)} C ${String(from.x + bend)} ${String(from.y)}, ${String(to.x - bend)} ${String(to.y)}, ${String(to.x - 20)} ${String(to.y)}`;
 	}
 </script>
 
@@ -69,21 +69,21 @@
 	<header>
 		<div><h2>Dependency graph</h2><p>{items.length} scope-filtered items · arrows walk typed links</p></div>
 		<div class="graph-controls" aria-label="Graph zoom controls">
-			<button onclick={() => zoom(-.15)} aria-label="Zoom out"><Icon name="zoom-out" size={15}/></button>
+			<button onclick={() => { zoom(-.15); }} aria-label="Zoom out"><Icon name="zoom-out" size={15}/></button>
 			<output aria-live="polite">{Math.round(scale * 100)}%</output>
-			<button onclick={() => zoom(.15)} aria-label="Zoom in"><Icon name="zoom-in" size={15}/></button>
+			<button onclick={() => { zoom(.15); }} aria-label="Zoom in"><Icon name="zoom-in" size={15}/></button>
 			<button onclick={reset} aria-label="Reset graph position"><Icon name="locate-fixed" size={15}/></button>
 		</div>
 	</header>
 	{#if degraded}<p class="degraded"><Icon name="triangle-alert" size={14}/>Link index is stale. Relationships are last-known and drawn dashed.</p>{/if}
 	{#if loading}
-		<div class="graph-loading" aria-label="Loading dependency graph">{#each Array(7) as _, index}<span style={`left:${8+(index%4)*23}%;top:${16+Math.floor(index/4)*40}%`}></span>{/each}</div>
+		<div class="graph-loading" aria-label="Loading dependency graph">{#each Array(7) as _, index (index)}<span style={`left:${String(8+(index%4)*23)}%;top:${String(16+Math.floor(index/4)*40)}%`}></span>{/each}</div>
 	{:else if items.length === 0}
 		<div class="empty"><Icon name="git-branch" size={20}/><b>The stacks are open.</b><span>Nothing filed in this scope yet.</span></div>
 	{:else}
 		<div class="phone-list">{#each items as item (item.id)}<LibraryItemCard {item} compact {onopen}/>{/each}</div>
 		<div bind:this={viewport} class:dragging class="viewport" role="group" aria-label="Pan and zoom dependency graph" onwheel={wheel} onpointerdown={startPan} onpointermove={movePan} onpointerup={endPan} onpointercancel={endPan}>
-			<div class="canvas" style={`width:${graph.width}px;height:${graph.height}px;transform:translate(${panX}px,${panY}px) scale(${scale})`}>
+			<div class="canvas" style={`width:${String(graph.width)}px;height:${String(graph.height)}px;transform:translate(${String(panX)}px,${String(panY)}px) scale(${String(scale)})`}>
 				<svg width={graph.width} height={graph.height} aria-hidden="true">
 					<defs><marker id="library-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z"/></marker></defs>
 					{#each graph.edges as edge (`${edge.from}-${edge.to}-${edge.rel}`)}
@@ -94,7 +94,7 @@
 					{/each}
 				</svg>
 				{#each graph.nodes as node (node.id)}
-					<button data-node-id={node.id} class="node {node.kind}" class:neighbor={neighbors.has(node.id)} class:focused={focusedId === node.id} style={`left:${node.x}px;top:${node.y}px`} title={node.title} onclick={() => onopen(node)} onfocus={() => focusedId = node.id} onblur={() => focusedId = null} onkeydown={(event) => walk(event,node.id)} aria-label={`${node.title}, ${node.kind}, ${node.status}`}>
+					<button data-node-id={node.id} class="node {node.kind}" class:neighbor={neighbors.has(node.id)} class:focused={focusedId === node.id} style={`left:${String(node.x)}px;top:${String(node.y)}px`} title={node.title} onclick={() => { onopen(node); }} onfocus={() => focusedId = node.id} onblur={() => focusedId = null} onkeydown={(event) => { walk(event,node.id); }} aria-label={`${node.title}, ${node.kind}, ${node.status}`}>
 						<span class="node-icon"><Icon name={icons[node.kind]} size={16}/></span><span class="node-title">{node.title}</span>
 					</button>
 				{/each}

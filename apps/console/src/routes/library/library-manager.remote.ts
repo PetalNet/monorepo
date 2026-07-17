@@ -61,7 +61,7 @@ const statusResultSchema = z.object({
 	version: z.number().int().positive(),
 	conflict: z
 		.object({ values: z.array(z.string()).min(2) })
-		.passthrough()
+		.loose()
 		.optional(),
 });
 export type LibraryStatusResult = z.infer<typeof statusResultSchema>;
@@ -236,7 +236,7 @@ function libraryManagerAction(value: unknown, depth = 0): LibraryManagerAction |
 		const rawItems = Array.isArray(data?.["items"]) ? data["items"] : [];
 		const rawItem = data?.["item"];
 		return {
-			intent: record["intent"] as LibraryManagerIntent,
+			intent: record["intent"],
 			items: rawItems.filter(isApiLibraryItem).map(itemView),
 			item: isApiLibraryItem(rawItem) ? itemView(rawItem) : null,
 		};

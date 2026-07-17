@@ -776,7 +776,9 @@ export const CONTRACT_FIXTURES = {
 	"UpdateApproval": {
 		"approval_id": "00000000-0000-4000-8000-000000000000",
 		"box_id": "fixture",
-		"packages": [],
+		"packages": [
+			"fixture"
+		],
 		"approved_by": "fixture",
 		"approved_at": "2026-01-01T00:00:00Z",
 		"revocable": false,

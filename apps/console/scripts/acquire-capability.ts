@@ -2,8 +2,11 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-import { capabilityAcquisitionSchema } from "../registry/acquisition.ts";
-import { installCapabilityBundle, parseCapabilityBundle } from "../registry/loader.ts";
+import { capabilityAcquisitionSchema } from "../src/lib/server/domain/registry/acquisition.ts";
+import {
+	installCapabilityBundle,
+	parseCapabilityBundle,
+} from "../src/lib/server/domain/registry/loader.ts";
 
 function argument(name: string): string | undefined {
 	const index = process.argv.indexOf(name);

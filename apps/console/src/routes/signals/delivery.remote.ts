@@ -1,4 +1,6 @@
 import { command, getRequestEvent, query } from "$app/server";
+
+import { formatUnknown } from "#format";
 const env = import.meta.env;
 import type {
 	ConsoleHealth,
@@ -117,7 +119,7 @@ export const getDeliverySurface = query(async (): Promise<DeliverySurfaceData> =
 	]);
 	const value = <T>(index: number, label: string): T | null => {
 		const result = settled[index];
-		if (result?.status === "fulfilled") return result.value as T;
+		if (result.status === "fulfilled") return result.value as T;
 		errors.push(label);
 		return null;
 	};
@@ -134,11 +136,11 @@ export const getDeliverySurface = query(async (): Promise<DeliverySurfaceData> =
 		ts: String(row[1]),
 		tier: String(row[2]),
 		signal: String(row[3]),
-		subject: String(row[4] ?? ""),
+		subject: formatUnknown(row[4] ?? ""),
 		status: String(row[5]),
-		error: row[6] == null ? null : String(row[6]),
+		error: row[6] == null ? null : formatUnknown(row[6]),
 		retryable: row[7] === true || row[7] === "true",
-		channel: row[8] == null ? "matrix" : String(row[8]),
+		channel: row[8] == null ? "matrix" : formatUnknown(row[8]),
 	}));
 	const executor = executors?.items.find((item) => item.kind === "console-api") ?? null;
 	const busObservedAt =
@@ -176,7 +178,7 @@ async function runDeliveryOp(
 			dry_run: false,
 		}),
 	});
-	if (!result.ok) error(400, result.error?.message ?? `${op} failed`);
+	if (!result.ok) error(400, result.error.message ?? `${op} failed`);
 	void getDeliverySurface().refresh();
 	return result.result ?? {};
 }
@@ -198,7 +200,7 @@ export const sendDeliveryTest = command(async () => {
 			...mockReceiptState,
 		];
 		void getDeliverySurface().refresh();
-		return { delivered: true, receipt_ref: mockReceiptState[0]!.seq };
+		return { delivered: true, receipt_ref: mockReceiptState[0].seq };
 	}
 	return runDeliveryOp("delivery.test", {});
 });
@@ -226,7 +228,7 @@ export const setDeliveryTarget = command(targetArgs, async ({ target }) => {
 	return runDeliveryOp("delivery.set_target", { channel: "matrix", target });
 });
 
-const cocoonArgs = z.object({ until: z.string().datetime({ offset: true }) }).strict();
+const cocoonArgs = z.object({ until: z.iso.datetime({ offset: true }) }).strict();
 export const setDeliveryCocoon = command(cocoonArgs, async ({ until }) => {
 	if (isMock()) {
 		mockDeliveryState = {

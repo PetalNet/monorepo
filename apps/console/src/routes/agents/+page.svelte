@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { PageProps } from "./$types";
 	import { page } from "$app/state";
 	import { onMount } from "svelte";
 	import type { HeartbeatItem, RosterItem } from "$lib/api/types";
@@ -15,7 +16,7 @@
 	import CommsLog from "./CommsLog.svelte";
 	import { closeTerminalPeek, openTerminalPeek, pollTerminalPeek } from "./terminal-peek.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	const a = $derived(data.agents);
 	// Live clock: countdowns tick and gone-quiet crosses its window without a refresh.
 	const now = $derived(clockNow());
@@ -94,7 +95,7 @@
 	function age(epoch: number): string {
 		if (epoch === 0) return "never";
 		const seconds = Math.max(0, Math.floor(now / 1_000 - epoch));
-		return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m`;
+		return seconds < 60 ? `${String(seconds)}s` : `${String(Math.floor(seconds / 60))}m`;
 	}
 	function managerStale(heartbeat: HeartbeatItem): boolean {
 		return now - Date.parse(heartbeat.observed_at) > 90_000;
@@ -256,7 +257,7 @@
 					<div><dt>Matrix sync</dt><dd class:danger={architect.heartbeat.last_sync_ok_epoch === 0 || now / 1_000 - architect.heartbeat.last_sync_ok_epoch > 120}>{architect.heartbeat.last_sync_ok_epoch === 0 ? "never" : `${age(architect.heartbeat.last_sync_ok_epoch)} ago`}</dd></div>
 					<div><dt>Observed</dt><dd>{new Date(architect.heartbeat.observed_at).toLocaleTimeString()}</dd></div>
 				</dl>
-				<div class="residents"><span>Residents</span>{#each architect.residents as resident}<a href="/agents?agent={resident}">{resident}</a>{:else}<em>No resident handle reported</em>{/each}</div>
+				<div class="residents"><span>Residents</span>{#each architect.residents as resident, __eachKey18 (__eachKey18)}<a href="/agents?agent={resident}">{resident}</a>{:else}<em>No resident handle reported</em>{/each}</div>
 				<footer class="architect-foot"><p>Architect present. Supervising {architect.residents.length} resident{architect.residents.length === 1 ? "" : "s"}.</p>{#if canPeek && architect.heartbeat.tmux_session && architect.heartbeat.pane_id}<button type="button" disabled={peekDisabledReason(architect.heartbeat) !== null} title={peekDisabledReason(architect.heartbeat) ?? "Watch read-only terminal"} onclick={() => watchSession(architect.heartbeat)}><Icon name="eye" size={13} />Watch session</button>{/if}</footer>
 			</section>
 		{:else}

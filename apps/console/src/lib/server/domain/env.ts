@@ -103,7 +103,7 @@ export function loadEnv(): Env {
 			!new Set(["127.0.0.1", "::1", "localhost"]).has(endpoint.hostname)
 		)
 			throw new Error("CONSOLE_DOORMAN_ADMIN_URL must use https or a loopback host");
-		if (doormanValues[1]!.length < 32)
+		if ((doormanValues[1] ?? "").length < 32)
 			throw new Error("CONSOLE_DOORMAN_ADMIN_TOKEN must contain at least 32 characters");
 	}
 	if (matrixValues.some(Boolean) && !matrixValues.every(Boolean))

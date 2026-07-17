@@ -184,7 +184,7 @@ export class CrackAttentionReconciler {
 					when type in ('doorman.dark', 'doorman.recover') then 'doorman-dark'
 				end,
 				seq desc`;
-		for await (const row of rows)
+		for (const row of rows)
 			await this.enqueue({
 				schema_version: 1,
 				id: row.id,
@@ -213,7 +213,7 @@ export class CrackAttentionReconciler {
 		const rows = await this.#sql<{ active: boolean }[]>`
 			select exists(select 1 from current_state where kind = 'attention' and subject = ${id}
 			  and scope = ${scope} and state->>'resolved_at' is null) as active`;
-		const active = rows[0]?.active === true;
+		const active = rows[0].active;
 		this.#activeByIncident.set(id, active);
 		return active;
 	}

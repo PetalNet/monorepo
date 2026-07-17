@@ -59,7 +59,7 @@ export async function resolveScopes(
 		// inject a phantom scope into the app.scopes GUC (sub-agent M4).
 		if (r.object && SCOPE_RE.test(r.object)) scopes.add(r.object);
 	}
-	return { scopes: [...scopes].toSorted(), zookie: rows[0]?.head ?? "0" };
+	return { scopes: [...scopes].toSorted(), zookie: rows[0].head ?? "0" };
 }
 
 export async function resolveBearer(sql: Sql, tokenPlaintext: string): Promise<Principal | null> {
@@ -86,7 +86,7 @@ export function devPrincipal(json: string): Principal | null {
 			lanes: p.lanes ?? [],
 			// SCOPE_RE-validated so a dev header cannot inject a comma into the GUC (sub-agent M4)
 			scopes: (p.scopes ?? []).filter((s) => SCOPE_RE.test(s)),
-			zookie: String(p.zookie ?? "1"),
+			zookie: p.zookie ?? "1",
 		};
 	} catch {
 		return null;

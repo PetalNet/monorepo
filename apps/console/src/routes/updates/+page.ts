@@ -22,7 +22,7 @@ export const load: PageLoad = async ({
 	if (dataMode() === "mock") return { updates: mockUpdates(shell.me.lanes), raw: [] };
 	try {
 		const response = await readBoxUpdates(fetch);
-		const executors = await readExecutors(fetch).catch((error) => {
+		const executors = await readExecutors(fetch).catch((error: unknown) => {
 			captureCaughtFailure(error, { surface: "updates", endpoint: "/executors" });
 			return null;
 		});

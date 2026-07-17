@@ -16,6 +16,8 @@ import {
 	runQuery,
 } from "$lib/rpc/browser";
 
+import { formatUnknown } from "#format";
+
 import type { PageLoad } from "./$types";
 
 export const load: PageLoad = async ({ fetch, parent }) => {
@@ -74,8 +76,8 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 				ts: String(row[1]),
 				type: String(row[2]),
 				taskId,
-				agent: row[4] == null ? undefined : String(row[4]),
-				detail: row[5] == null ? String(row[2]) : String(row[5]),
+				agent: row[4] == null ? undefined : formatUnknown(row[4]),
+				detail: row[5] == null ? String(row[2]) : formatUnknown(row[5]),
 			},
 		];
 	});

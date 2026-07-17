@@ -7,8 +7,8 @@ export interface ExceptionMonitor {
 
 const INERT: ExceptionMonitor = {
 	captureException() {},
-	async close() {
-		return true;
+	close() {
+		return Promise.resolve(true);
 	},
 };
 

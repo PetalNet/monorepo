@@ -1,19 +1,12 @@
 <script lang="ts">
+	import { formatUnknown } from "#format";
 	import AgentPresence from "$lib/components/AgentPresence.svelte";
 	import Icon from "$lib/components/Icon.svelte";
 	import type { InvestigationDetail, InvestigationNode, InvestigationPanel } from "$lib/data/investigations";
 	import { ancestorTrail, visibleInvestigationRows } from "$lib/data/investigations";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
 	import { createInvestigationNode, getInvestigationGraph, loadInvestigationNode, pinInvestigationNode } from "./investigations.remote";
-
-	export interface InvestigationSeed {
-		title: string;
-		queryRef: string;
-		panelTitle: string;
-		panelType: "bar" | "line" | "stat" | "table" | "scatter";
-		selectedField: string;
-		selectedValue: string | number | boolean;
-	}
+	import type { InvestigationSeed } from "./investigation-types";
 
 	interface Props {
 		seed?: InvestigationSeed | null;
@@ -158,20 +151,20 @@
 		if (event.key === "ArrowLeft") {
 			event.preventDefault();
 			const row = rows[index];
-			if (row?.hasChildren && !collapsed.includes(id)) toggle(id);
-			else if (row?.parentId) document.querySelector<HTMLButtonElement>(`[data-node-id="${CSS.escape(row.parentId)}"]`)?.focus();
+			if (row.hasChildren && !collapsed.includes(id)) toggle(id);
+			else if (row.parentId) document.querySelector<HTMLButtonElement>(`[data-node-id="${CSS.escape(row.parentId)}"]`)?.focus();
 		}
 		if (event.key === "Enter") { event.preventDefault(); activeId = id; }
 	}
 
 	function age(iso: string): string {
 		const minutes = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
-		return minutes < 60 ? `${minutes}m` : minutes < 1_440 ? `${Math.round(minutes / 60)}h` : `${Math.round(minutes / 1_440)}d`;
+		return minutes < 60 ? `${String(minutes)}m` : minutes < 1_440 ? `${String(Math.round(minutes / 60))}h` : `${String(Math.round(minutes / 1_440))}d`;
 	}
 
 	function magnitude(panel: InvestigationPanel, row: unknown[]): number {
-		const values = panel.rows.map((candidate) => candidate.findLast((value) => typeof value === "number") as number | undefined).filter((value): value is number => value !== undefined);
-		const value = row.findLast((cell) => typeof cell === "number") as number | undefined;
+		const values = panel.rows.map((candidate) => candidate.findLast((value) => typeof value === "number")).filter((value): value is number => value !== undefined);
+		const value = row.findLast((cell) => typeof cell === "number");
 		return value === undefined ? 0 : Math.max(4, value / Math.max(...values, 1) * 100);
 	}
 </script>
@@ -191,7 +184,7 @@
 				{#each rows as row, index (row.id)}
 					<div class="tree-row" style:--depth={row.depth}>
 						{#if row.hasChildren}
-							<button class="disclosure" aria-label={collapsed.includes(row.id) ? "Expand branch" : "Collapse branch"} onclick={() => toggle(row.id)}><Icon name={collapsed.includes(row.id) ? "chevron-right" : "chevron-down"} size={13} /></button>
+							<button class="disclosure" aria-label={collapsed.includes(row.id) ? "Expand branch" : "Collapse branch"} onclick={() => { toggle(row.id); }}><Icon name={collapsed.includes(row.id) ? "chevron-right" : "chevron-down"} size={13} /></button>
 						{:else}<span class="leaf"></span>{/if}
 						<button
 							class="node"
@@ -202,7 +195,7 @@
 							aria-selected={row.id === activeId}
 							tabindex={row.id === activeId || (!activeId && index === 0) ? 0 : -1}
 							onclick={() => activeId = row.id}
-							onkeydown={(event) => treeKey(event, row.id)}
+							onkeydown={(event) => { treeKey(event, row.id); }}
 						>
 							<code>{index + 1}</code><span>{row.title}</span><small>{row.panelCount}p · {age(row.updatedAt)}</small>{#if row.isHome}<Icon name="pin" size={11} title="Pinned as home" />{/if}
 						</button>
@@ -215,7 +208,7 @@
 	<main class="node-canvas">
 		{#if active}
 			<nav class="crumbs" aria-label="Investigation ancestry">
-				{#each trail as ancestor, index}
+				{#each trail as ancestor, index (index)}
 					{#if index > 0}<Icon name="chevron-right" size={12} />{/if}
 					<button class:current={ancestor.id === active.id} onclick={() => activeId = ancestor.id}>{ancestor.title}</button>
 				{/each}
@@ -237,14 +230,14 @@
 							<header><div><h3>{panel.title}</h3>{#if panel.description}<p>{panel.description}</p>{/if}</div><span>{panel.type}</span></header>
 							{#if panel.refusal}<div class="refusal"><Icon name="circle-alert" size={16} /><b>Can’t replay this panel.</b><span>{panel.refusal}</span><strong>No chart, no guess.</strong></div>
 							{:else if panel.rows.length === 0}<div class="empty-panel">The replay returned no rows.</div>
-							{:else if panel.type === "stat"}<div class="stat">{String(panel.rows[0]?.at(-1) ?? "—")}</div>
+							{:else if panel.type === "stat"}<div class="stat">{formatUnknown(panel.rows[0]?.at(-1) ?? "—")}</div>
 							{:else}
 								<div class="evidence-table" role="table" aria-label={panel.title}>
-									<div class="table-head" role="row">{#each panel.columns as column}<span role="columnheader">{column}</span>{/each}<span></span></div>
-									{#each panel.rows as row}
-										<button role="row" disabled={!panel.queryRef || action !== null} onclick={() => drill(panel, row)} aria-label={`Drill into ${String(row[0] ?? "row")}`}>
-											{#each row as cell}<span role="cell">{typeof cell === "number" ? cell.toLocaleString() : String(cell)}</span>{/each}
-											<i><em style:width={`${magnitude(panel, row)}%`}></em></i><span class="drill">Drill <Icon name="git-branch" size={12} /></span>
+									<div class="table-head" role="row">{#each panel.columns as column, __eachKey48 (__eachKey48)}<span role="columnheader">{column}</span>{/each}<span></span></div>
+									{#each panel.rows as row, __eachKey49 (__eachKey49)}
+										<button role="row" disabled={!panel.queryRef || action !== null} onclick={() => drill(panel, row)} aria-label={`Drill into ${formatUnknown(row[0] ?? "row")}`}>
+											{#each row as cell, __eachKey50 (__eachKey50)}<span role="cell">{typeof cell === "number" ? cell.toLocaleString() : String(cell)}</span>{/each}
+											<i><em style:width={`${String(magnitude(panel, row))}%`}></em></i><span class="drill">Drill <Icon name="git-branch" size={12} /></span>
 										</button>
 									{/each}
 								</div>

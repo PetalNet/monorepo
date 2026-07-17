@@ -109,7 +109,7 @@ export async function reviewCapability(
 		>`
 			select item_id, capability, version, sha256, scope, state, proposed_by from library_curation where id = ${proposalId} for update`;
 		const proposal = rows[0];
-		if (!proposal?.capability || !proposal.version || !proposal.sha256)
+		if (!proposal.capability || !proposal.version || !proposal.sha256)
 			throw new CapabilityContributionError(
 				"proposal_not_found",
 				"capability proposal was not found",

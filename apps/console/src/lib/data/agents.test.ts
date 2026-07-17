@@ -14,7 +14,7 @@ const workingResident = {
 	observed_at: observedAt,
 } satisfies RosterItem;
 
-test("deriveRoster moves a gone-quiet resident out of Working and marks fleet health down", () => {
+void test("deriveRoster moves a gone-quiet resident out of Working and marks fleet health down", () => {
 	const fresh = deriveRoster([workingResident], Date.parse(observedAt) + 89_999);
 	assert.deepEqual(fresh.lanes.working, [workingResident]);
 	assert.equal(fresh.health.working, 1);

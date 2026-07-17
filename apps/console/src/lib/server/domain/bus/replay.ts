@@ -46,7 +46,7 @@ function rowToEmission(r: EventRow): Emission {
 		measures: r.measures,
 		links: r.links as Emission["links"],
 		body_ref: r.body_ref,
-		meta: r.meta as Emission["meta"],
+		meta: r.meta,
 	};
 }
 
@@ -68,8 +68,8 @@ export function makeReplay(app: Sql) {
 		const f = spec.filter;
 		await withScopes(app, spec.scopes, async (tx) => {
 			let cursor = since;
-			for await (const iteration of indefinitely()) {
-				void iteration;
+			for (const iteration of indefinitely()) {
+				iteration;
 				const rows = usePrefilter
 					? await tx<EventRow[]>`select * from events where seq > ${cursor} and seq <= ${throughSeq}
 							and (type = ${like} or type like ${like}) order by seq asc limit ${PAGE}`

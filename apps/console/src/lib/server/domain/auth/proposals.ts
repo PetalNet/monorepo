@@ -129,7 +129,7 @@ export class TrackerProposalWriter {
 		} catch {
 			throw new ProposalError("tracker_unavailable", "tracker returned an invalid response", true);
 		}
-		const taskId = (wire as { filed?: { id?: unknown } })?.filed?.id;
+		const taskId = (wire as { filed?: { id?: unknown } }).filed?.id;
 		if (!Number.isSafeInteger(taskId) || Number(taskId) < 1)
 			throw new ProposalError("tracker_unavailable", "tracker returned an invalid task id", true);
 		return Number(taskId);

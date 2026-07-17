@@ -3,6 +3,8 @@ import type { IncomingMessage, Server } from "node:http";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
+import { formatUnknown } from "#format";
+
 import type { Principal } from "./domain/auth/principal";
 import type { Services } from "./domain/substrate";
 
@@ -41,7 +43,10 @@ export function attachConsoleWebSockets(
 
 	sockets.on("connection", (socket: WebSocket, request: IncomingMessage) => {
 		const principal = principals.get(socket);
-		if (!principal) return socket.close(1008, "principal unavailable");
+		if (!principal) {
+			socket.close(1008, "principal unavailable");
+			return;
+		}
 		const ownerId = `${principal.id}:${randomUUID()}`;
 		const subscriptions = new Set<string>();
 		const path = new URL(request.url ?? "/", "http://console.local").pathname;
@@ -65,7 +70,7 @@ export function attachConsoleWebSockets(
 		socket.on("message", (bytes: RawData) => {
 			let raw: Record<string, unknown> | null;
 			try {
-				raw = object(JSON.parse(bytes.toString()) as unknown);
+				raw = object(JSON.parse(formatUnknown(bytes)) as unknown);
 			} catch {
 				socket.close(1007, "invalid JSON");
 				return;

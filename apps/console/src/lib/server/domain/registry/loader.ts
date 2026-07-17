@@ -126,11 +126,11 @@ export async function installCapabilityBundle(
 		versionsRoot,
 		`${options.version.replace(/[^a-zA-Z0-9._-]/g, "-")}-${bundleDigest}`,
 	);
-	const staging = `${versionDir}.${process.pid}.${Date.now()}.tmp`;
-	const pointer = `${installDir}.${process.pid}.${Date.now()}.link`;
+	const staging = `${versionDir}.${String(process.pid)}.${String(Date.now())}.tmp`;
+	const pointer = `${installDir}.${String(process.pid)}.${String(Date.now())}.link`;
 	await mkdir(staging, { recursive: true, mode: 0o700 });
 	try {
-		for await (const file of bundle.files) {
+		for (const file of bundle.files) {
 			const destination = join(staging, safeRelativePath(file.path));
 			await mkdir(dirname(destination), { recursive: true, mode: 0o755 });
 			await writeFile(destination, decodeBase64(file.content_b64), { mode: file.mode, flag: "wx" });

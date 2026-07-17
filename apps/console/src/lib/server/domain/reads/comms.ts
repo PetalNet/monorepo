@@ -47,7 +47,7 @@ export async function readCommsLog(
 	scopes: readonly string[],
 	opts: CommsReadOpts = {},
 ): Promise<ReadEnvelope> {
-	const requestedLimit = Number(opts.limit ?? 200);
+	const requestedLimit = opts.limit ?? 200;
 	const limit = Number.isFinite(requestedLimit)
 		? Math.min(Math.max(1, Math.floor(requestedLimit)), 1000)
 		: 200;
@@ -106,7 +106,7 @@ export async function readCommsLog(
 			task_id: task_id === null ? null : Number(task_id),
 			ts: typeof ts === "string" ? ts : ts.toISOString(),
 		})),
-		next_cursor: truncated && page.at(-1) ? encodeCommsCursor(page.at(-1)!.seq) : null,
+		next_cursor: truncated && page.at(-1) ? encodeCommsCursor(page.at(-1)?.seq ?? "") : null,
 		truncated,
 	};
 }

@@ -40,11 +40,11 @@
 				: st.replace("_", " "),
 	);
 	const nowPlaying = $derived.by(() => {
-		if (st === "gone_quiet") return `derived ${Math.round((now - Date.parse(row.fleet_updated_at ?? row.updated_at)) / 1000)}s stale`;
+		if (st === "gone_quiet") return `derived ${String(Math.round((now - Date.parse(row.fleet_updated_at ?? row.updated_at)) / 1000))}s stale`;
 		if (st === "paused") return "Marbleized. Suspended, not destroyed.";
 		if (row.status === "idle" || !row.current_tool) return "In the void. Ready when called.";
 		const parts = [row.current_tool];
-		if (row.task_id) parts.push(`task ${row.task_id}${row.task_title ? ` ${row.task_title}` : ""}`);
+		if (row.task_id) parts.push(`task ${String(row.task_id)}${row.task_title ? ` ${row.task_title}` : ""}`);
 		if (row.started_at) parts.push(humanAge(now - Date.parse(row.started_at)));
 		return parts.join(" · ");
 	});
@@ -73,7 +73,7 @@
 		{#if menuOpen}
 			<div class="menu" role="menu">
 				{#if session?.tmux_session && session.pane_id && onwatch}
-					<button class="menu-action" role="menuitem" disabled={peekDisabledReason !== null} title={peekDisabledReason ?? "Watch read-only terminal"} onclick={() => { menuOpen = false; onwatch?.(session!); }}>
+					<button class="menu-action" role="menuitem" disabled={peekDisabledReason !== null} title={peekDisabledReason ?? "Watch read-only terminal"} onclick={() => { menuOpen = false; onwatch(session); }}>
 						<Icon name="eye" size={13} />Watch session
 					</button>
 				{/if}

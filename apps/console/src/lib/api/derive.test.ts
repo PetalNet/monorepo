@@ -8,8 +8,8 @@ import {
 	type JoinedRosterItem,
 } from "./derive.ts";
 
-describe("signalSeverityLabel", () => {
-	it("maps every signal severity to its canonical operator grade", () => {
+void describe("signalSeverityLabel", () => {
+	void it("maps every signal severity to its canonical operator grade", () => {
 		assert.deepEqual(
 			(["p0", "danger", "warn", "info", "debug"] as const).map(signalSeverityLabel),
 			["P0", "P1", "P2", "P3", "feed only"],
@@ -17,8 +17,8 @@ describe("signalSeverityLabel", () => {
 	});
 });
 
-describe("consoleHealthBusAgeS", () => {
-	it("requires explicit bridge proof and measures its clock", () => {
+void describe("consoleHealthBusAgeS", () => {
+	void it("requires explicit bridge proof and measures its clock", () => {
 		const now = Date.parse("2026-07-13T12:00:30.000Z");
 		assert.equal(
 			consoleHealthBusAgeS({ lake: "ok", seq_head: 9, bridges: [], ws_clients: 3 }, now),
@@ -38,10 +38,10 @@ describe("consoleHealthBusAgeS", () => {
 	});
 });
 
-describe("flattenRosterItem", () => {
+void describe("flattenRosterItem", () => {
 	const absent = { visibility: "absent", observed_at: null, data: null } as const;
 
-	it("adapts the source-preserving join without discarding source freshness", () => {
+	void it("adapts the source-preserving join without discarding source freshness", () => {
 		const row: JoinedRosterItem = {
 			handle: "janet",
 			workers_active: 2,
@@ -89,7 +89,7 @@ describe("flattenRosterItem", () => {
 		});
 	});
 
-	it("keeps unavailable distinct from an absent source", () => {
+	void it("keeps unavailable distinct from an absent source", () => {
 		const result = flattenRosterItem({
 			handle: "derek",
 			fleet: absent,

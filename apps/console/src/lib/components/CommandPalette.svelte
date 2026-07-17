@@ -137,7 +137,7 @@
 			event.preventDefault();
 			void choose(items[selected]);
 		}
-		queueMicrotask(() => document.getElementById(`palette-option-${selected}`)?.scrollIntoView({ block: "nearest" }));
+		queueMicrotask(() => document.getElementById(`palette-option-${String(selected)}`)?.scrollIntoView({ block: "nearest" }));
 	}
 </script>
 
@@ -153,7 +153,7 @@
 				aria-label="Search surfaces, objects, and agents"
 				aria-controls="command-palette-results"
 				aria-expanded="true"
-				aria-activedescendant={items[selected] ? `palette-option-${selected}` : undefined}
+				aria-activedescendant={items[selected] ? `palette-option-${String(selected)}` : undefined}
 				placeholder="Search surfaces, objects, and agents"
 				maxlength="100"
 				oninput={queueSearch}
@@ -173,7 +173,7 @@
 					<p class="group-label object-label">Objects</p>
 				{/if}
 				<button
-					id={`palette-option-${index}`}
+					id={`palette-option-${String(index)}`}
 					type="button"
 					role="option"
 					aria-selected={index === selected}

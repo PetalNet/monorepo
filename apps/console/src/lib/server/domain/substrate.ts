@@ -103,7 +103,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 	const headRow = await db.admin<
 		{ n: string }[]
 	>`select coalesce(max(seq), 0)::bigint as n from events`;
-	broker.setHead(Number(headRow[0]?.n ?? 0));
+	broker.setHead(Number(headRow[0].n ?? 0));
 	// projector: cursored consumer of the lake into current_state. Boot-replay to head BEFORE
 	// serving reads, then live off fan-out (N1b). Writes as console_writer (non-superuser).
 	const projector = new Projector(db.writer);
@@ -183,18 +183,12 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 	const appender = new Appender(db.writer, (seq, e, receivedAt) => {
 		broker.onEvent(seq, e);
 		projector.onEvent(seq, e, receivedAt);
-		void crackAttention
-			?.enqueue(e)
-			.catch((error) =>
-				monitor.captureException(
-					sanitizedException(error, "crack attention reconciliation failed"),
-				),
-			);
-		void delivery
-			?.enqueueEmission(e)
-			.catch((error) =>
-				monitor.captureException(sanitizedException(error, "delivery dispatch failed")),
-			);
+		void crackAttention?.enqueue(e).catch((error: unknown) => {
+			monitor.captureException(sanitizedException(error, "crack attention reconciliation failed"));
+		});
+		void delivery?.enqueueEmission(e).catch((error: unknown) => {
+			monitor.captureException(sanitizedException(error, "delivery dispatch failed"));
+		});
 	});
 	let stormDetector: SignalStormDetector | null = null;
 	let stormExpiryTimer: NodeJS.Timeout | null = null;
@@ -303,11 +297,9 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 			};
 		if (!result.duplicate && stormDetector) {
 			// Detection coalesces bursts internally and stays off the durable append response path.
-			void stormDetector
-				.observe(e)
-				.catch((error) =>
-					monitor.captureException(sanitizedException(error, "signal storm detection failed")),
-				);
+			void stormDetector.observe(e).catch((error: unknown) => {
+				monitor.captureException(sanitizedException(error, "signal storm detection failed"));
+			});
 		}
 		if (
 			e.type === "edge.enroll.request" ||
@@ -386,17 +378,13 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 	const sourceModes = new SignalSourceModes(db.writer, async (emission) =>
 		emit("system:console-api", emission, Buffer.byteLength(JSON.stringify(emission))),
 	);
-	void sourceModes
-		.reconcilePending()
-		.catch((error) =>
-			monitor.captureException(sanitizedException(error, "signal source mode outbox failed")),
-		);
+	void sourceModes.reconcilePending().catch((error: unknown) => {
+		monitor.captureException(sanitizedException(error, "signal source mode outbox failed"));
+	});
 	sourceModeOutboxTimer = setInterval(() => {
-		void sourceModes
-			.reconcilePending()
-			.catch((error) =>
-				monitor.captureException(sanitizedException(error, "signal source mode outbox failed")),
-			);
+		void sourceModes.reconcilePending().catch((error: unknown) => {
+			monitor.captureException(sanitizedException(error, "signal source mode outbox failed"));
+		});
 	}, 30_000);
 	sourceModeOutboxTimer.unref();
 	crackAttention = new CrackAttentionReconciler(db.writer, async (emission) =>
@@ -412,11 +400,9 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		async (owner) => (await resolveScopes(db.admin, owner, [])).scopes,
 	);
 	stormExpiryTimer = setInterval(() => {
-		void stormDetector
-			?.reconcileExpired()
-			.catch((error) =>
-				monitor.captureException(sanitizedException(error, "signal storm expiry failed")),
-			);
+		void stormDetector.reconcileExpired().catch((error: unknown) => {
+			monitor.captureException(sanitizedException(error, "signal storm expiry failed"));
+		});
 	}, 30_000);
 	stormExpiryTimer.unref();
 
@@ -444,8 +430,8 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		async close() {
 			if (stormExpiryTimer) clearInterval(stormExpiryTimer);
 			if (sourceModeOutboxTimer) clearInterval(sourceModeOutboxTimer);
-			await crackAttention?.drain();
-			await delivery?.drain();
+			await crackAttention.drain();
+			await delivery.drain();
 			tracker?.close();
 			await grantListen.unlisten();
 			await db.close();

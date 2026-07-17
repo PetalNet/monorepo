@@ -81,7 +81,7 @@
 	{#if loading}
 		<div class="comparison-skeleton" aria-label="Loading cost comparison">
 			<div class="skeleton heading"></div>
-			{#each Array(7) as _}
+			{#each Array(7) as _, __eachKey6 (__eachKey6)}
 				<div class="skeleton row"></div>
 			{/each}
 		</div>
@@ -100,7 +100,7 @@
 			<span>Right vs left</span>
 		</div>
 		<div class="metrics">
-			{#each result.metrics as metric}
+			{#each result.metrics as metric, __eachKey7 (__eachKey7)}
 				{#if metric.key === "input_tokens"}<h3>Token mix</h3>{/if}
 				<div class="metric">
 					<b>{labels[metric.key]}</b>
@@ -119,7 +119,7 @@
 			{#if result.receipt.pricing.models.length}
 				<div class="rate-table" role="table" aria-label="Effective model rates">
 					<div class="rate-head" role="row"><b role="columnheader">Model → matched pattern</b><span role="columnheader">in / out / write / read · USD/M</span></div>
-					{#each result.receipt.pricing.models as rate}
+					{#each result.receipt.pricing.models as rate, __eachKey8 (__eachKey8)}
 						<div role="row"><span role="cell"><code>{rate.model} → {rate.matched_pattern}</code></span><span role="cell"><code>{rate.input_per_mtok.toFixed(2)} / {rate.output_per_mtok.toFixed(2)} / {rate.cache_creation_per_mtok.toFixed(2)} / {rate.cache_read_per_mtok.toFixed(2)}</code></span></div>
 					{/each}
 				</div>

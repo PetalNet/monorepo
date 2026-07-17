@@ -3,6 +3,9 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
+	"imports": {
+		"#format": "./src/lib/format.ts"
+	},
 	"scripts": {
 		"build": "vite build && vite build --config vite.server.config.ts",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -12,13 +15,16 @@
 		"prepare": "svelte-kit sync",
 		"preview": "vite preview",
 		"start": "node build-server/index.js",
-		"test": "vitest run",
+		"test": "vitest run && node --test src/lib/*.test.ts src/lib/api/*.test.ts src/lib/components/*.test.ts src/lib/data/*.test.ts src/lib/stores/*.test.ts",
 		"test:e2e": "playwright test"
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
+		"@fastify/cors": "catalog:",
+		"@fastify/websocket": "catalog:",
+		"@fontsource/geist-mono": "catalog:",
+		"@fontsource/geist-sans": "catalog:",
 		"@lucide/svelte": "catalog:prod",
-		"@modelcontextprotocol/sdk": "catalog:",
 		"@opentelemetry/api": "catalog:",
 		"@opentelemetry/auto-instrumentations-node": "catalog:",
 		"@opentelemetry/exporter-trace-otlp-proto": "catalog:",
@@ -31,6 +37,7 @@
 		"better-auth": "catalog:",
 		"daisyui": "catalog:prod",
 		"effect": "catalog:",
+		"fastify": "catalog:",
 		"import-in-the-middle": "catalog:",
 		"mode-watcher": "catalog:",
 		"nanoid": "catalog:",

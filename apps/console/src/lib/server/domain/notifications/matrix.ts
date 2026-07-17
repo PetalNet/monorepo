@@ -126,11 +126,10 @@ export class HttpMatrixTransport implements MatrixTransport {
 		const direct: Record<string, string[]> = await this.#request<Record<string, string[]>>(
 			`/_matrix/client/v3/user/${encodeURIComponent(sender)}/account_data/m.direct`,
 		).catch((error: unknown) => {
-			if (error instanceof MatrixDeliveryError && error.code === "M_NOT_FOUND")
-				return {} as Record<string, string[]>;
+			if (error instanceof MatrixDeliveryError && error.code === "M_NOT_FOUND") return {};
 			throw error;
 		});
-		const existing = direct[target]?.[0];
+		const existing = direct[target][0];
 		if (existing) {
 			this.#directRooms.set(target, existing);
 			return existing;

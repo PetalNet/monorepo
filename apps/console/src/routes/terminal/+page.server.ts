@@ -10,6 +10,8 @@ import {
 } from "$lib/rpc/browser";
 import { error } from "@sveltejs/kit";
 
+import { formatUnknown } from "#format";
+
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ fetch }) => {
@@ -79,12 +81,12 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		rows.push({
 			id: String(row[0]),
 			ts: String(row[1]),
-			admin: row[3] == null ? "system" : String(row[3]),
+			admin: row[3] == null ? "system" : formatUnknown(row[3]),
 			action,
-			host: row[4] == null ? "—" : String(row[4]),
-			tmuxSession: row[5] == null ? "—" : String(row[5]),
-			paneId: row[6] == null ? "—" : String(row[6]),
-			streamId: row[7] == null ? undefined : String(row[7]),
+			host: row[4] == null ? "—" : formatUnknown(row[4]),
+			tmuxSession: row[5] == null ? "—" : formatUnknown(row[5]),
+			paneId: row[6] == null ? "—" : formatUnknown(row[6]),
+			streamId: row[7] == null ? undefined : formatUnknown(row[7]),
 		});
 	}
 	const alive = (kind: string) =>

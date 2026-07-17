@@ -177,7 +177,7 @@ export function assembleAvailability(
 					: "up";
 
 		let outageSince = state === "down" ? trailingOutage(points) : null;
-		if (state === "down" && signalDown && known?.last_signal_at)
+		if (state === "down" && signalDown && known.last_signal_at)
 			outageSince = iso(known.last_signal_at);
 		if (state === "down" && !outageSince && lastProbeAt)
 			outageSince = new Date(lastProbeMs + cadenceS * 1000).toISOString();

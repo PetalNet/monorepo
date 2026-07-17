@@ -94,7 +94,7 @@ export const readPlane = Query("unchecked", (plane: ReadPlane) =>
 			return yield* Effect.tryPromise(() =>
 				readEntity(services.db.app, principal.scopes, "registry", { limit: 1_000 }),
 			);
-		const kind = projectedKinds[plane as keyof typeof projectedKinds];
+		const kind = projectedKinds[plane];
 		if (!kind) return yield* Effect.die(new Error(`Unsupported read plane: ${plane}`));
 		return yield* Effect.tryPromise(() =>
 			kind === "attention" || kind === "subscription"
@@ -131,8 +131,9 @@ export const executeNamedOp = Command(
 					result: { dry_run: true, op: input.op },
 				} satisfies OpResult;
 			if (input.op === "task.claim" && services.trackerCommands) {
+				const trackerCommands = services.trackerCommands;
 				const taskId = Number(input.args["task_id"] ?? input.args["id"]);
-				const result = yield* Effect.tryPromise(() => services.trackerCommands!.claim({ taskId }));
+				const result = yield* Effect.tryPromise(() => trackerCommands.claim({ taskId }));
 				return {
 					schema_version: 1,
 					in_reply_to: crypto.randomUUID(),
@@ -186,8 +187,9 @@ export const sendAssistantRemote = Command(
 			const principal = yield* currentPrincipal;
 			if (!services.assistantRuntime)
 				return yield* Effect.die(new Error("Assistant manager adapter is unavailable"));
+			const assistantRuntime = services.assistantRuntime;
 			return yield* Effect.tryPromise(() =>
-				services.assistantRuntime!.send(principal, {
+				assistantRuntime.send(principal, {
 					id: crypto.randomUUID(),
 					kind: input.kind,
 					content: input.content,

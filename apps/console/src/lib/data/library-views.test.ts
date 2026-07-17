@@ -19,8 +19,8 @@ function item(id: string, kind: LibraryItemView["kind"], status: string): Librar
 	};
 }
 
-describe("Library graph view model", () => {
-	it("lays a typed-link DAG out from left to right", () => {
+void describe("Library graph view model", () => {
+	void it("lays a typed-link DAG out from left to right", () => {
 		const items = [
 			item("root", "decision", "verified-shared"),
 			item("child", "doc", "draft"),
@@ -43,7 +43,7 @@ describe("Library graph view model", () => {
 		);
 	});
 
-	it("walks outgoing and incoming edges without falling back to DOM order", () => {
+	void it("walks outgoing and incoming edges without falling back to DOM order", () => {
 		const links: Record<string, LibraryLinkFixture[]> = {
 			root: [
 				{ direction: "out", rel: "references", targetId: "a" },
@@ -57,8 +57,8 @@ describe("Library graph view model", () => {
 	});
 });
 
-describe("Library Kanban view model", () => {
-	it("separates work and knowledge lifecycles and never buries conflicts", () => {
+void describe("Library Kanban view model", () => {
+	void it("separates work and knowledge lifecycles and never buries conflicts", () => {
 		const grouped = groupLibraryKanban([
 			item("work", "task", "doing"),
 			item("knowledge", "fact", "verified-shared"),

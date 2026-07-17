@@ -57,9 +57,9 @@ const fieldMeta = z
 // the known shape strictly enough to keep the lake honest, then pass unknown keys through in `meta`.
 export const emissionSchema = z.object({
 	schema_version: z.literal(1),
-	id: z.string().uuid(),
+	id: z.uuid(),
 	type: z.string().regex(TYPE_RE).max(128),
-	ts: z.string().datetime({ offset: true }),
+	ts: z.iso.datetime({ offset: true }),
 	source: z.object({
 		service: z.string().max(64),
 		host: z.string().nullable().optional(),
@@ -83,7 +83,7 @@ export const emissionSchema = z.object({
 	body_ref: z.string().nullable().optional(),
 	meta: z
 		.object({ fields: z.record(z.string(), fieldMeta).optional() })
-		.passthrough()
+		.loose()
 		.optional(),
 });
 

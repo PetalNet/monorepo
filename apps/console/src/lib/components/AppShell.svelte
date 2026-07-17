@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatUnknown } from "#format";
 	import type { Snippet } from "svelte";
 	import { onMount } from "svelte";
 	import {
@@ -10,7 +11,8 @@
 	} from "$lib/rpc/browser";
 	import type { HealthVerdict } from "$lib/api/derive";
 	import type { Me } from "$lib/api/types";
-	import AskDock, { type ContextPayload } from "./AskDock.svelte";
+	import AskDock from "./AskDock.svelte";
+	import type { AssistantContextChip } from "./types";
 	import CommandPalette from "./CommandPalette.svelte";
 	import Icon from "./Icon.svelte";
 	import Sidebar from "./Sidebar.svelte";
@@ -38,9 +40,8 @@
 		children,
 	}: Props = $props();
 
-	let askRef = $state<AskDock | null>(null);
 	let paletteOpen = $state(false);
-	let context = $state<ContextPayload | null>(null);
+	let context = $state<AssistantContextChip | null>(null);
 	let progress = $state<string | null>(null);
 	let transcript = $state<string | null>(null);
 	let panels = $state<MaterializedPanel[]>([]);
@@ -53,6 +54,10 @@
 	const assistantDown = $derived(
 		!connected || dataMode() !== "live" || assistantFailed,
 	);
+
+	function focusAskDock(): void {
+		document.querySelector<HTMLInputElement>("[data-ask-dock-input]")?.focus();
+	}
 
 	type Scalar = string | number | boolean | null;
 	interface MaterializedPanel {
@@ -137,7 +142,7 @@
 			panelTypes.includes(String(panel.type)) &&
 			render &&
 			(result === null ||
-				(Array.isArray(result?.columns) && Array.isArray(result?.rows)))
+				(Array.isArray(result.columns) && Array.isArray(result.rows)))
 		)
 			return candidate as unknown as MaterializedPanel;
 		for (const key of ["result", "output", "data"]) {
@@ -165,15 +170,15 @@
 	function layout(value: unknown): WindowLayout | null {
 		const candidate = record(value);
 		if (!candidate) return null;
-		const direct = record(candidate?.layout) ?? candidate;
-		if (Array.isArray(direct?.ops))
+		const direct = record(candidate.layout) ?? candidate;
+		if (Array.isArray(direct.ops))
 			return {
 				ops: direct.ops
 					.filter((op) => record(op))
 					.map((op) => op as WindowLayout["ops"][number]),
 			};
 		for (const key of ["result", "output", "data"]) {
-			const nested = layout(candidate?.[key]);
+			const nested = layout(candidate[key]);
 			if (nested) return nested;
 		}
 		return null;
@@ -198,8 +203,8 @@
 		const bindings = panel.render.bindings ?? [];
 		if (bindings.some(({ status }) => status === "refused"))
 			return "partly refused";
-		if (bindings.length) return `${bindings.length} proved bindings`;
-		return panel.result ? `${panel.result.row_count} rows` : "proved surface";
+		if (bindings.length) return `${String(bindings.length)} proved bindings`;
+		return panel.result ? `${String(panel.result.row_count)} rows` : "proved surface";
 	}
 	function panelSpan(panel: MaterializedPanel, index: number): number {
 		const arranged = windowLayout?.ops.findLast(
@@ -221,7 +226,7 @@
 		)?.layout;
 		const col = typeof placed?.col === "number" ? Math.max(0, Math.min(11, placed.col)) + 1 : null;
 		const row = typeof placed?.row === "number" ? Math.max(0, placed.row) + 1 : null;
-		return `grid-column:${col ? `${col} / span ` : "span "}${panelSpan(panel, index)};${row ? `grid-row-start:${row};` : ""}`;
+		return `grid-column:${col ? `${String(col)} / span ` : "span "}${String(panelSpan(panel, index))};${row ? `grid-row-start:${String(row)};` : ""}`;
 	}
 	function panelHighlighted(panel: MaterializedPanel, index: number): boolean {
 		return panel.panel.layout?.highlight === true || windowLayout?.ops.some(
@@ -243,7 +248,7 @@
 		return numeric
 			.map(
 				(value, index) =>
-					`${8 + (index * 464) / (numeric.length - 1)},${88 - ((value - min) * 72) / range}`,
+					`${String(8 + (index * 464) / (numeric.length - 1))},${String(88 - ((value - min) * 72) / range)}`,
 			)
 			.join(" ");
 	}
@@ -303,7 +308,7 @@
 				!!target.closest("input, textarea, [contenteditable=true]"));
 		if (event.key === "/" && !typing) {
 			event.preventDefault();
-			askRef?.focus();
+			focusAskDock();
 			return;
 		}
 		if (event.key === "Escape") {
@@ -329,7 +334,7 @@
 		const payload = payloadFor(target);
 		context = { label: payload.value.slice(0, 64) };
 		menu = null;
-		queueMicrotask(() => askRef?.focus());
+		queueMicrotask(focusAskDock);
 		if (assistantDown) return;
 		contextDelivery = (async () => {
 			try {
@@ -340,6 +345,15 @@
 		})();
 		await contextDelivery;
 		contextDelivery = null;
+	}
+	function askAboutMenuTarget(): void {
+		if (menu) void askAbout(menu.target);
+	}
+	function runMenuContextAction(): void {
+		if (menu) runContextAction(menu.target);
+	}
+	function copyMenuValue(): void {
+		if (menu) void copyValue(menu.target);
 	}
 
 	async function copyValue(target: HTMLElement) {
@@ -387,7 +401,7 @@
 					windowLayout = layout(session.window_layout);
 					if (session.last_context?.value)
 						context = {
-							label: String(session.last_context.value).slice(0, 64),
+							label: formatUnknown(session.last_context.value).slice(0, 64),
 						};
 					return session;
 				})
@@ -408,7 +422,7 @@
 		}
 		window.addEventListener("keydown", commandKey, { capture: true });
 		return () =>
-			window.removeEventListener("keydown", commandKey, { capture: true });
+			{ window.removeEventListener("keydown", commandKey, { capture: true }); };
 	});
 </script>
 
@@ -444,7 +458,7 @@
 						>
 					</header>
 					<div class="assistant-grid">
-						{#each panels as item, index}
+						{#each panels as item, index (index)}
 							<article
 								class:highlight={panelHighlighted(item, index)}
 								style={panelStyle(item, index)}
@@ -469,11 +483,11 @@
 												{item.panel.refusal?.reason ??
 													"The requested evidence is unavailable."}
 											</p>
-											{#each item.panel.refusal?.suggestions ?? [] as suggestion}<button
+											{#each item.panel.refusal?.suggestions ?? [] as suggestion, __eachKey0 (__eachKey0)}<button
 													type="button"
 													onclick={() => {
 														context = { label: suggestion };
-														queueMicrotask(() => askRef?.focus());
+												queueMicrotask(focusAskDock);
 													}}>{suggestion}</button
 												>{/each}
 										</div>
@@ -502,13 +516,13 @@
 										<table>
 											<thead
 												><tr
-													>{#each item.result.columns as column}<th
+													>{#each item.result.columns as column, __eachKey1 (__eachKey1)}<th
 															>{column.name}</th
 														>{/each}</tr
 												></thead
 											><tbody
-												>{#each item.result.rows.slice(0, 20) as row}<tr
-														>{#each row as cell}<td>{cell ?? "—"}</td
+												>{#each item.result.rows.slice(0, 20) as row, __eachKey2 (__eachKey2)}<tr
+														>{#each row as cell, __eachKey3 (__eachKey3)}<td>{cell ?? "—"}</td
 															>{/each}</tr
 													>{/each}</tbody
 											>
@@ -537,7 +551,6 @@
 			{#if !panels.length}{@render children()}{/if}
 		</div>
 		<AskDock
-			bind:this={askRef}
 			mode="docked"
 			{context}
 			{progress}
@@ -552,25 +565,25 @@
 	bind:open={paletteOpen}
 	lanes={me.lanes}
 	{connected}
-	onask={() => askRef?.focus()}
+	onask={focusAskDock}
 />
 {#if menu}
 	<div
 		bind:this={menuEl}
 		class="context-menu"
-		style:left={`${menu.x}px`}
-		style:top={`${menu.y}px`}
+		style:left={`${String(menu.x)}px`}
+		style:top={`${String(menu.y)}px`}
 		role="menu"
 		aria-label="Element actions"
 		tabindex="-1"
 	>
-		<button type="button" role="menuitem" onclick={() => askAbout(menu!.target)}
+		<button type="button" role="menuitem" onclick={askAboutMenuTarget}
 			><Icon name="sparkles" size={16} />Ask about this</button
 		>
 		{#if menu.target.closest("[data-context-action]")}<button
 				type="button"
 				role="menuitem"
-				onclick={() => runContextAction(menu!.target)}
+				onclick={runMenuContextAction}
 				><Icon name="columns-2" size={16} />{menu.target.closest<HTMLElement>(
 					"[data-context-action]",
 				)?.dataset.contextAction}</button
@@ -578,7 +591,7 @@
 		<button
 			type="button"
 			role="menuitem"
-			onclick={() => copyValue(menu!.target)}
+			onclick={copyMenuValue}
 			><Icon name="copy" size={16} />Copy value</button
 		>
 	</div>

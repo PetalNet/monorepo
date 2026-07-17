@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { formatUnknown } from "#format";
+
 import { resolveScopes, sha256, type Principal } from "../auth/principal.ts";
 import { ProposalError, proposeMutation, type TrackerProposalWriter } from "../auth/proposals.ts";
 import { shouldProposeMutation } from "../auth/tiers.ts";
@@ -36,7 +38,7 @@ const windowSchema = z
 						panel_index: z.number().int().min(0).max(59).optional(),
 						layout: z.record(z.string(), z.unknown()).optional(),
 					})
-					.passthrough(),
+					.loose(),
 			)
 			.max(100),
 	})
@@ -67,7 +69,7 @@ const dashboardToolSchema = z.discriminatedUnion("action", [
 		.object({
 			action: z.literal("set_home"),
 			id: z.string().max(100),
-			request_id: z.string().uuid(),
+			request_id: z.uuid(),
 		})
 		.strict(),
 ]);
@@ -288,7 +290,7 @@ async function callTool(
 		const rows = await db.writer<{ window_layout: Record<string, unknown> }[]>`
 			update assistant_sessions set window_layout = ${db.writer.json({ ops: parsed.ops } as never)}, updated_at = now()
 			where principal_id = ${principal.id} returning window_layout`;
-		return { schema_version: 1, layout: rows[0]?.window_layout ?? { ops: [] } };
+		return { schema_version: 1, layout: rows[0].window_layout ?? { ops: [] } };
 	}
 	if (name === "dashboard.manage") {
 		const parsed = dashboardToolSchema.parse(args);
@@ -382,8 +384,8 @@ export async function handleAssistantMcp(
 	raw: unknown,
 ): Promise<Record<string, unknown>> {
 	const request = raw as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown };
-	const id = request?.id ?? null;
-	if (request?.jsonrpc !== "2.0" || typeof request.method !== "string")
+	const id = request.id ?? null;
+	if (request.jsonrpc !== "2.0" || typeof request.method !== "string")
 		return { jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request" } };
 	if (request.method === "initialize")
 		return {
@@ -407,8 +409,8 @@ export async function handleAssistantMcp(
 			const result = await callTool(
 				services,
 				principal,
-				String(params?.name ?? ""),
-				params?.arguments,
+				formatUnknown(params.name ?? ""),
+				params.arguments,
 			);
 			const response: Record<string, unknown> = {
 				jsonrpc: "2.0",

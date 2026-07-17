@@ -2,15 +2,15 @@
 // runs the bridge poll loop, ingesting local as-built sources into the lake. Configure sources via
 // env (SYSTEM_OUTBOX_DIR). Remote boxes run their own per-box bridge (future Rust console-bridge).
 
-import { buildServices } from "../app.ts";
 import {
 	Bridge,
 	DispatcherSqliteAdapter,
 	FleetSnapshotAdapter,
 	JsonlSpoolAdapter,
 	ManagerHeartbeatAdapter,
-} from "../bridge/index.ts";
-import { loadEnv } from "../env.ts";
+} from "../src/lib/server/domain/bridge/index.ts";
+import { loadEnv } from "../src/lib/server/domain/env.ts";
+import { buildServices } from "../src/lib/server/domain/substrate.ts";
 
 // Clamp to a sane finite interval: an unset/NaN/zero/negative value must not become a hot loop, and
 // an absurdly large one shouldn't silently wedge the poller.

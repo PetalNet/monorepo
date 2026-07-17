@@ -108,7 +108,7 @@ export const setSignalSourceMode = command(
 				dry_run: false,
 			}),
 		});
-		if (!result.ok) error(400, result.error?.message ?? "Signal source mode could not be changed");
+		if (!result.ok) error(400, result.error.message ?? "Signal source mode could not be changed");
 		void getSignalSourceModes().refresh();
 		return {
 			item: result.result as SignalSourceModeItem,

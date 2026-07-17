@@ -11,7 +11,9 @@ export const unifiedConsoleServer = (): Plugin => ({
 	name: "unified-console-node-server",
 	apply: "serve",
 	async configureServer(vite) {
-		if (!vite.httpServer) throw new Error("Vite HTTP server is unavailable");
+		// Vitest creates a Vite dev server without an HTTP listener. There are no upgrade paths to
+		// attach in that environment, and constructing the domain substrate would leak test resources.
+		if (!vite.httpServer) return;
 		const services = buildServices(loadEnv(), { migrate: false });
 		setSharedConsoleServices(services);
 		const active = await services;

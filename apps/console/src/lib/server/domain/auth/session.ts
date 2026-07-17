@@ -56,7 +56,7 @@ export function createBetterAuthSessionVerifier(
 			const session = await auth.api.getSession({ headers: fromNodeHeaders(headers) });
 			if (!session) return null;
 			if (Date.now() - new Date(session.session.createdAt).getTime() > 5 * 60_000) return null;
-			const identity = parseBetterAuthIdentity(session.user as unknown as Record<string, unknown>);
+			const identity = parseBetterAuthIdentity(session.user);
 			return identity ? { ...identity, sessionId: session.session.id } : null;
 		},
 		async getIdentityBySessionId(sessionId) {
@@ -67,7 +67,7 @@ export function createBetterAuthSessionVerifier(
 				   and s."createdAt" > now() - interval '5 minutes'`,
 				[sessionId],
 			);
-			const identity = result[0]?.user ? parseBetterAuthIdentity(result[0].user) : null;
+			const identity = result[0].user ? parseBetterAuthIdentity(result[0].user) : null;
 			return identity ? { ...identity, sessionId } : null;
 		},
 		async close() {

@@ -237,8 +237,8 @@ export class Broker {
 	async #drain(sub: Sub): Promise<void> {
 		sub.draining = true;
 		try {
-			for await (const iteration of whileCondition(() => sub.queue.length > 0 && !sub.closed)) {
-				void iteration;
+			for (const iteration of whileCondition(() => sub.queue.length > 0 && !sub.closed)) {
+				iteration;
 				const item = sub.queue.shift();
 				if (!item) break;
 				sub.send(frame(sub.spec.subId, item.seq, item.emission));

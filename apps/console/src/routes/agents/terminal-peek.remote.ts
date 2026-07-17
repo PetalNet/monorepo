@@ -13,10 +13,7 @@ const targetSchema = z
 	.strict();
 const pollSchema = z
 	.object({
-		stream_id: z
-			.string()
-			.uuid()
-			.or(z.string().regex(/^mock-/)),
+		stream_id: z.uuid().or(z.string().regex(/^mock-/)),
 		tick: z.number().int().nonnegative(),
 	})
 	.strict();

@@ -72,7 +72,7 @@ function selectPanelType(result: QueryResult): {
 			reason: "temporal dimension × numeric measure",
 		};
 	if (dimensions[0] && numeric[0]) {
-		const cardinality = new Set(data.map((row) => row[dimensions[0]!.name])).size;
+		const cardinality = new Set(data.map((row) => row[dimensions[0].name])).size;
 		if (cardinality <= 20)
 			return {
 				type: "bar",
@@ -88,8 +88,8 @@ function selectPanelType(result: QueryResult): {
 	if (numeric.length >= 2)
 		return {
 			type: "scatter",
-			x: numeric[0]!.name,
-			y: numeric[1]!.name,
+			x: numeric[0].name,
+			y: numeric[1].name,
 			reason: "two numeric measures",
 		};
 	return { type: "table", reason: "no safe dimension × measure chart mapping" };
@@ -150,7 +150,7 @@ function forecastValues(
 		strategy = "drift";
 	const window = Math.min(points.length, Math.max(2, Math.trunc(spec.window ?? 3)));
 	const alpha = Math.min(1, Math.max(0.01, spec.alpha ?? 0.35));
-	const first = ys[0]!;
+	const first = ys[0];
 	const last = ys.at(-1)!;
 	let smooth = first;
 	for (const value of ys.slice(1)) smooth = alpha * value + (1 - alpha) * smooth;
@@ -169,7 +169,7 @@ function forecastValues(
 			? (Math.abs(last) * Math.max(0, spec.interval_pct)) / 100
 			: Math.max(residualStd, stdDev * 0.1) * confidenceMultiplier;
 	const xNumbers = dateAxis ? parsedDates : points.map((point) => Number(point.x));
-	const steps = xNumbers.slice(1).map((value, index) => value - xNumbers[index]!);
+	const steps = xNumbers.slice(1).map((value, index) => value - xNumbers[index]);
 	const positive = steps.filter((step) => step > 0).toSorted((a, b) => a - b);
 	const step = positive[Math.floor(positive.length / 2)] ?? 1;
 	const actual = points.map((point) => ({ ...point.row, __series: "actual" }));

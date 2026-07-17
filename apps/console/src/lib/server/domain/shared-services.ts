@@ -11,7 +11,3 @@ export const getSharedConsoleServices = (): Promise<Services> | undefined => {
 export const setSharedConsoleServices = (services: Promise<Services>): void => {
 	sharedGlobal[servicesKey] = services;
 };
-
-export const clearSharedConsoleServices = (): void => {
-	delete sharedGlobal[servicesKey];
-};

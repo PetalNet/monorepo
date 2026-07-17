@@ -3,6 +3,8 @@ import { mockEdgeHealth, mockSessions, mockWireEvents } from "$lib/data/network"
 import { captureCaughtFailure } from "$lib/glitchtip";
 import { dataMode, readEdgeSessions, readExecutors, runQuery } from "$lib/rpc/browser";
 
+import { formatUnknown } from "#format";
+
 import type { PageLoad } from "./$types";
 
 function queryRecords(result: QueryResult): Record<string, unknown>[] {
@@ -27,7 +29,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			error: null,
 		};
 	}
-	const executors = await readExecutors(fetch).catch((error) => {
+	const executors = await readExecutors(fetch).catch((error: unknown) => {
 		captureCaughtFailure(error, { surface: "network", endpoint: "/executors" });
 		return null;
 	});
@@ -71,7 +73,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 	const newestEvidenceAgeMs = newestEvidenceAt
 		? Date.now() - Date.parse(newestEvidenceAt)
 		: Number.POSITIVE_INFINITY;
-	const newestEvidenceType = String(newerStatus?.["type"] ?? "doorman.health");
+	const newestEvidenceType = formatUnknown(newerStatus?.["type"] ?? "doorman.health");
 	const reportedState = edgeEvidence?.["state"];
 	const health =
 		edgeEvidence &&
@@ -92,7 +94,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 					caddyOk:
 						newestEvidenceAgeMs <= 30_000 &&
 						(newestEvidenceType === "doorman.recover" || edgeEvidence["caddy_ok"]),
-					updatedAt: newestEvidenceAt ?? (edgeObservedAt as string),
+					updatedAt: newestEvidenceAt ?? edgeObservedAt,
 				}
 			: null;
 	const wire = history
@@ -104,8 +106,8 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 		.slice(0, 6)
 		.map((event) => ({
 			type: String(event["type"]).replace(/^doorman\./, ""),
-			handle: String(event["source_agent"] ?? event["subject"] ?? "unknown"),
-			detail: String(event["subject"] ?? "event persisted"),
+			handle: formatUnknown(event["source_agent"] ?? event["subject"] ?? "unknown"),
+			detail: formatUnknown(event["subject"] ?? "event persisted"),
 			at: String(event["ts"]),
 		}));
 	try {

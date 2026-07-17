@@ -113,7 +113,7 @@ export function assembleUpdates(boxUpdates: BoxUpdateItem[], opts: AssembleOptio
 		? null
 		: rows.filter((r) => r.rebootRequired === true).length;
 	const parts: string[] = [];
-	if (owing > 0) parts.push(`${owing} host${owing === 1 ? "" : "s"} owe updates`);
+	if (owing > 0) parts.push(`${String(owing)} host${owing === 1 ? "" : "s"} owe updates`);
 	const notVerified = rows
 		.filter((r) => r.stale || r.status === "error_collecting")
 		.map((r) => r.host);

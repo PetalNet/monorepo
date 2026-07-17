@@ -59,7 +59,7 @@ export class SignalSourceModes {
 				insert into signal_source_mode_outbox
 					(id, source_service, mode, note, updated_at, updated_by)
 				values (${eventId}, ${sourceService}, ${mode}, ${note}, ${now}, ${actor})`;
-			return { ...row, previous_mode: previous[0]?.mode ?? "normal" };
+			return { ...row, previous_mode: previous[0].mode ?? "normal" };
 		});
 		if (!saved) throw new Error("signal source mode was not persisted");
 		await this.#publish({ id: eventId, ...saved }).catch(() => false);

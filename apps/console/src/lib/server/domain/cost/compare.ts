@@ -8,6 +8,8 @@ import type {
 } from "@petalnet/types";
 import { z } from "zod";
 
+import { formatUnknown } from "#format";
+
 import { QueryError, runStructured, type QueryResult } from "../query/structured.ts";
 
 export const costComparisonRequestSchema = z
@@ -16,8 +18,8 @@ export const costComparisonRequestSchema = z
 		dimension: z.enum(["agent", "model", "project"]),
 		left: z.string().min(1).max(256),
 		right: z.string().min(1).max(256),
-		from: z.string().datetime({ offset: true }),
-		to: z.string().datetime({ offset: true }),
+		from: z.iso.datetime({ offset: true }),
+		to: z.iso.datetime({ offset: true }),
 		timezone: z.string().min(1).max(64),
 	})
 	.strict()
@@ -148,7 +150,7 @@ export async function compareCostPairWith(
 	const priceRows = records(pricing)
 		.map((row) => ({
 			pattern: String(row["model_pattern"]),
-			updatedAt: String(row["updated_at"] ?? pricing.freshness.observed_at),
+			updatedAt: formatUnknown(row["updated_at"] ?? pricing.freshness.observed_at),
 			rate: {
 				input: finite(row["input_per_mtok"]),
 				output: finite(row["output_per_mtok"]),
@@ -183,10 +185,10 @@ export async function compareCostPairWith(
 		]),
 	);
 	for (const row of records(usage)) {
-		const value = String(row[input.dimension] ?? "");
+		const value = formatUnknown(row[input.dimension] ?? "");
 		const accumulator = accumulators.get(value);
 		if (!accumulator) continue;
-		const model = String(row["model"] ?? "");
+		const model = formatUnknown(row["model"] ?? "");
 		const matched = matchRate(model);
 		const inputTokens = finite(row["input_tokens"]);
 		const outputTokens = finite(row["output_tokens"]);
@@ -219,7 +221,7 @@ export async function compareCostPairWith(
 		accumulator.output_tokens += outputTokens;
 		accumulator.cache_creation_tokens += creationTokens;
 		accumulator.cache_read_tokens += readTokens;
-		accumulator.sessionIds.add(String(row["session_id"] ?? "unknown"));
+		accumulator.sessionIds.add(formatUnknown(row["session_id"] ?? "unknown"));
 	}
 	const side = (value: string): CostComparisonSide => {
 		const item = accumulators.get(value)!;

@@ -27,16 +27,16 @@
 	function age(value: string | null | undefined): string {
 		if (!value) return "freshness unknown";
 		const seconds = Math.max(0, Math.round((Date.now() - Date.parse(value)) / 1000));
-		if (seconds < 60) return `${seconds}s ago`;
-		if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
-		return `${Math.round(seconds / 3600)}h ago`;
+		if (seconds < 60) return `${String(seconds)}s ago`;
+		if (seconds < 3600) return `${String(Math.round(seconds / 60))}m ago`;
+		return `${String(Math.round(seconds / 3600))}h ago`;
 	}
 
 	const cadence = $derived.by(() => {
 		const values = new Set(snapshot?.items.map((item) => item.cadence_s) ?? []);
 		if (values.size !== 1) return "service cadence";
-		const seconds = [...values][0]!;
-		return seconds < 60 ? `every ${seconds}s` : `every ${Math.round(seconds / 60)}m`;
+		const seconds = [...values][0];
+		return seconds < 60 ? `every ${String(seconds)}s` : `every ${String(Math.round(seconds / 60))}m`;
 	});
 </script>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatUnknown } from "#format";
 	import { connectBus } from "$lib/rpc/browser";
 	const env = import.meta.env;
 	import Icon from "$lib/components/Icon.svelte";
@@ -92,7 +93,7 @@
 			const receipt = await sendDeliveryTest();
 			result = {
 				tone: "good",
-				text: `Delivered and persisted as receipt ${String(receipt["receipt_ref"] ?? "confirmed")}.`,
+				text: `Delivered and persisted as receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
 			};
 			snackbar.push({ message: "delivery.test applied", op: "delivery.test", tone: "good" });
 		} catch (error) {
@@ -112,7 +113,7 @@
 			targetOpen = false;
 			result = {
 				tone: "good",
-				text: `New target verified by persisted receipt ${String(receipt["receipt_ref"] ?? "confirmed")}.`,
+				text: `New target verified by persisted receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
 			};
 			snackbar.push({ message: "delivery.set_target applied", op: "delivery.set_target", tone: "good" });
 		} catch (error) {

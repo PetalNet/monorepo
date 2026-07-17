@@ -174,7 +174,7 @@ export const getCockpit = query(async (): Promise<CockpitRemoteResult> => {
 			saved: dashboards.map((dashboard) => ({
 				id: dashboard.id,
 				name: dashboard.title,
-				sub: `${dashboard.panel_count} panel${dashboard.panel_count === 1 ? "" : "s"}${dashboard.is_home ? " · home" : ""}`,
+				sub: `${String(dashboard.panel_count)} panel${dashboard.panel_count === 1 ? "" : "s"}${dashboard.is_home ? " · home" : ""}`,
 			})),
 		},
 	};

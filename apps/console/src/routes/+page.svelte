@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { PageProps } from "./$types";
 	import { browser } from "$app/env";
 	import { connectBus } from "$lib/rpc/browser";
 	import CockpitSkeleton from "$lib/components/CockpitSkeleton.svelte";
@@ -15,7 +16,7 @@
 	import { getCockpit } from "./cockpit.remote";
 	import type { CockpitRemoteResult } from "./cockpit.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	const cockpitQuery = getCockpit();
 	const cockpitCacheKey = $derived(`console:cockpit:snapshot:${data.me.id}`);
 	let cachedRemote = $state<CockpitRemoteResult | null>(null);
@@ -75,10 +76,10 @@
 					{
 						tone: needTone,
 						count: c.hud.needsNew,
-						label: c.hud.needsHeld > 0 ? `new · ${c.hud.needsHeld} held` : "need you",
+						label: c.hud.needsHeld > 0 ? `new · ${String(c.hud.needsHeld)} held` : "need you",
 					},
 					{ tone: "good", count: c.hud.inFlight, label: "in flight" },
-					{ tone: "good", count: c.hud.hostsUp, label: `up · ${c.hud.hostsDown} down` },
+					{ tone: "good", count: c.hud.hostsUp, label: `up · ${String(c.hud.hostsDown)} down` },
 				]
 			: [],
 	);
@@ -186,8 +187,8 @@
 					<div class="rail-tools">
 						<div class="rail-meta">{c.railHosts.filter((h) => !h.dark).length} houses · {c.hud.inFlight} workers up</div>
 						<div class="rail-flip" aria-label="Neighborhood view">
-							<button class:selected={railView === "houses"} aria-pressed={railView === "houses"} onclick={() => selectRailView("houses")}>Houses</button>
-							<button class:selected={railView === "residents"} aria-pressed={railView === "residents"} onclick={() => selectRailView("residents")}>Residents</button>
+							<button class:selected={railView === "houses"} aria-pressed={railView === "houses"} onclick={() => { selectRailView("houses"); }}>Houses</button>
+							<button class:selected={railView === "residents"} aria-pressed={railView === "residents"} onclick={() => { selectRailView("residents"); }}>Residents</button>
 						</div>
 					</div>
 					{#key railView}<div class="rail-view" aria-live="polite">

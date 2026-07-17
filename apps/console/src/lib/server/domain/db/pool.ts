@@ -43,7 +43,7 @@ export function openDb(env: Env): Db {
 		writer,
 		async close() {
 			const all = new Set([admin, app, ro, writer]);
-			for await (const c of all) await c.end({ timeout: 5 });
+			for (const c of all) await c.end({ timeout: 5 });
 		},
 	};
 }

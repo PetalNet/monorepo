@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from "./Icon.svelte";
+	import type { LibraryView } from "./types";
 
-	export type LibraryView = "list" | "graph" | "kanban" | "table";
 	interface Props {
 		value: LibraryView;
 		disabled?: boolean;
@@ -17,13 +17,13 @@
 </script>
 
 <div class="view-switcher" role="group" aria-label="Library view">
-	{#each views as view}
+	{#each views as view, __eachKey15 (__eachKey15)}
 		<button
 			type="button"
 			aria-pressed={value === view.id}
 			class:active={value === view.id}
 			{disabled}
-			onclick={() => onchange(view.id)}
+			onclick={() => { onchange(view.id); }}
 		>
 			<Icon name={view.icon} size={14} />
 			<span>{view.label}</span>

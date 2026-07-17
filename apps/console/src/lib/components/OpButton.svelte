@@ -51,7 +51,7 @@
 	const visible = $derived(canSeeOp(def, lanes));
 	const disabled = $derived(!executorLive || !available || busy);
 	const auditNote = $derived(
-		`${def.op}` +
+		def.op +
 			(!executorLive ? " · executor unreachable" : !available ? ` · ${unavailableNote}` : ""),
 	);
 

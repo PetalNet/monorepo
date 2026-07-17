@@ -37,7 +37,7 @@
 		</div>
 		{#if overflow > 0}
 			<button class="more-row" onclick={() => (expanded = !expanded)}>
-				{expanded ? "Show less" : `${overflow} more`}
+				{expanded ? "Show less" : `${String(overflow)} more`}
 			</button>
 		{/if}
 	{/if}

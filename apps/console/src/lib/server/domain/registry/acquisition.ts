@@ -19,7 +19,7 @@ export const capabilityAcquisitionSchema = z
 		scope: z.string().min(1),
 		integrity: z
 			.object({ algorithm: z.literal("sha256"), digest: z.string().regex(/^[a-f0-9]{64}$/) })
-			.passthrough(),
+			.loose(),
 		artifact: z
 			.object({
 				media_type: z.literal("application/vnd.petalnet.capability-bundle+json"),
@@ -31,7 +31,7 @@ export const capabilityAcquisitionSchema = z
 					.max(2 * 1024 * 1024),
 				data: z.string(),
 			})
-			.passthrough(),
+			.loose(),
 		provenance: z
 			.object({
 				library_item_id: z.string(),
@@ -39,11 +39,11 @@ export const capabilityAcquisitionSchema = z
 				created_by_agent: z.string().nullable(),
 				responsible_human: z.string().nullable(),
 				source_url: z.string().nullable(),
-				registry_observed_at: z.string().datetime(),
+				registry_observed_at: z.iso.datetime(),
 			})
-			.passthrough(),
+			.loose(),
 	})
-	.passthrough();
+	.loose();
 
 export type CapabilityAcquisition = z.infer<typeof capabilityAcquisitionSchema>;
 

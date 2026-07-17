@@ -1,14 +1,15 @@
+import { createHash } from "node:crypto";
 // The co-located bridge (N1b-3, PHASE1B-DESIGN §3). Tails .14-local as-built sources on a poll and
 // emits them into the lake via the normal emit path (authz + scrubber + dedup all apply). Remote
 // boxes run their own per-box bridge (the future Rust `console-bridge`); this one covers the
 // .14-local sources. Deterministic ids make every poll idempotent; a durable cursor per source
 // resumes after restart; an unreadable source emits `bridge.source.unreachable` (a dark source is a
 // signal, not an absence).
-
-import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+
+import { formatUnknown } from "#format";
 
 import type { Sql } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
@@ -77,9 +78,9 @@ export class Bridge {
 		>`select cursor, below_count, below_hash from bridge_cursor where source = ${source}`;
 		const row = rows[0];
 		return {
-			cursor: row?.cursor ?? "",
-			belowCount: Number(row?.below_count ?? 0),
-			belowHash: row?.below_hash ?? "",
+			cursor: row.cursor ?? "",
+			belowCount: row.below_count ?? 0,
+			belowHash: row.below_hash ?? "",
 		};
 	}
 
@@ -153,8 +154,7 @@ export class Bridge {
 		try {
 			if (this.#config.systemOutboxDir)
 				await this.#pollSystemOutbox(this.#config.systemOutboxDir, now);
-			for await (const adapter of this.#config.adapters ?? [])
-				await this.#pollAdapter(adapter, now);
+			for (const adapter of this.#config.adapters ?? []) await this.#pollAdapter(adapter, now);
 		} finally {
 			this.#polling = false;
 		}
@@ -197,7 +197,7 @@ export class Bridge {
 				this.#control(adapter.source, "doorman.recover", now, "info"),
 			);
 		this.#healthySeen.add(adapter.source);
-		for await (const loss of batch.losses ?? []) {
+		for (const loss of batch.losses ?? []) {
 			const ref = sourceCursorRef(loss.cursor);
 			await this.#quarantine(adapter.source, ref, null, loss.reason);
 			await this.#emitOne(
@@ -205,7 +205,7 @@ export class Bridge {
 				this.#gap(adapter.source, ref, loss.reason, now),
 			);
 		}
-		for await (const raw of batch.emissions) {
+		for (const raw of batch.emissions) {
 			const e = this.#tagSource(adapter.source, raw);
 			const r = await this.#emit(adapter.producerSubject, e, Buffer.byteLength(JSON.stringify(e)));
 			if (r.ok) continue;
@@ -256,12 +256,12 @@ export class Bridge {
 				SYSTEM_OUTBOX_PRODUCER,
 				this.#control(source, "bridge.source.anomaly", now, "warn"),
 			);
-		for await (const loss of result.losses) {
+		for (const loss of result.losses) {
 			const ref = sourceCursorRef(loss.file);
 			await this.#quarantine(source, ref, null, loss.reason);
 			await this.#emitOne(SYSTEM_OUTBOX_PRODUCER, this.#gap(source, ref, loss.reason, now));
 		}
-		for await (const raw of result.emissions) {
+		for (const raw of result.emissions) {
 			const e = this.#tagSource(source, raw);
 			const r = await this.#emit(SYSTEM_OUTBOX_PRODUCER, e, Buffer.byteLength(JSON.stringify(e)));
 			if (r.ok) continue;
@@ -424,8 +424,8 @@ abstract class SnapshotAdapter implements BridgeAdapter {
 				if (emit) emissions.push(...this.emissions(name, body, hash, now));
 				next[name] = {
 					observed: hash,
-					emitted: emit ? key : (prior?.emitted ?? ""),
-					emittedAt: emit ? now : (prior?.emittedAt ?? ""),
+					emitted: emit ? key : (prior.emitted ?? ""),
+					emittedAt: emit ? now : (prior.emittedAt ?? ""),
 				};
 			} catch {
 				losses.push({ cursor: name, reason: "invalid_record" });
@@ -652,8 +652,8 @@ export class JsonlSpoolAdapter implements BridgeAdapter {
 				}
 				const fileId = `${String(stat.dev)}:${String(stat.ino)}`;
 				const prior = previous[file];
-				let byteOffset = prior?.byteOffset ?? 0;
-				let lineNumber = prior?.line ?? 0;
+				let byteOffset = prior.byteOffset ?? 0;
+				let lineNumber = prior.line ?? 0;
 				if (
 					prior &&
 					(prior.fileId !== fileId ||
@@ -815,11 +815,11 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 					scope: "fleet",
 					dimensions: {
 						state,
-						sender: String(row["sender"] ?? ""),
-						sender_class: String(row["sender_class"] ?? ""),
-						recipient: String(row["recipient"] ?? ""),
-						interrupt_policy: String(row["interrupt_policy"] ?? ""),
-						claimed_by: String(row["claimed_by"] ?? ""),
+						sender: formatUnknown(row["sender"] ?? ""),
+						sender_class: formatUnknown(row["sender_class"] ?? ""),
+						recipient: formatUnknown(row["recipient"] ?? ""),
+						interrupt_policy: formatUnknown(row["interrupt_policy"] ?? ""),
+						claimed_by: formatUnknown(row["claimed_by"] ?? ""),
 						delivered: Boolean(row["delivered"]),
 						addressed: Boolean(row["addressed"]),
 					},
@@ -860,7 +860,7 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 					},
 					meta: {
 						body_preview: body?.slice(0, 240) ?? null,
-						sender_class: String(row["sender_class"] ?? ""),
+						sender_class: formatUnknown(row["sender_class"] ?? ""),
 						priority,
 					},
 				} satisfies Emission;

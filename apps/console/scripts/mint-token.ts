@@ -6,9 +6,9 @@
 
 import { randomBytes } from "node:crypto";
 
-import { sha256 } from "../auth/principal.ts";
-import { openDb } from "../db/pool.ts";
-import { loadEnv } from "../env.ts";
+import { sha256 } from "../src/lib/server/domain/auth/principal.ts";
+import { openDb } from "../src/lib/server/domain/db/pool.ts";
+import { loadEnv } from "../src/lib/server/domain/env.ts";
 
 function argValue(flag: string): string | null {
 	const i = process.argv.indexOf(flag);

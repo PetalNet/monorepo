@@ -222,7 +222,7 @@ export class AgentsViewCostMeter implements CostMeter {
 		try {
 			pairwise = pairwiseSchema.parse(rawPairwise);
 			summary = z.object({ pricing: pricingSchema }).parse(rawSummary);
-			sync = z.object({ last_sync: z.string().datetime({ offset: true }) }).parse(rawSync);
+			sync = z.object({ last_sync: z.iso.datetime({ offset: true }) }).parse(rawSync);
 		} catch (error) {
 			throw new CostMeterUnavailableError(
 				`cost meter returned an incomplete contract: ${error instanceof Error ? error.message : "invalid response"}`,

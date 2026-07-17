@@ -41,7 +41,7 @@ async function readProjectedEntity(
 	opts: ReadOpts,
 	map: EntityMapper,
 ): Promise<ReadEnvelope> {
-	const n = Number(opts.limit ?? 200);
+	const n = opts.limit ?? 200;
 	const limit = Number.isFinite(n) ? Math.min(Math.max(1, Math.floor(n)), 1000) : 200;
 	const after = opts.cursor ?? "";
 	const since = opts.since ?? null;
@@ -199,7 +199,7 @@ export async function readDeliveryConfig(
 	scopes: readonly string[],
 	opts: ReadOpts = {},
 ): Promise<ReadEnvelope> {
-	const n = Number(opts.limit ?? 200);
+	const n = opts.limit ?? 200;
 	const limit = Number.isFinite(n) ? Math.min(Math.max(1, Math.floor(n)), 1000) : 200;
 	const after = opts.cursor ?? "";
 	const owner = opts.owner ?? null;
@@ -251,7 +251,7 @@ export async function readSignalSourceModes(
 	scopes: readonly string[],
 	opts: ReadOpts = {},
 ): Promise<ReadEnvelope> {
-	const n = Number(opts.limit ?? 200);
+	const n = opts.limit ?? 200;
 	const limit = Number.isFinite(n) ? Math.min(Math.max(1, Math.floor(n)), 1000) : 200;
 	const after = opts.cursor ?? "";
 	const since = opts.since ?? null;
@@ -303,7 +303,7 @@ export async function readBoxUpdateRaw(
 			tx<{ state: Record<string, unknown> }[]>`
 			select state from current_state where kind = 'box_update' and subject = ${boxId}`,
 	);
-	const state = rows[0]?.state;
+	const state = rows[0].state;
 	if (!state) return null;
 	const nested = state["box_update_raw"] ?? state["raw"];
 	const candidate =

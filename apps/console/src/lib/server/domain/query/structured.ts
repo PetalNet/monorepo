@@ -209,10 +209,10 @@ async function resolveSource(
 				where v.name = ${from} and v.enabled
 				  and coalesce(c.reloptions, '{}'::text[]) @> array['security_invoker=true']`,
 	);
-	const relation = views[0]?.relation_name;
+	const relation = views[0].relation_name;
 	if (!relation || !IDENT_RE.test(relation))
 		throw new QueryError("bad_from", `unknown source ${from}`);
-	const declared = views[0]?.fields ?? {};
+	const declared = views[0].fields ?? {};
 	const dimensions: Record<string, DimensionDescriptor> = {};
 	const measures: Record<string, MeasureDescriptor> = {};
 	const directFields = new Set<string>();
@@ -501,7 +501,7 @@ export async function prepareStructured(
 
 	// coerce limit to a sane positive int so a non-numeric/negative value is a clean 400, not a raw
 	// Postgres 500 (sub-agent L1)
-	const rawLimit = Number(req.limit ?? 1000);
+	const rawLimit = req.limit ?? 1000;
 	if (req.limit != null && !Number.isFinite(rawLimit))
 		throw new QueryError("bad_limit", "limit must be a number");
 	const limit = Number.isFinite(rawLimit)
@@ -548,7 +548,7 @@ async function persistQueryInTx(
 			values
 				(${ref}, ${tx.json(prepared.request as never)}, ${prepared.sqlText},
 				 ${tx.json(prepared.params as never)}, ${tx.json([...scopes])},
-				 ${tx.json(prepared.columns as never)}, ${result.row_count}, ${result.execution_ms})`;
+				 ${tx.json(prepared.columns)}, ${result.row_count}, ${result.execution_ms})`;
 	await tx`
 			insert into semantic_documents
 				(id, kind, source_ref, content, scopes, embedding, embedding_model)

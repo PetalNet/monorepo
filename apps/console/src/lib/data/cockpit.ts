@@ -50,7 +50,7 @@ export function crackMeta(items: readonly AttentionItem[]): string | null {
 	const time = Number.isFinite(newest)
 		? new Date(newest).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
 		: "time unknown";
-	return `${incidents.length} active ${incidents.length === 1 ? "incident" : "incidents"} · newest ${time}`;
+	return `${String(incidents.length)} active ${incidents.length === 1 ? "incident" : "incidents"} · newest ${time}`;
 }
 
 export function newestCrack(items: readonly AttentionItem[]): AttentionItem | null {
@@ -129,10 +129,10 @@ export function mockCockpit(scene: Scene): CockpitData {
 				: verdict === "needs_you"
 					? needsNew === 0
 						? // Everything acked, nothing new — held, not "0 need you".
-							`Mostly fine. ${needsHeld} held, nothing new.`
+							`Mostly fine. ${String(needsHeld)} held, nothing new.`
 						: needsNew === 1
 							? "Mostly fine. One thing needs you."
-							: `Mostly fine. ${needsNew} things need you.`
+							: `Mostly fine. ${String(needsNew)} things need you.`
 					: null;
 
 	const badges: NavBadges = {

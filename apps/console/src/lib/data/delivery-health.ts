@@ -68,7 +68,7 @@ export function deriveDeliveryLineHealth(input: DeliveryLineInput): DeliveryLine
 			const run = failureRuns.at(-1);
 			if (run && chronological.indexOf(receipt) > 0) {
 				const previous = chronological[chronological.indexOf(receipt) - 1];
-				if (previous?.status === "failed") {
+				if (previous.status === "failed") {
 					run.push(receipt);
 					continue;
 				}
@@ -78,25 +78,25 @@ export function deriveDeliveryLineHealth(input: DeliveryLineInput): DeliveryLine
 	}
 	const qualifyingRuns = failureRuns.filter((run) => {
 		if (run.length < 2) return false;
-		const first = Date.parse(run[0]!.ts);
-		const last = Date.parse(run.at(-1)!.ts);
+		const first = Date.parse(run[0].ts);
+		const last = Date.parse(run.at(-1)?.ts ?? "");
 		return last - first <= FAILURE_WINDOW_MS;
 	});
 	const cycleCount = qualifyingRuns.length;
 	const latestReceipt = receipts[0] ?? null;
-	const currentRun = latestReceipt?.status === "failed" ? failureRuns.at(-1) : null;
+	const currentRun = latestReceipt.status === "failed" ? failureRuns.at(-1) : null;
 	const currentReceiptFailure = Boolean(
 		currentRun &&
 		currentRun.length >= 2 &&
-		Date.parse(currentRun.at(-1)!.ts) - Date.parse(currentRun[0]!.ts) <= FAILURE_WINDOW_MS &&
-		now - Date.parse(currentRun.at(-1)!.ts) <= FAILURE_WINDOW_MS,
+		Date.parse(currentRun.at(-1)?.ts ?? "") - Date.parse(currentRun[0].ts) <= FAILURE_WINDOW_MS &&
+		now - Date.parse(currentRun.at(-1)?.ts ?? "") <= FAILURE_WINDOW_MS,
 	);
 	const matrixSyncAt =
 		input.matrixSyncOkEpoch && input.matrixSyncOkEpoch > 0 ? input.matrixSyncOkEpoch * 1_000 : null;
 	const matrixSyncStale = matrixSyncAt !== null && now - matrixSyncAt > MATRIX_FRESH_MS;
 	const damping =
 		cycleCount >= 2 &&
-		latestReceipt?.status === "delivered" &&
+		latestReceipt.status === "delivered" &&
 		now - Date.parse(latestReceipt.ts) < DAMPING_MS;
 	const failing = currentReceiptFailure || matrixSyncStale || damping;
 	const flapping = cycleCount >= 2 && failing;
@@ -142,11 +142,11 @@ export function deriveDeliveryLineHealth(input: DeliveryLineInput): DeliveryLine
 	const busAge = busAt === null ? null : now - busAt;
 	const busFresh = busAge !== null && busAge <= BUS_FRESH_MS;
 	const matrixFresh = matrixSyncAt !== null && now - matrixSyncAt <= MATRIX_FRESH_MS;
-	if (latestReceipt?.status !== "delivered" || !busFresh || !matrixFresh) {
+	if (latestReceipt.status !== "delivered" || !busFresh || !matrixFresh) {
 		const detail =
 			busAge !== null && !busFresh
 				? `Bus silent ${compactAge(busAge)}.`
-				: latestReceipt?.status === "failed"
+				: latestReceipt.status === "failed"
 					? "One failed receipt; waiting for corroboration."
 					: !matrixFresh
 						? "Matrix sync has no fresh proof."

@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 
 import { createCaughtFailureReporter, type SanitizedCaughtFailure } from "./glitchtip-reporter.ts";
 
-describe("caught GlitchTip failure reporting", () => {
-	it("sends only sanitized endpoint, surface, and exception-class context", () => {
+void describe("caught GlitchTip failure reporting", () => {
+	void it("sends only sanitized endpoint, surface, and exception-class context", () => {
 		const captured: Array<{ error: Error; context: SanitizedCaughtFailure }> = [];
 		const report = createCaughtFailureReporter(
 			(error, context) => captured.push({ error, context }),
@@ -29,7 +29,7 @@ describe("caught GlitchTip failure reporting", () => {
 		assert.doesNotMatch(captured[0]?.error.stack ?? "", /janet|token=private|petal-202/);
 	});
 
-	it("deduplicates by surface, endpoint, and class for one minute", () => {
+	void it("deduplicates by surface, endpoint, and class for one minute", () => {
 		let clock = 2_000;
 		const captured: SanitizedCaughtFailure[] = [];
 		const report = createCaughtFailureReporter((_error, context) => captured.push(context), {
@@ -47,7 +47,7 @@ describe("caught GlitchTip failure reporting", () => {
 		assert.equal(captured.length, 4);
 	});
 
-	it("is inert when GlitchTip is disabled", () => {
+	void it("is inert when GlitchTip is disabled", () => {
 		let calls = 0;
 		const report = createCaughtFailureReporter(() => calls++, { enabled: false });
 

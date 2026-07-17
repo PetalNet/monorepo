@@ -47,7 +47,10 @@ import { buildServices, type Services } from "../../src/lib/server/domain/substr
 
 const contractSchema = (name: string): Record<string, unknown> =>
 	JSON.parse(
-		readFileSync(new URL(`../docs/contracts/schemas/${name}.schema.json`, import.meta.url), "utf8"),
+		readFileSync(
+			new URL(`../../docs/contracts/schemas/${name}.schema.json`, import.meta.url),
+			"utf8",
+		),
 	) as Record<string, unknown>;
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
@@ -411,7 +414,7 @@ describe("services availability read", () => {
 			const body = visible.json();
 			const availabilitySchema = JSON.parse(
 				readFileSync(
-					new URL("../docs/contracts/schemas/availability.schema.json", import.meta.url),
+					new URL("../../docs/contracts/schemas/availability.schema.json", import.meta.url),
 					"utf8",
 				),
 			) as Record<string, unknown>;
@@ -513,7 +516,7 @@ describe("correspondence history read", () => {
 			]);
 			const itemSchema = JSON.parse(
 				readFileSync(
-					new URL("../docs/contracts/schemas/entities/comms-event.schema.json", import.meta.url),
+					new URL("../../docs/contracts/schemas/entities/comms-event.schema.json", import.meta.url),
 					"utf8",
 				),
 			) as Record<string, unknown>;
@@ -692,7 +695,7 @@ describe("staged update approval reversal", () => {
 			const approvalSchema = JSON.parse(
 				readFileSync(
 					new URL(
-						"../docs/contracts/schemas/entities/update-approval.schema.json",
+						"../../docs/contracts/schemas/entities/update-approval.schema.json",
 						import.meta.url,
 					),
 					"utf8",

@@ -32,7 +32,7 @@
 	{#if rate}
 		<span class="count">{rate}/min</span>
 	{:else}
-		<span class="kind">{kind}{event.task_id ? ` · /task/${event.task_id}` : ""}</span>
+		<span class="kind">{kind}{event.task_id ? ` · /task/${String(event.task_id)}` : ""}</span>
 	{/if}
 	<time>{rate ? "now" : humanAge(now - Date.parse(event.ts))}</time>
 </a>

@@ -361,7 +361,7 @@ export const agents: AgentCost[] = [
 			{ label: "other", share: 8 },
 		],
 		spark: [4, 13, 6, 5, 8, 4, 4],
-		governance: mockGovernance[0]!,
+		governance: mockGovernance[0],
 	},
 	{
 		handle: "janet",
@@ -374,7 +374,7 @@ export const agents: AgentCost[] = [
 			{ label: "other", share: 3 },
 		],
 		spark: [5, 6, 7, 6, 9, 7, 8],
-		governance: mockGovernance[1]!,
+		governance: mockGovernance[1],
 	},
 	{
 		handle: "point-fable",
@@ -387,7 +387,7 @@ export const agents: AgentCost[] = [
 			{ label: "other", share: 7 },
 		],
 		spark: [3, 5, 4, 10, 7, 9, 7],
-		governance: mockGovernance[2]!,
+		governance: mockGovernance[2],
 	},
 ];
 export const sessions: CostSession[] = [

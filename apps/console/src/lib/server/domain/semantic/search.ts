@@ -42,6 +42,6 @@ export async function searchSemanticCorpus(
 				where (${kindFilter ?? null}::text is null or kind = ${kindFilter ?? null})
 				order by score desc, source_ref asc
 			limit ${boundedLimit}`;
-		return rows.map((row) => ({ ...row, score: Number(row.score) }));
+		return rows.map((row) => ({ ...row, score: row.score }));
 	});
 }

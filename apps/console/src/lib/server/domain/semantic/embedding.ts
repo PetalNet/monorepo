@@ -20,7 +20,7 @@ export function embedText(text: string): number[] {
 	for (const feature of features) {
 		const digest = createHash("sha256").update(feature).digest();
 		const index = digest.readUInt16BE(0) % EMBEDDING_DIMENSIONS;
-		vector[index] = (vector[index] ?? 0) + (digest[2]! & 1 ? 1 : -1);
+		vector[index] = (vector[index] ?? 0) + (digest[2] & 1 ? 1 : -1);
 	}
 	const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
 	if (norm === 0) return vector;

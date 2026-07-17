@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { formatUnknown } from "#format";
+	import type { PageProps } from "./$types";
 	import { onMount } from "svelte";
 
 	import { connectBus, dataMode, readBoxUpdateRaw, readHealth, runQuery } from "$lib/rpc/browser";
@@ -19,7 +21,7 @@
 		type UpdateApproval,
 	} from "./approvals.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	const u = $derived(data.updates);
 	const rawDetails = $derived(
 		data.raw.length ? data.raw : dataMode() === "mock" ? u.rows.map((row) => mockRawUpdate(row.boxId)) : [],
@@ -94,8 +96,8 @@
 		const at = typeof row["ts"] === "string" ? row["ts"] : new Date().toISOString();
 		return {
 			id: Number.isFinite(seq) ? String(seq) : `${String(row["subject"])}:${at}`,
-			container: String(row["claimed_container"] ?? row["subject"] ?? "unknown container"),
-			source: String(row["source_agent"] ?? row["source_host"] ?? "source unknown"),
+			container: formatUnknown(row["claimed_container"] ?? row["subject"] ?? "unknown container"),
+			source: formatUnknown(row["source_agent"] ?? row["source_host"] ?? "source unknown"),
 			at,
 		};
 	}
@@ -337,9 +339,9 @@
 				? "needs_you"
 				: "fine"}
 	stateFact={criticalCve
-			? `Critical CVE on ${new Set(criticalFindings.map((finding) => finding.boxId)).size} host${new Set(criticalFindings.map((finding) => finding.boxId)).size === 1 ? "" : "s"}.`
+			? `Critical CVE on ${String(new Set(criticalFindings.map((finding) => finding.boxId)).size)} host${new Set(criticalFindings.map((finding) => finding.boxId)).size === 1 ? "" : "s"}.`
 		: criticalUpdates
-			? `${u.hud.securityCritical} security-critical update${u.hud.securityCritical === 1 ? "" : "s"} wait on you.`
+			? `${String(u.hud.securityCritical)} security-critical update${u.hud.securityCritical === 1 ? "" : "s"} wait on you.`
 			: u.securityUnknown
 				? `Nothing known critical.${u.remainder ? ` ${u.remainder}.` : ""}`
 				: u.truncated
@@ -417,7 +419,7 @@
 			<div class="prov">
 				<Icon name="receipt-text" size={12} />
 				<span>
-					{u.freshness?.source ?? "box_update_status"} · {selected ? `1 of ${filteredRows.length} · drawer focus` : `${filteredRows.length} of ${u.rows.length} boxes`}{u.truncated ? " · partial result" : ""}
+					{u.freshness?.source ?? "box_update_status"} · {selected ? `1 of ${String(filteredRows.length)} · drawer focus` : `${String(filteredRows.length)} of ${String(u.rows.length)} boxes`}{u.truncated ? " · partial result" : ""}
 				</span>
 				<button type="button" onclick={() => (receiptOpen = true)}>Show the math.</button>
 			</div>
@@ -429,7 +431,7 @@
 			title="Vulnerabilities"
 			sub="Tampering Watch · suspected until confirmed"
 			span={7}
-			prov={{ source: "box update raw detail", freshness: raw ? "selected host" : "open a host", rows: raw ? `${raw.vulns.length} findings` : null }}
+			prov={{ source: "box update raw detail", freshness: raw ? "selected host" : "open a host", rows: raw ? `${String(raw.vulns.length)} findings` : null }}
 		>
 			{#if rawLoading}
 				<div class="skeletons" aria-label="Loading vulnerability detail"><i></i><i></i><i></i></div>
@@ -456,7 +458,7 @@
 			title="Container updates"
 			sub="Derek · digest-batched"
 			span={5}
-			prov={{ source: containerLiveAt ? containerQueryRef ? `${containerQueryRef} + live bus` : "live bus" : containerQueryRef ?? "container.update_available", freshness: dataMode() === "mock" ? "mock live" : containerLiveAt ?? containerObservedAt ?? containerHistory, rows: containerHistory === "ready" ? `${containerUpdates.length} updates` : null }}
+			prov={{ source: containerLiveAt ? containerQueryRef ? `${containerQueryRef} + live bus` : "live bus" : containerQueryRef ?? "container.update_available", freshness: dataMode() === "mock" ? "mock live" : containerLiveAt ?? containerObservedAt ?? containerHistory, rows: containerHistory === "ready" ? `${String(containerUpdates.length)} updates` : null }}
 		>
 			{#if containerUpdates.length}
 				<div class="containers">
@@ -530,7 +532,7 @@
 		<div class="drawer-actions">
 			{#if !selected.agentless && selected.applyMode === "staged-approval"}
 				{#if canOperate && unapprovedPackages.length}
-					<button class="approval-btn primary" disabled={approvalBusy !== null || approvalsLoading} onclick={() => approvePackages(unapprovedPackages)}>{approvalBusy?.startsWith("approve:") ? "Approving" : `Approve ${unapprovedPackages.length ? `remaining ${unapprovedPackages.length}` : `all ${selected.pending ?? ""}`}`}</button>
+					<button class="approval-btn primary" disabled={approvalBusy !== null || approvalsLoading} onclick={() => approvePackages(unapprovedPackages)}>{approvalBusy?.startsWith("approve:") ? "Approving" : `Approve ${unapprovedPackages.length ? `remaining ${String(unapprovedPackages.length)}` : `all ${String(selected.pending ?? "")}`}`}</button>
 				{/if}
 			{/if}
 			{#if !selected.agentless && (selected.applyMode === "auto" || selected.applyMode === "staged-approval")}
@@ -564,7 +566,7 @@
 			<dt>Source</dt><dd>{u.freshness?.source ?? "unavailable"}</dd>
 			<dt>Observed</dt><dd>{u.freshness?.observedAt ?? "unavailable"}</dd>
 			<dt>Rows</dt><dd>{u.rows.length}{u.truncated ? " (partial)" : ""}</dd>
-			<dt>Fresh window</dt><dd>{u.freshness?.windowS == null ? "unknown" : `${u.freshness.windowS / 3600}h`}</dd>
+			<dt>Fresh window</dt><dd>{u.freshness?.windowS == null ? "unknown" : `${String(u.freshness.windowS / 3600)}h`}</dd>
 		</dl>
 	</dialog>
 {/if}

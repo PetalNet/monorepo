@@ -3903,7 +3903,9 @@ export const OP_TEST_FIXTURES = {
 	},
 	"updates.approve": {
 		"box_id": "fixture",
-		"packages": []
+		"packages": [
+			"fixture"
+		]
 	},
 	"updates.revoke": {
 		"approval_id": "00000000-0000-4000-8000-000000000000"

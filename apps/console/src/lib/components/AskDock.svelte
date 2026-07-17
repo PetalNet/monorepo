@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from "./Icon.svelte";
+	import type { AssistantContextChip } from "./types";
 
 	/**
 	 * The ask box is the one input (foundations §5.1, /task/699). Three states:
@@ -10,14 +11,11 @@
 	 * permitted). Assistant-down state says so plainly; every surface stays live.
 	 * Class names avoid the DaisyUI component namespace (hero/dock/btn/progress).
 	 */
-	export interface ContextPayload {
-		label: string;
-	}
 	interface Props {
 		mode: "centered" | "docked";
 		greeting?: string;
 		/** Right-click-ask payload shown as a chip in the input (§4.3). */
-		context?: ContextPayload | null;
+		context?: AssistantContextChip | null;
 		/** Staged progress line while the assistant composes; null = quiet. */
 		progress?: string | null;
 		/** Last assistant line, shown in the transcript strip above the bar. */
@@ -64,6 +62,7 @@
 				</button>
 			{/if}
 			<input
+				data-ask-dock-input
 				bind:this={inputEl}
 				bind:value
 				data-global-ask
@@ -93,6 +92,7 @@
 				<span class="stage"><span class="pulse-dot"></span>{progress}</span>
 			{:else}
 				<input
+					data-ask-dock-input
 					bind:this={inputEl}
 					bind:value
 					data-global-ask

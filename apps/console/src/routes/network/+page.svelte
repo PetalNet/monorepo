@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { PageProps } from "./$types";
 	const env = import.meta.env;
 	import { opDef } from "$lib/api/ops";
 	import { connectBus } from "$lib/rpc/browser";
@@ -14,7 +15,7 @@
 	import CeremonyCard from "./CeremonyCard.svelte";
 	import { getKeyCeremony, revokeKey } from "./ceremony.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	let filter = $state("");
 	let selected = $state<EdgeSessionItem | null>(null);
 	let drawer = $state<HTMLDialogElement | null>(null);
@@ -34,7 +35,7 @@
 	const isStale = (line: EdgeSessionItem) => ageSeconds(line.last_seen_at) > 90;
 	const age = (value: string) => {
 		const seconds = ageSeconds(value);
-		return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.round(seconds / 60)}m` : seconds < 86400 ? `${Math.round(seconds / 3600)}h` : `${Math.round(seconds / 86400)}d`;
+		return seconds < 60 ? `${String(seconds)}s` : seconds < 3600 ? `${String(Math.round(seconds / 60))}m` : seconds < 86400 ? `${String(Math.round(seconds / 3600))}h` : `${String(Math.round(seconds / 86400))}d`;
 	};
 	const lines = $derived(
 		data.sessions
@@ -131,7 +132,7 @@
 	<section class="notice"><Icon name="circle-help" size={16} /><span>Session rows are available, but <code>doorman.edge</code> health is not contracted by console-api. Door and Caddy remain unknown.</span></section>
 {/if}
 
-{#each downLines as line}
+{#each downLines as line, __eachKey36 (__eachKey36)}
 	<section class="crack" aria-label={`Tunnel incident for ${line.handle}`}>
 		<Icon name="triangle-alert" size={18} /><div><b>{line.handle} line {isStale(line) ? "silent" : "down"}.</b><span>Blast radius: {line.handle} on {line.host}; last seen {age(line.last_seen_at)} ago.</span></div>
 		<OpButton def={redial} args={{ handle: line.handle }} lanes={data.lanes} executorLive={data.managerLive} label="Redial" staleNote={isStale(line) ? `${age(line.last_seen_at)} stale` : null} />
@@ -154,14 +155,14 @@
 		<header><div><h2>Lines</h2><span>Train Lines</span></div><label><Icon name="search" size={12} /><input bind:value={filter} placeholder="filter lines" aria-label="Filter lines" /></label></header>
 		{#if data.observedAt}<div class="watermark">as of {new Date(data.observedAt).toLocaleTimeString()} · line silence &gt;90s renders unknown</div>{/if}
 		<div class="cols"><span></span><span>agent</span><span>host</span><span>links</span><span>age</span><span>res</span><span>flap</span><span>state</span></div>
-		{#each lines as line}
+		{#each lines as line, __eachKey37 (__eachKey37)}
 			{@const stale = isStale(line)}
 			<button data-line-row class="line" class:stale onclick={() => (selected = line)}>
 				<Icon name="train-front" size={16} /><b>{line.handle}</b><code>{line.host}</code>
 				<span class="links">
 					<span class="sr">{line.links.map((link) => `${link.role} ${stale ? "unknown" : link.state}`).join(", ")}</span>
-					{#each line.links as link}<i class:unknown={stale} class:down={!stale && link.state === "down"} class:warm={!stale && link.state === "warm"} aria-hidden="true"></i>{/each}
-					<code>{stale ? "—" : line.links.map((link) => link.rtt_ms == null ? "—" : `${link.rtt_ms}`).join(" · ")}ms</code>
+					{#each line.links as link, __eachKey38 (__eachKey38)}<i class:unknown={stale} class:down={!stale && link.state === "down"} class:warm={!stale && link.state === "warm"} aria-hidden="true"></i>{/each}
+					<code>{stale ? "—" : line.links.map((link) => link.rtt_ms == null ? "—" : `${String(link.rtt_ms)}`).join(" · ")}ms</code>
 				</span>
 				<code>{age(line.established_at)}</code><code>{line.resumes_count}</code><code>{age(line.links.map((link) => link.last_flap_at).find(Boolean) ?? line.established_at)}</code>
 				<StatusPill tone={stale ? "idle" : line.state === "open" ? "good" : line.state === "floor" || line.state === "resuming" ? "warn" : "danger"} label={stale ? "unknown" : line.state} />
@@ -173,7 +174,7 @@
 		{#if registryOpen}<section class="registry"><h2>Registry <span>enrolled keys</span></h2>
 			{#if !ceremony}<div class="registry-loading" aria-label="Loading key registry" aria-busy="true">{#each [1,2,3] as row (row)}<span></span>{/each}</div>
 			{:else if !ceremony.registry_available}<div class="empty"><Icon name="circle-help" size={14} />Registry unavailable. No key state is inferred.</div>
-			{:else}{#each ceremony.registry as key (key.pubkey_fp)}<div class="reg" class:revoked={key.state === "revoked"}><div><b>{key.handle ?? key.requested_handle ?? "unbound"}</b><code title={key.pubkey_fp}>{key.pubkey_fp.slice(0, 12)}…</code>{#if key.enrolled_by}<AgentPresence handle={key.enrolled_by} label="enrolled by" />{/if}</div><StatusPill tone={key.state === "enrolled" ? "good" : key.state === "pending" ? "warn" : "idle"} label={key.state} />{#if key.state === "enrolled" && key.handle}<button class="revoke" disabled={!canCeremony} title={canCeremony ? "edge.key.revoke" : ceremonyDisabledReason} onclick={() => beginRevoke(key)}>Revoke</button>{/if}</div>{:else}<div class="empty">No keys have reached the registry.</div>{/each}{/if}
+			{:else}{#each ceremony.registry as key (key.pubkey_fp)}<div class="reg" class:revoked={key.state === "revoked"}><div><b>{key.handle ?? key.requested_handle ?? "unbound"}</b><code title={key.pubkey_fp}>{key.pubkey_fp.slice(0, 12)}…</code>{#if key.enrolled_by}<AgentPresence handle={key.enrolled_by} label="enrolled by" />{/if}</div><StatusPill tone={key.state === "enrolled" ? "good" : key.state === "pending" ? "warn" : "idle"} label={key.state} />{#if key.state === "enrolled" && key.handle}<button class="revoke" disabled={!canCeremony} title={canCeremony ? "edge.key.revoke" : ceremonyDisabledReason} onclick={() => { beginRevoke(key); }}>Revoke</button>{/if}</div>{:else}<div class="empty">No keys have reached the registry.</div>{/each}{/if}
 		</section>{/if}
 		<section><h2>Enrollment <span>Key Ceremony</span></h2>
 			{#if !ceremony}<div class="ceremony-loading" aria-label="Loading pending enrollments" aria-busy="true"><span></span><span></span><span></span></div>
@@ -181,7 +182,7 @@
 			{:else}{#each pending as key (key.pubkey_fp)}<CeremonyCard item={key} canAct={canCeremony} disabledReason={ceremonyDisabledReason} onchanged={() => ceremonyQuery.refresh()} />{:else}<div class="empty"><Icon name="key-round" size={14} /> Nobody at the door.</div>{/each}{/if}
 			{#if ceremony && !ceremony.executor.live}<div class="executor-note"><Icon name="lock-keyhole" size={13} /><span>{ceremony.executor.detail}. Review controls stay disabled.</span></div>{/if}
 		</section>
-		<section><h2>The Wire <span>last 24h</span></h2>{#each data.wire as event}<p><b>{event.type}</b> · {event.handle} · {event.detail}<time>{age(event.at)}</time></p>{:else}<div class="empty"><Icon name="radio" size={14} />{data.sessionsAvailable ? "Quiet on the wire. Bus history unavailable." : "Wire unavailable."}</div>{/each}</section>
+		<section><h2>The Wire <span>last 24h</span></h2>{#each data.wire as event, __eachKey39 (__eachKey39)}<p><b>{event.type}</b> · {event.handle} · {event.detail}<time>{age(event.at)}</time></p>{:else}<div class="empty"><Icon name="radio" size={14} />{data.sessionsAvailable ? "Quiet on the wire. Bus history unavailable." : "Wire unavailable."}</div>{/each}</section>
 		<div class="frog" title="Jeff the Doorman collects frogs.">{frogs} frogs on Jeff's desk · {handshakes.toLocaleString()} handshakes</div>
 	</aside>
 </div>
@@ -205,7 +206,7 @@
 </ModalSurface>
 
 <dialog bind:this={drawer} aria-labelledby="line-detail-title" onclose={() => (selected = null)}>
-	{#if selected}<button class="close" autofocus aria-label="Close line details" onclick={() => drawer?.close()}><Icon name="x" size={16} /></button><h2 id="line-detail-title">{selected.handle} · line detail</h2><dl><dt>session</dt><dd>{selected.session_id}</dd><dt>established</dt><dd>{selected.established_at}</dd><dt>resumes</dt><dd>{selected.resumes_count}</dd><dt>last seen</dt><dd>{selected.last_seen_at} · {age(selected.last_seen_at)} ago</dd></dl><h3>Warm links</h3>{#each selected.links as link}<p><b>{link.role}</b> · {isStale(selected) ? "unknown" : link.state} · {isStale(selected) ? "—" : link.rtt_ms ?? "—"}ms · {link.flap_count_24h} flaps / 24h</p>{/each}<h3>Recovery</h3><div class="actions"><OpButton def={redial} args={{ handle: selected.handle }} lanes={data.lanes} executorLive={data.managerLive} /><OpButton def={drop} args={{ session_id: selected.session_id }} lanes={data.lanes} executorLive={data.edgeLive} variant="danger" /></div><h3>What rides this line</h3><p class="muted">Envelope tail requires persisted bus query. No recent payload is fabricated.</p>{/if}
+	{#if selected}<button class="close" autofocus aria-label="Close line details" onclick={() => drawer?.close()}><Icon name="x" size={16} /></button><h2 id="line-detail-title">{selected.handle} · line detail</h2><dl><dt>session</dt><dd>{selected.session_id}</dd><dt>established</dt><dd>{selected.established_at}</dd><dt>resumes</dt><dd>{selected.resumes_count}</dd><dt>last seen</dt><dd>{selected.last_seen_at} · {age(selected.last_seen_at)} ago</dd></dl><h3>Warm links</h3>{#each selected.links as link, __eachKey40 (__eachKey40)}<p><b>{link.role}</b> · {isStale(selected) ? "unknown" : link.state} · {isStale(selected) ? "—" : link.rtt_ms ?? "—"}ms · {link.flap_count_24h} flaps / 24h</p>{/each}<h3>Recovery</h3><div class="actions"><OpButton def={redial} args={{ handle: selected.handle }} lanes={data.lanes} executorLive={data.managerLive} /><OpButton def={drop} args={{ session_id: selected.session_id }} lanes={data.lanes} executorLive={data.edgeLive} variant="danger" /></div><h3>What rides this line</h3><p class="muted">Envelope tail requires persisted bus query. No recent payload is fabricated.</p>{/if}
 </dialog>
 
 <!-- Legacy Network selectors share this scoped block while the ceremony is extracted below. -->

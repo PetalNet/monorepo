@@ -220,7 +220,7 @@ export const getInvestigationGraph = query(async (): Promise<InvestigationNode[]
 });
 
 export const loadInvestigationNode = query(nodeId, async ({ id }): Promise<InvestigationDetail> => {
-	if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]!);
+	if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]);
 	const detail = await apiJson<DashboardDetail>(`/dashboards/${encodeURIComponent(id)}`);
 	return {
 		node: normalizeNode(detail),

@@ -80,7 +80,7 @@ export const load: LayoutServerLoad = async ({ url, fetch, locals }): Promise<Sh
 	try {
 		const [me, healthRead] = await Promise.all([
 			readMe(fetch),
-			readHealth(fetch).catch((cause) => {
+			readHealth(fetch).catch((cause: unknown) => {
 				captureCaughtFailure(cause, { surface: "cockpit-shell", endpoint: "/health" });
 				return null;
 			}),

@@ -18,7 +18,7 @@ import type { Sql } from "./pool.ts";
 
 // L1 uses Timescale hypertables. Global UUID dedup lives in the plain `emission_ids` gate because
 // Timescale unique indexes must contain the time partition column.
-export const DOMAIN_SCHEMA_STATEMENTS: readonly string[] = [
+const DOMAIN_SCHEMA_STATEMENTS: readonly string[] = [
 	`create extension if not exists timescaledb cascade`,
 	`create extension if not exists vector`,
 
@@ -1071,7 +1071,7 @@ async function backfillSemanticDocuments(admin: Sql): Promise<void> {
 			scope: string;
 		}[]
 	>`select type, dimensions, measures, joins, scope from semantic_registry_scoped`;
-	for await (const row of statistics) {
+	for (const row of statistics) {
 		const content = semanticDocument(row.type, row);
 		const embedding = vectorLiteral(embedText(content));
 		await admin`
@@ -1087,7 +1087,7 @@ async function backfillSemanticDocuments(admin: Sql): Promise<void> {
 	const views = await admin<
 		{ name: string; description: string; fields: Record<string, unknown>; scopes: string[] }[]
 	>`select name, description, fields, scopes from semantic_views where enabled`;
-	for await (const view of views) {
+	for (const view of views) {
 		const content = `registered view ${view.name} ${view.description} fields ${JSON.stringify(view.fields)}`;
 		const embedding = vectorLiteral(embedText(content));
 		await admin`
@@ -1104,8 +1104,8 @@ async function backfillSemanticDocuments(admin: Sql): Promise<void> {
 
 async function backfillEmissionFingerprints(admin: Sql): Promise<void> {
 	let afterSeq = "0";
-	for await (const iteration of indefinitely()) {
-		void iteration;
+	for (const iteration of indefinitely()) {
+		iteration;
 		const rows = await admin<
 			Array<{
 				seq: string;
@@ -1134,7 +1134,7 @@ async function backfillEmissionFingerprints(admin: Sql): Promise<void> {
 		  where g.payload_sha256 is null and e.seq > ${afterSeq}::bigint
 		  order by e.seq limit 500`;
 		if (rows.length === 0) break;
-		for await (const row of rows) {
+		for (const row of rows) {
 			const fingerprint = emissionFingerprint({
 				schema_version: 1,
 				id: row.id,
@@ -1184,20 +1184,20 @@ export async function migrate(admin: Sql, opts?: MigrateOpts): Promise<void> {
 			`alter table current_state enable row level security`,
 		);
 		if (rlsStart < 0) throw new Error("migration RLS boundary missing");
-		for await (const stmt of DOMAIN_SCHEMA_STATEMENTS.slice(0, rlsStart)) await tx.unsafe(stmt);
+		for (const stmt of DOMAIN_SCHEMA_STATEMENTS.slice(0, rlsStart)) await tx.unsafe(stmt);
 		await backfillSemanticDocuments(tx as unknown as Sql);
-		for await (const stmt of DOMAIN_SCHEMA_STATEMENTS.slice(rlsStart)) await tx.unsafe(stmt);
+		for (const stmt of DOMAIN_SCHEMA_STATEMENTS.slice(rlsStart)) await tx.unsafe(stmt);
 	});
 	const rollupBackfill = await admin<{ done: boolean }[]>`
 		select exists(select 1 from schema_migrations where name = 'l1_rollup_backfill') as done`;
-	if (!rollupBackfill[0]?.done) {
+	if (!rollupBackfill[0].done) {
 		await admin.unsafe(
 			`call refresh_continuous_aggregate('event_rollup_1m', null, now() - interval '1 minute')`,
 		);
 		await admin`
 			insert into schema_migrations (name) values ('l1_rollup_backfill') on conflict do nothing`;
 	}
-	for await (const stmt of POST_COMMIT_STATEMENTS) await admin.unsafe(stmt);
+	for (const stmt of POST_COMMIT_STATEMENTS) await admin.unsafe(stmt);
 	if (opts?.appPassword)
 		await admin.unsafe(
 			`alter role console_app login password '${opts.appPassword.replace(/'/g, "''")}'`,

@@ -15,6 +15,8 @@ import {
 } from "$lib/data/cost";
 import { dataMode, readExecutors, readGovernance, runQuery } from "$lib/rpc/browser";
 
+import { formatUnknown } from "#format";
+
 import type { PageLoad } from "./$types";
 
 type Range = "Today" | "7d" | "30d";
@@ -137,7 +139,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 	const rates = new Map(livePrices.map((price) => [price.model, price]));
 	const usageRows = usage ? records(usage) : [];
 	const liveSessions: CostSession[] = usageRows.map((row) => {
-		const model = String(row["model"] ?? "unpriced");
+		const model = formatUnknown(row["model"] ?? "unpriced");
 		const rate = rates.get(model);
 		const lines = [
 			{ kind: "input", tokens: number(row["input_tokens"]), rate: rate?.input ?? 0 },
@@ -151,7 +153,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 		return {
 			id: String(row["session_id"]),
 			started: String(row["started_at"]),
-			agent: String(row["agent"] ?? "unknown"),
+			agent: formatUnknown(row["agent"] ?? "unknown"),
 			model,
 			...(Number.isInteger(Number(row["task_id"])) ? { taskId: Number(row["task_id"]) } : {}),
 			tokens: `${(totalTokens / 1_000_000).toFixed(2)}M total`,
@@ -159,7 +161,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 			math: lines,
 			source: reported > 0 ? (computed > 0 ? "mixed" : "reported") : "computed",
 			queryRef: usage?.query_ref,
-			project: String(row["project"] ?? "unassigned"),
+			project: formatUnknown(row["project"] ?? "unassigned"),
 		};
 	});
 
@@ -176,7 +178,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 	const makeBreakdown = (field: "agent" | "model" | "project"): CostBreakdown[] => {
 		const totals = new Map<string, number>();
 		for (const [index, session] of liveSessions.entries()) {
-			const label = String(usageRows[index]?.[field] ?? "unassigned");
+			const label = formatUnknown(usageRows[index]?.[field] ?? "unassigned");
 			totals.set(label, (totals.get(label) ?? 0) + session.spend);
 		}
 		return [...totals.entries()]

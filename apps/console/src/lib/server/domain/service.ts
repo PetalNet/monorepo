@@ -1,11 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 
 import { loadEnv } from "./env";
-import {
-	clearSharedConsoleServices,
-	getSharedConsoleServices,
-	setSharedConsoleServices,
-} from "./shared-services";
+import { getSharedConsoleServices, setSharedConsoleServices } from "./shared-services";
 import { buildServices, type Services } from "./substrate";
 
 /**
@@ -36,13 +32,6 @@ const acquire = (): Promise<Services> => {
 	processServices ??= getSharedConsoleServices() ?? buildServices(loadEnv(), { migrate: false });
 	setSharedConsoleServices(processServices);
 	return processServices;
-};
-
-export const closeConsoleDomain = async (): Promise<void> => {
-	const active = processServices;
-	processServices = undefined;
-	clearSharedConsoleServices();
-	if (active) await (await active).close();
 };
 
 export const ConsoleDomainLive = Layer.succeed(ConsoleDomain, {

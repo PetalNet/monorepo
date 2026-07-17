@@ -2,6 +2,8 @@ import type { SignalEmission } from "$lib/api/types";
 import { mockCards, mockSignals, mockSubscriptions } from "$lib/data/signals";
 import { dataMode, readCards, readExecutors, readSubscriptions, runQuery } from "$lib/rpc/browser";
 
+import { formatUnknown } from "#format";
+
 import type { PageLoad } from "./$types";
 
 export const load: PageLoad = async ({ fetch, parent }) => {
@@ -57,8 +59,8 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 		ts: String(row[6]),
 		source: {
 			service: String(row[7]),
-			host: row[8] == null ? null : String(row[8]),
-			agent: row[9] == null ? null : String(row[9]),
+			host: row[8] == null ? null : formatUnknown(row[8]),
+			agent: row[9] == null ? null : formatUnknown(row[9]),
 		},
 	}));
 	const alive = (kind: string) =>

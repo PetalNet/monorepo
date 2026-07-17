@@ -17,14 +17,14 @@ const objectSchema = z.string().refine((value) => SCOPE_RE.test(value), "invalid
 export const grantMutationSchema = z
 	.object({
 		schema_version: z.literal(1),
-		id: z.string().uuid(),
+		id: z.uuid(),
 		action: z.enum(["grant", "revoke"]),
 		subject: subjectSchema,
 		relation: relationSchema,
 		object: objectSchema,
 		condition: z.string().min(1).max(128).nullable().optional(),
-		valid_at: z.string().datetime({ offset: true }).optional(),
-		invalid_at: z.string().datetime({ offset: true }).nullable().optional(),
+		valid_at: z.iso.datetime({ offset: true }).optional(),
+		invalid_at: z.iso.datetime({ offset: true }).nullable().optional(),
 	})
 	.strict()
 	.superRefine((input, ctx) => {
@@ -97,7 +97,7 @@ async function ownsObject(sql: Sql, principal: Principal, object: string): Promi
 		    and g.condition is null
 		    and (g.invalid_at is null or g.invalid_at > now())
 		) as allowed`;
-	return rows[0]?.allowed === true;
+	return rows[0].allowed;
 }
 
 export async function canMutateScope(
@@ -113,7 +113,7 @@ export async function canMutateScope(
 		    and condition is null and valid_at <= now()
 		    and (invalid_at is null or invalid_at > now())
 		) as allowed`;
-	return rows[0]?.allowed === true;
+	return rows[0].allowed;
 }
 
 async function authorizationObjects(sql: Sql, object: string): Promise<string[]> {
@@ -151,7 +151,7 @@ export async function listGrants(
 		order by subject, relation, id`;
 	const head = await writer<{ zookie: string }[]>`
 		select zookie::text as zookie from grant_set_state where singleton`;
-	return { schema_version: 1, object, zookie: head[0]?.zookie ?? "0", items: rows.map(wireGrant) };
+	return { schema_version: 1, object, zookie: head[0].zookie ?? "0", items: rows.map(wireGrant) };
 }
 
 function mutationHash(input: GrantMutation): string {
@@ -181,7 +181,7 @@ export async function mutateGrant(
 		// Lock the object and (for item sharing) its containing scope in deterministic order. A
 		// concurrent revoke of the caller's direct or inherited owner edge cannot commit between the
 		// authorization check and this mutation.
-		for await (const object of await authorizationObjects(tx as unknown as Sql, input.object))
+		for (const object of await authorizationObjects(tx as unknown as Sql, input.object))
 			await tx`select pg_advisory_xact_lock(hashtextextended(${object}, 705706))`;
 		if (!(await ownsObject(tx as unknown as Sql, principal, input.object)))
 			throw new GrantError("grant_denied", "owner relation required");
@@ -197,7 +197,7 @@ export async function mutateGrant(
 				        ${input.valid_at ?? new Date().toISOString()}, ${input.invalid_at ?? null}, ${principal.id})
 				returning id::text, subject, relation, object, condition, valid_at, invalid_at, granted_by,
 				          zookie::text as zookie`;
-			result = { schema_version: 1, action: "granted", grant: wireGrant(rows[0]!) };
+			result = { schema_version: 1, action: "granted", grant: wireGrant(rows[0]) };
 		} else {
 			const rows = await tx<{ id: string; zookie: string }[]>`
 				update grants set invalid_at = greatest(now(), valid_at + interval '1 microsecond')
@@ -210,7 +210,7 @@ export async function mutateGrant(
 				schema_version: 1,
 				action: "revoked",
 				revoked_count: rows.length,
-				zookie: head[0]?.zookie ?? "0",
+				zookie: head[0].zookie ?? "0",
 			};
 		}
 		await tx`update grant_mutations set result = ${tx.json(result as never)}

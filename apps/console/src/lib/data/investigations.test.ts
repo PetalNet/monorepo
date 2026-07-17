@@ -14,13 +14,13 @@ const node = (id: string, parentId: string | null): InvestigationNode => ({
 	parentQuestion: null,
 	panelCount: 1,
 	createdBy: "janet",
-	updatedAt: `2026-07-13T00:00:0${id.length}Z`,
+	updatedAt: `2026-07-13T00:00:0${String(id.length)}Z`,
 	scope: "lab",
 	isHome: false,
 });
 
-describe("investigation tree", () => {
-	it("lays out parentId edges and hides collapsed descendants", () => {
+void describe("investigation tree", () => {
+	void it("lays out parentId edges and hides collapsed descendants", () => {
 		const nodes = [node("root", null), node("child", "root"), node("leaf", "child")];
 		assert.deepEqual(
 			visibleInvestigationRows(nodes, new Set()).map(({ id, depth }) => [id, depth]),
@@ -36,7 +36,7 @@ describe("investigation tree", () => {
 		);
 	});
 
-	it("builds a guarded ancestor breadcrumb", () => {
+	void it("builds a guarded ancestor breadcrumb", () => {
 		const nodes = [node("root", null), node("child", "root"), node("leaf", "child")];
 		assert.deepEqual(
 			ancestorTrail(nodes, "leaf").map(({ id }) => id),

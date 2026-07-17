@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { formatUnknown } from "#format";
+
 import { matchPattern } from "../bus/broker.ts";
 import type { Db } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
@@ -164,7 +166,7 @@ export class DeliveryService {
 			const active = await this.#db.writer<{ active: boolean }[]>`
 				select exists(select 1 from current_state where kind = 'attention' and subject = ${subject}
 				  and state->>'resolved_at' is null) as active`;
-			if (active[0]?.active !== true) return;
+			if (!active[0].active) return;
 			await this.#emitRequired({
 				schema_version: 1,
 				id: randomUUID(),
@@ -189,8 +191,7 @@ export class DeliveryService {
 			  and ts >= now() - interval '10 minutes'
 			order by seq desc limit 2`;
 		if (rows.length < 2 || rows.some((row) => row.dimensions["status"] !== "failed")) return;
-		const failingSince = [...rows].toSorted((left, right) => left.ts.localeCompare(right.ts))[0]!
-			.ts;
+		const failingSince = [...rows].toSorted((left, right) => left.ts.localeCompare(right.ts))[0].ts;
 		await this.#createAttention(owner, now, failingSince, "delivery.failed");
 	}
 
@@ -204,7 +205,7 @@ export class DeliveryService {
 		const active = await this.#db.writer<{ active: boolean }[]>`
 			select exists(select 1 from current_state where kind = 'attention' and subject = ${subject}
 			  and state->>'resolved_at' is null) as active`;
-		if (active[0]?.active === true) return;
+		if (active[0].active) return;
 		await this.#emitRequired({
 			schema_version: 1,
 			id: randomUUID(),
@@ -387,8 +388,8 @@ export class DeliveryService {
 		  and (state->>'tier' = 'interrupt' or coalesce((state->>'loud')::boolean, false))`;
 		const owners = new Map<string, { tier: string }>();
 		for (const row of rows) {
-			const pattern = String(row.state["pattern"] ?? "");
-			const tier = String(row.state["tier"] ?? "feed");
+			const pattern = formatUnknown(row.state["pattern"] ?? "");
+			const tier = formatUnknown(row.state["tier"] ?? "feed");
 			const loud = row.state["loud"] === true;
 			if (
 				!pattern ||

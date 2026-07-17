@@ -113,8 +113,8 @@
 						<summary aria-label="Curate {d.name}" title="Dashboard actions"><Icon name="ellipsis" size={16} /></summary>
 						<div class="menu">
 							<div class="reorder" aria-label="Rearrange dashboard">
-								<button disabled={index === 0} aria-label="Move {d.name} earlier" onclick={() => move(d.id, -1)}><Icon name="arrow-left" size={14} />Earlier</button>
-								<button disabled={index === orderedItems.length - 1} aria-label="Move {d.name} later" onclick={() => move(d.id, 1)}>Later<Icon name="arrow-right" size={14} /></button>
+								<button disabled={index === 0} aria-label="Move {d.name} earlier" onclick={() => { move(d.id, -1); }}><Icon name="arrow-left" size={14} />Earlier</button>
+								<button disabled={index === orderedItems.length - 1} aria-label="Move {d.name} later" onclick={() => { move(d.id, 1); }}>Later<Icon name="arrow-right" size={14} /></button>
 							</div>
 							<OpButton def={setHome} args={{ id: d.id }} {lanes} label="Set as home" />
 							{#if lanes.includes("viewer")}

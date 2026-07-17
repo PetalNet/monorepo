@@ -35,7 +35,7 @@ import { Effect } from "effect";
 export type DataMode = "mock" | "live";
 export const dataMode = (): DataMode => "live";
 
-const run = <A>(effect: Effect.Effect<A, unknown, never>): Promise<A> => Effect.runPromise(effect);
+const run = <A>(effect: Effect.Effect<A, unknown>): Promise<A> => Effect.runPromise(effect);
 const read = <A>(plane: Parameters<typeof readPlane>[0]): Promise<A> =>
 	run(readPlane(plane)) as Promise<A>;
 
@@ -72,8 +72,7 @@ export const runOp = (
 	op: string,
 	args: Record<string, unknown>,
 	opts: { dry_run?: boolean; fetchFn?: typeof fetch } = {},
-): Promise<OpResult> =>
-	run(executeNamedOp({ op, args, dry_run: opts.dry_run })) as Promise<OpResult>;
+): Promise<OpResult> => run(executeNamedOp({ op, args, dry_run: opts.dry_run }));
 
 export interface BusSubscription {
 	readonly sub_id: string;
@@ -113,7 +112,9 @@ export function connectBus(
 				onState("error");
 			}
 		});
-		socket.addEventListener("error", () => onState("error"));
+		socket.addEventListener("error", () => {
+			onState("error");
+		});
 		socket.addEventListener("close", () => {
 			onState("closed");
 			if (!disposed) reconnect = setTimeout(connect, 2_000);
@@ -155,12 +156,18 @@ export function connectTerminal(
 	onError: (error: Error) => void,
 ): () => void {
 	const socket = new WebSocket(socketUrl("/api/v1/terminal/ws"));
-	socket.addEventListener("open", () => socket.send(JSON.stringify({ action: "open", ...target })));
-	socket.addEventListener("message", ({ data }) =>
-		onFrame(JSON.parse(String(data)) as TerminalFrame),
-	);
-	socket.addEventListener("error", () => onError(new Error("Terminal stream is unavailable")));
-	return () => socket.close();
+	socket.addEventListener("open", () => {
+		socket.send(JSON.stringify({ action: "open", ...target }));
+	});
+	socket.addEventListener("message", ({ data }) => {
+		onFrame(JSON.parse(String(data)) as TerminalFrame);
+	});
+	socket.addEventListener("error", () => {
+		onError(new Error("Terminal stream is unavailable"));
+	});
+	return () => {
+		socket.close();
+	};
 }
 
 const terminalMutation = async (streamId: string, action: string, data?: unknown) => {
@@ -171,7 +178,9 @@ const terminalMutation = async (streamId: string, action: string, data?: unknown
 			socket.close();
 			resolve();
 		});
-		socket.addEventListener("error", () => reject(new Error("Terminal command is unavailable")));
+		socket.addEventListener("error", () => {
+			reject(new Error("Terminal command is unavailable"));
+		});
 	});
 };
 export const terminalAttach = (streamId: string) => terminalMutation(streamId, "attach");
@@ -197,7 +206,6 @@ export interface AssistantContextPayload {
 	query_ref?: string;
 	entity_ref?: string;
 }
-export type AssistantMessageResult = Awaited<ReturnType<typeof sendAssistantRemote>>;
 export const getAssistantSession = () => run(getAssistantSessionRemote());
 export const sendAssistantMessage = (message: string) =>
 	run(sendAssistantRemote({ kind: "user", content: message }));

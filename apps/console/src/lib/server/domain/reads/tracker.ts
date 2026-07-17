@@ -79,7 +79,7 @@ export class TrackerReader {
 	}
 
 	#all(sql: string): TrackerRow[] {
-		return this.#db.prepare(sql).all() as TrackerRow[];
+		return this.#db.prepare(sql).all();
 	}
 
 	/** Reconcile a console proposal after an ambiguous HTTP outcome without writing tracker SQLite. */

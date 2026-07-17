@@ -45,7 +45,7 @@ async function hasDirectCommitGrant(
 		      where ${object} = 'item:' || i.id and g.object = i.scope
 		    ))
 		) as allowed`;
-	return rows[0]?.allowed === true;
+	return rows[0].allowed;
 }
 
 /**

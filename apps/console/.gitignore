@@ -1,5 +1,6 @@
 .svelte-kit
 build
+build-server
 .env
 .env.*
 !.env.example

@@ -199,15 +199,15 @@ export class Projector {
 			insert into projection_checkpoint (name, through_seq) values (${checkpointName}, 0)
 			on conflict (name) do update set name = excluded.name
 			returning through_seq`;
-		let cursor = Number(ck[0]?.through_seq ?? 0);
+		let cursor = Number(ck[0].through_seq ?? 0);
 		const replayHead = contractedOnly
 			? Number(
 					(await tx<{ seq: string }[]>`select coalesce(max(seq), 0)::bigint as seq from events`)[0]
-						?.seq ?? 0,
+						.seq ?? 0,
 				)
 			: null;
-		for await (const iteration of indefinitely()) {
-			void iteration;
+		for (const iteration of indefinitely()) {
+			iteration;
 			const rows = await tx<
 				{
 					seq: string;
@@ -246,7 +246,7 @@ export class Projector {
 						where name = ${checkpointName}`;
 				break;
 			}
-			for await (const r of rows) {
+			for (const r of rows) {
 				const e: Emission = {
 					schema_version: 1,
 					id: "",
@@ -394,7 +394,7 @@ export class Projector {
 			}
 			return;
 		}
-		const storedScope = rows[0]?.scope;
+		const storedScope = rows[0].scope;
 		if (storedScope !== undefined && storedScope !== e.scope) {
 			this.#alarm(
 				"projection.scope_conflict",

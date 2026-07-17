@@ -166,7 +166,7 @@ export class SignalStormDetector {
 		sql: Sql,
 		emit: InternalEmit,
 		now: () => Date = () => new Date(),
-		resolveOwnerScopes: ResolveOwnerScopes = async () => [],
+		resolveOwnerScopes: ResolveOwnerScopes = () => Promise.resolve([]),
 	) {
 		this.#sql = sql;
 		this.#emit = emit;
@@ -182,7 +182,7 @@ export class SignalStormDetector {
 			where kind = 'subscription'
 			  and coalesce((state->'storm'->>'active')::boolean, false) = true
 			  and (state->'storm'->>'expires_at')::timestamptz <= ${now.toISOString()}::timestamptz`;
-		for await (const row of expired) await this.#emit(expiredStormEmission(row, now));
+		for (const row of expired) await this.#emit(expiredStormEmission(row, now));
 	}
 
 	async observe(emission: Emission): Promise<void> {
@@ -205,8 +205,8 @@ export class SignalStormDetector {
 	}
 
 	async #scanUntilCaughtUp(): Promise<void> {
-		for await (const iteration of doWhileCondition(() => this.#rescan)) {
-			void iteration;
+		for (const iteration of doWhileCondition(() => this.#rescan)) {
+			iteration;
 			this.#rescan = false;
 			await this.#detect();
 		}
@@ -226,7 +226,7 @@ export class SignalStormDetector {
 			select type, scope, severity, source_service, subject, count(*)::text as n
 			from events where received_at >= ${since}
 			group by type, scope, severity, source_service, subject`;
-		for await (const subscription of subscriptions) {
+		for (const subscription of subscriptions) {
 			const pattern = subscription.state["pattern"];
 			const owner = subscription.state["owner"];
 			if (typeof pattern !== "string" || typeof owner !== "string") continue;

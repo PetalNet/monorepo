@@ -1,6 +1,7 @@
 <script lang="ts">
+	import type { PageProps } from "./$types";
 	const env = import.meta.env;
-	import { invalidateAll } from "$app/navigation";
+	import { refreshAll } from "$app/navigation";
 	import { page } from "$app/state";
 	import { onMount, untrack } from "svelte";
 	import { connectBus, runOp } from "$lib/rpc/browser";
@@ -20,7 +21,7 @@
 	import { snackbar } from "$lib/stores/snackbar.svelte";
 	import { claimWantedCard, getWantedBoard } from "./wanted-board.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	let tasks = $state<TaskItem[]>([...untrack(() => data.tasks)]);
 	let wantedCards = $state<CardItem[]>([...untrack(() => data.wanted)]);
 	let filter = $state("");
@@ -45,7 +46,7 @@
 		{ id: "inbox", label: "Inbox" }, { id: "todo", label: "Todo" }, { id: "doing", label: "Doing" },
 		{ id: "review", label: "Review" }, { id: "blocked", label: "Blocked" },
 	];
-	const visible = $derived(tasks.filter((task) => `${task.title} ${task.project_title} ${task.assignee} ${task.claimed_by}`.toLowerCase().includes(filter.toLowerCase())));
+	const visible = $derived(tasks.filter((task) => `${task.title} ${String(task.project_title)} ${String(task.assignee)} ${String(task.claimed_by)}`.toLowerCase().includes(filter.toLowerCase())));
 	const ackedReviewTaskIds = $derived(new Set<number>(data.ackedReviewTaskIds as number[]));
 	const reviewReady = $derived(tasks.filter((task) => task.status === "review" && (task.verification_status ?? "unverified") === "unverified" && !ackedReviewTaskIds.has(task.id)));
 	const inFlight = $derived(tasks.filter((task) => task.status === "doing" || task.status === "review"));
@@ -56,14 +57,14 @@
 	const p0 = $derived(tasks.find((task) => task.priority === 0 && !task.claimed_by && task.status !== "done" && task.status !== "dropped"));
 	const leaseFor = (id: number) => data.leases.find((lease: { task_id: number }) => lease.task_id === id);
 	const eventsFor = (id: number): WorkEvent[] => data.events.filter((event: WorkEvent) => event.taskId === id);
-	const age = (value: number | string) => { const ms = typeof value === "number" ? value : Date.parse(value); const minutes = Math.max(0, Math.round((now - ms) / 6e4)); return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`; };
+	const age = (value: number | string) => { const ms = typeof value === "number" ? value : Date.parse(value); const minutes = Math.max(0, Math.round((now - ms) / 6e4)); return minutes < 60 ? `${String(minutes)}m` : `${String(Math.round(minutes / 60))}h`; };
 	const score = (card: CardItem) => (3 - card.priority) + .05 * ((now - card.created_at_ms) / 6e4);
 	const rank = (state: CardItem["state"]) => state === "posted" ? 0 : state === "parked" ? 1 : state === "dead" ? 2 : 3;
 	const wanted = $derived(wantedCards.filter((card) => card.state !== "done").toSorted((a: CardItem, b: CardItem) => {
 		return rank(a.state) - rank(b.state) || score(b) - score(a);
 	}));
 	const wantedServicesLive = $derived(
-		wantedQuery.current?.dispatcher_live === true && wantedQuery.current?.tracker_live === true,
+		wantedQuery.current?.dispatcher_live === true && (wantedQuery.current.tracker_live),
 	);
 	async function runTaskClose(args: Record<string, unknown>, dryRun = false): Promise<OpResult> {
 		const response = await fetch(`${env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1"}/op`, {
@@ -74,7 +75,7 @@
 		});
 		const body = await response.json() as OpResult & { error?: { code?: string; message?: string } | null };
 		if (!response.ok) {
-			const error = new Error(body.error?.message ?? `task.close failed (${response.status})`) as Error & { code?: string };
+			const error = new Error(body.error?.message ?? `task.close failed (${String(response.status)})`) as Error & { code?: string };
 			error.code = body.error?.code;
 			throw error;
 		}
@@ -100,9 +101,9 @@
 	});
 	onMount(() => {
 		const clock = setInterval(() => now = Date.now(), 1000);
-		if (data.isMock) return () => clearInterval(clock);
+		if (data.isMock) return () => { clearInterval(clock); };
 		const disconnect = connectBus(
-			() => ["task.**", "card.**", "artifact.**"].map((pattern, index) => ({ sub_id: `console-work-${index}`, pattern })),
+			() => ["task.**", "card.**", "artifact.**"].map((pattern, index) => ({ sub_id: `console-work-${String(index)}`, pattern })),
 			(rawFrame) => {
 				const frame = rawFrame as { kind?: string; ts?: string; ingest?: Record<string, number> | null; emission?: { type?: string } };
 				if (frame.kind === "heartbeat") {
@@ -111,11 +112,11 @@
 					busIngestHealthy = lags.length > 0 && lags.every((lag) => lag <= 90);
 				}
 				if (frame.kind === "event" && /^(task|card|artifact)\./.test(frame.emission?.type ?? "")) {
-					void invalidateAll();
+					void refreshAll();
 					if (frame.emission?.type?.startsWith("task.")) void settlementQuery.refresh();
 				}
 				if (frame.kind === "gap" || frame.kind === "resync_required") {
-					void invalidateAll();
+					void refreshAll();
 					void settlementQuery.refresh();
 				}
 			},
@@ -150,7 +151,7 @@
 					settlingTasks = [completed, ...settlingTasks.filter((item) => item.id !== task.id)];
 				}
 			} else if (!data.isMock) {
-				await invalidateAll();
+				await refreshAll();
 				if (patch?.status === "done") await settlementQuery.refresh();
 			}
 			snackbar.push({ message: message ?? `${op} sent`, op, tone: "good" });
@@ -211,7 +212,7 @@
 			setTimeout(() => {
 				wantedCards = wantedCards.filter((item) => item.card_id !== card.card_id);
 			}, 240);
-			if (!data.isMock) await invalidateAll();
+			if (!data.isMock) await refreshAll();
 		} catch (error) {
 			snackbar.push({
 				message: `task.claim failed: ${(error as Error).message}`,
@@ -240,7 +241,6 @@
 
 {#snippet taskCard(task: TaskItem)}
 	{@const lease = leaseFor(task.id)}
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<article class="task" class:urgent={task.priority===0} class:ready={task.status==="review"&&task.verification_status!=="verified"&&!ackedReviewTaskIds.has(task.id)} draggable="true" ondragstart={() => dragged=task}>
 		<button class="drill" data-task-card data-status={task.status} onclick={() => { selected=task; rejectReason=""; blockReason=task.blocked_on??""; closeReason=""; dispatchRecipient=task.suggested_agent??""; }}><span class="title">{task.title}</span>{#if task.project_title}<span class="project">{task.project_title}</span>{/if}</button>
 		{#if task.claimed_by || task.assignee}<div class="agent"><span>{(task.claimed_by||task.assignee)?.slice(0,1).toUpperCase()}</span><b>{task.claimed_by||task.assignee}</b></div>{:else if task.suggested_agent}<small>suggested: {task.suggested_agent}</small>{/if}
@@ -250,7 +250,7 @@
 	</article>
 {/snippet}
 
-<section class="board" aria-label="Task board">{#each statuses as column}<div id={column.id} class="column status-{column.id}" class:review={column.id==="review"} role="list" aria-label={column.label} ondragover={(event)=>event.preventDefault()} ondrop={() => { if(dragged&&canAct) void move(dragged,column.id); dragged=null; }}><header title={column.id==="blocked"?"Blocked means waiting on a person or a fact. Say which.":undefined}><span>{column.label}</span><b>{visible.filter((task)=>task.status===column.id).length}</b></header>{#each visible.filter((task)=>task.status===column.id).sort((a,b)=>(a.priority-b.priority)||(a.rank??0)-(b.rank??0)).slice(0,expanded[column.id]?undefined:12) as task (task.id)}{@render taskCard(task)}{:else}<p>{column.id==="inbox"?"Inbox zero. You owe nothing right now.":"All caught up."}</p>{/each}{#if visible.filter((task)=>task.status===column.id).length>12}<button class="more" onclick={()=>expanded[column.id]=!expanded[column.id]}>{expanded[column.id]?"Show less":`${visible.filter((task)=>task.status===column.id).length-12} more`}</button>{/if}</div>{/each}</section>
+<section class="board" aria-label="Task board">{#each statuses as column, __eachKey61 (__eachKey61)}<div id={column.id} class="column status-{column.id}" class:review={column.id==="review"} role="list" aria-label={column.label} ondragover={(event)=>{ event.preventDefault(); }} ondrop={() => { if(dragged&&canAct) void move(dragged,column.id); dragged=null; }}><header title={column.id==="blocked"?"Blocked means waiting on a person or a fact. Say which.":undefined}><span>{column.label}</span><b>{visible.filter((task)=>task.status===column.id).length}</b></header>{#each visible.filter((task)=>task.status===column.id).sort((a,b)=>(a.priority-b.priority)||(a.rank??0)-(b.rank??0)).slice(0,expanded[column.id]?undefined:12) as task (task.id)}{@render taskCard(task)}{:else}<p>{column.id==="inbox"?"Inbox zero. You owe nothing right now.":"All caught up."}</p>{/each}{#if visible.filter((task)=>task.status===column.id).length>12}<button class="more" onclick={()=>expanded[column.id]=!expanded[column.id]}>{expanded[column.id]?"Show less":`${String(visible.filter((task)=>task.status===column.id).length-12)} more`}</button>{/if}</div>{/each}</section>
 
 	<section class="settle" aria-labelledby="settle-title" aria-live="polite">
 		<header><Icon name="circle-check" size={14}/><h2 id="settle-title">Done today</h2><span>Settles to the Library after 24h.{#if settlementQuery.current} · {settlementQuery.current.settled_this_week} settled this week{/if}</span></header>
@@ -267,12 +267,12 @@
 <div class="lower"><section class="wanted" aria-labelledby="wanted-title"><header><Icon name="signpost" size={14}/><h2 id="wanted-title">Unclaimed work</h2><span>Soul Squad Board</span><b>{unclaimed.length}</b></header>
 	{#if !wantedQuery.current && !data.isMock}
 		<div class="wanted-loading" aria-label="Loading wanted board" aria-busy="true">
-			{#each Array(4) as _}<div class="wanted-skeleton"><span></span><i></i></div>{/each}
+			{#each Array(4) as _, __eachKey62 (__eachKey62)}<div class="wanted-skeleton"><span></span><i></i></div>{/each}
 		</div>
 	{:else}
 		{#each wanted as card (card.card_id)}
 			<article class:parked={card.state==="parked"} class:dead={card.state==="dead"} class:claimed={card.state==="claimed"}>
-				<div><b>{card.body}</b><small>{#each card.needs as need}<code>{need}</code>{/each}<span>P{card.priority}</span><span>{age(card.created_at_ms)} old</span>{#if card.state==="parked"}<em>Parked. No resident provides {card.needs.join(", ")} right now.</em>{/if}{#if card.state==="dead"}<em>{card.reaps} reaps · dead letter</em>{/if}</small></div>
+				<div><b>{card.body}</b><small>{#each card.needs as need, __eachKey63 (__eachKey63)}<code>{need}</code>{/each}<span>P{card.priority}</span><span>{age(card.created_at_ms)} old</span>{#if card.state==="parked"}<em>Parked. No resident provides {card.needs.join(", ")} right now.</em>{/if}{#if card.state==="dead"}<em>{card.reaps} reaps · dead letter</em>{/if}</small></div>
 				<span class="score" title="Surfacing score">score {score(card).toFixed(1)}</span>
 				{#if card.state==="posted"}
 					<button class="tonal" disabled={!canAct||!wantedServicesLive||busy===card.task_id} title={!canAct?"State actions blocked":!wantedServicesLive?"Tracker or dispatcher is not live":"task.claim"} onclick={() => claimWanted(card)}>{busy===card.task_id?"Claiming…":"Claim"}</button>
@@ -287,10 +287,10 @@
 		{:else}<p>Nothing unclaimed. The Soul Squad got it all.</p>{/each}
 	{/if}
 </section>
-	<aside class="feed"><header><Icon name="hammer" size={14}/><h2>Build feed</h2><span>newest {data.feed.length}</span></header>{#each data.feed as item}<article class:failed={item.state==="failed"}><div class="preview"><Icon name={item.state==="shipped"?"image":"hammer"} size={24}/></div><b>{item.title}</b><p>{item.state==="building"?"Building.":item.state==="failed"?`Build failed at ${item.step}. Log attached. Not fine until it is green.`:"Shipped to the Library."}</p><footer><span>{item.agent}</span>{#if item.taskId>0}<a href={`/work?task=${item.taskId}`}>/task/{item.taskId}</a>{:else}<span>Library artifact</span>{/if}<time>{age(item.updatedAt)}</time></footer></article>{:else}<p>{data.feedAvailable?"No recent Library artifacts.":"Build feed unavailable: Library could not be read."}</p>{/each}</aside>
+	<aside class="feed"><header><Icon name="hammer" size={14}/><h2>Build feed</h2><span>newest {data.feed.length}</span></header>{#each data.feed as item, __eachKey64 (__eachKey64)}<article class:failed={item.state==="failed"}><div class="preview"><Icon name={item.state==="shipped"?"image":"hammer"} size={24}/></div><b>{item.title}</b><p>{item.state==="building"?"Building.":item.state==="failed"?`Build failed at ${String(item.step)}. Log attached. Not fine until it is green.`:"Shipped to the Library."}</p><footer><span>{item.agent}</span>{#if item.taskId>0}<a href={`/work?task=${String(item.taskId)}`}>/task/{item.taskId}</a>{:else}<span>Library artifact</span>{/if}<time>{age(item.updatedAt)}</time></footer></article>{:else}<p>{data.feedAvailable?"No recent Library artifacts.":"Build feed unavailable: Library could not be read."}</p>{/each}</aside>
 </div>
 
-<ModalSurface bind:element={drawer} open={selected!==null} variant="drawer" labelledby="task-title" onclose={()=>selected=null}>{#if selected}<div class="task-drawer"><IconButton class="dialog-close" name="x" label="Close task" autofocus onclick={()=>drawer?.close()}/><small>/task/{selected.id} · {selected.status}</small><h2 id="task-title">{selected.title}</h2><div class="drawer-meta"><StatusPill tone={selected.status==="done"?"good":selected.status==="blocked"?"danger":selected.status==="review"?"warn":"info"} label={selected.status}/><PriorityPips priority={selected.priority}/><VerificationBadge status={selected.verification_status??"unverified"}/></div>{#if selected.claimed_by||selected.assignee}<div class="agent large"><span>{(selected.claimed_by||selected.assignee)?.slice(0,1).toUpperCase()}</span><b>{selected.claimed_by||selected.assignee}</b></div>{/if}{#if selected.acceptance_criteria}<section><h3>Acceptance criteria</h3>{#each selected.acceptance_criteria.split("\n").filter(Boolean) as criterion}<p><Icon name="circle-dashed" size={12}/>{criterion}</p>{/each}</section>{/if}{#if selected.handoff_context}<section><h3>Handoff context</h3><div class="box">{selected.handoff_context}</div></section>{/if}<section><h3>Events</h3>{#each eventsFor(selected.id) as event}<p class="event"><time>{new Date(event.ts).toLocaleTimeString()}</time><span>{event.detail}</span></p>{:else}<p>No contracted events found.</p>{/each}</section>{#if selected.result_summary}<section><h3>Result</h3><div class="box">{selected.result_summary}</div></section>{/if}<div class="drawer-actions">{#if selected.status==="review"}<button class="tonal" disabled={!canAct||!data.trackerLive} title={!canAct?"task.update permission required":"task.update"} onclick={()=>verify(selected!)}>Verify</button><label>Rejection reason<input bind:value={rejectReason}/></label><button disabled={!canAct||!data.trackerLive||!rejectReason.trim()} title={!canAct?"task.update permission required":"Reject with reason"} onclick={()=>reject(selected!)}>Reject</button>{/if}{#if selected.status==="todo"}<button class="tonal" disabled={!canAct||!data.trackerLive} onclick={()=>claim(selected!)}>Claim</button>{/if}{#if selected.status==="todo"||selected.status==="inbox"}<label>Dispatch recipient<input bind:value={dispatchRecipient} placeholder="agent id"/></label><button disabled={!canAct||!data.dispatcherLive} title={!data.dispatcherLive?"Dispatcher unreachable":"task.dispatch"} onclick={()=>dispatch(selected!,dispatchRecipient)}>Dispatch</button>{/if}{#if selected.status==="inbox"}<button class="tonal" disabled={!canAct||!data.trackerLive} onclick={()=>moveTodo(selected!)}>Move to Todo</button>{/if}{#if selected.status!=="done"&&selected.status!=="dropped"}<label>Block reason<input bind:value={blockReason} placeholder="Dependency or incident"/></label><button disabled={!blockReason.trim()||!data.trackerLive||!canAct} title={!blockReason.trim()?"A blocking reason is required":!canAct?"task.update permission required":"task.update"} onclick={()=>block(selected!)}>Block</button><label>Close reason<input bind:value={closeReason} placeholder="Outcome and why this is complete"/></label><button class="tonal" disabled={!closeReason.trim()||!data.trackerLive||!canAct||busy===selected.id} title={!closeReason.trim()?"A close reason is required":!canAct?"task.close permission required":"task.close"} onclick={()=>close(selected!)}>Close as done</button>{/if}</div></div>{/if}</ModalSurface>
+<ModalSurface bind:element={drawer} open={selected!==null} variant="drawer" labelledby="task-title" onclose={()=>selected=null}>{#if selected}<div class="task-drawer"><IconButton class="dialog-close" name="x" label="Close task" autofocus onclick={()=>drawer?.close()}/><small>/task/{selected.id} · {selected.status}</small><h2 id="task-title">{selected.title}</h2><div class="drawer-meta"><StatusPill tone={selected.status==="done"?"good":selected.status==="blocked"?"danger":selected.status==="review"?"warn":"info"} label={selected.status}/><PriorityPips priority={selected.priority}/><VerificationBadge status={selected.verification_status??"unverified"}/></div>{#if selected.claimed_by||selected.assignee}<div class="agent large"><span>{(selected.claimed_by||selected.assignee)?.slice(0,1).toUpperCase()}</span><b>{selected.claimed_by||selected.assignee}</b></div>{/if}{#if selected.acceptance_criteria}<section><h3>Acceptance criteria</h3>{#each selected.acceptance_criteria.split("\n").filter(Boolean) as criterion, __eachKey65 (__eachKey65)}<p><Icon name="circle-dashed" size={12}/>{criterion}</p>{/each}</section>{/if}{#if selected.handoff_context}<section><h3>Handoff context</h3><div class="box">{selected.handoff_context}</div></section>{/if}<section><h3>Events</h3>{#each eventsFor(selected.id) as event, __eachKey66 (__eachKey66)}<p class="event"><time>{new Date(event.ts).toLocaleTimeString()}</time><span>{event.detail}</span></p>{:else}<p>No contracted events found.</p>{/each}</section>{#if selected.result_summary}<section><h3>Result</h3><div class="box">{selected.result_summary}</div></section>{/if}<div class="drawer-actions">{#if selected.status==="review"}<button class="tonal" disabled={!canAct||!data.trackerLive} title={!canAct?"task.update permission required":"task.update"} onclick={()=>verify(selected!)}>Verify</button><label>Rejection reason<input bind:value={rejectReason}/></label><button disabled={!canAct||!data.trackerLive||!rejectReason.trim()} title={!canAct?"task.update permission required":"Reject with reason"} onclick={()=>reject(selected!)}>Reject</button>{/if}{#if selected.status==="todo"}<button class="tonal" disabled={!canAct||!data.trackerLive} onclick={()=>claim(selected!)}>Claim</button>{/if}{#if selected.status==="todo"||selected.status==="inbox"}<label>Dispatch recipient<input bind:value={dispatchRecipient} placeholder="agent id"/></label><button disabled={!canAct||!data.dispatcherLive} title={!data.dispatcherLive?"Dispatcher unreachable":"task.dispatch"} onclick={()=>dispatch(selected!,dispatchRecipient)}>Dispatch</button>{/if}{#if selected.status==="inbox"}<button class="tonal" disabled={!canAct||!data.trackerLive} onclick={()=>moveTodo(selected!)}>Move to Todo</button>{/if}{#if selected.status!=="done"&&selected.status!=="dropped"}<label>Block reason<input bind:value={blockReason} placeholder="Dependency or incident"/></label><button disabled={!blockReason.trim()||!data.trackerLive||!canAct} title={!blockReason.trim()?"A blocking reason is required":!canAct?"task.update permission required":"task.update"} onclick={()=>block(selected!)}>Block</button><label>Close reason<input bind:value={closeReason} placeholder="Outcome and why this is complete"/></label><button class="tonal" disabled={!closeReason.trim()||!data.trackerLive||!canAct||busy===selected.id} title={!closeReason.trim()?"A close reason is required":!canAct?"task.close permission required":"task.close"} onclick={()=>close(selected!)}>Close as done</button>{/if}</div></div>{/if}</ModalSurface>
 
 <style>
 		.utility{display:flex;align-items:center;gap:var(--s-3);min-height:40px}.utility :global(.surface-sign){flex:1}.utility label{width:240px;height:32px;background:var(--s2);display:flex;align-items:center;gap:var(--s-2);padding:0 var(--s-2);border-radius:var(--r-xs)}input{border:0;background:none;color:var(--text);outline:0;min-width:0;width:100%}input:focus{outline:2px solid var(--petal);outline-offset:2px}.utility time{font:400 .75rem var(--mono);color:var(--text-3)}.hud{display:flex;gap:var(--s-2);margin:var(--s-3) 0 var(--s-4)}.stalebar{display:flex;align-items:center;gap:var(--s-2);min-height:40px;padding:0 var(--s-3);background:var(--warn-soft);color:var(--warn-text);font-size:.75rem;margin-bottom:var(--s-3);border-radius:var(--r-xs)}.board{display:grid;grid-template-columns:repeat(5,minmax(184px,1fr));gap:var(--s-2);min-height:320px}.column{display:flex;flex-direction:column;gap:var(--s-2);min-width:0}.column>header{height:24px;display:flex;align-items:center;gap:var(--s-1);font:500 .6875rem var(--mono);text-transform:uppercase;color:var(--text-3)}.column>header b{font-weight:500}.column>p,.settle>p,.wanted>p,.feed>p{font-size:.75rem;color:var(--text-3);padding:var(--s-2)}.task{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-2);display:flex;flex-direction:column;gap:var(--s-1);transition:background var(--t),transform var(--dur-fast)}.task:hover{background:var(--s2)}.task:active{transform:scale(.97)}.task.urgent{background:var(--danger-soft)}.task.ready{background:var(--jade-soft)}.drill{border:0;background:none;color:var(--text);padding:0;text-align:left;display:flex;gap:var(--s-1);align-items:baseline}.drill:focus{outline:2px solid var(--petal);outline-offset:2px}.title{font:500 .84375rem/1.35 var(--sans);display:-webkit-box;line-clamp:2;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.project{font:500 .6875rem var(--mono);text-transform:uppercase;background:var(--s2);color:var(--text-3);padding:0 var(--s-1);border-radius:var(--r-xs)}.task small{font:400 .6875rem var(--mono);color:var(--text-3)}.agent{display:inline-flex;align-items:center;gap:var(--s-1);font-size:.75rem}.agent>span{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;background:var(--jade-soft);color:var(--jade-text);font-size:.6875rem}.agent b{font-weight:500}.lease{display:flex;align-items:center;gap:var(--s-1);font-size:.6875rem;color:var(--text-3)}.lease code{margin-left:auto}.blocked{color:var(--danger-text)!important}.task footer{display:flex;align-items:center;gap:var(--s-2)}.task footer>span{flex:1}.mini,.tonal,.drawer-actions button,.wanted article>button,.settle-error button{border:0;background:none;color:var(--text);min-height:32px;padding:0 var(--s-2);border-radius:var(--r-xs);font:500 .6875rem var(--sans)}.tonal,.mini.tonal{background:var(--petal-soft);color:var(--petal-text)}button:disabled{opacity:.45}.settle{margin-top:var(--s-4)}.settle>header,.wanted>header,.feed>header{height:32px;display:flex;align-items:center;gap:var(--s-2)}.settle h2,.wanted h2,.feed h2{font:500 .6875rem var(--mono);text-transform:uppercase}.settle header span,.wanted header span,.feed header span{font-size:.6875rem;color:var(--text-3)}.settle header span{margin-left:auto}.settle-error{min-height:40px;padding:0 var(--s-2);display:flex;align-items:center;gap:var(--s-2);background:var(--warn-soft);color:var(--warn-text);font-size:.75rem}.settle-error span{flex:1}.settle-error button{color:var(--warn-text)}.settle-skeleton{min-height:40px;border-top:1px solid var(--rule);display:grid;grid-template-columns:1fr 104px;align-items:center;gap:var(--s-3)}.settle-skeleton span,.settle-skeleton i{display:block;height:10px;background:var(--s2);border-radius:var(--r-xs);animation:wanted-pulse 1.2s ease-in-out infinite alternate}.settle-skeleton span{width:min(48%,320px)}.settle-skeleton i{width:104px;justify-self:end}.lower{display:grid;grid-template-columns:minmax(0,1fr) 344px;gap:var(--s-4);margin-top:var(--s-5)}.wanted,.feed{background:var(--s1);border-radius:var(--r-xs);padding:var(--s-3)}.wanted header b{margin-left:auto;font:500 .6875rem var(--mono)}.wanted article{min-height:56px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:var(--s-2)}.wanted article>div{display:grid;flex:1}.wanted article small{display:flex;align-items:center;gap:var(--s-2);font:400 .6875rem var(--mono);color:var(--text-3);flex-wrap:wrap}.wanted code{background:var(--s2);padding:0 var(--s-1)}.wanted em{flex-basis:100%;font-style:normal}.wanted .parked{color:var(--text-3)}.wanted .dead{color:var(--danger-text)}.score{font:400 .6875rem var(--mono);color:var(--text-3)}.wanted a{font-size:.6875rem;color:var(--petal-text)}.unavailable{color:var(--danger-text)!important}.feed article{padding:var(--s-2) 0;border-top:1px solid var(--rule)}.preview{height:120px;background:var(--s2);display:grid;place-items:center;border-radius:var(--r-xs);color:var(--text-3);margin-bottom:var(--s-2)}.feed article>p{font-size:.75rem;color:var(--text-3)}.feed .failed>p{color:var(--danger-text)}.feed footer{display:flex;gap:var(--s-2);font-size:.6875rem}.feed footer time{margin-left:auto;font-family:var(--mono)}.feed a{color:var(--petal-text)}.box{background:var(--s2);padding:var(--s-3);font-size:.8125rem;border-radius:var(--r-xs)}.event{border-top:1px solid var(--rule);padding:var(--s-2) 0;margin:0}.event time{width:72px;font-family:var(--mono);color:var(--text-3)}.drawer-actions{display:flex;gap:var(--s-2);align-items:end;margin-top:var(--s-4);flex-wrap:wrap}.drawer-actions label{display:grid;font-size:.6875rem;color:var(--text-3);flex:1}.drawer-actions input{height:32px;background:var(--s2);padding:0 var(--s-2)}.contract-note{font-size:.6875rem;color:var(--text-3);margin-top:var(--s-3)}@media(max-width:1023px){.board{display:flex;flex-direction:column}.column.review{order:-5}.column{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.column>header{grid-column:1/-1}.lower{grid-template-columns:1fr}}@media(max-width:767px){.utility :global(.surface-sign) :global(.blurb),.utility time{display:none}.utility{flex-wrap:wrap}.utility label{width:100%;order:2}.utility label input{width:100%}.hud{overflow:auto}.board .column{grid-template-columns:1fr}.column:not(.review):not(:has(.urgent)){display:none}.settle header span{max-width:58%;text-align:right}.lower{margin-top:var(--s-4)}.wanted article{display:grid;grid-template-columns:minmax(0,1fr) auto;padding:var(--s-2) 0}.wanted article>div{grid-column:1/-1}.wanted .score{align-self:center}.claimed-by{min-width:0}}

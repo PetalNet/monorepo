@@ -20,7 +20,7 @@ const approveInput = boxInput
 	.extend({ packages: z.array(z.string().min(1).max(256)).min(1).max(500) })
 	.strict();
 const revokeInput = z
-	.object({ approval_id: z.string().uuid(), box_id: z.string().min(1).max(256) })
+	.object({ approval_id: z.uuid(), box_id: z.string().min(1).max(256) })
 	.strict();
 
 export interface ApprovedUpdate {
@@ -78,7 +78,7 @@ async function runApprovalOp(
 			dry_run: false,
 		}),
 	});
-	if (!result.ok) error(400, result.error?.message ?? "Approval operation failed");
+	if (!result.ok) error(400, result.error.message ?? "Approval operation failed");
 	return result;
 }
 
