@@ -6,7 +6,7 @@ const NullableString = Schema.NullOr(Schema.String);
 
 const EmissionSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
-	id: Schema.String,
+	id: Schema.String.check(Schema.isUUID()),
 	type: Schema.String,
 	ts: Schema.String,
 	source: Schema.Struct({
@@ -39,7 +39,7 @@ export const OpCallSchema = Schema.Struct({
 	op: Schema.String,
 	args: JsonObject,
 	task_id: Schema.optional(Schema.NullOr(Schema.Number)),
-	reason: Schema.optional(NullableString),
+	reason: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000)))),
 	dry_run: Schema.optional(Schema.Boolean),
 }).annotate({ identifier: "OpCall", title: "Named operation call" });
 

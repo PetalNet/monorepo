@@ -1,13 +1,12 @@
-import { execFile, spawn } from "node:child_process";
 // The HTTP + WS surface (contract §1.1). Fastify with a bearer/dev auth hook that resolves a
 // server-stamped Principal, then the four-plane routes. Query, Command, Bus, and the current
 // Library seam are all served here; unavailable executor adapters fail closed.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { promisify } from "node:util";
 
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
+import { Exit, Schema } from "effect";
 import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -16,6 +15,7 @@ import { asynchronously } from "#domain/iteration";
 import { required } from "#format";
 import { formatUnknown } from "#format";
 
+import { OpCallSchema, QueryRequestSchema } from "./api-schema.ts";
 import { ask } from "./assistant/engine.ts";
 import { AssistantRuntimeError } from "./assistant/runtime.ts";
 import { handleAssistantMcp, resolveAssistantToolPrincipal } from "./assistant/tools.ts";
@@ -128,95 +128,18 @@ export interface TerminalAdapter {
 	input(target: TerminalTarget, data: Buffer): Promise<void>;
 }
 
-const runFile = promisify(execFile);
-
-/** Production PTY seam: bounded, non-interactive ssh calls with every remote token validated. */
-class SshTmuxTerminalAdapter implements TerminalAdapter {
-	private sshArgs(host: string): string[] {
-		return ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host];
+/** Deferred production PTY seam. Tests inject a bounded adapter explicitly. */
+class UnavailableTerminalAdapter implements TerminalAdapter {
+	health(): Promise<boolean> {
+		return Promise.resolve(false);
 	}
 
-	private async assertTarget(target: TerminalTarget): Promise<void> {
-		const { stdout } = await runFile(
-			"ssh",
-			[
-				...this.sshArgs(target.host),
-				"tmux",
-				"display-message",
-				"-p",
-				"-t",
-				target.paneId,
-				"\\#{session_name}",
-			],
-			{ encoding: "utf8", maxBuffer: 4_096, timeout: 10_000 },
-		);
-		if (stdout.trim() !== target.tmuxSession) throw new Error("PTY target session mismatch");
+	capture(_target: TerminalTarget, _scrollbackLines: number): Promise<Buffer> {
+		return Promise.reject(new Error("PTY adapter is not configured"));
 	}
 
-	async health(): Promise<boolean> {
-		try {
-			await runFile("ssh", ["-V"], { timeout: 2_000 });
-			return true;
-		} catch {
-			return false;
-		}
-	}
-
-	async capture(target: TerminalTarget, scrollbackLines: number): Promise<Buffer> {
-		await this.assertTarget(target);
-		const { stdout } = await runFile(
-			"ssh",
-			[
-				...this.sshArgs(target.host),
-				"tmux",
-				"capture-pane",
-				"-p",
-				"-e",
-				"-S",
-				`-${String(scrollbackLines)}`,
-				"-t",
-				target.paneId,
-			],
-			{ encoding: "buffer", maxBuffer: 4 * 1024 * 1024, timeout: 10_000 },
-		);
-		return stdout;
-	}
-
-	async input(target: TerminalTarget, data: Buffer): Promise<void> {
-		await this.assertTarget(target);
-		await new Promise<void>((resolve, reject) => {
-			const child = spawn("ssh", [
-				...this.sshArgs(target.host),
-				"tmux",
-				"load-buffer",
-				"-b",
-				"console-input",
-				"-",
-				";",
-				"paste-buffer",
-				"-b",
-				"console-input",
-				"-d",
-				"-t",
-				target.paneId,
-			]);
-			let stderr = "";
-			const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
-			child.stderr.setEncoding("utf8");
-			child.stderr.on("data", (chunk: string) => {
-				if (stderr.length < 4_096) stderr += chunk.slice(0, 4_096 - stderr.length);
-			});
-			child.on("error", (error) => {
-				clearTimeout(timer);
-				reject(error);
-			});
-			child.on("close", (code) => {
-				clearTimeout(timer);
-				if (code === 0) resolve();
-				else reject(new Error(`ssh tmux input failed (${String(code)}): ${stderr}`));
-			});
-			child.stdin.end(data);
-		});
+	input(_target: TerminalTarget, _data: Buffer): Promise<void> {
+		return Promise.reject(new Error("PTY adapter is not configured"));
 	}
 }
 
@@ -448,18 +371,6 @@ const assistantContextSchema = z
 		}),
 	})
 	.strict();
-const opCallSchema = z
-	.object({
-		schema_version: z.literal(1),
-		id: z.uuid(),
-		op: z.string().regex(/^[a-z0-9_]+(?:\.[a-z0-9_]+)+$/),
-		args: z.record(z.string(), z.unknown()),
-		task_id: z.number().int().nullable().optional(),
-		reason: z.string().max(2_000).nullable().optional(),
-		dry_run: z.boolean().default(false),
-	})
-	.strict();
-
 const LANE_ORDER = ["viewer", "editor", "operator", "admin"] as const;
 
 async function resolveHumanIdentity(
@@ -540,7 +451,7 @@ function catalogCursor(type: string, inclusive: boolean): string {
 	);
 }
 
-type OpCall = z.infer<typeof opCallSchema>;
+type OpCall = typeof OpCallSchema.Type & { readonly dry_run: boolean };
 type OpTarget = Record<string, unknown> & { scope?: string; owner?: string | null };
 
 function proposalFailure(reply: FastifyReply, error: ProposalError) {
@@ -599,7 +510,7 @@ export async function buildServer(
 	services: Services,
 	devAuth: boolean,
 	monitor: ExceptionMonitor = inertExceptionMonitor,
-	terminal: TerminalAdapter = new SshTmuxTerminalAdapter(),
+	terminal: TerminalAdapter = new UnavailableTerminalAdapter(),
 	betterAuth: BetterAuthSessionVerifier | null = null,
 	devAuthHost: string | null = null,
 ) {
@@ -1347,11 +1258,13 @@ export async function buildServer(
 						throw new QueryError("lane_denied", "sql mode requires operator+");
 					throw new QueryError("not_implemented", "sql mode is not implemented");
 				}
-				return (await runStructured(
-					services.db.app,
-					principal.scopes,
-					call.args as unknown as QueryRequest,
-				)) as unknown as Record<string, unknown>;
+				return {
+					...(await runStructured(
+						services.db.app,
+						principal.scopes,
+						call.args as unknown as QueryRequest,
+					)),
+				};
 			case "viz.render":
 				return { panel: call.args["panel"], registered: true };
 			case "text.surface":
@@ -1691,16 +1604,16 @@ export async function buildServer(
 	// Custom bounded token bucket above is the rate limiter; CodeQL does not model Fastify-local
 	// preHandlers as rate-limiting middleware. lgtm[js/missing-rate-limiting]
 	app.post("/api/v1/op", { preHandler: [auth, opRateLimit] }, async (req, reply) => {
-		const parsed = opCallSchema.safeParse(req.body);
-		if (!parsed.success)
+		const parsed = Schema.decodeUnknownExit(OpCallSchema)(req.body);
+		if (Exit.isFailure(parsed))
 			return reply.code(400).send({
 				error: {
 					code: "bad_op_call",
-					message: parsed.error.issues[0]?.message ?? "invalid op call",
+					message: "invalid op call",
 					retryable: false,
 				},
 			});
-		const call = parsed.data;
+		const call: OpCall = { ...parsed.value, dry_run: parsed.value.dry_run ?? false };
 		const entry = OP_BY_NAME.get(call.op);
 		if (!entry)
 			return opError(reply, call, 404, "unknown_op", "operation is not in the canonical catalog");
@@ -2282,7 +2195,12 @@ export async function buildServer(
 	// --- query -----------------------------------------------------------------------------------
 	app.post("/api/v1/query", { preHandler: auth }, async (req, reply) => {
 		const p = req.principal as Principal;
-		const body = req.body as QueryRequest;
+		const parsed = Schema.decodeUnknownExit(QueryRequestSchema)(req.body);
+		if (Exit.isFailure(parsed))
+			return reply.code(400).send({
+				error: { code: "bad_query", message: "invalid query request", retryable: false },
+			});
+		const body = parsed.value as QueryRequest;
 		if (body.mode === "sql") {
 			if (!p.lanes.includes("operator") && !p.lanes.includes("admin"))
 				return reply.code(403).send({

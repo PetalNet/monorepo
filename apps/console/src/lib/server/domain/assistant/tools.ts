@@ -229,7 +229,8 @@ export async function resolveAssistantToolPrincipal(
 		select s.principal_id, s.principal_kind, s.tiers, s.lanes, s.auth_source, s.auth_session_id
 		from assistant_tool_tokens t join assistant_sessions s on s.principal_id = t.principal_id
 		where t.token_sha256 = ${sha256(token)} and t.expires_at > now()`;
-	const row = rows[0];
+	const row = rows.at(0);
+	if (!row) return null;
 
 	if (row.auth_source === "better-auth") {
 		if (!row.auth_session_id || !resolveBetterAuthSession) return null;
@@ -291,7 +292,7 @@ async function callTool(
 		const rows = await db.writer<{ window_layout: Record<string, unknown> }[]>`
 			update assistant_sessions set window_layout = ${db.writer.json({ ops: parsed.ops } as never)}, updated_at = now()
 			where principal_id = ${principal.id} returning window_layout`;
-		return { schema_version: 1, layout: rows[0].window_layout };
+		return { schema_version: 1, layout: rows.at(0)?.window_layout ?? { ops: [] } };
 	}
 	if (name === "dashboard.manage") {
 		const parsed = dashboardToolSchema.parse(args);
@@ -384,9 +385,12 @@ export async function handleAssistantMcp(
 	principal: Principal,
 	raw: unknown,
 ): Promise<Record<string, unknown>> {
-	const request = raw as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown };
-	const id = request.id ?? null;
-	if (request.jsonrpc !== "2.0" || typeof request.method !== "string")
+	const request =
+		raw && typeof raw === "object" && !Array.isArray(raw)
+			? (raw as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown })
+			: null;
+	const id = request?.id ?? null;
+	if (request?.jsonrpc !== "2.0" || typeof request.method !== "string")
 		return { jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request" } };
 	if (request.method === "initialize")
 		return {
@@ -405,7 +409,10 @@ export async function handleAssistantMcp(
 			result: { tools: TOOLS },
 		};
 	if (request.method === "tools/call") {
-		const params = request.params as { name?: unknown; arguments?: unknown };
+		const params =
+			request.params && typeof request.params === "object" && !Array.isArray(request.params)
+				? (request.params as { name?: unknown; arguments?: unknown })
+				: {};
 		try {
 			const result = await callTool(
 				services,

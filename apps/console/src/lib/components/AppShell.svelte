@@ -396,6 +396,7 @@
 			sessionRestoring = true;
 			void getAssistantSession()
 				.then(({ session }) => {
+					if (!session) return null;
 					windowLayout = layout(session.window_layout);
 					if (session.last_context?.value)
 						context = {

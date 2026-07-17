@@ -1,5 +1,27 @@
 import { flattenRosterItem } from "$lib/api/derive";
-import type { Me, OpResult, StructuredQuery } from "$lib/api/types";
+import type {
+	AttentionItem,
+	BoxUpdateItem,
+	CatalogEntry,
+	CardItem,
+	ConsoleHealth,
+	DashboardItem,
+	EdgeSessionItem,
+	ExecutorItem,
+	GovernanceItem,
+	GovernancePool,
+	HeartbeatItem,
+	LeaseItem,
+	Me,
+	OpResult,
+	ReadEnvelope,
+	RegistryItem,
+	RosterItem,
+	StructuredQuery,
+	SubscriptionItem,
+	TaskItem,
+	WorkerItem,
+} from "$lib/api/types";
 import { listDashboards } from "$lib/server/domain/dashboard/store";
 import { currentPrincipal } from "$lib/server/domain/principal";
 import { runStructured } from "$lib/server/domain/query/structured";
@@ -35,6 +57,26 @@ export type ReadPlane =
 	| "tasks"
 	| "workers";
 
+export interface ReadPlaneResult {
+	readonly attention: ReadEnvelope<AttentionItem>;
+	readonly "box-updates": ReadEnvelope<BoxUpdateItem>;
+	readonly cards: ReadEnvelope<CardItem>;
+	readonly catalog: ReadEnvelope<CatalogEntry>;
+	readonly dashboards: ReadEnvelope<DashboardItem>;
+	readonly "edge-sessions": ReadEnvelope<EdgeSessionItem>;
+	readonly executors: ReadEnvelope<ExecutorItem>;
+	readonly governance: ReadEnvelope<GovernanceItem> & { readonly pool?: GovernancePool };
+	readonly health: ConsoleHealth;
+	readonly heartbeats: ReadEnvelope<HeartbeatItem>;
+	readonly leases: ReadEnvelope<LeaseItem>;
+	readonly me: Me;
+	readonly registry: ReadEnvelope<RegistryItem>;
+	readonly roster: ReadEnvelope<RosterItem>;
+	readonly subscriptions: ReadEnvelope<SubscriptionItem>;
+	readonly tasks: ReadEnvelope<TaskItem>;
+	readonly workers: ReadEnvelope<WorkerItem>;
+}
+
 const projectedKinds = {
 	attention: "attention",
 	"box-updates": "box_update",
@@ -48,7 +90,7 @@ const projectedKinds = {
 } as const;
 
 /** Canonical read plane shared by surface-specific remote delegates and REST handlers. */
-export const readPlane = Query("unchecked", (plane: ReadPlane) =>
+const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 	Effect.gen(function* () {
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
@@ -103,6 +145,16 @@ export const readPlane = Query("unchecked", (plane: ReadPlane) =>
 		);
 	}),
 );
+
+type ReadEffect<A> =
+	ReturnType<typeof readPlaneRemote> extends Effect.Effect<unknown, infer E, infer R>
+		? Effect.Effect<A, E, R>
+		: never;
+
+/** Correlates each plane literal with its domain result at the remote boundary. */
+export function readPlane<P extends ReadPlane>(plane: P): ReadEffect<ReadPlaneResult[P]> {
+	return readPlaneRemote(plane) as unknown as ReadEffect<ReadPlaneResult[P]>;
+}
 
 export const runStructuredQuery = Query("unchecked", (request: StructuredQuery) =>
 	Effect.gen(function* () {
@@ -163,15 +215,17 @@ export const getAssistantSessionRemote = Query(
 				>`select manager_session_id, state, window_layout, last_context
 			  from assistant_sessions where principal_id = ${principal.id}`,
 		);
-		const row = rows[0];
+		const row = rows.at(0);
 		return {
 			schema_version: 1 as const,
-			session: {
-				session_id: row.manager_session_id,
-				state: row.state,
-				window_layout: row.window_layout,
-				last_context: row.last_context,
-			},
+			session: row
+				? {
+						session_id: row.manager_session_id,
+						state: row.state,
+						window_layout: row.window_layout,
+						last_context: row.last_context,
+					}
+				: null,
 		};
 	}),
 );

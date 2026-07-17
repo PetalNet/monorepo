@@ -33,9 +33,11 @@ export interface QueryRequest {
 	limit?: number | null;
 }
 
-export interface QueryResult {
+export type QueryColumnType = "string" | "number" | "boolean" | "timestamp" | "json";
+
+interface QueryResultBody {
 	schema_version: 1;
-	columns: { name: string; type: string }[];
+	columns: { name: string; type: QueryColumnType }[];
 	rows: unknown[][];
 	row_count: number;
 	execution_ms: number | null;
@@ -44,11 +46,15 @@ export interface QueryResult {
 	truncated?: boolean;
 }
 
+export interface QueryResult extends QueryResultBody {
+	readonly [key: string]: unknown;
+}
+
 export interface PreparedStructuredQuery {
 	readonly request: QueryRequest;
 	readonly sqlText: string;
 	readonly params: readonly unknown[];
-	readonly columns: readonly { name: string; type: string }[];
+	readonly columns: readonly { name: string; type: QueryColumnType }[];
 	readonly limit: number;
 }
 
@@ -363,7 +369,7 @@ export async function prepareStructured(
 	const source = await resolveSource(app, scopes, req.from);
 
 	const selects: string[] = [];
-	const cols: { name: string; type: string }[] = [];
+	const cols: { name: string; type: QueryColumnType }[] = [];
 	const groupExprs: string[] = [];
 
 	if (req.time?.bucket) {
@@ -540,7 +546,7 @@ async function persistQueryInTx(
 	tx: Sql,
 	scopes: readonly string[],
 	prepared: PreparedStructuredQuery,
-	result: Omit<QueryResult, "query_ref">,
+	result: Omit<QueryResultBody, "query_ref">,
 ): Promise<QueryResult> {
 	const ref = `q_${nanoid(16)}`;
 	const content = queryCorpusText(prepared.request);
@@ -565,7 +571,7 @@ async function persistQuery(
 	app: Sql,
 	scopes: readonly string[],
 	prepared: PreparedStructuredQuery,
-	result: Omit<QueryResult, "query_ref">,
+	result: Omit<QueryResultBody, "query_ref">,
 ): Promise<QueryResult> {
 	return withScopes(app, scopes, (tx) => persistQueryInTx(tx, scopes, prepared, result));
 }

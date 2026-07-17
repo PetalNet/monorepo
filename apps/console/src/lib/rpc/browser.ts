@@ -1,28 +1,13 @@
 import type {
-	AttentionItem,
-	BoxUpdateItem,
 	BoxUpdateRaw,
-	CatalogEntry,
-	CardItem,
 	ConsoleHealth,
-	DashboardItem,
-	EdgeSessionItem,
-	ExecutorItem,
-	GovernanceItem,
-	GovernancePool,
-	HeartbeatItem,
-	LeaseItem,
 	Me,
 	OpResult,
-	QueryResult,
 	ReadEnvelope,
-	RegistryItem,
 	RosterItem,
 	StructuredQuery,
-	SubscriptionItem,
-	TaskItem,
-	WorkerItem,
 } from "$lib/api/types";
+import type { ReadPlane, ReadPlaneResult } from "$lib/operations.remote";
 import {
 	executeNamedOp,
 	getAssistantSessionRemote,
@@ -30,43 +15,36 @@ import {
 	runStructuredQuery,
 	sendAssistantRemote,
 } from "$lib/operations.remote";
+import type { QueryResult } from "$lib/server/domain/query/structured";
 import { Effect } from "effect";
 
 export type DataMode = "mock" | "live";
 export const dataMode = (): DataMode => "live";
 
 const run = <A>(effect: Effect.Effect<A, unknown>): Promise<A> => Effect.runPromise(effect);
-const read = <A>(plane: Parameters<typeof readPlane>[0]): Promise<A> =>
-	run(readPlane(plane)) as Promise<A>;
+const read = <P extends ReadPlane>(plane: P): Promise<ReadPlaneResult[P]> => run(readPlane(plane));
 
-export const readMe = (_fetch?: typeof fetch) => read<Me>("me");
-export const readHealth = (_fetch?: typeof fetch) => read<ConsoleHealth>("health");
-export const readRoster = (_fetch?: typeof fetch) => read<ReadEnvelope<RosterItem>>("roster");
-export const readHeartbeats = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<HeartbeatItem>>("heartbeats");
-export const readGovernance = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<GovernanceItem> & { pool?: GovernancePool }>("governance");
-export const readBoxUpdates = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<BoxUpdateItem>>("box-updates");
-export const readExecutors = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<ExecutorItem>>("executors");
-export const readRegistry = (_fetch?: typeof fetch) => read<ReadEnvelope<RegistryItem>>("registry");
-export const readWorkers = (_fetch?: typeof fetch) => read<ReadEnvelope<WorkerItem>>("workers");
-export const readTasks = (_fetch?: typeof fetch) => read<ReadEnvelope<TaskItem>>("tasks");
-export const readLeases = (_fetch?: typeof fetch) => read<ReadEnvelope<LeaseItem>>("leases");
-export const readCatalog = (_fetch?: typeof fetch) => read<ReadEnvelope<CatalogEntry>>("catalog");
-export const readDashboards = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<DashboardItem>>("dashboards");
-export const readEdgeSessions = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<EdgeSessionItem>>("edge-sessions");
-export const readSubscriptions = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<SubscriptionItem>>("subscriptions");
-export const readCards = (_fetch?: typeof fetch) => read<ReadEnvelope<CardItem>>("cards");
-export const readAttention = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<AttentionItem>>("attention");
+export const readMe = (_fetch?: typeof fetch): Promise<Me> => read("me");
+export const readHealth = (_fetch?: typeof fetch): Promise<ConsoleHealth> => read("health");
+export const readRoster = (_fetch?: typeof fetch): Promise<ReadEnvelope<RosterItem>> =>
+	read("roster");
+export const readHeartbeats = (_fetch?: typeof fetch) => read("heartbeats");
+export const readGovernance = (_fetch?: typeof fetch) => read("governance");
+export const readBoxUpdates = (_fetch?: typeof fetch) => read("box-updates");
+export const readExecutors = (_fetch?: typeof fetch) => read("executors");
+export const readRegistry = (_fetch?: typeof fetch) => read("registry");
+export const readWorkers = (_fetch?: typeof fetch) => read("workers");
+export const readTasks = (_fetch?: typeof fetch) => read("tasks");
+export const readLeases = (_fetch?: typeof fetch) => read("leases");
+export const readCatalog = (_fetch?: typeof fetch) => read("catalog");
+export const readDashboards = (_fetch?: typeof fetch) => read("dashboards");
+export const readEdgeSessions = (_fetch?: typeof fetch) => read("edge-sessions");
+export const readSubscriptions = (_fetch?: typeof fetch) => read("subscriptions");
+export const readCards = (_fetch?: typeof fetch) => read("cards");
+export const readAttention = (_fetch?: typeof fetch) => read("attention");
 
 export const runQuery = (request: StructuredQuery, _fetch?: typeof fetch): Promise<QueryResult> =>
-	run(runStructuredQuery(request)) as Promise<QueryResult>;
+	run(runStructuredQuery(request));
 
 export const runOp = (
 	op: string,
