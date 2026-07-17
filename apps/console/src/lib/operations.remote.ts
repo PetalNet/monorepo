@@ -2,13 +2,19 @@ import { flattenRosterItem } from "$lib/api/derive";
 import type { Me, OpResult, StructuredQuery } from "$lib/api/types";
 import { listDashboards } from "$lib/server/domain/dashboard/store";
 import { currentPrincipal } from "$lib/server/domain/principal";
-import { readEntity, readTypedEntity } from "$lib/server/domain/reads/entities";
-import { readExecutors as readExecutorsCore, readRoster as readRosterCore } from "$lib/server/domain/reads/roster";
-import { readLeases as readLeasesCore, readTasks as readTasksCore } from "$lib/server/domain/reads/tracker-reads";
 import { runStructured } from "$lib/server/domain/query/structured";
+import { readEntity, readTypedEntity } from "$lib/server/domain/reads/entities";
+import {
+	readExecutors as readExecutorsCore,
+	readRoster as readRosterCore,
+} from "$lib/server/domain/reads/roster";
+import {
+	readLeases as readLeasesCore,
+	readTasks as readTasksCore,
+} from "$lib/server/domain/reads/tracker-reads";
 import { ConsoleDomain } from "$lib/server/domain/service";
-import { Command, Query } from "svelte-effect-runtime";
 import { Effect } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
 export type ReadPlane =
 	| "attention"
@@ -74,7 +80,8 @@ export const readPlane = Query("unchecked", (plane: ReadPlane) =>
 		if (plane === "executors")
 			return yield* Effect.tryPromise(() => readExecutorsCore(services.db.app, principal.scopes));
 		if (plane === "tasks" || plane === "leases") {
-			if (!services.tracker) return yield* Effect.die(new Error("Tracker read adapter is unavailable"));
+			if (!services.tracker)
+				return yield* Effect.die(new Error("Tracker read adapter is unavailable"));
 			return plane === "tasks"
 				? readTasksCore(services.tracker, principal.scopes)
 				: readLeasesCore(services.tracker, principal.scopes);
@@ -143,15 +150,16 @@ export const getAssistantSessionRemote = Query(
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		const rows = yield* Effect.tryPromise(() =>
-			services.db.writer<
-				Array<{
-					manager_session_id: string | null;
-					state: string;
-					window_layout: unknown;
-					last_context: Record<string, unknown> | null;
-				}>
-			>`select manager_session_id, state, window_layout, last_context
+		const rows = yield* Effect.tryPromise(
+			() =>
+				services.db.writer<
+					Array<{
+						manager_session_id: string | null;
+						state: string;
+						window_layout: unknown;
+						last_context: Record<string, unknown> | null;
+					}>
+				>`select manager_session_id, state, window_layout, last_context
 			  from assistant_sessions where principal_id = ${principal.id}`,
 		);
 		const row = rows[0];
@@ -159,11 +167,11 @@ export const getAssistantSessionRemote = Query(
 			schema_version: 1 as const,
 			session: row
 				? {
-					session_id: row.manager_session_id,
-					state: row.state,
-					window_layout: row.window_layout,
-					last_context: row.last_context,
-				}
+						session_id: row.manager_session_id,
+						state: row.state,
+						window_layout: row.window_layout,
+						last_context: row.last_context,
+					}
 				: null,
 		};
 	}),

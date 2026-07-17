@@ -5,6 +5,7 @@
 // silent drop. Grant change re-fences (drops subs whose scope narrowed).
 
 import type { Emission } from "../emission.ts";
+import { whileCondition } from "../iteration.ts";
 
 export interface SubscribeSpec {
 	readonly subId: string;
@@ -236,7 +237,8 @@ export class Broker {
 	async #drain(sub: Sub): Promise<void> {
 		sub.draining = true;
 		try {
-			while (sub.queue.length > 0 && !sub.closed) {
+			for await (const iteration of whileCondition(() => sub.queue.length > 0 && !sub.closed)) {
+				void iteration;
 				const item = sub.queue.shift();
 				if (!item) break;
 				sub.send(frame(sub.spec.subId, item.seq, item.emission));

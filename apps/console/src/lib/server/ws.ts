@@ -1,9 +1,10 @@
-import type { IncomingMessage, Server } from "node:http";
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage, Server } from "node:http";
+
+import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import type { Principal } from "./domain/auth/principal";
 import type { Services } from "./domain/substrate";
-import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 type ResolvePrincipal = (request: IncomingMessage) => Promise<Principal | null>;
 
@@ -20,7 +21,11 @@ export function attachConsoleWebSockets(
 ): () => void {
 	const sockets = new WebSocketServer({ noServer: true });
 	const principals = new WeakMap<WebSocket, Principal>();
-	const onUpgrade = (request: IncomingMessage, socket: import("node:stream").Duplex, head: Buffer) => {
+	const onUpgrade = (
+		request: IncomingMessage,
+		socket: import("node:stream").Duplex,
+		head: Buffer,
+	) => {
 		const path = new URL(request.url ?? "/", "http://console.local").pathname;
 		if (path !== "/api/v1/bus/ws" && path !== "/api/v1/terminal/ws") return;
 		void resolvePrincipal(request).then((principal) => {
@@ -58,14 +63,19 @@ export function attachConsoleWebSockets(
 			services.broker.revalidateScopes(ownerId, [...subscriptions], principal.scopes);
 		});
 		socket.on("message", (bytes: RawData) => {
-			let raw: Record<string, unknown> | null = null;
+			let raw: Record<string, unknown> | null;
 			try {
 				raw = object(JSON.parse(bytes.toString()) as unknown);
 			} catch {
 				socket.close(1007, "invalid JSON");
 				return;
 			}
-			if (!raw || raw["action"] !== "subscribe" || typeof raw["sub_id"] !== "string" || typeof raw["pattern"] !== "string") {
+			if (
+				!raw ||
+				raw["action"] !== "subscribe" ||
+				typeof raw["sub_id"] !== "string" ||
+				typeof raw["pattern"] !== "string"
+			) {
 				socket.close(1008, "invalid subscription");
 				return;
 			}

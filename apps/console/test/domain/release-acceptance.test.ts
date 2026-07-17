@@ -6,14 +6,18 @@ import { promisify } from "node:util";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
 import type { AssistantCompiler } from "../../src/lib/server/domain/assistant/compiler.ts";
-import { AssistantRuntime, ClaudeCodeAssistantManager } from "../../src/lib/server/domain/assistant/runtime.ts";
+import {
+	AssistantRuntime,
+	ClaudeCodeAssistantManager,
+} from "../../src/lib/server/domain/assistant/runtime.ts";
 import type { BetterAuthSessionVerifier } from "../../src/lib/server/domain/auth/session.ts";
 import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
+import { indefinitely } from "../../src/lib/server/domain/iteration.ts";
 import { buildServer } from "../../src/lib/server/domain/server.ts";
+import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
 
 const exec = promisify(execFile);
 
@@ -51,7 +55,8 @@ async function startTempDb(): Promise<TempDb> {
 	const adminUrl = `postgres://postgres:${adminPassword}@${base}`;
 	const deadline = Date.now() + 90_000;
 	let readyProbes = 0;
-	for (;;) {
+	for await (const iteration of indefinitely()) {
+		void iteration;
 		const probe = postgres(adminUrl, {
 			max: 1,
 			connect_timeout: 3,

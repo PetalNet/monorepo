@@ -1,7 +1,7 @@
-import { dataMode, readEdgeSessions, readExecutors, runQuery } from "$lib/rpc/browser";
 import type { QueryResult } from "$lib/api/types";
 import { mockEdgeHealth, mockSessions, mockWireEvents } from "$lib/data/network";
 import { captureCaughtFailure } from "$lib/glitchtip";
+import { dataMode, readEdgeSessions, readExecutors, runQuery } from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 

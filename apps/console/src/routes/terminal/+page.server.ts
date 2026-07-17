@@ -1,3 +1,5 @@
+import { me as mockMe } from "$lib/data/mock";
+import { mockAudit, mockHeartbeats, type TermAuditView } from "$lib/data/terminal";
 import {
 	dataMode,
 	readExecutors,
@@ -6,8 +8,6 @@ import {
 	readTerminalAccess,
 	runQuery,
 } from "$lib/rpc/browser";
-import { me as mockMe } from "$lib/data/mock";
-import { mockAudit, mockHeartbeats, type TermAuditView } from "$lib/data/terminal";
 import { error } from "@sveltejs/kit";
 
 import type { PageServerLoad } from "./$types";

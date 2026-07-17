@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { HttpMatrixTransport, MatrixDeliveryError } from "../../src/lib/server/domain/notifications/matrix.ts";
+import {
+	HttpMatrixTransport,
+	MatrixDeliveryError,
+} from "../../src/lib/server/domain/notifications/matrix.ts";
 
 const config = {
 	homeserver: "https://matrix.example.test",

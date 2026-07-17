@@ -1,5 +1,5 @@
-import { RequestEvent } from "svelte-effect-runtime";
 import { Effect } from "effect";
+import { RequestEvent } from "svelte-effect-runtime";
 
 import { resolveScopes, type Principal } from "./auth/principal";
 import { ConsoleDomain } from "./service";

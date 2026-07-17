@@ -1,7 +1,7 @@
-import { dataMode, readCatalog, readDashboards, readExecutors, runQuery } from "$lib/rpc/browser";
 import type { CatalogEntry, DashboardItem, QueryResult, StructuredQuery } from "$lib/api/types";
 import { emptyAccounting, mockAccounting } from "$lib/data/observability";
 import { captureCaughtFailure } from "$lib/glitchtip";
+import { dataMode, readCatalog, readDashboards, readExecutors, runQuery } from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 

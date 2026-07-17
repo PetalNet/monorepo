@@ -153,7 +153,8 @@ export class Bridge {
 		try {
 			if (this.#config.systemOutboxDir)
 				await this.#pollSystemOutbox(this.#config.systemOutboxDir, now);
-			for await (const adapter of this.#config.adapters ?? []) await this.#pollAdapter(adapter, now);
+			for await (const adapter of this.#config.adapters ?? [])
+				await this.#pollAdapter(adapter, now);
 		} finally {
 			this.#polling = false;
 		}

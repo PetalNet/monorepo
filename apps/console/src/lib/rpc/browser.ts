@@ -50,13 +50,11 @@ export const readBoxUpdates = (_fetch?: typeof fetch) =>
 	read<ReadEnvelope<BoxUpdateItem>>("box-updates");
 export const readExecutors = (_fetch?: typeof fetch) =>
 	read<ReadEnvelope<ExecutorItem>>("executors");
-export const readRegistry = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<RegistryItem>>("registry");
+export const readRegistry = (_fetch?: typeof fetch) => read<ReadEnvelope<RegistryItem>>("registry");
 export const readWorkers = (_fetch?: typeof fetch) => read<ReadEnvelope<WorkerItem>>("workers");
 export const readTasks = (_fetch?: typeof fetch) => read<ReadEnvelope<TaskItem>>("tasks");
 export const readLeases = (_fetch?: typeof fetch) => read<ReadEnvelope<LeaseItem>>("leases");
-export const readCatalog = (_fetch?: typeof fetch) =>
-	read<ReadEnvelope<CatalogEntry>>("catalog");
+export const readCatalog = (_fetch?: typeof fetch) => read<ReadEnvelope<CatalogEntry>>("catalog");
 export const readDashboards = (_fetch?: typeof fetch) =>
 	read<ReadEnvelope<DashboardItem>>("dashboards");
 export const readEdgeSessions = (_fetch?: typeof fetch) =>
@@ -135,7 +133,14 @@ export interface TerminalAccess {
 	readonly audit_seq: number;
 }
 export type TerminalFrame =
-	| { schema_version: 1; stream_id: string; kind: "open"; seq: number; audit_seq: number; mode: "read" }
+	| {
+			schema_version: 1;
+			stream_id: string;
+			kind: "open";
+			seq: number;
+			audit_seq: number;
+			mode: "read";
+	  }
 	| { schema_version: 1; stream_id: string; kind: "snapshot"; seq: number; data_b64: string }
 	| { schema_version: 1; stream_id: string; kind: "error"; seq: number; code: string };
 
@@ -151,7 +156,9 @@ export function connectTerminal(
 ): () => void {
 	const socket = new WebSocket(socketUrl("/api/v1/terminal/ws"));
 	socket.addEventListener("open", () => socket.send(JSON.stringify({ action: "open", ...target })));
-	socket.addEventListener("message", ({ data }) => onFrame(JSON.parse(String(data)) as TerminalFrame));
+	socket.addEventListener("message", ({ data }) =>
+		onFrame(JSON.parse(String(data)) as TerminalFrame),
+	);
 	socket.addEventListener("error", () => onError(new Error("Terminal stream is unavailable")));
 	return () => socket.close();
 }
@@ -172,7 +179,10 @@ export const terminalDetach = (streamId: string) => terminalMutation(streamId, "
 export const terminalInput = (streamId: string, data: Uint8Array) =>
 	terminalMutation(streamId, "input", Array.from(data));
 
-export async function readBoxUpdateRaw(boxId: string, _fetch?: typeof fetch): Promise<BoxUpdateRaw> {
+export async function readBoxUpdateRaw(
+	boxId: string,
+	_fetch?: typeof fetch,
+): Promise<BoxUpdateRaw> {
 	const updates = await readBoxUpdates();
 	const item = updates.items.find((candidate) => candidate.box_id === boxId);
 	if (!item) throw new Error(`No visible update record for ${boxId}`);

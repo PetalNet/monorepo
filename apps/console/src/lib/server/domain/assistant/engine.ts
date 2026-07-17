@@ -180,7 +180,7 @@ export async function ask(
 			0,
 		);
 	let feedback: { code: string; message: string } | undefined;
-	for (let attempt = 1; attempt <= 2; attempt += 1) {
+	for await (const attempt of [1, 2]) {
 		try {
 			const proposal = await compiler.compile({
 				question,

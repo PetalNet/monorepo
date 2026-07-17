@@ -28,7 +28,7 @@ records: everything runs in the SvelteKit server; the three surfaces (remote fun
 MCP) derive from one Effect domain layer; the WebSocket bus runs via a custom Node server wrapper.
 Keep the adapter-boundary table (Manager / control-plane / box-agent / tracker / Library / bridge
 remain authoritative — the console still reads/projects/dispatches, it does not become a second
-writer). What changes is only the *packaging*: those adapters + the lake/bus/projector/assistant/etc.
+writer). What changes is only the _packaging_: those adapters + the lake/bus/projector/assistant/etc.
 now live in the SvelteKit server, not a separate Fastify process.
 
 ---
@@ -57,6 +57,7 @@ Do NOT revert, and build on top of these patterns:
   policy. Do not regress it.
 
 Grounding reads before you touch handlers/effects:
+
 - The SER handler docs — WebFetch **https://barekey.dev/docs/ser/handler** (central to the
   request-boundary pattern; use SER's `handler`, don't hand-roll request→build-Effect→run→shape).
 - Current pattern files: `apps/console/src/routes/status.remote.ts`,

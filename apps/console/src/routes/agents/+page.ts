@@ -1,7 +1,7 @@
 import { browser } from "$app/env";
-import { dataMode, readGovernance, readHeartbeats, readRoster } from "$lib/rpc/browser";
 import type { GovernancePool, HeartbeatItem, RosterItem } from "$lib/api/types";
 import { assembleAgents, mockAgents, mockArchitects, type AgentsData } from "$lib/data/agents";
+import { dataMode, readGovernance, readHeartbeats, readRoster } from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 

@@ -6,6 +6,7 @@
 
 import type { Sql } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
+import { indefinitely } from "../iteration.ts";
 
 export type ProjectionKind =
 	| "fleet"
@@ -205,7 +206,8 @@ export class Projector {
 						?.seq ?? 0,
 				)
 			: null;
-		for (;;) {
+		for await (const iteration of indefinitely()) {
+			void iteration;
 			const rows = await tx<
 				{
 					seq: string;
@@ -309,6 +311,7 @@ export class Projector {
 			// advance ONLY if the previous seq is already checkpointed (contiguous); a no-op otherwise.
 			await this.#writer`update projection_checkpoint set through_seq = ${seq}, updated_at = now()
 				where name = ${this.name} and through_seq = ${seq - 1}`;
+			return undefined;
 		});
 		this.#tail = run
 			.catch((err: unknown) => {

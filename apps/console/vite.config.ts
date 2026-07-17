@@ -6,6 +6,7 @@ import { effect } from "svelte-effect-runtime";
 import { ts } from "svelte-global-typescript";
 import { compose, kit } from "svelte-plugin-composer";
 import { defineConfig } from "vitest/config";
+
 import { unifiedConsoleServer } from "./server/vite-plugin";
 
 export default defineConfig({

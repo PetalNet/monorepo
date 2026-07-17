@@ -1,11 +1,3 @@
-import {
-	dataMode,
-	readAttention,
-	readExecutors,
-	readLeases,
-	readTasks,
-	runQuery,
-} from "$lib/rpc/browser";
 import { readLiveLibrary } from "$lib/data/library";
 import {
 	mockBuildFeed,
@@ -15,6 +7,14 @@ import {
 	mockWorkEvents,
 	type WorkEvent,
 } from "$lib/data/work";
+import {
+	dataMode,
+	readAttention,
+	readExecutors,
+	readLeases,
+	readTasks,
+	runQuery,
+} from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 

@@ -1,6 +1,6 @@
-import { dataMode, readCards, readExecutors, readSubscriptions, runQuery } from "$lib/rpc/browser";
 import type { SignalEmission } from "$lib/api/types";
 import { mockCards, mockSignals, mockSubscriptions } from "$lib/data/signals";
+import { dataMode, readCards, readExecutors, readSubscriptions, runQuery } from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 

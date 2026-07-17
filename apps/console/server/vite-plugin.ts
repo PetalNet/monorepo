@@ -1,9 +1,10 @@
-import { buildServices } from "../src/lib/server/domain/substrate";
+import type { Plugin } from "vite";
+
 import { loadEnv } from "../src/lib/server/domain/env";
 import { setSharedConsoleServices } from "../src/lib/server/domain/shared-services";
+import { buildServices } from "../src/lib/server/domain/substrate";
 import { attachConsoleWebSockets } from "../src/lib/server/ws";
 import { principalResolver } from "./principal";
-import type { Plugin } from "vite";
 
 /** Dev counterpart of the production Node wrapper: Vite owns HTTP, this plugin owns upgrades. */
 export const unifiedConsoleServer = (): Plugin => ({

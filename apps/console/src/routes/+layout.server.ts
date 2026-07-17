@@ -1,9 +1,9 @@
-import { dataMode, readHealth, readMe } from "$lib/rpc/browser";
 import { consoleHealthBusAgeS } from "$lib/api/derive";
 import type { ConsoleHealth, Me } from "$lib/api/types";
 import { mockCockpit, type Scene, type ShellHealth } from "$lib/data/cockpit";
 import { me as mockMe } from "$lib/data/mock";
 import { captureCaughtFailure } from "$lib/glitchtip";
+import { dataMode, readHealth, readMe } from "$lib/rpc/browser";
 import { error, redirect } from "@sveltejs/kit";
 
 import type { LayoutServerLoad } from "./$types";

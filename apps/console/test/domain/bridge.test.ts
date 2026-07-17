@@ -12,7 +12,10 @@ import {
 	JsonlSpoolAdapter,
 	ManagerHeartbeatAdapter,
 } from "../../src/lib/server/domain/bridge/index.ts";
-import { sourceCursorRef, tailSystemOutbox } from "../../src/lib/server/domain/bridge/system-outbox.ts";
+import {
+	sourceCursorRef,
+	tailSystemOutbox,
+} from "../../src/lib/server/domain/bridge/system-outbox.ts";
 import { uuidv5 } from "../../src/lib/server/domain/bridge/uuid5.ts";
 import type { Sql } from "../../src/lib/server/domain/db/pool.ts";
 import { parseEmission } from "../../src/lib/server/domain/emission.ts";

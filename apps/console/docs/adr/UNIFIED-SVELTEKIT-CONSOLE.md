@@ -48,14 +48,14 @@ Better Auth session table and principal scopes used at HTTP request boundaries.
 
 ## Adapter boundaries
 
-| Boundary | Authoritative owner | Console adapter responsibility | The console must not become |
-| --- | --- | --- | --- |
-| Fleet and manager state | Manager and per-box producers | Ingest registered emissions, project scoped reads, dispatch signed idempotent operations | A supervisor, session owner, or manager command implementation |
-| Governance and fleet mode | control-plane | Translate contracted commands and emissions, expose scoped projections | A policy engine or canonical governance writer |
-| Host operations | box-agent | Route authorized host, service, and update envelopes; observe signed completion | Host mutation logic or an execution authority |
-| Tasks | tracker | Read through the tracker adapter, map visibility to console scopes, dispatch canonical RPC | A task/lease writer or competing task store |
-| Library | Library plane/store | Expose versioned items, links, search, curation, and projections | A second librarian or competing canonical item model |
-| Legacy and per-box sources | bridge adapters | Normalize emissions, preserve deterministic IDs/cursors, and report gaps | A source of inferred domain decisions |
+| Boundary                   | Authoritative owner           | Console adapter responsibility                                                             | The console must not become                                    |
+| -------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| Fleet and manager state    | Manager and per-box producers | Ingest registered emissions, project scoped reads, dispatch signed idempotent operations   | A supervisor, session owner, or manager command implementation |
+| Governance and fleet mode  | control-plane                 | Translate contracted commands and emissions, expose scoped projections                     | A policy engine or canonical governance writer                 |
+| Host operations            | box-agent                     | Route authorized host, service, and update envelopes; observe signed completion            | Host mutation logic or an execution authority                  |
+| Tasks                      | tracker                       | Read through the tracker adapter, map visibility to console scopes, dispatch canonical RPC | A task/lease writer or competing task store                    |
+| Library                    | Library plane/store           | Expose versioned items, links, search, curation, and projections                           | A second librarian or competing canonical item model           |
+| Legacy and per-box sources | bridge adapters               | Normalize emissions, preserve deterministic IDs/cursors, and report gaps                   | A source of inferred domain decisions                          |
 
 Adapters may translate transport, normalize identifiers, enforce current scopes, and attach
 freshness/provenance. They never invent success or derive authorization from UI state.

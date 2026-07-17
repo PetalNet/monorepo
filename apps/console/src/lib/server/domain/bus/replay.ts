@@ -4,6 +4,7 @@
 import type { Sql } from "../db/pool.ts";
 import { withScopes } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
+import { indefinitely } from "../iteration.ts";
 import type { SubscribeSpec } from "./broker.ts";
 import { matchPattern } from "./broker.ts";
 
@@ -67,7 +68,8 @@ export function makeReplay(app: Sql) {
 		const f = spec.filter;
 		await withScopes(app, spec.scopes, async (tx) => {
 			let cursor = since;
-			for (;;) {
+			for await (const iteration of indefinitely()) {
+				void iteration;
 				const rows = usePrefilter
 					? await tx<EventRow[]>`select * from events where seq > ${cursor} and seq <= ${throughSeq}
 							and (type = ${like} or type like ${like}) order by seq asc limit ${PAGE}`

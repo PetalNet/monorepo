@@ -7,10 +7,15 @@ import { promisify } from "node:util";
 import postgres from "postgres";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
-import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
-import { AssistantCompilerError, type AssistantCompiler } from "../../src/lib/server/domain/assistant/compiler.ts";
+import {
+	AssistantCompilerError,
+	type AssistantCompiler,
+} from "../../src/lib/server/domain/assistant/compiler.ts";
 import { ask } from "../../src/lib/server/domain/assistant/engine.ts";
-import { AssistantRuntime, ClaudeCodeAssistantManager } from "../../src/lib/server/domain/assistant/runtime.ts";
+import {
+	AssistantRuntime,
+	ClaudeCodeAssistantManager,
+} from "../../src/lib/server/domain/assistant/runtime.ts";
 import { resolveBearer, sha256 } from "../../src/lib/server/domain/auth/principal.ts";
 import { TrackerProposalWriter } from "../../src/lib/server/domain/auth/proposals.ts";
 import type { BetterAuthSessionVerifier } from "../../src/lib/server/domain/auth/session.ts";
@@ -21,8 +26,12 @@ import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
 import { assertRuntimeRolesHardened, openDb } from "../../src/lib/server/domain/db/pool.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
+import { indefinitely, whileCondition } from "../../src/lib/server/domain/iteration.ts";
 import { DoormanKeyCeremonyClient } from "../../src/lib/server/domain/network/key-ceremony.ts";
-import { reportSelfEmissionFailure, type ExceptionMonitor } from "../../src/lib/server/domain/observability.ts";
+import {
+	reportSelfEmissionFailure,
+	type ExceptionMonitor,
+} from "../../src/lib/server/domain/observability.ts";
 import { readQueryRecord } from "../../src/lib/server/domain/query/history.ts";
 import { runStructured } from "../../src/lib/server/domain/query/structured.ts";
 import { readEntity } from "../../src/lib/server/domain/reads/entities.ts";
@@ -34,6 +43,12 @@ import {
 	validateJsonSchema,
 	type TerminalAdapter,
 } from "../../src/lib/server/domain/server.ts";
+import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
+
+const contractSchema = (name: string): Record<string, unknown> =>
+	JSON.parse(
+		readFileSync(new URL(`../docs/contracts/schemas/${name}.schema.json`, import.meta.url), "utf8"),
+	) as Record<string, unknown>;
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -72,7 +87,8 @@ async function startTempDb(): Promise<TempDb> {
 	// the timescaledb image runs an init server then restarts; require TWO consecutive `select 1`.
 	const deadline = Date.now() + 90000;
 	let streak = 0;
-	for (;;) {
+	for await (const iteration of indefinitely()) {
+		void iteration;
 		const probe = postgres(adminUrl, {
 			max: 1,
 			connect_timeout: 3,
@@ -734,7 +750,9 @@ describe("staged update approval reversal", () => {
 				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: approvalPayload() }),
 				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: approvalPayload() }),
 			]);
-			expect(concurrentApprovals.map((response) => response.statusCode).toSorted()).toEqual([200, 400]);
+			expect(concurrentApprovals.map((response) => response.statusCode).toSorted()).toEqual([
+				200, 400,
+			]);
 			const concurrentApprovalId = concurrentApprovals
 				.find((response) => response.statusCode === 200)
 				?.json().result.approval_id as string;
@@ -749,7 +767,9 @@ describe("staged update approval reversal", () => {
 				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: revokePayload() }),
 				server.inject({ method: "POST", url: "/api/v1/op", headers, payload: revokePayload() }),
 			]);
-			expect(concurrentRevokes.map((response) => response.statusCode).toSorted()).toEqual([200, 400]);
+			expect(concurrentRevokes.map((response) => response.statusCode).toSorted()).toEqual([
+				200, 400,
+			]);
 
 			const appliedApprovalId = randomUUID();
 			const appliedApproval = await server.inject({
@@ -900,7 +920,10 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 			const reader = response.body?.getReader();
 			expect(reader).toBeDefined();
 			let wire = "";
-			while (wire.split("\n").filter(Boolean).length < 2) {
+			for await (const iteration of whileCondition(
+				() => wire.split("\n").filter(Boolean).length < 2,
+			)) {
+				void iteration;
 				const frame = await reader!.read();
 				wire += new TextDecoder().decode(frame.value);
 			}
@@ -2439,7 +2462,10 @@ describe("Phase 4 permission levels", () => {
 		} finally {
 			await server.close();
 			await new Promise<void>((resolve, reject) =>
-				tracker.close((error) => (error ? reject(error) : resolve())),
+				tracker.close((error) => {
+					if (error) reject(error);
+					else resolve();
+				}),
 			);
 		}
 	});
@@ -3647,7 +3673,8 @@ describe("structured query", () => {
 
 // Wait for the fire-and-forget projector to catch up to a seq for a (kind, subject).
 async function waitProjected(kind: string, subject: string, minSeq: number): Promise<void> {
-	for (let i = 0; i < 50; i++) {
+	for await (const iteration of Array.from({ length: 50 })) {
+		void iteration;
 		const r = await services.db
 			.admin`select seq from current_state where kind = ${kind} and subject = ${subject}`;
 		if (r[0] && Number(r[0]["seq"]) >= minSeq) return;
@@ -3810,7 +3837,7 @@ describe("current_state projection (N1b)", () => {
 
 		available = false;
 		await bridge.pollOnce("2026-07-13T00:00:05Z");
-		for (let i = 0; i < 50; i++) {
+		for await (const i of Array.from({ length: 50 }, (_, index) => index)) {
 			const rows = await services.db.admin<
 				{ subject: string; unreachable_since: string | null }[]
 			>`select subject, unreachable_since from current_state
@@ -3828,7 +3855,7 @@ describe("current_state projection (N1b)", () => {
 
 		available = true;
 		await bridge.pollOnce("2026-07-13T00:00:10Z");
-		for (let i = 0; i < 50; i++) {
+		for await (const i of Array.from({ length: 50 }, (_, index) => index)) {
 			const rows = await services.db.admin<{ unreachable_since: string | null }[]>`
 				select unreachable_since from current_state where subject in ${services.db.admin(affected)}`;
 			if (rows.length === affected.length && rows.every((row) => row.unreachable_since === null))
@@ -4019,13 +4046,7 @@ describe("current_state projection (N1b)", () => {
 		await waitProjected("attention", attentionId, attentionResult.seq as number);
 		await waitProjected("box_update", boxId, boxResult.seq as number);
 
-		const schemas = (name: string): Record<string, unknown> =>
-			JSON.parse(
-				readFileSync(
-					new URL(`../docs/contracts/schemas/${name}.schema.json`, import.meta.url),
-					"utf8",
-				),
-			) as Record<string, unknown>;
+		const schemas = contractSchema;
 		const envelopeSchema = schemas("entities/read-envelope");
 		const server = await buildServer(services, true);
 		const fleetPrincipal = JSON.stringify({
@@ -4534,7 +4555,10 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 		} finally {
 			await server.close();
 			await new Promise<void>((resolve, reject) =>
-				manager.close((error) => (error ? reject(error) : resolve())),
+				manager.close((error) => {
+					if (error) reject(error);
+					else resolve();
+				}),
 			);
 		}
 	});

@@ -5,7 +5,10 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { installCapabilityBundle, parseCapabilityBundle } from "../../src/lib/server/domain/registry/loader.ts";
+import {
+	installCapabilityBundle,
+	parseCapabilityBundle,
+} from "../../src/lib/server/domain/registry/loader.ts";
 
 function encodedBundle(files: unknown): Buffer {
 	return Buffer.from(JSON.stringify({ schema_version: 1, entrypoint: "SKILL.md", files }), "utf8");

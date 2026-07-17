@@ -1,4 +1,3 @@
-import { dataMode, readExecutors, readGovernance, runQuery } from "$lib/rpc/browser";
 import type { QueryResult } from "$lib/api/types";
 import {
 	agents,
@@ -14,6 +13,7 @@ import {
 	type DailyCost,
 	type PriceRow,
 } from "$lib/data/cost";
+import { dataMode, readExecutors, readGovernance, runQuery } from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 

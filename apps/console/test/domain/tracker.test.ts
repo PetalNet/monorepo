@@ -5,9 +5,16 @@ import { DatabaseSync } from "node:sqlite";
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
-import { readTasks, readLeases, readAgents } from "../../src/lib/server/domain/reads/tracker-reads.ts";
+import {
+	readTasks,
+	readLeases,
+	readAgents,
+} from "../../src/lib/server/domain/reads/tracker-reads.ts";
 import { filterByScopes, TrackerReader } from "../../src/lib/server/domain/reads/tracker.ts";
 import { readWorkSettlement } from "../../src/lib/server/domain/reads/work-settlement.ts";
+
+const proposalBody = (envelope: Record<string, unknown>): string =>
+	`Console propose-not-commit request. Owners may promote it through the normal tracker flow.\n\n\`\`\`json\n${JSON.stringify(envelope, null, 2)}\n\`\`\``;
 
 describe("tracker visibility -> console scope mapping (via filterByScopes)", () => {
 	it("maps project/private/shared to the right scope and filters to the caller's grants", () => {
@@ -115,12 +122,10 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 		const db = new DatabaseSync(dbPath);
 		const requestId = "11111111-1111-4111-8111-111111111111";
 		const requestHash = "a".repeat(64);
-		const body = (envelope: Record<string, unknown>) =>
-			`Console propose-not-commit request. Owners may promote it through the normal tracker flow.\n\n\`\`\`json\n${JSON.stringify(envelope, null, 2)}\n\`\`\``;
 		db.prepare(
 			"insert into tasks (id,project_id,kind,title,status,body) values (7,1,'idea','spoof','inbox',?)",
 		).run(
-			body({
+			proposalBody({
 				schema_version: 1,
 				request_id: "attacker-request",
 				proposed_by: "attacker",
@@ -134,7 +139,7 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 		db.prepare(
 			"insert into tasks (id,project_id,kind,title,status,body) values (8,1,'idea','real','inbox',?)",
 		).run(
-			body({
+			proposalBody({
 				schema_version: 1,
 				request_id: requestId,
 				proposed_by: "victim",

@@ -1,4 +1,3 @@
-import { dataMode, readBoxUpdateRaw, readBoxUpdates, readExecutors } from "$lib/rpc/browser";
 import type { BoxUpdateRaw } from "$lib/api/types";
 import {
 	assembleUpdates,
@@ -7,6 +6,7 @@ import {
 	type UpdatesData,
 } from "$lib/data/updates";
 import { captureCaughtFailure } from "$lib/glitchtip";
+import { dataMode, readBoxUpdateRaw, readBoxUpdates, readExecutors } from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 

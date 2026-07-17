@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DoormanKeyCeremonyClient, KeyCeremonyError } from "../../src/lib/server/domain/network/key-ceremony.ts";
+import {
+	DoormanKeyCeremonyClient,
+	KeyCeremonyError,
+} from "../../src/lib/server/domain/network/key-ceremony.ts";
 
 describe("DoormanKeyCeremonyClient", () => {
 	it("forwards an approved binding with bearer auth and request id", async () => {

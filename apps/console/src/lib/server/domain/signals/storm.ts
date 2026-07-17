@@ -2,6 +2,7 @@ import { uuidv5 } from "../bridge/uuid5.ts";
 import { matchPattern } from "../bus/broker.ts";
 import type { Sql } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
+import { doWhileCondition } from "../iteration.ts";
 
 const SIGNAL_STORM_THRESHOLD = 60;
 const SIGNAL_STORM_WINDOW_MS = 5 * 60 * 1_000;
@@ -204,10 +205,11 @@ export class SignalStormDetector {
 	}
 
 	async #scanUntilCaughtUp(): Promise<void> {
-		do {
+		for await (const iteration of doWhileCondition(() => this.#rescan)) {
+			void iteration;
 			this.#rescan = false;
 			await this.#detect();
-		} while (this.#rescan);
+		}
 	}
 
 	async #detect(): Promise<void> {

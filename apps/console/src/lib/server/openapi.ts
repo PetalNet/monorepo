@@ -28,7 +28,12 @@ export const openApiDocument = {
 				responses: { "200": { description: "Operation receipt", content: json(opResult) } },
 			},
 		},
-		"/attention": { get: { operationId: "readAttention", responses: { "200": { description: "Attention envelope" } } } },
+		"/attention": {
+			get: {
+				operationId: "readAttention",
+				responses: { "200": { description: "Attention envelope" } },
+			},
+		},
 		"/bus/emit": {
 			post: {
 				operationId: "emitBusEvent",
@@ -36,9 +41,22 @@ export const openApiDocument = {
 				responses: { "200": { description: "Emission acknowledgement" } },
 			},
 		},
-		"/mcp": { post: { operationId: "consoleMcp", responses: { "200": { description: "MCP JSON-RPC response" } } } },
+		"/mcp": {
+			post: {
+				operationId: "consoleMcp",
+				responses: { "200": { description: "MCP JSON-RPC response" } },
+			},
+		},
 	},
 	components: {
-		schemas: { AttentionItem: attention, BusFrame: busFrame, Emission: emission, OpCall: opCall, OpResult: opResult, QueryRequest: queryRequest, QueryResult: queryResult },
+		schemas: {
+			AttentionItem: attention,
+			BusFrame: busFrame,
+			Emission: emission,
+			OpCall: opCall,
+			OpResult: opResult,
+			QueryRequest: queryRequest,
+			QueryResult: queryResult,
+		},
 	},
 } as const;

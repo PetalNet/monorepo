@@ -6,7 +6,10 @@ import { describe, it, expect } from "vitest";
 import { OpenAiCompatibleAssistantCompiler } from "../../src/lib/server/domain/assistant/compiler.ts";
 import { matchPattern } from "../../src/lib/server/domain/bus/broker.ts";
 import { parseEmission, type Emission } from "../../src/lib/server/domain/emission.ts";
-import { authorizeEmission, type ProducerRegistration } from "../../src/lib/server/domain/ingest/authz.ts";
+import {
+	authorizeEmission,
+	type ProducerRegistration,
+} from "../../src/lib/server/domain/ingest/authz.ts";
 import { scrubEmission } from "../../src/lib/server/domain/ingest/scrubber.ts";
 import { rankPaletteCandidates } from "../../src/lib/server/domain/palette/search.ts";
 import { materializePanel } from "../../src/lib/server/domain/render/engine.ts";
@@ -223,7 +226,10 @@ describe("assistant compiler boundary", () => {
 			);
 		} finally {
 			await new Promise<void>((resolve, reject) =>
-				server.close((error) => (error ? reject(error) : resolve())),
+				server.close((error) => {
+					if (error) reject(error);
+					else resolve();
+				}),
 			);
 		}
 	});

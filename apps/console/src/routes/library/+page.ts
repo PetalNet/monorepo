@@ -1,5 +1,5 @@
-import { dataMode } from "$lib/rpc/browser";
 import { mockLibrary, type LibraryData } from "$lib/data/library";
+import { dataMode } from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 export const load: PageLoad = async ({ parent }) => {

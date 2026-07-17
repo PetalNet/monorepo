@@ -79,6 +79,20 @@ export function metricRows(
 	}));
 }
 
+function normalizeModel(value: string): string {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/^(?:openai|anthropic|google|vertex|bedrock)\//, "")
+		.replaceAll("_", "-");
+}
+
+function canonicalModel(value: string): string {
+	return normalizeModel(value)
+		.replace(/(?::latest|@[a-z0-9._-]+)$/i, "")
+		.replace(/-\d{4}-?\d{2}-?\d{2}$/i, "");
+}
+
 /**
  * Cost is derived at query time. A provider-reported row wins; otherwise the four token kinds are
  * priced against the same model price book read whose reference is returned with the comparison.
@@ -143,16 +157,6 @@ export async function compareCostPairWith(
 			},
 		}))
 		.toSorted((a, b) => a.pattern.localeCompare(b.pattern));
-	const normalizeModel = (value: string) =>
-		value
-			.trim()
-			.toLowerCase()
-			.replace(/^(?:openai|anthropic|google|vertex|bedrock)\//, "")
-			.replaceAll("_", "-");
-	const canonicalModel = (value: string) =>
-		normalizeModel(value)
-			.replace(/(?::latest|@[a-z0-9._-]+)$/i, "")
-			.replace(/-\d{4}-?\d{2}-?\d{2}$/i, "");
 	const matchRate = (model: string) => {
 		const exact = priceRows.find(({ pattern }) => pattern === model);
 		if (exact) return exact;

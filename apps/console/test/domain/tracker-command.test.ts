@@ -2,7 +2,10 @@ import { createServer as createHttpServer } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TrackerCommandError, TrackerCommandWriter } from "../../src/lib/server/domain/commands/tracker.ts";
+import {
+	TrackerCommandError,
+	TrackerCommandWriter,
+} from "../../src/lib/server/domain/commands/tracker.ts";
 
 const servers: ReturnType<typeof createHttpServer>[] = [];
 

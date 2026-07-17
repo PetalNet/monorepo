@@ -6,6 +6,7 @@
 
 import type { Emission } from "../emission.ts";
 import { emissionFingerprint } from "../ingest/fingerprint.ts";
+import { indefinitely } from "../iteration.ts";
 import { embedText, EMBEDDING_MODEL, vectorLiteral } from "../semantic/embedding.ts";
 import {
 	semanticDocument,
@@ -1103,7 +1104,8 @@ async function backfillSemanticDocuments(admin: Sql): Promise<void> {
 
 async function backfillEmissionFingerprints(admin: Sql): Promise<void> {
 	let afterSeq = "0";
-	for (;;) {
+	for await (const iteration of indefinitely()) {
+		void iteration;
 		const rows = await admin<
 			Array<{
 				seq: string;
@@ -1178,11 +1180,13 @@ export async function migrate(admin: Sql, opts?: MigrateOpts): Promise<void> {
 		  if to_regclass('semantic_views') is not null then alter table semantic_views no force row level security; end if;
 		  if to_regclass('semantic_documents') is not null then alter table semantic_documents no force row level security; end if;
 		end $$`);
-		const rlsStart = DOMAIN_SCHEMA_STATEMENTS.indexOf(`alter table current_state enable row level security`);
+		const rlsStart = DOMAIN_SCHEMA_STATEMENTS.indexOf(
+			`alter table current_state enable row level security`,
+		);
 		if (rlsStart < 0) throw new Error("migration RLS boundary missing");
-		for (const stmt of DOMAIN_SCHEMA_STATEMENTS.slice(0, rlsStart)) await tx.unsafe(stmt);
+		for await (const stmt of DOMAIN_SCHEMA_STATEMENTS.slice(0, rlsStart)) await tx.unsafe(stmt);
 		await backfillSemanticDocuments(tx as unknown as Sql);
-		for (const stmt of DOMAIN_SCHEMA_STATEMENTS.slice(rlsStart)) await tx.unsafe(stmt);
+		for await (const stmt of DOMAIN_SCHEMA_STATEMENTS.slice(rlsStart)) await tx.unsafe(stmt);
 	});
 	const rollupBackfill = await admin<{ done: boolean }[]>`
 		select exists(select 1 from schema_migrations where name = 'l1_rollup_backfill') as done`;
@@ -1193,7 +1197,7 @@ export async function migrate(admin: Sql, opts?: MigrateOpts): Promise<void> {
 		await admin`
 			insert into schema_migrations (name) values ('l1_rollup_backfill') on conflict do nothing`;
 	}
-	for (const stmt of POST_COMMIT_STATEMENTS) await admin.unsafe(stmt);
+	for await (const stmt of POST_COMMIT_STATEMENTS) await admin.unsafe(stmt);
 	if (opts?.appPassword)
 		await admin.unsafe(
 			`alter role console_app login password '${opts.appPassword.replace(/'/g, "''")}'`,

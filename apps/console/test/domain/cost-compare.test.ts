@@ -2,8 +2,14 @@ import { createServer } from "node:http";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { compareCostPairWith, costComparisonRequestSchema } from "../../src/lib/server/domain/cost/compare.ts";
-import { AgentsViewCostMeter, CostMeterWindowError } from "../../src/lib/server/domain/cost/meter.ts";
+import {
+	compareCostPairWith,
+	costComparisonRequestSchema,
+} from "../../src/lib/server/domain/cost/compare.ts";
+import {
+	AgentsViewCostMeter,
+	CostMeterWindowError,
+} from "../../src/lib/server/domain/cost/meter.ts";
 import type { QueryResult } from "../../src/lib/server/domain/query/structured.ts";
 
 const window = {
@@ -253,14 +259,14 @@ describe("cost pairwise comparison", () => {
 			const meter = new AgentsViewCostMeter({
 				url: `http://127.0.0.1:${String(address.port)}/api/v1`,
 			});
-			const result = await meter.compare({
+			const comparison = await meter.compare({
 				schema_version: 1,
 				dimension: "model",
 				left: "opus",
 				right: "sol",
 				...window,
 			});
-			expect(result).toMatchObject({
+			expect(comparison).toMatchObject({
 				observedAt: "2026-07-13T19:59:07Z",
 				pricing: { digest: "sha256:test" },
 			});
@@ -269,7 +275,10 @@ describe("cost pairwise comparison", () => {
 			);
 		} finally {
 			await new Promise<void>((resolve, reject) =>
-				server.close((error) => (error ? reject(error) : resolve())),
+				server.close((error) => {
+					if (error) reject(error);
+					else resolve();
+				}),
 			);
 		}
 	});
