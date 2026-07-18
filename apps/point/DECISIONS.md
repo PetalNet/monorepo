@@ -699,3 +699,37 @@ verified by a 2000-sample haversine property test. Acceptance criteria trump pse
 - **Entity registry stores a flat list** (`upsert`/`remove`/`byId`); only self-`person` exists in
   1.3 but `item`/`bridgeSource` parse and persist so the enum column is first-class from day one
   (unknown types parse to `person`, the only instantiable 1.3 type).
+
+## 2026-07-18 — D-034 · 1.3 correction: single per-(sharer, radius) fuzz grid — audience dropped from the grid derivation (collusion-proof at any N)
+
+- **The leak.** P0 (D-031) derived the grid origin per-(sharer, audience):
+  `HMAC(secret, sharer_id || audience_id)`, so each audience saw a _different_ offset grid over the
+  same true point. Adversarial review confirmed this narrows under **N-audience collusion**:
+  intersecting the cells that N distinct offset grids each snap the point into shrinks the
+  consistent region far below one cell (~0.7% of a cell at N=10). Distinct grids were the bug, not a
+  feature — every extra audience a colluder controls buys another independent constraint on the
+  truth.
+- **The fix.** Derive one grid per **(sharer, radius)**: `HMAC(secret, u64-BE(len(sharer)) ||
+sharer || f64-BE-bits(cell))` — `audience_id` is dropped from the derivation entirely. All
+  audiences at a given radius now snap the same true point to the **same** cell and emit a
+  byte-identical center, so a colluding set of any size learns only that one cell: maximum
+  uncertainty (a full cell), no narrowing at any N. This is the privacy-maximizing choice — sharing
+  with more people can never leak _more_ than sharing with one.
+- **API surface unchanged.** `stable_fuzz` / `fuzz_cell_id` (core + frb FFI) keep `audience_id` in
+  their signatures — it is now accepted and ignored for grid selection — so no FFI/Dart/codegen
+  churn. `radius` (the sanitized cell size) enters the HMAC via its `f64` big-endian bit pattern;
+  the `u64-BE(len)` framing on `sharer_id` keeps the sharer/radius boundary unambiguous, and the
+  existing endianness/`(u64 as f64 / 2^64)·cell` structure is otherwise intact.
+- **Supersedes** the audience half of D-031's framing. `sharer_audience_boundary_is_domain_separated`
+  is replaced by `grid_is_domain_separated_by_sharer_and_radius` (different sharers → different
+  grids; same sharer at a different radius → a genuinely different grid _fraction_, proving radius
+  is a real HMAC input, not just a rescale).
+- **Tests.** `distinct_grids_per_audience` → `all_audiences_share_one_grid_at_a_given_radius`
+  (two audiences at one radius must yield the same cell + byte-identical center). Added
+  `n_audience_collusion_does_not_narrow_below_one_cell`: N=10 audiences report exactly one cell, and
+  — the property that matters — the set of candidate true-points consistent with **all N** reports
+  is byte-for-byte identical in size to the set consistent with a **single** report (sampled 20k
+  candidates), i.e. the N-way intersection is the whole cell. All other privacy properties
+  (determinism-in-cell, cell-crossing, within-circle, averaging-reveals-nothing, edge/hostile
+  no-panic) stay green; the Dart FFI test asserting per-audience divergence was flipped to assert
+  the shared grid.

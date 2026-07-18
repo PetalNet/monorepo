@@ -79,28 +79,31 @@ void main() {
     expect(sameCell, greaterThan(0));
   });
 
-  test('different audiences see different grids, both covering the truth', () {
+  test('all audiences share one grid at a given radius (collusion-proof)', () {
     const lat = 40.7128;
     const lon = -74.0060;
-    final a = stableFuzz(
-      trueLat: lat,
-      trueLon: lon,
-      radiusM: 1000,
-      sharerId: _sharer,
-      audienceId: 'grp:family',
-      secret: _secret,
-    );
-    final b = stableFuzz(
-      trueLat: lat,
-      trueLon: lon,
-      radiusM: 1000,
-      sharerId: _sharer,
-      audienceId: 'grp:friends',
-      secret: _secret,
-    );
-    expect(a.lat != b.lat || a.lon != b.lon, isTrue);
-    expect(_haversineM(lat, lon, a.lat, a.lon), lessThanOrEqualTo(1000.0));
-    expect(_haversineM(lat, lon, b.lat, b.lon), lessThanOrEqualTo(1000.0));
+    // The grid is derived from (sharer, radius) only, so any number of
+    // audiences at the same radius snap the true point to the SAME cell — a
+    // colluding set of audiences learns only that one cell, at any N.
+    final reports = [
+      for (final audience in ['grp:family', 'grp:friends', 'usr:eve', 'aud:9'])
+        stableFuzz(
+          trueLat: lat,
+          trueLon: lon,
+          radiusM: 1000,
+          sharerId: _sharer,
+          audienceId: audience,
+          secret: _secret,
+        ),
+    ];
+    final first = reports.first;
+    for (final p in reports) {
+      expect(p.cellX, first.cellX);
+      expect(p.cellY, first.cellY);
+      expect(p.lat, first.lat);
+      expect(p.lon, first.lon);
+    }
+    expect(_haversineM(lat, lon, first.lat, first.lon), lessThanOrEqualTo(1000.0));
   });
 
   test('crossing a cell boundary moves the snapped center', () {
