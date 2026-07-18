@@ -10,7 +10,7 @@ Lab operators, maintainers, and administrators supervising a distributed fleet o
 
 ## Product Purpose
 
-The Lab Console is the single full-stack dashboard-assistant for understanding and operating the lab. Curated surfaces provide trusted lenses over one event and contract substrate, while the persistent assistant can compose new dashboards from the same scoped data. Success means an operator can find attention-worthy state, understand its evidence and freshness, and dispatch an authorized action without leaving the console or mistaking stale, synthetic, or cross-process data for truth.
+The Lab Console is the lab's all-in-one agentic management platform: the single full-stack place to provision, store, and manage agents and operate the fleet. Curated surfaces provide trusted lenses over one event and contract substrate, while the persistent assistant can compose new dashboards from the same scoped data. Querying and bridging other data sources is a secondary capability that extends the platform, not its definition. Success means an operator can provision and manage agents, find attention-worthy state, understand its evidence and freshness, and dispatch an authorized action without leaving the console or mistaking stale, synthetic, or cross-process data for truth.
 
 ## Brand Personality
 

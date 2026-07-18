@@ -8,11 +8,15 @@
 
 ## Context
 
-The console UI and its TypeScript gateway were separate applications even though they shared a
-release, authentication spine, contract vocabulary, and operator workflow. That packaging added a
-cross-process browser client, CORS and deployment state without creating an authoritative domain
-boundary. The actual authorities remain Manager, control-plane, box-agent, tracker, Library, and
-the bridge sources.
+`apps/console` is the lab's all-in-one agentic management platform: the single place to provision,
+store, and manage agents across the fleet, and to operate the systems they run on. Its UI and
+TypeScript gateway were previously separate applications even though they shared a release,
+authentication spine, contract vocabulary, and operator workflow. That packaging added a
+cross-process browser client, CORS, and deployment state without centralizing agent management.
+Provisioning, agent storage, and agent management are first-class console capabilities.
+Data-querying and bridging other data sources (Manager, control-plane, box-agent, tracker,
+Library) is a secondary capability the console grows over time — it extends the platform, it is
+not a boundary the console is fenced out of.
 
 ## Decision
 
@@ -46,16 +50,20 @@ The bus preserves broker replay boundaries, ordered delivery, resume cursors, ba
 per-principal scopes, and grant-change revalidation. WebSocket authentication resolves the same
 Better Auth session table and principal scopes used at HTTP request boundaries.
 
-## Adapter boundaries
+## Centralization boundaries
 
-| Boundary                   | Authoritative owner           | Console adapter responsibility                                                             | The console must not become                                    |
-| -------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| Fleet and manager state    | Manager and per-box producers | Ingest registered emissions, project scoped reads, dispatch signed idempotent operations   | A supervisor, session owner, or manager command implementation |
-| Governance and fleet mode  | control-plane                 | Translate contracted commands and emissions, expose scoped projections                     | A policy engine or canonical governance writer                 |
-| Host operations            | box-agent                     | Route authorized host, service, and update envelopes; observe signed completion            | Host mutation logic or an execution authority                  |
-| Tasks                      | tracker                       | Read through the tracker adapter, map visibility to console scopes, dispatch canonical RPC | A task/lease writer or competing task store                    |
-| Library                    | Library plane/store           | Expose versioned items, links, search, curation, and projections                           | A second librarian or competing canonical item model           |
-| Legacy and per-box sources | bridge adapters               | Normalize emissions, preserve deterministic IDs/cursors, and report gaps                   | A source of inferred domain decisions                          |
+The console centralizes agent provisioning, storage, and management as first-class capabilities.
+Where a system already owns its state, the console integrates it: bridging that source is the
+secondary, current path, and the console may centralize more of it over time.
+
+| Boundary                   | Current data source           | Console responsibility                                                                      | Centralization stance                                                    |
+| -------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| Fleet and manager state    | Manager and per-box producers | Ingest registered emissions, project scoped reads, dispatch signed idempotent operations   | First-class: the console provisions, observes, and manages the fleet and its agents |
+| Governance and fleet mode  | control-plane                 | Translate contracted commands and emissions, expose scoped projections                     | First-class management surface; control-plane remains the executing engine |
+| Host operations            | box-agent                     | Route authorized host, service, and update envelopes; observe signed completion            | First-class management surface; box-agent remains the host executor      |
+| Tasks                      | tracker                       | Read through the tracker adapter, map visibility to console scopes, dispatch canonical RPC | May centralize task and agent-work storage and management here; bridging the tracker is the secondary path |
+| Library                    | Library plane/store           | Expose versioned items, links, search, curation, and projections                           | May centralize item storage and curation here; bridging the existing Library is the secondary path |
+| Legacy and per-box sources | bridge adapters               | Normalize emissions, preserve deterministic IDs/cursors, and report gaps                    | Secondary and additive: bridging further data sources extends the platform, it does not define it |
 
 Adapters may translate transport, normalize identifiers, enforce current scopes, and attach
 freshness/provenance. They never invent success or derive authorization from UI state.
