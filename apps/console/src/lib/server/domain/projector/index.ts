@@ -5,7 +5,7 @@ import { asynchronously } from "#domain/iteration";
 // emission subject_kind (which is `agent` for four different kinds). Scope is invariant per
 // (kind, subject) by construction — the upsert never rewrites it — so visibility can never flip.
 
-import type { Sql } from "../db/pool.ts";
+import { txSql, type Sql } from "../db/pool.ts";
 import type { Emission } from "../emission.ts";
 import { indefinitely } from "../iteration.ts";
 
@@ -183,7 +183,7 @@ export class Projector {
 		// session-level lock whose unlock could land on a different pooled backend (codex re-review).
 		await this.#writer.begin(async (tx) => {
 			await tx`select pg_advisory_xact_lock(${REPLAY_LOCK_KEY})`;
-			await this.#replayLocked(tx as unknown as Sql, this.name, false);
+			await this.#replayLocked(txSql(tx), this.name, false);
 		});
 	}
 
@@ -191,7 +191,7 @@ export class Projector {
 	async replayContractedReadsToHead(): Promise<void> {
 		await this.#writer.begin(async (tx) => {
 			await tx`select pg_advisory_xact_lock(${CONTRACTED_REPLAY_LOCK_KEY})`;
-			await this.#replayLocked(tx as unknown as Sql, CONTRACTED_REPLAY_NAME, true);
+			await this.#replayLocked(txSql(tx), CONTRACTED_REPLAY_NAME, true);
 		});
 	}
 

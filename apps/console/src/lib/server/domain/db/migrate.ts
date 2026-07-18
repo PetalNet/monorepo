@@ -15,7 +15,7 @@ import {
 	type JoinDescriptor,
 	type MeasureDescriptor,
 } from "../semantic/registry.ts";
-import type { Sql } from "./pool.ts";
+import { txSql, type Sql } from "./pool.ts";
 
 // L1 uses Timescale hypertables. Global UUID dedup lives in the plain `emission_ids` gate because
 // Timescale unique indexes must contain the time partition column.
@@ -1187,7 +1187,7 @@ export async function migrate(admin: Sql, opts?: MigrateOpts): Promise<void> {
 		if (rlsStart < 0) throw new Error("migration RLS boundary missing");
 		for await (const stmt of asynchronously(DOMAIN_SCHEMA_STATEMENTS.slice(0, rlsStart)))
 			await tx.unsafe(stmt);
-		await backfillSemanticDocuments(tx as unknown as Sql);
+		await backfillSemanticDocuments(txSql(tx));
 		for await (const stmt of asynchronously(DOMAIN_SCHEMA_STATEMENTS.slice(rlsStart)))
 			await tx.unsafe(stmt);
 	});

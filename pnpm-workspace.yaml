@@ -131,3 +131,4 @@ catalog:
   "@fastify/cors": ^11.3.0
   "@fastify/websocket": ^11.3.0
   fastify: ^5.10.0
+  temporal-polyfill: ^1.0.1

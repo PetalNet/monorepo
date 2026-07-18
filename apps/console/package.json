@@ -44,6 +44,7 @@
 		"svelte": "catalog:prod",
 		"svelte-effect-runtime": "catalog:",
 		"tailwindcss": "catalog:prod",
+		"temporal-polyfill": "catalog:",
 		"uuid": "catalog:",
 		"ws": "catalog:",
 		"zod": "catalog:"

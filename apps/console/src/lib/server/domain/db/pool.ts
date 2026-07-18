@@ -11,6 +11,13 @@ import type { Env } from "../env.ts";
 
 export type Sql = postgres.Sql;
 
+/**
+ * postgres-js types a transaction handle (TransactionSql) as a sibling of Sql, not a subtype, so
+ * a handle cannot be handed to scoped helpers that accept a pool `Sql` without widening. Do it
+ * here, once, at a single typed boundary instead of an ad-hoc cast at each call site.
+ */
+export const txSql = (tx: postgres.TransactionSql): Sql => tx as unknown as Sql;
+
 export interface Db {
 	readonly admin: Sql;
 	readonly app: Sql;
@@ -141,6 +148,6 @@ export async function withScopes<T>(
 	if (scopes.some((s) => s.includes(","))) throw new Error("scope tag must not contain a comma");
 	return sql.begin(async (tx) => {
 		await tx`select set_config('app.scopes', ${scopes.join(",")}, true)`;
-		return fn(tx as unknown as Sql);
+		return fn(txSql(tx));
 	}) as Promise<T>;
 }

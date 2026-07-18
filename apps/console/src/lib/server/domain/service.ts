@@ -26,17 +26,19 @@ export class ConsoleDomainUnavailable extends Error {
 	}
 }
 
-let processServices: Promise<Services> | undefined;
-
-const acquire = (): Promise<Services> => {
-	processServices ??= getSharedConsoleServices() ?? buildServices(loadEnv(), { migrate: false });
-	setSharedConsoleServices(processServices);
-	return processServices;
-};
-
-export const ConsoleDomainLive = Layer.succeed(ConsoleDomain, {
-	services: Effect.tryPromise({
-		try: acquire,
+const acquireServices = Effect.acquireRelease(
+	Effect.tryPromise({
+		try: () => {
+			const services = getSharedConsoleServices() ?? buildServices(loadEnv(), { migrate: false });
+			setSharedConsoleServices(services);
+			return services;
+		},
 		catch: (cause) => new ConsoleDomainUnavailable(cause),
 	}),
-});
+	(services) => Effect.promise(() => services.close()),
+);
+
+export const ConsoleDomainLive = Layer.effect(
+	ConsoleDomain,
+	Effect.map(acquireServices, (services) => ({ services: Effect.succeed(services) })),
+);

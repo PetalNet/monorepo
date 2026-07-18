@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { asynchronously } from "#domain/iteration";
 
-import type { Db, Sql } from "../db/pool.ts";
+import { txSql, type Db, type Sql } from "../db/pool.ts";
 import { SCOPE_RE } from "../scope.ts";
 import type { Principal } from "./principal.ts";
 
@@ -187,10 +187,10 @@ export async function mutateGrant(
 		// concurrent revoke of the caller's direct or inherited owner edge cannot commit between the
 		// authorization check and this mutation.
 		for await (const object of asynchronously(
-			await authorizationObjects(tx as unknown as Sql, input.object),
+			await authorizationObjects(txSql(tx), input.object),
 		))
 			await tx`select pg_advisory_xact_lock(hashtextextended(${object}, 705706))`;
-		if (!(await ownsObject(tx as unknown as Sql, principal, input.object)))
+		if (!(await ownsObject(txSql(tx), principal, input.object)))
 			throw new GrantError("grant_denied", "owner relation required");
 
 		let result: Record<string, unknown>;

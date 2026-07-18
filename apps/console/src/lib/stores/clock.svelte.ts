@@ -1,23 +1,32 @@
 import { browser } from "$app/env";
 
-/**
- * A shared 1s wall clock. Time-derived UI (lease countdowns, gone-quiet staleness, age labels) must
- * recompute as time passes, not freeze at render — a frozen clock renders stale operational state
- * as current (§4.6 honesty). Read `clockNow()` inside a component and it ticks reactively.
- */
-let current = $state(0);
+type TemporalApi = typeof import("temporal-polyfill").Temporal;
+
+const nativeTemporal = (): TemporalApi | undefined =>
+	(globalThis as { Temporal?: TemporalApi }).Temporal;
+
+async function loadTemporal(): Promise<TemporalApi> {
+	return nativeTemporal() ?? (await import("temporal-polyfill")).Temporal;
+}
+
+let current = $state(Date.now());
 
 if (browser) {
-	current = Date.now();
-	const interval = setInterval(() => {
-		current = Date.now();
-	}, 1000);
+	let interval: ReturnType<typeof setInterval> | undefined;
+	void loadTemporal().then((Temporal) => {
+		const tick = () => {
+			current = Temporal.Now.instant().epochMilliseconds;
+		};
+		tick();
+		interval = setInterval(tick, 1000);
+	});
 	import.meta.hot?.dispose(() => {
-		clearInterval(interval);
+		if (interval !== undefined) clearInterval(interval);
 	});
 }
 
 export function clockNow(): number {
-	// A module can live for the whole server process. Never reuse its import-time timestamp for SSR.
-	return browser ? current : Date.now();
+	if (browser) return current;
+	const native = nativeTemporal();
+	return native ? native.Now.instant().epochMilliseconds : Date.now();
 }

@@ -5,7 +5,7 @@ import { asynchronously } from "#domain/iteration";
 import { canMutateScope } from "../auth/grants.ts";
 import type { Principal } from "../auth/principal.ts";
 import type { Sql } from "../db/pool.ts";
-import { withScopes } from "../db/pool.ts";
+import { txSql, withScopes } from "../db/pool.ts";
 import { readQueryRecord } from "../query/history.ts";
 import { QueryError, runStructured, type QueryResult } from "../query/structured.ts";
 import { materializePanel } from "../render/engine.ts";
@@ -195,7 +195,7 @@ export async function saveDashboard(
 			const previous = raced.at(0);
 			if (!previous || previous.request_hash !== hash)
 				throw new DashboardError("id_reused", "mutation id was already used with a different body");
-			const item = await dashboardById(tx as unknown as Sql, previous.dashboard_id);
+			const item = await dashboardById(txSql(tx), previous.dashboard_id);
 			if (!item) throw new Error("dashboard mutation points to a missing item");
 			if (item.scope !== scope || !principal.scopes.includes(item.scope))
 				throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
