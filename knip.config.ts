@@ -17,14 +17,10 @@ export default {
 			sveltekit: {
 				config: ["vite.config.ts"],
 			},
-			paths: {
-				"$app/env": ["node_modules/@sveltejs/kit/types/index.d.ts"],
-				"$app/server": ["node_modules/@sveltejs/kit/types/index.d.ts"],
-			},
 			entry: [
-				"effectdb.config.ts",
-				"src/lib/server/db/tables.ts",
-				"server/index.ts",
+				"effectdb.config.ts!",
+				"src/lib/server/db/tables.ts!",
+				"server/index.ts!",
 				"scripts/*.{ts,mjs}",
 			],
 		},

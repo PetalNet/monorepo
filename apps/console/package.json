@@ -23,8 +23,6 @@
 		"@effect/sql-pg": "catalog:",
 		"@fastify/cors": "catalog:",
 		"@fastify/websocket": "catalog:",
-		"@fontsource/geist-mono": "catalog:",
-		"@fontsource/geist-sans": "catalog:",
 		"@lucide/svelte": "catalog:prod",
 		"@opentelemetry/api": "catalog:",
 		"@opentelemetry/auto-instrumentations-node": "catalog:",

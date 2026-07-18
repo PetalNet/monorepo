@@ -6,9 +6,6 @@ settings:
 
 catalogs:
   default:
-    '@better-auth/test-utils':
-      specifier: 1.7.0-rc.1
-      version: 1.7.0-rc.1
     '@effect/sql-pg':
       specifier: 4.0.0-beta.98
       version: 4.0.0-beta.98
@@ -18,12 +15,6 @@ catalogs:
     '@fastify/websocket':
       specifier: ^11.3.0
       version: 11.3.0
-    '@fontsource/geist-mono':
-      specifier: ^5.2.8
-      version: 5.2.8
-    '@fontsource/geist-sans':
-      specifier: ^5.2.5
-      version: 5.2.5
     '@opentelemetry/api':
       specifier: ^1.9.0
       version: 1.9.1
@@ -45,9 +36,6 @@ catalogs:
     '@sveltejs/kit':
       specifier: 3.0.0-next.8
       version: 3.0.0-next.8
-    '@testcontainers/postgresql':
-      specifier: ^11.10.0
-      version: 11.14.0
     '@types/ws':
       specifier: ^8.18.1
       version: 8.18.1
@@ -97,18 +85,6 @@ catalogs:
       specifier: ^4.4.3
       version: 4.4.3
   dev:
-    '@eslint/js':
-      specifier: ^10.0.1
-      version: 10.0.1
-    '@eslint/json':
-      specifier: ^2.0.0
-      version: 2.0.0
-    '@eslint/markdown':
-      specifier: ^8.0.2
-      version: 8.0.2
-    '@manypkg/cli':
-      specifier: ^0.25.1
-      version: 0.25.1
     '@playwright/test':
       specifier: ^1.61.1
       version: 1.61.1
@@ -121,39 +97,12 @@ catalogs:
     '@tailwindcss/vite':
       specifier: ^4.1.18
       version: 4.3.1
-    '@typescript/native':
-      specifier: npm:typescript@^7.0.2
-      version: 7.0.2
-    autoprefixer:
-      specifier: ^10.4.20
-      version: 10.5.0
-    drizzle-kit:
-      specifier: ^0.31.8
-      version: 0.31.10
     eslint:
       specifier: ^10.4.1
       version: 10.5.0
-    eslint-plugin-oxlint:
-      specifier: ^1.67.0
-      version: 1.70.0
-    eslint-plugin-package-json:
-      specifier: ^1.2.0
-      version: 1.4.0
     eslint-plugin-svelte:
       specifier: ^3.20.0
       version: 3.20.0
-    knip:
-      specifier: ^6.16.1
-      version: 6.17.1
-    oxlint:
-      specifier: ^1.67.0
-      version: 1.72.0
-    postcss:
-      specifier: ^8.4.49
-      version: 8.5.15
-    prisma:
-      specifier: ^5.22.0
-      version: 5.22.0
     svelte-check:
       specifier: ^4.3.5
       version: 4.6.0
@@ -163,105 +112,32 @@ catalogs:
     typescript-eslint:
       specifier: ^8.60.0
       version: 8.61.1
-    typesync:
-      specifier: ^0.14.3
-      version: 0.14.3
-    update-ts-references:
-      specifier: ^6.0.0
-      version: 6.0.0
     vite:
       specifier: ^8.0.0
       version: 8.0.16
-    vite-plus:
-      specifier: 0.2.4
-      version: 0.2.4
     vitest:
       specifier: ^4.0.0
       version: 4.1.10
-  legacy:
-    tailwindcss:
-      specifier: ^3.4.17
-      version: 3.4.19
   prod:
-    '@libsql/client':
-      specifier: ^0.17.0
-      version: 0.17.4
     '@lucide/svelte':
       specifier: ^1.23.0
       version: 1.24.0
-    '@modelcontextprotocol/sdk':
-      specifier: ^1.29.0
-      version: 1.29.0
-    '@prisma/client':
-      specifier: ^5.22.0
-      version: 5.22.0
-    '@sveltejs/kit':
-      specifier: ^2.50.1
-      version: 2.66.0
-    bcryptjs:
-      specifier: ^3.0.0
-      version: 3.0.3
     daisyui:
       specifier: ^5.6.13
       version: 5.6.18
-    date-fns:
-      specifier: ^4.1.0
-      version: 4.4.0
-    drizzle-orm:
-      specifier: ^0.45.1
-      version: 0.45.2
     fontless:
       specifier: ^0.2.1
       version: 0.2.1
-    leaflet:
-      specifier: ^1.9.4
-      version: 1.9.4
-    leaflet-image:
-      specifier: ^0.4.0
-      version: 0.4.0
-    leaflet.heat:
-      specifier: ^0.2.0
-      version: 0.2.0
-    leaflet.markercluster:
-      specifier: ^1.5.3
-      version: 1.5.3
-    nanoid:
-      specifier: ^5.0.0
-      version: 5.1.15
-    qrcode:
-      specifier: ^1.5.4
-      version: 1.5.4
-    sortablejs:
-      specifier: ^1.15.6
-      version: 1.15.7
     svelte:
       specifier: ^5.48.2
       version: 5.56.5
     tailwindcss:
       specifier: ^4.1.18
       version: 4.3.1
-    zod:
-      specifier: ^4.0.0
-      version: 4.4.3
   types:
-    '@types/leaflet':
-      specifier: ^1.9.21
-      version: 1.9.21
-    '@types/leaflet.heat':
-      specifier: ^0.2.5
-      version: 0.2.5
-    '@types/leaflet.markercluster':
-      specifier: ^1.5.6
-      version: 1.5.6
     '@types/node':
       specifier: ^25.9.1
       version: 25.9.4
-    '@types/qrcode':
-      specifier: ^1.5.5
-      version: 1.5.6
-    '@types/sortablejs':
-      specifier: ^1.15.8
-      version: 1.15.9
 
 importers:
 
@@ -413,12 +289,6 @@ importers:
       '@fastify/websocket':
         specifier: 'catalog:'
         version: 11.3.0
-      '@fontsource/geist-mono':
-        specifier: 'catalog:'
-        version: 5.2.8
-      '@fontsource/geist-sans':
-        specifier: 'catalog:'
-        version: 5.2.5
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -1584,12 +1454,6 @@ packages:
 
   '@fastify/websocket@11.3.0':
     resolution: {integrity: sha512-g89ag4BCcD9YP5wBZXixzoLnuf5j89p/sXFcfpCiv2pdEkYYukBEoK3heVzqsp0EAtszVDc2BBZG0KZqeAShIA==}
-
-  '@fontsource/geist-mono@5.2.8':
-    resolution: {integrity: sha512-YqZUb3X42GjRaHkibUNyE8K4Rk9A6I9Ez81YpJYiuJN4ggmTW2ixoQpa9EWCPfXZtIsCQJTyrDoV9OJOZO/UcA==}
-
-  '@fontsource/geist-sans@5.2.5':
-    resolution: {integrity: sha512-anllOHyJbElRs9fV15TeDRqAeb1IKm4bSknPl6ZMoyPTx1BBy7logudcUwpNjmQLkzn4Q0JGQLRCUKJYoyST6A==}
 
   '@grpc/grpc-js@1.14.4':
     resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
@@ -8385,10 +8249,6 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
-
-  '@fontsource/geist-mono@5.2.8': {}
-
-  '@fontsource/geist-sans@5.2.5': {}
 
   '@grpc/grpc-js@1.14.4':
     dependencies:

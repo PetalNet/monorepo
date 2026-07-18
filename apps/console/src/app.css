@@ -7,8 +7,8 @@
    retune token values — they are the spec's source of truth.
    Themes: Paper (light) / Ink (dark). data-theme on <html>; no pin
    follows the OS via prefers-color-scheme.
-   Fonts (Geist / Geist Mono) are self-hosted via @fontsource,
-   imported in +layout.svelte.
+   Fonts (Geist / Geist Mono) are self-hosted via fontless
+   (configured in vite.config.ts).
    ============================================================ */
 @import "tailwindcss";
 
