@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 
 import { deriveDeliveryLineHealth } from "./delivery-health.ts";
 import type { DeliveryReceiptView } from "./signals.ts";
@@ -22,8 +21,8 @@ function receipt(
 	};
 }
 
-void describe("deriveDeliveryLineHealth", () => {
-	void it("is unconfigured when no Matrix target exists", () => {
+describe("deriveDeliveryLineHealth", () => {
+	it("is unconfigured when no Matrix target exists", () => {
 		const health = deriveDeliveryLineHealth({
 			target: null,
 			receipts: [],
@@ -31,10 +30,10 @@ void describe("deriveDeliveryLineHealth", () => {
 			busObservedAt: null,
 			now: NOW,
 		});
-		assert.equal(health.state, "unconfigured");
+		expect(health.state).toBe("unconfigured");
 	});
 
-	void it("requires positive bus, receipt, and Matrix evidence before claiming healthy", () => {
+	it("requires positive bus, receipt, and Matrix evidence before claiming healthy", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [receipt(2, "delivered", "test")],
@@ -42,11 +41,11 @@ void describe("deriveDeliveryLineHealth", () => {
 			busObservedAt: new Date(NOW - 4 * 60_000).toISOString(),
 			now: NOW,
 		});
-		assert.equal(health.state, "unverifiable");
-		assert.match(health.summary, /Bus silent 4m/);
+		expect(health.state).toBe("unverifiable");
+		expect(health.summary).toMatch(/Bus silent 4m/);
 	});
 
-	void it("cracks after two consecutive failures in ten minutes", () => {
+	it("cracks after two consecutive failures in ten minutes", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [receipt(1, "failed"), receipt(4, "failed"), receipt(20, "delivered")],
@@ -54,12 +53,12 @@ void describe("deriveDeliveryLineHealth", () => {
 			busObservedAt: new Date(NOW - 15_000).toISOString(),
 			now: NOW,
 		});
-		assert.equal(health.state, "failing");
-		assert.equal(health.backupInterrupts.length, 2);
-		assert.equal(health.flapping, false);
+		expect(health.state).toBe("failing");
+		expect(health.backupInterrupts.length).toBe(2);
+		expect(health.flapping).toBe(false);
 	});
 
-	void it("cracks when Matrix sync is more than 120 seconds stale", () => {
+	it("cracks when Matrix sync is more than 120 seconds stale", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [receipt(1, "delivered")],
@@ -67,11 +66,11 @@ void describe("deriveDeliveryLineHealth", () => {
 			busObservedAt: new Date(NOW - 15_000).toISOString(),
 			now: NOW,
 		});
-		assert.equal(health.state, "failing");
-		assert.match(health.detail, /Matrix sync 2m stale/);
+		expect(health.state).toBe("failing");
+		expect(health.detail).toMatch(/Matrix sync 2m stale/);
 	});
 
-	void it("consolidates repeated qualifying failure cycles and damps a recent recovery", () => {
+	it("consolidates repeated qualifying failure cycles and damps a recent recovery", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [
@@ -86,13 +85,13 @@ void describe("deriveDeliveryLineHealth", () => {
 			busObservedAt: new Date(NOW - 15_000).toISOString(),
 			now: NOW,
 		});
-		assert.equal(health.state, "failing");
-		assert.equal(health.flapping, true);
-		assert.equal(health.cycleCount, 2);
-		assert.match(health.detail, /flapping, 2 cycles this hour/);
+		expect(health.state).toBe("failing");
+		expect(health.flapping).toBe(true);
+		expect(health.cycleCount).toBe(2);
+		expect(health.detail).toMatch(/flapping, 2 cycles this hour/);
 	});
 
-	void it("heals a flapping line after the ten-minute damping interval", () => {
+	it("heals a flapping line after the ten-minute damping interval", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [
@@ -107,6 +106,6 @@ void describe("deriveDeliveryLineHealth", () => {
 			busObservedAt: new Date(NOW - 15_000).toISOString(),
 			now: NOW,
 		});
-		assert.equal(health.state, "healthy");
+		expect(health.state).toBe("healthy");
 	});
 });

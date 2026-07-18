@@ -1,33 +1,38 @@
-import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import test from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
 
 import { OP_TEST_FIXTURES, opDef, validateOpArgs } from "./ops.ts";
 import { CONTRACT_FIXTURES, validateContract, type ContractType } from "./types.ts";
 
-void test("generated contract files have no canonical-source drift", () => {
-	execFileSync(process.execPath, ["scripts/generate-contracts.mjs", "--check"], {
-		cwd: fileURLToPath(new URL("../../../", import.meta.url)),
-		stdio: "pipe",
+describe("generated API contracts", () => {
+	it("has no canonical-source drift in generated contract files", () => {
+		execFileSync(process.execPath, ["scripts/generate-contracts.mjs", "--check"], {
+			cwd: fileURLToPath(new URL("../../../", import.meta.url)),
+			stdio: "pipe",
+		});
 	});
-});
 
-void test("every canonical op has metadata and a valid generated fixture", () => {
-	for (const [op, args] of Object.entries(OP_TEST_FIXTURES)) {
-		assert.ok(opDef(op), `${op} must be displayable`);
-		assert.deepEqual(validateOpArgs(op, args), { valid: true, errors: [] });
-	}
-});
+	it("gives every canonical op metadata and a valid generated fixture", () => {
+		for (const [op, args] of Object.entries(OP_TEST_FIXTURES)) {
+			expect(opDef(op), `${op} must be displayable`).toBeTruthy();
+			expect(validateOpArgs(op, args)).toEqual({ valid: true, errors: [] });
+		}
+	});
 
-void test("generated validators reject incompatible contract changes", () => {
-	assert.equal(validateOpArgs("attention.ack", {}).valid, false);
-	assert.equal(validateOpArgs("not.an.op", {}).valid, false);
-	assert.equal(validateContract("ConsoleHealth", { lake: "ok" }).valid, false);
-});
+	it("rejects incompatible contract changes", () => {
+		expect(validateOpArgs("attention.ack", {}).valid).toBe(false);
+		expect(validateOpArgs("not.an.op", {}).valid).toBe(false);
+		expect(validateContract("ConsoleHealth", { lake: "ok" }).valid).toBe(false);
+	});
 
-void test("every generated API fixture validates against its source schema", () => {
-	for (const [name, fixture] of Object.entries(CONTRACT_FIXTURES)) {
-		assert.deepEqual(validateContract(name as ContractType, fixture), { valid: true, errors: [] });
-	}
+	it("validates every generated API fixture against its source schema", () => {
+		for (const [name, fixture] of Object.entries(CONTRACT_FIXTURES)) {
+			expect(validateContract(name as ContractType, fixture)).toEqual({
+				valid: true,
+				errors: [],
+			});
+		}
+	});
 });

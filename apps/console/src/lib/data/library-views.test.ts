@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 
 import { buildLibraryGraph, groupLibraryKanban, nextGraphNode } from "./library-views.ts";
 import type { LibraryItemView, LibraryLinkFixture } from "./library.ts";
@@ -19,8 +18,8 @@ function item(id: string, kind: LibraryItemView["kind"], status: string): Librar
 	};
 }
 
-void describe("Library graph view model", () => {
-	void it("lays a typed-link DAG out from left to right", () => {
+describe("Library graph view model", () => {
+	it("lays a typed-link DAG out from left to right", () => {
 		const items = [
 			item("root", "decision", "verified-shared"),
 			item("child", "doc", "draft"),
@@ -32,18 +31,15 @@ void describe("Library graph view model", () => {
 		};
 		const graph = buildLibraryGraph(items, links);
 		const byId = new Map(graph.nodes.map((node) => [node.id, node]));
-		assert.ok((byId.get("root")?.x ?? Infinity) < (byId.get("child")?.x ?? -Infinity));
-		assert.ok((byId.get("child")?.x ?? Infinity) < (byId.get("leaf")?.x ?? -Infinity));
-		assert.deepEqual(
-			graph.edges.map(({ from, to, rel }) => [from, to, rel]),
-			[
-				["root", "child", "references"],
-				["child", "leaf", "derived-from"],
-			],
-		);
+		expect((byId.get("root")?.x ?? Infinity) < (byId.get("child")?.x ?? -Infinity)).toBe(true);
+		expect((byId.get("child")?.x ?? Infinity) < (byId.get("leaf")?.x ?? -Infinity)).toBe(true);
+		expect(graph.edges.map(({ from, to, rel }) => [from, to, rel])).toEqual([
+			["root", "child", "references"],
+			["child", "leaf", "derived-from"],
+		]);
 	});
 
-	void it("walks outgoing and incoming edges without falling back to DOM order", () => {
+	it("walks outgoing and incoming edges without falling back to DOM order", () => {
 		const links: Record<string, LibraryLinkFixture[]> = {
 			root: [
 				{ direction: "out", rel: "references", targetId: "a" },
@@ -51,35 +47,23 @@ void describe("Library graph view model", () => {
 			],
 			a: [{ direction: "in", rel: "references", targetId: "root" }],
 		};
-		assert.equal(nextGraphNode("root", "right", links), "a");
-		assert.equal(nextGraphNode("a", "left", links), "root");
-		assert.equal(nextGraphNode("root", "down", links), "b");
+		expect(nextGraphNode("root", "right", links)).toBe("a");
+		expect(nextGraphNode("a", "left", links)).toBe("root");
+		expect(nextGraphNode("root", "down", links)).toBe("b");
 	});
 });
 
-void describe("Library Kanban view model", () => {
-	void it("separates work and knowledge lifecycles and never buries conflicts", () => {
+describe("Library Kanban view model", () => {
+	it("separates work and knowledge lifecycles and never buries conflicts", () => {
 		const grouped = groupLibraryKanban([
 			item("work", "task", "doing"),
 			item("knowledge", "fact", "verified-shared"),
 			item("conflict", "doc", "CONFLICT"),
 			item("unclassified", "task", "blocked"),
 		]);
-		assert.deepEqual(
-			grouped.work.doing.map(({ id }) => id),
-			["work"],
-		);
-		assert.deepEqual(
-			grouped.knowledge["verified-shared"].map(({ id }) => id),
-			["knowledge"],
-		);
-		assert.deepEqual(
-			grouped.conflicts.map(({ id }) => id),
-			["conflict"],
-		);
-		assert.deepEqual(
-			grouped.unclassified.map(({ id }) => id),
-			["unclassified"],
-		);
+		expect(grouped.work.doing.map(({ id }) => id)).toEqual(["work"]);
+		expect(grouped.knowledge["verified-shared"].map(({ id }) => id)).toEqual(["knowledge"]);
+		expect(grouped.conflicts.map(({ id }) => id)).toEqual(["conflict"]);
+		expect(grouped.unclassified.map(({ id }) => id)).toEqual(["unclassified"]);
 	});
 });

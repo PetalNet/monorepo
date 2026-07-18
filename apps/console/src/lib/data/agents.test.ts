@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, expect, it } from "vitest";
 
 import type { RosterItem } from "../api/types.ts";
 import { deriveRoster } from "./agents.ts";
@@ -14,15 +13,17 @@ const workingResident = {
 	observed_at: observedAt,
 } satisfies RosterItem;
 
-void test("deriveRoster moves a gone-quiet resident out of Working and marks fleet health down", () => {
-	const fresh = deriveRoster([workingResident], Date.parse(observedAt) + 89_999);
-	assert.deepEqual(fresh.lanes.working, [workingResident]);
-	assert.equal(fresh.health.working, 1);
-	assert.equal(fresh.health.down, 0);
+describe("deriveRoster", () => {
+	it("moves a gone-quiet resident out of Working and marks fleet health down", () => {
+		const fresh = deriveRoster([workingResident], Date.parse(observedAt) + 89_999);
+		expect(fresh.lanes.working).toEqual([workingResident]);
+		expect(fresh.health.working).toBe(1);
+		expect(fresh.health.down).toBe(0);
 
-	const goneQuiet = deriveRoster([workingResident], Date.parse(observedAt) + 90_001);
-	assert.deepEqual(goneQuiet.lanes.working, []);
-	assert.deepEqual(goneQuiet.lanes.needs, [workingResident]);
-	assert.equal(goneQuiet.health.working, 0);
-	assert.equal(goneQuiet.health.down, 1);
+		const goneQuiet = deriveRoster([workingResident], Date.parse(observedAt) + 90_001);
+		expect(goneQuiet.lanes.working).toEqual([]);
+		expect(goneQuiet.lanes.needs).toEqual([workingResident]);
+		expect(goneQuiet.health.working).toBe(0);
+		expect(goneQuiet.health.down).toBe(1);
+	});
 });

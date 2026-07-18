@@ -1,45 +1,43 @@
-import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { describe, it } from "node:test";
+
+import { describe, expect, it } from "vitest";
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
-void describe("reduced-motion contract", () => {
-	void it("removes motion instead of compressing it into a near-zero duration", async () => {
+describe("reduced-motion contract", () => {
+	it("removes motion instead of compressing it into a near-zero duration", async () => {
 		const css = await source("../../app.css");
 
-		assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
-		assert.match(css, /animation: none !important/);
-		assert.match(css, /transition: none !important/);
-		assert.doesNotMatch(css, /0\.001s/);
+		expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
+		expect(css).toMatch(/animation: none !important/);
+		expect(css).toMatch(/transition: none !important/);
+		expect(css).not.toMatch(/0\.001s/);
 	});
 
-	void it("limits the reduced-motion exception to an explicit opacity crossfade", async () => {
+	it("limits the reduced-motion exception to an explicit opacity crossfade", async () => {
 		const css = await source("../../app.css");
 
-		assert.match(
-			css,
+		expect(css).toMatch(
 			/\.reduced-motion-opacity-crossfade\s*{\s*transition: opacity var\(--dur-fast\) linear !important/,
 		);
 	});
 });
 
-void describe("shared component motion", () => {
-	void it("uses the fast token for StatusPill state feedback", async () => {
+describe("shared component motion", () => {
+	it("uses the fast token for StatusPill state feedback", async () => {
 		const pill = await source("./StatusPill.svelte");
 
-		assert.match(pill, /if \(nextState === previousState\) return/);
-		assert.match(pill, /class:flipping/);
-		assert.match(pill, /animation: flip var\(--dur-fast\) var\(--ease-standard\) both/);
+		expect(pill).toMatch(/if \(nextState === previousState\) return/);
+		expect(pill).toMatch(/class:flipping/);
+		expect(pill).toMatch(/animation: flip var\(--dur-fast\) var\(--ease-standard\) both/);
 	});
 
-	void it("offers tokenized, opt-in Panel staggering", async () => {
+	it("offers tokenized, opt-in Panel staggering", async () => {
 		const [css, panel] = await Promise.all([source("../../app.css"), source("./Panel.svelte")]);
 
-		assert.match(css, /--dur-stagger: 24ms/);
-		assert.match(panel, /settleIndex\?: number \| null/);
-		assert.match(
-			panel,
+		expect(css).toMatch(/--dur-stagger: 24ms/);
+		expect(panel).toMatch(/settleIndex\?: number \| null/);
+		expect(panel).toMatch(
 			/animation-delay: calc\(var\(--panel-settle-index\) \* var\(--dur-stagger\)\)/,
 		);
 	});

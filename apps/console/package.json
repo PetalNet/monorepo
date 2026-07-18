@@ -16,7 +16,7 @@
 		"prepare": "svelte-kit sync",
 		"preview": "vite preview",
 		"start": "node build-server/index.js",
-		"test": "vitest run && node --test src/lib/*.test.ts src/lib/api/*.test.ts src/lib/components/*.test.ts src/lib/data/*.test.ts src/lib/stores/*.test.ts",
+		"test": "vitest run",
 		"test:e2e": "playwright test"
 	},
 	"dependencies": {

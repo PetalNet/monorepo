@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 
 import {
 	consoleHealthBusAgeS,
@@ -8,23 +7,25 @@ import {
 	type JoinedRosterItem,
 } from "./derive.ts";
 
-void describe("signalSeverityLabel", () => {
-	void it("maps every signal severity to its canonical operator grade", () => {
-		assert.deepEqual(
-			(["p0", "danger", "warn", "info", "debug"] as const).map(signalSeverityLabel),
-			["P0", "P1", "P2", "P3", "feed only"],
-		);
+describe("signalSeverityLabel", () => {
+	it("maps every signal severity to its canonical operator grade", () => {
+		expect((["p0", "danger", "warn", "info", "debug"] as const).map(signalSeverityLabel)).toEqual([
+			"P0",
+			"P1",
+			"P2",
+			"P3",
+			"feed only",
+		]);
 	});
 });
 
-void describe("consoleHealthBusAgeS", () => {
-	void it("requires explicit bridge proof and measures its clock", () => {
+describe("consoleHealthBusAgeS", () => {
+	it("requires explicit bridge proof and measures its clock", () => {
 		const now = Date.parse("2026-07-13T12:00:30.000Z");
-		assert.equal(
+		expect(
 			consoleHealthBusAgeS({ lake: "ok", seq_head: 9, bridges: [], ws_clients: 3 }, now),
-			null,
-		);
-		assert.equal(
+		).toBeNull();
+		expect(
 			consoleHealthBusAgeS(
 				{
 					lake: "ok",
@@ -33,15 +34,14 @@ void describe("consoleHealthBusAgeS", () => {
 				},
 				now,
 			),
-			8,
-		);
+		).toBe(8);
 	});
 });
 
-void describe("flattenRosterItem", () => {
+describe("flattenRosterItem", () => {
 	const absent = { visibility: "absent", observed_at: null, data: null } as const;
 
-	void it("adapts the source-preserving join without discarding source freshness", () => {
+	it("adapts the source-preserving join without discarding source freshness", () => {
 		const row: JoinedRosterItem = {
 			handle: "janet",
 			workers_active: 2,
@@ -77,19 +77,19 @@ void describe("flattenRosterItem", () => {
 			},
 		};
 		const result = flattenRosterItem(row);
-		assert.equal(result.host, ".202");
-		assert.equal(result.status, "working");
-		assert.equal(result.heartbeat_state, "running");
-		assert.equal(result.channel_lock_state, "held");
-		assert.equal(result.workers_active, 2);
-		assert.equal(result.observed_at, "2026-07-13T12:00:03.000Z");
-		assert.deepEqual(result.sources?.fleet, {
+		expect(result.host).toBe(".202");
+		expect(result.status).toBe("working");
+		expect(result.heartbeat_state).toBe("running");
+		expect(result.channel_lock_state).toBe("held");
+		expect(result.workers_active).toBe(2);
+		expect(result.observed_at).toBe("2026-07-13T12:00:03.000Z");
+		expect(result.sources?.fleet).toEqual({
 			visibility: "visible",
 			observed_at: "2026-07-13T12:00:02.000Z",
 		});
 	});
 
-	void it("keeps unavailable distinct from an absent source", () => {
+	it("keeps unavailable distinct from an absent source", () => {
 		const result = flattenRosterItem({
 			handle: "derek",
 			fleet: absent,
@@ -103,8 +103,8 @@ void describe("flattenRosterItem", () => {
 			identity: { visibility: "unavailable", data: null },
 			lease: { visibility: "unavailable", data: null },
 		});
-		assert.equal(result.host, "mc34");
-		assert.equal(result.sources?.identity.visibility, "unavailable");
-		assert.equal(result.status, null);
+		expect(result.host).toBe("mc34");
+		expect(result.sources?.identity.visibility).toBe("unavailable");
+		expect(result.status).toBeNull();
 	});
 });

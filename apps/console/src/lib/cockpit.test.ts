@@ -1,8 +1,9 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, expect, it } from "vitest";
 
 import { COCKPIT_SKELETON } from "./cockpit-geometry.ts";
 
-void test("cockpit loading geometry matches the approved surface", () => {
-	assert.deepEqual(COCKPIT_SKELETON, { chips: 3, attentionRows: 3, houseTiles: 4 });
+describe("cockpit geometry", () => {
+	it("matches the approved loading surface", () => {
+		expect(COCKPIT_SKELETON).toEqual({ chips: 3, attentionRows: 3, houseTiles: 4 });
+	});
 });

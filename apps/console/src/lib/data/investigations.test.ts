@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 
 import {
 	ancestorTrail,
@@ -19,28 +18,22 @@ const node = (id: string, parentId: string | null): InvestigationNode => ({
 	isHome: false,
 });
 
-void describe("investigation tree", () => {
-	void it("lays out parentId edges and hides collapsed descendants", () => {
+describe("investigation tree", () => {
+	it("lays out parentId edges and hides collapsed descendants", () => {
 		const nodes = [node("root", null), node("child", "root"), node("leaf", "child")];
-		assert.deepEqual(
-			visibleInvestigationRows(nodes, new Set()).map(({ id, depth }) => [id, depth]),
-			[
-				["root", 0],
-				["child", 1],
-				["leaf", 2],
-			],
-		);
-		assert.deepEqual(
-			visibleInvestigationRows(nodes, new Set(["child"])).map(({ id }) => id),
-			["root", "child"],
-		);
+		expect(visibleInvestigationRows(nodes, new Set()).map(({ id, depth }) => [id, depth])).toEqual([
+			["root", 0],
+			["child", 1],
+			["leaf", 2],
+		]);
+		expect(visibleInvestigationRows(nodes, new Set(["child"])).map(({ id }) => id)).toEqual([
+			"root",
+			"child",
+		]);
 	});
 
-	void it("builds a guarded ancestor breadcrumb", () => {
+	it("builds a guarded ancestor breadcrumb", () => {
 		const nodes = [node("root", null), node("child", "root"), node("leaf", "child")];
-		assert.deepEqual(
-			ancestorTrail(nodes, "leaf").map(({ id }) => id),
-			["root", "child", "leaf"],
-		);
+		expect(ancestorTrail(nodes, "leaf").map(({ id }) => id)).toEqual(["root", "child", "leaf"]);
 	});
 });

@@ -1,23 +1,23 @@
-import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { describe, it } from "node:test";
+
+import { describe, expect, it } from "vitest";
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
-void describe("minimum interaction targets", () => {
-	void it("keeps shared icon and segmented controls at least 32px tall", async () => {
+describe("minimum interaction targets", () => {
+	it("keeps shared icon and segmented controls at least 32px tall", async () => {
 		const [iconButton, segmentedControl] = await Promise.all([
 			source("./IconButton.svelte"),
 			source("./SegmentedControl.svelte"),
 		]);
 
-		assert.match(iconButton, /width: 32px/);
-		assert.match(iconButton, /height: 32px/);
-		assert.match(segmentedControl, /min-height: 32px/);
-		assert.match(segmentedControl, /aria-pressed=/);
+		expect(iconButton).toMatch(/width: 32px/);
+		expect(iconButton).toMatch(/height: 32px/);
+		expect(segmentedControl).toMatch(/min-height: 32px/);
+		expect(segmentedControl).toMatch(/aria-pressed=/);
 	});
 
-	void it("migrates every audited compact shared control", async () => {
+	it("migrates every audited compact shared control", async () => {
 		const [chip, roster, work, signals, deliveryPane, cost, terminal, observability] =
 			await Promise.all([
 				source("./ApplyModeChip.svelte"),
@@ -30,21 +30,20 @@ void describe("minimum interaction targets", () => {
 				source("../../routes/observability/+page.svelte"),
 			]);
 
-		assert.match(chip, /min-height: 32px/);
-		assert.match(roster, /<IconButton/);
-		assert.match(work, /<IconButton/);
-		assert.match(work, /\.mini[^}]*min-height:32px/);
-		assert.match(signals, /<SegmentedControl/);
-		assert.match(signals, /\.primary,:global\(\.op-btn\.primary\)\{min-height:40px/);
-		assert.equal(
+		expect(chip).toMatch(/min-height: 32px/);
+		expect(roster).toMatch(/<IconButton/);
+		expect(work).toMatch(/<IconButton/);
+		expect(work).toMatch(/\.mini[^}]*min-height:32px/);
+		expect(signals).toMatch(/<SegmentedControl/);
+		expect(signals).toMatch(/\.primary,:global\(\.op-btn\.primary\)\{min-height:40px/);
+		expect(
 			(signals.match(/<IconButton/g) ?? []).length +
 				(deliveryPane.match(/<IconButton/g) ?? []).length,
-			2,
-		);
-		assert.equal((cost.match(/<SegmentedControl/g) ?? []).length, 2);
-		assert.match(cost, /<IconButton/);
-		assert.match(terminal, /<IconButton/);
-		assert.match(observability, /<SegmentedControl/);
-		assert.match(observability, /<IconButton/);
+		).toBe(2);
+		expect((cost.match(/<SegmentedControl/g) ?? []).length).toBe(2);
+		expect(cost).toMatch(/<IconButton/);
+		expect(terminal).toMatch(/<IconButton/);
+		expect(observability).toMatch(/<SegmentedControl/);
+		expect(observability).toMatch(/<IconButton/);
 	});
 });

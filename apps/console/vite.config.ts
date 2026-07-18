@@ -14,7 +14,7 @@ export default defineConfig({
 		external: ["better-auth"],
 	},
 	test: {
-		include: ["src/**/*.spec.ts", "src/lib/server/**/*.test.ts", "test/**/*.test.ts"],
+		include: ["src/**/*.{test,spec}.ts", "test/**/*.test.ts"],
 		fileParallelism: false,
 		maxConcurrency: 1,
 		sequence: { concurrent: false },

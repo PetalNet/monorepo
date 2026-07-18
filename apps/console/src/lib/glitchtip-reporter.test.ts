@@ -1,10 +1,9 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 
 import { createCaughtFailureReporter, type SanitizedCaughtFailure } from "./glitchtip-reporter.ts";
 
-void describe("caught GlitchTip failure reporting", () => {
-	void it("sends only sanitized endpoint, surface, and exception-class context", () => {
+describe("caught GlitchTip failure reporting", () => {
+	it("sends only sanitized endpoint, surface, and exception-class context", () => {
 		const captured: Array<{ error: Error; context: SanitizedCaughtFailure }> = [];
 		const report = createCaughtFailureReporter(
 			(error, context) => captured.push({ error, context }),
@@ -14,22 +13,21 @@ void describe("caught GlitchTip failure reporting", () => {
 			"secret response for user janet from /box-updates/petal-202/raw?token=private",
 		);
 
-		assert.equal(
-			report(upstream, { surface: "updates", endpoint: "/box-updates/:box_id/raw" }),
+		expect(report(upstream, { surface: "updates", endpoint: "/box-updates/:box_id/raw" })).toBe(
 			true,
 		);
-		assert.deepEqual(captured[0]?.context, {
+		expect(captured[0]?.context).toEqual({
 			surface: "updates",
 			endpoint: "/box-updates/:box_id/raw",
 			errorClass: "TypeError",
 		});
-		assert.equal(captured[0]?.error.name, "TypeError");
-		assert.equal(captured[0]?.error.message, "Console read failed: /box-updates/:box_id/raw");
-		assert.match(captured[0]?.error.stack ?? "", /glitchtip-reporter\.test\.ts/);
-		assert.doesNotMatch(captured[0]?.error.stack ?? "", /janet|token=private|petal-202/);
+		expect(captured[0]?.error.name).toBe("TypeError");
+		expect(captured[0]?.error.message).toBe("Console read failed: /box-updates/:box_id/raw");
+		expect(captured[0]?.error.stack ?? "").toMatch(/glitchtip-reporter\.test\.ts/);
+		expect(captured[0]?.error.stack ?? "").not.toMatch(/janet|token=private|petal-202/);
 	});
 
-	void it("deduplicates by surface, endpoint, and class for one minute", () => {
+	it("deduplicates by surface, endpoint, and class for one minute", () => {
 		let clock = 2_000;
 		const captured: SanitizedCaughtFailure[] = [];
 		const report = createCaughtFailureReporter((_error, context) => captured.push(context), {
@@ -38,20 +36,20 @@ void describe("caught GlitchTip failure reporting", () => {
 		});
 		const context = { surface: "network", endpoint: "/edge/sessions" } as const;
 
-		assert.equal(report(new Error("first"), context), true);
-		assert.equal(report(new Error("second"), context), false);
-		assert.equal(report(new TypeError("different class"), context), true);
-		assert.equal(report(new Error("different surface"), { ...context, surface: "cockpit" }), true);
+		expect(report(new Error("first"), context)).toBe(true);
+		expect(report(new Error("second"), context)).toBe(false);
+		expect(report(new TypeError("different class"), context)).toBe(true);
+		expect(report(new Error("different surface"), { ...context, surface: "cockpit" })).toBe(true);
 		clock += 60_000;
-		assert.equal(report(new Error("window elapsed"), context), true);
-		assert.equal(captured.length, 4);
+		expect(report(new Error("window elapsed"), context)).toBe(true);
+		expect(captured.length).toBe(4);
 	});
 
-	void it("is inert when GlitchTip is disabled", () => {
+	it("is inert when GlitchTip is disabled", () => {
 		let calls = 0;
 		const report = createCaughtFailureReporter(() => calls++, { enabled: false });
 
-		assert.equal(report(new Error("ignored"), { surface: "cockpit", endpoint: "/me" }), false);
-		assert.equal(calls, 0);
+		expect(report(new Error("ignored"), { surface: "cockpit", endpoint: "/me" })).toBe(false);
+		expect(calls).toBe(0);
 	});
 });
