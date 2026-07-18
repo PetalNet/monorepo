@@ -72,13 +72,17 @@ fn effective_secret(secret: &[u8]) -> Cow<'_, [u8]> {
 
 type HmacSha256 = Hmac<Sha256>;
 
-fn grid_origin_offsets(cell: f64, sharer_id: &str, audience_id: &str, secret: &[u8]) -> (f64, f64) {
+/// Grid origin for a (sharer, radius) pair. Audience is deliberately NOT an
+/// input: one grid per (sharer, radius) means every audience at a given radius
+/// snaps the same true point to the SAME cell, so colluding audiences can only
+/// ever learn that one cell — no narrowing at any N. (Per-audience grids leaked
+/// the true point under N-audience collusion; see D-034 in DECISIONS.md.)
+fn grid_origin_offsets(cell: f64, sharer_id: &str, secret: &[u8]) -> (f64, f64) {
     let secret = effective_secret(secret);
     let mut mac = HmacSha256::new_from_slice(&secret).expect("hmac accepts any key length");
     mac.update(&(sharer_id.len() as u64).to_be_bytes());
     mac.update(sharer_id.as_bytes());
-    mac.update(&(audience_id.len() as u64).to_be_bytes());
-    mac.update(audience_id.as_bytes());
+    mac.update(&cell.to_bits().to_be_bytes());
     let h = mac.finalize().into_bytes();
     let hx = u64::from_be_bytes(h[0..8].try_into().expect("8 bytes"));
     let hy = u64::from_be_bytes(h[8..16].try_into().expect("8 bytes"));
@@ -99,7 +103,7 @@ fn snap(
     true_lon: f64,
     radius_m: f64,
     sharer_id: &str,
-    audience_id: &str,
+    _audience_id: &str,
     secret: &[u8],
 ) -> Snapped {
     // Input-robustness: never panic on edge / hostile input (real 89-90° fixes,
@@ -108,7 +112,7 @@ fn snap(
     let cell = sanitize_radius(radius_m);
     let true_lat = sanitize_lat(true_lat);
     let true_lon = sanitize_lon(true_lon);
-    let (ox, oy) = grid_origin_offsets(cell, sharer_id, audience_id, secret);
+    let (ox, oy) = grid_origin_offsets(cell, sharer_id, secret);
     let y_m = true_lat * M_PER_DEG_LAT;
     let cell_y = ((y_m - oy) / cell).floor() as i64;
     let cy = cell_y as f64 * cell + oy + cell / 2.0;
@@ -275,46 +279,99 @@ mod tests {
     }
 
     #[test]
-    fn distinct_grids_per_audience() {
+    fn all_audiences_share_one_grid_at_a_given_radius() {
+        // The grid is derived from (sharer, radius) ONLY, so two different
+        // audiences at the same radius snap the same true point to the SAME cell
+        // and emit a byte-identical center. (Was: distinct per-audience grids —
+        // those narrow the true point under N-audience collusion. See D-034.)
         let mut rng = StdRng::seed_from_u64(3);
-        let mut differing = 0;
-        let total = 100;
-        for _ in 0..total {
+        for _ in 0..100 {
             let lat = rng.random_range(-70.0..70.0);
             let lon = rng.random_range(-179.0..179.0);
             let a = stable_fuzz(lat, lon, 1000.0, SHARER, "grp:family", SECRET);
             let b = stable_fuzz(lat, lon, 1000.0, SHARER, "grp:friends", SECRET);
-            if bits(a) != bits(b) {
-                differing += 1;
-                assert!(haversine_m(lat, lon, a.0, a.1) <= 1000.0);
-                assert!(haversine_m(lat, lon, b.0, b.1) <= 1000.0);
-            }
+            let ca = fuzz_cell_id(lat, lon, 1000.0, SHARER, "grp:family", SECRET);
+            let cb = fuzz_cell_id(lat, lon, 1000.0, SHARER, "grp:friends", SECRET);
+            assert_eq!(
+                ca, cb,
+                "same radius must snap to one cell regardless of audience"
+            );
+            assert_eq!(bits(a), bits(b), "same cell => byte-identical center");
+            assert!(haversine_m(lat, lon, a.0, a.1) <= 1000.0);
         }
-        assert!(differing >= total * 9 / 10);
     }
 
     #[test]
-    fn cross_referencing_two_audiences_does_not_narrow_below_a_cell() {
-        let (ox_a, oy_a) = grid_origin_offsets(1000.0, SHARER, "grp:family", SECRET);
-        let (ox_b, oy_b) = grid_origin_offsets(1000.0, SHARER, "grp:friends", SECRET);
-        assert!((ox_a - ox_b).abs() > 1.0 || (oy_a - oy_b).abs() > 1.0);
-        let mut rng = StdRng::seed_from_u64(4);
+    fn n_audience_collusion_does_not_narrow_below_one_cell() {
+        // N audiences collude by intersecting the regions each of their reports
+        // is consistent with. Because every audience shares one (sharer, radius)
+        // grid, all N report the SAME cell, and the region consistent with all N
+        // reports is byte-for-byte the SAME set as the region consistent with a
+        // single report: colluding across any N learns nothing beyond N = 1.
+        let mut rng = StdRng::seed_from_u64(7);
+        let radius = 1000.0;
         let lat = 40.7128;
         let lon = -74.0060;
-        let a = stable_fuzz(lat, lon, 1000.0, SHARER, "grp:family", SECRET);
-        let b = stable_fuzz(lat, lon, 1000.0, SHARER, "grp:friends", SECRET);
-        let deg = 1000.0 / M_PER_DEG_LAT;
-        let mut consistent = 0;
-        for _ in 0..5000 {
-            let clat = lat + rng.random_range(-deg..deg);
-            let clon = lon + rng.random_range(-deg..deg);
-            let ca = stable_fuzz(clat, clon, 1000.0, SHARER, "grp:family", SECRET);
-            let cb = stable_fuzz(clat, clon, 1000.0, SHARER, "grp:friends", SECRET);
-            if bits(ca) == bits(a) && bits(cb) == bits(b) {
-                consistent += 1;
+        let n = 10;
+        let audiences: Vec<String> = (0..n).map(|i| format!("aud:{i}")).collect();
+
+        // Each audience's report (center + cell) for the one true point.
+        let reports: Vec<(f64, f64)> = audiences
+            .iter()
+            .map(|a| stable_fuzz(lat, lon, radius, SHARER, a, SECRET))
+            .collect();
+        let cells: std::collections::HashSet<(i64, i64)> = audiences
+            .iter()
+            .map(|a| fuzz_cell_id(lat, lon, radius, SHARER, a, SECRET))
+            .collect();
+        let centers: std::collections::HashSet<(u64, u64)> =
+            reports.iter().map(|&r| bits(r)).collect();
+        // All N audiences reveal exactly one cell / one center.
+        assert_eq!(
+            cells.len(),
+            1,
+            "{n} audiences revealed {} distinct cells",
+            cells.len()
+        );
+        assert_eq!(centers.len(), 1);
+
+        // Adversary consistent-region test: sample candidate true-points and
+        // count those consistent with ALL N reports vs with a SINGLE report.
+        // A shared grid makes the two sets identical — the N-way intersection is
+        // the whole cell, no smaller than what one audience already reveals.
+        let deg = radius / M_PER_DEG_LAT;
+        let mut consistent_all = 0u32;
+        let mut consistent_one = 0u32;
+        for _ in 0..20_000 {
+            let clat = lat + rng.random_range(-1.5 * deg..1.5 * deg);
+            let clon = lon + rng.random_range(-1.5 * deg..1.5 * deg);
+            let ok_one = bits(stable_fuzz(
+                clat,
+                clon,
+                radius,
+                SHARER,
+                &audiences[0],
+                SECRET,
+            )) == bits(reports[0]);
+            let ok_all = audiences
+                .iter()
+                .zip(&reports)
+                .all(|(a, &r)| bits(stable_fuzz(clat, clon, radius, SHARER, a, SECRET)) == bits(r));
+            if ok_one {
+                consistent_one += 1;
+            }
+            if ok_all {
+                consistent_all += 1;
             }
         }
-        assert!(consistent > 100);
+        assert!(
+            consistent_one > 100,
+            "sanity: single-audience region is non-trivial"
+        );
+        assert_eq!(
+            consistent_all, consistent_one,
+            "N-audience intersection ({consistent_all}) narrower than one audience ({consistent_one})"
+        );
     }
 
     #[test]
@@ -336,10 +393,20 @@ mod tests {
     }
 
     #[test]
-    fn sharer_audience_boundary_is_domain_separated() {
-        let (ox_a, oy_a) = grid_origin_offsets(1000.0, "ab", "c", SECRET);
-        let (ox_b, oy_b) = grid_origin_offsets(1000.0, "a", "bc", SECRET);
+    fn grid_is_domain_separated_by_sharer_and_radius() {
+        // Different sharers => different grids (sharer_id is length-prefixed).
+        let (ox_a, oy_a) = grid_origin_offsets(1000.0, "alice", SECRET);
+        let (ox_b, oy_b) = grid_origin_offsets(1000.0, "bob", SECRET);
         assert!((ox_a - ox_b).abs() > f64::EPSILON || (oy_a - oy_b).abs() > f64::EPSILON);
+        // Radius is a grid input: the SAME sharer at a different radius draws a
+        // different grid fraction, not merely a rescaled offset.
+        let (ox_c, _oy_c) = grid_origin_offsets(300.0, "alice", SECRET);
+        let frac_a = ox_a / 1000.0;
+        let frac_c = ox_c / 300.0;
+        assert!(
+            (frac_a - frac_c).abs() > f64::EPSILON,
+            "radius must be domain-separated in the grid derivation"
+        );
     }
 
     #[test]
