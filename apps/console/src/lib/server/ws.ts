@@ -3,24 +3,28 @@ import type { IncomingMessage, Server } from "node:http";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
-import { formatUnknown } from "#format";
-
 import type { Principal } from "./domain/auth/principal";
+import { attachBusConnection, type BusCounters, type BusSocket } from "./domain/bus/connection";
+import { inertExceptionMonitor, type ExceptionMonitor } from "./domain/observability";
 import type { Services } from "./domain/substrate";
 
 type ResolvePrincipal = (request: IncomingMessage) => Promise<Principal | null>;
 
-const object = (value: unknown): Record<string, unknown> | null =>
-	value !== null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
+export interface ConsoleSocketOptions {
+	readonly monitor?: ExceptionMonitor;
+	/** Shared with the HTTP surface so /api/v1/health reports live socket counts. */
+	readonly counters?: BusCounters;
+}
 
 /** Attach the ordered bus and terminal upgrade paths to the one Node HTTP server. */
 export function attachConsoleWebSockets(
 	server: Server,
 	services: Services,
 	resolvePrincipal: ResolvePrincipal,
+	options: ConsoleSocketOptions = {},
 ): () => void {
+	const monitor = options.monitor ?? inertExceptionMonitor;
+	const counters = options.counters ?? { clients: 0, subscriptions: 0 };
 	const sockets = new WebSocketServer({ noServer: true });
 	const principals = new WeakMap<WebSocket, Principal>();
 	const onUpgrade = (
@@ -47,8 +51,6 @@ export function attachConsoleWebSockets(
 			socket.close(1008, "principal unavailable");
 			return;
 		}
-		const ownerId = `${principal.id}:${randomUUID()}`;
-		const subscriptions = new Set<string>();
 		const path = new URL(request.url ?? "/", "http://console.local").pathname;
 		if (path === "/api/v1/terminal/ws") {
 			socket.on("message", () => {
@@ -64,45 +66,29 @@ export function attachConsoleWebSockets(
 			});
 			return;
 		}
-		const stopGrantWatch = services.onGrantChange(() => {
-			services.broker.revalidateScopes(ownerId, [...subscriptions], principal.scopes);
-		});
-		socket.on("message", (bytes: RawData) => {
-			let raw: Record<string, unknown> | null;
-			try {
-				raw = object(JSON.parse(formatUnknown(bytes)) as unknown);
-			} catch {
-				socket.close(1007, "invalid JSON");
-				return;
-			}
-			if (
-				!raw ||
-				raw["action"] !== "subscribe" ||
-				typeof raw["sub_id"] !== "string" ||
-				typeof raw["pattern"] !== "string"
-			) {
-				socket.close(1008, "invalid subscription");
-				return;
-			}
-			const subId = raw["sub_id"];
-			void services.broker.subscribe(
-				ownerId,
-				{
-					subId,
-					pattern: raw["pattern"],
-					scopes: principal.scopes,
-					...(typeof raw["since"] === "number" ? { since: raw["since"] } : {}),
-					...(object(raw["filter"]) ? { filter: object(raw["filter"]) as never } : {}),
-				},
-				(frame) => {
-					if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
-				},
-				() => subscriptions.add(subId),
-			);
-		});
-		socket.on("close", () => {
-			stopGrantWatch();
-			for (const subId of subscriptions) services.broker.unsubscribe(ownerId, subId);
+		const busSocket: BusSocket = {
+			send: (text) => {
+				socket.send(text);
+			},
+			close: () => {
+				socket.close();
+			},
+			isOpen: () => socket.readyState === WebSocket.OPEN,
+			onMessage: (handler) => {
+				socket.on("message", (data: RawData) => {
+					handler(Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer));
+				});
+			},
+			onClose: (handler) => {
+				socket.on("close", handler);
+			},
+		};
+		attachBusConnection(busSocket, {
+			services,
+			monitor,
+			resolvePrincipal: () => resolvePrincipal(request),
+			refreshable: true,
+			counters,
 		});
 	});
 

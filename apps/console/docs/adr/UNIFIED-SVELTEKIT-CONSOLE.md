@@ -68,3 +68,22 @@ freshness/provenance. They never invent success or derive authorization from UI 
   of truth ownership did not.
 - Active-active sequence allocation and cross-process fan-out remain out of scope and require a
   new decision.
+
+## Rewrite decisions (feat/console-rewrite, 2026-07-19)
+
+Running log; one line per non-obvious call, appended phase by phase.
+
+### Phase 1 — Fastify excision
+- REST surface: the entire Fastify route table was ported 1:1 into a framework-agnostic Web-standard core (`src/lib/server/api/console-api.ts`); `src/routes/api/v1/[...path]/+server.ts` delegates every method to it. The SER remote functions stay the UI's typed layer; REST keeps Fastify-parity shapes (tests + external consumers assert them), so overlapping URLs (roster, catalog, health, attention) now serve the richer Fastify contract instead of the thinner interim SvelteKit one.
+- CORS + origin-deny: folded into the core for `/api/v1/*` (active only when a better-auth verifier with `consoleOrigin` is configured) — not into `hooks.server.ts`, so page routes keep SvelteKit's own CSRF posture.
+- Rate limiting: the per-principal token bucket (30/min, 429 + retry-after) moved into the core's dispatch for `POST /op` and all terminal routes — same counters, one limiter, no SvelteKit `Handle` twin.
+- Auth: the core keeps the Fastify chain (bearer → better-auth verifier → dev header, incl. `resolveHumanIdentity` authentik-group mapping). The browser UI keeps the SvelteKit better-auth session model (`locals.user.tier`). Both principal models coexist deliberately: unifying them is a redesign, not an excision. `hooks.server.ts` no longer login-redirects `/api/v1/*` so machine clients get 401 JSON.
+- Bus WS: the Fastify bus handler (heartbeats, frame-contract validation, 64-sub limit, unsubscribe, grant re-fence with principal re-resolution) is the canonical behavior, extracted to `domain/bus/connection.ts`; `ws.ts` (runtime) and the test harness both attach it. The old `ws.ts` message loop (close-on-invalid, no heartbeat, stale-scope revalidate) was a behavior subset/bug and is gone. Prod WS auth: session resolver first, then the core chain (adds Fastify-parity bearer support for agents).
+- Tests: `pipeline.test.ts` + `release-acceptance.test.ts` drive the folded core through `test/harness/surface.ts` (inject = direct `api.fetch`; WS/NDJSON over a real Node listener attached to the same core). Assertions preserved; only the transport swapped.
+- `readPlaneRemote("attention")` now applies the contracted lane filter (viewer principals don't see operator-lane items) — the interim SvelteKit surface had dropped it relative to the Fastify read routes.
+- The observability boom test drives the shared error handler through `/api/v1/tiers` with a detonating scoped-read connection instead of registering an ad-hoc Fastify route; assertions unchanged.
+- `resolveBearer` no longer crashes (TypeError → 500) on an unknown/revoked token — `rows.at(0)` null-guard restores the intended 401 contract. Latent Fastify-era bug, reachable on any auth'd route with a bad bearer.
+- Request telemetry (`console.api.request`) is emitted fire-and-forget after the response, matching Fastify's onResponse timing; the error-path emission stays awaited before the 500 (as Fastify's setErrorHandler did).
+- Contract JSON (ops.json + schemas) is compiled into the server bundle via `import.meta.glob` behind a virtual `contract://console/` base — the built server has no source tree on disk, which broke the old `import.meta.url` file reads. The dev vite plugin loads the API core through `ssrLoadModule` so the config bundle (esbuild, no glob support) never evaluates it.
+- `executeNamedOp` (SER remote) now dispatches through `executeOpPlane` — the identical command plane as `POST /api/v1/op` (catalog, authz, proposals, audit, capabilities) — replacing the interim stub that faked dry-runs and only knew `task.claim`.
+- `/api/v1/mcp` kept as an interim-surface alias (any authenticated principal) alongside the tool-token `/api/v1/assistant/mcp` route.

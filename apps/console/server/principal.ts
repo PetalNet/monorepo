@@ -3,6 +3,16 @@ import type { IncomingMessage } from "node:http";
 import { resolveScopes, type Principal } from "../src/lib/server/domain/auth/principal";
 import type { Services } from "../src/lib/server/domain/substrate";
 
+/** Web-Headers view of a Node request's headers for the console API core's principal chain. */
+export const nodeHeadersToWeb = (headers: IncomingMessage["headers"]): Headers =>
+	new Headers(
+		Object.entries(headers).flatMap(([name, value]) =>
+			typeof value === "string"
+				? [[name, value] as [string, string]]
+				: (value ?? []).map((item) => [name, item] as [string, string]),
+		),
+	);
+
 const lanes = {
 	owner: ["viewer", "editor", "operator", "admin", "term_admin"],
 	operator: ["viewer", "editor", "operator"],

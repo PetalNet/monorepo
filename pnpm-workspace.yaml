@@ -128,8 +128,5 @@ catalog:
   ws: ^8.21.1
   "@types/ws": ^8.18.1
   "@sentry/node": ^10.65.0
-  "@fastify/cors": ^11.3.0
-  "@fastify/websocket": ^11.3.0
-  fastify: ^5.10.0
   "@fontsource/geist-sans": ^5.2.5
   "@fontsource/geist-mono": ^5.2.8

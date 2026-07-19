@@ -16,7 +16,7 @@ import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
 import { indefinitely } from "../../src/lib/server/domain/iteration.ts";
-import { buildServer } from "../../src/lib/server/domain/server.ts";
+import { startTestSurface } from "../harness/surface.ts";
 import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
 
 const exec = promisify(execFile);
@@ -274,13 +274,10 @@ describe("BR-032 hermetic release acceptance", () => {
 				};
 			},
 		};
-		const server = await buildServer(
-			{ ...services, assistant: compiler, assistantRuntime },
-			false,
-			undefined,
-			undefined,
+		const server = await startTestSurface({ ...services, assistant: compiler, assistantRuntime }, {
+			devAuth: false,
 			betterAuth,
-		);
+		});
 		const alphaHeaders = browserHeaders("release-alpha");
 		const betaHeaders = browserHeaders("release-beta");
 		try {
@@ -459,11 +456,7 @@ describe("BR-032 hermetic release acceptance", () => {
 
 			// A real authenticated browser WebSocket receives only its scope. Grant changes later in
 			// this workflow must actively re-fence the existing subscription.
-			const socket = await server.injectWS("/api/v1/bus/ws", {
-				headers: alphaHeaders,
-				rawHeaders: Object.entries(alphaHeaders).flatMap(([name, value]) => [name, value]),
-				socket: { remoteAddress: "127.0.0.1" },
-			});
+			const socket = await server.injectWS("/api/v1/bus/ws", { headers: alphaHeaders });
 			const frames: Record<string, unknown>[] = [];
 			socket.on("message", (data) => frames.push(JSON.parse(data.toString())));
 			socket.send(
@@ -639,11 +632,7 @@ describe("BR-032 hermetic release acceptance", () => {
 
 			// Open a fresh subscription after the unrelated item-share grant change so this assertion
 			// proves that narrowing Alpha's readable scope itself triggers the re-fence.
-			const scopeFenceSocket = await server.injectWS("/api/v1/bus/ws", {
-				headers: alphaHeaders,
-				rawHeaders: Object.entries(alphaHeaders).flatMap(([name, value]) => [name, value]),
-				socket: { remoteAddress: "127.0.0.1" },
-			});
+			const scopeFenceSocket = await server.injectWS("/api/v1/bus/ws", { headers: alphaHeaders });
 			const scopeFenceFrames: Record<string, unknown>[] = [];
 			scopeFenceSocket.on("message", (data) => scopeFenceFrames.push(JSON.parse(data.toString())));
 			scopeFenceSocket.send(

@@ -67,8 +67,9 @@ export async function resolveBearer(sql: Sql, tokenPlaintext: string): Promise<P
 	const rows = await sql<TokenRow[]>`
 		select subject, kind, tiers, lanes from api_tokens
 		where token_sha256 = ${hash} and revoked_at is null`;
-	const row = rows[0];
-
+	const row = rows.at(0);
+	// An unknown or revoked token is an authentication failure (401), never a crash.
+	if (!row) return null;
 	if (row.kind !== "human" && row.kind !== "agent" && row.kind !== "system") return null;
 	const { scopes, zookie } = await resolveScopes(sql, row.subject, row.tiers);
 	return { kind: row.kind, id: row.subject, tiers: row.tiers, lanes: row.lanes, scopes, zookie };

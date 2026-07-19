@@ -21,8 +21,6 @@
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
-		"@fastify/cors": "catalog:",
-		"@fastify/websocket": "catalog:",
 		"@fontsource/geist-mono": "catalog:",
 		"@fontsource/geist-sans": "catalog:",
 		"@lucide/svelte": "catalog:prod",
@@ -38,7 +36,6 @@
 		"better-auth": "catalog:",
 		"daisyui": "catalog:prod",
 		"effect": "catalog:",
-		"fastify": "catalog:",
 		"import-in-the-middle": "catalog:",
 		"mode-watcher": "catalog:",
 		"nanoid": "catalog:",

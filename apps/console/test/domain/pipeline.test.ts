@@ -38,11 +38,11 @@ import { readEntity } from "../../src/lib/server/domain/reads/entities.ts";
 import { readRoster, readExecutors } from "../../src/lib/server/domain/reads/roster.ts";
 import { searchSemanticCorpus } from "../../src/lib/server/domain/semantic/search.ts";
 import {
-	buildServer,
 	resolvedOpCapabilities,
-	validateJsonSchema,
 	type TerminalAdapter,
-} from "../../src/lib/server/domain/server.ts";
+} from "../../src/lib/server/api/console-api.ts";
+import { validateJsonSchema } from "../../src/lib/server/api/json-schema.ts";
+import { startTestSurface } from "../harness/surface.ts";
 import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
 
 const contractSchema = (name: string): Record<string, unknown> =>
@@ -274,7 +274,7 @@ describe("doorman key ceremony", () => {
 				});
 			},
 		});
-		const server = await buildServer({ ...services, keyCeremony: adapter }, true);
+		const server = await startTestSurface({ ...services, keyCeremony: adapter });
 		const opId = randomUUID();
 		try {
 			const attentionRows = await services.db.admin<{ seq: string }[]>`
@@ -396,7 +396,7 @@ describe("services availability read", () => {
 		projected.set(malformedSubject, malformed.seq as number);
 		for await (const [subject, seq] of projected) await waitProjected("availability", subject, seq);
 
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const visible = await server.inject({
 				method: "GET",
@@ -490,7 +490,7 @@ describe("correspondence history read", () => {
 		expect((await services.emit("test:emitter", card, 500)).ok).toBe(true);
 		expect((await services.emit("test:emitter", rpc, 500)).ok).toBe(true);
 
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const visibleHeaders = {
 			"x-dev-principal": JSON.stringify({ kind: "human", id: "tester", scopes: ["fleet"] }),
 		};
@@ -623,7 +623,7 @@ describe("staged update approval reversal", () => {
 		expect(status.ok).toBe(true);
 		await waitProjected("box_update", boxId, status.seq as number);
 
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const headers = {
 			"content-type": "application/json",
 			"x-dev-principal": JSON.stringify({
@@ -859,7 +859,7 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 	};
 
 	it("returns 403 only after retaining a non-admin deep-link denial", async () => {
-		const server = await buildServer(services, true, undefined, adapter);
+		const server = await startTestSurface(services, { terminal: adapter });
 		const deniedId = `terminal-viewer-${randomBytes(5).toString("hex")}`;
 		try {
 			const response = await server.inject({
@@ -904,8 +904,8 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 				inputs.push(data);
 			},
 		};
-		const server = await buildServer(services, true, undefined, orderedAdapter);
-		const origin = await server.listen({ host: "127.0.0.1", port: 0 });
+		const server = await startTestSurface(services, { terminal: orderedAdapter });
+		const origin = server.origin;
 		const controller = new AbortController();
 		try {
 			const response = await fetch(`${origin}/api/v1/terminal/streams`, {
@@ -996,7 +996,7 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 				throw new Error("peek must not expose input");
 			},
 		};
-		const server = await buildServer(services, true, undefined, peekAdapter);
+		const server = await startTestSurface(services, { terminal: peekAdapter });
 		try {
 			const opened = await server.inject({
 				method: "POST",
@@ -1099,7 +1099,7 @@ describe("emit pipeline", () => {
 		services.appender.append = async () => {
 			throw new Error("private database host=db.internal relation=events");
 		};
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -1578,7 +1578,7 @@ describe("L2 semantic layer", () => {
 			emission({ type: privateType, scope: "user:eli", dimensions: { secret_shape: "x" } }),
 			300,
 		);
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const principal = JSON.stringify({
 			kind: "system",
 			id: "test:emitter",
@@ -1688,15 +1688,28 @@ describe("substrate observability", () => {
 				return true;
 			},
 		};
-		const server = await buildServer(services, true, monitor);
-		server.get("/test/boom", async () => {
-			throw new Error("private failure detail");
-		});
+		// The scoped-read connection detonates inside a real route, driving the surface's shared
+		// error handler exactly as the removed ad-hoc /test/boom route did.
+		const server = await startTestSurface(
+			{
+				...services,
+				db: {
+					...services.db,
+					app: (() => {
+						throw new Error("private failure detail");
+					}) as never,
+				},
+			},
+			{ monitor },
+		);
 		try {
 			const response = await server.inject({
 				method: "GET",
-				url: "/test/boom",
-				headers: { authorization: "Bearer must-never-land" },
+				url: "/api/v1/tiers",
+				headers: {
+					authorization: "Bearer must-never-land",
+					"x-dev-principal": JSON.stringify({ kind: "human", id: "boom", scopes: [] }),
+				},
 			});
 			expect(response.statusCode).toBe(500);
 			expect(captured).toHaveLength(1);
@@ -1743,7 +1756,7 @@ describe("Better Auth browser boundary", () => {
 	};
 
 	it("accepts only a valid Better Auth session and maps current ReBAC grants", async () => {
-		const server = await buildServer(services, false, undefined, undefined, betterAuth);
+		const server = await startTestSurface(services, { devAuth: false, betterAuth });
 		try {
 			const spoofed = await server.inject({
 				method: "GET",
@@ -1791,7 +1804,7 @@ describe("Better Auth browser boundary", () => {
 					};
 				},
 			};
-			const server = await buildServer(services, false, undefined, undefined, nonAdminVerifier);
+			const server = await startTestSurface(services, { devAuth: false, betterAuth: nonAdminVerifier });
 			try {
 				const response = await server.inject({
 					method: "GET",
@@ -1817,7 +1830,7 @@ describe("Better Auth browser boundary", () => {
 				};
 			},
 		};
-		const server = await buildServer(services, false, undefined, undefined, adminAliasVerifier);
+		const server = await startTestSurface(services, { devAuth: false, betterAuth: adminAliasVerifier });
 		try {
 			const response = await server.inject({
 				method: "GET",
@@ -1832,7 +1845,7 @@ describe("Better Auth browser boundary", () => {
 	});
 
 	it("rejects cross-origin requests even with a valid session", async () => {
-		const server = await buildServer(services, false, undefined, undefined, betterAuth);
+		const server = await startTestSurface(services, { devAuth: false, betterAuth });
 		try {
 			const response = await server.inject({
 				method: "GET",
@@ -1921,7 +1934,7 @@ describe("Phase 3 ReBAC control plane", () => {
 				scopes: ["fleet"],
 			}),
 		};
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const before = await resolveBearer(services.db.admin, token);
 			expect(before?.scopes).not.toContain(object);
@@ -2070,7 +2083,7 @@ describe("Phase 3 ReBAC control plane", () => {
 			values (${agent}, '["bridge"]', '["test"]', '["agent:*"]', 'warn')`;
 		const principal = await resolveBearer(services.db.admin, token);
 		expect(principal?.scopes).toEqual([agent]);
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const deniedWrite = await server.inject({
 				method: "POST",
@@ -2140,7 +2153,7 @@ describe("Phase 4 permission levels", () => {
 			lanes: ["viewer", "editor", "operator"],
 			scopes: [],
 		};
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const taskPreflight = (force: boolean) =>
 			server.inject({
 				method: "POST",
@@ -2194,7 +2207,7 @@ describe("Phase 4 permission levels", () => {
 		await services.db.admin`
 			insert into tiers (name, authentik_group, description, default_relations, propose_only)
 			values ('reviewer', 'reviewers', 'Can review explicitly shared work.', '["viewer"]', true)`;
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "GET",
@@ -2299,10 +2312,7 @@ describe("Phase 4 permission levels", () => {
 				return reconciledTasks.get(criteria.requestId) ?? null;
 			},
 		};
-		const server = await buildServer(
-			{ ...services, trackerProposals: writer, trackerProposalLookup },
-			true,
-		);
+		const server = await startTestSurface({ ...services, trackerProposals: writer, trackerProposalLookup });
 		const requestId = randomUUID();
 		const payload = {
 			schema_version: 1,
@@ -2488,7 +2498,7 @@ describe("Phase 4 permission levels", () => {
 			title: "Explicitly elevated",
 			panels: [{ schema_version: 2, type: "text", title: "Elevated", prose: "Commit me." }],
 		};
-		const unavailable = await buildServer({ ...services, trackerProposals: null }, true);
+		const unavailable = await startTestSurface({ ...services, trackerProposals: null });
 		try {
 			const hidden = await unavailable.inject({
 				method: "POST",
@@ -2531,7 +2541,7 @@ describe("Phase 4 permission levels", () => {
 		await services.db.admin`
 			insert into grants (subject, relation, object, granted_by)
 			values ('elevated-collaborator', 'editor', 'fleet', 'test')`;
-		const elevated = await buildServer({ ...services, trackerProposals: null }, true);
+		const elevated = await startTestSurface({ ...services, trackerProposals: null });
 		try {
 			const saved = await elevated.inject({
 				method: "POST",
@@ -2837,7 +2847,7 @@ describe("structured query", () => {
 	});
 
 	it("exposes /ask only when a compiler is configured", async () => {
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -2881,12 +2891,14 @@ describe("structured query", () => {
 				throw new AssistantCompilerError("upstream private detail");
 			},
 		};
-		const server = await buildServer({ ...services, assistant }, true, {
-			captureException(error) {
-				captured.push(error);
-			},
-			async close() {
-				return true;
+		const server = await startTestSurface({ ...services, assistant }, {
+			monitor: {
+				captureException(error) {
+					captured.push(error);
+				},
+				async close() {
+					return true;
+				},
 			},
 		});
 		try {
@@ -2975,7 +2987,7 @@ describe("structured query", () => {
 			from: "events",
 			select: [{ field: "seq", agg: "count", as: "events" }],
 		});
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const fleet = {
 			"x-dev-principal": JSON.stringify({
 				kind: "human",
@@ -3080,7 +3092,7 @@ describe("structured query", () => {
 			from: type,
 			select: [{ field: "value", agg: "avg", as: "secret" }],
 		});
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -3123,7 +3135,7 @@ describe("structured query", () => {
 			from: "events",
 			select: [{ field: "seq", agg: "count", as: "events" }],
 		});
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const headers = {
 			"x-dev-principal": JSON.stringify({
 				kind: "human",
@@ -3321,7 +3333,7 @@ describe("structured query", () => {
 		await services.db.admin`
 			insert into grants (subject, relation, object, granted_by)
 			values ('binding-user', 'editor', ${`item:${visibleId}`}, 'test'), ('binding-user', 'owner', 'fleet', 'test')`;
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const headers = {
 			"x-dev-principal": JSON.stringify({
 				kind: "human",
@@ -3639,7 +3651,7 @@ describe("structured query", () => {
 			select: [{ field: "seq", agg: "count", as: "events" }],
 			group_by: ["severity"],
 		});
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -4051,7 +4063,7 @@ describe("current_state projection (N1b)", () => {
 
 		const schemas = contractSchema;
 		const envelopeSchema = schemas("entities/read-envelope");
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const fleetPrincipal = JSON.stringify({
 			kind: "human",
 			id: "eli",
@@ -4341,7 +4353,7 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 				publicConsoleUrl: "http://console.test",
 			}),
 		);
-		const server = await buildServer({ ...services, assistantRuntime: runtime }, true);
+		const server = await startTestSurface({ ...services, assistantRuntime: runtime });
 		await services.db.admin`
 			insert into api_tokens (token_sha256, subject, kind, tiers, lanes)
 			values (${sha256(`runtime-user-${randomUUID()}`)}, 'runtime-user', 'human', '["owner"]', '["viewer"]')`;
@@ -4569,7 +4581,7 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 
 describe("signal source development mode", () => {
 	it("mutes and restores the real append-to-delivery path through the audited named op", async () => {
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const pattern = `test.dev_mode_${randomBytes(4).toString("hex")}`;
 		const headers = {
 			"x-dev-principal": JSON.stringify({
