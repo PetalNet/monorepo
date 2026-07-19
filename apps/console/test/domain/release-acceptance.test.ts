@@ -16,8 +16,8 @@ import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
 import { indefinitely } from "../../src/lib/server/domain/iteration.ts";
-import { startTestSurface } from "../harness/surface.ts";
 import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
+import { startTestSurface } from "../harness/surface.ts";
 
 const exec = promisify(execFile);
 
@@ -274,10 +274,13 @@ describe("BR-032 hermetic release acceptance", () => {
 				};
 			},
 		};
-		const server = await startTestSurface({ ...services, assistant: compiler, assistantRuntime }, {
-			devAuth: false,
-			betterAuth,
-		});
+		const server = await startTestSurface(
+			{ ...services, assistant: compiler, assistantRuntime },
+			{
+				devAuth: false,
+				betterAuth,
+			},
+		);
 		const alphaHeaders = browserHeaders("release-alpha");
 		const betaHeaders = browserHeaders("release-beta");
 		try {

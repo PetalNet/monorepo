@@ -8,7 +8,7 @@ export type JsonSchema = Record<string, unknown>;
 // The contracts are compiled into the bundle (the built server has no source tree on disk), and
 // $ref resolution runs against a virtual base so relative file refs stay URL-addressable.
 export const CONTRACTS_DIR = new URL("contract://console/");
-const bundledContracts = import.meta.glob("../../../../docs/contracts/**/*.json", {
+const bundledContracts = import.meta.glob<JsonSchema>("../../../../docs/contracts/**/*.json", {
 	eager: true,
 	import: "default",
 });

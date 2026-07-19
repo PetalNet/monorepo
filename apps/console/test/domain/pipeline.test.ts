@@ -8,6 +8,11 @@ import postgres from "postgres";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import {
+	resolvedOpCapabilities,
+	type TerminalAdapter,
+} from "../../src/lib/server/api/console-api.ts";
+import { validateJsonSchema } from "../../src/lib/server/api/json-schema.ts";
+import {
 	AssistantCompilerError,
 	type AssistantCompiler,
 } from "../../src/lib/server/domain/assistant/compiler.ts";
@@ -37,13 +42,8 @@ import { runStructured } from "../../src/lib/server/domain/query/structured.ts";
 import { readEntity } from "../../src/lib/server/domain/reads/entities.ts";
 import { readRoster, readExecutors } from "../../src/lib/server/domain/reads/roster.ts";
 import { searchSemanticCorpus } from "../../src/lib/server/domain/semantic/search.ts";
-import {
-	resolvedOpCapabilities,
-	type TerminalAdapter,
-} from "../../src/lib/server/api/console-api.ts";
-import { validateJsonSchema } from "../../src/lib/server/api/json-schema.ts";
-import { startTestSurface } from "../harness/surface.ts";
 import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
+import { startTestSurface } from "../harness/surface.ts";
 
 const contractSchema = (name: string): Record<string, unknown> =>
 	JSON.parse(
@@ -1804,7 +1804,10 @@ describe("Better Auth browser boundary", () => {
 					};
 				},
 			};
-			const server = await startTestSurface(services, { devAuth: false, betterAuth: nonAdminVerifier });
+			const server = await startTestSurface(services, {
+				devAuth: false,
+				betterAuth: nonAdminVerifier,
+			});
 			try {
 				const response = await server.inject({
 					method: "GET",
@@ -1830,7 +1833,10 @@ describe("Better Auth browser boundary", () => {
 				};
 			},
 		};
-		const server = await startTestSurface(services, { devAuth: false, betterAuth: adminAliasVerifier });
+		const server = await startTestSurface(services, {
+			devAuth: false,
+			betterAuth: adminAliasVerifier,
+		});
 		try {
 			const response = await server.inject({
 				method: "GET",
@@ -2312,7 +2318,11 @@ describe("Phase 4 permission levels", () => {
 				return reconciledTasks.get(criteria.requestId) ?? null;
 			},
 		};
-		const server = await startTestSurface({ ...services, trackerProposals: writer, trackerProposalLookup });
+		const server = await startTestSurface({
+			...services,
+			trackerProposals: writer,
+			trackerProposalLookup,
+		});
 		const requestId = randomUUID();
 		const payload = {
 			schema_version: 1,
@@ -2891,16 +2901,19 @@ describe("structured query", () => {
 				throw new AssistantCompilerError("upstream private detail");
 			},
 		};
-		const server = await startTestSurface({ ...services, assistant }, {
-			monitor: {
-				captureException(error) {
-					captured.push(error);
-				},
-				async close() {
-					return true;
+		const server = await startTestSurface(
+			{ ...services, assistant },
+			{
+				monitor: {
+					captureException(error) {
+						captured.push(error);
+					},
+					async close() {
+						return true;
+					},
 				},
 			},
-		});
+		);
 		try {
 			const response = await server.inject({
 				method: "POST",

@@ -21,12 +21,7 @@ export default {
 				"$app/env": ["node_modules/@sveltejs/kit/types/index.d.ts"],
 				"$app/server": ["node_modules/@sveltejs/kit/types/index.d.ts"],
 			},
-			entry: [
-				"effectdb.config.ts",
-				"src/lib/server/db/tables.ts",
-				"server/index.ts",
-				"scripts/*.{ts,mjs}",
-			],
+			entry: ["effectdb.config.ts", "src/lib/server/db/tables.ts", "scripts/*.{ts,mjs}"],
 		},
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],

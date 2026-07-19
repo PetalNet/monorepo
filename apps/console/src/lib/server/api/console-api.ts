@@ -291,11 +291,7 @@ function catalogCursor(type: string, inclusive: boolean): string {
 type OpCall = typeof OpCallSchema.Type & { readonly dry_run: boolean };
 type OpTarget = Record<string, unknown> & { scope?: string; owner?: string | null };
 
-function jsonResponse(
-	status: number,
-	body: unknown,
-	headers?: Record<string, string>,
-): Response {
+function jsonResponse(status: number, body: unknown, headers?: Record<string, string>): Response {
 	return Response.json(body, { status, ...(headers ? { headers } : {}) });
 }
 
@@ -532,8 +528,7 @@ async function authorizeOp(
 	if (rule === "own" && (createsOwned || owner === principal.id))
 		return {
 			ok: true,
-			object:
-				target?.scope ?? (principal.kind === "agent" ? principal.id : `user:${principal.id}`),
+			object: target?.scope ?? (principal.kind === "agent" ? principal.id : `user:${principal.id}`),
 			target,
 		};
 	if (rule === "own" || rule === "own_or_grant") {
@@ -578,8 +573,7 @@ async function executorEvidence(
 			return { kind: entry.executor, ref: "library_items", liveness: "down" };
 		}
 	}
-	if (entry.executor !== "manager")
-		return { kind: entry.executor, ref: null, liveness: "unknown" };
+	if (entry.executor !== "manager") return { kind: entry.executor, ref: null, liveness: "unknown" };
 	const ref = formatUnknown(args["handle"] ?? target?.["handle"] ?? "");
 	if (!ref) return { kind: entry.executor, ref: null, liveness: "unknown" };
 	const rows = await services.db.admin<{ observed_at: string | Date }[]>`
@@ -1134,8 +1128,8 @@ async function dispatchInternalOp(
 // --- authoritative named-op command plane --------------------------------------------------
 /**
  * The full POST /api/v1/op pipeline after auth and rate limiting, usable outside HTTP: decode,
- * catalog lookup, arg validation, confirmation, authorization, proposal posture, executor
- * evidence, dry-run, dispatch, and intent/outcome auditing.
+ * catalog lookup, arg validation, confirmation, authorization, proposal posture, executor evidence,
+ * dry-run, dispatch, and intent/outcome auditing.
  */
 export async function executeOpPlane(
 	services: Services,
@@ -1347,8 +1341,7 @@ export async function executeOpPlane(
 							op: "signal.source_mode",
 							args: {
 								source_service: call.args["source_service"],
-								mode:
-									operationResult["previous_mode"] === "development" ? "development" : "normal",
+								mode: operationResult["previous_mode"] === "development" ? "development" : "normal",
 							},
 						}
 					: null;
@@ -2087,7 +2080,8 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 							: appendFailed
 								? 503
 								: 400;
-				const retryAfterS = outcome.retryAfterS ?? (outcome.code === "emit_rate_limited" ? 60 : 3600);
+				const retryAfterS =
+					outcome.retryAfterS ?? (outcome.code === "emit_rate_limited" ? 60 : 3600);
 				return jsonResponse(
 					status,
 					{
@@ -2356,7 +2350,11 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 				});
 			if (!scrubUnknown(parsed.data.payload, "context.payload").ok)
 				return jsonResponse(400, {
-					error: { code: "secret_detected", message: "context contains a secret", retryable: false },
+					error: {
+						code: "secret_detected",
+						message: "context contains a secret",
+						retryable: false,
+					},
 				});
 			if (!services.assistantRuntime)
 				return jsonResponse(503, {
@@ -2420,7 +2418,11 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			const parsed = renderRequestSchema.safeParse(ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
-					error: { code: "bad_render_request", message: "invalid render request", retryable: false },
+					error: {
+						code: "bad_render_request",
+						message: "invalid render request",
+						retryable: false,
+					},
 				});
 			const record = await readQueryRecord(services.db.app, p.scopes, parsed.data.query_ref);
 			if (!record)
@@ -2488,7 +2490,11 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			const record = await readQueryRecord(services.db.app, p.scopes, input.panel.query_ref);
 			if (!record)
 				return jsonResponse(404, {
-					error: { code: "query_not_found", message: "parent query ref not found", retryable: false },
+					error: {
+						code: "query_not_found",
+						message: "parent query ref not found",
+						retryable: false,
+					},
 				});
 			try {
 				const filtered = await runStructured(
@@ -2632,7 +2638,12 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		handler: (ctx) => {
 			const p = ctx.principal;
-			const query = queryOf(ctx.url) as { q?: string; kind?: string; limit?: string; cursor?: string };
+			const query = queryOf(ctx.url) as {
+				q?: string;
+				kind?: string;
+				limit?: string;
+				cursor?: string;
+			};
 			return libraryRead(() =>
 				listLibraryItems(services.db.app, p.scopes, services.cursorSecret, {
 					...(query.q ? { query: query.q } : {}),
@@ -2649,7 +2660,12 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		handler: (ctx) => {
 			const p = ctx.principal;
-			const query = queryOf(ctx.url) as { q?: string; kind?: string; limit?: string; cursor?: string };
+			const query = queryOf(ctx.url) as {
+				q?: string;
+				kind?: string;
+				limit?: string;
+				cursor?: string;
+			};
 			if (!query.q?.trim())
 				return jsonResponse(400, {
 					error: { code: "bad_library_query", message: "q is required", retryable: false },
@@ -2791,7 +2807,12 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			try {
 				return jsonResponse(
 					200,
-					await acquireCapability(services.db.app, principal.scopes, capability, body.data.provider),
+					await acquireCapability(
+						services.db.app,
+						principal.scopes,
+						capability,
+						body.data.provider,
+					),
 				);
 			} catch (error) {
 				if (error instanceof CapabilityAcquisitionError) {
@@ -2842,7 +2863,11 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 				});
 			if (query.since && !Number.isFinite(Date.parse(query.since)))
 				return jsonResponse(400, {
-					error: { code: "bad_catalog_filter", message: "invalid since timestamp", retryable: false },
+					error: {
+						code: "bad_catalog_filter",
+						message: "invalid since timestamp",
+						retryable: false,
+					},
 				});
 			const cursor = parseCatalogCursor(query.cursor);
 			if (query.cursor && !cursor)
@@ -3072,7 +3097,9 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			}
 			if (hosts.status === "fulfilled") {
 				for (const host of hosts.value.items) {
-					const hostname = formatUnknown(host["hostname"] ?? host["box_id"] ?? host["subject"] ?? "");
+					const hostname = formatUnknown(
+						host["hostname"] ?? host["box_id"] ?? host["subject"] ?? "",
+					);
 					if (!hostname) continue;
 					const status = formatUnknown(host["status"] ?? "unknown").replaceAll("_", " ");
 					candidates.push({
@@ -4001,7 +4028,11 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			const text = await request.text();
 			if (Buffer.byteLength(text) > 1024 * 1024)
 				return jsonResponse(413, {
-					error: { code: "body_too_large", message: "request body exceeds limit", retryable: false },
+					error: {
+						code: "body_too_large",
+						message: "request body exceeds limit",
+						retryable: false,
+					},
 				});
 			if (text && (request.headers.get("content-type") ?? "").includes("application/json")) {
 				try {

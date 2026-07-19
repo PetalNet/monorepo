@@ -16,6 +16,11 @@ import {
 } from "$lib/operations.remote";
 import { readPlane } from "$lib/rpc/read-plane";
 import type { QueryResult } from "$lib/server/domain/query/structured";
+import {
+	connectBusClient,
+	type BusConnectionState,
+	type BusSubscriptionSpec,
+} from "@petalnet/console-bus-rpc";
 import { Effect } from "effect";
 
 export type DataMode = "mock" | "live";
@@ -52,57 +57,33 @@ export const runOp = (
 	opts: { dry_run?: boolean; fetchFn?: typeof fetch } = {},
 ): Promise<OpResult> => run(executeNamedOp({ op, args, dry_run: opts.dry_run }));
 
-export interface BusSubscription {
-	readonly sub_id: string;
-	readonly pattern: string;
-	readonly filter?: Record<string, string>;
-	readonly since?: number;
-}
-export type BusConnectionState = "connecting" | "open" | "error" | "closed";
+export type { BusConnectionState } from "@petalnet/console-bus-rpc";
+export type BusSubscription = BusSubscriptionSpec;
 
 function socketUrl(path: string): string {
 	const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 	return `${protocol}//${location.host}${path}`;
 }
 
+/**
+ * Live bus subscription via the typed RPC client: frames are schema-decoded (never shape-guessed)
+ * before they reach the UI, and the current subscription set is re-established on reconnect.
+ */
 export function connectBus(
 	subscriptions: () => readonly BusSubscription[],
 	onFrame: (frame: Record<string, unknown>) => void,
 	onState: (state: BusConnectionState) => void = () => {},
 ): () => void {
-	let disposed = false;
-	let socket: WebSocket | undefined;
-	let reconnect: ReturnType<typeof setTimeout> | undefined;
-	const connect = () => {
-		onState("connecting");
-		socket = new WebSocket(socketUrl("/api/v1/bus/ws"));
-		socket.addEventListener("open", () => {
-			onState("open");
-			for (const subscription of subscriptions())
-				socket?.send(JSON.stringify({ schema_version: 1, action: "subscribe", ...subscription }));
-		});
-		socket.addEventListener("message", ({ data }) => {
-			try {
-				const frame = JSON.parse(String(data)) as unknown;
-				if (frame && typeof frame === "object" && !Array.isArray(frame))
-					onFrame(frame as Record<string, unknown>);
-			} catch {
-				onState("error");
-			}
-		});
-		socket.addEventListener("error", () => {
-			onState("error");
-		});
-		socket.addEventListener("close", () => {
-			onState("closed");
-			if (!disposed) reconnect = setTimeout(connect, 2_000);
-		});
-	};
-	connect();
+	const client = connectBusClient({
+		url: socketUrl("/api/v1/bus/ws"),
+		subscriptions,
+		onFrame: (frame) => {
+			onFrame(frame);
+		},
+		onState,
+	});
 	return () => {
-		disposed = true;
-		if (reconnect) clearTimeout(reconnect);
-		socket?.close();
+		client.close();
 	};
 }
 

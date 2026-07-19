@@ -187,14 +187,8 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 			}
 			const rawSubId =
 				raw && typeof raw === "object" ? (raw as Record<string, unknown>)["sub_id"] : undefined;
-			const candidateSubId =
-				typeof rawSubId === "string" && rawSubId.length <= 64 ? rawSubId : "?";
-			const contractError = validateJsonSchema(
-				raw,
-				clientBusFrameSchema,
-				"frame",
-				busFrameSchema,
-			);
+			const candidateSubId = typeof rawSubId === "string" && rawSubId.length <= 64 ? rawSubId : "?";
+			const contractError = validateJsonSchema(raw, clientBusFrameSchema, "frame", busFrameSchema);
 			if (contractError) {
 				rejectFrame("invalid_frame", "frame does not match the bus contract", candidateSubId);
 				return;

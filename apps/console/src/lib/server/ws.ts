@@ -1,99 +1,76 @@
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, Server } from "node:http";
 
-import { WebSocket, WebSocketServer, type RawData } from "ws";
+import type { HandleWebsocket } from "@petalnet/svelte-ws";
+import type { Peer } from "crossws";
 
+import { consoleApi, consoleServices } from "./api/instance";
 import type { Principal } from "./domain/auth/principal";
-import { attachBusConnection, type BusCounters, type BusSocket } from "./domain/bus/connection";
-import { inertExceptionMonitor, type ExceptionMonitor } from "./domain/observability";
-import type { Services } from "./domain/substrate";
+import { attachBusConnection, type BusSocket } from "./domain/bus/connection";
+import { inertExceptionMonitor } from "./domain/observability";
+import { resolveSessionPrincipal } from "./session-principal";
 
-type ResolvePrincipal = (request: IncomingMessage) => Promise<Principal | null>;
+/**
+ * The console's WebSocket surface, dispatched by SvelteKit (via @petalnet/svelte-ws + crossws): the
+ * ordered bus at /api/v1/bus/ws and the terminal seam at /api/v1/terminal/ws. Browser sessions
+ * resolve through the better-auth store; agent bearer tokens and dev principals fall through to the
+ * console API core's chain, so sockets accept the same credentials as the REST surface.
+ */
+export const handleWebsocket: HandleWebsocket = async ({ socket, peer, request }) => {
+	const path = request.url.pathname;
+	if (path !== "/api/v1/bus/ws" && path !== "/api/v1/terminal/ws") {
+		socket.close(1008, "unknown websocket path");
+		return;
+	}
+	const [api, services] = await Promise.all([consoleApi(), consoleServices()]);
+	const hostname = request.url.hostname;
+	const resolvePrincipal = async (): Promise<Principal | null> =>
+		(await resolveSessionPrincipal(services, request.headers)) ??
+		api.resolvePrincipal(request.headers, hostname);
 
-export interface ConsoleSocketOptions {
-	readonly monitor?: ExceptionMonitor;
-	/** Shared with the HTTP surface so /api/v1/health reports live socket counts. */
-	readonly counters?: BusCounters;
-}
-
-/** Attach the ordered bus and terminal upgrade paths to the one Node HTTP server. */
-export function attachConsoleWebSockets(
-	server: Server,
-	services: Services,
-	resolvePrincipal: ResolvePrincipal,
-	options: ConsoleSocketOptions = {},
-): () => void {
-	const monitor = options.monitor ?? inertExceptionMonitor;
-	const counters = options.counters ?? { clients: 0, subscriptions: 0 };
-	const sockets = new WebSocketServer({ noServer: true });
-	const principals = new WeakMap<WebSocket, Principal>();
-	const onUpgrade = (
-		request: IncomingMessage,
-		socket: import("node:stream").Duplex,
-		head: Buffer,
-	) => {
-		const path = new URL(request.url ?? "/", "http://console.local").pathname;
-		if (path !== "/api/v1/bus/ws" && path !== "/api/v1/terminal/ws") return;
-		void resolvePrincipal(request).then((principal) => {
-			if (!principal) return socket.destroy();
-			sockets.handleUpgrade(request, socket, head, (webSocket) => {
-				principals.set(webSocket, principal);
-				sockets.emit("connection", webSocket, request);
-			});
-			return undefined;
-		});
-	};
-	server.on("upgrade", onUpgrade);
-
-	sockets.on("connection", (socket: WebSocket, request: IncomingMessage) => {
-		const principal = principals.get(socket);
+	if (path === "/api/v1/terminal/ws") {
+		const principal = await resolvePrincipal();
 		if (!principal) {
-			socket.close(1008, "principal unavailable");
+			socket.close(1008, "valid credentials required");
 			return;
 		}
-		const path = new URL(request.url ?? "/", "http://console.local").pathname;
-		if (path === "/api/v1/terminal/ws") {
-			socket.on("message", () => {
-				socket.send(
-					JSON.stringify({
-						schema_version: 1,
-						stream_id: randomUUID(),
-						kind: "error",
-						seq: 0,
-						code: "pty_adapter_unavailable",
-					}),
-				);
-			});
-			return;
-		}
-		const busSocket: BusSocket = {
-			send: (text) => {
-				socket.send(text);
-			},
-			close: () => {
-				socket.close();
-			},
-			isOpen: () => socket.readyState === WebSocket.OPEN,
-			onMessage: (handler) => {
-				socket.on("message", (data: RawData) => {
-					handler(Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer));
-				});
-			},
-			onClose: (handler) => {
-				socket.on("close", handler);
-			},
-		};
-		attachBusConnection(busSocket, {
-			services,
-			monitor,
-			resolvePrincipal: () => resolvePrincipal(request),
-			refreshable: true,
-			counters,
+		socket.on("message", () => {
+			socket.send(
+				JSON.stringify({
+					schema_version: 1,
+					stream_id: randomUUID(),
+					kind: "error",
+					seq: 0,
+					code: "pty_adapter_unavailable",
+				}),
+			);
 		});
-	});
+		return;
+	}
 
-	return () => {
-		server.off("upgrade", onUpgrade);
-		sockets.close();
-	};
-}
+	const busSocket: BusSocket = toBusSocket(socket, peer);
+	attachBusConnection(busSocket, {
+		services,
+		monitor: inertExceptionMonitor,
+		resolvePrincipal,
+		refreshable: true,
+		counters: api.busCounters,
+	});
+};
+
+const toBusSocket = (socket: Parameters<HandleWebsocket>[0]["socket"], peer: Peer): BusSocket => ({
+	send: (text) => {
+		peer.send(text);
+	},
+	close: () => {
+		socket.close();
+	},
+	isOpen: () => socket.isOpen(),
+	onMessage: (handler) => {
+		socket.on("message", (data) => {
+			handler(data);
+		});
+	},
+	onClose: (handler) => {
+		socket.on("close", handler);
+	},
+});
