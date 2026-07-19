@@ -27,6 +27,9 @@ export default defineConfig({
 				{ name: "Geist", provider: "fontsource", weights: [400, 500] },
 				{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
 			],
+			// The default ("font-prefixed-only") only scans --font-* custom properties, silently
+			// skipping this app's --sans/--mono — no families detected, no @font-face emitted.
+			processCSSVariables: true,
 		}),
 		...compose([
 			effect(),
