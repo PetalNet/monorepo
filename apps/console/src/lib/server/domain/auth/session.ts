@@ -1,8 +1,8 @@
 import { createEffectQbAdapter } from "@petalnet/better-auth-effect-qb-adapter";
 import { betterAuth } from "better-auth";
 import { fromNodeHeaders } from "better-auth/node";
-import postgres from "postgres";
 
+import { openSql, type Sql } from "../db/pool.ts";
 import { parseBetterAuthIdentity, type BetterAuthSessionIdentity } from "./session-identity.ts";
 export type { BetterAuthSessionIdentity } from "./session-identity.ts";
 export interface BetterAuthSessionVerifier {
@@ -22,7 +22,9 @@ export interface BetterAuthSessionConfig {
 export function createBetterAuthSessionVerifier(
 	config: BetterAuthSessionConfig,
 ): BetterAuthSessionVerifier {
-	const sql = postgres(config.databaseUrl, { max: 8, onnotice: () => {} });
+	// Lazily opened @effect/sql-pg facade; only getIdentityBySessionId needs raw SQL access.
+	let sqlClient: Promise<Sql> | undefined;
+	const sql = (): Promise<Sql> => (sqlClient ??= openSql(config.databaseUrl, 8));
 	const authDatabase = createEffectQbAdapter(config.databaseUrl);
 	const auth = betterAuth({
 		appName: "Lab Console",
@@ -61,7 +63,9 @@ export function createBetterAuthSessionVerifier(
 		},
 		async getIdentityBySessionId(sessionId) {
 			if (!/^[A-Za-z0-9_-]{1,255}$/.test(sessionId)) return null;
-			const result = await sql.unsafe<{ user: Record<string, unknown> }[]>(
+			const result = await (
+				await sql()
+			).unsafe<{ user: Record<string, unknown> }[]>(
 				`select row_to_json(u) as user from session s join "user" u on u.id = s."userId"
 				 where s.id = $1 and s."expiresAt" > now()
 				   and s."createdAt" > now() - interval '5 minutes'`,
@@ -71,7 +75,7 @@ export function createBetterAuthSessionVerifier(
 			return identity ? { ...identity, sessionId } : null;
 		},
 		async close() {
-			await Promise.all([sql.end(), authDatabase.close()]);
+			await Promise.all([sqlClient?.then((client) => client.end()), authDatabase.close()]);
 		},
 	};
 }

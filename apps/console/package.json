@@ -41,7 +41,6 @@
 		"import-in-the-middle": "catalog:",
 		"mode-watcher": "catalog:",
 		"nanoid": "catalog:",
-		"postgres": "catalog:",
 		"svelte": "catalog:prod",
 		"svelte-effect-runtime": "catalog:",
 		"tailwindcss": "catalog:prod",

@@ -183,7 +183,7 @@ export class Projector {
 		// session-level lock whose unlock could land on a different pooled backend (codex re-review).
 		await this.#writer.begin(async (tx) => {
 			await tx`select pg_advisory_xact_lock(${REPLAY_LOCK_KEY})`;
-			await this.#replayLocked(tx as unknown as Sql, this.name, false);
+			await this.#replayLocked(tx, this.name, false);
 		});
 	}
 
@@ -191,7 +191,7 @@ export class Projector {
 	async replayContractedReadsToHead(): Promise<void> {
 		await this.#writer.begin(async (tx) => {
 			await tx`select pg_advisory_xact_lock(${CONTRACTED_REPLAY_LOCK_KEY})`;
-			await this.#replayLocked(tx as unknown as Sql, CONTRACTED_REPLAY_NAME, true);
+			await this.#replayLocked(tx, CONTRACTED_REPLAY_NAME, true);
 		});
 	}
 
@@ -372,7 +372,7 @@ export class Projector {
 		// is a no-op here and is alarmed separately below.
 		const rows = await sql<{ scope: string }[]>`
 			insert into current_state (kind, subject, scope, state, observed_at, producer_ts, seq, unreachable_since)
-			values (${kind}, ${subject}, ${e.scope}, ${sql.json(stateOf(e, receivedAt) as never)}, ${receivedAt}, ${e.ts}, ${seq}, null)
+			values (${kind}, ${subject}, ${e.scope}, ${sql.json(stateOf(e, receivedAt))}, ${receivedAt}, ${e.ts}, ${seq}, null)
 			on conflict (kind, subject) do update
 				set state = case when ${MERGED_STATE_KINDS.has(kind)}
 					then current_state.state || excluded.state else excluded.state end,

@@ -90,7 +90,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 	const monitor = opts?.monitor ?? inertExceptionMonitor;
 	const writeInternalError =
 		opts?.writeInternalError ?? ((line: string) => process.stderr.write(line));
-	const db = openDb(env);
+	const db = await openDb(env);
 	if (opts?.migrate !== false) await migrate(db.admin);
 	await assertRuntimeRolesHardened(db, env.devAuth);
 	const broker = new Broker(makeReplay(db.app));

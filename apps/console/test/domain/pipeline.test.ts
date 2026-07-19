@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
 
-import postgres from "postgres";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import {
@@ -28,7 +27,11 @@ import { Bridge } from "../../src/lib/server/domain/bridge/index.ts";
 import { sourceCursorRef } from "../../src/lib/server/domain/bridge/system-outbox.ts";
 import { Appender } from "../../src/lib/server/domain/bus/appender.ts";
 import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
-import { assertRuntimeRolesHardened, openDb } from "../../src/lib/server/domain/db/pool.ts";
+import {
+	assertRuntimeRolesHardened,
+	openDb,
+	openSql,
+} from "../../src/lib/server/domain/db/pool.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
 import { indefinitely, whileCondition } from "../../src/lib/server/domain/iteration.ts";
@@ -92,19 +95,15 @@ async function startTempDb(): Promise<TempDb> {
 	let streak = 0;
 	for await (const iteration of indefinitely()) {
 		void iteration;
-		const probe = postgres(adminUrl, {
-			max: 1,
-			connect_timeout: 3,
-			onnotice: () => {},
-			idle_timeout: 1,
-		});
+		const probe = await openSql(adminUrl, 1, { connectTimeoutSeconds: 3 }).catch(() => null);
 		try {
+			if (!probe) throw new Error("connect failed");
 			await probe`select 1`;
 			streak += 1;
 		} catch {
 			streak = 0;
 		} finally {
-			await probe.end({ timeout: 2 }).catch(() => undefined);
+			await probe?.end().catch(() => undefined);
 		}
 		if (streak >= 2) break;
 		if (Date.now() > deadline) throw new Error("temp db never became ready");
@@ -147,7 +146,7 @@ function emission(over: Partial<Emission> = {}): Emission {
 
 beforeAll(async () => {
 	temp = await startTempDb();
-	const admin = postgres(temp.adminUrl, { onnotice: () => {} });
+	const admin = await openSql(temp.adminUrl);
 	await migrate(admin, {
 		appPassword: temp.appPassword,
 		roPassword: temp.roPassword,
@@ -2628,7 +2627,7 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 	});
 
 	it("keeps console_ro unable to mutate or create even after disabling its read-only default", async () => {
-		const ro = postgres(temp.roUrl, { max: 1, onnotice: () => {} });
+		const ro = await openSql(temp.roUrl, 1);
 		try {
 			await ro`set default_transaction_read_only = off`;
 			await expect(
@@ -2640,13 +2639,13 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 				/permission denied/,
 			);
 		} finally {
-			await ro.end({ timeout: 2 });
+			await ro.end();
 		}
 	});
 
 	it("rejects console_ro membership in a privileged runtime role", async () => {
 		await services.db.admin`grant console_writer to console_ro`;
-		const db = openDb({
+		const db = await openDb({
 			databaseUrl: temp.adminUrl,
 			appDatabaseUrl: temp.appUrl,
 			roDatabaseUrl: temp.roUrl,

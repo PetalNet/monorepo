@@ -1013,7 +1013,7 @@ async function dispatchInternalOp(
 					select exists (
 					  select 1 from lake_events later
 					  where later.seq > ${pending.approved_seq}::bigint
-					    and later.seq < ${emitted.seq as number}::bigint
+					    and later.seq < ${emitted.seq}::bigint
 					    and (
 					      (later.type = 'updates.applied'
 					        and later.dimensions->>'approval_id' = ${approvalId})

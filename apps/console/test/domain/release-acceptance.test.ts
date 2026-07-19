@@ -3,7 +3,6 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
 
-import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { AssistantCompiler } from "../../src/lib/server/domain/assistant/compiler.ts";
@@ -13,6 +12,7 @@ import {
 } from "../../src/lib/server/domain/assistant/runtime.ts";
 import type { BetterAuthSessionVerifier } from "../../src/lib/server/domain/auth/session.ts";
 import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
+import { openSql } from "../../src/lib/server/domain/db/pool.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
 import { indefinitely } from "../../src/lib/server/domain/iteration.ts";
@@ -57,19 +57,15 @@ async function startTempDb(): Promise<TempDb> {
 	let readyProbes = 0;
 	for await (const iteration of indefinitely()) {
 		void iteration;
-		const probe = postgres(adminUrl, {
-			max: 1,
-			connect_timeout: 3,
-			idle_timeout: 1,
-			onnotice: () => {},
-		});
+		const probe = await openSql(adminUrl, 1, { connectTimeoutSeconds: 3 }).catch(() => null);
 		try {
+			if (!probe) throw new Error("connect failed");
 			await probe`select 1`;
 			readyProbes += 1;
 		} catch {
 			readyProbes = 0;
 		} finally {
-			await probe.end({ timeout: 2 }).catch(() => undefined);
+			await probe?.end().catch(() => undefined);
 		}
 		if (readyProbes >= 2) break;
 		if (Date.now() > deadline) throw new Error("release-acceptance database never became ready");
@@ -122,7 +118,7 @@ let services: Services;
 
 beforeAll(async () => {
 	temp = await startTempDb();
-	const admin = postgres(temp.adminUrl, { onnotice: () => {} });
+	const admin = await openSql(temp.adminUrl);
 	await migrate(admin, {
 		appPassword: temp.appPassword,
 		roPassword: temp.roPassword,

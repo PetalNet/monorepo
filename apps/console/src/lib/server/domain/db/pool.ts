@@ -1,15 +1,138 @@
-import postgres from "postgres";
-// Postgres connections (postgres-js). Three roles per the ordered migration (contract §3):
+// Postgres connections, driven by @effect/sql-pg (the sole pg layer). Three roles per the ordered
+// migration (contract §3):
 //   admin/owner  — migrations, seeding, the appender's INSERT path
 //   console_app  — runtime scoped reads (non-BYPASSRLS); scopes set per-transaction via SET LOCAL
 //   console_ro   — read-only SQL mode
 // The scoped helpers set `app.scopes` as a LOCAL GUC so RLS filters to exactly the caller's grant.
+//
+// The domain speaks promises; this module exposes a tagged-template `Sql` facade over PgClient.
+// Transactions reserve a dedicated connection and route every statement through the client's
+// transaction service, so a transaction handle IS an `Sql` — no `as unknown as Sql` cast anywhere.
+import { PgClient } from "@effect/sql-pg";
+import { Duration, Effect, Exit, Fiber, Redacted, Scope, Stream } from "effect";
+import { Reactivity } from "effect/unstable/reactivity";
+import type { Connection } from "effect/unstable/sql/SqlConnection";
 
 import { asynchronously } from "#domain/iteration";
 
 import type { Env } from "../env.ts";
 
-export type Sql = postgres.Sql;
+export type Row = Record<string, unknown>;
+
+export interface ListenHandle {
+	unlisten(): Promise<void>;
+}
+
+export interface Sql {
+	<T = Row[]>(strings: TemplateStringsArray, ...params: readonly unknown[]): Promise<T>;
+	/** Run `fn` on one reserved connection inside BEGIN/COMMIT; the handle is a full `Sql`. */
+	begin<T>(fn: (tx: Sql) => Promise<T>): Promise<T>;
+	/** JSON parameter fragment (jsonb-safe). */
+	json(value: unknown): unknown;
+	/** Array parameter for `= any(...)` sites. */
+	array(values: readonly unknown[]): unknown;
+	unsafe<T = Row[]>(text: string, params?: readonly unknown[]): Promise<T>;
+	listen(channel: string, onPayload: (payload: string) => void): Promise<ListenHandle>;
+	end(opts?: { timeout?: number }): Promise<void>;
+}
+
+interface ClientHandle {
+	readonly client: PgClient.PgClient;
+	readonly close: () => Promise<void>;
+}
+
+async function openClient(
+	url: string,
+	maxConnections: number,
+	connectTimeoutSeconds?: number,
+): Promise<ClientHandle> {
+	const scope = await Effect.runPromise(Scope.make());
+	const client = await Effect.runPromise(
+		PgClient.make({
+			url: Redacted.make(url),
+			maxConnections,
+			...(connectTimeoutSeconds === undefined
+				? {}
+				: { connectTimeout: Duration.seconds(connectTimeoutSeconds) }),
+		}).pipe(Scope.provide(scope), Effect.provide(Reactivity.layer)),
+	);
+	return {
+		client,
+		close: () => Effect.runPromise(Scope.close(scope, Exit.void)),
+	};
+}
+
+/** Rejections surface the driver's error (message, code) rather than the SqlError wrapper. */
+const unwrapDriverError = (error: unknown): unknown => {
+	if (!(error instanceof Error) || (error as { _tag?: unknown })._tag !== "SqlError") return error;
+	let current: Error = error;
+	while (current.cause instanceof Error) current = current.cause;
+	return current;
+};
+
+const run = async <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
+	Effect.runPromise(effect as Effect.Effect<A>).catch((error: unknown) => {
+		throw unwrapDriverError(error);
+	});
+
+function makeSql(handle: ClientHandle, txConnection: Connection | null): Sql {
+	const { client } = handle;
+	const inTx = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+		txConnection
+			? Effect.provideService(effect, client.transactionService, [txConnection, 0])
+			: effect;
+	const facade = (<T>(strings: TemplateStringsArray, ...params: readonly unknown[]): Promise<T> =>
+		run(inTx(client<never>(strings, ...(params as never[])))) as Promise<T>) as Sql;
+	// Pre-stringified: pg would serialize a JS array param as a PG array literal, not JSON.
+	facade.json = (value) => client.json(JSON.stringify(value));
+	facade.array = (values) => [...values];
+	facade.unsafe = <T>(text: string, params: readonly unknown[] = []) =>
+		run(inTx(client.unsafe(text, params))) as Promise<T>;
+	facade.begin = async <T>(fn: (tx: Sql) => Promise<T>): Promise<T> => {
+		if (txConnection) throw new Error("nested transactions are not supported");
+		const scope = await Effect.runPromise(Scope.make());
+		try {
+			const connection = await Effect.runPromise(Scope.provide(client.reserve, scope));
+			const tx = makeSql(handle, connection);
+			await run(connection.executeUnprepared("begin", [], undefined));
+			try {
+				const result = await fn(tx);
+				await run(connection.executeUnprepared("commit", [], undefined));
+				return result;
+			} catch (error) {
+				await run(connection.executeUnprepared("rollback", [], undefined)).catch(() => undefined);
+				throw error;
+			}
+		} finally {
+			await Effect.runPromise(Scope.close(scope, Exit.void));
+		}
+	};
+	facade.listen = (channel, onPayload) => {
+		const fiber = Effect.runFork(
+			Stream.runForEach(client.listen(channel), (payload) =>
+				Effect.sync(() => {
+					onPayload(payload);
+				}),
+			),
+		);
+		return Promise.resolve({
+			unlisten: async () => {
+				await Effect.runPromise(Fiber.interrupt(fiber));
+			},
+		});
+	};
+	facade.end = () => handle.close();
+	return facade;
+}
+
+/** A standalone facade client outside the role'd `Db` (session verifier, scripts, tests). */
+export async function openSql(
+	url: string,
+	maxConnections = 4,
+	opts: { connectTimeoutSeconds?: number } = {},
+): Promise<Sql> {
+	return makeSql(await openClient(url, maxConnections, opts.connectTimeoutSeconds), null);
+}
 
 export interface Db {
 	readonly admin: Sql;
@@ -23,28 +146,25 @@ export interface Db {
 	close(): Promise<void>;
 }
 
-export function openDb(env: Env): Db {
-	const admin = postgres(env.databaseUrl, { max: 8, onnotice: () => {} });
+export async function openDb(env: Env): Promise<Db> {
+	const admin = await openClient(env.databaseUrl, 8);
 	const app =
-		env.appDatabaseUrl === env.databaseUrl
-			? admin
-			: postgres(env.appDatabaseUrl, { max: 8, onnotice: () => {} });
+		env.appDatabaseUrl === env.databaseUrl ? admin : await openClient(env.appDatabaseUrl, 8);
 	const ro =
-		env.roDatabaseUrl === env.appDatabaseUrl
-			? app
-			: postgres(env.roDatabaseUrl, { max: 4, onnotice: () => {} });
+		env.roDatabaseUrl === env.appDatabaseUrl ? app : await openClient(env.roDatabaseUrl, 4);
 	const writer =
-		env.writerDatabaseUrl === env.databaseUrl
-			? admin
-			: postgres(env.writerDatabaseUrl, { max: 4, onnotice: () => {} });
+		env.writerDatabaseUrl === env.databaseUrl ? admin : await openClient(env.writerDatabaseUrl, 4);
+	const handles = new Set([admin, app, ro, writer]);
+	const sqls = new Map<ClientHandle, Sql>();
+	for (const handle of handles) sqls.set(handle, makeSql(handle, null));
+	const sqlOf = (handle: ClientHandle): Sql => sqls.get(handle) as Sql;
 	return {
-		admin,
-		app,
-		ro,
-		writer,
+		admin: sqlOf(admin),
+		app: sqlOf(app),
+		ro: sqlOf(ro),
+		writer: sqlOf(writer),
 		async close() {
-			const all = new Set([admin, app, ro, writer]);
-			for await (const c of asynchronously(all)) await c.end({ timeout: 5 });
+			for await (const handle of asynchronously(handles)) await handle.close();
 		},
 	};
 }
@@ -141,6 +261,6 @@ export async function withScopes<T>(
 	if (scopes.some((s) => s.includes(","))) throw new Error("scope tag must not contain a comma");
 	return sql.begin(async (tx) => {
 		await tx`select set_config('app.scopes', ${scopes.join(",")}, true)`;
-		return fn(tx as unknown as Sql);
-	}) as Promise<T>;
+		return fn(tx);
+	});
 }

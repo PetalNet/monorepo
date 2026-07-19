@@ -195,7 +195,7 @@ export async function saveDashboard(
 			const previous = raced.at(0);
 			if (!previous || previous.request_hash !== hash)
 				throw new DashboardError("id_reused", "mutation id was already used with a different body");
-			const item = await dashboardById(tx as unknown as Sql, previous.dashboard_id);
+			const item = await dashboardById(tx, previous.dashboard_id);
 			if (!item) throw new Error("dashboard mutation points to a missing item");
 			if (item.scope !== scope || !principal.scopes.includes(item.scope))
 				throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
@@ -209,7 +209,7 @@ export async function saveDashboard(
 			values
 			  (${id}, ${id}, 'artifact', ${input.title}, ${scope}, 'unsorted', 'verified-shared',
 			   'html', ${principal.id}, ${principal.kind === "human" ? principal.id : null},
-			   'semi', ${tx.json({ artifact_type: "dashboard" })}, ${tx.json(payload as never)})
+			   'semi', ${tx.json({ artifact_type: "dashboard" })}, ${tx.json(payload)})
 			returning id, title, scope, is_home, created_by, responsible_human, payload, updated_at`;
 		return itemEnvelope(rows[0]);
 	});

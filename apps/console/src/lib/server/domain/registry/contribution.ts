@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 
-import type { Sql } from "postgres";
-
 import { uuidv5 } from "../bridge/uuid5.ts";
+import type { Sql } from "../db/pool.ts";
 
 export class CapabilityContributionError extends Error {
 	readonly code: string;

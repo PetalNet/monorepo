@@ -7,11 +7,11 @@ import {
 	type BusServerFrame,
 	type BusWebSocket,
 } from "@petalnet/console-bus-rpc";
-import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { Broker } from "../../src/lib/server/domain/bus/broker.ts";
 import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
+import { openSql } from "../../src/lib/server/domain/db/pool.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
 import { indefinitely } from "../../src/lib/server/domain/iteration.ts";
@@ -49,19 +49,15 @@ async function startTempDb(): Promise<TempDb> {
 	let streak = 0;
 	for await (const iteration of indefinitely()) {
 		void iteration;
-		const probe = postgres(adminUrl, {
-			max: 1,
-			connect_timeout: 3,
-			idle_timeout: 1,
-			onnotice: () => {},
-		});
+		const probe = await openSql(adminUrl, 1, { connectTimeoutSeconds: 3 }).catch(() => null);
 		try {
+			if (!probe) throw new Error("connect failed");
 			await probe`select 1`;
 			streak += 1;
 		} catch {
 			streak = 0;
 		} finally {
-			await probe.end({ timeout: 2 }).catch(() => undefined);
+			await probe?.end().catch(() => undefined);
 		}
 		if (streak >= 2) break;
 		if (Date.now() > deadline) throw new Error("bus-rpc temp db never became ready");
@@ -107,7 +103,7 @@ function emission(over: Partial<Emission> = {}): Emission {
 
 beforeAll(async () => {
 	temp = await startTempDb();
-	const admin = postgres(temp.adminUrl, { onnotice: () => {} });
+	const admin = await openSql(temp.adminUrl);
 	await migrate(admin, { appPassword: "apppw", roPassword: "ropw", writerPassword: "writerpw" });
 	await seedBootstrap(admin);
 	await admin`insert into producer_registrations (subject, allowed_services, allowed_prefixes, allowed_scopes, max_severity)

@@ -290,7 +290,7 @@ async function callTool(
 	if (name === "window.arrange") {
 		const parsed = windowSchema.parse(args);
 		const rows = await db.writer<{ window_layout: Record<string, unknown> }[]>`
-			update assistant_sessions set window_layout = ${db.writer.json({ ops: parsed.ops } as never)}, updated_at = now()
+			update assistant_sessions set window_layout = ${db.writer.json({ ops: parsed.ops })}, updated_at = now()
 			where principal_id = ${principal.id} returning window_layout`;
 		return { schema_version: 1, layout: rows.at(0)?.window_layout ?? { ops: [] } };
 	}
@@ -343,7 +343,7 @@ async function callTool(
 	if (name === "context.receive") {
 		const parsed = contextSchema.parse(args);
 		if (!scrubUnknown(parsed.payload, "context.payload").ok) throw new Error("secret_detected");
-		await db.writer`update assistant_sessions set last_context = ${db.writer.json(parsed.payload as never)},
+		await db.writer`update assistant_sessions set last_context = ${db.writer.json(parsed.payload)},
 		  updated_at = now() where principal_id = ${principal.id}`;
 		return { schema_version: 1, accepted: true };
 	}
@@ -372,7 +372,7 @@ async function callTool(
 		}
 		await db.writer`
 			update assistant_sessions
-			set window_layout = jsonb_set(window_layout, '{library}', ${db.writer.json(intent as never)}::jsonb, true),
+			set window_layout = jsonb_set(window_layout, '{library}', ${db.writer.json(intent)}::jsonb, true),
 			    updated_at = now()
 			where principal_id = ${principal.id}`;
 		return { schema_version: 1, surface: "library", intent, data };

@@ -533,7 +533,7 @@ export async function dryPlanStructured(
 	try {
 		await withScopes(ro, scopes, async (tx) => {
 			await tx`set local statement_timeout = '5s'`;
-			await tx.unsafe(`explain (format json) ${prepared.sqlText}`, prepared.params as never[]);
+			await tx.unsafe(`explain (format json) ${prepared.sqlText}`, prepared.params);
 		});
 	} catch (error) {
 		const code = repairableExecutionCode(error);
@@ -555,8 +555,8 @@ async function persistQueryInTx(
 			insert into query_history
 				(query_ref, request, sql_text, params, scopes, columns, row_count, execution_ms)
 			values
-				(${ref}, ${tx.json(prepared.request as never)}, ${prepared.sqlText},
-				 ${tx.json(prepared.params as never)}, ${tx.json([...scopes])},
+				(${ref}, ${tx.json(prepared.request)}, ${prepared.sqlText},
+				 ${tx.json(prepared.params)}, ${tx.json([...scopes])},
 				 ${tx.json(prepared.columns)}, ${result.row_count}, ${result.execution_ms})`;
 	await tx`
 			insert into semantic_documents
@@ -581,7 +581,7 @@ async function executePreparedInTx(
 	prepared: PreparedStructuredQuery,
 	start: number,
 ): Promise<Omit<QueryResult, "query_ref">> {
-	const rows = await tx.unsafe(prepared.sqlText, prepared.params as never[]);
+	const rows = await tx.unsafe(prepared.sqlText, prepared.params);
 	const arr = rows as unknown as Record<string, unknown>[];
 	const truncated = arr.length > prepared.limit;
 	const out = (truncated ? arr.slice(0, prepared.limit) : arr).map((row) =>
