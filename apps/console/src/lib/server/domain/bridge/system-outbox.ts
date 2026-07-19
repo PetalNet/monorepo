@@ -1,4 +1,4 @@
-// System-outbox source (N1b-3, PHASE1B-DESIGN §3 — the /task/681 driving use case). The lab's
+// System-outbox source (N1b-3 — the /task/681 driving use case). The lab's
 // service bots (shawn/derek/michael) drop warnings as JSON files; today they flood Matrix. This
 // tailer maps known operational messages to their statistic types and preserves unknown messages as
 // `bot.message`, so the console consumes them and Matrix can eventually go quiet.

@@ -1,5 +1,5 @@
 import { asynchronously } from "#domain/iteration";
-// The ordered security migration (contract §3, PHASE1-DESIGN §3). ONE ordered path, no window:
+// The ordered security migration (contract §3). ONE ordered path, no window:
 // roles → tables → RLS enable+force + policy → RO role REVOKE then GRANT SELECT → security_invoker
 // views. Idempotent (guarded CREATEs) so it is safe to run at every boot and in tests.
 //

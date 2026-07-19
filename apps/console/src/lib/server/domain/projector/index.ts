@@ -1,5 +1,5 @@
 import { asynchronously } from "#domain/iteration";
-// The current-state projector (N1b, PHASE1B-DESIGN §2). A CURSORED consumer, not fire-and-forget:
+// The current-state projector (N1b). A CURSORED consumer, not fire-and-forget:
 // on boot it replays the lake from its durable checkpoint to head (seq-guarded → idempotent), then
 // goes live off the appender's fan-out. Keyed by the projection-map BUCKET (kind), NOT the
 // emission subject_kind (which is `agent` for four different kinds). Scope is invariant per

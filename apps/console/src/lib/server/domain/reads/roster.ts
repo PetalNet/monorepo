@@ -1,4 +1,4 @@
-// /roster and /executors (N1b-2, PHASE1B-DESIGN §5). /roster joins the lake current_state
+// /roster and /executors (N1b-2). /roster joins the lake current_state
 // (fleet/heartbeat/registry/governance/workers) with the tracker (agents/leases), each source scoped
 // BEFORE association. A per-source `visibility` marker distinguishes "no row" from "not yours" so
 // the frontend never renders authz-denied as "no data" (Rule 10). It is a mixed-source join, not

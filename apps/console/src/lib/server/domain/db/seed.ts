@@ -1,5 +1,5 @@
 import { asynchronously } from "#domain/iteration";
-// Bootstrap seed (contract §7, PHASE1-DESIGN §7) — breaks the grant⇄token⇄mint chicken-and-egg.
+// Bootstrap seed (contract §7) — breaks the grant⇄token⇄mint chicken-and-egg.
 // Idempotent: safe to run at every deploy. Inserts the baseline grants, producer registrations,
 // and tier rows without which nothing can legally emit or be administered.
 

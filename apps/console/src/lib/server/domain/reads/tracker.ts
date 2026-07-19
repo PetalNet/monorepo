@@ -1,4 +1,4 @@
-// Tracker reads (N1b-2, PHASE1B-DESIGN §4). The tracker (tasks app) is a single-writer SQLite
+// Tracker reads (N1b-2). The tracker (tasks app) is a single-writer SQLite
 // store with its OWN ACL (owner / visibility shared|private / project). Lake RLS cannot reach it,
 // so console-api reads it READ-ONLY and maps each row's native visibility to a console scope tag,
 // then filters by the CALLER's resolved scopes (Rule 11). The single-writer rule is intact — reads
