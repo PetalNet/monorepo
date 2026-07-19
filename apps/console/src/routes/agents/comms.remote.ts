@@ -1,20 +1,16 @@
 import { getRequestEvent, query } from "$app/server";
 const env = import.meta.env;
 import { validateContract, type CommsEvent, type ReadEnvelope } from "$lib/api/types";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Schema } from "effect";
 
-const filters = z
-	.object({
-		type: z.enum(["task-card", "rpc", "mail"]).nullable(),
-		agent: z.string().max(64).nullable(),
-		taskId: z.number().int().positive().nullable(),
-		cursor: z
-			.string()
-			.regex(/^[A-Za-z0-9_-]+$/)
-			.nullable(),
-	})
-	.strict();
+const filters = Schema.Struct({
+	type: Schema.NullOr(Schema.Literals(["task-card", "rpc", "mail"])),
+	agent: Schema.NullOr(Schema.String.check(Schema.isMaxLength(64))),
+	taskId: Schema.NullOr(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
+	cursor: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/))),
+}).annotate(rejectUnknownKeys);
 
 const relativeIso = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1_000).toISOString();
 
@@ -89,7 +85,7 @@ function mockRows(): CommsEvent[] {
 
 /** Server-side RPC: browser code never reaches the query plane directly. */
 export const getCommsLog = query(
-	filters,
+	Schema.toStandardSchemaV1(filters),
 	async ({ type, agent, taskId, cursor }): Promise<ReadEnvelope<CommsEvent>> => {
 		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") {
 			const needle = agent?.trim().toLocaleLowerCase();

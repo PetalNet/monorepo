@@ -1,8 +1,9 @@
 import { getRequestEvent, command, query } from "$app/server";
 const env = import.meta.env;
 import type { OpResult, ReadEnvelope, UpdateApproval } from "$lib/api/types";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Schema } from "effect";
 
 export type { UpdateApproval } from "$lib/api/types";
 
@@ -15,13 +16,19 @@ interface UpdateApprovalMutation {
 	readonly revocable: boolean;
 }
 
-const boxInput = z.object({ box_id: z.string().min(1).max(256) }).strict();
-const approveInput = boxInput
-	.extend({ packages: z.array(z.string().min(1).max(256)).min(1).max(500) })
-	.strict();
-const revokeInput = z
-	.object({ approval_id: z.uuid(), box_id: z.string().min(1).max(256) })
-	.strict();
+const boxIdField = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256));
+const boxInput = Schema.Struct({ box_id: boxIdField }).annotate(rejectUnknownKeys);
+const approveInput = Schema.Struct({
+	box_id: boxIdField,
+	packages: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))).check(
+		Schema.isMinLength(1),
+		Schema.isMaxLength(500),
+	),
+}).annotate(rejectUnknownKeys);
+const revokeInput = Schema.Struct({
+	approval_id: Schema.String.check(Schema.isUUID()),
+	box_id: boxIdField,
+}).annotate(rejectUnknownKeys);
 
 export interface ApprovedUpdate {
 	readonly approval: UpdateApprovalMutation;
@@ -82,7 +89,7 @@ async function runApprovalOp(
 	return result;
 }
 
-export const getUpdateApprovals = query(boxInput, async ({ box_id }) => {
+export const getUpdateApprovals = query(Schema.toStandardSchemaV1(boxInput), async ({ box_id }) => {
 	if (isMock()) return [...mockApprovals.values()].filter((item) => item.box_id === box_id);
 	const result = await apiJson<ReadEnvelope<UpdateApproval>>(
 		`/update-approvals?box_id=${encodeURIComponent(box_id)}`,
@@ -90,44 +97,50 @@ export const getUpdateApprovals = query(boxInput, async ({ box_id }) => {
 	return result.items;
 });
 
-export const approveUpdate = command(approveInput, async ({ box_id, packages }) => {
-	if (isMock()) {
-		const approval: UpdateApproval = {
-			approval_id: crypto.randomUUID(),
+export const approveUpdate = command(
+	Schema.toStandardSchemaV1(approveInput),
+	async ({ box_id, packages }) => {
+		if (isMock()) {
+			const approval: UpdateApproval = {
+				approval_id: crypto.randomUUID(),
+				box_id,
+				packages: [...new Set(packages)],
+				approved_by: "you",
+				approved_at: new Date().toISOString(),
+				revocable: true,
+				observed_at: new Date().toISOString(),
+			};
+			mockApprovals.set(approval.approval_id, approval);
+			void getUpdateApprovals({ box_id }).refresh();
+			return {
+				approval,
+				undo: { op: "updates.revoke" as const, args: { approval_id: approval.approval_id } },
+			};
+		}
+		const result = await runApprovalOp("updates.approve", {
 			box_id,
-			packages: [...new Set(packages)],
-			approved_by: "you",
-			approved_at: new Date().toISOString(),
-			revocable: true,
-			observed_at: new Date().toISOString(),
-		};
-		mockApprovals.set(approval.approval_id, approval);
+			...(packages.length ? { packages } : {}),
+		});
 		void getUpdateApprovals({ box_id }).refresh();
 		return {
-			approval,
-			undo: { op: "updates.revoke" as const, args: { approval_id: approval.approval_id } },
+			approval: result.result as unknown as UpdateApprovalMutation,
+			undo: result.undo as ApprovedUpdate["undo"],
 		};
-	}
-	const result = await runApprovalOp("updates.approve", {
-		box_id,
-		...(packages.length ? { packages } : {}),
-	});
-	void getUpdateApprovals({ box_id }).refresh();
-	return {
-		approval: result.result as unknown as UpdateApprovalMutation,
-		undo: result.undo as ApprovedUpdate["undo"],
-	};
-});
+	},
+);
 
-export const revokeUpdateApproval = command(revokeInput, async ({ approval_id, box_id }) => {
-	if (isMock()) {
-		const approval = mockApprovals.get(approval_id);
-		if (!approval || approval.box_id !== box_id) error(409, "This approval is no longer pending");
-		mockApprovals.delete(approval_id);
+export const revokeUpdateApproval = command(
+	Schema.toStandardSchemaV1(revokeInput),
+	async ({ approval_id, box_id }) => {
+		if (isMock()) {
+			const approval = mockApprovals.get(approval_id);
+			if (!approval || approval.box_id !== box_id) error(409, "This approval is no longer pending");
+			mockApprovals.delete(approval_id);
+			void getUpdateApprovals({ box_id }).refresh();
+			return { approval_id, box_id, revoked_at: new Date().toISOString() };
+		}
+		const result = await runApprovalOp("updates.revoke", { approval_id });
 		void getUpdateApprovals({ box_id }).refresh();
-		return { approval_id, box_id, revoked_at: new Date().toISOString() };
-	}
-	const result = await runApprovalOp("updates.revoke", { approval_id });
-	void getUpdateApprovals({ box_id }).refresh();
-	return result.result as { approval_id: string; box_id: string; revoked_at: string };
-});
+		return result.result as { approval_id: string; box_id: string; revoked_at: string };
+	},
+);

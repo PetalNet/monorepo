@@ -1,8 +1,9 @@
 import { command, getRequestEvent, query } from "$app/server";
 const env = import.meta.env;
 import type { OpResult, ReadEnvelope, SignalSourceModeItem } from "$lib/api/types";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Schema } from "effect";
 
 let mockModes: SignalSourceModeItem[] = [
 	{
@@ -62,16 +63,14 @@ export const getSignalSourceModes = query(async (): Promise<SignalSourceModeItem
 	return response.items;
 });
 
-const modeArgs = z
-	.object({
-		sourceService: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/),
-		mode: z.enum(["normal", "development"]),
-		note: z.string().max(240).optional(),
-	})
-	.strict();
+const modeArgs = Schema.Struct({
+	sourceService: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)),
+	mode: Schema.Literals(["normal", "development"]),
+	note: Schema.optional(Schema.String.check(Schema.isMaxLength(240))),
+}).annotate(rejectUnknownKeys);
 
 export const setSignalSourceMode = command(
-	modeArgs,
+	Schema.toStandardSchemaV1(modeArgs),
 	async ({ sourceService, mode, note }): Promise<SignalSourceModeMutation> => {
 		if (isMock()) {
 			const previousMode =

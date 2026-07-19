@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { Effect, Schema } from "effect";
 
 import { formatUnknown } from "#format";
 
@@ -27,82 +27,96 @@ import {
 	renderRequestSchema,
 	selectedMarkSchema,
 } from "../render/validation.ts";
+import { rejectUnknownKeys } from "../schema-conventions.ts";
 
-const windowSchema = z
-	.object({
-		ops: z
-			.array(
-				z
-					.object({
-						verb: z.enum(["place", "size", "group", "highlight", "clear", "pin"]),
-						panel_index: z.number().int().min(0).max(59).optional(),
-						layout: z.record(z.string(), z.unknown()).optional(),
-					})
-					.loose(),
-			)
-			.max(100),
-	})
-	.strict();
+const windowSchema = Schema.Struct({
+	ops: Schema.Array(
+		// Ops tolerate extra keys (zod `.loose()` parity): the rest record preserves unknown keys.
+		Schema.StructWithRest(
+			Schema.Struct({
+				verb: Schema.Literals(["place", "size", "group", "highlight", "clear", "pin"]),
+				panel_index: Schema.optional(
+					Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 59 })),
+				),
+				layout: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+			}),
+			[Schema.Record(Schema.String, Schema.Unknown)],
+		),
+	).check(Schema.isMaxLength(100)),
+}).annotate(rejectUnknownKeys);
 
-const textSchema = z
-	.object({
-		prose: z.string().max(65_536),
-		bindings: z
-			.array(
-				z
-					.object({
-						query_ref: z.string().max(100),
-						column: z.string().max(128),
-						agg: z.string().max(64).optional(),
-					})
-					.strict(),
-			)
-			.max(100)
-			.default([]),
-	})
-	.strict();
+const textSchema = Schema.Struct({
+	prose: Schema.String.check(Schema.isMaxLength(65_536)),
+	bindings: Schema.Array(
+		Schema.Struct({
+			query_ref: Schema.String.check(Schema.isMaxLength(100)),
+			column: Schema.String.check(Schema.isMaxLength(128)),
+			agg: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
+		}).annotate(rejectUnknownKeys),
+	)
+		.check(Schema.isMaxLength(100))
+		.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+}).annotate(rejectUnknownKeys);
 
-const dashboardToolSchema = z.discriminatedUnion("action", [
-	z.object({ action: z.literal("save"), dashboard: dashboardSaveSchema }).strict(),
-	z.object({ action: z.literal("load"), id: z.string().max(100) }).strict(),
-	z
-		.object({
-			action: z.literal("set_home"),
-			id: z.string().max(100),
-			request_id: z.uuid(),
-		})
-		.strict(),
+const dashboardToolSchema = Schema.Union([
+	Schema.Struct({ action: Schema.Literal("save"), dashboard: dashboardSaveSchema }).annotate(
+		rejectUnknownKeys,
+	),
+	Schema.Struct({
+		action: Schema.Literal("load"),
+		id: Schema.String.check(Schema.isMaxLength(100)),
+	}).annotate(rejectUnknownKeys),
+	Schema.Struct({
+		action: Schema.Literal("set_home"),
+		id: Schema.String.check(Schema.isMaxLength(100)),
+		request_id: Schema.String.check(Schema.isUUID()),
+	}).annotate(rejectUnknownKeys),
 ]);
 
-const contextSchema = z
-	.object({
-		payload: selectedMarkSchema.extend({
-			value: z.unknown().refine((value) => value !== undefined, "value is required"),
-		}),
-	})
-	.strict();
+const contextSchema = Schema.Struct({
+	payload: Schema.Struct({
+		...selectedMarkSchema.fields,
+		value: Schema.Unknown.check(
+			Schema.makeFilter((value) => value !== undefined || "value is required"),
+		),
+	}).annotate(rejectUnknownKeys),
+}).annotate(rejectUnknownKeys);
 
-const librarySurfaceSchema = z.discriminatedUnion("action", [
-	z
-		.object({
-			action: z.literal("view"),
-			view: z.enum(["desk", "graph", "kanban", "table"]),
-		})
-		.strict(),
-	z
-		.object({
-			action: z.literal("search"),
-			query: z.string().trim().min(1).max(500),
-			kind: z
-				.enum(["task", "project", "doc", "artifact", "research", "fact", "decision", "how-to"])
-				.optional(),
-			limit: z.number().int().min(1).max(100).default(20),
-		})
-		.strict(),
-	z.object({ action: z.literal("open"), item_id: z.string().min(1).max(256) }).strict(),
-	z
-		.object({ action: z.literal("curation"), limit: z.number().int().min(1).max(100).default(20) })
-		.strict(),
+const librarySurfaceLimit = Schema.Number.check(
+	Schema.isInt(),
+	Schema.isBetween({ minimum: 1, maximum: 100 }),
+).pipe(Schema.withDecodingDefault(Effect.succeed(20)));
+
+const librarySurfaceSchema = Schema.Union([
+	Schema.Struct({
+		action: Schema.Literal("view"),
+		view: Schema.Literals(["desk", "graph", "kanban", "table"]),
+	}).annotate(rejectUnknownKeys),
+	Schema.Struct({
+		action: Schema.Literal("search"),
+		query: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+		kind: Schema.optional(
+			Schema.Literals([
+				"task",
+				"project",
+				"doc",
+				"artifact",
+				"research",
+				"fact",
+				"decision",
+				"how-to",
+			]),
+		),
+		limit: librarySurfaceLimit,
+	}).annotate(rejectUnknownKeys),
+	Schema.Struct({
+		action: Schema.Literal("open"),
+		item_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+	}).annotate(rejectUnknownKeys),
+	Schema.Struct({
+		action: Schema.Literal("curation"),
+		limit: librarySurfaceLimit,
+	}).annotate(rejectUnknownKeys),
 ]);
 
 const TOOLS = [
@@ -265,7 +279,7 @@ async function callTool(
 	const { db } = services;
 	if (name === "stats.query") return runStructured(db.app, principal.scopes, args as QueryRequest);
 	if (name === "viz.render") {
-		const parsed = renderRequestSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(renderRequestSchema)(args);
 		const record = await readQueryRecord(db.app, principal.scopes, parsed.query_ref);
 		if (!record) throw new Error("query_not_found");
 		return materializePanel(
@@ -274,7 +288,7 @@ async function callTool(
 		);
 	}
 	if (name === "text.surface") {
-		const parsed = textSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(textSchema)(args);
 		const bindings = parsed.bindings
 			.map(
 				({ query_ref, column, agg }) => `{{stat:${query_ref}#${column}${agg ? `[${agg}]` : ""}}}`,
@@ -288,14 +302,14 @@ async function callTool(
 		});
 	}
 	if (name === "window.arrange") {
-		const parsed = windowSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(windowSchema)(args);
 		const rows = await db.writer<{ window_layout: Record<string, unknown> }[]>`
 			update assistant_sessions set window_layout = ${db.writer.json({ ops: parsed.ops })}, updated_at = now()
 			where principal_id = ${principal.id} returning window_layout`;
 		return { schema_version: 1, layout: rows.at(0)?.window_layout ?? { ops: [] } };
 	}
 	if (name === "dashboard.manage") {
-		const parsed = dashboardToolSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(dashboardToolSchema)(args);
 		if (parsed.action === "save") {
 			const scope = dashboardTargetScope(principal, parsed.dashboard.scope);
 			if (!scope || !principal.scopes.includes(scope)) throw new Error("scope_denied");
@@ -341,14 +355,14 @@ async function callTool(
 		return setHomeDashboard(db.writer, principal, parsed.id);
 	}
 	if (name === "context.receive") {
-		const parsed = contextSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(contextSchema)(args);
 		if (!scrubUnknown(parsed.payload, "context.payload").ok) throw new Error("secret_detected");
 		await db.writer`update assistant_sessions set last_context = ${db.writer.json(parsed.payload)},
 		  updated_at = now() where principal_id = ${principal.id}`;
 		return { schema_version: 1, accepted: true };
 	}
 	if (name === "library.surface") {
-		const parsed = librarySurfaceSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(librarySurfaceSchema)(args);
 		let intent: Record<string, unknown>;
 		let data: Record<string, unknown> | null = null;
 		if (parsed.action === "view") intent = { view: parsed.view };

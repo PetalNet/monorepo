@@ -1,10 +1,11 @@
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
-import { z } from "zod";
+import { Effect, Schema } from "effect";
 
 import { required } from "#format";
 
+import { ISO_DATETIME_OFFSET_RE } from "../schema-conventions.ts";
 import type { CostComparisonRequest } from "./compare.ts";
 
 export interface MeterSide {
@@ -56,41 +57,45 @@ interface AgentsViewCostMeterConfig {
 	readonly timeoutMs?: number;
 }
 
-const sideSchema = z
-	.object({
-		totalCost: z.number(),
-		inputTokens: z.number(),
-		outputTokens: z.number(),
-		cacheCreationTokens: z.number(),
-		cacheReadTokens: z.number(),
-		totalTokens: z.number(),
-		sessionCount: z.number().int().nonnegative(),
-		costPerSession: z.number().default(0),
-		tokensPerSession: z.number().default(0),
-	})
-	.superRefine((side, context) => {
-		if (
-			side.totalTokens !==
-			side.inputTokens + side.outputTokens + side.cacheCreationTokens + side.cacheReadTokens
-		)
-			context.addIssue({ code: "custom", message: "token total does not match its components" });
-	});
-const pairwiseSchema = z.object({ left: sideSchema, right: sideSchema });
-const pricingModelSchema = z.object({
-	matched_pattern: z.string(),
-	input_cost_per_mtok: z.number(),
-	output_cost_per_mtok: z.number(),
-	cache_write_cost_per_mtok: z.number(),
-	cache_read_cost_per_mtok: z.number(),
-	cost_source: z.string(),
+const numberDefaultZero = Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0)));
+const sideSchema = Schema.Struct({
+	totalCost: Schema.Number,
+	inputTokens: Schema.Number,
+	outputTokens: Schema.Number,
+	cacheCreationTokens: Schema.Number,
+	cacheReadTokens: Schema.Number,
+	totalTokens: Schema.Number,
+	sessionCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+	costPerSession: numberDefaultZero,
+	tokensPerSession: numberDefaultZero,
+}).check(
+	Schema.makeFilter(
+		(side) =>
+			side.totalTokens ===
+				side.inputTokens + side.outputTokens + side.cacheCreationTokens + side.cacheReadTokens ||
+			"token total does not match its components",
+	),
+);
+const pairwiseSchema = Schema.Struct({ left: sideSchema, right: sideSchema });
+const pricingModelSchema = Schema.Struct({
+	matched_pattern: Schema.String,
+	input_cost_per_mtok: Schema.Number,
+	output_cost_per_mtok: Schema.Number,
+	cache_write_cost_per_mtok: Schema.Number,
+	cache_read_cost_per_mtok: Schema.Number,
+	cost_source: Schema.String,
 });
-const pricingSchema = z.object({
-	source: z.string(),
-	table_version: z.string(),
-	digest: z.string(),
-	effective_row_count: z.number().int().nonnegative(),
-	cost_source: z.string(),
-	models: z.record(z.string(), pricingModelSchema),
+const pricingSchema = Schema.Struct({
+	source: Schema.String,
+	table_version: Schema.String,
+	digest: Schema.String,
+	effective_row_count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+	cost_source: Schema.String,
+	models: Schema.Record(Schema.String, pricingModelSchema),
+});
+const summarySchema = Schema.Struct({ pricing: pricingSchema });
+const syncSchema = Schema.Struct({
+	last_sync: Schema.String.check(Schema.isPattern(ISO_DATETIME_OFFSET_RE)),
 });
 
 function calendarDate(value: string, timezone: string, inclusiveEnd = false): string {
@@ -218,13 +223,13 @@ export class AgentsViewCostMeter implements CostMeter {
 			this.#get("usage/summary", summaryParams),
 			this.#get("sync/status"),
 		]);
-		let pairwise: z.infer<typeof pairwiseSchema>;
-		let summary: { pricing: z.infer<typeof pricingSchema> };
-		let sync: { last_sync: string };
+		let pairwise: typeof pairwiseSchema.Type;
+		let summary: typeof summarySchema.Type;
+		let sync: typeof syncSchema.Type;
 		try {
-			pairwise = pairwiseSchema.parse(rawPairwise);
-			summary = z.object({ pricing: pricingSchema }).parse(rawSummary);
-			sync = z.object({ last_sync: z.iso.datetime({ offset: true }) }).parse(rawSync);
+			pairwise = Schema.decodeUnknownSync(pairwiseSchema)(rawPairwise);
+			summary = Schema.decodeUnknownSync(summarySchema)(rawSummary);
+			sync = Schema.decodeUnknownSync(syncSchema)(rawSync);
 		} catch (error) {
 			throw new CostMeterUnavailableError(
 				`cost meter returned an incomplete contract: ${error instanceof Error ? error.message : "invalid response"}`,

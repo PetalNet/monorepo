@@ -5,23 +5,24 @@ import type {
 	InvestigationNode,
 	InvestigationPanel,
 } from "$lib/data/investigations";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Schema } from "effect";
 
-const nodeId = z.object({ id: z.string().min(1).max(100) }).strict();
-const branchInput = z
-	.object({
-		title: z.string().trim().min(1).max(200),
-		queryRef: z.string().min(1).max(100),
-		panelTitle: z.string().trim().min(1).max(200),
-		panelType: z.enum(["bar", "line", "stat", "table", "scatter"]),
-		parentId: z.string().min(1).max(100).nullable(),
-		parentQuestion: z.string().max(2_000).nullable(),
-		scope: z.string().min(1).max(500).nullable(),
-		selectedField: z.string().min(1).max(200),
-		selectedValue: z.union([z.string(), z.number(), z.boolean()]),
-	})
-	.strict();
+const nodeId = Schema.Struct({
+	id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+}).annotate(rejectUnknownKeys);
+const branchInput = Schema.Struct({
+	title: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	queryRef: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+	panelTitle: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	panelType: Schema.Literals(["bar", "line", "stat", "table", "scatter"]),
+	parentId: Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))),
+	parentQuestion: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))),
+	scope: Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500))),
+	selectedField: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	selectedValue: Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
+}).annotate(rejectUnknownKeys);
 
 function isMock(): boolean {
 	return env.PUBLIC_CONSOLE_DATA_MODE !== "live";
@@ -219,17 +220,20 @@ export const getInvestigationGraph = query(async (): Promise<InvestigationNode[]
 	return nodes;
 });
 
-export const loadInvestigationNode = query(nodeId, async ({ id }): Promise<InvestigationDetail> => {
-	if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]);
-	const detail = await apiJson<DashboardDetail>(`/dashboards/${encodeURIComponent(id)}`);
-	return {
-		node: normalizeNode(detail),
-		panels: (detail.materialized_panels ?? []).map(normalizePanel),
-	};
-});
+export const loadInvestigationNode = query(
+	Schema.toStandardSchemaV1(nodeId),
+	async ({ id }): Promise<InvestigationDetail> => {
+		if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]);
+		const detail = await apiJson<DashboardDetail>(`/dashboards/${encodeURIComponent(id)}`);
+		return {
+			node: normalizeNode(detail),
+			panels: (detail.materialized_panels ?? []).map(normalizePanel),
+		};
+	},
+);
 
 export const createInvestigationNode = command(
-	branchInput,
+	Schema.toStandardSchemaV1(branchInput),
 	async (input): Promise<InvestigationNode> => {
 		if (isMock())
 			return {
@@ -274,7 +278,7 @@ export const createInvestigationNode = command(
 	},
 );
 
-export const pinInvestigationNode = command(nodeId, async ({ id }) => {
+export const pinInvestigationNode = command(Schema.toStandardSchemaV1(nodeId), async ({ id }) => {
 	if (isMock()) return { id, isHome: true };
 	await apiJson(`/dashboards/${encodeURIComponent(id)}/home`, {
 		method: "POST",

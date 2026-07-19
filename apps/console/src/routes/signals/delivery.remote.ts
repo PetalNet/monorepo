@@ -17,8 +17,9 @@ import {
 	mockSubscriptions,
 	type DeliveryReceiptView,
 } from "$lib/data/signals";
+import { ISO_DATETIME_OFFSET_RE, rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Schema } from "effect";
 
 export interface DeliverySurfaceData {
 	delivery: DeliveryItem | null;
@@ -207,46 +208,54 @@ export const sendDeliveryTest = command(async () => {
 	return runDeliveryOp("delivery.test", {});
 });
 
-const targetArgs = z
-	.object({
-		target: z
-			.string()
-			.regex(/^(@|!)[^:]+:.+$/)
-			.max(255),
-	})
-	.strict();
-export const setDeliveryTarget = command(targetArgs, async ({ target }) => {
-	if (isMock()) {
-		mockDeliveryState = {
-			...mockDeliveryState,
-			target,
-			verified: true,
-			updated_at: new Date().toISOString(),
-			updated_by: "parker",
-		};
-		void getDeliverySurface().refresh();
-		return { delivered: true, target, receipt_ref: `mock-${String(Date.now())}` };
-	}
-	return runDeliveryOp("delivery.set_target", { channel: "matrix", target });
-});
+const targetArgs = Schema.Struct({
+	target: Schema.String.check(Schema.isPattern(/^(@|!)[^:]+:.+$/), Schema.isMaxLength(255)),
+}).annotate(rejectUnknownKeys);
+export const setDeliveryTarget = command(
+	Schema.toStandardSchemaV1(targetArgs),
+	async ({ target }) => {
+		if (isMock()) {
+			mockDeliveryState = {
+				...mockDeliveryState,
+				target,
+				verified: true,
+				updated_at: new Date().toISOString(),
+				updated_by: "parker",
+			};
+			void getDeliverySurface().refresh();
+			return { delivered: true, target, receipt_ref: `mock-${String(Date.now())}` };
+		}
+		return runDeliveryOp("delivery.set_target", { channel: "matrix", target });
+	},
+);
 
-const cocoonArgs = z.object({ until: z.iso.datetime({ offset: true }) }).strict();
-export const setDeliveryCocoon = command(cocoonArgs, async ({ until }) => {
-	if (isMock()) {
-		mockDeliveryState = {
-			...mockDeliveryState,
-			cocoon_until: Date.parse(until) <= Date.now() ? null : until,
-			updated_at: new Date().toISOString(),
-			updated_by: "parker",
-		};
-		void getDeliverySurface().refresh();
-		return { cocoon_until: mockDeliveryState.cocoon_until };
-	}
-	return runDeliveryOp("delivery.cocoon", { until });
-});
+const cocoonArgs = Schema.Struct({
+	until: Schema.String.check(Schema.isPattern(ISO_DATETIME_OFFSET_RE)),
+}).annotate(rejectUnknownKeys);
+export const setDeliveryCocoon = command(
+	Schema.toStandardSchemaV1(cocoonArgs),
+	async ({ until }) => {
+		if (isMock()) {
+			mockDeliveryState = {
+				...mockDeliveryState,
+				cocoon_until: Date.parse(until) <= Date.now() ? null : until,
+				updated_at: new Date().toISOString(),
+				updated_by: "parker",
+			};
+			void getDeliverySurface().refresh();
+			return { cocoon_until: mockDeliveryState.cocoon_until };
+		}
+		return runDeliveryOp("delivery.cocoon", { until });
+	},
+);
 
-const resendArgs = z.object({ receiptRef: z.string().min(1).max(64) }).strict();
-export const resendDeliveryReceipt = command(resendArgs, async ({ receiptRef }) => {
-	if (isMock()) return sendDeliveryTest();
-	return runDeliveryOp("delivery.resend", { receipt_ref: receiptRef });
-});
+const resendArgs = Schema.Struct({
+	receiptRef: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+}).annotate(rejectUnknownKeys);
+export const resendDeliveryReceipt = command(
+	Schema.toStandardSchemaV1(resendArgs),
+	async ({ receiptRef }) => {
+		if (isMock()) return sendDeliveryTest();
+		return runDeliveryOp("delivery.resend", { receipt_ref: receiptRef });
+	},
+);

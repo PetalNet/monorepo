@@ -1,16 +1,27 @@
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
 
+import { Cause, Exit, Schema } from "effect";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
+import {
+	AttentionItemSchema,
+	AvailabilitySnapshotSchema,
+	BoxUpdateRawSchema,
+	CommsEventSchema,
+	DeliveryItemSchema,
+	EdgeRegistryItemSchema,
+	EdgeSessionItemSchema,
+	ReadEnvelopeSchema,
+	SubscriptionItemSchema,
+	UpdateApprovalSchema,
+} from "../../src/lib/contracts/entities.ts";
 import {
 	resolvedOpCapabilities,
 	type TerminalAdapter,
 } from "../../src/lib/server/api/console-api.ts";
-import { validateJsonSchema } from "../../src/lib/server/api/json-schema.ts";
 import {
 	AssistantCompilerError,
 	type AssistantCompiler,
@@ -48,13 +59,18 @@ import { searchSemanticCorpus } from "../../src/lib/server/domain/semantic/searc
 import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
 import { startTestSurface } from "../harness/surface.ts";
 
-const contractSchema = (name: string): Record<string, unknown> =>
-	JSON.parse(
-		readFileSync(
-			new URL(`../../docs/contracts/schemas/${name}.schema.json`, import.meta.url),
-			"utf8",
-		),
-	) as Record<string, unknown>;
+/**
+ * Returns the Effect Schema decode failure (pretty-printed) or null — responses are asserted
+ * against the contract SSOT with `expect(contractError(schema, value)).toBeNull()` so a mismatch
+ * surfaces the exact schema issue in the assertion output.
+ */
+const contractError = (
+	schema: Parameters<typeof Schema.decodeUnknownExit>[0],
+	value: unknown,
+): string | null => {
+	const exit = Schema.decodeUnknownExit(schema)(value, { errors: "all" });
+	return Exit.isFailure(exit) ? Cause.pretty(exit.cause) : null;
+};
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -411,13 +427,7 @@ describe("services availability read", () => {
 			});
 			expect(visible.statusCode, visible.body).toBe(200);
 			const body = visible.json();
-			const availabilitySchema = JSON.parse(
-				readFileSync(
-					new URL("../../docs/contracts/schemas/availability.schema.json", import.meta.url),
-					"utf8",
-				),
-			) as Record<string, unknown>;
-			expect(validateJsonSchema(body, availabilitySchema, "availability")).toBeNull();
+			expect(contractError(AvailabilitySnapshotSchema, body)).toBeNull();
 			expect(body.items).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
@@ -513,13 +523,7 @@ describe("correspondence history read", () => {
 					about: "task.dispatch",
 				}),
 			]);
-			const itemSchema = JSON.parse(
-				readFileSync(
-					new URL("../../docs/contracts/schemas/entities/comms-event.schema.json", import.meta.url),
-					"utf8",
-				),
-			) as Record<string, unknown>;
-			expect(validateJsonSchema(body.items[0], itemSchema, "comms item")).toBeNull();
+			expect(contractError(CommsEventSchema, body.items[0])).toBeNull();
 
 			const reply = await server.inject({
 				method: "GET",
@@ -691,16 +695,7 @@ describe("staged update approval reversal", () => {
 					observed_at: expect.any(String),
 				}),
 			]);
-			const approvalSchema = JSON.parse(
-				readFileSync(
-					new URL(
-						"../../docs/contracts/schemas/entities/update-approval.schema.json",
-						import.meta.url,
-					),
-					"utf8",
-				),
-			) as Record<string, unknown>;
-			expect(validateJsonSchema(listed.json().items[0], approvalSchema, "approval")).toBeNull();
+			expect(contractError(UpdateApprovalSchema, listed.json().items[0])).toBeNull();
 
 			const revoked = await server.inject({
 				method: "POST",
@@ -4073,8 +4068,6 @@ describe("current_state projection (N1b)", () => {
 		await waitProjected("attention", attentionId, attentionResult.seq as number);
 		await waitProjected("box_update", boxId, boxResult.seq as number);
 
-		const schemas = contractSchema;
-		const envelopeSchema = schemas("entities/read-envelope");
 		const server = await startTestSurface(services);
 		const fleetPrincipal = JSON.stringify({
 			kind: "human",
@@ -4090,11 +4083,11 @@ describe("current_state projection (N1b)", () => {
 		});
 		try {
 			for await (const [path, itemSchema, identity] of [
-				["edge/registry", "entities/edge-registry", ["pubkey_fp", fingerprint]],
-				["edge/sessions", "entities/edge-session", ["session_id", sessionId]],
-				["subscriptions", "subscription", ["pattern", subscription.pattern]],
-				["delivery", "entities/delivery", ["owner", "eli"]],
-				["attention", "attention-item", ["id", attentionId]],
+				["edge/registry", EdgeRegistryItemSchema, ["pubkey_fp", fingerprint]],
+				["edge/sessions", EdgeSessionItemSchema, ["session_id", sessionId]],
+				["subscriptions", SubscriptionItemSchema, ["pattern", subscription.pattern]],
+				["delivery", DeliveryItemSchema, ["owner", "eli"]],
+				["attention", AttentionItemSchema, ["id", attentionId]],
 			] as const) {
 				const response = await server.inject({
 					method: "GET",
@@ -4103,13 +4096,12 @@ describe("current_state projection (N1b)", () => {
 				});
 				expect(response.statusCode, response.body).toBe(200);
 				const body = response.json();
-				expect(validateJsonSchema(body, envelopeSchema, "response")).toBeNull();
+				expect(contractError(ReadEnvelopeSchema, body)).toBeNull();
 				const item = body.items.find(
 					(candidate: Record<string, unknown>) => candidate[identity[0]] === identity[1],
 				);
 				expect(item).toBeDefined();
-				for (const candidate of body.items)
-					expect(validateJsonSchema(candidate, schemas(itemSchema), "item")).toBeNull();
+				for (const candidate of body.items) expect(contractError(itemSchema, candidate)).toBeNull();
 			}
 			const filteredSession = await server.inject({
 				method: "GET",
@@ -4144,9 +4136,7 @@ describe("current_state projection (N1b)", () => {
 				headers: { "x-dev-principal": fleetPrincipal },
 			});
 			expect(rawResponse.statusCode, rawResponse.body).toBe(200);
-			expect(
-				validateJsonSchema(rawResponse.json(), schemas("entities/box-update-raw"), "item"),
-			).toBeNull();
+			expect(contractError(BoxUpdateRawSchema, rawResponse.json())).toBeNull();
 
 			for await (const path of ["subscriptions", "delivery", "attention"]) {
 				const hidden = await server.inject({

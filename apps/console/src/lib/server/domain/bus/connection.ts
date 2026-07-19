@@ -1,23 +1,19 @@
 // Transport-agnostic bus connection (contract §4.1). The exact per-connection behavior of the
-// former Fastify WS handler: ready-principal resolution, heartbeat, grant-change re-fencing,
+// former in-server WS handler: ready-principal resolution, heartbeat, grant-change re-fencing,
 // frame-contract validation, and bounded subscription bookkeeping. The WebSocket (or any other
 // framed transport) is abstracted behind BusSocket so the upgrade path owns no bus semantics.
-import {
-	CONTRACTS_DIR,
-	readSchema,
-	validateJsonSchema,
-	type JsonSchema,
-} from "../../api/json-schema.ts";
+import { BusClientFrameSchema } from "@petalnet/console-bus-rpc";
+import { Exit, Schema } from "effect";
+
 import type { Principal } from "../auth/principal.ts";
 import { withScopes } from "../db/pool.ts";
 import { sanitizedException, type ExceptionMonitor } from "../observability.ts";
 import type { Services } from "../substrate.ts";
 import type { SubscribeSpec } from "./broker.ts";
 
-const busFrameSchema = readSchema(new URL("schemas/bus-frame.schema.json", CONTRACTS_DIR));
-const clientBusFrameSchema: JsonSchema = {
-	oneOf: [{ $ref: "#/$defs/subscribe" }, { $ref: "#/$defs/unsubscribe" }],
-};
+// Inbound frames are decoded against the typed bus contract (client frames are strict: unknown
+// keys reject, mirroring the retired bus-frame JSON schema's `additionalProperties: false`).
+const decodeClientFrame = Schema.decodeUnknownExit(BusClientFrameSchema);
 
 export interface BusSocket {
 	send(text: string): void;
@@ -188,19 +184,12 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 			const rawSubId =
 				raw && typeof raw === "object" ? (raw as Record<string, unknown>)["sub_id"] : undefined;
 			const candidateSubId = typeof rawSubId === "string" && rawSubId.length <= 64 ? rawSubId : "?";
-			const contractError = validateJsonSchema(raw, clientBusFrameSchema, "frame", busFrameSchema);
-			if (contractError) {
+			const decoded = decodeClientFrame(raw);
+			if (Exit.isFailure(decoded)) {
 				rejectFrame("invalid_frame", "frame does not match the bus contract", candidateSubId);
 				return;
 			}
-			const msg = raw as {
-				schema_version: 1;
-				action: "subscribe" | "unsubscribe";
-				sub_id: string;
-				pattern?: string;
-				filter?: SubscribeSpec["filter"];
-				since?: number;
-			};
+			const msg = decoded.value;
 			if (msg.action === "subscribe") {
 				if (!connSubs.has(msg.sub_id) && connSubs.size >= maxSubscriptions) {
 					rejectFrame(
@@ -212,7 +201,7 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 				}
 				const spec: SubscribeSpec = {
 					subId: msg.sub_id,
-					pattern: msg.pattern as string,
+					pattern: msg.pattern,
 					filter: msg.filter,
 					since: msg.since,
 					scopes: principal.scopes,

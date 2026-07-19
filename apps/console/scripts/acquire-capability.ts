@@ -2,6 +2,8 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
+import { Exit, Schema } from "effect";
+
 import { capabilityAcquisitionSchema } from "../src/lib/server/domain/registry/acquisition.ts";
 import {
 	installCapabilityBundle,
@@ -43,9 +45,9 @@ async function main(): Promise<void> {
 			failure?.error?.message ?? `capability acquisition failed (${response.status})`,
 		);
 	}
-	const parsed = capabilityAcquisitionSchema.safeParse(await response.json());
-	if (!parsed.success) throw new Error("capability acquisition response is invalid");
-	const acquisition = parsed.data;
+	const parsed = Schema.decodeUnknownExit(capabilityAcquisitionSchema)(await response.json());
+	if (Exit.isFailure(parsed)) throw new Error("capability acquisition response is invalid");
+	const acquisition = parsed.value;
 	if (acquisition.capability !== capability)
 		throw new Error("capability acquisition response is invalid");
 	if (provider && acquisition.provider !== provider)

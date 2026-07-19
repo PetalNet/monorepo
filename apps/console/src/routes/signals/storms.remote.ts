@@ -2,10 +2,13 @@ import { getRequestEvent, command, query } from "$app/server";
 const env = import.meta.env;
 import type { OpResult, ReadEnvelope, SubscriptionItem } from "$lib/api/types";
 import { mockSubscriptions } from "$lib/data/signals";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Schema } from "effect";
 
-const undoArgs = z.object({ pattern: z.string().min(1).max(256) }).strict();
+const undoArgs = Schema.Struct({
+	pattern: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+}).annotate(rejectUnknownKeys);
 
 function isMock(): boolean {
 	return env.PUBLIC_CONSOLE_DATA_MODE !== "live";
@@ -62,7 +65,7 @@ export const getSignalStorms = query(async (): Promise<ActiveSignalStorm[]> => {
 	);
 });
 
-export const undoSignalStorm = command(undoArgs, async ({ pattern }) => {
+export const undoSignalStorm = command(Schema.toStandardSchemaV1(undoArgs), async ({ pattern }) => {
 	if (isMock()) return { pattern, tier: "feed" as const, restored: true };
 	const result = await apiJson<OpResult>("/op", {
 		method: "POST",

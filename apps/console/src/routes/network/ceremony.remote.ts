@@ -3,21 +3,25 @@ const env = import.meta.env;
 import type { EdgeRegistryItem, OpResult, ReadEnvelope } from "$lib/api/types";
 import { mockPendingKey, mockRegistry } from "$lib/data/network";
 import { captureCaughtFailure } from "$lib/glitchtip";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Schema } from "effect";
 
-const fingerprint = z.string().min(16).max(256);
-const handle = z
-	.string()
-	.min(1)
-	.max(64)
-	.regex(/^[a-z0-9][a-z0-9._-]*$/);
-const reason = z.string().trim().min(3).max(500);
-const approveInput = z.object({ pubkey_fp: fingerprint, handle }).strict();
-const denyInput = z.object({ pubkey_fp: fingerprint, reason }).strict();
-const revokeInput = z
-	.object({ pubkey_fp: fingerprint, handle, confirm_name: handle, reason })
-	.strict();
+const fingerprint = Schema.String.check(Schema.isMinLength(16), Schema.isMaxLength(256));
+const handle = Schema.String.check(
+	Schema.isMinLength(1),
+	Schema.isMaxLength(64),
+	Schema.isPattern(/^[a-z0-9][a-z0-9._-]*$/),
+);
+const reason = Schema.Trim.check(Schema.isMinLength(3), Schema.isMaxLength(500));
+const approveInput = Schema.Struct({ pubkey_fp: fingerprint, handle }).annotate(rejectUnknownKeys);
+const denyInput = Schema.Struct({ pubkey_fp: fingerprint, reason }).annotate(rejectUnknownKeys);
+const revokeInput = Schema.Struct({
+	pubkey_fp: fingerprint,
+	handle,
+	confirm_name: handle,
+	reason,
+}).annotate(rejectUnknownKeys);
 
 export interface KeyCeremonySurface {
 	readonly registry: EdgeRegistryItem[];
@@ -136,7 +140,7 @@ async function runCeremonyOp(
 	return result.result ?? {};
 }
 
-export const approveEnrollment = command(approveInput, async (input) => {
+export const approveEnrollment = command(Schema.toStandardSchemaV1(approveInput), async (input) => {
 	if (isMock()) {
 		mockStates.set(input.pubkey_fp, "enrolled");
 		return { state: "enrolled" as const, handle: input.handle };
@@ -144,16 +148,19 @@ export const approveEnrollment = command(approveInput, async (input) => {
 	return runCeremonyOp("edge.enroll.approve", input);
 });
 
-export const denyEnrollment = command(denyInput, async ({ reason: reasonText, ...args }) => {
-	if (isMock()) {
-		mockStates.set(args.pubkey_fp, "denied");
-		return { state: "denied" as const };
-	}
-	return runCeremonyOp("edge.enroll.deny", args, reasonText);
-});
+export const denyEnrollment = command(
+	Schema.toStandardSchemaV1(denyInput),
+	async ({ reason: reasonText, ...args }) => {
+		if (isMock()) {
+			mockStates.set(args.pubkey_fp, "denied");
+			return { state: "denied" as const };
+		}
+		return runCeremonyOp("edge.enroll.deny", args, reasonText);
+	},
+);
 
 export const revokeKey = command(
-	revokeInput,
+	Schema.toStandardSchemaV1(revokeInput),
 	async ({ reason: reasonText, handle: _handle, ...args }) => {
 		if (isMock()) {
 			mockStates.set(args.pubkey_fp, "revoked");

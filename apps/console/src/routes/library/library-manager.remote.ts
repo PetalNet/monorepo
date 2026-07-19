@@ -9,77 +9,80 @@ import {
 	type LibraryKind,
 } from "$lib/data/library";
 import { settledTaskLibraryItem } from "$lib/data/work-settlement";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Exit, Schema } from "effect";
 
-const viewSchema = z.enum(["desk", "graph", "kanban", "table"]);
-const messageSchema = z
-	.object({
-		message: z.string().trim().min(1).max(4_000),
-		view: viewSchema,
-		query: z.string().max(500),
-		selected_item_id: z.string().max(256).nullable(),
-	})
-	.strict();
-const searchSchema = z.object({ query: z.string().trim().min(1).max(500) }).strict();
-const acquisitionSchema = z
-	.object({
-		capability: z.string().min(1).max(128),
-		provider: z.string().min(1).max(128),
-	})
-	.strict();
-const acquisitionResultSchema = z.object({
-	capability: z.string(),
-	kind: z.enum(["skill", "tool"]),
-	version: z.string(),
-	provider: z.string(),
-	scope: z.string(),
-	integrity: z.object({ algorithm: z.literal("sha256"), digest: z.string().length(64) }),
-	artifact: z.object({ bytes: z.number().int().positive() }),
-	provenance: z.object({ library_item_id: z.string() }),
+const viewSchema = Schema.Literals(["desk", "graph", "kanban", "table"]);
+const messageSchema = Schema.Struct({
+	message: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(4_000)),
+	view: viewSchema,
+	query: Schema.String.check(Schema.isMaxLength(500)),
+	selected_item_id: Schema.NullOr(Schema.String.check(Schema.isMaxLength(256))),
+}).annotate(rejectUnknownKeys);
+const searchSchema = Schema.Struct({
+	query: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+}).annotate(rejectUnknownKeys);
+const acquisitionSchema = Schema.Struct({
+	capability: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+	provider: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+}).annotate(rejectUnknownKeys);
+const acquisitionResultSchema = Schema.Struct({
+	capability: Schema.String,
+	kind: Schema.Literals(["skill", "tool"]),
+	version: Schema.String,
+	provider: Schema.String,
+	scope: Schema.String,
+	integrity: Schema.Struct({
+		algorithm: Schema.Literal("sha256"),
+		digest: Schema.String.check(Schema.isMinLength(64), Schema.isMaxLength(64)),
+	}),
+	artifact: Schema.Struct({
+		bytes: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+	}),
+	provenance: Schema.Struct({ library_item_id: Schema.String }),
 });
-export type LibraryAcquisitionReceipt = z.infer<typeof acquisitionResultSchema>;
-const statusSchema = z
-	.object({
-		id: z.string().min(1).max(128),
-		status: z.enum([
-			"todo",
-			"doing",
-			"review",
-			"done",
-			"draft",
-			"verified-shared",
-			"superseded",
-			"invalidated",
-		]),
-		expected_version: z.number().int().positive(),
-	})
-	.strict();
-const statusResultSchema = z.object({
-	id: z.string(),
-	status: z.string(),
-	version: z.number().int().positive(),
-	conflict: z
-		.object({ values: z.array(z.string()).min(2) })
-		.loose()
-		.optional(),
+export type LibraryAcquisitionReceipt = typeof acquisitionResultSchema.Type;
+const statusSchema = Schema.Struct({
+	id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+	status: Schema.Literals([
+		"todo",
+		"doing",
+		"review",
+		"done",
+		"draft",
+		"verified-shared",
+		"superseded",
+		"invalidated",
+	]),
+	expected_version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+}).annotate(rejectUnknownKeys);
+const statusResultSchema = Schema.Struct({
+	id: Schema.String,
+	status: Schema.String,
+	version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+	conflict: Schema.optional(
+		// Conflict payloads tolerate extra keys (zod `.loose()` parity).
+		Schema.StructWithRest(
+			Schema.Struct({ values: Schema.Array(Schema.String).check(Schema.isMinLength(2)) }),
+			[Schema.Record(Schema.String, Schema.Unknown)],
+		),
+	),
 });
-export type LibraryStatusResult = z.infer<typeof statusResultSchema>;
-const reviewSchema = z
-	.object({
-		proposal_id: z.string().min(1),
-		decision: z.enum(["under-review", "promoted", "rejected"]),
-		reason: z.string().trim().min(1).max(500),
-	})
-	.strict();
-const reviewResultSchema = z.object({
-	proposal_id: z.string(),
-	capability: z.string(),
-	version: z.string(),
-	state: z.string(),
-	reviewed_by: z.string(),
+export type LibraryStatusResult = typeof statusResultSchema.Type;
+const reviewSchema = Schema.Struct({
+	proposal_id: Schema.String.check(Schema.isMinLength(1)),
+	decision: Schema.Literals(["under-review", "promoted", "rejected"]),
+	reason: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+}).annotate(rejectUnknownKeys);
+const reviewResultSchema = Schema.Struct({
+	proposal_id: Schema.String,
+	capability: Schema.String,
+	version: Schema.String,
+	state: Schema.String,
+	reviewed_by: Schema.String,
 });
-export type LibraryReviewResult = z.infer<typeof reviewResultSchema>;
+export type LibraryReviewResult = typeof reviewResultSchema.Type;
 
 export interface LibraryManagerResult {
 	schema_version: 1;
@@ -250,7 +253,7 @@ function libraryManagerAction(value: unknown, depth = 0): LibraryManagerAction |
 
 /** Literal stacks search stays deterministic while crossing the required SvelteKit RPC boundary. */
 export const searchLibrary = query(
-	searchSchema,
+	Schema.toStandardSchemaV1(searchSchema),
 	async ({ query: searchQuery }): Promise<LibraryItemView[]> => {
 		if (isMock()) return [];
 		const [result, settlement] = await Promise.all([
@@ -274,7 +277,7 @@ export const searchLibrary = query(
 
 /** Prove the artifact is runnable through the caller-scoped acquisition endpoint. */
 export const verifyLibraryCapability = command(
-	acquisitionSchema,
+	Schema.toStandardSchemaV1(acquisitionSchema),
 	async (input): Promise<LibraryAcquisitionReceipt> => {
 		if (isMock())
 			return {
@@ -295,15 +298,15 @@ export const verifyLibraryCapability = command(
 				body: JSON.stringify({ provider: input.provider }),
 			},
 		);
-		const parsed = acquisitionResultSchema.safeParse(result);
-		if (!parsed.success) error(502, "Registry returned an invalid acquisition receipt");
-		return parsed.data;
+		const parsed = Schema.decodeUnknownExit(acquisitionResultSchema)(result);
+		if (Exit.isFailure(parsed)) error(502, "Registry returned an invalid acquisition receipt");
+		return parsed.value;
 	},
 );
 
 /** Status movement uses the same named operation and audit line available to agents. */
 export const updateLibraryStatus = command(
-	statusSchema,
+	Schema.toStandardSchemaV1(statusSchema),
 	async (input): Promise<LibraryStatusResult> => {
 		if (isMock())
 			return { id: input.id, status: input.status, version: input.expected_version + 1 };
@@ -322,15 +325,15 @@ export const updateLibraryStatus = command(
 			}),
 		});
 		void getLibrarySurface().refresh();
-		const parsed = statusResultSchema.safeParse(result.result);
-		if (!parsed.success) error(502, "Library returned an invalid status receipt");
-		return parsed.data;
+		const parsed = Schema.decodeUnknownExit(statusResultSchema)(result.result);
+		if (Exit.isFailure(parsed)) error(502, "Library returned an invalid status receipt");
+		return parsed.value;
 	},
 );
 
 /** Privileged curation stays on the audited op plane; the UI cannot promote directly. */
 export const reviewLibraryCapability = command(
-	reviewSchema,
+	Schema.toStandardSchemaV1(reviewSchema),
 	async (input): Promise<LibraryReviewResult> => {
 		const result = await apiJson<OpResult>("/op", {
 			method: "POST",
@@ -344,16 +347,16 @@ export const reviewLibraryCapability = command(
 				dry_run: false,
 			}),
 		});
-		const parsed = reviewResultSchema.safeParse(result.result);
-		if (!parsed.success) error(502, "Library returned an invalid review receipt");
+		const parsed = Schema.decodeUnknownExit(reviewResultSchema)(result.result);
+		if (Exit.isFailure(parsed)) error(502, "Library returned an invalid review receipt");
 		void getLibrarySurface().refresh();
-		return parsed.data;
+		return parsed.value;
 	},
 );
 
 /** Continue the real caller-scoped Claude Code manager session through a server-only RPC. */
 export const sendLibraryManagerMessage = command(
-	messageSchema,
+	Schema.toStandardSchemaV1(messageSchema),
 	async (input): Promise<LibraryManagerResult> => {
 		if (isMock()) {
 			const normalized = input.message.toLowerCase();

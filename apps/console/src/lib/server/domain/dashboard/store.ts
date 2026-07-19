@@ -12,7 +12,7 @@ import { materializePanel } from "../render/engine.ts";
 import type { MaterializedPanel, PanelSpecV2, RenderArtifact } from "../render/types.ts";
 import { dashboardSaveSchema } from "../render/validation.ts";
 
-type DashboardInput = ReturnType<typeof dashboardSaveSchema.parse>;
+type DashboardInput = typeof dashboardSaveSchema.Type;
 
 interface ItemRow {
 	id: string;
@@ -104,7 +104,7 @@ async function rebindDashboardPayload(
 		return result;
 	}
 	const panels: PanelSpecV2[] = [];
-	for await (const raw of asynchronously(input.panels as PanelSpecV2[])) {
+	for await (const raw of asynchronously(input.panels as unknown as PanelSpecV2[])) {
 		let panel: PanelSpecV2 = {
 			...raw,
 			render: null,
@@ -128,7 +128,13 @@ async function rebindDashboardPayload(
 		}
 		panels.push(panel);
 	}
-	const branch = input.branch ? structuredClone(input.branch) : null;
+	// The clone is mutated below (mark scrubbing + ref rebinding); the decoded input stays readonly.
+	const branch = input.branch
+		? (structuredClone(input.branch) as {
+				selected_mark?: { datum?: unknown; value?: unknown; query_ref?: string } | null;
+				[key: string]: unknown;
+			})
+		: null;
 	const selectedRef = branch?.selected_mark?.query_ref;
 	if (branch?.selected_mark) {
 		delete branch.selected_mark.datum;

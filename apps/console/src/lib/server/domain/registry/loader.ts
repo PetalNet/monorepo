@@ -2,27 +2,25 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { chmod, lstat, mkdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 
-import { z } from "zod";
+import { Exit, Schema } from "effect";
 
 import { asynchronously } from "#domain/iteration";
 
-const fileSchema = z
-	.object({
-		path: z.string().min(1).max(256),
-		mode: z.union([z.literal(0o644), z.literal(0o755)]),
-		content_b64: z.string().min(1).max(2_800_000),
-	})
-	.strict();
+import { rejectUnknownKeys } from "../schema-conventions.ts";
 
-const bundleSchema = z
-	.object({
-		schema_version: z.literal(1),
-		entrypoint: z.string().min(1).max(256),
-		files: z.array(fileSchema).min(1).max(64),
-	})
-	.strict();
+const fileSchema = Schema.Struct({
+	path: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+	mode: Schema.Literals([0o644, 0o755]),
+	content_b64: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2_800_000)),
+}).annotate(rejectUnknownKeys);
 
-export type CapabilityBundle = z.infer<typeof bundleSchema>;
+const bundleSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	entrypoint: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+	files: Schema.Array(fileSchema).check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+}).annotate(rejectUnknownKeys);
+
+export type CapabilityBundle = typeof bundleSchema.Type;
 
 export interface CapabilityIntegrity {
 	readonly algorithm: "sha256";
@@ -68,20 +66,20 @@ export function parseCapabilityBundle(
 	} catch {
 		throw new Error("capability artifact is not a JSON bundle");
 	}
-	const parsed = bundleSchema.safeParse(decoded);
-	if (!parsed.success) throw new Error("capability artifact manifest is invalid");
+	const parsed = Schema.decodeUnknownExit(bundleSchema)(decoded);
+	if (Exit.isFailure(parsed)) throw new Error("capability artifact manifest is invalid");
 	const seen = new Set<string>();
 	let totalBytes = 0;
-	for (const file of parsed.data.files) {
+	for (const file of parsed.value.files) {
 		const path = safeRelativePath(file.path);
 		if (seen.has(path)) throw new Error("capability bundle contains duplicate paths");
 		seen.add(path);
 		totalBytes += decodeBase64(file.content_b64).length;
 	}
-	const entrypoint = safeRelativePath(parsed.data.entrypoint);
+	const entrypoint = safeRelativePath(parsed.value.entrypoint);
 	if (!seen.has(entrypoint)) throw new Error("capability bundle entrypoint is missing");
 	if (totalBytes > 2 * 1024 * 1024) throw new Error("capability bundle exceeds 2 MiB");
-	return parsed.data;
+	return parsed.value;
 }
 
 function capabilityDirectoryName(capability: string): string {

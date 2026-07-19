@@ -59,5 +59,3 @@ export function websocket(): Plugin {
 		},
 	};
 }
-
-export default websocket;

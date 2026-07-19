@@ -25,6 +25,8 @@ export interface ListenHandle {
 
 export interface Sql {
 	<T = Row[]>(strings: TemplateStringsArray, ...params: readonly unknown[]): Promise<T>;
+	/** Value-list fragment for `in ${sql([...])}` sites. */
+	(values: readonly unknown[]): unknown;
 	/** Run `fn` on one reserved connection inside BEGIN/COMMIT; the handle is a full `Sql`. */
 	begin<T>(fn: (tx: Sql) => Promise<T>): Promise<T>;
 	/** JSON parameter fragment (jsonb-safe). */
@@ -81,8 +83,11 @@ function makeSql(handle: ClientHandle, txConnection: Connection | null): Sql {
 		txConnection
 			? Effect.provideService(effect, client.transactionService, [txConnection, 0])
 			: effect;
-	const facade = (<T>(strings: TemplateStringsArray, ...params: readonly unknown[]): Promise<T> =>
-		run(inTx(client<never>(strings, ...(params as never[])))) as Promise<T>) as Sql;
+	const facade = ((strings: TemplateStringsArray | readonly unknown[], ...params: never[]) =>
+		Array.isArray(strings) && !("raw" in strings)
+			? // Called with a plain array: an `in ${sql([...])}` value-list fragment.
+				client.in(strings as never[])
+			: run(inTx(client<never>(strings as TemplateStringsArray, ...params)))) as Sql;
 	// Pre-stringified: pg would serialize a JS array param as a PG array literal, not JSON.
 	facade.json = (value) => client.json(JSON.stringify(value));
 	facade.array = (values) => [...values];

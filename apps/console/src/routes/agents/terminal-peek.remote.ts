@@ -1,23 +1,24 @@
 import { command, getRequestEvent, query } from "$app/server";
 const env = import.meta.env;
 import { mockPtyLines } from "$lib/data/terminal";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Schema } from "effect";
 
-const targetSchema = z
-	.object({
-		host: z.string().min(1).max(253),
-		tmux_session: z.string().min(1).max(128),
-		pane_id: z.string().regex(/^%[0-9]+$/),
-	})
-	.strict();
-const pollSchema = z
-	.object({
-		stream_id: z.uuid().or(z.string().regex(/^mock-/)),
-		tick: z.number().int().nonnegative(),
-	})
-	.strict();
-const detachSchema = z.object({ stream_id: pollSchema.shape.stream_id }).strict();
+const targetSchema = Schema.Struct({
+	host: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(253)),
+	tmux_session: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+	pane_id: Schema.String.check(Schema.isPattern(/^%[0-9]+$/)),
+}).annotate(rejectUnknownKeys);
+const streamIdSchema = Schema.Union([
+	Schema.String.check(Schema.isUUID()),
+	Schema.String.check(Schema.isPattern(/^mock-/)),
+]);
+const pollSchema = Schema.Struct({
+	stream_id: streamIdSchema,
+	tick: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+}).annotate(rejectUnknownKeys);
+const detachSchema = Schema.Struct({ stream_id: streamIdSchema }).annotate(rejectUnknownKeys);
 
 export interface PtySnapshot {
 	readonly stream_id: string;
@@ -60,18 +61,21 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Opens the audited read-only PTY path. No attach or input operation is exposed by this module. */
-export const openTerminalPeek = command(targetSchema, async (target): Promise<PtySnapshot> => {
-	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return mockSnapshot();
-	return apiJson<PtySnapshot>("/terminal/peek", {
-		method: "POST",
-		headers: headers(true),
-		body: JSON.stringify({ ...target, scrollback_lines: 10_000 }),
-	});
-});
+export const openTerminalPeek = command(
+	Schema.toStandardSchemaV1(targetSchema),
+	async (target): Promise<PtySnapshot> => {
+		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return mockSnapshot();
+		return apiJson<PtySnapshot>("/terminal/peek", {
+			method: "POST",
+			headers: headers(true),
+			body: JSON.stringify({ ...target, scrollback_lines: 10_000 }),
+		});
+	},
+);
 
 /** Polls an already-authorized server session; tick prevents Remote Function result reuse. */
 export const pollTerminalPeek = query(
-	pollSchema,
+	Schema.toStandardSchemaV1(pollSchema),
 	async ({ stream_id, tick }): Promise<PtySnapshot> => {
 		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return mockSnapshot(stream_id, tick + 1);
 		return apiJson<PtySnapshot>(`/terminal/peek/${encodeURIComponent(stream_id)}`, {
@@ -81,11 +85,14 @@ export const pollTerminalPeek = query(
 	},
 );
 
-export const closeTerminalPeek = command(detachSchema, async ({ stream_id }): Promise<void> => {
-	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return;
-	await apiJson(`/terminal/streams/${encodeURIComponent(stream_id)}/detach`, {
-		method: "POST",
-		headers: headers(true),
-		body: "{}",
-	});
-});
+export const closeTerminalPeek = command(
+	Schema.toStandardSchemaV1(detachSchema),
+	async ({ stream_id }): Promise<void> => {
+		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return;
+		await apiJson(`/terminal/streams/${encodeURIComponent(stream_id)}/detach`, {
+			method: "POST",
+			headers: headers(true),
+			body: "{}",
+		});
+	},
+);

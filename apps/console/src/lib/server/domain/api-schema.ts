@@ -1,3 +1,10 @@
+// The Effect Schema single source of truth for the console API surface. The REST components and
+// OpenAPI derivation live here; the shared server->client contract entities and the op-catalog
+// schema live in the browser-safe `$lib/contracts` modules and are re-exported through this module
+// so it stays the one aggregation point (rewrite Phase 4 — no parallel JSON-Schema, no codegen).
+export * from "../../contracts/entities.ts";
+export * from "../../contracts/op-catalog.ts";
+
 import { Schema } from "effect";
 
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown);

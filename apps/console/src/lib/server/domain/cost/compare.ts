@@ -6,41 +6,39 @@ import type {
 	CostComparisonResult,
 	CostComparisonSide,
 } from "@petalnet/types";
-import { z } from "zod";
+import { Schema } from "effect";
 
 import { required } from "#format";
 import { formatUnknown } from "#format";
 
 import { QueryError, runStructured, type QueryResult } from "../query/structured.ts";
+import { ISO_DATETIME_OFFSET_RE, rejectUnknownKeys } from "../schema-conventions.ts";
 
-export const costComparisonRequestSchema = z
-	.object({
-		schema_version: z.literal(1),
-		dimension: z.enum(["agent", "model", "project"]),
-		left: z.string().min(1).max(256),
-		right: z.string().min(1).max(256),
-		from: z.iso.datetime({ offset: true }),
-		to: z.iso.datetime({ offset: true }),
-		timezone: z.string().min(1).max(64),
-	})
-	.strict()
-	.refine(({ left, right }) => left !== right, {
-		message: "comparison values must be different",
-		path: ["right"],
-	})
-	.refine(
-		({ timezone }) => {
+const isoDateTime = Schema.String.check(Schema.isPattern(ISO_DATETIME_OFFSET_RE));
+
+export const costComparisonRequestSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	dimension: Schema.Literals(["agent", "model", "project"]),
+	left: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+	right: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+	from: isoDateTime,
+	to: isoDateTime,
+	timezone: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+})
+	.annotate(rejectUnknownKeys)
+	.check(
+		Schema.makeFilter(
+			({ left, right }) =>
+				left !== right || { path: ["right"], issue: "comparison values must be different" },
+		),
+		Schema.makeFilter(({ timezone }) => {
 			try {
 				new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
 				return true;
 			} catch {
-				return false;
+				return { path: ["timezone"], issue: "timezone must be an IANA time zone" };
 			}
-		},
-		{
-			message: "timezone must be an IANA time zone",
-			path: ["timezone"],
-		},
+		}),
 	);
 
 export type { CostComparisonRequest, CostComparisonResult } from "@petalnet/types";

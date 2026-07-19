@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 
+import { Exit, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -186,13 +187,15 @@ describe("cost pairwise comparison", () => {
 		});
 		expect(comparison.metrics.find(({ key }) => key === "cost")?.ratio).toBeNull();
 		expect(
-			costComparisonRequestSchema.safeParse({
-				schema_version: 1,
-				dimension: "agent",
-				left: "same",
-				right: "same",
-				...window,
-			}).success,
+			Exit.isSuccess(
+				Schema.decodeUnknownExit(costComparisonRequestSchema)({
+					schema_version: 1,
+					dimension: "agent",
+					left: "same",
+					right: "same",
+					...window,
+				}),
+			),
 		).toBe(false);
 	});
 

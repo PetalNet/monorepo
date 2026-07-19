@@ -124,7 +124,4 @@ catalog:
   mode-watcher: ^1.1.0
   nanoid: ^6.0.0
   uuid: ^14.0.1
-  zod: ^4.4.3
   "@sentry/node": ^10.65.0
-  "@fontsource/geist-sans": ^5.2.5
-  "@fontsource/geist-mono": ^5.2.8

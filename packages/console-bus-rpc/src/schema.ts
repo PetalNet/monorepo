@@ -40,28 +40,50 @@ export type BusEmission = typeof BusEmissionSchema.Type;
 
 // --- client → server -----------------------------------------------------------------------------
 
+// Client frames are the strict side of the wire contract: unknown keys are rejected (the retired
+// bus-frame JSON schema declared `additionalProperties: false` on subscribe/unsubscribe/filter),
+// while server frames stay ignore-unknown so consumers tolerate additive evolution.
+const strictFrame = { parseOptions: { onExcessProperty: "error" } } as const;
+
+/**
+ * Glob over emission type. Dot-segment aware; `*` matches within one segment, `**` (or a trailing
+ * `.*`) matches across segments. Bounded to 128 characters and 32 segments.
+ */
+const BusPatternSchema = Schema.String.check(
+	Schema.isMinLength(1),
+	Schema.isMaxLength(128),
+	Schema.isPattern(/^(?:[a-z0-9_]+|\*|\*\*)(?:\.(?:[a-z0-9_]+|\*|\*\*)){0,31}$/),
+);
+
 export const BusSubscribeFilterSchema = Schema.Struct({
-	severity_gte: Schema.optional(Schema.String),
-	source_service: Schema.optional(Schema.String),
-	subject: Schema.optional(Schema.String),
-}).annotate({ identifier: "BusSubscribeFilter" });
+	severity_gte: Schema.optional(BusSeveritySchema),
+	source_service: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
+	subject: Schema.optional(Schema.String.check(Schema.isMaxLength(256))),
+})
+	.annotate({ identifier: "BusSubscribeFilter" })
+	.annotate(strictFrame);
 export type BusSubscribeFilter = typeof BusSubscribeFilterSchema.Type;
 
 export const BusSubscribeSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
 	action: Schema.Literal("subscribe"),
 	sub_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
-	pattern: Schema.String,
+	pattern: BusPatternSchema,
 	filter: Schema.optional(BusSubscribeFilterSchema),
-	since: Schema.optional(Schema.Number),
-}).annotate({ identifier: "BusSubscribe", title: "Bus subscribe frame" });
+	/** EXCLUSIVE lake seq to resume after. Omit for live-only. */
+	since: Schema.optional(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+})
+	.annotate({ identifier: "BusSubscribe", title: "Bus subscribe frame" })
+	.annotate(strictFrame);
 export type BusSubscribe = typeof BusSubscribeSchema.Type;
 
 export const BusUnsubscribeSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
 	action: Schema.Literal("unsubscribe"),
 	sub_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
-}).annotate({ identifier: "BusUnsubscribe", title: "Bus unsubscribe frame" });
+})
+	.annotate({ identifier: "BusUnsubscribe", title: "Bus unsubscribe frame" })
+	.annotate(strictFrame);
 export type BusUnsubscribe = typeof BusUnsubscribeSchema.Type;
 
 export const BusClientFrameSchema = Schema.Union([BusSubscribeSchema, BusUnsubscribeSchema]);

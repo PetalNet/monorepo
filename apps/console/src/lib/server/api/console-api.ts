@@ -1,4 +1,4 @@
-// The HTTP surface (contract §1.1), folded out of the Fastify server into a framework-agnostic
+// The HTTP surface (contract §1.1), folded out of the legacy standalone server into a framework-agnostic
 // Web-standard router: a bearer/dev auth chain that resolves a server-stamped Principal, then the
 // four-plane routes. Query, Command, and the current Library seam are all served here (the bus
 // rides the host's WebSocket upgrade path via bus/connection.ts); unavailable executor adapters
@@ -6,8 +6,7 @@
 // codes, bodies, and headers are unchanged.
 import { createHash } from "node:crypto";
 
-import { Exit, Schema } from "effect";
-import { z } from "zod";
+import { Cause, Effect, Exit, Schema } from "effect";
 
 import { asynchronously } from "#domain/iteration";
 import { required } from "#format";
@@ -102,6 +101,7 @@ import {
 	renderRequestSchema,
 	selectedMarkSchema,
 } from "../domain/render/validation.ts";
+import { rejectUnknownKeys, UUID_RE } from "../domain/schema-conventions.ts";
 import { mergeSemanticShape, type SemanticShape } from "../domain/semantic/registry.ts";
 import { searchSemanticCorpus } from "../domain/semantic/search.ts";
 import type { Services } from "../domain/substrate.ts";
@@ -196,18 +196,45 @@ const INTERNAL_OP_ADAPTERS = new Set([
 	"updates.revoke",
 ]);
 
-const askRequestSchema = z.object({ question: z.string().min(1).max(2_000) }).strict();
-const assistantMessageSchema = z
-	.object({ id: z.uuid(), message: z.string().min(1).max(100_000).regex(/\S/) })
-	.strict();
-const assistantContextSchema = z
-	.object({
-		id: z.uuid(),
-		payload: selectedMarkSchema.extend({
-			value: z.unknown().refine((value) => value !== undefined, "value is required"),
-		}),
-	})
-	.strict();
+const askRequestSchema = Schema.Struct({
+	question: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2_000)),
+}).annotate(rejectUnknownKeys);
+const assistantMessageSchema = Schema.Struct({
+	id: Schema.String.check(Schema.isUUID()),
+	message: Schema.String.check(
+		Schema.isMinLength(1),
+		Schema.isMaxLength(100_000),
+		Schema.isPattern(/\S/),
+	),
+}).annotate(rejectUnknownKeys);
+const assistantContextSchema = Schema.Struct({
+	id: Schema.String.check(Schema.isUUID()),
+	payload: Schema.Struct({
+		...selectedMarkSchema.fields,
+		value: Schema.Unknown.check(
+			Schema.makeFilter((value) => value !== undefined || "value is required"),
+		),
+	}).annotate(rejectUnknownKeys),
+}).annotate(rejectUnknownKeys);
+const dashboardPinSchema = Schema.Struct({
+	id: Schema.String.check(Schema.isUUID()),
+}).annotate(rejectUnknownKeys);
+const capabilityAcquireBodySchema = Schema.Struct({
+	provider: Schema.optional(Schema.String),
+}).annotate(rejectUnknownKeys);
+
+/** Zod `safeParse` parity over Effect Schema, preserving `{ success, data }` call sites. */
+function safeDecode<S extends Schema.ConstraintDecoder<unknown>>(
+	schema: S,
+	input: unknown,
+):
+	| { readonly success: true; readonly data: S["Type"] }
+	| { readonly success: false; readonly message: string } {
+	const exit = Schema.decodeUnknownExit(schema)(input);
+	if (Exit.isSuccess(exit)) return { success: true, data: exit.value };
+	const failure = Cause.squash(exit.cause);
+	return { success: false, message: failure instanceof Error ? failure.message : String(failure) };
+}
 const LANE_ORDER = ["viewer", "editor", "operator", "admin"] as const;
 
 async function resolveHumanIdentity(
@@ -1409,22 +1436,21 @@ type TerminalSession = {
 	timer: ReturnType<typeof setTimeout> | null;
 	end: () => void;
 };
-const terminalTargetSchema = z
-	.object({
-		host: z.string().regex(/^(?:\.[0-9]{1,3}|[A-Za-z0-9][A-Za-z0-9.-]{0,252})$/),
-		tmux_session: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
-		pane_id: z.string().regex(/^%[0-9]+$/),
-		scrollback_lines: z.number().int().min(0).max(10_000).default(500),
-	})
-	.strict();
-const terminalInputSchema = z
-	.object({
-		data_b64: z
-			.string()
-			.max(65_536)
-			.regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
-	})
-	.strict();
+const terminalTargetSchema = Schema.Struct({
+	host: Schema.String.check(Schema.isPattern(/^(?:\.[0-9]{1,3}|[A-Za-z0-9][A-Za-z0-9.-]{0,252})$/)),
+	tmux_session: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)),
+	pane_id: Schema.String.check(Schema.isPattern(/^%[0-9]+$/)),
+	scrollback_lines: Schema.Number.check(
+		Schema.isInt(),
+		Schema.isBetween({ minimum: 0, maximum: 10_000 }),
+	).pipe(Schema.withDecodingDefault(Effect.succeed(500))),
+}).annotate(rejectUnknownKeys);
+const terminalInputSchema = Schema.Struct({
+	data_b64: Schema.String.check(
+		Schema.isMaxLength(65_536),
+		Schema.isPattern(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+	),
+}).annotate(rejectUnknownKeys);
 
 // --- typed entity reads (RLS-scoped projections, N1b) ----------------------------------------
 interface CurrentStateRoute {
@@ -1509,7 +1535,7 @@ const ENTITY_ROUTES: readonly EntityRoute[] = [
 
 type QueryRecord = Record<string, string | string[] | undefined>;
 
-/** Fastify-parity query parsing: repeated keys become arrays, `?q=` yields an empty string. */
+/** Legacy-parity query parsing: repeated keys become arrays, `?q=` yields an empty string. */
 function queryOf(url: URL): QueryRecord {
 	const query: Record<string, string | string[]> = {};
 	for (const key of new Set(url.searchParams.keys())) {
@@ -1572,7 +1598,7 @@ export interface ConsoleApiOptions {
 export interface ConsoleApi {
 	/** Serve one /api/v1 request. Returns null when the path is not part of this surface. */
 	fetch(request: Request): Promise<Response | null>;
-	/** Fastify-parity principal chain: bearer → better-auth verifier → dev header. */
+	/** Principal chain: bearer → better-auth verifier → dev header. */
 	resolvePrincipal(headers: Headers, hostname: string): Promise<Principal | null>;
 	readonly busCounters: BusCounters;
 	close(): void;
@@ -2024,12 +2050,12 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		pattern: "/api/v1/grants",
 		auth: true,
 		handler: async (ctx) => {
-			const parsed = grantMutationSchema.safeParse(ctx.body);
+			const parsed = safeDecode(grantMutationSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: {
 						code: "bad_grant",
-						message: parsed.error.issues[0]?.message ?? "invalid grant",
+						message: parsed.message || "invalid grant",
 						retryable: false,
 					},
 				});
@@ -2181,12 +2207,12 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		pattern: "/api/v1/cost/compare",
 		auth: true,
 		handler: async (ctx) => {
-			const parsed = costComparisonRequestSchema.safeParse(ctx.body);
+			const parsed = safeDecode(costComparisonRequestSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: {
 						code: "bad_cost_comparison",
-						message: parsed.error.issues[0]?.message ?? "invalid cost comparison",
+						message: parsed.message || "invalid cost comparison",
 						retryable: false,
 					},
 				});
@@ -2253,7 +2279,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		handler: async (ctx) => {
 			const p = ctx.principal;
-			const parsed = askRequestSchema.safeParse(ctx.body);
+			const parsed = safeDecode(askRequestSchema, ctx.body);
 			if (!parsed.success || !parsed.data.question.trim())
 				return jsonResponse(400, {
 					error: {
@@ -2310,7 +2336,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		pattern: "/api/v1/assistant/messages",
 		auth: true,
 		handler: async (ctx) => {
-			const parsed = assistantMessageSchema.safeParse(ctx.body);
+			const parsed = safeDecode(assistantMessageSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: { code: "bad_message", message: "invalid assistant message", retryable: false },
@@ -2343,7 +2369,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		pattern: "/api/v1/assistant/context",
 		auth: true,
 		handler: async (ctx) => {
-			const parsed = assistantContextSchema.safeParse(ctx.body);
+			const parsed = safeDecode(assistantContextSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: { code: "bad_context", message: "invalid selected context", retryable: false },
@@ -2415,7 +2441,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		handler: async (ctx) => {
 			const p = ctx.principal;
-			const parsed = renderRequestSchema.safeParse(ctx.body);
+			const parsed = safeDecode(renderRequestSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: {
@@ -2441,7 +2467,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		handler: async (ctx) => {
 			const p = ctx.principal;
-			const parsed = dashboardSaveSchema.safeParse(ctx.body);
+			const parsed = safeDecode(dashboardSaveSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: { code: "bad_dashboard", message: "invalid dashboard payload", retryable: false },
@@ -2477,7 +2503,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		handler: async (ctx) => {
 			const p = ctx.principal;
-			const parsed = investigationBranchSchema.safeParse(ctx.body);
+			const parsed = safeDecode(investigationBranchSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: {
@@ -2502,7 +2528,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 					p.scopes,
 					branchQuery(record.request, input.selected_mark.field, input.selected_mark.value),
 				);
-				const dashboard = dashboardSaveSchema.parse({
+				const dashboard = Schema.decodeUnknownSync(dashboardSaveSchema)({
 					schema_version: 1,
 					id: input.id,
 					title: input.title,
@@ -2599,7 +2625,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		handler: async (ctx) => {
 			const p = ctx.principal;
 			const { dashboardId } = ctx.params as { dashboardId: string };
-			const parsed = z.object({ id: z.uuid() }).strict().safeParse(ctx.body);
+			const parsed = safeDecode(dashboardPinSchema, ctx.body);
 			if (!parsed.success || !/^dash_[A-Za-z0-9_-]{8,40}$/.test(dashboardId))
 				return jsonResponse(400, {
 					error: {
@@ -2792,10 +2818,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		handler: async (ctx) => {
 			const principal = ctx.principal;
 			const { capability } = ctx.params as { capability: string };
-			const body = z
-				.object({ provider: z.string().optional() })
-				.strict()
-				.safeParse(ctx.body ?? {});
+			const body = safeDecode(capabilityAcquireBodySchema, ctx.body ?? {});
 			if (!body.success)
 				return jsonResponse(400, {
 					error: {
@@ -3378,7 +3401,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 				!Number.isInteger(requestedLimit) ||
 				requestedLimit < 1 ||
 				requestedLimit > 1000 ||
-				(query.cursor && !z.uuid().safeParse(query.cursor).success) ||
+				(query.cursor && !UUID_RE.test(query.cursor)) ||
 				(query.since && Number.isNaN(Date.parse(query.since)))
 			)
 				return jsonResponse(400, {
@@ -3605,7 +3628,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 					},
 				});
 			}
-			const parsed = terminalTargetSchema.safeParse(ctx.body);
+			const parsed = safeDecode(terminalTargetSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: { code: "invalid_target", message: "invalid terminal target", retryable: false },
@@ -3733,7 +3756,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 					},
 				});
 			}
-			const parsed = terminalTargetSchema.safeParse(ctx.body);
+			const parsed = safeDecode(terminalTargetSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: { code: "invalid_target", message: "invalid terminal target", retryable: false },
@@ -3906,7 +3929,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 				return jsonResponse(409, {
 					error: { code: "watch_only", message: "attach before sending input", retryable: false },
 				});
-			const parsed = terminalInputSchema.safeParse(ctx.body);
+			const parsed = safeDecode(terminalInputSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: { code: "invalid_input", message: "invalid terminal input", retryable: false },
@@ -4001,7 +4024,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 				return jsonResponse(403, {
 					error: { code: "origin_denied", message: "origin is not allowed", retryable: false },
 				});
-			// @fastify/cors strict-preflight parity: an OPTIONS request carrying both Origin and
+			// Strict-preflight parity with the legacy CORS layer: an OPTIONS request carrying both Origin and
 			// Access-Control-Request-Method is answered here, before routing.
 			if (
 				request.method === "OPTIONS" &&
@@ -4090,7 +4113,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		}
 		// Successful self-observation is sampled 1:10; every failed request is retained. Only bounded
 		// metadata is captured — never Authorization, request bodies, term input, or response bodies.
-		// Fired post-response like Fastify's onResponse hook: the caller never waits on telemetry.
+		// Fired post-response like the legacy onResponse hook: the caller never waits on telemetry.
 		requestSample += 1;
 		if (response.status >= 400 || requestSample % 10 === 0)
 			void emitSelf({

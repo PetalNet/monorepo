@@ -12,12 +12,6 @@ catalogs:
     '@effect/sql-pg':
       specifier: 4.0.0-beta.98
       version: 4.0.0-beta.98
-    '@fontsource/geist-mono':
-      specifier: ^5.2.8
-      version: 5.2.8
-    '@fontsource/geist-sans':
-      specifier: ^5.2.5
-      version: 5.2.5
     '@opentelemetry/api':
       specifier: ^1.9.0
       version: 1.9.1
@@ -78,9 +72,6 @@ catalogs:
     uuid:
       specifier: ^14.0.1
       version: 14.0.1
-    zod:
-      specifier: ^4.4.3
-      version: 4.4.3
   dev:
     '@eslint/js':
       specifier: ^10.0.1
@@ -392,12 +383,6 @@ importers:
       '@effect/sql-pg':
         specifier: 'catalog:'
         version: 4.0.0-beta.98(effect@4.0.0-beta.98)
-      '@fontsource/geist-mono':
-        specifier: 'catalog:'
-        version: 5.2.8
-      '@fontsource/geist-sans':
-        specifier: 'catalog:'
-        version: 5.2.5
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -434,15 +419,18 @@ importers:
       better-auth:
         specifier: 'catalog:'
         version: 1.7.0-rc.1(a52e1e457fb0faaabc33f29118ba3efc)
-      crossws:
-        specifier: 'catalog:'
-        version: 0.3.5
       daisyui:
         specifier: catalog:prod
         version: 5.6.18
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.98
+      effect-db:
+        specifier: 'catalog:'
+        version: 0.20.0(effect@4.0.0-beta.98)
+      effect-qb:
+        specifier: 'catalog:'
+        version: 0.20.0(effect@4.0.0-beta.98)
       import-in-the-middle:
         specifier: 'catalog:'
         version: 2.0.6
@@ -464,9 +452,6 @@ importers:
       uuid:
         specifier: 'catalog:'
         version: 14.0.1
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
     devDependencies:
       '@petalnet/svelte-ws':
         specifier: workspace:*
@@ -483,12 +468,9 @@ importers:
       '@types/node':
         specifier: catalog:types
         version: 25.9.4
-      effect-db:
+      crossws:
         specifier: 'catalog:'
-        version: 0.20.0(effect@4.0.0-beta.98)
-      effect-qb:
-        specifier: 'catalog:'
-        version: 0.20.0(effect@4.0.0-beta.98)
+        version: 0.3.5
       eslint:
         specifier: catalog:dev
         version: 10.5.0(jiti@2.7.0)
@@ -1568,12 +1550,6 @@ packages:
   '@eslint/plugin-kit@0.7.2':
     resolution: {integrity: sha512-+CNAzxglkrpNf/kKywqQfk74QjtceuOE7Qm+AF8miRvPF/wmmK5+OJOgVh3AVTT3RP2mH3+FOaxlE5v72owk0A==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
-
-  '@fontsource/geist-mono@5.2.8':
-    resolution: {integrity: sha512-YqZUb3X42GjRaHkibUNyE8K4Rk9A6I9Ez81YpJYiuJN4ggmTW2ixoQpa9EWCPfXZtIsCQJTyrDoV9OJOZO/UcA==}
-
-  '@fontsource/geist-sans@5.2.5':
-    resolution: {integrity: sha512-anllOHyJbElRs9fV15TeDRqAeb1IKm4bSknPl6ZMoyPTx1BBy7logudcUwpNjmQLkzn4Q0JGQLRCUKJYoyST6A==}
 
   '@grpc/grpc-js@1.14.4':
     resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
@@ -8215,10 +8191,6 @@ snapshots:
     dependencies:
       '@eslint/core': 1.2.1
       levn: 0.4.1
-
-  '@fontsource/geist-mono@5.2.8': {}
-
-  '@fontsource/geist-sans@5.2.5': {}
 
   '@grpc/grpc-js@1.14.4':
     dependencies:

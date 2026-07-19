@@ -1,8 +1,10 @@
-// The L1 canonical emission shape (contract §2, schemas/emission.schema.json), validated at the
-// ingest door. This is the one envelope that is both a bus signal and a lake statistic.
+// The L1 canonical emission shape (contract §2; `SignalEmissionSchema` in
+// src/lib/contracts/entities.ts pins the served projection), validated at the ingest door. This is
+// the one envelope that is both a bus signal and a lake statistic.
 
-import { z } from "zod";
+import { Cause, Exit, Schema } from "effect";
 
+import { ISO_DATETIME_OFFSET_RE, rejectUnknownKeys } from "./schema-conventions.ts";
 import { SCOPE_RE } from "./scope.ts";
 
 export const SEVERITIES = ["debug", "info", "warn", "danger", "p0"] as const;
@@ -32,62 +34,80 @@ function isSafeEmissionAction(value: string): boolean {
 	}
 }
 
-const actionTarget = z
-	.string()
-	.min(1)
-	.max(512)
-	.refine(isSafeEmissionAction, "action must be an internal route or HTTPS URL");
+const actionTarget = Schema.String.check(
+	Schema.isMinLength(1),
+	Schema.isMaxLength(512),
+	Schema.makeFilter(
+		(value: string) =>
+			isSafeEmissionAction(value) || "action must be an internal route or HTTPS URL",
+	),
+);
 
-const linkTarget = z
-	.object({
-		kind: z.enum(["agent", "host", "service", "task", "card", "item", "user", "session", "other"]),
-		id: z.string().max(256),
-	})
-	.strict();
+const SUBJECT_KINDS = [
+	"agent",
+	"host",
+	"service",
+	"task",
+	"card",
+	"item",
+	"user",
+	"session",
+	"other",
+] as const;
 
-const fieldMeta = z
-	.object({
-		unit: z.string().max(32).optional(),
-		kind: z.enum(["gauge", "counter", "delta", "timestamp"]).optional(),
-		cardinality: z.enum(["low", "medium", "high"]).optional(),
-	})
-	.strict();
+const linkTarget = Schema.Struct({
+	kind: Schema.Literals(SUBJECT_KINDS),
+	id: Schema.String.check(Schema.isMaxLength(256)),
+}).annotate(rejectUnknownKeys);
+
+const fieldMeta = Schema.Struct({
+	unit: Schema.optional(Schema.String.check(Schema.isMaxLength(32))),
+	kind: Schema.optional(Schema.Literals(["gauge", "counter", "delta", "timestamp"])),
+	cardinality: Schema.optional(Schema.Literals(["low", "medium", "high"])),
+}).annotate(rejectUnknownKeys);
 
 // additionalProperties: true on the wire (dual-role envelope, Rule 1 exemption) — but we validate
 // the known shape strictly enough to keep the lake honest, then pass unknown keys through in `meta`.
-export const emissionSchema = z.object({
-	schema_version: z.literal(1),
-	id: z.uuid(),
-	type: z.string().regex(TYPE_RE).max(128),
-	ts: z.iso.datetime({ offset: true }),
-	source: z.object({
-		service: z.string().max(64),
-		host: z.string().nullable().optional(),
-		agent: z.string().regex(HANDLE_RE).nullable().optional(),
+const emissionSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	id: Schema.String.check(Schema.isUUID()),
+	type: Schema.String.check(Schema.isPattern(TYPE_RE), Schema.isMaxLength(128)),
+	ts: Schema.String.check(Schema.isPattern(ISO_DATETIME_OFFSET_RE)),
+	source: Schema.Struct({
+		service: Schema.String.check(Schema.isMaxLength(64)),
+		host: Schema.optional(Schema.NullOr(Schema.String)),
+		agent: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isPattern(HANDLE_RE)))),
 	}),
-	subject: z.string().max(256),
-	subject_kind: z
-		.enum(["agent", "host", "service", "task", "card", "item", "user", "session", "other"])
-		.nullable()
-		.optional(),
-	severity: z.enum(SEVERITIES),
-	action: actionTarget.nullable().optional(),
-	task_id: z.number().int().nullable().optional(),
-	scope: z.string().regex(SCOPE_RE),
-	dimensions: z.record(z.string(), z.union([z.string().max(512), z.boolean()])).optional(),
-	measures: z.record(z.string(), z.number()).optional(),
-	links: z
-		.array(z.object({ rel: z.string().max(64), to: linkTarget }).strict())
-		.max(16)
-		.optional(),
-	body_ref: z.string().nullable().optional(),
-	meta: z
-		.object({ fields: z.record(z.string(), fieldMeta).optional() })
-		.loose()
-		.optional(),
+	subject: Schema.String.check(Schema.isMaxLength(256)),
+	subject_kind: Schema.optional(Schema.NullOr(Schema.Literals(SUBJECT_KINDS))),
+	severity: Schema.Literals(SEVERITIES),
+	action: Schema.optional(Schema.NullOr(actionTarget)),
+	task_id: Schema.optional(Schema.NullOr(Schema.Number.check(Schema.isInt()))),
+	scope: Schema.String.check(Schema.isPattern(SCOPE_RE)),
+	dimensions: Schema.optional(
+		Schema.Record(
+			Schema.String,
+			Schema.Union([Schema.String.check(Schema.isMaxLength(512)), Schema.Boolean]),
+		),
+	),
+	measures: Schema.optional(Schema.Record(Schema.String, Schema.Number)),
+	links: Schema.optional(
+		Schema.Array(
+			Schema.Struct({ rel: Schema.String.check(Schema.isMaxLength(64)), to: linkTarget }).annotate(
+				rejectUnknownKeys,
+			),
+		).check(Schema.isMaxLength(16)),
+	),
+	body_ref: Schema.optional(Schema.NullOr(Schema.String)),
+	meta: Schema.optional(
+		Schema.StructWithRest(
+			Schema.Struct({ fields: Schema.optional(Schema.Record(Schema.String, fieldMeta)) }),
+			[Schema.Record(Schema.String, Schema.Unknown)],
+		),
+	),
 });
 
-export type Emission = z.infer<typeof emissionSchema>;
+export type Emission = typeof emissionSchema.Type;
 
 /** ~16 KiB envelope cap + dimension/measure count caps (contract §2 bounds). */
 const MAX_BYTES = 16 * 1024;
@@ -100,6 +120,8 @@ export interface EmissionCheck {
 	readonly message?: string;
 }
 
+const decodeEmission = Schema.decodeUnknownExit(emissionSchema);
+
 export function parseEmission(raw: unknown, rawBytes: number): EmissionCheck {
 	if (rawBytes > MAX_BYTES)
 		return {
@@ -107,16 +129,16 @@ export function parseEmission(raw: unknown, rawBytes: number): EmissionCheck {
 			code: "payload_too_large",
 			message: `emission exceeds ${String(MAX_BYTES)} bytes`,
 		};
-	const parsed = emissionSchema.safeParse(raw);
-	if (!parsed.success) {
-		const first = parsed.error.issues[0];
+	const parsed = decodeEmission(raw);
+	if (Exit.isFailure(parsed)) {
+		const failure = Cause.squash(parsed.cause);
 		return {
 			ok: false,
 			code: "invalid_emission",
-			message: `${first.path.join(".")}: ${first.message}`,
+			message: failure instanceof Error ? failure.message : String(failure),
 		};
 	}
-	const e = parsed.data;
+	const e = parsed.value;
 	if (e.dimensions && Object.keys(e.dimensions).length > MAX_FIELDS)
 		return { ok: false, code: "invalid_emission", message: "too many dimensions" };
 	if (e.measures && Object.keys(e.measures).length > MAX_FIELDS)
