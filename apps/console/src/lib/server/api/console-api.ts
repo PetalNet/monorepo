@@ -1600,6 +1600,12 @@ export interface ConsoleApi {
 	fetch(request: Request): Promise<Response | null>;
 	/** Principal chain: bearer → better-auth verifier → dev header. */
 	resolvePrincipal(headers: Headers, hostname: string): Promise<Principal | null>;
+	/**
+	 * The one origin browser credentials are honored from (better-auth's console origin), or null
+	 * when no browser auth is configured. The WebSocket upgrade enforces the same origin gate the
+	 * HTTP dispatch applies, from this single source.
+	 */
+	readonly browserOrigin: string | null;
 	readonly busCounters: BusCounters;
 	close(): void;
 }
@@ -4146,6 +4152,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 	return {
 		fetch: fetchApi,
 		resolvePrincipal,
+		browserOrigin: browserOrigin ?? null,
 		busCounters,
 		close() {
 			for (const session of terminalSessions.values()) {

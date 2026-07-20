@@ -22,6 +22,17 @@ export const handleWebsocket: HandleWebsocket = async ({ socket, peer, request }
 		return;
 	}
 	const [api, services] = await Promise.all([consoleApi(), consoleServices()]);
+	// Mirror the REST dispatch's origin gate (console-api dispatch): when a browser origin is
+	// configured, an upgrade carrying a different Origin is rejected before any cookie auth is
+	// resolved — the CSWSH counterpart of the HTTP path's `origin_denied`. Requests without an
+	// Origin header (agent bearer clients) stay origin-agnostic, exactly as on the HTTP path.
+	if (api.browserOrigin) {
+		const origin = request.headers.get("origin");
+		if (origin && origin !== api.browserOrigin) {
+			socket.close(1008, "origin is not allowed");
+			return;
+		}
+	}
 	const hostname = request.url.hostname;
 	const resolvePrincipal = async (): Promise<Principal | null> =>
 		(await resolveSessionPrincipal(services, request.headers)) ??
