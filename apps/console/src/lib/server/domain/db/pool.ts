@@ -114,16 +114,30 @@ function makeSql(handle: ClientHandle, txConnection: Connection | null): Sql {
 		}
 	};
 	facade.listen = (channel, onPayload) => {
-		const fiber = Effect.runFork(
-			Stream.runForEach(client.listen(channel), (payload) =>
-				Effect.sync(() => {
-					onPayload(payload);
-				}),
-			),
-		);
+		let active = true;
+		let fiber: ReturnType<typeof Effect.runFork> | null = null;
+		let restartTimer: ReturnType<typeof setTimeout> | null = null;
+		const observe = (): void => {
+			if (!active) return;
+			fiber = Effect.runFork(
+				Stream.runForEach(client.listen(channel), (payload) =>
+					Effect.sync(() => {
+						onPayload(payload);
+					}),
+				),
+			);
+			void Effect.runPromise(Fiber.await(fiber)).then(() => {
+				fiber = null;
+				if (active) restartTimer = setTimeout(observe, 1_000);
+				return undefined;
+			});
+		};
+		observe();
 		return Promise.resolve({
 			unlisten: async () => {
-				await Effect.runPromise(Fiber.interrupt(fiber));
+				active = false;
+				if (restartTimer) clearTimeout(restartTimer);
+				if (fiber) await Effect.runPromise(Fiber.interrupt(fiber));
 			},
 		});
 	};

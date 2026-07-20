@@ -67,6 +67,8 @@ export interface BusClientOptions extends BusFrameHandlers {
 	readonly subscriptions?: () => readonly BusSubscriptionSpec[];
 	/** Reconnect delay in ms; 0 disables reconnection. */
 	readonly reconnectDelayMs?: number;
+	/** Maximum exponential reconnect delay in ms. */
+	readonly reconnectMaxDelayMs?: number;
 }
 
 export interface BusClient {
@@ -98,6 +100,15 @@ export function connectBusClient(options: BusClientOptions): BusClient {
 	let disposed = false;
 	let socket: BusWebSocket | undefined;
 	let reconnect: ReturnType<typeof setTimeout> | undefined;
+	let reconnectAttempt = 0;
+	let hasOpened = false;
+	const lastSeq = new Map<string, number>();
+	const reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? 30_000;
+	const healingSpec = (spec: BusSubscriptionSpec): BusSubscriptionSpec => {
+		const seen = lastSeq.get(spec.sub_id);
+		if (!hasOpened || seen === undefined) return spec;
+		return { ...spec, since: Math.max(spec.since ?? 0, seen) };
+	};
 
 	const sendFrame = (frame: BusClientFrame): void => {
 		socket?.send(JSON.stringify(encodeClientFrame(frame)));
@@ -108,7 +119,9 @@ export function connectBusClient(options: BusClientOptions): BusClient {
 		socket = factory(options.url);
 		socket.addEventListener("open", () => {
 			options.onState?.("open");
-			for (const spec of options.subscriptions?.() ?? []) sendFrame(toSubscribeFrame(spec));
+			for (const spec of options.subscriptions?.() ?? [])
+				sendFrame(toSubscribeFrame(healingSpec(spec)));
+			hasOpened = true;
 		});
 		socket.addEventListener("message", ({ data }) => {
 			let raw: unknown;
@@ -124,6 +137,8 @@ export function connectBusClient(options: BusClientOptions): BusClient {
 				return;
 			}
 			const frame = decoded.value;
+			reconnectAttempt = 0;
+			if (frame.kind === "event") lastSeq.set(frame.sub_id, frame.seq);
 			options.onFrame?.(frame);
 			switch (frame.kind) {
 				case "ack":
@@ -148,7 +163,12 @@ export function connectBusClient(options: BusClientOptions): BusClient {
 		});
 		socket.addEventListener("close", () => {
 			options.onState?.("closed");
-			if (!disposed && reconnectDelayMs > 0) reconnect = setTimeout(connect, reconnectDelayMs);
+			if (!disposed && reconnectDelayMs > 0) {
+				const base = Math.min(reconnectMaxDelayMs, reconnectDelayMs * 2 ** reconnectAttempt);
+				reconnectAttempt += 1;
+				const delay = Math.max(1, Math.round(base * (0.5 + Math.random())));
+				reconnect = setTimeout(connect, delay);
+			}
 		});
 	};
 	connect();
