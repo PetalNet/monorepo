@@ -54,6 +54,7 @@ export default function adapter(opts: AdapterOptions = {}): Adapter {
 			await build({
 				configFile: false,
 				logLevel: "warn",
+				ssr: { noExternal: ["crossws"] },
 				build: {
 					ssr: true,
 					outDir: `${out}/server`,
@@ -70,12 +71,9 @@ export default function adapter(opts: AdapterOptions = {}): Adapter {
 								? { "instrumentation.server": `${tmp}/instrumentation.server.js` }
 								: {}),
 						},
-						external: [
-							...Object.keys(pkg.dependencies ?? {}).map(
-								(dependency) => new RegExp(`^${dependency}(\\/.*)?$`),
-							),
-							/^@petalnet\/svelte-ws(\/.*)?$/,
-						],
+						external: Object.keys(pkg.dependencies ?? {}).map(
+							(dependency) => new RegExp(`^${dependency}(\\/.*)?$`),
+						),
 						output: {
 							format: "esm",
 							entryFileNames: "[name].js",

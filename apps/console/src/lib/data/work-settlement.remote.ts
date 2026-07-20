@@ -5,7 +5,7 @@ import { mockWorkSettlement } from "$lib/data/work-settlement";
 import { error } from "@sveltejs/kit";
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE !== "live";
+	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
 }
 
 function forwardedHeaders(): Headers {

@@ -14,7 +14,7 @@ const input = Schema.Struct({
 export const searchCommandPalette = query(
 	Schema.toStandardSchemaV1(input),
 	async ({ query: text }) => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return searchMockPalette(text);
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return searchMockPalette(text);
 
 		const event = getRequestEvent();
 		const headers = new Headers({ accept: "application/json", origin: event.url.origin });

@@ -24,7 +24,8 @@ import {
 import { Effect } from "effect";
 
 export type DataMode = "mock" | "live";
-export const dataMode = (): DataMode => "live";
+export const dataMode = (): DataMode =>
+	import.meta.env.PUBLIC_CONSOLE_DATA_MODE === "mock" ? "mock" : "live";
 
 const run = <A>(effect: Effect.Effect<A, unknown>): Promise<A> => Effect.runPromise(effect);
 const read = <P extends ReadPlane>(plane: P): Promise<ReadPlaneResult[P]> => run(readPlane(plane));

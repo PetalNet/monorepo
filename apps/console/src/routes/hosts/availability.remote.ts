@@ -46,7 +46,7 @@ async function readJson<T>(path: string): Promise<T> {
 
 /** Server-side RPC for Hosts availability. Browser code never calls console-api directly. */
 export const getAvailability = query(async (): Promise<AvailabilityRemoteResult> => {
-	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live")
+	if (env.PUBLIC_CONSOLE_DATA_MODE === "mock")
 		return { snapshot: mockAvailability(), probe_runner_live: true };
 	const [snapshot, executors] = await Promise.all([
 		readJson<AvailabilitySnapshot>("/availability?window=30d"),

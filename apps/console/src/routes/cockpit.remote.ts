@@ -75,7 +75,7 @@ function sceneFromUrl(): Scene {
 
 /** Server-side cockpit RPC. Browser code never assembles console-api requests or crack truth. */
 export const getCockpit = query(async (): Promise<CockpitRemoteResult> => {
-	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live")
+	if (env.PUBLIC_CONSOLE_DATA_MODE === "mock")
 		return { cockpit: mockCockpit(sceneFromUrl()), isMock: true, staleSources: [] };
 
 	const [attentionRead, rosterRead, healthRead, dashboardsRead, meRead] = await Promise.all([
