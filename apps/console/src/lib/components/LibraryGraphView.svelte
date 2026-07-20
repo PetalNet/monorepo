@@ -128,7 +128,7 @@
 	.node-icon { width:32px; height:32px; display:grid; place-items:center; border-radius:var(--r-pill); background:var(--bg); color:var(--info-text); box-shadow:inset 0 0 0 2px var(--info-dot); }
 	.node.task .node-icon,.node.project .node-icon { color:var(--petal-text); box-shadow:inset 0 0 0 2px var(--petal); }
 	.node.artifact .node-icon { color:var(--jade-text); box-shadow:inset 0 0 0 2px var(--jade); }
-	.node.research .node-icon { color:var(--research-text); box-shadow:inset 0 0 0 2px #7a5bbf; }
+	.node.research .node-icon { color:var(--research-text); box-shadow:inset 0 0 0 2px var(--research-text); }
 	.node.decision .node-icon { color:var(--warn-text); box-shadow:inset 0 0 0 2px var(--warn-dot); }
 	.node.focused .node-icon { outline:2px solid var(--petal); outline-offset:3px; }
 	.node-title { width:144px; margin-top:var(--s-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:500 .6875rem var(--mono); }

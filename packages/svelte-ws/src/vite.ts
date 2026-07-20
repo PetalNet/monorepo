@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Plugin, ViteDevServer } from "vite";
+import type { Plugin, PreviewServer, ViteDevServer } from "vite";
 
 import { createWebsocketDispatcher } from "./runtime.ts";
 import type { HandleWebsocket, RouteModule } from "./types.ts";
 
-type HttpServer = NonNullable<ViteDevServer["httpServer"]>;
+type HttpServer = NonNullable<ViteDevServer["httpServer"] | PreviewServer["httpServer"]>;
 
 function hooksFilename(root: string): string | null {
 	for (const candidate of ["src/hooks.server.ts", "src/hooks.server.js"])
@@ -33,13 +33,8 @@ export function websocket(): Plugin {
 	function attach(httpServer: HttpServer | null | undefined): void {
 		if (!httpServer) return;
 		const dispatcher = createWebsocketDispatcher(loadHandler);
-		const previous = httpServer.listeners("upgrade") as ((...args: unknown[]) => void)[];
-		httpServer.removeAllListeners("upgrade");
-		httpServer.on("upgrade", (req, socket, head) => {
-			if (req.headers["sec-websocket-protocol"] === "vite-hmr") {
-				for (const listener of previous) listener(req, socket, head);
-				return;
-			}
+		httpServer.prependListener("upgrade", (req, socket, head) => {
+			if (req.headers["sec-websocket-protocol"] === "vite-hmr") return;
 			void dispatcher.handleUpgrade(
 				req as import("node:http").IncomingMessage,
 				socket as import("node:stream").Duplex,
@@ -55,6 +50,9 @@ export function websocket(): Plugin {
 		},
 		configureServer(server) {
 			vite = server;
+			attach(server.httpServer);
+		},
+		configurePreviewServer(server) {
 			attach(server.httpServer);
 		},
 	};

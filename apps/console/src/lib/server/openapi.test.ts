@@ -26,4 +26,11 @@ describe("schema-derived OpenAPI", () => {
 			},
 		});
 	});
+
+	it("covers the shared route registry and documents the real emit path", () => {
+		expect(Object.keys(openApiDocument.paths).length).toBeGreaterThan(60);
+		expect(openApiDocument.paths["/emit"].post).toBeDefined();
+		expect(openApiDocument.paths["/bus/emit"]).toBeUndefined();
+		expect(openApiDocument.paths["/dashboards/{dashboardId}"].get).toBeDefined();
+	});
 });

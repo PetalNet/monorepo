@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 
+import { API_ROUTE_REGISTRY } from "./domain/api-routes";
 import { apiSchema } from "./domain/api-schema";
 
 type ComponentName = keyof typeof apiSchema.components;
@@ -10,18 +11,29 @@ const json = (name: ComponentName) => ({ "application/json": { schema: schemaRef
 
 function generatePaths() {
 	const paths: Record<string, Partial<Record<HttpMethod, object>>> = {};
-	for (const operation of apiSchema.operations) {
-		const item = paths[operation.path] ?? {};
-		item[operation.method] = {
-			operationId: operation.operationId,
-			...(operation.method === "post"
-				? { requestBody: { required: true, content: json(operation.request) } }
-				: {}),
-			responses: {
-				"200": { description: operation.description, content: json(operation.response) },
-			},
-		};
-		paths[operation.path] = item;
+	for (const [routeMethod, registeredPath] of API_ROUTE_REGISTRY) {
+		const method = routeMethod.toLowerCase() as HttpMethod;
+		const routePath = registeredPath.slice("/api/v1".length);
+		const path = routePath.replaceAll(/:([A-Za-z][A-Za-z0-9_]*)/g, "{$1}");
+		const operation = apiSchema.operations.find(
+			(candidate) => candidate.method === method && candidate.path === routePath,
+		);
+		const item = paths[path] ?? {};
+		item[method] = operation
+			? {
+					operationId: operation.operationId,
+					...(method === "post" && "request" in operation
+						? { requestBody: { required: true, content: json(operation.request) } }
+						: {}),
+					responses: {
+						"200": { description: operation.description, content: json(operation.response) },
+					},
+				}
+			: {
+					operationId: `${method}${path.replaceAll(/[^A-Za-z0-9]+/g, "_")}`,
+					responses: { "200": { description: "Successful response" } },
+				};
+		paths[path] = item;
 	}
 	return paths;
 }

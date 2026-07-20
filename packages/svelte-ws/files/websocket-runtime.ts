@@ -10,7 +10,6 @@ import { createWebsocketDispatcher } from "@petalnet/svelte-ws/runtime";
 export default async function attachWebsockets(httpServer) {
 	const hooks = await import("SERVER_HOOKS");
 	const handleWebsocket = hooks.handleWebsocket;
-	if (!handleWebsocket) return;
 	const dispatcher = createWebsocketDispatcher(() => Promise.resolve(handleWebsocket));
 	httpServer.on("upgrade", (req, socket, head) => {
 		void dispatcher.handleUpgrade(req, socket, head);
