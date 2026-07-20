@@ -67,7 +67,7 @@ const SubjectKindSchema = Schema.Literals([
 // --- envelopes and queries -----------------------------------------------------------------------
 
 /** The shared typed-read envelope (`GET /api/v1/<entity>`); `items` is refined per endpoint. */
-export const ReadEnvelopeSchema = openStruct({
+const ReadEnvelopeSchema = openStruct({
 	schema_version: Schema.Literal(1),
 	freshness: openStruct({
 		source: Schema.String,

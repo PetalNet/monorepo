@@ -159,7 +159,7 @@ class UnavailableTerminalAdapter implements TerminalAdapter {
 	}
 }
 
-export function resolvedOpCapabilities(
+function resolvedOpCapabilities(
 	op: string,
 	principalKind: Principal["kind"],
 	proposalRequired: boolean,

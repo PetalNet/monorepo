@@ -13,7 +13,7 @@ export default defineConfig({
 		external: ["better-auth"],
 	},
 	test: {
-		include: ["src/**/*.spec.ts", "src/lib/server/**/*.test.ts", "test/**/*.test.ts"],
+		include: ["src/**/*.spec.ts", "src/**/*.test.ts", "test/**/*.test.ts"],
 		fileParallelism: false,
 		maxConcurrency: 1,
 		sequence: { concurrent: false },
@@ -27,9 +27,6 @@ export default defineConfig({
 				{ name: "Geist", provider: "fontsource", weights: [400, 500] },
 				{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
 			],
-			// The default ("font-prefixed-only") only scans --font-* custom properties, silently
-			// skipping this app's --sans/--mono — no families detected, no @font-face emitted.
-			processCSSVariables: true,
 		}),
 		...compose([
 			effect(),

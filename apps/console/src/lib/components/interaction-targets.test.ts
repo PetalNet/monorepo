@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { describe, it } from "node:test";
+
+import { describe, it } from "vitest";
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
-void describe("minimum interaction targets", () => {
-	void it("keeps shared icon and segmented controls at least 32px tall", async () => {
+describe("minimum interaction targets", () => {
+	it("keeps shared icon and segmented controls at least 32px tall", async () => {
 		const [iconButton, segmentedControl] = await Promise.all([
 			source("./IconButton.svelte"),
 			source("./SegmentedControl.svelte"),
@@ -17,7 +18,7 @@ void describe("minimum interaction targets", () => {
 		assert.match(segmentedControl, /aria-pressed=/);
 	});
 
-	void it("migrates every audited compact shared control", async () => {
+	it("migrates every audited compact shared control", async () => {
 		const [chip, roster, work, signals, deliveryPane, cost, terminal, observability] =
 			await Promise.all([
 				source("./ApplyModeChip.svelte"),

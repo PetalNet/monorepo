@@ -1,7 +1,7 @@
 # @petalnet/svelte-ws
 
 WebSocket support for SvelteKit on Node, vendored from
-[sowahq/svelte-ws](https://github.com/sowahq/svelte-ws) (MIT — see LICENSE).
+[sowahq/svelte-ws](https://github.com/sowahq/svelte-ws) (MIT — see LICENSE_sowa).
 
 Adaptations from upstream:
 
