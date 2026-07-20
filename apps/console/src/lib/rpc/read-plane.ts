@@ -1,8 +1,4 @@
-import {
-	readPlaneRemote,
-	type ReadPlane,
-	type ReadPlaneResult,
-} from "$lib/operations.remote";
+import { readPlaneRemote, type ReadPlane, type ReadPlaneResult } from "$lib/operations.remote";
 import type { Effect } from "effect";
 
 type ReadEffect<A> =

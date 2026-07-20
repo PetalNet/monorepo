@@ -1,9 +1,5 @@
 import type { OpResult, StructuredQuery } from "$lib/api/types";
-import {
-	executeNamedOp,
-	runStructuredQuery,
-	type ReadPlane,
-} from "$lib/operations.remote";
+import { executeNamedOp, runStructuredQuery, type ReadPlane } from "$lib/operations.remote";
 import { readPlane } from "$lib/rpc/read-plane";
 import { handleAssistantMcp } from "$lib/server/domain/assistant/tools";
 import { currentPrincipal } from "$lib/server/domain/principal";
