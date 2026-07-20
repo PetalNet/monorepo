@@ -4,7 +4,7 @@
 // rides the host's WebSocket upgrade path via bus/connection.ts); unavailable executor adapters
 // fail closed. Behavior is byte-compatible with the former buildServer: status codes, error
 // codes, bodies, and headers are unchanged.
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { Cause, Effect, Exit, Schema } from "effect";
 
@@ -12,6 +12,7 @@ import { asynchronously } from "#domain/iteration";
 import { required } from "#format";
 import { formatUnknown } from "#format";
 
+import { flattenRosterItem } from "../../api/derive.ts";
 import { OpCallSchema, QueryRequestSchema } from "../domain/api-schema.ts";
 import { ask } from "../domain/assistant/engine.ts";
 import { AssistantRuntimeError } from "../domain/assistant/runtime.ts";
@@ -183,6 +184,10 @@ const INTERNAL_OP_ADAPTERS = new Set([
 	"stats.query",
 	"viz.render",
 	"text.surface",
+	"window.arrange",
+	"dashboard.save",
+	"dashboard.set_home",
+	"governance.user_tier",
 	"context.receive",
 	"signal.source_mode",
 	"library.item.update",
@@ -829,6 +834,41 @@ async function dispatchInternalOp(
 					bindings: call.args["bindings"] ?? [],
 				},
 			};
+		case "window.arrange": {
+			const rows = await services.db.writer<{ window_layout: Record<string, unknown> }[]>`
+				update assistant_sessions
+				set window_layout = ${services.db.writer.json({ ops: call.args["ops"] })}, updated_at = now()
+				where principal_id = ${principal.id}
+				returning window_layout`;
+			return { schema_version: 1, layout: rows.at(0)?.window_layout ?? { ops: [] } };
+		}
+		case "dashboard.save": {
+			const dashboard = Schema.decodeUnknownSync(dashboardSaveSchema)({
+				schema_version: 1,
+				id:
+					typeof call.args["id"] === "string"
+						? call.args["id"]
+						: `dash_${randomUUID().replaceAll("-", "").slice(0, 20)}`,
+				title: call.args["title"],
+				scope: call.args["scope"] ?? `user:${principal.id}`,
+				panels: call.args["panels"],
+				...(call.args["layout"] ? { layout: call.args["layout"] } : {}),
+			});
+			return saveDashboard(services.db, principal, dashboard);
+		}
+		case "dashboard.set_home":
+			return setHomeDashboard(services.db.writer, principal, String(call.args["id"]));
+		case "governance.user_tier": {
+			const userId = String(call.args["user_id"]);
+			const rows = await services.db.admin<{ id: string }[]>`
+				update "user"
+				set tier = ${String(call.args["tier"])}, "updatedAt" = now()
+				where id = ${userId}
+				returning id`;
+			if (!rows.at(0))
+				throw new AssistantRuntimeError("user_not_found", "user was not found", false);
+			return { userId, tier: call.args["tier"] };
+		}
 		case "context.receive":
 			if (!services.assistantRuntime)
 				throw new AssistantRuntimeError(
@@ -1702,6 +1742,44 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		return null;
 	}
 
+	const assistantToolServices = {
+		...services,
+		captureException(error: unknown): void {
+			monitor.captureException(sanitizedException(error));
+		},
+		async executeMutation(
+			principal: Principal,
+			op: string,
+			args: Record<string, unknown>,
+			requestId: string = randomUUID(),
+		): Promise<Record<string, unknown>> {
+			const limited = opRateLimit(principal);
+			if (limited) {
+				const body = (await limited.json()) as { error?: { code?: string } };
+				throw Object.assign(new Error("rate limited"), {
+					code: body.error?.code ?? "rate_limited",
+				});
+			}
+			const result = await executeOpPlane(
+				services,
+				monitor,
+				{ schema_version: 1, id: requestId, op, args, dry_run: false },
+				principal,
+			);
+			const envelope = result.body as {
+				ok?: boolean;
+				result?: Record<string, unknown> | null;
+				error?: { code?: string; message?: string } | null;
+			};
+			if (result.status >= 400 || envelope.ok === false) {
+				throw Object.assign(new Error(envelope.error?.message ?? "operation failed"), {
+					code: envelope.error?.code ?? "op_failed",
+				});
+			}
+			return envelope.result ?? result.body;
+		},
+	};
+
 	const terminalSessions = new Map<string, TerminalSession>();
 
 	async function emitTerminalAudit(
@@ -2429,17 +2507,36 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 					id: (ctx.body as { id?: unknown } | null)?.id ?? null,
 					error: { code: -32_000, message: "Unauthorized" },
 				});
-			return jsonResponse(200, await handleAssistantMcp(services, principal, ctx.body));
+			return jsonResponse(
+				200,
+				await handleAssistantMcp(assistantToolServices, principal, ctx.body),
+			);
 		},
 	});
-	// Interim-surface alias: the SvelteKit catch-all served the assistant MCP plane at /mcp for any
-	// authenticated principal (browser session, bearer, dev). Kept alongside the tool-token route.
+	// Backward-compatible alias with the same tool-token contract as the canonical endpoint.
 	route({
 		method: "POST",
 		pattern: "/api/v1/mcp",
-		auth: true,
-		handler: async (ctx) =>
-			jsonResponse(200, await handleAssistantMcp(services, ctx.principal, ctx.body)),
+		auth: false,
+		handler: async (ctx) => {
+			const match = /^Bearer\s+(\S+)$/i.exec(ctx.request.headers.get("authorization") ?? "");
+			const principal = match?.[1]
+				? await resolveAssistantToolPrincipal(services.db.admin, match[1], async (sessionId) => {
+						const identity = await betterAuth?.getIdentityBySessionId(sessionId);
+						return identity ? resolveHumanIdentity(services, identity) : null;
+					})
+				: null;
+			if (!principal)
+				return jsonResponse(401, {
+					jsonrpc: "2.0",
+					id: (ctx.body as { id?: unknown } | null)?.id ?? null,
+					error: { code: -32_000, message: "Unauthorized" },
+				});
+			return jsonResponse(
+				200,
+				await handleAssistantMcp(assistantToolServices, principal, ctx.body),
+			);
+		},
 	});
 	route({
 		method: "POST",
@@ -3563,7 +3660,11 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		handler: async (ctx) => {
 			const p = ctx.principal;
-			return jsonResponse(200, await readRoster(services.db.app, services.tracker, p.scopes));
+			const roster = await readRoster(services.db.app, services.tracker, p.scopes);
+			return jsonResponse(200, {
+				...roster,
+				items: roster.items.map((item) => flattenRosterItem(item as never)),
+			});
 		},
 	});
 	route({

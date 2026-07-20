@@ -36,6 +36,7 @@ const OP_NAMES = [
 	"agent.autonomy",
 	"governance.action",
 	"governance.tier",
+	"governance.user_tier",
 	"fleet.mode",
 	"channel.reclaim",
 	"signal.snooze",
@@ -117,6 +118,7 @@ const VERBS: Partial<Record<OpName, string>> = {
 	"task.close": "Close",
 	"governance.action": "Pause",
 	"governance.tier": "Tier",
+	"governance.user_tier": "User tier",
 	"signal.snooze": "Quiet 1h",
 	"attention.ack": "Ack",
 	"attention.snooze": "Snooze",
@@ -228,6 +230,10 @@ export const OP_TEST_FIXTURES = {
 		"handle": "fixture",
 		"tier": "haiku"
 	},
+	"governance.user_tier": {
+		"user_id": "fixture",
+		"tier": "viewer"
+	},
 	"fleet.mode": {
 		"mode": "parallel"
 	},
@@ -271,7 +277,6 @@ export const OP_TEST_FIXTURES = {
 		"prose": "fixture"
 	},
 	"window.arrange": {
-		"dashboard_id": "fixture",
 		"ops": []
 	},
 	"dashboard.save": {

@@ -556,6 +556,28 @@
 			"phase": 1
 		},
 		{
+			"op": "governance.user_tier",
+			"lane": "admin",
+			"authz": {
+				"rule": "self"
+			},
+			"human_only": true,
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["user_id", "tier"],
+				"properties": {
+					"user_id": { "type": "string" },
+					"tier": { "enum": ["operator", "editor", "viewer"] }
+				},
+				"additionalProperties": false
+			},
+			"effect": "change a console user's access tier",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
 			"op": "fleet.mode",
 			"lane": "operator",
 			"authz": {
@@ -1370,18 +1392,13 @@
 			"op": "window.arrange",
 			"lane": "viewer",
 			"authz": {
-				"rule": "own_or_grant",
-				"relation": "editor",
-				"scope_any": ["item:${dashboard_id}"]
+				"rule": "self"
 			},
 			"executor": "console-api",
 			"args": {
 				"type": "object",
-				"required": ["dashboard_id", "ops"],
+				"required": ["ops"],
 				"properties": {
-					"dashboard_id": {
-						"type": "string"
-					},
 					"ops": {
 						"type": "array",
 						"maxItems": 100,
@@ -1421,6 +1438,15 @@
 				"type": "object",
 				"required": ["title", "panels"],
 				"properties": {
+					"schema_version": {
+						"const": 1
+					},
+					"id": {
+						"type": "string"
+					},
+					"scope": {
+						"type": "string"
+					},
 					"title": {
 						"type": "string",
 						"maxLength": 200
