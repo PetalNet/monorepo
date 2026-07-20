@@ -10,13 +10,13 @@
 			"types": "./dist/index.d.ts",
 			"default": "./dist/index.js"
 		},
-		"./vite": {
-			"types": "./dist/vite.d.ts",
-			"default": "./dist/vite.js"
-		},
 		"./runtime": {
 			"types": "./dist/runtime.d.ts",
 			"default": "./dist/runtime.js"
+		},
+		"./vite": {
+			"types": "./dist/vite.d.ts",
+			"default": "./dist/vite.js"
 		}
 	},
 	"files": [

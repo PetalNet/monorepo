@@ -78,15 +78,15 @@ const writeResponse = async (res: ServerResponse, response: Response): Promise<v
 	}
 	const reader = response.body.getReader();
 	res.once("close", () => void reader.cancel().catch(() => undefined));
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (!res.write(value)) await new Promise<void>((resolve) => res.once("drain", resolve));
-		}
-	} catch {
+	const pump = async (): Promise<void> => {
+		const { done, value } = await reader.read();
+		if (done) return;
+		if (!res.write(value)) await new Promise<void>((resolve) => res.once("drain", resolve));
+		return pump();
+	};
+	await pump().catch(() => {
 		/* client went away mid-stream; cancel already scheduled */
-	}
+	});
 	res.end();
 };
 
@@ -197,7 +197,7 @@ export async function startTestSurface(
 			});
 		},
 		async close() {
-			for (const shutdown of [...openSockets]) shutdown();
+			for (const shutdown of openSockets) shutdown();
 			api.close();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
 		},

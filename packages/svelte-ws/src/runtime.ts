@@ -23,8 +23,8 @@ export function createWebsocketDispatcher(
 	return crossws({
 		hooks: {
 			async open(peer: Peer) {
-				const handler = await loadHandler();
-				if (!handler) {
+				const handle = await loadHandler();
+				if (!handle) {
 					peer.close(1011, "no websocket handler");
 					return;
 				}
@@ -63,7 +63,7 @@ export function createWebsocketDispatcher(
 					},
 					locals: {},
 				};
-				await handler(event);
+				await handle(event);
 			},
 			message(peer, message) {
 				const state = connections.get(peer.id);

@@ -19,3 +19,5 @@ hass = "hass"
 # Decision-log identifiers (BA1..BA9 in apps/box-agent/DECISIONS).
 BA = "BA"
 ba = "ba"
+# svelte-effect-runtime's acronym, used across the console docs and briefs.
+SER = "SER"

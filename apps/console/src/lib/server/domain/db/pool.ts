@@ -12,6 +12,7 @@ import { PgClient } from "@effect/sql-pg";
 import { Duration, Effect, Exit, Fiber, Redacted, Scope, Stream } from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import type { Connection } from "effect/unstable/sql/SqlConnection";
+import { SqlError } from "effect/unstable/sql/SqlError";
 
 import { asynchronously } from "#domain/iteration";
 
@@ -66,7 +67,7 @@ async function openClient(
 
 /** Rejections surface the driver's error (message, code) rather than the SqlError wrapper. */
 const unwrapDriverError = (error: unknown): unknown => {
-	if (!(error instanceof Error) || (error as { _tag?: unknown })._tag !== "SqlError") return error;
+	if (!(error instanceof SqlError)) return error;
 	let current: Error = error;
 	while (current.cause instanceof Error) current = current.cause;
 	return current;

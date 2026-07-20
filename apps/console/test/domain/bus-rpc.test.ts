@@ -144,14 +144,15 @@ function surfaceWebSocket(surface: TestSurface, headers: Record<string, string>)
 		};
 		let inner: Awaited<ReturnType<TestSurface["injectWS"]>> | undefined;
 		const pending: string[] = [];
-		void surface.injectWS("/api/v1/bus/ws", { headers }).then((socket) => {
+		void (async () => {
+			const socket = await surface.injectWS("/api/v1/bus/ws", { headers });
 			inner = socket;
 			socket.on("message", (data) => {
 				for (const listener of listeners.message) listener({ data });
 			});
 			for (const listener of listeners.open) listener();
 			for (const frame of pending) socket.send(frame);
-		});
+		})();
 		return {
 			send(data) {
 				if (inner) inner.send(data);

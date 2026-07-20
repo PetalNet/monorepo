@@ -1,3 +1,5 @@
+import process from "node:process";
+
 import { createWebsocketDispatcher } from "@petalnet/svelte-ws/runtime";
 
 /**
