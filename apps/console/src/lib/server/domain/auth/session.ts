@@ -2,6 +2,7 @@ import { createEffectQbAdapter } from "@petalnet/better-auth-effect-qb-adapter";
 import { betterAuth } from "better-auth";
 import { fromNodeHeaders } from "better-auth/node";
 
+import { authCookiePrefix } from "../../auth/cookies.ts";
 import { openSql, type Sql } from "../db/pool.ts";
 import { parseBetterAuthIdentity, type BetterAuthSessionIdentity } from "./session-identity.ts";
 export type { BetterAuthSessionIdentity } from "./session-identity.ts";
@@ -35,7 +36,7 @@ export function createBetterAuthSessionVerifier(
 		trustedOrigins: [new URL(config.baseUrl).origin],
 		advanced: {
 			useSecureCookies: false,
-			cookiePrefix: new URL(config.baseUrl).protocol === "https:" ? "__Host-console" : "console",
+			cookiePrefix: authCookiePrefix(config.baseUrl),
 			defaultCookieAttributes: {
 				secure: new URL(config.baseUrl).protocol === "https:",
 				httpOnly: true,
@@ -46,9 +47,7 @@ export function createBetterAuthSessionVerifier(
 		session: { expiresIn: 5 * 60, updateAge: 0 },
 		user: {
 			additionalFields: {
-				authentikUsername: { type: "string", required: true, input: false },
-				authentikGroups: { type: "string", required: true, input: false },
-				authentikSubject: { type: "string", required: true, input: false },
+				tier: { type: "string", required: true, defaultValue: "viewer", input: false },
 			},
 		},
 	});
@@ -58,8 +57,7 @@ export function createBetterAuthSessionVerifier(
 			const session = await auth.api.getSession({ headers: fromNodeHeaders(headers) });
 			if (!session) return null;
 			if (Date.now() - new Date(session.session.createdAt).getTime() > 5 * 60_000) return null;
-			const identity = parseBetterAuthIdentity(session.user);
-			return identity ? { ...identity, sessionId: session.session.id } : null;
+			return parseBetterAuthIdentity(session.user, session.session.id);
 		},
 		async getIdentityBySessionId(sessionId) {
 			if (!/^[A-Za-z0-9_-]{1,255}$/.test(sessionId)) return null;
@@ -71,8 +69,7 @@ export function createBetterAuthSessionVerifier(
 				   and s."createdAt" > now() - interval '5 minutes'`,
 				[sessionId],
 			);
-			const identity = parseBetterAuthIdentity(result[0].user);
-			return identity ? { ...identity, sessionId } : null;
+			return result[0] ? parseBetterAuthIdentity(result[0].user, sessionId) : null;
 		},
 		async close() {
 			await Promise.all([sqlClient?.then((client) => client.end()), authDatabase.close()]);

@@ -14,6 +14,8 @@ export interface Principal {
 	readonly lanes: readonly string[];
 	readonly scopes: readonly string[];
 	readonly zookie: string;
+	readonly authSource?: "better-auth";
+	readonly authSessionId?: string;
 }
 
 function sha256(s: string): string {
