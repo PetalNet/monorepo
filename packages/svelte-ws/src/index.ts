@@ -10,7 +10,7 @@ export type {
 	HandleWebsocket,
 	WebsocketEvent,
 	WebsocketProtocol,
-} from "./types.js";
+} from "./types.ts";
 
 type AdapterOptions = Parameters<typeof nodeAdapter>[0];
 

@@ -3,8 +3,8 @@ import path from "node:path";
 
 import type { Plugin, ViteDevServer } from "vite";
 
-import { createWebsocketDispatcher } from "./runtime.js";
-import type { HandleWebsocket, RouteModule } from "./types.js";
+import { createWebsocketDispatcher } from "./runtime.ts";
+import type { HandleWebsocket, RouteModule } from "./types.ts";
 
 type HttpServer = NonNullable<ViteDevServer["httpServer"]>;
 

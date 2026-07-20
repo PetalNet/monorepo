@@ -2,7 +2,7 @@ import type { Peer } from "crossws";
 import type { NodeAdapter } from "crossws/adapters/node";
 import crossws from "crossws/adapters/node";
 
-import type { ConnectionSocket, HandleWebsocket, WebsocketEvent } from "./types.js";
+import type { ConnectionSocket, HandleWebsocket, WebsocketEvent } from "./types.ts";
 
 interface ConnectionState {
 	socket: ConnectionSocket;
