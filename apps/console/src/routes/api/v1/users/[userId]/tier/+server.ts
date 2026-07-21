@@ -14,8 +14,8 @@ export const PUT = Handler<RequestHandler>(function* ({ locals, params, request 
 	);
 	if (Option.isNone(decoded)) return Response.json({ error: "invalid tier" }, { status: 400 });
 	const { tier } = decoded.value;
-	const api = yield* Effect.promise(() => consoleApi());
-	const response = yield* Effect.promise(() =>
+	const api = yield* Effect.tryPromise(() => consoleApi());
+	const response = yield* Effect.tryPromise(() =>
 		api.fetch(
 			new Request(new URL("/api/v1/op", request.url), {
 				method: "POST",
