@@ -3,7 +3,7 @@
 	import type { PageProps } from "./$types";
 	const env = import.meta.env;
 	import { opDef } from "$lib/api/ops";
-	import { connectBus } from "$lib/rpc/browser";
+	import { connectBus, runRemote } from "$lib/rpc/browser";
 	import type { EdgeRegistryItem, EdgeSessionItem } from "$lib/api/types";
 	import AgentPresence from "$lib/components/AgentPresence.svelte";
 	import Icon from "$lib/components/Icon.svelte";
@@ -74,7 +74,7 @@
 		return connectBus(
 			() => [{ sub_id: "network-key-ceremony", pattern: "edge.*" }],
 			(frame) => {
-				if (frame["kind"] === "event") void ceremonyQuery.refresh();
+				if (frame["kind"] === "event") void runRemote(ceremonyQuery.refresh());
 			},
 		);
 	});
@@ -91,15 +91,15 @@
 		revokeBusy = true;
 		revokeError = null;
 		try {
-			await revokeKey({
+			await runRemote(revokeKey({
 				pubkey_fp: revoking.pubkey_fp,
 				handle: revoking.handle,
 				confirm_name: revokeConfirm.trim(),
 				reason: revokeReason.trim(),
-			});
+			}));
 			snackbar.push({ message: `Key revoked. ${revoking.handle} cannot use the door.`, op: "edge.key.revoke", tone: "good" });
 			revoking = null;
-			await ceremonyQuery.refresh();
+			await runRemote(ceremonyQuery.refresh());
 		} catch (cause) {
 			revokeError = (cause as Error).message;
 			snackbar.push({ message: `edge.key.revoke failed: ${revokeError}`, op: "edge.key.revoke", tone: "danger" });
@@ -180,7 +180,7 @@
 		<section><h2>Enrollment <span>Key Ceremony</span></h2>
 			{#if !ceremony}<div class="ceremony-loading" aria-label="Loading pending enrollments" aria-busy="true"><span></span><span></span><span></span></div>
 			{:else if !ceremony.registry_available}<div class="empty"><Icon name="circle-help" size={14} />Can't verify who is at the door.</div>
-			{:else}{#each pending as key (key.pubkey_fp)}<CeremonyCard item={key} canAct={canCeremony} disabledReason={ceremonyDisabledReason} onchanged={() => ceremonyQuery.refresh()} />{:else}<div class="empty"><Icon name="key-round" size={14} /> Nobody at the door.</div>{/each}{/if}
+			{:else}{#each pending as key (key.pubkey_fp)}<CeremonyCard item={key} canAct={canCeremony} disabledReason={ceremonyDisabledReason} onchanged={() => void runRemote(ceremonyQuery.refresh())} />{:else}<div class="empty"><Icon name="key-round" size={14} /> Nobody at the door.</div>{/each}{/if}
 			{#if ceremony && !ceremony.executor.live}<div class="executor-note"><Icon name="lock-keyhole" size={13} /><span>{ceremony.executor.detail}. Review controls stay disabled.</span></div>{/if}
 		</section>
 		<section><h2>The Wire <span>last 24h</span></h2>{#each data.wire as event, __eachKey39 (__eachKey39)}<p><b>{event.type}</b> · {event.handle} · {event.detail}<time>{age(event.at)}</time></p>{:else}<div class="empty"><Icon name="radio" size={14} />{data.sessionsAvailable ? "Quiet on the wire. Bus history unavailable." : "Wire unavailable."}</div>{/each}</section>

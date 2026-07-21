@@ -3,7 +3,7 @@
 	import type { PageProps } from "./$types";
 	import { onMount, tick, untrack } from "svelte";
 	import { page } from "$app/state";
-	import { connectBus } from "$lib/rpc/browser";
+	import { connectBus, runRemote } from "$lib/rpc/browser";
 	import { signalSeverityLabel } from "$lib/api/derive";
 	import { canSeeOp, opDef } from "$lib/api/ops";
 	import type { CardItem, SignalEmission, SignalSourceModeItem } from "$lib/api/types";
@@ -128,7 +128,7 @@
 	const undoStorm = async (pattern: string) => {
 		undoingStorm = pattern;
 		try {
-			await undoSignalStorm({ pattern });
+			await runRemote(undoSignalStorm({ pattern }));
 			dismissedStorms = [...dismissedStorms, pattern];
 			snackbar.push({
 				message: `${pattern} restored to Feed`,
@@ -149,7 +149,7 @@
 		sourceService: string,
 		mode: "normal" | "development",
 	) => {
-		const mutation = await setSignalSourceMode({ sourceService, mode });
+		const mutation = await runRemote(setSignalSourceMode({ sourceService, mode }));
 		const saved = mutation.item;
 		sourceModeChanges = { ...sourceModeChanges, [sourceService]: saved };
 		if (sourceDraft === sourceService) sourceDraft = "";
@@ -173,8 +173,10 @@
 				if (frame.kind === "event" && frame.emission) {
 					lastSeq = frame.seq ?? lastSeq;
 					signals = [frame.emission, ...signals.filter((signal) => signal.id !== frame.emission?.id)].slice(0, 50);
-					if (frame.emission.type === "subscription.changed") void stormQuery.refresh();
-					if (frame.emission.type === "signal.source_mode_changed") void sourceModeQuery.refresh();
+					if (frame.emission.type === "subscription.changed")
+						void runRemote(stormQuery.refresh());
+					if (frame.emission.type === "signal.source_mode_changed")
+						void runRemote(sourceModeQuery.refresh());
 				}
 				if (frame.kind === "gap" || frame.kind === "resync_required") { busState = "gap"; globalThis.location.reload(); }
 			},

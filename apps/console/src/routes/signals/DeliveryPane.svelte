@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { formatUnknown } from "#format";
-	import { connectBus } from "$lib/rpc/browser";
+	import { connectBus, runRemote } from "$lib/rpc/browser";
 	const env = import.meta.env;
 	import Icon from "$lib/components/Icon.svelte";
 	import IconButton from "$lib/components/IconButton.svelte";
@@ -58,7 +58,7 @@
 		return connectBus(
 			() => [{ sub_id: "delivery-surface", pattern: "delivery.*" }],
 			(frame) => {
-				if (frame["kind"] === "event") void deliveryQuery.refresh();
+				if (frame["kind"] === "event") void runRemote(deliveryQuery.refresh());
 			},
 		);
 	});
@@ -91,7 +91,7 @@
 		busy = "test";
 		result = null;
 		try {
-			const receipt = await sendDeliveryTest();
+			const receipt = await runRemote(sendDeliveryTest());
 			result = {
 				tone: "good",
 				text: `Delivered and persisted as receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
@@ -110,7 +110,7 @@
 		busy = "target";
 		result = null;
 		try {
-			const receipt = await setDeliveryTarget({ target });
+			const receipt = await runRemote(setDeliveryTarget({ target }));
 			targetOpen = false;
 			result = {
 				tone: "good",
@@ -130,9 +130,9 @@
 		if (!surface?.delivery) return;
 		busy = "cocoon";
 		try {
-			await setDeliveryCocoon({
+			await runRemote(setDeliveryCocoon({
 				until: mode === "off" ? new Date().toISOString() : nextSeven(),
-			});
+			}));
 			snackbar.push({ message: "delivery.cocoon applied", op: "delivery.cocoon", tone: "good" });
 		} catch (error) {
 			snackbar.push({
@@ -148,7 +148,7 @@
 	async function resend(receiptRef: string) {
 		busy = receiptRef;
 		try {
-			await resendDeliveryReceipt({ receiptRef });
+			await runRemote(resendDeliveryReceipt({ receiptRef }));
 			snackbar.push({ message: "delivery.resend applied", op: "delivery.resend", tone: "good" });
 		} catch (error) {
 			snackbar.push({

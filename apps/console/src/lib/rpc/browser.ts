@@ -26,8 +26,10 @@ import { Effect } from "effect";
 export type DataMode = "mock" | "live";
 export const dataMode = (): DataMode => "live";
 
-const run = <A>(effect: Effect.Effect<A, unknown>): Promise<A> => Effect.runPromise(effect);
-const read = <P extends ReadPlane>(plane: P): Promise<ReadPlaneResult[P]> => run(readPlane(plane));
+export const runRemote = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
+	Effect.runPromise(effect);
+const read = <P extends ReadPlane>(plane: P): Promise<ReadPlaneResult[P]> =>
+	runRemote(readPlane(plane));
 
 export const readMe = (_fetch?: typeof fetch): Promise<Me> => read("me");
 export const readHealth = (_fetch?: typeof fetch): Promise<ConsoleHealth> => read("health");
@@ -49,13 +51,13 @@ export const readCards = (_fetch?: typeof fetch) => read("cards");
 export const readAttention = (_fetch?: typeof fetch) => read("attention");
 
 export const runQuery = (request: StructuredQuery, _fetch?: typeof fetch): Promise<QueryResult> =>
-	run(runStructuredQuery(request));
+	runRemote(runStructuredQuery(request));
 
 export const runOp = (
 	op: string,
 	args: Record<string, unknown>,
 	opts: { dry_run?: boolean; fetchFn?: typeof fetch } = {},
-): Promise<OpResult> => run(executeNamedOp({ op, args, dry_run: opts.dry_run }));
+): Promise<OpResult> => runRemote(executeNamedOp({ op, args, dry_run: opts.dry_run }));
 
 export type { BusConnectionState } from "@petalnet/console-bus-rpc";
 export type BusSubscription = BusSubscriptionSpec;
@@ -165,8 +167,8 @@ export interface AssistantContextPayload {
 	query_ref?: string;
 	entity_ref?: string;
 }
-export const getAssistantSession = () => run(getAssistantSessionRemote());
+export const getAssistantSession = () => runRemote(getAssistantSessionRemote());
 export const sendAssistantMessage = (message: string) =>
-	run(sendAssistantRemote({ kind: "user", content: message }));
+	runRemote(sendAssistantRemote({ kind: "user", content: message }));
 export const sendAssistantContext = (payload: AssistantContextPayload) =>
-	run(sendAssistantRemote({ kind: "context", content: JSON.stringify(payload) }));
+	runRemote(sendAssistantRemote({ kind: "context", content: JSON.stringify(payload) }));

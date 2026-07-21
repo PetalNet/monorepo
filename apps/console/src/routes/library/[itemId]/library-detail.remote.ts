@@ -1,4 +1,4 @@
-import { getRequestEvent, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import type { WorkSettlementSnapshot } from "$lib/api/types";
 import {
@@ -14,7 +14,8 @@ import {
 	type SettlingTask,
 } from "$lib/data/work-settlement";
 import { error } from "@sveltejs/kit";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { Query } from "svelte-effect-runtime";
 
 export interface LibraryRevision {
 	version: number;
@@ -110,9 +111,8 @@ function taskDetail(task: SettlingTask, isMock: boolean): LibraryDetail {
 	};
 }
 
-export const getLibraryItemDetail = query(
-	Schema.toStandardSchemaV1(idSchema),
-	async (id): Promise<LibraryDetail> => {
+export const getLibraryItemDetail = Query(idSchema, (id) =>
+	Effect.promise(async (): Promise<LibraryDetail> => {
 		if (id.startsWith("task:")) {
 			const isMock = env.PUBLIC_CONSOLE_DATA_MODE !== "live";
 			const settlement = isMock
@@ -179,5 +179,5 @@ export const getLibraryItemDetail = query(
 			txFrom: current.item.tx_from,
 			isMock: false,
 		};
-	},
+	}),
 );

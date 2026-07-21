@@ -1,4 +1,4 @@
-import { getRequestEvent, command, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import type {
 	InvestigationDetail,
@@ -7,7 +7,8 @@ import type {
 } from "$lib/data/investigations";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
 const nodeId = Schema.Struct({
 	id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
@@ -200,41 +201,41 @@ function mockDetail(node: InvestigationNode): InvestigationDetail {
 	};
 }
 
-export const getInvestigationGraph = query(async (): Promise<InvestigationNode[]> => {
-	if (isMock()) return mockNodes;
-	const nodes: InvestigationNode[] = [];
-	let cursor: string | null = null;
-	do {
-		// Cursor pages are causally ordered; the next request cannot be constructed in parallel.
-		// oxlint-disable-next-line no-await-in-loop
-		const envelope: { items: DashboardRow[]; next_cursor?: string | null } = await apiJson(
-			`/dashboards?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-		);
-		nodes.push(
-			...envelope.items
-				.filter(({ is_investigation }) => is_investigation === true)
-				.map(normalizeNode),
-		);
-		cursor = envelope.next_cursor ?? null;
-	} while (cursor);
-	return nodes;
-});
+export const getInvestigationGraph = Query(
+	Effect.promise(async (): Promise<InvestigationNode[]> => {
+		if (isMock()) return mockNodes;
+		const nodes: InvestigationNode[] = [];
+		let cursor: string | null = null;
+		do {
+			// Cursor pages are causally ordered; the next request cannot be constructed in parallel.
+			// oxlint-disable-next-line no-await-in-loop
+			const envelope: { items: DashboardRow[]; next_cursor?: string | null } = await apiJson(
+				`/dashboards?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+			);
+			nodes.push(
+				...envelope.items
+					.filter(({ is_investigation }) => is_investigation === true)
+					.map(normalizeNode),
+			);
+			cursor = envelope.next_cursor ?? null;
+		} while (cursor);
+		return nodes;
+	}),
+);
 
-export const loadInvestigationNode = query(
-	Schema.toStandardSchemaV1(nodeId),
-	async ({ id }): Promise<InvestigationDetail> => {
+export const loadInvestigationNode = Query(nodeId, ({ id }) =>
+	Effect.promise(async (): Promise<InvestigationDetail> => {
 		if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]);
 		const detail = await apiJson<DashboardDetail>(`/dashboards/${encodeURIComponent(id)}`);
 		return {
 			node: normalizeNode(detail),
 			panels: (detail.materialized_panels ?? []).map(normalizePanel),
 		};
-	},
+	}),
 );
 
-export const createInvestigationNode = command(
-	Schema.toStandardSchemaV1(branchInput),
-	async (input): Promise<InvestigationNode> => {
+export const createInvestigationNode = Command(branchInput, (input) =>
+	Effect.promise(async (): Promise<InvestigationNode> => {
 		if (isMock())
 			return {
 				id: `dash_mock_${crypto.randomUUID()}`,
@@ -275,16 +276,18 @@ export const createInvestigationNode = command(
 			parent_id: input.parentId,
 			parent_question: input.parentQuestion,
 		});
-	},
+	}),
 );
 
-export const pinInvestigationNode = command(Schema.toStandardSchemaV1(nodeId), async ({ id }) => {
-	if (isMock()) return { id, isHome: true };
-	await apiJson(`/dashboards/${encodeURIComponent(id)}/home`, {
-		method: "POST",
-		headers: headers(true),
-		body: JSON.stringify({ id: crypto.randomUUID() }),
-	});
-	void getInvestigationGraph().refresh();
-	return { id, isHome: true };
-});
+export const pinInvestigationNode = Command(nodeId, ({ id }) =>
+	Effect.promise(async () => {
+		if (isMock()) return { id, isHome: true };
+		await apiJson(`/dashboards/${encodeURIComponent(id)}/home`, {
+			method: "POST",
+			headers: headers(true),
+			body: JSON.stringify({ id: crypto.randomUUID() }),
+		});
+		void Effect.runPromise(getInvestigationGraph().refresh());
+		return { id, isHome: true };
+	}),
+);

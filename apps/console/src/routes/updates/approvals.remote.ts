@@ -1,9 +1,10 @@
-import { getRequestEvent, command, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import type { OpResult, ReadEnvelope, UpdateApproval } from "$lib/api/types";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
 export type { UpdateApproval } from "$lib/api/types";
 
@@ -89,17 +90,18 @@ async function runApprovalOp(
 	return result;
 }
 
-export const getUpdateApprovals = query(Schema.toStandardSchemaV1(boxInput), async ({ box_id }) => {
-	if (isMock()) return [...mockApprovals.values()].filter((item) => item.box_id === box_id);
-	const result = await apiJson<ReadEnvelope<UpdateApproval>>(
-		`/update-approvals?box_id=${encodeURIComponent(box_id)}`,
-	);
-	return result.items;
-});
+export const getUpdateApprovals = Query(boxInput, ({ box_id }) =>
+	Effect.promise(async () => {
+		if (isMock()) return [...mockApprovals.values()].filter((item) => item.box_id === box_id);
+		const result = await apiJson<ReadEnvelope<UpdateApproval>>(
+			`/update-approvals?box_id=${encodeURIComponent(box_id)}`,
+		);
+		return result.items;
+	}),
+);
 
-export const approveUpdate = command(
-	Schema.toStandardSchemaV1(approveInput),
-	async ({ box_id, packages }) => {
+export const approveUpdate = Command(approveInput, ({ box_id, packages }) =>
+	Effect.promise(async () => {
 		if (isMock()) {
 			const approval: UpdateApproval = {
 				approval_id: crypto.randomUUID(),
@@ -111,7 +113,7 @@ export const approveUpdate = command(
 				observed_at: new Date().toISOString(),
 			};
 			mockApprovals.set(approval.approval_id, approval);
-			void getUpdateApprovals({ box_id }).refresh();
+			void Effect.runPromise(getUpdateApprovals({ box_id }).refresh());
 			return {
 				approval,
 				undo: { op: "updates.revoke" as const, args: { approval_id: approval.approval_id } },
@@ -121,26 +123,25 @@ export const approveUpdate = command(
 			box_id,
 			...(packages.length ? { packages } : {}),
 		});
-		void getUpdateApprovals({ box_id }).refresh();
+		void Effect.runPromise(getUpdateApprovals({ box_id }).refresh());
 		return {
 			approval: result.result as unknown as UpdateApprovalMutation,
 			undo: result.undo as ApprovedUpdate["undo"],
 		};
-	},
+	}),
 );
 
-export const revokeUpdateApproval = command(
-	Schema.toStandardSchemaV1(revokeInput),
-	async ({ approval_id, box_id }) => {
+export const revokeUpdateApproval = Command(revokeInput, ({ approval_id, box_id }) =>
+	Effect.promise(async () => {
 		if (isMock()) {
 			const approval = mockApprovals.get(approval_id);
 			if (!approval || approval.box_id !== box_id) error(409, "This approval is no longer pending");
 			mockApprovals.delete(approval_id);
-			void getUpdateApprovals({ box_id }).refresh();
+			void Effect.runPromise(getUpdateApprovals({ box_id }).refresh());
 			return { approval_id, box_id, revoked_at: new Date().toISOString() };
 		}
 		const result = await runApprovalOp("updates.revoke", { approval_id });
-		void getUpdateApprovals({ box_id }).refresh();
+		void Effect.runPromise(getUpdateApprovals({ box_id }).refresh());
 		return result.result as { approval_id: string; box_id: string; revoked_at: string };
-	},
+	}),
 );
