@@ -1,18 +1,23 @@
 name: console-release
 
+# Build and publish the unified Lab Console image to GHCR. `apps/console` is now
+# ONE full-stack SvelteKit app (the standalone apps/console-api gateway was folded
+# in and deleted), so this builds a SINGLE image from apps/console/Dockerfile —
+# replacing the old console-api + console-web matrix.
 on:
   push:
     branches: [main]
     paths:
       - "apps/console/**"
-      - "apps/console-api/**"
+      - "packages/svelte-ws/**"
+      - "packages/console-bus-rpc/**"
+      - "packages/better-auth-effect-qb-adapter/**"
       - "packages/types/**"
       - "packages/tsconfig/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "tsconfig.json"
-      - "vite.config.ts"
       - ".dockerignore"
       - ".github/workflows/console-release.yml"
   workflow_dispatch:
@@ -25,20 +30,12 @@ permissions:
   contents: read
 
 jobs:
-  images:
-    name: build + push console images
+  image:
+    name: build + push console image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: console-api
-            dockerfile: apps/console-api/Dockerfile
-          - image: console-web
-            dockerfile: apps/console/Dockerfile
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -57,7 +54,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          images: ghcr.io/${{ github.repository_owner }}/console
           tags: |
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,format=long
@@ -66,11 +63,11 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: apps/console/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-from: type=gha,scope=console
+          cache-to: type=gha,mode=max,scope=console
           provenance: mode=max
           sbom: true

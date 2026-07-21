@@ -1,0 +1,106 @@
+# console-demo — Lab Console live demo stack (console-demo.petalcat.dev).
+#
+# REVIEW DRAFT (chore/console-demo-deploy) — rewritten after the console-api fold.
+# The old four-way split (console-demo-api + console-demo-bridge +
+# console-demo-windchime + console-demo-web) collapses into ONE unified app
+# container: apps/console now serves the UI, the /api/v1 REST surface, the MCP
+# endpoint, and the crossws WebSocket bus from a single `node build/index.js`
+# process (docs/adr/UNIFIED-SVELTEKIT-CONSOLE.md).
+#
+# The host's shared Traefik terminates TLS for console-demo.petalcat.dev and
+# routes to 127.0.0.1:18081 (unchanged). The old 127.0.0.1:18080 API port is
+# retired — /api/v1 is now same-origin on 18081.
+#
+# The external network + volume already exist on .14 (kept as-is):
+#   docker network create console-demo-net
+#   docker volume create console-demo-postgres-data
+#
+# This manifest lives in-repo for review. The live copy on the host is
+# /home/docker/console-demo/docker-compose.yml — DO NOT swap it in without Eli's
+# sign-off (the live re-architecture is his call; see the PR NOTES).
+
+name: console-demo
+
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    container_name: console-demo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: console
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - console-demo-postgres-data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d console"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [demo]
+
+  console:
+    image: ghcr.io/petalnet/console:main
+    container_name: console-demo
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # --- server (adapter-node listen socket) ---
+      HOST: 0.0.0.0
+      PORT: "3000"
+      ORIGIN: https://console-demo.petalcat.dev
+      # --- database ---
+      # Admin/owner URL: migrations run as this role and create the three hardened
+      # roles on first boot. The scoped connections fall back to it if unset; kept
+      # explicit here to preserve the RLS posture the old split demo used.
+      DATABASE_URL: postgresql://postgres@postgres:5432/console
+      APP_DATABASE_URL: postgresql://console_app@postgres:5432/console
+      RO_DATABASE_URL: postgresql://console_ro@postgres:5432/console
+      WRITER_DATABASE_URL: postgresql://console_writer@postgres:5432/console
+      # --- auth spine (Better Auth) ---
+      BETTER_AUTH_URL: https://console-demo.petalcat.dev
+      BETTER_AUTH_SECRET: ${CONSOLE_BETTER_AUTH_SECRET:?load console-better-auth-secret from vault}
+      # HMAC key for opaque pagination cursors — required outside dev-auth.
+      CONSOLE_API_CURSOR_SECRET: ${CONSOLE_API_CURSOR_SECRET:?load console-api-cursor-secret from vault}
+      # --- OIDC (Authentik) — new OIDC_* names per apps/console/.env.example ---
+      OIDC_ISSUER: https://auth.petalcat.dev/application/o/console-demo/
+      OIDC_CLIENT_ID: ${CONSOLE_AUTHENTIK_CLIENT_ID:?load console-authentik-client-id from vault}
+      OIDC_CLIENT_SECRET: ${CONSOLE_AUTHENTIK_CLIENT_SECRET:?load console-authentik-client-secret from vault}
+      OIDC_SCOPES: openid,profile,email
+      OIDC_REDIRECT_URI: https://console-demo.petalcat.dev/api/auth/oauth2/callback/oidc
+      # --- observability (Glitchtip: server DSN + browser DSN are distinct) ---
+      CONSOLE_API_GLITCHTIP_DSN: ${CONSOLE_GLITCHTIP_DSN:?load console-glitchtip-dsn from vault}
+      PUBLIC_GLITCHTIP_DSN: ${CONSOLE_GLITCHTIP_DSN:?load console-glitchtip-dsn from vault}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${CONSOLE_OTEL_ENDPOINT:-http://127.0.0.1:4318}
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    ports:
+      - "127.0.0.1:18081:3000"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    networks: [demo]
+
+  # Auto-updates the console + postgres images on the :main tag (existing demo
+  # convention — unchanged).
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: console-demo-watchtower
+    restart: unless-stopped
+    command: --label-enable --cleanup --interval 180
+    environment:
+      DOCKER_CONFIG: /config
+      DOCKER_API_VERSION: "1.40"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/docker/.docker/config.json:/config/config.json:ro
+    networks: [demo]
+
+networks:
+  demo:
+    name: console-demo-net
+    external: true
+
+volumes:
+  console-demo-postgres-data:
+    external: true
