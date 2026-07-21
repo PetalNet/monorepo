@@ -416,6 +416,9 @@ importers:
       better-auth:
         specifier: 'catalog:'
         version: 1.7.0-rc.1(a52e1e457fb0faaabc33f29118ba3efc)
+      crossws:
+        specifier: 'catalog:'
+        version: 0.3.5
       daisyui:
         specifier: catalog:prod
         version: 5.6.18
@@ -468,9 +471,6 @@ importers:
       '@types/node':
         specifier: catalog:types
         version: 25.9.4
-      crossws:
-        specifier: 'catalog:'
-        version: 0.3.5
       eslint:
         specifier: catalog:dev
         version: 10.5.0(jiti@2.7.0)

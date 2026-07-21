@@ -1,9 +1,5 @@
 name: console-release
 
-# Build and publish the unified Lab Console image to GHCR. `apps/console` is now
-# ONE full-stack SvelteKit app (the standalone apps/console-api gateway was folded
-# in and deleted), so this builds a SINGLE image from apps/console/Dockerfile —
-# replacing the old console-api + console-web matrix.
 on:
   push:
     branches: [main]
@@ -37,14 +33,14 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
       - name: Log in to GHCR
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -52,7 +48,7 @@ jobs:
 
       - name: Derive image tags
         id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302
         with:
           images: ghcr.io/${{ github.repository_owner }}/console
           tags: |
@@ -60,7 +56,7 @@ jobs:
             type=sha,format=long
 
       - name: Build + push
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: .
           file: apps/console/Dockerfile

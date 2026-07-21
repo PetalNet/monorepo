@@ -14,6 +14,7 @@ export default {
 			},
 		},
 		"apps/console": {
+			ignoreDependencies: ["crossws!"],
 			sveltekit: {
 				config: ["vite.config.ts"],
 			},
