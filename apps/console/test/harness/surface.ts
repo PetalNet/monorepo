@@ -175,6 +175,10 @@ export async function startTestSurface(
 				onClose: (handler) => {
 					serverClose = handler;
 				},
+				bufferedAmount: () => 0,
+				ping: () => false,
+				terminate: shutdown,
+				onPong: () => {},
 			};
 			attachBusConnection(busSocket, {
 				services,

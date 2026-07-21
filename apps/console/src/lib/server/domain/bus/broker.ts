@@ -1,4 +1,3 @@
-import { asynchronously } from "#domain/iteration";
 // The bus broker (contract §4.1, bus-frame.schema.json). Fan-out to scoped subscribers with an
 // EXACT replay→live cutover: register the live buffer BEFORE capturing the boundary, replay
 // seq<=boundary from the lake, flush the buffer for seq>boundary once, then stream live. Bounded
@@ -6,7 +5,6 @@ import { asynchronously } from "#domain/iteration";
 // silent drop. Grant change re-fences (drops subs whose scope narrowed).
 
 import type { Emission } from "../emission.ts";
-import { whileCondition } from "../iteration.ts";
 
 export interface SubscribeSpec {
 	readonly subId: string;
@@ -33,6 +31,7 @@ export type ReplayFn = (
 
 const SEV_ORDER = ["debug", "info", "warn", "danger", "p0"];
 const QUEUE_MAX = 1000;
+export const SOCKET_HIGH_WATER_BYTES = 1024 * 1024;
 
 export function matchPattern(pattern: string, type: string): boolean {
 	const patternSegments = pattern.split(".");
@@ -93,6 +92,7 @@ interface Sub {
 	gapFrom: number | null;
 	gapTo: number;
 	closed: boolean;
+	bufferedAmount: () => number;
 }
 
 export class Broker {
@@ -134,6 +134,7 @@ export class Broker {
 		spec: SubscribeSpec,
 		send: SendFrame,
 		onRegistered?: () => void,
+		bufferedAmount: () => number = () => 0,
 	): Promise<boolean> {
 		const key = subscriptionKey(ownerId, spec.subId);
 		if (this.#subs.has(key)) {
@@ -158,6 +159,7 @@ export class Broker {
 			gapFrom: null,
 			gapTo: 0,
 			closed: false,
+			bufferedAmount,
 		};
 		// register BEFORE capturing the boundary so nothing fanned after now is lost
 		this.#subs.set(key, sub);
@@ -226,27 +228,27 @@ export class Broker {
 	}
 
 	#enqueue(sub: Sub, seq: number, e: Emission): void {
-		if (sub.queue.length >= QUEUE_MAX) {
+		const socketBacklog = Math.ceil(sub.bufferedAmount() / 2048);
+		if (sub.queue.length + socketBacklog >= QUEUE_MAX) {
 			if (sub.gapFrom === null) sub.gapFrom = seq;
 			sub.gapTo = seq;
 			return;
 		}
 		sub.queue.push({ seq, emission: e });
-		if (!sub.draining) void this.#drain(sub);
+		if (!sub.draining) this.#drain(sub);
 	}
 
-	async #drain(sub: Sub): Promise<void> {
+	#drain(sub: Sub): void {
 		sub.draining = true;
-		try {
-			for await (const iteration of asynchronously(
-				whileCondition(() => sub.queue.length > 0 && !sub.closed),
-			)) {
-				void iteration;
-				const item = sub.queue.shift();
-				if (!item) break;
-				sub.send(frame(sub.spec.subId, item.seq, item.emission));
-				// yield so a slow socket doesn't block the event loop
-				await Promise.resolve();
+		const step = (): void => {
+			if (sub.queue.length > 0 && !sub.closed) {
+				if (sub.bufferedAmount() >= SOCKET_HIGH_WATER_BYTES) setTimeout(step, 10).unref();
+				else {
+					const item = sub.queue.shift();
+					if (item) sub.send(frame(sub.spec.subId, item.seq, item.emission));
+					queueMicrotask(step);
+				}
+				return;
 			}
 			if (sub.gapFrom !== null && !sub.closed) {
 				sub.send({
@@ -259,9 +261,9 @@ export class Broker {
 				});
 				sub.gapFrom = null;
 			}
-		} finally {
 			sub.draining = false;
-		}
+		};
+		step();
 	}
 }
 

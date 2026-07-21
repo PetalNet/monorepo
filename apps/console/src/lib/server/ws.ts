@@ -66,20 +66,43 @@ export const handleWebsocket: HandleWebsocket = async ({ socket, peer, request }
 	});
 };
 
-const toBusSocket = (socket: Parameters<HandleWebsocket>[0]["socket"], peer: Peer): BusSocket => ({
-	send: (text) => {
-		peer.send(text);
-	},
-	close: () => {
-		socket.close();
-	},
-	isOpen: () => socket.isOpen(),
-	onMessage: (handler) => {
-		socket.on("message", (data) => {
-			handler(data);
-		});
-	},
-	onClose: (handler) => {
-		socket.on("close", handler);
-	},
-});
+interface RawWebSocket {
+	bufferedAmount?: number;
+	ping?: () => void;
+	terminate?: () => void;
+	on?: (event: "pong", handler: () => void) => void;
+}
+
+const toBusSocket = (socket: Parameters<HandleWebsocket>[0]["socket"], peer: Peer): BusSocket => {
+	const raw = peer.websocket as RawWebSocket;
+	return {
+		send: (text) => {
+			peer.send(text);
+		},
+		close: () => {
+			socket.close();
+		},
+		isOpen: () => socket.isOpen(),
+		onMessage: (handler) => {
+			socket.on("message", (data) => {
+				handler(data);
+			});
+		},
+		onClose: (handler) => {
+			socket.on("close", handler);
+		},
+		bufferedAmount: () => raw.bufferedAmount ?? 0,
+		ping: () => {
+			if (!raw.ping) return false;
+			raw.ping();
+			return true;
+		},
+		terminate: () => {
+			if (raw.terminate) raw.terminate();
+			else socket.close();
+		},
+		onPong: (handler) => {
+			raw.on?.("pong", handler);
+		},
+	};
+};
