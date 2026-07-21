@@ -53,8 +53,9 @@ function forwardedHeaders(contentType = false): Headers {
 }
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const base = env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
-	const response = await getRequestEvent().fetch(`${base}${path}`, {
+	const event = getRequestEvent();
+	const base = env.PUBLIC_CONSOLE_API_BASE ?? `${event.url.origin}/api/v1`;
+	const response = await event.fetch(`${base}${path}`, {
 		...init,
 		headers: init?.headers ?? forwardedHeaders(init?.body !== undefined),
 	});
