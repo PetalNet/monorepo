@@ -1,9 +1,19 @@
-export interface BetterAuthSessionIdentity {
-	readonly username: string;
-	readonly groups: readonly string[];
-	readonly subject?: string;
-	readonly sessionId?: string;
-}
+import { isConsoleTier, type ConsoleTier } from "./tier-lanes.ts";
+
+export type BetterAuthSessionIdentity =
+	| {
+			readonly kind: "authentik";
+			readonly username: string;
+			readonly groups: readonly string[];
+			readonly subject: string;
+			readonly sessionId: string;
+	  }
+	| {
+			readonly kind: "app";
+			readonly userId: string;
+			readonly tier: ConsoleTier;
+			readonly sessionId: string;
+	  };
 
 function hasControlCharacter(value: string): boolean {
 	return Array.from(value).some((character) => {
@@ -14,7 +24,12 @@ function hasControlCharacter(value: string): boolean {
 
 export function parseBetterAuthIdentity(
 	user: Record<string, unknown>,
+	sessionId = "",
 ): BetterAuthSessionIdentity | null {
+	const userId = user["id"];
+	const tier = user["tier"];
+	if (typeof userId === "string" && /^[A-Za-z0-9_-]{1,255}$/.test(userId) && isConsoleTier(tier))
+		return { kind: "app", userId, tier, sessionId };
 	const username = user["authentikUsername"];
 	const encodedGroups = user["authentikGroups"];
 	const subject = user["authentikSubject"];
@@ -39,7 +54,7 @@ export function parseBetterAuthIdentity(
 			new Set(groups).size !== groups.length
 		)
 			return null;
-		return { username, groups, subject };
+		return { kind: "authentik", username, groups, subject, sessionId };
 	} catch {
 		return null;
 	}

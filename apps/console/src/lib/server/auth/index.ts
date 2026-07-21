@@ -6,6 +6,7 @@ import { genericOAuth } from "better-auth/plugins";
 import { sveltekitCookies } from "better-auth/svelte-kit";
 
 import { initializeAdminBootstrap } from "./bootstrap";
+import { authCookiePrefix } from "./cookies";
 
 const required = (name: string) => {
 	const value = process.env[name];
@@ -31,7 +32,7 @@ export const auth = betterAuth({
 	trustedOrigins: [new URL(baseURL).origin],
 	advanced: {
 		useSecureCookies: new URL(baseURL).protocol === "https:",
-		cookiePrefix: new URL(baseURL).protocol === "https:" ? "__Host-" : "console",
+		cookiePrefix: authCookiePrefix(baseURL),
 		defaultCookieAttributes: {
 			secure: new URL(baseURL).protocol === "https:",
 			httpOnly: true,

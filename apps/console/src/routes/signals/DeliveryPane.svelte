@@ -54,7 +54,7 @@
 	});
 
 	onMount(() => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return;
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return;
 		return connectBus(
 			() => [{ sub_id: "delivery-surface", pattern: "delivery.*" }],
 			(frame) => {

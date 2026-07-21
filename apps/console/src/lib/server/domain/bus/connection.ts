@@ -21,6 +21,10 @@ export interface BusSocket {
 	isOpen(): boolean;
 	onMessage(handler: (data: string | Uint8Array) => void): void;
 	onClose(handler: () => void): void;
+	bufferedAmount(): number;
+	ping(): boolean;
+	terminate(): void;
+	onPong(handler: () => void): void;
 }
 
 export interface BusCounters {
@@ -55,6 +59,19 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 			removeConnSub(frame["sub_id"]);
 		if (socket.isOpen()) socket.send(JSON.stringify(frame));
 	};
+	let pongReceived = true;
+	socket.onPong(() => {
+		pongReceived = true;
+	});
+	const livenessTimer = setInterval(() => {
+		if (!socket.isOpen()) return;
+		if (!pongReceived) {
+			socket.terminate();
+			return;
+		}
+		if (socket.ping()) pongReceived = false;
+	}, 30_000);
+	livenessTimer.unref();
 	const ready = (async () => {
 		try {
 			principal = await resolvePrincipal();
@@ -115,14 +132,11 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 
 	// LISTEN/NOTIFY makes grant changes re-fence immediately. The 30s check remains as a recovery
 	// path for token revocation and a notification connection blip.
-	let refreshing = false;
-	let refreshAgain = false;
-	const refreshPrincipal = async (): Promise<void> => {
-		if (refreshing) {
-			refreshAgain = true;
-			return;
-		}
-		refreshing = true;
+	let refreshGeneration = 0;
+	let refreshInFlight: Promise<void> | null = null;
+	let refreshBarrier: Promise<void> = Promise.resolve();
+	const refreshUntilSettled = async (): Promise<void> => {
+		const generation = refreshGeneration;
 		try {
 			const fresh = await resolvePrincipal();
 			if (!fresh) {
@@ -134,19 +148,23 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 			services.broker.revalidateScopes(connectionId, [...connSubs], fresh.scopes);
 		} catch {
 			/* transient DB blip: keep the connection, retry on the fallback timer */
-		} finally {
-			refreshing = false;
-			if (refreshAgain && socket.isOpen()) {
-				refreshAgain = false;
-				void refreshPrincipal();
-			}
 		}
+		if (generation !== refreshGeneration && socket.isOpen()) await refreshUntilSettled();
+	};
+	const refreshPrincipal = (): Promise<void> => {
+		refreshGeneration += 1;
+		if (refreshInFlight) {
+			return refreshInFlight;
+		}
+		refreshInFlight = refreshUntilSettled().finally(() => {
+			refreshInFlight = null;
+			return undefined;
+		});
+		return refreshInFlight;
 	};
 	const stopGrantWatch = refreshable
 		? services.onGrantChange(() => {
-				principal = null;
-				services.broker.revalidateScopes(connectionId, [...connSubs], []);
-				void refreshPrincipal();
+				refreshBarrier = refreshPrincipal();
 			})
 		: null;
 	const revalidateTimer = refreshable
@@ -156,67 +174,83 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 		: null;
 	if (revalidateTimer) revalidateTimer.unref();
 
+	let frameChain = Promise.resolve();
 	socket.onMessage((data: string | Uint8Array) => {
-		void (async () => {
-			await ready;
-			if (!principal) return;
-			const rejectFrame = (code: string, message: string, subId = "?"): void => {
-				send({
-					schema_version: 1,
-					kind: "ack",
-					sub_id: subId,
-					replay_through_seq: services.broker.head,
-					error: { code, message, retryable: false },
-				});
-			};
-			const frameBytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
-			if (frameBytes > maxFrameBytes) {
-				rejectFrame("frame_too_large", `frame exceeds ${String(maxFrameBytes)} bytes`);
-				return;
-			}
-			let raw: unknown;
-			try {
-				raw = JSON.parse(typeof data === "string" ? data : Buffer.from(data).toString()) as unknown;
-			} catch {
-				rejectFrame("bad_frame", "invalid json");
-				return;
-			}
-			const rawSubId =
-				raw && typeof raw === "object" ? (raw as Record<string, unknown>)["sub_id"] : undefined;
-			const candidateSubId = typeof rawSubId === "string" && rawSubId.length <= 64 ? rawSubId : "?";
-			const decoded = decodeClientFrame(raw);
-			if (Exit.isFailure(decoded)) {
-				rejectFrame("invalid_frame", "frame does not match the bus contract", candidateSubId);
-				return;
-			}
-			const msg = decoded.value;
-			if (msg.action === "subscribe") {
-				if (!connSubs.has(msg.sub_id) && connSubs.size >= maxSubscriptions) {
-					rejectFrame(
-						"subscription_limit",
-						`connection is limited to ${String(maxSubscriptions)} subscriptions`,
-						msg.sub_id,
-					);
+		frameChain = frameChain
+			.then(async () => {
+				await ready;
+				await refreshBarrier;
+				if (!principal) return undefined;
+				const rejectFrame = (code: string, message: string, subId = "?"): void => {
+					send({
+						schema_version: 1,
+						kind: "ack",
+						sub_id: subId,
+						replay_through_seq: services.broker.head,
+						error: { code, message, retryable: false },
+					});
+				};
+				const frameBytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
+				if (frameBytes > maxFrameBytes) {
+					rejectFrame("frame_too_large", `frame exceeds ${String(maxFrameBytes)} bytes`);
 					return;
 				}
-				const spec: SubscribeSpec = {
-					subId: msg.sub_id,
-					pattern: msg.pattern,
-					filter: msg.filter,
-					since: msg.since,
-					scopes: principal.scopes,
-				};
-				await services.broker.subscribe(connectionId, spec, send, () => {
-					if (!connSubs.has(msg.sub_id)) {
-						connSubs.add(msg.sub_id);
-						counters.subscriptions += 1;
+				let raw: unknown;
+				try {
+					raw = JSON.parse(
+						typeof data === "string" ? data : Buffer.from(data).toString(),
+					) as unknown;
+				} catch {
+					rejectFrame("bad_frame", "invalid json");
+					return;
+				}
+				const rawSubId =
+					raw && typeof raw === "object" ? (raw as Record<string, unknown>)["sub_id"] : undefined;
+				const candidateSubId =
+					typeof rawSubId === "string" && rawSubId.length <= 64 ? rawSubId : "?";
+				const decoded = decodeClientFrame(raw);
+				if (Exit.isFailure(decoded)) {
+					rejectFrame("invalid_frame", "frame does not match the bus contract", candidateSubId);
+					return;
+				}
+				const msg = decoded.value;
+				if (msg.action === "subscribe") {
+					if (!connSubs.has(msg.sub_id) && connSubs.size >= maxSubscriptions) {
+						rejectFrame(
+							"subscription_limit",
+							`connection is limited to ${String(maxSubscriptions)} subscriptions`,
+							msg.sub_id,
+						);
+						return;
 					}
-				});
-			} else {
-				services.broker.unsubscribe(connectionId, msg.sub_id);
-				removeConnSub(msg.sub_id);
-			}
-		})();
+					const spec: SubscribeSpec = {
+						subId: msg.sub_id,
+						pattern: msg.pattern,
+						filter: msg.filter,
+						since: msg.since,
+						scopes: principal.scopes,
+					};
+					await services.broker.subscribe(
+						connectionId,
+						spec,
+						send,
+						() => {
+							if (!connSubs.has(msg.sub_id)) {
+								connSubs.add(msg.sub_id);
+								counters.subscriptions += 1;
+							}
+						},
+						() => socket.bufferedAmount(),
+					);
+				} else {
+					services.broker.unsubscribe(connectionId, msg.sub_id);
+					removeConnSub(msg.sub_id);
+				}
+				return undefined;
+			})
+			.catch((error: unknown) => {
+				monitor.captureException(sanitizedException(error));
+			});
 	});
 	socket.onClose(() => {
 		if (clientCounted) {
@@ -224,6 +258,7 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 			counters.clients = Math.max(0, counters.clients - 1);
 		}
 		clearInterval(heartbeatTimer);
+		clearInterval(livenessTimer);
 		if (revalidateTimer) clearInterval(revalidateTimer);
 		stopGrantWatch?.();
 		for (const id of connSubs) services.broker.unsubscribe(connectionId, id);

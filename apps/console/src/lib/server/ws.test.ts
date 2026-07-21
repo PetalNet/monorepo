@@ -4,7 +4,6 @@ import type { Principal } from "./domain/auth/principal";
 
 const mocks = vi.hoisted(() => ({
 	attachBusConnection: vi.fn(),
-	resolveSessionPrincipal: vi.fn<() => Promise<Principal | null>>(),
 	apiResolvePrincipal: vi.fn<() => Promise<Principal | null>>(),
 	state: { browserOrigin: null as string | null },
 }));
@@ -19,7 +18,6 @@ vi.mock("./api/instance", () => ({
 	consoleServices: () => Promise.resolve({}),
 }));
 vi.mock("./domain/bus/connection", () => ({ attachBusConnection: mocks.attachBusConnection }));
-vi.mock("./session-principal", () => ({ resolveSessionPrincipal: mocks.resolveSessionPrincipal }));
 
 import { handleWebsocket } from "./ws";
 
@@ -78,12 +76,11 @@ describe("websocket upgrade origin gate", () => {
 		await denied("/api/v1/bus/ws");
 		await denied("/api/v1/terminal/ws");
 		expect(mocks.attachBusConnection).not.toHaveBeenCalled();
-		expect(mocks.resolveSessionPrincipal).not.toHaveBeenCalled();
 		expect(mocks.apiResolvePrincipal).not.toHaveBeenCalled();
 	});
 
 	it("attaches a same-origin cookie upgrade and still resolves the session chain", async () => {
-		mocks.resolveSessionPrincipal.mockResolvedValue(principal);
+		mocks.apiResolvePrincipal.mockResolvedValue(principal);
 		const { event, close } = upgrade({
 			origin: CONSOLE_ORIGIN,
 			cookie: "console.session_token=valid",
@@ -95,6 +92,10 @@ describe("websocket upgrade origin gate", () => {
 			resolvePrincipal: () => Promise<Principal | null>;
 		};
 		await expect(options.resolvePrincipal()).resolves.toBe(principal);
+		expect(mocks.apiResolvePrincipal).toHaveBeenCalledWith(
+			expect.objectContaining({}),
+			"console.test",
+		);
 	});
 
 	it("leaves upgrades without an Origin header origin-agnostic (agent bearer clients)", async () => {

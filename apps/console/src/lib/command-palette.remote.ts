@@ -14,7 +14,7 @@ const input = Schema.Struct({
  */
 export const searchCommandPalette = Query(input, ({ query: text }) =>
 	Effect.promise(async () => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return searchMockPalette(text);
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return searchMockPalette(text);
 
 		const event = getRequestEvent();
 		const headers = new Headers({ accept: "application/json", origin: event.url.origin });
@@ -22,7 +22,7 @@ export const searchCommandPalette = Query(input, ({ query: text }) =>
 			const value = event.request.headers.get(name);
 			if (value) headers.set(name, value);
 		}
-		const base = env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+		const base = env.PUBLIC_CONSOLE_API_BASE ?? `${event.url.origin}/api/v1`;
 		const response = await event.fetch(
 			`${base}/palette/search?q=${encodeURIComponent(text)}&limit=24`,
 			{ headers },

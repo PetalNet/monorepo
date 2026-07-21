@@ -81,6 +81,25 @@ describe("broker cutover", () => {
 		expect(Number(gap?.["to_seq"])).toBe(1500);
 	});
 
+	it("waits for the socket backlog to drain before sending queued events", async () => {
+		const broker = new Broker(async () => {});
+		const frames: Record<string, unknown>[] = [];
+		let buffered = 1024 * 1024;
+		await broker.subscribe(
+			owner,
+			spec("socket-backlog"),
+			(frame) => frames.push(frame),
+			undefined,
+			() => buffered,
+		);
+		broker.onEvent(1, ev(1));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(frames.some((frame) => frame["kind"] === "event")).toBe(false);
+		buffered = 0;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(frames.some((frame) => frame["kind"] === "event")).toBe(true);
+	});
+
 	it("does not deliver events outside the subscriber scope", async () => {
 		const broker = new Broker(async () => {});
 		const frames: Record<string, unknown>[] = [];

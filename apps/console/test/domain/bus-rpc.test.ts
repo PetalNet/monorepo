@@ -173,7 +173,7 @@ function surfaceWebSocket(surface: TestSurface, headers: Record<string, string>)
 }
 
 describe("typed bus RPC client (Phase 2 contract)", () => {
-	it("subscribes, receives schema-decoded acks and events, and re-fences on grant change", async () => {
+	it("subscribes, receives events, and preserves freshly authorized scopes on grant notices", async () => {
 		// A verifier (even one that defers to the dev principal) marks the connection refreshable,
 		// arming the grant-change watch exactly as browser/bearer connections are.
 		const surface = await startTestSurface(services, {
@@ -211,23 +211,18 @@ describe("typed bus RPC client (Phase 2 contract)", () => {
 			expect(typeof (event as { seq: number }).seq).toBe("number");
 			expect(protocolErrors).toEqual([]);
 
-			// Narrow the caller's grants and poke the LISTEN channel: the live subscription must be
-			// dropped with resync_required, not silently retained on stale scopes.
-			await services.db.admin`delete from grants where subject = 'bus-rpc' and object = ${scope}`;
+			// A grant notice re-resolves the principal. The dev principal still has this scope, so its
+			// subscription remains live instead of every connection being spuriously re-fenced to [].
 			await services.db.admin`select pg_notify('console_grants_changed', 'bus-rpc-test')`;
+			const afterRefresh = emission();
+			expect((await services.emit("test:emitter", afterRefresh, 300)).ok).toBe(true);
 			await expect
-				.poll(
-					() =>
-						frames.some(
-							(frame) => frame.kind === "resync_required" && frame.sub_id === "bus-rpc-live",
-						),
-					{ timeout: 5_000 },
+				.poll(() =>
+					frames.some((frame) => frame.kind === "event" && frame.emission.id === afterRefresh.id),
 				)
 				.toBe(true);
 			client.close();
 		} finally {
-			await services.db.admin`insert into grants (subject, relation, object, granted_by)
-				values ('bus-rpc', 'viewer', ${scope}, 'test') on conflict do nothing`;
 			await surface.close();
 		}
 	}, 30_000);

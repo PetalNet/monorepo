@@ -1,4 +1,4 @@
-import { auth } from "$lib/server/auth";
+import { consoleApi } from "$lib/server/api/instance";
 import { Effect, Option, Schema } from "effect";
 import { Handler } from "svelte-effect-runtime/server";
 
@@ -8,21 +8,26 @@ const TierUpdate = Schema.Struct({ tier: Schema.Literals(["operator", "editor", 
 
 export const PUT = Handler<RequestHandler>(function* ({ locals, params, request }) {
 	if (locals.tier !== "owner") return Response.json({ error: "forbidden" }, { status: 403 });
-	const decoded = yield* Effect.promise(() => request.text()).pipe(
+	const decoded = yield* Effect.tryPromise(() => request.text()).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(TierUpdate))),
 		Effect.option,
 	);
 	if (Option.isNone(decoded)) return Response.json({ error: "invalid tier" }, { status: 400 });
 	const { tier } = decoded.value;
-	const context = yield* Effect.promise(() => auth.$context);
-	const user = yield* Effect.promise(() =>
-		context.adapter.update({
-			model: "user",
-			where: [{ field: "id", value: params.userId }],
-			update: { tier, updatedAt: new Date() },
-		}),
+	const api = yield* Effect.promise(() => consoleApi());
+	const response = yield* Effect.promise(() =>
+		api.fetch(
+			new Request(new URL("/api/v1/op", request.url), {
+				method: "POST",
+				headers: request.headers,
+				body: JSON.stringify({
+					schema_version: 1,
+					id: crypto.randomUUID(),
+					op: "governance.user_tier",
+					args: { user_id: params.userId, tier },
+				}),
+			}),
+		),
 	);
-	return user
-		? Response.json({ userId: params.userId, tier })
-		: Response.json({ error: "not found" }, { status: 404 });
+	return response ?? Response.json({ error: "operation unavailable" }, { status: 503 });
 });

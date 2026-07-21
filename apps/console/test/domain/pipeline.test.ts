@@ -4400,6 +4400,20 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 				"context.receive",
 				"library.surface",
 			]);
+			const sessionAlias = await server.inject({
+				method: "POST",
+				url: "/api/v1/mcp",
+				headers,
+				payload: { jsonrpc: "2.0", id: 10, method: "tools/list" },
+			});
+			expect(sessionAlias.statusCode).toBe(401);
+			const tokenAlias = await server.inject({
+				method: "POST",
+				url: "/api/v1/mcp",
+				headers: { authorization: `Bearer ${toolToken}` },
+				payload: { jsonrpc: "2.0", id: 11, method: "tools/list" },
+			});
+			expect(tokenAlias.statusCode, tokenAlias.body).toBe(200);
 			const arranged = await server.inject({
 				method: "POST",
 				url: "/api/v1/assistant/mcp",
@@ -4414,7 +4428,12 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 					},
 				},
 			});
-			expect(arranged.json().result.isError).not.toBe(true);
+			expect(arranged.json().result.isError, arranged.body).not.toBe(true);
+			const arrangedAudit = await services.db.admin<{ count: number }[]>`
+				select count(*)::int as count from events
+				where dimensions->>'op' = 'window.arrange'
+				  and dimensions->>'principal' = 'runtime-user'`;
+			expect(arrangedAudit[0]?.count).toBeGreaterThanOrEqual(2);
 			const libraryView = await server.inject({
 				method: "POST",
 				url: "/api/v1/assistant/mcp",
