@@ -1,0 +1,196 @@
+// The Effect Schema single source of truth for the console API surface. The REST components and
+// OpenAPI derivation live here; the shared server->client contract entities and the op-catalog
+// schema live in the browser-safe `$lib/contracts` modules and are re-exported through this module
+// so it stays the one aggregation point (rewrite Phase 4 — no parallel JSON-Schema, no codegen).
+export * from "../../contracts/entities.ts";
+export * from "../../contracts/op-catalog.ts";
+
+import { Schema } from "effect";
+
+import { StructuredQuerySchema } from "../../contracts/entities.ts";
+import { rejectUnknownKeys } from "../../contracts/schema-conventions.ts";
+
+const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
+const JsonValue = Schema.Unknown;
+const NullableString = Schema.NullOr(Schema.String);
+
+const EmissionSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	id: Schema.String.check(Schema.isUUID()),
+	type: Schema.String,
+	ts: Schema.String,
+	source: Schema.Struct({
+		service: Schema.String,
+		host: Schema.optional(NullableString),
+		agent: Schema.optional(NullableString),
+	}),
+	subject: Schema.String,
+	subject_kind: Schema.optional(NullableString),
+	severity: Schema.Union([
+		Schema.Literal("debug"),
+		Schema.Literal("info"),
+		Schema.Literal("warn"),
+		Schema.Literal("danger"),
+		Schema.Literal("p0"),
+	]),
+	action: Schema.optional(NullableString),
+	task_id: Schema.optional(Schema.NullOr(Schema.Number)),
+	scope: Schema.String,
+	dimensions: Schema.optional(JsonObject),
+	measures: Schema.optional(JsonObject),
+	links: Schema.optional(Schema.Array(JsonObject)),
+	body_ref: Schema.optional(NullableString),
+	meta: Schema.optional(JsonObject),
+}).annotate({ identifier: "Emission", title: "Bus emission" });
+
+export const OpCallSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	id: Schema.String,
+	op: Schema.String,
+	args: JsonObject,
+	task_id: Schema.optional(Schema.NullOr(Schema.Number)),
+	reason: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000)))),
+	dry_run: Schema.optional(Schema.Boolean),
+}).annotate({ identifier: "OpCall", title: "Named operation call" });
+
+const OpResultSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	in_reply_to: Schema.String,
+	ok: Schema.Boolean,
+	status: Schema.optional(
+		Schema.NullOr(Schema.Union([Schema.Literal("applied"), Schema.Literal("accepted")])),
+	),
+	result: Schema.optional(Schema.NullOr(JsonObject)),
+	error: Schema.optional(Schema.NullOr(JsonObject)),
+	audit_seq: Schema.optional(Schema.NullOr(Schema.Number)),
+	executor: Schema.optional(Schema.NullOr(JsonObject)),
+	undo: Schema.optional(Schema.NullOr(JsonObject)),
+}).annotate({ identifier: "OpResult", title: "Named operation result" });
+
+// The sql arm of the retired query-request.schema.json: `sql` required, every structured-mode
+// field rejected by the strict struct; the operator+ lane gate stays in the route handler.
+const SqlQueryRequestSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	mode: Schema.Literal("sql"),
+	sql: Schema.String.check(Schema.isMaxLength(65_536)),
+	limit: Schema.optional(
+		Schema.NullOr(
+			Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 100_000 })),
+		),
+	),
+}).annotate(rejectUnknownKeys);
+
+// REST + OpenAPI validate /api/v1/query against the same strict contract the UI builds queries
+// with (`StructuredQuerySchema`, `$lib/contracts`), so arbitrary where/select shapes reject here
+// exactly as the retired JSON Schema rejected them.
+export const QueryRequestSchema = Schema.Union([
+	StructuredQuerySchema,
+	SqlQueryRequestSchema,
+]).annotate({ identifier: "QueryRequest", title: "Structured or read-only SQL query" });
+
+const QueryResultSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	columns: Schema.Array(JsonObject),
+	rows: Schema.Array(Schema.Array(JsonValue)),
+	row_count: Schema.Number,
+	execution_ms: Schema.optional(Schema.NullOr(Schema.Number)),
+	freshness: JsonObject,
+	query_ref: Schema.String,
+	truncated: Schema.optional(Schema.Boolean),
+}).annotate({ identifier: "QueryResult", title: "Scoped query result" });
+
+const AttentionItemSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	id: Schema.String,
+	grade: Schema.String,
+	source: Schema.String,
+	subject: Schema.String,
+	summary: Schema.String,
+	ts: Schema.String,
+	scope: Schema.String,
+	lane: Schema.optional(Schema.String),
+}).annotate({ identifier: "AttentionItem", title: "Attention item" });
+
+const AttentionEnvelopeSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	freshness: JsonObject,
+	items: Schema.Array(AttentionItemSchema),
+	next_cursor: Schema.NullOr(Schema.String),
+	truncated: Schema.Boolean,
+}).annotate({ identifier: "AttentionEnvelope", title: "Attention envelope" });
+
+const EmitResultSchema = Schema.Struct({
+	ok: Schema.Boolean,
+	seq: Schema.optional(Schema.Number),
+	duplicate: Schema.optional(Schema.Boolean),
+	code: Schema.optional(Schema.String),
+	message: Schema.optional(Schema.String),
+}).annotate({ identifier: "EmitResult", title: "Emission acknowledgement" });
+
+const McpRequestSchema = Schema.Struct({
+	jsonrpc: Schema.Literal("2.0"),
+	id: Schema.optional(JsonValue),
+	method: Schema.String,
+	params: Schema.optional(JsonObject),
+}).annotate({ identifier: "McpRequest", title: "MCP JSON-RPC request" });
+
+const McpResponseSchema = JsonObject.annotate({
+	identifier: "McpResponse",
+	title: "MCP JSON-RPC response",
+});
+
+export const apiSchema = {
+	components: {
+		AttentionEnvelope: AttentionEnvelopeSchema,
+		AttentionItem: AttentionItemSchema,
+		Emission: EmissionSchema,
+		EmitResult: EmitResultSchema,
+		McpRequest: McpRequestSchema,
+		McpResponse: McpResponseSchema,
+		OpCall: OpCallSchema,
+		OpResult: OpResultSchema,
+		QueryRequest: QueryRequestSchema,
+		QueryResult: QueryResultSchema,
+	},
+	operations: [
+		{
+			method: "post",
+			path: "/query",
+			operationId: "runStructuredQuery",
+			request: "QueryRequest",
+			response: "QueryResult",
+			description: "Scoped query result",
+		},
+		{
+			method: "post",
+			path: "/op",
+			operationId: "executeNamedOperation",
+			request: "OpCall",
+			response: "OpResult",
+			description: "Operation receipt",
+		},
+		{
+			method: "get",
+			path: "/attention",
+			operationId: "readAttention",
+			response: "AttentionEnvelope",
+			description: "Attention envelope",
+		},
+		{
+			method: "post",
+			path: "/bus/emit",
+			operationId: "emitBusEvent",
+			request: "Emission",
+			response: "EmitResult",
+			description: "Emission acknowledgement",
+		},
+		{
+			method: "post",
+			path: "/mcp",
+			operationId: "consoleMcp",
+			request: "McpRequest",
+			response: "McpResponse",
+			description: "MCP JSON-RPC response",
+		},
+	] as const,
+} as const;

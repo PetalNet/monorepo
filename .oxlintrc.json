@@ -9,7 +9,11 @@
 		"pedantic": "off"
 	},
 	"rules": {
-		"import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }]
+		"import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
+		"no-useless-rename": "error",
+		"operator-assignment": "error",
+		"prefer-object-spread": "error",
+		"prefer-regex-literals": "error"
 	},
 	"ignorePatterns": [
 		"**/dist/**",

@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { browser } from "$app/environment";
+	import { required } from "#format";
+	import { browser } from "$app/env";
 	import { goto } from "$app/navigation";
-	import { dataMode, readDashboards, runOp } from "$lib/api/client";
+	import { dataMode, readDashboards, runOp } from "$lib/rpc/browser";
 	import type { DashboardItem } from "$lib/api/types";
 	import type { SavedDashboard } from "$lib/data/mock";
 	import Icon from "./Icon.svelte";
@@ -19,7 +20,7 @@
 	let { items, lanes, userId }: Props = $props();
 	let order = $state<string[]>([]);
 	let orderReady = $state(false);
-	let details = $state<Record<string, DashboardItem>>({});
+	let details = $state<Partial<Record<string, DashboardItem>>>({});
 	let detailError = $state(false);
 	let sharing = $state<string | null>(null);
 	let shareSubject = $state("");
@@ -27,8 +28,8 @@
 	let loading = $state<string | null>(null);
 	let loadError = $state<{ id: string; message: string } | null>(null);
 	const storageKey = $derived(`console:cockpit:dashboards:${userId}`);
-	const setHome = opDef("dashboard.set_home")!;
-	const remove = opDef("dashboard.delete")!;
+	const setHome = required(opDef("dashboard.set_home"));
+	const remove = required(opDef("dashboard.delete"));
 	const orderedItems = $derived(items.toSorted((a, b) => {
 		const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
 		return (ai < 0 ? Number.MAX_SAFE_INTEGER : ai) - (bi < 0 ? Number.MAX_SAFE_INTEGER : bi);
@@ -113,8 +114,8 @@
 						<summary aria-label="Curate {d.name}" title="Dashboard actions"><Icon name="ellipsis" size={16} /></summary>
 						<div class="menu">
 							<div class="reorder" aria-label="Rearrange dashboard">
-								<button disabled={index === 0} aria-label="Move {d.name} earlier" onclick={() => move(d.id, -1)}><Icon name="arrow-left" size={14} />Earlier</button>
-								<button disabled={index === orderedItems.length - 1} aria-label="Move {d.name} later" onclick={() => move(d.id, 1)}>Later<Icon name="arrow-right" size={14} /></button>
+								<button disabled={index === 0} aria-label="Move {d.name} earlier" onclick={() => { move(d.id, -1); }}><Icon name="arrow-left" size={14} />Earlier</button>
+								<button disabled={index === orderedItems.length - 1} aria-label="Move {d.name} later" onclick={() => { move(d.id, 1); }}>Later<Icon name="arrow-right" size={14} /></button>
 							</div>
 							<OpButton def={setHome} args={{ id: d.id }} {lanes} label="Set as home" />
 							{#if lanes.includes("viewer")}

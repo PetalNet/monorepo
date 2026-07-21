@@ -1,15 +1,13 @@
 <script lang="ts">
+	import type { LayoutProps } from "./$types";
 	import { goto } from "$app/navigation";
 	import favicon from "$lib/assets/favicon.svg";
-	import "@fontsource/geist-sans/400.css";
-	import "@fontsource/geist-sans/500.css";
-	import "@fontsource/geist-mono/400.css";
-	import "@fontsource/geist-mono/500.css";
+	import { ModeWatcher } from "mode-watcher";
 	import "../app.css";
 	import AppShell from "$lib/components/AppShell.svelte";
 	import { visibleNav } from "$lib/nav";
 
-	let { data, children } = $props();
+	let { data, children }: LayoutProps = $props();
 
 	// Deterministic quick-nav (foundations §3.6): `g` then a surface key jumps
 	// surfaces, never routing through the assistant (no LLM in the emergency
@@ -40,9 +38,7 @@
 			return;
 		}
 		if (awaitingG) {
-			const entry = data.authenticated
-				? visibleNav(data.me.lanes).find((n) => n.key === e.key.toLowerCase())
-				: undefined;
+			const entry = visibleNav(data.me.lanes).find((n) => n.key === e.key.toLowerCase());
 			awaitingG = false;
 			clearTimeout(gTimer);
 			if (entry) {
@@ -61,6 +57,8 @@
 <svelte:head>
 	<link rel="icon" href={favicon} />
 </svelte:head>
+
+<ModeWatcher defaultMode="system" defaultTheme="light" disableTransitions />
 
 <svelte:window onkeydown={onKey} />
 

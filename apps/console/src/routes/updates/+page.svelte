@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { required } from "#format";
+	import { formatUnknown } from "#format";
+	import type { PageProps } from "./$types";
 	import { onMount } from "svelte";
 
-	import { connectBus, dataMode, readBoxUpdateRaw, readHealth, runQuery } from "$lib/api/client";
+	import { connectBus, dataMode, readBoxUpdateRaw, readHealth, runQuery, runRemote } from "$lib/rpc/browser";
 	import { opDef } from "$lib/api/ops";
 	import type { BoxUpdateRaw } from "$lib/api/types";
 	import HudChip from "$lib/components/HudChip.svelte";
@@ -19,7 +22,7 @@
 		type UpdateApproval,
 	} from "./approvals.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	const u = $derived(data.updates);
 	const rawDetails = $derived(
 		data.raw.length ? data.raw : dataMode() === "mock" ? u.rows.map((row) => mockRawUpdate(row.boxId)) : [],
@@ -67,10 +70,10 @@
 		),
 	);
 	const criticalCve = $derived(criticalFindings.length > 0);
-	const apply = opDef("updates.apply")!;
-	const check = opDef("updates.check")!;
-	const notify = opDef("task.dispatch")!;
-	const reboot = opDef("host.reboot")!;
+	const apply = required(opDef("updates.apply"));
+	const check = required(opDef("updates.check"));
+	const notify = required(opDef("task.dispatch"));
+	const reboot = required(opDef("host.reboot"));
 	let drawerEl = $state<HTMLDialogElement | null>(null);
 	let receiptEl = $state<HTMLDialogElement | null>(null);
 	let approvals = $state<UpdateApproval[]>([]);
@@ -94,8 +97,8 @@
 		const at = typeof row["ts"] === "string" ? row["ts"] : new Date().toISOString();
 		return {
 			id: Number.isFinite(seq) ? String(seq) : `${String(row["subject"])}:${at}`,
-			container: String(row["claimed_container"] ?? row["subject"] ?? "unknown container"),
-			source: String(row["source_agent"] ?? row["source_host"] ?? "source unknown"),
+			container: formatUnknown(row["claimed_container"] ?? row["subject"] ?? "unknown container"),
+			source: formatUnknown(row["source_agent"] ?? row["source_host"] ?? "source unknown"),
 			at,
 		};
 	}
@@ -132,12 +135,12 @@
 
 	onMount(() => {
 		if (dataMode() === "mock") return;
-		let disposed = false;
+		const controller = new AbortController();
 		let disconnect: (() => void) | null = null;
 		void (async () => {
 			const recoveryHead = await readHealth().then((health) => health.seq_head).catch(() => null);
 			await loadContainerHistory();
-			if (disposed) return;
+			if (controller.signal.aborted) return;
 			disconnect = connectBus(
 				() => [
 					{
@@ -196,7 +199,7 @@
 			);
 		})();
 		return () => {
-			disposed = true;
+			controller.abort();
 			disconnect?.();
 		};
 	});
@@ -221,7 +224,7 @@
 		approvalsLoading = true;
 		approvalError = null;
 		try {
-			const next = await getUpdateApprovals({ box_id: boxId });
+			const next = await runRemote(getUpdateApprovals({ box_id: boxId }));
 			if (request === approvalLoad && selected?.boxId === boxId) approvals = next;
 		} catch (error) {
 			if (request === approvalLoad && selected?.boxId === boxId)
@@ -243,14 +246,14 @@
 		approvalError = null;
 		try {
 			const boxId = selected.boxId;
-			const approved = await approveUpdate({ box_id: boxId, packages });
+			const approved = await runRemote(approveUpdate({ box_id: boxId, packages }));
 			await loadApprovals(boxId);
 			const undoAction = async () => {
 				try {
-					await revokeUpdateApproval({
+					await runRemote(revokeUpdateApproval({
 						approval_id: approved.approval.approval_id,
 						box_id: boxId,
-					});
+					}));
 				} finally {
 					if (selected?.boxId === boxId) await loadApprovals(boxId);
 				}
@@ -270,15 +273,16 @@
 
 	async function revokeApproval(approval: UpdateApproval) {
 		if (!selected || approvalBusy) return;
+		const boxId = selected.boxId;
 		approvalBusy = `revoke:${approval.approval_id}`;
 		approvalError = null;
 		try {
-			await revokeUpdateApproval({ approval_id: approval.approval_id, box_id: selected.boxId });
+			await runRemote(revokeUpdateApproval({ approval_id: approval.approval_id, box_id: boxId }));
 			snackbar.push({ message: "updates.revoke applied · approval returned to pending", op: "updates.revoke", tone: "good" });
 		} catch (error) {
 			approvalError = (error as Error).message || "Approval could not be revoked.";
 		} finally {
-			if (selected) await loadApprovals(selected.boxId);
+			await loadApprovals(boxId);
 			approvalBusy = null;
 		}
 	}
@@ -337,9 +341,9 @@
 				? "needs_you"
 				: "fine"}
 	stateFact={criticalCve
-			? `Critical CVE on ${new Set(criticalFindings.map((finding) => finding.boxId)).size} host${new Set(criticalFindings.map((finding) => finding.boxId)).size === 1 ? "" : "s"}.`
+			? `Critical CVE on ${String(new Set(criticalFindings.map((finding) => finding.boxId)).size)} host${new Set(criticalFindings.map((finding) => finding.boxId)).size === 1 ? "" : "s"}.`
 		: criticalUpdates
-			? `${u.hud.securityCritical} security-critical update${u.hud.securityCritical === 1 ? "" : "s"} wait on you.`
+			? `${String(u.hud.securityCritical)} security-critical update${u.hud.securityCritical === 1 ? "" : "s"} wait on you.`
 			: u.securityUnknown
 				? `Nothing known critical.${u.remainder ? ` ${u.remainder}.` : ""}`
 				: u.truncated
@@ -417,7 +421,7 @@
 			<div class="prov">
 				<Icon name="receipt-text" size={12} />
 				<span>
-					{u.freshness?.source ?? "box_update_status"} · {selected ? `1 of ${filteredRows.length} · drawer focus` : `${filteredRows.length} of ${u.rows.length} boxes`}{u.truncated ? " · partial result" : ""}
+					{u.freshness?.source ?? "box_update_status"} · {selected ? `1 of ${String(filteredRows.length)} · drawer focus` : `${String(filteredRows.length)} of ${String(u.rows.length)} boxes`}{u.truncated ? " · partial result" : ""}
 				</span>
 				<button type="button" onclick={() => (receiptOpen = true)}>Show the math.</button>
 			</div>
@@ -429,7 +433,7 @@
 			title="Vulnerabilities"
 			sub="Tampering Watch · suspected until confirmed"
 			span={7}
-			prov={{ source: "box update raw detail", freshness: raw ? "selected host" : "open a host", rows: raw ? `${raw.vulns.length} findings` : null }}
+			prov={{ source: "box update raw detail", freshness: raw ? "selected host" : "open a host", rows: raw ? `${String(raw.vulns.length)} findings` : null }}
 		>
 			{#if rawLoading}
 				<div class="skeletons" aria-label="Loading vulnerability detail"><i></i><i></i><i></i></div>
@@ -456,7 +460,7 @@
 			title="Container updates"
 			sub="Derek · digest-batched"
 			span={5}
-			prov={{ source: containerLiveAt ? containerQueryRef ? `${containerQueryRef} + live bus` : "live bus" : containerQueryRef ?? "container.update_available", freshness: dataMode() === "mock" ? "mock live" : containerLiveAt ?? containerObservedAt ?? containerHistory, rows: containerHistory === "ready" ? `${containerUpdates.length} updates` : null }}
+			prov={{ source: containerLiveAt ? containerQueryRef ? `${containerQueryRef} + live bus` : "live bus" : containerQueryRef ?? "container.update_available", freshness: dataMode() === "mock" ? "mock live" : containerLiveAt ?? containerObservedAt ?? containerHistory, rows: containerHistory === "ready" ? `${String(containerUpdates.length)} updates` : null }}
 		>
 			{#if containerUpdates.length}
 				<div class="containers">
@@ -530,7 +534,7 @@
 		<div class="drawer-actions">
 			{#if !selected.agentless && selected.applyMode === "staged-approval"}
 				{#if canOperate && unapprovedPackages.length}
-					<button class="approval-btn primary" disabled={approvalBusy !== null || approvalsLoading} onclick={() => approvePackages(unapprovedPackages)}>{approvalBusy?.startsWith("approve:") ? "Approving" : `Approve ${unapprovedPackages.length ? `remaining ${unapprovedPackages.length}` : `all ${selected.pending ?? ""}`}`}</button>
+					<button class="approval-btn primary" disabled={approvalBusy !== null || approvalsLoading} onclick={() => approvePackages(unapprovedPackages)}>{approvalBusy?.startsWith("approve:") ? "Approving" : `Approve ${unapprovedPackages.length ? `remaining ${String(unapprovedPackages.length)}` : `all ${String(selected.pending ?? "")}`}`}</button>
 				{/if}
 			{/if}
 			{#if !selected.agentless && (selected.applyMode === "auto" || selected.applyMode === "staged-approval")}
@@ -564,7 +568,7 @@
 			<dt>Source</dt><dd>{u.freshness?.source ?? "unavailable"}</dd>
 			<dt>Observed</dt><dd>{u.freshness?.observedAt ?? "unavailable"}</dd>
 			<dt>Rows</dt><dd>{u.rows.length}{u.truncated ? " (partial)" : ""}</dd>
-			<dt>Fresh window</dt><dd>{u.freshness?.windowS == null ? "unknown" : `${u.freshness.windowS / 3600}h`}</dd>
+			<dt>Fresh window</dt><dd>{u.freshness?.windowS == null ? "unknown" : `${String(u.freshness.windowS / 3600)}h`}</dd>
 		</dl>
 	</dialog>
 {/if}

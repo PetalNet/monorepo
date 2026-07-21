@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import js from "@eslint/js";
 import json from "@eslint/json";
@@ -8,13 +9,31 @@ import * as packageJson from "eslint-plugin-package-json/experimental";
 import { defineConfig, includeIgnoreFile } from "eslint/config";
 import tseslint from "typescript-eslint";
 
+const root = fileURLToPath(new URL(".", import.meta.url));
+
 export default defineConfig([
-	includeIgnoreFile(path.resolve(".gitignore"), {
+	includeIgnoreFile(path.join(root, ".gitignore"), {
 		gitignoreResolution: true,
 	}),
 	{
+		// This root config is an untyped baseline that lints every workspace's files. Type-aware
+		// eslint-disable directives (e.g. @typescript-eslint/no-deprecated) can't be evaluated
+		// without type information here, so this pass must not adjudicate directive usage —
+		// each workspace's own type-aware lint does, and would fail on a genuinely unused one.
+		linterOptions: { reportUnusedDisableDirectives: "off" },
+	},
+	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}"],
 		extends: [js.configs.recommended, tseslint.configs.recommended],
+	},
+	{
+		files: ["packages/better-auth-effect-qb-adapter/**/*.ts"],
+		extends: tseslint.configs.strictTypeChecked,
+		languageOptions: {
+			parserOptions: {
+				projectService: true,
+			},
+		},
 	},
 	{
 		files: ["**/*.md"],
@@ -48,5 +67,5 @@ export default defineConfig([
 		language: "json/jsonc",
 		extends: [json.configs.recommended],
 	},
-	...oxlint.buildFromOxlintConfigFile("./.oxlintrc.json"),
+	...oxlint.buildFromOxlintConfigFile(path.join(root, ".oxlintrc.json")),
 ]);

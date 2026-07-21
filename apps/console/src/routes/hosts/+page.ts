@@ -1,7 +1,7 @@
-import { browser } from "$app/environment";
-import { dataMode, readBoxUpdates, readRegistry, readRoster, readWorkers } from "$lib/api/client";
+import { browser } from "$app/env";
 import type { BoxUpdateItem, RegistryItem, RosterItem, WorkerItem } from "$lib/api/types";
 import { assembleHosts, mockHosts, type HostsData } from "$lib/data/hosts";
+import { dataMode, readBoxUpdates, readRegistry, readRoster, readWorkers } from "$lib/rpc/browser";
 
 import type { PageLoad } from "./$types";
 

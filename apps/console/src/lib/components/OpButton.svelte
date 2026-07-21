@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { runOp } from "$lib/api/client";
+	import { runOp } from "$lib/rpc/browser";
 	import { canSeeOp, type OpDef } from "$lib/api/ops";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
 
@@ -51,7 +51,7 @@
 	const visible = $derived(canSeeOp(def, lanes));
 	const disabled = $derived(!executorLive || !available || busy);
 	const auditNote = $derived(
-		`${def.op}` +
+		def.op +
 			(!executorLive ? " · executor unreachable" : !available ? ` · ${unavailableNote}` : ""),
 	);
 

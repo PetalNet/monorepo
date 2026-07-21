@@ -1,4 +1,4 @@
-import { env } from "$env/dynamic/public";
+const env = import.meta.env;
 import * as Sentry from "@sentry/sveltekit";
 
 import { createCaughtFailureReporter } from "./glitchtip-reporter";
@@ -10,16 +10,7 @@ import { createCaughtFailureReporter } from "./glitchtip-reporter";
  */
 const GLITCHTIP_DSN = env.PUBLIC_GLITCHTIP_DSN ?? "";
 
-export const sentryOptions = {
-	dsn: GLITCHTIP_DSN,
-	// Glitchtip ignores traces; keep it light. Errors are the contract (see
-	// CONSOLE-CONTRACTS.md section 10: Glitchtip carries exceptions, the lake
-	// carries events — one error, both places, by class not duplication).
-	tracesSampleRate: 0,
-	sendDefaultPii: false,
-};
-
-export const glitchtipEnabled = GLITCHTIP_DSN.length > 0;
+const glitchtipEnabled = GLITCHTIP_DSN.length > 0;
 
 /**
  * Report failures that a loader intentionally converts into degraded UI. Context is restricted to

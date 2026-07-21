@@ -1,0 +1,12 @@
+{
+	"extends": "../tsconfig/base.json",
+	"compilerOptions": {
+		"exactOptionalPropertyTypes": false,
+		"allowUnreachableCode": true,
+		"noImplicitReturns": false,
+		"noUncheckedIndexedAccess": false,
+		"noPropertyAccessFromIndexSignature": false,
+		"types": ["node", "vitest/globals"]
+	},
+	"include": ["src", "test"]
+}

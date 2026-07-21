@@ -149,9 +149,9 @@ export function emptyAccounting(errors: string[], lanes: string[]): AccountingDa
 }
 
 export function isStale(result: QueryResult | null, nowMs: number): boolean {
-	return Boolean(
+	return (
 		result?.freshness.window_s != null &&
-		nowMs - Date.parse(result.freshness.observed_at) > result.freshness.window_s * 1000,
+		nowMs - Date.parse(result.freshness.observed_at) > result.freshness.window_s * 1000
 	);
 }
 

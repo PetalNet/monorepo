@@ -1,7 +1,8 @@
 <script lang="ts">
+	import type { PageProps } from "./$types";
 	import { page } from "$app/state";
 	import { onMount } from "svelte";
-	import { connectBus } from "$lib/api/client";
+	import { connectBus } from "$lib/rpc/browser";
 	import AvailabilityPanel from "$lib/components/AvailabilityPanel.svelte";
 	import HostCard from "$lib/components/HostCard.svelte";
 	import HudChip from "$lib/components/HudChip.svelte";
@@ -9,7 +10,7 @@
 	import SurfaceSign from "$lib/components/SurfaceSign.svelte";
 	import { getAvailability } from "./availability.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	const h = $derived(data.hosts);
 	// The cockpit crack card links /hosts?host=<h>; highlight that house (§3.7).
 	const focusHost = $derived(page.url.searchParams.get("host"));

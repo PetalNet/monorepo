@@ -10,9 +10,9 @@ const mocks = vi.hoisted(() => ({
 	runQuery: vi.fn(),
 }));
 
-vi.mock("$app/environment", () => ({ browser: false }));
+vi.mock("$app/env", () => ({ browser: false }));
 vi.mock("$lib/glitchtip", () => ({ captureCaughtFailure: mocks.capture }));
-vi.mock("$lib/api/client", () => ({
+vi.mock("$lib/rpc/browser", () => ({
 	dataMode: () => "live",
 	readBoxUpdateRaw: mocks.readBoxUpdateRaw,
 	readBoxUpdates: mocks.readBoxUpdates,
@@ -32,7 +32,13 @@ const shell = {
 	me: { id: "parker", lanes: ["admin"] },
 	scene: "clear",
 };
-const contexts = () => mocks.capture.mock.calls.map(([, context]) => context);
+const contexts = () =>
+	(mocks.capture.mock.calls as [unknown, Record<string, unknown>][]).map(([, context]) => context);
+const loadEvent = {
+	fetch: fetchStub,
+	parent: () => shell,
+	url: new URL("https://console.test/"),
+};
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -43,7 +49,7 @@ beforeEach(() => {
 
 describe("caught loader failure contracts", () => {
 	it("maps Network reads to stable endpoint labels", async () => {
-		await loadNetwork({ fetch: fetchStub, parent: async () => shell } as never);
+		await loadNetwork(loadEvent as never);
 
 		expect(contexts()).toEqual([
 			{ surface: "network", endpoint: "/executors" },
@@ -52,7 +58,7 @@ describe("caught loader failure contracts", () => {
 	});
 
 	it("maps Updates reads to stable endpoint labels", async () => {
-		await loadUpdates({ fetch: fetchStub, parent: async () => shell } as never);
+		await loadUpdates(loadEvent as never);
 
 		expect(mocks.capture).toHaveBeenCalledWith(failure, {
 			surface: "updates",
@@ -66,7 +72,7 @@ describe("caught loader failure contracts", () => {
 			freshness: {},
 		});
 
-		await loadUpdates({ fetch: fetchStub, parent: async () => shell } as never);
+		await loadUpdates(loadEvent as never);
 
 		expect(contexts()).toEqual([
 			{ surface: "updates", endpoint: "/executors" },
@@ -75,7 +81,7 @@ describe("caught loader failure contracts", () => {
 	});
 
 	it("maps Observability reads to stable endpoint labels", async () => {
-		await loadObservability({ fetch: fetchStub, parent: async () => shell } as never);
+		await loadObservability(loadEvent as never);
 
 		expect(contexts()).toEqual(
 			expect.arrayContaining([

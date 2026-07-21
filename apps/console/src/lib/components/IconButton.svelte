@@ -22,7 +22,7 @@
 	}: Props = $props();
 </script>
 
-<!-- svelte-ignore a11y_autofocus -- Dialog close buttons intentionally receive initial focus. -->
+<!-- svelte-ignore a11y_autofocus -->
 <button
 	type="button"
 	class="icon-button {className}"

@@ -281,10 +281,10 @@ export function rosterTone(state: RosterState): Tone {
 /** Human-facing "Ns" / "Nm" / "Nh" age. */
 export function humanAge(ms: number): string {
 	const s = Math.max(0, Math.round(ms / 1000));
-	if (s < 60) return `${s}s`;
+	if (s < 60) return `${String(s)}s`;
 	const m = Math.round(s / 60);
-	if (m < 60) return `${m}m`;
+	if (m < 60) return `${String(m)}m`;
 	const h = Math.round(m / 60);
-	if (h < 24) return `${h}h`;
-	return `${Math.round(h / 24)}d`;
+	if (h < 24) return `${String(h)}h`;
+	return `${String(Math.round(h / 24))}d`;
 }

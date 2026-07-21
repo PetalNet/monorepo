@@ -1,5 +1,5 @@
-import { getRequestEvent, command, query } from "$app/server";
-import { env } from "$env/dynamic/public";
+import { getRequestEvent } from "$app/server";
+const env = import.meta.env;
 import type { ExecutorItem, OpResult, ReadEnvelope, WorkSettlementSnapshot } from "$lib/api/types";
 import {
 	mockLibrary,
@@ -9,77 +9,81 @@ import {
 	type LibraryKind,
 } from "$lib/data/library";
 import { settledTaskLibraryItem } from "$lib/data/work-settlement";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Effect, Exit, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
-const viewSchema = z.enum(["desk", "graph", "kanban", "table"]);
-const messageSchema = z
-	.object({
-		message: z.string().trim().min(1).max(4_000),
-		view: viewSchema,
-		query: z.string().max(500),
-		selected_item_id: z.string().max(256).nullable(),
-	})
-	.strict();
-const searchSchema = z.object({ query: z.string().trim().min(1).max(500) }).strict();
-const acquisitionSchema = z
-	.object({
-		capability: z.string().min(1).max(128),
-		provider: z.string().min(1).max(128),
-	})
-	.strict();
-const acquisitionResultSchema = z.object({
-	capability: z.string(),
-	kind: z.enum(["skill", "tool"]),
-	version: z.string(),
-	provider: z.string(),
-	scope: z.string(),
-	integrity: z.object({ algorithm: z.literal("sha256"), digest: z.string().length(64) }),
-	artifact: z.object({ bytes: z.number().int().positive() }),
-	provenance: z.object({ library_item_id: z.string() }),
+const viewSchema = Schema.Literals(["desk", "graph", "kanban", "table"]);
+const messageSchema = Schema.Struct({
+	message: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(4_000)),
+	view: viewSchema,
+	query: Schema.String.check(Schema.isMaxLength(500)),
+	selected_item_id: Schema.NullOr(Schema.String.check(Schema.isMaxLength(256))),
+}).annotate(rejectUnknownKeys);
+const searchSchema = Schema.Struct({
+	query: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+}).annotate(rejectUnknownKeys);
+const acquisitionSchema = Schema.Struct({
+	capability: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+	provider: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+}).annotate(rejectUnknownKeys);
+const acquisitionResultSchema = Schema.Struct({
+	capability: Schema.String,
+	kind: Schema.Literals(["skill", "tool"]),
+	version: Schema.String,
+	provider: Schema.String,
+	scope: Schema.String,
+	integrity: Schema.Struct({
+		algorithm: Schema.Literal("sha256"),
+		digest: Schema.String.check(Schema.isMinLength(64), Schema.isMaxLength(64)),
+	}),
+	artifact: Schema.Struct({
+		bytes: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+	}),
+	provenance: Schema.Struct({ library_item_id: Schema.String }),
 });
-export type LibraryAcquisitionReceipt = z.infer<typeof acquisitionResultSchema>;
-const statusSchema = z
-	.object({
-		id: z.string().min(1).max(128),
-		status: z.enum([
-			"todo",
-			"doing",
-			"review",
-			"done",
-			"draft",
-			"verified-shared",
-			"superseded",
-			"invalidated",
-		]),
-		expected_version: z.number().int().positive(),
-	})
-	.strict();
-const statusResultSchema = z.object({
-	id: z.string(),
-	status: z.string(),
-	version: z.number().int().positive(),
-	conflict: z
-		.object({ values: z.array(z.string()).min(2) })
-		.passthrough()
-		.optional(),
+export type LibraryAcquisitionReceipt = typeof acquisitionResultSchema.Type;
+const statusSchema = Schema.Struct({
+	id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+	status: Schema.Literals([
+		"todo",
+		"doing",
+		"review",
+		"done",
+		"draft",
+		"verified-shared",
+		"superseded",
+		"invalidated",
+	]),
+	expected_version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+}).annotate(rejectUnknownKeys);
+const statusResultSchema = Schema.Struct({
+	id: Schema.String,
+	status: Schema.String,
+	version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+	conflict: Schema.optional(
+		// Conflict payloads tolerate extra keys (zod `.loose()` parity).
+		Schema.StructWithRest(
+			Schema.Struct({ values: Schema.Array(Schema.String).check(Schema.isMinLength(2)) }),
+			[Schema.Record(Schema.String, Schema.Unknown)],
+		),
+	),
 });
-export type LibraryStatusResult = z.infer<typeof statusResultSchema>;
-const reviewSchema = z
-	.object({
-		proposal_id: z.string().min(1),
-		decision: z.enum(["under-review", "promoted", "rejected"]),
-		reason: z.string().trim().min(1).max(500),
-	})
-	.strict();
-const reviewResultSchema = z.object({
-	proposal_id: z.string(),
-	capability: z.string(),
-	version: z.string(),
-	state: z.string(),
-	reviewed_by: z.string(),
+export type LibraryStatusResult = typeof statusResultSchema.Type;
+const reviewSchema = Schema.Struct({
+	proposal_id: Schema.String.check(Schema.isMinLength(1)),
+	decision: Schema.Literals(["under-review", "promoted", "rejected"]),
+	reason: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+}).annotate(rejectUnknownKeys);
+const reviewResultSchema = Schema.Struct({
+	proposal_id: Schema.String,
+	capability: Schema.String,
+	version: Schema.String,
+	state: Schema.String,
+	reviewed_by: Schema.String,
 });
-export type LibraryReviewResult = z.infer<typeof reviewResultSchema>;
+export type LibraryReviewResult = typeof reviewResultSchema.Type;
 
 export interface LibraryManagerResult {
 	schema_version: 1;
@@ -122,11 +126,11 @@ interface ApiLibraryItem {
 }
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE !== "live";
+	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function forwardedHeaders(contentType = false): Headers {
@@ -161,26 +165,28 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
  * The complete Library lens crosses one SvelteKit RPC boundary; the browser never reads the API
  * directly.
  */
-export const getLibrarySurface = query(async (): Promise<LibraryData> => {
-	if (isMock()) return mockLibrary;
-	const serverFetch: typeof fetch = (input, init) => {
-		const supplied = new Headers(init?.headers);
-		for (const [name, value] of forwardedHeaders())
-			if (!supplied.has(name)) supplied.set(name, value);
-		return getRequestEvent().fetch(input, { ...init, headers: supplied });
-	};
-	const [library, executors] = await Promise.all([
-		readLiveLibrary(serverFetch),
-		apiJson<ReadEnvelope<ExecutorItem>>("/executors").catch(() => null),
-	]);
-	return {
-		...library,
-		libraryExecutorLive:
-			executors?.items.some(
-				(executor) => executor.kind === "library" && executor.liveness === "alive",
-			) ?? false,
-	};
-});
+export const getLibrarySurface = Query(
+	Effect.promise(async (): Promise<LibraryData> => {
+		if (isMock()) return mockLibrary;
+		const serverFetch: typeof fetch = (input, init) => {
+			const supplied = new Headers(init?.headers);
+			for (const [name, value] of forwardedHeaders())
+				if (!supplied.has(name)) supplied.set(name, value);
+			return getRequestEvent().fetch(input, { ...init, headers: supplied });
+		};
+		const [library, executors] = await Promise.all([
+			readLiveLibrary(serverFetch),
+			apiJson<ReadEnvelope<ExecutorItem>>("/executors").catch(() => null),
+		]);
+		return {
+			...library,
+			libraryExecutorLive:
+				executors?.items.some(
+					(executor) => executor.kind === "library" && executor.liveness === "alive",
+				) ?? false,
+		};
+	}),
+);
 
 function relativeTime(value: string): string {
 	const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60_000));
@@ -236,7 +242,7 @@ function libraryManagerAction(value: unknown, depth = 0): LibraryManagerAction |
 		const rawItems = Array.isArray(data?.["items"]) ? data["items"] : [];
 		const rawItem = data?.["item"];
 		return {
-			intent: record["intent"] as LibraryManagerIntent,
+			intent: record["intent"],
 			items: rawItems.filter(isApiLibraryItem).map(itemView),
 			item: isApiLibraryItem(rawItem) ? itemView(rawItem) : null,
 		};
@@ -249,9 +255,8 @@ function libraryManagerAction(value: unknown, depth = 0): LibraryManagerAction |
 }
 
 /** Literal stacks search stays deterministic while crossing the required SvelteKit RPC boundary. */
-export const searchLibrary = query(
-	searchSchema,
-	async ({ query: searchQuery }): Promise<LibraryItemView[]> => {
+export const searchLibrary = Query(searchSchema, ({ query: searchQuery }) =>
+	Effect.promise(async (): Promise<LibraryItemView[]> => {
 		if (isMock()) return [];
 		const [result, settlement] = await Promise.all([
 			apiJson<{ items: ApiLibraryItem[] }>(
@@ -269,13 +274,12 @@ export const searchLibrary = query(
 			.map(settledTaskLibraryItem);
 		const taskIds = new Set(taskMatches.map((item) => item.id));
 		return [...taskMatches, ...result.items.map(itemView).filter((item) => !taskIds.has(item.id))];
-	},
+	}),
 );
 
 /** Prove the artifact is runnable through the caller-scoped acquisition endpoint. */
-export const verifyLibraryCapability = command(
-	acquisitionSchema,
-	async (input): Promise<LibraryAcquisitionReceipt> => {
+export const verifyLibraryCapability = Command(acquisitionSchema, (input) =>
+	Effect.promise(async (): Promise<LibraryAcquisitionReceipt> => {
 		if (isMock())
 			return {
 				capability: input.capability,
@@ -295,16 +299,15 @@ export const verifyLibraryCapability = command(
 				body: JSON.stringify({ provider: input.provider }),
 			},
 		);
-		const parsed = acquisitionResultSchema.safeParse(result);
-		if (!parsed.success) error(502, "Registry returned an invalid acquisition receipt");
-		return parsed.data;
-	},
+		const parsed = Schema.decodeUnknownExit(acquisitionResultSchema)(result);
+		if (Exit.isFailure(parsed)) error(502, "Registry returned an invalid acquisition receipt");
+		return parsed.value;
+	}),
 );
 
 /** Status movement uses the same named operation and audit line available to agents. */
-export const updateLibraryStatus = command(
-	statusSchema,
-	async (input): Promise<LibraryStatusResult> => {
+export const updateLibraryStatus = Command(statusSchema, (input) =>
+	Effect.promise(async (): Promise<LibraryStatusResult> => {
 		if (isMock())
 			return { id: input.id, status: input.status, version: input.expected_version + 1 };
 		const result = await apiJson<OpResult>("/op", {
@@ -321,17 +324,16 @@ export const updateLibraryStatus = command(
 				dry_run: false,
 			}),
 		});
-		void getLibrarySurface().refresh();
-		const parsed = statusResultSchema.safeParse(result.result);
-		if (!parsed.success) error(502, "Library returned an invalid status receipt");
-		return parsed.data;
-	},
+		void Effect.runPromise(getLibrarySurface().refresh());
+		const parsed = Schema.decodeUnknownExit(statusResultSchema)(result.result);
+		if (Exit.isFailure(parsed)) error(502, "Library returned an invalid status receipt");
+		return parsed.value;
+	}),
 );
 
 /** Privileged curation stays on the audited op plane; the UI cannot promote directly. */
-export const reviewLibraryCapability = command(
-	reviewSchema,
-	async (input): Promise<LibraryReviewResult> => {
+export const reviewLibraryCapability = Command(reviewSchema, (input) =>
+	Effect.promise(async (): Promise<LibraryReviewResult> => {
 		const result = await apiJson<OpResult>("/op", {
 			method: "POST",
 			headers: forwardedHeaders(true),
@@ -344,17 +346,16 @@ export const reviewLibraryCapability = command(
 				dry_run: false,
 			}),
 		});
-		const parsed = reviewResultSchema.safeParse(result.result);
-		if (!parsed.success) error(502, "Library returned an invalid review receipt");
-		void getLibrarySurface().refresh();
-		return parsed.data;
-	},
+		const parsed = Schema.decodeUnknownExit(reviewResultSchema)(result.result);
+		if (Exit.isFailure(parsed)) error(502, "Library returned an invalid review receipt");
+		void Effect.runPromise(getLibrarySurface().refresh());
+		return parsed.value;
+	}),
 );
 
 /** Continue the real caller-scoped Claude Code manager session through a server-only RPC. */
-export const sendLibraryManagerMessage = command(
-	messageSchema,
-	async (input): Promise<LibraryManagerResult> => {
+export const sendLibraryManagerMessage = Command(messageSchema, (input) =>
+	Effect.promise(async (): Promise<LibraryManagerResult> => {
 		if (isMock()) {
 			const normalized = input.message.toLowerCase();
 			const requestedView = (["graph", "kanban", "table", "desk"] as const).find((candidate) =>
@@ -393,5 +394,5 @@ export const sendLibraryManagerMessage = command(
 			},
 		);
 		return { ...response, library_action: libraryManagerAction(response.tool_results) };
-	},
+	}),
 );

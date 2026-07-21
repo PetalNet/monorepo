@@ -1,0 +1,27 @@
+{
+	"name": "@petalnet/better-auth-effect-qb-adapter",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"check": "tsc --noEmit",
+		"lint": "eslint src test --max-warnings=0",
+		"test": "DEBUG='-testcontainers*' vitest run"
+	},
+	"dependencies": {
+		"@effect/sql-pg": "catalog:",
+		"better-auth": "catalog:",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@better-auth/test-utils": "catalog:",
+		"@testcontainers/postgresql": "catalog:",
+		"@types/node": "catalog:types",
+		"eslint": "catalog:dev",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}

@@ -1,9 +1,9 @@
-import { dataMode, readHealth, readMe } from "$lib/api/client";
 import { consoleHealthBusAgeS } from "$lib/api/derive";
 import type { ConsoleHealth, Me } from "$lib/api/types";
 import { mockCockpit, type Scene, type ShellHealth } from "$lib/data/cockpit";
 import { me as mockMe } from "$lib/data/mock";
 import { captureCaughtFailure } from "$lib/glitchtip";
+import { dataMode, readHealth, readMe } from "$lib/rpc/browser";
 import { error, redirect } from "@sveltejs/kit";
 
 import type { LayoutServerLoad } from "./$types";
@@ -80,7 +80,7 @@ export const load: LayoutServerLoad = async ({ url, fetch, locals }): Promise<Sh
 	try {
 		const [me, healthRead] = await Promise.all([
 			readMe(fetch),
-			readHealth(fetch).catch((cause) => {
+			readHealth(fetch).catch((cause: unknown) => {
 				captureCaughtFailure(cause, { surface: "cockpit-shell", endpoint: "/health" });
 				return null;
 			}),

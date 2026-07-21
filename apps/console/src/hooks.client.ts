@@ -1,9 +1,6 @@
-import { glitchtipEnabled, sentryOptions } from "$lib/glitchtip";
 import { handleErrorWithSentry } from "@sentry/sveltekit";
-import * as Sentry from "@sentry/sveltekit";
+import { ClientRuntime } from "svelte-effect-runtime";
 
-if (glitchtipEnabled) {
-	Sentry.init(sentryOptions);
-}
+ClientRuntime.make();
 
 export const handleError = handleErrorWithSentry();

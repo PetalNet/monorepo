@@ -81,7 +81,7 @@
 	{#if loading}
 		<div class="comparison-skeleton" aria-label="Loading cost comparison">
 			<div class="skeleton heading"></div>
-			{#each Array(7) as _}
+			{#each Array.from({ length: 7 }, (_, index) => index) as index (index)}
 				<div class="skeleton row"></div>
 			{/each}
 		</div>
@@ -100,7 +100,7 @@
 			<span>Right vs left</span>
 		</div>
 		<div class="metrics">
-			{#each result.metrics as metric}
+			{#each result.metrics as metric, __eachKey7 (__eachKey7)}
 				{#if metric.key === "input_tokens"}<h3>Token mix</h3>{/if}
 				<div class="metric">
 					<b>{labels[metric.key]}</b>
@@ -119,7 +119,7 @@
 			{#if result.receipt.pricing.models.length}
 				<div class="rate-table" role="table" aria-label="Effective model rates">
 					<div class="rate-head" role="row"><b role="columnheader">Model → matched pattern</b><span role="columnheader">in / out / write / read · USD/M</span></div>
-					{#each result.receipt.pricing.models as rate}
+					{#each result.receipt.pricing.models as rate, __eachKey8 (__eachKey8)}
 						<div role="row"><span role="cell"><code>{rate.model} → {rate.matched_pattern}</code></span><span role="cell"><code>{rate.input_per_mtok.toFixed(2)} / {rate.output_per_mtok.toFixed(2)} / {rate.cache_creation_per_mtok.toFixed(2)} / {rate.cache_read_per_mtok.toFixed(2)}</code></span></div>
 					{/each}
 				</div>
@@ -129,8 +129,8 @@
 				<div><dt>Source</dt><dd>{result.receipt.source}</dd></div>
 				<div><dt>Ledger query</dt><dd>{result.query_ref}</dd></div>
 				<div><dt>Price book</dt><dd>{result.pricing_query_ref}</dd></div>
-				<div><dt>Price version</dt><dd>{result.receipt.pricing.table_version ?? "query snapshot"}</dd></div>
-				<div><dt>Price digest</dt><dd>{result.receipt.pricing.digest ?? "carried by query receipt"}</dd></div>
+					<div><dt>Price version</dt><dd>{result.receipt.pricing.table_version}</dd></div>
+					<div><dt>Price digest</dt><dd>{result.receipt.pricing.digest}</dd></div>
 				<div><dt>Result</dt><dd>{result.receipt.row_count} aggregate rows · {result.receipt.session_count} sessions · {result.receipt.execution_ms ?? "—"} ms</dd></div>
 				<div><dt>Counted through</dt><dd>{new Date(result.observed_at).toLocaleString()}</dd></div>
 				<div><dt>Query</dt><dd>{result.receipt.query}</dd></div>

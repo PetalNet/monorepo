@@ -1,0 +1,45 @@
+{
+	"name": "@petalnet/svelte-ws",
+	"version": "0.1.0",
+	"private": true,
+	"description": "WebSocket support for SvelteKit on Node \u2014 vendored from sowahq/svelte-ws, transport swapped from ws to crossws",
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./runtime": {
+			"types": "./src/runtime.ts",
+			"default": "./src/runtime.ts"
+		},
+		"./vite": {
+			"types": "./src/vite.ts",
+			"default": "./src/vite.ts"
+		}
+	},
+	"files": [
+		"dist",
+		"files",
+		"src"
+	],
+	"scripts": {
+		"build": "tsc -b",
+		"typecheck": "tsc -b"
+	},
+	"dependencies": {
+		"@sveltejs/adapter-node": "catalog:dev",
+		"crossws": "catalog:"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@sveltejs/kit": "catalog:",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev"
+	},
+	"peerDependencies": {
+		"@sveltejs/kit": "*",
+		"vite": "*"
+	}
+}

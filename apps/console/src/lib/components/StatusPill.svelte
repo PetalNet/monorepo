@@ -17,7 +17,7 @@
 	let previousState: string | null = null;
 
 	$effect(() => {
-		const nextState = `${tone}:${label}:${hollow}`;
+		const nextState = `${tone}:${label}:${String(hollow)}`;
 		if (previousState === null) {
 			previousState = nextState;
 			return;

@@ -27,7 +27,7 @@
 	</header>
 	<div class="viewport" role="log" aria-live="off" aria-label="Terminal output">
 		{#if state === "live" || state === "stalled"}
-			{#each lines as line}<div>{line}</div>{/each}
+			{#each lines as line, __eachKey16 (__eachKey16)}<div>{line}</div>{/each}
 		{:else if state === "connecting"}
 			<span class="muted">Connecting to {session.host} · {session.tmux_session}:{session.pane_id}</span>
 		{:else}

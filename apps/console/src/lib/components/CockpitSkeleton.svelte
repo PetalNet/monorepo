@@ -5,13 +5,13 @@
 <div class="cockpit-loading" role="status" aria-label="Loading cockpit">
 	<span class="sr-only">Loading cockpit</span>
 	<div class="chip-row" aria-hidden="true">
-		{#each Array(COCKPIT_SKELETON.chips) as _}<span class="chip"></span>{/each}
+		{#each Array.from({ length: COCKPIT_SKELETON.chips }, (_, index) => index) as index (index)}<span class="chip"></span>{/each}
 	</div>
 	<div class="ask" aria-hidden="true"><span></span></div>
 	<div class="home-grid">
 		<section class="town" aria-hidden="true">
 			<div class="heading"></div>
-			{#each Array(COCKPIT_SKELETON.attentionRows) as _, index}
+			{#each Array.from({ length: COCKPIT_SKELETON.attentionRows }, (_, index) => index) as index (index)}
 				<div class="attention">
 					<span class="dot"></span>
 					<div><span class="line primary" style:width={index === 1 ? "62%" : "72%"}></span><span class="line secondary"></span></div>
@@ -21,7 +21,7 @@
 		<aside class="houses" aria-hidden="true">
 			<div class="heading short"></div>
 			<div class="house-row">
-				{#each Array(COCKPIT_SKELETON.houseTiles) as _}
+				{#each Array.from({ length: COCKPIT_SKELETON.houseTiles }, (_, index) => index) as index (index)}
 					<div class="house"><span class="roof"></span><span class="body"><i></i><i></i></span><span class="name"></span></div>
 				{/each}
 			</div>

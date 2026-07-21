@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { required } from "#format";
+	import type { PageProps } from "./$types";
 	import { page } from "$app/state";
 	import { onMount } from "svelte";
+	import { SvelteMap } from "svelte/reactivity";
 	import type { HeartbeatItem, RosterItem } from "$lib/api/types";
 	import FleetStrip from "$lib/components/FleetStrip.svelte";
 	import Icon from "$lib/components/Icon.svelte";
@@ -12,10 +15,11 @@
 	import StatusPill from "$lib/components/StatusPill.svelte";
 	import { deriveRoster } from "$lib/data/agents";
 	import { clockNow } from "$lib/stores/clock.svelte";
+	import { runRemote } from "$lib/rpc/browser";
 	import CommsLog from "./CommsLog.svelte";
 	import { closeTerminalPeek, openTerminalPeek, pollTerminalPeek } from "./terminal-peek.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	const a = $derived(data.agents);
 	// Live clock: countdowns tick and gone-quiet crosses its window without a refresh.
 	const now = $derived(clockNow());
@@ -37,7 +41,7 @@
 	const decoder = new TextDecoder();
 	const canPeek = $derived(data.me.lanes.includes("term_admin"));
 	const residentSessions = $derived.by(() => {
-		const sessions = new Map<string, HeartbeatItem>();
+		const sessions = new SvelteMap<string, HeartbeatItem>();
 		for (const heartbeat of data.architects) {
 			if (heartbeat.handle && heartbeat.tmux_session && heartbeat.pane_id)
 				sessions.set(heartbeat.handle, heartbeat);
@@ -54,7 +58,7 @@
 		{ key: "Idle", rows: match(roster.lanes.idle) },
 	]);
 	const architects = $derived.by(() => {
-		const byHost = new Map<string, { host: string; heartbeat: HeartbeatItem; residents: string[] }>();
+		const byHost = new SvelteMap<string, { host: string; heartbeat: HeartbeatItem; residents: string[] }>();
 		const rank: Record<HeartbeatItem["state"], number> = {
 			crashed: 5,
 			stopped: 4,
@@ -94,7 +98,7 @@
 	function age(epoch: number): string {
 		if (epoch === 0) return "never";
 		const seconds = Math.max(0, Math.floor(now / 1_000 - epoch));
-		return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m`;
+		return seconds < 60 ? `${String(seconds)}s` : `${String(Math.floor(seconds / 60))}m`;
 	}
 	function managerStale(heartbeat: HeartbeatItem): boolean {
 		return now - Date.parse(heartbeat.observed_at) > 90_000;
@@ -123,9 +127,9 @@
 			if (generation === peekGeneration) peekState = "stalled";
 		}, 5_000);
 		try {
-			const snapshot = await pollTerminalPeek({ stream_id: peekStreamId, tick: peekSeq });
+			const snapshot = await runRemote(pollTerminalPeek({ stream_id: peekStreamId, tick: peekSeq }));
 			if (generation !== peekGeneration) return;
-			if (stallTimer) clearTimeout(stallTimer);
+			clearTimeout(stallTimer);
 			stallTimer = null;
 			peekLines = decodeSnapshot(snapshot.data_b64);
 			peekSeq = snapshot.seq;
@@ -149,9 +153,9 @@
 		peekError = null;
 		const generation = ++peekGeneration;
 		try {
-			const snapshot = await openTerminalPeek({ host: session.host, tmux_session: session.tmux_session!, pane_id: session.pane_id! });
+			const snapshot = await runRemote(openTerminalPeek({ host: session.host, tmux_session: required(session.tmux_session), pane_id: required(session.pane_id) }));
 			if (generation !== peekGeneration) {
-				await closeTerminalPeek({ stream_id: snapshot.stream_id }).catch(() => undefined);
+				await runRemote(closeTerminalPeek({ stream_id: snapshot.stream_id })).catch(() => undefined);
 				return;
 			}
 			peekStreamId = snapshot.stream_id;
@@ -174,13 +178,13 @@
 		const streamId = peekStreamId;
 		peekStreamId = null;
 		peekSession = null;
-		if (streamId) await closeTerminalPeek({ stream_id: streamId }).catch(() => undefined);
+		if (streamId) await runRemote(closeTerminalPeek({ stream_id: streamId })).catch(() => undefined);
 	}
 	onMount(() => () => {
 		peekGeneration += 1;
 		if (pollTimer) clearTimeout(pollTimer);
 		if (stallTimer) clearTimeout(stallTimer);
-		if (peekStreamId) void closeTerminalPeek({ stream_id: peekStreamId }).catch(() => undefined);
+		if (peekStreamId) void runRemote(closeTerminalPeek({ stream_id: peekStreamId })).catch(() => undefined);
 	});
 </script>
 
@@ -256,7 +260,7 @@
 					<div><dt>Matrix sync</dt><dd class:danger={architect.heartbeat.last_sync_ok_epoch === 0 || now / 1_000 - architect.heartbeat.last_sync_ok_epoch > 120}>{architect.heartbeat.last_sync_ok_epoch === 0 ? "never" : `${age(architect.heartbeat.last_sync_ok_epoch)} ago`}</dd></div>
 					<div><dt>Observed</dt><dd>{new Date(architect.heartbeat.observed_at).toLocaleTimeString()}</dd></div>
 				</dl>
-				<div class="residents"><span>Residents</span>{#each architect.residents as resident}<a href="/agents?agent={resident}">{resident}</a>{:else}<em>No resident handle reported</em>{/each}</div>
+				<div class="residents"><span>Residents</span>{#each architect.residents as resident, __eachKey18 (__eachKey18)}<a href="/agents?agent={resident}">{resident}</a>{:else}<em>No resident handle reported</em>{/each}</div>
 				<footer class="architect-foot"><p>Architect present. Supervising {architect.residents.length} resident{architect.residents.length === 1 ? "" : "s"}.</p>{#if canPeek && architect.heartbeat.tmux_session && architect.heartbeat.pane_id}<button type="button" disabled={peekDisabledReason(architect.heartbeat) !== null} title={peekDisabledReason(architect.heartbeat) ?? "Watch read-only terminal"} onclick={() => watchSession(architect.heartbeat)}><Icon name="eye" size={13} />Watch session</button>{/if}</footer>
 			</section>
 		{:else}
@@ -275,7 +279,7 @@
 		<div class="peek-drawer">
 			<IconButton class="dialog-close" name="x" label="Close terminal peek" autofocus onclick={() => peekDialog?.close()} />
 			<div class="peek-title"><Icon name="eye" size={16} /><div><h2 id="terminal-peek-title">Watch {peekSession.handle ?? "resident"}</h2><p>Read-only live terminal</p></div></div>
-			<PTYView session={peekSession} lines={peekLines} state={peekState} seq={peekSeq} errorCode={peekError} onretry={() => watchSession(peekSession!)} />
+			<PTYView session={peekSession} lines={peekLines} state={peekState} seq={peekSeq} errorCode={peekError} onretry={() => watchSession(required(peekSession))} />
 		</div>
 	{/if}
 </ModalSurface>

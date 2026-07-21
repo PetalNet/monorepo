@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+
+import { describe, it } from "vitest";
 
 import {
 	ancestorTrail,
@@ -14,7 +15,7 @@ const node = (id: string, parentId: string | null): InvestigationNode => ({
 	parentQuestion: null,
 	panelCount: 1,
 	createdBy: "janet",
-	updatedAt: `2026-07-13T00:00:0${id.length}Z`,
+	updatedAt: `2026-07-13T00:00:0${String(id.length)}Z`,
 	scope: "lab",
 	isHome: false,
 });

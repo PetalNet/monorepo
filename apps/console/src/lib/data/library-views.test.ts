@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+
+import { describe, it } from "vitest";
 
 import { buildLibraryGraph, groupLibraryKanban, nextGraphNode } from "./library-views.ts";
 import type { LibraryItemView, LibraryLinkFixture } from "./library.ts";

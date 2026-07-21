@@ -2,6 +2,7 @@
 	import type { CommsEvent } from "$lib/api/types";
 	import AgentPresence from "$lib/components/AgentPresence.svelte";
 	import Icon from "$lib/components/Icon.svelte";
+	import { runRemote } from "$lib/rpc/browser";
 	import SegmentedControl from "$lib/components/SegmentedControl.svelte";
 	import { getCommsLog } from "./comms.remote";
 
@@ -16,6 +17,7 @@
 	let failed = $state(false);
 	let requestVersion = 0;
 	const taskInvalid = $derived(task.trim() !== "" && !/^[1-9]\d*$/.test(task.trim()));
+	function selectType(value: TypeFilter): void { type = value; }
 
 	function kind(item: CommsEvent): Exclude<TypeFilter, "all"> {
 		return item.method === "comms.card" ? "task-card" : item.method === "comms.rpc" ? "rpc" : "mail";
@@ -44,12 +46,12 @@
 		failed = false;
 		const parsedTask = /^\d+$/.test(task.trim()) ? Number(task.trim()) : null;
 		try {
-			const result = await getCommsLog({
+			const result = await runRemote(getCommsLog({
 				type: type === "all" ? null : type,
 				agent: agent.trim() || null,
 				taskId: parsedTask && parsedTask > 0 ? parsedTask : null,
 				cursor,
-			});
+			}));
 			if (version !== requestVersion) return;
 			items = append ? [...items, ...result.items] : result.items;
 			nextCursor = result.next_cursor;
@@ -69,7 +71,7 @@
 			void activeFilters;
 			void read();
 		}, 180);
-		return () => clearTimeout(timer);
+		return () => { clearTimeout(timer); };
 	});
 </script>
 
@@ -83,7 +85,7 @@
 			</div>
 		</div>
 		<span class="truth" class:error={failed} role="status" aria-live="polite">
-			{failed ? "Query unavailable" : loading ? "Reading the archive" : `${items.length} ${items.length === 1 ? "letter" : "letters"}`}
+			{failed ? "Query unavailable" : loading ? "Reading the archive" : `${String(items.length)} ${items.length === 1 ? "letter" : "letters"}`}
 		</span>
 	</header>
 
@@ -98,7 +100,7 @@
 				{ value: "rpc", label: "rpc" },
 				{ value: "mail", label: "mail" },
 			]}
-			onchange={(value) => (type = value)}
+			onchange={selectType}
 		/>
 		<label>
 			<Icon name="search" size={13} />
@@ -115,7 +117,7 @@
 			<thead><tr><th>Time</th><th>Route</th><th>Type</th><th>About</th><th>Body</th></tr></thead>
 			<tbody>
 				{#if loading}
-					{#each Array(6) as _, index (index)}
+					{#each Array.from({ length: 6 }, (_, index) => index) as index (index)}
 						<tr class="skeleton-row" aria-hidden="true"><td><span></span></td><td><span></span></td><td><span></span></td><td><span></span></td><td><span></span></td></tr>
 					{/each}
 				{:else if taskInvalid}
@@ -132,7 +134,7 @@
 							<td data-label="Type"><span class="type-chip">{kind(item)}</span></td>
 							<td data-label="About">
 								<div class="about">
-									{#if item.task_id}<a href={`/work?task=${item.task_id}`}>task {item.task_id}</a>{/if}
+									{#if item.task_id}<a href={`/work?task=${String(item.task_id)}`}>task {item.task_id}</a>{/if}
 									{#if item.about}<span>{item.about}</span>{/if}
 									{#if item.in_reply_to}<Icon name="reply" size={12} /><span class="sr-only">Reply</span>{/if}
 								</div>

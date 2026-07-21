@@ -1,5 +1,5 @@
 import { getRequestEvent, query } from "$app/server";
-import { env } from "$env/dynamic/public";
+const env = import.meta.env;
 
 import type { CostComparisonRequest, CostComparisonResult } from "./cost";
 import { mockCostComparison } from "./cost";
@@ -23,7 +23,6 @@ function validTimezone(value: string): boolean {
 
 function valid(input: CompareCostInput): boolean {
 	return (
-		input.schema_version === 1 &&
 		["agent", "model", "project"].includes(input.dimension) &&
 		input.left.length > 0 &&
 		input.left.length <= 256 &&
@@ -40,7 +39,7 @@ function valid(input: CompareCostInput): boolean {
 /** Server-only RPC boundary for pairwise cost comparison. Browser code never calls console-api. */
 export const compareCost = query("unchecked", async (input: CompareCostInput) => {
 	if (!valid(input)) throw new Error("Invalid cost comparison");
-	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live")
+	if (env.PUBLIC_CONSOLE_DATA_MODE === "mock")
 		return mockCostComparison(input.dimension, input.left, input.right);
 
 	const event = getRequestEvent();
@@ -49,7 +48,7 @@ export const compareCost = query("unchecked", async (input: CompareCostInput) =>
 		const value = event.request.headers.get(name);
 		if (value) headers.set(name, value);
 	}
-	const base = env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+	const base = env.PUBLIC_CONSOLE_API_BASE ?? `${event.url.origin}/api/v1`;
 	const response = await event.fetch(`${base}/cost/compare`, {
 		method: "POST",
 		headers,

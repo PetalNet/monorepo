@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { connectBus } from "$lib/api/client";
-	import { env } from "$env/dynamic/public";
+	import { formatUnknown } from "#format";
+	import { connectBus, runRemote } from "$lib/rpc/browser";
+	const env = import.meta.env;
 	import Icon from "$lib/components/Icon.svelte";
 	import IconButton from "$lib/components/IconButton.svelte";
 	import ModalSurface from "$lib/components/ModalSurface.svelte";
@@ -16,6 +17,7 @@
 		setDeliveryTarget,
 	} from "./delivery.remote";
 	import { onMount } from "svelte";
+	import { SvelteDate } from "svelte/reactivity";
 
 	interface Props {
 		busObservedAt: string | null;
@@ -43,7 +45,7 @@
 	);
 	let targetOpen = $state(false);
 	let target = $state("");
-	let busy = $state<"test" | "target" | "cocoon" | string | null>(null);
+	let busy = $state<string | null>(null);
 	let result = $state<{ tone: "good" | "danger"; text: string } | null>(null);
 
 	$effect(() => onhealthchange?.(health));
@@ -52,17 +54,17 @@
 	});
 
 	onMount(() => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return;
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return;
 		return connectBus(
 			() => [{ sub_id: "delivery-surface", pattern: "delivery.*" }],
 			(frame) => {
-				if (frame["kind"] === "event") void deliveryQuery.refresh();
+				if (frame["kind"] === "event") void runRemote(deliveryQuery.refresh());
 			},
 		);
 	});
 
 	function nextSeven(): string {
-		const next = new Date();
+		const next = new SvelteDate();
 		next.setHours(7, 0, 0, 0);
 		if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
 		return next.toISOString();
@@ -89,10 +91,10 @@
 		busy = "test";
 		result = null;
 		try {
-			const receipt = await sendDeliveryTest();
+			const receipt = await runRemote(sendDeliveryTest());
 			result = {
 				tone: "good",
-				text: `Delivered and persisted as receipt ${String(receipt["receipt_ref"] ?? "confirmed")}.`,
+				text: `Delivered and persisted as receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
 			};
 			snackbar.push({ message: "delivery.test applied", op: "delivery.test", tone: "good" });
 		} catch (error) {
@@ -108,11 +110,11 @@
 		busy = "target";
 		result = null;
 		try {
-			const receipt = await setDeliveryTarget({ target });
+			const receipt = await runRemote(setDeliveryTarget({ target }));
 			targetOpen = false;
 			result = {
 				tone: "good",
-				text: `New target verified by persisted receipt ${String(receipt["receipt_ref"] ?? "confirmed")}.`,
+				text: `New target verified by persisted receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
 			};
 			snackbar.push({ message: "delivery.set_target applied", op: "delivery.set_target", tone: "good" });
 		} catch (error) {
@@ -128,9 +130,9 @@
 		if (!surface?.delivery) return;
 		busy = "cocoon";
 		try {
-			await setDeliveryCocoon({
+			await runRemote(setDeliveryCocoon({
 				until: mode === "off" ? new Date().toISOString() : nextSeven(),
-			});
+			}));
 			snackbar.push({ message: "delivery.cocoon applied", op: "delivery.cocoon", tone: "good" });
 		} catch (error) {
 			snackbar.push({
@@ -146,7 +148,7 @@
 	async function resend(receiptRef: string) {
 		busy = receiptRef;
 		try {
-			await resendDeliveryReceipt({ receiptRef });
+			await runRemote(resendDeliveryReceipt({ receiptRef }));
 			snackbar.push({ message: "delivery.resend applied", op: "delivery.resend", tone: "good" });
 		} catch (error) {
 			snackbar.push({

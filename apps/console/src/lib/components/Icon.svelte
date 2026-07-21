@@ -1,7 +1,8 @@
 <script lang="ts" generics="Name extends string">
+	import { SvelteSet } from "svelte/reactivity";
 	import { hasIcon, ICONS, type IconName } from "./icons";
 
-	const warnedUnknownIcons = new Set<string>();
+	const warnedUnknownIcons = new SvelteSet<string>();
 
 	interface Props {
 		name: string extends Name ? Name : Name extends IconName ? Name : never;
@@ -9,7 +10,6 @@
 		/** CSS color; defaults to currentColor via the icon's stroke. */
 		color?: string;
 		strokeWidth?: number;
-		"aria-hidden"?: boolean;
 		title?: string;
 	}
 	let {
@@ -17,7 +17,6 @@
 		size = 16,
 		color,
 		strokeWidth = 2,
-		"aria-hidden": ariaHidden = true,
 		title,
 	}: Props = $props();
 
@@ -32,5 +31,5 @@
 </script>
 
 {#if Cmp}
-	<Cmp {size} {color} {strokeWidth} aria-hidden={ariaHidden} {title} />
+	<Cmp {size} {color} {strokeWidth} aria-hidden={true} {title} />
 {/if}

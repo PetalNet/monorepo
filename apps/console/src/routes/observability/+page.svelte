@@ -1,18 +1,22 @@
 <script lang="ts">
+	import { required } from "#format";
+	import { formatUnknown } from "#format";
+	import type { PageProps } from "./$types";
 	import { page } from "$app/state";
 	import Icon from "$lib/components/Icon.svelte";
 	import IconButton from "$lib/components/IconButton.svelte";
 	import ModalSurface from "$lib/components/ModalSurface.svelte";
 	import OpButton from "$lib/components/OpButton.svelte";
 	import SegmentedControl from "$lib/components/SegmentedControl.svelte";
-	import { runQuery } from "$lib/api/client";
+	import { runQuery } from "$lib/rpc/browser";
 	import { opDef } from "$lib/api/ops";
 	import { isStale, lagSeconds } from "$lib/data/observability";
 	import type { QueryResult } from "$lib/api/types";
-	import InvestigationGraph, { type InvestigationSeed } from "./InvestigationGraph.svelte";
+	import InvestigationGraph from "./InvestigationGraph.svelte";
+	import type { InvestigationSeed } from "./investigation-types";
 	import { getInvestigationGraph } from "./investigations.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	const a = $derived(data.accounting);
 	let view = $state<"dashboards" | "investigation" | "catalog">("dashboards");
 	let filter = $state("");
@@ -34,25 +38,25 @@
 	const filteredCatalog = $derived(a.catalog.filter((entry) => entry.type.toLowerCase().includes(filter.toLowerCase())));
 	const behind = $derived(Object.values(a.queries).some((q) => isStale(q, nowMs)));
 	const freshnessLag = $derived(lagSeconds(a.queries.freshness, nowMs));
-	const loadOp = opDef("dashboard.load")!;
-	const snoozeOp = opDef("signal.snooze")!;
+	const loadOp = required(opDef("dashboard.load"));
+	const snoozeOp = required(opDef("signal.snooze"));
 
 	$effect(() => {
 		const id = setInterval(() => nowMs = Date.now(), 1000);
-		return () => clearInterval(id);
+		return () => { clearInterval(id); };
 	});
 
 	function age(iso?: string | null) {
 		if (!iso) return "never";
 		const seconds = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
 		if (seconds < 5) return "now";
-		if (seconds < 60) return `${seconds}s`;
-		if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-		if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
-		return `${Math.round(seconds / 86400)}d`;
+		if (seconds < 60) return `${String(seconds)}s`;
+		if (seconds < 3600) return `${String(Math.round(seconds / 60))}m`;
+		if (seconds < 86400) return `${String(Math.round(seconds / 3600))}h`;
+		return `${String(Math.round(seconds / 86400))}d`;
 	}
 	function value(result: QueryResult | null, row = 0, col = 0) { return result?.rows[row]?.[col] ?? "—"; }
-	function source(result: QueryResult | null) { return result ? `${result.freshness.source} · ${result.row_count} ${result.row_count === 1 ? "row" : "rows"} · ${age(result.freshness.observed_at)}` : "query unavailable · 0 rows · not current"; }
+	function source(result: QueryResult | null) { return result ? `${result.freshness.source} · ${String(result.row_count)} ${result.row_count === 1 ? "row" : "rows"} · ${age(result.freshness.observed_at)}` : "query unavailable · 0 rows · not current"; }
 	async function catalogOpen(type: string) {
 		activeStat = type;
 		autoViz = { type, result: null, loading: true, error: false };
@@ -78,7 +82,7 @@
 		let current: string[] = [];
 		values.forEach((v, i) => {
 			if (v === null) { if (current.length) segments.push(current.join(" ")); current = []; return; }
-			current.push(`${8 + i * 462 / Math.max(1, values.length - 1)},${88 - (v - min) / range * 76}`);
+			current.push(`${String(8 + i * 462 / Math.max(1, values.length - 1))},${String(88 - (v - min) / range * 76)}`);
 		});
 		if (current.length) segments.push(current.join(" "));
 		return segments;
@@ -93,7 +97,7 @@
 	function investigateEmitter(row: unknown[]) {
 		if (!a.queries.emitters?.query_ref) return;
 		investigationInitialId = null;
-		const scope = String(row[0] ?? "selected scope");
+		const scope = formatUnknown(row[0] ?? "selected scope");
 		investigationSeed = {
 			title: `Why did ${scope} event volume stand out?`,
 			queryRef: a.queries.emitters.query_ref,
@@ -109,6 +113,17 @@
 		investigationSeed = null;
 		view = "investigation";
 	}
+	function showAutoVizMath(): void {
+		if (autoViz?.result) peek = { title: autoViz.type, result: autoViz.result };
+	}
+	function autoVizUnit(): string {
+		const visualization = autoViz;
+		if (!visualization) return "latest";
+		return Object.values(a.catalog.find((entry) => entry.type === visualization.type)?.measures ?? {})[0]?.unit ?? "latest";
+	}
+	function selectView(next: "dashboards" | "investigation" | "catalog"): void {
+		view = next;
+	}
 	$effect(() => {
 		const statistic = page.url.searchParams.get("stat");
 		if (!statistic || statistic === handledStat) return;
@@ -122,7 +137,7 @@
 <svelte:window onkeydown={keys} />
 
 <div class="sign">
-	<div class="identity"><h1>Observability</h1><span title="The Point System. Every action has a value.">Accounting</span><small class:behind>{a.isMock ? "Fixture scene · not live." : behind ? `Accounting is behind. Numbers older than ${new Date(Math.min(...Object.values(a.queries).filter(Boolean).map((q) => Date.parse(q!.freshness.observed_at)))).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} only.` : a.errors.length ? "Accounting can't verify every panel." : "Accounting is current."}</small></div>
+	<div class="identity"><h1>Observability</h1><span title="The Point System. Every action has a value.">Accounting</span><small class:behind>{a.isMock ? "Fixture scene · not live." : behind ? `Accounting is behind. Numbers older than ${new Date(Math.min(...Object.values(a.queries).filter((query) => query !== null).map((query) => Date.parse(query.freshness.observed_at)))).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} only.` : a.errors.length ? "Accounting can't verify every panel." : "Accounting is current."}</small></div>
 	<SegmentedControl
 		class="view-segments"
 		label="Observability view"
@@ -132,7 +147,7 @@
 			{ value: "investigation", label: "Investigation" },
 			{ value: "catalog", label: "Catalog" },
 		]}
-		onchange={(next) => view = next}
+		onchange={selectView}
 	/>
 </div>
 
@@ -153,34 +168,34 @@
 					{#if a.queries.events}
 						<svg class="chart" viewBox="0 0 520 96" preserveAspectRatio="none" role="img" aria-label="Bus events per minute line chart">
 							<line x1="0" y1="88" x2="520" y2="88"/><line x1="0" y1="48" x2="520" y2="48"/><line x1="0" y1="8" x2="520" y2="8"/>
-							{#each chartSegments(a.queries.events) as points}<polyline {points}/>{/each}
+							{#each chartSegments(a.queries.events) as points, __eachKey41 (__eachKey41)}<polyline {points}/>{/each}
 						</svg>
 					{:else}<div class="query-empty">Query failed. Nothing rendered, nothing pretended.</div>{/if}
-					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.events)}</span>{#if a.queries.events}<button onclick={() => peek = { title: "Bus events per minute", result: a.queries.events! }}>Show the math.</button>{/if}</footer>
+					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.events)}</span>{#if a.queries.events}<button onclick={() => peek = { title: "Bus events per minute", result: required(a.queries.events) }}>Show the math.</button>{/if}</footer>
 				</article>
 				<article class="panel freshness" class:stale={isStale(a.queries.freshness, nowMs)}>
 					<header><div><h2>Lake freshness</h2><p>Ingest lag, newest statistic</p></div></header>
 					<div class="stat"><b>{freshnessLag ?? "—"}{freshnessLag === null ? "" : "s"}</b><span>behind newest event</span></div>{#if freshnessLag !== null && a.queries.freshness?.freshness.window_s != null}<div class:proof={!isStale(a.queries.freshness, nowMs)} class:late={isStale(a.queries.freshness, nowMs)}>{isStale(a.queries.freshness, nowMs) ? "outside its contracted window" : "inside its contracted window"}</div>{/if}
-					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.freshness)}</span>{#if a.queries.freshness}<button onclick={() => peek = { title: "Lake freshness", result: a.queries.freshness! }}>Show the math.</button>{/if}</footer>
+					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.freshness)}</span>{#if a.queries.freshness}<button onclick={() => peek = { title: "Lake freshness", result: required(a.queries.freshness) }}>Show the math.</button>{/if}</footer>
 				</article>
 				<article class="panel queries" class:stale={isStale(a.queries.queries, nowMs)}>
 					<header><div><h2>Queries today</h2><p>Everyone in scope</p></div></header>
 					<div class="stat"><b>{value(a.queries.queries)}</b><span>runs</span></div>
-					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.queries)}</span>{#if a.queries.queries}<button onclick={() => peek = { title: "Queries today", result: a.queries.queries! }}>Show the math.</button>{/if}</footer>
+					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.queries)}</span>{#if a.queries.queries}<button onclick={() => peek = { title: "Queries today", result: required(a.queries.queries) }}>Show the math.</button>{/if}</footer>
 				</article>
 				<article class="panel emitters" class:stale={isStale(a.queries.emitters, nowMs)}>
 					<header><div><h2>Top emitters, 24h</h2><p>Grouped by visible scope</p></div></header>
-					{#if a.queries.emitters?.rows.length}<table><thead><tr>{#each a.queries.emitters.columns as c}<th>{c.name}</th>{/each}<th><span class="sr-only">Action</span></th></tr></thead><tbody>{#each a.queries.emitters.rows.slice(0, 4) as row}<tr>{#each row as cell}<td>{typeof cell === "number" ? cell.toLocaleString() : String(cell)}</td>{/each}<td><button class="investigate" onclick={() => investigateEmitter(row)} disabled={!a.queries.emitters?.query_ref}><Icon name="git-branch" size={12}/>Investigate</button></td></tr>{/each}</tbody></table>{:else}<div class="query-empty">No emitter rows in your scope.</div>{/if}
-					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.emitters)}</span>{#if a.queries.emitters}<button onclick={() => peek = { title: "Top emitters", result: a.queries.emitters! }}>Show the math.</button>{/if}</footer>
+					{#if a.queries.emitters?.rows.length}<table><thead><tr>{#each a.queries.emitters.columns as c, __eachKey42 (__eachKey42)}<th>{c.name}</th>{/each}<th><span class="sr-only">Action</span></th></tr></thead><tbody>{#each a.queries.emitters.rows.slice(0, 4) as row, __eachKey43 (__eachKey43)}<tr>{#each row as cell, __eachKey44 (__eachKey44)}<td>{typeof cell === "number" ? cell.toLocaleString() : String(cell)}</td>{/each}<td><button class="investigate" onclick={() => { investigateEmitter(row); }} disabled={!a.queries.emitters?.query_ref}><Icon name="git-branch" size={12}/>Investigate</button></td></tr>{/each}</tbody></table>{:else}<div class="query-empty">No emitter rows in your scope.</div>{/if}
+					<footer><Icon name="receipt-text" size={12}/><span>{source(a.queries.emitters)}</span>{#if a.queries.emitters}<button onclick={() => peek = { title: "Top emitters", result: required(a.queries.emitters) }}>Show the math.</button>{/if}</footer>
 				</article>
 			</div>
-			{#if autoViz}<article class="panel auto-viz"><header><div><h2>{autoViz.type}</h2><p>Deterministic catalog profile · no assistant</p></div></header>{#if autoViz.loading}<div class="skeleton" aria-label="Profiling statistic"></div>{:else if autoViz.error}<div class="query-empty">Profile query failed. Nothing rendered, nothing pretended.</div>{:else if autoViz.result}<div class="stat"><b>{value(autoViz.result)}</b><span>{Object.values(a.catalog.find((entry) => entry.type === autoViz?.type)?.measures ?? {})[0]?.unit ?? "latest"}</span></div><footer><Icon name="receipt-text" size={12}/><span>{source(autoViz.result)}</span><button onclick={() => peek = { title: autoViz!.type, result: autoViz!.result! }}>Show the math.</button></footer>{/if}</article>{/if}
+			{#if autoViz}<article class="panel auto-viz"><header><div><h2>{autoViz.type}</h2><p>Deterministic catalog profile · no assistant</p></div></header>{#if autoViz.loading}<div class="skeleton" aria-label="Profiling statistic"></div>{:else if autoViz.error}<div class="query-empty">Profile query failed. Nothing rendered, nothing pretended.</div>{:else if autoViz.result}<div class="stat"><b>{value(autoViz.result)}</b><span>{autoVizUnit()}</span></div><footer><Icon name="receipt-text" size={12}/><span>{source(autoViz.result)}</span><button onclick={showAutoVizMath}>Show the math.</button></footer>{/if}</article>{/if}
 
 			<section class="saved"><div class="strip"><h2>Saved dashboards</h2><a href="/library?kind=artifact">All saved</a></div>
-				{#if a.dashboards.length}<div class="tiles">{#each a.dashboards.slice(0, 3) as d}<a href="/observability?dashboard={d.id}"><b>{d.title}</b><span>{d.panel_count} panels{d.is_home ? " · home" : ""}</span></a>{/each}</div>{:else}<p class="empty">No saved dashboards. Ask a question and keep what comes back.</p>{/if}
+				{#if a.dashboards.length}<div class="tiles">{#each a.dashboards.slice(0, 3) as d, __eachKey45 (__eachKey45)}<a href="/observability?dashboard={d.id}"><b>{d.title}</b><span>{d.panel_count} panels{d.is_home ? " · home" : ""}</span></a>{/each}</div>{:else}<p class="empty">No saved dashboards. Ask a question and keep what comes back.</p>{/if}
 			</section>
 			<section class="investigations"><div class="strip"><h2>Recent investigations</h2><span>Bearimy view</span></div>{#if recentInvestigations.length}
-				{#each recentInvestigations as investigation}<button onclick={() => openInvestigation(investigation.id)}><Icon name="git-branch" size={14}/><b>{investigation.title}</b><span>{investigation.createdBy ?? "unknown"} · {investigation.panelCount}p · {age(investigation.updatedAt)}</span></button>{/each}
+				{#each recentInvestigations as investigation, __eachKey46 (__eachKey46)}<button onclick={() => { openInvestigation(investigation.id); }}><Icon name="git-branch" size={14}/><b>{investigation.title}</b><span>{investigation.createdBy ?? "unknown"} · {investigation.panelCount}p · {age(investigation.updatedAt)}</span></button>{/each}
 			{:else if !investigationQuery.current}<p class="empty">Loading investigation history.</p>
 			{:else}<p class="empty">No investigations yet.</p>{/if}
 			</section>
@@ -188,7 +203,7 @@
 		<aside class="rail">
 			<div class="strip"><h2>Statistics catalog</h2><span>what is instrumented</span></div>
 			<label><Icon name="search" size={14}/><span class="sr-only">Filter statistics</span><input id="catalog-filter" bind:value={filter} placeholder="Filter statistics"/></label>
-			{#each filteredCatalog as entry (entry.type)}<button class:active={activeStat === entry.type} onclick={() => catalogOpen(entry.type)}><i class:idle={!entry.last_emit || (entry.emit_rate_per_min ?? 0) < .05}></i><code>{entry.type}</code><span>{Object.keys(entry.measures).some((m) => entry.measures[m]?.kind === "counter") ? "event" : "metric"}</span><time>{age(entry.last_emit)}</time></button>{/each}
+			{#each filteredCatalog as entry (entry.type)}<button class:active={activeStat === entry.type} onclick={() => catalogOpen(entry.type)}><i class:idle={!entry.last_emit || (entry.emit_rate_per_min ?? 0) < .05}></i><code>{entry.type}</code><span>{Object.keys(entry.measures).some((m) => entry.measures[m].kind === "counter") ? "event" : "metric"}</span><time>{age(entry.last_emit)}</time></button>{/each}
 			{#if !filteredCatalog.length}<p class="empty">No statistics match.</p>{/if}
 			<p class="rail-note">Click charts it. Rows outside your scope never arrive.</p>
 		</aside>
@@ -196,7 +211,7 @@
 {:else if view === "investigation"}
 	<InvestigationGraph seed={investigationSeed} initialId={investigationInitialId} onseeded={() => investigationSeed = null}/>
 {:else}
-	<section class="catalog-full"><div class="strip"><h2>Statistics catalog</h2><span>{filteredCatalog.length} visible types</span></div><label><Icon name="search" size={14}/><input id="catalog-filter" bind:value={filter} placeholder="Filter statistics" aria-label="Filter statistics"/></label>{#each filteredCatalog as entry}<button onclick={() => catalogOpen(entry.type)}><code>{entry.type}</code><span>{Object.keys(entry.dimensions).length} dimensions · {Object.keys(entry.measures).length} measures</span><time>{age(entry.last_emit)}</time><Icon name="chevron-right" size={14}/></button>{/each}</section>
+	<section class="catalog-full"><div class="strip"><h2>Statistics catalog</h2><span>{filteredCatalog.length} visible types</span></div><label><Icon name="search" size={14}/><input id="catalog-filter" bind:value={filter} placeholder="Filter statistics" aria-label="Filter statistics"/></label>{#each filteredCatalog as entry, __eachKey47 (__eachKey47)}<button onclick={() => catalogOpen(entry.type)}><code>{entry.type}</code><span>{Object.keys(entry.dimensions).length} dimensions · {Object.keys(entry.measures).length} measures</span><time>{age(entry.last_emit)}</time><Icon name="chevron-right" size={14}/></button>{/each}</section>
 {/if}
 
 <ModalSurface bind:element={peekDialog} open={peek!==null} variant="dialog" labelledby="query-detail-title" onclose={() => peek = null}>{#if peek}<div class="peek"><IconButton class="dialog-close" name="x" label="Close query detail" autofocus onclick={() => peekDialog?.close()}/><h2 id="query-detail-title">{peek.title}</h2><h3>Question</h3><p>Curated Accounting query</p><h3>Query · structured reference</h3><pre>{JSON.stringify({ query_ref: peek.result.query_ref }, null, 2)}</pre><h3>Result meta</h3><p class="mono">{peek.result.row_count} rows · {peek.result.execution_ms ?? "—"}ms · {peek.result.freshness.observed_at}</p><footer><button onclick={() => navigator.clipboard.writeText(peek?.result.query_ref ?? "")}>Copy query ref</button><button onclick={() => peekDialog?.close()}>Done</button></footer></div>{/if}</ModalSurface>

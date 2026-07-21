@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { describe, it } from "node:test";
+
+import { describe, it } from "vitest";
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -29,6 +30,6 @@ describe("modal surface contract", () => {
 			),
 		);
 		for (const route of routes) assert.match(route, /<ModalSurface/);
-		assert.equal(routes.filter((route) => /variant="drawer"/.test(route)).length, 2);
+		assert.equal(routes.filter((route) => /variant="drawer"/.test(route)).length, 3);
 	});
 });

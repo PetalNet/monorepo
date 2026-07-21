@@ -1,4 +1,4 @@
-import { env } from "$env/dynamic/public";
+const env = import.meta.env;
 
 export type LibraryKind =
 	| "task"

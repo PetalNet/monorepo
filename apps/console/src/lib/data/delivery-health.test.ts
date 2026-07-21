@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+
+import { describe, it } from "vitest";
 
 import { deriveDeliveryLineHealth } from "./delivery-health.ts";
 import type { DeliveryReceiptView } from "./signals.ts";
@@ -12,7 +13,7 @@ function receipt(
 	tier = "interrupt",
 ): DeliveryReceiptView {
 	return {
-		seq: `${minutesAgo}-${status}`,
+		seq: `${String(minutesAgo)}-${status}`,
 		ts: new Date(NOW - minutesAgo * 60_000).toISOString(),
 		tier,
 		signal: tier === "test" ? "delivery.test" : "agent.crashed",
