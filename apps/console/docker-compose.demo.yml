@@ -1,0 +1,74 @@
+name: console-demo
+
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    container_name: console-demo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: console
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - console-demo-postgres-data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d console"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [demo]
+
+  console:
+    image: ghcr.io/petalnet/console:main
+    container_name: console-demo
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      ORIGIN: https://console-demo.petalcat.dev
+      DATABASE_URL: postgresql://postgres@postgres:5432/console
+      APP_DATABASE_URL: postgresql://console_app@postgres:5432/console
+      RO_DATABASE_URL: postgresql://console_ro@postgres:5432/console
+      WRITER_DATABASE_URL: postgresql://console_writer@postgres:5432/console
+      BETTER_AUTH_URL: https://console-demo.petalcat.dev
+      BETTER_AUTH_SECRET: ${CONSOLE_BETTER_AUTH_SECRET:?load console-better-auth-secret from vault}
+      CONSOLE_API_CURSOR_SECRET: ${CONSOLE_API_CURSOR_SECRET:?load console-api-cursor-secret from vault}
+      OIDC_ISSUER: https://auth.petalcat.dev/application/o/console-demo/
+      OIDC_CLIENT_ID: ${CONSOLE_AUTHENTIK_CLIENT_ID:?load console-authentik-client-id from vault}
+      OIDC_CLIENT_SECRET: ${CONSOLE_AUTHENTIK_CLIENT_SECRET:?load console-authentik-client-secret from vault}
+      OIDC_SCOPES: openid,profile,email
+      OIDC_REDIRECT_URI: https://console-demo.petalcat.dev/api/auth/oauth2/callback/oidc
+      CONSOLE_API_GLITCHTIP_DSN: ${CONSOLE_GLITCHTIP_DSN:?load console-glitchtip-dsn from vault}
+      PUBLIC_GLITCHTIP_DSN: ${CONSOLE_GLITCHTIP_DSN:?load console-glitchtip-dsn from vault}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${CONSOLE_OTEL_ENDPOINT:-http://127.0.0.1:4318}
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    ports:
+      - "127.0.0.1:18081:3000"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    networks: [demo]
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: console-demo-watchtower
+    restart: unless-stopped
+    command: --label-enable --cleanup --interval 180
+    environment:
+      DOCKER_CONFIG: /config
+      DOCKER_API_VERSION: "1.40"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/docker/.docker/config.json:/config/config.json:ro
+    networks: [demo]
+
+networks:
+  demo:
+    name: console-demo-net
+    external: true
+
+volumes:
+  console-demo-postgres-data:
+    external: true
