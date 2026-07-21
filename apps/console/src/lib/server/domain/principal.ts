@@ -2,14 +2,8 @@ import { Effect } from "effect";
 import { RequestEvent } from "svelte-effect-runtime";
 
 import { resolveScopes, type Principal } from "./auth/principal";
+import { lanesForTier } from "./auth/tier-lanes";
 import { ConsoleDomain } from "./service";
-
-const laneSets = {
-	owner: ["viewer", "editor", "operator", "admin", "term_admin"],
-	operator: ["viewer", "editor", "operator"],
-	editor: ["viewer", "editor"],
-	viewer: ["viewer"],
-} as const;
 
 /** Resolve the authenticated Better Auth caller into the substrate's principal vocabulary. */
 export const currentPrincipal = Effect.gen(function* () {
@@ -25,7 +19,7 @@ export const currentPrincipal = Effect.gen(function* () {
 		kind: "human",
 		id,
 		tiers: [tier],
-		lanes: [...laneSets[tier]],
+		lanes: lanesForTier(tier),
 		scopes: resolved.scopes,
 		zookie: resolved.zookie,
 	} satisfies Principal;

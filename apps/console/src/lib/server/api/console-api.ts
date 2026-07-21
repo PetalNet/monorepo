@@ -16,6 +16,7 @@ import { OpCallSchema, QueryRequestSchema } from "../domain/api-schema.ts";
 import { ask } from "../domain/assistant/engine.ts";
 import { AssistantRuntimeError } from "../domain/assistant/runtime.ts";
 import { handleAssistantMcp, resolveAssistantToolPrincipal } from "../domain/assistant/tools.ts";
+import { resolveBrowserPrincipal } from "../domain/auth/browser-principal.ts";
 import {
 	canViewGrantObject,
 	GrantError,
@@ -23,17 +24,9 @@ import {
 	listGrants,
 	mutateGrant,
 } from "../domain/auth/grants.ts";
-import {
-	resolveBearer,
-	resolveScopes,
-	devPrincipal,
-	type Principal,
-} from "../domain/auth/principal.ts";
+import { resolveBearer, devPrincipal, type Principal } from "../domain/auth/principal.ts";
 import { ProposalError, proposeMutation } from "../domain/auth/proposals.ts";
-import type {
-	BetterAuthSessionVerifier,
-	BetterAuthSessionIdentity,
-} from "../domain/auth/session.ts";
+import type { BetterAuthSessionVerifier } from "../domain/auth/session.ts";
 import { type GrantRelation, listTiers, shouldProposeMutation } from "../domain/auth/tiers.ts";
 import { readAvailability } from "../domain/availability/service.ts";
 import { uuidv5 } from "../domain/bridge/uuid5.ts";
@@ -235,57 +228,6 @@ function safeDecode<S extends Schema.ConstraintDecoder<unknown>>(
 	const failure = Cause.squash(exit.cause);
 	return { success: false, message: failure instanceof Error ? failure.message : String(failure) };
 }
-const LANE_ORDER = ["viewer", "editor", "operator", "admin"] as const;
-
-async function resolveHumanIdentity(
-	services: Services,
-	identity: BetterAuthSessionIdentity,
-): Promise<Principal | null> {
-	if (identity.subject) {
-		await services.db.admin`
-			insert into better_auth_principals (oidc_subject, principal_id)
-			values (${identity.subject}, ${identity.username}) on conflict do nothing`;
-		const binding = await services.db.admin<{ principal_id: string }[]>`
-			select principal_id from better_auth_principals where oidc_subject = ${identity.subject}`;
-		if (binding[0].principal_id !== identity.username) return null;
-	}
-	// Authentik owns only administrator inheritance. The console currently models an admin as the
-	// owner tier; keep that explicit so a future distinct admin tier can refine the mapping. Other
-	// tiers are Better-Auth-managed and must not be inferred from similarly named Authentik groups.
-	const inheritsAdmin =
-		identity.groups.includes("authentik Admins") || identity.groups.includes("admin");
-	if (!inheritsAdmin) return null;
-	const rows = await services.db.admin<
-		{ name: string; default_relations: string[] }[]
-	>`select name, default_relations from tiers
-	  where name = 'owner'
-	  order by name`;
-	if (rows.length === 0) return null;
-	const tiers = rows.map((row) => row.name);
-	let laneCeiling = -1;
-	for (const row of rows) {
-		for (const relation of row.default_relations) {
-			const lane = relation === "owner" ? "admin" : relation;
-			laneCeiling = Math.max(laneCeiling, LANE_ORDER.indexOf(lane as (typeof LANE_ORDER)[number]));
-		}
-	}
-	const lanes = laneCeiling < 0 ? [] : LANE_ORDER.slice(0, laneCeiling + 1);
-	// TERM_ADMIN is deliberately non-hierarchical: admin alone never implies shell access. It is
-	// granted by a dedicated Authentik group/tier and therefore cannot leak through lane ordering.
-	if (identity.groups.includes("term_admin") || tiers.includes("term_admin"))
-		(lanes as string[]).push("term_admin");
-	const { scopes, zookie } = await resolveScopes(services.db.admin, identity.username, tiers);
-	return {
-		kind: "human",
-		id: identity.username,
-		tiers,
-		lanes,
-		scopes,
-		zookie,
-		...(identity.sessionId ? { authSource: "better-auth", authSessionId: identity.sessionId } : {}),
-	};
-}
-
 function parseCatalogCursor(
 	cursor: string | undefined,
 ): { type: string; inclusive: boolean } | null {
@@ -1645,7 +1587,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		if (betterAuth) {
 			const identity = await betterAuth.getIdentity(Object.fromEntries(headers.entries()));
 			if (identity) {
-				const principal = await resolveHumanIdentity(services, identity);
+				const principal = await resolveBrowserPrincipal(services, identity);
 				if (principal) return principal;
 			}
 		}
@@ -2420,7 +2362,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			const principal = match?.[1]
 				? await resolveAssistantToolPrincipal(services.db.admin, match[1], async (sessionId) => {
 						const identity = await betterAuth?.getIdentityBySessionId(sessionId);
-						return identity ? resolveHumanIdentity(services, identity) : null;
+						return identity ? resolveBrowserPrincipal(services, identity) : null;
 					})
 				: null;
 			if (!principal)

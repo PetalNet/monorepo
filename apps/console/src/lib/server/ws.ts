@@ -7,7 +7,6 @@ import { consoleApi, consoleServices } from "./api/instance";
 import type { Principal } from "./domain/auth/principal";
 import { attachBusConnection, type BusSocket } from "./domain/bus/connection";
 import { inertExceptionMonitor } from "./domain/observability";
-import { resolveSessionPrincipal } from "./session-principal";
 
 /**
  * The console's WebSocket surface, dispatched by SvelteKit (via @petalnet/svelte-ws + crossws): the
@@ -35,7 +34,6 @@ export const handleWebsocket: HandleWebsocket = async ({ socket, peer, request }
 	}
 	const hostname = request.url.hostname;
 	const resolvePrincipal = async (): Promise<Principal | null> =>
-		(await resolveSessionPrincipal(services, request.headers)) ??
 		api.resolvePrincipal(request.headers, hostname);
 
 	if (path === "/api/v1/terminal/ws") {
