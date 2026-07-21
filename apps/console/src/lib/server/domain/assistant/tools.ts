@@ -3,23 +3,17 @@ import { Effect, Schema } from "effect";
 import { formatUnknown } from "#format";
 
 import { resolveScopes, sha256, type Principal } from "../auth/principal.ts";
-import { ProposalError, proposeMutation, type TrackerProposalWriter } from "../auth/proposals.ts";
-import { shouldProposeMutation } from "../auth/tiers.ts";
 import {
-	dashboardTargetScope,
 	listLibraryCuration,
 	listLibraryItems,
 	loadDashboard,
 	materializeTextPanel,
 	readLibraryItem,
-	saveDashboard,
-	setHomeDashboard,
 } from "../dashboard/store.ts";
 import type { Db, Sql } from "../db/pool.ts";
 import { scrubUnknown } from "../ingest/scrubber.ts";
 import { readQueryRecord } from "../query/history.ts";
 import { runStructured, type QueryRequest } from "../query/structured.ts";
-import type { TrackerProposalLookup } from "../reads/tracker.ts";
 import { materializePanel } from "../render/engine.ts";
 import type { PanelSpecV2 } from "../render/types.ts";
 import {
@@ -303,63 +297,25 @@ async function callTool(
 	}
 	if (name === "window.arrange") {
 		const parsed = Schema.decodeUnknownSync(windowSchema)(args);
-		const rows = await db.writer<{ window_layout: Record<string, unknown> }[]>`
-			update assistant_sessions set window_layout = ${db.writer.json({ ops: parsed.ops })}, updated_at = now()
-			where principal_id = ${principal.id} returning window_layout`;
-		return { schema_version: 1, layout: rows.at(0)?.window_layout ?? { ops: [] } };
+		return services.executeMutation(principal, "window.arrange", { ops: parsed.ops });
 	}
 	if (name === "dashboard.manage") {
 		const parsed = Schema.decodeUnknownSync(dashboardToolSchema)(args);
 		if (parsed.action === "save") {
-			const scope = dashboardTargetScope(principal, parsed.dashboard.scope);
-			if (!scope || !principal.scopes.includes(scope)) throw new Error("scope_denied");
-			if (await shouldProposeMutation(db.admin, principal, scope, "editor")) {
-				if (!services.trackerProposals || !services.trackerProposalLookup)
-					throw new ProposalError(
-						"tracker_unavailable",
-						"tracker proposal writer is unavailable",
-						true,
-					);
-				return proposeMutation(
-					db.writer,
-					services.trackerProposals,
-					services.trackerProposalLookup,
-					principal,
-					{ operation: "dashboard.save", requestId: parsed.dashboard.id, args: parsed.dashboard },
-				);
-			}
-			return saveDashboard(db, principal, parsed.dashboard);
+			return services.executeMutation(principal, "dashboard.save", parsed.dashboard);
 		}
 		if (parsed.action === "load") return loadDashboard(db.app, principal.scopes, parsed.id);
-		if (!(await loadDashboard(db.app, principal.scopes, parsed.id)))
-			throw new Error("dashboard_not_found");
-		if (await shouldProposeMutation(db.admin, principal, `item:${parsed.id}`, "editor")) {
-			if (!services.trackerProposals || !services.trackerProposalLookup)
-				throw new ProposalError(
-					"tracker_unavailable",
-					"tracker proposal writer is unavailable",
-					true,
-				);
-			return proposeMutation(
-				db.writer,
-				services.trackerProposals,
-				services.trackerProposalLookup,
-				principal,
-				{
-					operation: "dashboard.set_home",
-					requestId: parsed.request_id,
-					args: { id: parsed.id },
-				},
-			);
-		}
-		return setHomeDashboard(db.writer, principal, parsed.id);
+		return services.executeMutation(
+			principal,
+			"dashboard.set_home",
+			{ id: parsed.id },
+			parsed.request_id,
+		);
 	}
 	if (name === "context.receive") {
 		const parsed = Schema.decodeUnknownSync(contextSchema)(args);
 		if (!scrubUnknown(parsed.payload, "context.payload").ok) throw new Error("secret_detected");
-		await db.writer`update assistant_sessions set last_context = ${db.writer.json(parsed.payload)},
-		  updated_at = now() where principal_id = ${principal.id}`;
-		return { schema_version: 1, accepted: true };
+		return services.executeMutation(principal, "context.receive", { payload: parsed.payload });
 	}
 	if (name === "library.surface") {
 		const parsed = Schema.decodeUnknownSync(librarySurfaceSchema)(args);
@@ -445,7 +401,6 @@ export async function handleAssistantMcp(
 				(response["result"] as Record<string, unknown>)["structuredContent"] = result;
 			return response;
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "tool failed";
 			const code =
 				typeof error === "object" &&
 				error !== null &&
@@ -453,12 +408,28 @@ export async function handleAssistantMcp(
 				typeof error.code === "string"
 					? error.code
 					: null;
+			services.captureException(error);
+			const knownMessages: Record<string, string> = {
+				invalid_args: "Tool arguments are invalid",
+				bad_op_call: "Tool operation request is invalid",
+				lane_denied: "The required lane is not available",
+				scope_denied: "The requested target is not authorized",
+				rate_limited: "Tool call rate limit exceeded",
+				tracker_unavailable: "The proposal tracker is unavailable",
+				secret_detected: "The payload contains restricted material",
+				dashboard_not_found: "Dashboard not found",
+				executor_unreachable: "The operation executor is unavailable",
+				audit_unavailable: "The operation audit log is unavailable",
+				op_failed: "The operation failed",
+			};
+			const publicCode = code && knownMessages[code] ? code : "tool_failed";
+			const message = knownMessages[publicCode] ?? "Tool call failed";
 			return {
 				jsonrpc: "2.0",
 				id,
 				result: {
 					isError: true,
-					content: [{ type: "text", text: code ? `${code}: ${message}` : message }],
+					content: [{ type: "text", text: `${publicCode}: ${message}` }],
 				},
 			};
 		}
@@ -469,6 +440,11 @@ export async function handleAssistantMcp(
 export interface AssistantToolServices {
 	readonly db: Db;
 	readonly cursorSecret: string;
-	readonly trackerProposals: TrackerProposalWriter | null;
-	readonly trackerProposalLookup: TrackerProposalLookup | null;
+	readonly executeMutation: (
+		principal: Principal,
+		op: string,
+		args: Record<string, unknown>,
+		requestId?: string,
+	) => Promise<Record<string, unknown>>;
+	readonly captureException: (error: unknown) => void;
 }
