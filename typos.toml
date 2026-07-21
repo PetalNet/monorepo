@@ -20,4 +20,5 @@ hass = "hass"
 BA = "BA"
 ba = "ba"
 # svelte-effect-runtime's acronym, used across the console docs and briefs.
+# Svelte Effect Runtime (deliberate acronym, not a typo for SET).
 SER = "SER"
