@@ -31,7 +31,7 @@ export type ReplayFn = (
 
 const SEV_ORDER = ["debug", "info", "warn", "danger", "p0"];
 const QUEUE_MAX = 1000;
-export const SOCKET_HIGH_WATER_BYTES = 1024 * 1024;
+const SOCKET_HIGH_WATER_BYTES = 1024 * 1024;
 
 export function matchPattern(pattern: string, type: string): boolean {
 	const patternSegments = pattern.split(".");

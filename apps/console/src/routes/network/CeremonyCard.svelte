@@ -2,6 +2,7 @@
 	import type { EdgeRegistryItem } from "$lib/api/types";
 	import Icon from "$lib/components/Icon.svelte";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
+	import { runRemote } from "$lib/rpc/browser";
 	import { untrack } from "svelte";
 	import { approveEnrollment, denyEnrollment } from "./ceremony.remote";
 
@@ -43,7 +44,7 @@
 		busy = true;
 		error = null;
 		try {
-			await approveEnrollment({ pubkey_fp: item.pubkey_fp, handle: handle.trim() });
+			await runRemote(approveEnrollment({ pubkey_fp: item.pubkey_fp, handle: handle.trim() }));
 			finish(`Key cut. ${handle.trim()} can use the door now.`, "edge.enroll.approve");
 		} catch (cause) {
 			error = (cause as Error).message;
@@ -62,7 +63,7 @@
 		busy = true;
 		error = null;
 		try {
-			await denyEnrollment({ pubkey_fp: item.pubkey_fp, reason: reason.trim() });
+			await runRemote(denyEnrollment({ pubkey_fp: item.pubkey_fp, reason: reason.trim() }));
 			finish("Enrollment denied. The key remains outside the door.", "edge.enroll.deny");
 		} catch (cause) {
 			error = (cause as Error).message;

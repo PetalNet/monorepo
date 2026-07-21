@@ -15,6 +15,7 @@
 	import StatusPill from "$lib/components/StatusPill.svelte";
 	import { deriveRoster } from "$lib/data/agents";
 	import { clockNow } from "$lib/stores/clock.svelte";
+	import { runRemote } from "$lib/rpc/browser";
 	import CommsLog from "./CommsLog.svelte";
 	import { closeTerminalPeek, openTerminalPeek, pollTerminalPeek } from "./terminal-peek.remote";
 
@@ -126,7 +127,7 @@
 			if (generation === peekGeneration) peekState = "stalled";
 		}, 5_000);
 		try {
-			const snapshot = await pollTerminalPeek({ stream_id: peekStreamId, tick: peekSeq });
+			const snapshot = await runRemote(pollTerminalPeek({ stream_id: peekStreamId, tick: peekSeq }));
 			if (generation !== peekGeneration) return;
 			clearTimeout(stallTimer);
 			stallTimer = null;
@@ -152,9 +153,9 @@
 		peekError = null;
 		const generation = ++peekGeneration;
 		try {
-			const snapshot = await openTerminalPeek({ host: session.host, tmux_session: required(session.tmux_session), pane_id: required(session.pane_id) });
+			const snapshot = await runRemote(openTerminalPeek({ host: session.host, tmux_session: required(session.tmux_session), pane_id: required(session.pane_id) }));
 			if (generation !== peekGeneration) {
-				await closeTerminalPeek({ stream_id: snapshot.stream_id }).catch(() => undefined);
+				await runRemote(closeTerminalPeek({ stream_id: snapshot.stream_id })).catch(() => undefined);
 				return;
 			}
 			peekStreamId = snapshot.stream_id;
@@ -177,13 +178,13 @@
 		const streamId = peekStreamId;
 		peekStreamId = null;
 		peekSession = null;
-		if (streamId) await closeTerminalPeek({ stream_id: streamId }).catch(() => undefined);
+		if (streamId) await runRemote(closeTerminalPeek({ stream_id: streamId })).catch(() => undefined);
 	}
 	onMount(() => () => {
 		peekGeneration += 1;
 		if (pollTimer) clearTimeout(pollTimer);
 		if (stallTimer) clearTimeout(stallTimer);
-		if (peekStreamId) void closeTerminalPeek({ stream_id: peekStreamId }).catch(() => undefined);
+		if (peekStreamId) void runRemote(closeTerminalPeek({ stream_id: peekStreamId })).catch(() => undefined);
 	});
 </script>
 

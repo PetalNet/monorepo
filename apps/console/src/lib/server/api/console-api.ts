@@ -153,7 +153,7 @@ class UnavailableTerminalAdapter implements TerminalAdapter {
 	}
 }
 
-export function resolvedOpCapabilities(
+function resolvedOpCapabilities(
 	op: string,
 	principalKind: Principal["kind"],
 	proposalRequired: boolean,
@@ -2465,7 +2465,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			const principal = match?.[1]
 				? await resolveAssistantToolPrincipal(services.db.admin, match[1], async (sessionId) => {
 						const identity = await betterAuth?.getIdentityBySessionId(sessionId);
-						return identity ? resolveHumanIdentity(services, identity) : null;
+						return identity ? resolveBrowserPrincipal(services, identity) : null;
 					})
 				: null;
 			if (!principal)

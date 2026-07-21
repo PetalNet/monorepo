@@ -2,6 +2,7 @@
 	import type { CommsEvent } from "$lib/api/types";
 	import AgentPresence from "$lib/components/AgentPresence.svelte";
 	import Icon from "$lib/components/Icon.svelte";
+	import { runRemote } from "$lib/rpc/browser";
 	import SegmentedControl from "$lib/components/SegmentedControl.svelte";
 	import { getCommsLog } from "./comms.remote";
 
@@ -45,12 +46,12 @@
 		failed = false;
 		const parsedTask = /^\d+$/.test(task.trim()) ? Number(task.trim()) : null;
 		try {
-			const result = await getCommsLog({
+			const result = await runRemote(getCommsLog({
 				type: type === "all" ? null : type,
 				agent: agent.trim() || null,
 				taskId: parsedTask && parsedTask > 0 ? parsedTask : null,
 				cursor,
-			});
+			}));
 			if (version !== requestVersion) return;
 			items = append ? [...items, ...result.items] : result.items;
 			nextCursor = result.next_cursor;

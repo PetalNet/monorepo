@@ -1,11 +1,12 @@
-import { getRequestEvent, command, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import type { EdgeRegistryItem, OpResult, ReadEnvelope } from "$lib/api/types";
 import { mockPendingKey, mockRegistry } from "$lib/data/network";
 import { captureCaughtFailure } from "$lib/glitchtip";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
 const fingerprint = Schema.String.check(Schema.isMinLength(16), Schema.isMaxLength(256));
 const handle = Schema.String.check(
@@ -92,32 +93,34 @@ function mockSurface(): KeyCeremonySurface {
 	};
 }
 
-export const getKeyCeremony = query(async (): Promise<KeyCeremonySurface> => {
-	if (isMock()) return mockSurface();
-	try {
-		const surface = await apiJson<ApiSurface>("/network/key-ceremony");
-		return {
-			registry: surface.registry.items,
-			observed_at: surface.registry.freshness.observed_at,
-			registry_available: true,
-			executor: surface.executor,
-			is_mock: false,
-		};
-	} catch (cause) {
-		captureCaughtFailure(cause, { surface: "network", endpoint: "/network/key-ceremony" });
-		return {
-			registry: [],
-			observed_at: null,
-			registry_available: false,
-			executor: {
-				configured: false,
-				live: false,
-				detail: "Key registry and doorman availability could not be verified",
-			},
-			is_mock: false,
-		};
-	}
-});
+export const getKeyCeremony = Query(
+	Effect.promise(async (): Promise<KeyCeremonySurface> => {
+		if (isMock()) return mockSurface();
+		try {
+			const surface = await apiJson<ApiSurface>("/network/key-ceremony");
+			return {
+				registry: surface.registry.items,
+				observed_at: surface.registry.freshness.observed_at,
+				registry_available: true,
+				executor: surface.executor,
+				is_mock: false,
+			};
+		} catch (cause) {
+			captureCaughtFailure(cause, { surface: "network", endpoint: "/network/key-ceremony" });
+			return {
+				registry: [],
+				observed_at: null,
+				registry_available: false,
+				executor: {
+					configured: false,
+					live: false,
+					detail: "Key registry and doorman availability could not be verified",
+				},
+				is_mock: false,
+			};
+		}
+	}),
+);
 
 async function runCeremonyOp(
 	op: "edge.enroll.approve" | "edge.enroll.deny" | "edge.key.revoke",
@@ -140,32 +143,32 @@ async function runCeremonyOp(
 	return result.result ?? {};
 }
 
-export const approveEnrollment = command(Schema.toStandardSchemaV1(approveInput), async (input) => {
-	if (isMock()) {
-		mockStates.set(input.pubkey_fp, "enrolled");
-		return { state: "enrolled" as const, handle: input.handle };
-	}
-	return runCeremonyOp("edge.enroll.approve", input);
-});
+export const approveEnrollment = Command(approveInput, (input) =>
+	Effect.promise(async () => {
+		if (isMock()) {
+			mockStates.set(input.pubkey_fp, "enrolled");
+			return { state: "enrolled" as const, handle: input.handle };
+		}
+		return runCeremonyOp("edge.enroll.approve", input);
+	}),
+);
 
-export const denyEnrollment = command(
-	Schema.toStandardSchemaV1(denyInput),
-	async ({ reason: reasonText, ...args }) => {
+export const denyEnrollment = Command(denyInput, ({ reason: reasonText, ...args }) =>
+	Effect.promise(async () => {
 		if (isMock()) {
 			mockStates.set(args.pubkey_fp, "denied");
 			return { state: "denied" as const };
 		}
 		return runCeremonyOp("edge.enroll.deny", args, reasonText);
-	},
+	}),
 );
 
-export const revokeKey = command(
-	Schema.toStandardSchemaV1(revokeInput),
-	async ({ reason: reasonText, handle: _handle, ...args }) => {
+export const revokeKey = Command(revokeInput, ({ reason: reasonText, handle: _handle, ...args }) =>
+	Effect.promise(async () => {
 		if (isMock()) {
 			mockStates.set(args.pubkey_fp, "revoked");
 			return { state: "revoked" as const };
 		}
 		return runCeremonyOp("edge.key.revoke", args, reasonText);
-	},
+	}),
 );

@@ -1,9 +1,10 @@
-import { getRequestEvent, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import { validateContract, type CommsEvent, type ReadEnvelope } from "$lib/api/types";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { Query } from "svelte-effect-runtime";
 
 const filters = Schema.Struct({
 	type: Schema.NullOr(Schema.Literals(["task-card", "rpc", "mail"])),
@@ -84,9 +85,8 @@ function mockRows(): CommsEvent[] {
 }
 
 /** Server-side RPC: browser code never reaches the query plane directly. */
-export const getCommsLog = query(
-	Schema.toStandardSchemaV1(filters),
-	async ({ type, agent, taskId, cursor }): Promise<ReadEnvelope<CommsEvent>> => {
+export const getCommsLog = Query(filters, ({ type, agent, taskId, cursor }) =>
+	Effect.promise(async (): Promise<ReadEnvelope<CommsEvent>> => {
 		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") {
 			const needle = agent?.trim().toLocaleLowerCase();
 			const method = type
@@ -126,5 +126,5 @@ export const getCommsLog = query(
 		if (!result.items.every((item) => validateContract("CommsEvent", item).valid))
 			error(502, "Correspondence response failed its contract");
 		return result;
-	},
+	}),
 );

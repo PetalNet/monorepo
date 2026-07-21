@@ -5,7 +5,7 @@
 	import { refreshAll } from "$app/navigation";
 	import { page } from "$app/state";
 	import { onMount, untrack } from "svelte";
-	import { connectBus, runOp } from "$lib/rpc/browser";
+	import { connectBus, runOp, runRemote } from "$lib/rpc/browser";
 	import type { CardItem, OpResult, TaskItem, TaskStatus } from "$lib/api/types";
 	import Countdown from "$lib/components/Countdown.svelte";
 	import HudChip from "$lib/components/HudChip.svelte";
@@ -176,12 +176,12 @@
 	async function claimWanted(card: CardItem) {
 		busy = card.task_id;
 		try {
-			const outcome = await claimWantedCard({
+			const outcome = await runRemote(claimWantedCard({
 				card_id: card.card_id,
 				task_id: card.task_id,
 				...(card.needs[0] ? { capability: card.needs[0] } : {}),
 				updated_at_ms: card.updated_at_ms,
-			});
+			}));
 			if (!outcome.won) {
 				snackbar.push({
 					message: outcome.claimed_by

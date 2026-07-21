@@ -1,9 +1,10 @@
-import { command, getRequestEvent, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import { mockPtyLines } from "$lib/data/terminal";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
 const targetSchema = Schema.Struct({
 	host: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(253)),
@@ -61,38 +62,35 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Opens the audited read-only PTY path. No attach or input operation is exposed by this module. */
-export const openTerminalPeek = command(
-	Schema.toStandardSchemaV1(targetSchema),
-	async (target): Promise<PtySnapshot> => {
+export const openTerminalPeek = Command(targetSchema, (target) =>
+	Effect.promise(async (): Promise<PtySnapshot> => {
 		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return mockSnapshot();
 		return apiJson<PtySnapshot>("/terminal/peek", {
 			method: "POST",
 			headers: headers(true),
 			body: JSON.stringify({ ...target, scrollback_lines: 10_000 }),
 		});
-	},
+	}),
 );
 
 /** Polls an already-authorized server session; tick prevents Remote Function result reuse. */
-export const pollTerminalPeek = query(
-	Schema.toStandardSchemaV1(pollSchema),
-	async ({ stream_id, tick }): Promise<PtySnapshot> => {
+export const pollTerminalPeek = Query(pollSchema, ({ stream_id, tick }) =>
+	Effect.promise(async (): Promise<PtySnapshot> => {
 		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return mockSnapshot(stream_id, tick + 1);
 		return apiJson<PtySnapshot>(`/terminal/peek/${encodeURIComponent(stream_id)}`, {
 			headers: headers(),
 			cache: "no-store",
 		});
-	},
+	}),
 );
 
-export const closeTerminalPeek = command(
-	Schema.toStandardSchemaV1(detachSchema),
-	async ({ stream_id }): Promise<void> => {
+export const closeTerminalPeek = Command(detachSchema, ({ stream_id }) =>
+	Effect.promise(async (): Promise<void> => {
 		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return;
 		await apiJson(`/terminal/streams/${encodeURIComponent(stream_id)}/detach`, {
 			method: "POST",
 			headers: headers(true),
 			body: "{}",
 		});
-	},
+	}),
 );

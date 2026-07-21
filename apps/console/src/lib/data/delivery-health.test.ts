@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+
+import { describe, it } from "vitest";
 
 import { deriveDeliveryLineHealth } from "./delivery-health.ts";
 import type { DeliveryReceiptView } from "./signals.ts";
@@ -22,8 +23,8 @@ function receipt(
 	};
 }
 
-void describe("deriveDeliveryLineHealth", () => {
-	void it("is unconfigured when no Matrix target exists", () => {
+describe("deriveDeliveryLineHealth", () => {
+	it("is unconfigured when no Matrix target exists", () => {
 		const health = deriveDeliveryLineHealth({
 			target: null,
 			receipts: [],
@@ -34,7 +35,7 @@ void describe("deriveDeliveryLineHealth", () => {
 		assert.equal(health.state, "unconfigured");
 	});
 
-	void it("requires positive bus, receipt, and Matrix evidence before claiming healthy", () => {
+	it("requires positive bus, receipt, and Matrix evidence before claiming healthy", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [receipt(2, "delivered", "test")],
@@ -46,7 +47,7 @@ void describe("deriveDeliveryLineHealth", () => {
 		assert.match(health.summary, /Bus silent 4m/);
 	});
 
-	void it("cracks after two consecutive failures in ten minutes", () => {
+	it("cracks after two consecutive failures in ten minutes", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [receipt(1, "failed"), receipt(4, "failed"), receipt(20, "delivered")],
@@ -59,7 +60,7 @@ void describe("deriveDeliveryLineHealth", () => {
 		assert.equal(health.flapping, false);
 	});
 
-	void it("cracks when Matrix sync is more than 120 seconds stale", () => {
+	it("cracks when Matrix sync is more than 120 seconds stale", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [receipt(1, "delivered")],
@@ -71,7 +72,7 @@ void describe("deriveDeliveryLineHealth", () => {
 		assert.match(health.detail, /Matrix sync 2m stale/);
 	});
 
-	void it("consolidates repeated qualifying failure cycles and damps a recent recovery", () => {
+	it("consolidates repeated qualifying failure cycles and damps a recent recovery", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [
@@ -92,7 +93,7 @@ void describe("deriveDeliveryLineHealth", () => {
 		assert.match(health.detail, /flapping, 2 cycles this hour/);
 	});
 
-	void it("heals a flapping line after the ten-minute damping interval", () => {
+	it("heals a flapping line after the ten-minute damping interval", () => {
 		const health = deriveDeliveryLineHealth({
 			target: "@parker:petalcat.dev",
 			receipts: [

@@ -47,7 +47,7 @@ export default function adapter(opts: AdapterOptions = {}): Adapter {
 				? "./entries/hooks.server.js"
 				: "./chunks/hooks.server.js";
 
-			builder.copy(`${filesDir}/websocket-runtime.js`, `${tmp}/ws.js`, {
+			builder.copy(`${filesDir}/websocket-runtime.ts`, `${tmp}/ws.ts`, {
 				replace: { SERVER_HOOKS: hooksRel },
 			});
 
@@ -63,7 +63,7 @@ export default function adapter(opts: AdapterOptions = {}): Adapter {
 					rollupOptions: {
 						input: {
 							index: `${tmp}/index.js`,
-							ws: `${tmp}/ws.js`,
+							ws: `${tmp}/ws.ts`,
 							manifest: `${tmp}/manifest.js`,
 							// adapter-node emits an instrumentation entry when server tracing is enabled;
 							// it must survive the re-bundle or the produced entrypoint cannot import it.

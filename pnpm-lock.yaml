@@ -404,9 +404,6 @@ importers:
       '@petalnet/console-bus-rpc':
         specifier: workspace:*
         version: link:../../packages/console-bus-rpc
-      '@petalnet/types':
-        specifier: workspace:*
-        version: link:../../packages/types
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.208.0(@opentelemetry/api@1.9.1))
@@ -456,6 +453,9 @@ importers:
       '@petalnet/svelte-ws':
         specifier: workspace:*
         version: link:../../packages/svelte-ws
+      '@petalnet/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@playwright/test':
         specifier: catalog:dev
         version: 1.61.1

@@ -1,4 +1,4 @@
-import { command, getRequestEvent, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 
 import { formatUnknown } from "#format";
 const env = import.meta.env;
@@ -19,7 +19,8 @@ import {
 } from "$lib/data/signals";
 import { ISO_DATETIME_OFFSET_RE, rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
 export interface DeliverySurfaceData {
 	delivery: DeliveryItem | null;
@@ -91,80 +92,85 @@ const receiptQuery = {
 	limit: 50,
 } as const;
 
-export const getDeliverySurface = query(async (): Promise<DeliverySurfaceData> => {
-	if (isMock())
-		return {
-			delivery: mockDeliveryState,
-			receipts: mockReceiptState,
-			receiptsAvailable: true,
-			matrixSyncOkEpoch: Math.floor(Date.now() / 1_000),
-			busObservedAt: new Date().toISOString(),
-			loudSubscriptionCount: mockSubscriptions.filter((subscription) => subscription.loud).length,
-			executorLive: true,
-			executorDetail: "mock delivery executor",
-			errors: [],
-			isMock: true,
-		};
+export const getDeliverySurface = Query(
+	Effect.promise(async (): Promise<DeliverySurfaceData> => {
+		if (isMock())
+			return {
+				delivery: mockDeliveryState,
+				receipts: mockReceiptState,
+				receiptsAvailable: true,
+				matrixSyncOkEpoch: Math.floor(Date.now() / 1_000),
+				busObservedAt: new Date().toISOString(),
+				loudSubscriptionCount: mockSubscriptions.filter((subscription) => subscription.loud).length,
+				executorLive: true,
+				executorDetail: "mock delivery executor",
+				errors: [],
+				isMock: true,
+			};
 
-	const errors: string[] = [];
-	const settled = await Promise.allSettled([
-		apiJson<ReadEnvelope<DeliveryItem>>("/delivery?limit=10"),
-		apiJson<ReadEnvelope<SubscriptionItem>>("/subscriptions?limit=1000"),
-		apiJson<ReadEnvelope<ExecutorItem>>("/executors"),
-		apiJson<ConsoleHealth & { ingest?: { last_ingest_at: string }[] }>("/health"),
-		apiJson<QueryResult>("/query", {
-			method: "POST",
-			headers: forwardedHeaders(true),
-			body: JSON.stringify(receiptQuery),
-		}),
-	]);
-	const value = (index: number, label: string): unknown => {
-		const result = settled[index];
-		if (result.status === "fulfilled") return result.value;
-		errors.push(label);
-		return null;
-	};
-	const delivery = value(0, "Delivery config unavailable") as ReadEnvelope<DeliveryItem> | null;
-	const subscriptions = value(
-		1,
-		"Subscriptions unavailable",
-	) as ReadEnvelope<SubscriptionItem> | null;
-	const executors = value(2, "Executor evidence unavailable") as ReadEnvelope<ExecutorItem> | null;
-	const health = value(3, "Line health unavailable") as
-		| (ConsoleHealth & { ingest?: { last_ingest_at: string }[] })
-		| null;
-	const receiptResult = value(4, "Delivery receipt query failed") as QueryResult | null;
-	const receipts: DeliveryReceiptView[] = (receiptResult?.rows ?? []).map((row) => ({
-		seq: String(row[0]),
-		ts: String(row[1]),
-		tier: String(row[2]),
-		signal: String(row[3]),
-		subject: formatUnknown(row[4] ?? ""),
-		status: String(row[5]),
-		error: row[6] == null ? null : formatUnknown(row[6]),
-		retryable: row[7] === true || row[7] === "true",
-		channel: row[8] == null ? "matrix" : formatUnknown(row[8]),
-	}));
-	const executor = executors?.items.find((item) => item.kind === "console-api") ?? null;
-	const busObservedAt =
-		health?.ingest
-			?.map((item) => item.last_ingest_at)
-			.toSorted()
-			.at(-1) ?? null;
-	return {
-		delivery: delivery?.items[0] ?? null,
-		receipts,
-		receiptsAvailable: receiptResult !== null,
-		matrixSyncOkEpoch: health?.matrix_sync_ok_epoch ?? null,
-		busObservedAt,
-		loudSubscriptionCount:
-			subscriptions?.items.filter((subscription) => subscription.loud).length ?? 0,
-		executorLive: executor?.liveness === "alive",
-		executorDetail: executor?.detail ?? null,
-		errors,
-		isMock: false,
-	};
-});
+		const errors: string[] = [];
+		const settled = await Promise.allSettled([
+			apiJson<ReadEnvelope<DeliveryItem>>("/delivery?limit=10"),
+			apiJson<ReadEnvelope<SubscriptionItem>>("/subscriptions?limit=1000"),
+			apiJson<ReadEnvelope<ExecutorItem>>("/executors"),
+			apiJson<ConsoleHealth & { ingest?: { last_ingest_at: string }[] }>("/health"),
+			apiJson<QueryResult>("/query", {
+				method: "POST",
+				headers: forwardedHeaders(true),
+				body: JSON.stringify(receiptQuery),
+			}),
+		]);
+		const value = (index: number, label: string): unknown => {
+			const result = settled[index];
+			if (result.status === "fulfilled") return result.value;
+			errors.push(label);
+			return null;
+		};
+		const delivery = value(0, "Delivery config unavailable") as ReadEnvelope<DeliveryItem> | null;
+		const subscriptions = value(
+			1,
+			"Subscriptions unavailable",
+		) as ReadEnvelope<SubscriptionItem> | null;
+		const executors = value(
+			2,
+			"Executor evidence unavailable",
+		) as ReadEnvelope<ExecutorItem> | null;
+		const health = value(3, "Line health unavailable") as
+			| (ConsoleHealth & { ingest?: { last_ingest_at: string }[] })
+			| null;
+		const receiptResult = value(4, "Delivery receipt query failed") as QueryResult | null;
+		const receipts: DeliveryReceiptView[] = (receiptResult?.rows ?? []).map((row) => ({
+			seq: String(row[0]),
+			ts: String(row[1]),
+			tier: String(row[2]),
+			signal: String(row[3]),
+			subject: formatUnknown(row[4] ?? ""),
+			status: String(row[5]),
+			error: row[6] == null ? null : formatUnknown(row[6]),
+			retryable: row[7] === true || row[7] === "true",
+			channel: row[8] == null ? "matrix" : formatUnknown(row[8]),
+		}));
+		const executor = executors?.items.find((item) => item.kind === "console-api") ?? null;
+		const busObservedAt =
+			health?.ingest
+				?.map((item) => item.last_ingest_at)
+				.toSorted()
+				.at(-1) ?? null;
+		return {
+			delivery: delivery?.items[0] ?? null,
+			receipts,
+			receiptsAvailable: receiptResult !== null,
+			matrixSyncOkEpoch: health?.matrix_sync_ok_epoch ?? null,
+			busObservedAt,
+			loudSubscriptionCount:
+				subscriptions?.items.filter((subscription) => subscription.loud).length ?? 0,
+			executorLive: executor?.liveness === "alive",
+			executorDetail: executor?.detail ?? null,
+			errors,
+			isMock: false,
+		};
+	}),
+);
 
 async function runDeliveryOp(
 	op: "delivery.test" | "delivery.set_target" | "delivery.resend" | "delivery.cocoon",
@@ -182,38 +188,39 @@ async function runDeliveryOp(
 		}),
 	});
 	if (!result.ok) error(400, result.error.message);
-	void getDeliverySurface().refresh();
+	void Effect.runPromise(getDeliverySurface().refresh());
 	return result.result ?? {};
 }
 
-export const sendDeliveryTest = command(async () => {
-	if (isMock()) {
-		const ts = new Date().toISOString();
-		mockReceiptState = [
-			{
-				seq: `mock-${String(Date.now())}`,
-				ts,
-				tier: "test",
-				signal: "delivery.test",
-				subject: "Test from the lab.",
-				status: "delivered",
-				error: null,
-				channel: "matrix",
-			},
-			...mockReceiptState,
-		];
-		void getDeliverySurface().refresh();
-		return { delivered: true, receipt_ref: mockReceiptState[0].seq };
-	}
-	return runDeliveryOp("delivery.test", {});
-});
+export const sendDeliveryTest = Command(() =>
+	Effect.promise(async () => {
+		if (isMock()) {
+			const ts = new Date().toISOString();
+			mockReceiptState = [
+				{
+					seq: `mock-${String(Date.now())}`,
+					ts,
+					tier: "test",
+					signal: "delivery.test",
+					subject: "Test from the lab.",
+					status: "delivered",
+					error: null,
+					channel: "matrix",
+				},
+				...mockReceiptState,
+			];
+			void Effect.runPromise(getDeliverySurface().refresh());
+			return { delivered: true, receipt_ref: mockReceiptState[0].seq };
+		}
+		return runDeliveryOp("delivery.test", {});
+	}),
+);
 
 const targetArgs = Schema.Struct({
 	target: Schema.String.check(Schema.isPattern(/^(@|!)[^:]+:.+$/), Schema.isMaxLength(255)),
 }).annotate(rejectUnknownKeys);
-export const setDeliveryTarget = command(
-	Schema.toStandardSchemaV1(targetArgs),
-	async ({ target }) => {
+export const setDeliveryTarget = Command(targetArgs, ({ target }) =>
+	Effect.promise(async () => {
 		if (isMock()) {
 			mockDeliveryState = {
 				...mockDeliveryState,
@@ -222,19 +229,18 @@ export const setDeliveryTarget = command(
 				updated_at: new Date().toISOString(),
 				updated_by: "parker",
 			};
-			void getDeliverySurface().refresh();
+			void Effect.runPromise(getDeliverySurface().refresh());
 			return { delivered: true, target, receipt_ref: `mock-${String(Date.now())}` };
 		}
 		return runDeliveryOp("delivery.set_target", { channel: "matrix", target });
-	},
+	}),
 );
 
 const cocoonArgs = Schema.Struct({
 	until: Schema.String.check(Schema.isPattern(ISO_DATETIME_OFFSET_RE)),
 }).annotate(rejectUnknownKeys);
-export const setDeliveryCocoon = command(
-	Schema.toStandardSchemaV1(cocoonArgs),
-	async ({ until }) => {
+export const setDeliveryCocoon = Command(cocoonArgs, ({ until }) =>
+	Effect.promise(async () => {
 		if (isMock()) {
 			mockDeliveryState = {
 				...mockDeliveryState,
@@ -242,20 +248,19 @@ export const setDeliveryCocoon = command(
 				updated_at: new Date().toISOString(),
 				updated_by: "parker",
 			};
-			void getDeliverySurface().refresh();
+			void Effect.runPromise(getDeliverySurface().refresh());
 			return { cocoon_until: mockDeliveryState.cocoon_until };
 		}
 		return runDeliveryOp("delivery.cocoon", { until });
-	},
+	}),
 );
 
 const resendArgs = Schema.Struct({
 	receiptRef: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
 }).annotate(rejectUnknownKeys);
-export const resendDeliveryReceipt = command(
-	Schema.toStandardSchemaV1(resendArgs),
-	async ({ receiptRef }) => {
-		if (isMock()) return sendDeliveryTest();
+export const resendDeliveryReceipt = Command(resendArgs, ({ receiptRef }) =>
+	Effect.promise(async () => {
+		if (isMock()) return Effect.runPromise(sendDeliveryTest());
 		return runDeliveryOp("delivery.resend", { receipt_ref: receiptRef });
-	},
+	}),
 );

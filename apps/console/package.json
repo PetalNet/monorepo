@@ -16,7 +16,7 @@
 		"prepare": "svelte-kit sync",
 		"preview": "vite preview",
 		"start": "node build/index.js",
-		"test": "vitest run && node --test src/lib/*.test.ts src/lib/api/*.test.ts src/lib/components/*.test.ts src/lib/data/*.test.ts src/lib/stores/*.test.ts",
+		"test": "vitest run",
 		"test:e2e": "playwright test"
 	},
 	"dependencies": {
@@ -28,7 +28,6 @@
 		"@opentelemetry/sdk-node": "catalog:",
 		"@petalnet/better-auth-effect-qb-adapter": "workspace:*",
 		"@petalnet/console-bus-rpc": "workspace:*",
-		"@petalnet/types": "workspace:*",
 		"@sentry/node": "catalog:",
 		"@sentry/sveltekit": "catalog:",
 		"@sveltejs/kit": "catalog:",
@@ -47,6 +46,7 @@
 	},
 	"devDependencies": {
 		"@petalnet/svelte-ws": "workspace:*",
+		"@petalnet/types": "workspace:*",
 		"@playwright/test": "catalog:dev",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",

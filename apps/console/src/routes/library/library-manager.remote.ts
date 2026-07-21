@@ -1,4 +1,4 @@
-import { getRequestEvent, command, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import type { ExecutorItem, OpResult, ReadEnvelope, WorkSettlementSnapshot } from "$lib/api/types";
 import {
@@ -11,7 +11,8 @@ import {
 import { settledTaskLibraryItem } from "$lib/data/work-settlement";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { Exit, Schema } from "effect";
+import { Effect, Exit, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
 const viewSchema = Schema.Literals(["desk", "graph", "kanban", "table"]);
 const messageSchema = Schema.Struct({
@@ -164,26 +165,28 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
  * The complete Library lens crosses one SvelteKit RPC boundary; the browser never reads the API
  * directly.
  */
-export const getLibrarySurface = query(async (): Promise<LibraryData> => {
-	if (isMock()) return mockLibrary;
-	const serverFetch: typeof fetch = (input, init) => {
-		const supplied = new Headers(init?.headers);
-		for (const [name, value] of forwardedHeaders())
-			if (!supplied.has(name)) supplied.set(name, value);
-		return getRequestEvent().fetch(input, { ...init, headers: supplied });
-	};
-	const [library, executors] = await Promise.all([
-		readLiveLibrary(serverFetch),
-		apiJson<ReadEnvelope<ExecutorItem>>("/executors").catch(() => null),
-	]);
-	return {
-		...library,
-		libraryExecutorLive:
-			executors?.items.some(
-				(executor) => executor.kind === "library" && executor.liveness === "alive",
-			) ?? false,
-	};
-});
+export const getLibrarySurface = Query(
+	Effect.promise(async (): Promise<LibraryData> => {
+		if (isMock()) return mockLibrary;
+		const serverFetch: typeof fetch = (input, init) => {
+			const supplied = new Headers(init?.headers);
+			for (const [name, value] of forwardedHeaders())
+				if (!supplied.has(name)) supplied.set(name, value);
+			return getRequestEvent().fetch(input, { ...init, headers: supplied });
+		};
+		const [library, executors] = await Promise.all([
+			readLiveLibrary(serverFetch),
+			apiJson<ReadEnvelope<ExecutorItem>>("/executors").catch(() => null),
+		]);
+		return {
+			...library,
+			libraryExecutorLive:
+				executors?.items.some(
+					(executor) => executor.kind === "library" && executor.liveness === "alive",
+				) ?? false,
+		};
+	}),
+);
 
 function relativeTime(value: string): string {
 	const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60_000));
@@ -252,9 +255,8 @@ function libraryManagerAction(value: unknown, depth = 0): LibraryManagerAction |
 }
 
 /** Literal stacks search stays deterministic while crossing the required SvelteKit RPC boundary. */
-export const searchLibrary = query(
-	Schema.toStandardSchemaV1(searchSchema),
-	async ({ query: searchQuery }): Promise<LibraryItemView[]> => {
+export const searchLibrary = Query(searchSchema, ({ query: searchQuery }) =>
+	Effect.promise(async (): Promise<LibraryItemView[]> => {
 		if (isMock()) return [];
 		const [result, settlement] = await Promise.all([
 			apiJson<{ items: ApiLibraryItem[] }>(
@@ -272,13 +274,12 @@ export const searchLibrary = query(
 			.map(settledTaskLibraryItem);
 		const taskIds = new Set(taskMatches.map((item) => item.id));
 		return [...taskMatches, ...result.items.map(itemView).filter((item) => !taskIds.has(item.id))];
-	},
+	}),
 );
 
 /** Prove the artifact is runnable through the caller-scoped acquisition endpoint. */
-export const verifyLibraryCapability = command(
-	Schema.toStandardSchemaV1(acquisitionSchema),
-	async (input): Promise<LibraryAcquisitionReceipt> => {
+export const verifyLibraryCapability = Command(acquisitionSchema, (input) =>
+	Effect.promise(async (): Promise<LibraryAcquisitionReceipt> => {
 		if (isMock())
 			return {
 				capability: input.capability,
@@ -301,13 +302,12 @@ export const verifyLibraryCapability = command(
 		const parsed = Schema.decodeUnknownExit(acquisitionResultSchema)(result);
 		if (Exit.isFailure(parsed)) error(502, "Registry returned an invalid acquisition receipt");
 		return parsed.value;
-	},
+	}),
 );
 
 /** Status movement uses the same named operation and audit line available to agents. */
-export const updateLibraryStatus = command(
-	Schema.toStandardSchemaV1(statusSchema),
-	async (input): Promise<LibraryStatusResult> => {
+export const updateLibraryStatus = Command(statusSchema, (input) =>
+	Effect.promise(async (): Promise<LibraryStatusResult> => {
 		if (isMock())
 			return { id: input.id, status: input.status, version: input.expected_version + 1 };
 		const result = await apiJson<OpResult>("/op", {
@@ -324,17 +324,16 @@ export const updateLibraryStatus = command(
 				dry_run: false,
 			}),
 		});
-		void getLibrarySurface().refresh();
+		void Effect.runPromise(getLibrarySurface().refresh());
 		const parsed = Schema.decodeUnknownExit(statusResultSchema)(result.result);
 		if (Exit.isFailure(parsed)) error(502, "Library returned an invalid status receipt");
 		return parsed.value;
-	},
+	}),
 );
 
 /** Privileged curation stays on the audited op plane; the UI cannot promote directly. */
-export const reviewLibraryCapability = command(
-	Schema.toStandardSchemaV1(reviewSchema),
-	async (input): Promise<LibraryReviewResult> => {
+export const reviewLibraryCapability = Command(reviewSchema, (input) =>
+	Effect.promise(async (): Promise<LibraryReviewResult> => {
 		const result = await apiJson<OpResult>("/op", {
 			method: "POST",
 			headers: forwardedHeaders(true),
@@ -349,15 +348,14 @@ export const reviewLibraryCapability = command(
 		});
 		const parsed = Schema.decodeUnknownExit(reviewResultSchema)(result.result);
 		if (Exit.isFailure(parsed)) error(502, "Library returned an invalid review receipt");
-		void getLibrarySurface().refresh();
+		void Effect.runPromise(getLibrarySurface().refresh());
 		return parsed.value;
-	},
+	}),
 );
 
 /** Continue the real caller-scoped Claude Code manager session through a server-only RPC. */
-export const sendLibraryManagerMessage = command(
-	Schema.toStandardSchemaV1(messageSchema),
-	async (input): Promise<LibraryManagerResult> => {
+export const sendLibraryManagerMessage = Command(messageSchema, (input) =>
+	Effect.promise(async (): Promise<LibraryManagerResult> => {
 		if (isMock()) {
 			const normalized = input.message.toLowerCase();
 			const requestedView = (["graph", "kanban", "table", "desk"] as const).find((candidate) =>
@@ -396,5 +394,5 @@ export const sendLibraryManagerMessage = command(
 			},
 		);
 		return { ...response, library_action: libraryManagerAction(response.tool_results) };
-	},
+	}),
 );

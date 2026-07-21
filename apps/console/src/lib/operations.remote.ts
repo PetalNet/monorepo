@@ -102,9 +102,9 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				schema_version: 1,
 				kind: principal.kind,
 				id: principal.id,
-				tiers: principal.tiers,
-				lanes: principal.lanes,
-				scopes: principal.scopes,
+				tiers: [...principal.tiers],
+				lanes: [...principal.lanes],
+				scopes: [...principal.scopes],
 				zookie: principal.zookie,
 			} satisfies Me;
 		if (plane === "health")

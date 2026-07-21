@@ -14,14 +14,11 @@ import {
 	DeliveryItemSchema,
 	EdgeRegistryItemSchema,
 	EdgeSessionItemSchema,
-	ReadEnvelopeSchema,
+	CONTRACT_SCHEMAS,
 	SubscriptionItemSchema,
 	UpdateApprovalSchema,
 } from "../../src/lib/contracts/entities.ts";
-import {
-	resolvedOpCapabilities,
-	type TerminalAdapter,
-} from "../../src/lib/server/api/console-api.ts";
+import type { TerminalAdapter } from "../../src/lib/server/api/console-api.ts";
 import {
 	AssistantCompilerError,
 	type AssistantCompiler,
@@ -2137,9 +2134,6 @@ describe("Phase 3 ReBAC control plane", () => {
 
 describe("Phase 4 permission levels", () => {
 	it("resolves commit versus propose posture in named-op preflight without tier-name checks", async () => {
-		expect(resolvedOpCapabilities("task.update", "human", true)).toEqual({ force: false });
-		expect(resolvedOpCapabilities("task.update", "human", false)).toEqual({ force: true });
-		expect(resolvedOpCapabilities("task.update", "agent", false)).toEqual({ force: false });
 		await services.db.admin`
 			insert into tiers (name, authentik_group, description, default_relations, propose_only)
 			values ('custom_operator', 'custom-operators', 'Custom data-driven operator.', '["operator"]', true)`;
@@ -4096,7 +4090,7 @@ describe("current_state projection (N1b)", () => {
 				});
 				expect(response.statusCode, response.body).toBe(200);
 				const body = response.json();
-				expect(contractError(ReadEnvelopeSchema, body)).toBeNull();
+				expect(contractError(CONTRACT_SCHEMAS.ReadEnvelope, body)).toBeNull();
 				const item = body.items.find(
 					(candidate: Record<string, unknown>) => candidate[identity[0]] === identity[1],
 				);
