@@ -1,94 +1,124 @@
-import { z } from "zod";
+import { Exit, Schema } from "effect";
 
 import type { QueryRequest } from "../query/structured.ts";
+import { rejectUnknownKeys } from "../schema-conventions.ts";
 import type { SemanticSearchResult } from "../semantic/search.ts";
 
-const selectSchema = z
-	.object({
-		field: z.string().max(128),
-		agg: z
-			.enum(["sum", "avg", "min", "max", "count", "count_distinct", "p50", "p95", "p99", "last"])
-			.nullish(),
-		as: z.string().max(64).optional(),
-	})
-	.strict();
+const selectSchema = Schema.Struct({
+	field: Schema.String.check(Schema.isMaxLength(128)),
+	agg: Schema.optional(
+		Schema.NullOr(
+			Schema.Literals([
+				"sum",
+				"avg",
+				"min",
+				"max",
+				"count",
+				"count_distinct",
+				"p50",
+				"p95",
+				"p99",
+				"last",
+			]),
+		),
+	),
+	as: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
+}).annotate(rejectUnknownKeys);
 
-const querySchema = z
-	.object({
-		schema_version: z.literal(1),
-		mode: z.literal("structured"),
-		from: z.string().max(128),
-		select: z.array(selectSchema).max(64).optional(),
-		where: z.record(z.string(), z.unknown()).optional(),
-		group_by: z.array(z.string().max(128)).max(16).optional(),
-		time: z
-			.object({
-				from: z.string().max(64).optional(),
-				to: z.string().max(64).nullish(),
-				bucket: z
-					.string()
-					.regex(/^[0-9]+[smhd]$/)
-					.nullish(),
-				fill: z.enum(["none", "null"]).nullish(),
-				coverage: z.literal(false).optional(),
-			})
-			.strict()
-			.nullish(),
-		order: z
-			.array(z.object({ field: z.string().max(128), dir: z.enum(["asc", "desc"]) }).strict())
-			.max(8)
-			.nullish(),
-		limit: z.number().int().min(1).max(10_000).nullish(),
-	})
-	.strict();
+const querySchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	mode: Schema.Literal("structured"),
+	from: Schema.String.check(Schema.isMaxLength(128)),
+	select: Schema.optional(Schema.Array(selectSchema).check(Schema.isMaxLength(64))),
+	where: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+	group_by: Schema.optional(
+		Schema.Array(Schema.String.check(Schema.isMaxLength(128))).check(Schema.isMaxLength(16)),
+	),
+	time: Schema.optional(
+		Schema.NullOr(
+			Schema.Struct({
+				from: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
+				to: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(64)))),
+				bucket: Schema.optional(
+					Schema.NullOr(Schema.String.check(Schema.isPattern(/^[0-9]+[smhd]$/))),
+				),
+				fill: Schema.optional(Schema.NullOr(Schema.Literals(["none", "null"]))),
+				coverage: Schema.optional(Schema.Literal(false)),
+			}).annotate(rejectUnknownKeys),
+		),
+	),
+	order: Schema.optional(
+		Schema.NullOr(
+			Schema.Array(
+				Schema.Struct({
+					field: Schema.String.check(Schema.isMaxLength(128)),
+					dir: Schema.Literals(["asc", "desc"]),
+				}).annotate(rejectUnknownKeys),
+			).check(Schema.isMaxLength(8)),
+		),
+	),
+	limit: Schema.optional(
+		Schema.NullOr(
+			Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 10_000 })),
+		),
+	),
+}).annotate(rejectUnknownKeys);
 
-const panelSchema = z
-	.object({
-		type: z.enum([
-			"bar",
-			"line",
-			"stat",
-			"table",
-			"pie",
-			"scatter",
-			"gauge",
-			"heatmap",
-			"histogram",
-			"insight",
-		]),
-		title: z.string().min(1).max(200),
-		description: z.string().max(1000).optional(),
-		encoding: z
-			.object({
-				x: z.string().max(128).optional(),
-				y: z.string().max(128).optional(),
-				group_by: z.string().max(128).optional(),
-				columns: z.array(z.string().max(128)).max(64).optional(),
-				value: z.string().max(128).optional(),
-				unit: z.string().max(64).optional(),
-			})
-			.strict()
-			.optional(),
-	})
-	.strict();
+const panelSchema = Schema.Struct({
+	type: Schema.Literals([
+		"bar",
+		"line",
+		"stat",
+		"table",
+		"pie",
+		"scatter",
+		"gauge",
+		"heatmap",
+		"histogram",
+		"insight",
+	]),
+	title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	description: Schema.optional(Schema.String.check(Schema.isMaxLength(1000))),
+	encoding: Schema.optional(
+		Schema.Struct({
+			x: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+			y: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+			group_by: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+			columns: Schema.optional(
+				Schema.Array(Schema.String.check(Schema.isMaxLength(128))).check(Schema.isMaxLength(64)),
+			),
+			value: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+			unit: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
+		}).annotate(rejectUnknownKeys),
+	),
+}).annotate(rejectUnknownKeys);
 
-const proposalSchema = z
-	.object({
-		feasible: z.boolean(),
-		reason: z.string().max(1000).optional(),
-		suggestions: z.array(z.string().max(300)).max(5).optional(),
-		request: querySchema.optional(),
-		panel: panelSchema.optional(),
-	})
-	.strict()
-	.superRefine((value, context) => {
-		if (value.feasible && (!value.request || !value.panel))
-			context.addIssue({ code: "custom", message: "feasible proposals require request and panel" });
-		if (!value.feasible && !value.reason)
-			context.addIssue({ code: "custom", message: "refusals require reason" });
-	});
+const proposalSchema = Schema.Struct({
+	feasible: Schema.Boolean,
+	reason: Schema.optional(Schema.String.check(Schema.isMaxLength(1000))),
+	suggestions: Schema.optional(
+		Schema.Array(Schema.String.check(Schema.isMaxLength(300))).check(Schema.isMaxLength(5)),
+	),
+	request: Schema.optional(querySchema),
+	panel: Schema.optional(panelSchema),
+})
+	.annotate(rejectUnknownKeys)
+	.check(
+		Schema.makeFilter((value) => {
+			const issues: Schema.FilterIssue[] = [];
+			if (value.feasible && (!value.request || !value.panel))
+				issues.push("feasible proposals require request and panel");
+			if (!value.feasible && !value.reason) issues.push("refusals require reason");
+			return issues;
+		}),
+	);
 
-export type AssistantProposal = z.infer<typeof proposalSchema> & { request?: QueryRequest };
+// `request` narrows to the domain QueryRequest and `suggestions` stays mutable, matching the shape
+// the previous zod-inferred type exposed to the engine.
+export type AssistantProposal = Omit<typeof proposalSchema.Type, "request" | "suggestions"> & {
+	request?: QueryRequest;
+	suggestions?: string[];
+};
 
 export interface AssistantCompiler {
 	compile(input: {
@@ -203,10 +233,11 @@ export class OpenAiCompatibleAssistantCompiler implements AssistantCompiler {
 				);
 			const text = responseText(await response.json());
 			if (!text) throw new AssistantCompilerError("assistant model returned no text");
-			const parsed = proposalSchema.safeParse(extractJson(text));
-			if (!parsed.success)
+			const parsed = Schema.decodeUnknownExit(proposalSchema)(extractJson(text));
+			if (Exit.isFailure(parsed))
 				throw new AssistantCompilerError("assistant model returned invalid structured intent");
-			return parsed.data;
+			// Type-level only: the decoded value is structurally identical; readonly markers are erased.
+			return parsed.value as AssistantProposal;
 		} catch (error) {
 			if (error instanceof AssistantCompilerError) throw error;
 			throw new AssistantCompilerError(

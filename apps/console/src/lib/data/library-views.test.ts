@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+
+import { describe, it } from "vitest";
 
 import { buildLibraryGraph, groupLibraryKanban, nextGraphNode } from "./library-views.ts";
 import type { LibraryItemView, LibraryLinkFixture } from "./library.ts";
@@ -19,8 +20,8 @@ function item(id: string, kind: LibraryItemView["kind"], status: string): Librar
 	};
 }
 
-void describe("Library graph view model", () => {
-	void it("lays a typed-link DAG out from left to right", () => {
+describe("Library graph view model", () => {
+	it("lays a typed-link DAG out from left to right", () => {
 		const items = [
 			item("root", "decision", "verified-shared"),
 			item("child", "doc", "draft"),
@@ -43,7 +44,7 @@ void describe("Library graph view model", () => {
 		);
 	});
 
-	void it("walks outgoing and incoming edges without falling back to DOM order", () => {
+	it("walks outgoing and incoming edges without falling back to DOM order", () => {
 		const links: Record<string, LibraryLinkFixture[]> = {
 			root: [
 				{ direction: "out", rel: "references", targetId: "a" },
@@ -57,8 +58,8 @@ void describe("Library graph view model", () => {
 	});
 });
 
-void describe("Library Kanban view model", () => {
-	void it("separates work and knowledge lifecycles and never buries conflicts", () => {
+describe("Library Kanban view model", () => {
+	it("separates work and knowledge lifecycles and never buries conflicts", () => {
 		const grouped = groupLibraryKanban([
 			item("work", "task", "doing"),
 			item("knowledge", "fact", "verified-shared"),

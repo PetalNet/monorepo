@@ -22,7 +22,9 @@ import type {
 	TaskItem,
 	WorkerItem,
 } from "$lib/api/types";
+import { executeOpPlane } from "$lib/server/api/console-api";
 import { listDashboards } from "$lib/server/domain/dashboard/store";
+import { inertExceptionMonitor } from "$lib/server/domain/observability";
 import { currentPrincipal } from "$lib/server/domain/principal";
 import { runStructured } from "$lib/server/domain/query/structured";
 import { readEntity, readTypedEntity } from "$lib/server/domain/reads/entities";
@@ -100,9 +102,9 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				schema_version: 1,
 				kind: principal.kind,
 				id: principal.id,
-				tiers: principal.tiers,
-				lanes: principal.lanes,
-				scopes: principal.scopes,
+				tiers: [...principal.tiers],
+				lanes: [...principal.lanes],
+				scopes: [...principal.scopes],
 				zookie: principal.zookie,
 			} satisfies Me;
 		if (plane === "health")
@@ -137,9 +139,23 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				readEntity(services.db.app, principal.scopes, "registry", { limit: 1_000 }),
 			);
 		const kind = projectedKinds[plane];
+		if (kind === "attention") {
+			const envelope = yield* Effect.tryPromise(() =>
+				readTypedEntity(services.db.app, principal.scopes, kind, { limit: 1_000 }),
+			);
+			// Attention items carry an operating lane; a caller only sees items for lanes it holds.
+			return {
+				...envelope,
+				items: envelope.items.filter(
+					(item) =>
+						typeof item["lane"] !== "string" ||
+						principal.lanes.some((lane) => lane === item["lane"]),
+				),
+			};
+		}
 
 		return yield* Effect.tryPromise(() =>
-			kind === "attention" || kind === "subscription"
+			kind === "subscription"
 				? readTypedEntity(services.db.app, principal.scopes, kind, { limit: 1_000 })
 				: readEntity(services.db.app, principal.scopes, kind, { limit: 1_000 }),
 		);
@@ -159,32 +175,37 @@ export const runStructuredQuery = Query("unchecked", (request: StructuredQuery) 
 
 export const executeNamedOp = Command(
 	"unchecked",
-	(input: { op: string; args: Record<string, unknown>; dry_run?: boolean }) =>
+	(input: {
+		op: string;
+		args: Record<string, unknown>;
+		dry_run?: boolean;
+		id?: string;
+		reason?: string | null;
+		task_id?: number | null;
+	}) =>
 		Effect.gen(function* () {
 			const domain = yield* ConsoleDomain;
 			const services = yield* domain.services;
-			yield* currentPrincipal;
-			if (input.dry_run)
-				return {
-					schema_version: 1,
-					in_reply_to: crypto.randomUUID(),
-					ok: true,
-					status: "applied",
-					result: { dry_run: true, op: input.op },
-				} satisfies OpResult;
-			if (input.op === "task.claim" && services.trackerCommands) {
-				const trackerCommands = services.trackerCommands;
-				const taskId = Number(input.args["task_id"] ?? input.args["id"]);
-				const result = yield* Effect.tryPromise(() => trackerCommands.claim({ taskId }));
-				return {
-					schema_version: 1,
-					in_reply_to: crypto.randomUUID(),
-					ok: true,
-					status: "applied",
-					result: { ...result },
-				} satisfies OpResult;
-			}
-			return yield* Effect.die(new Error(`No authoritative adapter is configured for ${input.op}`));
+			const principal = yield* currentPrincipal;
+			// The one authoritative command plane: catalog lookup, arg validation, authz, proposal
+			// posture, audit intent/outcome, and internal adapters — identical to POST /api/v1/op.
+			const { body } = yield* Effect.tryPromise(() =>
+				executeOpPlane(
+					services,
+					inertExceptionMonitor,
+					{
+						schema_version: 1,
+						id: input.id ?? crypto.randomUUID(),
+						op: input.op,
+						args: input.args,
+						...(input.reason !== undefined ? { reason: input.reason } : {}),
+						...(input.task_id !== undefined ? { task_id: input.task_id } : {}),
+						dry_run: input.dry_run ?? false,
+					},
+					principal,
+				),
+			);
+			return body as unknown as OpResult;
 		}),
 );
 

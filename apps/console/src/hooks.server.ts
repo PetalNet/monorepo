@@ -23,10 +23,19 @@ const authentication: Handle = async ({ event, resolve }) => {
 			? (session.user.tier as "owner" | "operator" | "editor" | "viewer")
 			: null;
 
-	if (!session && !isUnauthenticatedRoute(event.url.pathname))
+	// REST callers (agents with bearer tokens, dev principals) are authenticated by the console API
+	// core with a 401 JSON envelope; a login redirect would corrupt machine clients.
+	if (
+		!session &&
+		!isUnauthenticatedRoute(event.url.pathname) &&
+		!event.url.pathname.startsWith("/api/v1")
+	)
 		redirect(303, `/login?next=${encodeURIComponent(event.url.pathname)}`);
 	return svelteKitHandler({ event, resolve, auth, building });
 };
 
 export const handle = sequence(sentryHandle(), authentication);
 export const handleError = handleErrorWithSentry();
+// WebSocket upgrades (bus + terminal) are dispatched here too: SvelteKit owns the upgrade via
+// @petalnet/svelte-ws (crossws transport) in dev and in the adapter-built server.
+export { handleWebsocket } from "$lib/server/ws";

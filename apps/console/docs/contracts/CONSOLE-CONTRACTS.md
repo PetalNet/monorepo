@@ -2,11 +2,17 @@
 
 \_Branch `feat/console-p0-contracts` · console-backend Fable, 2026-07-12 · REVIEWABLE SPEC ONLY —
 no service code in this node. This is the contract the console FRONTEND builds against and the
-work list the console-backend phases implement. Machine-readable schemas: [`schemas/`](schemas/)
+work list the console-backend phases implement. Machine-readable schemas are Effect Schema
+modules — the single source of truth (rewrite Phase 4; the former generated JSON Schema mirror
+is retired):
 
-- [`schemas/entities/`](schemas/entities/) (JSON Schema draft 2020-12; CI validates examples
-  with ajv **format assertion ON** — `format` is enforced, not annotation). Board round 1
-  (5 personas + codex) findings and resolutions: [DECISIONS-P0.md](../DECISIONS-P0.md).
+- server->client contract entities: [`src/lib/contracts/entities.ts`](../../src/lib/contracts/entities.ts),
+  aggregated with the REST components in
+  [`src/lib/server/domain/api-schema.ts`](../../src/lib/server/domain/api-schema.ts)
+  (served as OpenAPI at `/api/v1/openapi.json`);
+- bus frames: [`packages/console-bus-rpc/src/schema.ts`](../../../../packages/console-bus-rpc/src/schema.ts);
+- the op catalog: [`ops.json`](ops.json) (self-contained; decoded through
+  [`src/lib/contracts/op-catalog.ts`](../../src/lib/contracts/op-catalog.ts)).
   Grounded in: the console specs (`console-fable/specs/src/`, esp. `00-foundations` §6),
   WAYFINDER-DECISIONS.md, SYSTEM-MAP-as-built.md, the N0.1 contracts, GRAPHING-BACKEND-BRIEF.md.\_
 
@@ -61,12 +67,12 @@ in `ops.json.spec_name_aliases` (the catalog name is the wire name).
 
 ## 1. The four planes
 
-| Plane   | Contract                                                                  | Transport                                                                                                | Today's shape it formalizes                                                                                         |
-| ------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Query   | `stats.query` as-user + typed entity reads, freshness metadata            | HTTPS JSON (`POST /api/v1/query`, `GET /api/v1/<entity>`)                                                | tasks.db rows, heartbeat.json, `data/fleet/*.json`, dispatcher SQLite, capacity SQLite, box_update rows, term_audit |
-| Command | Named ops, 1:1 with UI actions, lane+target authorized, two-phase audited | HTTPS JSON (`POST /api/v1/op`)                                                                           | Matrix `!commands`, spool envelopes, governance actions, token mint/rotate, tracker mutations                       |
-| Bus     | Scoped subscribe over typed signals; authorized unconditional emit        | WebSocket (`/api/v1/bus/ws`, frames: `schemas/bus-frame.schema.json`) + HTTPS emit (`POST /api/v1/emit`) | fleet-event stream, backchannel-rpc events, dispatcher card lifecycle, the Matrix bot-spam this retires             |
-| Library | Rev3 item + link API: hybrid search, typed links, provenance, curation    | HTTPS JSON (`/api/v1/library/*`)                                                                         | tasks / artifacts / feed_items / projects converging into the one store                                             |
+| Plane   | Contract                                                                  | Transport                                                                                                              | Today's shape it formalizes                                                                                         |
+| ------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Query   | `stats.query` as-user + typed entity reads, freshness metadata            | HTTPS JSON (`POST /api/v1/query`, `GET /api/v1/<entity>`)                                                              | tasks.db rows, heartbeat.json, `data/fleet/*.json`, dispatcher SQLite, capacity SQLite, box_update rows, term_audit |
+| Command | Named ops, 1:1 with UI actions, lane+target authorized, two-phase audited | HTTPS JSON (`POST /api/v1/op`)                                                                                         | Matrix `!commands`, spool envelopes, governance actions, token mint/rotate, tracker mutations                       |
+| Bus     | Scoped subscribe over typed signals; authorized unconditional emit        | WebSocket (`/api/v1/bus/ws`, frames: `BusClientFrameSchema`/`BusServerFrameSchema`) + HTTPS emit (`POST /api/v1/emit`) | fleet-event stream, backchannel-rpc events, dispatcher card lifecycle, the Matrix bot-spam this retires             |
+| Library | Rev3 item + link API: hybrid search, typed links, provenance, curation    | HTTPS JSON (`/api/v1/library/*`)                                                                                       | tasks / artifacts / feed_items / projects converging into the one store                                             |
 
 Library item drill reads `GET /api/v1/library/items/:itemId`, scoped typed edges from
 `GET /api/v1/library/links?item_id=:itemId`, and transaction-time snapshots from
@@ -91,11 +97,11 @@ emergency path, and neither is this service pretending otherwise.
   `(principal, id)` within the dedup window (≥24h, ≥ the max retry horizon) returns the
   recorded result; the same id with a different body is rejected (`id_reused`).
 - List reads paginate: `limit` (default 200, max 1000), `cursor`, `since`, per-entity filters;
-  responses are the `read-envelope` shape (`schemas/entities/read-envelope.schema.json`) with
+  responses are the `read-envelope` shape (`ReadEnvelopeSchema`, `src/lib/contracts/entities.ts`) with
   `next_cursor`. Responses carry a server byte cap; `truncated: true` when clipped — silent
   truncation is banned.
-- `GET /api/v1/health` (`schemas/health.schema.json`) — systemd watchdog + Traefik gate +
-  the Mindy Line's line-health source. Emit acks are `schemas/emit-ack.schema.json`.
+- `GET /api/v1/health` (`ConsoleHealthSchema`) — systemd watchdog + Traefik gate +
+  the Mindy Line's line-health source. Emit acks are the `EmitResult` component in `src/lib/server/domain/api-schema.ts`.
   `GET /api/v1/me` → the caller's Principal + display/grant name.
 
 ### 1.2 Authentication + principal
@@ -106,7 +112,7 @@ emergency path, and neither is this service pretending otherwise.
 | Agent / service            | `Authorization: Bearer <token>`. Vault keeps plaintext for re-issue (as-built CP4); console-api's _verification_ table stores sha256 only. Revocation is checked **per request**, independent of the grant zookie; rotation grace is bounded and dual-validity audited.        |
 | System (bridges, internal) | Same bearer path, `system:` subjects, distinct trusted producer registrations (§4.3).                                                                                                                                                                                          |
 
-Every request resolves to a server-stamped **Principal** (`schemas/principal.schema.json`).
+Every request resolves to a server-stamped **Principal** (`PrincipalSchema`, `src/lib/contracts/entities.ts`).
 `sender_class` derivation: `principal` requires `kind == human && tier ∈ {owner, moderator}`;
 an agent token can never reach it. Streaming grants are live: lane/grant revocation tears down
 open streams (PTY write included), not just new opens.
@@ -114,7 +120,8 @@ open streams (PTY write included), not just new opens.
 ## 2. The statistic contract (the L1 canonical shape)
 
 One emission shape serves both doctrines — signal (bus) and statistic (lake) are the same
-envelope (`schemas/emission.schema.json`, normative; see its field docs). Highlights:
+envelope (normative: the emission schema in `src/lib/server/domain/emission.ts`; the served
+projection is `SignalEmissionSchema`). Highlights:
 
 - **Per-field typing**: `meta.fields.<name> = {unit, kind: gauge|counter|delta|timestamp,
 cardinality}` — the Phase-0 statistic-contract requirement that makes L2 auto-derivation
@@ -147,7 +154,8 @@ materializes every still-raw bucket before enforcing the 30-day boundary.
 
 ### 3.1 `stats.query` — `POST /api/v1/query`
 
-Runs AS the caller. Modes (`schemas/query-request.schema.json`, mode-discriminated):
+Runs AS the caller. Modes (`QueryRequestSchema` in `src/lib/server/domain/api-schema.ts`, mode-discriminated;
+the structured mode the UI builds is pinned by `StructuredQuerySchema`):
 
 1. **Structured** (default): semantic-layer-validated; unknown fields rejected with
    nearest-match hints. Cross-type joins enter via **registered views** — a view is a catalog
@@ -160,7 +168,7 @@ Runs AS the caller. Modes (`schemas/query-request.schema.json`, mode-discriminat
    defense-in-depth only. Every view over lake/library/grants is `security_invoker = on`;
    `dblink`/`postgres_fdw`/`file_fdw` absent (Phase 1 acceptance).
 
-Response: `schemas/query-result.schema.json` with `query_ref` (durable id: provenance peek,
+Response: `QueryResultSchema` with `query_ref` (durable id: provenance peek,
 PanelSpec indirection, stat-binding target, deterministic re-run — cross-filter re-execution
 never needs the LLM). **Dereferencing a `query_ref` (peek, re-run, stat-binding refresh)
 always executes as the DEREFERENCING caller** — a shared panel refuses per-viewer, never
@@ -182,7 +190,7 @@ those honestly (`bad_agg`/`unsupported_fill`/`unsupported_coverage`) rather than
 ### 3.1a Services availability — `GET /api/v1/availability`
 
 The Hosts uptime-kuma replacement is a typed, caller-scoped derivation over the lake, pinned by
-`schemas/availability.schema.json`. `service.probe` is the canonical statistic: `subject` identifies
+`AvailabilitySnapshotSchema`. `service.probe` is the canonical statistic: `subject` identifies
 the watched service (prefer `<host>/<service>`), `dimensions.ok` is the observed boolean result,
 `measures.latency_ms` is the response latency, and optional `measures.cadence_s` and
 `measures.degraded_threshold_ms` override the 30-second / 500-ms defaults. `service.down` and
@@ -202,7 +210,7 @@ the caller's RLS scopes.
 ### 3.1b Cost pairwise comparison — `POST /api/v1/cost/compare`
 
 Runs as the caller over `usage_events` and `model_pricing`; request and response are
-`schemas/cost-comparison-request.schema.json` and `schemas/cost-comparison-result.schema.json`.
+the cost-comparison request/result schemas in `src/lib/server/domain/cost/compare.ts`.
 Those sources are the BR-033 AgentsView mirror views required by the Cost dashboard. Until they are
 registered, callers with the fleet-wide grant fall through to AgentsView's deployed pairwise API;
 narrower callers fail closed rather than reading the meter's unscoped global store. The local
@@ -223,8 +231,8 @@ rows/timing/freshness, matched model rates, price-table version, and digest.
 
 ### 3.1.1 Dashboard compiler — `POST /api/v1/ask`
 
-L3 is live (2026-07-13). The strict request is `schemas/ask-request.schema.json`; the response is
-`schemas/ask-result.schema.json`. The engine retrieves only the caller's semantic corpus, then asks
+L3 is live (2026-07-13). The strict request/response pair is pinned by the ask schemas in
+`src/lib/server/api/console-api.ts`. The engine retrieves only the caller's semantic corpus, then asks
 the configured OpenAI-compatible compiler for a **structured query intent**, never SQL. The server
 validates sources, fields, aggregation semantics, and explicitly stated filter values; compiles SQL
 itself; dry-plans and executes it as the distinct `console_ro` role; and persists the result through
@@ -260,14 +268,16 @@ numeric; it never invents a model result. Points are normalized into ascending x
 fitting, numeric x axes remain Vega-Lite `quantitative`, and bucketed structured queries default to
 `bucket asc` when the caller supplies no order.
 
-`POST /api/v1/render` (`schemas/render-request.schema.json`) resolves the supplied `query_ref` under
+`POST /api/v1/render` (the render-request schema in `src/lib/server/domain/render/validation.ts`) resolves the supplied `query_ref` under
 the caller's RLS scopes, re-runs the stored structured request as that caller, and returns
-`schemas/materialized-panel.schema.json`. A missing or invisible ref is the same 404. The stored
+the materialized-panel shape in `src/lib/server/domain/render/validation.ts`. A missing or
+invisible ref is the same 404. The stored
 query, not client SQL or cached rows, is the replay source.
 
 Dashboards and investigation nodes are durable scoped Library data:
 
-- `POST /api/v1/dashboards` accepts `schemas/dashboard-save.schema.json`, including
+- `POST /api/v1/dashboards` accepts `dashboardSaveSchema`
+  (`src/lib/server/domain/render/validation.ts`), including
   `schema_version: 1` and a client-minted mutation UUID. Retries by principal + UUID return the same
   item; body drift is `id_reused`. Every source query ref must already be visible to the caller, and
   the target scope must be one of the caller's current scopes. Before commit, every data panel and
@@ -281,7 +291,7 @@ Dashboards and investigation nodes are durable scoped Library data:
   1–1000 and `next_cursor` is an authenticated opaque `(updated_at,id)` continuation retaining the
   database's full timestamp precision; forged or invalid cursors are 400. Production requires
   `CONSOLE_API_CURSOR_SECRET`; rotating it intentionally invalidates outstanding cursors.
-- `GET /api/v1/dashboards/{id}` returns `schemas/dashboard-detail.schema.json`: the saved payload
+- `GET /api/v1/dashboards/{id}` returns the dashboard-detail shape: the saved payload
   plus `materialized_panels`. Every data panel re-runs as the viewer and gets a fresh query
   ref/render artifact; a now-invisible panel is an explicit per-panel refusal. The item itself is 404
   when its scope is not visible. Text `{{stat:query_ref#column[agg]}}` bindings are likewise re-run;
@@ -300,7 +310,7 @@ result as drill-through evidence.
 
 ### 3.2 The statistics catalog — `GET /api/v1/catalog`
 
-The semantic layer, readable, scope-filtered: `schemas/entities/catalog-entry.schema.json`
+The semantic layer, readable, scope-filtered: `CatalogEntrySchema`
 (type, per-field dimension/measure typing, cardinality, last_emit, emit rate, observed scopes).
 
 L2 is live: `GET /api/v1/catalog` returns the shared read envelope (`freshness`, `items`, always-
@@ -322,7 +332,7 @@ Single-emission cap responses are HTTP 429 with `Retry-After`, `retryable: true`
 `retry_after_s`; batch item errors carry `retryable: true`.
 
 `GET /api/v1/catalog/search?q=<text>&limit=<1..32>` returns the scope-filtered hybrid retrieval
-slice (`schemas/semantic-search-result.schema.json`) over a normalized 75% pgvector cosine / 25%
+slice (the semantic-search result shape in `src/lib/server/domain/semantic/search.ts`) over a normalized 75% pgvector cosine / 25%
 PostgreSQL full-text score. The corpus contains catalog definitions, registered views, and successful query
 structures; query filter values never enter searchable text. Embeddings are currently the hermetic
 384-dimension `feature-hash-v1` provider. Registered structured-query views are `events` (the
@@ -340,35 +350,35 @@ navigation actions remain in the frontend because they carry no operational data
 ### 3.3 Typed entity reads — `GET /api/v1/<entity>`
 
 Every read returns the `read-envelope` (freshness + items + pagination). **Every entity item
-shape is pinned in [`schemas/entities/`](schemas/entities/)** — the frontend never reads
+shape is pinned in [`src/lib/contracts/entities.ts`](../../src/lib/contracts/entities.ts)** — the frontend never reads
 another repo to learn a field. Aggregated reads carry per-item `observed_at` (Rule 10).
 
-| Entity (GET)                       | Schema                                    | Source of truth                                          | Notes                                                                                                                                                                                                 |
-| ---------------------------------- | ----------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/fleet`                           | `entities/fleet.schema.json`              | fleet events (bridged; lake-persisted)                   | aggregated across boxes; `offline` consumer-derived                                                                                                                                                   |
-| `/heartbeats`                      | `entities/heartbeat.schema.json`          | manager heartbeat files (bridged)                        | rows ARE manager heartbeats (one per manager; architects view groups by host); legacy `schema: 1` normalized                                                                                          |
-| `/registry`                        | `entities/registry.schema.json`           | control-plane capacity SQLite                            | liveness derived 90/300s                                                                                                                                                                              |
-| `/agents`                          | `entities/agent.schema.json`              | tracker `agents` table                                   | identity converges to a Library item later; read stays stable                                                                                                                                         |
-| `/tasks`                           | `entities/task.schema.json`               | tracker (single writer stays the tasks app)              | filters: status, project_id, assignee, since                                                                                                                                                          |
-| `/work/settlement`                 | `../work-settlement.schema.json`          | tracker (read-only time lens)                            | done remains on Work for 24h; older done and all dropped tasks project into Library history under stable `task:<id>` identity                                                                         |
-| `/leases`                          | `entities/lease.schema.json`              | tracker                                                  | `leasePublic` only                                                                                                                                                                                    |
-| `/cards`                           | `entities/card.schema.json`               | dispatcher SQLite (read-only poll)                       | filters: state, recipient                                                                                                                                                                             |
-| `/box-updates`                     | `entities/box-update.schema.json`         | box_update_status collector                              | `GET /box-updates/{box_id}/raw` → `box-update-raw` (packages[], vulns[])                                                                                                                              |
-| `/update-approvals`                | `entities/update-approval.schema.json`    | console-api approval ledger + collector evidence         | active/unapplied only; required `box_id`; shared `limit`/`cursor`/`since`; `observed_at` is the durable lake receipt                                                                                  |
-| `/workers`                         | `entities/worker.schema.json`             | subagents.json (bridged) → box-agent inventory (Phase 1) | carries `host` — HouseTile needs no join                                                                                                                                                              |
-| `/governance`                      | `entities/governance.schema.json`         | control-plane (persisted in Phase 1)                     | per-agent + pool `$defs`                                                                                                                                                                              |
-| `/attention`                       | `../attention-item.schema.json`           | attention store (§5.3)                                   | `fix_ops` args pre-bound server-side                                                                                                                                                                  |
-| `/subscriptions`                   | `../subscription.schema.json`             | subscription store                                       | incl. digest `window`                                                                                                                                                                                 |
-| `/delivery`                        | `entities/delivery.schema.json`           | delivery config                                          | incl. `cocoon_until`, `next_digest_at`; line health also reads `/health.matrix_sync_ok_epoch`                                                                                                         |
-| `/signal-sources`                  | `entities/signal-source-mode.schema.json` | signal source delivery modes                             | fleet-scoped; `development` suppresses off-console alerts for the exact `source.service`                                                                                                              |
-| `/edge/registry`, `/edge/sessions` | `entities/edge-*.schema.json`             | doorman (Phase 1 formalization)                          |                                                                                                                                                                                                       |
-| `/dashboards`                      | `entities/dashboard-item.schema.json`     | Library items                                            | incl. `is_home`; content via Library plane                                                                                                                                                            |
-| `/executors`                       | `entities/executor.schema.json`           | registry + heartbeats + service probes                   | **pre-flight liveness for every ActionRow** — all ten executor kinds of the catalog (managers, dispatcher, control-plane, tracker, library, per-box box-agents, edge, probe-runner, pty, console-api) |
-| `/roster`                          | `entities/roster.schema.json`             | server-side join                                         | the Agents surface in ONE read (fleet × heartbeat × registry × agents × governance × leases × workers)                                                                                                |
-| `/comms`                           | `entities/comms-event.schema.json`        | persisted bus emissions                                  | newest-first correspondence history; filters `type=task-card\|rpc\|mail`, `agent`, `task_id`; opaque descending cursor                                                                                |
-| `/me`                              | `entities/me.schema.json`                 | auth                                                     | Principal + display/grant name (session chip)                                                                                                                                                         |
-| `/grants?object=...`               | `../grant-list.schema.json`               | ReBAC tuples                                             | owner-only current grant enumeration; mutations use `POST /grants` + `grant-mutation.schema.json`                                                                                                     |
-| `/tiers`                           | `schemas/tier-list.schema.json`           | permission-level rows                                    | authenticated catalog for user/share pickers; adding a level is a data insert                                                                                                                         |
+| Entity (GET)                       | Schema                                                  | Source of truth                                          | Notes                                                                                                                                                                                                 |
+| ---------------------------------- | ------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/fleet`                           | `entities/fleet.schema.json`                            | fleet events (bridged; lake-persisted)                   | aggregated across boxes; `offline` consumer-derived                                                                                                                                                   |
+| `/heartbeats`                      | `entities/heartbeat.schema.json`                        | manager heartbeat files (bridged)                        | rows ARE manager heartbeats (one per manager; architects view groups by host); legacy `schema: 1` normalized                                                                                          |
+| `/registry`                        | `entities/registry.schema.json`                         | control-plane capacity SQLite                            | liveness derived 90/300s                                                                                                                                                                              |
+| `/agents`                          | `entities/agent.schema.json`                            | tracker `agents` table                                   | identity converges to a Library item later; read stays stable                                                                                                                                         |
+| `/tasks`                           | `entities/task.schema.json`                             | tracker (single writer stays the tasks app)              | filters: status, project_id, assignee, since                                                                                                                                                          |
+| `/work/settlement`                 | `../work-settlement.schema.json`                        | tracker (read-only time lens)                            | done remains on Work for 24h; older done and all dropped tasks project into Library history under stable `task:<id>` identity                                                                         |
+| `/leases`                          | `entities/lease.schema.json`                            | tracker                                                  | `leasePublic` only                                                                                                                                                                                    |
+| `/cards`                           | `entities/card.schema.json`                             | dispatcher SQLite (read-only poll)                       | filters: state, recipient                                                                                                                                                                             |
+| `/box-updates`                     | `entities/box-update.schema.json`                       | box_update_status collector                              | `GET /box-updates/{box_id}/raw` → `box-update-raw` (packages[], vulns[])                                                                                                                              |
+| `/update-approvals`                | `entities/update-approval.schema.json`                  | console-api approval ledger + collector evidence         | active/unapplied only; required `box_id`; shared `limit`/`cursor`/`since`; `observed_at` is the durable lake receipt                                                                                  |
+| `/workers`                         | `entities/worker.schema.json`                           | subagents.json (bridged) → box-agent inventory (Phase 1) | carries `host` — HouseTile needs no join                                                                                                                                                              |
+| `/governance`                      | `entities/governance.schema.json`                       | control-plane (persisted in Phase 1)                     | per-agent + pool `$defs`                                                                                                                                                                              |
+| `/attention`                       | `../attention-item.schema.json`                         | attention store (§5.3)                                   | `fix_ops` args pre-bound server-side                                                                                                                                                                  |
+| `/subscriptions`                   | `../subscription.schema.json`                           | subscription store                                       | incl. digest `window`                                                                                                                                                                                 |
+| `/delivery`                        | `entities/delivery.schema.json`                         | delivery config                                          | incl. `cocoon_until`, `next_digest_at`; line health also reads `/health.matrix_sync_ok_epoch`                                                                                                         |
+| `/signal-sources`                  | `entities/signal-source-mode.schema.json`               | signal source delivery modes                             | fleet-scoped; `development` suppresses off-console alerts for the exact `source.service`                                                                                                              |
+| `/edge/registry`, `/edge/sessions` | `entities/edge-*.schema.json`                           | doorman (Phase 1 formalization)                          |                                                                                                                                                                                                       |
+| `/dashboards`                      | `entities/dashboard-item.schema.json`                   | Library items                                            | incl. `is_home`; content via Library plane                                                                                                                                                            |
+| `/executors`                       | `entities/executor.schema.json`                         | registry + heartbeats + service probes                   | **pre-flight liveness for every ActionRow** — all ten executor kinds of the catalog (managers, dispatcher, control-plane, tracker, library, per-box box-agents, edge, probe-runner, pty, console-api) |
+| `/roster`                          | `entities/roster.schema.json`                           | server-side join                                         | the Agents surface in ONE read (fleet × heartbeat × registry × agents × governance × leases × workers)                                                                                                |
+| `/comms`                           | `entities/comms-event.schema.json`                      | persisted bus emissions                                  | newest-first correspondence history; filters `type=task-card\|rpc\|mail`, `agent`, `task_id`; opaque descending cursor                                                                                |
+| `/me`                              | `entities/me.schema.json`                               | auth                                                     | Principal + display/grant name (session chip)                                                                                                                                                         |
+| `/grants?object=...`               | `../grant-list.schema.json`                             | ReBAC tuples                                             | owner-only current grant enumeration; mutations use `POST /grants` + `grant-mutation.schema.json`                                                                                                     |
+| `/tiers`                           | tier-list rows (`src/lib/server/domain/auth/grants.ts`) | permission-level rows                                    | authenticated catalog for user/share pickers; adding a level is a data insert                                                                                                                         |
 
 The admin-only terminal transport also exposes `POST /terminal/peek` and
 `GET /terminal/peek/{stream_id}` for the Agents & Managers read-only drill-in. Opening a peek
@@ -395,7 +405,9 @@ entity, so per-target derivations (restart counts per handle) are one `group_by`
 
 ## 4. Bus plane
 
-### 4.1 Subscribe — `WS /api/v1/bus/ws` (frames: `schemas/bus-frame.schema.json`, normative)
+### 4.1 Subscribe — `WS /api/v1/bus/ws` (frames:
+
+[`packages/console-bus-rpc/src/schema.ts`](../../../../packages/console-bus-rpc/src/schema.ts), normative)
 
 Protocol summary (details in the schema): one **serialized appender** assigns `seq` in
 durable-commit order and fans out only after commit — no assignment/commit race. A
@@ -413,7 +425,7 @@ heartbeat fresh AND ingest flowing, not just a live socket.
 
 ### 4.2 Standing subscriptions + escalation
 
-`schemas/subscription.schema.json`: `{pattern, filter?, tier, loud, window, note, owner, storm?}`.
+`SubscriptionItemSchema`: `{pattern, filter?, tier, loud, window, note, owner, storm?}`.
 Digests are **server-assembled** per owner+window (a digest emission per batch;
 `digest.failed` on assembly failure; `next_digest_at` echoed in `/delivery`). Interrupt tier
 is validated (`interrupt_ineligible` otherwise) and reserved per /task/709. Delivery is Matrix
@@ -522,7 +534,7 @@ heartbeat is never bridged 1:1). Raw retention 30d ⇒ low-GB range; rollups car
 
 ### 5.1 The op envelope — `POST /api/v1/op`
 
-`schemas/op-call.schema.json` / `op-result.schema.json` (normative). Semantics:
+`OpCallSchema` / `OpResultSchema` (`src/lib/server/domain/api-schema.ts`, normative). Semantics:
 
 The `edge.enroll.approve`, `edge.enroll.deny`, and `edge.key.revoke` adapters are enabled only
 when `CONSOLE_DOORMAN_ADMIN_URL` and `CONSOLE_DOORMAN_ADMIN_TOKEN` are configured together.
@@ -570,7 +582,7 @@ null` cases are enumerated in the schema).
 
 ### 5.2 The op catalog
 
-[`ops.json`](ops.json) is **canonical** (validated by `schemas/op-catalog.schema.json`; the
+[`ops.json`](ops.json) is **canonical** (decoded through `OpCatalogSchema` in `src/lib/contracts/op-catalog.ts`; the
 summary table below and the frontend's ActionRows are generated from it — drift is a CI
 failure). 72 ops across 27 namespaces; per-op: lane, `authz` (rule/relation/scope templates),
 single gating executor, JSON-Schema args, effect, emits, confirm/destructive/undo/reason
@@ -604,7 +616,7 @@ publish a proposal-only facade in its place.
 
 ### 5.3 The attention store
 
-`schemas/attention-item.schema.json` (normative — creation rules enumerated there in full:
+`AttentionItemSchema` (normative — creation rules enumerated there in full:
 crashed/lockout heartbeats, p0 signals, blocker cards, review-ready transitions, requested
 artifacts, dead-letters, security-critical updates, delivery failures). `fix_ops` carry
 **pre-bound args** — the client never derives op args from `subject`. Mutations only via
@@ -639,7 +651,8 @@ currently advertises the capability, a `verified-shared` Library `artifact` in t
 Missing or out-of-scope records are indistinguishable (`404 capability_not_found`). Draft,
 orphaned, malformed, oversized, or digest-mismatched artifacts fail closed.
 
-The response is pinned by `schemas/entities/capability-acquisition.schema.json` and carries
+The response is pinned by the capability-acquisition schema in
+`src/lib/server/domain/registry/acquisition.ts` and carries
 `{capability, kind(skill|tool), version, provider, scope, integrity:
 {algorithm:sha256,digest}, artifact:{media_type,encoding:base64,bytes,data}, provenance}`. The blob
 is a bounded v1 JSON bundle with one relative `entrypoint` and 1–64 files of `{path, mode(0644|0755),
@@ -653,7 +666,9 @@ into an agent runtime.
 
 ### 7.1 Scope tags — as before (`user: | agent: | project: | fleet | restricted:`), flat (Rule 11).
 
-### 7.2 Grants — `schemas/scope-grant.schema.json` (normative; `invalid_at > valid_at`
+### 7.2 Grants — the grant schemas in `src/lib/server/domain/auth/grants.ts` (normative;
+
+`invalid_at > valid_at`
 
 validator rule; relation `editor` on a scope doubles as the emit grant per §4.3). Enforcement:
 scope-filter injection + Postgres RLS backstop (`security_invoker = on` on every view) +
@@ -663,9 +678,9 @@ WS re-fences on change (§4.1); bearer revocation is per-request and separate (�
 Phase 3 is live (2026-07-13):
 
 - `GET /api/v1/grants?object=<scope-or-item-ref>` returns
-  `schemas/grant-list.schema.json`. Only a current `owner` of the object can enumerate its
+  the grant-list shape. Only a current `owner` of the object can enumerate its
   subjects; for `item:<id>`, owning the item's containing scope also authorizes sharing.
-- `POST /api/v1/grants` accepts `schemas/grant-mutation.schema.json`. Grant/revoke is owner-gated,
+- `POST /api/v1/grants` accepts `grantMutationSchema`. Grant/revoke is owner-gated,
   object-serialized, audit-preserving (revokes invalidate rows rather than deleting them), and
   idempotent by principal + client UUID; body drift is `id_reused`.
 - Every committed grant-set change receives a database-sequenced monotonic zookie, updates the
@@ -690,7 +705,7 @@ Phase 3 is live (2026-07-13):
 Phase 4 is live (2026-07-13). Tier rows are `{name, authentik_group, description,
 default_relations, propose_only}` and seed owner/moderator/collaborator/guest; adding a level is an
 insert, with no code-name allowlist. `GET /api/v1/tiers` returns
-`schemas/tier-list.schema.json` for user/share pickers.
+the tier-list rows for user/share pickers.
 
 The strongest configured `default_relations` entry resolves overlapping `principal.tiers`, which the
 current production-capable bearer path server-stamps from `api_tokens`; owner/moderator therefore
@@ -743,10 +758,10 @@ lineage) and a board-level `time` range; `context.receive` payloads are Selected
 (`element_kind, field?, value, datum?, query_ref?, entity_ref?`). The per-user assistant
 session runtime is live in Phase 5 (2026-07-13):
 
-- `POST /api/v1/assistant/messages` (`schemas/assistant-message.schema.json` →
-  `schemas/assistant-message-result.schema.json`) idempotently ensures one specialized Claude Code
+- `POST /api/v1/assistant/messages` (the assistant message/result schemas in
+  `src/lib/server/api/console-api.ts`) idempotently ensures one specialized Claude Code
   manager session per server-stamped principal and sends the message to that real session.
-- `POST /api/v1/assistant/context` (`schemas/assistant-context.schema.json`) delivers the selected
+- `POST /api/v1/assistant/context` (the assistant-context schema) delivers the selected
   mark as the most recent `context` message in the same session. `GET /api/v1/assistant/session`
   returns the caller's current manager session state, window layout, and last selected context.
 - The manager receives a rotating 15-minute credential for the Streamable-HTTP-style JSON-RPC MCP

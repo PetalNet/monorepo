@@ -1,4 +1,4 @@
-// console-api-mint-token — the out-of-band first-token path (contract §1.2, PHASE1-DESIGN §7).
+// console-api-mint-token — the out-of-band first-token path (contract §1.2).
 // Mints a bearer, stores only its sha256 in api_tokens, prints the plaintext ONCE. In prod the
 // plaintext also lands in the vault (CP4 re-issue); that write is a deploy step, not this CLI.
 //

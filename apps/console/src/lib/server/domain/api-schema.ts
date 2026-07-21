@@ -1,4 +1,14 @@
+// The Effect Schema single source of truth for the console API surface. The REST components and
+// OpenAPI derivation live here; the shared server->client contract entities and the op-catalog
+// schema live in the browser-safe `$lib/contracts` modules and are re-exported through this module
+// so it stays the one aggregation point (rewrite Phase 4 — no parallel JSON-Schema, no codegen).
+export * from "../../contracts/entities.ts";
+export * from "../../contracts/op-catalog.ts";
+
 import { Schema } from "effect";
+
+import { StructuredQuerySchema } from "../../contracts/entities.ts";
+import { rejectUnknownKeys } from "../../contracts/schema-conventions.ts";
 
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
 const JsonValue = Schema.Unknown;
@@ -57,18 +67,26 @@ const OpResultSchema = Schema.Struct({
 	undo: Schema.optional(Schema.NullOr(JsonObject)),
 }).annotate({ identifier: "OpResult", title: "Named operation result" });
 
-export const QueryRequestSchema = Schema.Struct({
+// The sql arm of the retired query-request.schema.json: `sql` required, every structured-mode
+// field rejected by the strict struct; the operator+ lane gate stays in the route handler.
+const SqlQueryRequestSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
-	mode: Schema.Union([Schema.Literal("structured"), Schema.Literal("sql")]),
-	from: Schema.optional(Schema.String),
-	select: Schema.optional(Schema.Array(JsonObject)),
-	where: Schema.optional(JsonObject),
-	group_by: Schema.optional(Schema.Array(Schema.String)),
-	time: Schema.optional(Schema.NullOr(JsonObject)),
-	order: Schema.optional(Schema.NullOr(Schema.Array(JsonObject))),
-	limit: Schema.optional(Schema.NullOr(Schema.Number)),
-	sql: Schema.optional(NullableString),
-}).annotate({ identifier: "QueryRequest", title: "Structured or read-only SQL query" });
+	mode: Schema.Literal("sql"),
+	sql: Schema.String.check(Schema.isMaxLength(65_536)),
+	limit: Schema.optional(
+		Schema.NullOr(
+			Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 100_000 })),
+		),
+	),
+}).annotate(rejectUnknownKeys);
+
+// REST + OpenAPI validate /api/v1/query against the same strict contract the UI builds queries
+// with (`StructuredQuerySchema`, `$lib/contracts`), so arbitrary where/select shapes reject here
+// exactly as the retired JSON Schema rejected them.
+export const QueryRequestSchema = Schema.Union([
+	StructuredQuerySchema,
+	SqlQueryRequestSchema,
+]).annotate({ identifier: "QueryRequest", title: "Structured or read-only SQL query" });
 
 const QueryResultSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),

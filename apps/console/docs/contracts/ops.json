@@ -1,5 +1,5 @@
 {
-	"$comment": "Console command-plane op catalog (P0, board round 1 applied). THIS FILE IS CANONICAL \u2014 the CONSOLE-CONTRACTS.md \u00a75.2 table is generated from it; drift is a CI failure. The frontend renders ActionRows from this catalog; a UI button without an entry here is a defect (no op -> no button). Validated by op-catalog.schema.json. Field semantics: `lane` = coarse capability lane (closed enum: viewer|editor|operator|admin|term_admin) required on the Principal. `authz` = the per-resource check the op router MUST additionally pass: rule `own` (target resource must belong to the caller), `grant` (caller needs `relation` on one of `scope_any`, templates substitute op args), `own_or_grant` (own, else grant path), `read` (no resource authorization; scope filtering applies to the result). Both lane AND authz must pass BEFORE the intent audit. `human_only: true` = agents structurally excluded regardless of lanes. `executor` = the single liveness-gating executor (other parties are hops inside the effect). `testable`: disposable (sub-agents/temp DBs) | dry-run-only (only via dry_run:true outside prod) | live-canary (needs a written runbook). `confirm`: none | soft | typed-name (frontend renders; server enforces for typed-name via args.confirm_name). Args are JSON Schema fragments (draft 2020-12). Authz scope templates resolve in order: (1) op args by name (${handle}), (2) attributes of the loaded target resource (${target.project_id} \u2014 the router loads the resource named by the id arg before authorizing), (3) ${item.<field>} = nested arg path. An unresolvable entry within scope_any is SKIPPED (evaluation continues down the list); if ALL entries are unresolvable the op fails closed (scope_denied). CI rule: every ${var} must be a required arg, ${target.*} (declared resolution via the id arg), or ${item.*} nested-arg path. New authz rules: scope_visible (caller holds viewer on the TARGET's scope \u2014 for shared operational state like attention items), self (op only creates/affects caller-keyed state; no foreign-principal args accepted).",
+	"$comment": "Console command-plane op catalog (P0, board round 1 applied). THIS FILE IS CANONICAL — the CONSOLE-CONTRACTS.md §5.2 table is generated from it; drift is a CI failure. The frontend renders ActionRows from this catalog; a UI button without an entry here is a defect (no op -> no button). Validated by op-catalog.schema.json. Field semantics: `lane` = coarse capability lane (closed enum: viewer|editor|operator|admin|term_admin) required on the Principal. `authz` = the per-resource check the op router MUST additionally pass: rule `own` (target resource must belong to the caller), `grant` (caller needs `relation` on one of `scope_any`, templates substitute op args), `own_or_grant` (own, else grant path), `read` (no resource authorization; scope filtering applies to the result). Both lane AND authz must pass BEFORE the intent audit. `human_only: true` = agents structurally excluded regardless of lanes. `executor` = the single liveness-gating executor (other parties are hops inside the effect). `testable`: disposable (sub-agents/temp DBs) | dry-run-only (only via dry_run:true outside prod) | live-canary (needs a written runbook). `confirm`: none | soft | typed-name (frontend renders; server enforces for typed-name via args.confirm_name). Args are JSON Schema fragments (draft 2020-12). Authz scope templates resolve in order: (1) op args by name (${handle}), (2) attributes of the loaded target resource (${target.project_id} — the router loads the resource named by the id arg before authorizing), (3) ${item.<field>} = nested arg path. An unresolvable entry within scope_any is SKIPPED (evaluation continues down the list); if ALL entries are unresolvable the op fails closed (scope_denied). CI rule: every ${var} must be a required arg, ${target.*} (declared resolution via the id arg), or ${item.*} nested-arg path. New authz rules: scope_visible (caller holds viewer on the TARGET's scope — for shared operational state like attention items), self (op only creates/affects caller-keyed state; no foreign-principal args accepted).",
 	"schema_version": 2,
 	"lanes": ["viewer", "editor", "operator", "admin", "term_admin"],
 	"spec_name_aliases": {
@@ -452,7 +452,7 @@
 				},
 				"additionalProperties": false
 			},
-			"effect": "mint a fresh session id \u2014 truly new conversation; destructive; ASYNC",
+			"effect": "mint a fresh session id — truly new conversation; destructive; ASYNC",
 			"emits": ["agent.lifecycle"],
 			"destructive": true,
 			"confirm": "typed-name",
@@ -556,6 +556,28 @@
 			"phase": 1
 		},
 		{
+			"op": "governance.user_tier",
+			"lane": "admin",
+			"authz": {
+				"rule": "self"
+			},
+			"human_only": true,
+			"executor": "console-api",
+			"args": {
+				"type": "object",
+				"required": ["user_id", "tier"],
+				"properties": {
+					"user_id": { "type": "string" },
+					"tier": { "enum": ["operator", "editor", "viewer"] }
+				},
+				"additionalProperties": false
+			},
+			"effect": "change a console user's access tier",
+			"emits": [],
+			"testable": "disposable",
+			"phase": 1
+		},
+		{
 			"op": "fleet.mode",
 			"lane": "operator",
 			"authz": {
@@ -619,7 +641,7 @@
 				"properties": {
 					"type_pattern": {
 						"type": "string",
-						"description": "glob over emission type \u2014 the thing being muted (per-caller mute, not global)"
+						"description": "glob over emission type — the thing being muted (per-caller mute, not global)"
 					},
 					"duration_s": {
 						"type": "integer",
@@ -799,7 +821,164 @@
 			},
 			"executor": "console-api",
 			"args": {
-				"$ref": "schemas/query-request.schema.json"
+				"title": "stats.query request",
+				"description": "Runs AS the caller (scope-filter injection + Postgres RLS backstop with security_invoker=on views). Structured mode validates against the semantic layer and rejects unknown fields with nearest-match hints. SQL mode requires lane operator+ (NOT plain viewer), executes under a read-only role with statement_timeout=20s, pinned search_path, SET/SET ROLE/RESET blocked, and no dblink/postgres_fdw/file_fdw installed — the ROLE is the control, the keyword list is defense-in-depth only. Cross-type joins enter structured mode via REGISTERED VIEWS: a view is a catalog entry like a type (from: \"roster\"); view registration is a Phase 2 governed action. The all-events view is named `events` (the Void reads it). Addressable pseudo-fields in structured mode beyond dimensions/measures: type, subject, subject_kind, severity, scope, task_id, ts, source.service, source.host, source.agent, seq, received_at.",
+				"type": "object",
+				"required": ["schema_version", "mode"],
+				"additionalProperties": false,
+				"properties": {
+					"schema_version": {
+						"const": 1
+					},
+					"mode": {
+						"enum": ["structured", "sql"]
+					},
+					"from": {
+						"type": "string",
+						"maxLength": 128
+					},
+					"select": {
+						"type": "array",
+						"maxItems": 64,
+						"items": {
+							"type": "object",
+							"required": ["field"],
+							"additionalProperties": false,
+							"properties": {
+								"field": {
+									"type": "string",
+									"maxLength": 128
+								},
+								"agg": {
+									"enum": [
+										"sum",
+										"avg",
+										"min",
+										"max",
+										"count",
+										"count_distinct",
+										"p50",
+										"p95",
+										"p99",
+										"last",
+										"rate",
+										null
+									],
+									"description": "Validated against meta.fields kind: sum/rate over a gauge or avg over a counter is rejected (agg_mismatch) — aggregation honesty."
+								},
+								"as": {
+									"type": "string",
+									"maxLength": 64
+								}
+							}
+						}
+					},
+					"where": {
+						"type": "object",
+						"maxProperties": 32,
+						"additionalProperties": true,
+						"description": "field -> value | {op: eq|ne|gt|gte|lt|lte|in|like|is_null|not_null, value}"
+					},
+					"group_by": {
+						"type": "array",
+						"maxItems": 16,
+						"items": {
+							"type": "string"
+						}
+					},
+					"time": {
+						"type": ["object", "null"],
+						"additionalProperties": false,
+						"properties": {
+							"from": {
+								"type": "string",
+								"description": "RFC 3339 or relative (-24h)"
+							},
+							"to": {
+								"type": ["string", "null"]
+							},
+							"bucket": {
+								"type": ["string", "null"],
+								"pattern": "^[0-9]+(s|m|h|d)$"
+							},
+							"fill": {
+								"enum": ["none", "null", "zero", "previous", null],
+								"description": "Empty-bucket policy. Uptime-style reads use fill:null + coverage to distinguish 'measured down' from 'not measured' — silence never renders as health."
+							},
+							"coverage": {
+								"type": "boolean",
+								"default": false,
+								"description": "Adds a per-bucket _coverage column (fraction of the bucket with data present)."
+							}
+						}
+					},
+					"order": {
+						"type": ["array", "null"],
+						"maxItems": 8,
+						"items": {
+							"type": "object",
+							"required": ["field", "dir"],
+							"additionalProperties": false,
+							"properties": {
+								"field": {
+									"type": "string"
+								},
+								"dir": {
+									"enum": ["asc", "desc"]
+								}
+							}
+						}
+					},
+					"limit": {
+						"type": ["integer", "null"],
+						"minimum": 1,
+						"maximum": 100000,
+						"description": "Row cap; the server additionally enforces a response byte cap and sets truncated:true when either clips."
+					},
+					"sql": {
+						"type": ["string", "null"],
+						"maxLength": 65536
+					}
+				},
+				"allOf": [
+					{
+						"if": {
+							"properties": {
+								"mode": {
+									"const": "structured"
+								}
+							}
+						},
+						"then": {
+							"required": ["from"],
+							"properties": {
+								"sql": {
+									"type": "null"
+								}
+							}
+						}
+					},
+					{
+						"if": {
+							"properties": {
+								"mode": {
+									"const": "sql"
+								}
+							}
+						},
+						"then": {
+							"required": ["sql"],
+							"properties": {
+								"from": false,
+								"select": false,
+								"where": false,
+								"group_by": false,
+								"time": false,
+								"order": false
+							}
+						}
+					}
+				]
 			},
 			"effect": "tool-surface alias of POST /api/v1/query; read as-user; returns query_ref; no audit emission (read op). SQL mode additionally requires lane operator",
 			"emits": [],
@@ -818,7 +997,346 @@
 				"required": ["panel"],
 				"properties": {
 					"panel": {
-						"$ref": "schemas/panel-spec-v2.schema.json"
+						"title": "PanelSpec v2 (render contract)",
+						"description": "Citeseer's PanelSpec lineage with the named 2nd-pass extensions: query_ref indirection (replaces inlined SQL; the provenance peek resolves the ref), stat bindings for prose, layout as data, live binding. Charts and investigation-tree state are data — savable, replayable, renderer-agnostic. Type-specific requirements are enforced by the allOf branches: data panels require query_ref; text panels require prose; refusal panels require refusal. Consumers MUST ignore unknown fields.",
+						"type": "object",
+						"required": ["schema_version", "type", "title"],
+						"additionalProperties": true,
+						"properties": {
+							"schema_version": {
+								"const": 2
+							},
+							"type": {
+								"enum": [
+									"bar",
+									"line",
+									"stat",
+									"table",
+									"pie",
+									"scatter",
+									"gauge",
+									"heatmap",
+									"histogram",
+									"insight",
+									"text",
+									"refusal"
+								]
+							},
+							"title": {
+								"type": "string",
+								"maxLength": 200
+							},
+							"description": {
+								"type": ["string", "null"]
+							},
+							"query_ref": {
+								"type": ["string", "null"],
+								"description": "Durable ref to the executed query (query-result.query_ref). Replaces citeseer's inlined per-panel sql. Peek ('Show the math.') and re-run resolve this."
+							},
+							"encoding": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"properties": {
+									"x": {
+										"type": ["string", "null"]
+									},
+									"y": {
+										"type": ["string", "null"]
+									},
+									"group_by": {
+										"type": ["string", "null"]
+									},
+									"columns": {
+										"type": ["array", "null"],
+										"items": {
+											"type": "string"
+										}
+									},
+									"value": {
+										"type": ["string", "null"]
+									},
+									"unit": {
+										"type": ["string", "null"]
+									},
+									"color": {
+										"type": ["string", "null"]
+									},
+									"color_palette": {
+										"type": ["array", "null"],
+										"items": {
+											"type": "string"
+										},
+										"description": "Ordered categorical palette (citeseer effectivePalette lineage; also supplies the forecast secondary color)."
+									},
+									"color_map": {
+										"type": ["object", "null"],
+										"additionalProperties": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							"prose": {
+								"type": ["string", "null"],
+								"description": "text panels: markdown with stat bindings {{stat:<query_ref>#<column>[agg]}} — live, proved, drillable inline numbers. Unbound numbers are visibly unproven."
+							},
+							"refusal": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"required": ["reason"],
+								"properties": {
+									"reason": {
+										"type": "string"
+									},
+									"suggestions": {
+										"type": "array",
+										"items": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							"summary": {
+								"type": ["string", "null"]
+							},
+							"narrative": {
+								"type": ["string", "null"]
+							},
+							"confidence": {
+								"enum": ["high", "medium", "low", null]
+							},
+							"recommendations": {
+								"type": ["array", "null"],
+								"items": {
+									"type": "string"
+								}
+							},
+							"suggestions": {
+								"type": ["array", "null"],
+								"items": {
+									"type": "string"
+								},
+								"description": "Suggested follow-up investigations on SUCCESSFUL answers (citeseer suggestedInvestigations; refusal panels carry theirs inside refusal.suggestions)."
+							},
+							"forecast": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"properties": {
+									"strategy": {
+										"enum": [
+											"auto",
+											"linear",
+											"drift",
+											"moving_average",
+											"exp_smoothing",
+											"seasonal_naive"
+										]
+									},
+									"horizon": {
+										"type": "integer"
+									},
+									"window": {
+										"type": ["integer", "null"]
+									},
+									"alpha": {
+										"type": ["number", "null"]
+									},
+									"season_length": {
+										"type": ["integer", "null"]
+									},
+									"confidence": {
+										"enum": ["high", "medium", "low", null],
+										"description": "citeseer ForecastSpec.confidence (enum). The numeric band width is interval_pct."
+									},
+									"interval_pct": {
+										"type": ["number", "null"]
+									}
+								}
+							},
+							"layout": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"properties": {
+									"col": {
+										"type": "integer",
+										"minimum": 0,
+										"maximum": 11
+									},
+									"span": {
+										"type": "integer",
+										"minimum": 3,
+										"maximum": 12
+									},
+									"row": {
+										"type": "integer",
+										"minimum": 0
+									},
+									"height": {
+										"type": ["integer", "null"]
+									},
+									"group": {
+										"type": ["string", "null"]
+									},
+									"highlight": {
+										"type": "boolean",
+										"default": false
+									},
+									"locked": {
+										"type": "boolean",
+										"default": false
+									}
+								}
+							},
+							"live": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"properties": {
+									"pattern": {
+										"type": "string"
+									},
+									"cadence_s": {
+										"type": ["number", "null"]
+									}
+								}
+							},
+							"render": {
+								"oneOf": [
+									{
+										"title": "Renderer-agnostic materialized chart",
+										"type": "object",
+										"required": [
+											"schema_version",
+											"renderer",
+											"spec",
+											"data_query_ref",
+											"selection_reason",
+											"forecast_strategy"
+										],
+										"additionalProperties": true,
+										"properties": {
+											"schema_version": {
+												"const": 1
+											},
+											"renderer": {
+												"enum": ["vega-lite", "native"]
+											},
+											"spec": {
+												"type": ["object", "null"],
+												"description": "Vega-Lite v6 JSON when renderer=vega-lite; null for native stat/table/text/refusal rendering."
+											},
+											"data_query_ref": {
+												"type": ["string", "null"]
+											},
+											"selection_reason": {
+												"type": "string"
+											},
+											"forecast_strategy": {
+												"enum": [
+													"linear",
+													"drift",
+													"moving_average",
+													"exp_smoothing",
+													"seasonal_naive",
+													null
+												]
+											},
+											"bindings": {
+												"type": "array",
+												"description": "Viewer-scoped resolutions for live {{stat:query_ref#column[agg]}} text bindings.",
+												"items": {
+													"type": "object",
+													"required": ["binding", "query_ref", "column", "value", "status"],
+													"additionalProperties": false,
+													"properties": {
+														"binding": {
+															"type": "string"
+														},
+														"query_ref": {
+															"type": ["string", "null"]
+														},
+														"column": {
+															"type": "string"
+														},
+														"value": true,
+														"status": {
+															"enum": ["resolved", "refused"]
+														}
+													}
+												}
+											}
+										}
+									},
+									{
+										"type": "null"
+									}
+								],
+								"description": "Server-generated renderer artifact. Saved dashboards clear this cache and replay query_ref as the viewer before regenerating it."
+							}
+						},
+						"allOf": [
+							{
+								"if": {
+									"properties": {
+										"type": {
+											"enum": [
+												"bar",
+												"line",
+												"stat",
+												"table",
+												"pie",
+												"scatter",
+												"gauge",
+												"heatmap",
+												"histogram",
+												"insight"
+											]
+										}
+									}
+								},
+								"then": {
+									"required": ["query_ref"],
+									"properties": {
+										"query_ref": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							{
+								"if": {
+									"properties": {
+										"type": {
+											"const": "text"
+										}
+									}
+								},
+								"then": {
+									"required": ["prose"],
+									"properties": {
+										"prose": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							{
+								"if": {
+									"properties": {
+										"type": {
+											"const": "refusal"
+										}
+									}
+								},
+								"then": {
+									"required": ["refusal"],
+									"properties": {
+										"refusal": {
+											"type": "object"
+										}
+									}
+								}
+							}
+						]
 					}
 				},
 				"additionalProperties": false
@@ -874,18 +1392,13 @@
 			"op": "window.arrange",
 			"lane": "viewer",
 			"authz": {
-				"rule": "own_or_grant",
-				"relation": "editor",
-				"scope_any": ["item:${dashboard_id}"]
+				"rule": "self"
 			},
 			"executor": "console-api",
 			"args": {
 				"type": "object",
-				"required": ["dashboard_id", "ops"],
+				"required": ["ops"],
 				"properties": {
-					"dashboard_id": {
-						"type": "string"
-					},
 					"ops": {
 						"type": "array",
 						"maxItems": 100,
@@ -925,6 +1438,15 @@
 				"type": "object",
 				"required": ["title", "panels"],
 				"properties": {
+					"schema_version": {
+						"const": 1
+					},
+					"id": {
+						"type": "string"
+					},
+					"scope": {
+						"type": "string"
+					},
 					"title": {
 						"type": "string",
 						"maxLength": 200
@@ -936,7 +1458,346 @@
 						"type": "array",
 						"maxItems": 60,
 						"items": {
-							"$ref": "schemas/panel-spec-v2.schema.json"
+							"title": "PanelSpec v2 (render contract)",
+							"description": "Citeseer's PanelSpec lineage with the named 2nd-pass extensions: query_ref indirection (replaces inlined SQL; the provenance peek resolves the ref), stat bindings for prose, layout as data, live binding. Charts and investigation-tree state are data — savable, replayable, renderer-agnostic. Type-specific requirements are enforced by the allOf branches: data panels require query_ref; text panels require prose; refusal panels require refusal. Consumers MUST ignore unknown fields.",
+							"type": "object",
+							"required": ["schema_version", "type", "title"],
+							"additionalProperties": true,
+							"properties": {
+								"schema_version": {
+									"const": 2
+								},
+								"type": {
+									"enum": [
+										"bar",
+										"line",
+										"stat",
+										"table",
+										"pie",
+										"scatter",
+										"gauge",
+										"heatmap",
+										"histogram",
+										"insight",
+										"text",
+										"refusal"
+									]
+								},
+								"title": {
+									"type": "string",
+									"maxLength": 200
+								},
+								"description": {
+									"type": ["string", "null"]
+								},
+								"query_ref": {
+									"type": ["string", "null"],
+									"description": "Durable ref to the executed query (query-result.query_ref). Replaces citeseer's inlined per-panel sql. Peek ('Show the math.') and re-run resolve this."
+								},
+								"encoding": {
+									"type": ["object", "null"],
+									"additionalProperties": true,
+									"properties": {
+										"x": {
+											"type": ["string", "null"]
+										},
+										"y": {
+											"type": ["string", "null"]
+										},
+										"group_by": {
+											"type": ["string", "null"]
+										},
+										"columns": {
+											"type": ["array", "null"],
+											"items": {
+												"type": "string"
+											}
+										},
+										"value": {
+											"type": ["string", "null"]
+										},
+										"unit": {
+											"type": ["string", "null"]
+										},
+										"color": {
+											"type": ["string", "null"]
+										},
+										"color_palette": {
+											"type": ["array", "null"],
+											"items": {
+												"type": "string"
+											},
+											"description": "Ordered categorical palette (citeseer effectivePalette lineage; also supplies the forecast secondary color)."
+										},
+										"color_map": {
+											"type": ["object", "null"],
+											"additionalProperties": {
+												"type": "string"
+											}
+										}
+									}
+								},
+								"prose": {
+									"type": ["string", "null"],
+									"description": "text panels: markdown with stat bindings {{stat:<query_ref>#<column>[agg]}} — live, proved, drillable inline numbers. Unbound numbers are visibly unproven."
+								},
+								"refusal": {
+									"type": ["object", "null"],
+									"additionalProperties": true,
+									"required": ["reason"],
+									"properties": {
+										"reason": {
+											"type": "string"
+										},
+										"suggestions": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									}
+								},
+								"summary": {
+									"type": ["string", "null"]
+								},
+								"narrative": {
+									"type": ["string", "null"]
+								},
+								"confidence": {
+									"enum": ["high", "medium", "low", null]
+								},
+								"recommendations": {
+									"type": ["array", "null"],
+									"items": {
+										"type": "string"
+									}
+								},
+								"suggestions": {
+									"type": ["array", "null"],
+									"items": {
+										"type": "string"
+									},
+									"description": "Suggested follow-up investigations on SUCCESSFUL answers (citeseer suggestedInvestigations; refusal panels carry theirs inside refusal.suggestions)."
+								},
+								"forecast": {
+									"type": ["object", "null"],
+									"additionalProperties": true,
+									"properties": {
+										"strategy": {
+											"enum": [
+												"auto",
+												"linear",
+												"drift",
+												"moving_average",
+												"exp_smoothing",
+												"seasonal_naive"
+											]
+										},
+										"horizon": {
+											"type": "integer"
+										},
+										"window": {
+											"type": ["integer", "null"]
+										},
+										"alpha": {
+											"type": ["number", "null"]
+										},
+										"season_length": {
+											"type": ["integer", "null"]
+										},
+										"confidence": {
+											"enum": ["high", "medium", "low", null],
+											"description": "citeseer ForecastSpec.confidence (enum). The numeric band width is interval_pct."
+										},
+										"interval_pct": {
+											"type": ["number", "null"]
+										}
+									}
+								},
+								"layout": {
+									"type": ["object", "null"],
+									"additionalProperties": true,
+									"properties": {
+										"col": {
+											"type": "integer",
+											"minimum": 0,
+											"maximum": 11
+										},
+										"span": {
+											"type": "integer",
+											"minimum": 3,
+											"maximum": 12
+										},
+										"row": {
+											"type": "integer",
+											"minimum": 0
+										},
+										"height": {
+											"type": ["integer", "null"]
+										},
+										"group": {
+											"type": ["string", "null"]
+										},
+										"highlight": {
+											"type": "boolean",
+											"default": false
+										},
+										"locked": {
+											"type": "boolean",
+											"default": false
+										}
+									}
+								},
+								"live": {
+									"type": ["object", "null"],
+									"additionalProperties": true,
+									"properties": {
+										"pattern": {
+											"type": "string"
+										},
+										"cadence_s": {
+											"type": ["number", "null"]
+										}
+									}
+								},
+								"render": {
+									"oneOf": [
+										{
+											"title": "Renderer-agnostic materialized chart",
+											"type": "object",
+											"required": [
+												"schema_version",
+												"renderer",
+												"spec",
+												"data_query_ref",
+												"selection_reason",
+												"forecast_strategy"
+											],
+											"additionalProperties": true,
+											"properties": {
+												"schema_version": {
+													"const": 1
+												},
+												"renderer": {
+													"enum": ["vega-lite", "native"]
+												},
+												"spec": {
+													"type": ["object", "null"],
+													"description": "Vega-Lite v6 JSON when renderer=vega-lite; null for native stat/table/text/refusal rendering."
+												},
+												"data_query_ref": {
+													"type": ["string", "null"]
+												},
+												"selection_reason": {
+													"type": "string"
+												},
+												"forecast_strategy": {
+													"enum": [
+														"linear",
+														"drift",
+														"moving_average",
+														"exp_smoothing",
+														"seasonal_naive",
+														null
+													]
+												},
+												"bindings": {
+													"type": "array",
+													"description": "Viewer-scoped resolutions for live {{stat:query_ref#column[agg]}} text bindings.",
+													"items": {
+														"type": "object",
+														"required": ["binding", "query_ref", "column", "value", "status"],
+														"additionalProperties": false,
+														"properties": {
+															"binding": {
+																"type": "string"
+															},
+															"query_ref": {
+																"type": ["string", "null"]
+															},
+															"column": {
+																"type": "string"
+															},
+															"value": true,
+															"status": {
+																"enum": ["resolved", "refused"]
+															}
+														}
+													}
+												}
+											}
+										},
+										{
+											"type": "null"
+										}
+									],
+									"description": "Server-generated renderer artifact. Saved dashboards clear this cache and replay query_ref as the viewer before regenerating it."
+								}
+							},
+							"allOf": [
+								{
+									"if": {
+										"properties": {
+											"type": {
+												"enum": [
+													"bar",
+													"line",
+													"stat",
+													"table",
+													"pie",
+													"scatter",
+													"gauge",
+													"heatmap",
+													"histogram",
+													"insight"
+												]
+											}
+										}
+									},
+									"then": {
+										"required": ["query_ref"],
+										"properties": {
+											"query_ref": {
+												"type": "string"
+											}
+										}
+									}
+								},
+								{
+									"if": {
+										"properties": {
+											"type": {
+												"const": "text"
+											}
+										}
+									},
+									"then": {
+										"required": ["prose"],
+										"properties": {
+											"prose": {
+												"type": "string"
+											}
+										}
+									}
+								},
+								{
+									"if": {
+										"properties": {
+											"type": {
+												"const": "refusal"
+											}
+										}
+									},
+									"then": {
+										"required": ["refusal"],
+										"properties": {
+											"refusal": {
+												"type": "object"
+											}
+										}
+									}
+								}
+							]
 						}
 					},
 					"branch": {
@@ -1021,7 +1882,346 @@
 				"required": ["panel"],
 				"properties": {
 					"panel": {
-						"$ref": "schemas/panel-spec-v2.schema.json"
+						"title": "PanelSpec v2 (render contract)",
+						"description": "Citeseer's PanelSpec lineage with the named 2nd-pass extensions: query_ref indirection (replaces inlined SQL; the provenance peek resolves the ref), stat bindings for prose, layout as data, live binding. Charts and investigation-tree state are data — savable, replayable, renderer-agnostic. Type-specific requirements are enforced by the allOf branches: data panels require query_ref; text panels require prose; refusal panels require refusal. Consumers MUST ignore unknown fields.",
+						"type": "object",
+						"required": ["schema_version", "type", "title"],
+						"additionalProperties": true,
+						"properties": {
+							"schema_version": {
+								"const": 2
+							},
+							"type": {
+								"enum": [
+									"bar",
+									"line",
+									"stat",
+									"table",
+									"pie",
+									"scatter",
+									"gauge",
+									"heatmap",
+									"histogram",
+									"insight",
+									"text",
+									"refusal"
+								]
+							},
+							"title": {
+								"type": "string",
+								"maxLength": 200
+							},
+							"description": {
+								"type": ["string", "null"]
+							},
+							"query_ref": {
+								"type": ["string", "null"],
+								"description": "Durable ref to the executed query (query-result.query_ref). Replaces citeseer's inlined per-panel sql. Peek ('Show the math.') and re-run resolve this."
+							},
+							"encoding": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"properties": {
+									"x": {
+										"type": ["string", "null"]
+									},
+									"y": {
+										"type": ["string", "null"]
+									},
+									"group_by": {
+										"type": ["string", "null"]
+									},
+									"columns": {
+										"type": ["array", "null"],
+										"items": {
+											"type": "string"
+										}
+									},
+									"value": {
+										"type": ["string", "null"]
+									},
+									"unit": {
+										"type": ["string", "null"]
+									},
+									"color": {
+										"type": ["string", "null"]
+									},
+									"color_palette": {
+										"type": ["array", "null"],
+										"items": {
+											"type": "string"
+										},
+										"description": "Ordered categorical palette (citeseer effectivePalette lineage; also supplies the forecast secondary color)."
+									},
+									"color_map": {
+										"type": ["object", "null"],
+										"additionalProperties": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							"prose": {
+								"type": ["string", "null"],
+								"description": "text panels: markdown with stat bindings {{stat:<query_ref>#<column>[agg]}} — live, proved, drillable inline numbers. Unbound numbers are visibly unproven."
+							},
+							"refusal": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"required": ["reason"],
+								"properties": {
+									"reason": {
+										"type": "string"
+									},
+									"suggestions": {
+										"type": "array",
+										"items": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							"summary": {
+								"type": ["string", "null"]
+							},
+							"narrative": {
+								"type": ["string", "null"]
+							},
+							"confidence": {
+								"enum": ["high", "medium", "low", null]
+							},
+							"recommendations": {
+								"type": ["array", "null"],
+								"items": {
+									"type": "string"
+								}
+							},
+							"suggestions": {
+								"type": ["array", "null"],
+								"items": {
+									"type": "string"
+								},
+								"description": "Suggested follow-up investigations on SUCCESSFUL answers (citeseer suggestedInvestigations; refusal panels carry theirs inside refusal.suggestions)."
+							},
+							"forecast": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"properties": {
+									"strategy": {
+										"enum": [
+											"auto",
+											"linear",
+											"drift",
+											"moving_average",
+											"exp_smoothing",
+											"seasonal_naive"
+										]
+									},
+									"horizon": {
+										"type": "integer"
+									},
+									"window": {
+										"type": ["integer", "null"]
+									},
+									"alpha": {
+										"type": ["number", "null"]
+									},
+									"season_length": {
+										"type": ["integer", "null"]
+									},
+									"confidence": {
+										"enum": ["high", "medium", "low", null],
+										"description": "citeseer ForecastSpec.confidence (enum). The numeric band width is interval_pct."
+									},
+									"interval_pct": {
+										"type": ["number", "null"]
+									}
+								}
+							},
+							"layout": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"properties": {
+									"col": {
+										"type": "integer",
+										"minimum": 0,
+										"maximum": 11
+									},
+									"span": {
+										"type": "integer",
+										"minimum": 3,
+										"maximum": 12
+									},
+									"row": {
+										"type": "integer",
+										"minimum": 0
+									},
+									"height": {
+										"type": ["integer", "null"]
+									},
+									"group": {
+										"type": ["string", "null"]
+									},
+									"highlight": {
+										"type": "boolean",
+										"default": false
+									},
+									"locked": {
+										"type": "boolean",
+										"default": false
+									}
+								}
+							},
+							"live": {
+								"type": ["object", "null"],
+								"additionalProperties": true,
+								"properties": {
+									"pattern": {
+										"type": "string"
+									},
+									"cadence_s": {
+										"type": ["number", "null"]
+									}
+								}
+							},
+							"render": {
+								"oneOf": [
+									{
+										"title": "Renderer-agnostic materialized chart",
+										"type": "object",
+										"required": [
+											"schema_version",
+											"renderer",
+											"spec",
+											"data_query_ref",
+											"selection_reason",
+											"forecast_strategy"
+										],
+										"additionalProperties": true,
+										"properties": {
+											"schema_version": {
+												"const": 1
+											},
+											"renderer": {
+												"enum": ["vega-lite", "native"]
+											},
+											"spec": {
+												"type": ["object", "null"],
+												"description": "Vega-Lite v6 JSON when renderer=vega-lite; null for native stat/table/text/refusal rendering."
+											},
+											"data_query_ref": {
+												"type": ["string", "null"]
+											},
+											"selection_reason": {
+												"type": "string"
+											},
+											"forecast_strategy": {
+												"enum": [
+													"linear",
+													"drift",
+													"moving_average",
+													"exp_smoothing",
+													"seasonal_naive",
+													null
+												]
+											},
+											"bindings": {
+												"type": "array",
+												"description": "Viewer-scoped resolutions for live {{stat:query_ref#column[agg]}} text bindings.",
+												"items": {
+													"type": "object",
+													"required": ["binding", "query_ref", "column", "value", "status"],
+													"additionalProperties": false,
+													"properties": {
+														"binding": {
+															"type": "string"
+														},
+														"query_ref": {
+															"type": ["string", "null"]
+														},
+														"column": {
+															"type": "string"
+														},
+														"value": true,
+														"status": {
+															"enum": ["resolved", "refused"]
+														}
+													}
+												}
+											}
+										}
+									},
+									{
+										"type": "null"
+									}
+								],
+								"description": "Server-generated renderer artifact. Saved dashboards clear this cache and replay query_ref as the viewer before regenerating it."
+							}
+						},
+						"allOf": [
+							{
+								"if": {
+									"properties": {
+										"type": {
+											"enum": [
+												"bar",
+												"line",
+												"stat",
+												"table",
+												"pie",
+												"scatter",
+												"gauge",
+												"heatmap",
+												"histogram",
+												"insight"
+											]
+										}
+									}
+								},
+								"then": {
+									"required": ["query_ref"],
+									"properties": {
+										"query_ref": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							{
+								"if": {
+									"properties": {
+										"type": {
+											"const": "text"
+										}
+									}
+								},
+								"then": {
+									"required": ["prose"],
+									"properties": {
+										"prose": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							{
+								"if": {
+									"properties": {
+										"type": {
+											"const": "refusal"
+										}
+									}
+								},
+								"then": {
+									"required": ["refusal"],
+									"properties": {
+										"refusal": {
+											"type": "object"
+										}
+									}
+								}
+							}
+						]
 					}
 				},
 				"additionalProperties": false
@@ -1050,7 +2250,7 @@
 				},
 				"additionalProperties": false
 			},
-			"effect": "delete a saved dashboard (own dashboards; soft confirm \u2014 dashboards are cheap, unlike library item.delete)",
+			"effect": "delete a saved dashboard (own dashboards; soft confirm — dashboards are cheap, unlike library item.delete)",
 			"emits": ["library.item.deleted"],
 			"confirm": "soft",
 			"undo": true,
@@ -1181,7 +2381,7 @@
 				},
 				"additionalProperties": false
 			},
-			"effect": "sole-egress research: check-before-web, write-back via consolidation gate; rate-limited per caller (query bodies leave the perimeter \u2014 logged) (egress gated: lane editor+, not plain viewer)",
+			"effect": "sole-egress research: check-before-web, write-back via consolidation gate; rate-limited per caller (query bodies leave the perimeter — logged) (egress gated: lane editor+, not plain viewer)",
 			"emits": ["library.research"],
 			"testable": "disposable",
 			"phase": 2
@@ -1242,18 +2442,37 @@
 		{
 			"op": "library.capability.propose",
 			"lane": "viewer",
-			"authz": { "rule": "self" },
+			"authz": {
+				"rule": "self"
+			},
 			"executor": "library",
 			"requires_reason": true,
 			"args": {
 				"type": "object",
 				"required": ["capability", "title", "version", "scope", "artifact_base64"],
 				"properties": {
-					"capability": { "type": "string", "minLength": 1, "maxLength": 128 },
-					"title": { "type": "string", "minLength": 1, "maxLength": 160 },
-					"version": { "type": "string", "minLength": 1, "maxLength": 64 },
-					"scope": { "type": "string" },
-					"artifact_base64": { "type": "string", "maxLength": 1398104 }
+					"capability": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 128
+					},
+					"title": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 160
+					},
+					"version": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 64
+					},
+					"scope": {
+						"type": "string"
+					},
+					"artifact_base64": {
+						"type": "string",
+						"maxLength": 1398104
+					}
 				},
 				"additionalProperties": false
 			},
@@ -1267,14 +2486,22 @@
 			"lane": "admin",
 			"human_only": true,
 			"requires_reason": true,
-			"authz": { "rule": "grant", "relation": "owner", "scope_any": ["${target.scope}"] },
+			"authz": {
+				"rule": "grant",
+				"relation": "owner",
+				"scope_any": ["${target.scope}"]
+			},
 			"executor": "library",
 			"args": {
 				"type": "object",
 				"required": ["proposal_id", "decision"],
 				"properties": {
-					"proposal_id": { "type": "string" },
-					"decision": { "enum": ["under-review", "promoted", "rejected"] }
+					"proposal_id": {
+						"type": "string"
+					},
+					"decision": {
+						"enum": ["under-review", "promoted", "rejected"]
+					}
 				},
 				"additionalProperties": false
 			},
@@ -1644,7 +2871,7 @@
 				},
 				"additionalProperties": false
 			},
-			"effect": "BOUNDED log snapshot in the result payload (P0). Live streaming is carved out with the term.* frame contract (\u00a711); no audit emission (read op); the Rule-6 secret scrubber/redaction applies to the returned log snapshot",
+			"effect": "BOUNDED log snapshot in the result payload (P0). Live streaming is carved out with the term.* frame contract (§11); no audit emission (read op); the Rule-6 secret scrubber/redaction applies to the returned log snapshot",
 			"emits": [],
 			"testable": "disposable",
 			"phase": 1
@@ -1664,7 +2891,7 @@
 				"properties": {
 					"target": {
 						"type": "string",
-						"description": "MUST be a registered probe target (service in the probe registry) \u2014 arbitrary URLs/IPs rejected (ssrf_rejected); no user-supplied network destinations"
+						"description": "MUST be a registered probe target (service in the probe registry) — arbitrary URLs/IPs rejected (ssrf_rejected); no user-supplied network destinations"
 					}
 				},
 				"additionalProperties": false
@@ -2159,7 +3386,7 @@
 					},
 					"target": {
 						"type": "string",
-						"description": "MUST be an address provably bound to the owner: the owner's own Matrix id, or a room the owner's verified Matrix id is joined to (checked at set time + on delivery). Arbitrary rooms rejected (target_not_owned) \u2014 interrupt-tier signals carry user-scoped data"
+						"description": "MUST be an address provably bound to the owner: the owner's own Matrix id, or a room the owner's verified Matrix id is joined to (checked at set time + on delivery). Arbitrary rooms rejected (target_not_owned) — interrupt-tier signals carry user-scoped data"
 					}
 				},
 				"additionalProperties": false

@@ -1,7 +1,7 @@
 import type { KnipConfig } from "knip";
 
 export default {
-	ignoreExportsUsedInFile: { interface: true, type: true },
+	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
 		".": {
@@ -21,15 +21,25 @@ export default {
 				"$app/env": ["node_modules/@sveltejs/kit/types/index.d.ts"],
 				"$app/server": ["node_modules/@sveltejs/kit/types/index.d.ts"],
 			},
+			// Scripts are deploy/ops entrypoints (seed, bridge daemon, token mint, capability
+			// install) — production surface, hence the `!` markers.
 			entry: [
-				"effectdb.config.ts",
-				"src/lib/server/db/tables.ts",
-				"server/index.ts",
-				"scripts/*.{ts,mjs}",
+				"effectdb.config.ts!",
+				"src/lib/server/db/tables.ts!",
+				"scripts/*.{ts,mjs}!",
+				"src/**/*.test.ts",
+				"test/**/*.ts",
 			],
 		},
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],
+		},
+		"packages/svelte-ws": {
+			// Adapt-time runtime template: copied into the app build by the adapter, not imported.
+			// SERVER_HOOKS is a build-time placeholder the adapter rewrites to the compiled hooks
+			// module — it is not a dependency.
+			entry: ["files/websocket-runtime.ts"],
+			ignoreDependencies: ["SERVER_HOOKS"],
 		},
 	},
 } satisfies KnipConfig;

@@ -1,12 +1,24 @@
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
 
-import postgres from "postgres";
+import { Cause, Exit, Schema } from "effect";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
+import {
+	AttentionItemSchema,
+	AvailabilitySnapshotSchema,
+	BoxUpdateRawSchema,
+	CommsEventSchema,
+	DeliveryItemSchema,
+	EdgeRegistryItemSchema,
+	EdgeSessionItemSchema,
+	CONTRACT_SCHEMAS,
+	SubscriptionItemSchema,
+	UpdateApprovalSchema,
+} from "../../src/lib/contracts/entities.ts";
+import type { TerminalAdapter } from "../../src/lib/server/api/console-api.ts";
 import {
 	AssistantCompilerError,
 	type AssistantCompiler,
@@ -23,7 +35,11 @@ import { Bridge } from "../../src/lib/server/domain/bridge/index.ts";
 import { sourceCursorRef } from "../../src/lib/server/domain/bridge/system-outbox.ts";
 import { Appender } from "../../src/lib/server/domain/bus/appender.ts";
 import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
-import { assertRuntimeRolesHardened, openDb } from "../../src/lib/server/domain/db/pool.ts";
+import {
+	assertRuntimeRolesHardened,
+	openDb,
+	openSql,
+} from "../../src/lib/server/domain/db/pool.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
 import { indefinitely, whileCondition } from "../../src/lib/server/domain/iteration.ts";
@@ -37,21 +53,21 @@ import { runStructured } from "../../src/lib/server/domain/query/structured.ts";
 import { readEntity } from "../../src/lib/server/domain/reads/entities.ts";
 import { readRoster, readExecutors } from "../../src/lib/server/domain/reads/roster.ts";
 import { searchSemanticCorpus } from "../../src/lib/server/domain/semantic/search.ts";
-import {
-	buildServer,
-	resolvedOpCapabilities,
-	validateJsonSchema,
-	type TerminalAdapter,
-} from "../../src/lib/server/domain/server.ts";
 import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
+import { startTestSurface } from "../harness/surface.ts";
 
-const contractSchema = (name: string): Record<string, unknown> =>
-	JSON.parse(
-		readFileSync(
-			new URL(`../../docs/contracts/schemas/${name}.schema.json`, import.meta.url),
-			"utf8",
-		),
-	) as Record<string, unknown>;
+/**
+ * Returns the Effect Schema decode failure (pretty-printed) or null — responses are asserted
+ * against the contract SSOT with `expect(contractError(schema, value)).toBeNull()` so a mismatch
+ * surfaces the exact schema issue in the assertion output.
+ */
+const contractError = (
+	schema: Parameters<typeof Schema.decodeUnknownExit>[0],
+	value: unknown,
+): string | null => {
+	const exit = Schema.decodeUnknownExit(schema)(value, { errors: "all" });
+	return Exit.isFailure(exit) ? Cause.pretty(exit.cause) : null;
+};
 
 // --- temp TimescaleDB container (the brief's disposable-DB rule; NEVER a shared/live DB) ---------
 const exec = promisify(execFile);
@@ -92,19 +108,15 @@ async function startTempDb(): Promise<TempDb> {
 	let streak = 0;
 	for await (const iteration of indefinitely()) {
 		void iteration;
-		const probe = postgres(adminUrl, {
-			max: 1,
-			connect_timeout: 3,
-			onnotice: () => {},
-			idle_timeout: 1,
-		});
+		const probe = await openSql(adminUrl, 1, { connectTimeoutSeconds: 3 }).catch(() => null);
 		try {
+			if (!probe) throw new Error("connect failed");
 			await probe`select 1`;
 			streak += 1;
 		} catch {
 			streak = 0;
 		} finally {
-			await probe.end({ timeout: 2 }).catch(() => undefined);
+			await probe?.end().catch(() => undefined);
 		}
 		if (streak >= 2) break;
 		if (Date.now() > deadline) throw new Error("temp db never became ready");
@@ -147,7 +159,7 @@ function emission(over: Partial<Emission> = {}): Emission {
 
 beforeAll(async () => {
 	temp = await startTempDb();
-	const admin = postgres(temp.adminUrl, { onnotice: () => {} });
+	const admin = await openSql(temp.adminUrl);
 	await migrate(admin, {
 		appPassword: temp.appPassword,
 		roPassword: temp.roPassword,
@@ -274,7 +286,7 @@ describe("doorman key ceremony", () => {
 				});
 			},
 		});
-		const server = await buildServer({ ...services, keyCeremony: adapter }, true);
+		const server = await startTestSurface({ ...services, keyCeremony: adapter });
 		const opId = randomUUID();
 		try {
 			const attentionRows = await services.db.admin<{ seq: string }[]>`
@@ -396,7 +408,7 @@ describe("services availability read", () => {
 		projected.set(malformedSubject, malformed.seq as number);
 		for await (const [subject, seq] of projected) await waitProjected("availability", subject, seq);
 
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const visible = await server.inject({
 				method: "GET",
@@ -412,13 +424,7 @@ describe("services availability read", () => {
 			});
 			expect(visible.statusCode, visible.body).toBe(200);
 			const body = visible.json();
-			const availabilitySchema = JSON.parse(
-				readFileSync(
-					new URL("../../docs/contracts/schemas/availability.schema.json", import.meta.url),
-					"utf8",
-				),
-			) as Record<string, unknown>;
-			expect(validateJsonSchema(body, availabilitySchema, "availability")).toBeNull();
+			expect(contractError(AvailabilitySnapshotSchema, body)).toBeNull();
 			expect(body.items).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
@@ -490,7 +496,7 @@ describe("correspondence history read", () => {
 		expect((await services.emit("test:emitter", card, 500)).ok).toBe(true);
 		expect((await services.emit("test:emitter", rpc, 500)).ok).toBe(true);
 
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const visibleHeaders = {
 			"x-dev-principal": JSON.stringify({ kind: "human", id: "tester", scopes: ["fleet"] }),
 		};
@@ -514,13 +520,7 @@ describe("correspondence history read", () => {
 					about: "task.dispatch",
 				}),
 			]);
-			const itemSchema = JSON.parse(
-				readFileSync(
-					new URL("../../docs/contracts/schemas/entities/comms-event.schema.json", import.meta.url),
-					"utf8",
-				),
-			) as Record<string, unknown>;
-			expect(validateJsonSchema(body.items[0], itemSchema, "comms item")).toBeNull();
+			expect(contractError(CommsEventSchema, body.items[0])).toBeNull();
 
 			const reply = await server.inject({
 				method: "GET",
@@ -623,7 +623,7 @@ describe("staged update approval reversal", () => {
 		expect(status.ok).toBe(true);
 		await waitProjected("box_update", boxId, status.seq as number);
 
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const headers = {
 			"content-type": "application/json",
 			"x-dev-principal": JSON.stringify({
@@ -692,16 +692,7 @@ describe("staged update approval reversal", () => {
 					observed_at: expect.any(String),
 				}),
 			]);
-			const approvalSchema = JSON.parse(
-				readFileSync(
-					new URL(
-						"../../docs/contracts/schemas/entities/update-approval.schema.json",
-						import.meta.url,
-					),
-					"utf8",
-				),
-			) as Record<string, unknown>;
-			expect(validateJsonSchema(listed.json().items[0], approvalSchema, "approval")).toBeNull();
+			expect(contractError(UpdateApprovalSchema, listed.json().items[0])).toBeNull();
 
 			const revoked = await server.inject({
 				method: "POST",
@@ -859,7 +850,7 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 	};
 
 	it("returns 403 only after retaining a non-admin deep-link denial", async () => {
-		const server = await buildServer(services, true, undefined, adapter);
+		const server = await startTestSurface(services, { terminal: adapter });
 		const deniedId = `terminal-viewer-${randomBytes(5).toString("hex")}`;
 		try {
 			const response = await server.inject({
@@ -904,8 +895,8 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 				inputs.push(data);
 			},
 		};
-		const server = await buildServer(services, true, undefined, orderedAdapter);
-		const origin = await server.listen({ host: "127.0.0.1", port: 0 });
+		const server = await startTestSurface(services, { terminal: orderedAdapter });
+		const origin = server.origin;
 		const controller = new AbortController();
 		try {
 			const response = await fetch(`${origin}/api/v1/terminal/streams`, {
@@ -996,7 +987,7 @@ describe("terminal server gate and frame transport (BR-014)", () => {
 				throw new Error("peek must not expose input");
 			},
 		};
-		const server = await buildServer(services, true, undefined, peekAdapter);
+		const server = await startTestSurface(services, { terminal: peekAdapter });
 		try {
 			const opened = await server.inject({
 				method: "POST",
@@ -1099,7 +1090,7 @@ describe("emit pipeline", () => {
 		services.appender.append = async () => {
 			throw new Error("private database host=db.internal relation=events");
 		};
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -1578,7 +1569,7 @@ describe("L2 semantic layer", () => {
 			emission({ type: privateType, scope: "user:eli", dimensions: { secret_shape: "x" } }),
 			300,
 		);
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const principal = JSON.stringify({
 			kind: "system",
 			id: "test:emitter",
@@ -1688,15 +1679,28 @@ describe("substrate observability", () => {
 				return true;
 			},
 		};
-		const server = await buildServer(services, true, monitor);
-		server.get("/test/boom", async () => {
-			throw new Error("private failure detail");
-		});
+		// The scoped-read connection detonates inside a real route, driving the surface's shared
+		// error handler exactly as the removed ad-hoc /test/boom route did.
+		const server = await startTestSurface(
+			{
+				...services,
+				db: {
+					...services.db,
+					app: (() => {
+						throw new Error("private failure detail");
+					}) as never,
+				},
+			},
+			{ monitor },
+		);
 		try {
 			const response = await server.inject({
 				method: "GET",
-				url: "/test/boom",
-				headers: { authorization: "Bearer must-never-land" },
+				url: "/api/v1/tiers",
+				headers: {
+					authorization: "Bearer must-never-land",
+					"x-dev-principal": JSON.stringify({ kind: "human", id: "boom", scopes: [] }),
+				},
 			});
 			expect(response.statusCode).toBe(500);
 			expect(captured).toHaveLength(1);
@@ -1743,7 +1747,7 @@ describe("Better Auth browser boundary", () => {
 	};
 
 	it("accepts only a valid Better Auth session and maps current ReBAC grants", async () => {
-		const server = await buildServer(services, false, undefined, undefined, betterAuth);
+		const server = await startTestSurface(services, { devAuth: false, betterAuth });
 		try {
 			const spoofed = await server.inject({
 				method: "GET",
@@ -1791,7 +1795,10 @@ describe("Better Auth browser boundary", () => {
 					};
 				},
 			};
-			const server = await buildServer(services, false, undefined, undefined, nonAdminVerifier);
+			const server = await startTestSurface(services, {
+				devAuth: false,
+				betterAuth: nonAdminVerifier,
+			});
 			try {
 				const response = await server.inject({
 					method: "GET",
@@ -1817,7 +1824,10 @@ describe("Better Auth browser boundary", () => {
 				};
 			},
 		};
-		const server = await buildServer(services, false, undefined, undefined, adminAliasVerifier);
+		const server = await startTestSurface(services, {
+			devAuth: false,
+			betterAuth: adminAliasVerifier,
+		});
 		try {
 			const response = await server.inject({
 				method: "GET",
@@ -1832,7 +1842,7 @@ describe("Better Auth browser boundary", () => {
 	});
 
 	it("rejects cross-origin requests even with a valid session", async () => {
-		const server = await buildServer(services, false, undefined, undefined, betterAuth);
+		const server = await startTestSurface(services, { devAuth: false, betterAuth });
 		try {
 			const response = await server.inject({
 				method: "GET",
@@ -1921,7 +1931,7 @@ describe("Phase 3 ReBAC control plane", () => {
 				scopes: ["fleet"],
 			}),
 		};
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const before = await resolveBearer(services.db.admin, token);
 			expect(before?.scopes).not.toContain(object);
@@ -2070,7 +2080,7 @@ describe("Phase 3 ReBAC control plane", () => {
 			values (${agent}, '["bridge"]', '["test"]', '["agent:*"]', 'warn')`;
 		const principal = await resolveBearer(services.db.admin, token);
 		expect(principal?.scopes).toEqual([agent]);
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const deniedWrite = await server.inject({
 				method: "POST",
@@ -2124,9 +2134,6 @@ describe("Phase 3 ReBAC control plane", () => {
 
 describe("Phase 4 permission levels", () => {
 	it("resolves commit versus propose posture in named-op preflight without tier-name checks", async () => {
-		expect(resolvedOpCapabilities("task.update", "human", true)).toEqual({ force: false });
-		expect(resolvedOpCapabilities("task.update", "human", false)).toEqual({ force: true });
-		expect(resolvedOpCapabilities("task.update", "agent", false)).toEqual({ force: false });
 		await services.db.admin`
 			insert into tiers (name, authentik_group, description, default_relations, propose_only)
 			values ('custom_operator', 'custom-operators', 'Custom data-driven operator.', '["operator"]', true)`;
@@ -2140,7 +2147,7 @@ describe("Phase 4 permission levels", () => {
 			lanes: ["viewer", "editor", "operator"],
 			scopes: [],
 		};
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const taskPreflight = (force: boolean) =>
 			server.inject({
 				method: "POST",
@@ -2194,7 +2201,7 @@ describe("Phase 4 permission levels", () => {
 		await services.db.admin`
 			insert into tiers (name, authentik_group, description, default_relations, propose_only)
 			values ('reviewer', 'reviewers', 'Can review explicitly shared work.', '["viewer"]', true)`;
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "GET",
@@ -2299,10 +2306,11 @@ describe("Phase 4 permission levels", () => {
 				return reconciledTasks.get(criteria.requestId) ?? null;
 			},
 		};
-		const server = await buildServer(
-			{ ...services, trackerProposals: writer, trackerProposalLookup },
-			true,
-		);
+		const server = await startTestSurface({
+			...services,
+			trackerProposals: writer,
+			trackerProposalLookup,
+		});
 		const requestId = randomUUID();
 		const payload = {
 			schema_version: 1,
@@ -2488,7 +2496,7 @@ describe("Phase 4 permission levels", () => {
 			title: "Explicitly elevated",
 			panels: [{ schema_version: 2, type: "text", title: "Elevated", prose: "Commit me." }],
 		};
-		const unavailable = await buildServer({ ...services, trackerProposals: null }, true);
+		const unavailable = await startTestSurface({ ...services, trackerProposals: null });
 		try {
 			const hidden = await unavailable.inject({
 				method: "POST",
@@ -2531,7 +2539,7 @@ describe("Phase 4 permission levels", () => {
 		await services.db.admin`
 			insert into grants (subject, relation, object, granted_by)
 			values ('elevated-collaborator', 'editor', 'fleet', 'test')`;
-		const elevated = await buildServer({ ...services, trackerProposals: null }, true);
+		const elevated = await startTestSurface({ ...services, trackerProposals: null });
 		try {
 			const saved = await elevated.inject({
 				method: "POST",
@@ -2608,7 +2616,7 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 	});
 
 	it("keeps console_ro unable to mutate or create even after disabling its read-only default", async () => {
-		const ro = postgres(temp.roUrl, { max: 1, onnotice: () => {} });
+		const ro = await openSql(temp.roUrl, 1);
 		try {
 			await ro`set default_transaction_read_only = off`;
 			await expect(
@@ -2620,13 +2628,13 @@ describe("RLS-bypass hardening (codex N1a P0)", () => {
 				/permission denied/,
 			);
 		} finally {
-			await ro.end({ timeout: 2 });
+			await ro.end();
 		}
 	});
 
 	it("rejects console_ro membership in a privileged runtime role", async () => {
 		await services.db.admin`grant console_writer to console_ro`;
-		const db = openDb({
+		const db = await openDb({
 			databaseUrl: temp.adminUrl,
 			appDatabaseUrl: temp.appUrl,
 			roDatabaseUrl: temp.roUrl,
@@ -2837,7 +2845,7 @@ describe("structured query", () => {
 	});
 
 	it("exposes /ask only when a compiler is configured", async () => {
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -2881,14 +2889,19 @@ describe("structured query", () => {
 				throw new AssistantCompilerError("upstream private detail");
 			},
 		};
-		const server = await buildServer({ ...services, assistant }, true, {
-			captureException(error) {
-				captured.push(error);
+		const server = await startTestSurface(
+			{ ...services, assistant },
+			{
+				monitor: {
+					captureException(error) {
+						captured.push(error);
+					},
+					async close() {
+						return true;
+					},
+				},
 			},
-			async close() {
-				return true;
-			},
-		});
+		);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -2975,7 +2988,7 @@ describe("structured query", () => {
 			from: "events",
 			select: [{ field: "seq", agg: "count", as: "events" }],
 		});
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const fleet = {
 			"x-dev-principal": JSON.stringify({
 				kind: "human",
@@ -3080,7 +3093,7 @@ describe("structured query", () => {
 			from: type,
 			select: [{ field: "value", agg: "avg", as: "secret" }],
 		});
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -3123,7 +3136,7 @@ describe("structured query", () => {
 			from: "events",
 			select: [{ field: "seq", agg: "count", as: "events" }],
 		});
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const headers = {
 			"x-dev-principal": JSON.stringify({
 				kind: "human",
@@ -3321,7 +3334,7 @@ describe("structured query", () => {
 		await services.db.admin`
 			insert into grants (subject, relation, object, granted_by)
 			values ('binding-user', 'editor', ${`item:${visibleId}`}, 'test'), ('binding-user', 'owner', 'fleet', 'test')`;
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const headers = {
 			"x-dev-principal": JSON.stringify({
 				kind: "human",
@@ -3639,7 +3652,7 @@ describe("structured query", () => {
 			select: [{ field: "seq", agg: "count", as: "events" }],
 			group_by: ["severity"],
 		});
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
 				method: "POST",
@@ -4049,9 +4062,7 @@ describe("current_state projection (N1b)", () => {
 		await waitProjected("attention", attentionId, attentionResult.seq as number);
 		await waitProjected("box_update", boxId, boxResult.seq as number);
 
-		const schemas = contractSchema;
-		const envelopeSchema = schemas("entities/read-envelope");
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const fleetPrincipal = JSON.stringify({
 			kind: "human",
 			id: "eli",
@@ -4066,11 +4077,11 @@ describe("current_state projection (N1b)", () => {
 		});
 		try {
 			for await (const [path, itemSchema, identity] of [
-				["edge/registry", "entities/edge-registry", ["pubkey_fp", fingerprint]],
-				["edge/sessions", "entities/edge-session", ["session_id", sessionId]],
-				["subscriptions", "subscription", ["pattern", subscription.pattern]],
-				["delivery", "entities/delivery", ["owner", "eli"]],
-				["attention", "attention-item", ["id", attentionId]],
+				["edge/registry", EdgeRegistryItemSchema, ["pubkey_fp", fingerprint]],
+				["edge/sessions", EdgeSessionItemSchema, ["session_id", sessionId]],
+				["subscriptions", SubscriptionItemSchema, ["pattern", subscription.pattern]],
+				["delivery", DeliveryItemSchema, ["owner", "eli"]],
+				["attention", AttentionItemSchema, ["id", attentionId]],
 			] as const) {
 				const response = await server.inject({
 					method: "GET",
@@ -4079,13 +4090,12 @@ describe("current_state projection (N1b)", () => {
 				});
 				expect(response.statusCode, response.body).toBe(200);
 				const body = response.json();
-				expect(validateJsonSchema(body, envelopeSchema, "response")).toBeNull();
+				expect(contractError(CONTRACT_SCHEMAS.ReadEnvelope, body)).toBeNull();
 				const item = body.items.find(
 					(candidate: Record<string, unknown>) => candidate[identity[0]] === identity[1],
 				);
 				expect(item).toBeDefined();
-				for (const candidate of body.items)
-					expect(validateJsonSchema(candidate, schemas(itemSchema), "item")).toBeNull();
+				for (const candidate of body.items) expect(contractError(itemSchema, candidate)).toBeNull();
 			}
 			const filteredSession = await server.inject({
 				method: "GET",
@@ -4120,9 +4130,7 @@ describe("current_state projection (N1b)", () => {
 				headers: { "x-dev-principal": fleetPrincipal },
 			});
 			expect(rawResponse.statusCode, rawResponse.body).toBe(200);
-			expect(
-				validateJsonSchema(rawResponse.json(), schemas("entities/box-update-raw"), "item"),
-			).toBeNull();
+			expect(contractError(BoxUpdateRawSchema, rawResponse.json())).toBeNull();
 
 			for await (const path of ["subscriptions", "delivery", "attention"]) {
 				const hidden = await server.inject({
@@ -4341,7 +4349,7 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 				publicConsoleUrl: "http://console.test",
 			}),
 		);
-		const server = await buildServer({ ...services, assistantRuntime: runtime }, true);
+		const server = await startTestSurface({ ...services, assistantRuntime: runtime });
 		await services.db.admin`
 			insert into api_tokens (token_sha256, subject, kind, tiers, lanes)
 			values (${sha256(`runtime-user-${randomUUID()}`)}, 'runtime-user', 'human', '["owner"]', '["viewer"]')`;
@@ -4392,6 +4400,20 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 				"context.receive",
 				"library.surface",
 			]);
+			const sessionAlias = await server.inject({
+				method: "POST",
+				url: "/api/v1/mcp",
+				headers,
+				payload: { jsonrpc: "2.0", id: 10, method: "tools/list" },
+			});
+			expect(sessionAlias.statusCode).toBe(401);
+			const tokenAlias = await server.inject({
+				method: "POST",
+				url: "/api/v1/mcp",
+				headers: { authorization: `Bearer ${toolToken}` },
+				payload: { jsonrpc: "2.0", id: 11, method: "tools/list" },
+			});
+			expect(tokenAlias.statusCode, tokenAlias.body).toBe(200);
 			const arranged = await server.inject({
 				method: "POST",
 				url: "/api/v1/assistant/mcp",
@@ -4406,7 +4428,12 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 					},
 				},
 			});
-			expect(arranged.json().result.isError).not.toBe(true);
+			expect(arranged.json().result.isError, arranged.body).not.toBe(true);
+			const arrangedAudit = await services.db.admin<{ count: number }[]>`
+				select count(*)::int as count from events
+				where dimensions->>'op' = 'window.arrange'
+				  and dimensions->>'principal' = 'runtime-user'`;
+			expect(arrangedAudit[0]?.count).toBeGreaterThanOrEqual(2);
 			const libraryView = await server.inject({
 				method: "POST",
 				url: "/api/v1/assistant/mcp",
@@ -4569,7 +4596,7 @@ describe("Phase 5 per-user Claude Code manager seam", () => {
 
 describe("signal source development mode", () => {
 	it("mutes and restores the real append-to-delivery path through the audited named op", async () => {
-		const server = await buildServer(services, true);
+		const server = await startTestSurface(services);
 		const pattern = `test.dev_mode_${randomBytes(4).toString("hex")}`;
 		const headers = {
 			"x-dev-principal": JSON.stringify({

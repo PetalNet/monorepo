@@ -1,5 +1,6 @@
+import adapter from "@petalnet/svelte-ws";
+import { websocket } from "@petalnet/svelte-ws/vite";
 import { sentrySvelteKit } from "@sentry/sveltekit";
-import adapter from "@sveltejs/adapter-node";
 import tailwindcss from "@tailwindcss/vite";
 import { fontless } from "fontless";
 import { effect } from "svelte-effect-runtime";
@@ -7,20 +8,18 @@ import { ts } from "svelte-global-typescript";
 import { compose, kit } from "svelte-plugin-composer";
 import { defineConfig } from "vitest/config";
 
-import { unifiedConsoleServer } from "./server/vite-plugin";
-
 export default defineConfig({
 	ssr: {
 		external: ["better-auth"],
 	},
 	test: {
-		include: ["src/**/*.spec.ts", "src/lib/server/**/*.test.ts", "test/**/*.test.ts"],
+		include: ["src/**/*.spec.ts", "src/**/*.test.ts", "test/**/*.test.ts"],
 		fileParallelism: false,
 		maxConcurrency: 1,
 		sequence: { concurrent: false },
 	},
 	plugins: [
-		unifiedConsoleServer(),
+		websocket(),
 		sentrySvelteKit({ telemetry: false }),
 		tailwindcss(),
 		fontless({

@@ -1,34 +1,36 @@
-import { getRequestEvent, command, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import type {
 	InvestigationDetail,
 	InvestigationNode,
 	InvestigationPanel,
 } from "$lib/data/investigations";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Effect, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
-const nodeId = z.object({ id: z.string().min(1).max(100) }).strict();
-const branchInput = z
-	.object({
-		title: z.string().trim().min(1).max(200),
-		queryRef: z.string().min(1).max(100),
-		panelTitle: z.string().trim().min(1).max(200),
-		panelType: z.enum(["bar", "line", "stat", "table", "scatter"]),
-		parentId: z.string().min(1).max(100).nullable(),
-		parentQuestion: z.string().max(2_000).nullable(),
-		scope: z.string().min(1).max(500).nullable(),
-		selectedField: z.string().min(1).max(200),
-		selectedValue: z.union([z.string(), z.number(), z.boolean()]),
-	})
-	.strict();
+const nodeId = Schema.Struct({
+	id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+}).annotate(rejectUnknownKeys);
+const branchInput = Schema.Struct({
+	title: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	queryRef: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+	panelTitle: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	panelType: Schema.Literals(["bar", "line", "stat", "table", "scatter"]),
+	parentId: Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))),
+	parentQuestion: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))),
+	scope: Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500))),
+	selectedField: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	selectedValue: Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
+}).annotate(rejectUnknownKeys);
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE !== "live";
+	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function headers(contentType = false): Headers {
@@ -199,38 +201,41 @@ function mockDetail(node: InvestigationNode): InvestigationDetail {
 	};
 }
 
-export const getInvestigationGraph = query(async (): Promise<InvestigationNode[]> => {
-	if (isMock()) return mockNodes;
-	const nodes: InvestigationNode[] = [];
-	let cursor: string | null = null;
-	do {
-		// Cursor pages are causally ordered; the next request cannot be constructed in parallel.
-		// oxlint-disable-next-line no-await-in-loop
-		const envelope: { items: DashboardRow[]; next_cursor?: string | null } = await apiJson(
-			`/dashboards?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-		);
-		nodes.push(
-			...envelope.items
-				.filter(({ is_investigation }) => is_investigation === true)
-				.map(normalizeNode),
-		);
-		cursor = envelope.next_cursor ?? null;
-	} while (cursor);
-	return nodes;
-});
+export const getInvestigationGraph = Query(
+	Effect.promise(async (): Promise<InvestigationNode[]> => {
+		if (isMock()) return mockNodes;
+		const nodes: InvestigationNode[] = [];
+		let cursor: string | null = null;
+		do {
+			// Cursor pages are causally ordered; the next request cannot be constructed in parallel.
+			// oxlint-disable-next-line no-await-in-loop
+			const envelope: { items: DashboardRow[]; next_cursor?: string | null } = await apiJson(
+				`/dashboards?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+			);
+			nodes.push(
+				...envelope.items
+					.filter(({ is_investigation }) => is_investigation === true)
+					.map(normalizeNode),
+			);
+			cursor = envelope.next_cursor ?? null;
+		} while (cursor);
+		return nodes;
+	}),
+);
 
-export const loadInvestigationNode = query(nodeId, async ({ id }): Promise<InvestigationDetail> => {
-	if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]);
-	const detail = await apiJson<DashboardDetail>(`/dashboards/${encodeURIComponent(id)}`);
-	return {
-		node: normalizeNode(detail),
-		panels: (detail.materialized_panels ?? []).map(normalizePanel),
-	};
-});
+export const loadInvestigationNode = Query(nodeId, ({ id }) =>
+	Effect.promise(async (): Promise<InvestigationDetail> => {
+		if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]);
+		const detail = await apiJson<DashboardDetail>(`/dashboards/${encodeURIComponent(id)}`);
+		return {
+			node: normalizeNode(detail),
+			panels: (detail.materialized_panels ?? []).map(normalizePanel),
+		};
+	}),
+);
 
-export const createInvestigationNode = command(
-	branchInput,
-	async (input): Promise<InvestigationNode> => {
+export const createInvestigationNode = Command(branchInput, (input) =>
+	Effect.promise(async (): Promise<InvestigationNode> => {
 		if (isMock())
 			return {
 				id: `dash_mock_${crypto.randomUUID()}`,
@@ -271,16 +276,18 @@ export const createInvestigationNode = command(
 			parent_id: input.parentId,
 			parent_question: input.parentQuestion,
 		});
-	},
+	}),
 );
 
-export const pinInvestigationNode = command(nodeId, async ({ id }) => {
-	if (isMock()) return { id, isHome: true };
-	await apiJson(`/dashboards/${encodeURIComponent(id)}/home`, {
-		method: "POST",
-		headers: headers(true),
-		body: JSON.stringify({ id: crypto.randomUUID() }),
-	});
-	void getInvestigationGraph().refresh();
-	return { id, isHome: true };
-});
+export const pinInvestigationNode = Command(nodeId, ({ id }) =>
+	Effect.promise(async () => {
+		if (isMock()) return { id, isHome: true };
+		await apiJson(`/dashboards/${encodeURIComponent(id)}/home`, {
+			method: "POST",
+			headers: headers(true),
+			body: JSON.stringify({ id: crypto.randomUUID() }),
+		});
+		void Effect.runPromise(getInvestigationGraph().refresh());
+		return { id, isHome: true };
+	}),
+);

@@ -16,13 +16,21 @@ import {
 } from "$lib/operations.remote";
 import { readPlane } from "$lib/rpc/read-plane";
 import type { QueryResult } from "$lib/server/domain/query/structured";
+import {
+	connectBusClient,
+	type BusConnectionState,
+	type BusSubscriptionSpec,
+} from "@petalnet/console-bus-rpc";
 import { Effect } from "effect";
 
 export type DataMode = "mock" | "live";
-export const dataMode = (): DataMode => "live";
+export const dataMode = (): DataMode =>
+	import.meta.env.PUBLIC_CONSOLE_DATA_MODE === "mock" ? "mock" : "live";
 
-const run = <A>(effect: Effect.Effect<A, unknown>): Promise<A> => Effect.runPromise(effect);
-const read = <P extends ReadPlane>(plane: P): Promise<ReadPlaneResult[P]> => run(readPlane(plane));
+export const runRemote = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
+	Effect.runPromise(effect);
+const read = <P extends ReadPlane>(plane: P): Promise<ReadPlaneResult[P]> =>
+	runRemote(readPlane(plane));
 
 export const readMe = (_fetch?: typeof fetch): Promise<Me> => read("me");
 export const readHealth = (_fetch?: typeof fetch): Promise<ConsoleHealth> => read("health");
@@ -44,65 +52,41 @@ export const readCards = (_fetch?: typeof fetch) => read("cards");
 export const readAttention = (_fetch?: typeof fetch) => read("attention");
 
 export const runQuery = (request: StructuredQuery, _fetch?: typeof fetch): Promise<QueryResult> =>
-	run(runStructuredQuery(request));
+	runRemote(runStructuredQuery(request));
 
 export const runOp = (
 	op: string,
 	args: Record<string, unknown>,
 	opts: { dry_run?: boolean; fetchFn?: typeof fetch } = {},
-): Promise<OpResult> => run(executeNamedOp({ op, args, dry_run: opts.dry_run }));
+): Promise<OpResult> => runRemote(executeNamedOp({ op, args, dry_run: opts.dry_run }));
 
-export interface BusSubscription {
-	readonly sub_id: string;
-	readonly pattern: string;
-	readonly filter?: Record<string, string>;
-	readonly since?: number;
-}
-export type BusConnectionState = "connecting" | "open" | "error" | "closed";
+export type { BusConnectionState } from "@petalnet/console-bus-rpc";
+export type BusSubscription = BusSubscriptionSpec;
 
 function socketUrl(path: string): string {
 	const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 	return `${protocol}//${location.host}${path}`;
 }
 
+/**
+ * Live bus subscription via the typed RPC client: frames are schema-decoded (never shape-guessed)
+ * before they reach the UI, and the current subscription set is re-established on reconnect.
+ */
 export function connectBus(
 	subscriptions: () => readonly BusSubscription[],
 	onFrame: (frame: Record<string, unknown>) => void,
 	onState: (state: BusConnectionState) => void = () => {},
 ): () => void {
-	let disposed = false;
-	let socket: WebSocket | undefined;
-	let reconnect: ReturnType<typeof setTimeout> | undefined;
-	const connect = () => {
-		onState("connecting");
-		socket = new WebSocket(socketUrl("/api/v1/bus/ws"));
-		socket.addEventListener("open", () => {
-			onState("open");
-			for (const subscription of subscriptions())
-				socket?.send(JSON.stringify({ schema_version: 1, action: "subscribe", ...subscription }));
-		});
-		socket.addEventListener("message", ({ data }) => {
-			try {
-				const frame = JSON.parse(String(data)) as unknown;
-				if (frame && typeof frame === "object" && !Array.isArray(frame))
-					onFrame(frame as Record<string, unknown>);
-			} catch {
-				onState("error");
-			}
-		});
-		socket.addEventListener("error", () => {
-			onState("error");
-		});
-		socket.addEventListener("close", () => {
-			onState("closed");
-			if (!disposed) reconnect = setTimeout(connect, 2_000);
-		});
-	};
-	connect();
+	const client = connectBusClient({
+		url: socketUrl("/api/v1/bus/ws"),
+		subscriptions,
+		onFrame: (frame) => {
+			onFrame(frame);
+		},
+		onState,
+	});
 	return () => {
-		disposed = true;
-		if (reconnect) clearTimeout(reconnect);
-		socket?.close();
+		client.close();
 	};
 }
 
@@ -184,8 +168,8 @@ export interface AssistantContextPayload {
 	query_ref?: string;
 	entity_ref?: string;
 }
-export const getAssistantSession = () => run(getAssistantSessionRemote());
+export const getAssistantSession = () => runRemote(getAssistantSessionRemote());
 export const sendAssistantMessage = (message: string) =>
-	run(sendAssistantRemote({ kind: "user", content: message }));
+	runRemote(sendAssistantRemote({ kind: "user", content: message }));
 export const sendAssistantContext = (payload: AssistantContextPayload) =>
-	run(sendAssistantRemote({ kind: "context", content: JSON.stringify(payload) }));
+	runRemote(sendAssistantRemote({ kind: "context", content: JSON.stringify(payload) }));

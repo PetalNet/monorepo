@@ -1,23 +1,48 @@
-import { z } from "zod";
+import { Schema } from "effect";
 
-const forecastSchema = z
-	.object({
-		strategy: z
-			.enum(["auto", "linear", "drift", "moving_average", "exp_smoothing", "seasonal_naive"])
-			.optional(),
-		horizon: z.number().int().min(1).max(100).optional(),
-		window: z.number().int().min(2).max(100).nullable().optional(),
-		alpha: z.number().min(0.01).max(1).nullable().optional(),
-		season_length: z.number().int().min(2).max(366).nullable().optional(),
-		confidence: z.enum(["high", "medium", "low"]).nullable().optional(),
-		interval_pct: z.number().min(0).max(1_000).nullable().optional(),
-	})
-	.strict();
+import { rejectUnknownKeys } from "../schema-conventions.ts";
 
-const panelSpecSchema = z
-	.object({
-		schema_version: z.literal(2),
-		type: z.enum([
+const JsonRecord = Schema.Record(Schema.String, Schema.Unknown);
+
+const forecastSchema = Schema.Struct({
+	strategy: Schema.optional(
+		Schema.Literals([
+			"auto",
+			"linear",
+			"drift",
+			"moving_average",
+			"exp_smoothing",
+			"seasonal_naive",
+		]),
+	),
+	horizon: Schema.optional(
+		Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 100 })),
+	),
+	window: Schema.optional(
+		Schema.NullOr(
+			Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 2, maximum: 100 })),
+		),
+	),
+	alpha: Schema.optional(
+		Schema.NullOr(Schema.Number.check(Schema.isBetween({ minimum: 0.01, maximum: 1 }))),
+	),
+	season_length: Schema.optional(
+		Schema.NullOr(
+			Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 2, maximum: 366 })),
+		),
+	),
+	confidence: Schema.optional(Schema.NullOr(Schema.Literals(["high", "medium", "low"]))),
+	interval_pct: Schema.optional(
+		Schema.NullOr(Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1_000 }))),
+	),
+}).annotate(rejectUnknownKeys);
+
+// Panels tolerate renderer-specific extra keys (zod `.loose()` parity): the rest record keeps
+// unknown keys in the decoded output instead of stripping or rejecting them.
+const panelSpecSchema = Schema.StructWithRest(
+	Schema.Struct({
+		schema_version: Schema.Literal(2),
+		type: Schema.Literals([
 			"bar",
 			"line",
 			"stat",
@@ -31,115 +56,126 @@ const panelSpecSchema = z
 			"text",
 			"refusal",
 		]),
-		title: z.string().min(1).max(200),
-		description: z.string().max(2_000).nullable().optional(),
-		query_ref: z.string().min(1).max(100).nullable().optional(),
-		encoding: z.record(z.string(), z.unknown()).nullable().optional(),
-		prose: z.string().max(100_000).nullable().optional(),
-		refusal: z
-			.object({
-				reason: z.string().max(2_000),
-				suggestions: z.array(z.string().max(500)).max(12).optional(),
-			})
-			.strict()
-			.nullable()
-			.optional(),
-		summary: z.string().max(4_000).nullable().optional(),
-		narrative: z.string().max(8_000).nullable().optional(),
-		confidence: z.enum(["high", "medium", "low"]).nullable().optional(),
-		recommendations: z.array(z.string().max(1_000)).max(20).nullable().optional(),
-		suggestions: z.array(z.string().max(500)).max(20).nullable().optional(),
-		forecast: forecastSchema.nullable().optional(),
-		layout: z.record(z.string(), z.unknown()).nullable().optional(),
-		live: z.record(z.string(), z.unknown()).nullable().optional(),
-		render: z.record(z.string(), z.unknown()).nullable().optional(),
-	})
-	.loose()
-	.superRefine((panel, context) => {
+		title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+		description: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000)))),
+		query_ref: Schema.optional(
+			Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))),
+		),
+		encoding: Schema.optional(Schema.NullOr(JsonRecord)),
+		prose: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(100_000)))),
+		refusal: Schema.optional(
+			Schema.NullOr(
+				Schema.Struct({
+					reason: Schema.String.check(Schema.isMaxLength(2_000)),
+					suggestions: Schema.optional(
+						Schema.Array(Schema.String.check(Schema.isMaxLength(500))).check(
+							Schema.isMaxLength(12),
+						),
+					),
+				}).annotate(rejectUnknownKeys),
+			),
+		),
+		summary: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(4_000)))),
+		narrative: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(8_000)))),
+		confidence: Schema.optional(Schema.NullOr(Schema.Literals(["high", "medium", "low"]))),
+		recommendations: Schema.optional(
+			Schema.NullOr(
+				Schema.Array(Schema.String.check(Schema.isMaxLength(1_000))).check(Schema.isMaxLength(20)),
+			),
+		),
+		suggestions: Schema.optional(
+			Schema.NullOr(
+				Schema.Array(Schema.String.check(Schema.isMaxLength(500))).check(Schema.isMaxLength(20)),
+			),
+		),
+		forecast: Schema.optional(Schema.NullOr(forecastSchema)),
+		layout: Schema.optional(Schema.NullOr(JsonRecord)),
+		live: Schema.optional(Schema.NullOr(JsonRecord)),
+		render: Schema.optional(Schema.NullOr(JsonRecord)),
+	}),
+	[Schema.Record(Schema.String, Schema.Unknown)],
+).check(
+	Schema.makeFilter((panel) => {
+		const issues: Schema.FilterIssue[] = [];
 		if (
 			!["text", "refusal"].includes(panel.type) &&
 			(typeof panel.query_ref !== "string" || panel.query_ref.length === 0)
 		)
-			context.addIssue({
-				code: "custom",
-				path: ["query_ref"],
-				message: "data panels require query_ref",
-			});
+			issues.push({ path: ["query_ref"], issue: "data panels require query_ref" });
 		if (panel.type === "text" && typeof panel.prose !== "string")
-			context.addIssue({ code: "custom", path: ["prose"], message: "text panels require prose" });
+			issues.push({ path: ["prose"], issue: "text panels require prose" });
 		if (panel.type === "refusal" && !panel.refusal)
-			context.addIssue({
-				code: "custom",
-				path: ["refusal"],
-				message: "refusal panels require refusal",
-			});
-	});
+			issues.push({ path: ["refusal"], issue: "refusal panels require refusal" });
+		return issues;
+	}),
+);
 
-export const selectedMarkSchema = z
-	.object({
-		element_kind: z.string().min(1).max(100),
-		field: z.string().max(200).optional(),
-		value: z.unknown().optional(),
-		datum: z.record(z.string(), z.unknown()).optional(),
-		query_ref: z.string().max(100).optional(),
-		entity_ref: z.string().max(500).optional(),
-	})
-	.strict();
+export const selectedMarkSchema = Schema.Struct({
+	element_kind: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+	field: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+	value: Schema.optional(Schema.Unknown),
+	datum: Schema.optional(JsonRecord),
+	query_ref: Schema.optional(Schema.String.check(Schema.isMaxLength(100))),
+	entity_ref: Schema.optional(Schema.String.check(Schema.isMaxLength(500))),
+}).annotate(rejectUnknownKeys);
 
-export const dashboardSaveSchema = z
-	.object({
-		schema_version: z.literal(1),
-		id: z.uuid(),
-		title: z.string().trim().min(1).max(200),
-		scope: z.string().trim().min(1).max(500).optional(),
-		layout: z.record(z.string(), z.unknown()).optional(),
-		panels: z.array(panelSpecSchema).max(60),
-		branch: z
-			.object({
-				parent_dashboard_id: z.string().max(100).nullable().optional(),
-				parent_question: z.string().max(2_000).nullable().optional(),
-				filters: z.record(z.string(), z.unknown()).optional(),
-				selected_mark: selectedMarkSchema.nullable().optional(),
-				assumptions: z.array(z.string().max(1_000)).max(50).optional(),
-			})
-			.strict()
-			.optional(),
-		time: z
-			.object({
-				from: z.string().max(100),
-				to: z.string().max(100).nullable().optional(),
-				refresh_s: z.number().int().min(1).max(86_400).nullable().optional(),
-			})
-			.strict()
-			.optional(),
-	})
-	.strict();
+export const dashboardSaveSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	id: Schema.String.check(Schema.isUUID()),
+	title: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	scope: Schema.optional(Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500))),
+	layout: Schema.optional(JsonRecord),
+	panels: Schema.Array(panelSpecSchema).check(Schema.isMaxLength(60)),
+	branch: Schema.optional(
+		Schema.Struct({
+			parent_dashboard_id: Schema.optional(
+				Schema.NullOr(Schema.String.check(Schema.isMaxLength(100))),
+			),
+			parent_question: Schema.optional(
+				Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))),
+			),
+			filters: Schema.optional(JsonRecord),
+			selected_mark: Schema.optional(Schema.NullOr(selectedMarkSchema)),
+			assumptions: Schema.optional(
+				Schema.Array(Schema.String.check(Schema.isMaxLength(1_000))).check(Schema.isMaxLength(50)),
+			),
+		}).annotate(rejectUnknownKeys),
+	),
+	time: Schema.optional(
+		Schema.Struct({
+			from: Schema.String.check(Schema.isMaxLength(100)),
+			to: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(100)))),
+			refresh_s: Schema.optional(
+				Schema.NullOr(
+					Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 86_400 })),
+				),
+			),
+		}).annotate(rejectUnknownKeys),
+	),
+}).annotate(rejectUnknownKeys);
 
-export const renderRequestSchema = z
-	.object({ query_ref: z.string().min(1).max(100), panel: panelSpecSchema })
-	.strict();
+export const renderRequestSchema = Schema.Struct({
+	query_ref: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+	panel: panelSpecSchema,
+}).annotate(rejectUnknownKeys);
 
-export const investigationBranchSchema = z
-	.object({
-		schema_version: z.literal(1),
-		id: z.uuid(),
-		title: z.string().trim().min(1).max(200),
-		scope: z.string().trim().min(1).max(500).optional(),
-		parent_dashboard_id: z.string().min(1).max(100).nullable(),
-		parent_question: z.string().max(2_000).nullable(),
-		panel: z
-			.object({
-				title: z.string().trim().min(1).max(200),
-				type: z.enum(["bar", "line", "stat", "table", "scatter"]),
-				query_ref: z.string().min(1).max(100),
-			})
-			.strict(),
-		selected_mark: z
-			.object({
-				element_kind: z.string().min(1).max(100),
-				field: z.string().min(1).max(200),
-				value: z.union([z.string(), z.number(), z.boolean()]),
-			})
-			.strict(),
-	})
-	.strict();
+export const investigationBranchSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	id: Schema.String.check(Schema.isUUID()),
+	title: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	scope: Schema.optional(Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500))),
+	parent_dashboard_id: Schema.NullOr(
+		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+	),
+	parent_question: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))),
+	panel: Schema.Struct({
+		title: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+		type: Schema.Literals(["bar", "line", "stat", "table", "scatter"]),
+		query_ref: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+	}).annotate(rejectUnknownKeys),
+	selected_mark: Schema.Struct({
+		element_kind: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+		field: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+		value: Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
+	}).annotate(rejectUnknownKeys),
+}).annotate(rejectUnknownKeys);

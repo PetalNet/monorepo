@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-// The co-located bridge (N1b-3, PHASE1B-DESIGN §3). Tails .14-local as-built sources on a poll and
+// The co-located bridge (N1b-3). Tails .14-local as-built sources on a poll and
 // emits them into the lake via the normal emit path (authz + scrubber + dedup all apply). Remote
 // boxes run their own per-box bridge (the future Rust `console-bridge`); this one covers the
 // .14-local sources. Deterministic ids make every poll idempotent; a durable cursor per source

@@ -1,4 +1,4 @@
-// console-api-seed — the deploy bootstrap (PHASE1-DESIGN §7). Runs the ordered migration then
+// console-api-seed — the deploy bootstrap. Runs the ordered migration then
 // seeds the baseline grants, producer registrations, and tier rows. Idempotent; run once per
 // deploy (and safe to re-run). Mint the first bearer tokens with console-api-mint-token after.
 

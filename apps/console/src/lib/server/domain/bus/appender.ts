@@ -232,7 +232,7 @@ export class Appender {
 					 ${e.source.agent ?? null}, ${e.subject}, ${e.subject_kind ?? null}, ${e.severity},
 					 ${e.action ?? null}, ${e.task_id ?? null}, ${e.scope},
 					 ${tx.json(e.dimensions ?? {})}, ${tx.json(e.measures ?? {})},
-					 ${tx.json(e.links ?? [])}, ${e.body_ref ?? null}, ${tx.json((e.meta ?? {}) as never)})`;
+					 ${tx.json(e.links ?? [])}, ${e.body_ref ?? null}, ${tx.json(e.meta ?? {})})`;
 			if (isArchiveClass(e))
 				await tx`insert into event_archive
 					(seq, id, type, ts, received_at, source_service, source_host, source_agent, subject,
@@ -264,8 +264,8 @@ export class Appender {
 				insert into semantic_registry
 					(type, last_emit, first_producer, dimensions, measures, joins, scopes, emit_count)
 				values
-					(${e.type}, ${e.ts}, ${producerSubject}, ${tx.json(globalMerged.shape.dimensions as never)},
-					 ${tx.json(globalMerged.shape.measures as never)}, ${tx.json(globalMerged.shape.joins as never)},
+					(${e.type}, ${e.ts}, ${producerSubject}, ${tx.json(globalMerged.shape.dimensions)},
+					 ${tx.json(globalMerged.shape.measures)}, ${tx.json(globalMerged.shape.joins)},
 					 ${tx.json(scopes)}, 1)
 				on conflict (type) do update set
 					last_emit = excluded.last_emit,
@@ -276,8 +276,8 @@ export class Appender {
 				insert into semantic_registry_scoped
 					(type, scope, last_emit, dimensions, measures, joins, emit_count)
 				values
-					(${e.type}, ${e.scope}, ${e.ts}, ${tx.json(merged.shape.dimensions as never)},
-					 ${tx.json(merged.shape.measures as never)}, ${tx.json(merged.shape.joins as never)}, 1)
+					(${e.type}, ${e.scope}, ${e.ts}, ${tx.json(merged.shape.dimensions)},
+					 ${tx.json(merged.shape.measures)}, ${tx.json(merged.shape.joins)}, 1)
 				on conflict (type, scope) do update set
 					last_emit = excluded.last_emit,
 					emit_count = semantic_registry_scoped.emit_count + 1,
@@ -288,7 +288,7 @@ export class Appender {
 					insert into semantic_proposals
 						(kind, producer_subject, statistic_type, scope, payload)
 					select 'registry_drift', ${producerSubject}, ${e.type}, ${e.scope},
-						${tx.json(drift as never)}
+						${tx.json(drift)}
 					where not exists (
 						select 1 from semantic_proposals where status = 'pending'
 						  and kind = 'registry_drift' and statistic_type = ${e.type}
@@ -308,7 +308,7 @@ export class Appender {
 				descriptor.cardinality = cardinalityClass(Number(counts[0].count));
 			}
 			await tx`update semantic_registry_scoped
-				set dimensions = ${tx.json(merged.shape.dimensions as never)}
+				set dimensions = ${tx.json(merged.shape.dimensions)}
 				where type = ${e.type} and scope = ${e.scope}`;
 			const document = semanticDocument(e.type, merged.shape);
 			const embedding = vectorLiteral(embedText(document));

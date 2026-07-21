@@ -3,7 +3,6 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
 
-import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { AssistantCompiler } from "../../src/lib/server/domain/assistant/compiler.ts";
@@ -13,11 +12,12 @@ import {
 } from "../../src/lib/server/domain/assistant/runtime.ts";
 import type { BetterAuthSessionVerifier } from "../../src/lib/server/domain/auth/session.ts";
 import { migrate } from "../../src/lib/server/domain/db/migrate.ts";
+import { openSql } from "../../src/lib/server/domain/db/pool.ts";
 import { seedBootstrap } from "../../src/lib/server/domain/db/seed.ts";
 import type { Emission } from "../../src/lib/server/domain/emission.ts";
 import { indefinitely } from "../../src/lib/server/domain/iteration.ts";
-import { buildServer } from "../../src/lib/server/domain/server.ts";
 import { buildServices, type Services } from "../../src/lib/server/domain/substrate.ts";
+import { startTestSurface } from "../harness/surface.ts";
 
 const exec = promisify(execFile);
 
@@ -57,19 +57,15 @@ async function startTempDb(): Promise<TempDb> {
 	let readyProbes = 0;
 	for await (const iteration of indefinitely()) {
 		void iteration;
-		const probe = postgres(adminUrl, {
-			max: 1,
-			connect_timeout: 3,
-			idle_timeout: 1,
-			onnotice: () => {},
-		});
+		const probe = await openSql(adminUrl, 1, { connectTimeoutSeconds: 3 }).catch(() => null);
 		try {
+			if (!probe) throw new Error("connect failed");
 			await probe`select 1`;
 			readyProbes += 1;
 		} catch {
 			readyProbes = 0;
 		} finally {
-			await probe.end({ timeout: 2 }).catch(() => undefined);
+			await probe?.end().catch(() => undefined);
 		}
 		if (readyProbes >= 2) break;
 		if (Date.now() > deadline) throw new Error("release-acceptance database never became ready");
@@ -122,7 +118,7 @@ let services: Services;
 
 beforeAll(async () => {
 	temp = await startTempDb();
-	const admin = postgres(temp.adminUrl, { onnotice: () => {} });
+	const admin = await openSql(temp.adminUrl);
 	await migrate(admin, {
 		appPassword: temp.appPassword,
 		roPassword: temp.roPassword,
@@ -274,12 +270,12 @@ describe("BR-032 hermetic release acceptance", () => {
 				};
 			},
 		};
-		const server = await buildServer(
+		const server = await startTestSurface(
 			{ ...services, assistant: compiler, assistantRuntime },
-			false,
-			undefined,
-			undefined,
-			betterAuth,
+			{
+				devAuth: false,
+				betterAuth,
+			},
 		);
 		const alphaHeaders = browserHeaders("release-alpha");
 		const betaHeaders = browserHeaders("release-beta");
@@ -459,11 +455,7 @@ describe("BR-032 hermetic release acceptance", () => {
 
 			// A real authenticated browser WebSocket receives only its scope. Grant changes later in
 			// this workflow must actively re-fence the existing subscription.
-			const socket = await server.injectWS("/api/v1/bus/ws", {
-				headers: alphaHeaders,
-				rawHeaders: Object.entries(alphaHeaders).flatMap(([name, value]) => [name, value]),
-				socket: { remoteAddress: "127.0.0.1" },
-			});
+			const socket = await server.injectWS("/api/v1/bus/ws", { headers: alphaHeaders });
 			const frames: Record<string, unknown>[] = [];
 			socket.on("message", (data) => frames.push(JSON.parse(data.toString())));
 			socket.send(
@@ -639,11 +631,7 @@ describe("BR-032 hermetic release acceptance", () => {
 
 			// Open a fresh subscription after the unrelated item-share grant change so this assertion
 			// proves that narrowing Alpha's readable scope itself triggers the re-fence.
-			const scopeFenceSocket = await server.injectWS("/api/v1/bus/ws", {
-				headers: alphaHeaders,
-				rawHeaders: Object.entries(alphaHeaders).flatMap(([name, value]) => [name, value]),
-				socket: { remoteAddress: "127.0.0.1" },
-			});
+			const scopeFenceSocket = await server.injectWS("/api/v1/bus/ws", { headers: alphaHeaders });
 			const scopeFenceFrames: Record<string, unknown>[] = [];
 			scopeFenceSocket.on("message", (data) => scopeFenceFrames.push(JSON.parse(data.toString())));
 			scopeFenceSocket.send(

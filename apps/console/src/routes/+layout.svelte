@@ -3,10 +3,6 @@
 	import { goto } from "$app/navigation";
 	import favicon from "$lib/assets/favicon.svg";
 	import { ModeWatcher } from "mode-watcher";
-	import "@fontsource/geist-sans/400.css";
-	import "@fontsource/geist-sans/500.css";
-	import "@fontsource/geist-mono/400.css";
-	import "@fontsource/geist-mono/500.css";
 	import "../app.css";
 	import AppShell from "$lib/components/AppShell.svelte";
 	import { visibleNav } from "$lib/nav";

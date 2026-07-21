@@ -1,51 +1,61 @@
 import { createHash } from "node:crypto";
 
-import { z } from "zod";
+import { Schema } from "effect";
 
 import type { Sql } from "../db/pool.ts";
 import { withScopes } from "../db/pool.ts";
+import { ISO_DATETIME_UTC_RE } from "../schema-conventions.ts";
 import { parseCapabilityBundle } from "./loader.ts";
 
 const CAPABILITY_PATTERN = /^[a-z0-9][a-z0-9._:/-]{0,127}$/i;
 const PROVIDER_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 
-export const capabilityAcquisitionSchema = z
-	.object({
-		schema_version: z.literal(1),
-		capability: z.string().min(1),
-		kind: z.enum(["skill", "tool"]),
-		version: z.string().min(1),
-		provider: z.string().min(1),
-		scope: z.string().min(1),
-		integrity: z
-			.object({ algorithm: z.literal("sha256"), digest: z.string().regex(/^[a-f0-9]{64}$/) })
-			.loose(),
-		artifact: z
-			.object({
-				media_type: z.literal("application/vnd.petalnet.capability-bundle+json"),
-				encoding: z.literal("base64"),
-				bytes: z
-					.number()
-					.int()
-					.positive()
-					.max(2 * 1024 * 1024),
-				data: z.string(),
-			})
-			.loose(),
-		provenance: z
-			.object({
-				library_item_id: z.string(),
-				library_item_version: z.number().int().positive(),
-				created_by_agent: z.string().nullable(),
-				responsible_human: z.string().nullable(),
-				source_url: z.string().nullable(),
-				registry_observed_at: z.iso.datetime(),
-			})
-			.loose(),
-	})
-	.loose();
+// Every object here tolerates extra keys (zod `.loose()` parity): the rest record keeps unknown
+// keys in the decoded output instead of stripping them.
+export const capabilityAcquisitionSchema = Schema.StructWithRest(
+	Schema.Struct({
+		schema_version: Schema.Literal(1),
+		capability: Schema.String.check(Schema.isMinLength(1)),
+		kind: Schema.Literals(["skill", "tool"]),
+		version: Schema.String.check(Schema.isMinLength(1)),
+		provider: Schema.String.check(Schema.isMinLength(1)),
+		scope: Schema.String.check(Schema.isMinLength(1)),
+		integrity: Schema.StructWithRest(
+			Schema.Struct({
+				algorithm: Schema.Literal("sha256"),
+				digest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+			}),
+			[Schema.Record(Schema.String, Schema.Unknown)],
+		),
+		artifact: Schema.StructWithRest(
+			Schema.Struct({
+				media_type: Schema.Literal("application/vnd.petalnet.capability-bundle+json"),
+				encoding: Schema.Literal("base64"),
+				bytes: Schema.Number.check(
+					Schema.isInt(),
+					Schema.isGreaterThan(0),
+					Schema.isLessThanOrEqualTo(2 * 1024 * 1024),
+				),
+				data: Schema.String,
+			}),
+			[Schema.Record(Schema.String, Schema.Unknown)],
+		),
+		provenance: Schema.StructWithRest(
+			Schema.Struct({
+				library_item_id: Schema.String,
+				library_item_version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+				created_by_agent: Schema.NullOr(Schema.String),
+				responsible_human: Schema.NullOr(Schema.String),
+				source_url: Schema.NullOr(Schema.String),
+				registry_observed_at: Schema.String.check(Schema.isPattern(ISO_DATETIME_UTC_RE)),
+			}),
+			[Schema.Record(Schema.String, Schema.Unknown)],
+		),
+	}),
+	[Schema.Record(Schema.String, Schema.Unknown)],
+);
 
-export type CapabilityAcquisition = z.infer<typeof capabilityAcquisitionSchema>;
+export type CapabilityAcquisition = typeof capabilityAcquisitionSchema.Type;
 
 interface AcquisitionRow {
 	provider: string;

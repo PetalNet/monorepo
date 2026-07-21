@@ -294,7 +294,7 @@ export async function readAvailability(
 					coalesce(source_agent, source_service) as probe_runner
 				from lake_events
 				where type = 'service.probe'
-					and received_at >= ${now} - (${windowS} * interval '1 second')
+					and received_at >= ${now}::timestamptz - (${windowS} * interval '1 second')
 			), samples as (
 				select *, lag(received_at) over (partition by subject order by received_at) as previous_at
 				from parsed
@@ -331,7 +331,7 @@ export async function readAvailability(
 						then (measures->>'latency_ms')::double precision else null end as latency_ms,
 					row_number() over (partition by subject order by received_at desc) as position
 				from lake_events where type = 'service.probe'
-					and received_at >= ${now} - (${windowS} * interval '1 second')
+					and received_at >= ${now}::timestamptz - (${windowS} * interval '1 second')
 			)
 			select subject, ts, ok, latency_ms from parsed
 			where position <= 60 and ok is not null order by subject, ts`;

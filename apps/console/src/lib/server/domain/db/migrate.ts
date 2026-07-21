@@ -1,5 +1,5 @@
 import { asynchronously } from "#domain/iteration";
-// The ordered security migration (contract §3, PHASE1-DESIGN §3). ONE ordered path, no window:
+// The ordered security migration (contract §3). ONE ordered path, no window:
 // roles → tables → RLS enable+force + policy → RO role REVOKE then GRANT SELECT → security_invoker
 // views. Idempotent (guarded CREATEs) so it is safe to run at every boot and in tests.
 //
@@ -1187,7 +1187,7 @@ export async function migrate(admin: Sql, opts?: MigrateOpts): Promise<void> {
 		if (rlsStart < 0) throw new Error("migration RLS boundary missing");
 		for await (const stmt of asynchronously(DOMAIN_SCHEMA_STATEMENTS.slice(0, rlsStart)))
 			await tx.unsafe(stmt);
-		await backfillSemanticDocuments(tx as unknown as Sql);
+		await backfillSemanticDocuments(tx);
 		for await (const stmt of asynchronously(DOMAIN_SCHEMA_STATEMENTS.slice(rlsStart)))
 			await tx.unsafe(stmt);
 	});

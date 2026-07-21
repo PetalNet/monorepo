@@ -1,25 +1,22 @@
-import { getRequestEvent, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import { validateContract, type CommsEvent, type ReadEnvelope } from "$lib/api/types";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Effect, Schema } from "effect";
+import { Query } from "svelte-effect-runtime";
 
-const filters = z
-	.object({
-		type: z.enum(["task-card", "rpc", "mail"]).nullable(),
-		agent: z.string().max(64).nullable(),
-		taskId: z.number().int().positive().nullable(),
-		cursor: z
-			.string()
-			.regex(/^[A-Za-z0-9_-]+$/)
-			.nullable(),
-	})
-	.strict();
+const filters = Schema.Struct({
+	type: Schema.NullOr(Schema.Literals(["task-card", "rpc", "mail"])),
+	agent: Schema.NullOr(Schema.String.check(Schema.isMaxLength(64))),
+	taskId: Schema.NullOr(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
+	cursor: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/))),
+}).annotate(rejectUnknownKeys);
 
 const relativeIso = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1_000).toISOString();
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function headers(): Headers {
@@ -88,10 +85,9 @@ function mockRows(): CommsEvent[] {
 }
 
 /** Server-side RPC: browser code never reaches the query plane directly. */
-export const getCommsLog = query(
-	filters,
-	async ({ type, agent, taskId, cursor }): Promise<ReadEnvelope<CommsEvent>> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") {
+export const getCommsLog = Query(filters, ({ type, agent, taskId, cursor }) =>
+	Effect.promise(async (): Promise<ReadEnvelope<CommsEvent>> => {
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") {
 			const needle = agent?.trim().toLocaleLowerCase();
 			const method = type
 				? ({ "task-card": "comms.card", rpc: "comms.rpc", mail: "comms.mail" } as const)[type]
@@ -130,5 +126,5 @@ export const getCommsLog = query(
 		if (!result.items.every((item) => validateContract("CommsEvent", item).valid))
 			error(502, "Correspondence response failed its contract");
 		return result;
-	},
+	}),
 );

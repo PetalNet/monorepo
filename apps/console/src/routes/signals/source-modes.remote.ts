@@ -1,8 +1,10 @@
-import { command, getRequestEvent, query } from "$app/server";
+import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
 import type { OpResult, ReadEnvelope, SignalSourceModeItem } from "$lib/api/types";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { Effect, Schema } from "effect";
+import { Command, Query } from "svelte-effect-runtime";
 
 let mockModes: SignalSourceModeItem[] = [
 	{
@@ -20,11 +22,11 @@ interface SignalSourceModeMutation {
 }
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE !== "live";
+	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function forwardedHeaders(contentType = false): Headers {
@@ -56,23 +58,24 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 	return (await response.json()) as T;
 }
 
-export const getSignalSourceModes = query(async (): Promise<SignalSourceModeItem[]> => {
-	if (isMock()) return mockModes;
-	const response = await apiJson<ReadEnvelope<SignalSourceModeItem>>("/signal-sources?limit=1000");
-	return response.items;
-});
+export const getSignalSourceModes = Query(
+	Effect.promise(async (): Promise<SignalSourceModeItem[]> => {
+		if (isMock()) return mockModes;
+		const response = await apiJson<ReadEnvelope<SignalSourceModeItem>>(
+			"/signal-sources?limit=1000",
+		);
+		return response.items;
+	}),
+);
 
-const modeArgs = z
-	.object({
-		sourceService: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/),
-		mode: z.enum(["normal", "development"]),
-		note: z.string().max(240).optional(),
-	})
-	.strict();
+const modeArgs = Schema.Struct({
+	sourceService: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)),
+	mode: Schema.Literals(["normal", "development"]),
+	note: Schema.optional(Schema.String.check(Schema.isMaxLength(240))),
+}).annotate(rejectUnknownKeys);
 
-export const setSignalSourceMode = command(
-	modeArgs,
-	async ({ sourceService, mode, note }): Promise<SignalSourceModeMutation> => {
+export const setSignalSourceMode = Command(modeArgs, ({ sourceService, mode, note }) =>
+	Effect.promise(async (): Promise<SignalSourceModeMutation> => {
 		if (isMock()) {
 			const previousMode =
 				mockModes.find((item) => item.source_service === sourceService)?.mode ?? "normal";
@@ -84,7 +87,7 @@ export const setSignalSourceMode = command(
 				updated_by: "parker",
 			};
 			mockModes = [...mockModes.filter((item) => item.source_service !== sourceService), saved];
-			void getSignalSourceModes().refresh();
+			void Effect.runPromise(getSignalSourceModes().refresh());
 			return {
 				item: saved,
 				undo: {
@@ -109,10 +112,10 @@ export const setSignalSourceMode = command(
 			}),
 		});
 		if (!result.ok) error(400, result.error.message);
-		void getSignalSourceModes().refresh();
+		void Effect.runPromise(getSignalSourceModes().refresh());
 		return {
 			item: result.result as SignalSourceModeItem,
 			...(result.undo ? { undo: result.undo } : {}),
 		};
-	},
+	}),
 );

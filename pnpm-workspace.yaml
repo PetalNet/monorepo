@@ -104,6 +104,7 @@ catalogs:
 
 catalog:
   "@better-auth/test-utils": 1.7.0-rc.1
+  crossws: ^0.3.5
   "@effect/sql-pg": 4.0.0-beta.98
   "@opentelemetry/api": ^1.9.0
   "@opentelemetry/auto-instrumentations-node": ^0.67.2
@@ -122,14 +123,5 @@ catalog:
   svelte-plugin-composer: 1.0.1
   mode-watcher: ^1.1.0
   nanoid: ^6.0.0
-  postgres: ^3.4.9
   uuid: ^14.0.1
-  zod: ^4.4.3
-  ws: ^8.21.1
-  "@types/ws": ^8.18.1
   "@sentry/node": ^10.65.0
-  "@fastify/cors": ^11.3.0
-  "@fastify/websocket": ^11.3.0
-  fastify: ^5.10.0
-  "@fontsource/geist-sans": ^5.2.5
-  "@fontsource/geist-mono": ^5.2.8

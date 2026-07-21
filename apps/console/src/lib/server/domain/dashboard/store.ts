@@ -12,7 +12,7 @@ import { materializePanel } from "../render/engine.ts";
 import type { MaterializedPanel, PanelSpecV2, RenderArtifact } from "../render/types.ts";
 import { dashboardSaveSchema } from "../render/validation.ts";
 
-type DashboardInput = ReturnType<typeof dashboardSaveSchema.parse>;
+type DashboardInput = typeof dashboardSaveSchema.Type;
 
 interface ItemRow {
 	id: string;
@@ -104,7 +104,7 @@ async function rebindDashboardPayload(
 		return result;
 	}
 	const panels: PanelSpecV2[] = [];
-	for await (const raw of asynchronously(input.panels as PanelSpecV2[])) {
+	for await (const raw of asynchronously(input.panels as unknown as PanelSpecV2[])) {
 		let panel: PanelSpecV2 = {
 			...raw,
 			render: null,
@@ -128,7 +128,13 @@ async function rebindDashboardPayload(
 		}
 		panels.push(panel);
 	}
-	const branch = input.branch ? structuredClone(input.branch) : null;
+	// The clone is mutated below (mark scrubbing + ref rebinding); the decoded input stays readonly.
+	const branch = input.branch
+		? (structuredClone(input.branch) as {
+				selected_mark?: { datum?: unknown; value?: unknown; query_ref?: string } | null;
+				[key: string]: unknown;
+			})
+		: null;
 	const selectedRef = branch?.selected_mark?.query_ref;
 	if (branch?.selected_mark) {
 		delete branch.selected_mark.datum;
@@ -195,7 +201,7 @@ export async function saveDashboard(
 			const previous = raced.at(0);
 			if (!previous || previous.request_hash !== hash)
 				throw new DashboardError("id_reused", "mutation id was already used with a different body");
-			const item = await dashboardById(tx as unknown as Sql, previous.dashboard_id);
+			const item = await dashboardById(tx, previous.dashboard_id);
 			if (!item) throw new Error("dashboard mutation points to a missing item");
 			if (item.scope !== scope || !principal.scopes.includes(item.scope))
 				throw new DashboardError("scope_denied", "dashboard scope is not visible to the caller");
@@ -209,7 +215,7 @@ export async function saveDashboard(
 			values
 			  (${id}, ${id}, 'artifact', ${input.title}, ${scope}, 'unsorted', 'verified-shared',
 			   'html', ${principal.id}, ${principal.kind === "human" ? principal.id : null},
-			   'semi', ${tx.json({ artifact_type: "dashboard" })}, ${tx.json(payload as never)})
+			   'semi', ${tx.json({ artifact_type: "dashboard" })}, ${tx.json(payload)})
 			returning id, title, scope, is_home, created_by, responsible_human, payload, updated_at`;
 		return itemEnvelope(rows[0]);
 	});

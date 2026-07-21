@@ -1,48 +1,57 @@
 import { createHash } from "node:crypto";
 
-import { z } from "zod";
+import { Schema } from "effect";
 
 import { asynchronously } from "#domain/iteration";
 
 import type { Db, Sql } from "../db/pool.ts";
+import { ISO_DATETIME_OFFSET_RE, rejectUnknownKeys } from "../schema-conventions.ts";
 import { SCOPE_RE } from "../scope.ts";
 import type { Principal } from "./principal.ts";
 
-const subjectSchema = z
-	.string()
-	.min(1)
-	.max(160)
-	.regex(/^(?:tier:|agent:|system:)?[a-z0-9][a-z0-9._:-]*$/);
-const relationSchema = z.enum(["viewer", "editor", "operator", "owner"]);
-const objectSchema = z.string().refine((value) => SCOPE_RE.test(value), "invalid grant object");
+const subjectSchema = Schema.String.check(
+	Schema.isMinLength(1),
+	Schema.isMaxLength(160),
+	Schema.isPattern(/^(?:tier:|agent:|system:)?[a-z0-9][a-z0-9._:-]*$/),
+);
+const relationSchema = Schema.Literals(["viewer", "editor", "operator", "owner"]);
+const objectSchema = Schema.String.check(
+	Schema.makeFilter((value: string) => SCOPE_RE.test(value) || "invalid grant object"),
+);
+const isoDateTime = Schema.String.check(Schema.isPattern(ISO_DATETIME_OFFSET_RE));
 
-export const grantMutationSchema = z
-	.object({
-		schema_version: z.literal(1),
-		id: z.uuid(),
-		action: z.enum(["grant", "revoke"]),
-		subject: subjectSchema,
-		relation: relationSchema,
-		object: objectSchema,
-		condition: z.string().min(1).max(128).nullable().optional(),
-		valid_at: z.iso.datetime({ offset: true }).optional(),
-		invalid_at: z.iso.datetime({ offset: true }).nullable().optional(),
-	})
-	.strict()
-	.superRefine((input, ctx) => {
-		if (input.action === "revoke" && (input.valid_at || input.invalid_at || input.condition))
-			ctx.addIssue({ code: "custom", message: "revoke accepts only the grant tuple" });
-		if (input.invalid_at && !input.valid_at)
-			ctx.addIssue({ code: "custom", message: "valid_at is required when invalid_at is supplied" });
-		else if (
-			input.valid_at &&
-			input.invalid_at &&
-			Date.parse(input.invalid_at) <= Date.parse(input.valid_at)
-		)
-			ctx.addIssue({ code: "custom", message: "invalid_at must be after valid_at" });
-	});
+export const grantMutationSchema = Schema.Struct({
+	schema_version: Schema.Literal(1),
+	id: Schema.String.check(Schema.isUUID()),
+	action: Schema.Literals(["grant", "revoke"]),
+	subject: subjectSchema,
+	relation: relationSchema,
+	object: objectSchema,
+	condition: Schema.optional(
+		Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))),
+	),
+	valid_at: Schema.optional(isoDateTime),
+	invalid_at: Schema.optional(Schema.NullOr(isoDateTime)),
+})
+	.annotate(rejectUnknownKeys)
+	.check(
+		Schema.makeFilter((input) => {
+			const issues: Schema.FilterIssue[] = [];
+			if (input.action === "revoke" && (input.valid_at || input.invalid_at || input.condition))
+				issues.push("revoke accepts only the grant tuple");
+			if (input.invalid_at && !input.valid_at)
+				issues.push("valid_at is required when invalid_at is supplied");
+			else if (
+				input.valid_at &&
+				input.invalid_at &&
+				Date.parse(input.invalid_at) <= Date.parse(input.valid_at)
+			)
+				issues.push("invalid_at must be after valid_at");
+			return issues;
+		}),
+	);
 
-export type GrantMutation = z.infer<typeof grantMutationSchema>;
+export type GrantMutation = typeof grantMutationSchema.Type;
 
 interface GrantRow {
 	id: string;
@@ -186,11 +195,9 @@ export async function mutateGrant(
 		// Lock the object and (for item sharing) its containing scope in deterministic order. A
 		// concurrent revoke of the caller's direct or inherited owner edge cannot commit between the
 		// authorization check and this mutation.
-		for await (const object of asynchronously(
-			await authorizationObjects(tx as unknown as Sql, input.object),
-		))
+		for await (const object of asynchronously(await authorizationObjects(tx, input.object)))
 			await tx`select pg_advisory_xact_lock(hashtextextended(${object}, 705706))`;
-		if (!(await ownsObject(tx as unknown as Sql, principal, input.object)))
+		if (!(await ownsObject(tx, principal, input.object)))
 			throw new GrantError("grant_denied", "owner relation required");
 
 		let result: Record<string, unknown>;
@@ -220,7 +227,7 @@ export async function mutateGrant(
 				zookie: head[0].zookie,
 			};
 		}
-		await tx`update grant_mutations set result = ${tx.json(result as never)}
+		await tx`update grant_mutations set result = ${tx.json(result)}
 			where principal_id = ${principal.id} and request_id = ${input.id}`;
 		return result;
 	});

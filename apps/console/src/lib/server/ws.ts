@@ -1,113 +1,108 @@
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, Server } from "node:http";
 
-import { WebSocket, WebSocketServer, type RawData } from "ws";
+import type { HandleWebsocket } from "@petalnet/svelte-ws";
+import type { Peer } from "crossws";
 
-import { formatUnknown } from "#format";
-
+import { consoleApi, consoleServices } from "./api/instance";
 import type { Principal } from "./domain/auth/principal";
-import type { Services } from "./domain/substrate";
+import { attachBusConnection, type BusSocket } from "./domain/bus/connection";
+import { inertExceptionMonitor } from "./domain/observability";
 
-type ResolvePrincipal = (request: IncomingMessage) => Promise<Principal | null>;
+/**
+ * The console's WebSocket surface, dispatched by SvelteKit (via @petalnet/svelte-ws + crossws): the
+ * ordered bus at /api/v1/bus/ws and the terminal seam at /api/v1/terminal/ws. Browser sessions
+ * resolve through the better-auth store; agent bearer tokens and dev principals fall through to the
+ * console API core's chain, so sockets accept the same credentials as the REST surface.
+ */
+export const handleWebsocket: HandleWebsocket = async ({ socket, peer, request }) => {
+	const path = request.url.pathname;
+	if (path !== "/api/v1/bus/ws" && path !== "/api/v1/terminal/ws") {
+		socket.close(1008, "unknown websocket path");
+		return;
+	}
+	const [api, services] = await Promise.all([consoleApi(), consoleServices()]);
+	// Mirror the REST dispatch's origin gate (console-api dispatch): when a browser origin is
+	// configured, an upgrade carrying a different Origin is rejected before any cookie auth is
+	// resolved — the CSWSH counterpart of the HTTP path's `origin_denied`. Requests without an
+	// Origin header (agent bearer clients) stay origin-agnostic, exactly as on the HTTP path.
+	if (api.browserOrigin) {
+		const origin = request.headers.get("origin");
+		if (origin && origin !== api.browserOrigin) {
+			socket.close(1008, "origin is not allowed");
+			return;
+		}
+	}
+	const hostname = request.url.hostname;
+	const resolvePrincipal = async (): Promise<Principal | null> =>
+		api.resolvePrincipal(request.headers, hostname);
 
-const object = (value: unknown): Record<string, unknown> | null =>
-	value !== null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-
-/** Attach the ordered bus and terminal upgrade paths to the one Node HTTP server. */
-export function attachConsoleWebSockets(
-	server: Server,
-	services: Services,
-	resolvePrincipal: ResolvePrincipal,
-): () => void {
-	const sockets = new WebSocketServer({ noServer: true });
-	const principals = new WeakMap<WebSocket, Principal>();
-	const onUpgrade = (
-		request: IncomingMessage,
-		socket: import("node:stream").Duplex,
-		head: Buffer,
-	) => {
-		const path = new URL(request.url ?? "/", "http://console.local").pathname;
-		if (path !== "/api/v1/bus/ws" && path !== "/api/v1/terminal/ws") return;
-		void resolvePrincipal(request).then((principal) => {
-			if (!principal) return socket.destroy();
-			sockets.handleUpgrade(request, socket, head, (webSocket) => {
-				principals.set(webSocket, principal);
-				sockets.emit("connection", webSocket, request);
-			});
-			return undefined;
-		});
-	};
-	server.on("upgrade", onUpgrade);
-
-	sockets.on("connection", (socket: WebSocket, request: IncomingMessage) => {
-		const principal = principals.get(socket);
+	if (path === "/api/v1/terminal/ws") {
+		const principal = await resolvePrincipal();
 		if (!principal) {
-			socket.close(1008, "principal unavailable");
+			socket.close(1008, "valid credentials required");
 			return;
 		}
-		const ownerId = `${principal.id}:${randomUUID()}`;
-		const subscriptions = new Set<string>();
-		const path = new URL(request.url ?? "/", "http://console.local").pathname;
-		if (path === "/api/v1/terminal/ws") {
-			socket.on("message", () => {
-				socket.send(
-					JSON.stringify({
-						schema_version: 1,
-						stream_id: randomUUID(),
-						kind: "error",
-						seq: 0,
-						code: "pty_adapter_unavailable",
-					}),
-				);
-			});
-			return;
-		}
-		const stopGrantWatch = services.onGrantChange(() => {
-			services.broker.revalidateScopes(ownerId, [...subscriptions], principal.scopes);
-		});
-		socket.on("message", (bytes: RawData) => {
-			let raw: Record<string, unknown> | null;
-			try {
-				raw = object(JSON.parse(formatUnknown(bytes)) as unknown);
-			} catch {
-				socket.close(1007, "invalid JSON");
-				return;
-			}
-			if (
-				!raw ||
-				raw["action"] !== "subscribe" ||
-				typeof raw["sub_id"] !== "string" ||
-				typeof raw["pattern"] !== "string"
-			) {
-				socket.close(1008, "invalid subscription");
-				return;
-			}
-			const subId = raw["sub_id"];
-			void services.broker.subscribe(
-				ownerId,
-				{
-					subId,
-					pattern: raw["pattern"],
-					scopes: principal.scopes,
-					...(typeof raw["since"] === "number" ? { since: raw["since"] } : {}),
-					...(object(raw["filter"]) ? { filter: object(raw["filter"]) as never } : {}),
-				},
-				(frame) => {
-					if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
-				},
-				() => subscriptions.add(subId),
+		socket.on("message", () => {
+			socket.send(
+				JSON.stringify({
+					schema_version: 1,
+					stream_id: randomUUID(),
+					kind: "error",
+					seq: 0,
+					code: "pty_adapter_unavailable",
+				}),
 			);
 		});
-		socket.on("close", () => {
-			stopGrantWatch();
-			for (const subId of subscriptions) services.broker.unsubscribe(ownerId, subId);
-		});
-	});
+		return;
+	}
 
-	return () => {
-		server.off("upgrade", onUpgrade);
-		sockets.close();
-	};
+	const busSocket: BusSocket = toBusSocket(socket, peer);
+	attachBusConnection(busSocket, {
+		services,
+		monitor: inertExceptionMonitor,
+		resolvePrincipal,
+		refreshable: true,
+		counters: api.busCounters,
+	});
+};
+
+interface RawWebSocket {
+	bufferedAmount?: number;
+	ping?: () => void;
+	terminate?: () => void;
+	on?: (event: "pong", handler: () => void) => void;
 }
+
+const toBusSocket = (socket: Parameters<HandleWebsocket>[0]["socket"], peer: Peer): BusSocket => {
+	const raw = peer.websocket as RawWebSocket;
+	return {
+		send: (text) => {
+			peer.send(text);
+		},
+		close: () => {
+			socket.close();
+		},
+		isOpen: () => socket.isOpen(),
+		onMessage: (handler) => {
+			socket.on("message", (data) => {
+				handler(data);
+			});
+		},
+		onClose: (handler) => {
+			socket.on("close", handler);
+		},
+		bufferedAmount: () => raw.bufferedAmount ?? 0,
+		ping: () => {
+			if (!raw.ping) return false;
+			raw.ping();
+			return true;
+		},
+		terminate: () => {
+			if (raw.terminate) raw.terminate();
+			else socket.close();
+		},
+		onPong: (handler) => {
+			raw.on?.("pong", handler);
+		},
+	};
+};

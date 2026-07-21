@@ -1,25 +1,19 @@
-import { z } from "zod";
+import { Effect, Schema } from "effect";
 
 import { formatUnknown } from "#format";
 
 import { resolveScopes, sha256, type Principal } from "../auth/principal.ts";
-import { ProposalError, proposeMutation, type TrackerProposalWriter } from "../auth/proposals.ts";
-import { shouldProposeMutation } from "../auth/tiers.ts";
 import {
-	dashboardTargetScope,
 	listLibraryCuration,
 	listLibraryItems,
 	loadDashboard,
 	materializeTextPanel,
 	readLibraryItem,
-	saveDashboard,
-	setHomeDashboard,
 } from "../dashboard/store.ts";
 import type { Db, Sql } from "../db/pool.ts";
 import { scrubUnknown } from "../ingest/scrubber.ts";
 import { readQueryRecord } from "../query/history.ts";
 import { runStructured, type QueryRequest } from "../query/structured.ts";
-import type { TrackerProposalLookup } from "../reads/tracker.ts";
 import { materializePanel } from "../render/engine.ts";
 import type { PanelSpecV2 } from "../render/types.ts";
 import {
@@ -27,82 +21,96 @@ import {
 	renderRequestSchema,
 	selectedMarkSchema,
 } from "../render/validation.ts";
+import { rejectUnknownKeys } from "../schema-conventions.ts";
 
-const windowSchema = z
-	.object({
-		ops: z
-			.array(
-				z
-					.object({
-						verb: z.enum(["place", "size", "group", "highlight", "clear", "pin"]),
-						panel_index: z.number().int().min(0).max(59).optional(),
-						layout: z.record(z.string(), z.unknown()).optional(),
-					})
-					.loose(),
-			)
-			.max(100),
-	})
-	.strict();
+const windowSchema = Schema.Struct({
+	ops: Schema.Array(
+		// Ops tolerate extra keys (zod `.loose()` parity): the rest record preserves unknown keys.
+		Schema.StructWithRest(
+			Schema.Struct({
+				verb: Schema.Literals(["place", "size", "group", "highlight", "clear", "pin"]),
+				panel_index: Schema.optional(
+					Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 59 })),
+				),
+				layout: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+			}),
+			[Schema.Record(Schema.String, Schema.Unknown)],
+		),
+	).check(Schema.isMaxLength(100)),
+}).annotate(rejectUnknownKeys);
 
-const textSchema = z
-	.object({
-		prose: z.string().max(65_536),
-		bindings: z
-			.array(
-				z
-					.object({
-						query_ref: z.string().max(100),
-						column: z.string().max(128),
-						agg: z.string().max(64).optional(),
-					})
-					.strict(),
-			)
-			.max(100)
-			.default([]),
-	})
-	.strict();
+const textSchema = Schema.Struct({
+	prose: Schema.String.check(Schema.isMaxLength(65_536)),
+	bindings: Schema.Array(
+		Schema.Struct({
+			query_ref: Schema.String.check(Schema.isMaxLength(100)),
+			column: Schema.String.check(Schema.isMaxLength(128)),
+			agg: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
+		}).annotate(rejectUnknownKeys),
+	)
+		.check(Schema.isMaxLength(100))
+		.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+}).annotate(rejectUnknownKeys);
 
-const dashboardToolSchema = z.discriminatedUnion("action", [
-	z.object({ action: z.literal("save"), dashboard: dashboardSaveSchema }).strict(),
-	z.object({ action: z.literal("load"), id: z.string().max(100) }).strict(),
-	z
-		.object({
-			action: z.literal("set_home"),
-			id: z.string().max(100),
-			request_id: z.uuid(),
-		})
-		.strict(),
+const dashboardToolSchema = Schema.Union([
+	Schema.Struct({ action: Schema.Literal("save"), dashboard: dashboardSaveSchema }).annotate(
+		rejectUnknownKeys,
+	),
+	Schema.Struct({
+		action: Schema.Literal("load"),
+		id: Schema.String.check(Schema.isMaxLength(100)),
+	}).annotate(rejectUnknownKeys),
+	Schema.Struct({
+		action: Schema.Literal("set_home"),
+		id: Schema.String.check(Schema.isMaxLength(100)),
+		request_id: Schema.String.check(Schema.isUUID()),
+	}).annotate(rejectUnknownKeys),
 ]);
 
-const contextSchema = z
-	.object({
-		payload: selectedMarkSchema.extend({
-			value: z.unknown().refine((value) => value !== undefined, "value is required"),
-		}),
-	})
-	.strict();
+const contextSchema = Schema.Struct({
+	payload: Schema.Struct({
+		...selectedMarkSchema.fields,
+		value: Schema.Unknown.check(
+			Schema.makeFilter((value) => value !== undefined || "value is required"),
+		),
+	}).annotate(rejectUnknownKeys),
+}).annotate(rejectUnknownKeys);
 
-const librarySurfaceSchema = z.discriminatedUnion("action", [
-	z
-		.object({
-			action: z.literal("view"),
-			view: z.enum(["desk", "graph", "kanban", "table"]),
-		})
-		.strict(),
-	z
-		.object({
-			action: z.literal("search"),
-			query: z.string().trim().min(1).max(500),
-			kind: z
-				.enum(["task", "project", "doc", "artifact", "research", "fact", "decision", "how-to"])
-				.optional(),
-			limit: z.number().int().min(1).max(100).default(20),
-		})
-		.strict(),
-	z.object({ action: z.literal("open"), item_id: z.string().min(1).max(256) }).strict(),
-	z
-		.object({ action: z.literal("curation"), limit: z.number().int().min(1).max(100).default(20) })
-		.strict(),
+const librarySurfaceLimit = Schema.Number.check(
+	Schema.isInt(),
+	Schema.isBetween({ minimum: 1, maximum: 100 }),
+).pipe(Schema.withDecodingDefault(Effect.succeed(20)));
+
+const librarySurfaceSchema = Schema.Union([
+	Schema.Struct({
+		action: Schema.Literal("view"),
+		view: Schema.Literals(["desk", "graph", "kanban", "table"]),
+	}).annotate(rejectUnknownKeys),
+	Schema.Struct({
+		action: Schema.Literal("search"),
+		query: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+		kind: Schema.optional(
+			Schema.Literals([
+				"task",
+				"project",
+				"doc",
+				"artifact",
+				"research",
+				"fact",
+				"decision",
+				"how-to",
+			]),
+		),
+		limit: librarySurfaceLimit,
+	}).annotate(rejectUnknownKeys),
+	Schema.Struct({
+		action: Schema.Literal("open"),
+		item_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+	}).annotate(rejectUnknownKeys),
+	Schema.Struct({
+		action: Schema.Literal("curation"),
+		limit: librarySurfaceLimit,
+	}).annotate(rejectUnknownKeys),
 ]);
 
 const TOOLS = [
@@ -265,7 +273,7 @@ async function callTool(
 	const { db } = services;
 	if (name === "stats.query") return runStructured(db.app, principal.scopes, args as QueryRequest);
 	if (name === "viz.render") {
-		const parsed = renderRequestSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(renderRequestSchema)(args);
 		const record = await readQueryRecord(db.app, principal.scopes, parsed.query_ref);
 		if (!record) throw new Error("query_not_found");
 		return materializePanel(
@@ -274,7 +282,7 @@ async function callTool(
 		);
 	}
 	if (name === "text.surface") {
-		const parsed = textSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(textSchema)(args);
 		const bindings = parsed.bindings
 			.map(
 				({ query_ref, column, agg }) => `{{stat:${query_ref}#${column}${agg ? `[${agg}]` : ""}}}`,
@@ -288,67 +296,29 @@ async function callTool(
 		});
 	}
 	if (name === "window.arrange") {
-		const parsed = windowSchema.parse(args);
-		const rows = await db.writer<{ window_layout: Record<string, unknown> }[]>`
-			update assistant_sessions set window_layout = ${db.writer.json({ ops: parsed.ops } as never)}, updated_at = now()
-			where principal_id = ${principal.id} returning window_layout`;
-		return { schema_version: 1, layout: rows.at(0)?.window_layout ?? { ops: [] } };
+		const parsed = Schema.decodeUnknownSync(windowSchema)(args);
+		return services.executeMutation(principal, "window.arrange", { ops: parsed.ops });
 	}
 	if (name === "dashboard.manage") {
-		const parsed = dashboardToolSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(dashboardToolSchema)(args);
 		if (parsed.action === "save") {
-			const scope = dashboardTargetScope(principal, parsed.dashboard.scope);
-			if (!scope || !principal.scopes.includes(scope)) throw new Error("scope_denied");
-			if (await shouldProposeMutation(db.admin, principal, scope, "editor")) {
-				if (!services.trackerProposals || !services.trackerProposalLookup)
-					throw new ProposalError(
-						"tracker_unavailable",
-						"tracker proposal writer is unavailable",
-						true,
-					);
-				return proposeMutation(
-					db.writer,
-					services.trackerProposals,
-					services.trackerProposalLookup,
-					principal,
-					{ operation: "dashboard.save", requestId: parsed.dashboard.id, args: parsed.dashboard },
-				);
-			}
-			return saveDashboard(db, principal, parsed.dashboard);
+			return services.executeMutation(principal, "dashboard.save", parsed.dashboard);
 		}
 		if (parsed.action === "load") return loadDashboard(db.app, principal.scopes, parsed.id);
-		if (!(await loadDashboard(db.app, principal.scopes, parsed.id)))
-			throw new Error("dashboard_not_found");
-		if (await shouldProposeMutation(db.admin, principal, `item:${parsed.id}`, "editor")) {
-			if (!services.trackerProposals || !services.trackerProposalLookup)
-				throw new ProposalError(
-					"tracker_unavailable",
-					"tracker proposal writer is unavailable",
-					true,
-				);
-			return proposeMutation(
-				db.writer,
-				services.trackerProposals,
-				services.trackerProposalLookup,
-				principal,
-				{
-					operation: "dashboard.set_home",
-					requestId: parsed.request_id,
-					args: { id: parsed.id },
-				},
-			);
-		}
-		return setHomeDashboard(db.writer, principal, parsed.id);
+		return services.executeMutation(
+			principal,
+			"dashboard.set_home",
+			{ id: parsed.id },
+			parsed.request_id,
+		);
 	}
 	if (name === "context.receive") {
-		const parsed = contextSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(contextSchema)(args);
 		if (!scrubUnknown(parsed.payload, "context.payload").ok) throw new Error("secret_detected");
-		await db.writer`update assistant_sessions set last_context = ${db.writer.json(parsed.payload as never)},
-		  updated_at = now() where principal_id = ${principal.id}`;
-		return { schema_version: 1, accepted: true };
+		return services.executeMutation(principal, "context.receive", { payload: parsed.payload });
 	}
 	if (name === "library.surface") {
-		const parsed = librarySurfaceSchema.parse(args);
+		const parsed = Schema.decodeUnknownSync(librarySurfaceSchema)(args);
 		let intent: Record<string, unknown>;
 		let data: Record<string, unknown> | null = null;
 		if (parsed.action === "view") intent = { view: parsed.view };
@@ -372,7 +342,7 @@ async function callTool(
 		}
 		await db.writer`
 			update assistant_sessions
-			set window_layout = jsonb_set(window_layout, '{library}', ${db.writer.json(intent as never)}::jsonb, true),
+			set window_layout = jsonb_set(window_layout, '{library}', ${db.writer.json(intent)}::jsonb, true),
 			    updated_at = now()
 			where principal_id = ${principal.id}`;
 		return { schema_version: 1, surface: "library", intent, data };
@@ -431,7 +401,6 @@ export async function handleAssistantMcp(
 				(response["result"] as Record<string, unknown>)["structuredContent"] = result;
 			return response;
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "tool failed";
 			const code =
 				typeof error === "object" &&
 				error !== null &&
@@ -439,12 +408,28 @@ export async function handleAssistantMcp(
 				typeof error.code === "string"
 					? error.code
 					: null;
+			services.captureException(error);
+			const knownMessages: Record<string, string> = {
+				invalid_args: "Tool arguments are invalid",
+				bad_op_call: "Tool operation request is invalid",
+				lane_denied: "The required lane is not available",
+				scope_denied: "The requested target is not authorized",
+				rate_limited: "Tool call rate limit exceeded",
+				tracker_unavailable: "The proposal tracker is unavailable",
+				secret_detected: "The payload contains restricted material",
+				dashboard_not_found: "Dashboard not found",
+				executor_unreachable: "The operation executor is unavailable",
+				audit_unavailable: "The operation audit log is unavailable",
+				op_failed: "The operation failed",
+			};
+			const publicCode = code && knownMessages[code] ? code : "tool_failed";
+			const message = knownMessages[publicCode] ?? "Tool call failed";
 			return {
 				jsonrpc: "2.0",
 				id,
 				result: {
 					isError: true,
-					content: [{ type: "text", text: code ? `${code}: ${message}` : message }],
+					content: [{ type: "text", text: `${publicCode}: ${message}` }],
 				},
 			};
 		}
@@ -455,6 +440,11 @@ export async function handleAssistantMcp(
 export interface AssistantToolServices {
 	readonly db: Db;
 	readonly cursorSecret: string;
-	readonly trackerProposals: TrackerProposalWriter | null;
-	readonly trackerProposalLookup: TrackerProposalLookup | null;
+	readonly executeMutation: (
+		principal: Principal,
+		op: string,
+		args: Record<string, unknown>,
+		requestId?: string,
+	) => Promise<Record<string, unknown>>;
+	readonly captureException: (error: unknown) => void;
 }
