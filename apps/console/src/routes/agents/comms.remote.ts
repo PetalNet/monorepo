@@ -87,7 +87,7 @@ function mockRows(): CommsEvent[] {
 export const getCommsLog = query(
 	Schema.toStandardSchemaV1(filters),
 	async ({ type, agent, taskId, cursor }): Promise<ReadEnvelope<CommsEvent>> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") {
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") {
 			const needle = agent?.trim().toLocaleLowerCase();
 			const method = type
 				? ({ "task-card": "comms.card", rpc: "comms.rpc", mail: "comms.mail" } as const)[type]

@@ -114,7 +114,7 @@ export const getLibraryItemDetail = query(
 	Schema.toStandardSchemaV1(idSchema),
 	async (id): Promise<LibraryDetail> => {
 		if (id.startsWith("task:")) {
-			const isMock = env.PUBLIC_CONSOLE_DATA_MODE !== "live";
+			const isMock = env.PUBLIC_CONSOLE_DATA_MODE === "mock";
 			const settlement = isMock
 				? mockWorkSettlement()
 				: await api<WorkSettlementSnapshot>("/work/settlement");
@@ -124,7 +124,7 @@ export const getLibraryItemDetail = query(
 			if (!task) error(404, "Library task not found");
 			return taskDetail(task, isMock);
 		}
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") {
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") {
 			const item = mockLibrary.items.find((candidate) => candidate.id === id);
 			if (!item) error(404, "Library item not found");
 			const txFrom = libraryProvenance[id].txFrom;

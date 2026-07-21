@@ -158,6 +158,9 @@
 		<SurfaceSign hero title={greeting} verdict={c.verdict} stateFact={c.stateFact}
 			crackMeta={c.crackMeta} {crackLead} lanes={data.me.lanes} date={dateStr} {hud} />
 
+		{#if remote?.isMock}
+			<div class="fixture-chip" role="status">Fixture data · mock mode</div>
+		{/if}
 
 		{#if cockpitQuery.error || staleSources.length > 0 || usingCached}
 			<div class="source-warning" role="status">
@@ -274,6 +277,18 @@
 		color: var(--text);
 		font: 500 0.75rem var(--sans);
 		cursor: pointer;
+	}
+	.fixture-chip {
+		display: inline-flex;
+		align-items: center;
+		min-height: 24px;
+		margin-top: var(--s-2);
+		border: 1px solid var(--warn-dot);
+		border-radius: var(--r-pill);
+		padding: 0 var(--s-2);
+		background: var(--warn-soft);
+		color: var(--warn-text);
+		font: 500 0.6875rem var(--mono);
 	}
 	.home-main {
 		display: flex;

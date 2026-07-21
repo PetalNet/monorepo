@@ -64,7 +64,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 export const openTerminalPeek = command(
 	Schema.toStandardSchemaV1(targetSchema),
 	async (target): Promise<PtySnapshot> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return mockSnapshot();
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return mockSnapshot();
 		return apiJson<PtySnapshot>("/terminal/peek", {
 			method: "POST",
 			headers: headers(true),
@@ -77,7 +77,7 @@ export const openTerminalPeek = command(
 export const pollTerminalPeek = query(
 	Schema.toStandardSchemaV1(pollSchema),
 	async ({ stream_id, tick }): Promise<PtySnapshot> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return mockSnapshot(stream_id, tick + 1);
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return mockSnapshot(stream_id, tick + 1);
 		return apiJson<PtySnapshot>(`/terminal/peek/${encodeURIComponent(stream_id)}`, {
 			headers: headers(),
 			cache: "no-store",
@@ -88,7 +88,7 @@ export const pollTerminalPeek = query(
 export const closeTerminalPeek = command(
 	Schema.toStandardSchemaV1(detachSchema),
 	async ({ stream_id }): Promise<void> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return;
+		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return;
 		await apiJson(`/terminal/streams/${encodeURIComponent(stream_id)}/detach`, {
 			method: "POST",
 			headers: headers(true),

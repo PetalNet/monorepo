@@ -11,7 +11,7 @@ const undoArgs = Schema.Struct({
 }).annotate(rejectUnknownKeys);
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE !== "live";
+	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
 }
 
 function apiBase(): string {
