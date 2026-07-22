@@ -14,7 +14,7 @@ export const PUT = Handler<RequestHandler>(function* ({ locals, params, request 
 	);
 	if (Option.isNone(decoded)) return Response.json({ error: "invalid tier" }, { status: 400 });
 	const { tier } = decoded.value;
-	const api = yield* Effect.tryPromise(() => consoleApi());
+	const api = yield* Effect.tryPromise(() => consoleApi()).pipe(Effect.orDie);
 	const response = yield* Effect.tryPromise(() =>
 		api.fetch(
 			new Request(new URL("/api/v1/op", request.url), {
@@ -28,6 +28,6 @@ export const PUT = Handler<RequestHandler>(function* ({ locals, params, request 
 				}),
 			}),
 		),
-	);
+	).pipe(Effect.orDie);
 	return response ?? Response.json({ error: "operation unavailable" }, { status: 503 });
 });

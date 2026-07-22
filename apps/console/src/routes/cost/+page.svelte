@@ -2,7 +2,7 @@
 	import { required } from "#format";
 	import type { PageProps } from "./$types";
 	import { goto } from "$app/navigation";
-	import { runOp } from "$lib/rpc/browser";
+	import { runOp, runRemote } from "$lib/rpc/browser";
 	import type { GovernanceItem } from "$lib/api/types";
 	import BudgetLight from "$lib/components/BudgetLight.svelte";
 	import CostComparisonPanel from "$lib/components/CostComparisonPanel.svelte";
@@ -44,7 +44,7 @@
 		comparisonTarget=row;
 		compareOpen=true;compareLoading=true;compareError=null;comparison=null;
 		try{
-			const result=await compareCost({schema_version:1,dimension,left,right,...data.ledgerWindow});
+			const result=await runRemote(compareCost({schema_version:1,dimension,left,right,...data.ledgerWindow}));
 			if(request===comparisonRequest)comparison=result;
 		}catch(error){if(request===comparisonRequest)compareError=error instanceof Error?error.message:"Comparison failed"}
 		finally{if(request===comparisonRequest)compareLoading=false}

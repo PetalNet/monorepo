@@ -13,7 +13,6 @@ import { required } from "#format";
 import { formatUnknown } from "#format";
 
 import { flattenRosterItem } from "../../api/derive.ts";
-import { isRegisteredApiRoute } from "../domain/api-routes.ts";
 import { OpCallSchema, QueryRequestSchema } from "../domain/api-schema.ts";
 import { ask } from "../domain/assistant/engine.ts";
 import { AssistantRuntimeError } from "../domain/assistant/runtime.ts";
@@ -1801,8 +1800,6 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 
 	const routes: RouteDef[] = [];
 	const route = (def: RouteDef): void => {
-		if (!isRegisteredApiRoute(def.method, def.pattern))
-			throw new Error(`API route missing from registry: ${def.method} ${def.pattern}`);
 		routes.push(def);
 	};
 

@@ -33,8 +33,13 @@ export function websocket(): Plugin {
 	function attach(httpServer: HttpServer | null | undefined): void {
 		if (!httpServer) return;
 		const dispatcher = createWebsocketDispatcher(loadHandler);
-		httpServer.prependListener("upgrade", (req, socket, head) => {
-			if (req.headers["sec-websocket-protocol"] === "vite-hmr") return;
+		const previous = httpServer.listeners("upgrade") as ((...args: unknown[]) => void)[];
+		httpServer.removeAllListeners("upgrade");
+		httpServer.on("upgrade", (req, socket, head) => {
+			if (req.headers["sec-websocket-protocol"] === "vite-hmr") {
+				for (const listener of previous) listener(req, socket, head);
+				return;
+			}
 			void dispatcher.handleUpgrade(
 				req as import("node:http").IncomingMessage,
 				socket as import("node:stream").Duplex,

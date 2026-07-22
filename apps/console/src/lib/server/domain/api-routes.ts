@@ -1,6 +1,6 @@
 export type ApiRouteMethod = "GET" | "POST";
 
-/** Canonical HTTP route registry shared by dispatch and OpenAPI generation. */
+/** Routes included in the generated OpenAPI document. */
 export const API_ROUTE_REGISTRY = [
 	["POST", "/api/v1/op"],
 	["GET", "/api/v1/health"],
@@ -70,9 +70,3 @@ export const API_ROUTE_REGISTRY = [
 	["POST", "/api/v1/terminal/streams/:streamId/input"],
 	["POST", "/api/v1/terminal/streams/:streamId/detach"],
 ] as const satisfies readonly (readonly [ApiRouteMethod, string])[];
-
-const routeKeys = new Set(API_ROUTE_REGISTRY.map(([method, path]) => `${method} ${path}`));
-
-export function isRegisteredApiRoute(method: string, path: string): boolean {
-	return routeKeys.has(`${method} ${path}`);
-}

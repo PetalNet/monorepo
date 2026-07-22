@@ -107,15 +107,18 @@ export type TerminalFrame =
 	| { schema_version: 1; stream_id: string; kind: "snapshot"; seq: number; data_b64: string }
 	| { schema_version: 1; stream_id: string; kind: "error"; seq: number; code: string };
 
-export async function readTerminalAccess(fetcher: typeof fetch = fetch): Promise<TerminalAccess> {
-	const response = await fetcher("/api/v1/terminal", {
-		headers: { accept: "application/json" },
-		credentials: "same-origin",
-	});
-	if (!response.ok)
-		throw new Error(`Terminal capability probe failed (${String(response.status)})`);
-	return (await response.json()) as TerminalAccess;
-}
+export const readTerminalAccess = (fetcher: typeof fetch = fetch): Promise<TerminalAccess> =>
+	runRemote(
+		Effect.tryPromise(async () => {
+			const response = await fetcher("/api/v1/terminal", {
+				headers: { accept: "application/json" },
+				credentials: "same-origin",
+			});
+			if (!response.ok)
+				throw new Error(`Terminal capability probe failed (${String(response.status)})`);
+			return (await response.json()) as TerminalAccess;
+		}),
+	);
 
 export function connectTerminal(
 	target: Record<string, unknown>,
