@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { searchCommandPalette } from "$lib/command-palette.remote";
-	import { runRemote } from "$lib/rpc/browser";
 	import type { PaletteItem, PaletteKind, PaletteSearchResponse } from "$lib/data/palette";
 	import { visibleNav } from "$lib/nav";
+	import { Effect } from "effect";
 	import Icon from "./Icon.svelte";
 	import ModalSurface from "./ModalSurface.svelte";
 
@@ -107,7 +107,7 @@
 		const current = ++requestId;
 		timer = setTimeout(() => void (async () => {
 			try {
-				const result = await runRemote(searchCommandPalette({ query: queryText }));
+				const result = await Effect.runPromise(searchCommandPalette({ query: queryText }));
 				if (current === requestId) remote = result;
 			} catch {
 				if (current === requestId) failed = true;

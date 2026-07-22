@@ -47,7 +47,6 @@ import {
 	loadDashboard,
 	readLibraryItem,
 	readLibraryItemHistory,
-	searchLibraryPaletteItems,
 	saveDashboard,
 	setHomeDashboard,
 	updateLibraryItemStatus,
@@ -63,7 +62,7 @@ import {
 	type ExceptionMonitor,
 } from "../domain/observability.ts";
 import { consumeOpRateLimit } from "../domain/op-rate-limit.ts";
-import { rankPaletteCandidates, type PaletteCandidate } from "../domain/palette/search.ts";
+import { searchPalette } from "../domain/palette/service.ts";
 import type { ProjectionKind } from "../domain/projector/index.ts";
 import { branchQuery } from "../domain/query/branch.ts";
 import { readQueryRecord } from "../domain/query/history.ts";
@@ -74,7 +73,6 @@ import {
 	readDeliveryConfig,
 	readEntity,
 	readSignalSourceModes,
-	searchEntity,
 	type ReadOpts,
 	readTypedEntity,
 } from "../domain/reads/entities.ts";
@@ -100,6 +98,15 @@ import { rejectUnknownKeys, UUID_RE } from "../domain/schema-conventions.ts";
 import { mergeSemanticShape, type SemanticShape } from "../domain/semantic/registry.ts";
 import { searchSemanticCorpus } from "../domain/semantic/search.ts";
 import type { Services } from "../domain/substrate.ts";
+import {
+	TerminalDomainError,
+	terminalService,
+	type TerminalAdapter,
+	type TerminalSession,
+	type TerminalTarget,
+	UnavailableTerminalAdapter,
+} from "../domain/terminal/service.ts";
+import { readUpdateApprovals } from "../domain/updates/approvals.ts";
 import {
 	canonicalJson,
 	CONTRACTS_DIR,
@@ -127,32 +134,7 @@ type OpEntry = {
 	testable: "disposable" | "dry-run-only" | "live-canary";
 };
 
-export interface TerminalTarget {
-	readonly host: string;
-	readonly tmuxSession: string;
-	readonly paneId: string;
-}
-
-export interface TerminalAdapter {
-	health(): Promise<boolean>;
-	capture(target: TerminalTarget, scrollbackLines: number): Promise<Buffer>;
-	input(target: TerminalTarget, data: Buffer): Promise<void>;
-}
-
-/** Deferred production PTY seam. Tests inject a bounded adapter explicitly. */
-class UnavailableTerminalAdapter implements TerminalAdapter {
-	health(): Promise<boolean> {
-		return Promise.resolve(false);
-	}
-
-	capture(_target: TerminalTarget, _scrollbackLines: number): Promise<Buffer> {
-		return Promise.reject(new Error("PTY adapter is not configured"));
-	}
-
-	input(_target: TerminalTarget, _data: Buffer): Promise<void> {
-		return Promise.reject(new Error("PTY adapter is not configured"));
-	}
-}
+export type { TerminalAdapter, TerminalTarget } from "../domain/terminal/service.ts";
 
 function resolvedOpCapabilities(
 	op: string,
@@ -1408,17 +1390,6 @@ export async function executeOpPlane(
 	}
 }
 
-// --- terminal session bookkeeping ------------------------------------------------------------
-type TerminalSession = {
-	principalId: string;
-	target: TerminalTarget;
-	writable: boolean;
-	attached: boolean;
-	closed: boolean;
-	seq: number;
-	timer: ReturnType<typeof setTimeout> | null;
-	end: () => void;
-};
 const terminalTargetSchema = Schema.Struct({
 	host: Schema.String.check(Schema.isPattern(/^(?:\.[0-9]{1,3}|[A-Za-z0-9][A-Za-z0-9.-]{0,252})$/)),
 	tmux_session: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)),
@@ -1602,6 +1573,7 @@ export interface ConsoleApi {
 export function buildConsoleApi(services: Services, options: ConsoleApiOptions): ConsoleApi {
 	const monitor = options.monitor ?? inertExceptionMonitor;
 	const terminal = options.terminal ?? new UnavailableTerminalAdapter();
+	const terminalDomain = terminalService(services, terminal);
 	const betterAuth = options.betterAuth ?? null;
 	const devAuthHost = options.devAuthHost ?? null;
 	const browserOrigin = betterAuth?.consoleOrigin;
@@ -1706,92 +1678,48 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		},
 	};
 
-	const terminalSessions = new Map<string, TerminalSession>();
-
-	async function emitTerminalAudit(
+	const terminalSessions = terminalDomain.sessions;
+	const terminalFailure = (error: unknown): Response => {
+		const failure =
+			error instanceof TerminalDomainError
+				? error
+				: new TerminalDomainError(503, "terminal_unavailable", "terminal unavailable", true);
+		return jsonResponse(failure.status, {
+			error: { code: failure.code, message: failure.message, retryable: failure.retryable },
+		});
+	};
+	const emitTerminalAudit = (
 		principal: Principal,
 		action: "access" | "watch" | "attach" | "input" | "detach" | "denied",
 		target: TerminalTarget | null,
 		streamId: string | null,
 		reason: string | null = null,
-	): Promise<number | null> {
-		const emission = {
-			schema_version: 1,
-			id: crypto.randomUUID(),
-			type: `term.${action}`,
-			ts: new Date().toISOString(),
-			source: { service: "console-api", host: null, agent: null },
-			subject: streamId ? `term-stream:${streamId}` : "terminal",
-			subject_kind: "other",
-			severity: action === "denied" ? "danger" : "info",
-			scope: "fleet",
-			dimensions: {
-				action,
-				principal: principal.id,
-				...(target
-					? {
-							host: target.host,
-							tmux_session: target.tmuxSession,
-							pane_id: target.paneId,
-						}
-					: {}),
-				...(streamId ? { stream_id: streamId } : {}),
-				...(reason ? { reason } : {}),
-			},
-			meta: { retention_class: "audit" },
-		};
-		const outcome = await services.emit(
-			"system:console-api",
-			emission,
-			Buffer.byteLength(JSON.stringify(emission)),
+	): Promise<number | null> =>
+		Effect.runPromise(terminalDomain.audit(principal, action, target, streamId, reason)).catch(
+			() => null,
 		);
-		return outcome.ok ? (outcome.seq as number) : null;
-	}
-
-	async function authorizeTerminal(principal: Principal): Promise<string | null> {
-		if (principal.kind !== "human") return "human principal required";
-		if (!principal.lanes.includes("term_admin")) return "term_admin lane required";
-		if (!(await hasGrant(services, principal, "fleet", "owner")))
-			return "owner relation required on fleet";
-		return null;
-	}
-
-	async function visibleResidentTarget(
-		principal: Principal,
-		target: TerminalTarget,
-	): Promise<boolean> {
-		const heartbeats = await readEntity(services.db.app, principal.scopes, "heartbeat", {
-			limit: 1000,
-		});
-		return heartbeats.items.some(
-			(item) =>
-				item["host"] === target.host &&
-				item["tmux_session"] === target.tmuxSession &&
-				item["pane_id"] === target.paneId,
+	const authorizeTerminal = (principal: Principal): Promise<string | null> =>
+		Effect.runPromise(terminalDomain.authorize(principal)).then(
+			() => null,
+			(error: unknown) =>
+				error instanceof TerminalDomainError ? error.message : "terminal unavailable",
 		);
-	}
-
-	async function ownedTerminalSession(
+	const ownedTerminalSession = async (
 		principal: Principal,
-		rawStreamId: string | undefined,
-	): Promise<TerminalSession | Response> {
-		const denial = await authorizeTerminal(principal);
-		if (denial) {
-			await emitTerminalAudit(principal, "denied", null, null, denial);
-			return jsonResponse(403, {
-				error: { code: "term_denied", message: denial, retryable: false },
+		streamId: string | undefined,
+	): Promise<TerminalSession | Response> => {
+		try {
+			return await Effect.runPromise(terminalDomain.owned(principal, streamId));
+		} catch (error) {
+			const failure =
+				error instanceof TerminalDomainError
+					? error
+					: new TerminalDomainError(503, "terminal_unavailable", "terminal unavailable", true);
+			return jsonResponse(failure.status, {
+				error: { code: failure.code, message: failure.message, retryable: failure.retryable },
 			});
 		}
-		const streamId = rawStreamId ?? "";
-		const session = terminalSessions.get(streamId);
-		if (!session || session.closed || session.principalId !== principal.id) {
-			await emitTerminalAudit(principal, "denied", null, streamId || null, "stream not owned");
-			return jsonResponse(404, {
-				error: { code: "stream_not_found", message: "terminal stream not found", retryable: false },
-			});
-		}
-		return session;
-	}
+	};
 
 	function trackerUnavailable(): Response | null {
 		if (services.tracker) return null;
@@ -2230,7 +2158,9 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			try {
 				return jsonResponse(
 					200,
-					await compareCostPair(services.db.app, principal.scopes, parsed.data, services.costMeter),
+					await Effect.runPromise(
+						compareCostPair(services.db.app, principal.scopes, parsed.data, services.costMeter),
+					),
 				);
 			} catch (error) {
 				if (error instanceof QueryError)
@@ -3074,136 +3004,10 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 					},
 				});
 			const limit = rawLimit === undefined ? 24 : Number(rawLimit);
-			const [agents, tasks, library, hosts, statistics] = await Promise.allSettled([
-				Promise.resolve().then(() =>
-					services.tracker ? readAgents(services.tracker, principal.scopes).items : [],
-				),
-				Promise.resolve().then(() =>
-					services.tracker ? readTasks(services.tracker, principal.scopes).items : [],
-				),
-				searchLibraryPaletteItems(services.db.app, principal.scopes, text, limit),
-				searchEntity(services.db.app, principal.scopes, "box_update", text, limit),
-				searchSemanticCorpus(services.db.app, principal.scopes, text, limit, "statistic"),
-			]);
-
-			const candidates: PaletteCandidate[] = [];
-			if (agents.status === "fulfilled") {
-				for (const agent of agents.value) {
-					const handle = formatUnknown(agent["handle"] ?? "");
-					if (!handle) continue;
-					const displayName = formatUnknown(agent["display_name"] ?? handle);
-					const host = typeof agent["host"] === "string" ? agent["host"] : null;
-					const role = typeof agent["role"] === "string" ? agent["role"] : "agent";
-					candidates.push({
-						id: `agent:${handle}`,
-						kind: "agent",
-						label: displayName,
-						description: `@${handle} · ${role}${host ? ` · ${host}` : ""}`,
-						href: `/agents?agent=${encodeURIComponent(handle)}`,
-						keywords: [handle, role, host ?? "", formatUnknown(agent["capabilities"] ?? "")],
-						meta: agent["active"] === 0 ? "inactive" : "resident",
-					});
-				}
-			}
-			if (tasks.status === "fulfilled") {
-				for (const task of tasks.value) {
-					const id = Number(task["id"]);
-					const title = formatUnknown(task["title"] ?? "");
-					if (!Number.isSafeInteger(id) || id < 1 || !title) continue;
-					const status = formatUnknown(task["status"] ?? "unknown");
-					const project = typeof task["project_name"] === "string" ? task["project_name"] : null;
-					const owner = formatUnknown(
-						task["claimed_by"] ?? task["assignee"] ?? task["owner"] ?? "unassigned",
-					);
-					candidates.push({
-						id: `task:${String(id)}`,
-						kind: "task",
-						label: title,
-						description: `/task/${String(id)} · ${status}${project ? ` · ${project}` : ""}`,
-						href: `/work?task=${String(id)}`,
-						keywords: [String(id), status, project ?? "", owner],
-						meta: owner,
-					});
-				}
-			}
-			if (library.status === "fulfilled") {
-				const items = Array.isArray(library.value["items"])
-					? (library.value["items"] as Record<string, unknown>[])
-					: [];
-				for (const item of items) {
-					const id = formatUnknown(item["id"] ?? "");
-					const title = formatUnknown(item["title"] ?? "");
-					if (!id || !title) continue;
-					const kind = formatUnknown(item["kind"] ?? "item");
-					const project = formatUnknown(item["project"] ?? "unfiled");
-					candidates.push({
-						id: `library:${id}`,
-						kind: "library",
-						label: title,
-						description: `${kind} · ${project}`,
-						href: `/library?item=${encodeURIComponent(id)}`,
-						keywords: [id, kind, project, formatUnknown(item["status"] ?? "")],
-						meta: formatUnknown(item["status"] ?? ""),
-					});
-				}
-			}
-			if (hosts.status === "fulfilled") {
-				for (const host of hosts.value.items) {
-					const hostname = formatUnknown(
-						host["hostname"] ?? host["box_id"] ?? host["subject"] ?? "",
-					);
-					if (!hostname) continue;
-					const status = formatUnknown(host["status"] ?? "unknown").replaceAll("_", " ");
-					candidates.push({
-						id: `host:${hostname}`,
-						kind: "host",
-						label: hostname,
-						description: `Host · ${status}`,
-						href: `/hosts?host=${encodeURIComponent(hostname)}`,
-						keywords: [
-							formatUnknown(host["box_id"] ?? ""),
-							status,
-							formatUnknown(host["os_family"] ?? ""),
-						],
-						meta: formatUnknown(host["last_checked_at"] ?? host["observed_at"] ?? ""),
-					});
-				}
-			}
-			if (statistics.status === "fulfilled") {
-				for (const statistic of statistics.value) {
-					if (statistic.kind !== "statistic") continue;
-					candidates.push({
-						id: `statistic:${statistic.source_ref}`,
-						kind: "statistic",
-						label: statistic.source_ref,
-						description: statistic.content.slice(0, 120),
-						href: `/observability?stat=${encodeURIComponent(statistic.source_ref)}`,
-						keywords: [statistic.kind, statistic.content],
-						meta: statistic.kind,
-					});
-				}
-			}
-
-			const sourceRanked = ["agent", "task", "library", "host", "statistic"].flatMap((kind) =>
-				rankPaletteCandidates(
-					text,
-					candidates.filter((candidate) => candidate.kind === kind),
-					limit,
-				),
+			return jsonResponse(
+				200,
+				await Effect.runPromise(searchPalette(services, principal, text, limit)),
 			);
-			return jsonResponse(200, {
-				schema_version: 1,
-				freshness: { source: "palette", observed_at: new Date().toISOString(), window_s: 0 },
-				query: text,
-				items: rankPaletteCandidates(text, sourceRanked, limit),
-				sources: {
-					agents: agents.status === "fulfilled" && services.tracker ? "live" : "unavailable",
-					tasks: tasks.status === "fulfilled" && services.tracker ? "live" : "unavailable",
-					library: library.status === "fulfilled" ? "live" : "unavailable",
-					hosts: hosts.status === "fulfilled" ? "live" : "unavailable",
-					statistics: statistics.status === "fulfilled" ? "live" : "unavailable",
-				},
-			});
 		},
 	});
 
@@ -3440,99 +3244,14 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 						retryable: false,
 					},
 				});
-			const limit = requestedLimit;
-			const cursor = query.cursor ?? null;
-			const since = query.since ?? null;
-			const items = await withScopes(
-				services.db.app,
-				principal.scopes,
-				async (tx) =>
-					tx<
-						{
-							approval_id: string;
-							box_id: string;
-							packages: string[];
-							approved_by: string;
-							approved_at: string;
-							revocable: boolean;
-							observed_at: string;
-						}[]
-					>`
-						select approved.dimensions->>'approval_id' as approval_id,
-						       approved.subject as box_id,
-						       coalesce(approved.meta->'packages', '[]'::jsonb) as packages,
-						       approved.dimensions->>'approved_by' as approved_by,
-						       approved.ts::text as approved_at,
-						       true as revocable,
-						       approved.received_at::text as observed_at
-						from lake_events approved
-						where approved.type = 'updates.approved'
-						  and approved.subject = ${boxId}
-						  and (${since}::timestamptz is null or approved.received_at >= ${since}::timestamptz)
-						  and (${cursor}::uuid is null or approved.seq < coalesce((
-						    select cursor_event.seq from lake_events cursor_event
-						    where cursor_event.type = 'updates.approved'
-						      and cursor_event.dimensions->>'approval_id' = ${cursor}
-						    limit 1
-						  ), 0))
-						  and not exists (
-						    select 1 from lake_events later
-						    where (
-						      later.type in ('updates.approval_revoked', 'updates.applied')
-						      and later.dimensions->>'approval_id' = approved.dimensions->>'approval_id'
-						    ) or (
-						      later.seq > approved.seq and (
-						        (later.type = 'audit.op.outcome'
-						          and later.dimensions->>'op' = 'updates.apply'
-						          and later.dimensions->>'outcome' = 'ok'
-						          and later.dimensions->>'box_id' = approved.subject)
-						        or (later.type = 'box.update_status_changed'
-						          and later.subject = approved.subject
-						          and (later.dimensions->>'status' = 'up_to_date' or (
-						            jsonb_typeof(later.meta->'box_update_raw'->'packages') = 'array'
-						            and exists (
-						            select 1 from jsonb_array_elements_text(approved.meta->'packages') as approved_package(name)
-						              where not exists (
-						                select 1 from jsonb_array_elements(later.meta->'box_update_raw'->'packages') pending
-						              where pending->>'name' = approved_package.name
-						              )
-						            )
-						          )))
-						      )
-						    )
-						  )
-						order by approved.seq desc limit ${limit + 1}`,
+			return jsonResponse(
+				200,
+				await readUpdateApprovals(services.db.app, principal.scopes, boxId, {
+					limit: requestedLimit,
+					...(query.cursor ? { cursor: query.cursor } : {}),
+					...(query.since ? { since: query.since } : {}),
+				}),
 			);
-			const rowTruncated = items.length > limit;
-			const candidates = (rowTruncated ? items.slice(0, limit) : items).map((item) => ({
-				...item,
-				approved_at: new Date(item.approved_at).toISOString(),
-				observed_at: new Date(item.observed_at).toISOString(),
-			}));
-			const page: typeof candidates = [];
-			let serializedBytes = 512;
-			const responseByteCap = 1_000_000;
-			for (const item of candidates) {
-				const itemBytes = Buffer.byteLength(JSON.stringify(item)) + 1;
-				if (page.length > 0 && serializedBytes + itemBytes > responseByteCap) break;
-				page.push(item);
-				serializedBytes += itemBytes;
-			}
-			const truncated = rowTruncated || page.length < candidates.length;
-			return jsonResponse(200, {
-				schema_version: 1,
-				freshness: {
-					source: "updates approval ledger",
-					observed_at: page.reduce(
-						(newest, item) => (item.observed_at > newest ? item.observed_at : newest),
-						"1970-01-01T00:00:00Z",
-					),
-					window_s: null,
-				},
-				items: page,
-				next_cursor: truncated ? (page.at(-1)?.approval_id ?? null) : null,
-				truncated,
-			});
 		},
 	});
 
@@ -3610,36 +3329,11 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		rateLimit: true,
 		handler: async (ctx) => {
-			const principal = ctx.principal;
-			const denial = await authorizeTerminal(principal);
-			if (denial) {
-				const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
-				if (auditSeq === null)
-					return jsonResponse(503, {
-						error: {
-							code: "audit_unavailable",
-							message: "terminal denial could not be retained",
-							retryable: true,
-						},
-					});
-				return jsonResponse(403, {
-					error: { code: "term_denied", message: "term_admin access required", retryable: false },
-				});
+			try {
+				return jsonResponse(200, await Effect.runPromise(terminalDomain.access(ctx.principal)));
+			} catch (error) {
+				return terminalFailure(error);
 			}
-			const auditSeq = await emitTerminalAudit(principal, "access", null, null);
-			if (auditSeq === null)
-				return jsonResponse(503, {
-					error: {
-						code: "audit_unavailable",
-						message: "terminal audit write could not be verified",
-						retryable: true,
-					},
-				});
-			return jsonResponse(200, {
-				audit_writable: true,
-				pty_live: await terminal.health(),
-				audit_seq: auditSeq,
-			});
 		},
 	});
 
@@ -3649,87 +3343,25 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		rateLimit: true,
 		handler: async (ctx) => {
-			const principal = ctx.principal;
-			const denial = await authorizeTerminal(principal);
-			if (denial) {
-				const auditSeq = await emitTerminalAudit(principal, "denied", null, null, denial);
-				return jsonResponse(auditSeq === null ? 503 : 403, {
-					error: {
-						code: auditSeq === null ? "audit_unavailable" : "term_denied",
-						message: auditSeq === null ? "terminal denial could not be retained" : denial,
-						retryable: auditSeq === null,
-					},
-				});
-			}
 			const parsed = safeDecode(terminalTargetSchema, ctx.body);
 			if (!parsed.success)
 				return jsonResponse(400, {
 					error: { code: "invalid_target", message: "invalid terminal target", retryable: false },
 				});
-			if (!(await terminal.health()))
-				return jsonResponse(503, {
-					error: { code: "pty_unavailable", message: "PTY adapter unavailable", retryable: true },
-				});
-			const streamId = crypto.randomUUID();
 			const target: TerminalTarget = {
 				host: parsed.data.host,
 				tmuxSession: parsed.data.tmux_session,
 				paneId: parsed.data.pane_id,
 			};
-			if (!(await visibleResidentTarget(principal, target)))
-				return jsonResponse(404, {
-					error: {
-						code: "pane_not_visible",
-						message: "resident terminal pane is not visible",
-						retryable: false,
-					},
-				});
-			const auditSeq = await emitTerminalAudit(principal, "watch", target, streamId);
-			if (auditSeq === null)
-				return jsonResponse(503, {
-					error: {
-						code: "audit_unavailable",
-						message: "watch audit could not be retained",
-						retryable: true,
-					},
-				});
-			const session: TerminalSession = {
-				principalId: principal.id,
-				target,
-				writable: false,
-				attached: false,
-				closed: false,
-				seq: 0,
-				timer: null,
-				end: () => {},
-			};
-			terminalSessions.set(streamId, session);
-			session.timer = setTimeout(() => {
-				session.closed = true;
-				terminalSessions.delete(streamId);
-			}, 30_000);
-			session.timer.unref();
 			try {
-				const snapshot = await terminal.capture(target, parsed.data.scrollback_lines);
-				session.seq += 1;
-				return jsonResponse(200, {
-					schema_version: 1,
-					stream_id: streamId,
-					seq: session.seq,
-					audit_seq: auditSeq,
-					data_b64: snapshot.toString("base64"),
-				});
+				return jsonResponse(
+					200,
+					await Effect.runPromise(
+						terminalDomain.openPeek(ctx.principal, target, parsed.data.scrollback_lines),
+					),
+				);
 			} catch (error) {
-				clearTimeout(session.timer);
-				terminalSessions.delete(streamId);
-				monitor.captureException(sanitizedException(error));
-				return jsonResponse(502, {
-					error: {
-						code: "pty_capture_failed",
-						message: "terminal capture failed",
-						retryable: true,
-					},
-				});
+				return terminalFailure(error);
 			}
 		},
 	});
@@ -3740,33 +3372,14 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		rateLimit: true,
 		handler: async (ctx) => {
-			const owned = await ownedTerminalSession(ctx.principal, ctx.params["streamId"]);
-			if (owned instanceof Response) return owned;
-			const session = owned;
-			if (session.timer) clearTimeout(session.timer);
-			session.timer = setTimeout(() => {
-				session.closed = true;
-				terminalSessions.delete((ctx.params as { streamId: string }).streamId);
-			}, 30_000);
-			session.timer.unref();
+			const streamId = (ctx.params as { streamId: string }).streamId;
 			try {
-				const snapshot = await terminal.capture(session.target, 10_000);
-				session.seq += 1;
-				return jsonResponse(200, {
-					schema_version: 1,
-					stream_id: (ctx.params as { streamId: string }).streamId,
-					seq: session.seq,
-					data_b64: snapshot.toString("base64"),
-				});
+				return jsonResponse(
+					200,
+					await Effect.runPromise(terminalDomain.pollPeek(ctx.principal, streamId)),
+				);
 			} catch (error) {
-				monitor.captureException(sanitizedException(error));
-				return jsonResponse(502, {
-					error: {
-						code: "pty_capture_failed",
-						message: "terminal capture failed",
-						retryable: true,
-					},
-				});
+				return terminalFailure(error);
 			}
 		},
 	});
@@ -3814,17 +3427,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 						retryable: true,
 					},
 				});
-			const session: TerminalSession = {
-				principalId: principal.id,
-				target,
-				writable: true,
-				attached: false,
-				closed: false,
-				seq: 0,
-				timer: null,
-				end: () => {},
-			};
-			terminalSessions.set(streamId, session);
+			const session = terminalDomain.create(principal, target, streamId, true);
 			const requestHeaders = ctx.request.headers;
 			const requestHostname = ctx.url.hostname;
 			const encoder = new TextEncoder();
@@ -4183,11 +3786,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		busCounters,
 		routes: routes.map((def) => ({ method: def.method, pattern: def.pattern })),
 		close() {
-			for (const session of terminalSessions.values()) {
-				session.closed = true;
-				if (session.timer) clearTimeout(session.timer);
-			}
-			terminalSessions.clear();
+			terminalDomain.closeAll();
 		},
 	};
 }

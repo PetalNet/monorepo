@@ -37,6 +37,7 @@ import {
 	readTasks as readTasksCore,
 } from "$lib/server/domain/reads/tracker-reads";
 import { ConsoleDomain } from "$lib/server/domain/service";
+import { readTerminalAccess as readTerminalAccessCore } from "$lib/server/domain/terminal/service";
 import { Effect } from "effect";
 import { Command, Query } from "svelte-effect-runtime";
 
@@ -120,13 +121,13 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				};
 			});
 		if (plane === "roster") {
-			const result = yield* Effect.tryPromise(() =>
+			const result = yield* Effect.promise(() =>
 				readRosterCore(services.db.app, services.tracker, principal.scopes),
 			);
 			return { ...result, items: result.items.map((item) => flattenRosterItem(item as never)) };
 		}
 		if (plane === "executors")
-			return yield* Effect.tryPromise(() => readExecutorsCore(services.db.app, principal.scopes));
+			return yield* Effect.promise(() => readExecutorsCore(services.db.app, principal.scopes));
 		if (plane === "tasks" || plane === "leases") {
 			if (!services.tracker)
 				return yield* Effect.die(new Error("Tracker read adapter is unavailable"));
@@ -135,16 +136,16 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				: readLeasesCore(services.tracker, principal.scopes);
 		}
 		if (plane === "dashboards")
-			return yield* Effect.tryPromise(() =>
+			return yield* Effect.promise(() =>
 				listDashboards(services.db.app, principal.scopes, services.cursorSecret, { limit: 100 }),
 			);
 		if (plane === "catalog")
-			return yield* Effect.tryPromise(() =>
+			return yield* Effect.promise(() =>
 				readEntity(services.db.app, principal.scopes, "registry", { limit: 1_000 }),
 			);
 		const kind = projectedKinds[plane];
 		if (kind === "attention") {
-			const envelope = yield* Effect.tryPromise(() =>
+			const envelope = yield* Effect.promise(() =>
 				readTypedEntity(services.db.app, principal.scopes, kind, { limit: 1_000 }),
 			);
 			// Attention items carry an operating lane; a caller only sees items for lanes it holds.
@@ -158,7 +159,7 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 			};
 		}
 
-		return yield* Effect.tryPromise(() =>
+		return yield* Effect.promise(() =>
 			kind === "subscription"
 				? readTypedEntity(services.db.app, principal.scopes, kind, { limit: 1_000 })
 				: readEntity(services.db.app, principal.scopes, kind, { limit: 1_000 }),
@@ -171,9 +172,16 @@ export const runStructuredQuery = Query("unchecked", (request: StructuredQuery) 
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		return yield* Effect.tryPromise(() =>
-			runStructured(services.db.app, principal.scopes, request),
-		);
+		return yield* Effect.promise(() => runStructured(services.db.app, principal.scopes, request));
+	}),
+);
+
+export const readTerminalAccessRemote = Query(
+	Effect.gen(function* () {
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		return yield* readTerminalAccessCore(services, principal);
 	}),
 );
 
@@ -205,7 +213,7 @@ export const executeNamedOp = Command(
 				} satisfies OpResult;
 			// The one authoritative command plane: catalog lookup, arg validation, authz, proposal
 			// posture, audit intent/outcome, and internal adapters — identical to POST /api/v1/op.
-			const { body } = yield* Effect.tryPromise(() =>
+			const { body } = yield* Effect.promise(() =>
 				executeOpPlane(
 					services,
 					services.monitor,

@@ -2,7 +2,8 @@
 	import { required } from "#format";
 	import type { PageProps } from "./$types";
 	import { goto } from "$app/navigation";
-	import { runOp, runRemote } from "$lib/rpc/browser";
+	import { runOp } from "$lib/rpc/browser";
+	import { Effect } from "effect";
 	import type { GovernanceItem } from "$lib/api/types";
 	import BudgetLight from "$lib/components/BudgetLight.svelte";
 	import CostComparisonPanel from "$lib/components/CostComparisonPanel.svelte";
@@ -23,7 +24,7 @@
 	let compareDialog=$state<HTMLDialogElement|null>(null);
 	let compareOpen=$state(false);
 	// The comparison is a keyed SER read, not an imperative RPC: opening captures the pair, and the
-	// query resource drives result/loading/error reactively. No runRemote round-trip.
+	// Query resource drives result/loading/error reactively without an imperative round-trip.
 	let comparePair=$state<{dimension:CostDimension,left:string,right:string}|null>(null);
 	const comparisonQuery=$derived(comparePair?compareCost({schema_version:1,...comparePair,...data.ledgerWindow}):null);
 	const comparison=$derived(comparisonQuery?.current??null);
@@ -54,7 +55,7 @@
 		return{destroy:()=>{ node.removeEventListener("contextaction",handle); }};
 	}
 	function closeComparison(){compareDialog?.close();compareOpen=false;comparePair=null}
-	function rerunComparison(){if(comparisonQuery)void runRemote(comparisonQuery.refresh())}
+	function rerunComparison(){if(comparisonQuery)void Effect.runPromise(comparisonQuery.refresh())}
 	$effect(()=>{const id=setInterval(()=>now=Date.now(),1000);return()=>{ clearInterval(id); }});
 	async function govern(g:GovernanceItem,action:"restore"|"throttle"|"downgrade"){busy=g.agent;try{await runOp("governance.action",{handle:g.agent,action,...(action==="throttle"?{delay_ms:60000}:{}),...(action==="downgrade"?{to:"sonnet"}:{})});snackbar.push({message:"governance.action "+action+" sent",op:"governance.action",tone:"good"})}catch(e){snackbar.push({message:(e as Error).message,op:"governance.action",tone:"danger"})}finally{busy=null}}
 </script>

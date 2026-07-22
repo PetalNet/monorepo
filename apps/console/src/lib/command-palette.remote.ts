@@ -1,6 +1,8 @@
-import { getRequestEvent } from "$app/server";
 import { publicConfig } from "$lib/config";
 import { searchMockPalette, type PaletteSearchResponse } from "$lib/data/palette";
+import { searchPalette } from "$lib/server/domain/palette/service";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { ConsoleDomain } from "$lib/server/domain/service";
 import { Effect, Schema } from "effect";
 import { Query } from "svelte-effect-runtime";
 
@@ -13,21 +15,16 @@ const input = Schema.Struct({
  * request; SvelteKit owns transport, validation, serialization, and cancellation semantics.
  */
 export const searchCommandPalette = Query(input, ({ query: text }) =>
-	Effect.promise(async () => {
+	Effect.gen(function* () {
 		if (publicConfig.dataMode === "mock") return searchMockPalette(text);
-
-		const event = getRequestEvent();
-		const headers = new Headers({ accept: "application/json", origin: event.url.origin });
-		for (const name of ["authorization", "cookie"] as const) {
-			const value = event.request.headers.get(name);
-			if (value) headers.set(name, value);
-		}
-		const base = publicConfig.consoleApiBase ?? `${event.url.origin}/api/v1`;
-		const response = await event.fetch(
-			`${base}/palette/search?q=${encodeURIComponent(text)}&limit=24`,
-			{ headers },
-		);
-		if (!response.ok) throw new Error(`Palette search returned ${String(response.status)}`);
-		return (await response.json()) as PaletteSearchResponse;
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		return (yield* searchPalette(
+			services,
+			principal,
+			text,
+			24,
+		)) as unknown as PaletteSearchResponse;
 	}),
 );

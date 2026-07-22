@@ -7,7 +7,6 @@ import {
 	readMe,
 	readTerminalAccess,
 	runQuery,
-	runRemote,
 } from "$lib/rpc/browser";
 import type { TerminalAccess } from "$lib/rpc/browser";
 import { error } from "@sveltejs/kit";
@@ -34,7 +33,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 
 	let access: TerminalAccess;
 	try {
-		access = await runRemote(readTerminalAccess(fetch));
+		access = await readTerminalAccess();
 	} catch (cause) {
 		if ((cause as { code?: string }).code === "term_denied")
 			error(403, "Not with your key. Ask an admin. This attempt was logged.");

@@ -2,7 +2,7 @@
 	import type { CommsEvent } from "$lib/api/types";
 	import AgentPresence from "$lib/components/AgentPresence.svelte";
 	import Icon from "$lib/components/Icon.svelte";
-	import { runRemote } from "$lib/rpc/browser";
+	import { Effect } from "effect";
 	import SegmentedControl from "$lib/components/SegmentedControl.svelte";
 	import { getCommsLog } from "./comms.remote";
 
@@ -46,7 +46,7 @@
 		failed = false;
 		const parsedTask = /^\d+$/.test(task.trim()) ? Number(task.trim()) : null;
 		try {
-			const result = await runRemote(getCommsLog({
+			const result = await Effect.runPromise(getCommsLog({
 				type: type === "all" ? null : type,
 				agent: agent.trim() || null,
 				taskId: parsedTask && parsedTask > 0 ? parsedTask : null,

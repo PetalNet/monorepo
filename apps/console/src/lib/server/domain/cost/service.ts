@@ -4,6 +4,7 @@ import type {
 	CostComparisonResult,
 	CostComparisonSide,
 } from "@petalnet/types";
+import { Effect } from "effect";
 
 import type { Sql } from "../db/pool.ts";
 import { QueryError, runStructured } from "../query/structured.ts";
@@ -78,27 +79,29 @@ export function compareCostPair(
 	scopes: readonly string[],
 	input: CostComparisonRequest,
 	meter?: CostMeter,
-): Promise<CostComparisonResult> {
-	return compareCostPairWith((request) => runStructured(app, scopes, request), input).catch(
-		async (error: unknown) => {
+): Effect.Effect<CostComparisonResult, unknown> {
+	return compareCostPairWith(
+		(request) => Effect.promise(() => runStructured(app, scopes, request)),
+		input,
+	).pipe(
+		Effect.catch((error: unknown) => {
 			if (
 				!(error instanceof QueryError) ||
 				error.code !== "bad_from" ||
 				!meter ||
 				!scopes.includes("fleet")
 			)
-				throw error;
-			try {
-				const result = await meter.compare(input);
-
-				return meterResult(input, result);
-			} catch (meterError) {
-				if (meterError instanceof CostMeterWindowError)
-					throw new QueryError("comparison_window_unsupported", meterError.message);
-				if (meterError instanceof CostMeterUnavailableError)
-					throw new CostComparisonUnavailableError(meterError.message);
-				throw meterError;
-			}
-		},
+				return Effect.fail(error);
+			return Effect.promise(() => meter.compare(input)).pipe(
+				Effect.map((result) => meterResult(input, result)),
+				Effect.catch((meterError: unknown) =>
+					meterError instanceof CostMeterWindowError
+						? Effect.fail(new QueryError("comparison_window_unsupported", meterError.message))
+						: meterError instanceof CostMeterUnavailableError
+							? Effect.fail(new CostComparisonUnavailableError(meterError.message))
+							: Effect.fail(meterError),
+				),
+			);
+		}),
 	);
 }

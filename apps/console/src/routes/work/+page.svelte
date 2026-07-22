@@ -5,7 +5,8 @@
 	import { refreshAll } from "$app/navigation";
 	import { page } from "$app/state";
 	import { onMount, untrack } from "svelte";
-	import { connectBus, runOp, runRemote } from "$lib/rpc/browser";
+	import { connectBus, runOp } from "$lib/rpc/browser";
+	import { Effect } from "effect";
 	import type { CardItem, OpResult, TaskItem, TaskStatus } from "$lib/api/types";
 	import Countdown from "$lib/components/Countdown.svelte";
 	import HudChip from "$lib/components/HudChip.svelte";
@@ -157,7 +158,7 @@
 				}
 			} else if (!data.isMock) {
 				await refreshAll();
-				if (patch?.status === "done") await settlementQuery.refresh();
+					if (patch?.status === "done") await Effect.runPromise(settlementQuery.refresh());
 			}
 			snackbar.push({ message: message ?? `${op} sent`, op, tone: "good" });
 		} catch (error) {
@@ -176,7 +177,7 @@
 	async function claimWanted(card: CardItem) {
 		busy = card.task_id;
 		try {
-			const outcome = await runRemote(claimWantedCard({
+			const outcome = await Effect.runPromise(claimWantedCard({
 				card_id: card.card_id,
 				task_id: card.task_id,
 				...(card.needs[0] ? { capability: card.needs[0] } : {}),

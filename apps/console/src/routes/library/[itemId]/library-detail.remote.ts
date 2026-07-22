@@ -1,5 +1,3 @@
-import { getRequestEvent } from "$app/server";
-import type { WorkSettlementSnapshot } from "$lib/api/types";
 import { publicConfig } from "$lib/config";
 import {
 	libraryLinks,
@@ -13,9 +11,17 @@ import {
 	settledTaskLibraryItem,
 	type SettlingTask,
 } from "$lib/data/work-settlement";
-import { error } from "@sveltejs/kit";
+import {
+	listLibraryItems,
+	listLibraryLinks,
+	readLibraryItem,
+	readLibraryItemHistory,
+} from "$lib/server/domain/dashboard/store";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { readWorkSettlement } from "$lib/server/domain/reads/work-settlement";
+import { ConsoleDomain } from "$lib/server/domain/service";
 import { Effect, Schema } from "effect";
-import { Query } from "svelte-effect-runtime";
+import { Error as HttpError, Query } from "svelte-effect-runtime";
 
 export interface LibraryRevision {
 	version: number;
@@ -57,27 +63,6 @@ type ApiLink = {
 	rel_type: LibraryLinkFixture["rel"];
 	reason: string | null;
 };
-function base() {
-	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
-}
-function headers() {
-	const incoming = getRequestEvent().request.headers;
-	const out = new Headers({ accept: "application/json" });
-	for (const key of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(key);
-		if (value) out.set(key, value);
-	}
-	return out;
-}
-async function api<T>(path: string): Promise<T> {
-	const response = await getRequestEvent().fetch(`${base()}${path}`, { headers: headers() });
-	if (!response.ok)
-		error(
-			response.status,
-			response.status === 404 ? "Library item not found" : "Library detail is unavailable",
-		);
-	return response.json() as Promise<T>;
-}
 function view(item: ApiItem): LibraryItemView {
 	return {
 		id: item.id,
@@ -112,21 +97,31 @@ function taskDetail(task: SettlingTask, isMock: boolean): LibraryDetail {
 }
 
 export const getLibraryItemDetail = Query(idSchema, (id) =>
-	Effect.promise(async (): Promise<LibraryDetail> => {
+	Effect.gen(function* () {
 		if (id.startsWith("task:")) {
 			const isMock = publicConfig.dataMode === "mock";
-			const settlement = isMock
-				? mockWorkSettlement()
-				: await api<WorkSettlementSnapshot>("/work/settlement");
+			let settlement: ReturnType<typeof mockWorkSettlement>;
+			if (isMock) settlement = mockWorkSettlement();
+			else {
+				const domain = yield* ConsoleDomain;
+				const services = yield* domain.services;
+				const principal = yield* currentPrincipal;
+				if (!services.tracker)
+					return yield* HttpError("ServiceUnavailable", "Work settlement is unavailable");
+				settlement = readWorkSettlement(
+					services.tracker,
+					principal.scopes,
+				) as unknown as ReturnType<typeof mockWorkSettlement>;
+			}
 			const task = [...settlement.settling, ...settlement.history].find(
 				(candidate) => `task:${String(candidate.id)}` === id,
 			);
-			if (!task) error(404, "Library task not found");
+			if (!task) return yield* HttpError("NotFound", "Library task not found");
 			return taskDetail(task, isMock);
 		}
 		if (publicConfig.dataMode === "mock") {
 			const item = mockLibrary.items.find((candidate) => candidate.id === id);
-			if (!item) error(404, "Library item not found");
+			if (!item) return yield* HttpError("NotFound", "Library item not found");
 			const txFrom = libraryProvenance[id].txFrom;
 			return {
 				item,
@@ -146,15 +141,32 @@ export const getLibraryItemDetail = Query(idSchema, (id) =>
 				isMock: true,
 			};
 		}
-		const encoded = encodeURIComponent(id);
-		const [current, history, links, items] = await Promise.all([
-			api<{ item: ApiItem }>(`/library/items/${encoded}`),
-			api<{ items: Array<{ version: number; tx_from: string; item: ApiItem }> }>(
-				`/library/items/${encoded}/history`,
-			),
-			api<{ items: ApiLink[] }>(`/library/links?item_id=${encoded}&limit=100`),
-			api<{ items: ApiItem[] }>("/library/items?limit=1000"),
-		]);
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const [current, history, links, items] = (yield* Effect.all(
+			[
+				Effect.promise(() => readLibraryItem(services.db.app, principal.scopes, id)),
+				Effect.promise(() => readLibraryItemHistory(services.db.app, principal.scopes, id)),
+				Effect.promise(() =>
+					listLibraryLinks(services.db.app, principal.scopes, services.cursorSecret, id, {
+						limit: 100,
+					}),
+				),
+				Effect.promise(() =>
+					listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
+						limit: 1_000,
+					}),
+				),
+			],
+			{ concurrency: "unbounded" },
+		)) as [
+			{ item: ApiItem } | null,
+			{ items: Array<{ version: number; tx_from: string; item: ApiItem }> },
+			{ items: ApiLink[] },
+			{ items: ApiItem[] },
+		];
+		if (!current) return yield* HttpError("NotFound", "Library item not found");
 		const targets = new Map(items.items.map((candidate) => [candidate.id, view(candidate)]));
 		return {
 			item: view(current.item),
