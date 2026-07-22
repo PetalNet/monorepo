@@ -1,13 +1,18 @@
 import { PUBLIC_CONSOLE_API_BASE, PUBLIC_CONSOLE_DATA_MODE, PUBLIC_GLITCHTIP_DSN } from "$app/env/public";
-import { Config, ConfigProvider, Effect, Option } from "effect";
-
-/** Data plane: "mock" serves in-memory fixtures; "live" reads the real substrate. */
-export type DataMode = "mock" | "live";
+import {
+	consoleApiBaseSchema,
+	dataModeSchema,
+	glitchtipDsnSchema,
+	type DataMode,
+} from "$lib/env-schemas";
+import { Config, ConfigProvider, Effect } from "effect";
 
 /**
- * The one module that touches SvelteKit's env seam ($app/env/public). Everything else reads through
+ * The one module that touches SvelteKit's env seam ($app/env/public). Every other read goes through
  * Effect's Config against this provider — so if the app moves off SvelteKit, or svelte-effect-runtime
- * ships native env support, only this provider is swapped, never the call sites.
+ * ships native env support, only this provider is swapped, never the call sites. The Config values
+ * are derived from the shared Effect Schemas ($lib/env-schemas), the same definitions SvelteKit and
+ * the instrumentation use, so validation and defaults live in exactly one place.
  */
 const publicEnvProvider = ConfigProvider.fromUnknown(
 	Object.fromEntries(
@@ -22,21 +27,9 @@ const publicEnvProvider = ConfigProvider.fromUnknown(
 /** Bind Effect's Config system to the public env seam. Provided to both app runtimes. */
 export const PublicEnvConfigLayer = ConfigProvider.layer(publicEnvProvider);
 
-/** `mock` when the data plane is fixtures, otherwise `live`. */
-const dataModeConfig: Config.Config<DataMode> = Config.string("PUBLIC_CONSOLE_DATA_MODE").pipe(
-	Config.withDefault("live"),
-	Config.map((mode): DataMode => (mode === "mock" ? "mock" : "live")),
-);
-
-/** Optional override for the console REST base URL (defaults to request origin + /api/v1). */
-const consoleApiBaseConfig: Config.Config<string | undefined> = Config.string(
-	"PUBLIC_CONSOLE_API_BASE",
-).pipe(Config.option, Config.map(Option.getOrUndefined));
-
-/** Optional GlitchTip/Sentry DSN; error reporting is disabled when unset. */
-const glitchtipDsnConfig: Config.Config<string | undefined> = Config.string(
-	"PUBLIC_GLITCHTIP_DSN",
-).pipe(Config.option, Config.map(Option.getOrUndefined));
+const dataModeConfig = Config.schema(dataModeSchema, "PUBLIC_CONSOLE_DATA_MODE");
+const consoleApiBaseConfig = Config.schema(consoleApiBaseSchema, "PUBLIC_CONSOLE_API_BASE");
+const glitchtipDsnConfig = Config.schema(glitchtipDsnSchema, "PUBLIC_GLITCHTIP_DSN");
 
 /** Resolved public configuration. */
 export interface PublicConfig {

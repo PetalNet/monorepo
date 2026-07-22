@@ -1,10 +1,12 @@
 import { register } from "node:module";
 
+import { glitchtipDsnSchema } from "$lib/env-schemas";
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import * as Sentry from "@sentry/sveltekit";
 import { createAddHookMessageChannel } from "import-in-the-middle";
+import { Schema } from "effect";
 
 const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
@@ -28,9 +30,13 @@ if (otelEndpoint) {
 	sdk.start();
 }
 
-if (process.env.PUBLIC_GLITCHTIP_DSN) {
+// This bootstrap runs before the app runtime (and its ConfigProvider) exists, so it applies the
+// shared DSN schema directly rather than reading process.env raw — the seam is validated here too.
+const glitchtipDsn = Schema.decodeUnknownSync(glitchtipDsnSchema)(process.env.PUBLIC_GLITCHTIP_DSN);
+
+if (glitchtipDsn) {
 	Sentry.init({
-		dsn: process.env.PUBLIC_GLITCHTIP_DSN,
+		dsn: glitchtipDsn,
 		tracesSampleRate: 0,
 		sendDefaultPii: false,
 	});
