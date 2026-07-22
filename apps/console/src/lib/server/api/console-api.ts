@@ -1590,6 +1590,12 @@ export interface ConsoleApi {
 	 */
 	readonly browserOrigin: string | null;
 	readonly busCounters: BusCounters;
+	/**
+	 * Method + pattern of every registered REST route. The single source of truth the OpenAPI
+	 * document is derived from (FastAPI-style), so no hand-maintained route list can drift from what
+	 * the runtime actually serves.
+	 */
+	readonly routes: readonly { readonly method: string; readonly pattern: string }[];
 	close(): void;
 }
 
@@ -4175,6 +4181,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		resolvePrincipal,
 		browserOrigin: browserOrigin ?? null,
 		busCounters,
+		routes: routes.map((def) => ({ method: def.method, pattern: def.pattern })),
 		close() {
 			for (const session of terminalSessions.values()) {
 				session.closed = true;

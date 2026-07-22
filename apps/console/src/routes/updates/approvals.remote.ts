@@ -1,6 +1,5 @@
 import { getRequestEvent } from "$app/server";
 const env = import.meta.env;
-import { validateOpArgs } from "$lib/api/ops";
 import type { OpResult, ReadEnvelope, UpdateApproval } from "$lib/api/types";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
@@ -103,8 +102,6 @@ export const getUpdateApprovals = Query(boxInput, ({ box_id }) =>
 
 export const approveUpdate = Command(approveInput, ({ box_id, packages }) =>
 	Effect.promise(async () => {
-		const validation = validateOpArgs("updates.approve", { box_id, packages });
-		if (!validation.valid) error(400, validation.errors.join("; "));
 		if (isMock()) {
 			const approval: UpdateApproval = {
 				approval_id: crypto.randomUUID(),
@@ -136,8 +133,6 @@ export const approveUpdate = Command(approveInput, ({ box_id, packages }) =>
 
 export const revokeUpdateApproval = Command(revokeInput, ({ approval_id, box_id }) =>
 	Effect.promise(async () => {
-		const validation = validateOpArgs("updates.revoke", { approval_id });
-		if (!validation.valid) error(400, validation.errors.join("; "));
 		if (isMock()) {
 			const approval = mockApprovals.get(approval_id);
 			if (!approval || approval.box_id !== box_id) error(409, "This approval is no longer pending");

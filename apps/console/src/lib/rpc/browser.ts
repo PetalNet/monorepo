@@ -21,7 +21,7 @@ import {
 	type BusConnectionState,
 	type BusSubscriptionSpec,
 } from "@petalnet/console-bus-rpc";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 
 export type DataMode = "mock" | "live";
 export const dataMode = (): DataMode =>
@@ -107,18 +107,21 @@ export type TerminalFrame =
 	| { schema_version: 1; stream_id: string; kind: "snapshot"; seq: number; data_b64: string }
 	| { schema_version: 1; stream_id: string; kind: "error"; seq: number; code: string };
 
-export const readTerminalAccess = (fetcher: typeof fetch = fetch): Promise<TerminalAccess> =>
-	runRemote(
-		Effect.tryPromise(async () => {
-			const response = await fetcher("/api/v1/terminal", {
-				headers: { accept: "application/json" },
-				credentials: "same-origin",
-			});
-			if (!response.ok)
-				throw new Error(`Terminal capability probe failed (${String(response.status)})`);
-			return (await response.json()) as TerminalAccess;
-		}),
-	);
+// Returns the probe as an Effect (not a pre-run Promise) so callers compose it into their own
+// effect graph and choose where to run it — see terminal/+page.server.ts, which adapts it with
+// runRemote at the server boundary.
+export const readTerminalAccess = (
+	fetcher: typeof fetch = fetch,
+): Effect.Effect<TerminalAccess, Cause.UnknownError> =>
+	Effect.tryPromise(async () => {
+		const response = await fetcher("/api/v1/terminal", {
+			headers: { accept: "application/json" },
+			credentials: "same-origin",
+		});
+		if (!response.ok)
+			throw new Error(`Terminal capability probe failed (${String(response.status)})`);
+		return (await response.json()) as TerminalAccess;
+	});
 
 export function connectTerminal(
 	target: Record<string, unknown>,

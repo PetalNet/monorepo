@@ -11,7 +11,7 @@
 	import IconButton from "$lib/components/IconButton.svelte";
 	import ModalSurface from "$lib/components/ModalSurface.svelte";
 	import SegmentedControl from "$lib/components/SegmentedControl.svelte";
-	import type { CostBreakdown, CostComparisonResult, CostDimension, CostSession } from "$lib/data/cost";
+	import type { CostBreakdown, CostDimension, CostSession } from "$lib/data/cost";
 	import { compareCost } from "$lib/data/cost.remote";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
 	let { data }: PageProps = $props();
@@ -21,8 +21,14 @@
 	let range=$derived<"Today"|"7d"|"30d">(data.range), dimension=$state<CostDimension>("model"), filter=$state(""), chip=$state<FilterSelection|null>(null), receipt=$state<Receipt|null>(null), now=$state(Date.now()), busy=$state<string|null>(null);
 	let dialog=$state<HTMLDialogElement|null>(null);
 	let compareDialog=$state<HTMLDialogElement|null>(null);
-	let compareOpen=$state(false), compareLoading=$state(false), compareError=$state<string|null>(null), comparison=$state<CostComparisonResult|null>(null), comparisonRequest=0;
-	let comparisonTarget=$state<CostBreakdown|null>(null);
+	let compareOpen=$state(false);
+	// The comparison is a keyed SER read, not an imperative RPC: opening captures the pair, and the
+	// query resource drives result/loading/error reactively. No runRemote round-trip.
+	let comparePair=$state<{dimension:CostDimension,left:string,right:string}|null>(null);
+	const comparisonQuery=$derived(comparePair?compareCost({schema_version:1,...comparePair,...data.ledgerWindow}):null);
+	const comparison=$derived(comparisonQuery?.current??null);
+	const compareLoading=$derived(comparisonQuery?comparisonQuery.loading:false);
+	const compareError=$derived(comparisonQuery&&comparisonQuery.error?(comparisonQuery.error instanceof Error?comparisonQuery.error.message:"Comparison failed"):null);
 	const canAct=$derived(data.lanes.includes("operator"));
 	const pct=$derived(data.pool?Math.round(data.pool.pool_spent/Math.max(1,data.pool.pool_tokens)*100):null);
 	const light=$derived(data.isMock?"green":null);
@@ -37,25 +43,18 @@
 	function closeCompareSurface(): void { compareOpen = false; }
 	function closeReceiptSurface(): void { receipt = null; }
 	function canCompare(row:CostBreakdown){return row.id!=="other"&&chip?.dimension===dimension&&chip.value!==row.label}
-	async function openComparison(row:CostBreakdown){
+	function openComparison(row:CostBreakdown){
 		if(!chip||chip.dimension!==dimension||chip.value===row.label)return;
-		const request=++comparisonRequest;
-		const right=row.label,left=chip.value;
-		comparisonTarget=row;
-		compareOpen=true;compareLoading=true;compareError=null;comparison=null;
-		try{
-			const result=await runRemote(compareCost({schema_version:1,dimension,left,right,...data.ledgerWindow}));
-			if(request===comparisonRequest)comparison=result;
-		}catch(error){if(request===comparisonRequest)compareError=error instanceof Error?error.message:"Comparison failed"}
-		finally{if(request===comparisonRequest)compareLoading=false}
+		comparePair={dimension,left:chip.value,right:row.label};
+		compareOpen=true;
 	}
 	function comparisonAction(node:HTMLElement,row:CostBreakdown){
-		const handle=()=>void openComparison(row);
+		const handle=()=>{ openComparison(row); };
 		node.addEventListener("contextaction",handle);
 		return{destroy:()=>{ node.removeEventListener("contextaction",handle); }};
 	}
-	function closeComparison(){compareDialog?.close();compareOpen=false;comparisonRequest+=1}
-	function rerunComparison(){if(comparisonTarget)void openComparison(comparisonTarget)}
+	function closeComparison(){compareDialog?.close();compareOpen=false;comparePair=null}
+	function rerunComparison(){if(comparisonQuery)void runRemote(comparisonQuery.refresh())}
 	$effect(()=>{const id=setInterval(()=>now=Date.now(),1000);return()=>{ clearInterval(id); }});
 	async function govern(g:GovernanceItem,action:"restore"|"throttle"|"downgrade"){busy=g.agent;try{await runOp("governance.action",{handle:g.agent,action,...(action==="throttle"?{delay_ms:60000}:{}),...(action==="downgrade"?{to:"sonnet"}:{})});snackbar.push({message:"governance.action "+action+" sent",op:"governance.action",tone:"good"})}catch(e){snackbar.push({message:(e as Error).message,op:"governance.action",tone:"danger"})}finally{busy=null}}
 </script>

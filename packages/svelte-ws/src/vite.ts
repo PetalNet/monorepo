@@ -33,13 +33,12 @@ export function websocket(): Plugin {
 	function attach(httpServer: HttpServer | null | undefined): void {
 		if (!httpServer) return;
 		const dispatcher = createWebsocketDispatcher(loadHandler);
-		const previous = httpServer.listeners("upgrade") as ((...args: unknown[]) => void)[];
-		httpServer.removeAllListeners("upgrade");
-		httpServer.on("upgrade", (req, socket, head) => {
-			if (req.headers["sec-websocket-protocol"] === "vite-hmr") {
-				for (const listener of previous) listener(req, socket, head);
-				return;
-			}
+		// Prepend, never replace: Vite's own HMR upgrade listener (and any other sibling) stays
+		// attached and untouched. We run first, claim only application upgrades, and hand `vite-hmr`
+		// straight back by returning — the still-attached HMR listener handles it. removeAllListeners
+		// is avoided precisely because it would silently drop those siblings.
+		httpServer.prependListener("upgrade", (req, socket, head) => {
+			if (req.headers["sec-websocket-protocol"] === "vite-hmr") return;
 			void dispatcher.handleUpgrade(
 				req as import("node:http").IncomingMessage,
 				socket as import("node:stream").Duplex,
