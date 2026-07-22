@@ -44,6 +44,8 @@ export interface EmitOutcome {
 }
 
 export interface Services {
+	/** Process exception channel shared by HTTP, WebSocket, and in-process command surfaces. */
+	readonly monitor: ExceptionMonitor;
 	readonly db: Db;
 	readonly appender: Appender;
 	readonly broker: Broker;
@@ -407,6 +409,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 	stormExpiryTimer.unref();
 
 	return {
+		monitor,
 		db,
 		appender,
 		broker,

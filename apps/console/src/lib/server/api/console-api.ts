@@ -62,6 +62,7 @@ import {
 	sanitizedException,
 	type ExceptionMonitor,
 } from "../domain/observability.ts";
+import { consumeOpRateLimit } from "../domain/op-rate-limit.ts";
 import { rankPaletteCandidates, type PaletteCandidate } from "../domain/palette/search.ts";
 import type { ProjectionKind } from "../domain/projector/index.ts";
 import { branchQuery } from "../domain/query/branch.ts";
@@ -1589,6 +1590,12 @@ export interface ConsoleApi {
 	 */
 	readonly browserOrigin: string | null;
 	readonly busCounters: BusCounters;
+	/**
+	 * Method + pattern of every registered REST route. The single source of truth the OpenAPI
+	 * document is derived from (FastAPI-style), so no hand-maintained route list can drift from what
+	 * the runtime actually serves.
+	 */
+	readonly routes: readonly { readonly method: string; readonly pattern: string }[];
 	close(): void;
 }
 
@@ -1642,31 +1649,9 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		return null;
 	}
 
-	const opRateBuckets = new Map<string, { tokens: number; updatedAt: number; lastSeen: number }>();
-	let opRateChecks = 0;
 	function opRateLimit(principal: Principal): Response | null {
-		const now = Date.now();
-		const capacity = 30;
-		const refillPerMs = capacity / 60_000;
-		const previous = opRateBuckets.get(principal.id);
-		const tokens = Math.min(
-			capacity,
-			(previous?.tokens ?? capacity) + (now - (previous?.updatedAt ?? now)) * refillPerMs,
-		);
-		opRateChecks += 1;
-		if (opRateChecks % 256 === 0 || opRateBuckets.size >= 10_000) {
-			for (const [key, bucket] of opRateBuckets)
-				if (now - bucket.lastSeen > 10 * 60_000) opRateBuckets.delete(key);
-			if (opRateBuckets.size >= 10_000) {
-				const oldest = [...opRateBuckets].toSorted(
-					([, left], [, right]) => left.lastSeen - right.lastSeen,
-				)[0]?.[0];
-				if (oldest) opRateBuckets.delete(oldest);
-			}
-		}
-		if (tokens < 1) {
-			const retryAfterS = Math.max(1, Math.ceil((1 - tokens) / refillPerMs / 1_000));
-			opRateBuckets.set(principal.id, { tokens, updatedAt: now, lastSeen: now });
+		const decision = consumeOpRateLimit(services, principal);
+		if (!decision.allowed) {
 			return jsonResponse(
 				429,
 				{
@@ -1674,13 +1659,12 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 						code: "rate_limited",
 						message: "command request rate exceeded",
 						retryable: true,
-						retry_after_s: retryAfterS,
+						retry_after_s: decision.retryAfterS,
 					},
 				},
-				{ "retry-after": String(retryAfterS) },
+				{ "retry-after": String(decision.retryAfterS) },
 			);
 		}
-		opRateBuckets.set(principal.id, { tokens: tokens - 1, updatedAt: now, lastSeen: now });
 		return null;
 	}
 
@@ -1841,7 +1825,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 	route({
 		method: "GET",
 		pattern: "/api/v1/health",
-		auth: true,
+		auth: false,
 		handler: async () => {
 			const requestedAt = Date.now();
 			if (healthCache && requestedAt - healthCacheAt < 5_000)
@@ -4197,6 +4181,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		resolvePrincipal,
 		browserOrigin: browserOrigin ?? null,
 		busCounters,
+		routes: routes.map((def) => ({ method: def.method, pattern: def.pattern })),
 		close() {
 			for (const session of terminalSessions.values()) {
 				session.closed = true;

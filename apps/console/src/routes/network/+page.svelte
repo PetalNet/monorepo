@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { required } from "#format";
 	import type { PageProps } from "./$types";
-	const env = import.meta.env;
+	import { publicConfig } from "$lib/config";
 	import { opDef } from "$lib/api/ops";
 	import { connectBus, runRemote } from "$lib/rpc/browser";
 	import type { EdgeRegistryItem, EdgeSessionItem } from "$lib/api/types";
@@ -70,7 +70,7 @@
 	});
 
 	onMount(() => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return;
+		if (publicConfig.dataMode === "mock") return;
 		return connectBus(
 			() => [{ sub_id: "network-key-ceremony", pattern: "edge.*" }],
 			(frame) => {

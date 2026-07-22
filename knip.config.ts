@@ -27,6 +27,7 @@ export default {
 			entry: [
 				"effectdb.config.ts!",
 				"src/lib/server/db/tables.ts!",
+				"src/env.ts!",
 				"scripts/*.{ts,mjs}!",
 				"src/**/*.test.ts",
 				"test/**/*.ts",

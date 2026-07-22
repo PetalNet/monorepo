@@ -1,11 +1,11 @@
 import { getRequestEvent, query } from "$app/server";
-const env = import.meta.env;
 import {
 	validateContract,
 	type AvailabilitySnapshot,
 	type ExecutorItem,
 	type ReadEnvelope,
 } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import { mockAvailability } from "$lib/data/availability";
 import { error } from "@sveltejs/kit";
 
@@ -15,7 +15,7 @@ export interface AvailabilityRemoteResult {
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
+	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function forwardedHeaders(): Headers {
@@ -46,7 +46,7 @@ async function readJson<T>(path: string): Promise<T> {
 
 /** Server-side RPC for Hosts availability. Browser code never calls console-api directly. */
 export const getAvailability = query(async (): Promise<AvailabilityRemoteResult> => {
-	if (env.PUBLIC_CONSOLE_DATA_MODE === "mock")
+	if (publicConfig.dataMode === "mock")
 		return { snapshot: mockAvailability(), probe_runner_live: true };
 	const [snapshot, executors] = await Promise.all([
 		readJson<AvailabilitySnapshot>("/availability?window=30d"),

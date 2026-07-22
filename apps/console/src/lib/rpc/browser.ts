@@ -7,6 +7,7 @@ import type {
 	RosterItem,
 	StructuredQuery,
 } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import type { ReadPlane, ReadPlaneResult } from "$lib/operations.remote";
 import {
 	executeNamedOp,
@@ -21,11 +22,10 @@ import {
 	type BusConnectionState,
 	type BusSubscriptionSpec,
 } from "@petalnet/console-bus-rpc";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 
 export type DataMode = "mock" | "live";
-export const dataMode = (): DataMode =>
-	import.meta.env.PUBLIC_CONSOLE_DATA_MODE === "mock" ? "mock" : "live";
+export const dataMode = (): DataMode => publicConfig.dataMode;
 
 export const runRemote = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
 	Effect.runPromise(effect);
@@ -107,10 +107,21 @@ export type TerminalFrame =
 	| { schema_version: 1; stream_id: string; kind: "snapshot"; seq: number; data_b64: string }
 	| { schema_version: 1; stream_id: string; kind: "error"; seq: number; code: string };
 
-export async function readTerminalAccess(_fetch?: typeof fetch): Promise<TerminalAccess> {
-	const me = await readMe();
-	return { audit_writable: true, pty_live: me.lanes.includes("term_admin"), audit_seq: 0 };
-}
+// Returns the probe as an Effect (not a pre-run Promise) so callers compose it into their own
+// effect graph and choose where to run it — see terminal/+page.server.ts, which adapts it with
+// runRemote at the server boundary.
+export const readTerminalAccess = (
+	fetcher: typeof fetch = fetch,
+): Effect.Effect<TerminalAccess, Cause.UnknownError> =>
+	Effect.tryPromise(async () => {
+		const response = await fetcher("/api/v1/terminal", {
+			headers: { accept: "application/json" },
+			credentials: "same-origin",
+		});
+		if (!response.ok)
+			throw new Error(`Terminal capability probe failed (${String(response.status)})`);
+		return (await response.json()) as TerminalAccess;
+	});
 
 export function connectTerminal(
 	target: Record<string, unknown>,

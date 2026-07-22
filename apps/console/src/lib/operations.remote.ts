@@ -24,7 +24,7 @@ import type {
 } from "$lib/api/types";
 import { executeOpPlane } from "$lib/server/api/console-api";
 import { listDashboards } from "$lib/server/domain/dashboard/store";
-import { inertExceptionMonitor } from "$lib/server/domain/observability";
+import { consumeOpRateLimit } from "$lib/server/domain/op-rate-limit";
 import { currentPrincipal } from "$lib/server/domain/principal";
 import { runStructured } from "$lib/server/domain/query/structured";
 import { readEntity, readTypedEntity } from "$lib/server/domain/reads/entities";
@@ -108,13 +108,17 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				zookie: principal.zookie,
 			} satisfies Me;
 		if (plane === "health")
-			return {
-				schema_version: 1,
-				service: "console",
-				status: "ready",
-				seq_head: services.broker.head,
-				bus_heartbeat_at: new Date().toISOString(),
-			};
+			return yield* Effect.tryPromise(async () => {
+				const rows = await services.db.admin<{ bus_heartbeat_at: string | null }[]>`
+					select max(received_at)::text as bus_heartbeat_at
+					from events where type = 'console.bus.health'`;
+				return {
+					lake: "ok" as const,
+					seq_head: services.broker.head,
+					bridges: [],
+					bus_heartbeat_at: rows[0]?.bus_heartbeat_at ?? null,
+				};
+			});
 		if (plane === "roster") {
 			const result = yield* Effect.tryPromise(() =>
 				readRosterCore(services.db.app, services.tracker, principal.scopes),
@@ -187,12 +191,24 @@ export const executeNamedOp = Command(
 			const domain = yield* ConsoleDomain;
 			const services = yield* domain.services;
 			const principal = yield* currentPrincipal;
+			const rateLimit = consumeOpRateLimit(services, principal);
+			if (!rateLimit.allowed)
+				return {
+					schema_version: 1,
+					in_reply_to: input.id ?? "rate-limited",
+					ok: false,
+					error: {
+						code: "rate_limited",
+						message: "command request rate exceeded",
+						retryable: true,
+					},
+				} satisfies OpResult;
 			// The one authoritative command plane: catalog lookup, arg validation, authz, proposal
 			// posture, audit intent/outcome, and internal adapters — identical to POST /api/v1/op.
 			const { body } = yield* Effect.tryPromise(() =>
 				executeOpPlane(
 					services,
-					inertExceptionMonitor,
+					services.monitor,
 					{
 						schema_version: 1,
 						id: input.id ?? crypto.randomUUID(),

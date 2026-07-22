@@ -26,7 +26,12 @@
 
 		previousState = nextState;
 		flipping = false;
-		requestAnimationFrame(() => (flipping = true));
+		const frame = requestAnimationFrame(() => {
+			flipping = true;
+		});
+		return () => {
+			cancelAnimationFrame(frame);
+		};
 	});
 </script>
 

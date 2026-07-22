@@ -15,6 +15,7 @@
 		"rootDirs": ["src", ".svelte-kit/types/src"]
 	},
 	"include": [
+		".svelte-kit/env.d.ts",
 		"src/**/*.ts",
 		"src/**/*.svelte",
 		"tests/**/*.ts",

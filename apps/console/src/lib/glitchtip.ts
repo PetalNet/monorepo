@@ -1,4 +1,4 @@
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 import * as Sentry from "@sentry/sveltekit";
 
 import { createCaughtFailureReporter } from "./glitchtip-reporter";
@@ -8,7 +8,7 @@ import { createCaughtFailureReporter } from "./glitchtip-reporter";
  * DSN = inert (no init, no network), matching the lab's Rust dispatcher convention (GLITCHTIP_DSN
  * empty = disabled).
  */
-const GLITCHTIP_DSN = env.PUBLIC_GLITCHTIP_DSN ?? "";
+const GLITCHTIP_DSN = publicConfig.glitchtipDsn ?? "";
 
 const glitchtipEnabled = GLITCHTIP_DSN.length > 0;
 

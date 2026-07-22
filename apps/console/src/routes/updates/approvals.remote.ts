@@ -1,6 +1,6 @@
 import { getRequestEvent } from "$app/server";
-const env = import.meta.env;
 import type { OpResult, ReadEnvelope, UpdateApproval } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
 import { Effect, Schema } from "effect";
@@ -30,7 +30,6 @@ const revokeInput = Schema.Struct({
 	approval_id: Schema.String.check(Schema.isUUID()),
 	box_id: boxIdField,
 }).annotate(rejectUnknownKeys);
-
 export interface ApprovedUpdate {
 	readonly approval: UpdateApprovalMutation;
 	readonly undo: { op: "updates.revoke"; args: { approval_id: string } };
@@ -39,7 +38,7 @@ export interface ApprovedUpdate {
 const mockApprovals = new Map<string, UpdateApproval>();
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
+	return publicConfig.dataMode === "mock";
 }
 
 function forwardedHeaders(contentType = false): Headers {
@@ -55,7 +54,7 @@ function forwardedHeaders(contentType = false): Headers {
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 	const event = getRequestEvent();
-	const base = env.PUBLIC_CONSOLE_API_BASE ?? `${event.url.origin}/api/v1`;
+	const base = publicConfig.consoleApiBase ?? `${event.url.origin}/api/v1`;
 	const response = await event.fetch(`${base}${path}`, {
 		...init,
 		headers: init?.headers ?? forwardedHeaders(init?.body !== undefined),

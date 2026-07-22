@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { omitKeys, required } from "#format";
 	import type { PageProps } from "./$types";
-	const env = import.meta.env;
+	import { publicConfig } from "$lib/config";
 	import { refreshAll } from "$app/navigation";
 	import { page } from "$app/state";
 	import { onMount, untrack } from "svelte";
@@ -72,7 +72,7 @@
 		wantedQuery.current?.dispatcher_live === true && (wantedQuery.current.tracker_live),
 	);
 	async function runTaskClose(args: Record<string, unknown>, dryRun = false): Promise<OpResult> {
-		const response = await fetch(`${env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1"}/op`, {
+		const response = await fetch(`${publicConfig.consoleApiBase ?? "https://console-api.petalcat.dev/api/v1"}/op`, {
 			method: "POST",
 			headers: { "content-type": "application/json", accept: "application/json" },
 			credentials: "include",

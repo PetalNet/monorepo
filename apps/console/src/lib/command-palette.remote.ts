@@ -1,5 +1,5 @@
 import { getRequestEvent } from "$app/server";
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 import { searchMockPalette, type PaletteSearchResponse } from "$lib/data/palette";
 import { Effect, Schema } from "effect";
 import { Query } from "svelte-effect-runtime";
@@ -14,7 +14,7 @@ const input = Schema.Struct({
  */
 export const searchCommandPalette = Query(input, ({ query: text }) =>
 	Effect.promise(async () => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return searchMockPalette(text);
+		if (publicConfig.dataMode === "mock") return searchMockPalette(text);
 
 		const event = getRequestEvent();
 		const headers = new Headers({ accept: "application/json", origin: event.url.origin });
@@ -22,7 +22,7 @@ export const searchCommandPalette = Query(input, ({ query: text }) =>
 			const value = event.request.headers.get(name);
 			if (value) headers.set(name, value);
 		}
-		const base = env.PUBLIC_CONSOLE_API_BASE ?? `${event.url.origin}/api/v1`;
+		const base = publicConfig.consoleApiBase ?? `${event.url.origin}/api/v1`;
 		const response = await event.fetch(
 			`${base}/palette/search?q=${encodeURIComponent(text)}&limit=24`,
 			{ headers },

@@ -1,6 +1,6 @@
 import { getRequestEvent } from "$app/server";
-const env = import.meta.env;
 import type { WorkSettlementSnapshot } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import {
 	libraryLinks,
 	libraryProvenance,
@@ -58,7 +58,7 @@ type ApiLink = {
 	reason: string | null;
 };
 function base() {
-	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
+	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 function headers() {
 	const incoming = getRequestEvent().request.headers;
@@ -114,7 +114,7 @@ function taskDetail(task: SettlingTask, isMock: boolean): LibraryDetail {
 export const getLibraryItemDetail = Query(idSchema, (id) =>
 	Effect.promise(async (): Promise<LibraryDetail> => {
 		if (id.startsWith("task:")) {
-			const isMock = env.PUBLIC_CONSOLE_DATA_MODE === "mock";
+			const isMock = publicConfig.dataMode === "mock";
 			const settlement = isMock
 				? mockWorkSettlement()
 				: await api<WorkSettlementSnapshot>("/work/settlement");
@@ -124,7 +124,7 @@ export const getLibraryItemDetail = Query(idSchema, (id) =>
 			if (!task) error(404, "Library task not found");
 			return taskDetail(task, isMock);
 		}
-		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") {
+		if (publicConfig.dataMode === "mock") {
 			const item = mockLibrary.items.find((candidate) => candidate.id === id);
 			if (!item) error(404, "Library item not found");
 			const txFrom = libraryProvenance[id].txFrom;

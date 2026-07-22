@@ -71,23 +71,27 @@ export function createWebsocketDispatcher(
 					},
 				};
 				connections.set(peer.id, state);
-				const handle = await loadHandler();
-				if (!handle) {
-					peer.close(1011, "no websocket handler");
-					return;
+				try {
+					const handle = await loadHandler();
+					if (!handle) {
+						peer.close(1011, "no websocket handler");
+						return;
+					}
+					const url = new URL(peer.request.url);
+					const event: WebsocketEvent = {
+						socket: state.socket,
+						peer,
+						request: {
+							url: Object.freeze(url),
+							headers: peer.request.headers,
+							protocol: url.protocol === "wss:" || url.protocol === "https:" ? "wss" : "ws",
+						},
+						locals: {},
+					};
+					await handle(event);
+				} catch {
+					peer.close(1011, "websocket handler failed");
 				}
-				const url = new URL(peer.request.url);
-				const event: WebsocketEvent = {
-					socket: state.socket,
-					peer,
-					request: {
-						url: Object.freeze(url),
-						headers: peer.request.headers,
-						protocol: url.protocol === "wss:" || url.protocol === "https:" ? "wss" : "ws",
-					},
-					locals: {},
-				};
-				await handle(event);
 			},
 			message(peer, message) {
 				const state = connections.get(peer.id);
