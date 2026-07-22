@@ -14,6 +14,7 @@ import {
 	runStructuredQuery,
 	sendAssistantRemote,
 } from "$lib/operations.remote";
+import { publicConfig } from "$lib/config";
 import { readPlane } from "$lib/rpc/read-plane";
 import type { QueryResult } from "$lib/server/domain/query/structured";
 import {
@@ -24,8 +25,7 @@ import {
 import { Cause, Effect } from "effect";
 
 export type DataMode = "mock" | "live";
-export const dataMode = (): DataMode =>
-	import.meta.env.PUBLIC_CONSOLE_DATA_MODE === "mock" ? "mock" : "live";
+export const dataMode = (): DataMode => publicConfig.dataMode;
 
 export const runRemote = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
 	Effect.runPromise(effect);

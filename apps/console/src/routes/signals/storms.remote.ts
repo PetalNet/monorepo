@@ -1,5 +1,5 @@
 import { getRequestEvent } from "$app/server";
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 import type { OpResult, ReadEnvelope, SubscriptionItem } from "$lib/api/types";
 import { mockSubscriptions } from "$lib/data/signals";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
@@ -12,11 +12,11 @@ const undoArgs = Schema.Struct({
 }).annotate(rejectUnknownKeys);
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
+	return publicConfig.dataMode === "mock";
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
+	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function forwardedHeaders(contentType = false): Headers {

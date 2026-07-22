@@ -1,5 +1,5 @@
 import { getRequestEvent } from "$app/server";
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 import { validateContract, type CommsEvent, type ReadEnvelope } from "$lib/api/types";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
@@ -16,7 +16,7 @@ const filters = Schema.Struct({
 const relativeIso = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1_000).toISOString();
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
+	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function headers(): Headers {
@@ -87,7 +87,7 @@ function mockRows(): CommsEvent[] {
 /** Server-side RPC: browser code never reaches the query plane directly. */
 export const getCommsLog = Query(filters, ({ type, agent, taskId, cursor }) =>
 	Effect.promise(async (): Promise<ReadEnvelope<CommsEvent>> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") {
+		if (publicConfig.dataMode === "mock") {
 			const needle = agent?.trim().toLocaleLowerCase();
 			const method = type
 				? ({ "task-card": "comms.card", rpc: "comms.rpc", mail: "comms.mail" } as const)[type]

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { formatUnknown } from "#format";
 	import { connectBus, runRemote } from "$lib/rpc/browser";
-	const env = import.meta.env;
+	import { publicConfig } from "$lib/config";
 	import Icon from "$lib/components/Icon.svelte";
 	import IconButton from "$lib/components/IconButton.svelte";
 	import ModalSurface from "$lib/components/ModalSurface.svelte";
@@ -54,7 +54,7 @@
 	});
 
 	onMount(() => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return;
+		if (publicConfig.dataMode === "mock") return;
 		return connectBus(
 			() => [{ sub_id: "delivery-surface", pattern: "delivery.*" }],
 			(frame) => {

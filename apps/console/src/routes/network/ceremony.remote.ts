@@ -1,5 +1,5 @@
 import { getRequestEvent } from "$app/server";
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 import type { EdgeRegistryItem, OpResult, ReadEnvelope } from "$lib/api/types";
 import { mockPendingKey, mockRegistry } from "$lib/data/network";
 import { captureCaughtFailure } from "$lib/glitchtip";
@@ -44,11 +44,11 @@ interface ApiSurface {
 const mockStates = new Map<string, EdgeRegistryItem["state"] | "denied">();
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
+	return publicConfig.dataMode === "mock";
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
+	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function forwardedHeaders(contentType = false): Headers {

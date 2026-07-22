@@ -1,4 +1,4 @@
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 
 export type LibraryKind =
 	| "task"
@@ -326,7 +326,7 @@ interface ApiLibraryCuration {
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
+	return publicConfig.consoleApiBase ?? "https://console-api.petalcat.dev/api/v1";
 }
 
 async function readEnvelope<T>(path: string, fetchFn: typeof fetch): Promise<ApiEnvelope<T>> {

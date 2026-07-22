@@ -1,5 +1,5 @@
 import { getRequestEvent } from "$app/server";
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 import { mockPtyLines } from "$lib/data/terminal";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
@@ -28,7 +28,7 @@ export interface PtySnapshot {
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
+	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function headers(json = false): Headers {
@@ -64,7 +64,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 /** Opens the audited read-only PTY path. No attach or input operation is exposed by this module. */
 export const openTerminalPeek = Command(targetSchema, (target) =>
 	Effect.promise(async (): Promise<PtySnapshot> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return mockSnapshot();
+		if (publicConfig.dataMode === "mock") return mockSnapshot();
 		return apiJson<PtySnapshot>("/terminal/peek", {
 			method: "POST",
 			headers: headers(true),
@@ -76,7 +76,7 @@ export const openTerminalPeek = Command(targetSchema, (target) =>
 /** Polls an already-authorized server session; tick prevents Remote Function result reuse. */
 export const pollTerminalPeek = Query(pollSchema, ({ stream_id, tick }) =>
 	Effect.promise(async (): Promise<PtySnapshot> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return mockSnapshot(stream_id, tick + 1);
+		if (publicConfig.dataMode === "mock") return mockSnapshot(stream_id, tick + 1);
 		return apiJson<PtySnapshot>(`/terminal/peek/${encodeURIComponent(stream_id)}`, {
 			headers: headers(),
 			cache: "no-store",
@@ -86,7 +86,7 @@ export const pollTerminalPeek = Query(pollSchema, ({ stream_id, tick }) =>
 
 export const closeTerminalPeek = Command(detachSchema, ({ stream_id }) =>
 	Effect.promise(async (): Promise<void> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE === "mock") return;
+		if (publicConfig.dataMode === "mock") return;
 		await apiJson(`/terminal/streams/${encodeURIComponent(stream_id)}/detach`, {
 			method: "POST",
 			headers: headers(true),

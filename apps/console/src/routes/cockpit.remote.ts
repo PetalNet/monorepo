@@ -1,5 +1,5 @@
 import { getRequestEvent, query } from "$app/server";
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 import {
 	attentionSort,
 	consoleHealthBusAgeS,
@@ -38,7 +38,7 @@ export interface CockpitRemoteResult {
 }
 
 function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? `${getRequestEvent().url.origin}/api/v1`;
+	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
 }
 
 function forwardedHeaders(): Headers {
@@ -75,7 +75,7 @@ function sceneFromUrl(): Scene {
 
 /** Server-side cockpit RPC. Browser code never assembles console-api requests or crack truth. */
 export const getCockpit = query(async (): Promise<CockpitRemoteResult> => {
-	if (env.PUBLIC_CONSOLE_DATA_MODE === "mock")
+	if (publicConfig.dataMode === "mock")
 		return { cockpit: mockCockpit(sceneFromUrl()), isMock: true, staleSources: [] };
 
 	const [attentionRead, rosterRead, healthRead, dashboardsRead, meRead] = await Promise.all([

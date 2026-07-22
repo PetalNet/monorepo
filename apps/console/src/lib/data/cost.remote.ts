@@ -1,3 +1,4 @@
+import { readConfig } from "$lib/config";
 import { costComparisonRequestSchema } from "$lib/server/domain/cost/compare";
 import { compareCostPair, CostComparisonUnavailableError } from "$lib/server/domain/cost/service";
 import { currentPrincipal } from "$lib/server/domain/principal";
@@ -16,7 +17,8 @@ import { mockCostComparison } from "./cost";
  */
 export const compareCost = Query(costComparisonRequestSchema, (request) =>
 	Effect.gen(function* () {
-		if (import.meta.env.PUBLIC_CONSOLE_DATA_MODE === "mock")
+		const { dataMode } = yield* readConfig;
+		if (dataMode === "mock")
 			return mockCostComparison(request.dimension, request.left, request.right);
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;

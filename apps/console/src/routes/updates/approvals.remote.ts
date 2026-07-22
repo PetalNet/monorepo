@@ -1,5 +1,5 @@
 import { getRequestEvent } from "$app/server";
-const env = import.meta.env;
+import { publicConfig } from "$lib/config";
 import type { OpResult, ReadEnvelope, UpdateApproval } from "$lib/api/types";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
@@ -38,7 +38,7 @@ export interface ApprovedUpdate {
 const mockApprovals = new Map<string, UpdateApproval>();
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE === "mock";
+	return publicConfig.dataMode === "mock";
 }
 
 function forwardedHeaders(contentType = false): Headers {
@@ -54,7 +54,7 @@ function forwardedHeaders(contentType = false): Headers {
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 	const event = getRequestEvent();
-	const base = env.PUBLIC_CONSOLE_API_BASE ?? `${event.url.origin}/api/v1`;
+	const base = publicConfig.consoleApiBase ?? `${event.url.origin}/api/v1`;
 	const response = await event.fetch(`${base}${path}`, {
 		...init,
 		headers: init?.headers ?? forwardedHeaders(init?.body !== undefined),
