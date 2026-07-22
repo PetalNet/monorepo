@@ -1,6 +1,6 @@
 import { getRequestEvent } from "$app/server";
-import { publicConfig } from "$lib/config";
 import { validateContract, type CommsEvent, type ReadEnvelope } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";
 import { Effect, Schema } from "effect";

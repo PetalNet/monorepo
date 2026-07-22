@@ -1,6 +1,6 @@
 import { getRequestEvent } from "$app/server";
-import { publicConfig } from "$lib/config";
 import type { CardItem, ExecutorItem, OpResult, ReadEnvelope } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import { mockWanted } from "$lib/data/work";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";

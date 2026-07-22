@@ -1,11 +1,11 @@
 import { getRequestEvent, query } from "$app/server";
-import { publicConfig } from "$lib/config";
 import {
 	validateContract,
 	type AvailabilitySnapshot,
 	type ExecutorItem,
 	type ReadEnvelope,
 } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import { mockAvailability } from "$lib/data/availability";
 import { error } from "@sveltejs/kit";
 

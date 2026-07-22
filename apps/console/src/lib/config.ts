@@ -1,4 +1,8 @@
-import { PUBLIC_CONSOLE_API_BASE, PUBLIC_CONSOLE_DATA_MODE, PUBLIC_GLITCHTIP_DSN } from "$app/env/public";
+import {
+	PUBLIC_CONSOLE_API_BASE,
+	PUBLIC_CONSOLE_DATA_MODE,
+	PUBLIC_GLITCHTIP_DSN,
+} from "$app/env/public";
 import {
 	consoleApiBaseSchema,
 	dataModeSchema,
@@ -9,10 +13,11 @@ import { Config, ConfigProvider, Effect } from "effect";
 
 /**
  * The one module that touches SvelteKit's env seam ($app/env/public). Every other read goes through
- * Effect's Config against this provider — so if the app moves off SvelteKit, or svelte-effect-runtime
- * ships native env support, only this provider is swapped, never the call sites. The Config values
- * are derived from the shared Effect Schemas ($lib/env-schemas), the same definitions SvelteKit and
- * the instrumentation use, so validation and defaults live in exactly one place.
+ * Effect's Config against this provider — so if the app moves off SvelteKit, or
+ * svelte-effect-runtime ships native env support, only this provider is swapped, never the call
+ * sites. The Config values are derived from the shared Effect Schemas ($lib/env-schemas), the same
+ * definitions SvelteKit and the instrumentation use, so validation and defaults live in exactly one
+ * place.
  */
 const publicEnvProvider = ConfigProvider.fromUnknown(
 	Object.fromEntries(

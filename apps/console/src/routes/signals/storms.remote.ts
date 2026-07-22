@@ -1,6 +1,6 @@
 import { getRequestEvent } from "$app/server";
-import { publicConfig } from "$lib/config";
 import type { OpResult, ReadEnvelope, SubscriptionItem } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import { mockSubscriptions } from "$lib/data/signals";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { error } from "@sveltejs/kit";

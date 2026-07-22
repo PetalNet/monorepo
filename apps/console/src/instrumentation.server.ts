@@ -5,8 +5,8 @@ import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentation
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import * as Sentry from "@sentry/sveltekit";
-import { createAddHookMessageChannel } from "import-in-the-middle";
 import { Schema } from "effect";
+import { createAddHookMessageChannel } from "import-in-the-middle";
 
 const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 

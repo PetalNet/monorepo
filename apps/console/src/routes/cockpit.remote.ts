@@ -1,5 +1,4 @@
 import { getRequestEvent, query } from "$app/server";
-import { publicConfig } from "$lib/config";
 import {
 	attentionSort,
 	consoleHealthBusAgeS,
@@ -19,6 +18,7 @@ import type {
 	ReadEnvelope,
 	RosterItem,
 } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import {
 	crackMeta,
 	crackStateFact,

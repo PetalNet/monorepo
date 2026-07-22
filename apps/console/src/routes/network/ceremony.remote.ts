@@ -1,6 +1,6 @@
 import { getRequestEvent } from "$app/server";
-import { publicConfig } from "$lib/config";
 import type { EdgeRegistryItem, OpResult, ReadEnvelope } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import { mockPendingKey, mockRegistry } from "$lib/data/network";
 import { captureCaughtFailure } from "$lib/glitchtip";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";

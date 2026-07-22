@@ -1,6 +1,6 @@
 import { getRequestEvent, query } from "$app/server";
-import { publicConfig } from "$lib/config";
 import type { WorkSettlementSnapshot } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import { mockWorkSettlement } from "$lib/data/work-settlement";
 import { error } from "@sveltejs/kit";
 

@@ -11,9 +11,9 @@ import { mockCostComparison } from "./cost";
 
 /**
  * Server-only RPC boundary for pairwise cost comparison. Runs the comparison domain effect in
- * process against the shared substrate — no HTTP round-trip back through the console's own REST
- * API — exactly like the other remote read planes (see operations.remote.ts). Browser code never
- * calls console-api directly.
+ * process against the shared substrate — no HTTP round-trip back through the console's own REST API
+ * — exactly like the other remote read planes (see operations.remote.ts). Browser code never calls
+ * console-api directly.
  */
 export const compareCost = Query(costComparisonRequestSchema, (request) =>
 	Effect.gen(function* () {

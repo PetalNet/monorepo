@@ -1,7 +1,4 @@
 import { getRequestEvent } from "$app/server";
-
-import { formatUnknown } from "#format";
-import { publicConfig } from "$lib/config";
 import type {
 	ConsoleHealth,
 	DeliveryItem,
@@ -11,6 +8,7 @@ import type {
 	ReadEnvelope,
 	SubscriptionItem,
 } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import {
 	mockDelivery,
 	mockReceipts,
@@ -21,6 +19,8 @@ import { ISO_DATETIME_OFFSET_RE, rejectUnknownKeys } from "$lib/server/domain/sc
 import { error } from "@sveltejs/kit";
 import { Effect, Schema } from "effect";
 import { Command, Query } from "svelte-effect-runtime";
+
+import { formatUnknown } from "#format";
 
 export interface DeliverySurfaceData {
 	delivery: DeliveryItem | null;

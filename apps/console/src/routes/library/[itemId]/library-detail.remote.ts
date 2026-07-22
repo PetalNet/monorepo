@@ -1,6 +1,6 @@
 import { getRequestEvent } from "$app/server";
-import { publicConfig } from "$lib/config";
 import type { WorkSettlementSnapshot } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import {
 	libraryLinks,
 	libraryProvenance,

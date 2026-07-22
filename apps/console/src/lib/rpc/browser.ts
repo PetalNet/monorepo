@@ -7,6 +7,7 @@ import type {
 	RosterItem,
 	StructuredQuery,
 } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import type { ReadPlane, ReadPlaneResult } from "$lib/operations.remote";
 import {
 	executeNamedOp,
@@ -14,7 +15,6 @@ import {
 	runStructuredQuery,
 	sendAssistantRemote,
 } from "$lib/operations.remote";
-import { publicConfig } from "$lib/config";
 import { readPlane } from "$lib/rpc/read-plane";
 import type { QueryResult } from "$lib/server/domain/query/structured";
 import {

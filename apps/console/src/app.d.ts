@@ -3,7 +3,6 @@ declare global {
 		strictImportMetaEnv: unknown;
 	}
 
-
 	namespace App {
 		interface Locals {
 			session: import("better-auth").Session | null;
