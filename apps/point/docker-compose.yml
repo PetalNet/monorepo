@@ -18,7 +18,7 @@
 
 services:
   traefik:
-    image: traefik:v3.2
+    image: traefik:v3.2@sha256:e561a37f8710d9cf41c78bdf421d822b2c0b48267ec0552e644565fb55466ea9
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16
+    image: postgres:16@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-point}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD in .env}
