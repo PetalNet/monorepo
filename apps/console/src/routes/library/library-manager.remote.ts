@@ -9,6 +9,7 @@ import {
 import { settledTaskLibraryItem } from "$lib/data/work-settlement";
 import { executeNamedOp, readPlaneRemote, sendAssistantRemote } from "$lib/operations.remote";
 import {
+	isDashboardError,
 	listLibraryCapabilities,
 	listLibraryCuration,
 	listLibraryHolds,
@@ -81,7 +82,6 @@ const statusResultSchema = Schema.Struct({
 		),
 	),
 });
-type LibraryStatusResult = typeof statusResultSchema.Type;
 const reviewSchema = Schema.Struct({
 	proposal_id: Schema.String.check(Schema.isMinLength(1)),
 	decision: Schema.Literals(["under-review", "promoted", "rejected"]),
@@ -94,7 +94,6 @@ const reviewResultSchema = Schema.Struct({
 	state: Schema.String,
 	reviewed_by: Schema.String,
 });
-type LibraryReviewResult = typeof reviewResultSchema.Type;
 
 export interface LibraryManagerResult {
 	schema_version: 1;
@@ -159,43 +158,29 @@ export const getLibrarySurface = Query(
 		const [items, links, holds, curation, capabilities, executorsResult] = yield* Effect.all(
 			[
 				settle(
-					Effect.promise(() =>
-						listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
-							limit: 1_000,
-						}),
-					),
+					listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
+						limit: 1_000,
+					}),
 				),
 				settle(
-					Effect.promise(() =>
-						listLibraryLinks(services.db.app, principal.scopes, services.cursorSecret, undefined, {
-							limit: 1_000,
-						}),
-					),
+					listLibraryLinks(services.db.app, principal.scopes, services.cursorSecret, undefined, {
+						limit: 1_000,
+					}),
 				),
 				settle(
-					Effect.promise(() =>
-						listLibraryHolds(
-							services.db.app,
-							principal.scopes,
-							principal.id,
-							services.cursorSecret,
-							{ limit: 1_000 },
-						),
-					),
+					listLibraryHolds(services.db.app, principal.scopes, principal.id, services.cursorSecret, {
+						limit: 1_000,
+					}),
 				),
 				settle(
-					Effect.promise(() =>
-						listLibraryCuration(services.db.app, principal.scopes, services.cursorSecret, {
-							limit: 1_000,
-						}),
-					),
+					listLibraryCuration(services.db.app, principal.scopes, services.cursorSecret, {
+						limit: 1_000,
+					}),
 				),
 				settle(
-					Effect.promise(() =>
-						listLibraryCapabilities(services.db.app, principal.scopes, services.cursorSecret, {
-							limit: 1_000,
-						}),
-					),
+					listLibraryCapabilities(services.db.app, principal.scopes, services.cursorSecret, {
+						limit: 1_000,
+					}),
 				),
 				settle(readPlaneRemote("executors")),
 			],
@@ -291,15 +276,17 @@ export const searchLibrary = Query(searchSchema, ({ query: searchQuery }) =>
 		const principal = yield* currentPrincipal;
 		const [result, settlement] = yield* Effect.all(
 			[
-				Effect.promise(() =>
-					listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
-						query: searchQuery,
-						limit: 100,
-					}),
+				listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
+					query: searchQuery,
+					limit: 100,
+				}).pipe(
+					Effect.catch((cause) =>
+						isDashboardError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+					),
 				),
-				Effect.sync(() =>
-					services.tracker ? readWorkSettlement(services.tracker, principal.scopes) : null,
-				),
+				services.tracker
+					? readWorkSettlement(services.tracker, principal.scopes)
+					: Effect.succeed(null),
 			],
 			{ concurrency: "unbounded" },
 		);
@@ -338,9 +325,12 @@ export const verifyLibraryCapability = Command(acquisitionSchema, (input) =>
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		const result = yield* Effect.promise(() =>
-			acquireCapability(services.db.app, principal.scopes, input.capability, input.provider),
-		);
+		const result = yield* acquireCapability(
+			services.db.app,
+			principal.scopes,
+			input.capability,
+			input.provider,
+		).pipe(Effect.catch((cause) => HttpError("BadRequest", cause.message)));
 		const parsed = Schema.decodeUnknownExit(acquisitionResultSchema)(result);
 		if (Exit.isFailure(parsed))
 			return yield* HttpError("BadGateway", "Registry returned an invalid acquisition receipt");

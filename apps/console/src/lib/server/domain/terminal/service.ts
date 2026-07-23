@@ -2,6 +2,7 @@ import { Effect } from "effect";
 
 import type { Principal } from "../auth/principal.ts";
 import type { GrantRelation } from "../auth/tiers.ts";
+import { edge } from "../edge.ts";
 import { readEntity } from "../reads/entities.ts";
 import type { Services } from "../substrate.ts";
 
@@ -43,6 +44,7 @@ export interface TerminalSession {
 }
 
 export class TerminalDomainError extends Error {
+	readonly _tag = "TerminalDomainError";
 	constructor(
 		readonly status: number,
 		readonly code: string,
@@ -52,6 +54,13 @@ export class TerminalDomainError extends Error {
 		super(message);
 	}
 }
+
+/**
+ * The only recoverable failure the terminal domain models: an authz denial, a gate/audit outage, or
+ * a PTY capture fault.
+ */
+const isTerminalDomainError = (error: unknown): error is TerminalDomainError =>
+	error instanceof TerminalDomainError;
 
 export class UnavailableTerminalAdapter implements TerminalAdapter {
 	health(): Promise<boolean> {
@@ -69,13 +78,42 @@ export class UnavailableTerminalAdapter implements TerminalAdapter {
 
 const relationRank: Record<GrantRelation, number> = { viewer: 0, operator: 1, editor: 1, owner: 2 };
 
-async function hasFleetOwnerGrant(services: Services, principal: Principal): Promise<boolean> {
-	const subjects = [principal.id, ...principal.tiers.map((tier) => `tier:${tier}`)];
-	const rows = await services.db.admin<{ relation: GrantRelation }[]>`
-		select relation from grants where subject = any(${services.db.admin.array(subjects)})
-		  and object = 'fleet' and condition is null and valid_at <= now()
-		  and (invalid_at is null or invalid_at > now())`;
-	return rows.some((row) => relationRank[row.relation] >= relationRank.owner);
+// The fleet-owner gate check: the pg grants query is the one external edge. Its inability to
+// answer is a caller-retryable 503 (the terminal gate is unavailable), not a defect — a would-be
+// operator must be told to retry rather than see an opaque crash.
+function hasFleetOwnerGrant(
+	services: Services,
+	principal: Principal,
+): Effect.Effect<boolean, TerminalDomainError> {
+	return edge(isTerminalDomainError, async () => {
+		const subjects = [principal.id, ...principal.tiers.map((tier) => `tier:${tier}`)];
+		try {
+			const rows = await services.db.admin<{ relation: GrantRelation }[]>`
+				select relation from grants where subject = any(${services.db.admin.array(subjects)})
+				  and object = 'fleet' and condition is null and valid_at <= now()
+				  and (invalid_at is null or invalid_at > now())`;
+			return rows.some((row) => relationRank[row.relation] >= relationRank.owner);
+		} catch {
+			throw new TerminalDomainError(503, "terminal_unavailable", "terminal gate unavailable", true);
+		}
+	});
+}
+
+// The PTY adapter is a true external edge. A capture fault is a caller-retryable 502 in the terminal
+// error channel (the remote surfaces it as BadGateway); anything else the adapter throws is an
+// infrastructure defect. Translating at the edge keeps `edge`'s guard honest.
+function captureSnapshot(
+	adapter: TerminalAdapter,
+	target: TerminalTarget,
+	scrollbackLines: number,
+): Effect.Effect<Buffer, TerminalDomainError> {
+	return edge(isTerminalDomainError, async () => {
+		try {
+			return await adapter.capture(target, scrollbackLines);
+		} catch {
+			throw new TerminalDomainError(502, "pty_capture_failed", "terminal capture failed", true);
+		}
+	});
 }
 
 export class TerminalService {
@@ -97,12 +135,7 @@ export class TerminalService {
 				return yield* Effect.fail(
 					new TerminalDomainError(403, "term_denied", "term_admin lane required", false),
 				);
-			const owner = yield* Effect.promise(() => hasFleetOwnerGrant(services, principal)).pipe(
-				Effect.mapError(
-					() =>
-						new TerminalDomainError(503, "terminal_unavailable", "terminal gate unavailable", true),
-				),
-			);
+			const owner = yield* hasFleetOwnerGrant(services, principal);
 			if (!owner)
 				return yield* Effect.fail(
 					new TerminalDomainError(403, "term_denied", "owner relation required on fleet", false),
@@ -138,22 +171,22 @@ export class TerminalService {
 			},
 			meta: { retention_class: "audit" },
 		};
-		return Effect.promise(() =>
-			this.services.emit(
-				"system:console-api",
-				emission,
-				Buffer.byteLength(JSON.stringify(emission)),
-			),
-		).pipe(
-			Effect.mapError(
-				() =>
-					new TerminalDomainError(
-						503,
-						"audit_unavailable",
-						"terminal audit write could not be verified",
-						true,
-					),
-			),
+		return edge(isTerminalDomainError, async () => {
+			try {
+				return await this.services.emit(
+					"system:console-api",
+					emission,
+					Buffer.byteLength(JSON.stringify(emission)),
+				);
+			} catch {
+				throw new TerminalDomainError(
+					503,
+					"audit_unavailable",
+					"terminal audit write could not be verified",
+					true,
+				);
+			}
+		}).pipe(
 			Effect.flatMap((outcome) =>
 				outcome.ok && outcome.seq !== undefined
 					? Effect.succeed(outcome.seq)
@@ -186,9 +219,10 @@ export class TerminalService {
 		});
 	}
 
-	visible(principal: Principal, target: TerminalTarget): Effect.Effect<boolean, unknown> {
-		return Effect.promise(async () => {
-			const heartbeats = await readEntity(this.services.db.app, principal.scopes, "heartbeat", {
+	visible(principal: Principal, target: TerminalTarget): Effect.Effect<boolean> {
+		const services = this.services;
+		return Effect.gen(function* () {
+			const heartbeats = yield* readEntity(services.db.app, principal.scopes, "heartbeat", {
 				limit: 1000,
 			});
 			return heartbeats.items.some(
@@ -224,11 +258,7 @@ export class TerminalService {
 				return yield* Effect.fail(
 					new TerminalDomainError(503, "pty_unavailable", "PTY adapter unavailable", true),
 				);
-			const visible = yield* visibleTarget(principal, target).pipe(
-				Effect.mapError(
-					() => new TerminalDomainError(503, "terminal_unavailable", "terminal unavailable", true),
-				),
-			);
+			const visible = yield* visibleTarget(principal, target);
 			if (!visible)
 				return yield* Effect.fail(
 					new TerminalDomainError(
@@ -245,11 +275,7 @@ export class TerminalService {
 				close(streamId);
 			}, 30_000);
 			session.timer.unref();
-			const snapshot = yield* Effect.tryPromise({
-				try: () => adapter.capture(target, scrollbackLines),
-				catch: () =>
-					new TerminalDomainError(502, "pty_capture_failed", "terminal capture failed", true),
-			}).pipe(
+			const snapshot = yield* captureSnapshot(adapter, target, scrollbackLines).pipe(
 				Effect.tapError(() =>
 					Effect.sync(() => {
 						close(streamId);
@@ -281,11 +307,7 @@ export class TerminalService {
 				close(streamId);
 			}, 30_000);
 			session.timer.unref();
-			const snapshot = yield* Effect.tryPromise({
-				try: () => adapter.capture(session.target, 10_000),
-				catch: () =>
-					new TerminalDomainError(502, "pty_capture_failed", "terminal capture failed", true),
-			});
+			const snapshot = yield* captureSnapshot(adapter, session.target, 10_000);
 			session.seq += 1;
 			return {
 				schema_version: 1,

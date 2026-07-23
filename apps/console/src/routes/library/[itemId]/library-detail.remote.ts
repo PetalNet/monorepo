@@ -12,6 +12,7 @@ import {
 	type SettlingTask,
 } from "$lib/data/work-settlement";
 import {
+	isDashboardError,
 	listLibraryItems,
 	listLibraryLinks,
 	readLibraryItem,
@@ -108,10 +109,10 @@ export const getLibraryItemDetail = Query(idSchema, (id) =>
 				const principal = yield* currentPrincipal;
 				if (!services.tracker)
 					return yield* HttpError("ServiceUnavailable", "Work settlement is unavailable");
-				settlement = readWorkSettlement(
+				settlement = (yield* readWorkSettlement(
 					services.tracker,
 					principal.scopes,
-				) as unknown as ReturnType<typeof mockWorkSettlement>;
+				)) as unknown as ReturnType<typeof mockWorkSettlement>;
 			}
 			const task = [...settlement.settling, ...settlement.history].find(
 				(candidate) => `task:${String(candidate.id)}` === id,
@@ -146,20 +147,20 @@ export const getLibraryItemDetail = Query(idSchema, (id) =>
 		const principal = yield* currentPrincipal;
 		const [current, history, links, items] = (yield* Effect.all(
 			[
-				Effect.promise(() => readLibraryItem(services.db.app, principal.scopes, id)),
-				Effect.promise(() => readLibraryItemHistory(services.db.app, principal.scopes, id)),
-				Effect.promise(() =>
-					listLibraryLinks(services.db.app, principal.scopes, services.cursorSecret, id, {
-						limit: 100,
-					}),
-				),
-				Effect.promise(() =>
-					listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
-						limit: 1_000,
-					}),
-				),
+				readLibraryItem(services.db.app, principal.scopes, id),
+				readLibraryItemHistory(services.db.app, principal.scopes, id),
+				listLibraryLinks(services.db.app, principal.scopes, services.cursorSecret, id, {
+					limit: 100,
+				}),
+				listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
+					limit: 1_000,
+				}),
 			],
 			{ concurrency: "unbounded" },
+		).pipe(
+			Effect.catch((cause) =>
+				isDashboardError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+			),
 		)) as [
 			{ item: ApiItem } | null,
 			{ items: Array<{ version: number; tx_from: string; item: ApiItem }> },

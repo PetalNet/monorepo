@@ -1,4 +1,4 @@
-import type { EdgeRegistryItem, ReadEnvelope } from "$lib/api/types";
+import type { EdgeRegistryItem } from "$lib/api/types";
 import { publicConfig } from "$lib/config";
 import { mockPendingKey, mockRegistry } from "$lib/data/network";
 import { captureCaughtFailure } from "$lib/glitchtip";
@@ -38,11 +38,6 @@ export interface KeyCeremonySurface {
 	readonly is_mock: boolean;
 }
 
-interface ApiSurface {
-	readonly registry: ReadEnvelope<EdgeRegistryItem>;
-	readonly executor: KeyCeremonySurface["executor"];
-}
-
 const mockStates = new Map<string, EdgeRegistryItem["state"] | "denied">();
 
 function isMock(): boolean {
@@ -73,17 +68,19 @@ export const getKeyCeremony = Query(
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
 		return yield* Effect.gen(function* () {
-			const registry = yield* Effect.promise(() =>
-				readEntity(services.db.app, principal.scopes, "edge", {
-					limit: 1_000,
-					requiredFields: ["pubkey_fp", "state"],
-				}),
-			);
+			const registry = yield* readEntity(services.db.app, principal.scopes, "edge", {
+				limit: 1_000,
+				requiredFields: ["pubkey_fp", "state"],
+			});
 			const keyCeremony = services.keyCeremony;
 			const configured = keyCeremony !== null;
 			const live = keyCeremony ? yield* Effect.promise(() => keyCeremony.health()) : false;
-			const surface: ApiSurface = {
-				registry: registry as ReadEnvelope<EdgeRegistryItem>,
+			return {
+				// The scoped `edge` projection is untyped lake JSON; narrowing its rows to the
+				// EdgeRegistryItem contract is the one genuine unknown-JSON narrowing at this seam.
+				registry: registry.items as EdgeRegistryItem[],
+				observed_at: registry.freshness.observed_at,
+				registry_available: true,
 				executor: {
 					configured,
 					live,
@@ -93,14 +90,8 @@ export const getKeyCeremony = Query(
 							? "Doorman key ceremony answered its private health check"
 							: "Doorman key ceremony is not answering",
 				},
-			};
-			return {
-				registry: surface.registry.items,
-				observed_at: surface.registry.freshness.observed_at,
-				registry_available: true,
-				executor: surface.executor,
 				is_mock: false,
-			};
+			} satisfies KeyCeremonySurface;
 		}).pipe(
 			Effect.catch((cause) => {
 				captureCaughtFailure(cause, { surface: "network", endpoint: "/network/key-ceremony" });
@@ -114,7 +105,7 @@ export const getKeyCeremony = Query(
 						detail: "Key registry and doorman availability could not be verified",
 					},
 					is_mock: false,
-				});
+				} satisfies KeyCeremonySurface);
 			}),
 		);
 	}),

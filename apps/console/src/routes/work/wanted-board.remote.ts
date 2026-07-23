@@ -17,13 +17,6 @@ function isMock(): boolean {
 	return publicConfig.dataMode === "mock";
 }
 
-interface WantedBoardSnapshot {
-	readonly cards: CardItem[];
-	readonly observed_at: string | null;
-	readonly dispatcher_live: boolean;
-	readonly tracker_live: boolean;
-}
-
 export const getWantedBoard = Query(
 	Effect.gen(function* () {
 		if (isMock())

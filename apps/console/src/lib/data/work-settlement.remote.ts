@@ -1,4 +1,3 @@
-import type { WorkSettlementSnapshot } from "$lib/api/types";
 import { publicConfig } from "$lib/config";
 import { mockWorkSettlement } from "$lib/data/work-settlement";
 import { currentPrincipal } from "$lib/server/domain/principal";
@@ -19,6 +18,6 @@ export const getWorkSettlement = Query(
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
 		if (!services.tracker) return yield* Effect.die(new Error("Tracker is unavailable"));
-		return readWorkSettlement(services.tracker, principal.scopes) as WorkSettlementSnapshot;
+		return yield* readWorkSettlement(services.tracker, principal.scopes);
 	}),
 );

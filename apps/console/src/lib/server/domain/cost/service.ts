@@ -7,6 +7,7 @@ import type {
 import { Effect } from "effect";
 
 import type { Sql } from "../db/pool.ts";
+import { edge } from "../edge.ts";
 import { QueryError, runStructured } from "../query/structured.ts";
 import { compareCostPairWith, metricRows } from "./compare.ts";
 import {
@@ -17,7 +18,9 @@ import {
 	type MeterSide,
 } from "./meter.ts";
 
-export class CostComparisonUnavailableError extends Error {}
+export class CostComparisonUnavailableError extends Error {
+	readonly _tag = "CostComparisonUnavailableError";
+}
 
 function meterSide(value: string, side: MeterSide): CostComparisonSide {
 	return {
@@ -74,32 +77,35 @@ function meterResult(input: CostComparisonRequest, result: MeterComparison): Cos
 	};
 }
 
+/**
+ * Pairwise cost comparison as an Effect with a deliberately narrow error channel: a `QueryError`
+ * (the request is unanswerable from the price book / usage lake) or, when the structured path
+ * reports an unknown source and a meter fallback is authorized, a `CostComparisonUnavailableError`.
+ * The structured queries compose directly (`runStructured` is already an Effect); the AgentsView
+ * meter is an external HTTP adapter, so its call is the one promise edge — lifted with `edge(...)`
+ * so its two failure modes land in the error channel instead of being swallowed as defects.
+ */
 export function compareCostPair(
 	app: Sql,
 	scopes: readonly string[],
 	input: CostComparisonRequest,
 	meter?: CostMeter,
-): Effect.Effect<CostComparisonResult, unknown> {
-	return compareCostPairWith(
-		(request) => Effect.promise(() => runStructured(app, scopes, request)),
-		input,
-	).pipe(
-		Effect.catch((error: unknown) => {
-			if (
-				!(error instanceof QueryError) ||
-				error.code !== "bad_from" ||
-				!meter ||
-				!scopes.includes("fleet")
-			)
+): Effect.Effect<CostComparisonResult, QueryError | CostComparisonUnavailableError> {
+	return compareCostPairWith((request) => runStructured(app, scopes, request), input).pipe(
+		Effect.catch((error) => {
+			if (error.code !== "bad_from" || !meter || !scopes.includes("fleet"))
 				return Effect.fail(error);
-			return Effect.promise(() => meter.compare(input)).pipe(
+			return edge(
+				(cause): cause is CostMeterWindowError | CostMeterUnavailableError =>
+					cause instanceof CostMeterWindowError || cause instanceof CostMeterUnavailableError,
+				() => meter.compare(input),
+			).pipe(
 				Effect.map((result) => meterResult(input, result)),
-				Effect.catch((meterError: unknown) =>
-					meterError instanceof CostMeterWindowError
-						? Effect.fail(new QueryError("comparison_window_unsupported", meterError.message))
-						: meterError instanceof CostMeterUnavailableError
-							? Effect.fail(new CostComparisonUnavailableError(meterError.message))
-							: Effect.fail(meterError),
+				Effect.catch(
+					(meterError): Effect.Effect<never, QueryError | CostComparisonUnavailableError> =>
+						meterError instanceof CostMeterWindowError
+							? Effect.fail(new QueryError("comparison_window_unsupported", meterError.message))
+							: Effect.fail(new CostComparisonUnavailableError(meterError.message)),
 				),
 			);
 		}),

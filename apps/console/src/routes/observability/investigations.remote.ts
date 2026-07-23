@@ -5,11 +5,15 @@ import type {
 	InvestigationPanel,
 } from "$lib/data/investigations";
 import { executeNamedOp } from "$lib/operations.remote";
-import { listDashboards, loadDashboard } from "$lib/server/domain/dashboard/store";
+import {
+	isDashboardError,
+	listDashboards,
+	loadDashboard,
+} from "$lib/server/domain/dashboard/store";
 import { currentPrincipal } from "$lib/server/domain/principal";
 import { branchQuery } from "$lib/server/domain/query/branch";
 import { readQueryRecord } from "$lib/server/domain/query/history";
-import { runStructured } from "$lib/server/domain/query/structured";
+import { isQueryError, runStructured } from "$lib/server/domain/query/structured";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { ConsoleDomain } from "$lib/server/domain/service";
 import { Effect, Schema } from "effect";
@@ -183,11 +187,15 @@ export const getInvestigationGraph = Query(
 		const nodes: InvestigationNode[] = [];
 		let cursor: string | null = null;
 		do {
-			const envelope = (yield* Effect.promise(() =>
-				listDashboards(services.db.app, principal.scopes, services.cursorSecret, {
-					limit: 1_000,
-					...(cursor ? { cursor } : {}),
-				}),
+			const envelope = (yield* listDashboards(
+				services.db.app,
+				principal.scopes,
+				services.cursorSecret,
+				{ limit: 1_000, ...(cursor ? { cursor } : {}) },
+			).pipe(
+				Effect.catch((cause) =>
+					isDashboardError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+				),
 			)) as { items: DashboardRow[]; next_cursor?: string | null };
 			nodes.push(
 				...envelope.items
@@ -206,8 +214,10 @@ export const loadInvestigationNode = Query(nodeId, ({ id }) =>
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		const detail = (yield* Effect.promise(() =>
-			loadDashboard(services.db.app, principal.scopes, id),
+		const detail = (yield* loadDashboard(
+			services.db.app,
+			principal.scopes,
+			id,
 		)) as DashboardDetail | null;
 		if (!detail) return yield* HttpError("NotFound", "Dashboard not found");
 		return {
@@ -234,15 +244,15 @@ export const createInvestigationNode = Command(branchInput, (input) =>
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		const record = yield* Effect.promise(() =>
-			readQueryRecord(services.db.app, principal.scopes, input.queryRef),
-		);
+		const record = yield* readQueryRecord(services.db.app, principal.scopes, input.queryRef);
 		if (!record) return yield* HttpError("NotFound", "Parent query not found");
-		const filtered = yield* Effect.promise(() =>
-			runStructured(
-				services.db.app,
-				principal.scopes,
-				branchQuery(record.request, input.selectedField, input.selectedValue),
+		const filtered = yield* runStructured(
+			services.db.app,
+			principal.scopes,
+			branchQuery(record.request, input.selectedField, input.selectedValue),
+		).pipe(
+			Effect.catch((cause) =>
+				isQueryError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
 			),
 		);
 		const id = crypto.randomUUID();

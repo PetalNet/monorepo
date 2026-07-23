@@ -24,19 +24,6 @@ import { Command, Error as HttpError, Query } from "svelte-effect-runtime";
 
 import { formatUnknown } from "#format";
 
-interface DeliverySurfaceData {
-	delivery: DeliveryItem | null;
-	receipts: DeliveryReceiptView[];
-	receiptsAvailable: boolean;
-	matrixSyncOkEpoch: number | null;
-	busObservedAt: string | null;
-	loudSubscriptionCount: number;
-	executorLive: boolean;
-	executorDetail: string | null;
-	errors: string[];
-	isMock: boolean;
-}
-
 let mockDeliveryState: DeliveryItem = { ...mockDelivery };
 let mockReceiptState: DeliveryReceiptView[] = [...mockReceipts];
 
@@ -85,11 +72,7 @@ export const getDeliverySurface = Query(
 		const principal = yield* currentPrincipal;
 		const settled = yield* Effect.all(
 			[
-				Effect.exit(
-					Effect.promise(() =>
-						readDeliveryConfig(services.db.app, principal.scopes, { limit: 10 }),
-					),
-				),
+				Effect.exit(readDeliveryConfig(services.db.app, principal.scopes, { limit: 10 })),
 				Effect.exit(readPlaneRemote("subscriptions")),
 				Effect.exit(readPlaneRemote("executors")),
 				Effect.exit(readPlaneRemote("health")),

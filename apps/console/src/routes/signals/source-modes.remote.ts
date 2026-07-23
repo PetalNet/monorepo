@@ -1,4 +1,4 @@
-import type { ReadEnvelope, SignalSourceModeItem } from "$lib/api/types";
+import type { SignalSourceModeItem } from "$lib/api/types";
 import { publicConfig } from "$lib/config";
 import { executeNamedOp } from "$lib/operations.remote";
 import { currentPrincipal } from "$lib/server/domain/principal";
@@ -28,10 +28,12 @@ export const getSignalSourceModes = Query(
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		const response = (yield* Effect.promise(() =>
-			readSignalSourceModes(services.db.app, principal.scopes, { limit: 1_000 }),
-		)) as ReadEnvelope<SignalSourceModeItem>;
-		return response.items;
+		const response = yield* readSignalSourceModes(services.db.app, principal.scopes, {
+			limit: 1_000,
+		});
+		// current_state rows arrive as untyped JSON (ReadEnvelope.items: Record<string, unknown>[]);
+		// narrowing to the closed contract shape is the rare rule-4 JSON narrowing, not a mock cast.
+		return response.items as SignalSourceModeItem[];
 	}),
 );
 

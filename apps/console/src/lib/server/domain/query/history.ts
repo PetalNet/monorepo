@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+
 import type { Sql } from "../db/pool.ts";
 import { withScopes } from "../db/pool.ts";
 import type { QueryRequest } from "./structured.ts";
@@ -12,15 +14,17 @@ export interface QueryRecord {
 	created_at: string;
 }
 
-export async function readQueryRecord(
+export function readQueryRecord(
 	app: Sql,
 	scopes: readonly string[],
 	queryRef: string,
-): Promise<QueryRecord | null> {
-	return withScopes(app, scopes, async (tx) => {
-		const rows = await tx<QueryRecord[]>`
+): Effect.Effect<QueryRecord | null> {
+	return Effect.promise(() =>
+		withScopes(app, scopes, async (tx) => {
+			const rows = await tx<QueryRecord[]>`
 			select query_ref, request, sql_text, columns, row_count, execution_ms, created_at
 			from query_history where query_ref = ${queryRef}`;
-		return rows.at(0) ?? null;
-	});
+			return rows.at(0) ?? null;
+		}),
+	);
 }

@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { promisify } from "node:util";
 
-import { Cause, Exit, Schema } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import {
@@ -1164,12 +1164,14 @@ describe("emit pipeline", () => {
 		expect(archived[0]?.["n"]).toBe(1);
 		// Simulate raw-retention expiry. Normal structured reads must still traverse the archive.
 		await services.db.admin`delete from events where id = ${e.id}`;
-		const query = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "audit.probe",
-			select: [{ field: "subject" }],
-		});
+		const query = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "audit.probe",
+				select: [{ field: "subject" }],
+			}),
+		);
 		expect(query.rows.map((row) => row[0])).toContain(e.subject);
 	});
 
@@ -1263,24 +1265,30 @@ describe("L2 semantic layer", () => {
 			"registry_drift",
 		]);
 		await expect(
-			runStructured(services.db.app, ["fleet"], {
-				schema_version: 1,
-				mode: "structured",
-				from: first.type,
-				select: [{ field: "latency_ms", agg: "sum" }],
-			}),
+			Effect.runPromise(
+				runStructured(services.db.app, ["fleet"], {
+					schema_version: 1,
+					mode: "structured",
+					from: first.type,
+					select: [{ field: "latency_ms", agg: "sum" }],
+				}),
+			),
 		).rejects.toThrow(/counter\|delta/);
 	});
 
 	it("persists successful query refs and retrieves scoped statistic/query context through pgvector", async () => {
-		const result = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "test.semantic_latency",
-			select: [{ field: "latency_ms", agg: "avg", as: "latency" }],
-			group_by: ["zone"],
-		});
-		const record = await readQueryRecord(services.db.app, ["fleet"], result.query_ref);
+		const result = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "test.semantic_latency",
+				select: [{ field: "latency_ms", agg: "avg", as: "latency" }],
+				group_by: ["zone"],
+			}),
+		);
+		const record = await Effect.runPromise(
+			readQueryRecord(services.db.app, ["fleet"], result.query_ref),
+		);
 		expect(record?.sql_text).toContain("avg");
 		expect(record?.request.from).toBe("test.semantic_latency");
 		const context = await searchSemanticCorpus(
@@ -1338,12 +1346,14 @@ describe("L2 semantic layer", () => {
 		const fleetSearch = await searchSemanticCorpus(services.db.app, ["fleet"], "orchid", 32);
 		expect(fleetSearch.some((item) => item.content.includes("private_marker"))).toBe(false);
 		await expect(
-			runStructured(services.db.app, ["fleet"], {
-				schema_version: 1,
-				mode: "structured",
-				from: type,
-				select: [{ field: "private_marker" }],
-			}),
+			Effect.runPromise(
+				runStructured(services.db.app, ["fleet"], {
+					schema_version: 1,
+					mode: "structured",
+					from: type,
+					select: [{ field: "private_marker" }],
+				}),
+			),
 		).rejects.toThrow(/not registered/);
 	});
 
@@ -1419,27 +1429,35 @@ describe("L2 semantic layer", () => {
 	});
 
 	it("requires every originating scope to dereference a query record", async () => {
-		const result = await runStructured(services.db.app, ["fleet", "user:eli"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "events",
-			select: [{ field: "type" }],
-			limit: 1,
-		});
-		expect(await readQueryRecord(services.db.app, ["fleet"], result.query_ref)).toBeNull();
+		const result = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet", "user:eli"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "events",
+				select: [{ field: "type" }],
+				limit: 1,
+			}),
+		);
 		expect(
-			await readQueryRecord(services.db.app, ["fleet", "user:eli"], result.query_ref),
+			await Effect.runPromise(readQueryRecord(services.db.app, ["fleet"], result.query_ref)),
+		).toBeNull();
+		expect(
+			await Effect.runPromise(
+				readQueryRecord(services.db.app, ["fleet", "user:eli"], result.query_ref),
+			),
 		).not.toBeNull();
 	});
 
 	it("rejects dishonest view and counter aggregations before SQL execution", async () => {
 		await expect(
-			runStructured(services.db.app, ["fleet"], {
-				schema_version: 1,
-				mode: "structured",
-				from: "relationships",
-				select: [{ field: "subject", agg: "sum" }],
-			}),
+			Effect.runPromise(
+				runStructured(services.db.app, ["fleet"], {
+					schema_version: 1,
+					mode: "structured",
+					from: "relationships",
+					select: [{ field: "subject", agg: "sum" }],
+				}),
+			),
 		).rejects.toThrow(/registered measure/);
 		const type = `test.counter_${randomBytes(4).toString("hex")}`;
 		await services.emit(
@@ -1452,12 +1470,14 @@ describe("L2 semantic layer", () => {
 			400,
 		);
 		await expect(
-			runStructured(services.db.app, ["fleet"], {
-				schema_version: 1,
-				mode: "structured",
-				from: type,
-				select: [{ field: "requests", agg: "avg" }],
-			}),
+			Effect.runPromise(
+				runStructured(services.db.app, ["fleet"], {
+					schema_version: 1,
+					mode: "structured",
+					from: type,
+					select: [{ field: "requests", agg: "avg" }],
+				}),
+			),
 		).rejects.toThrow(/invalid for counter/);
 	});
 
@@ -1491,29 +1511,35 @@ describe("L2 semantic layer", () => {
 				})}, '["*"]'::jsonb)
 			on conflict (name) do update set relation_name = excluded.relation_name,
 				fields = excluded.fields, enabled = true`;
-		const distinct = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "custom_metrics",
-			select: [{ field: "requests", agg: "count_distinct", as: "n" }],
-			where: { type },
-		});
+		const distinct = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "custom_metrics",
+				select: [{ field: "requests", agg: "count_distinct", as: "n" }],
+				where: { type },
+			}),
+		);
 		expect(distinct.rows).toEqual([[2]]);
-		const ranged = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: type,
-			select: [{ field: "zone" }],
-			where: { zone: { op: "gt", value: "north" } },
-		});
-		expect(ranged.rows).toEqual([["south"]]);
-		await expect(
+		const ranged = await Effect.runPromise(
 			runStructured(services.db.app, ["fleet"], {
 				schema_version: 1,
 				mode: "structured",
 				from: type,
-				where: { requests: { op: "like", value: "%2%" } },
+				select: [{ field: "zone" }],
+				where: { zone: { op: "gt", value: "north" } },
 			}),
+		);
+		expect(ranged.rows).toEqual([["south"]]);
+		await expect(
+			Effect.runPromise(
+				runStructured(services.db.app, ["fleet"], {
+					schema_version: 1,
+					mode: "structured",
+					from: type,
+					where: { requests: { op: "like", value: "%2%" } },
+				}),
+			),
 		).rejects.toThrow(/textual field/);
 
 		const booleanType = `test.boolean_${randomBytes(4).toString("hex")}`;
@@ -1522,21 +1548,25 @@ describe("L2 semantic layer", () => {
 			emission({ type: booleanType, dimensions: { healthy: true } }),
 			300,
 		);
-		const booleans = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: booleanType,
-			select: [{ field: "healthy" }],
-			where: { healthy: true },
-		});
-		expect(booleans.rows).toEqual([[true]]);
-		await expect(
+		const booleans = await Effect.runPromise(
 			runStructured(services.db.app, ["fleet"], {
 				schema_version: 1,
 				mode: "structured",
 				from: booleanType,
-				where: { healthy: { op: "gt", value: false } },
+				select: [{ field: "healthy" }],
+				where: { healthy: true },
 			}),
+		);
+		expect(booleans.rows).toEqual([[true]]);
+		await expect(
+			Effect.runPromise(
+				runStructured(services.db.app, ["fleet"], {
+					schema_version: 1,
+					mode: "structured",
+					from: booleanType,
+					where: { healthy: { op: "gt", value: false } },
+				}),
+			),
 		).rejects.toThrow(/invalid for boolean/);
 
 		await services.db.admin.unsafe(`
@@ -1548,11 +1578,13 @@ describe("L2 semantic layer", () => {
 				'{"shape":"event"}'::jsonb, '["*"]'::jsonb)
 			on conflict (name) do update set relation_name = excluded.relation_name, enabled = true`;
 		await expect(
-			runStructured(services.db.app, ["fleet"], {
-				schema_version: 1,
-				mode: "structured",
-				from: "unsafe_metrics",
-			}),
+			Effect.runPromise(
+				runStructured(services.db.app, ["fleet"], {
+					schema_version: 1,
+					mode: "structured",
+					from: "unsafe_metrics",
+				}),
+			),
 		).rejects.toThrow(/unknown source/);
 	});
 
@@ -1634,13 +1666,15 @@ describe("L2 semantic layer", () => {
 			links: [{ rel: "runs_on", to: { kind: "host", id: ".14" } }],
 		});
 		await services.emit("test:emitter", linked, 400);
-		const result = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "relationships",
-			select: [{ field: "edge_rel" }, { field: "edge_to_id" }],
-			where: { subject: "service:api" },
-		});
+		const result = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "relationships",
+				select: [{ field: "edge_rel" }, { field: "edge_to_id" }],
+				where: { subject: "service:api" },
+			}),
+		);
 		expect(result.rows).toContainEqual(["runs_on", ".14"]);
 	});
 });
@@ -1872,33 +1906,39 @@ describe("RLS scope isolation", () => {
 			200,
 		);
 
-		const asParker = await runStructured(services.db.app, ["user:parker"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "iso.probe",
-			select: [{ field: "subject" }],
-		});
+		const asParker = await Effect.runPromise(
+			runStructured(services.db.app, ["user:parker"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "iso.probe",
+				select: [{ field: "subject" }],
+			}),
+		);
 		const subjects = asParker.rows.map((r) => r[0]);
 		expect(subjects).toContain("p");
 		expect(subjects).not.toContain("e");
 
-		const asEli = await runStructured(services.db.app, ["user:eli"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "iso.probe",
-			select: [{ field: "subject" }],
-		});
+		const asEli = await Effect.runPromise(
+			runStructured(services.db.app, ["user:eli"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "iso.probe",
+				select: [{ field: "subject" }],
+			}),
+		);
 		expect(asEli.rows.map((r) => r[0])).toContain("e");
 		expect(asEli.rows.map((r) => r[0])).not.toContain("p");
 	});
 
 	it("empty scope set sees nothing (fail-closed)", async () => {
-		const none = await runStructured(services.db.app, [], {
-			schema_version: 1,
-			mode: "structured",
-			from: "iso.probe",
-			select: [{ field: "subject" }],
-		});
+		const none = await Effect.runPromise(
+			runStructured(services.db.app, [], {
+				schema_version: 1,
+				mode: "structured",
+				from: "iso.probe",
+				select: [{ field: "subject" }],
+			}),
+		);
 		expect(none.rows).toHaveLength(0);
 	});
 });
@@ -2698,25 +2738,29 @@ describe("post-restart replay (codex N1a P1)", () => {
 
 describe("structured query", () => {
 	it("counts and groups by a pseudo-field", async () => {
-		const r = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "events",
-			select: [{ field: "seq", agg: "count", as: "n" }],
-			group_by: ["source.service"],
-		});
+		const r = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "events",
+				select: [{ field: "seq", agg: "count", as: "n" }],
+				group_by: ["source.service"],
+			}),
+		);
 		expect(r.columns.map((c) => c.name)).toContain("source_service");
 		expect(r.row_count).toBeGreaterThan(0);
 	});
 
 	it("refuses an unsupported fill honestly", async () => {
 		await expect(
-			runStructured(services.db.app, ["fleet"], {
-				schema_version: 1,
-				mode: "structured",
-				from: "events",
-				time: { bucket: "5m", fill: "previous" },
-			}),
+			Effect.runPromise(
+				runStructured(services.db.app, ["fleet"], {
+					schema_version: 1,
+					mode: "structured",
+					from: "events",
+					time: { bucket: "5m", fill: "previous" },
+				}),
+			),
 		).rejects.toThrow(/fill/);
 	});
 
@@ -2758,11 +2802,13 @@ describe("structured query", () => {
 				};
 			},
 		};
-		const answer = await ask(
-			{ app: services.db.app, ro: services.db.ro },
-			compiler,
-			["fleet"],
-			"average latency by zone",
+		const answer = await Effect.runPromise(
+			ask(
+				{ app: services.db.app, ro: services.db.ro },
+				compiler,
+				["fleet"],
+				"average latency by zone",
+			),
 		);
 		expect(answer.status).toBe("answered");
 		expect(answer.attempts).toBe(2);
@@ -2774,7 +2820,9 @@ describe("structured query", () => {
 		expect(answer.shown_sql?.sql).not.toContain("invented_measure");
 		expect(answer.answer).toContain("north");
 		expect(
-			await readQueryRecord(services.db.app, ["fleet"], answer.result?.query_ref ?? "missing"),
+			await Effect.runPromise(
+				readQueryRecord(services.db.app, ["fleet"], answer.result?.query_ref ?? "missing"),
+			),
 		).not.toBeNull();
 	});
 
@@ -2808,11 +2856,13 @@ describe("structured query", () => {
 				};
 			},
 		};
-		const result = await ask(
-			{ app: services.db.app, ro: services.db.ro },
-			compiler,
-			["fleet"],
-			`average latency for ${type}`,
+		const result = await Effect.runPromise(
+			ask(
+				{ app: services.db.app, ro: services.db.ro },
+				compiler,
+				["fleet"],
+				`average latency for ${type}`,
+			),
 		);
 		expect(result.status).toBe("answered");
 		expect(result.attempts).toBe(2);
@@ -2833,11 +2883,8 @@ describe("structured query", () => {
 				return { feasible: false, reason: "not visible" };
 			},
 		};
-		const result = await ask(
-			{ app: services.db.app, ro: services.db.ro },
-			compiler,
-			[],
-			"show private orchid data",
+		const result = await Effect.runPromise(
+			ask({ app: services.db.app, ro: services.db.ro }, compiler, [], "show private orchid data"),
 		);
 		expect(result.status).toBe("refused");
 		expect(result.panel.type).toBe("refusal");
@@ -2945,11 +2992,13 @@ describe("structured query", () => {
 				};
 			},
 		};
-		const result = await ask(
-			{ app: services.db.app, ro: services.db.ro },
-			compiler,
-			["fleet"],
-			`show ${type} for north`,
+		const result = await Effect.runPromise(
+			ask(
+				{ app: services.db.app, ro: services.db.ro },
+				compiler,
+				["fleet"],
+				`show ${type} for north`,
+			),
 		);
 		expect(result.status).toBe("refused");
 		expect(feedback).toEqual(["ungrounded_filter"]);
@@ -2972,22 +3021,21 @@ describe("structured query", () => {
 				};
 			},
 		};
-		const result = await ask(
-			{ app: services.db.app, ro: services.db.ro },
-			compiler,
-			["fleet"],
-			`show ${type}`,
+		const result = await Effect.runPromise(
+			ask({ app: services.db.app, ro: services.db.ro }, compiler, ["fleet"], `show ${type}`),
 		);
 		expect(result.status).toBe("refused");
 	});
 
 	it("saves scoped investigation state and replays panels as the viewer", async () => {
-		const query = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "events",
-			select: [{ field: "seq", agg: "count", as: "events" }],
-		});
+		const query = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "events",
+				select: [{ field: "seq", agg: "count", as: "events" }],
+			}),
+		);
 		const server = await startTestSurface(services);
 		const fleet = {
 			"x-dev-principal": JSON.stringify({
@@ -3087,12 +3135,14 @@ describe("structured query", () => {
 			emission({ type, scope: "user:secret", measures: { value: 7 } }),
 			300,
 		);
-		const query = await runStructured(services.db.app, ["user:secret"], {
-			schema_version: 1,
-			mode: "structured",
-			from: type,
-			select: [{ field: "value", agg: "avg", as: "secret" }],
-		});
+		const query = await Effect.runPromise(
+			runStructured(services.db.app, ["user:secret"], {
+				schema_version: 1,
+				mode: "structured",
+				from: type,
+				select: [{ field: "value", agg: "avg", as: "secret" }],
+			}),
+		);
 		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
@@ -3130,12 +3180,14 @@ describe("structured query", () => {
 	});
 
 	it("resolves saved text stat bindings as the viewer and paginates dashboards", async () => {
-		const query = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "events",
-			select: [{ field: "seq", agg: "count", as: "events" }],
-		});
+		const query = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "events",
+				select: [{ field: "seq", agg: "count", as: "events" }],
+			}),
+		);
 		const server = await startTestSurface(services);
 		const headers = {
 			"x-dev-principal": JSON.stringify({
@@ -3645,13 +3697,15 @@ describe("structured query", () => {
 	});
 
 	it("replays query refs through the chart render API", async () => {
-		const query = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "events",
-			select: [{ field: "seq", agg: "count", as: "events" }],
-			group_by: ["severity"],
-		});
+		const query = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "events",
+				select: [{ field: "seq", agg: "count", as: "events" }],
+				group_by: ["severity"],
+			}),
+		);
 		const server = await startTestSurface(services);
 		try {
 			const response = await server.inject({
@@ -3791,9 +3845,9 @@ describe("current_state projection (N1b)", () => {
 			300,
 		);
 		await waitProjected("fleet", "aggbox", 1);
-		const asFleet = await readEntity(services.db.app, ["fleet"], "fleet");
+		const asFleet = await Effect.runPromise(readEntity(services.db.app, ["fleet"], "fleet"));
 		expect(asFleet.items.map((i) => i["subject"])).toContain("aggbox");
-		const asUser = await readEntity(services.db.app, ["user:nobody"], "fleet");
+		const asUser = await Effect.runPromise(readEntity(services.db.app, ["user:nobody"], "fleet"));
 		expect(asUser.items.map((i) => i["subject"])).not.toContain("aggbox"); // flat model: no fleet grant, no rows
 	});
 
@@ -4237,7 +4291,7 @@ describe("roster + executors (N1b-2, lake half)", () => {
 			300,
 		);
 		await waitProjected("fleet", "rosterbox", e.seq as number);
-		const env = await readRoster(services.db.app, null, ["fleet"]);
+		const env = await Effect.runPromise(readRoster(services.db.app, null, ["fleet"]));
 		const row = env.items.find((i) => (i as { handle: string }).handle === "rosterbox") as
 			| { fleet: { visibility: string }; identity: { visibility: string } }
 			| undefined;
@@ -4263,7 +4317,7 @@ describe("roster + executors (N1b-2, lake half)", () => {
 			300,
 		);
 		await waitProjected("worker", "rosterbox-worker-1", event.seq as number);
-		const env = await readRoster(services.db.app, null, ["fleet"]);
+		const env = await Effect.runPromise(readRoster(services.db.app, null, ["fleet"]));
 		const row = env.items.find((item) => item["handle"] === "rosterbox");
 		expect(row?.["workers_active"]).toBe(1);
 	});
@@ -4286,7 +4340,7 @@ describe("roster + executors (N1b-2, lake half)", () => {
 			300,
 		);
 		await waitProjected("heartbeat", "execbox", 1);
-		const env = await readExecutors(services.db.app, ["fleet"]);
+		const env = await Effect.runPromise(readExecutors(services.db.app, ["fleet"]));
 		const mgr = env.items.find((i) => (i as { kind: string }).kind === "manager") as
 			| { liveness: string }
 			| undefined;
@@ -4759,12 +4813,14 @@ describe("bridge end-to-end (N1b-3 — bot-spam into the bus)", () => {
 			systemOutboxDir: dir,
 		});
 		await bridge.pollOnce("2026-07-13T00:00:00Z");
-		const q1 = await runStructured(services.db.app, ["fleet"], {
-			schema_version: 1,
-			mode: "structured",
-			from: "bot.message",
-			select: [{ field: "subject" }],
-		});
+		const q1 = await Effect.runPromise(
+			runStructured(services.db.app, ["fleet"], {
+				schema_version: 1,
+				mode: "structured",
+				from: "bot.message",
+				select: [{ field: "subject" }],
+			}),
+		);
 		// the subject is the trustworthy source; the (spoofable) claimed sender rides as a dimension
 		expect(q1.rows.map((r) => r[0])).toContain("system-outbox");
 		const sender = await services.db

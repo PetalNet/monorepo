@@ -65,9 +65,11 @@ export const getUpdateApprovals = Query(boxInput, ({ box_id }) =>
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		const result = (yield* Effect.promise(() =>
-			readUpdateApprovals(services.db.app, principal.scopes, box_id),
-		)) as unknown as ReadEnvelope<UpdateApproval>;
+		const result = (yield* readUpdateApprovals(
+			services.db.app,
+			principal.scopes,
+			box_id,
+		)) as ReadEnvelope<UpdateApproval>;
 		return result.items;
 	}),
 );
@@ -97,6 +99,8 @@ export const approveUpdate = Command(approveInput, ({ box_id, packages }) =>
 		});
 		yield* getUpdateApprovals({ box_id }).refresh();
 		return {
+			// The op plane returns a loosely-typed JSON envelope (`result` is `Record | null`); narrowing
+			// it to the documented mutation shape is a genuine, unavoidable narrowing of untyped JSON.
 			approval: result.result as unknown as UpdateApprovalMutation,
 			undo: result.undo as ApprovedUpdate["undo"],
 		};

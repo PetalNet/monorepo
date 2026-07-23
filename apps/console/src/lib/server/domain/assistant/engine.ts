@@ -1,7 +1,9 @@
-import { asynchronously } from "#domain/iteration";
+import { Effect } from "effect";
+
 import { formatUnknown } from "#format";
 
 import type { Sql } from "../db/pool.ts";
+import { edge } from "../edge.ts";
 import {
 	dryPlanStructured,
 	prepareStructured,
@@ -14,6 +16,10 @@ import { materializePanel } from "../render/engine.ts";
 import type { PanelSpecV2 } from "../render/types.ts";
 import { searchSemanticCorpus, type SemanticSearchResult } from "../semantic/search.ts";
 import { AssistantCompilerError, type AssistantCompiler } from "./compiler.ts";
+
+/** The compiler's own caller-fixable failure; anything else it raises is an infra defect. */
+const isAssistantCompilerError = (error: unknown): error is AssistantCompilerError =>
+	error instanceof AssistantCompilerError;
 
 export interface AskResult {
 	schema_version: 1;
@@ -94,57 +100,70 @@ function relativeTimeIsGrounded(question: string, value: string): boolean {
 	).test(question);
 }
 
-function assertGroundedFilters(question: string, request: QueryRequest): void {
-	for (const condition of Object.values(request.where ?? {})) {
-		const operation =
-			condition !== null && typeof condition === "object" && "op" in condition
-				? (condition as { op?: unknown }).op
-				: null;
-		const raw =
-			condition !== null && typeof condition === "object" && "value" in condition
-				? (condition as { value?: unknown }).value
-				: condition;
-		const values = Array.isArray(raw) ? raw : [raw];
-		for (const value of values) {
-			if (value === null || value === undefined) continue;
+function assertGroundedFilters(
+	question: string,
+	request: QueryRequest,
+): Effect.Effect<void, QueryError> {
+	return Effect.gen(function* () {
+		for (const condition of Object.values(request.where ?? {})) {
+			const operation =
+				condition !== null && typeof condition === "object" && "op" in condition
+					? (condition as { op?: unknown }).op
+					: null;
+			const raw =
+				condition !== null && typeof condition === "object" && "value" in condition
+					? (condition as { value?: unknown }).value
+					: condition;
+			const values = Array.isArray(raw) ? raw : [raw];
+			for (const value of values) {
+				if (value === null || value === undefined) continue;
+				if (
+					operation === "like"
+						? !questionContainsLikePattern(question, value)
+						: !questionContainsLiteral(question, value)
+				)
+					return yield* Effect.fail(
+						new QueryError(
+							"ungrounded_filter",
+							"filter values must be stated explicitly in the question",
+						),
+					);
+			}
+		}
+		for (const value of [request.time?.from, request.time?.to]) {
 			if (
-				operation === "like"
-					? !questionContainsLikePattern(question, value)
-					: !questionContainsLiteral(question, value)
+				value &&
+				!questionContainsLiteral(question, value) &&
+				!relativeTimeIsGrounded(question, value)
 			)
-				throw new QueryError(
-					"ungrounded_filter",
-					"filter values must be stated explicitly in the question",
+				return yield* Effect.fail(
+					new QueryError(
+						"ungrounded_filter",
+						"time bounds must be stated explicitly in the question",
+					),
 				);
 		}
-	}
-	for (const value of [request.time?.from, request.time?.to]) {
-		if (
-			value &&
-			!questionContainsLiteral(question, value) &&
-			!relativeTimeIsGrounded(question, value)
-		)
-			throw new QueryError(
-				"ungrounded_filter",
-				"time bounds must be stated explicitly in the question",
-			);
-	}
+	});
 }
 
 function assertRetrievedSource(
 	context: readonly SemanticSearchResult[],
 	request: QueryRequest,
-): void {
-	const sources = new Set(
-		context
-			.filter(({ kind }) => kind === "statistic" || kind === "view")
-			.map(({ source_ref }) => source_ref),
-	);
-	if (!request.from || !sources.has(request.from))
-		throw new QueryError(
-			"source_not_retrieved",
-			"the requested source was not present in retrieved semantic evidence",
+): Effect.Effect<void, QueryError> {
+	return Effect.gen(function* () {
+		const sources = new Set(
+			context
+				.filter(({ kind }) => kind === "statistic" || kind === "view")
+				.map(({ source_ref }) => source_ref),
 		);
+		if (!request.from || !sources.has(request.from))
+			return yield* Effect.fail(
+				new QueryError(
+					"source_not_retrieved",
+					"the requested source was not present in retrieved semantic evidence",
+				),
+			);
+	});
 }
 
 function groundedAnswer(result: QueryResult): string {
@@ -164,90 +183,112 @@ function groundedAnswer(result: QueryResult): string {
 	return `The query returned ${String(result.row_count)} row${result.row_count === 1 ? "" : "s"}${preview ? `; the first is ${preview}` : ""}.`;
 }
 
-export async function ask(
+// `ask` deliberately converts every caller-fixable failure into an `AskResult` (a refusal), so it
+// exposes no recoverable error channel: a `QueryError` from the structured pipeline or the grounding
+// asserts drives a bounded compile→retry loop and, once exhausted, becomes a refusal; a persistent
+// compiler fault and any infrastructure fault are unrecoverable defects. The whole pipeline composes
+// with `yield*` — the structured Effects are never awaited, wrapped in `Effect.promise`, or run
+// mid-pipeline.
+export const ask = (
 	db: { app: Sql; ro: Sql },
 	compiler: AssistantCompiler,
 	scopes: readonly string[],
 	question: string,
-): Promise<AskResult> {
-	if (scopes.length === 0)
-		return refusal(
-			"No data scopes are available to answer this question.",
-			["Request access to a relevant data scope."],
-			[],
-			0,
-		);
-	const context = await searchSemanticCorpus(db.app, scopes, question, 8);
-	if (context.length === 0)
-		return refusal(
-			"No caller-visible semantic data matches this question.",
-			["Ask about a statistic available in the catalog."],
-			context,
-			0,
-		);
-	let feedback: { code: string; message: string } | undefined;
-	for await (const attempt of asynchronously([1, 2])) {
-		try {
-			const proposal = await compiler.compile({
-				question,
-				context,
-				...(feedback ? { feedback } : {}),
-			});
-			if (!proposal.feasible)
-				return refusal(
-					proposal.reason ?? "The question is not feasible.",
-					proposal.suggestions ?? [],
-					context,
-					attempt,
-				);
-			const request = proposal.request as QueryRequest;
-			assertRetrievedSource(context, request);
-			assertGroundedFilters(question, request);
-			const prepared = await prepareStructured(db.app, scopes, request);
-			await dryPlanStructured(db.ro, scopes, prepared);
-			const result = await runPreparedStructured(db.app, db.ro, scopes, prepared);
-			const answer = groundedAnswer(result);
-			const materialized = materializePanel(
-				{
-					schema_version: 2,
-					type: "table",
-					title: proposal.panel?.title ?? "Analysis",
-					description: proposal.panel?.description ?? null,
-					query_ref: result.query_ref,
-					encoding: proposal.panel?.encoding ?? {},
-					suggestions: proposal.suggestions ?? [],
-				},
-				result,
+): Effect.Effect<AskResult> =>
+	Effect.gen(function* () {
+		if (scopes.length === 0)
+			return refusal(
+				"No data scopes are available to answer this question.",
+				["Request access to a relevant data scope."],
+				[],
+				0,
 			);
-			const panel = materialized.panel;
-			panel.narrative = answer;
-			return {
-				schema_version: 1,
-				status: "answered",
-				answer,
-				panel,
-				result,
-				shown_sql: { query_ref: result.query_ref, sql: prepared.sqlText, params: prepared.params },
-				retrieval: context.map(({ kind, source_ref, score }) => ({ kind, source_ref, score })),
-				suggestions: proposal.suggestions ?? [],
-				attempts: attempt,
-			};
-		} catch (error) {
-			if (error instanceof QueryError) {
-				feedback = queryFeedback(error);
-				continue;
+		const context = yield* Effect.promise(() => searchSemanticCorpus(db.app, scopes, question, 8));
+		if (context.length === 0)
+			return refusal(
+				"No caller-visible semantic data matches this question.",
+				["Ask about a statistic available in the catalog."],
+				context,
+				0,
+			);
+		let feedback: { code: string; message: string } | undefined;
+		for (const attempt of [1, 2] as const) {
+			const outcome = yield* Effect.gen(function* () {
+				const proposal = yield* edge(isAssistantCompilerError, () =>
+					compiler.compile({
+						question,
+						context,
+						...(feedback ? { feedback } : {}),
+					}),
+				);
+				if (!proposal.feasible)
+					return refusal(
+						proposal.reason ?? "The question is not feasible.",
+						proposal.suggestions ?? [],
+						context,
+						attempt,
+					);
+				const request = proposal.request as QueryRequest;
+				yield* assertRetrievedSource(context, request);
+				yield* assertGroundedFilters(question, request);
+				const prepared = yield* prepareStructured(db.app, scopes, request);
+				yield* dryPlanStructured(db.ro, scopes, prepared);
+				const result = yield* runPreparedStructured(db.app, db.ro, scopes, prepared);
+				const answer = groundedAnswer(result);
+				const materialized = materializePanel(
+					{
+						schema_version: 2,
+						type: "table",
+						title: proposal.panel?.title ?? "Analysis",
+						description: proposal.panel?.description ?? null,
+						query_ref: result.query_ref,
+						encoding: proposal.panel?.encoding ?? {},
+						suggestions: proposal.suggestions ?? [],
+					},
+					result,
+				);
+				const panel = materialized.panel;
+				panel.narrative = answer;
+				return {
+					schema_version: 1,
+					status: "answered",
+					answer,
+					panel,
+					result,
+					shown_sql: {
+						query_ref: result.query_ref,
+						sql: prepared.sqlText,
+						params: prepared.params,
+					},
+					retrieval: context.map(({ kind, source_ref, score }) => ({
+						kind,
+						source_ref,
+						score,
+					})),
+					suggestions: proposal.suggestions ?? [],
+					attempts: attempt,
+				} satisfies AskResult;
+			}).pipe(Effect.catch((error) => Effect.succeed({ retry: error })));
+			// A caller-fixable failure (a QueryError from the structured/grounding path, or a first-attempt
+			// compiler rejection) feeds the next compile attempt; anything else is an unrecoverable defect.
+			if ("retry" in outcome) {
+				const error = outcome.retry;
+				if (error instanceof QueryError) {
+					feedback = queryFeedback(error);
+					continue;
+				}
+				if (error instanceof AssistantCompilerError && attempt === 1) {
+					feedback = { code: "compile_rejected", message: "return a valid structured intent" };
+					continue;
+				}
+				return yield* Effect.die(error);
 			}
-			if (error instanceof AssistantCompilerError && attempt === 1) {
-				feedback = { code: "compile_rejected", message: "return a valid structured intent" };
-				continue;
-			}
-			throw error;
+			return outcome;
 		}
-	}
-	return refusal(
-		"The requested analysis could not be validated safely.",
-		["Try a narrower question using fields shown in the catalog."],
-		context,
-		2,
-	);
-}
+		return refusal(
+			"The requested analysis could not be validated safely.",
+			["Try a narrower question using fields shown in the catalog."],
+			context,
+			2,
+		);
+	});

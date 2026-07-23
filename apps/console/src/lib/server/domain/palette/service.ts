@@ -2,6 +2,7 @@ import { Effect, Exit } from "effect";
 
 import { formatUnknown } from "#format";
 
+import type { PaletteSearchResponse } from "../../../data/palette.ts";
 import type { Principal } from "../auth/principal.ts";
 import { searchLibraryPaletteItems } from "../dashboard/store.ts";
 import { searchEntity } from "../reads/entities.ts";
@@ -15,30 +16,28 @@ export function searchPalette(
 	principal: Principal,
 	text: string,
 	limit = 24,
-): Effect.Effect<Record<string, unknown>> {
+): Effect.Effect<PaletteSearchResponse> {
 	return Effect.gen(function* () {
 		const [agents, tasks, library, hosts, statistics] = yield* Effect.all(
 			[
 				Effect.exit(
-					Effect.sync(() =>
-						services.tracker ? readAgents(services.tracker, principal.scopes).items : [],
-					),
+					services.tracker
+						? Effect.map(
+								readAgents(services.tracker, principal.scopes),
+								(envelope) => envelope.items,
+							)
+						: Effect.succeed<readonly Record<string, unknown>[]>([]),
 				),
 				Effect.exit(
-					Effect.sync(() =>
-						services.tracker ? readTasks(services.tracker, principal.scopes).items : [],
-					),
+					services.tracker
+						? Effect.map(
+								readTasks(services.tracker, principal.scopes),
+								(envelope) => envelope.items,
+							)
+						: Effect.succeed<readonly Record<string, unknown>[]>([]),
 				),
-				Effect.exit(
-					Effect.promise(() =>
-						searchLibraryPaletteItems(services.db.app, principal.scopes, text, limit),
-					),
-				),
-				Effect.exit(
-					Effect.promise(() =>
-						searchEntity(services.db.app, principal.scopes, "box_update", text, limit),
-					),
-				),
+				Effect.exit(searchLibraryPaletteItems(services.db.app, principal.scopes, text, limit)),
+				Effect.exit(searchEntity(services.db.app, principal.scopes, "box_update", text, limit)),
 				Effect.exit(
 					Effect.promise(() =>
 						searchSemanticCorpus(services.db.app, principal.scopes, text, limit, "statistic"),

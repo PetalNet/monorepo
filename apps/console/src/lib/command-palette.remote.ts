@@ -1,5 +1,5 @@
 import { publicConfig } from "$lib/config";
-import { searchMockPalette, type PaletteSearchResponse } from "$lib/data/palette";
+import { searchMockPalette } from "$lib/data/palette";
 import { searchPalette } from "$lib/server/domain/palette/service";
 import { currentPrincipal } from "$lib/server/domain/principal";
 import { ConsoleDomain } from "$lib/server/domain/service";
@@ -20,11 +20,6 @@ export const searchCommandPalette = Query(input, ({ query: text }) =>
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		return (yield* searchPalette(
-			services,
-			principal,
-			text,
-			24,
-		)) as unknown as PaletteSearchResponse;
+		return yield* searchPalette(services, principal, text, 24);
 	}),
 );

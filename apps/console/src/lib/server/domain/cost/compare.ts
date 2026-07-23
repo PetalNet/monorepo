@@ -43,7 +43,9 @@ export const costComparisonRequestSchema = Schema.Struct({
 
 export type { CostComparisonRequest, CostComparisonResult } from "@petalnet/types";
 
-type Runner = (request: Parameters<typeof runStructured>[2]) => Effect.Effect<QueryResult, unknown>;
+type Runner = (
+	request: Parameters<typeof runStructured>[2],
+) => Effect.Effect<QueryResult, QueryError>;
 
 function records(result: QueryResult): Record<string, unknown>[] {
 	return result.rows.map((row) =>
@@ -101,7 +103,7 @@ function canonicalModel(value: string): string {
 export function compareCostPairWith(
 	run: Runner,
 	input: CostComparisonRequest,
-): Effect.Effect<CostComparisonResult, unknown> {
+): Effect.Effect<CostComparisonResult, QueryError> {
 	return Effect.gen(function* () {
 		const usageRequest: Parameters<typeof runStructured>[2] = {
 			schema_version: 1,
@@ -147,9 +149,11 @@ export function compareCostPairWith(
 			concurrency: "unbounded",
 		});
 		if (usage.truncated || pricing.truncated)
-			throw new QueryError(
-				"comparison_incomplete",
-				"cost comparison exceeded the complete-query limit; narrow the time window",
+			return yield* Effect.fail(
+				new QueryError(
+					"comparison_incomplete",
+					"cost comparison exceeded the complete-query limit; narrow the time window",
+				),
 			);
 		const priceRows = records(pricing)
 			.map((row) => ({
@@ -207,9 +211,11 @@ export function compareCostPairWith(
 				!matched &&
 				inputTokens + outputTokens + creationTokens + readTokens > 0
 			)
-				throw new QueryError(
-					"comparison_unpriced",
-					`no effective price-book match for model ${model}; comparison refused`,
+				return yield* Effect.fail(
+					new QueryError(
+						"comparison_unpriced",
+						`no effective price-book match for model ${model}; comparison refused`,
+					),
 				);
 			if (matched) effectiveRates.set(model, matched);
 			const computedCost = matched

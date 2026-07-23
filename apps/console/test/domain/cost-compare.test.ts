@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 
-import { Exit, Schema } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -33,49 +33,55 @@ function result(columns: string[], rows: unknown[][], queryRef: string): QueryRe
 
 describe("cost pairwise comparison", () => {
 	it("prices computed rows, honors reported rows, and emits per-session deltas", async () => {
-		const run = vi.fn(async (request: { from?: string }) => {
+		const run = vi.fn((request: { from?: string }) => {
 			if (request.from === "model_pricing")
-				return result(
-					[
-						"model_pattern",
-						"input_per_mtok",
-						"output_per_mtok",
-						"cache_creation_per_mtok",
-						"cache_read_per_mtok",
-					],
-					[
-						["left-model", 5, 25, 6.25, 0.5],
-						["right-model", 5, 25, 6.25, 0.5],
-					],
-					"q_prices",
+				return Effect.succeed(
+					result(
+						[
+							"model_pattern",
+							"input_per_mtok",
+							"output_per_mtok",
+							"cache_creation_per_mtok",
+							"cache_read_per_mtok",
+						],
+						[
+							["left-model", 5, 25, 6.25, 0.5],
+							["right-model", 5, 25, 6.25, 0.5],
+						],
+						"q_prices",
+					),
 				);
-			return result(
-				[
-					"model",
-					"session_id",
-					"input_tokens",
-					"output_tokens",
-					"cache_creation_tokens",
-					"cache_read_tokens",
-					"reported_cost",
-					"cost_source",
-				],
-				[
-					["left-model", "l1", 100_000, 20_000, 0, 0, null, "computed"],
-					["right-model", "r1", 200_000, 40_000, 0, 0, 7.5, "reported"],
-					["right-model", "r2", 100_000, 20_000, 0, 0, null, "computed"],
-				],
-				"q_usage",
+			return Effect.succeed(
+				result(
+					[
+						"model",
+						"session_id",
+						"input_tokens",
+						"output_tokens",
+						"cache_creation_tokens",
+						"cache_read_tokens",
+						"reported_cost",
+						"cost_source",
+					],
+					[
+						["left-model", "l1", 100_000, 20_000, 0, 0, null, "computed"],
+						["right-model", "r1", 200_000, 40_000, 0, 0, 7.5, "reported"],
+						["right-model", "r2", 100_000, 20_000, 0, 0, null, "computed"],
+					],
+					"q_usage",
+				),
 			);
 		});
 
-		const comparison = await compareCostPairWith(run, {
-			schema_version: 1,
-			dimension: "model",
-			left: "left-model",
-			right: "right-model",
-			...window,
-		});
+		const comparison = await Effect.runPromise(
+			compareCostPairWith(run, {
+				schema_version: 1,
+				dimension: "model",
+				left: "left-model",
+				right: "right-model",
+				...window,
+			}),
+		);
 
 		expect(comparison.left).toMatchObject({ cost: 1, tokens: 120_000, sessions: 1 });
 		expect(comparison.right).toMatchObject({ cost: 8.5, tokens: 360_000, sessions: 2 });
@@ -104,12 +110,13 @@ describe("cost pairwise comparison", () => {
 	});
 
 	it("refuses a silently partial comparison", async () => {
-		const run = async (request: { from?: string }) => ({
-			...result([], [], request.from === "model_pricing" ? "q_prices" : "q_usage"),
-			truncated: request.from === "usage_events",
-		});
+		const run = (request: { from?: string }) =>
+			Effect.succeed({
+				...result([], [], request.from === "model_pricing" ? "q_prices" : "q_usage"),
+				truncated: request.from === "usage_events",
+			});
 
-		await expect(
+		const exit = await Effect.runPromiseExit(
 			compareCostPairWith(run, {
 				schema_version: 1,
 				dimension: "project",
@@ -117,28 +124,33 @@ describe("cost pairwise comparison", () => {
 				right: "control-plane",
 				...window,
 			}),
-		).rejects.toMatchObject({ code: "comparison_incomplete" });
+		);
+		expect(Exit.isFailure(exit)).toBe(true);
+		const err = Cause.squash(exit.cause);
+		expect((err as { code?: string }).code).toBe("comparison_incomplete");
 	});
 
 	it("refuses computed usage with no effective price-book match", async () => {
-		const run = async (request: { from?: string }) =>
+		const run = (request: { from?: string }) =>
 			request.from === "model_pricing"
-				? result(["model_pattern"], [], "q_prices")
-				: result(
-						[
-							"model",
-							"session_id",
-							"input_tokens",
-							"output_tokens",
-							"cache_creation_tokens",
-							"cache_read_tokens",
-							"reported_cost",
-						],
-						[["unknown-model", "s1", 10, 0, 0, 0, null]],
-						"q_usage",
+				? Effect.succeed(result(["model_pattern"], [], "q_prices"))
+				: Effect.succeed(
+						result(
+							[
+								"model",
+								"session_id",
+								"input_tokens",
+								"output_tokens",
+								"cache_creation_tokens",
+								"cache_read_tokens",
+								"reported_cost",
+							],
+							[["unknown-model", "s1", 10, 0, 0, 0, null]],
+							"q_usage",
+						),
 					);
 
-		await expect(
+		const exit = await Effect.runPromiseExit(
 			compareCostPairWith(run, {
 				schema_version: 1,
 				dimension: "model",
@@ -146,45 +158,54 @@ describe("cost pairwise comparison", () => {
 				right: "other-model",
 				...window,
 			}),
-		).rejects.toMatchObject({ code: "comparison_unpriced" });
+		);
+		expect(Exit.isFailure(exit)).toBe(true);
+		const err = Cause.squash(exit.cause);
+		expect((err as { code?: string }).code).toBe("comparison_unpriced");
 	});
 
 	it("marks a zero baseline ratio unknown and rejects comparing a row to itself", async () => {
-		const run = async (request: { from?: string }) =>
+		const run = (request: { from?: string }) =>
 			request.from === "model_pricing"
-				? result(
-						[
-							"model_pattern",
-							"input_per_mtok",
-							"output_per_mtok",
-							"cache_creation_per_mtok",
-							"cache_read_per_mtok",
-						],
-						[],
-						"q_prices",
+				? Effect.succeed(
+						result(
+							[
+								"model_pattern",
+								"input_per_mtok",
+								"output_per_mtok",
+								"cache_creation_per_mtok",
+								"cache_read_per_mtok",
+							],
+							[],
+							"q_prices",
+						),
 					)
-				: result(
-						[
-							"agent",
-							"model",
-							"session_id",
-							"input_tokens",
-							"output_tokens",
-							"cache_creation_tokens",
-							"cache_read_tokens",
-							"reported_cost",
-							"cost_source",
-						],
-						[["right", "unpriced", "r1", 10, 0, 0, 0, 1, "reported"]],
-						"q_usage",
+				: Effect.succeed(
+						result(
+							[
+								"agent",
+								"model",
+								"session_id",
+								"input_tokens",
+								"output_tokens",
+								"cache_creation_tokens",
+								"cache_read_tokens",
+								"reported_cost",
+								"cost_source",
+							],
+							[["right", "unpriced", "r1", 10, 0, 0, 0, 1, "reported"]],
+							"q_usage",
+						),
 					);
-		const comparison = await compareCostPairWith(run, {
-			schema_version: 1,
-			dimension: "agent",
-			left: "left",
-			right: "right",
-			...window,
-		});
+		const comparison = await Effect.runPromise(
+			compareCostPairWith(run, {
+				schema_version: 1,
+				dimension: "agent",
+				left: "left",
+				right: "right",
+				...window,
+			}),
+		);
 		expect(comparison.metrics.find(({ key }) => key === "cost")?.ratio).toBeNull();
 		expect(
 			Exit.isSuccess(

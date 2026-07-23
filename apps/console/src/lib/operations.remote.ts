@@ -22,7 +22,7 @@ import type {
 	TaskItem,
 	WorkerItem,
 } from "$lib/api/types";
-import { executeOpPlane } from "$lib/server/api/console-api";
+import { executeOpPlane } from "$lib/server/domain/commands/op-plane";
 import { listDashboards } from "$lib/server/domain/dashboard/store";
 import { consumeOpRateLimit } from "$lib/server/domain/op-rate-limit";
 import { currentPrincipal } from "$lib/server/domain/principal";
@@ -109,7 +109,8 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				zookie: principal.zookie,
 			} satisfies Me;
 		if (plane === "health")
-			return yield* Effect.tryPromise(async () => {
+			// The bus-health probe is a single scoped lake read; a fault is a defect, not a caller error.
+			return yield* Effect.promise(async () => {
 				const rows = await services.db.admin<{ bus_heartbeat_at: string | null }[]>`
 					select max(received_at)::text as bus_heartbeat_at
 					from events where type = 'console.bus.health'`;
@@ -121,33 +122,31 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				};
 			});
 		if (plane === "roster") {
-			const result = yield* Effect.promise(() =>
-				readRosterCore(services.db.app, services.tracker, principal.scopes),
-			);
-			return { ...result, items: result.items.map((item) => flattenRosterItem(item as never)) };
+			const result = yield* readRosterCore(services.db.app, services.tracker, principal.scopes);
+			return { ...result, items: result.items.map((item) => flattenRosterItem(item)) };
 		}
-		if (plane === "executors")
-			return yield* Effect.promise(() => readExecutorsCore(services.db.app, principal.scopes));
+		if (plane === "executors") return yield* readExecutorsCore(services.db.app, principal.scopes);
 		if (plane === "tasks" || plane === "leases") {
 			if (!services.tracker)
 				return yield* Effect.die(new Error("Tracker read adapter is unavailable"));
-			return plane === "tasks"
+			return yield* plane === "tasks"
 				? readTasksCore(services.tracker, principal.scopes)
 				: readLeasesCore(services.tracker, principal.scopes);
 		}
 		if (plane === "dashboards")
-			return yield* Effect.promise(() =>
+			// The canonical plane reads dashboards with a fixed limit and no cursor, so the only modeled
+			// DashboardError (a bad cursor) is unreachable here — treat it as a defect, keeping this
+			// shared read's channel empty for every consumer.
+			return yield* Effect.orDie(
 				listDashboards(services.db.app, principal.scopes, services.cursorSecret, { limit: 100 }),
 			);
 		if (plane === "catalog")
-			return yield* Effect.promise(() =>
-				readEntity(services.db.app, principal.scopes, "registry", { limit: 1_000 }),
-			);
+			return yield* readEntity(services.db.app, principal.scopes, "registry", { limit: 1_000 });
 		const kind = projectedKinds[plane];
 		if (kind === "attention") {
-			const envelope = yield* Effect.promise(() =>
-				readTypedEntity(services.db.app, principal.scopes, kind, { limit: 1_000 }),
-			);
+			const envelope = yield* readTypedEntity(services.db.app, principal.scopes, kind, {
+				limit: 1_000,
+			});
 			// Attention items carry an operating lane; a caller only sees items for lanes it holds.
 			return {
 				...envelope,
@@ -159,11 +158,9 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 			};
 		}
 
-		return yield* Effect.promise(() =>
-			kind === "subscription"
-				? readTypedEntity(services.db.app, principal.scopes, kind, { limit: 1_000 })
-				: readEntity(services.db.app, principal.scopes, kind, { limit: 1_000 }),
-		);
+		return yield* kind === "subscription"
+			? readTypedEntity(services.db.app, principal.scopes, kind, { limit: 1_000 })
+			: readEntity(services.db.app, principal.scopes, kind, { limit: 1_000 });
 	}),
 );
 
@@ -172,7 +169,7 @@ export const runStructuredQuery = Query("unchecked", (request: StructuredQuery) 
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		return yield* Effect.promise(() => runStructured(services.db.app, principal.scopes, request));
+		return yield* runStructured(services.db.app, principal.scopes, request);
 	}),
 );
 
@@ -211,25 +208,26 @@ export const executeNamedOp = Command(
 						retryable: true,
 					},
 				} satisfies OpResult;
-			// The one authoritative command plane: catalog lookup, arg validation, authz, proposal
-			// posture, audit intent/outcome, and internal adapters — identical to POST /api/v1/op.
-			const { body } = yield* Effect.promise(() =>
-				executeOpPlane(
-					services,
-					services.monitor,
-					{
-						schema_version: 1,
-						id: input.id ?? crypto.randomUUID(),
-						op: input.op,
-						args: input.args,
-						...(input.reason !== undefined ? { reason: input.reason } : {}),
-						...(input.task_id !== undefined ? { task_id: input.task_id } : {}),
-						dry_run: input.dry_run ?? false,
-					},
-					principal,
-				),
+			// The one authoritative command plane, composed in process from the domain: catalog lookup,
+			// arg validation, authz, proposal posture, audit intent/outcome, and internal adapters —
+			// identical to POST /api/v1/op, which now runs the SAME domain effect at its HTTP edge.
+			const { body } = yield* executeOpPlane(
+				services,
+				services.monitor,
+				{
+					schema_version: 1,
+					id: input.id ?? crypto.randomUUID(),
+					op: input.op,
+					args: input.args,
+					...(input.reason !== undefined ? { reason: input.reason } : {}),
+					...(input.task_id !== undefined ? { task_id: input.task_id } : {}),
+					dry_run: input.dry_run ?? false,
+				},
+				principal,
 			);
-			return body as unknown as OpResult;
+			// The command plane returns the loosely-typed HTTP op envelope; narrow it to its documented
+			// OpResult shape (a genuine, unavoidable narrowing of the shared envelope, not a mock cast).
+			return body as OpResult;
 		}),
 );
 

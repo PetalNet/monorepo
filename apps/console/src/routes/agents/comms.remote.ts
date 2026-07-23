@@ -5,7 +5,7 @@ import { readCommsLog } from "$lib/server/domain/reads/comms";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
 import { ConsoleDomain } from "$lib/server/domain/service";
 import { Effect, Schema } from "effect";
-import { Error as HttpError, Query } from "svelte-effect-runtime";
+import { Query } from "svelte-effect-runtime";
 
 const filters = Schema.Struct({
 	type: Schema.NullOr(Schema.Literals(["task-card", "rpc", "mail"])),
@@ -98,16 +98,12 @@ export const getCommsLog = Query(filters, ({ type, agent, taskId, cursor }) =>
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		return (yield* Effect.promise(() =>
-			readCommsLog(services.db.app, principal.scopes, {
-				...(type ? { type } : {}),
-				...(agent?.trim() ? { agent: agent.trim() } : {}),
-				...(taskId ? { taskId } : {}),
-				...(cursor ? { cursor } : {}),
-				limit: 100,
-			}),
-		).pipe(
-			Effect.catch(() => HttpError("InternalServerError", "Correspondence query failed")),
-		)) as ReadEnvelope<CommsEvent>;
+		return (yield* readCommsLog(services.db.app, principal.scopes, {
+			...(type ? { type } : {}),
+			...(agent?.trim() ? { agent: agent.trim() } : {}),
+			...(taskId ? { taskId } : {}),
+			...(cursor ? { cursor } : {}),
+			limit: 100,
+		})) as ReadEnvelope<CommsEvent>;
 	}),
 );
