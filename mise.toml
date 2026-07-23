@@ -1,0 +1,5 @@
+[tools]
+"github:voidzero-dev/vite-plus" = "0.2.4"
+
+[settings]
+idiomatic_version_file_enable_tools = ["node", "pnpm", "rust"]

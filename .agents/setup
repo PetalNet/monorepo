@@ -5,11 +5,8 @@ curl https://mise.run | sh
 # Use shims so repo-managed tools propagate to child processes.
 eval "$(~/.local/bin/mise activate --shims bash)"
 
-mise use --global --yes \
-	github:voidzero-dev/vite-plus@0.2.4 \
-	flutter@3.44.6
-
-vp env use "$(tr -d '[:space:]v' < .nvmrc)"
+mise trust --yes mise.toml
+mise install --yes node pnpm github:voidzero-dev/vite-plus
 vp install --frozen-lockfile
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -25,6 +22,3 @@ if ! sudo docker info >/dev/null 2>&1; then
 	sudo docker info >/dev/null
 fi
 sudo chmod 666 /var/run/docker.sock
-
-flutter config --no-analytics
-flutter pub get --directory apps/point/app
