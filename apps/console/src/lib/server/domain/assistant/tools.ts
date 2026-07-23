@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
 
 import { formatUnknown } from "#format";
 
@@ -9,11 +9,12 @@ import {
 	loadDashboard,
 	materializeTextPanel,
 	readLibraryItem,
+	type DashboardError,
 } from "../dashboard/store.ts";
 import type { Db, Sql } from "../db/pool.ts";
 import { scrubUnknown } from "../ingest/scrubber.ts";
 import { readQueryRecord } from "../query/history.ts";
-import { runStructured, type QueryRequest } from "../query/structured.ts";
+import { runStructured, type QueryError, type QueryRequest } from "../query/structured.ts";
 import { materializePanel } from "../render/engine.ts";
 import type { PanelSpecV2 } from "../render/types.ts";
 import {
@@ -264,143 +265,165 @@ export async function resolveAssistantToolPrincipal(
 	};
 }
 
-async function callTool(
+// The tool router composes as an Effect: `stats.query` yields the structured-query Effect directly
+// (its only recoverable failure, a `QueryError`, is the router's error channel). Every other tool
+// bottoms out in a promise leaf, a synchronous decode, or a guard throw; those are lifted with
+// `Effect.promise` (rejection = defect) or left to throw (also a defect). The MCP edge in
+// `handleAssistantMcp` is a crash-reporting boundary that catches both failures and defects, so it
+// still reports and captures each of those exactly as the promise `try/catch` did.
+function callTool(
 	services: AssistantToolServices,
 	principal: Principal,
 	name: string,
 	args: unknown,
-): Promise<unknown> {
+): Effect.Effect<unknown, QueryError | DashboardError> {
 	const { db } = services;
-	if (name === "stats.query") return runStructured(db.app, principal.scopes, args as QueryRequest);
-	if (name === "viz.render") {
-		const parsed = Schema.decodeUnknownSync(renderRequestSchema)(args);
-		const record = await readQueryRecord(db.app, principal.scopes, parsed.query_ref);
-		if (!record) throw new Error("query_not_found");
-		return materializePanel(
-			parsed.panel as PanelSpecV2,
-			await runStructured(db.app, principal.scopes, record.request),
-		);
-	}
-	if (name === "text.surface") {
-		const parsed = Schema.decodeUnknownSync(textSchema)(args);
-		const bindings = parsed.bindings
-			.map(
-				({ query_ref, column, agg }) => `{{stat:${query_ref}#${column}${agg ? `[${agg}]` : ""}}}`,
-			)
-			.join("\n");
-		return materializeTextPanel(db.app, principal.scopes, {
-			schema_version: 2,
-			type: "text",
-			title: "Assistant note",
-			prose: bindings ? `${parsed.prose}\n${bindings}` : parsed.prose,
-		});
-	}
-	if (name === "window.arrange") {
-		const parsed = Schema.decodeUnknownSync(windowSchema)(args);
-		return services.executeMutation(principal, "window.arrange", { ops: parsed.ops });
-	}
-	if (name === "dashboard.manage") {
-		const parsed = Schema.decodeUnknownSync(dashboardToolSchema)(args);
-		if (parsed.action === "save") {
-			return services.executeMutation(principal, "dashboard.save", parsed.dashboard);
+	return Effect.gen(function* () {
+		if (name === "stats.query")
+			return yield* runStructured(db.app, principal.scopes, args as QueryRequest);
+		if (name === "viz.render") {
+			const parsed = Schema.decodeUnknownSync(renderRequestSchema)(args);
+			const record = yield* readQueryRecord(db.app, principal.scopes, parsed.query_ref);
+			if (!record) throw new Error("query_not_found");
+			const result = yield* runStructured(db.app, principal.scopes, record.request);
+			return materializePanel(parsed.panel as PanelSpecV2, result);
 		}
-		if (parsed.action === "load") return loadDashboard(db.app, principal.scopes, parsed.id);
-		return services.executeMutation(
-			principal,
-			"dashboard.set_home",
-			{ id: parsed.id },
-			parsed.request_id,
-		);
-	}
-	if (name === "context.receive") {
-		const parsed = Schema.decodeUnknownSync(contextSchema)(args);
-		if (!scrubUnknown(parsed.payload, "context.payload").ok) throw new Error("secret_detected");
-		return services.executeMutation(principal, "context.receive", { payload: parsed.payload });
-	}
-	if (name === "library.surface") {
-		const parsed = Schema.decodeUnknownSync(librarySurfaceSchema)(args);
-		let intent: Record<string, unknown>;
-		let data: Record<string, unknown> | null = null;
-		if (parsed.action === "view") intent = { view: parsed.view };
-		else if (parsed.action === "search") {
-			intent = { view: "table", query: parsed.query };
-			data = await listLibraryItems(db.app, principal.scopes, services.cursorSecret, {
-				query: parsed.query,
-				...(parsed.kind ? { kind: parsed.kind } : {}),
-				limit: parsed.limit,
-			});
-		} else if (parsed.action === "open") {
-			const item = await readLibraryItem(db.app, principal.scopes, parsed.item_id);
-			if (!item) throw new Error("library_item_not_found");
-			intent = { view: "table", item_id: parsed.item_id };
-			data = item;
-		} else {
-			intent = { view: "desk", focus: "curation" };
-			data = await listLibraryCuration(db.app, principal.scopes, services.cursorSecret, {
-				limit: parsed.limit,
+		if (name === "text.surface") {
+			const parsed = Schema.decodeUnknownSync(textSchema)(args);
+			const bindings = parsed.bindings
+				.map(
+					({ query_ref, column, agg }) => `{{stat:${query_ref}#${column}${agg ? `[${agg}]` : ""}}}`,
+				)
+				.join("\n");
+			return yield* materializeTextPanel(db.app, principal.scopes, {
+				schema_version: 2,
+				type: "text",
+				title: "Assistant note",
+				prose: bindings ? `${parsed.prose}\n${bindings}` : parsed.prose,
 			});
 		}
-		await db.writer`
+		if (name === "window.arrange") {
+			const parsed = Schema.decodeUnknownSync(windowSchema)(args);
+			return yield* Effect.promise(() =>
+				services.executeMutation(principal, "window.arrange", { ops: parsed.ops }),
+			);
+		}
+		if (name === "dashboard.manage") {
+			const parsed = Schema.decodeUnknownSync(dashboardToolSchema)(args);
+			if (parsed.action === "save") {
+				return yield* Effect.promise(() =>
+					services.executeMutation(principal, "dashboard.save", parsed.dashboard),
+				);
+			}
+			if (parsed.action === "load")
+				return yield* loadDashboard(db.app, principal.scopes, parsed.id);
+			return yield* Effect.promise(() =>
+				services.executeMutation(
+					principal,
+					"dashboard.set_home",
+					{ id: parsed.id },
+					parsed.request_id,
+				),
+			);
+		}
+		if (name === "context.receive") {
+			const parsed = Schema.decodeUnknownSync(contextSchema)(args);
+			if (!scrubUnknown(parsed.payload, "context.payload").ok) throw new Error("secret_detected");
+			return yield* Effect.promise(() =>
+				services.executeMutation(principal, "context.receive", { payload: parsed.payload }),
+			);
+		}
+		if (name === "library.surface") {
+			const parsed = Schema.decodeUnknownSync(librarySurfaceSchema)(args);
+			let intent: Record<string, unknown>;
+			let data: Record<string, unknown> | null = null;
+			if (parsed.action === "view") intent = { view: parsed.view };
+			else if (parsed.action === "search") {
+				intent = { view: "table", query: parsed.query };
+				data = yield* listLibraryItems(db.app, principal.scopes, services.cursorSecret, {
+					query: parsed.query,
+					...(parsed.kind ? { kind: parsed.kind } : {}),
+					limit: parsed.limit,
+				});
+			} else if (parsed.action === "open") {
+				const item = yield* readLibraryItem(db.app, principal.scopes, parsed.item_id);
+				if (!item) throw new Error("library_item_not_found");
+				intent = { view: "table", item_id: parsed.item_id };
+				data = item;
+			} else {
+				intent = { view: "desk", focus: "curation" };
+				data = yield* listLibraryCuration(db.app, principal.scopes, services.cursorSecret, {
+					limit: parsed.limit,
+				});
+			}
+			yield* Effect.promise(
+				() => db.writer`
 			update assistant_sessions
 			set window_layout = jsonb_set(window_layout, '{library}', ${db.writer.json(intent)}::jsonb, true),
 			    updated_at = now()
-			where principal_id = ${principal.id}`;
-		return { schema_version: 1, surface: "library", intent, data };
-	}
-	throw new Error("unknown_tool");
+			where principal_id = ${principal.id}`,
+			);
+			return { schema_version: 1, surface: "library", intent, data };
+		}
+		throw new Error("unknown_tool");
+	});
 }
 
-export async function handleAssistantMcp(
+export function handleAssistantMcp(
 	services: AssistantToolServices,
 	principal: Principal,
 	raw: unknown,
-): Promise<Record<string, unknown>> {
-	const request =
-		raw && typeof raw === "object" && !Array.isArray(raw)
-			? (raw as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown })
-			: null;
-	const id = request?.id ?? null;
-	if (request?.jsonrpc !== "2.0" || typeof request.method !== "string")
-		return { jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request" } };
-	if (request.method === "initialize")
-		return {
-			jsonrpc: "2.0",
-			id,
-			result: {
-				protocolVersion: "2025-03-26",
-				capabilities: { tools: {} },
-				serverInfo: { name: "lab-console-dashboard", version: "1.0.0" },
-			},
-		};
-	if (request.method === "tools/list")
-		return {
-			jsonrpc: "2.0",
-			id,
-			result: { tools: TOOLS },
-		};
-	if (request.method === "tools/call") {
-		const params =
-			request.params && typeof request.params === "object" && !Array.isArray(request.params)
-				? (request.params as { name?: unknown; arguments?: unknown })
-				: {};
-		try {
-			const result = await callTool(
-				services,
-				principal,
-				formatUnknown(params.name ?? ""),
-				params.arguments,
-			);
-			const response: Record<string, unknown> = {
+): Effect.Effect<Record<string, unknown>> {
+	return Effect.gen(function* () {
+		const request =
+			raw && typeof raw === "object" && !Array.isArray(raw)
+				? (raw as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown })
+				: null;
+		const id = request?.id ?? null;
+		if (request?.jsonrpc !== "2.0" || typeof request.method !== "string")
+			return { jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request" } };
+		if (request.method === "initialize")
+			return {
 				jsonrpc: "2.0",
 				id,
 				result: {
-					content: [{ type: "text", text: JSON.stringify(result) }],
+					protocolVersion: "2025-03-26",
+					capabilities: { tools: {} },
+					serverInfo: { name: "lab-console-dashboard", version: "1.0.0" },
 				},
 			};
-			if (result !== null && typeof result === "object")
-				(response["result"] as Record<string, unknown>)["structuredContent"] = result;
-			return response;
-		} catch (error) {
+		if (request.method === "tools/list")
+			return {
+				jsonrpc: "2.0",
+				id,
+				result: { tools: TOOLS },
+			};
+		if (request.method === "tools/call") {
+			const params =
+				request.params && typeof request.params === "object" && !Array.isArray(request.params)
+					? (request.params as { name?: unknown; arguments?: unknown })
+					: {};
+			// The MCP contract never lets a tool crash the transport: a tool's modeled `QueryError`
+			// failure and any infra defect alike become an `isError` result. `Effect.exit` captures
+			// both channels; `Cause.squash` recovers the original error object so its `code` still
+			// drives the public message and `captureException` still sees it.
+			const exit = yield* Effect.exit(
+				callTool(services, principal, formatUnknown(params.name ?? ""), params.arguments),
+			);
+			if (Exit.isSuccess(exit)) {
+				const result = exit.value;
+				const response: Record<string, unknown> = {
+					jsonrpc: "2.0",
+					id,
+					result: {
+						content: [{ type: "text", text: JSON.stringify(result) }],
+					},
+				};
+				if (result !== null && typeof result === "object")
+					(response["result"] as Record<string, unknown>)["structuredContent"] = result;
+				return response;
+			}
+			const error = Cause.squash(exit.cause);
 			const code =
 				typeof error === "object" &&
 				error !== null &&
@@ -433,8 +456,8 @@ export async function handleAssistantMcp(
 				},
 			};
 		}
-	}
-	return { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } };
+		return { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } };
+	});
 }
 
 export interface AssistantToolServices {

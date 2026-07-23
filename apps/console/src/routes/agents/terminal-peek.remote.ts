@@ -1,10 +1,11 @@
-import { getRequestEvent } from "$app/server";
 import { publicConfig } from "$lib/config";
 import { mockPtyLines } from "$lib/data/terminal";
+import { currentPrincipal } from "$lib/server/domain/principal";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
-import { error } from "@sveltejs/kit";
+import { ConsoleDomain } from "$lib/server/domain/service";
+import { TerminalDomainError, terminalService } from "$lib/server/domain/terminal/service";
 import { Effect, Schema } from "effect";
-import { Command, Query } from "svelte-effect-runtime";
+import { Command, Error as HttpError, Query } from "svelte-effect-runtime";
 
 const targetSchema = Schema.Struct({
 	host: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(253)),
@@ -27,21 +28,6 @@ export interface PtySnapshot {
 	readonly data_b64: string;
 }
 
-function apiBase(): string {
-	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
-}
-
-function headers(json = false): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const result = new Headers({ accept: "application/json", origin: getRequestEvent().url.origin });
-	if (json) result.set("content-type", "application/json");
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) result.set(name, value);
-	}
-	return result;
-}
-
 function mockSnapshot(streamId = `mock-${crypto.randomUUID()}`, seq = 1): PtySnapshot {
 	return {
 		stream_id: streamId,
@@ -50,47 +36,60 @@ function mockSnapshot(streamId = `mock-${crypto.randomUUID()}`, seq = 1): PtySna
 	};
 }
 
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await getRequestEvent().fetch(`${apiBase()}${path}`, init);
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as {
-			error?: { message?: string };
-		} | null;
-		error(response.status, body?.error?.message ?? "Terminal peek failed");
-	}
-	return (await response.json()) as T;
-}
+const mapTerminalError = (cause: TerminalDomainError) =>
+	HttpError(
+		cause.status === 403
+			? "Forbidden"
+			: cause.status === 404
+				? "NotFound"
+				: cause.status === 502
+					? "BadGateway"
+					: "ServiceUnavailable",
+		cause.message,
+	);
 
 /** Opens the audited read-only PTY path. No attach or input operation is exposed by this module. */
 export const openTerminalPeek = Command(targetSchema, (target) =>
-	Effect.promise(async (): Promise<PtySnapshot> => {
+	Effect.gen(function* () {
 		if (publicConfig.dataMode === "mock") return mockSnapshot();
-		return apiJson<PtySnapshot>("/terminal/peek", {
-			method: "POST",
-			headers: headers(true),
-			body: JSON.stringify({ ...target, scrollback_lines: 10_000 }),
-		});
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		return yield* terminalService(services)
+			.openPeek(
+				principal,
+				{ host: target.host, tmuxSession: target.tmux_session, paneId: target.pane_id },
+				10_000,
+			)
+			.pipe(Effect.catch(mapTerminalError));
 	}),
 );
 
 /** Polls an already-authorized server session; tick prevents Remote Function result reuse. */
 export const pollTerminalPeek = Query(pollSchema, ({ stream_id, tick }) =>
-	Effect.promise(async (): Promise<PtySnapshot> => {
+	Effect.gen(function* () {
 		if (publicConfig.dataMode === "mock") return mockSnapshot(stream_id, tick + 1);
-		return apiJson<PtySnapshot>(`/terminal/peek/${encodeURIComponent(stream_id)}`, {
-			headers: headers(),
-			cache: "no-store",
-		});
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		return yield* terminalService(services)
+			.pollPeek(principal, stream_id)
+			.pipe(Effect.catch(mapTerminalError));
 	}),
 );
 
 export const closeTerminalPeek = Command(detachSchema, ({ stream_id }) =>
-	Effect.promise(async (): Promise<void> => {
+	Effect.gen(function* () {
 		if (publicConfig.dataMode === "mock") return;
-		await apiJson(`/terminal/streams/${encodeURIComponent(stream_id)}/detach`, {
-			method: "POST",
-			headers: headers(true),
-			body: "{}",
-		});
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const service = terminalService(services);
+		const session = yield* service.owned(principal, stream_id).pipe(Effect.catch(mapTerminalError));
+		yield* service
+			.audit(principal, "detach", session.target, stream_id)
+			.pipe(Effect.catch(mapTerminalError));
+		service.close(stream_id);
+		session.end();
 	}),
 );

@@ -18,8 +18,8 @@ export const PUT = Handler<RequestHandler>(function* ({ locals, params, request 
 	// availability faults, not defects: fold them into the same 503 the null result already returns
 	// rather than orDie-ing them into an opaque 500.
 	const response = yield* Effect.gen(function* () {
-		const api = yield* Effect.tryPromise(() => consoleApi());
-		return yield* Effect.tryPromise(() =>
+		const api = yield* Effect.promise(() => consoleApi());
+		return yield* Effect.promise(() =>
 			api.fetch(
 				new Request(new URL("/api/v1/op", request.url), {
 					method: "POST",

@@ -23,10 +23,12 @@ export const compareCost = Query(costComparisonRequestSchema, (request) =>
 		const domain = yield* ConsoleDomain;
 		const services = yield* domain.services;
 		const principal = yield* currentPrincipal;
-		return yield* Effect.tryPromise({
-			try: () => compareCostPair(services.db.app, principal.scopes, request, services.costMeter),
-			catch: (cause) => cause,
-		}).pipe(
+		return yield* compareCostPair(
+			services.db.app,
+			principal.scopes,
+			request,
+			services.costMeter,
+		).pipe(
 			Effect.catch((cause) =>
 				cause instanceof CostComparisonUnavailableError
 					? HttpError("ServiceUnavailable", cause.message)

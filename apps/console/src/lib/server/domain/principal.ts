@@ -14,7 +14,7 @@ export const currentPrincipal = Effect.gen(function* () {
 	const tier = event.locals.tier;
 	if (!user || !tier) return yield* Effect.die(new Error("Authenticated principal is unavailable"));
 	const id = `human:${user.id}`;
-	const resolved = yield* Effect.tryPromise(() => resolveScopes(services.db.app, id, [tier]));
+	const resolved = yield* Effect.promise(() => resolveScopes(services.db.app, id, [tier]));
 	return {
 		kind: "human",
 		id,

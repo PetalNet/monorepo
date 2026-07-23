@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+
 import { filterByScopes, type TrackerReader, type TrackerRow } from "./tracker.ts";
 
 const WORK_SETTLE_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -86,6 +88,10 @@ export function readWorkSettlement(
 	tracker: TrackerReader,
 	scopes: readonly string[],
 	now = new Date(),
-): WorkSettlementSnapshot {
-	return partitionWorkSettlement(filterByScopes(tracker.closedTasks(), scopes), now);
+): Effect.Effect<WorkSettlementSnapshot> {
+	// The tracker adapter is synchronous; a sqlite fault is a defect, so the projection lifts into an
+	// Effect with `Effect.sync` and carries no recoverable error.
+	return Effect.sync(() =>
+		partitionWorkSettlement(filterByScopes(tracker.closedTasks(), scopes), now),
+	);
 }

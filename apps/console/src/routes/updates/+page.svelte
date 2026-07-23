@@ -4,7 +4,8 @@
 	import type { PageProps } from "./$types";
 	import { onMount } from "svelte";
 
-	import { connectBus, dataMode, readBoxUpdateRaw, readHealth, runQuery, runRemote } from "$lib/rpc/browser";
+	import { connectBus, dataMode, readBoxUpdateRaw, readHealth, runQuery } from "$lib/rpc/browser";
+	import { Effect } from "effect";
 	import { opDef } from "$lib/api/ops";
 	import type { BoxUpdateRaw } from "$lib/api/types";
 	import HudChip from "$lib/components/HudChip.svelte";
@@ -224,7 +225,7 @@
 		approvalsLoading = true;
 		approvalError = null;
 		try {
-			const next = await runRemote(getUpdateApprovals({ box_id: boxId }));
+			const next = await Effect.runPromise(getUpdateApprovals({ box_id: boxId }));
 			if (request === approvalLoad && selected?.boxId === boxId) approvals = next;
 		} catch (error) {
 			if (request === approvalLoad && selected?.boxId === boxId)
@@ -246,11 +247,11 @@
 		approvalError = null;
 		try {
 			const boxId = selected.boxId;
-			const approved = await runRemote(approveUpdate({ box_id: boxId, packages }));
+			const approved = await Effect.runPromise(approveUpdate({ box_id: boxId, packages }));
 			await loadApprovals(boxId);
 			const undoAction = async () => {
 				try {
-					await runRemote(revokeUpdateApproval({
+					await Effect.runPromise(revokeUpdateApproval({
 						approval_id: approved.approval.approval_id,
 						box_id: boxId,
 					}));
@@ -277,7 +278,7 @@
 		approvalBusy = `revoke:${approval.approval_id}`;
 		approvalError = null;
 		try {
-			await runRemote(revokeUpdateApproval({ approval_id: approval.approval_id, box_id: boxId }));
+			await Effect.runPromise(revokeUpdateApproval({ approval_id: approval.approval_id, box_id: boxId }));
 			snackbar.push({ message: "updates.revoke applied · approval returned to pending", op: "updates.revoke", tone: "good" });
 		} catch (error) {
 			approvalError = (error as Error).message || "Approval could not be revoked.";

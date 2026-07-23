@@ -393,16 +393,22 @@ function mapLibraryItem(item: ApiLibraryItem, hold?: string): LibraryItemView {
 	};
 }
 
+type LiveLibraryResults = readonly [
+	PromiseSettledResult<ApiEnvelope<ApiLibraryItem>>,
+	PromiseSettledResult<ApiEnvelope<ApiLibraryLink>>,
+	PromiseSettledResult<ApiEnvelope<ApiLibraryHold>>,
+	PromiseSettledResult<ApiEnvelope<ApiLibraryCuration>>,
+	PromiseSettledResult<ApiEnvelope<ApiLibraryCapability>>,
+];
+
 /** Map the scope-filtered Rev3 read surface; optional sources fail independently and honestly. */
-export async function readLiveLibrary(fetchFn: typeof fetch = fetch): Promise<LibraryData> {
-	const [itemsResult, linksResult, holdsResult, curationResult, capabilitiesResult] =
-		await Promise.allSettled([
-			readAllPages<ApiLibraryItem>("/library/items?limit=1000", fetchFn),
-			readAllPages<ApiLibraryLink>("/library/links?limit=1000", fetchFn),
-			readAllPages<ApiLibraryHold>("/library/holds?limit=1000", fetchFn),
-			readAllPages<ApiLibraryCuration>("/library/curation?limit=1000", fetchFn),
-			readAllPages<ApiLibraryCapability>("/library/capabilities?limit=1000", fetchFn),
-		]);
+export function assembleLiveLibrary([
+	itemsResult,
+	linksResult,
+	holdsResult,
+	curationResult,
+	capabilitiesResult,
+]: LiveLibraryResults): LibraryData {
 	if (itemsResult.status === "rejected") return liveEmptyLibrary;
 	const holds = holdsResult.status === "fulfilled" ? holdsResult.value.items : [];
 	const holdByItem = new Map(
@@ -480,4 +486,15 @@ export async function readLiveLibrary(fetchFn: typeof fetch = fetch): Promise<Li
 			capabilities: capabilitiesResult.status === "fulfilled" ? "live" : "unavailable",
 		},
 	};
+}
+
+export async function readLiveLibrary(fetchFn: typeof fetch = fetch): Promise<LibraryData> {
+	const settled = await Promise.allSettled([
+		readAllPages<ApiLibraryItem>("/library/items?limit=1000", fetchFn),
+		readAllPages<ApiLibraryLink>("/library/links?limit=1000", fetchFn),
+		readAllPages<ApiLibraryHold>("/library/holds?limit=1000", fetchFn),
+		readAllPages<ApiLibraryCuration>("/library/curation?limit=1000", fetchFn),
+		readAllPages<ApiLibraryCapability>("/library/capabilities?limit=1000", fetchFn),
+	]);
+	return assembleLiveLibrary(settled);
 }
