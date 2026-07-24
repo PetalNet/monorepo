@@ -33,6 +33,7 @@ jobs:
           run-install: true
           sfw: true
       - run: vp run check
+      - run: vp run test
       - run: vp run manypkg
       - run: vp dedupe --check -- --prefer-offline
       - run: vp run typesync:check

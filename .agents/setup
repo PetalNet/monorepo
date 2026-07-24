@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+curl https://mise.run | sh
+# Use shims so repo-managed tools propagate to child processes.
+eval "$(~/.local/bin/mise activate --shims bash)"
+
+mise trust --yes mise.toml
+mise install --yes node pnpm github:voidzero-dev/vite-plus
+vp install --frozen-lockfile
+
+if ! command -v docker >/dev/null 2>&1; then
+	sudo apt-get update -q
+	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q docker.io
+fi
+if ! sudo docker info >/dev/null 2>&1; then
+	amp orb service start docker --command 'sudo dockerd --host=unix:///var/run/docker.sock'
+	for _ in {1..30}; do
+		sudo docker info >/dev/null 2>&1 && break
+		sleep 1
+	done
+	sudo docker info >/dev/null
+fi
+sudo chmod 666 /var/run/docker.sock
+
+amp_config_dir="$HOME/.config/amp"
+mkdir -p "$amp_config_dir"
+cat > "$amp_config_dir/AGENTS.md" <<'EOF_AGENTS'
+# Inside the PetalNet Orb
+
+- This is a JS-first orb. Mise installs Node and pnpm from the repository's idiomatic version files and Vite+ from the root `mise.toml`/`mise.lock`.
+- Run repository commands through Vite+, such as `vp run check`, `vp run test`, and `vp run build`.
+- Rust is lazy: from a Rust app directory, run `mise install --yes rust`; mise reads that app's `rust-toolchain.toml`. Install `rustfmt` and `clippy` only when needed.
+- Flutter is lazy and app-scoped: run `mise -C apps/point/app install --yes flutter`, then `mise -C apps/point/app exec -- flutter pub get`.
+- Docker runs as the supervised `docker` Amp service for Testcontainers.
+EOF_AGENTS
