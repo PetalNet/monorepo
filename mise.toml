@@ -1,0 +1,20 @@
+monorepo_root = true
+
+[tools]
+"github:voidzero-dev/vite-plus" = "0.2.4"
+
+[settings]
+idiomatic_version_file_enable_tools = ["node", "pnpm", "rust"]
+lockfile = true
+
+[monorepo]
+config_roots = [
+	"apps/box-agent",
+	"apps/control-plane",
+	"apps/courier",
+	"apps/dispatcher",
+	"apps/manager",
+	"apps/point",
+	"apps/point/app",
+]
+lockfile = true
