@@ -52,7 +52,7 @@ catalogs:
     eslint-plugin-package-json: ^1.2.0
     knip: ^6.16.1
     oxlint: ^1.67.0
-    postcss: ^8.4.49
+    postcss: ^8.5.18
     prisma: ^5.22.0
     svelte-check: ^4.3.5
     # Keep the TS 6 API at the name ecosystem tooling imports. The native TS 7
