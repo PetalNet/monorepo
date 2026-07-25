@@ -28,9 +28,10 @@ mkdir -p "$amp_config_dir"
 cat > "$amp_config_dir/AGENTS.md" <<'EOF_AGENTS'
 # Inside the PetalNet Orb
 
-- This is a JS-first orb. Mise installs Node and pnpm from the repository's idiomatic version files and Vite+ from the root `mise.toml`/`mise.lock`.
-- Run repository commands through Vite+, such as `vp run check`, `vp run test`, and `vp run build`.
-- Rust is lazy: from a Rust app directory, run `mise install --yes rust`; mise reads that app's `rust-toolchain.toml`. Install `rustfmt` and `clippy` only when needed.
-- Flutter is lazy and app-scoped: run `mise -C apps/point/app install --yes flutter`, then `mise -C apps/point/app exec -- flutter pub get`.
+- This orb may have older system Node.js and pnpm versions; .agents/setup activates Mise for repo-managed tools.
+- This is a JS-first orb. Mise installs Node, pnpm, and Vite+ from the root `mise.toml`/`mise.lock`.
+- Run repo tool commands through Vite+, such as `vp run check`, `vp run test`, and `vp run build`.
+- Rust is lazy: from a Rust app directory, run `mise install --yes rust`; mise reads that app's `rust-toolchain.toml`.
+- Flutter is lazy: from a Flutter app directory, run `mise install --yes flutter`, then `flutter pub get`.
 - Docker runs as the supervised `docker` Amp service for Testcontainers.
 EOF_AGENTS

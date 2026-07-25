@@ -41,14 +41,11 @@
 		"vite-plus": "catalog:dev"
 	},
 	"packageManager": "pnpm@11.11.0",
-	"engines": {
-		"node": "^26.0.0"
-	},
 	"devEngines": {
 		"runtime": {
 			"name": "node",
 			"onFail": "ignore",
-			"version": "^26.0.0"
+			"version": "26.5.0"
 		}
 	},
 	"typesync": {
