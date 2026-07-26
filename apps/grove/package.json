@@ -1,0 +1,27 @@
+{
+	"name": "@petalnet/grove",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"imports": {
+		"#lib": "./src/lib/index.js",
+		"#lib/*": "./src/lib/*"
+	},
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "catalog:dev",
+		"@sveltejs/kit": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"svelte": "catalog:prod",
+		"svelte-check": "catalog:dev",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev"
+	}
+}
