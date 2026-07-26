@@ -17,11 +17,6 @@ export default defineConfig([
 		gitignoreResolution: true,
 	}),
 	{
-		// apps/console is slated for a rewrite; excluded from ESLint rather than
-		// fixed/partially-disabled. Re-enable after the rewrite -- see PetalNet/monorepo#337.
-		ignores: ["apps/console/**"],
-	},
-	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,svelte}"],
 		extends: [
 			js.configs.recommended,
@@ -109,6 +104,40 @@ export default defineConfig([
 			"@typescript-eslint/no-redundant-type-constituents": "off",
 			"@typescript-eslint/use-unknown-in-catch-callback-variable": "off",
 			"svelte/prefer-svelte-reactivity": "off",
+		},
+	},
+	{
+		// apps/console is slated for a rewrite, so its ~707 errors are not worth
+		// fixing against code that is about to be replaced. It stays LINTED (never
+		// ignored) with exactly the rules it currently trips turned off, so any new
+		// rule violation still fails CI. Tracked in PetalNet/monorepo#337; delete
+		// this block after the rewrite rather than growing it.
+		files: ["apps/console/**"],
+		rules: {
+			"@typescript-eslint/dot-notation": "off",
+			"@typescript-eslint/no-unsafe-member-access": "off",
+			"@typescript-eslint/require-await": "off",
+			"@typescript-eslint/prefer-nullish-coalescing": "off",
+			"@typescript-eslint/no-unsafe-assignment": "off",
+			"@typescript-eslint/non-nullable-type-assertion-style": "off",
+			"@typescript-eslint/no-empty-function": "off",
+			"@typescript-eslint/no-non-null-assertion": "off",
+			"@typescript-eslint/await-thenable": "off",
+			"@typescript-eslint/no-confusing-void-expression": "off",
+			"@typescript-eslint/no-unnecessary-condition": "off",
+			"@typescript-eslint/no-base-to-string": "off",
+			"@typescript-eslint/no-unsafe-argument": "off",
+			"@typescript-eslint/no-unnecessary-type-assertion": "off",
+			"@typescript-eslint/prefer-optional-chain": "off",
+			"@typescript-eslint/array-type": "off",
+			"@typescript-eslint/no-unnecessary-type-conversion": "off",
+			"@typescript-eslint/consistent-type-definitions": "off",
+			"@typescript-eslint/restrict-plus-operands": "off",
+			"@typescript-eslint/no-unsafe-call": "off",
+			"@typescript-eslint/no-unnecessary-type-parameters": "off",
+			"@typescript-eslint/consistent-indexed-object-style": "off",
+			"@typescript-eslint/restrict-template-expressions": "off",
+			"@typescript-eslint/no-unsafe-return": "off",
 		},
 	},
 	...oxlint.buildFromOxlintConfigFile(path.join(root, ".oxlintrc.json")),

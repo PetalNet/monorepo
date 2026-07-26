@@ -20,6 +20,8 @@
 		"src/**/*.svelte",
 		"tests/**/*.ts",
 		"test/**/*.ts",
+		"scripts/**/*.ts",
+		"effectdb.config.ts",
 		"vite.config.ts",
 		"playwright.config.ts"
 	]
