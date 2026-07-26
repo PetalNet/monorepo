@@ -5,7 +5,7 @@
 	import type { InvestigationDetail, InvestigationNode, InvestigationPanel } from "$lib/data/investigations";
 	import { ancestorTrail, visibleInvestigationRows } from "$lib/data/investigations";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
-	import { runRemote } from "$lib/rpc/browser";
+	import { Effect } from "effect";
 	import { createInvestigationNode, getInvestigationGraph, loadInvestigationNode, pinInvestigationNode } from "./investigations.remote";
 	import type { InvestigationSeed } from "./investigation-types";
 
@@ -62,7 +62,7 @@
 		loading = true;
 		error = null;
 		try {
-			detail = await runRemote(loadInvestigationNode({ id }));
+			detail = await Effect.runPromise(loadInvestigationNode({ id }));
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : "Investigation node could not be replayed";
 		} finally {
@@ -73,7 +73,7 @@
 	async function createRoot(next: InvestigationSeed) {
 		action = "branch";
 		try {
-			const node = await runRemote(createInvestigationNode({ ...next, parentId: null, parentQuestion: null, scope: null }));
+			const node = await Effect.runPromise(createInvestigationNode({ ...next, parentId: null, parentQuestion: null, scope: null }));
 			nodes = [...nodes, node];
 			activeId = node.id;
 			snackbar.push({ message: "Investigation started", op: "dashboard.save", tone: "good" });
@@ -93,7 +93,7 @@
 		const printable = selected;
 		action = "branch";
 		try {
-			const node = await runRemote(createInvestigationNode({
+			const node = await Effect.runPromise(createInvestigationNode({
 				title: `Why did ${String(printable)} stand out?`,
 				queryRef: panel.queryRef,
 				panelTitle: panel.title,
@@ -127,7 +127,7 @@
 		if (!activeId || action) return;
 		action = "pin";
 		try {
-			await runRemote(pinInvestigationNode({ id: activeId }));
+			await Effect.runPromise(pinInvestigationNode({ id: activeId }));
 			nodes = nodes.map((node) => ({ ...node, isHome: node.id === activeId }));
 			snackbar.push({ message: "Node pinned as home", op: "dashboard.set_home", tone: "good" });
 		} catch (cause) {

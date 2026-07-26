@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import type { Sql } from "../db/pool.ts";
 import { withScopes } from "../db/pool.ts";
+import { edge } from "../edge.ts";
 import { ISO_DATETIME_UTC_RE } from "../schema-conventions.ts";
 import { parseCapabilityBundle } from "./loader.ts";
 
@@ -81,6 +82,7 @@ export type CapabilityAcquisitionErrorCode =
 	| "capability_artifact_invalid";
 
 export class CapabilityAcquisitionError extends Error {
+	readonly _tag = "CapabilityAcquisitionError";
 	readonly code: CapabilityAcquisitionErrorCode;
 
 	constructor(code: CapabilityAcquisitionErrorCode, message: string) {
@@ -89,6 +91,10 @@ export class CapabilityAcquisitionError extends Error {
 		this.code = code;
 	}
 }
+
+/** The only recoverable failure acquiring a capability models: a caller-fixable request or lookup. */
+const isCapabilityAcquisitionError = (error: unknown): error is CapabilityAcquisitionError =>
+	error instanceof CapabilityAcquisitionError;
 
 function advertised(state: Record<string, unknown>, capability: string): boolean {
 	const raw = state["provides"] ?? state["capabilities"] ?? [];
@@ -105,7 +111,7 @@ function propertyString(properties: Record<string, unknown>, key: string): strin
  * Resolve through both scope-protected seams. A registry advertisement alone cannot yield bytes,
  * and an orphaned Library artifact is not discoverable as a fleet capability.
  */
-export async function acquireCapability(
+async function acquireCapabilityImpl(
 	app: Sql,
 	scopes: readonly string[],
 	capability: string,
@@ -183,4 +189,20 @@ export async function acquireCapability(
 			registry_observed_at: new Date(row.observed_at).toISOString(),
 		},
 	};
+}
+
+/**
+ * Resolve a capability as an Effect: its only recoverable failure is a `CapabilityAcquisitionError`
+ * (bad request / not found / invalid artifact); a lake fault is a defect. Consumers compose it
+ * directly with `yield*`.
+ */
+export function acquireCapability(
+	app: Sql,
+	scopes: readonly string[],
+	capability: string,
+	provider?: string,
+): Effect.Effect<CapabilityAcquisition, CapabilityAcquisitionError> {
+	return edge(isCapabilityAcquisitionError, () =>
+		acquireCapabilityImpl(app, scopes, capability, provider),
+	);
 }

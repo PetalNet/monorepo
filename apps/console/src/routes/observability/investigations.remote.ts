@@ -1,14 +1,23 @@
-import { getRequestEvent } from "$app/server";
 import { publicConfig } from "$lib/config";
 import type {
 	InvestigationDetail,
 	InvestigationNode,
 	InvestigationPanel,
 } from "$lib/data/investigations";
+import { executeNamedOp } from "$lib/operations.remote";
+import {
+	isDashboardError,
+	listDashboards,
+	loadDashboard,
+} from "$lib/server/domain/dashboard/store";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { branchQuery } from "$lib/server/domain/query/branch";
+import { readQueryRecord } from "$lib/server/domain/query/history";
+import { isQueryError, runStructured } from "$lib/server/domain/query/structured";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
-import { error } from "@sveltejs/kit";
+import { ConsoleDomain } from "$lib/server/domain/service";
 import { Effect, Schema } from "effect";
-import { Command, Query } from "svelte-effect-runtime";
+import { Command, Error as HttpError, Query } from "svelte-effect-runtime";
 
 const nodeId = Schema.Struct({
 	id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
@@ -27,38 +36,6 @@ const branchInput = Schema.Struct({
 
 function isMock(): boolean {
 	return publicConfig.dataMode === "mock";
-}
-
-function apiBase(): string {
-	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
-}
-
-function headers(contentType = false): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const result = new Headers({ accept: "application/json" });
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) result.set(name, value);
-	}
-	if (contentType) result.set("content-type", "application/json");
-	return result;
-}
-
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await getRequestEvent().fetch(`${apiBase()}${path}`, {
-		...init,
-		headers: init?.headers ?? headers(init?.body !== undefined),
-	});
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as {
-			error?: { message?: string };
-		} | null;
-		error(
-			response.status,
-			body?.error?.message ?? `Console API returned ${String(response.status)}`,
-		);
-	}
-	return (await response.json()) as T;
 }
 
 type DashboardRow = {
@@ -202,16 +179,24 @@ function mockDetail(node: InvestigationNode): InvestigationDetail {
 }
 
 export const getInvestigationGraph = Query(
-	Effect.promise(async (): Promise<InvestigationNode[]> => {
+	Effect.gen(function* () {
 		if (isMock()) return mockNodes;
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
 		const nodes: InvestigationNode[] = [];
 		let cursor: string | null = null;
 		do {
-			// Cursor pages are causally ordered; the next request cannot be constructed in parallel.
-			// oxlint-disable-next-line no-await-in-loop
-			const envelope: { items: DashboardRow[]; next_cursor?: string | null } = await apiJson(
-				`/dashboards?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-			);
+			const envelope = (yield* listDashboards(
+				services.db.app,
+				principal.scopes,
+				services.cursorSecret,
+				{ limit: 1_000, ...(cursor ? { cursor } : {}) },
+			).pipe(
+				Effect.catch((cause) =>
+					isDashboardError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+				),
+			)) as { items: DashboardRow[]; next_cursor?: string | null };
 			nodes.push(
 				...envelope.items
 					.filter(({ is_investigation }) => is_investigation === true)
@@ -224,9 +209,17 @@ export const getInvestigationGraph = Query(
 );
 
 export const loadInvestigationNode = Query(nodeId, ({ id }) =>
-	Effect.promise(async (): Promise<InvestigationDetail> => {
+	Effect.gen(function* () {
 		if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]);
-		const detail = await apiJson<DashboardDetail>(`/dashboards/${encodeURIComponent(id)}`);
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const detail = (yield* loadDashboard(
+			services.db.app,
+			principal.scopes,
+			id,
+		)) as DashboardDetail | null;
+		if (!detail) return yield* HttpError("NotFound", "Dashboard not found");
 		return {
 			node: normalizeNode(detail),
 			panels: (detail.materialized_panels ?? []).map(normalizePanel),
@@ -235,7 +228,7 @@ export const loadInvestigationNode = Query(nodeId, ({ id }) =>
 );
 
 export const createInvestigationNode = Command(branchInput, (input) =>
-	Effect.promise(async (): Promise<InvestigationNode> => {
+	Effect.gen(function* () {
 		if (isMock())
 			return {
 				id: `dash_mock_${crypto.randomUUID()}`,
@@ -248,28 +241,53 @@ export const createInvestigationNode = Command(branchInput, (input) =>
 				scope: "lab",
 				isHome: false,
 			};
-		const saved = await apiJson<DashboardRow>("/investigations/branches", {
-			method: "POST",
-			headers: headers(true),
-			body: JSON.stringify({
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const record = yield* readQueryRecord(services.db.app, principal.scopes, input.queryRef);
+		if (!record) return yield* HttpError("NotFound", "Parent query not found");
+		const filtered = yield* runStructured(
+			services.db.app,
+			principal.scopes,
+			branchQuery(record.request, input.selectedField, input.selectedValue),
+		).pipe(
+			Effect.catch((cause) =>
+				isQueryError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+			),
+		);
+		const id = crypto.randomUUID();
+		const result = yield* executeNamedOp({
+			op: "dashboard.save",
+			args: {
 				schema_version: 1,
-				id: crypto.randomUUID(),
+				id,
 				title: input.title,
 				...(input.scope ? { scope: input.scope } : {}),
-				parent_dashboard_id: input.parentId,
-				parent_question: input.parentQuestion,
-				panel: {
-					type: input.panelType,
-					title: input.panelTitle,
-					query_ref: input.queryRef,
+				panels: [
+					{
+						schema_version: 2,
+						type: input.panelType,
+						title: input.panelTitle,
+						description: "Investigation branch · filtered replay as the current viewer",
+						query_ref: filtered.query_ref,
+					},
+				],
+				branch: {
+					parent_dashboard_id: input.parentId,
+					parent_question: input.parentQuestion,
+					filters: { [input.selectedField]: input.selectedValue },
+					selected_mark: {
+						element_kind: "table-row",
+						field: input.selectedField,
+						value: input.selectedValue,
+						query_ref: filtered.query_ref,
+					},
+					assumptions: [],
 				},
-				selected_mark: {
-					element_kind: "table-row",
-					field: input.selectedField,
-					value: input.selectedValue,
-				},
-			}),
+			},
 		});
+		if (!result.ok) return yield* HttpError("BadRequest", result.error.message);
+		const saved = result.result as DashboardRow;
 		return normalizeNode({
 			...saved,
 			is_investigation: true,
@@ -280,14 +298,11 @@ export const createInvestigationNode = Command(branchInput, (input) =>
 );
 
 export const pinInvestigationNode = Command(nodeId, ({ id }) =>
-	Effect.promise(async () => {
+	Effect.gen(function* () {
 		if (isMock()) return { id, isHome: true };
-		await apiJson(`/dashboards/${encodeURIComponent(id)}/home`, {
-			method: "POST",
-			headers: headers(true),
-			body: JSON.stringify({ id: crypto.randomUUID() }),
-		});
-		void Effect.runPromise(getInvestigationGraph().refresh());
+		const result = yield* executeNamedOp({ op: "dashboard.set_home", args: { id } });
+		if (!result.ok) return yield* HttpError("BadRequest", result.error.message);
+		yield* getInvestigationGraph().refresh();
 		return { id, isHome: true };
 	}),
 );

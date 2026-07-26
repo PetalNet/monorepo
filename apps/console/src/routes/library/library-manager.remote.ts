@@ -1,18 +1,30 @@
-import { getRequestEvent } from "$app/server";
-import type { ExecutorItem, OpResult, ReadEnvelope, WorkSettlementSnapshot } from "$lib/api/types";
+import type { ExecutorItem, ReadEnvelope } from "$lib/api/types";
 import { publicConfig } from "$lib/config";
 import {
 	mockLibrary,
-	readLiveLibrary,
-	type LibraryData,
+	assembleLiveLibrary,
 	type LibraryItemView,
 	type LibraryKind,
 } from "$lib/data/library";
 import { settledTaskLibraryItem } from "$lib/data/work-settlement";
+import { executeNamedOp, readPlaneRemote, sendAssistantRemote } from "$lib/operations.remote";
+import {
+	isDashboardError,
+	listLibraryCapabilities,
+	listLibraryCuration,
+	listLibraryHolds,
+	listLibraryItems,
+	listLibraryLinks,
+} from "$lib/server/domain/dashboard/store";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { readWorkSettlement } from "$lib/server/domain/reads/work-settlement";
+import { acquireCapability } from "$lib/server/domain/registry/acquisition";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
-import { error } from "@sveltejs/kit";
+import { ConsoleDomain } from "$lib/server/domain/service";
 import { Effect, Exit, Schema } from "effect";
-import { Command, Query } from "svelte-effect-runtime";
+import { Command, Error as HttpError, Query } from "svelte-effect-runtime";
+
+import { formatUnknown } from "#format";
 
 const viewSchema = Schema.Literals(["desk", "graph", "kanban", "table"]);
 const messageSchema = Schema.Struct({
@@ -70,7 +82,6 @@ const statusResultSchema = Schema.Struct({
 		),
 	),
 });
-export type LibraryStatusResult = typeof statusResultSchema.Type;
 const reviewSchema = Schema.Struct({
 	proposal_id: Schema.String.check(Schema.isMinLength(1)),
 	decision: Schema.Literals(["under-review", "promoted", "rejected"]),
@@ -83,7 +94,6 @@ const reviewResultSchema = Schema.Struct({
 	state: Schema.String,
 	reviewed_by: Schema.String,
 });
-export type LibraryReviewResult = typeof reviewResultSchema.Type;
 
 export interface LibraryManagerResult {
 	schema_version: 1;
@@ -129,55 +139,58 @@ function isMock(): boolean {
 	return publicConfig.dataMode === "mock";
 }
 
-function apiBase(): string {
-	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
-}
-
-function forwardedHeaders(contentType = false): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const headers = new Headers({ accept: "application/json" });
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) headers.set(name, value);
-	}
-	if (contentType) headers.set("content-type", "application/json");
-	return headers;
-}
-
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await getRequestEvent().fetch(`${apiBase()}${path}`, {
-		...init,
-		headers: init?.headers ?? forwardedHeaders(init?.body !== undefined),
-	});
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as {
-			error?: { message?: string };
-		} | null;
-		error(
-			response.status,
-			body?.error?.message ?? `Console API returned ${String(response.status)}`,
-		);
-	}
-	return (await response.json()) as T;
-}
+const settle = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<PromiseSettledResult<A>> =>
+	effect.pipe(
+		Effect.map((value) => ({ status: "fulfilled" as const, value })),
+		Effect.catch((reason) => Effect.succeed({ status: "rejected" as const, reason })),
+	);
 
 /**
  * The complete Library lens crosses one SvelteKit RPC boundary; the browser never reads the API
  * directly.
  */
 export const getLibrarySurface = Query(
-	Effect.promise(async (): Promise<LibraryData> => {
+	Effect.gen(function* () {
 		if (isMock()) return mockLibrary;
-		const serverFetch: typeof fetch = (input, init) => {
-			const supplied = new Headers(init?.headers);
-			for (const [name, value] of forwardedHeaders())
-				if (!supplied.has(name)) supplied.set(name, value);
-			return getRequestEvent().fetch(input, { ...init, headers: supplied });
-		};
-		const [library, executors] = await Promise.all([
-			readLiveLibrary(serverFetch),
-			apiJson<ReadEnvelope<ExecutorItem>>("/executors").catch(() => null),
-		]);
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const [items, links, holds, curation, capabilities, executorsResult] = yield* Effect.all(
+			[
+				settle(
+					listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
+						limit: 1_000,
+					}),
+				),
+				settle(
+					listLibraryLinks(services.db.app, principal.scopes, services.cursorSecret, undefined, {
+						limit: 1_000,
+					}),
+				),
+				settle(
+					listLibraryHolds(services.db.app, principal.scopes, principal.id, services.cursorSecret, {
+						limit: 1_000,
+					}),
+				),
+				settle(
+					listLibraryCuration(services.db.app, principal.scopes, services.cursorSecret, {
+						limit: 1_000,
+					}),
+				),
+				settle(
+					listLibraryCapabilities(services.db.app, principal.scopes, services.cursorSecret, {
+						limit: 1_000,
+					}),
+				),
+				settle(readPlaneRemote("executors")),
+			],
+			{ concurrency: "unbounded" },
+		);
+		const library = assembleLiveLibrary([items, links, holds, curation, capabilities] as never);
+		const executors =
+			executorsResult.status === "fulfilled"
+				? (executorsResult.value as ReadEnvelope<ExecutorItem>)
+				: null;
 		return {
 			...library,
 			libraryExecutorLive:
@@ -256,32 +269,48 @@ function libraryManagerAction(value: unknown, depth = 0): LibraryManagerAction |
 
 /** Literal stacks search stays deterministic while crossing the required SvelteKit RPC boundary. */
 export const searchLibrary = Query(searchSchema, ({ query: searchQuery }) =>
-	Effect.promise(async (): Promise<LibraryItemView[]> => {
+	Effect.gen(function* () {
 		if (isMock()) return [];
-		const [result, settlement] = await Promise.all([
-			apiJson<{ items: ApiLibraryItem[] }>(
-				`/library/search?limit=100&q=${encodeURIComponent(searchQuery)}`,
-			),
-			apiJson<WorkSettlementSnapshot>("/work/settlement").catch(() => null),
-		]);
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const [result, settlement] = yield* Effect.all(
+			[
+				listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
+					query: searchQuery,
+					limit: 100,
+				}).pipe(
+					Effect.catch((cause) =>
+						isDashboardError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+					),
+				),
+				services.tracker
+					? readWorkSettlement(services.tracker, principal.scopes)
+					: Effect.succeed(null),
+			],
+			{ concurrency: "unbounded" },
+		);
 		const needle = searchQuery.toLocaleLowerCase();
 		const taskMatches = (settlement?.history ?? [])
 			.filter((task) =>
-				`${task.title} ${task.body ?? ""} ${task.result_summary ?? ""} ${task.close_reason ?? ""} ${task.project_title ?? ""}`
+				[task.title, task.body, task.result_summary, task.close_reason, task.project_title]
+					.map((value) => formatUnknown(value ?? ""))
+					.join(" ")
 					.toLocaleLowerCase()
 					.includes(needle),
 			)
-			.map(settledTaskLibraryItem);
+			.map((task) => settledTaskLibraryItem(task as never));
 		const taskIds = new Set(taskMatches.map((item) => item.id));
-		return [...taskMatches, ...result.items.map(itemView).filter((item) => !taskIds.has(item.id))];
+		const items = (result["items"] as ApiLibraryItem[]).map(itemView);
+		return [...taskMatches, ...items.filter((item) => !taskIds.has(item.id))];
 	}),
 );
 
 /** Prove the artifact is runnable through the caller-scoped acquisition endpoint. */
 export const verifyLibraryCapability = Command(acquisitionSchema, (input) =>
-	Effect.promise(async (): Promise<LibraryAcquisitionReceipt> => {
-		if (isMock())
-			return {
+	Effect.gen(function* () {
+		if (isMock()) {
+			const receipt: LibraryAcquisitionReceipt = {
 				capability: input.capability,
 				kind: input.capability.startsWith("skill.") ? "skill" : "tool",
 				version: "fixture",
@@ -291,71 +320,69 @@ export const verifyLibraryCapability = Command(acquisitionSchema, (input) =>
 				artifact: { bytes: 512 },
 				provenance: { library_item_id: "fixture-capability" },
 			};
-		const result = await apiJson<unknown>(
-			`/library/capabilities/${encodeURIComponent(input.capability)}/acquire`,
-			{
-				method: "POST",
-				headers: forwardedHeaders(true),
-				body: JSON.stringify({ provider: input.provider }),
-			},
-		);
+			return receipt;
+		}
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const result = yield* acquireCapability(
+			services.db.app,
+			principal.scopes,
+			input.capability,
+			input.provider,
+		).pipe(Effect.catch((cause) => HttpError("BadRequest", cause.message)));
 		const parsed = Schema.decodeUnknownExit(acquisitionResultSchema)(result);
-		if (Exit.isFailure(parsed)) error(502, "Registry returned an invalid acquisition receipt");
+		if (Exit.isFailure(parsed))
+			return yield* HttpError("BadGateway", "Registry returned an invalid acquisition receipt");
 		return parsed.value;
 	}),
 );
 
 /** Status movement uses the same named operation and audit line available to agents. */
 export const updateLibraryStatus = Command(statusSchema, (input) =>
-	Effect.promise(async (): Promise<LibraryStatusResult> => {
+	Effect.gen(function* () {
 		if (isMock())
 			return { id: input.id, status: input.status, version: input.expected_version + 1 };
-		const result = await apiJson<OpResult>("/op", {
-			method: "POST",
-			headers: forwardedHeaders(true),
-			body: JSON.stringify({
-				schema_version: 1,
-				id: crypto.randomUUID(),
-				op: "library.item.update",
-				args: {
-					id: input.id,
-					patch: { status: input.status, expected_version: input.expected_version },
-				},
-				dry_run: false,
-			}),
+		const result = yield* executeNamedOp({
+			id: crypto.randomUUID(),
+			op: "library.item.update",
+			args: {
+				id: input.id,
+				patch: { status: input.status, expected_version: input.expected_version },
+			},
+			dry_run: false,
 		});
-		void Effect.runPromise(getLibrarySurface().refresh());
+		if (!result.ok) return yield* HttpError("BadRequest", result.error.message);
+		yield* getLibrarySurface().refresh();
 		const parsed = Schema.decodeUnknownExit(statusResultSchema)(result.result);
-		if (Exit.isFailure(parsed)) error(502, "Library returned an invalid status receipt");
+		if (Exit.isFailure(parsed))
+			return yield* HttpError("BadGateway", "Library returned an invalid status receipt");
 		return parsed.value;
 	}),
 );
 
 /** Privileged curation stays on the audited op plane; the UI cannot promote directly. */
 export const reviewLibraryCapability = Command(reviewSchema, (input) =>
-	Effect.promise(async (): Promise<LibraryReviewResult> => {
-		const result = await apiJson<OpResult>("/op", {
-			method: "POST",
-			headers: forwardedHeaders(true),
-			body: JSON.stringify({
-				schema_version: 1,
-				id: crypto.randomUUID(),
-				op: "library.capability.review",
-				args: { proposal_id: input.proposal_id, decision: input.decision },
-				reason: input.reason,
-				dry_run: false,
-			}),
+	Effect.gen(function* () {
+		const result = yield* executeNamedOp({
+			id: crypto.randomUUID(),
+			op: "library.capability.review",
+			args: { proposal_id: input.proposal_id, decision: input.decision },
+			reason: input.reason,
+			dry_run: false,
 		});
+		if (!result.ok) return yield* HttpError("BadRequest", result.error.message);
 		const parsed = Schema.decodeUnknownExit(reviewResultSchema)(result.result);
-		if (Exit.isFailure(parsed)) error(502, "Library returned an invalid review receipt");
-		void Effect.runPromise(getLibrarySurface().refresh());
+		if (Exit.isFailure(parsed))
+			return yield* HttpError("BadGateway", "Library returned an invalid review receipt");
+		yield* getLibrarySurface().refresh();
 		return parsed.value;
 	}),
 );
 
 /** Continue the real caller-scoped Claude Code manager session through a server-only RPC. */
 export const sendLibraryManagerMessage = Command(messageSchema, (input) =>
-	Effect.promise(async (): Promise<LibraryManagerResult> => {
+	Effect.gen(function* () {
 		if (isMock()) {
 			const normalized = input.message.toLowerCase();
 			const requestedView = (["graph", "kanban", "table", "desk"] as const).find((candidate) =>
@@ -385,14 +412,10 @@ export const sendLibraryManagerMessage = Command(messageSchema, (input) =>
 			`Current UI: view=${input.view}; query=${JSON.stringify(input.query)}; selected_item_id=${input.selected_item_id ?? "none"}.`,
 			`User request: ${input.message}`,
 		].join("\n");
-		const response = await apiJson<Omit<LibraryManagerResult, "library_action">>(
-			"/assistant/messages",
-			{
-				method: "POST",
-				headers: forwardedHeaders(true),
-				body: JSON.stringify({ id: crypto.randomUUID(), message: content }),
-			},
-		);
+		const response = (yield* sendAssistantRemote({
+			kind: "user",
+			content,
+		})) as Omit<LibraryManagerResult, "library_action">;
 		return { ...response, library_action: libraryManagerAction(response.tool_results) };
 	}),
 );

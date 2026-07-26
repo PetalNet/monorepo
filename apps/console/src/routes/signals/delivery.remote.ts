@@ -1,11 +1,10 @@
-import { getRequestEvent } from "$app/server";
 import type {
 	ConsoleHealth,
 	DeliveryItem,
 	ExecutorItem,
-	OpResult,
 	QueryResult,
 	ReadEnvelope,
+	StructuredQuery,
 	SubscriptionItem,
 } from "$lib/api/types";
 import { publicConfig } from "$lib/config";
@@ -15,62 +14,21 @@ import {
 	mockSubscriptions,
 	type DeliveryReceiptView,
 } from "$lib/data/signals";
+import { executeNamedOp, readPlaneRemote, runStructuredQuery } from "$lib/operations.remote";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { readDeliveryConfig } from "$lib/server/domain/reads/entities";
 import { ISO_DATETIME_OFFSET_RE, rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
-import { error } from "@sveltejs/kit";
-import { Effect, Schema } from "effect";
-import { Command, Query } from "svelte-effect-runtime";
+import { ConsoleDomain } from "$lib/server/domain/service";
+import { Effect, Exit, Schema } from "effect";
+import { Command, Error as HttpError, Query } from "svelte-effect-runtime";
 
 import { formatUnknown } from "#format";
-
-export interface DeliverySurfaceData {
-	delivery: DeliveryItem | null;
-	receipts: DeliveryReceiptView[];
-	receiptsAvailable: boolean;
-	matrixSyncOkEpoch: number | null;
-	busObservedAt: string | null;
-	loudSubscriptionCount: number;
-	executorLive: boolean;
-	executorDetail: string | null;
-	errors: string[];
-	isMock: boolean;
-}
 
 let mockDeliveryState: DeliveryItem = { ...mockDelivery };
 let mockReceiptState: DeliveryReceiptView[] = [...mockReceipts];
 
 function isMock(): boolean {
 	return publicConfig.dataMode === "mock";
-}
-
-function apiBase(): string {
-	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
-}
-
-function forwardedHeaders(contentType = false): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const headers = new Headers({ accept: "application/json" });
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) headers.set(name, value);
-	}
-	if (contentType) headers.set("content-type", "application/json");
-	return headers;
-}
-
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await getRequestEvent().fetch(`${apiBase()}${path}`, {
-		...init,
-		headers: init?.headers ?? forwardedHeaders(init?.body !== undefined),
-	});
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as
-			| { error?: { message?: string } }
-			| OpResult
-			| null;
-		const message = body?.error?.message ?? `Console API returned ${String(response.status)}`;
-		error(response.status, message);
-	}
-	return (await response.json()) as T;
 }
 
 const receiptQuery = {
@@ -93,7 +51,7 @@ const receiptQuery = {
 } as const;
 
 export const getDeliverySurface = Query(
-	Effect.promise(async (): Promise<DeliverySurfaceData> => {
+	Effect.gen(function* () {
 		if (isMock())
 			return {
 				delivery: mockDeliveryState,
@@ -109,20 +67,22 @@ export const getDeliverySurface = Query(
 			};
 
 		const errors: string[] = [];
-		const settled = await Promise.allSettled([
-			apiJson<ReadEnvelope<DeliveryItem>>("/delivery?limit=10"),
-			apiJson<ReadEnvelope<SubscriptionItem>>("/subscriptions?limit=1000"),
-			apiJson<ReadEnvelope<ExecutorItem>>("/executors"),
-			apiJson<ConsoleHealth & { ingest?: { last_ingest_at: string }[] }>("/health"),
-			apiJson<QueryResult>("/query", {
-				method: "POST",
-				headers: forwardedHeaders(true),
-				body: JSON.stringify(receiptQuery),
-			}),
-		]);
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const settled = yield* Effect.all(
+			[
+				Effect.exit(readDeliveryConfig(services.db.app, principal.scopes, { limit: 10 })),
+				Effect.exit(readPlaneRemote("subscriptions")),
+				Effect.exit(readPlaneRemote("executors")),
+				Effect.exit(readPlaneRemote("health")),
+				Effect.exit(runStructuredQuery(receiptQuery as unknown as StructuredQuery)),
+			],
+			{ concurrency: "unbounded" },
+		);
 		const value = (index: number, label: string): unknown => {
 			const result = settled[index];
-			if (result.status === "fulfilled") return result.value;
+			if (Exit.isSuccess(result)) return result.value;
 			errors.push(label);
 			return null;
 		};
@@ -172,28 +132,25 @@ export const getDeliverySurface = Query(
 	}),
 );
 
-async function runDeliveryOp(
+function runDeliveryOp(
 	op: "delivery.test" | "delivery.set_target" | "delivery.resend" | "delivery.cocoon",
 	args: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-	const result = await apiJson<OpResult>("/op", {
-		method: "POST",
-		headers: forwardedHeaders(true),
-		body: JSON.stringify({
-			schema_version: 1,
+): Effect.Effect<Record<string, unknown>, unknown> {
+	return Effect.gen(function* () {
+		const result = yield* executeNamedOp({
 			id: crypto.randomUUID(),
 			op,
 			args,
 			dry_run: false,
-		}),
+		});
+		if (!result.ok) return yield* HttpError("BadRequest", result.error.message);
+		yield* getDeliverySurface().refresh();
+		return result.result ?? {};
 	});
-	if (!result.ok) error(400, result.error.message);
-	void Effect.runPromise(getDeliverySurface().refresh());
-	return result.result ?? {};
 }
 
 export const sendDeliveryTest = Command(() =>
-	Effect.promise(async () => {
+	Effect.gen(function* () {
 		if (isMock()) {
 			const ts = new Date().toISOString();
 			mockReceiptState = [
@@ -209,10 +166,10 @@ export const sendDeliveryTest = Command(() =>
 				},
 				...mockReceiptState,
 			];
-			void Effect.runPromise(getDeliverySurface().refresh());
+			yield* getDeliverySurface().refresh();
 			return { delivered: true, receipt_ref: mockReceiptState[0].seq };
 		}
-		return runDeliveryOp("delivery.test", {});
+		return yield* runDeliveryOp("delivery.test", {});
 	}),
 );
 
@@ -220,7 +177,7 @@ const targetArgs = Schema.Struct({
 	target: Schema.String.check(Schema.isPattern(/^(@|!)[^:]+:.+$/), Schema.isMaxLength(255)),
 }).annotate(rejectUnknownKeys);
 export const setDeliveryTarget = Command(targetArgs, ({ target }) =>
-	Effect.promise(async () => {
+	Effect.gen(function* () {
 		if (isMock()) {
 			mockDeliveryState = {
 				...mockDeliveryState,
@@ -229,10 +186,10 @@ export const setDeliveryTarget = Command(targetArgs, ({ target }) =>
 				updated_at: new Date().toISOString(),
 				updated_by: "parker",
 			};
-			void Effect.runPromise(getDeliverySurface().refresh());
+			yield* getDeliverySurface().refresh();
 			return { delivered: true, target, receipt_ref: `mock-${String(Date.now())}` };
 		}
-		return runDeliveryOp("delivery.set_target", { channel: "matrix", target });
+		return yield* runDeliveryOp("delivery.set_target", { channel: "matrix", target });
 	}),
 );
 
@@ -240,7 +197,7 @@ const cocoonArgs = Schema.Struct({
 	until: Schema.String.check(Schema.isPattern(ISO_DATETIME_OFFSET_RE)),
 }).annotate(rejectUnknownKeys);
 export const setDeliveryCocoon = Command(cocoonArgs, ({ until }) =>
-	Effect.promise(async () => {
+	Effect.gen(function* () {
 		if (isMock()) {
 			mockDeliveryState = {
 				...mockDeliveryState,
@@ -248,10 +205,10 @@ export const setDeliveryCocoon = Command(cocoonArgs, ({ until }) =>
 				updated_at: new Date().toISOString(),
 				updated_by: "parker",
 			};
-			void Effect.runPromise(getDeliverySurface().refresh());
+			yield* getDeliverySurface().refresh();
 			return { cocoon_until: mockDeliveryState.cocoon_until };
 		}
-		return runDeliveryOp("delivery.cocoon", { until });
+		return yield* runDeliveryOp("delivery.cocoon", { until });
 	}),
 );
 
@@ -259,8 +216,8 @@ const resendArgs = Schema.Struct({
 	receiptRef: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
 }).annotate(rejectUnknownKeys);
 export const resendDeliveryReceipt = Command(resendArgs, ({ receiptRef }) =>
-	Effect.promise(async () => {
-		if (isMock()) return Effect.runPromise(sendDeliveryTest());
-		return runDeliveryOp("delivery.resend", { receipt_ref: receiptRef });
+	Effect.gen(function* () {
+		if (isMock()) return yield* sendDeliveryTest();
+		return yield* runDeliveryOp("delivery.resend", { receipt_ref: receiptRef });
 	}),
 );

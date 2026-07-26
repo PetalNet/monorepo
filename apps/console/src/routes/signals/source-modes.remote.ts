@@ -1,10 +1,12 @@
-import { getRequestEvent } from "$app/server";
-import type { OpResult, ReadEnvelope, SignalSourceModeItem } from "$lib/api/types";
+import type { SignalSourceModeItem } from "$lib/api/types";
 import { publicConfig } from "$lib/config";
+import { executeNamedOp } from "$lib/operations.remote";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { readSignalSourceModes } from "$lib/server/domain/reads/entities";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
-import { error } from "@sveltejs/kit";
+import { ConsoleDomain } from "$lib/server/domain/service";
 import { Effect, Schema } from "effect";
-import { Command, Query } from "svelte-effect-runtime";
+import { Command, Error as HttpError, Query } from "svelte-effect-runtime";
 
 let mockModes: SignalSourceModeItem[] = [
 	{
@@ -16,55 +18,22 @@ let mockModes: SignalSourceModeItem[] = [
 	},
 ];
 
-interface SignalSourceModeMutation {
-	readonly item: SignalSourceModeItem;
-	readonly undo?: NonNullable<OpResult["undo"]>;
-}
-
 function isMock(): boolean {
 	return publicConfig.dataMode === "mock";
 }
 
-function apiBase(): string {
-	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
-}
-
-function forwardedHeaders(contentType = false): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const headers = new Headers({ accept: "application/json" });
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) headers.set(name, value);
-	}
-	if (contentType) headers.set("content-type", "application/json");
-	return headers;
-}
-
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await getRequestEvent().fetch(`${apiBase()}${path}`, {
-		...init,
-		headers: init?.headers ?? forwardedHeaders(init?.body !== undefined),
-	});
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as
-			| { error?: { message?: string } }
-			| OpResult
-			| null;
-		error(
-			response.status,
-			body?.error?.message ?? `Console API returned ${String(response.status)}`,
-		);
-	}
-	return (await response.json()) as T;
-}
-
 export const getSignalSourceModes = Query(
-	Effect.promise(async (): Promise<SignalSourceModeItem[]> => {
+	Effect.gen(function* () {
 		if (isMock()) return mockModes;
-		const response = await apiJson<ReadEnvelope<SignalSourceModeItem>>(
-			"/signal-sources?limit=1000",
-		);
-		return response.items;
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const response = yield* readSignalSourceModes(services.db.app, principal.scopes, {
+			limit: 1_000,
+		});
+		// current_state rows arrive as untyped JSON (ReadEnvelope.items: Record<string, unknown>[]);
+		// narrowing to the closed contract shape is the rare rule-4 JSON narrowing, not a mock cast.
+		return response.items as SignalSourceModeItem[];
 	}),
 );
 
@@ -75,7 +44,7 @@ const modeArgs = Schema.Struct({
 }).annotate(rejectUnknownKeys);
 
 export const setSignalSourceMode = Command(modeArgs, ({ sourceService, mode, note }) =>
-	Effect.promise(async (): Promise<SignalSourceModeMutation> => {
+	Effect.gen(function* () {
 		if (isMock()) {
 			const previousMode =
 				mockModes.find((item) => item.source_service === sourceService)?.mode ?? "normal";
@@ -87,7 +56,7 @@ export const setSignalSourceMode = Command(modeArgs, ({ sourceService, mode, not
 				updated_by: "parker",
 			};
 			mockModes = [...mockModes.filter((item) => item.source_service !== sourceService), saved];
-			void Effect.runPromise(getSignalSourceModes().refresh());
+			yield* getSignalSourceModes().refresh();
 			return {
 				item: saved,
 				undo: {
@@ -96,23 +65,18 @@ export const setSignalSourceMode = Command(modeArgs, ({ sourceService, mode, not
 				},
 			};
 		}
-		const result = await apiJson<OpResult>("/op", {
-			method: "POST",
-			headers: forwardedHeaders(true),
-			body: JSON.stringify({
-				schema_version: 1,
-				id: crypto.randomUUID(),
-				op: "signal.source_mode",
-				args: {
-					source_service: sourceService,
-					mode,
-					...(note?.trim() ? { note: note.trim() } : {}),
-				},
-				dry_run: false,
-			}),
+		const result = yield* executeNamedOp({
+			id: crypto.randomUUID(),
+			op: "signal.source_mode",
+			args: {
+				source_service: sourceService,
+				mode,
+				...(note?.trim() ? { note: note.trim() } : {}),
+			},
+			dry_run: false,
 		});
-		if (!result.ok) error(400, result.error.message);
-		void Effect.runPromise(getSignalSourceModes().refresh());
+		if (!result.ok) return yield* HttpError("BadRequest", result.error.message);
+		yield* getSignalSourceModes().refresh();
 		return {
 			item: result.result as SignalSourceModeItem,
 			...(result.undo ? { undo: result.undo } : {}),

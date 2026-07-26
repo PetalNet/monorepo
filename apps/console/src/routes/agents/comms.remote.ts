@@ -1,8 +1,9 @@
-import { getRequestEvent } from "$app/server";
-import { validateContract, type CommsEvent, type ReadEnvelope } from "$lib/api/types";
+import type { CommsEvent, ReadEnvelope } from "$lib/api/types";
 import { publicConfig } from "$lib/config";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { readCommsLog } from "$lib/server/domain/reads/comms";
 import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
-import { error } from "@sveltejs/kit";
+import { ConsoleDomain } from "$lib/server/domain/service";
 import { Effect, Schema } from "effect";
 import { Query } from "svelte-effect-runtime";
 
@@ -14,20 +15,6 @@ const filters = Schema.Struct({
 }).annotate(rejectUnknownKeys);
 
 const relativeIso = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1_000).toISOString();
-
-function apiBase(): string {
-	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
-}
-
-function headers(): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const result = new Headers({ accept: "application/json", origin: getRequestEvent().url.origin });
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) result.set(name, value);
-	}
-	return result;
-}
 
 function mockRows(): CommsEvent[] {
 	return [
@@ -86,7 +73,7 @@ function mockRows(): CommsEvent[] {
 
 /** Server-side RPC: browser code never reaches the query plane directly. */
 export const getCommsLog = Query(filters, ({ type, agent, taskId, cursor }) =>
-	Effect.promise(async (): Promise<ReadEnvelope<CommsEvent>> => {
+	Effect.gen(function* () {
 		if (publicConfig.dataMode === "mock") {
 			const needle = agent?.trim().toLocaleLowerCase();
 			const method = type
@@ -108,23 +95,15 @@ export const getCommsLog = Query(filters, ({ type, agent, taskId, cursor }) =>
 				truncated: false,
 			};
 		}
-		const params = new URLSearchParams({ limit: "100" });
-		if (type) params.set("type", type);
-		if (agent?.trim()) params.set("agent", agent.trim());
-		if (taskId) params.set("task_id", String(taskId));
-		if (cursor) params.set("cursor", cursor);
-		const response = await getRequestEvent().fetch(`${apiBase()}/comms?${params.toString()}`, {
-			headers: headers(),
-		});
-		if (!response.ok) {
-			const body = (await response.json().catch(() => null)) as {
-				error?: { message?: string };
-			} | null;
-			error(response.status, body?.error?.message ?? "Correspondence query failed");
-		}
-		const result = (await response.json()) as ReadEnvelope<CommsEvent>;
-		if (!result.items.every((item) => validateContract("CommsEvent", item).valid))
-			error(502, "Correspondence response failed its contract");
-		return result;
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		return (yield* readCommsLog(services.db.app, principal.scopes, {
+			...(type ? { type } : {}),
+			...(agent?.trim() ? { agent: agent.trim() } : {}),
+			...(taskId ? { taskId } : {}),
+			...(cursor ? { cursor } : {}),
+			limit: 100,
+		})) as ReadEnvelope<CommsEvent>;
 	}),
 );
