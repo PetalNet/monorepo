@@ -5,15 +5,80 @@ Branch `chore/root-eslint-config`. This log covers the session that took the bra
 
 ## Final state
 
-| Gate                                            | Result                               |
-| ----------------------------------------------- | ------------------------------------ |
-| `eslint -c eslint.config.ts . --max-warnings=0` | **0 errors, 0 warnings** (470 files) |
-| `tsc -b` (root project references)              | **clean**                            |
-| `vp fmt --check`                                | **clean** (407 files)                |
-| `oxlint --max-warnings=0`                       | **clean**                            |
+Every step of the CI `check` job, run locally with caching **off**:
+
+| Step                                               | Result    |
+| -------------------------------------------------- | --------- |
+| `vp run -r typecheck` (7 packages, `--no-cache`)   | **clean** |
+| `vp run lint` (oxlint + eslint `--max-warnings=0`) | **clean** |
+| `vp run fmt:check`                                 | **clean** |
+| `vp run test` (38 files, 264 tests)                | **clean** |
+| `vp run manypkg`                                   | **clean** |
+| `vp dedupe --check`                                | **clean** |
+| `vp run typesync:check`                            | **clean** |
+| `vp run lint:knip` / `lint:knip:prod`              | **clean** |
 
 Error count at the start of the session: 150 across the five projects, plus `apps/console`
 excluded from linting entirely. Error count now: 0, with console **linted**.
+
+## CI failure after the first push — `$lib` resolution (root cause)
+
+The first push was verified with a full `eslint . --max-warnings=0` that reported 0, yet CI
+failed with **69 `@typescript-eslint/no-redundant-type-constituents` errors in
+`apps/console`**, every one of the form `'X' is an 'error' type that acts as 'any'`
+(`LibraryItemView`, `QueryResult`, `ApplyMode`, `WorkLane`, …).
+
+The types were not wrong — they were **unresolved**. `apps/console/.svelte-kit/tsconfig.json`
+had no `$lib` path mapping, so every `$lib/...` import in the app resolved to nothing.
+
+**Why it was invisible locally.** SvelteKit emits the `$lib` alias only when it finds
+`src/lib` relative to the _process_ cwd:
+
+```js
+// @sveltejs/kit/src/core/sync/write_tsconfig.js:218
+if (fs.existsSync(project_relative(cwd, config.files.lib))) {
+	alias["$lib"] = project_relative(cwd, config.files.lib);
+}
+```
+
+`apps/console` is the only app whose kit config lives in `vite.config.ts` (via
+`svelte-plugin-composer`) instead of a `svelte.config.js`. Loading that config from the
+workspace root — which **every `vp` command does** — re-runs `svelte-kit sync` with the wrong
+cwd and rewrites the generated tsconfig without `$lib` (and with junk `include` globs pointing
+five levels above the repo). So:
+
+- `pnpm install` runs console's `prepare` → sync from `apps/console` → **good** file.
+- The next `vp` command → sync from the root → **broken** file.
+
+My verification ran straight after an install; CI runs `vp run check`, whose own startup
+clobbers it first. Reproduced locally by running any `vp` command and re-linting — the same
+69 errors appear.
+
+This was not a pre-existing failure that surfaced: console had been blanket-ignored, so
+nothing in it could report. Unignoring it in step 1 is what exposed the broken resolution.
+
+**Fix.** Pin the aliases in the checked-in `apps/console/tsconfig.json`, which overrides the
+generated base. That file already overrides `include` for exactly this reason; `paths` closes
+the other half. This restores real type resolution rather than silencing the rule — and fixes
+`svelte-check` and editors for console at the same time. `no-redundant-type-constituents` was
+deliberately **not** added to the console debt block: the rule was right, the tsconfig was wrong.
+
+Also split `apps/console/scripts/*.ts` into their own no-emit project. Step 1 had added them
+to the app's `include` purely to give the ESLint project service something to parse, which
+also pulled 6 latent type errors into `pnpm --filter console check`. They stay linted, out of
+the app's check surface — the same shape as the maintainer's `packages/svelte-ws/files`
+fix in d0d3c1d.
+
+Verified by _forcing_ the broken state (`vp run fmt:check`, which drops `$lib`) and then
+running every CI step with caching off.
+
+### Known, untouched: console's own `check`
+
+`pnpm --filter @petalnet/console check` (`svelte-check`) reports **31 errors** in 12 files —
+mostly `test/domain/*.test.ts`, plus 3 in `src/lib/server/domain/commands/op-plane.ts` and 3
+in route components. Nothing in CI runs it: console's script is named `check`, not
+`typecheck`, so `vp run -r typecheck` skips it. Pre-existing console debt, in scope for the
+rewrite tracked in PetalNet/monorepo#337, not for this PR.
 
 ## 0. Merge of `origin/main`
 
@@ -70,9 +135,10 @@ Tracked in PetalNet/monorepo#337; the block is meant to shrink and be deleted af
 rewrite, never to grow.
 
 Unignoring console also surfaced 5 `typescript-eslint` project-service parse errors —
-`effectdb.config.ts` and `scripts/**/*.ts` belonged to no tsconfig. Fixed by extending
-console's `include`, the same way fd2121f handled the other orphaned config files, not with
-`allowDefaultProject`.
+`effectdb.config.ts` and `scripts/**/*.ts` belonged to no tsconfig. Fixed by giving them a
+project, the same way fd2121f handled the other orphaned config files, not with
+`allowDefaultProject`: `effectdb.config.ts` joined console's `include`, and `scripts/` got its
+own no-emit tsconfig (see the CI-failure section above for why the scripts were split out).
 
 Top rules in the block, by count: `dot-notation` (295), `no-unsafe-member-access` (133),
 `require-await` (57), `prefer-nullish-coalescing` (36), `no-unsafe-assignment` (27).
