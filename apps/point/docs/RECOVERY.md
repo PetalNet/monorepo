@@ -45,7 +45,7 @@ code, and it never does.
 **Recovery (on a new device).** The user signs in normally (password or SSO),
 then enters their 12-word phrase. For backups created by older clients, the same
 field also accepts the raw 24-symbol code (dashes, spaces, case, and Crockford
-look-alikes are normalized). The client fetches the blob, derives the key,
+ambiguous characters are normalized). The client fetches the blob, derives the key,
 decrypts, and restores the MLS identity locally — after which it can decrypt the
 groups it was a member of. No code, no recovery: the server genuinely cannot
 help, by design.
