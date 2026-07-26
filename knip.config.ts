@@ -33,6 +33,11 @@ export default {
 				"test/**/*.ts",
 			],
 		},
+		"apps/grove": {
+			sveltekit: {
+				config: ["vite.config.ts"],
+			},
+		},
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],
 		},
