@@ -17,6 +17,11 @@ export default defineConfig([
 		gitignoreResolution: true,
 	}),
 	{
+		// apps/console is slated for a rewrite; excluded from ESLint rather than
+		// fixed/partially-disabled. Re-enable after the rewrite -- see PetalNet/monorepo#337.
+		ignores: ["apps/console/**"],
+	},
+	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,svelte}"],
 		extends: [
 			js.configs.recommended,
