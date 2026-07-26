@@ -24,22 +24,20 @@ const USER_AGENT = "clarity-mcp/1.0 (+https://clarity.petalcat.dev)";
 const MAX_RESPONSE_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
 
-// Shape of the SearXNG JSON response (only the fields we surface).
-interface SearxResult {
-	url?: string;
-	title?: string;
-	content?: string;
-	engine?: string;
-	category?: string;
-	score?: number;
-	publishedDate?: string | null;
-}
+// Shape of the SearXNG JSON response (only the fields we surface). The payload is asserted, not
+// validated, so anything we read per-row stays `unknown` and is narrowed at the point of use --
+// the same treatment `unresponsive_engines` already gets.
 interface SearxResponse {
 	query?: string;
-	results?: SearxResult[];
+	results?: unknown[];
 	suggestions?: string[];
 	corrections?: string[];
 	unresponsive_engines?: unknown[];
+}
+
+/** Read an untrusted result field as a string; anything else (or absent) reads as empty. */
+function resultString(value: unknown): string {
+	return typeof value === "string" ? value : "";
 }
 
 function isBlockedIpv4(ip: string): boolean {
@@ -112,7 +110,7 @@ async function readResponseText(res: Response, controller?: AbortController): Pr
 	const decoder = new TextDecoder();
 	let bytesRead = 0;
 	let text = "";
-	while (true) {
+	for (;;) {
 		const { done, value } = await reader.read();
 		if (done) break;
 		bytesRead += value.byteLength;
@@ -421,19 +419,22 @@ server.registerTool(
 		const limit = max_results ?? 10;
 
 		const results = (data.results ?? [])
-			.filter((result): result is SearxResult => typeof result === "object" && result !== null)
+			.filter(
+				(result): result is Record<string, unknown> =>
+					typeof result === "object" && result !== null,
+			)
 			.slice(0, limit)
 			.map((r) => ({
-				title: String(r.title ?? ""),
-				url: String(r.url ?? ""),
-				content: String(r.content ?? ""),
-				engine: String(r.engine ?? ""),
-				category: String(r.category ?? ""),
-				score: Number(r.score ?? 0),
-				publishedDate: r.publishedDate ?? null,
+				title: resultString(r["title"]),
+				url: resultString(r["url"]),
+				content: resultString(r["content"]),
+				engine: resultString(r["engine"]),
+				category: resultString(r["category"]),
+				score: typeof r["score"] === "number" ? r["score"] : 0,
+				publishedDate: typeof r["publishedDate"] === "string" ? r["publishedDate"] : null,
 			}));
 		const structured = {
-			query: String(data.query ?? query),
+			query: data.query ?? query,
 			results,
 			suggestions: (data.suggestions ?? []).map(String),
 			corrections: (data.corrections ?? []).map(String),
@@ -478,7 +479,7 @@ server.registerTool(
 			"Fetch a web page and return its readable text (HTML tags/scripts/styles stripped). Use after " +
 			"web_search to read a result in full. Returns plain text truncated to a character budget.",
 		inputSchema: {
-			url: z.string().url().describe("The absolute URL to fetch (http/https)."),
+			url: z.url().describe("The absolute URL to fetch (http/https)."),
 			max_chars: z
 				.number()
 				.int()
