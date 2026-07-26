@@ -26,7 +26,7 @@ const filesDir = fileURLToPath(new URL("../files", import.meta.url).href);
  * bundling step moved from raw rollup to Vite's SSR build.
  */
 export default function adapter(opts: AdapterOptions = {}): Adapter {
-	const { out = "build" } = opts ?? {};
+	const { out = "build" } = opts;
 	const base = nodeAdapter(opts);
 	const baseAdapt = base.adapt.bind(base);
 
