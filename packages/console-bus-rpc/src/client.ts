@@ -32,10 +32,8 @@ const encodeQueryRequest = Schema.encodeSync(QueryRequestSchema);
 export interface BusWebSocket {
 	send(data: string): void;
 	close(): void;
-	addEventListener(type: "open", listener: () => void): void;
+	addEventListener(type: "open" | "close" | "error", listener: () => void): void;
 	addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
-	addEventListener(type: "close", listener: () => void): void;
-	addEventListener(type: "error", listener: () => void): void;
 }
 
 export type BusConnectionState = "connecting" | "open" | "error" | "closed";
