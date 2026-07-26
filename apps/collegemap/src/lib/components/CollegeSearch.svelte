@@ -33,11 +33,11 @@
 	let isGeocoding = $state(false);
 	let geocodeError = $state('');
 
-	// Build a lookup map from the pre-seeded colleges.json
-	const preseededMap = new Map<string, PreseededCollege>();
-	for (const college of collegesJson as PreseededCollege[]) {
-		preseededMap.set(college.name.toLowerCase(), college);
-	}
+	// Build a lookup map from the pre-seeded colleges.json. Built from an iterable rather than
+	// filled by `.set` -- it is read-only for the life of the component, so nothing here is state.
+	const preseededMap = new Map<string, PreseededCollege>(
+		(collegesJson as PreseededCollege[]).map((college) => [college.name.toLowerCase(), college])
+	);
 
 	function searchLocal(q: string): string[] {
 		if (!q.trim() || q.length < 2) return [];
@@ -51,9 +51,10 @@
 		try {
 			const response = await fetch(`/api/geocode?q=${encodeURIComponent(name)}`);
 			if (response.ok) {
-				const data = await response.json();
-				if (data.length > 0) {
-					return { lat: data[0].lat, lng: data[0].lng };
+				const data = (await response.json()) as { name: string; lat: number; lng: number }[];
+				const first = data.at(0);
+				if (first) {
+					return { lat: first.lat, lng: first.lng };
 				}
 			}
 		} catch (e) {
@@ -111,7 +112,7 @@
 			selectedIndex = Math.max(selectedIndex - 1, -1);
 		} else if (e.key === 'Enter' && selectedIndex >= 0) {
 			e.preventDefault();
-			selectCollege(results[selectedIndex]);
+			void selectCollege(results[selectedIndex]);
 		} else if (e.key === 'Escape') {
 			showResults = false;
 		}

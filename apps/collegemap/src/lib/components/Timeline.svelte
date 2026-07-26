@@ -1,18 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-
-	interface UserWithCollege {
-		id: string;
-		firstName: string;
-		lastName: string;
-		createdAt: string;
-		college: {
-			id: string;
-			name: string;
-			latitude: number;
-			longitude: number;
-		};
-	}
+	import type { UserWithCollege } from '$lib/collegeGroups';
 
 	let {
 		users,

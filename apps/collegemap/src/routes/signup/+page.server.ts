@@ -1,20 +1,21 @@
 import { createUser, findUserByName, createSession } from "$lib/server/auth";
+import { formText } from "$lib/server/form";
 import { fail, redirect } from "@sveltejs/kit";
 
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = ({ locals }) => {
 	if (locals.user) {
-		throw redirect(302, "/");
+		redirect(302, "/");
 	}
 };
 
 export const actions: Actions = {
 	default: async ({ request, cookies }) => {
 		const data = await request.formData();
-		const firstName = data.get("firstName")?.toString().trim();
-		const lastName = data.get("lastName")?.toString().trim();
-		const password = data.get("password")?.toString();
+		const firstName = formText(data, "firstName")?.trim();
+		const lastName = formText(data, "lastName")?.trim();
+		const password = formText(data, "password");
 
 		if (!firstName || !lastName) {
 			return fail(400, {
@@ -48,6 +49,6 @@ export const actions: Actions = {
 		// Create session
 		await createSession(cookies, user.id);
 
-		throw redirect(302, "/profile");
+		redirect(302, "/profile");
 	},
 };
