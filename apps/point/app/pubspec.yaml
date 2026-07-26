@@ -5,7 +5,7 @@ publish_to: "none"
 # build-number). `<name>+<code>`; the code MUST increase monotonically. The
 # tool/check_version_code.sh guard fails the build if it regresses vs the last
 # published code in tool/published_version_code.
-version: 1.2.12+2017
+version: 1.2.13+2018
 
 environment:
   sdk: ^3.10.0
