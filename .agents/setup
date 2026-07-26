@@ -6,7 +6,7 @@ curl https://mise.run | sh
 eval "$(~/.local/bin/mise activate --shims bash)"
 
 mise trust --yes mise.toml
-mise install --yes node pnpm github:voidzero-dev/vite-plus
+mise install --yes --locked node pnpm vp
 vp install --frozen-lockfile
 
 if ! command -v docker >/dev/null 2>&1; then
