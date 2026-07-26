@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { required } from "#format";
 	import type { AvailabilitySnapshot } from "$lib/api/types";
+
+	import { required } from "#format";
+
 	import StatusPill from "./StatusPill.svelte";
 
 	type Item = AvailabilitySnapshot["items"][number];
@@ -10,10 +12,16 @@
 	}
 
 	let { item }: Props = $props();
-	const tone = $derived(item.state === "up" ? "good" : item.state === "degraded" ? "warn" : "danger");
+	const tone = $derived(
+		item.state === "up" ? "good" : item.state === "degraded" ? "warn" : "danger",
+	);
 	const successful = $derived(item.points.filter((point) => point.ok && point.latency_ms !== null));
-	const minLatency = $derived(successful.length ? Math.min(...successful.map((point) => required(point.latency_ms))) : 0);
-	const maxLatency = $derived(successful.length ? Math.max(...successful.map((point) => required(point.latency_ms))) : 1);
+	const minLatency = $derived(
+		successful.length ? Math.min(...successful.map((point) => required(point.latency_ms))) : 0,
+	);
+	const maxLatency = $derived(
+		successful.length ? Math.max(...successful.map((point) => required(point.latency_ms))) : 1,
+	);
 	const range = $derived(Math.max(1, maxLatency - minLatency));
 
 	function segments(): string[] {
@@ -66,7 +74,8 @@
 			return `p95 ${String(Math.round(item.p95_latency_ms))} ms over ${String(Math.round(item.degraded_threshold_ms))} ms threshold`;
 		if (item.largest_gap)
 			return `gap ${shortTime(item.largest_gap.from)} to ${shortTime(item.largest_gap.to)} shown`;
-		if (item.window_s < 29 * 86_400) return `new check · ${windowLabel(item.window_s)} observed window`;
+		if (item.window_s < 29 * 86_400)
+			return `new check · ${windowLabel(item.window_s)} observed window`;
 		return null;
 	});
 	const accessibleLabel = $derived(
@@ -99,10 +108,17 @@
 			{#if !point.ok}<circle cx={failedX(index)} cy="18" r="1.5" />{/if}
 		{/each}
 	</svg>
-	<span class="latency">{item.p50_latency_ms === null ? "—" : `${String(Math.round(item.p50_latency_ms))} ms`} <small>p50</small></span>
+	<span class="latency"
+		>{item.p50_latency_ms === null ? "—" : `${String(Math.round(item.p50_latency_ms))} ms`}
+		<small>p50</small></span
+	>
 	<span class="uptime">
-		<span class="uptime-value">{percentage(item.uptime_pct)} <i>· {windowLabel(item.window_s)}</i></span>
-		{#if item.coverage_pct < 99.95}<span class="coverage">{item.coverage_pct.toFixed(item.coverage_pct % 1 ? 1 : 0)}% coverage</span>{/if}
+		<span class="uptime-value"
+			>{percentage(item.uptime_pct)} <i>· {windowLabel(item.window_s)}</i></span
+		>
+		{#if item.coverage_pct < 99.95}<span class="coverage"
+				>{item.coverage_pct.toFixed(item.coverage_pct % 1 ? 1 : 0)}% coverage</span
+			>{/if}
 		{#if detail}<span class="detail">{detail}</span>{/if}
 		<span class="math">Show the math.</span>
 	</span>
@@ -121,8 +137,12 @@
 		text-decoration: none;
 		transition: background-color var(--dur-base) var(--ease-standard);
 	}
-	.availability-row:hover { background: var(--s2); }
-	.availability-row:active { background: var(--s3); }
+	.availability-row:hover {
+		background: var(--s2);
+	}
+	.availability-row:active {
+		background: var(--s3);
+	}
 	.availability-row:focus-visible {
 		outline: 2px solid var(--petal);
 		outline-offset: 2px;
@@ -141,7 +161,9 @@
 		font-size: 0.6875rem;
 		color: var(--text-3);
 	}
-	.service-name span { font-family: var(--mono); }
+	.service-name span {
+		font-family: var(--mono);
+	}
 	.spark {
 		display: block;
 		width: 96px;
@@ -157,10 +179,20 @@
 		vector-effect: non-scaling-stroke;
 		transition: stroke var(--dur-base) var(--ease-standard);
 	}
-	.warn .spark polyline { stroke: var(--warn-dot); }
-	.danger .spark polyline { stroke: var(--danger-dot); }
-	.spark .baseline { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
-	.spark circle { fill: var(--danger-dot); }
+	.warn .spark polyline {
+		stroke: var(--warn-dot);
+	}
+	.danger .spark polyline {
+		stroke: var(--danger-dot);
+	}
+	.spark .baseline {
+		stroke: var(--rule);
+		stroke-width: 1;
+		vector-effect: non-scaling-stroke;
+	}
+	.spark circle {
+		fill: var(--danger-dot);
+	}
 	.latency,
 	.uptime-value {
 		font: 400 0.75rem var(--mono);
@@ -173,15 +205,21 @@
 		font-style: normal;
 		color: var(--text-3);
 	}
-	.uptime { min-width: 0; }
+	.uptime {
+		min-width: 0;
+	}
 	.detail {
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	.down .detail,
-	.unreadable .detail { color: var(--danger-text); }
-	.warn .detail { color: var(--warn-text); }
+	.unreadable .detail {
+		color: var(--danger-text);
+	}
+	.warn .detail {
+		color: var(--warn-text);
+	}
 	.math {
 		color: var(--petal-text);
 		font-weight: 500;
@@ -190,10 +228,17 @@
 		transition: opacity var(--dur-fast) var(--ease-standard);
 	}
 	.availability-row:hover .math,
-	.availability-row:focus-visible .math { opacity: 1; max-height: 1rem; }
+	.availability-row:focus-visible .math {
+		opacity: 1;
+		max-height: 1rem;
+	}
 	@media (max-width: 900px) {
-		.availability-row { grid-template-columns: minmax(136px, 1fr) 104px 96px minmax(148px, 1fr); }
-		.latency { display: none; }
+		.availability-row {
+			grid-template-columns: minmax(136px, 1fr) 104px 96px minmax(148px, 1fr);
+		}
+		.latency {
+			display: none;
+		}
 	}
 	@media (max-width: 640px) {
 		.availability-row {
@@ -202,22 +247,42 @@
 			padding: var(--s-2);
 			min-height: 64px;
 		}
-		.service-name { grid-column: 1; grid-row: 1; min-width: 0; }
-		.state { grid-column: 2; grid-row: 1; }
-		.spark { grid-column: 1; grid-row: 2; }
-		.uptime { display: contents; }
-		.uptime-value { grid-column: 2; grid-row: 2; text-align: right; }
+		.service-name {
+			grid-column: 1;
+			grid-row: 1;
+			min-width: 0;
+		}
+		.state {
+			grid-column: 2;
+			grid-row: 1;
+		}
+		.spark {
+			grid-column: 1;
+			grid-row: 2;
+		}
+		.uptime {
+			display: contents;
+		}
+		.uptime-value {
+			grid-column: 2;
+			grid-row: 2;
+			text-align: right;
+		}
 		.coverage,
 		.detail {
 			grid-column: 1 / -1;
 			max-width: none;
 			text-align: right;
 		}
-		.math { display: none; }
+		.math {
+			display: none;
+		}
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.availability-row,
 		.spark polyline,
-		.math { transition: none; }
+		.math {
+			transition: none;
+		}
 	}
 </style>

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import type { Map as LeafletMap, Marker, TileLayer } from 'leaflet';
-	import { getLogoUrl } from '$lib/collegeLogos';
+	import { getLogoUrl } from "$lib/collegeLogos";
+	import type { Map as LeafletMap, Marker, TileLayer } from "leaflet";
+	import { onMount } from "svelte";
 
 	interface UserWithCollege {
 		id: string;
@@ -34,12 +34,12 @@
 
 	let {
 		users = [],
-		viewMode = 'markers',
+		viewMode = "markers",
 		selectedCollege = null,
-		onMapReady = (_m: LeafletMap) => {}
+		onMapReady = (_m: LeafletMap) => {},
 	}: {
 		users: UserWithCollege[];
-		viewMode?: 'markers' | 'heat';
+		viewMode?: "markers" | "heat";
 		selectedCollege?: SelectedCollege | null;
 		onMapReady?: (map: LeafletMap) => void;
 	} = $props();
@@ -48,11 +48,14 @@
 	let map: LeafletMap;
 	let markersByCollege = new Map<string, Marker>();
 	let tileLayer: TileLayer;
-	let L: typeof import('leaflet');
-	let clusterGroup: import('leaflet').MarkerClusterGroup | null = null;
-	let heatLayer: import('leaflet').HeatLayer | null = null;
+	let L: typeof import("leaflet");
+	let clusterGroup: import("leaflet").MarkerClusterGroup | null = null;
+	let heatLayer: import("leaflet").HeatLayer | null = null;
 	let collegeGroups: CollegeGroup[] = [];
-	const collegeInfoCache = new Map<string, { description: string | null; thumbnailUrl: string | null }>();
+	const collegeInfoCache = new Map<
+		string,
+		{ description: string | null; thumbnailUrl: string | null }
+	>();
 
 	function groupUsersByCollege(sourceUsers: UserWithCollege[]): CollegeGroup[] {
 		const groups = new Map<string, CollegeGroup>();
@@ -64,7 +67,7 @@
 			} else {
 				groups.set(user.college.id, {
 					college: user.college,
-					users: [{ firstName: user.firstName, lastName: user.lastName }]
+					users: [{ firstName: user.firstName, lastName: user.lastName }],
 				});
 			}
 		}
@@ -82,9 +85,10 @@
 		if (!map || !L) return;
 		if (tileLayer) tileLayer.remove();
 
-		tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-			attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-			maxZoom: 19
+		tileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+			attribution:
+				'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+			maxZoom: 19,
 		}).addTo(map);
 	}
 
@@ -92,21 +96,21 @@
 		let isDestroyed = false;
 
 		const init = async () => {
-			const LModule = await import('leaflet');
+			const LModule = await import("leaflet");
 			if (isDestroyed) return;
-			L = (LModule.default ?? LModule) as typeof import('leaflet');
+			L = (LModule.default ?? LModule) as typeof import("leaflet");
 
 			// Load markercluster plugin (extends L)
-			await import('leaflet.markercluster');
+			await import("leaflet.markercluster");
 			// Load heat plugin (extends L)
-			await import('leaflet.heat');
+			await import("leaflet.heat");
 
 			if (isDestroyed) return;
 
 			if (!mapContainer) return;
 
 			map = L.map(mapContainer, {
-				zoomControl: true
+				zoomControl: true,
 			}).setView([39.8283, -98.5795], 4);
 
 			setTiles();
@@ -123,7 +127,7 @@
 		};
 	});
 
-	function getClusterTotalCount(cluster: import('leaflet').MarkerCluster): number {
+	function getClusterTotalCount(cluster: import("leaflet").MarkerCluster): number {
 		let total = 0;
 		const childMarkers = cluster.getAllChildMarkers();
 		for (const m of childMarkers) {
@@ -149,16 +153,16 @@
 				const totalCount = getClusterTotalCount(cluster);
 				const size = totalCount >= 50 ? 56 : totalCount >= 20 ? 48 : 40;
 				return L.divIcon({
-					className: 'college-cluster',
+					className: "college-cluster",
 					html: `<div class="cluster-dot" style="width:${size}px;height:${size}px">
 						<div class="cluster-inner">${totalCount}</div>
 					</div>`,
 					iconSize: [size, size],
-					iconAnchor: [size / 2, size / 2]
+					iconAnchor: [size / 2, size / 2],
 				});
 			},
 			showCoverageOnHover: false,
-			maxClusterRadius: 60
+			maxClusterRadius: 60,
 		});
 
 		collegeGroups = groupUsersByCollege(users);
@@ -169,7 +173,7 @@
 			const logoUrl = getLogoUrl(group.college.name, size);
 			const names = group.users
 				.map((u) => `<span class="popup-student">${u.firstName} ${u.lastName}</span>`)
-				.join('');
+				.join("");
 
 			const markerHtml = logoUrl
 				? `<div class="marker-dot" style="width:${size}px;height:${size}px">
@@ -182,16 +186,16 @@
 				</div>`;
 
 			const icon = L.divIcon({
-				className: 'college-marker',
+				className: "college-marker",
 				html: markerHtml,
 				iconSize: [size, size],
-				iconAnchor: [size / 2, size / 2]
+				iconAnchor: [size / 2, size / 2],
 			});
 
 			const popupLogoUrl = getLogoUrl(group.college.name, 32);
 			const popupLogoHtml = popupLogoUrl
 				? `<img class="popup-logo" src="${popupLogoUrl}" alt="" width="20" height="20" onerror="this.style.display='none'" />`
-				: '';
+				: "";
 
 			const popupContent = `
 				<div class="popup-content">
@@ -199,7 +203,7 @@
 						${popupLogoHtml}
 						<div class="popup-college-name">${group.college.name}</div>
 					</div>
-					<div class="popup-count">${userCount} ${userCount === 1 ? 'student' : 'students'}</div>
+					<div class="popup-count">${userCount} ${userCount === 1 ? "student" : "students"}</div>
 					<div class="popup-meta" id="popup-meta-${group.college.id}"></div>
 					<div class="popup-students">${names}</div>
 				</div>
@@ -207,16 +211,16 @@
 
 			const marker = L.marker([group.college.latitude, group.college.longitude], {
 				icon,
-				collegeCount: userCount
+				collegeCount: userCount,
 			} as any).bindPopup(popupContent, { maxWidth: 250 });
 
-			marker.on('click', () => {
+			marker.on("click", () => {
 				map.flyTo([group.college.latitude, group.college.longitude], 10, {
-					duration: 1.2
+					duration: 1.2,
 				});
 			});
 
-			marker.on('popupopen', async () => {
+			marker.on("popupopen", async () => {
 				const metaEl = document.getElementById(`popup-meta-${group.college.id}`);
 				if (!metaEl || metaEl.dataset.loaded) return;
 
@@ -226,25 +230,27 @@
 					if (cached.description) {
 						metaEl.innerHTML = `<div class="popup-description">${cached.description.slice(0, 150)}...</div>`;
 					}
-					metaEl.dataset.loaded = 'true';
+					metaEl.dataset.loaded = "true";
 					marker.getPopup()?.update();
 					return;
 				}
 
 				metaEl.innerHTML = '<div class="popup-meta-loading">Loading info...</div>';
 				try {
-					const resp = await fetch(`/api/college-info?name=${encodeURIComponent(group.college.name)}`);
+					const resp = await fetch(
+						`/api/college-info?name=${encodeURIComponent(group.college.name)}`,
+					);
 					const info = await resp.json();
 					collegeInfoCache.set(group.college.name, info);
 					if (info.description) {
 						metaEl.innerHTML = `<div class="popup-description">${info.description.slice(0, 150)}...</div>`;
 					} else {
-						metaEl.innerHTML = '';
+						metaEl.innerHTML = "";
 					}
 				} catch {
-					metaEl.innerHTML = '';
+					metaEl.innerHTML = "";
 				}
-				metaEl.dataset.loaded = 'true';
+				metaEl.dataset.loaded = "true";
 				marker.getPopup()?.update();
 			});
 
@@ -256,7 +262,7 @@
 		const heatData: [number, number, number][] = collegeGroups.map((g) => [
 			g.college.latitude,
 			g.college.longitude,
-			g.users.length
+			g.users.length,
 		]);
 
 		if (heatLayer) {
@@ -267,7 +273,7 @@
 			radius: 35,
 			blur: 25,
 			maxZoom: 10,
-			gradient: { 0.2: '#bfdbfe', 0.4: '#818cf8', 0.6: '#6366f1', 0.8: '#4f46e5', 1.0: '#312e81' }
+			gradient: { 0.2: "#bfdbfe", 0.4: "#818cf8", 0.6: "#6366f1", 0.8: "#4f46e5", 1.0: "#312e81" },
 		});
 
 		// Apply current view mode
@@ -277,7 +283,7 @@
 	function applyViewMode() {
 		if (!map || !clusterGroup || !heatLayer) return;
 
-		if (viewMode === 'heat') {
+		if (viewMode === "heat") {
 			if (map.hasLayer(clusterGroup)) map.removeLayer(clusterGroup);
 			if (!map.hasLayer(heatLayer)) heatLayer.addTo(map);
 		} else {
@@ -311,7 +317,7 @@
 		} else {
 			// College exists in data but has no marker (no users) - just fly to coords
 			map.flyTo([selectedCollege.latitude, selectedCollege.longitude], 10, {
-				duration: 1.2
+				duration: 1.2,
 			});
 		}
 	});
@@ -351,7 +357,7 @@
 		font-weight: 700;
 		font-size: 13px;
 		color: var(--marker-text);
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 	}
 
 	:global(.marker-logo) {
@@ -396,12 +402,18 @@
 		font-weight: 800;
 		font-size: 14px;
 		color: var(--marker-text);
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 	}
 
 	@keyframes cluster-pop {
-		from { transform: scale(0.5); opacity: 0; }
-		to { transform: scale(1); opacity: 1; }
+		from {
+			transform: scale(0.5);
+			opacity: 0;
+		}
+		to {
+			transform: scale(1);
+			opacity: 1;
+		}
 	}
 
 	/* Hide default markercluster styles */
@@ -418,7 +430,7 @@
 	}
 
 	:global(.popup-content) {
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 	}
 
 	:global(.popup-header) {

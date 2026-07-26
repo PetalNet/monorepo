@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance } from "$app/forms";
 
 	let { form } = $props();
 </script>
@@ -13,13 +13,18 @@
 		<div class="auth-card">
 			<div class="auth-logo">
 				<svg width="36" height="36" viewBox="0 0 24 24" fill="none">
-					<circle cx="12" cy="12" r="10" stroke="url(#loginGrad)" stroke-width="2"/>
-					<circle cx="12" cy="10" r="3" fill="url(#loginGrad)"/>
-					<path d="M6 20c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="url(#loginGrad)" stroke-width="2" stroke-linecap="round"/>
+					<circle cx="12" cy="12" r="10" stroke="url(#loginGrad)" stroke-width="2" />
+					<circle cx="12" cy="10" r="3" fill="url(#loginGrad)" />
+					<path
+						d="M6 20c0-3.3 2.7-6 6-6s6 2.7 6 6"
+						stroke="url(#loginGrad)"
+						stroke-width="2"
+						stroke-linecap="round"
+					/>
 					<defs>
 						<linearGradient id="loginGrad" x1="0" y1="0" x2="24" y2="24">
-							<stop stop-color="#6366f1"/>
-							<stop offset="1" stop-color="#0ea5e9"/>
+							<stop stop-color="#6366f1" />
+							<stop offset="1" stop-color="#0ea5e9" />
 						</linearGradient>
 					</defs>
 				</svg>
@@ -34,11 +39,25 @@
 			<form method="POST" use:enhance class="auth-form">
 				<div class="form-group">
 					<label for="firstName" class="form-label">First Name</label>
-					<input type="text" id="firstName" name="firstName" required value={form?.firstName ?? ''} class="form-input" />
+					<input
+						type="text"
+						id="firstName"
+						name="firstName"
+						required
+						value={form?.firstName ?? ""}
+						class="form-input"
+					/>
 				</div>
 				<div class="form-group">
 					<label for="lastName" class="form-label">Last Name</label>
-					<input type="text" id="lastName" name="lastName" required value={form?.lastName ?? ''} class="form-input" />
+					<input
+						type="text"
+						id="lastName"
+						name="lastName"
+						required
+						value={form?.lastName ?? ""}
+						class="form-input"
+					/>
 				</div>
 				<div class="form-group">
 					<label for="password" class="form-label">Password</label>
@@ -73,8 +92,14 @@
 	}
 
 	@keyframes fade-in {
-		from { opacity: 0; transform: translateY(12px); }
-		to { opacity: 1; transform: translateY(0); }
+		from {
+			opacity: 0;
+			transform: translateY(12px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.auth-card {
@@ -141,7 +166,7 @@
 		border: 1px solid var(--border-card);
 		color: var(--text-primary);
 		font-size: 0.9rem;
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 		outline: none;
 		transition: border-color 0.2s;
 	}

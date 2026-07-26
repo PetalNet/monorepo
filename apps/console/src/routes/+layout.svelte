@@ -1,11 +1,13 @@
 <script lang="ts">
-	import type { LayoutProps } from "./$types";
 	import { goto } from "$app/navigation";
 	import favicon from "$lib/assets/favicon.svg";
-	import { ModeWatcher } from "mode-watcher";
-	import "../app.css";
 	import AppShell from "$lib/components/AppShell.svelte";
 	import { visibleNav } from "$lib/nav";
+
+	import "../app.css";
+	import { ModeWatcher } from "mode-watcher";
+
+	import type { LayoutProps } from "./$types";
 
 	let { data, children }: LayoutProps = $props();
 
