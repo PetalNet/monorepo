@@ -1,5 +1,11 @@
 # N0.1 Shared Contracts — DECISIONS log
 
+> **Historical/completed record (2026-07-09).** Present-tense statements below describe
+> the original design snapshot, not necessarily current deployment. Current `apps/manager`
+> writes heartbeat v2, accepts `schema_version`, and includes optional assistant HTTP and
+> GlitchTip configuration. Fleet/doorman/dispatcher claims remain external design context
+> unless verified in their owning applications.
+
 Fable, overnight 2026-07-09, branch `docs/N0.1-contracts`. Docs/spec only — no service
 code, no builds, no live changes. Every pick-and-log choice lands here with a rationale.
 

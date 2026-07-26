@@ -3,10 +3,12 @@
 // strict identifier regex before they touch SQL — no user string is ever concatenated raw.
 // Honesty over omniscience: unsupported aggregations/fills are refused, never faked.
 
+import { Effect } from "effect";
 import { nanoid } from "nanoid";
 
 import type { Sql } from "../db/pool.ts";
 import { withScopes } from "../db/pool.ts";
+import { edge } from "../edge.ts";
 import { embedText, EMBEDDING_MODEL, vectorLiteral } from "../semantic/embedding.ts";
 import {
 	mergeSemanticShape,
@@ -59,12 +61,16 @@ export interface PreparedStructuredQuery {
 }
 
 export class QueryError extends Error {
+	readonly _tag = "QueryError";
 	readonly code: string;
 	constructor(code: string, message: string) {
 		super(message);
 		this.code = code;
 	}
 }
+
+/** The only recoverable failure a structured query models: a caller-fixable request or plan. */
+export const isQueryError = (error: unknown): error is QueryError => error instanceof QueryError;
 
 class StructuredExecutionError extends QueryError {
 	constructor() {
@@ -360,7 +366,7 @@ function bucketSeconds(bucket: string): number {
 	return n * { s: 1, m: 60, h: 3600, d: 86400 }[m[2] as "s" | "m" | "h" | "d"];
 }
 
-export async function prepareStructured(
+async function prepareStructuredImpl(
 	app: Sql,
 	scopes: readonly string[],
 	req: QueryRequest,
@@ -525,7 +531,7 @@ export async function prepareStructured(
 }
 
 /** Validate the server-compiled statement with the dedicated read-only role without executing it. */
-export async function dryPlanStructured(
+async function dryPlanStructuredImpl(
 	ro: Sql,
 	scopes: readonly string[],
 	prepared: PreparedStructuredQuery,
@@ -605,7 +611,7 @@ async function executePreparedInTx(
  * Execute only server-compiled structured SQL. `executionSql` is console_ro for the assistant path;
  * direct structured API calls retain their existing console_app execution role.
  */
-export async function runPreparedStructured(
+async function runPreparedStructuredImpl(
 	app: Sql,
 	executionSql: Sql,
 	scopes: readonly string[],
@@ -628,15 +634,48 @@ export async function runPreparedStructured(
 	return persistQuery(app, scopes, prepared, result);
 }
 
-export async function runStructured(
+// --- Effect boundary --------------------------------------------------------------------------
+// The compiler/executor above is an intricate, promise-based pipeline that bottoms out in the pg
+// edge; every failure it raises is a `QueryError` (a caller-fixable request or plan) or an
+// infrastructure fault. Each public entry point exposes that pipeline as an Effect whose ONLY
+// recoverable error is `QueryError` — infrastructure faults die — so remotes, the HTTP surface,
+// dashboards, and the cost comparator all compose structured queries with `yield*` and a real,
+// narrow error channel instead of a promise wrapped at the call site.
+
+export const prepareStructured = (
 	app: Sql,
 	scopes: readonly string[],
 	req: QueryRequest,
-): Promise<QueryResult> {
-	const prepared = await prepareStructured(app, scopes, req);
-	const start = Date.now();
-	return withScopes(app, scopes, async (tx) => {
-		const result = await executePreparedInTx(tx, prepared, start);
-		return persistQueryInTx(tx, scopes, prepared, result);
+): Effect.Effect<PreparedStructuredQuery, QueryError> =>
+	edge(isQueryError, () => prepareStructuredImpl(app, scopes, req));
+
+export const dryPlanStructured = (
+	ro: Sql,
+	scopes: readonly string[],
+	prepared: PreparedStructuredQuery,
+): Effect.Effect<void, QueryError> =>
+	edge(isQueryError, () => dryPlanStructuredImpl(ro, scopes, prepared));
+
+export const runPreparedStructured = (
+	app: Sql,
+	executionSql: Sql,
+	scopes: readonly string[],
+	prepared: PreparedStructuredQuery,
+): Effect.Effect<QueryResult, QueryError> =>
+	edge(isQueryError, () => runPreparedStructuredImpl(app, executionSql, scopes, prepared));
+
+export const runStructured = (
+	app: Sql,
+	scopes: readonly string[],
+	req: QueryRequest,
+): Effect.Effect<QueryResult, QueryError> =>
+	Effect.gen(function* () {
+		const prepared = yield* prepareStructured(app, scopes, req);
+		const start = Date.now();
+		return yield* edge(isQueryError, () =>
+			withScopes(app, scopes, async (tx) => {
+				const result = await executePreparedInTx(tx, prepared, start);
+				return persistQueryInTx(tx, scopes, prepared, result);
+			}),
+		);
 	});
-}

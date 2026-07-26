@@ -5,6 +5,16 @@
 - **Decision owner:** Eli
 - **Contracts:** [CONSOLE-CONTRACTS.md](../contracts/CONSOLE-CONTRACTS.md)
 
+## Contract-source inventory
+
+- Browser-safe console entities and schema conventions: `src/lib/contracts/` (aggregated by
+  `src/lib/server/domain/api-schema.ts`).
+- Bus frames and shared op/query wire schemas: `packages/console-bus-rpc/src/schema.ts`.
+- Operation catalog: `docs/contracts/ops.json`, decoded by
+  `src/lib/contracts/op-catalog.ts` and consumed by both UI and server.
+- OpenAPI is derived from those Effect Schemas at `/api/v1/openapi.json`; deleted JSON Schema
+  mirrors are not contract sources.
+
 ## Context
 
 The console UI and its TypeScript gateway were separate applications even though they shared a
@@ -83,7 +93,8 @@ freshness/provenance. They never invent success or derive authorization from UI 
 
 ## Rewrite decisions (feat/console-rewrite, 2026-07-19)
 
-Running log; one line per non-obvious call, appended phase by phase.
+Historical implementation running log; retained for provenance. It records the rewrite as it
+landed and is not a second current architecture specification.
 
 ### Phase 1 — legacy standalone server excision
 

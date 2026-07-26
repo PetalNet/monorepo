@@ -6,6 +6,7 @@ export interface KeyCeremonyResult {
 }
 
 export class KeyCeremonyError extends Error {
+	readonly _tag = "KeyCeremonyError";
 	readonly code: string;
 	readonly retryable: boolean;
 

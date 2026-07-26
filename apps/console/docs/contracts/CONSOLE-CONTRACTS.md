@@ -1,10 +1,10 @@
-# Lab Console — Contract Surface (P0, board round 1 applied)
+# Lab Console — Contract Surface
 
-\_Branch `feat/console-p0-contracts` · console-backend Fable, 2026-07-12 · REVIEWABLE SPEC ONLY —
-no service code in this node. This is the contract the console FRONTEND builds against and the
-work list the console-backend phases implement. Machine-readable schemas are Effect Schema
-modules — the single source of truth (rewrite Phase 4; the former generated JSON Schema mirror
-is retired):
+_Originally drafted on branch `feat/console-p0-contracts` by console-backend Fable,
+2026-07-12; that is historical provenance, not the current topology or status._ This document now
+describes the implemented contract surface consumed by the unified `apps/console` application.
+Machine-readable schemas are Effect Schema modules — the current single source of truth (rewrite
+Phase 4; the former generated JSON Schema mirror is retired):
 
 - server->client contract entities: [`src/lib/contracts/entities.ts`](../../src/lib/contracts/entities.ts),
   aggregated with the REST components in
@@ -13,8 +13,9 @@ is retired):
 - bus frames: [`packages/console-bus-rpc/src/schema.ts`](../../../../packages/console-bus-rpc/src/schema.ts);
 - the op catalog: [`ops.json`](ops.json) (self-contained; decoded through
   [`src/lib/contracts/op-catalog.ts`](../../src/lib/contracts/op-catalog.ts)).
-  Grounded in: the console specs (`console-fable/specs/src/`, esp. `00-foundations` §6),
-  WAYFINDER-DECISIONS.md, SYSTEM-MAP-as-built.md, the N0.1 contracts, GRAPHING-BACKEND-BRIEF.md.\_
+  Historical design sources: the console specs (`console-fable/specs/src/`, esp. `00-foundations`
+  §6), WAYFINDER-DECISIONS.md, SYSTEM-MAP-as-built.md, the N0.1 contracts, and
+  GRAPHING-BACKEND-BRIEF.md.
 
 The console binds to **four planes**. Where the UI specs and this document disagree, the specs'
 _requirements_ win and this document has a bug; where this document and an implementation
@@ -79,9 +80,10 @@ Library item drill reads `GET /api/v1/library/items/:itemId`, scoped typed edges
 `GET /api/v1/library/items/:itemId/history`. History entries are ordered newest first and carry
 `version`, `tx_from`, and the complete item envelope believed at that transaction.
 
-One service owns the surface: **`console-api`** (`apps/console-api`) — a gateway + substrate,
-not a re-implementation: commands route to their real executors, reads serve from the lake and
-the sources of truth. Blast radius, stated plainly: console-api down ⇒ every console surface is
+One unified SvelteKit service owns the surface: **Lab Console** (`apps/console`) — a gateway +
+substrate, not a re-implementation. Its in-process console API routes commands to their real
+executors and serves reads from the lake and domain sources of truth. Blast radius, stated plainly:
+the console process down ⇒ every console surface is
 honestly dark and Matrix remains the command floor; the assistant is never a dependency of the
 emergency path, and neither is this service pretending otherwise.
 

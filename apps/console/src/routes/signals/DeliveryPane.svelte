@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { formatUnknown } from "#format";
-	import { connectBus, runRemote } from "$lib/rpc/browser";
+	import { connectBus } from "$lib/rpc/browser";
+	import { Effect } from "effect";
 	import { publicConfig } from "$lib/config";
 	import Icon from "$lib/components/Icon.svelte";
 	import IconButton from "$lib/components/IconButton.svelte";
@@ -58,7 +59,7 @@
 		return connectBus(
 			() => [{ sub_id: "delivery-surface", pattern: "delivery.*" }],
 			(frame) => {
-				if (frame.kind === "event") void runRemote(deliveryQuery.refresh());
+				if (frame["kind"] === "event") void Effect.runPromise(deliveryQuery.refresh());
 			},
 		);
 	});
@@ -91,10 +92,10 @@
 		busy = "test";
 		result = null;
 		try {
-			const receipt = await runRemote(sendDeliveryTest());
+			const receipt = await Effect.runPromise(sendDeliveryTest());
 			result = {
 				tone: "good",
-				text: `Delivered and persisted as receipt ${formatUnknown(receipt.receipt_ref ?? "confirmed")}.`,
+				text: `Delivered and persisted as receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
 			};
 			snackbar.push({ message: "delivery.test applied", op: "delivery.test", tone: "good" });
 		} catch (error) {
@@ -110,11 +111,11 @@
 		busy = "target";
 		result = null;
 		try {
-			const receipt = await runRemote(setDeliveryTarget({ target }));
+			const receipt = await Effect.runPromise(setDeliveryTarget({ target }));
 			targetOpen = false;
 			result = {
 				tone: "good",
-				text: `New target verified by persisted receipt ${formatUnknown(receipt.receipt_ref ?? "confirmed")}.`,
+				text: `New target verified by persisted receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
 			};
 			snackbar.push({ message: "delivery.set_target applied", op: "delivery.set_target", tone: "good" });
 		} catch (error) {
@@ -130,7 +131,7 @@
 		if (!surface?.delivery) return;
 		busy = "cocoon";
 		try {
-			await runRemote(setDeliveryCocoon({
+			await Effect.runPromise(setDeliveryCocoon({
 				until: mode === "off" ? new Date().toISOString() : nextSeven(),
 			}));
 			snackbar.push({ message: "delivery.cocoon applied", op: "delivery.cocoon", tone: "good" });
@@ -148,7 +149,7 @@
 	async function resend(receiptRef: string) {
 		busy = receiptRef;
 		try {
-			await runRemote(resendDeliveryReceipt({ receiptRef }));
+			await Effect.runPromise(resendDeliveryReceipt({ receiptRef }));
 			snackbar.push({ message: "delivery.resend applied", op: "delivery.resend", tone: "good" });
 		} catch (error) {
 			snackbar.push({

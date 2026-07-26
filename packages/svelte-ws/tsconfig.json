@@ -1,6 +1,7 @@
 {
 	"extends": "@petalnet/tsconfig/base.json",
 	"compilerOptions": {
+		"emitDeclarationOnly": true,
 		"outDir": "dist",
 		"rootDir": "src"
 	},
