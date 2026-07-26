@@ -6,6 +6,7 @@ import json from "@eslint/json";
 import markdown from "@eslint/markdown";
 import oxlint from "eslint-plugin-oxlint";
 import * as packageJson from "eslint-plugin-package-json/experimental";
+import svelte from "eslint-plugin-svelte";
 import { defineConfig, includeIgnoreFile } from "eslint/config";
 import tseslint from "typescript-eslint";
 
@@ -16,22 +17,27 @@ export default defineConfig([
 		gitignoreResolution: true,
 	}),
 	{
-		// This root config is an untyped baseline that lints every workspace's files. Type-aware
-		// eslint-disable directives (e.g. @typescript-eslint/no-deprecated) can't be evaluated
-		// without type information here, so this pass must not adjudicate directive usage —
-		// each workspace's own type-aware lint does, and would fail on a genuinely unused one.
-		linterOptions: { reportUnusedDisableDirectives: "off" },
-	},
-	{
-		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}"],
-		extends: [js.configs.recommended, tseslint.configs.recommended],
-	},
-	{
-		files: ["packages/better-auth-effect-qb-adapter/**/*.ts"],
-		extends: tseslint.configs.strictTypeChecked,
+		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,svelte}"],
+		extends: [
+			js.configs.recommended,
+			tseslint.configs.strictTypeChecked,
+			tseslint.configs.stylisticTypeChecked,
+		],
 		languageOptions: {
 			parserOptions: {
 				projectService: true,
+			},
+		},
+		rules: { "no-undef": "off" },
+	},
+	{
+		files: ["apps/{collegemap,console,grove,slide}/**/*.svelte"],
+		extends: svelte.configs.recommended,
+		languageOptions: {
+			parserOptions: {
+				parser: tseslint.parser,
+				projectService: true,
+				extraFileExtensions: [".svelte"],
 			},
 		},
 	},
