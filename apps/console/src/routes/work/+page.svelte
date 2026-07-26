@@ -76,7 +76,7 @@
 			method: "POST",
 			headers: { "content-type": "application/json", accept: "application/json" },
 			credentials: "include",
-			body: JSON.stringify({ schema_version: 1, id: crypto.randomUUID(), op: "task.close", args, task_id: args["id"], reason: args["reason"], dry_run: dryRun }),
+			body: JSON.stringify({ schema_version: 1, id: crypto.randomUUID(), op: "task.close", args, task_id: args.id, reason: args.reason, dry_run: dryRun }),
 		});
 		const body = await response.json() as OpResult & { error?: { code?: string; message?: string } | null };
 		if (!response.ok) {
@@ -139,8 +139,8 @@
 			if ((op === "task.update" || op === "task.close") && !data.isMock) {
 				const preflightArgs = omitKeys(args, ["force"]);
 				const preflight = op === "task.close" ? await runTaskClose(preflightArgs, true) : await runOp(op, preflightArgs, { dry_run: true });
-				const capabilities = preflight.result?.["capabilities"];
-				if (args["force"] === true && (!capabilities || typeof capabilities !== "object" || !(capabilities as Record<string, unknown>)["force"]))
+				const capabilities = preflight.result?.capabilities;
+				if (args.force === true && (!capabilities || typeof capabilities !== "object" || !(capabilities as Record<string, unknown>).force))
 					resolvedArgs = preflightArgs;
 			}
 			if (!data.isMock) {

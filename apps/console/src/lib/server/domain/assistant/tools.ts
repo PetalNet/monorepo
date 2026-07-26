@@ -243,7 +243,7 @@ export async function resolveAssistantToolPrincipal(
 	if (row.auth_source === "better-auth") {
 		if (!row.auth_session_id || !resolveBetterAuthSession) return null;
 		const current = await resolveBetterAuthSession(row.auth_session_id);
-		if (!current || current.id !== row.principal_id || current.kind !== row.principal_kind)
+		if (current?.id !== row.principal_id || current.kind !== row.principal_kind)
 			return null;
 		return current;
 	}
@@ -398,7 +398,7 @@ export async function handleAssistantMcp(
 				},
 			};
 			if (result !== null && typeof result === "object")
-				(response["result"] as Record<string, unknown>)["structuredContent"] = result;
+				(response.result as Record<string, unknown>).structuredContent = result;
 			return response;
 		} catch (error) {
 			const code =

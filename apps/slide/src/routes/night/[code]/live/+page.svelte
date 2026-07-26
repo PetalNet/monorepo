@@ -100,7 +100,7 @@
 	let savingRating = $state(false);
 	let accountDropdownOpen = $state(false);
 	let showWinnersScreen = $state(false);
-	let confettiPieces = $state<Array<{ id: number; left: number; delay: number; duration: number; color: string }>>([]);
+	let confettiPieces = $state<{ id: number; left: number; delay: number; duration: number; color: string }[]>([]);
 	let confettiCounter = $state(0);
 	let lastConfettiCount = $state(0);
 	
@@ -1213,7 +1213,7 @@
 													<p class="text-white/50 text-xs">{participant.user.email}</p>
 												</div>
 												<button
-													onclick={() => removeParticipant(participant.userId)}
+													onclick={() => { removeParticipant(participant.userId); }}
 													class="px-3 py-1 bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white rounded transition text-sm"
 												>
 													Remove
@@ -1232,7 +1232,7 @@
 													</div>
 												</div>
 												<button
-													onclick={() => removeVotingSession(session.id)}
+													onclick={() => { removeVotingSession(session.id); }}
 													class="px-3 py-1 bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white rounded transition text-sm"
 												>
 													Remove
@@ -1633,8 +1633,8 @@
 												<button
 													type="button"
 													onclick={() => setRating(category.id, star)}
-													onmouseenter={() => setHoveredStars(category.id, star)}
-													onmouseleave={() => clearHoveredStars(category.id)}
+													onmouseenter={() => { setHoveredStars(category.id, star); }}
+													onmouseleave={() => { clearHoveredStars(category.id); }}
 													class="transition-all transform hover:scale-125"
 													aria-label="Rate {star} stars"
 												>

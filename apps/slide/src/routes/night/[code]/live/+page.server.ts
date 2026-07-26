@@ -71,7 +71,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		orderedGroups = event.groups;
 	}
 
-	const isHost = locals.user && event.hostId === locals.user.id;
+	const isHost = event.hostId === locals.user?.id;
 
 	// Check for voting session cookie
 	const sessionCode = url.searchParams.get("session");
@@ -82,7 +82,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			where: { sessionCode },
 		});
 
-		if (votingSession && votingSession.eventId === event.id) {
+		if (votingSession?.eventId === event.id) {
 			await prisma.votingSession.update({
 				where: { id: votingSession.id },
 				data: { lastActive: new Date() },
@@ -195,18 +195,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	}
 
 	// Calculate winners (only if event status is completed - defer expensive calculation)
-	type ScoredGroup = {
+	interface ScoredGroup {
 		group: (typeof orderedGroups)[number];
 		totalScore: number;
 		averageScore: number;
 		voteCount: number;
 		categoryScores: Record<string, number>;
-	};
-	type CategoryWinner = {
+	}
+	interface CategoryWinner {
 		category: (typeof event.categories)[number];
 		winners: { group: (typeof orderedGroups)[number]; score: number }[];
 		isTie: boolean;
-	};
+	}
 	let topPresentations: {
 		first: ScoredGroup[];
 		second: ScoredGroup[];
@@ -408,7 +408,7 @@ export const actions: Actions = {
 			const session = await prisma.votingSession.findUnique({
 				where: { sessionCode },
 			});
-			if (!session || session.eventId !== event.id) {
+			if (session?.eventId !== event.id) {
 				return { error: "Invalid session" };
 			}
 			votingSessionId = session.id;
@@ -489,7 +489,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -513,7 +513,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -543,7 +543,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -576,7 +576,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -617,8 +617,8 @@ export const actions: Actions = {
 		if (sessionCode) {
 			const session = (await prisma.$queryRaw`
         SELECT * FROM VotingSession WHERE sessionCode = ${sessionCode} LIMIT 1
-      `) as { id: string; eventId: string }[];
-			if (!session[0] || session[0].eventId !== event.id) {
+      `);
+			if (session[0]?.eventId !== event.id) {
 				return { error: "Invalid session" };
 			}
 			votingSessionId = session[0].id;
@@ -719,7 +719,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -750,7 +750,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -776,7 +776,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -801,7 +801,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -853,7 +853,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -880,7 +880,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -912,7 +912,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 
@@ -943,7 +943,7 @@ export const actions: Actions = {
 			where: { joinCode: params.code },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 

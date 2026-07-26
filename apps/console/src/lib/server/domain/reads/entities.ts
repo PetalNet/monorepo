@@ -306,15 +306,15 @@ export async function readBoxUpdateRaw(
 	const state = rows.at(0)?.state;
 	if (!state) return null;
 
-	const nested = state["box_update_raw"] ?? state["raw"];
+	const nested = state.box_update_raw ?? state.raw;
 	const candidate =
 		nested && typeof nested === "object" && !Array.isArray(nested)
 			? (nested as Record<string, unknown>)
 			: state;
 	if (
-		!Array.isArray(candidate["packages"]) ||
-		!Array.isArray(candidate["vulns"]) ||
-		typeof candidate["collected_at"] !== "string"
+		!Array.isArray(candidate.packages) ||
+		!Array.isArray(candidate.vulns) ||
+		typeof candidate.collected_at !== "string"
 	)
 		return null;
 	return { ...candidate, box_id: boxId };

@@ -17,7 +17,7 @@
 	let { data }: PageProps = $props();
 	type Receipt = CostSession & { queryRef?: string | null; project?: string };
 	const ranges = ["Today", "7d", "30d", "Billing"] as const;
-	type FilterSelection = { dimension: CostDimension | "day"; value: string };
+	interface FilterSelection { dimension: CostDimension | "day"; value: string }
 	let range=$derived<"Today"|"7d"|"30d">(data.range), dimension=$state<CostDimension>("model"), filter=$state(""), chip=$state<FilterSelection|null>(null), receipt=$state<Receipt|null>(null), now=$state(Date.now()), busy=$state<string|null>(null);
 	let dialog=$state<HTMLDialogElement|null>(null);
 	let compareDialog=$state<HTMLDialogElement|null>(null);
@@ -28,7 +28,7 @@
 	const comparisonQuery=$derived(comparePair?compareCost({schema_version:1,...comparePair,...data.ledgerWindow}):null);
 	const comparison=$derived(comparisonQuery?.current??null);
 	const compareLoading=$derived(comparisonQuery?comparisonQuery.loading:false);
-	const compareError=$derived(comparisonQuery&&comparisonQuery.error?(comparisonQuery.error instanceof Error?comparisonQuery.error.message:"Comparison failed"):null);
+	const compareError=$derived(comparisonQuery?.error?(comparisonQuery.error instanceof Error?comparisonQuery.error.message:"Comparison failed"):null);
 	const canAct=$derived(data.lanes.includes("operator"));
 	const pct=$derived(data.pool?Math.round(data.pool.pool_spent/Math.max(1,data.pool.pool_tokens)*100):null);
 	const light=$derived(data.isMock?"green":null);

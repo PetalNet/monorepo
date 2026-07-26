@@ -33,7 +33,7 @@
 	}
 
 	let {
-		users = [],
+		users,
 		viewMode = 'markers',
 		selectedCollege = null,
 		onMapReady = (_m: LeafletMap) => {}
@@ -94,7 +94,7 @@
 		const init = async () => {
 			const LModule = await import('leaflet');
 			if (isDestroyed) return;
-			L = (LModule.default ?? LModule) as typeof import('leaflet');
+			L = (LModule.default ?? LModule);
 
 			// Load markercluster plugin (extends L)
 			await import('leaflet.markercluster');
@@ -249,7 +249,7 @@
 			});
 
 			markersByCollege.set(group.college.name, marker);
-			clusterGroup!.addLayer(marker);
+			clusterGroup.addLayer(marker);
 		}
 
 		// Build heat data

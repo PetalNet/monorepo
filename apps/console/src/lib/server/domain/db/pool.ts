@@ -177,7 +177,7 @@ export async function openDb(env: Env): Promise<Db> {
 	const handles = new Set([admin, app, ro, writer]);
 	const sqls = new Map<ClientHandle, Sql>();
 	for (const handle of handles) sqls.set(handle, makeSql(handle, null));
-	const sqlOf = (handle: ClientHandle): Sql => sqls.get(handle) as Sql;
+	const sqlOf = (handle: ClientHandle): Sql => sqls.get(handle)!;
 	return {
 		admin: sqlOf(admin),
 		app: sqlOf(app),

@@ -91,7 +91,7 @@ export class CapabilityAcquisitionError extends Error {
 }
 
 function advertised(state: Record<string, unknown>, capability: string): boolean {
-	const raw = state["provides"] ?? state["capabilities"] ?? [];
+	const raw = state.provides ?? state.capabilities ?? [];
 	if (Array.isArray(raw)) return raw.some((value) => value === capability);
 	return typeof raw === "string" && raw.split(",").some((value) => value.trim() === capability);
 }

@@ -108,12 +108,12 @@ import {
 	type JsonSchema,
 } from "./json-schema.ts";
 
-type OpAuthz = {
+interface OpAuthz {
 	rule: "own" | "grant" | "own_or_grant" | "read" | "scope_visible" | "self";
 	relation?: GrantRelation;
 	scope_any?: string[];
-};
-type OpEntry = {
+}
+interface OpEntry {
 	op: string;
 	lane: string;
 	human_only?: boolean;
@@ -125,7 +125,7 @@ type OpEntry = {
 	confirm?: "soft" | "typed-name";
 	undo?: boolean;
 	testable: "disposable" | "dry-run-only" | "live-canary";
-};
+}
 
 export interface TerminalTarget {
 	readonly host: string;
@@ -358,13 +358,13 @@ async function loadOpTarget(
 	args: Record<string, unknown>,
 ): Promise<OpTarget | null> {
 	const rawId =
-		args["id"] ??
-		args["dashboard_id"] ??
-		args["item_id"] ??
-		args["proposal_id"] ??
-		args["request_id"];
+		args.id ??
+		args.dashboard_id ??
+		args.item_id ??
+		args.proposal_id ??
+		args.request_id;
 	if (typeof rawId === "number" && services.tracker) {
-		const task = services.tracker.tasks(2_000).find((row) => Number(row["id"]) === rawId);
+		const task = services.tracker.tasks(2_000).find((row) => Number(row.id) === rawId);
 		if (task) {
 			const project = typeof task.project_name === "string" ? task.project_name : null;
 			const owner = typeof task.owner === "string" ? task.owner : null;
@@ -415,17 +415,17 @@ async function loadOpTarget(
 		const event = events.at(0);
 		if (event) return { ...event.meta, ...event.dimensions, scope: event.scope };
 	}
-	if (typeof args["pubkey_fp"] === "string") {
+	if (typeof args.pubkey_fp === "string") {
 		const edges = await services.db.admin<
 			{ subject: string; scope: string; state: Record<string, unknown> }[]
 		>`select subject, scope, state from current_state
-		  where kind = 'edge' and state->>'pubkey_fp' = ${args["pubkey_fp"]}
+		  where kind = 'edge' and state->>'pubkey_fp' = ${args.pubkey_fp}
 		  order by seq desc limit 1`;
 		const edge = edges.at(0);
 		if (edge) return { ...edge.state, subject: edge.subject, scope: edge.scope };
 	}
 	if (entry.op === "subscription.set" || entry.op === "subscription.remove") {
-		const owner = typeof args["owner"] === "string" ? args["owner"] : null;
+		const owner = typeof args.owner === "string" ? args.owner : null;
 		return owner ? { owner, scope: `user:${owner}` } : null;
 	}
 	return null;
@@ -441,7 +441,7 @@ function resolveScopeTemplate(
 		const value = expression.startsWith("target.")
 			? pathValue(target, expression.slice(7))
 			: expression.startsWith("item.")
-				? pathValue(args["item"], expression.slice(5))
+				? pathValue(args.item, expression.slice(5))
 				: pathValue(args, expression);
 		if (value === undefined || value === null || typeof value === "object") {
 			state.unresolved = true;
@@ -492,11 +492,11 @@ async function authorizeOp(
 			return { ok: false, message: "target is not visible to the caller" };
 		return { ok: true, object: target.scope, target };
 	}
-	const owner = target?.owner ?? target?.["created_by"] ?? target?.["responsible_human"];
+	const owner = target?.owner ?? target?.created_by ?? target?.responsible_human;
 	if (
 		rule === "own_or_grant" &&
 		(entry.op === "subscription.set" || entry.op === "subscription.remove") &&
-		args["owner"] === undefined
+		args.owner === undefined
 	)
 		return { ok: true, object: `user:${principal.id}`, target };
 	const createsOwned = entry.op === "dashboard.save" || entry.op === "dashboard.pin";
@@ -549,7 +549,7 @@ async function executorEvidence(
 		}
 	}
 	if (entry.executor !== "manager") return { kind: entry.executor, ref: null, liveness: "unknown" };
-	const ref = formatUnknown(args["handle"] ?? target?.["handle"] ?? "");
+	const ref = formatUnknown(args.handle ?? target?.handle ?? "");
 	if (!ref) return { kind: entry.executor, ref: null, liveness: "unknown" };
 	const rows = await services.db.admin<{ observed_at: string | Date }[]>`
 		select observed_at from current_state where kind = 'heartbeat' and subject = ${ref}`;
@@ -569,7 +569,7 @@ async function recordedOutcome(
 	const outcomeId = uuidv5(`op-outcome:${id}`);
 	const rows = await services.db.admin<{ meta: Record<string, unknown> }[]>`
 		select meta from events where id = ${outcomeId} order by seq desc limit 1`;
-	const result = rows[0].meta["op_result"];
+	const result = rows[0].meta.op_result;
 	return result && typeof result === "object" && !Array.isArray(result)
 		? (result as Record<string, unknown>)
 		: null;
@@ -612,11 +612,11 @@ async function auditIntent(
 		Buffer.byteLength(JSON.stringify(emission)),
 	);
 	if (outcome.ok)
-		return { ok: true, seq: outcome.seq as number, duplicate: outcome.duplicate ?? false };
+		return { ok: true, seq: outcome.seq!, duplicate: outcome.duplicate ?? false };
 	if (outcome.code === "id_reused") {
 		const rows = await services.db.admin<{ seq: string; meta: Record<string, unknown> }[]>`
 			select seq, meta from events where id = ${call.id} order by seq desc limit 1`;
-		if (rows[0].meta["call_hash"] === callHash)
+		if (rows[0].meta.call_hash === callHash)
 			return { ok: true, seq: Number(rows[0].seq), duplicate: true };
 	}
 	return { ok: false, code: outcome.code ?? "audit_unavailable" };
@@ -644,7 +644,7 @@ async function auditOutcome(
 			op: call.op,
 			principal: principal.id,
 			outcome,
-			...(call.op === "updates.apply" ? { box_id: String(call.args["box_id"]) } : {}),
+			...(call.op === "updates.apply" ? { box_id: String(call.args.box_id) } : {}),
 		},
 		meta: { retention_class: "audit", in_reply_to: call.id, op_result: result },
 	};
@@ -671,8 +671,8 @@ async function dispatchInternalOp(
 				);
 			return await services.keyCeremony.approve({
 				requestId: call.id,
-				pubkeyFp: String(call.args["pubkey_fp"]),
-				handle: String(call.args["handle"]),
+				pubkeyFp: String(call.args.pubkey_fp),
+				handle: String(call.args.handle),
 				principal: principal.id,
 			});
 		case "edge.enroll.deny":
@@ -684,7 +684,7 @@ async function dispatchInternalOp(
 				);
 			return await services.keyCeremony.deny({
 				requestId: call.id,
-				pubkeyFp: String(call.args["pubkey_fp"]),
+				pubkeyFp: String(call.args.pubkey_fp),
 				reason: call.reason?.trim() ?? "",
 				principal: principal.id,
 			});
@@ -697,17 +697,17 @@ async function dispatchInternalOp(
 				);
 			return await services.keyCeremony.revoke({
 				requestId: call.id,
-				pubkeyFp: String(call.args["pubkey_fp"]),
-				handle: String(call.args["confirm_name"]),
+				pubkeyFp: String(call.args.pubkey_fp),
+				handle: String(call.args.confirm_name),
 				reason: call.reason?.trim() ?? "",
 				principal: principal.id,
 			});
 		case "library.item.update": {
-			const patch = call.args["patch"] as Record<string, unknown>;
+			const patch = call.args.patch as Record<string, unknown>;
 			if (
-				typeof patch["status"] !== "string" ||
-				!Number.isSafeInteger(patch["expected_version"]) ||
-				Number(patch["expected_version"]) < 1 ||
+				typeof patch.status !== "string" ||
+				!Number.isSafeInteger(patch.expected_version) ||
+				Number(patch.expected_version) < 1 ||
 				Object.keys(patch).some((key) => key !== "status" && key !== "expected_version")
 			)
 				throw new AssistantRuntimeError(
@@ -717,25 +717,25 @@ async function dispatchInternalOp(
 				);
 			return updateLibraryItemStatus(
 				services.db.writer,
-				String(call.args["id"]),
-				patch["status"],
-				Number(patch["expected_version"]),
+				String(call.args.id),
+				patch.status,
+				Number(patch.expected_version),
 			);
 		}
 		case "library.capability.propose":
 			return proposeCapability(services.db.writer, principal, {
-				capability: String(call.args["capability"]),
-				title: String(call.args["title"]),
-				version: String(call.args["version"]),
-				scope: String(call.args["scope"]),
+				capability: String(call.args.capability),
+				title: String(call.args.title),
+				version: String(call.args.version),
+				scope: String(call.args.scope),
 				reason: call.reason?.trim() ?? "",
-				artifactBase64: String(call.args["artifact_base64"]),
+				artifactBase64: String(call.args.artifact_base64),
 			});
 		case "library.capability.review":
 			return reviewCapability(
 				services.db.writer,
-				String(call.args["proposal_id"]),
-				call.args["decision"] as "under-review" | "promoted" | "rejected",
+				String(call.args.proposal_id),
+				call.args.decision as "under-review" | "promoted" | "rejected",
 				principal.id,
 				call.reason?.trim() ?? "",
 			);
@@ -747,13 +747,13 @@ async function dispatchInternalOp(
 					true,
 				);
 			return (await services.trackerCommands.claim({
-				taskId: Number(call.args["id"]),
-				...(typeof call.args["capability"] === "string"
-					? { capability: call.args["capability"] }
+				taskId: Number(call.args.id),
+				...(typeof call.args.capability === "string"
+					? { capability: call.args.capability }
 					: {}),
 			})) as unknown as Record<string, unknown>;
 		case "stats.query":
-			if (call.args["mode"] === "sql") {
+			if (call.args.mode === "sql") {
 				if (!principal.lanes.includes("operator") && !principal.lanes.includes("admin"))
 					throw new QueryError("lane_denied", "sql mode requires operator+");
 				throw new QueryError("not_implemented", "sql mode is not implemented");
@@ -766,21 +766,21 @@ async function dispatchInternalOp(
 				)),
 			};
 		case "viz.render":
-			return { panel: call.args["panel"], registered: true };
+			return { panel: call.args.panel, registered: true };
 		case "text.surface":
 			return {
 				panel: {
 					schema_version: 2,
 					type: "text",
 					title: "Note",
-					prose: call.args["prose"],
-					bindings: call.args["bindings"] ?? [],
+					prose: call.args.prose,
+					bindings: call.args.bindings ?? [],
 				},
 			};
 		case "window.arrange": {
 			const rows = await services.db.writer<{ window_layout: Record<string, unknown> }[]>`
 				update assistant_sessions
-				set window_layout = ${services.db.writer.json({ ops: call.args["ops"] })}, updated_at = now()
+				set window_layout = ${services.db.writer.json({ ops: call.args.ops })}, updated_at = now()
 				where principal_id = ${principal.id}
 				returning window_layout`;
 			return { schema_version: 1, layout: rows.at(0)?.window_layout ?? { ops: [] } };
@@ -789,28 +789,28 @@ async function dispatchInternalOp(
 			const dashboard = Schema.decodeUnknownSync(dashboardSaveSchema)({
 				schema_version: 1,
 				id:
-					typeof call.args["id"] === "string"
-						? call.args["id"]
+					typeof call.args.id === "string"
+						? call.args.id
 						: `dash_${randomUUID().replaceAll("-", "").slice(0, 20)}`,
-				title: call.args["title"],
-				scope: call.args["scope"] ?? `user:${principal.id}`,
-				panels: call.args["panels"],
-				...(call.args["layout"] ? { layout: call.args["layout"] } : {}),
+				title: call.args.title,
+				scope: call.args.scope ?? `user:${principal.id}`,
+				panels: call.args.panels,
+				...(call.args.layout ? { layout: call.args.layout } : {}),
 			});
 			return saveDashboard(services.db, principal, dashboard);
 		}
 		case "dashboard.set_home":
-			return setHomeDashboard(services.db.writer, principal, String(call.args["id"]));
+			return setHomeDashboard(services.db.writer, principal, String(call.args.id));
 		case "governance.user_tier": {
-			const userId = String(call.args["user_id"]);
+			const userId = String(call.args.user_id);
 			const rows = await services.db.admin<{ id: string }[]>`
 				update "user"
-				set tier = ${String(call.args["tier"])}, "updatedAt" = now()
+				set tier = ${String(call.args.tier)}, "updatedAt" = now()
 				where id = ${userId}
 				returning id`;
 			if (!rows.at(0))
 				throw new AssistantRuntimeError("user_not_found", "user was not found", false);
-			return { userId, tier: call.args["tier"] };
+			return { userId, tier: call.args.tier };
 		}
 		case "context.receive":
 			if (!services.assistantRuntime)
@@ -822,12 +822,12 @@ async function dispatchInternalOp(
 			return (await services.assistantRuntime.send(principal, {
 				id: call.id,
 				kind: "context",
-				content: JSON.stringify(call.args["payload"]),
+				content: JSON.stringify(call.args.payload),
 			})) as unknown as Record<string, unknown>;
 		case "updates.approve": {
-			const boxId = String(call.args["box_id"]);
-			const packages = Array.isArray(call.args["packages"])
-				? [...new Set(call.args["packages"].map(String))]
+			const boxId = String(call.args.box_id);
+			const packages = Array.isArray(call.args.packages)
+				? [...new Set(call.args.packages.map(String))]
 				: [];
 			return services.db.admin.begin(async (tx) => {
 				await tx`select pg_advisory_xact_lock(hashtextextended(${`updates-box:${boxId}`}, 0))`;
@@ -840,22 +840,22 @@ async function dispatchInternalOp(
 					order by seq desc limit 1`;
 				const box = boxes[0].state;
 
-				if (box["apply_mode"] !== "staged-approval")
+				if (box.apply_mode !== "staged-approval")
 					throw new AssistantRuntimeError(
 						"approval_not_staged",
 						"this host is no longer in staged approval mode",
 						false,
 					);
-				if (Number(box["pending_updates_count"] ?? 0) < 1)
+				if (Number(box.pending_updates_count ?? 0) < 1)
 					throw new AssistantRuntimeError(
 						"approval_not_pending",
 						"these updates are no longer pending",
 						false,
 					);
-				const raw = box["box_update_raw"];
+				const raw = box.box_update_raw;
 				const rawPackages =
 					raw && typeof raw === "object" && !Array.isArray(raw)
-						? (raw as Record<string, unknown>)["packages"]
+						? (raw as Record<string, unknown>).packages
 						: null;
 				const pendingNames = new Set(
 					Array.isArray(rawPackages)
@@ -863,8 +863,8 @@ async function dispatchInternalOp(
 								item &&
 								typeof item === "object" &&
 								!Array.isArray(item) &&
-								typeof (item as Record<string, unknown>)["name"] === "string"
-									? [String((item as Record<string, unknown>)["name"])]
+								typeof (item as Record<string, unknown>).name === "string"
+									? [String((item as Record<string, unknown>).name)]
 									: [],
 							)
 						: [],
@@ -939,7 +939,7 @@ async function dispatchInternalOp(
 			});
 		}
 		case "updates.revoke": {
-			const approvalId = String(call.args["approval_id"]);
+			const approvalId = String(call.args.approval_id);
 			return services.db.admin.begin(async (tx) => {
 				// Serialize the check-and-revoke transition. The appender commits before this
 				// transaction releases the lock, so a competing revoke observes the terminal event.
@@ -1055,7 +1055,7 @@ async function dispatchInternalOp(
 			});
 		}
 		case "signal.snooze": {
-			const pattern = String(call.args["type_pattern"]);
+			const pattern = String(call.args.type_pattern);
 			const rows = await services.db.admin<
 				{ subject: string; scope: string; state: Record<string, unknown> }[]
 			>`select subject, scope, state from current_state
@@ -1065,7 +1065,7 @@ async function dispatchInternalOp(
 		  limit 1`;
 			const row = rows[0];
 
-			const storm = row.state["storm"] as Record<string, unknown>;
+			const storm = row.state.storm as Record<string, unknown>;
 			const now = new Date().toISOString();
 			const entity = {
 				...row.state,
@@ -1103,10 +1103,10 @@ async function dispatchInternalOp(
 		case "signal.source_mode":
 			return (await services.sourceModes.set(
 				principal.id,
-				String(call.args["source_service"]),
-				call.args["mode"] === "development" ? "development" : "normal",
-				typeof call.args["note"] === "string" && call.args["note"].trim()
-					? call.args["note"].trim()
+				String(call.args.source_service),
+				call.args.mode === "development" ? "development" : "normal",
+				typeof call.args.note === "string" && call.args.note.trim()
+					? call.args.note.trim()
 					: null,
 			)) as unknown as Record<string, unknown>;
 		case "delivery.test":
@@ -1114,15 +1114,15 @@ async function dispatchInternalOp(
 		case "delivery.set_target":
 			return (await services.delivery.setTarget(
 				principal.id,
-				String(call.args["target"]),
+				String(call.args.target),
 			)) as Record<string, unknown>;
 		case "delivery.resend":
 			return (await services.delivery.resend(
 				principal.id,
-				String(call.args["receipt_ref"]),
+				String(call.args.receipt_ref),
 			)) as Record<string, unknown>;
 		case "delivery.cocoon":
-			return (await services.delivery.cocoon(principal.id, String(call.args["until"]))) as Record<
+			return (await services.delivery.cocoon(principal.id, String(call.args.until))) as Record<
 				string,
 				unknown
 			>;
@@ -1191,14 +1191,14 @@ export async function executeOpPlane(
 		entry.confirm === "typed-name" ? await loadOpTarget(services, entry, call.args) : null;
 	if (entry.confirm === "typed-name") {
 		const expected =
-			call.args["handle"] ??
-			call.args["service"] ??
-			call.args["box_id"] ??
-			preloadedTarget?.["handle"] ??
-			call.args["id"];
+			call.args.handle ??
+			call.args.service ??
+			call.args.box_id ??
+			preloadedTarget?.handle ??
+			call.args.id;
 		if (
 			typeof expected !== "string" ||
-			formatUnknown(call.args["confirm_name"] ?? "")
+			formatUnknown(call.args.confirm_name ?? "")
 				.trim()
 				.toLowerCase() !== expected.trim().toLowerCase()
 		)
@@ -1217,7 +1217,7 @@ export async function executeOpPlane(
 			entry.authz.relation ?? "editor",
 		));
 	const capabilities = resolvedOpCapabilities(call.op, principal.kind, proposalRequired);
-	if (call.args["force"] === true && !capabilities["force"])
+	if (call.args.force === true && !capabilities.force)
 		return opError(
 			403,
 			"force_denied",
@@ -1250,7 +1250,7 @@ export async function executeOpPlane(
 			`${entry.executor} has no configured command adapter`,
 			true,
 		);
-	const isStormRestore = call.op === "signal.snooze" && call.args["restore"] === true;
+	const isStormRestore = call.op === "signal.snooze" && call.args.restore === true;
 	if (!call.dry_run && !INTERNAL_OP_ADAPTERS.has(call.op) && !isStormRestore)
 		return opError(
 			503,
@@ -1350,8 +1350,8 @@ export async function executeOpPlane(
 					? {
 							op: "signal.source_mode",
 							args: {
-								source_service: call.args["source_service"],
-								mode: operationResult["previous_mode"] === "development" ? "development" : "normal",
+								source_service: call.args.source_service,
+								mode: operationResult.previous_mode === "development" ? "development" : "normal",
 							},
 						}
 					: null;
@@ -1409,7 +1409,7 @@ export async function executeOpPlane(
 }
 
 // --- terminal session bookkeeping ------------------------------------------------------------
-type TerminalSession = {
+interface TerminalSession {
 	principalId: string;
 	target: TerminalTarget;
 	writable: boolean;
@@ -1418,7 +1418,7 @@ type TerminalSession = {
 	seq: number;
 	timer: ReturnType<typeof setTimeout> | null;
 	end: () => void;
-};
+}
 const terminalTargetSchema = Schema.Struct({
 	host: Schema.String.check(Schema.isPattern(/^(?:\.[0-9]{1,3}|[A-Za-z0-9][A-Za-z0-9.-]{0,252})$/)),
 	tmux_session: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)),
@@ -1531,15 +1531,15 @@ function queryOf(url: URL): QueryRecord {
 function readOpts(query: QueryRecord, route: EntityRoute): ReadOpts | null {
 	const typed = query as { limit?: string; cursor?: string };
 	const raw = query as Record<string, string | undefined>;
-	if (raw["since"] && Number.isNaN(Date.parse(raw["since"]))) return null;
+	if (raw.since && Number.isNaN(Date.parse(raw.since))) return null;
 	const filters = new Set(route.filters ?? []);
 	return {
 		...(typed.limit ? { limit: Number(typed.limit) } : {}),
 		...(typed.cursor ? { cursor: typed.cursor } : {}),
-		...(raw["since"] ? { since: raw["since"] } : {}),
-		...(filters.has("state") && raw["state"] ? { state: raw["state"] } : {}),
-		...(filters.has("handle") && raw["handle"] ? { handle: raw["handle"] } : {}),
-		...(filters.has("owner") && raw["owner"] ? { owner: raw["owner"] } : {}),
+		...(raw.since ? { since: raw.since } : {}),
+		...(filters.has("state") && raw.state ? { state: raw.state } : {}),
+		...(filters.has("handle") && raw.handle ? { handle: raw.handle } : {}),
+		...(filters.has("owner") && raw.owner ? { owner: raw.owner } : {}),
 		...(route.requiredFields ? { requiredFields: route.requiredFields } : {}),
 	};
 }
@@ -1745,7 +1745,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			emission,
 			Buffer.byteLength(JSON.stringify(emission)),
 		);
-		return outcome.ok ? (outcome.seq as number) : null;
+		return outcome.ok ? (outcome.seq!) : null;
 	}
 
 	async function authorizeTerminal(principal: Principal): Promise<string | null> {
@@ -1765,9 +1765,9 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		});
 		return heartbeats.items.some(
 			(item) =>
-				item["host"] === target.host &&
-				item["tmux_session"] === target.tmuxSession &&
-				item["pane_id"] === target.paneId,
+				item.host === target.host &&
+				item.tmux_session === target.tmuxSession &&
+				item.pane_id === target.paneId,
 		);
 	}
 
@@ -3049,7 +3049,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		handler: async (ctx) => {
 			const principal = ctx.principal;
 			const query = queryOf(ctx.url) as Record<string, unknown>;
-			const text = typeof query["q"] === "string" ? query["q"].trim() : "";
+			const text = typeof query.q === "string" ? query.q.trim() : "";
 			if (!text || text.length > 100)
 				return jsonResponse(400, {
 					error: {
@@ -3058,7 +3058,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 						retryable: false,
 					},
 				});
-			const rawLimit = query["limit"];
+			const rawLimit = query.limit;
 			if (
 				rawLimit !== undefined &&
 				(typeof rawLimit !== "string" ||
@@ -3089,31 +3089,31 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			const candidates: PaletteCandidate[] = [];
 			if (agents.status === "fulfilled") {
 				for (const agent of agents.value) {
-					const handle = formatUnknown(agent["handle"] ?? "");
+					const handle = formatUnknown(agent.handle ?? "");
 					if (!handle) continue;
-					const displayName = formatUnknown(agent["display_name"] ?? handle);
-					const host = typeof agent["host"] === "string" ? agent["host"] : null;
-					const role = typeof agent["role"] === "string" ? agent["role"] : "agent";
+					const displayName = formatUnknown(agent.display_name ?? handle);
+					const host = typeof agent.host === "string" ? agent.host : null;
+					const role = typeof agent.role === "string" ? agent.role : "agent";
 					candidates.push({
 						id: `agent:${handle}`,
 						kind: "agent",
 						label: displayName,
 						description: `@${handle} · ${role}${host ? ` · ${host}` : ""}`,
 						href: `/agents?agent=${encodeURIComponent(handle)}`,
-						keywords: [handle, role, host ?? "", formatUnknown(agent["capabilities"] ?? "")],
-						meta: agent["active"] === 0 ? "inactive" : "resident",
+						keywords: [handle, role, host ?? "", formatUnknown(agent.capabilities ?? "")],
+						meta: agent.active === 0 ? "inactive" : "resident",
 					});
 				}
 			}
 			if (tasks.status === "fulfilled") {
 				for (const task of tasks.value) {
-					const id = Number(task["id"]);
-					const title = formatUnknown(task["title"] ?? "");
+					const id = Number(task.id);
+					const title = formatUnknown(task.title ?? "");
 					if (!Number.isSafeInteger(id) || id < 1 || !title) continue;
-					const status = formatUnknown(task["status"] ?? "unknown");
-					const project = typeof task["project_name"] === "string" ? task["project_name"] : null;
+					const status = formatUnknown(task.status ?? "unknown");
+					const project = typeof task.project_name === "string" ? task.project_name : null;
 					const owner = formatUnknown(
-						task["claimed_by"] ?? task["assignee"] ?? task["owner"] ?? "unassigned",
+						task.claimed_by ?? task.assignee ?? task.owner ?? "unassigned",
 					);
 					candidates.push({
 						id: `task:${String(id)}`,
@@ -3127,33 +3127,33 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 				}
 			}
 			if (library.status === "fulfilled") {
-				const items = Array.isArray(library.value["items"])
-					? (library.value["items"] as Record<string, unknown>[])
+				const items = Array.isArray(library.value.items)
+					? (library.value.items as Record<string, unknown>[])
 					: [];
 				for (const item of items) {
-					const id = formatUnknown(item["id"] ?? "");
-					const title = formatUnknown(item["title"] ?? "");
+					const id = formatUnknown(item.id ?? "");
+					const title = formatUnknown(item.title ?? "");
 					if (!id || !title) continue;
-					const kind = formatUnknown(item["kind"] ?? "item");
-					const project = formatUnknown(item["project"] ?? "unfiled");
+					const kind = formatUnknown(item.kind ?? "item");
+					const project = formatUnknown(item.project ?? "unfiled");
 					candidates.push({
 						id: `library:${id}`,
 						kind: "library",
 						label: title,
 						description: `${kind} · ${project}`,
 						href: `/library?item=${encodeURIComponent(id)}`,
-						keywords: [id, kind, project, formatUnknown(item["status"] ?? "")],
-						meta: formatUnknown(item["status"] ?? ""),
+						keywords: [id, kind, project, formatUnknown(item.status ?? "")],
+						meta: formatUnknown(item.status ?? ""),
 					});
 				}
 			}
 			if (hosts.status === "fulfilled") {
 				for (const host of hosts.value.items) {
 					const hostname = formatUnknown(
-						host["hostname"] ?? host["box_id"] ?? host["subject"] ?? "",
+						host.hostname ?? host.box_id ?? host.subject ?? "",
 					);
 					if (!hostname) continue;
-					const status = formatUnknown(host["status"] ?? "unknown").replaceAll("_", " ");
+					const status = formatUnknown(host.status ?? "unknown").replaceAll("_", " ");
 					candidates.push({
 						id: `host:${hostname}`,
 						kind: "host",
@@ -3161,11 +3161,11 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 						description: `Host · ${status}`,
 						href: `/hosts?host=${encodeURIComponent(hostname)}`,
 						keywords: [
-							formatUnknown(host["box_id"] ?? ""),
+							formatUnknown(host.box_id ?? ""),
 							status,
-							formatUnknown(host["os_family"] ?? ""),
+							formatUnknown(host.os_family ?? ""),
 						],
-						meta: formatUnknown(host["last_checked_at"] ?? host["observed_at"] ?? ""),
+						meta: formatUnknown(host.last_checked_at ?? host.observed_at ?? ""),
 					});
 				}
 			}
@@ -3351,7 +3351,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 				return jsonResponse(200, {
 					...envelope,
 					items: envelope.items.filter(
-						(item) => typeof item["lane"] !== "string" || principal.lanes.includes(item["lane"]),
+						(item) => typeof item.lane !== "string" || principal.lanes.includes(item.lane),
 					),
 				});
 			},
@@ -3544,7 +3544,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		handler: (ctx) => {
 			const unavailable = trackerUnavailable();
 			if (unavailable) return unavailable;
-			return jsonResponse(200, readTasks(services.tracker as TrackerReader, ctx.principal.scopes));
+			return jsonResponse(200, readTasks(services.tracker!, ctx.principal.scopes));
 		},
 	});
 	route({
@@ -3556,7 +3556,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 			if (unavailable) return unavailable;
 			return jsonResponse(
 				200,
-				readWorkSettlement(services.tracker as TrackerReader, ctx.principal.scopes),
+				readWorkSettlement(services.tracker!, ctx.principal.scopes),
 			);
 		},
 	});
@@ -3567,7 +3567,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		handler: (ctx) => {
 			const unavailable = trackerUnavailable();
 			if (unavailable) return unavailable;
-			return jsonResponse(200, readLeases(services.tracker as TrackerReader, ctx.principal.scopes));
+			return jsonResponse(200, readLeases(services.tracker!, ctx.principal.scopes));
 		},
 	});
 	route({
@@ -3577,7 +3577,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		handler: (ctx) => {
 			const unavailable = trackerUnavailable();
 			if (unavailable) return unavailable;
-			return jsonResponse(200, readAgents(services.tracker as TrackerReader, ctx.principal.scopes));
+			return jsonResponse(200, readAgents(services.tracker!, ctx.principal.scopes));
 		},
 	});
 	route({
@@ -3740,7 +3740,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		rateLimit: true,
 		handler: async (ctx) => {
-			const owned = await ownedTerminalSession(ctx.principal, ctx.params["streamId"]);
+			const owned = await ownedTerminalSession(ctx.principal, ctx.params.streamId);
 			if (owned instanceof Response) return owned;
 			const session = owned;
 			if (session.timer) clearTimeout(session.timer);
@@ -3868,8 +3868,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 						try {
 							const fresh = await resolvePrincipal(requestHeaders, requestHostname);
 							const revoked =
-								!fresh ||
-								fresh.id !== session.principalId ||
+								fresh?.id !== session.principalId ||
 								(await authorizeTerminal(fresh)) !== null;
 							if (revoked) {
 								session.closed = true;
@@ -3926,7 +3925,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		rateLimit: true,
 		handler: async (ctx) => {
-			const owned = await ownedTerminalSession(ctx.principal, ctx.params["streamId"]);
+			const owned = await ownedTerminalSession(ctx.principal, ctx.params.streamId);
 			if (owned instanceof Response) return owned;
 			const session = owned;
 			if (!session.writable)
@@ -3955,7 +3954,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		rateLimit: true,
 		handler: async (ctx) => {
-			const owned = await ownedTerminalSession(ctx.principal, ctx.params["streamId"]);
+			const owned = await ownedTerminalSession(ctx.principal, ctx.params.streamId);
 			if (owned instanceof Response) return owned;
 			const session = owned;
 			if (!session.attached)
@@ -3997,7 +3996,7 @@ export function buildConsoleApi(services: Services, options: ConsoleApiOptions):
 		auth: true,
 		rateLimit: true,
 		handler: async (ctx) => {
-			const owned = await ownedTerminalSession(ctx.principal, ctx.params["streamId"]);
+			const owned = await ownedTerminalSession(ctx.principal, ctx.params.streamId);
 			if (owned instanceof Response) return owned;
 			const session = owned;
 			const principal = ctx.principal;

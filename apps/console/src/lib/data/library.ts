@@ -385,8 +385,8 @@ function mapLibraryItem(item: ApiLibraryItem, hold?: string): LibraryItemView {
 		...(item.confidence === null ? {} : { confidence: item.confidence }),
 		...(hold ? { hold } : {}),
 		body:
-			typeof item.properties["body"] === "string"
-				? item.properties["body"]
+			typeof item.properties.body === "string"
+				? item.properties.body
 				: item.kind === "artifact"
 					? "Rendered Library artifact."
 					: "Body is stored by reference in the Library.",

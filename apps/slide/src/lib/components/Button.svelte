@@ -3,7 +3,7 @@
 		variant = 'primary',
 		type = 'button',
 		disabled = false,
-		onclick = undefined,
+		onclick,
 		class: className = '',
 		children
 	}: {

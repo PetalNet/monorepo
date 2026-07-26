@@ -203,7 +203,7 @@
 							{#if categories.length > 1}
 								<button 
 									type="button"
-									onclick={() => removeCategory(index)}
+									onclick={() => { removeCategory(index); }}
 									class="mt-7 px-3 py-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
 									title="Remove category"
 								>

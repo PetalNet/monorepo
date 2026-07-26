@@ -24,7 +24,7 @@ export interface LibraryRevision {
 }
 export interface LibraryDetail {
 	item: LibraryItemView;
-	links: Array<LibraryLinkFixture & { target: LibraryItemView | null }>;
+	links: (LibraryLinkFixture & { target: LibraryItemView | null })[];
 	revisions: LibraryRevision[];
 	responsibleHuman: string;
 	txFrom: string;
@@ -32,7 +32,7 @@ export interface LibraryDetail {
 }
 
 const idSchema = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9:_-]{1,128}$/));
-type ApiItem = {
+interface ApiItem {
 	id: string;
 	kind: LibraryItemView["kind"];
 	title: string;
@@ -50,13 +50,13 @@ type ApiItem = {
 		responsible_human: string | null;
 		handed_off_to_agent: string | null;
 	};
-};
-type ApiLink = {
+}
+interface ApiLink {
 	from_id: string;
 	to_id: string;
 	rel_type: LibraryLinkFixture["rel"];
 	reason: string | null;
-};
+}
 function base() {
 	return publicConfig.consoleApiBase ?? `${getRequestEvent().url.origin}/api/v1`;
 }
@@ -93,8 +93,8 @@ function view(item: ApiItem): LibraryItemView {
 		protection: item.protection,
 		handedOffTo: item.provenance.handed_off_to_agent ?? undefined,
 		body:
-			typeof item.properties["body"] === "string"
-				? item.properties["body"]
+			typeof item.properties.body === "string"
+				? item.properties.body
 				: "Body is stored by reference in the Library.",
 	};
 }
@@ -149,7 +149,7 @@ export const getLibraryItemDetail = Query(idSchema, (id) =>
 		const encoded = encodeURIComponent(id);
 		const [current, history, links, items] = await Promise.all([
 			api<{ item: ApiItem }>(`/library/items/${encoded}`),
-			api<{ items: Array<{ version: number; tx_from: string; item: ApiItem }> }>(
+			api<{ items: { version: number; tx_from: string; item: ApiItem }[] }>(
 				`/library/items/${encoded}/history`,
 			),
 			api<{ items: ApiLink[] }>(`/library/links?item_id=${encoded}&limit=100`),

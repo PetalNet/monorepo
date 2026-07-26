@@ -30,6 +30,6 @@ describe("modal surface contract", () => {
 			),
 		);
 		for (const route of routes) assert.match(route, /<ModalSurface/);
-		assert.equal(routes.filter((route) => /variant="drawer"/.test(route)).length, 3);
+		assert.equal(routes.filter((route) => route.includes('variant="drawer"')).length, 3);
 	});
 });

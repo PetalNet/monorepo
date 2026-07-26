@@ -59,7 +59,7 @@
 		
 		<!-- Action Buttons -->
 		<div class="flex flex-col sm:flex-row gap-4 justify-center pt-6">
-			<Button onclick={() => window.history.back()}>
+			<Button onclick={() => { window.history.back(); }}>
 				← Go Back
 			</Button>
 			<Button variant="secondary" onclick={() => window.location.href = '/'}>

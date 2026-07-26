@@ -35,12 +35,12 @@
 	let rawError = $state<string | null>(null);
 	let receiptOpen = $state(false);
 	let filter = $state("");
-	type ContainerUpdate = {
+	interface ContainerUpdate {
 		id: string;
 		container: string;
 		source: string;
 		at: string;
-	};
+	}
 	let containerUpdates = $state<ContainerUpdate[]>(
 		dataMode() === "mock"
 			? [
@@ -93,12 +93,12 @@
 	}
 
 	function asContainerUpdate(row: Record<string, unknown>): ContainerUpdate {
-		const seq = Number(row["seq"]);
-		const at = typeof row["ts"] === "string" ? row["ts"] : new Date().toISOString();
+		const seq = Number(row.seq);
+		const at = typeof row.ts === "string" ? row.ts : new Date().toISOString();
 		return {
-			id: Number.isFinite(seq) ? String(seq) : `${String(row["subject"])}:${at}`,
-			container: formatUnknown(row["claimed_container"] ?? row["subject"] ?? "unknown container"),
-			source: formatUnknown(row["source_agent"] ?? row["source_host"] ?? "source unknown"),
+			id: Number.isFinite(seq) ? String(seq) : `${String(row.subject)}:${at}`,
+			container: formatUnknown(row.claimed_container ?? row.subject ?? "unknown container"),
+			source: formatUnknown(row.source_agent ?? row.source_host ?? "source unknown"),
 			at,
 		};
 	}
@@ -123,7 +123,7 @@
 			});
 			const rows = recordRows(result);
 			containerUpdates = rows.map(asContainerUpdate);
-			containerLastSeq = Math.max(0, ...rows.map((row) => Number(row["seq"]) || 0)) || undefined;
+			containerLastSeq = Math.max(0, ...rows.map((row) => Number(row.seq) || 0)) || undefined;
 			containerObservedAt = result.freshness.observed_at;
 			containerQueryRef = result.query_ref;
 			containerLiveAt = null;
@@ -170,7 +170,7 @@
 					if (frame.kind === "event" && frame.emission?.type === "container.update_available") {
 						const update = asContainerUpdate({
 							seq: frame.seq,
-							claimed_container: frame.emission.dimensions?.["claimed_container"],
+							claimed_container: frame.emission.dimensions?.claimed_container,
 							subject: frame.emission.subject,
 							source_agent: frame.emission.source?.agent,
 							source_host: frame.emission.source?.host,

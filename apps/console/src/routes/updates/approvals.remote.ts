@@ -135,7 +135,7 @@ export const revokeUpdateApproval = Command(revokeInput, ({ approval_id, box_id 
 	Effect.promise(async () => {
 		if (isMock()) {
 			const approval = mockApprovals.get(approval_id);
-			if (!approval || approval.box_id !== box_id) error(409, "This approval is no longer pending");
+			if (approval?.box_id !== box_id) error(409, "This approval is no longer pending");
 			mockApprovals.delete(approval_id);
 			void Effect.runPromise(getUpdateApprovals({ box_id }).refresh());
 			return { approval_id, box_id, revoked_at: new Date().toISOString() };

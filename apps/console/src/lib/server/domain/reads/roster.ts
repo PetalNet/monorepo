@@ -49,7 +49,7 @@ export async function readRoster(
 	const workersByHandle = new Map<string, number>();
 	for (const r of rows) {
 		if (r.kind === "worker") {
-			const owner = r.state["handle"];
+			const owner = r.state.handle;
 			if (typeof owner === "string")
 				workersByHandle.set(owner, (workersByHandle.get(owner) ?? 0) + 1);
 			continue;
@@ -63,8 +63,8 @@ export async function readRoster(
 	// tracker halves (agents identity + active leases), scoped by the visibility→scope mapping.
 	const agents = tracker ? filterByScopes(tracker.agents(), scopes) : [];
 	const leases = tracker ? filterByScopes(tracker.leases(), scopes) : [];
-	const agentByHandle = new Map(agents.map((a) => [String(a["handle"]), a]));
-	const leaseByWorker = new Map(leases.map((l) => [String(l["worker"]), l]));
+	const agentByHandle = new Map(agents.map((a) => [String(a.handle), a]));
+	const leaseByWorker = new Map(leases.map((l) => [String(l.worker), l]));
 
 	// union lake handles + agent identities + lease WORKERS (a worker may hold a lease with no lake
 	// row and no agents entry — it must still appear on the roster; codex N1b-2 re-review P1).
@@ -79,10 +79,10 @@ export async function readRoster(
 		return {
 			handle,
 			workers_active: workersByHandle.get(handle) ?? 0,
-			fleet: source(cs["fleet"]),
-			heartbeat: source(cs["heartbeat"]),
-			registry: source(cs["registry"]),
-			governance: source(cs["governance"]),
+			fleet: source(cs.fleet),
+			heartbeat: source(cs.heartbeat),
+			registry: source(cs.registry),
+			governance: source(cs.governance),
 			// tracker null => "unavailable" (source down), distinct from "absent" (no row) — the frontend
 			// must not render an unavailable source as "no data" (codex N1b-2 P1, Rule 10).
 			identity: !tracker

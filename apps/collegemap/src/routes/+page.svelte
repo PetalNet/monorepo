@@ -7,7 +7,7 @@
 	import 'leaflet.markercluster/dist/MarkerCluster.css';
 	import { getLogoUrl } from '$lib/collegeLogos';
 
-	type UserWithCollege = {
+	interface UserWithCollege {
 		id: string;
 		firstName: string;
 		lastName: string;
@@ -18,7 +18,7 @@
 			latitude: number;
 			longitude: number;
 		};
-	};
+	}
 
 	let { data } = $props();
 
@@ -141,7 +141,7 @@
 				// ignore parse errors
 			}
 		});
-		return () => es.close();
+		return () => { es.close(); };
 	});
 </script>
 

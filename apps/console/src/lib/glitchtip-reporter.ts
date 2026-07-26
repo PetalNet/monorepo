@@ -69,7 +69,7 @@ export function createCaughtFailureReporter(
 				if (capturedAt - timestamp >= DEDUPE_WINDOW_MS) recentlyCaptured.delete(candidate);
 			}
 			if (recentlyCaptured.size > MAX_DEDUPE_KEYS)
-				recentlyCaptured.delete(recentlyCaptured.keys().next().value as string);
+				recentlyCaptured.delete(recentlyCaptured.keys().next().value!);
 		}
 
 		const sanitized = new Error(`Console read failed: ${context.endpoint}`);

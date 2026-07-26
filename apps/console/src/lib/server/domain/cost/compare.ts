@@ -148,13 +148,13 @@ export async function compareCostPairWith(
 		);
 	const priceRows = records(pricing)
 		.map((row) => ({
-			pattern: String(row["model_pattern"]),
-			updatedAt: formatUnknown(row["updated_at"] ?? pricing.freshness.observed_at),
+			pattern: String(row.model_pattern),
+			updatedAt: formatUnknown(row.updated_at ?? pricing.freshness.observed_at),
 			rate: {
-				input: finite(row["input_per_mtok"]),
-				output: finite(row["output_per_mtok"]),
-				creation: finite(row["cache_creation_per_mtok"]),
-				read: finite(row["cache_read_per_mtok"]),
+				input: finite(row.input_per_mtok),
+				output: finite(row.output_per_mtok),
+				creation: finite(row.cache_creation_per_mtok),
+				read: finite(row.cache_read_per_mtok),
 			},
 		}))
 		.toSorted((a, b) => a.pattern.localeCompare(b.pattern));
@@ -187,13 +187,13 @@ export async function compareCostPairWith(
 		const value = formatUnknown(row[input.dimension] ?? "");
 		const accumulator = accumulators.get(value);
 		if (!accumulator) continue;
-		const model = formatUnknown(row["model"] ?? "");
+		const model = formatUnknown(row.model ?? "");
 		const matched = matchRate(model);
-		const inputTokens = finite(row["input_tokens"]);
-		const outputTokens = finite(row["output_tokens"]);
-		const creationTokens = finite(row["cache_creation_tokens"]);
-		const readTokens = finite(row["cache_read_tokens"]);
-		const reportedCost = row["reported_cost"] == null ? null : finite(row["reported_cost"]);
+		const inputTokens = finite(row.input_tokens);
+		const outputTokens = finite(row.output_tokens);
+		const creationTokens = finite(row.cache_creation_tokens);
+		const readTokens = finite(row.cache_read_tokens);
+		const reportedCost = row.reported_cost == null ? null : finite(row.reported_cost);
 		costSources.add(reportedCost === null ? "computed" : "reported");
 		if (
 			reportedCost === null &&
@@ -220,7 +220,7 @@ export async function compareCostPairWith(
 		accumulator.output_tokens += outputTokens;
 		accumulator.cache_creation_tokens += creationTokens;
 		accumulator.cache_read_tokens += readTokens;
-		accumulator.sessionIds.add(formatUnknown(row["session_id"] ?? "unknown"));
+		accumulator.sessionIds.add(formatUnknown(row.session_id ?? "unknown"));
 	}
 	const side = (value: string): CostComparisonSide => {
 		const item = required(accumulators.get(value));

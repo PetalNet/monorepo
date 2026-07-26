@@ -87,8 +87,7 @@ export const claimWantedCard = Command(claimArgs, (input) =>
 		const snapshot = await apiJson<ReadEnvelope<CardItem>>("/cards?limit=1000");
 		const current = snapshot.items.find((card) => card.card_id === input.card_id);
 		if (
-			!current ||
-			current.task_id !== input.task_id ||
+			current?.task_id !== input.task_id ||
 			current.updated_at_ms !== input.updated_at_ms ||
 			current.state !== "posted"
 		) {

@@ -37,7 +37,7 @@
 		const disconnect = connectBus(
 			() => [{ sub_id: "console-hosts-availability", pattern: "service.*" }],
 			(frame) => {
-				if (frame["kind"] === "event" || frame["kind"] === "gap" || frame["kind"] === "resync_required")
+				if (frame.kind === "event" || frame.kind === "gap" || frame.kind === "resync_required")
 					refreshSoon();
 			},
 		);

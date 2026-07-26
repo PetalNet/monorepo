@@ -95,7 +95,7 @@ const toSubscribeFrame = (spec: BusSubscriptionSpec): BusClientFrame => ({
  */
 export function connectBusClient(options: BusClientOptions): BusClient {
 	const factory =
-		options.webSocket ?? ((url: string) => new WebSocket(url) as unknown as BusWebSocket);
+		options.webSocket ?? ((url: string) => new WebSocket(url));
 	const reconnectDelayMs = options.reconnectDelayMs ?? 2_000;
 	let disposed = false;
 	let socket: BusWebSocket | undefined;

@@ -17,13 +17,11 @@ import type { Emission } from "../emission.ts";
 import { sourceCursorRef, tailSystemOutbox } from "./system-outbox.ts";
 import { uuidv5 } from "./uuid5.ts";
 
-export interface EmitFn {
-	(
+export type EmitFn = (
 		producerSubject: string,
 		emission: Emission,
 		bytes: number,
-	): Promise<{ ok: boolean; code?: string }>;
-}
+	) => Promise<{ ok: boolean; code?: string }>;
 
 const SYSTEM_OUTBOX_PRODUCER = "bridge:system-outbox";
 
@@ -270,7 +268,7 @@ export class Bridge {
 			// Record-level validation/scrubber failures are poison records, not source outages. Keep no
 			// secret payload in the DLQ: only the durable source pointer, emission id, and error class.
 			if (["invalid_emission", "payload_too_large", "secret_detected"].includes(r.code ?? "")) {
-				const ref = String(e.dimensions?.["file_ref"] ?? e.id);
+				const ref = String(e.dimensions?.file_ref ?? e.id);
 				await this.#quarantine(source, ref, e.id, r.code ?? "invalid_emission");
 				await this.#emitOne(
 					SYSTEM_OUTBOX_PRODUCER,
@@ -353,12 +351,12 @@ function parseSnapshotCursor(cursor: string): Record<string, SnapshotMark> {
 			if (typeof raw === "string") marks[name] = { observed: raw, emitted: raw, emittedAt: "" };
 			else {
 				const mark = object(raw);
-				const observed = text(mark["observed"]);
+				const observed = text(mark.observed);
 				if (observed)
 					marks[name] = {
 						observed,
-						emitted: text(mark["emitted"]) ?? "",
-						emittedAt: text(mark["emittedAt"]) ?? "",
+						emitted: text(mark.emitted) ?? "",
+						emittedAt: text(mark.emittedAt) ?? "",
 					};
 			}
 		}
@@ -388,7 +386,7 @@ abstract class SnapshotAdapter implements BridgeAdapter {
 	}
 	protected shouldEmit(previous: SnapshotMark | undefined, key: string, now: string): boolean {
 		return (
-			!previous || previous.emitted !== key || previous.emittedAt === "" || now < previous.emittedAt
+			previous?.emitted !== key || previous.emittedAt === "" || now < previous.emittedAt
 		);
 	}
 
@@ -448,26 +446,26 @@ export class FleetSnapshotAdapter extends SnapshotAdapter {
 	}
 
 	protected emissions(name: string, body: JsonObject, hash: string, now: string): Emission[] {
-		const handle = text(body["handle"]);
-		const event = text(body["event"]);
+		const handle = text(body.handle);
+		const event = text(body.event);
 		if (!handle || !event) throw new Error(`invalid fleet snapshot: ${name}`);
 		const fields = safeFields(body);
-		delete fields.dimensions["handle"];
-		delete fields.dimensions["event"];
-		delete fields.dimensions["host"];
-		delete fields.measures["task_id"];
-		delete fields.measures["schema_version"];
+		delete fields.dimensions.handle;
+		delete fields.dimensions.event;
+		delete fields.dimensions.host;
+		delete fields.measures.task_id;
+		delete fields.measures.schema_version;
 		return [
 			{
 				schema_version: 1,
 				id: uuidv5(`${this.source}:${name}:${hash}`),
 				type: `fleet.event.${event}`,
-				ts: timestamp(body["updated_at"], now),
-				source: { service: "bridge", host: text(body["host"]) ?? null, agent: handle },
+				ts: timestamp(body.updated_at, now),
+				source: { service: "bridge", host: text(body.host) ?? null, agent: handle },
 				subject: handle,
 				subject_kind: "agent",
 				severity: "info",
-				task_id: typeof body["task_id"] === "number" ? body["task_id"] : null,
+				task_id: typeof body.task_id === "number" ? body.task_id : null,
 				scope: "fleet",
 				...fields,
 			},
@@ -487,7 +485,7 @@ export class ManagerHeartbeatAdapter extends SnapshotAdapter {
 
 	protected override emissionKey(body: JsonObject): string {
 		const state = { ...body };
-		delete state["updated_at_epoch"];
+		delete state.updated_at_epoch;
 		return createHash("sha256").update(JSON.stringify(state)).digest("hex");
 	}
 
@@ -496,12 +494,12 @@ export class ManagerHeartbeatAdapter extends SnapshotAdapter {
 		key: string,
 		now: string,
 	): boolean {
-		if (!previous || previous.emitted !== key || !previous.emittedAt) return true;
+		if (previous?.emitted !== key || !previous.emittedAt) return true;
 		return Date.parse(now) - Date.parse(previous.emittedAt) >= 15_000;
 	}
 
 	protected emissions(name: string, body: JsonObject, hash: string, now: string): Emission[] {
-		const handle = text(body["handle"]);
+		const handle = text(body.handle);
 		if (!handle) throw new Error(`manager heartbeat lacks handle: ${name}`);
 		const fields = safeFields(body);
 		fields.dimensions = omitKeys(fields.dimensions, [
@@ -512,13 +510,13 @@ export class ManagerHeartbeatAdapter extends SnapshotAdapter {
 			"pane_id",
 		]);
 		fields.measures = omitKeys(fields.measures, ["schema_version", "updated_at_epoch"]);
-		const crashed = body["state"] === "crashed";
+		const crashed = body.state === "crashed";
 		const emissions: Emission[] = [
 			{
 				schema_version: 1,
 				id: uuidv5(`${this.source}:${name}:${hash}:heartbeat`),
 				type: crashed ? "agent.crashed" : "agent.heartbeat",
-				ts: timestamp(body["updated_at_epoch"], now),
+				ts: timestamp(body.updated_at_epoch, now),
 				source: { service: "manager", host: null, agent: handle },
 				subject: handle,
 				subject_kind: "agent",
@@ -527,13 +525,13 @@ export class ManagerHeartbeatAdapter extends SnapshotAdapter {
 				...fields,
 			},
 		];
-		const lock = object(body["channel_lock"]);
-		if (lock["state"] === "lockout")
+		const lock = object(body.channel_lock);
+		if (lock.state === "lockout")
 			emissions.push({
 				schema_version: 1,
 				id: uuidv5(`${this.source}:${name}:${hash}:lockout`),
 				type: "channel.lockout",
-				ts: timestamp(body["updated_at_epoch"], now),
+				ts: timestamp(body.updated_at_epoch, now),
 				source: { service: "manager", host: null, agent: handle },
 				subject: handle,
 				subject_kind: "agent",
@@ -559,8 +557,8 @@ function parseSpoolCursor(cursor: string): Record<string, SpoolMark> {
 		for (const [file, raw] of Object.entries(value)) {
 			if (typeof raw === "object" && raw !== null) {
 				const mark = object(raw);
-				const line = Number(mark["line"]);
-				const byteOffset = Number(mark["byteOffset"]);
+				const line = Number(mark.line);
+				const byteOffset = Number(mark.byteOffset);
 				if (
 					Number.isSafeInteger(line) &&
 					line >= 0 &&
@@ -570,8 +568,8 @@ function parseSpoolCursor(cursor: string): Record<string, SpoolMark> {
 					marks[file] = {
 						line,
 						byteOffset,
-						fileId: text(mark["fileId"]) ?? "",
-						tailHash: text(mark["tailHash"]) ?? "",
+						fileId: text(mark.fileId) ?? "",
+						tailHash: text(mark.tailHash) ?? "",
 					};
 			}
 		}
@@ -710,25 +708,25 @@ export class JsonlSpoolAdapter implements BridgeAdapter {
 	}
 
 	#emission(raw: JsonObject, ref: string, now: string): Emission {
-		if (raw["schema_version"] === 1 && typeof raw["source"] === "object" && text(raw["type"]))
+		if (raw.schema_version === 1 && typeof raw.source === "object" && text(raw.type))
 			return raw as Emission;
-		const method = text(raw["method"]);
-		const agent = text(raw["agent"]);
+		const method = text(raw.method);
+		const agent = text(raw.agent);
 		if (!method || !agent) throw new Error("RPC envelope requires method and agent");
 		return {
 			schema_version: 1,
 			id: uuidv5(
-				`${this.source}:${ref}:${text(raw["id"]) ?? createHash("sha256").update(JSON.stringify(raw)).digest("hex")}`,
+				`${this.source}:${ref}:${text(raw.id) ?? createHash("sha256").update(JSON.stringify(raw)).digest("hex")}`,
 			),
 			type: method,
-			ts: timestamp(raw["ts"], now),
+			ts: timestamp(raw.ts, now),
 			source: { service: this.#service, host: null, agent },
 			subject: agent,
 			subject_kind: "agent",
 			severity: method === "governance.action" || method === "discipline.nag" ? "warn" : "info",
-			task_id: typeof raw["task_id"] === "number" ? raw["task_id"] : null,
+			task_id: typeof raw.task_id === "number" ? raw.task_id : null,
 			scope: "fleet",
-			...safeFields(raw["payload"]),
+			...safeFields(raw.payload),
 		};
 	}
 }
@@ -742,9 +740,9 @@ function parseDispatcherCursor(cursor: string): DispatcherCursor {
 	try {
 		const value = object(JSON.parse(cursor));
 		return {
-			updatedAt: Number(value["updatedAt"] ?? 0),
-			fingerprints: Array.isArray(value["fingerprints"])
-				? value["fingerprints"].filter((item): item is string => typeof item === "string")
+			updatedAt: Number(value.updatedAt ?? 0),
+			fingerprints: Array.isArray(value.fingerprints)
+				? value.fingerprints.filter((item): item is string => typeof item === "string")
 				: [],
 		};
 	} catch {
@@ -782,33 +780,33 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 					row,
 					sha256(
 						JSON.stringify([
-							row["card_id"],
-							row["updated_at_ms"],
-							row["state"],
-							row["claimed_by"],
-							row["fence"],
-							row["reaps"],
-							row["delivered"],
-							row["addressed"],
+							row.card_id,
+							row.updated_at_ms,
+							row.state,
+							row.claimed_by,
+							row.fence,
+							row.reaps,
+							row.delivered,
+							row.addressed,
 						]),
 					),
 				);
 			const seen = new Set(previous.fingerprints);
 			const freshRows = rows.filter(
 				(row) =>
-					Number(row["updated_at_ms"]) > previous.updatedAt ||
+					Number(row.updated_at_ms) > previous.updatedAt ||
 					!seen.has(fingerprints.get(row) ?? ""),
 			);
 			const emissions = freshRows.flatMap((row) => {
-				const cardId = text(row["card_id"]);
-				const state = text(row["state"]);
+				const cardId = text(row.card_id);
+				const state = text(row.state);
 				if (!cardId || !state) throw new Error("dispatcher card row lacks card_id/state");
-				const priority = Number(row["priority"] ?? 3);
+				const priority = Number(row.priority ?? 3);
 				const stateEmission = {
 					schema_version: 1 as const,
 					id: uuidv5(`dispatcher:${fingerprints.get(row) ?? ""}`),
 					type: "card.state_changed",
-					ts: new Date(Number(row["updated_at_ms"]) || Date.parse(now)).toISOString(),
+					ts: new Date(Number(row.updated_at_ms) || Date.parse(now)).toISOString(),
 					source: { service: "dispatcher", host: ".14", agent: null },
 					subject: cardId,
 					subject_kind: "card" as const,
@@ -817,35 +815,35 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 						: priority === 1
 							? "warn"
 							: "info") as Emission["severity"],
-					task_id: Number(row["task_id"]),
+					task_id: Number(row.task_id),
 					scope: "fleet",
 					dimensions: {
 						state,
-						sender: formatUnknown(row["sender"] ?? ""),
-						sender_class: formatUnknown(row["sender_class"] ?? ""),
-						recipient: formatUnknown(row["recipient"] ?? ""),
-						interrupt_policy: formatUnknown(row["interrupt_policy"] ?? ""),
-						claimed_by: formatUnknown(row["claimed_by"] ?? ""),
-						delivered: Boolean(row["delivered"]),
-						addressed: Boolean(row["addressed"]),
+						sender: formatUnknown(row.sender ?? ""),
+						sender_class: formatUnknown(row.sender_class ?? ""),
+						recipient: formatUnknown(row.recipient ?? ""),
+						interrupt_policy: formatUnknown(row.interrupt_policy ?? ""),
+						claimed_by: formatUnknown(row.claimed_by ?? ""),
+						delivered: Boolean(row.delivered),
+						addressed: Boolean(row.addressed),
 					},
 					measures: {
 						priority,
-						fence: Number(row["fence"] ?? 0),
-						reaps: Number(row["reaps"] ?? 0),
+						fence: Number(row.fence ?? 0),
+						reaps: Number(row.reaps ?? 0),
 					},
 				} satisfies Emission;
-				const sender = text(row["sender"]);
-				const recipient = text(row["recipient"]);
+				const sender = text(row.sender);
+				const recipient = text(row.recipient);
 				if (!sender || !recipient) return [stateEmission];
-				const thread = text(row["thread"]);
-				const replyTo = text(row["reply_to"]);
-				const body = text(row["body"]);
+				const thread = text(row.thread);
+				const replyTo = text(row.reply_to);
+				const body = text(row.body);
 				const correspondence = {
 					schema_version: 1 as const,
 					id: uuidv5(`dispatcher:comms:${cardId}`),
 					type: "comms.card",
-					ts: new Date(Number(row["created_at_ms"]) || Date.parse(now)).toISOString(),
+					ts: new Date(Number(row.created_at_ms) || Date.parse(now)).toISOString(),
 					source: { service: "dispatcher", host: ".14", agent: sender },
 					subject: recipient,
 					subject_kind: "agent" as const,
@@ -854,30 +852,30 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 						: priority === 1
 							? "warn"
 							: "info") as Emission["severity"],
-					task_id: Number(row["task_id"]),
+					task_id: Number(row.task_id),
 					scope: "fleet",
 					dimensions: {
 						method: "task.dispatch",
 						card_id: cardId,
 						recipient,
-						requires_reply: Boolean(row["requires_reply"]),
+						requires_reply: Boolean(row.requires_reply),
 						...(thread ? { thread } : {}),
 						...(replyTo ? { in_reply_to: replyTo } : {}),
 					},
 					meta: {
 						body_preview: body?.slice(0, 240) ?? null,
-						sender_class: formatUnknown(row["sender_class"] ?? ""),
+						sender_class: formatUnknown(row.sender_class ?? ""),
 						priority,
 					},
 				} satisfies Emission;
 				return [stateEmission, correspondence];
 			});
 			const maxUpdatedAt = rows.reduce(
-				(max, row) => Math.max(max, Number(row["updated_at_ms"])),
+				(max, row) => Math.max(max, Number(row.updated_at_ms)),
 				previous.updatedAt,
 			);
 			const boundaryFingerprints = rows
-				.filter((row) => Number(row["updated_at_ms"]) === maxUpdatedAt)
+				.filter((row) => Number(row.updated_at_ms) === maxUpdatedAt)
 				.map((row) => fingerprints.get(row) ?? "");
 			if (maxUpdatedAt === previous.updatedAt) boundaryFingerprints.push(...previous.fingerprints);
 			return {

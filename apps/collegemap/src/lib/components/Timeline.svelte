@@ -88,7 +88,7 @@
 	}
 
 	onMount(() => {
-		return () => cancelAnimationFrame(animFrame);
+		return () => { cancelAnimationFrame(animFrame); };
 	});
 </script>
 
@@ -100,7 +100,7 @@
 		</svg>
 	</button>
 
-	<button class="tl-btn" aria-label={isPlaying ? 'Pause' : 'Play'} onclick={() => isPlaying ? pause() : play()}>
+	<button class="tl-btn" aria-label={isPlaying ? 'Pause' : 'Play'} onclick={() => { isPlaying ? pause() : play(); }}>
 		{#if isPlaying}
 			<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
 				<rect x="6" y="4" width="4" height="16" rx="1"/>

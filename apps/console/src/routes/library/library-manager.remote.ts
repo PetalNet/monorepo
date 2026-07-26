@@ -212,8 +212,8 @@ function itemView(item: ApiLibraryItem): LibraryItemView {
 			: {}),
 		...(item.confidence === null ? {} : { confidence: item.confidence }),
 		body:
-			typeof item.properties["body"] === "string"
-				? item.properties["body"]
+			typeof item.properties.body === "string"
+				? item.properties.body
 				: "Body is stored by reference in the Library.",
 	};
 }
@@ -234,15 +234,15 @@ function isApiLibraryItem(value: unknown): value is ApiLibraryItem {
 function libraryManagerAction(value: unknown, depth = 0): LibraryManagerAction | null {
 	if (depth > 6 || !value || typeof value !== "object") return null;
 	const record = value as Record<string, unknown>;
-	if (record["surface"] === "library" && record["intent"] && typeof record["intent"] === "object") {
+	if (record.surface === "library" && record.intent && typeof record.intent === "object") {
 		const data =
-			record["data"] && typeof record["data"] === "object"
-				? (record["data"] as Record<string, unknown>)
+			record.data && typeof record.data === "object"
+				? (record.data as Record<string, unknown>)
 				: null;
-		const rawItems = Array.isArray(data?.["items"]) ? data["items"] : [];
-		const rawItem = data?.["item"];
+		const rawItems = Array.isArray(data?.items) ? data.items : [];
+		const rawItem = data?.item;
 		return {
-			intent: record["intent"],
+			intent: record.intent,
 			items: rawItems.filter(isApiLibraryItem).map(itemView),
 			item: isApiLibraryItem(rawItem) ? itemView(rawItem) : null,
 		};

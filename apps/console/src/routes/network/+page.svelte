@@ -74,7 +74,7 @@
 		return connectBus(
 			() => [{ sub_id: "network-key-ceremony", pattern: "edge.*" }],
 			(frame) => {
-				if (frame["kind"] === "event") void runRemote(ceremonyQuery.refresh());
+				if (frame.kind === "event") void runRemote(ceremonyQuery.refresh());
 			},
 		);
 	});
@@ -87,7 +87,7 @@
 	}
 
 	async function confirmRevoke() {
-		if (!revoking?.handle || revokeConfirm.trim().toLowerCase() !== revoking.handle.toLowerCase() || revokeReason.trim().length < 3) return;
+		if (revokeConfirm.trim().toLowerCase() !== revoking?.handle?.toLowerCase() || revokeReason.trim().length < 3) return;
 		revokeBusy = true;
 		revokeError = null;
 		try {

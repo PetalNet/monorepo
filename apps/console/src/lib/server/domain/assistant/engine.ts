@@ -200,7 +200,7 @@ export async function ask(
 					context,
 					attempt,
 				);
-			const request = proposal.request as QueryRequest;
+			const request = proposal.request!;
 			assertRetrievedSource(context, request);
 			assertGroundedFilters(question, request);
 			const prepared = await prepareStructured(db.app, scopes, request);

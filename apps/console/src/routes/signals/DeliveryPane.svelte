@@ -58,7 +58,7 @@
 		return connectBus(
 			() => [{ sub_id: "delivery-surface", pattern: "delivery.*" }],
 			(frame) => {
-				if (frame["kind"] === "event") void runRemote(deliveryQuery.refresh());
+				if (frame.kind === "event") void runRemote(deliveryQuery.refresh());
 			},
 		);
 	});
@@ -94,7 +94,7 @@
 			const receipt = await runRemote(sendDeliveryTest());
 			result = {
 				tone: "good",
-				text: `Delivered and persisted as receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
+				text: `Delivered and persisted as receipt ${formatUnknown(receipt.receipt_ref ?? "confirmed")}.`,
 			};
 			snackbar.push({ message: "delivery.test applied", op: "delivery.test", tone: "good" });
 		} catch (error) {
@@ -114,7 +114,7 @@
 			targetOpen = false;
 			result = {
 				tone: "good",
-				text: `New target verified by persisted receipt ${formatUnknown(receipt["receipt_ref"] ?? "confirmed")}.`,
+				text: `New target verified by persisted receipt ${formatUnknown(receipt.receipt_ref ?? "confirmed")}.`,
 			};
 			snackbar.push({ message: "delivery.set_target applied", op: "delivery.set_target", tone: "good" });
 		} catch (error) {

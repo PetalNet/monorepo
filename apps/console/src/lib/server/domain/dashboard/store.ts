@@ -199,7 +199,7 @@ export async function saveDashboard(
 				select request_hash, dashboard_id from dashboard_mutations
 				where principal_id = ${principal.id} and request_id = ${input.id}`;
 			const previous = raced.at(0);
-			if (!previous || previous.request_hash !== hash)
+			if (previous?.request_hash !== hash)
 				throw new DashboardError("id_reused", "mutation id was already used with a different body");
 			const item = await dashboardById(tx, previous.dashboard_id);
 			if (!item) throw new Error("dashboard mutation points to a missing item");
@@ -226,8 +226,8 @@ function iso(value: string | Date): string {
 }
 
 function itemEnvelope(row: ItemRow): Record<string, unknown> {
-	const parentDashboardId = row.payload.branch?.["parent_dashboard_id"];
-	const parentQuestion = row.payload.branch?.["parent_question"];
+	const parentDashboardId = row.payload.branch?.parent_dashboard_id;
+	const parentQuestion = row.payload.branch?.parent_question;
 	return {
 		schema_version: 1,
 		id: row.id,
@@ -302,7 +302,7 @@ export async function listDashboards(
 		freshness: { source: "library", observed_at: new Date().toISOString(), window_s: null },
 		items: page.map((row) => {
 			const item = itemEnvelope(row);
-			delete item["payload"];
+			delete item.payload;
 			return item;
 		}),
 		next_cursor: rows.length > page.length && last ? dashboardCursor(cursorSecret, last) : null,
@@ -981,7 +981,7 @@ export async function listLibraryCapabilities(
 			where kind = 'registry' order by subject`,
 	);
 	const allItems = rows.flatMap((row) => {
-		const raw = row.state["provides"] ?? row.state["capabilities"] ?? [];
+		const raw = row.state.provides ?? row.state.capabilities ?? [];
 		const capabilities = Array.isArray(raw)
 			? raw.filter((value): value is string => typeof value === "string")
 			: typeof raw === "string"
@@ -995,8 +995,8 @@ export async function listLibraryCapabilities(
 			capability,
 			provider: row.subject,
 			scope: row.scope,
-			host: typeof row.state["host"] === "string" ? row.state["host"] : null,
-			transport: typeof row.state["transport"] === "string" ? row.state["transport"] : null,
+			host: typeof row.state.host === "string" ? row.state.host : null,
+			transport: typeof row.state.transport === "string" ? row.state.transport : null,
 			observed_at: iso(row.observed_at),
 			fresh: Date.now() - new Date(row.observed_at).getTime() <= 90_000,
 		}));

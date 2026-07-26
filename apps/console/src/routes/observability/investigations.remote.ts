@@ -61,7 +61,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 	return (await response.json()) as T;
 }
 
-type DashboardRow = {
+interface DashboardRow {
 	id: string;
 	title: string;
 	is_home: boolean;
@@ -72,20 +72,20 @@ type DashboardRow = {
 	is_investigation?: boolean;
 	parent_id?: string | null;
 	parent_question?: string | null;
-};
+}
 
 type DashboardDetail = DashboardRow & {
-	payload?: { panels?: Array<Record<string, unknown>> };
-	materialized_panels?: Array<{
+	payload?: { panels?: Record<string, unknown>[] };
+	materialized_panels?: {
 		panel?: Record<string, unknown>;
 		result?: {
-			columns?: Array<{ name?: string }>;
+			columns?: { name?: string }[];
 			rows?: unknown[][];
 			row_count?: number;
 			query_ref?: string;
 			freshness?: { source?: string; observed_at?: string };
 		} | null;
-	}>;
+	}[];
 };
 
 function normalizeNode(row: DashboardRow): InvestigationNode {
@@ -107,13 +107,13 @@ function normalizePanel(
 ): InvestigationPanel {
 	const panel = raw.panel ?? {};
 	const result = raw.result;
-	const refusal = panel["refusal"];
+	const refusal = panel.refusal;
 	return {
-		title: typeof panel["title"] === "string" ? panel["title"] : "Untitled panel",
-		description: typeof panel["description"] === "string" ? panel["description"] : null,
-		type: typeof panel["type"] === "string" ? panel["type"] : "table",
+		title: typeof panel.title === "string" ? panel.title : "Untitled panel",
+		description: typeof panel.description === "string" ? panel.description : null,
+		type: typeof panel.type === "string" ? panel.type : "table",
 		queryRef:
-			result?.query_ref ?? (typeof panel["query_ref"] === "string" ? panel["query_ref"] : null),
+			result?.query_ref ?? (typeof panel.query_ref === "string" ? panel.query_ref : null),
 		columns: result?.columns?.map(({ name }) => name ?? "value") ?? [],
 		rows: result?.rows ?? [],
 		rowCount: result?.row_count ?? 0,

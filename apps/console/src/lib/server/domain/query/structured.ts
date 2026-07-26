@@ -230,21 +230,21 @@ async function resolveSource(
 			continue;
 		const descriptor = raw as Record<string, unknown>;
 		directFields.add(field);
-		if (typeof descriptor["kind"] === "string" || descriptor["type"] === "number")
+		if (typeof descriptor.kind === "string" || descriptor.type === "number")
 			measures[field] = {
-				kind: ["gauge", "counter", "delta", "timestamp"].includes(String(descriptor["kind"]))
-					? (descriptor["kind"] as MeasureDescriptor["kind"])
+				kind: ["gauge", "counter", "delta", "timestamp"].includes(String(descriptor.kind))
+					? (descriptor.kind as MeasureDescriptor["kind"])
 					: null,
-				unit: typeof descriptor["unit"] === "string" ? descriptor["unit"] : null,
+				unit: typeof descriptor.unit === "string" ? descriptor.unit : null,
 			};
 		else
 			dimensions[field] = {
-				type: descriptor["type"] === "boolean" ? "boolean" : "string",
+				type: descriptor.type === "boolean" ? "boolean" : "string",
 				cardinality: null,
 			};
 	}
 	const basePseudo =
-		declared["shape"] === "event"
+		declared.shape === "event"
 			? relation === "statistic_relationships"
 				? RELATIONSHIP_PSEUDO
 				: EVENT_PSEUDO

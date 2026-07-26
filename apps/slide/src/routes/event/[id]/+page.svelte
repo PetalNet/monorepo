@@ -238,8 +238,8 @@
 									role="button"
 									tabindex="0"
 									draggable="true"
-									ondragstart={() => handleDragStart(index)}
-									ondragover={(e) => handleDragOver(e, index)}
+									ondragstart={() => { handleDragStart(index); }}
+									ondragover={(e) => { handleDragOver(e, index); }}
 									ondragend={handleDragEnd}
 									class="p-4 bg-theater-darker rounded-lg border border-gray-700 cursor-move hover:border-theater-purple transition-colors {draggedIndex === index ? 'opacity-50' : ''}"
 								>

@@ -39,9 +39,9 @@ function partitionWorkSettlement(
 	let invalidTimestampCount = 0;
 
 	for (const row of rows) {
-		if (row["status"] !== "done" && row["status"] !== "dropped") continue;
-		const updatedAt = timestamp(row["updated_at"]);
-		const createdAt = timestamp(row["created_at"]);
+		if (row.status !== "done" && row.status !== "dropped") continue;
+		const updatedAt = timestamp(row.updated_at);
+		const createdAt = timestamp(row.created_at);
 		if (updatedAt === null || createdAt === null) {
 			invalidTimestampCount += 1;
 			continue;
@@ -50,23 +50,23 @@ function partitionWorkSettlement(
 			...row,
 			created_at: new Date(createdAt).toISOString(),
 			updated_at: new Date(updatedAt).toISOString(),
-			project_title: row["project_title"] ?? row["project_name"] ?? null,
+			project_title: row.project_title ?? row.project_name ?? null,
 			settles_at: new Date(updatedAt + WORK_SETTLE_WINDOW_MS).toISOString(),
 		});
 	}
 
 	closed.sort(
 		(left, right) =>
-			Date.parse(String(right["updated_at"])) - Date.parse(String(left["updated_at"])),
+			Date.parse(String(right.updated_at)) - Date.parse(String(left.updated_at)),
 	);
 	const settling = closed.filter(
-		(item) => item["status"] === "done" && Date.parse(item.settles_at) > nowMs,
+		(item) => item.status === "done" && Date.parse(item.settles_at) > nowMs,
 	);
 	const history = closed.filter(
-		(item) => item["status"] === "dropped" || Date.parse(item.settles_at) <= nowMs,
+		(item) => item.status === "dropped" || Date.parse(item.settles_at) <= nowMs,
 	);
 	const settledThisWeek = history.filter((item) => {
-		if (item["status"] !== "done") return false;
+		if (item.status !== "done") return false;
 		const settledAt = Date.parse(item.settles_at);
 		return settledAt > nowMs - WEEK_MS && settledAt <= nowMs;
 	}).length;

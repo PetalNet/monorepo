@@ -100,7 +100,7 @@
 								</form>
 							{:else if !isAdmin(user.email)}
 								<button
-									on:click={() => confirmDelete(user.id)}
+									on:click={() => { confirmDelete(user.id); }}
 									class="text-red-600 hover:text-red-900"
 							>
 								Delete

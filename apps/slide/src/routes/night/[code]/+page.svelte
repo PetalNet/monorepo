@@ -20,7 +20,7 @@
 	let showJoinModal = $state(false);
 	let showCategoriesModal = $state(false);
 	let hostPresentationListElement = $state<HTMLElement | null>(null);
-	let editingCategories = $state<Array<{id?: string, name: string, description: string, order: number}>>([]);
+	let editingCategories = $state<{id?: string, name: string, description: string, order: number}[]>([]);
 
 	// Emoji picker state for create/edit
 	let selectedEmoji = $state('📊');
@@ -718,7 +718,7 @@
 									</div>
 								</div>
 								<button 
-									onclick={() => openManage(group)}
+									onclick={() => { openManage(group); }}
 									class="w-full py-2.5 bg-theater-purple hover:bg-purple-600 text-white rounded-lg font-bold transition"
 								>
 									⚙️ Manage Presentation
@@ -885,7 +885,7 @@
 									<div class="flex flex-col gap-1 pt-2">
 										<button
 											type="button"
-											onclick={() => moveCategoryUp(index)}
+											onclick={() => { moveCategoryUp(index); }}
 											disabled={index === 0}
 											class="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded transition text-xs"
 											title="Move up"
@@ -894,7 +894,7 @@
 										</button>
 										<button
 											type="button"
-											onclick={() => moveCategoryDown(index)}
+											onclick={() => { moveCategoryDown(index); }}
 											disabled={index === editingCategories.length - 1}
 											class="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded transition text-xs"
 											title="Move down"
@@ -931,7 +931,7 @@
 									</div>
 									<button
 										type="button"
-										onclick={() => removeCategory(index)}
+										onclick={() => { removeCategory(index); }}
 										class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition flex-shrink-0"
 										title="Remove category"
 									>
@@ -1015,7 +1015,7 @@
 											<p class="text-sm text-gray-400 mb-2">Invite Code</p>
 											<div class="flex gap-2 items-center">
 												<code class="flex-1 bg-theater-darker px-4 py-3 rounded-lg text-lg font-mono text-purple-300 font-bold tracking-wider border border-gray-700">{managed.group.inviteCode}</code>
-												<button onclick={() => copyInviteCode(managed.group.inviteCode)} class="px-4 py-3 bg-theater-purple hover:bg-purple-600 text-white rounded-lg text-sm font-semibold transition">📋 Copy</button>
+												<button onclick={() => { copyInviteCode(managed.group.inviteCode); }} class="px-4 py-3 bg-theater-purple hover:bg-purple-600 text-white rounded-lg text-sm font-semibold transition">📋 Copy</button>
 											</div>
 										</div>
 									{/if}

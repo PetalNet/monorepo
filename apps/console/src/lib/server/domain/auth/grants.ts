@@ -187,7 +187,7 @@ export async function mutateGrant(
 				select request_hash, result from grant_mutations
 				where principal_id = ${principal.id} and request_id = ${input.id}`;
 			const previous = existing.at(0);
-			if (!previous || previous.request_hash !== requestHash)
+			if (previous?.request_hash !== requestHash)
 				throw new GrantError("id_reused", "mutation id was already used with a different body");
 			return previous.result;
 		}

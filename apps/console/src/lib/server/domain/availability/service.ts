@@ -366,25 +366,25 @@ export async function readAvailability(
 		}
 		const knownServices: KnownService[] = knownRows.map((row) => ({
 			subject: row.subject,
-			service: typeof row.state["service"] === "string" ? row.state["service"] : null,
-			host: typeof row.state["host"] === "string" ? row.state["host"] : null,
+			service: typeof row.state.service === "string" ? row.state.service : null,
+			host: typeof row.state.host === "string" ? row.state.host : null,
 			probe_runner:
-				typeof row.state["probe_runner"] === "string"
-					? row.state["probe_runner"]
-					: typeof row.state["source"] === "string"
-						? row.state["source"]
+				typeof row.state.probe_runner === "string"
+					? row.state.probe_runner
+					: typeof row.state.source === "string"
+						? row.state.source
 						: null,
 			observed_at: iso(row.observed_at),
 			last_probe_at:
-				typeof row.state["last_probe_at"] === "string" ? iso(row.state["last_probe_at"]) : null,
-			last_probe_result: row.state["last_probe_result"],
+				typeof row.state.last_probe_at === "string" ? iso(row.state.last_probe_at) : null,
+			last_probe_result: row.state.last_probe_result,
 			last_signal_type:
-				row.state["last_signal_type"] === "service.down" ||
-				row.state["last_signal_type"] === "service.up"
-					? row.state["last_signal_type"]
+				row.state.last_signal_type === "service.down" ||
+				row.state.last_signal_type === "service.up"
+					? row.state.last_signal_type
 					: null,
 			last_signal_at:
-				typeof row.state["last_signal_at"] === "string" ? iso(row.state["last_signal_at"]) : null,
+				typeof row.state.last_signal_at === "string" ? iso(row.state.last_signal_at) : null,
 		}));
 		return assembleAvailability(normalizedSummaries, points, knownServices, windowS, now.getTime());
 	});
