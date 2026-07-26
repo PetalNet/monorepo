@@ -29,6 +29,17 @@ const parkedHeartbeat = Duration(minutes: 30);
 /// silently drift out of the safe ordering.
 const darkAfter = Duration(minutes: 45);
 
+/// Grace window between the server flipping a peer OFFLINE and the client
+/// painting them DARK (task-750). The server reports `online: false` the
+/// instant a socket drops — screen off, an elevator, an app switch — so
+/// without a grace the marker read "Dark since 11:05" AT 11:05 while the
+/// peer's 11:04 fix was still fresh on screen. Until [offlineDarkGrace]
+/// passes with no newer liveness signal (device `alive_at`/position clock or
+/// a later server observation), the peer keeps their live/parked
+/// presentation; once it passes, "dark since" is stamped with the LAST
+/// liveness signal (when they actually went quiet), never with "now".
+const offlineDarkGrace = Duration(minutes: 3);
+
 /// How confidently the client can describe a peer fix at the current time.
 enum FixFreshness { current, recent, stale, uncertain }
 
@@ -120,7 +131,8 @@ final presenceClockProvider = StreamProvider<DateTime>(
 /// the position time and [PeerFix.parked] to false, preserving prior behavior.)
 ///
 /// The privacy-safe state table is:
-/// - server offline ⇒ `stale` immediately, regardless of fix freshness;
+/// - server offline ⇒ `stale`, but only once [offlineDarkGrace] has passed
+///   with no liveness signal (task-750: a socket blip is not "dark");
 /// - server online + no fix ⇒ `live` but locationless;
 /// - moving (fresh position, not parked) ⇒ `live`, located, "Sharing · ago";
 /// - PARKED (recent liveness, older position) ⇒ `live`, located, "Parked ·
@@ -143,12 +155,23 @@ Person mergePresence(
   if (fix == null || lat == null || lon == null) {
     if (serverPresence == null) return p;
     final online = serverPresence.online;
+    // Freshly offline (within [offlineDarkGrace] of the last observation) is
+    // not DARK yet: a socket blip must not paint "Dark since now".
+    final offlineWithinGrace =
+        !online &&
+        at.difference(serverPresence.observedAt) <= offlineDarkGrace;
     return Person(
       userId: p.userId,
       displayName: p.displayName,
-      presence: online ? PresenceState.live : PresenceState.stale,
+      presence: online
+          ? PresenceState.live
+          : offlineWithinGrace
+          ? PresenceState.away
+          : PresenceState.stale,
       subtitle: online
           ? 'Online · Waiting for location'
+          : offlineWithinGrace
+          ? 'Waiting for location'
           : 'Dark since ${clockHm(serverPresence.observedAt.millisecondsSinceEpoch, format: timeFormat)}',
       distanceLabel: p.distanceLabel,
     );
@@ -161,14 +184,26 @@ Person mergePresence(
   // Position-clock trust (a far-future sample time is not plotted as live).
   final uncertainFix = fixFreshness(ts, now: at) == FixFreshness.uncertain;
   final offline = serverPresence?.online == false;
-  final dark = offline || livenessStale;
-  // "Dark since" the last thing we heard: the server's observation when the
-  // server called it, otherwise the last liveness/keepalive time.
-  final darkSinceAt = dark
-      ? offline
-            ? serverPresence!.observedAt.millisecondsSinceEpoch
-            : (aliveTs ?? ts)!
-      : null;
+  // An OFFLINE verdict only turns DARK after [offlineDarkGrace] with nothing
+  // heard — neither device liveness nor a newer server observation. The last
+  // signal of either kind is also the honest "dark since" stamp: when they
+  // actually went quiet, never the moment the client noticed.
+  final aliveMs = aliveTs ?? ts;
+  final lastHeardMs = [
+    ?aliveMs,
+    if (offline) serverPresence!.observedAt.millisecondsSinceEpoch,
+  ].fold<int?>(null, (a, b) => a == null || b > a ? b : a);
+  final offlineQuiet =
+      offline &&
+      (lastHeardMs == null ||
+          at.difference(DateTime.fromMillisecondsSinceEpoch(lastHeardMs)) >
+              offlineDarkGrace);
+  final dark = offlineQuiet || livenessStale;
+  final darkSinceAt = !dark
+      ? null
+      : offlineQuiet
+      ? lastHeardMs!
+      : aliveMs!;
   final domain = p.userId.contains('@') ? p.userId.split('@').last : null;
   final federated =
       domain != null && selfDomain != null && domain != selfDomain;
