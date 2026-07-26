@@ -1,7 +1,6 @@
 packages:
   - apps/*
   - packages/*
-  - tools/*
 
 # Why: every dependency version must come from a catalog. `pnpm add` routes new
 # deps into a catalog automatically and refuses to introduce a divergent range.

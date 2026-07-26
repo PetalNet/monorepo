@@ -2,7 +2,7 @@
 
 ## Register
 
-product
+Lab Console
 
 ## Users
 
