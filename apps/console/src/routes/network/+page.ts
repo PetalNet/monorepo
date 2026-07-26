@@ -68,8 +68,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			typeof event.ts === "string" &&
 			(!edgeObservedAt || Date.parse(event.ts) > Date.parse(edgeObservedAt)),
 	);
-	const newestEvidenceAt =
-		typeof newerStatus?.ts === "string" ? newerStatus.ts : edgeObservedAt;
+	const newestEvidenceAt = typeof newerStatus?.ts === "string" ? newerStatus.ts : edgeObservedAt;
 	const newestEvidenceAgeMs = newestEvidenceAt
 		? Date.now() - Date.parse(newestEvidenceAt)
 		: Number.POSITIVE_INFINITY;

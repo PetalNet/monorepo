@@ -152,8 +152,7 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				...envelope,
 				items: envelope.items.filter(
 					(item) =>
-						typeof item.lane !== "string" ||
-						principal.lanes.some((lane) => lane === item.lane),
+						typeof item.lane !== "string" || principal.lanes.some((lane) => lane === item.lane),
 				),
 			};
 		}

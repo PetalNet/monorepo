@@ -92,8 +92,7 @@ const toSubscribeFrame = (spec: BusSubscriptionSpec): BusClientFrame => ({
  * set, so `since`-based healing composes with `resync_required`.
  */
 export function connectBusClient(options: BusClientOptions): BusClient {
-	const factory =
-		options.webSocket ?? ((url: string) => new WebSocket(url));
+	const factory = options.webSocket ?? ((url: string) => new WebSocket(url));
 	const reconnectDelayMs = options.reconnectDelayMs ?? 2_000;
 	let disposed = false;
 	let socket: BusWebSocket | undefined;

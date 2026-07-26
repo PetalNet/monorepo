@@ -48,10 +48,7 @@ function filterMatches(state: Record<string, unknown>, row: EventCountRow): bool
 	const filter = state.filter;
 	if (!filter || typeof filter !== "object" || Array.isArray(filter)) return true;
 	const fields = filter as Record<string, unknown>;
-	if (
-		typeof fields.source_service === "string" &&
-		fields.source_service !== row.source_service
-	)
+	if (typeof fields.source_service === "string" && fields.source_service !== row.source_service)
 		return false;
 	if (typeof fields.subject === "string" && fields.subject !== row.subject) return false;
 	if (typeof fields.severity_gte === "string") {

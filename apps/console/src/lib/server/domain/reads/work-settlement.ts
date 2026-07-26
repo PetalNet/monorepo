@@ -58,8 +58,7 @@ function partitionWorkSettlement(
 	}
 
 	closed.sort(
-		(left, right) =>
-			Date.parse(String(right.updated_at)) - Date.parse(String(left.updated_at)),
+		(left, right) => Date.parse(String(right.updated_at)) - Date.parse(String(left.updated_at)),
 	);
 	const settling = closed.filter(
 		(item) => item.status === "done" && Date.parse(item.settles_at) > nowMs,

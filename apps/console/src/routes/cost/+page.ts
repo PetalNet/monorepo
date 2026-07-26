@@ -131,8 +131,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 				model: String(row.model_pattern),
 				input: number(row.input_per_mtok),
 				output: number(row.output_per_mtok),
-				write:
-					row.cache_creation_per_mtok == null ? null : number(row.cache_creation_per_mtok),
+				write: row.cache_creation_per_mtok == null ? null : number(row.cache_creation_per_mtok),
 				read: number(row.cache_read_per_mtok),
 			}))
 		: [];

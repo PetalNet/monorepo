@@ -18,10 +18,10 @@ import { sourceCursorRef, tailSystemOutbox } from "./system-outbox.ts";
 import { uuidv5 } from "./uuid5.ts";
 
 export type EmitFn = (
-		producerSubject: string,
-		emission: Emission,
-		bytes: number,
-	) => Promise<{ ok: boolean; code?: string }>;
+	producerSubject: string,
+	emission: Emission,
+	bytes: number,
+) => Promise<{ ok: boolean; code?: string }>;
 
 const SYSTEM_OUTBOX_PRODUCER = "bridge:system-outbox";
 
@@ -385,9 +385,7 @@ abstract class SnapshotAdapter implements BridgeAdapter {
 		return hash;
 	}
 	protected shouldEmit(previous: SnapshotMark | undefined, key: string, now: string): boolean {
-		return (
-			previous?.emitted !== key || previous.emittedAt === "" || now < previous.emittedAt
-		);
+		return previous?.emitted !== key || previous.emittedAt === "" || now < previous.emittedAt;
 	}
 
 	poll(cursor: string, now: string): AdapterBatch {
@@ -794,8 +792,7 @@ export class DispatcherSqliteAdapter implements BridgeAdapter {
 			const seen = new Set(previous.fingerprints);
 			const freshRows = rows.filter(
 				(row) =>
-					Number(row.updated_at_ms) > previous.updatedAt ||
-					!seen.has(fingerprints.get(row) ?? ""),
+					Number(row.updated_at_ms) > previous.updatedAt || !seen.has(fingerprints.get(row) ?? ""),
 			);
 			const emissions = freshRows.flatMap((row) => {
 				const cardId = text(row.card_id);

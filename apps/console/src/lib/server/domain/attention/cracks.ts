@@ -8,7 +8,10 @@ import type { Emission } from "../emission.ts";
 
 type EmitInternal = (emission: Emission) => Promise<{ ok: boolean; code?: string; seq?: number }>;
 
-interface FixOp { readonly op: string; readonly args: Record<string, unknown> }
+interface FixOp {
+	readonly op: string;
+	readonly args: Record<string, unknown>;
+}
 
 interface CrackRule {
 	readonly kind: "agent-crashed" | "service-down" | "box-ooming" | "doorman-dark";

@@ -69,8 +69,7 @@ export function flattenRosterItem(row: JoinedRosterItem): RosterItem {
 	const channelLock = heartbeat.channel_lock;
 	return {
 		handle: row.handle,
-		host:
-			stringValue(fleet.host) ?? stringValue(registry.host) ?? stringValue(identity.host),
+		host: stringValue(fleet.host) ?? stringValue(registry.host) ?? stringValue(identity.host),
 		status: (stringValue(fleet.status) as RosterItem["status"]) ?? null,
 		current_tool: stringValue(fleet.current_tool),
 		task_id: numberValue(fleet.task_id) ?? numberValue(lease.task_id),
@@ -119,9 +118,7 @@ export function consoleHealthBusAgeS(health: ConsoleHealth, now = Date.now()): n
 		}
 		const epoch = item.last_seen_epoch;
 		if (typeof epoch === "number" && Number.isFinite(epoch)) return [now / 1_000 - epoch];
-		return item.state === "up" || item.status === "ok" || item.liveness === "alive"
-			? [0]
-			: [];
+		return item.state === "up" || item.status === "ok" || item.liveness === "alive" ? [0] : [];
 	});
 	return ages.length ? Math.min(...ages) : null;
 }

@@ -74,9 +74,7 @@ function bridgeSourceOf(e: Emission): { kind: "bridge_source"; id: string } | nu
 	const source = e.meta?.bridge_source;
 	if (!source || typeof source !== "object" || Array.isArray(source)) return null;
 	const reference = source as Record<string, unknown>;
-	return reference.kind === "bridge_source" &&
-		typeof reference.id === "string" &&
-		reference.id
+	return reference.kind === "bridge_source" && typeof reference.id === "string" && reference.id
 		? { kind: "bridge_source", id: reference.id }
 		: null;
 }
@@ -357,9 +355,7 @@ export class Projector {
 		}
 		if (
 			kind === "subscription" &&
-			(e.type === "subscription.removed" ||
-				e.action === "remove" ||
-				e.dimensions?.removed === true)
+			(e.type === "subscription.removed" || e.action === "remove" || e.dimensions?.removed === true)
 		) {
 			await sql`delete from current_state
 				where kind = 'subscription' and subject = ${subject} and scope = ${e.scope} and seq < ${seq}`;
