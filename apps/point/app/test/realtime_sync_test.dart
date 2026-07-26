@@ -549,6 +549,8 @@ void main() {
       displayName: 'Parker',
       presence: PresenceState.away,
     );
+    // The last update is older than [offlineDarkGrace], so the offline
+    // verdict shows through as dark (a fresh fix would keep them live, 750).
     final merged = mergePresence(
       person,
       PeerFix(
@@ -556,7 +558,9 @@ void main() {
         data: {
           'lat': 41.88,
           'lon': -87.63,
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'timestamp': DateTime.now()
+              .subtract(offlineDarkGrace + const Duration(minutes: 1))
+              .millisecondsSinceEpoch,
         },
       ),
       serverPresence: container.read(peerPresenceProvider)[_parkerId],

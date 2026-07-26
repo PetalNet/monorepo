@@ -252,7 +252,10 @@ void main() {
       expect(merged.subtitle, 'Parked · here since ${clockHm(justParked)}');
     });
 
-    test('server offline makes a fresh fix dark immediately', () {
+    // Task 750: the server flips offline the instant a socket drops, so a
+    // peer with a fresh fix used to read "Dark since 11:05" AT 11:05. Within
+    // [offlineDarkGrace] of the last liveness signal they must stay live.
+    test('server offline with a fresh fix stays live through the grace (750)', () {
       final disconnectedAt = now.subtract(const Duration(seconds: 5));
       final fix = PeerFix(
         userId: away.userId,
@@ -274,13 +277,98 @@ void main() {
         now: now,
       );
 
-      expect(merged.presence, PresenceState.stale);
+      expect(merged.presence, PresenceState.live);
       expect(merged.hasLocation, isTrue);
       expect(merged.lat, 38.6);
+      expect(merged.subtitle, isNot(contains('Dark')));
+    });
+
+    test('offline turns dark only past the grace boundary, stamped with the '
+        'last liveness signal — never "now" (750)', () {
+      final fix = PeerFix(
+        userId: away.userId,
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': ago(const Duration(minutes: 10)),
+        },
+      );
+      Person mergedWhenObserved(Duration sinceDisconnect) => mergePresence(
+        away,
+        fix,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: false,
+          observedAt: now.subtract(sinceDisconnect),
+        ),
+        now: now,
+      );
+
+      // AT the boundary: still within grace, still live.
       expect(
-        merged.subtitle,
+        mergedWhenObserved(offlineDarkGrace).presence,
+        PresenceState.live,
+      );
+
+      // Just past it: dark, and "dark since" = the disconnect observation
+      // (the last thing heard), not the moment the client noticed.
+      final justPast = offlineDarkGrace + const Duration(seconds: 1);
+      final dark = mergedWhenObserved(justPast);
+      expect(dark.presence, PresenceState.stale);
+      expect(
+        dark.darkSinceAt,
+        now.subtract(justPast).millisecondsSinceEpoch,
+      );
+      expect(
+        dark.subtitle,
         'Last place · Dark since '
-        '${clockHm(disconnectedAt.millisecondsSinceEpoch)}',
+        '${clockHm(now.subtract(justPast).millisecondsSinceEpoch)}',
+      );
+    });
+
+    test('a location update inside the grace outlives an older offline '
+        'observation (750)', () {
+      // Disconnect observed 5 minutes ago (past grace), but a fix arrived
+      // 1 minute ago (e.g. relayed): the newer liveness wins — not dark.
+      final fix = PeerFix(
+        userId: away.userId,
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': ago(const Duration(minutes: 1)),
+        },
+      );
+      final merged = mergePresence(
+        away,
+        fix,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: false,
+          observedAt: now.subtract(const Duration(minutes: 5)),
+        ),
+        now: now,
+      );
+      expect(merged.presence, PresenceState.live);
+      expect(merged.subtitle, isNot(contains('Dark')));
+    });
+
+    test('the offline grace never outlasts the liveness dark verdict (750)', () {
+      // The grace shields a socket blip, not a dead phone: a peer whose
+      // device has been quiet past [darkAfter] darks regardless.
+      expect(offlineDarkGrace < darkAfter, isTrue);
+      final fix = PeerFix(
+        userId: away.userId,
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': ago(const Duration(minutes: 50)),
+        },
+      );
+      final merged = mergePresence(away, fix, now: now);
+      expect(merged.presence, PresenceState.stale);
+      expect(
+        merged.darkSinceAt,
+        ago(const Duration(minutes: 50)),
       );
     });
 
@@ -305,6 +393,31 @@ void main() {
     });
 
     test('server offline without a fix is neutral dark, never ghosted', () {
+      final observedAt = now.subtract(
+        offlineDarkGrace + const Duration(minutes: 1),
+      );
+      final merged = mergePresence(
+        away,
+        null,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: false,
+          observedAt: observedAt,
+        ),
+        now: now,
+      );
+
+      expect(merged.presence, PresenceState.stale);
+      expect(merged.presence, isNot(PresenceState.ghosted));
+      expect(merged.hasLocation, isFalse);
+      expect(
+        merged.subtitle,
+        'Dark since ${clockHm(observedAt.millisecondsSinceEpoch)}',
+      );
+    });
+
+    test('server offline without a fix holds off dark through the grace (750)',
+        () {
       final merged = mergePresence(
         away,
         null,
@@ -316,8 +429,8 @@ void main() {
         now: now,
       );
 
-      expect(merged.presence, PresenceState.stale);
-      expect(merged.presence, isNot(PresenceState.ghosted));
+      expect(merged.presence, PresenceState.away);
+      expect(merged.subtitle, isNot(contains('Dark')));
       expect(merged.hasLocation, isFalse);
     });
 
