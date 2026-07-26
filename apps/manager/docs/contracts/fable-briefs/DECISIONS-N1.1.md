@@ -1,5 +1,9 @@
 # N1.1 Manager Supervisor Core — DECISIONS log
 
+> **Historical/completed execution record.** The initiating brief was removed as obsolete.
+> Keep this file for rationale and validation evidence; use current `apps/manager/src` and
+> `config.example.json` for present behavior.
+
 Fable, 2026-07-10, branch `feat/N1.1-manager-core` (from tip of `feat/N-phase1-briefs`).
 MERGE/HARDEN node: manager-rs stays a faithful port; this branch makes it speak the N0.1
 contracts and covers the state machine with tests. REVIEWABLE-ONLY — no live config, no

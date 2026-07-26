@@ -1,40 +1,51 @@
 # Architecture
 
-How this monorepo wants to be used.
+How this monorepo is organized and operated.
 
-## Three-tier dependency layout
+## Dependency layout
 
 ```mermaid
 flowchart TD
-    apps["apps/*<br/>Shipped to humans — SvelteKit, FastAPI, static, native.<br/>One folder per deployable unit."]
-    packages["packages/*<br/>Shared libs — @petalnet/ui, @petalnet/utils.<br/>Used by 2+ apps; type-only or runtime."]
-    tools["tools/*<br/>Repo-internal — migration scripts, codegen, one-off ops.<br/>Not workspaced; not consumed by anyone."]
-    runner["vp run -r ...<br/>The task runner."]
+    apps["apps/*<br/>Independently shipped web, Node, Rust, and Flutter projects."]
+    packages["packages/*<br/>Shared TypeScript libraries and configuration."]
+    runner["vp run ...<br/>JavaScript/TypeScript task runner."]
 
     apps -->|depends on| packages
     runner -.->|runs| apps
     runner -.->|runs| packages
-    packages -.->|depends on| tools
-    runner -.->|runs| tools
 ```
 
-Apps depend on packages. Packages depend on other packages (sparingly). Apps never depend on each other directly — extract the shared bit to a package.
+JavaScript and TypeScript apps depend on packages, and packages depend on other
+packages sparingly. They should not depend directly on another app; extract shared
+code to a package. Native Cargo workspaces may use path dependencies between app
+crates where they form one Rust subsystem—for example, Box Agent and Control Plane
+reuse Dispatcher contracts.
 
-## Task graph (vp run)
+`pnpm-workspace.yaml` includes `apps/*` and `packages/*`. Directories without a
+`package.json` (including the Rust applications and Point's Flutter client)
+retain their native Cargo or Flutter workflow rather than becoming pnpm packages.
+Dependency versions for pnpm projects are centralized in strict catalogs there.
 
-Per `vite.config.ts`:
+## Root tasks and Vite+
 
-```mermaid
-flowchart LR
-    typecheck --> lint --> test --> build
-    cache[("shared content-addressable cache")]
-    typecheck -.-> cache
-    lint -.-> cache
-    test -.-> cache
-    build -.-> cache
+`package.json` is the source of truth for root scripts. The main entry points are:
+
+```sh
+vp run check
+vp run test
+vp run build
 ```
 
-`vp run -r build` walks the workspace package dependency graph, hits each app/package's `build` script, caches output by content + env. Rebuilds skip the cache on miss; everything else replays.
+The root `check` script runs recursive typechecks with caching and a concurrency
+limit, then root lint and formatting checks. `test` and `build` recursively run
+the corresponding scripts exposed by workspace packages. Projects only
+participate in tasks they actually declare; the repository does not define an
+extra task-dependency graph.
+
+`vite.config.ts` enables caching for package scripts and configures Vite+'s
+formatter (tabs, double quotes, semicolons, import and Tailwind class sorting).
+It intentionally does not define custom build or typecheck tasks, because those
+remain customizable per package.
 
 ## Lint pipeline
 
@@ -47,14 +58,20 @@ oxlint runs first because it's ~10-100x faster on the same rules. The overlap-di
 
 ## CI
 
-`.github/workflows/ci.yml`: pnpm install → `vp run --cache` typecheck/lint/test/build, plus `manypkg check`, `typesync --dry=fail`, and `knip`. Fail-fast; no auto-merge of major bumps.
+`.github/workflows/ci.yml` installs the pinned Node/pnpm/Vite+ toolchain, then
+runs `vp run check`, `vp run test`, manypkg, a dedupe check, typesync, and both
+Knip modes. A separate job runs `vp run build`. Additional jobs validate the
+Rust applications, Point's Rust and Flutter projects, spelling, and links.
+Release workflows build the Console and Point container images when their
+relevant paths change.
 
 ## Adding an app
 
 1. Open an issue using the **New app** template (sanity check on naming + owner).
 2. Scaffold under `apps/<slug>/` with workspace name `@petalnet/<slug>`.
-3. Wire its scripts (`build`, `dev`, `test`, `lint`, `typecheck`) so `vp run` picks them up.
+3. Add the scripts the project supports (for example `build`, `dev`, `test`, or
+   `typecheck`) so recursive `vp run` commands can discover them.
 
 ## Migrating an existing repo
 
-See `docs/MIGRATION.md` for the method + audit trail.
+See [`MIGRATION.md`](./MIGRATION.md) for the method and historical audit trail.

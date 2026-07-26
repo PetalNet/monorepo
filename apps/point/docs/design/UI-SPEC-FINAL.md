@@ -1,11 +1,10 @@
-# Point client — FINAL UI spec (design LOCKED 2026-07-11)
+# Point client — final UI spec (implemented design record, 2026-07-11)
 
-For M1 and ALL client UI. Supersedes earlier design notes. **Build the real Flutter client to
-MATCH the mockup**, using the Dart/Flutter MCP render→screenshot→fix loop so it lands
-pixel-close, not roughly (see `flutter-playbook.md`).
+This was the M1 visual target and superseded earlier design notes. **Status:
+implemented.** Use it as rationale and visual reference; current source, tests,
+and later decisions are authoritative for behavior and dependencies.
 
-**VISUAL TARGET = the mockup.** Gallery `point-client-mockups` (staged HTML source:
-`/home/docker/point-mockups.final.html`). It shows the real screens: map + presence, ghost
+**Visual reference:** [`mockups.final.html`](mockups.final.html). It shows map + presence, ghost
 toggle, People + share sheet, device-link QR, and the token system. That look is the bar.
 
 ## LOCKED decisions (do not relitigate; all signed off by Parker + Eli)
@@ -26,10 +25,11 @@ toggle, People + share sheet, device-link QR, and the token system. That look is
 - **Presence encoded by FORM not color:** solid = live, hollow ring = away, dashed = stale,
   slashed = ghosted. The ghost / "you're sharing" safety signal = **inverse fill + a clear
   label** — NO pulse/ripple animation (removed per Parker feedback), NO red. ≥48dp, Semantics label.
-- **Maps: provider-agnostic, supporting Google Maps + MapLibre** (user-switchable; MapLibre =
-  the privacy option). Monochrome basemap per provider (Google styled map / CARTO
-  positron-dark for MapLibre). Markers as widget CLASSES; presence driven off a Riverpod
-  stream so only the marker layer rebuilds.
+- **Maps (implemented):** `flutter_map` renders raster tiles selected in Privacy
+  settings. Sources resolve from the connected server's `/.well-known/point`:
+  self-hosted tiles or its authenticated tile proxy, with a labeled public CARTO
+  dark fallback when unavailable. Google support was deferred and is not a
+  dependency. Markers are widget classes and presence is Riverpod-driven.
 - **Shape: curvy & slick** — radii 8/12/16/24/28/full in a typed `ThemeExtension` (AppRadii);
   bottom sheets get the 28 top-radius; elevation is tonal, NO drop-shadow spray.
 - **State: Riverpod;** feature-first layout (`lib/features/<f>/{data,domain,presentation}`);
@@ -42,5 +42,5 @@ toggle, People + share sheet, device-link QR, and the token system. That look is
   mockup is. Do not copy nexus's look.
 
 **Method:** `flutter-playbook.md` (the render loop, craft rubric, slop-tells to grep out).
-**Full rationale + the nexus ADHERE/STEAL/DROP + surface tone ladder:** `point-design-direction.md`
-(staged at `/home/docker/point-fable/`). Build to match the mockup.
+The deleted exploratory direction document was superseded by this record and the
+implemented client.

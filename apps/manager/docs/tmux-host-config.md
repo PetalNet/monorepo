@@ -1,7 +1,10 @@
-# Host tmux + ttyd declarative config — SPEC ONLY, NOT APPLIED
+# Host tmux + ttyd declarative config — historical deployment-specific spec
 
-> **Status: reviewable spec (N1.2).** Nothing here is installed by this
-> node. The `janet-nix` repo (not checked out on this host) owns the real
+> **Status: historical/reviewable N1.2 spec, not applied by this app.** uid 1000,
+> `/tmp/tmux-1000/default`, `janet-claude`, versions, ports, repository names, and container
+> topology are assumptions from one deployment and must be re-verified. `apps/manager`
+> installs none of tmux, ttyd, Nix modules, containers, or socket cleanup. The external
+> `janet-nix` deployment was expected to own the real
 > `modules/home/{tmux,ttyd}.nix`; this document plus
 > [`tmux.conf.reviewable`](./tmux.conf.reviewable) are written so those
 > modules can adopt the content verbatim. Until then the live host keeps
@@ -9,7 +12,8 @@
 
 ## 1. The one-version rule
 
-**Exactly one tmux version on the host, pinned: 3.4.** Why 3.4 and why
+For that deployment, the recommendation was **exactly one tmux version, pinned to 3.4**.
+This is not installed or enforced by `apps/manager`. Why 3.4 and why
 one:
 
 - The manager requires **tmux ≥ 3.0** (pane _user options_ carry the

@@ -2,25 +2,31 @@
 
 ## Overview
 
-This application now has comprehensive timezone support to ensure all times are displayed correctly regardless of where users and event hosts are located.
+Events carry an IANA timezone such as `America/New_York`. The UI uses that zone when formatting
+deadlines and when populating `datetime-local` controls. This is display/input context, not a
+complete timezone conversion layer.
 
 ## How It Works
 
 ### Storage
 
-- All dates are stored in the database as **UTC timestamps** (this is standard practice)
+- Prisma stores deadline instants in its `DateTime` column
 - Each event has a `timezone` field (e.g., "America/New_York", "Europe/London")
 
 ### Display
 
 - Dates are **displayed in the event's timezone**, not the user's browser timezone
 - All date displays include a timezone abbreviation (e.g., EST, PST, GMT) for clarity
-- Relative times ("in 2 hours", "3 days ago") are calculated based on the event's timezone
+- Relative durations compare the stored instant with `Date.now()`; the event timezone is used only
+  when the utility falls back to an absolute formatted date
 
 ### Input
 
-- When creating or editing events, datetime-local inputs are interpreted in the **event's timezone**
-- Labels clearly indicate which timezone the input is in (e.g., "Submission Deadline (in EST)")
+- `toDateTimeLocal` renders a stored instant as wall-clock fields in the event timezone
+- Server handlers currently pass submitted timezone-less strings directly to `new Date(value)`.
+  JavaScript interprets those strings in the server process's local timezone, not in the event's
+  selected timezone. Deployments should therefore set a deliberate process timezone (normally UTC)
+  and must not claim that input was converted from the event timezone
 
 ## Utility Functions
 
@@ -47,15 +53,6 @@ Convert a UTC date to datetime-local format for input fields.
 ```typescript
 toDateTimeLocal(event.submissionDeadline, event.timezone);
 // Returns: "2025-12-25T15:00" (in the event's timezone)
-```
-
-### `fromDateTimeLocal(dateTimeLocal, timezone)`
-
-Convert a datetime-local input value to a UTC Date object.
-
-```typescript
-fromDateTimeLocal("2025-12-25T15:00", "America/New_York");
-// Returns: Date object representing Dec 25, 3:00 PM EST in UTC
 ```
 
 ### `getTimezoneAbbr(timezone, date?)`
@@ -85,24 +82,14 @@ getUserTimezone();
 // Returns: "America/Los_Angeles" (based on browser)
 ```
 
-## Components
-
-### TimezoneBadge
-
-Visual badge component to show timezone:
-
-```svelte
-<TimezoneBadge timezone={event.timezone} />
-```
-
 ## Where Timezone is Used
 
 1. **Event Creation** (`/event/create`)
    - Host selects event timezone from dropdown
    - Defaults to user's browser timezone
-   - Deadline input is interpreted in selected timezone
+   - Deadline input is parsed by the server process as described above
 
-2. **Event Display** (`/night/[code]`)
+2. **Event Display and host settings** (`/night/[code]`)
    - Deadline shown in event timezone with abbreviation
    - Host settings show timezone context for inputs
 
@@ -112,10 +99,7 @@ Visual badge component to show timezone:
 
 4. **Dashboard** (`/dashboard`)
    - Upcoming deadlines shown with timezone context
-   - Relative times calculated in event timezone
-
-5. **Live View** (`/night/[code]/live`)
-   - All event times respect event timezone
+   - Relative durations compare instants; distant dates are formatted in the event timezone
 
 ## Best Practices
 
@@ -144,10 +128,13 @@ Always show the timezone abbreviation or name:
    <label>Deadline (in {getTimezoneAbbr(event.timezone)})</label>
    ```
 
-3. Server receives datetime-local string and can create Date directly:
+3. Do not describe direct parsing as event-zone conversion:
+
    ```typescript
-   new Date(dateTimeLocalString); // Correctly interpreted as UTC
+   new Date(dateTimeLocalString); // Interpreted in the server process's local timezone
    ```
+
+   A future event-zone-aware parser must explicitly handle DST gaps and repeated wall-clock times.
 
 ### Common Timezone Options
 
@@ -161,14 +148,16 @@ Pre-defined list in `COMMON_TIMEZONES`:
 
 ## Migration Notes
 
-If you have existing events without timezone data, they default to "America/New_York" as set in the schema. You may want to run a migration to set appropriate timezones for existing events.
+The schema default is `America/New_York`. Migration
+`prisma/migrations/20251023003608_add_event_timezone/migration.sql` added and backfilled the
+column; review that default for imported or older events.
 
 ## Testing Considerations
 
 1. Test deadline display across timezone boundaries (e.g., event in EST, view from PST)
 2. Test daylight saving time transitions
 3. Test with international timezones
-4. Verify datetime-local inputs handle timezone conversions correctly
+4. Verify timezone-less datetime inputs under the deployment's configured process timezone
 5. Check relative time calculations ("in 2 hours") are accurate
 
 ## Future Enhancements
