@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { Snippet } from "svelte";
 
-	/** A cockpit rail card (shell chrome, NOT an assistant Panel): 2px radius per
-	 * §3.4 — the 12px softness is reserved for agent-composed Panels. */
+	/**
+	 * A cockpit rail card (shell chrome, NOT an assistant Panel): 2px radius per §3.4 — the 12px
+	 * softness is reserved for agent-composed Panels.
+	 */
 	interface Props {
 		heading: string;
 		sign?: string | null;
@@ -32,8 +34,7 @@
 		margin-bottom: var(--s-2);
 	}
 	.sign-sub {
-		font:
-			400 0.8125rem var(--sign);
+		font: 400 0.8125rem var(--sign);
 		color: var(--text-3);
 	}
 </style>

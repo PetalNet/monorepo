@@ -1,5 +1,6 @@
 <script lang="ts" generics="Name extends string">
 	import { SvelteSet } from "svelte/reactivity";
+
 	import { hasIcon, ICONS, type IconName } from "./icons";
 
 	const warnedUnknownIcons = new SvelteSet<string>();
@@ -12,13 +13,7 @@
 		strokeWidth?: number;
 		title?: string;
 	}
-	let {
-		name,
-		size = 16,
-		color,
-		strokeWidth = 2,
-		title,
-	}: Props = $props();
+	let { name, size = 16, color, strokeWidth = 2, title }: Props = $props();
 
 	const Cmp = $derived(hasIcon(name) ? ICONS[name] : undefined);
 

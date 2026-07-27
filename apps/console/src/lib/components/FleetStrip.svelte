@@ -1,14 +1,15 @@
 <script lang="ts">
 	import type { FleetSummary } from "$lib/data/mock";
 	import { compactTokens } from "$lib/util";
+
 	import BudgetLight from "./BudgetLight.svelte";
 	import StatusDot from "./StatusDot.svelte";
 
 	/**
-	 * FleetStrip (04-agents §3.1, /task/716): the whole-fleet glance — budget pool,
-	 * fleet mode, aggregate health, discipline. Four hairline-separated zones. Down
-	 * turns the health pair danger. Mode is a real op (fleet.mode) — read-only here
-	 * until the command is wired (operator lane); rendered as state, not a fake toggle.
+	 * FleetStrip (04-agents §3.1, /task/716): the whole-fleet glance — budget pool, fleet mode,
+	 * aggregate health, discipline. Four hairline-separated zones. Down turns the health pair danger.
+	 * Mode is a real op (fleet.mode) — read-only here until the command is wired (operator lane);
+	 * rendered as state, not a fake toggle.
 	 */
 	interface Props {
 		summary: FleetSummary;
@@ -55,9 +56,15 @@
 <div class="phone-strip" aria-label="Fleet summary">
 	<span class="phone-health" class:danger={health.down > 0}>
 		<StatusDot tone={health.down > 0 ? "danger" : "good"} />
-		<span class="health-long" aria-hidden="true">{health.alive} alive · {health.working} working · {health.idle} idle · {health.down} down</span>
-		<span class="health-short" aria-hidden="true">{health.alive}A · {health.working}W · {health.idle}I · {health.down}D</span>
-		<span class="sr-only">{health.alive} alive, {health.working} working, {health.idle} idle, {health.down} down</span>
+		<span class="health-long" aria-hidden="true"
+			>{health.alive} alive · {health.working} working · {health.idle} idle · {health.down} down</span
+		>
+		<span class="health-short" aria-hidden="true"
+			>{health.alive}A · {health.working}W · {health.idle}I · {health.down}D</span
+		>
+		<span class="sr-only"
+			>{health.alive} alive, {health.working} working, {health.idle} idle, {health.down} down</span
+		>
 	</span>
 	<span class="phone-budget">
 		<BudgetLight {light} /><span class="sr-only">Fleet points used: </span>{pct}%
@@ -99,8 +106,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--s-1);
-		font:
-			500 0.8125rem var(--mono);
+		font: 500 0.8125rem var(--mono);
 		font-feature-settings: "tnum" 1;
 		color: var(--text-2);
 		white-space: nowrap;
@@ -118,8 +124,7 @@
 		gap: 0;
 	}
 	.opt {
-		font:
-			500 0.6875rem var(--sans);
+		font: 500 0.6875rem var(--sans);
 		padding: 2px var(--s-2);
 		border-radius: var(--r-pill);
 		color: var(--text-3);
@@ -129,8 +134,7 @@
 		color: var(--petal-text);
 	}
 	.reason {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-3);
 		margin-inline-start: var(--s-1);
 	}

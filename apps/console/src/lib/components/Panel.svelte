@@ -1,13 +1,13 @@
 <script lang="ts">
 	import type { Snippet } from "svelte";
+
 	import Icon from "./Icon.svelte";
 
 	/**
-	 * Panel (foundations §3.7/§5.4): the assistant-composed canvas tile. The ONE
-	 * 12px-radius exception (§3.4) — panels earn the softness as the agent's own
-	 * artifacts. No panel exists without its receipt: the provenance footer carries
-	 * source + freshness + row count and the "Show the math." peek. Right-click
-	 * target for ask-about-this (§4.3).
+	 * Panel (foundations §3.7/§5.4): the assistant-composed canvas tile. The ONE 12px-radius
+	 * exception (§3.4) — panels earn the softness as the agent's own artifacts. No panel exists
+	 * without its receipt: the provenance footer carries source + freshness + row count and the "Show
+	 * the math." peek. Right-click target for ask-about-this (§4.3).
 	 */
 	export interface Provenance {
 		source: string;
@@ -41,7 +41,6 @@
 		e.preventDefault();
 		onaskabout();
 	}
-
 </script>
 
 <article
@@ -59,12 +58,19 @@
 			<Icon name="receipt-text" size={12} />
 			<span>{prov.source}{prov.rows ? ` · ${prov.rows}` : ""} · {prov.freshness}</span>
 			{#if onaskabout}
-				<button class="context" type="button" onclick={onaskabout} aria-label="Ask about {title}" title="Ask about this panel">
+				<button
+					class="context"
+					type="button"
+					onclick={onaskabout}
+					aria-label="Ask about {title}"
+					title="Ask about this panel"
+				>
 					<Icon name="mouse-pointer-2" size={12} />
 				</button>
 			{/if}
 			{#if onshowmath || onaskabout}
-				<button class="math" type="button" onclick={onshowmath ?? onaskabout}>Show the math.</button>
+				<button class="math" type="button" onclick={onshowmath ?? onaskabout}>Show the math.</button
+				>
 			{/if}
 		</div>
 	{/if}
@@ -82,8 +88,7 @@
 		animation-delay: calc(var(--panel-settle-index) * var(--dur-stagger));
 	}
 	h4 {
-		font:
-			500 0.84375rem var(--sans);
+		font: 500 0.84375rem var(--sans);
 		margin-bottom: 2px;
 	}
 	.sub {
@@ -102,8 +107,7 @@
 		border-top: 1px solid var(--rule);
 		margin-top: var(--s-2);
 		padding-top: var(--s-2);
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-3);
 	}
 	.prov :global(svg) {

@@ -24,7 +24,9 @@
 			aria-pressed={value === option.value}
 			disabled={option.disabled}
 			title={option.title}
-			onclick={() => { onchange(option.value); }}
+			onclick={() => {
+				onchange(option.value);
+			}}
 		>
 			{option.label}
 		</button>
@@ -48,7 +50,9 @@
 		color: var(--text-3);
 		font: 500 0.75rem var(--sans);
 		cursor: pointer;
-		transition: background var(--t), color var(--t);
+		transition:
+			background var(--t),
+			color var(--t);
 	}
 	button:hover:not(:disabled) {
 		background: var(--s3);

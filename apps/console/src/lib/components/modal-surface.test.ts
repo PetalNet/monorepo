@@ -9,11 +9,11 @@ describe("modal surface contract", () => {
 	it("defines explicit dialog and drawer variants with the shared material vocabulary", async () => {
 		const modal = await source("./ModalSurface.svelte");
 		assert.match(modal, /variant: "dialog" \| "drawer"/);
-		assert.match(modal, /box-shadow:var\(--shadow-pop\)/);
-		assert.match(modal, /border-radius:var\(--r-lg\)/);
+		assert.match(modal, /box-shadow:\s*var\(--shadow-pop\)/);
+		assert.match(modal, /border-radius:\s*var\(--r-lg\)/);
 		assert.match(modal, /::backdrop/);
 		assert.match(modal, /dialog-close/);
-		assert.match(modal, /:not\(\[open\]\)\{display:none\}/);
+		assert.match(modal, /:not\(\[open\]\)\s*\{\s*display:\s*none/);
 	});
 
 	it("captures and restores focus around the native modal lifecycle", async () => {
