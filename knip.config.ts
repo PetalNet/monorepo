@@ -6,9 +6,6 @@ export default {
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
-		".": {
-			entry: ["vite.config.ts"],
-		},
 		"apps/collegemap": {
 			drizzle: {
 				config: [],
@@ -17,16 +14,25 @@ export default {
 		},
 		"apps/console": {
 			ignoreDependencies: ["crossws!"],
-			sveltekit: {
-				config: ["vite.config.ts"],
-			},
+			// Knip's SvelteKit plugin reads the SK3 config out of `vite.config.ts`, but it only
+			// does so when it statically sees `sveltekit` imported from `@sveltejs/kit/vite`
+			// (knip/src/plugins/sveltekit/resolveFromAST.ts). This app configures Kit through
+			// `svelte-plugin-composer`'s `kit()` wrapper instead, so that check never matches and
+			// the plugin contributes nothing. Until knip can see through the wrapper, restate the
+			// two things it would otherwise give us: the route/hook production entries and the
+			// `$lib` alias. Grove uses the bare `sveltekit()` call and needs none of this.
 			paths: {
-				"$app/env": ["node_modules/@sveltejs/kit/types/index.d.ts"],
-				"$app/server": ["node_modules/@sveltejs/kit/types/index.d.ts"],
+				$lib: ["src/lib"],
+				"$lib/*": ["src/lib/*"],
 			},
-			// Scripts are deploy/ops entrypoints (seed, bridge daemon, token mint, capability
-			// install) — production surface, hence the `!` markers.
+			ignoreUnresolved: ["\\$app/.+"],
 			entry: [
+				// Stand-ins for the SvelteKit plugin's production entries (see note above).
+				"src/routes/**/+{page,server,page.server,error,layout,layout.server}{,@*}.{js,ts,svelte}!",
+				"src/hooks.{server,client}.{js,ts}!",
+				"src/instrumentation.server.{js,ts}!",
+				// Scripts are deploy/ops entrypoints (seed, bridge daemon, token mint, capability
+				// install) — production surface, hence the `!` markers.
 				"effectdb.config.ts!",
 				"src/lib/server/db/tables.ts!",
 				"src/env.ts!",
@@ -36,9 +42,6 @@ export default {
 			],
 		},
 		"apps/grove": {
-			sveltekit: {
-				config: ["vite.config.ts"],
-			},
 			entry: ["effectdb.config.ts!", "src/env.ts!"],
 		},
 		"apps/storybook": {
