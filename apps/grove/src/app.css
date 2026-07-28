@@ -1,9 +1,7 @@
 @import "tailwindcss";
 
 @plugin "daisyui" {
-	themes:
-		light --default,
-		dark --prefersdark;
+	themes: false;
 }
 
 @plugin "daisyui/theme" {
@@ -30,6 +28,18 @@
 	--radius-field: 0.5rem;
 	--radius-box: 0.125rem;
 	--border: 1px;
+}
+
+html {
+	background-color: var(--color-base-200);
+	color: var(--color-base-content);
+}
+
+body {
+	min-height: 100vh;
+	margin: 0;
+	background-color: var(--color-base-200);
+	color: var(--color-base-content);
 }
 
 @plugin "daisyui/theme" {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ModeWatcher, mode, setTheme, toggleMode } from "mode-watcher";
+	import { ModeWatcher, mode, setTheme, theme, toggleMode } from "mode-watcher";
 	import { tick } from "svelte";
 
 	import favicon from "#lib/assets/favicon.svg";
@@ -8,10 +8,12 @@
 
 	let { children } = $props();
 
+	$effect(() => {
+		if (mode.current && theme.current !== mode.current) setTheme(mode.current);
+	});
+
 	function applyModeToggle() {
-		const nextMode = mode.current === "dark" ? "light" : "dark";
 		toggleMode();
-		setTheme(nextMode);
 	}
 
 	function toggleTheme() {
@@ -34,7 +36,12 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<ModeWatcher defaultMode="system" disableTransitions />
+<ModeWatcher
+	defaultMode="system"
+	disableTransitions
+	disableHeadScriptInjection
+	synchronousModeChanges
+/>
 
 <button
 	type="button"

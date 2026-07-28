@@ -4,6 +4,28 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<script>
+			{
+				try {
+					const storedMode = localStorage.getItem("mode-watcher-mode");
+					const mode =
+						storedMode === "light" || storedMode === "dark" || storedMode === "system"
+							? storedMode
+							: "system";
+					const theme =
+						mode === "dark" ||
+						(mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
+							? "dark"
+							: "light";
+
+					document.documentElement.dataset.theme = theme;
+					document.documentElement.style.colorScheme = theme;
+					localStorage.setItem("mode-watcher-theme", theme);
+				} catch {
+					// DaisyUI's prefers-color-scheme fallback remains active when storage is unavailable.
+				}
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

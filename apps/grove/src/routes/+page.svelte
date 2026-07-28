@@ -48,16 +48,17 @@
 
 <svelte:head><title>Grove transport demo</title></svelte:head>
 
-<main>
-	<p class="eyebrow">Effect domain demo</p>
-	<h1>Grove sprouts</h1>
-	<p class="intro">
+<main class="mx-auto min-h-screen w-full max-w-3xl px-4 py-12 sm:py-20">
+	<p class="text-primary text-xs font-bold tracking-[0.12em] uppercase">Effect domain demo</p>
+	<h1 class="mt-1 text-5xl font-bold tracking-tight sm:text-7xl">Grove sprouts</h1>
+	<p class="text-base-content/70 mt-4 max-w-2xl leading-relaxed">
 		These controls use SvelteKit Remote Functions. The same Effect operations are also exposed as
-		<a href="/api/v1/openapi.json">REST/OpenAPI</a> and MCP at <code>/mcp</code>.
+		<a class="link link-primary" href="/api/v1/openapi.json">REST/OpenAPI</a> and MCP at
+		<code class="bg-base-300 rounded px-1.5 py-0.5">/mcp</code>.
 	</p>
 
 	<form
-		class="plant-form"
+		class="border-base-300 bg-base-100 rounded-box my-8 flex items-end gap-4 border p-4 shadow-sm"
 		{...plantForm.enhance(async (form) => {
 			const plantedName = form.fields.name.value()?.trim() ?? "";
 			const optimisticSprout: Sprout = {
@@ -81,40 +82,55 @@
 			}
 		})}
 	>
-		<label>
-			<span>Sprout name</span>
-			<input {...plantForm.fields.name.as("text")} maxlength="80" placeholder="Silver fern" />
+		<label class="fieldset min-w-0 grow">
+			<span class="fieldset-legend">Sprout name</span>
+			<input
+				class="input w-full"
+				{...plantForm.fields.name.as("text")}
+				maxlength="80"
+				placeholder="Silver fern"
+			/>
 			{#each plantForm.fields.name.issues() ?? [] as issue}
-				<small class="error">{issue.message}</small>
+				<small class="text-error font-semibold">{issue.message}</small>
 			{/each}
 		</label>
-		<button disabled={plantForm.pending > 0}>Plant</button>
+		<button class="btn btn-primary" disabled={plantForm.pending > 0}>Plant</button>
 	</form>
 
 	{#if error}
-		<p class="error" role="alert">{error}</p>
+		<div class="alert alert-error mb-4" role="alert">{error}</div>
 	{/if}
 
-	<section aria-label="Sprouts">
+	<section class="grid gap-3" aria-label="Sprouts">
 		{#each sprouts as sprout (sprout.id)}
 			{@const planting = sprout.id.slice("sprout-".length).includes("-")}
 			{@const displayedWaterings = watering.value(sprout.id, sprout.waterings)}
 			{@const waterForm = waterSprout.for(sprout.id).preflight(WaterSproutValidator)}
 			{@const removeForm = removeSprout.for(sprout.id).preflight(SproutIdValidator)}
-			<article aria-busy={planting}>
+			<article
+				class="border-base-300 bg-base-100 rounded-box flex items-center justify-between gap-4 border p-4 shadow-sm max-sm:flex-col max-sm:items-start"
+				aria-busy={planting}
+			>
 				<div>
-					<h2>{sprout.name}</h2>
-					<p>
-						<code>{planting ? "planting…" : sprout.id}</code> · watered
-						<span class="watering-value" aria-live="polite" aria-atomic="true">
+					<h2 class="text-lg font-semibold">{sprout.name}</h2>
+					<p class="text-base-content/60 mt-1 text-sm">
+						<code class="bg-base-300 rounded px-1.5 py-0.5"
+							>{planting ? "planting…" : sprout.id}</code
+						>
+						· watered
+						<span
+							class="text-success inline-flex min-w-[2.5ch] items-baseline tabular-nums"
+							aria-live="polite"
+							aria-atomic="true"
+						>
 							{#key displayedWaterings}<strong>{displayedWaterings}</strong>{/key}×
 						</span>
 					</p>
 				</div>
-				<div class="actions">
-					<button class="quiet" onclick={() => inspect(sprout.id)}>Inspect</button>
+				<div class="flex flex-wrap gap-2">
+					<button class="btn btn-ghost btn-sm" onclick={() => inspect(sprout.id)}>Inspect</button>
 					<form
-						class="action-form"
+						class="contents"
 						{...waterForm.enhance(async (form) => {
 							await watering.submit(sprout.id, () =>
 								form
@@ -128,7 +144,7 @@
 					>
 						<input {...waterForm.fields.id.as("hidden", sprout.id)} />
 						<button
-							class="water"
+							class="btn btn-primary btn-sm min-w-20"
 							disabled={planting}
 							onclick={() =>
 								watering.increment(
@@ -140,7 +156,7 @@
 						</button>
 					</form>
 					<form
-						class="action-form"
+						class="contents"
 						{...removeForm.enhance(async (form) => {
 							error = "";
 							try {
@@ -166,7 +182,7 @@
 						})}
 					>
 						<input {...removeForm.fields.id.as("hidden", sprout.id)} />
-						<button class="danger" disabled={planting}>Remove</button>
+						<button class="btn btn-error btn-sm" disabled={planting}>Remove</button>
 					</form>
 				</div>
 			</article>
@@ -174,163 +190,22 @@
 	</section>
 
 	{#if displayedInspection}
-		<pre>{JSON.stringify(displayedInspection, null, 2)}</pre>
+		<pre class="bg-neutral text-neutral-content rounded-box mt-4 overflow-auto p-4">{JSON.stringify(
+				displayedInspection,
+				null,
+				2,
+			)}</pre>
 	{/if}
 </main>
 
 <style>
-	:global(body) {
-		margin: 0;
-		background: #f1f5ec;
-		color: #18351f;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-	}
-	main {
-		width: min(760px, calc(100% - 2rem));
-		margin: 5rem auto;
-	}
-	.eyebrow {
-		margin: 0;
-		color: #52745a;
-		font-size: 0.75rem;
-		font-weight: 700;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-	}
-	h1 {
-		margin: 0.25rem 0;
-		font-size: clamp(2.5rem, 8vw, 5rem);
-		letter-spacing: -0.06em;
-	}
-	.intro {
-		max-width: 620px;
-		color: #47634d;
-		line-height: 1.6;
-	}
-	a {
-		color: #236d38;
-	}
-	.plant-form,
-	article {
-		display: flex;
-		align-items: end;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 1rem;
-		border: 1px solid #c7d5c3;
-		border-radius: 0.8rem;
-		background: #fff;
-	}
-	.plant-form {
-		margin: 2rem 0;
-	}
-	.action-form {
-		display: contents;
-	}
-	label {
-		display: grid;
-		flex: 1;
-		gap: 0.4rem;
-		font-size: 0.8rem;
-		font-weight: 650;
-	}
-	input {
-		padding: 0.7rem;
-		border: 1px solid #aabda6;
-		border-radius: 0.4rem;
-		font: inherit;
-	}
-	section {
-		display: grid;
-		gap: 0.75rem;
-	}
-	article {
-		align-items: center;
-	}
-	h2,
-	article p {
-		margin: 0;
-	}
-	article p {
-		margin-top: 0.3rem;
-		color: #637966;
-		font-size: 0.85rem;
-	}
-	.watering-value {
-		display: inline-flex;
-		align-items: baseline;
-		min-width: 2.5ch;
-		color: #286f3c;
-		font-variant-numeric: tabular-nums;
-	}
-	.watering-value strong {
+	strong {
 		display: inline-block;
 		animation: count-pop 160ms cubic-bezier(0.2, 1.7, 0.4, 1);
 	}
-	.actions {
-		display: flex;
-		gap: 0.4rem;
-	}
-	button {
-		padding: 0.65rem 0.85rem;
-		border: 0;
-		border-radius: 0.4rem;
-		background: #286f3c;
-		box-shadow: 0 3px 0 #174d28;
-		color: white;
-		font: inherit;
-		font-weight: 650;
-		cursor: pointer;
-		touch-action: manipulation;
-		transition:
-			transform 70ms ease,
-			box-shadow 70ms ease,
-			background-color 120ms ease;
-		user-select: none;
-	}
-	button:hover:not(:disabled) {
-		background: #23733c;
-	}
-	button:active:not(:disabled) {
-		box-shadow: 0 1px 0 #174d28;
-		transform: translateY(2px) scale(0.97);
-	}
-	button:disabled {
-		opacity: 0.5;
-	}
-	button.water {
-		min-width: 5.6rem;
-	}
-	button.quiet {
-		background: #e5eee2;
-		box-shadow: 0 3px 0 #bacab6;
-		color: #284a30;
-	}
-	button.quiet:active:not(:disabled) {
-		box-shadow: 0 1px 0 #bacab6;
-	}
-	button.danger {
-		background: #8b3b35;
-		box-shadow: 0 3px 0 #612723;
-	}
-	button.danger:active:not(:disabled) {
-		box-shadow: 0 1px 0 #612723;
-	}
-	.error {
-		color: #8b3b35;
-		font-weight: 650;
-	}
-	pre {
-		margin-top: 1rem;
-		padding: 1rem;
-		overflow: auto;
-		border-radius: 0.8rem;
-		background: #193320;
-		color: #cce4c9;
-	}
 	@keyframes count-pop {
 		0% {
-			color: #5aaf6f;
+			color: var(--color-success);
 			transform: translateY(0.2rem) scale(0.72);
 		}
 		100% {
@@ -339,22 +214,8 @@
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		button,
-		.watering-value strong {
+		strong {
 			animation: none;
-			transition: none;
-		}
-	}
-	@media (max-width: 620px) {
-		main {
-			margin: 2rem auto;
-		}
-		article {
-			align-items: start;
-			flex-direction: column;
-		}
-		.actions {
-			flex-wrap: wrap;
 		}
 	}
 </style>
