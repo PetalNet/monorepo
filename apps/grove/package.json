@@ -17,17 +17,22 @@
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
+		"@lucide/svelte": "catalog:prod",
 		"@petalnet/effect-api": "workspace:*",
 		"@petalnet/effect-sveltekit": "workspace:*",
 		"@sveltejs/kit": "catalog:",
+		"daisyui": "catalog:prod",
 		"effect": "catalog:",
 		"effect-db": "catalog:",
-		"effect-qb": "catalog:"
+		"effect-qb": "catalog:",
+		"mode-watcher": "catalog:",
+		"svelte": "catalog:prod",
+		"tailwindcss": "catalog:prod"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "catalog:dev",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
-		"svelte": "catalog:prod",
+		"@tailwindcss/vite": "catalog:dev",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev"

@@ -516,6 +516,9 @@ importers:
       '@effect/sql-pg':
         specifier: 'catalog:'
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)
+      '@lucide/svelte':
+        specifier: catalog:prod
+        version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
       '@petalnet/effect-api':
         specifier: workspace:*
         version: link:../../packages/effect-api
@@ -525,6 +528,9 @@ importers:
       '@sveltejs/kit':
         specifier: 'catalog:'
         version: 3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      daisyui:
+        specifier: catalog:prod
+        version: 5.6.18
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.102
@@ -534,6 +540,15 @@ importers:
       effect-qb:
         specifier: 'catalog:'
         version: 0.21.0(effect@4.0.0-beta.102)
+      mode-watcher:
+        specifier: 'catalog:'
+        version: 1.1.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
+      svelte:
+        specifier: catalog:prod
+        version: 5.56.5(@typescript-eslint/types@8.61.1)
+      tailwindcss:
+        specifier: catalog:prod
+        version: 4.3.1
     devDependencies:
       '@sveltejs/adapter-node':
         specifier: catalog:dev
@@ -541,9 +556,9 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: catalog:dev
         version: 7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-      svelte:
-        specifier: catalog:prod
-        version: 5.56.5(@typescript-eslint/types@8.61.1)
+      '@tailwindcss/vite':
+        specifier: catalog:dev
+        version: 4.3.1(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       svelte-check:
         specifier: catalog:dev
         version: 4.6.0(@typescript/typescript6@6.0.2)(picomatch@4.0.4)(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -10494,6 +10509,13 @@ snapshots:
       '@tailwindcss/oxide': 4.3.1
       tailwindcss: 4.3.1
       vite: 8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+
+  '@tailwindcss/vite@4.3.1(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
+    dependencies:
+      '@tailwindcss/node': 4.3.1
+      '@tailwindcss/oxide': 4.3.1
+      tailwindcss: 4.3.1
+      vite: 8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
 
   '@testcontainers/postgresql@11.14.0':
     dependencies:
