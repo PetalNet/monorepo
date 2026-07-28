@@ -1,36 +1,15 @@
 <script lang="ts">
+	import { Theme } from "$lib/theme.svelte";
 	import Moon from "@lucide/svelte/icons/moon";
 	import Sun from "@lucide/svelte/icons/sun";
-	import { ModeWatcher, mode, setMode, setTheme } from "mode-watcher";
-	import { tick } from "svelte";
+	import { ModeWatcher } from "mode-watcher";
 
 	import favicon from "#lib/assets/favicon.svg";
 
 	import "../app.css";
 
 	let { children } = $props();
-
-	function applyModeToggle() {
-		const nextMode = mode.current === "dark" ? "light" : "dark";
-		setMode(nextMode);
-		// DaisyUI reads data-theme; mode remains Grove's source of truth.
-		setTheme(nextMode);
-	}
-
-	function toggleTheme() {
-		if (
-			window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
-			!document.startViewTransition
-		) {
-			applyModeToggle();
-			return;
-		}
-
-		document.startViewTransition(async () => {
-			applyModeToggle();
-			await tick();
-		});
-	}
+	const theme = new Theme();
 </script>
 
 <svelte:head>
@@ -45,10 +24,10 @@
 		type="checkbox"
 		value="dark"
 		class="toggle theme-controller"
-		checked={mode.current === "dark"}
+		checked={theme.dark}
 		onclick={(event) => {
 			event.preventDefault();
-			toggleTheme();
+			theme.toggle();
 		}}
 		aria-label="Toggle color scheme"
 	/>
