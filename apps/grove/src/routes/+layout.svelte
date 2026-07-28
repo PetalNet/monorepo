@@ -4,7 +4,7 @@
 	import { ModeWatcher } from "mode-watcher";
 
 	import favicon from "#lib/assets/favicon.svg";
-	import { Theme } from "#lib/theme.svelte.js";
+	import { Theme } from "#lib/theme.svelte.ts";
 
 	import "../app.css";
 
