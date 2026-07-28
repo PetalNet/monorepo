@@ -47,6 +47,23 @@ export default defineConfig([
 		},
 	},
 	{
+		// The effect-api/effect-sveltekit build tsconfigs intentionally scope emit to
+		// src (emitDeclarationOnly + rootDir), so their test/ files are not part of the
+		// build project. Point typed linting for those tests at a dedicated
+		// tsconfig.eslint.json that includes src + test (see each package).
+		files: ["packages/effect-api/test/**/*.ts", "packages/effect-sveltekit/test/**/*.ts"],
+		languageOptions: {
+			parserOptions: {
+				projectService: false,
+				tsconfigRootDir: root,
+				project: [
+					"packages/effect-api/tsconfig.eslint.json",
+					"packages/effect-sveltekit/tsconfig.eslint.json",
+				],
+			},
+		},
+	},
+	{
 		files: ["**/*.md"],
 		plugins: { markdown },
 		language: "markdown/gfm",

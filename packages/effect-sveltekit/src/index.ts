@@ -23,6 +23,14 @@ const defaultLogCause: NonNullable<EffectSvelteKitOptions["logCause"]> = (cause)
 	console.error(Cause.pretty(cause));
 };
 
+/**
+ * Full lifecycle union. `dispose()` mutates `state` across request/init `await`s, so the static
+ * narrowing TypeScript infers from the pre-`await` `state !== "open"` guards is stale by the time
+ * execution resumes. The `state as RuntimeState` reads below re-widen past that stale narrowing so
+ * the disposed-during-request guard is preserved (and not flagged unnecessary).
+ */
+type RuntimeState = "open" | "disposing" | "disposed";
+
 const disposedError = () => new Error("The Effect runtime is disposing or has been disposed");
 
 const validPublicFailure = (failure: PublicFailure | undefined): failure is PublicFailure =>
@@ -39,13 +47,13 @@ const validPublicFailure = (failure: PublicFailure | undefined): failure is Publ
  * APIs that ignore Effect interruption can still run to completion.
  */
 export function makeEffectSvelteKitRuntime<R, ER>(
-	layer: Layer.Layer<R, ER, never>,
+	layer: Layer.Layer<R, ER>,
 	options: EffectSvelteKitOptions = {},
 ) {
 	const runtime = ManagedRuntime.make(layer);
 	const logCause = options.logCause ?? defaultLogCause;
 	const activeFibers = new Set<Fiber.Fiber<unknown, unknown>>();
-	let state: "open" | "disposing" | "disposed" = "open";
+	let state: RuntimeState = "open";
 	let initialization: Promise<void> | undefined;
 	let initializationFiber: Fiber.Fiber<unknown, unknown> | undefined;
 	let disposal: Promise<void> | undefined;
@@ -58,7 +66,8 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 			const exit = await Effect.runPromise(Fiber.await(fiber));
 			initializationFiber = undefined;
 			if (Exit.isSuccess(exit)) return;
-			if (Cause.hasInterruptsOnly(exit.cause) && state !== "open") throw disposedError();
+			if (Cause.hasInterruptsOnly(exit.cause) && (state as RuntimeState) !== "open")
+				throw disposedError();
 			logCause(exit.cause, undefined);
 			throw new Error("The Effect runtime failed to initialize");
 		})());
@@ -90,20 +99,22 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 				event.request.signal.reason ?? new DOMException("The request was aborted", "AbortError")
 			);
 		}
-		if (Cause.hasInterruptsOnly(exit.cause) && state !== "open") throw disposedError();
+		if (Cause.hasInterruptsOnly(exit.cause) && (state as RuntimeState) !== "open")
+			throw disposedError();
 		if (Cause.hasInterrupts(exit.cause)) {
 			logCause(exit.cause, event);
 			error(500, "Internal server error");
 		}
 
 		const failures = exit.cause.reasons.filter(Cause.isFailReason);
-		if (failures.length !== 1) {
+		const failure = failures[0];
+		if (failure === undefined || failures.length !== 1) {
 			logCause(exit.cause, event);
 			error(500, "Internal server error");
 		}
 		let exposed: PublicFailure | undefined;
 		try {
-			exposed = options.mapFailure?.(failures[0]!.error);
+			exposed = options.mapFailure?.(failure.error);
 		} catch (defect) {
 			logCause(Cause.combine(exit.cause, Cause.die(defect)), event);
 			error(500, "Internal server error");

@@ -84,7 +84,7 @@
 		<label>
 			<span>Sprout name</span>
 			<input {...plantForm.fields.name.as("text")} maxlength="80" placeholder="Silver fern" />
-			{#each plantForm.fields.name.issues() ?? [] as issue}
+			{#each plantForm.fields.name.issues() ?? [] as issue, index (index)}
 				<small class="error">{issue.message}</small>
 			{/each}
 		</label>
@@ -112,7 +112,12 @@
 					</p>
 				</div>
 				<div class="actions">
-					<button class="quiet" onclick={() => inspect(sprout.id)}>Inspect</button>
+					<button
+						class="quiet"
+						onclick={() => {
+							inspect(sprout.id);
+						}}>Inspect</button
+					>
 					<form
 						class="action-form"
 						{...waterForm.enhance(async (form) => {
@@ -130,11 +135,12 @@
 						<button
 							class="water"
 							disabled={planting}
-							onclick={() =>
+							onclick={() => {
 								watering.increment(
 									sprout.id,
 									Math.max(sprout.waterings, inspected?.id === sprout.id ? inspected.waterings : 0),
-								)}
+								);
+							}}
 						>
 							Water
 						</button>

@@ -28,7 +28,7 @@ export class OptimisticCounter<Collection> {
 			this.#releases.set(
 				key,
 				this.#options.withOverride((collection) =>
-					this.#options.update(collection, key, this.#values[key]!),
+					this.#options.update(collection, key, this.#values[key]),
 				),
 			);
 		}
@@ -72,7 +72,7 @@ export class OptimisticCounter<Collection> {
 	}
 
 	#rollback(key: string) {
-		const value = this.#values[key];
+		const value = this.#values[key] as number | undefined;
 		if (value !== undefined) this.#values[key] = value - 1;
 	}
 
@@ -80,7 +80,7 @@ export class OptimisticCounter<Collection> {
 		this.#barriers.delete(key);
 		this.#releases.get(key)?.();
 		this.#releases.delete(key);
-		delete this.#values[key];
+		Reflect.deleteProperty(this.#values, key);
 	}
 
 	async #wait(key: string): Promise<void> {
