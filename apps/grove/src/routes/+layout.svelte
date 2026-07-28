@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Moon from "@lucide/svelte/icons/moon";
 	import Sun from "@lucide/svelte/icons/sun";
-	import { ModeWatcher, mode, setTheme, theme, toggleMode } from "mode-watcher";
+	import { ModeWatcher, mode, toggleMode } from "mode-watcher";
 	import { tick } from "svelte";
 
 	import favicon from "#lib/assets/favicon.svg";
@@ -9,10 +9,6 @@
 	import "../app.css";
 
 	let { children } = $props();
-
-	$effect(() => {
-		if (mode.current && theme.current !== mode.current) setTheme(mode.current);
-	});
 
 	function applyModeToggle() {
 		toggleMode();
@@ -38,12 +34,7 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<ModeWatcher
-	defaultMode="system"
-	disableTransitions
-	disableHeadScriptInjection
-	synchronousModeChanges
-/>
+<ModeWatcher synchronousModeChanges />
 
 <label class="text-base-content fixed top-4 right-4 z-50 flex cursor-pointer items-center gap-2">
 	<Sun aria-hidden={true} class="size-5" />
