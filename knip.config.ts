@@ -41,6 +41,9 @@ export default {
 			},
 			entry: ["effectdb.config.ts!", "src/env.ts!"],
 		},
+		"apps/storybook": {
+			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],
+		},
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],
 		},
