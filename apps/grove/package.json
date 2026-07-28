@@ -20,13 +20,16 @@
 		"@petalnet/effect-api": "workspace:*",
 		"@petalnet/effect-sveltekit": "workspace:*",
 		"@sveltejs/kit": "catalog:",
+		"daisyui": "catalog:prod",
 		"effect": "catalog:",
 		"effect-db": "catalog:",
-		"effect-qb": "catalog:"
+		"effect-qb": "catalog:",
+		"tailwindcss": "catalog:prod"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "catalog:dev",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"@tailwindcss/vite": "catalog:dev",
 		"svelte": "catalog:prod",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
