@@ -126,3 +126,7 @@ catalog:
   uuid: ^14.0.1
   "@sentry/node": ^10.65.0
   "@effect/tsgo": ^0.24.3
+  storybook: 10.5.4
+  "@storybook/svelte-vite": 10.5.4
+  "@storybook/addon-a11y": 10.5.4
+  "@storybook/addon-docs": 10.5.4
