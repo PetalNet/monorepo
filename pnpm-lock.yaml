@@ -10,8 +10,11 @@ catalogs:
       specifier: 1.7.0-rc.1
       version: 1.7.0-rc.1
     '@effect/sql-pg':
-      specifier: 4.0.0-beta.98
-      version: 4.0.0-beta.98
+      specifier: 4.0.0-beta.102
+      version: 4.0.0-beta.102
+    '@effect/tsgo':
+      specifier: ^0.24.3
+      version: 0.24.3
     '@opentelemetry/api':
       specifier: ^1.9.0
       version: 1.9.1
@@ -43,8 +46,8 @@ catalogs:
       specifier: ^0.3.5
       version: 0.3.5
     effect:
-      specifier: 4.0.0-beta.98
-      version: 4.0.0-beta.98
+      specifier: 4.0.0-beta.102
+      version: 4.0.0-beta.102
     effect-db:
       specifier: 0.21.0
       version: 0.21.0
@@ -61,8 +64,8 @@ catalogs:
       specifier: ^6.0.0
       version: 6.0.0
     svelte-effect-runtime:
-      specifier: 4.0.0
-      version: 4.0.0
+      specifier: 4.1.1
+      version: 4.1.1
     svelte-global-typescript:
       specifier: 1.0.1
       version: 1.0.1
@@ -246,6 +249,9 @@ importers:
 
   .:
     devDependencies:
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.24.3
       '@eslint/js':
         specifier: catalog:dev
         version: 10.0.1(eslint@10.5.0(jiti@2.7.0))
@@ -385,7 +391,7 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-beta.98(effect@4.0.0-beta.98)
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -427,13 +433,13 @@ importers:
         version: 5.6.18
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-beta.98
+        version: 4.0.0-beta.102
       effect-db:
         specifier: 'catalog:'
-        version: 0.21.0(effect@4.0.0-beta.98)(ioredis@5.11.1)
+        version: 0.21.0(effect@4.0.0-beta.102)(ioredis@5.11.1)
       effect-qb:
         specifier: 'catalog:'
-        version: 0.21.0(effect@4.0.0-beta.98)
+        version: 0.21.0(effect@4.0.0-beta.102)
       import-in-the-middle:
         specifier: 'catalog:'
         version: 2.0.6
@@ -448,7 +454,7 @@ importers:
         version: 5.56.5(@typescript-eslint/types@8.61.1)
       svelte-effect-runtime:
         specifier: 'catalog:'
-        version: 4.0.0(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(effect@4.0.0-beta.98)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+        version: 4.1.1(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(effect@4.0.0-beta.102)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       tailwindcss:
         specifier: catalog:prod
         version: 4.3.1
@@ -509,7 +515,7 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-beta.98(effect@4.0.0-beta.98)
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
       '@petalnet/effect-api':
         specifier: workspace:*
         version: link:../../packages/effect-api
@@ -521,13 +527,13 @@ importers:
         version: 3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-beta.98
+        version: 4.0.0-beta.102
       effect-db:
         specifier: 'catalog:'
-        version: 0.21.0(effect@4.0.0-beta.98)(ioredis@5.11.1)
+        version: 0.21.0(effect@4.0.0-beta.102)(ioredis@5.11.1)
       effect-qb:
         specifier: 'catalog:'
-        version: 0.21.0(effect@4.0.0-beta.98)
+        version: 0.21.0(effect@4.0.0-beta.102)
     devDependencies:
       '@sveltejs/adapter-node':
         specifier: catalog:dev
@@ -613,13 +619,13 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-beta.98(effect@4.0.0-beta.98)
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
       better-auth:
         specifier: 'catalog:'
         version: 1.7.0-rc.1(aef3430e688a78278aa4f297842c7b61)
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-beta.98
+        version: 4.0.0-beta.102
     devDependencies:
       '@better-auth/test-utils':
         specifier: 'catalog:'
@@ -644,7 +650,7 @@ importers:
     dependencies:
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-beta.98
+        version: 4.0.0-beta.102
     devDependencies:
       '@petalnet/tsconfig':
         specifier: workspace:*
@@ -657,7 +663,7 @@ importers:
     dependencies:
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-beta.98
+        version: 4.0.0-beta.102
     devDependencies:
       '@petalnet/tsconfig':
         specifier: workspace:*
@@ -679,7 +685,7 @@ importers:
         version: 3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-beta.98
+        version: 4.0.0-beta.102
     devDependencies:
       '@petalnet/tsconfig':
         specifier: workspace:*
@@ -952,10 +958,54 @@ packages:
       effect: ^4.0.0-beta.98
       ioredis: ^5.7.0
 
+  '@effect/sql-pg@4.0.0-beta.102':
+    resolution: {integrity: sha512-02a+fNfECWCZIZcgHl7OLQN2jZj42gq90EdwdnvR3KA6GLGypY02swABS4zFtaW9H80rTa0ukqVnTdcO/DT5GQ==}
+    peerDependencies:
+      effect: ^4.0.0-beta.102
+
   '@effect/sql-pg@4.0.0-beta.98':
     resolution: {integrity: sha512-gpV56KkKBH0bamPdp5yJN/pARpHLPbLZm/7zgRH1FZ5TZPPh4fwMrBpgb9zuTXPCdaGzMqNEKyDejMo4QOfCag==}
     peerDependencies:
       effect: ^4.0.0-beta.98
+
+  '@effect/tsgo-darwin-arm64@0.24.3':
+    resolution: {integrity: sha512-eO83D7ZmpAsocA5WJQ8SSAPnAOZ+dEduFIozg9c2SmH36PCHG1Eb++I0UiQml+2LAr4o/QE2wKdWj7LExebjZA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@effect/tsgo-darwin-x64@0.24.3':
+    resolution: {integrity: sha512-ksX9BdCM8289RRuN0lWhtzuvstH1frxwdxhoW08rrGW3ryER3udEFqEtgtveP0cYvK9gTlV5lXbQPNGktQ2sTw==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@effect/tsgo-linux-arm64@0.24.3':
+    resolution: {integrity: sha512-CMiThuURi14rT5Ikag5pVnUC3tx4IcmPpRR4WBQkHxAbOf5a1Lo1NUF82zY0azhLW2WszBamTSZP5Tcv4uks2A==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@effect/tsgo-linux-arm@0.24.3':
+    resolution: {integrity: sha512-0TzebGLMNZkHOGSK0w1B4zuvHGlA+Od4LdElWeHHP6iMPEiEWPq17If787+oc+Y67yITPJ9DZcibu69eI9mZhg==}
+    cpu: [arm]
+    os: [linux]
+
+  '@effect/tsgo-linux-x64@0.24.3':
+    resolution: {integrity: sha512-R4jl1JWoYEldUU1rtCG1fXWW2ywj/rgY1xaCzK8HSb8fQhQ71WRLLAyAe8ewROuseWQ9Ip+IbbfAeXQOpmpdDA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@effect/tsgo-win32-arm64@0.24.3':
+    resolution: {integrity: sha512-DOJ4oa8pk8qxEQwKHpJOqtjOfB9iOMuc6Cnb2ZbTG32PBfhqeRYv6YFGhFtgAojXyxfuRP2gCJVpFfjzHJh7nQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@effect/tsgo-win32-x64@0.24.3':
+    resolution: {integrity: sha512-6GpENpPn3mXldmJoM+Z7qi+8fe39xJYB2bLD5jqCFWl14vFp1AeJvYwHYQak8HRm1FiPz72Ninslv8DjHYtZgA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@effect/tsgo@0.24.3':
+    resolution: {integrity: sha512-WQxKU3MFzWzI38GbE9cf0POkVX4y0xahD8QqDjLfixW1AEValuHNfOQvyKM2MDWOLdGff4hP8VnIOeduwQt66A==}
+    hasBin: true
 
   '@electric-sql/pglite-socket@0.1.1':
     resolution: {integrity: sha512-p2hoXw3Z3LQHwTeikdZNsFBOvXGqKY2hk51BBw+8NKND8eoH+8LFOtW9Z8CQKmTJ2qqGYu82ipqiyFZOTTXNfw==}
@@ -4943,8 +4993,8 @@ packages:
   effect@3.20.0:
     resolution: {integrity: sha512-qMLfDJscrNG8p/aw+IkT9W7fgj50Z4wG5bLBy0Txsxz8iUHjDIkOgO3SV0WZfnQbNG2VJYb0b+rDLMrhM4+Krw==}
 
-  effect@4.0.0-beta.98:
-    resolution: {integrity: sha512-oz+bsG5h+6RNrw4t5GMfQrk/xBS8ROoqkYsuvRhBr5O7mCOrpvH/hbw+QrDzvKIpX4HJClwm86F94c87W0sJxg==}
+  effect@4.0.0-beta.102:
+    resolution: {integrity: sha512-z8Y+Q76Hh/kjLFZrXu8tGn6e+tDsg45R+UHhxd190pXxD53OGwf/G/zDxXTkse4HJ5mobNZfitLfUCp4fMvu6w==}
 
   electron-to-chromium@1.5.376:
     resolution: {integrity: sha512-cUVA7/RvbFTEuw/i3obUwDTRIXojaxkResf+ibByPFxjc6XK3VNtcQXV0NSbAlJ0FMjcJGgftVVB4Qo184EXvA==}
@@ -7108,11 +7158,11 @@ packages:
       svelte: ^4.0.0 || ^5.0.0-next.0
       typescript: '>=5.0.0'
 
-  svelte-effect-runtime@4.0.0:
-    resolution: {integrity: sha512-zF8rpLQYeMFcxW06BiT1ymS1D1WUj9X3Me6/mEXehwVJitYXf/xOXTZHxSsACJYHjjcTQR3iYFpGsgkN32s+uQ==}
+  svelte-effect-runtime@4.1.1:
+    resolution: {integrity: sha512-59kkzVUS8WpldmQji3O5iMpjjZ44cSzBkamfHwri1UiP04/TZgAXwZfOSUZb3ECUeDDU5nJ4HwuOJjeQ97rhvw==}
     engines: {node: ^22.12.0 || >=24.0.0}
     peerDependencies:
-      '@sveltejs/kit': ^2.0.0 || ^3.0.0-next.0
+      '@sveltejs/kit': ^2.69.0 || ^3.0.0-next.0
       '@sveltejs/vite-plugin-svelte': ^6.0.0 || ^7.0.0
       effect: ^4.0.0-beta
       svelte: ^5.0.0
@@ -7923,19 +7973,19 @@ snapshots:
 
   '@drizzle-team/brocli@0.10.2': {}
 
-  '@effect/platform-node-shared@4.0.0-beta.98(effect@4.0.0-beta.98)':
+  '@effect/platform-node-shared@4.0.0-beta.98(effect@4.0.0-beta.102)':
     dependencies:
       '@types/ws': 8.18.1
-      effect: 4.0.0-beta.98
+      effect: 4.0.0-beta.102
       ws: 8.21.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.0.0-beta.98(effect@4.0.0-beta.98)(ioredis@5.11.1)':
+  '@effect/platform-node@4.0.0-beta.98(effect@4.0.0-beta.102)(ioredis@5.11.1)':
     dependencies:
-      '@effect/platform-node-shared': 4.0.0-beta.98(effect@4.0.0-beta.98)
-      effect: 4.0.0-beta.98
+      '@effect/platform-node-shared': 4.0.0-beta.98(effect@4.0.0-beta.102)
+      effect: 4.0.0-beta.102
       ioredis: 5.11.1
       mime: 4.1.0
       undici: 8.9.0
@@ -7943,9 +7993,9 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@effect/sql-pg@4.0.0-beta.98(effect@4.0.0-beta.98)':
+  '@effect/sql-pg@4.0.0-beta.102(effect@4.0.0-beta.102)':
     dependencies:
-      effect: 4.0.0-beta.98
+      effect: 4.0.0-beta.102
       pg: 8.22.0
       pg-connection-string: 2.14.0
       pg-cursor: 2.21.0(pg@8.22.0)
@@ -7953,6 +8003,48 @@ snapshots:
       pg-types: 4.1.0
     transitivePeerDependencies:
       - pg-native
+
+  '@effect/sql-pg@4.0.0-beta.98(effect@4.0.0-beta.102)':
+    dependencies:
+      effect: 4.0.0-beta.102
+      pg: 8.22.0
+      pg-connection-string: 2.14.0
+      pg-cursor: 2.21.0(pg@8.22.0)
+      pg-pool: 3.14.0(pg@8.22.0)
+      pg-types: 4.1.0
+    transitivePeerDependencies:
+      - pg-native
+
+  '@effect/tsgo-darwin-arm64@0.24.3':
+    optional: true
+
+  '@effect/tsgo-darwin-x64@0.24.3':
+    optional: true
+
+  '@effect/tsgo-linux-arm64@0.24.3':
+    optional: true
+
+  '@effect/tsgo-linux-arm@0.24.3':
+    optional: true
+
+  '@effect/tsgo-linux-x64@0.24.3':
+    optional: true
+
+  '@effect/tsgo-win32-arm64@0.24.3':
+    optional: true
+
+  '@effect/tsgo-win32-x64@0.24.3':
+    optional: true
+
+  '@effect/tsgo@0.24.3':
+    optionalDependencies:
+      '@effect/tsgo-darwin-arm64': 0.24.3
+      '@effect/tsgo-darwin-x64': 0.24.3
+      '@effect/tsgo-linux-arm': 0.24.3
+      '@effect/tsgo-linux-arm64': 0.24.3
+      '@effect/tsgo-linux-x64': 0.24.3
+      '@effect/tsgo-win32-arm64': 0.24.3
+      '@effect/tsgo-win32-x64': 0.24.3
 
   '@electric-sql/pglite-socket@0.1.1(@electric-sql/pglite@0.4.1)':
     dependencies:
@@ -11580,12 +11672,12 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect-db@0.21.0(effect@4.0.0-beta.98)(ioredis@5.11.1):
+  effect-db@0.21.0(effect@4.0.0-beta.102)(ioredis@5.11.1):
     dependencies:
-      '@effect/platform-node': 4.0.0-beta.98(effect@4.0.0-beta.98)(ioredis@5.11.1)
-      '@effect/sql-pg': 4.0.0-beta.98(effect@4.0.0-beta.98)
-      effect: 4.0.0-beta.98
-      effect-qb: 0.21.0(effect@4.0.0-beta.98)
+      '@effect/platform-node': 4.0.0-beta.98(effect@4.0.0-beta.102)(ioredis@5.11.1)
+      '@effect/sql-pg': 4.0.0-beta.98(effect@4.0.0-beta.102)
+      effect: 4.0.0-beta.102
+      effect-qb: 0.21.0(effect@4.0.0-beta.102)
       tinyglobby: 0.2.17
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -11594,9 +11686,9 @@ snapshots:
       - pg-native
       - utf-8-validate
 
-  effect-qb@0.21.0(effect@4.0.0-beta.98):
+  effect-qb@0.21.0(effect@4.0.0-beta.102):
     dependencies:
-      effect: 4.0.0-beta.98
+      effect: 4.0.0-beta.102
       pgsql-ast-parser: 12.0.2
 
   effect@3.20.0:
@@ -11605,7 +11697,7 @@ snapshots:
       fast-check: 3.23.2
     optional: true
 
-  effect@4.0.0-beta.98:
+  effect@4.0.0-beta.102:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 4.9.0
@@ -14258,12 +14350,12 @@ snapshots:
     transitivePeerDependencies:
       - picomatch
 
-  svelte-effect-runtime@4.0.0(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(effect@4.0.0-beta.98)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
+  svelte-effect-runtime@4.1.1(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(effect@4.0.0-beta.102)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
     dependencies:
       '@sveltejs/kit': 3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       '@sveltejs/vite-plugin-svelte': 7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       devalue: 5.8.1
-      effect: 4.0.0-beta.98
+      effect: 4.0.0-beta.102
       magic-string: 0.30.21
       svelte: 5.56.5(@typescript-eslint/types@8.61.1)
       typescript: 6.0.3

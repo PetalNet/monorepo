@@ -12,7 +12,14 @@
 		"strict": true,
 		"types": ["vite/client"],
 		"moduleResolution": "bundler",
-		"rootDirs": ["src", ".svelte-kit/types/src"]
+		"rootDirs": ["src", ".svelte-kit/types/src"],
+		"plugins": [
+			{
+				"name": "@effect/language-service",
+				"diagnosticSeverity": {},
+				"ignoreEffectSuggestionsInTscExitCode": false
+			}
+		]
 	},
 	"include": [
 		".svelte-kit/env.d.ts",
