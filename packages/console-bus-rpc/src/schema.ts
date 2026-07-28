@@ -28,7 +28,7 @@ export const BusEmissionSchema = Schema.Struct({
 	subject_kind: Schema.optional(Schema.NullOr(Schema.String)),
 	severity: BusSeveritySchema,
 	action: Schema.optional(Schema.NullOr(Schema.String)),
-	task_id: Schema.optional(Schema.NullOr(Schema.Number)),
+	task_id: Schema.optional(Schema.NullOr(Schema.Finite)),
 	scope: Schema.String,
 	dimensions: Schema.optional(JsonObject),
 	measures: Schema.optional(JsonObject),
@@ -71,7 +71,7 @@ export const BusSubscribeSchema = Schema.Struct({
 	pattern: BusPatternSchema,
 	filter: Schema.optional(BusSubscribeFilterSchema),
 	/** EXCLUSIVE lake seq to resume after. Omit for live-only. */
-	since: Schema.optional(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+	since: Schema.optional(Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
 })
 	.annotate({ identifier: "BusSubscribe", title: "Bus subscribe frame" })
 	.annotate(strictFrame);
@@ -102,7 +102,7 @@ export const BusAckFrameSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
 	kind: Schema.Literal("ack"),
 	sub_id: Schema.String,
-	replay_through_seq: Schema.Number,
+	replay_through_seq: Schema.Finite,
 	error: Schema.optional(BusFrameErrorSchema),
 }).annotate({ identifier: "BusAckFrame", title: "Subscription acknowledgement" });
 export type BusAckFrame = typeof BusAckFrameSchema.Type;
@@ -111,7 +111,7 @@ export const BusEventFrameSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
 	kind: Schema.Literal("event"),
 	sub_id: Schema.String,
-	seq: Schema.Number,
+	seq: Schema.Finite,
 	emission: BusEmissionSchema,
 }).annotate({ identifier: "BusEventFrame", title: "Replayed or live bus event" });
 export type BusEventFrame = typeof BusEventFrameSchema.Type;
@@ -120,7 +120,7 @@ export const BusResyncFrameSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
 	kind: Schema.Literal("resync_required"),
 	sub_id: Schema.String,
-	oldest_seq: Schema.Number,
+	oldest_seq: Schema.Finite,
 	message: Schema.optional(Schema.String),
 }).annotate({
 	identifier: "BusResyncFrame",
@@ -132,8 +132,8 @@ export const BusGapFrameSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
 	kind: Schema.Literal("gap"),
 	sub_id: Schema.String,
-	from_seq: Schema.Number,
-	to_seq: Schema.Number,
+	from_seq: Schema.Finite,
+	to_seq: Schema.Finite,
 	reason: Schema.String,
 }).annotate({ identifier: "BusGapFrame", title: "Backpressure gap — heal via since" });
 export type BusGapFrame = typeof BusGapFrameSchema.Type;
@@ -142,8 +142,8 @@ export const BusHeartbeatFrameSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
 	kind: Schema.Literal("heartbeat"),
 	ts: Schema.String,
-	seq_head: Schema.Number,
-	ingest: Schema.NullOr(Schema.Record(Schema.String, Schema.Number)),
+	seq_head: Schema.Finite,
+	ingest: Schema.NullOr(Schema.Record(Schema.String, Schema.Finite)),
 }).annotate({ identifier: "BusHeartbeatFrame", title: "Connection heartbeat with ingest lag" });
 export type BusHeartbeatFrame = typeof BusHeartbeatFrameSchema.Type;
 
@@ -163,7 +163,7 @@ export const OpCallSchema = Schema.Struct({
 	id: Schema.String,
 	op: Schema.String,
 	args: JsonObject,
-	task_id: Schema.optional(Schema.NullOr(Schema.Number)),
+	task_id: Schema.optional(Schema.NullOr(Schema.Finite)),
 	reason: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000)))),
 	dry_run: Schema.optional(Schema.Boolean),
 }).annotate({ identifier: "OpCall", title: "Named operation call" });
@@ -178,7 +178,7 @@ export const OpResultSchema = Schema.Struct({
 	),
 	result: Schema.optional(Schema.NullOr(JsonObject)),
 	error: Schema.optional(Schema.NullOr(JsonObject)),
-	audit_seq: Schema.optional(Schema.NullOr(Schema.Number)),
+	audit_seq: Schema.optional(Schema.NullOr(Schema.Finite)),
 	executor: Schema.optional(Schema.NullOr(JsonObject)),
 	undo: Schema.optional(Schema.NullOr(JsonObject)),
 }).annotate({ identifier: "OpResult", title: "Named operation result" });
@@ -193,7 +193,7 @@ export const QueryRequestSchema = Schema.Struct({
 	group_by: Schema.optional(Schema.Array(Schema.String)),
 	time: Schema.optional(Schema.NullOr(JsonObject)),
 	order: Schema.optional(Schema.NullOr(Schema.Array(JsonObject))),
-	limit: Schema.optional(Schema.NullOr(Schema.Number)),
+	limit: Schema.optional(Schema.NullOr(Schema.Finite)),
 	sql: Schema.optional(Schema.NullOr(Schema.String)),
 }).annotate({ identifier: "QueryRequest", title: "Structured or read-only SQL query" });
 export type QueryRequest = typeof QueryRequestSchema.Type;
@@ -202,8 +202,8 @@ export const QueryResultSchema = Schema.Struct({
 	schema_version: Schema.Literal(1),
 	columns: Schema.Array(JsonObject),
 	rows: Schema.Array(Schema.Array(Schema.Unknown)),
-	row_count: Schema.Number,
-	execution_ms: Schema.optional(Schema.NullOr(Schema.Number)),
+	row_count: Schema.Finite,
+	execution_ms: Schema.optional(Schema.NullOr(Schema.Finite)),
 	freshness: JsonObject,
 	query_ref: Schema.String,
 	truncated: Schema.optional(Schema.Boolean),
