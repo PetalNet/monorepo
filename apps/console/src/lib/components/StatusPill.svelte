@@ -1,10 +1,11 @@
 <script lang="ts">
 	import type { Tone } from "$lib/api/derive";
+
 	import StatusDot from "./StatusDot.svelte";
 
 	/**
-	 * StatusPill (foundations §3.7): dot + text-grade label; pulse only when
-	 * streaming. `hollow` renders the derived-offline (gone-quiet) look.
+	 * StatusPill (foundations §3.7): dot + text-grade label; pulse only when streaming. `hollow`
+	 * renders the derived-offline (gone-quiet) look.
 	 */
 	interface Props {
 		tone?: Tone;
@@ -54,8 +55,7 @@
 		align-items: center;
 		border-radius: var(--r-pill);
 		padding: 2px var(--s-2);
-		font:
-			500 0.75rem var(--sans);
+		font: 500 0.75rem var(--sans);
 		min-height: 24px;
 		background: var(--s2);
 		color: var(--text-2);

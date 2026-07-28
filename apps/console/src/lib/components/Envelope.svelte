@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { humanAge } from "$lib/api/derive";
 	import type { CommsEvent } from "$lib/api/types";
+
 	import Icon from "./Icon.svelte";
 
 	/**
-	 * The letter (foundations §4.5, /task/714): a small envelope, sender → recipient.
-	 * A pure renderer over bus comms events (card/rpc/mail). Honest under load: an
-	 * aggregate stream line with a mono count instead of a swarm. Clickable to its
-	 * comms-log entry. Never loops at idle.
+	 * The letter (foundations §4.5, /task/714): a small envelope, sender → recipient. A pure renderer
+	 * over bus comms events (card/rpc/mail). Honest under load: an aggregate stream line with a mono
+	 * count instead of a swarm. Clickable to its comms-log entry. Never loops at idle.
 	 */
 	interface Props {
 		event: CommsEvent;
@@ -65,8 +65,7 @@
 		color: var(--text-3);
 	}
 	.count {
-		font:
-			500 0.75rem var(--mono);
+		font: 500 0.75rem var(--mono);
 		font-feature-settings: "tnum" 1;
 		color: var(--text-2);
 	}

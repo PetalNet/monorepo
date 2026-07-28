@@ -34,9 +34,9 @@ describe("minimum interaction targets", () => {
 		assert.match(chip, /min-height: 32px/);
 		assert.match(roster, /<IconButton/);
 		assert.match(work, /<IconButton/);
-		assert.match(work, /\.mini[^}]*min-height:32px/);
+		assert.match(work, /\.mini[^}]*min-height:\s*32px/);
 		assert.match(signals, /<SegmentedControl/);
-		assert.match(signals, /\.primary,:global\(\.op-btn\.primary\)\{min-height:40px/);
+		assert.match(signals, /\.primary,\s*:global\(\.op-btn\.primary\)\s*\{\s*min-height:\s*40px/);
 		assert.equal(
 			(signals.match(/<IconButton/g) ?? []).length +
 				(deliveryPane.match(/<IconButton/g) ?? []).length,

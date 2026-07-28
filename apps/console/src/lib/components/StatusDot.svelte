@@ -8,7 +8,8 @@
 	let { tone = "idle", size = 8, pulse = false }: Props = $props();
 </script>
 
-<span class="dot {tone}" class:pulse style="width:{size}px;height:{size}px" aria-hidden="true"></span>
+<span class="dot {tone}" class:pulse style="width:{size}px;height:{size}px" aria-hidden="true"
+></span>
 
 <style>
 	.dot {

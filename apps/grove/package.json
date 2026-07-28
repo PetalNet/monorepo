@@ -11,12 +11,21 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"dev": "vite dev",
+		"migrate": "effectdb migrate up",
 		"prepare": "svelte-kit sync",
 		"preview": "vite preview"
 	},
+	"dependencies": {
+		"@effect/sql-pg": "catalog:",
+		"@petalnet/effect-api": "workspace:*",
+		"@petalnet/effect-sveltekit": "workspace:*",
+		"@sveltejs/kit": "catalog:",
+		"effect": "catalog:",
+		"effect-db": "catalog:",
+		"effect-qb": "catalog:"
+	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "catalog:dev",
-		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"svelte": "catalog:prod",
 		"svelte-check": "catalog:dev",
