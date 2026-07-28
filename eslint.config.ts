@@ -28,7 +28,12 @@ export default defineConfig([
 				projectService: true,
 			},
 		},
-		rules: { "no-undef": "off" },
+		rules: {
+			"no-undef": "off",
+			// Allow deliberate infinite loops written as `while (true)` (e.g. stream/redirect
+			// pumps that break internally); the loop body still has to reach a break/return.
+			"no-constant-condition": ["error", { checkLoops: false }],
+		},
 	},
 	{
 		files: ["apps/{collegemap,console,grove,slide}/**/*.svelte"],

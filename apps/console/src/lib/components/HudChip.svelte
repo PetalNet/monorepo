@@ -27,8 +27,7 @@
 		min-height: 32px;
 	}
 	b {
-		font:
-			500 1rem var(--mono);
+		font: 500 1rem var(--mono);
 		font-feature-settings: "tnum" 1;
 	}
 	.lbl {

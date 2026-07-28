@@ -7,6 +7,11 @@ eval "$(~/.local/bin/mise activate --shims bash)"
 
 mise trust --yes mise.toml
 mise install --yes --locked node pnpm vp
+
+cat >> "$HOME/.bash_profile" <<'EOF_PROFILE'
+eval "$("$HOME/.local/bin/mise" activate --shims bash)"
+EOF_PROFILE
+
 vp install --frozen-lockfile
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -31,7 +36,8 @@ cat > "$amp_config_dir/AGENTS.md" <<'EOF_AGENTS'
 - This orb may have older system Node.js and pnpm versions; .agents/setup activates Mise for repo-managed tools.
 - This is a JS-first orb. Mise installs Node, pnpm, and Vite+ from the root `mise.toml`/`mise.lock`.
 - Run repo tool commands through Vite+, such as `vp run check`, `vp run test`, and `vp run build`.
-- Rust is lazy: from a Rust app directory, run `mise install --yes rust`; mise reads that app's `rust-toolchain.toml`.
-- Flutter is lazy: from a Flutter app directory, run `mise install --yes flutter`, then `flutter pub get`.
+- Install missing tools with `mise install --locked <tool>`, then run the command directly. Do not use `mise exec`, `mise x`, or `mise activate &&`.
+- Rust is lazy: from a Rust app directory, run `mise install --locked rust`; mise reads that app's `rust-toolchain.toml`.
+- Flutter is lazy: from a Flutter app directory, run `mise install --locked flutter`, then `flutter pub get`.
 - Docker runs as the supervised `docker` Amp service for Testcontainers.
 EOF_AGENTS

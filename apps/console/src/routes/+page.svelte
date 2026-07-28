@@ -1,18 +1,19 @@
 <script lang="ts">
-	import type { PageProps } from "./$types";
 	import { browser } from "$app/env";
-	import { connectBus } from "$lib/rpc/browser";
 	import CockpitSkeleton from "$lib/components/CockpitSkeleton.svelte";
 	import Countdown from "$lib/components/Countdown.svelte";
 	import Envelope from "$lib/components/Envelope.svelte";
-	import Icon from "$lib/components/Icon.svelte";
 	import HouseTile from "$lib/components/HouseTile.svelte";
+	import Icon from "$lib/components/Icon.svelte";
 	import RailCard from "$lib/components/RailCard.svelte";
 	import SavedDashboards from "$lib/components/SavedDashboards.svelte";
 	import SurfaceSign, { type Hud } from "$lib/components/SurfaceSign.svelte";
 	import TownHall from "$lib/components/TownHall.svelte";
 	import { newestCrack } from "$lib/data/cockpit";
+	import { connectBus } from "$lib/rpc/browser";
 	import { clockNow } from "$lib/stores/clock.svelte";
+
+	import type { PageProps } from "./$types";
 	import { getCockpit } from "./cockpit.remote";
 	import type { CockpitRemoteResult } from "./cockpit.remote";
 
@@ -139,84 +140,127 @@
 	function railTone(host: { tone?: "good" | "warn" | "danger" | "idle"; dark: boolean }) {
 		return host.tone ?? (host.dark ? "danger" : "good");
 	}
-
 </script>
 
-	{#if !c}
-		<SurfaceSign hero title={greeting} date={dateStr} />
-		{#if cockpitQuery.error}
-			<div class="unverified" role="status">
-				<Icon name="circle-help" size={20} />
-				<p>Can't read the cockpit. Retrying will preserve the last known layout.</p>
-				<button type="button" onclick={() => cockpitQuery.refresh()}>Retry</button>
-			</div>
-		{:else}
-			<CockpitSkeleton />
-		{/if}
+{#if !c}
+	<SurfaceSign hero title={greeting} date={dateStr} />
+	{#if cockpitQuery.error}
+		<div class="unverified" role="status">
+			<Icon name="circle-help" size={20} />
+			<p>Can't read the cockpit. Retrying will preserve the last known layout.</p>
+			<button type="button" onclick={() => cockpitQuery.refresh()}>Retry</button>
+		</div>
 	{:else}
-		<!-- A pinned home around the ask (foundations §5.5). -->
-		<SurfaceSign hero title={greeting} verdict={c.verdict} stateFact={c.stateFact}
-			crackMeta={c.crackMeta} {crackLead} lanes={data.me.lanes} date={dateStr} {hud} />
+		<CockpitSkeleton />
+	{/if}
+{:else}
+	<!-- A pinned home around the ask (foundations §5.5). -->
+	<SurfaceSign
+		hero
+		title={greeting}
+		verdict={c.verdict}
+		stateFact={c.stateFact}
+		crackMeta={c.crackMeta}
+		{crackLead}
+		lanes={data.me.lanes}
+		date={dateStr}
+		{hud}
+	/>
 
-		{#if remote?.isMock}
-			<div class="fixture-chip" role="status">Fixture data · mock mode</div>
-		{/if}
+	{#if remote?.isMock}
+		<div class="fixture-chip" role="status">Fixture data · mock mode</div>
+	{/if}
 
-		{#if cockpitQuery.error || staleSources.length > 0 || usingCached}
-			<div class="source-warning" role="status">
-				<Icon name="circle-help" size={16} />
-				<span>{cockpitQuery.error || usingCached ? "Live refresh pending; showing the last known cockpit." : `Waiting for ${staleSources.join(", ")}. Available evidence remains in place.`}</span>
-				<button type="button" onclick={() => cockpitQuery.refresh()}>Retry</button>
-			</div>
-		{/if}
+	{#if cockpitQuery.error || staleSources.length > 0 || usingCached}
+		<div class="source-warning" role="status">
+			<Icon name="circle-help" size={16} />
+			<span
+				>{cockpitQuery.error || usingCached
+					? "Live refresh pending; showing the last known cockpit."
+					: `Waiting for ${staleSources.join(", ")}. Available evidence remains in place.`}</span
+			>
+			<button type="button" onclick={() => cockpitQuery.refresh()}>Retry</button>
+		</div>
+	{/if}
 
-		{#if !c.connected}
+	{#if !c.connected}
 		<!-- Live, not connected: honest placeholder, never fabricated fixtures (veto #20). -->
 		<div class="unverified">
 			<Icon name="circle-help" size={20} />
 			<p>Can't verify the neighborhood. No live read or last-known snapshot is available.</p>
 			<span>Ask Janet anything — every surface is still live.</span>
 		</div>
-		{:else}
+	{:else}
 		<div class="home-grid" role="presentation">
 			<div class="home-main">
 				<div id="attention" data-ask="Town Hall, the attention board">
 					<TownHall items={c.attention} lanes={data.me.lanes} />
 				</div>
-				<div class="phone-hide"><SavedDashboards items={c.saved} lanes={data.me.lanes} userId={data.me.id} /></div>
+				<div class="phone-hide">
+					<SavedDashboards items={c.saved} lanes={data.me.lanes} userId={data.me.id} />
+				</div>
 			</div>
 			<aside class="rail phone-hide">
 				<RailCard heading="The neighborhood">
 					<div class="rail-tools">
-						<div class="rail-meta">{c.railHosts.filter((h) => !h.dark).length} houses · {c.hud.inFlight} workers up</div>
+						<div class="rail-meta">
+							{c.railHosts.filter((h) => !h.dark).length} houses · {c.hud.inFlight} workers up
+						</div>
 						<div class="rail-flip" aria-label="Neighborhood view">
-							<button class:selected={railView === "houses"} aria-pressed={railView === "houses"} onclick={() => { selectRailView("houses"); }}>Houses</button>
-							<button class:selected={railView === "residents"} aria-pressed={railView === "residents"} onclick={() => { selectRailView("residents"); }}>Residents</button>
+							<button
+								class:selected={railView === "houses"}
+								aria-pressed={railView === "houses"}
+								onclick={() => {
+									selectRailView("houses");
+								}}>Houses</button
+							>
+							<button
+								class:selected={railView === "residents"}
+								aria-pressed={railView === "residents"}
+								onclick={() => {
+									selectRailView("residents");
+								}}>Residents</button
+							>
 						</div>
 					</div>
 					{#key railView}<div class="rail-view" aria-live="polite">
-						{#if railView === "houses"}
-							<div class="house-row">
-								{#each c.railHosts as h (h.host)}
-									<div data-ask="host {h.host}">
-										<HouseTile host={h.host} workersUp={h.workersUp} tone={railTone(h)} dark={h.dark} />
-									</div>
-								{/each}
-							</div>
-						{:else if residents.length === 0}
-							<p class="rail-empty">No residents yet. The neighborhood is waiting.</p>
-						{:else}
-							<div class="resident-list">
-								{#each residents as resident (resident.handle)}
-									<div class="resident-row" data-ask="resident {resident.handle}">
-										<span class:working={resident.status === "working"} class="resident-dot" aria-hidden="true"></span>
-										<div><b>{resident.handle}</b><span>{resident.current_tool ?? resident.status ?? "idle"}</span></div>
-										{#if resident.lease_expires_at}<code><Countdown expiresAt={resident.lease_expires_at} {now} /></code>{/if}
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>{/key}
+							{#if railView === "houses"}
+								<div class="house-row">
+									{#each c.railHosts as h (h.host)}
+										<div data-ask="host {h.host}">
+											<HouseTile
+												host={h.host}
+												workersUp={h.workersUp}
+												tone={railTone(h)}
+												dark={h.dark}
+											/>
+										</div>
+									{/each}
+								</div>
+							{:else if residents.length === 0}
+								<p class="rail-empty">No residents yet. The neighborhood is waiting.</p>
+							{:else}
+								<div class="resident-list">
+									{#each residents as resident (resident.handle)}
+										<div class="resident-row" data-ask="resident {resident.handle}">
+											<span
+												class:working={resident.status === "working"}
+												class="resident-dot"
+												aria-hidden="true"
+											></span>
+											<div>
+												<b>{resident.handle}</b><span
+													>{resident.current_tool ?? resident.status ?? "idle"}</span
+												>
+											</div>
+											{#if resident.lease_expires_at}<code
+													><Countdown expiresAt={resident.lease_expires_at} {now} /></code
+												>{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>{/key}
 				</RailCard>
 				<RailCard heading="Mail on the wire">
 					{#each c.comms as ev, i (ev.id)}
@@ -225,8 +269,8 @@
 				</RailCard>
 			</aside>
 		</div>
-		{/if}
 	{/if}
+{/if}
 
 <style>
 	.home-grid {
@@ -266,7 +310,10 @@
 		color: var(--warn-text);
 		font-size: 0.75rem;
 	}
-	.source-warning :global(svg) { flex: none; color: var(--warn-dot); }
+	.source-warning :global(svg) {
+		flex: none;
+		color: var(--warn-dot);
+	}
 	.source-warning button {
 		margin-inline-start: auto;
 		min-height: 32px;
@@ -302,8 +349,7 @@
 		gap: var(--s-3);
 	}
 	.rail-meta {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-3);
 	}
 	.rail-tools {
@@ -328,18 +374,33 @@
 		color: var(--text-3);
 		font: 500 0.6875rem var(--sans);
 		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+		transition:
+			background var(--dur-fast) var(--ease-standard),
+			color var(--dur-fast) var(--ease-standard);
 	}
-	.rail-flip button:hover { background: var(--s3); }
-	.rail-flip button.selected { background: var(--petal-soft); color: var(--petal-text); }
-	.rail-flip button:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
-	.rail-view { animation: rail-crossfade var(--dur-fast) var(--ease-standard); }
+	.rail-flip button:hover {
+		background: var(--s3);
+	}
+	.rail-flip button.selected {
+		background: var(--petal-soft);
+		color: var(--petal-text);
+	}
+	.rail-flip button:focus-visible {
+		outline: 2px solid var(--petal);
+		outline-offset: 2px;
+	}
+	.rail-view {
+		animation: rail-crossfade var(--dur-fast) var(--ease-standard);
+	}
 	.house-row {
 		display: grid;
 		grid-template-columns: repeat(4, 1fr);
 		gap: var(--s-2);
 	}
-	.resident-list { display: flex; flex-direction: column; }
+	.resident-list {
+		display: flex;
+		flex-direction: column;
+	}
 	.resident-row {
 		display: flex;
 		align-items: center;
@@ -348,15 +409,49 @@
 		padding: 0 var(--s-1);
 		border-top: 1px solid var(--rule);
 	}
-	.resident-row:first-child { border-top: 0; }
-	.resident-row > div { display: flex; min-width: 0; align-items: baseline; gap: var(--s-2); }
-	.resident-row b { font: 500 0.75rem var(--sans); }
-	.resident-row span, .resident-row code { font: 400 0.6875rem var(--mono); color: var(--text-3); }
-	.resident-row code { margin-inline-start: auto; }
-	.resident-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--text-3); }
-	.resident-dot.working { background: var(--good-dot); }
-	.rail-empty { padding: var(--s-3) var(--s-2); font-size: 0.75rem; color: var(--text-3); }
-	@keyframes rail-crossfade { from { opacity: 0.55; } to { opacity: 1; } }
+	.resident-row:first-child {
+		border-top: 0;
+	}
+	.resident-row > div {
+		display: flex;
+		min-width: 0;
+		align-items: baseline;
+		gap: var(--s-2);
+	}
+	.resident-row b {
+		font: 500 0.75rem var(--sans);
+	}
+	.resident-row span,
+	.resident-row code {
+		font: 400 0.6875rem var(--mono);
+		color: var(--text-3);
+	}
+	.resident-row code {
+		margin-inline-start: auto;
+	}
+	.resident-dot {
+		width: 7px;
+		height: 7px;
+		flex: none;
+		border-radius: 50%;
+		background: var(--text-3);
+	}
+	.resident-dot.working {
+		background: var(--good-dot);
+	}
+	.rail-empty {
+		padding: var(--s-3) var(--s-2);
+		font-size: 0.75rem;
+		color: var(--text-3);
+	}
+	@keyframes rail-crossfade {
+		from {
+			opacity: 0.55;
+		}
+		to {
+			opacity: 1;
+		}
+	}
 	@media (max-width: 1023px) {
 		.home-grid {
 			grid-template-columns: 1fr;
@@ -370,6 +465,8 @@
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.rail-view { animation: none; }
+		.rail-view {
+			animation: none;
+		}
 	}
 </style>

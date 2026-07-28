@@ -4,11 +4,14 @@
 	import type { Me } from "$lib/api/types";
 	import { visibleNav } from "$lib/nav";
 	import { initial } from "$lib/util";
+
 	import Icon from "./Icon.svelte";
 	import StatusDot from "./StatusDot.svelte";
 
-	/** Sidebar (foundations §2.2). Footer state line carries the three-way truth
-	 * on every screen: fine / crack fact / "Can't verify" (§4.6). */
+	/**
+	 * Sidebar (foundations §2.2). Footer state line carries the three-way truth on every screen: fine
+	 * / crack fact / "Can't verify" (§4.6).
+	 */
 	interface Props {
 		me: Me;
 		verdict: HealthVerdict;
@@ -33,7 +36,12 @@
 		<div class="sb-mark" aria-hidden="true"></div>
 		<div class="sb-name">the neighborhood<small>12358W</small></div>
 	</div>
-	<button class="palette-trigger" type="button" onclick={onpalette} aria-label="Open command palette">
+	<button
+		class="palette-trigger"
+		type="button"
+		onclick={onpalette}
+		aria-label="Open command palette"
+	>
 		<Icon name="search" size={16} />
 		<span>Search and actions</span>
 		<kbd>⌘K</kbd>
@@ -118,14 +126,12 @@
 		border-color: transparent var(--s1) transparent transparent;
 	}
 	.sb-name {
-		font:
-			400 0.9375rem var(--sign);
+		font: 400 0.9375rem var(--sign);
 		line-height: 1.2;
 	}
 	.sb-name small {
 		display: block;
-		font:
-			500 0.6875rem var(--mono);
+		font: 500 0.6875rem var(--mono);
 		letter-spacing: 0.06em;
 		color: var(--text-3);
 		text-transform: uppercase;
@@ -136,11 +142,38 @@
 		flex-direction: column;
 		gap: 2px;
 	}
-	.palette-trigger { height: 32px; margin: 0 var(--s-2) var(--s-1); padding: 0 var(--s-2); border: 0; border-radius: var(--r-sm); background: var(--s2); color: var(--text-2); display: flex; align-items: center; gap: var(--s-2); font: 400 .75rem var(--sans); text-align: left; }
-	.palette-trigger span { flex: 1; }
-	.palette-trigger kbd { padding: 2px var(--s-1); border-radius: var(--r-xs); background: var(--s1); color: var(--text-3); font: 500 .625rem var(--mono); box-shadow: inset 0 0 0 1px var(--rule); }
-	.palette-trigger:hover { background: var(--s3); }
-	.palette-trigger:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
+	.palette-trigger {
+		height: 32px;
+		margin: 0 var(--s-2) var(--s-1);
+		padding: 0 var(--s-2);
+		border: 0;
+		border-radius: var(--r-sm);
+		background: var(--s2);
+		color: var(--text-2);
+		display: flex;
+		align-items: center;
+		gap: var(--s-2);
+		font: 400 0.75rem var(--sans);
+		text-align: left;
+	}
+	.palette-trigger span {
+		flex: 1;
+	}
+	.palette-trigger kbd {
+		padding: 2px var(--s-1);
+		border-radius: var(--r-xs);
+		background: var(--s1);
+		color: var(--text-3);
+		font: 500 0.625rem var(--mono);
+		box-shadow: inset 0 0 0 1px var(--rule);
+	}
+	.palette-trigger:hover {
+		background: var(--s3);
+	}
+	.palette-trigger:focus-visible {
+		outline: 2px solid var(--petal);
+		outline-offset: 2px;
+	}
 	.nav-item {
 		display: flex;
 		align-items: center;
@@ -148,8 +181,7 @@
 		height: 32px;
 		padding: 0 var(--s-2);
 		border-radius: var(--r-xs);
-		font:
-			500 0.8125rem var(--sans);
+		font: 500 0.8125rem var(--sans);
 		color: var(--text-2);
 		text-decoration: none;
 		transition: background var(--t);
@@ -172,8 +204,7 @@
 		flex: 1;
 	}
 	.nav-badge {
-		font:
-			500 0.6875rem var(--mono);
+		font: 500 0.6875rem var(--mono);
 		font-feature-settings: "tnum" 1;
 		color: var(--text-3);
 	}
@@ -203,8 +234,7 @@
 		color: var(--text-2);
 		display: grid;
 		place-items: center;
-		font:
-			500 0.6875rem var(--sans);
+		font: 500 0.6875rem var(--sans);
 		flex: none;
 	}
 	.who b {
@@ -212,8 +242,7 @@
 		font-size: 0.8125rem;
 	}
 	.handle {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-3);
 		display: block;
 	}
@@ -288,7 +317,12 @@
 		nav {
 			align-items: center;
 		}
-		.palette-trigger { width: 32px; margin-inline: auto; padding: 0; justify-content: center; }
+		.palette-trigger {
+			width: 32px;
+			margin-inline: auto;
+			padding: 0;
+			justify-content: center;
+		}
 		.sb-foot {
 			display: flex;
 			flex-direction: column;

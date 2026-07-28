@@ -2,9 +2,9 @@
 	import type { ApplyMode } from "$lib/data/updates";
 
 	/**
-	 * ApplyModeChip (09-updates §3.3): a READ-ONLY chip, deliberately not a control.
-	 * Apply mode is agent-malleable (/task/711) — you ask Janet to change it, there
-	 * is no settings maze. Focusable for the tooltip only.
+	 * ApplyModeChip (09-updates §3.3): a READ-ONLY chip, deliberately not a control. Apply mode is
+	 * agent-malleable (/task/711) — you ask Janet to change it, there is no settings maze. Focusable
+	 * for the tooltip only.
 	 */
 	interface Props {
 		mode: ApplyMode | null;
@@ -49,8 +49,7 @@
 		border-radius: var(--r-xs);
 		background: var(--s2);
 		color: var(--text-2);
-		font:
-			500 0.6875rem var(--mono);
+		font: 500 0.6875rem var(--mono);
 		white-space: nowrap;
 		border: 0;
 		cursor: pointer;

@@ -116,10 +116,7 @@ Always show the timezone abbreviation or name:
 1. Convert UTC date to local format for value:
 
    ```svelte
-   <input
-     type="datetime-local"
-     value={toDateTimeLocal(event.submissionDeadline, event.timezone)}
-   />
+   <input type="datetime-local" value={toDateTimeLocal(event.submissionDeadline, event.timezone)} />
    ```
 
 2. Label should indicate timezone:

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { collegeNames } from '$lib/collegeNames';
-	import collegesJson from '$lib/colleges.json';
-	import { getLogoUrl } from '$lib/collegeLogos';
+	import { getLogoUrl } from "$lib/collegeLogos";
+	import { collegeNames } from "$lib/collegeNames";
+	import collegesJson from "$lib/colleges.json";
 
 	interface SelectedCollege {
 		name: string;
@@ -18,33 +18,31 @@
 
 	let {
 		onselect,
-		placeholder = 'Search for your college...',
-		inputId = 'college-search'
+		placeholder = "Search for your college...",
+		inputId = "college-search",
 	}: {
 		onselect: (college: SelectedCollege) => void;
 		placeholder?: string;
 		inputId?: string;
 	} = $props();
 
-	let query = $state('');
+	let query = $state("");
 	let results = $state<string[]>([]);
 	let showResults = $state(false);
 	let selectedIndex = $state(-1);
 	let isGeocoding = $state(false);
-	let geocodeError = $state('');
+	let geocodeError = $state("");
 
 	// Build a lookup map from the pre-seeded colleges.json. Built from an iterable rather than
 	// filled by `.set` -- it is read-only for the life of the component, so nothing here is state.
-	const preseededMap = new Map<string, PreseededCollege>(
-		(collegesJson as PreseededCollege[]).map((college) => [college.name.toLowerCase(), college])
+	const preseededMap: ReadonlyMap<string, PreseededCollege> = new Map<string, PreseededCollege>(
+		(collegesJson as PreseededCollege[]).map((college) => [college.name.toLowerCase(), college]),
 	);
 
 	function searchLocal(q: string): string[] {
 		if (!q.trim() || q.length < 2) return [];
 		const lower = q.toLowerCase();
-		return collegeNames
-			.filter((name) => name.toLowerCase().includes(lower))
-			.slice(0, 10);
+		return collegeNames.filter((name) => name.toLowerCase().includes(lower)).slice(0, 10);
 	}
 
 	async function geocodeCollege(name: string): Promise<{ lat: number; lng: number } | null> {
@@ -58,14 +56,14 @@
 				}
 			}
 		} catch (e) {
-			console.error('Geocoding failed:', e);
+			console.error("Geocoding failed:", e);
 		}
 		return null;
 	}
 
 	async function selectCollege(name: string) {
 		isGeocoding = true;
-		geocodeError = '';
+		geocodeError = "";
 
 		// Check pre-seeded coordinates first
 		const preseeded = preseededMap.get(name.toLowerCase());
@@ -74,7 +72,7 @@
 				name,
 				latitude: preseeded.lat,
 				longitude: preseeded.lng,
-				isCustom: false
+				isCustom: false,
 			});
 			query = name;
 			showResults = false;
@@ -91,29 +89,29 @@
 				name,
 				latitude: coords.lat,
 				longitude: coords.lng,
-				isCustom: false
+				isCustom: false,
 			});
 			query = name;
 			showResults = false;
 			results = [];
 		} else {
-			geocodeError = 'Could not find location for this college. Try another.';
+			geocodeError = "Could not find location for this college. Try another.";
 		}
 
 		isGeocoding = false;
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'ArrowDown') {
+		if (e.key === "ArrowDown") {
 			e.preventDefault();
 			selectedIndex = Math.min(selectedIndex + 1, results.length - 1);
-		} else if (e.key === 'ArrowUp') {
+		} else if (e.key === "ArrowUp") {
 			e.preventDefault();
 			selectedIndex = Math.max(selectedIndex - 1, -1);
-		} else if (e.key === 'Enter' && selectedIndex >= 0) {
+		} else if (e.key === "Enter" && selectedIndex >= 0) {
 			e.preventDefault();
 			void selectCollege(results[selectedIndex]);
-		} else if (e.key === 'Escape') {
+		} else if (e.key === "Escape") {
 			showResults = false;
 		}
 	}
@@ -122,7 +120,7 @@
 		query = e.currentTarget.value;
 		results = searchLocal(query);
 		selectedIndex = -1;
-		geocodeError = '';
+		geocodeError = "";
 	}
 </script>
 
@@ -167,11 +165,28 @@
 						onmousedown={() => selectCollege(name)}
 					>
 						{#if logoUrl}
-							<img class="cs-logo" src={logoUrl} alt="" width="18" height="18" onerror={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+							<img
+								class="cs-logo"
+								src={logoUrl}
+								alt=""
+								width="18"
+								height="18"
+								onerror={(e) => {
+									(e.currentTarget as HTMLElement).style.display = "none";
+								}}
+							/>
 						{:else if preseededMap.has(name.toLowerCase())}
-							<svg class="pin-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-								<circle cx="12" cy="10" r="3"/>
+							<svg
+								class="pin-icon"
+								width="12"
+								height="12"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+								<circle cx="12" cy="10" r="3" />
 							</svg>
 						{/if}
 						{name}
@@ -201,7 +216,7 @@
 		border: 1px solid var(--border-card);
 		color: var(--text-primary);
 		font-size: 0.9rem;
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 		outline: none;
 		transition: border-color 0.2s;
 	}
@@ -235,7 +250,9 @@
 	}
 
 	@keyframes spin {
-		to { transform: rotate(360deg); }
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.error-text {
@@ -265,7 +282,7 @@
 		text-align: left;
 		color: var(--text-primary);
 		font-size: 0.85rem;
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 		background: transparent;
 		border: none;
 		border-radius: 6px;

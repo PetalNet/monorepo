@@ -37,6 +37,7 @@ export default {
 			sveltekit: {
 				config: ["vite.config.ts"],
 			},
+			entry: ["effectdb.config.ts!", "src/env.ts!"],
 		},
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],

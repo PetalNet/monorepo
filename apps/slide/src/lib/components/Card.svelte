@@ -1,7 +1,7 @@
 <script lang="ts">
-	let { 
-		class: className = '',
-		children
+	let {
+		class: className = "",
+		children,
 	}: {
 		class?: string;
 		children: any;

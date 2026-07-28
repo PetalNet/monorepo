@@ -43,6 +43,7 @@ catalogs:
     "@sveltejs/adapter-node": ^5.5.2
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.1.18
+    "@vitest/coverage-v8": ^4.0.0
     eslint-plugin-svelte: ^3.20.0
     autoprefixer: ^10.4.20
     drizzle-kit: ^0.31.8
@@ -115,8 +116,8 @@ catalog:
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.0-rc.1
   effect: 4.0.0-beta.98
-  effect-db: 0.20.0
-  effect-qb: 0.20.0
+  effect-db: 0.21.0
+  effect-qb: 0.21.0
   svelte-effect-runtime: 4.0.0
   svelte-global-typescript: 1.0.1
   svelte-plugin-composer: 1.0.1

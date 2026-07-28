@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	
+	import { goto } from "$app/navigation";
+
 	let {
 		title,
 		subtitle,
 		backLink,
-		backText = '← Back to Dashboard',
-		children
+		backText = "← Back to Dashboard",
+		children,
 	}: {
 		title: string;
 		subtitle?: string;
@@ -18,16 +18,16 @@
 
 <div class="mb-8">
 	{#if backLink}
-		<button 
+		<button
 			onclick={() => goto(backLink)}
-			class="text-gray-400 hover:text-white mb-4 flex items-center gap-2 transition-colors"
+			class="mb-4 flex items-center gap-2 text-gray-400 transition-colors hover:text-white"
 		>
 			{backText}
 		</button>
 	{/if}
-	<div class="flex items-start justify-between gap-4 flex-wrap">
+	<div class="flex flex-wrap items-start justify-between gap-4">
 		<div>
-			<h1 class="text-4xl font-bold mb-2">{title}</h1>
+			<h1 class="mb-2 text-4xl font-bold">{title}</h1>
 			{#if subtitle}
 				<p class="text-gray-400">{subtitle}</p>
 			{/if}

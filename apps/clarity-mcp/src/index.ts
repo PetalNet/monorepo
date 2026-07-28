@@ -24,21 +24,58 @@ const USER_AGENT = "clarity-mcp/1.0 (+https://clarity.petalcat.dev)";
 const MAX_RESPONSE_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
 
-// Shape of the SearXNG JSON response (only the fields we surface). The payload is asserted, not
-// validated, so anything we read per-row stays `unknown` and is narrowed at the point of use --
-// the same treatment `unresponsive_engines` already gets.
-interface SearxResponse {
-	query?: string;
-	results?: unknown[];
-	suggestions?: string[];
-	corrections?: string[];
-	unresponsive_engines?: unknown[];
-}
+// Runtime schema for the SearXNG JSON response (only the fields we surface). The payload is
+// untrusted, so every field is coerced leniently: a quirky shape degrades to empty rather than
+// throwing, keeping the tool alive even if the backend drifts. `web_search` below `safeParse`s
+// through this instead of asserting a hand-rolled interface.
+const asString = z.unknown().transform((v) => (typeof v === "string" ? v : ""));
 
-/** Read an untrusted result field as a string; anything else (or absent) reads as empty. */
-function resultString(value: unknown): string {
-	return typeof value === "string" ? value : "";
-}
+const searxResultSchema = z.object({
+	title: asString,
+	url: asString,
+	content: asString,
+	engine: asString,
+	category: asString,
+	score: z.unknown().transform((v) => (typeof v === "number" ? v : 0)),
+	publishedDate: z.unknown().transform((v) => (typeof v === "string" ? v : null)),
+});
+
+// One `unresponsive_engines` entry -- array, {name/engine, error/reason} object, or scalar --
+// flattened to a single "name: error" display string.
+const unresponsiveEngineSchema = z.unknown().transform((entry) => {
+	if (Array.isArray(entry)) return entry.map(String).join(": ");
+	if (typeof entry === "object" && entry !== null) {
+		const record = entry as Record<string, unknown>;
+		const name = record["name"] ?? record["engine"];
+		const error = record["error"] ?? record["reason"];
+		return [name, error]
+			.filter((part) => part !== undefined && part !== null)
+			.map(String)
+			.join(": ");
+	}
+	return String(entry);
+});
+
+const searxResponseSchema = z.object({
+	query: z.string().optional(),
+	results: z
+		.array(z.unknown())
+		.default([])
+		.transform((rows) =>
+			rows
+				.filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null)
+				.map((r) => searxResultSchema.parse(r)),
+		),
+	suggestions: z
+		.array(z.unknown())
+		.default([])
+		.transform((v) => v.map(String)),
+	corrections: z
+		.array(z.unknown())
+		.default([])
+		.transform((v) => v.map(String)),
+	unresponsive_engines: z.array(unresponsiveEngineSchema).default([]),
+});
 
 function isBlockedIpv4(ip: string): boolean {
 	const parts = ip.split(".").map(Number);
@@ -110,7 +147,7 @@ async function readResponseText(res: Response, controller?: AbortController): Pr
 	const decoder = new TextDecoder();
 	let bytesRead = 0;
 	let text = "";
-	for (;;) {
+	while (true) {
 		const { done, value } = await reader.read();
 		if (done) break;
 		bytesRead += value.byteLength;
@@ -410,47 +447,33 @@ server.registerTool(
 
 		const res = await httpGet(`${BASE_URL}/search?${params.toString()}`);
 		const body = await res.text();
-		let data: SearxResponse;
+		let payload: unknown;
 		try {
-			data = JSON.parse(body) as SearxResponse;
+			payload = JSON.parse(body);
 		} catch (err) {
 			throw new Error(`Invalid JSON from Clarity backend: ${body.slice(0, 200)}`, { cause: err });
 		}
+		// Runtime-validate the shape; a payload that does not fit degrades to empty rather than
+		// throwing, so a backend hiccup never breaks the tool.
+		const parsed = searxResponseSchema.safeParse(payload);
+		const data = parsed.success
+			? parsed.data
+			: {
+					query: undefined,
+					results: [],
+					suggestions: [],
+					corrections: [],
+					unresponsive_engines: [],
+				};
 		const limit = max_results ?? 10;
 
-		const results = (data.results ?? [])
-			.filter(
-				(result): result is Record<string, unknown> =>
-					typeof result === "object" && result !== null,
-			)
-			.slice(0, limit)
-			.map((r) => ({
-				title: resultString(r["title"]),
-				url: resultString(r["url"]),
-				content: resultString(r["content"]),
-				engine: resultString(r["engine"]),
-				category: resultString(r["category"]),
-				score: typeof r["score"] === "number" ? r["score"] : 0,
-				publishedDate: typeof r["publishedDate"] === "string" ? r["publishedDate"] : null,
-			}));
+		const results = data.results.slice(0, limit);
 		const structured = {
 			query: data.query ?? query,
 			results,
-			suggestions: (data.suggestions ?? []).map(String),
-			corrections: (data.corrections ?? []).map(String),
-			unresponsive_engines: (data.unresponsive_engines ?? []).map((entry) => {
-				if (Array.isArray(entry)) return entry.map(String).join(": ");
-				if (typeof entry === "object" && entry !== null) {
-					const record = entry as Record<string, unknown>;
-					const name = record["name"] ?? record["engine"];
-					const error = record["error"] ?? record["reason"];
-					return [name, error]
-						.filter((part) => part !== undefined && part !== null)
-						.map(String)
-						.join(": ");
-				}
-				return String(entry);
-			}),
+			suggestions: data.suggestions,
+			corrections: data.corrections,
+			unresponsive_engines: data.unresponsive_engines,
 		};
 
 		const text =
