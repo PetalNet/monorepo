@@ -15,6 +15,7 @@
 		"lint:knip:prod": "knip --strict",
 		"lint:oxlint": "oxlint --max-warnings=0",
 		"manypkg": "manypkg check",
+		"prepare": "effect-tsgo patch",
 		"test": "vp run -r test",
 		"ts-references:check": "update-ts-references --check",
 		"ts-references:update": "update-ts-references",
@@ -22,6 +23,7 @@
 		"typesync:check": "typesync --dry=fail"
 	},
 	"devDependencies": {
+		"@effect/tsgo": "catalog:",
 		"@eslint/js": "catalog:dev",
 		"@eslint/json": "catalog:dev",
 		"@eslint/markdown": "catalog:dev",

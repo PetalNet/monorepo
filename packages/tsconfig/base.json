@@ -20,6 +20,13 @@
 		"noFallthroughCasesInSwitch": true,
 		"noPropertyAccessFromIndexSignature": true,
 		"verbatimModuleSyntax": true,
-		"moduleDetection": "force"
+		"moduleDetection": "force",
+		"plugins": [
+			{
+				"name": "@effect/language-service",
+				"diagnosticSeverity": {},
+				"ignoreEffectSuggestionsInTscExitCode": false
+			}
+		]
 	}
 }

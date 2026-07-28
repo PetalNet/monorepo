@@ -3,7 +3,6 @@ import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-	server: { allowedHosts: [".onamp.dev", ".e2b.app"] },
 	plugins: [
 		sveltekit({
 			compilerOptions: {

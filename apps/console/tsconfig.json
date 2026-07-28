@@ -25,7 +25,14 @@
 			"$lib": ["./src/lib"],
 			"$lib/*": ["./src/lib/*"],
 			"$app/types": ["./.svelte-kit/types/index.d.ts"]
-		}
+		},
+		"plugins": [
+			{
+				"name": "@effect/language-service",
+				"diagnosticSeverity": {},
+				"ignoreEffectSuggestionsInTscExitCode": false
+			}
+		]
 	},
 	"include": [
 		".svelte-kit/env.d.ts",

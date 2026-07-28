@@ -10,7 +10,14 @@
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": true,
-		"moduleResolution": "bundler"
+		"moduleResolution": "bundler",
+		"plugins": [
+			{
+				"name": "@effect/language-service",
+				"diagnosticSeverity": {},
+				"ignoreEffectSuggestionsInTscExitCode": false
+			}
+		]
 	},
 	"include": [
 		".svelte-kit/ambient.d.ts",
