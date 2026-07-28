@@ -58,7 +58,9 @@ jobs:
           run-install: true
           sfw: true
       - name: Write app env
-        run: echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
+        run: |
+          echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
+          echo "DATABASE_URL=$DATABASE_URL" > apps/grove/.env
       - run: vp run build
 
   manager-rust:
