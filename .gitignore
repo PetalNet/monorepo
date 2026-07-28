@@ -2,6 +2,7 @@
 **/dist/
 **/build/
 **/build-server/
+**/storybook-static/
 **/.svelte-kit/
 **/coverage/
 **/target/
