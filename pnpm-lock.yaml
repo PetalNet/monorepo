@@ -543,6 +543,9 @@ importers:
       mode-watcher:
         specifier: 'catalog:'
         version: 1.1.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
+      svelte:
+        specifier: catalog:prod
+        version: 5.56.5(@typescript-eslint/types@8.61.1)
       tailwindcss:
         specifier: catalog:prod
         version: 4.3.1
@@ -556,9 +559,6 @@ importers:
       '@tailwindcss/vite':
         specifier: catalog:dev
         version: 4.3.1(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-      svelte:
-        specifier: catalog:prod
-        version: 5.56.5(@typescript-eslint/types@8.61.1)
       svelte-check:
         specifier: catalog:dev
         version: 4.6.0(@typescript/typescript6@6.0.2)(picomatch@4.0.4)(svelte@5.56.5(@typescript-eslint/types@8.61.1))
