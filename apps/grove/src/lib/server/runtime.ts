@@ -35,6 +35,8 @@ export const runGrove = <A, E, R extends GroveAuth | SproutService>(
 	event: RequestEvent,
 ) => initializeGroveRuntime().run(effect, event);
 
+export const handleGrove = initializeGroveRuntime().handle;
+
 export const disposeGroveRuntime = () => runtime?.dispose() ?? Promise.resolve();
 
 if (import.meta.hot) import.meta.hot.dispose(() => void disposeGroveRuntime());

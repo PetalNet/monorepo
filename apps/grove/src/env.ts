@@ -6,7 +6,7 @@ export const variables = defineEnvVars({
 		public: false,
 		static: false,
 		description: "Secret used to sign and encrypt Grove authentication state.",
-		schema: Schema.toStandardSchemaV1(Schema.optional(Schema.String.check(Schema.isMinLength(32)))),
+		schema: Schema.toStandardSchemaV1(Schema.String.check(Schema.isMinLength(32))),
 	},
 	BETTER_AUTH_URL: {
 		public: false,

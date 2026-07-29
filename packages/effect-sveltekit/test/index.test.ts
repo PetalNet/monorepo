@@ -1,4 +1,4 @@
-import { isHttpError, type RequestEvent } from "@sveltejs/kit";
+import { isHttpError, type Handle, type RequestEvent } from "@sveltejs/kit";
 import { Cause, Context, Effect, Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -63,6 +63,25 @@ describe("makeEffectSvelteKitRuntime", () => {
 				runtime.run(currentUrl, eventFor(undefined, "/two")),
 			]),
 		).resolves.toEqual(["https://grove.test/one", "https://grove.test/two"]);
+		await runtime.dispose();
+	});
+
+	it("wraps a SvelteKit handle with runtime services and its request event", async () => {
+		class Value extends Context.Service<Value, string>()("test/HandleValue") {}
+		const runtime = makeEffectSvelteKitRuntime(Layer.succeed(Value, "from-runtime"));
+		const handle = runtime.handle(({ event }) =>
+			Effect.gen(function* () {
+				const value = yield* Value;
+				const request = yield* SvelteKitRequestEvent;
+				return new Response(`${value}:${request.request.url}:${event.request.url}`);
+			}),
+		);
+		const event = eventFor(undefined, "/handle");
+		const response = await handle({ event, resolve: vi.fn() } as Parameters<Handle>[0]);
+
+		expect(await response.text()).toBe(
+			"from-runtime:https://grove.test/handle:https://grove.test/handle",
+		);
 		await runtime.dispose();
 	});
 
