@@ -8,9 +8,6 @@ export default defineConfig({
 		// Preserve light-dark(); its media-query fallback ignores explicit mode overrides.
 		cssTarget: ["chrome123", "firefox120", "safari17.5"],
 	},
-	ssr: {
-		external: ["better-auth"],
-	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

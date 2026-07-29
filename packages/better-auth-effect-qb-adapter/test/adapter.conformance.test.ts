@@ -38,6 +38,8 @@ describe("effect-qb Postgres adapter conformance", async () => {
 					if (attributes.unique) clauses.push("unique");
 					columns.push(clauses.join(" "));
 				}
+				// RC2 expresses account identity as a compound issuer + providerAccountId index.
+				// Older releases marked providerAccountId unique directly on the column instead.
 				for (const index of table.indexes ?? []) {
 					if (!index.unique) continue;
 					columns.push(
