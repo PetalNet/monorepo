@@ -15,9 +15,6 @@
 		"@effect/sql-pg": "catalog:",
 		"effect": "catalog:"
 	},
-	"peerDependencies": {
-		"better-auth": "*"
-	},
 	"devDependencies": {
 		"@better-auth/test-utils": "catalog:",
 		"@testcontainers/postgresql": "catalog:",
@@ -26,5 +23,8 @@
 		"eslint": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"
+	},
+	"peerDependencies": {
+		"better-auth": "*"
 	}
 }

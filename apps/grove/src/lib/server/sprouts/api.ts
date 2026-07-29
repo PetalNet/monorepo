@@ -10,15 +10,20 @@ import {
 	SproutList,
 	WaterSprout,
 } from "../../sprouts/schema";
+import { AuthenticationRequired } from "../authorization";
 import { SproutDatabaseError, SproutNotFound, SproutService } from "./service";
 
-const databaseStatus = (_error: SproutDatabaseError): number => 503;
-const persistedStatus = (error: SproutNotFound | SproutDatabaseError): number =>
-	error instanceof SproutNotFound ? 404 : 503;
-const databaseMessage = (_error: SproutDatabaseError): string =>
-	"The sprout database is unavailable";
-const persistedMessage = (error: SproutNotFound | SproutDatabaseError): string =>
-	error instanceof SproutNotFound ? error.message : databaseMessage(error);
+type OperationError = AuthenticationRequired | SproutNotFound | SproutDatabaseError;
+
+const statusForError = (error: OperationError): number => {
+	if (error instanceof AuthenticationRequired) return 401;
+	return error instanceof SproutNotFound ? 404 : 503;
+};
+const messageForError = (error: OperationError): string => {
+	if (error instanceof AuthenticationRequired || error instanceof SproutNotFound)
+		return error.message;
+	return "The sprout database is unavailable";
+};
 
 const sproutOperations = [
 	operation({
@@ -29,8 +34,8 @@ const sproutOperations = [
 		input: EmptyInput,
 		output: SproutList,
 		handler: () => Effect.flatMap(SproutService, (service) => service.list),
-		statusForError: databaseStatus,
-		messageForError: databaseMessage,
+		statusForError,
+		messageForError,
 	}),
 	operation({
 		name: "sprouts.get",
@@ -40,8 +45,8 @@ const sproutOperations = [
 		input: SproutId,
 		output: Sprout,
 		handler: ({ id }) => Effect.flatMap(SproutService, (service) => service.get(id)),
-		statusForError: persistedStatus,
-		messageForError: persistedMessage,
+		statusForError,
+		messageForError,
 	}),
 	operation({
 		name: "sprouts.create",
@@ -51,8 +56,8 @@ const sproutOperations = [
 		input: CreateSprout,
 		output: Sprout,
 		handler: (input) => Effect.flatMap(SproutService, (service) => service.create(input)),
-		statusForError: databaseStatus,
-		messageForError: databaseMessage,
+		statusForError,
+		messageForError,
 	}),
 	operation({
 		name: "sprouts.water",
@@ -62,8 +67,8 @@ const sproutOperations = [
 		input: WaterSprout,
 		output: Sprout,
 		handler: ({ id }) => Effect.flatMap(SproutService, (service) => service.water(id)),
-		statusForError: persistedStatus,
-		messageForError: persistedMessage,
+		statusForError,
+		messageForError,
 	}),
 	operation({
 		name: "sprouts.remove",
@@ -73,8 +78,8 @@ const sproutOperations = [
 		input: SproutId,
 		output: RemovedSprout,
 		handler: ({ id }) => Effect.flatMap(SproutService, (service) => service.remove(id)),
-		statusForError: persistedStatus,
-		messageForError: persistedMessage,
+		statusForError,
+		messageForError,
 	}),
 ] as const;
 

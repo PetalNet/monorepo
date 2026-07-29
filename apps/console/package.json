@@ -45,11 +45,6 @@
 		"tailwindcss": "catalog:prod",
 		"uuid": "catalog:"
 	},
-	"dependenciesMeta": {
-		"@petalnet/better-auth-effect-qb-adapter": {
-			"injected": true
-		}
-	},
 	"devDependencies": {
 		"@petalnet/svelte-ws": "workspace:*",
 		"@petalnet/types": "workspace:*",
@@ -65,5 +60,10 @@
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
 		"vitest": "catalog:dev"
+	},
+	"dependenciesMeta": {
+		"@petalnet/better-auth-effect-qb-adapter": {
+			"injected": true
+		}
 	}
 }
