@@ -34,6 +34,7 @@
 		"eslint": "catalog:dev",
 		"eslint-plugin-oxlint": "catalog:dev",
 		"eslint-plugin-package-json": "catalog:dev",
+		"impeccable": "catalog:dev",
 		"knip": "catalog:dev",
 		"oxlint": "catalog:dev",
 		"typescript": "catalog:dev",
