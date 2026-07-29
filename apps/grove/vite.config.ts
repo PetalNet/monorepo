@@ -4,6 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+	build: {
+		// Preserve light-dark(); its media-query fallback ignores explicit mode overrides.
+		cssTarget: ["chrome123", "firefox120", "safari17.5"],
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

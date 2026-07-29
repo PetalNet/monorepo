@@ -22,8 +22,7 @@
 	<Sun aria-hidden={true} class="size-5" />
 	<input
 		type="checkbox"
-		value="dark"
-		class="toggle theme-controller"
+		class="toggle"
 		checked={theme.dark}
 		onclick={(event) => {
 			event.preventDefault();
