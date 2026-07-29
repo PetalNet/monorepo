@@ -17,6 +17,9 @@ const identifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 type RuntimeContext = Context.Context<never>;
 type DatabaseRow = Record<string, unknown>;
 type AdapterFactory = ReturnType<typeof createAdapterFactory> & { close: () => Promise<void> };
+export interface EffectQbAdapterRuntime {
+	runPromise: <A, E>(effect: Effect.Effect<A, E, PgClient.PgClient>) => Promise<A>;
+}
 interface FindOneArguments {
 	model: string;
 	where: CleanedWhere[];
@@ -71,15 +74,27 @@ const scalarString = (value: unknown) => {
 	throw new TypeError("Expected a scalar database value");
 };
 
-export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
-	const runtime = ManagedRuntime.make(
-		PgClient.layer({ url: Redacted.make(databaseUrl), maxConnections: 10 }),
-	);
+export const createEffectQbAdapter = (
+	database: string | EffectQbAdapterRuntime,
+): AdapterFactory => {
+	const owner = (() => {
+		if (typeof database !== "string")
+			return { runPromise: database.runPromise, close: () => Promise.resolve() };
+		const runtime = ManagedRuntime.make(
+			PgClient.layer({ url: Redacted.make(database), maxConnections: 10 }),
+		);
+		return {
+			runPromise: <A, E>(effect: Effect.Effect<A, E, PgClient.PgClient>) =>
+				runtime.runPromise(effect),
+			close: () => runtime.dispose(),
+		};
+	})();
 	const transactionContext = new AsyncLocalStorage<RuntimeContext>();
 	let transactionAdapter: DBTransactionAdapter | undefined;
 	const run = <A, E>(effect: Effect.Effect<A, E, PgClient.PgClient>) => {
 		const context = transactionContext.getStore();
-		return runtime.runPromise(context ? Effect.provide(effect, context) : effect);
+		const provided = context ? Effect.provide(effect, context) : effect;
+		return owner.runPromise(provided);
 	};
 
 	const factory = createAdapterFactory({
@@ -364,6 +379,6 @@ export const createEffectQbAdapter = (databaseUrl: string): AdapterFactory => {
 		transactionAdapter = adapter;
 		return adapter;
 	}) as AdapterFactory;
-	result.close = () => runtime.dispose();
+	result.close = owner.close;
 	return result;
 };

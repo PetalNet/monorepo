@@ -1,19 +1,20 @@
 import process from "node:process";
 
 import { building } from "$app/env";
-import { auth, disposeAuth } from "$lib/server/auth";
-import { disposeGroveRuntime, initializeGroveRuntime } from "$lib/server/runtime";
+import { GroveAuth } from "$lib/server/auth";
+import { disposeGroveRuntime, initializeGroveRuntime, runGrove } from "$lib/server/runtime";
 import type { Handle, ServerInit } from "@sveltejs/kit";
 import { isAuthPath, svelteKitHandler } from "better-auth/svelte-kit";
 
 export const init: ServerInit = async () => {
 	await initializeGroveRuntime().initialize();
 	process.once("sveltekit:shutdown", () => {
-		void Promise.all([disposeAuth(), disposeGroveRuntime()]);
+		void disposeGroveRuntime();
 	});
 };
 
 export const handle: Handle = async ({ event, resolve }) => {
+	const auth = await runGrove(GroveAuth, event);
 	event.locals.session = null;
 	event.locals.user = null;
 

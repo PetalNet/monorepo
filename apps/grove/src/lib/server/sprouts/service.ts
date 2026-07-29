@@ -79,7 +79,7 @@ const hasId = (id: Scalar.BigIntString) => Query.eq(sprouts.id, Query.cast(id, P
 const database = <A>(effect: Effect.Effect<A, unknown>) =>
 	effect.pipe(Effect.mapError((cause) => new SproutDatabaseError(cause)));
 
-export const SproutServiceLive = Layer.effect(
+export const SproutServiceLayer = Layer.effect(
 	SproutService,
 	Effect.gen(function* () {
 		const sql = yield* PgClient.PgClient;
