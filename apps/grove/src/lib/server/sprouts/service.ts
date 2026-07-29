@@ -1,4 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import { Context, Effect, Layer, Schema } from "effect";
 import { Query, type Scalar } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
@@ -11,6 +12,7 @@ import {
 	type Sprout,
 	type SproutIdValue,
 } from "../../sprouts/schema";
+import { AuthenticationRequired, requireAuthenticatedUser } from "../authorization";
 import { sprouts } from "../db/tables";
 
 export class SproutNotFound extends Error {
@@ -29,19 +31,37 @@ export class SproutDatabaseError extends Error {
 	}
 }
 
-type SproutError = SproutNotFound | SproutDatabaseError;
+type SproutError = AuthenticationRequired | SproutNotFound | SproutDatabaseError;
 
 export interface SproutServiceShape {
-	readonly list: Effect.Effect<readonly Sprout[], SproutDatabaseError>;
-	readonly get: (id: SproutIdValue) => Effect.Effect<Sprout, SproutError>;
-	readonly create: (input: CreateSprout) => Effect.Effect<Sprout, SproutDatabaseError>;
-	readonly water: (id: SproutIdValue) => Effect.Effect<Sprout, SproutError>;
-	readonly remove: (id: SproutIdValue) => Effect.Effect<{ readonly removed: true }, SproutError>;
+	readonly list: Effect.Effect<
+		readonly Sprout[],
+		AuthenticationRequired | SproutDatabaseError,
+		SvelteKitRequestEvent
+	>;
+	readonly get: (id: SproutIdValue) => Effect.Effect<Sprout, SproutError, SvelteKitRequestEvent>;
+	readonly create: (
+		input: CreateSprout,
+	) => Effect.Effect<Sprout, AuthenticationRequired | SproutDatabaseError, SvelteKitRequestEvent>;
+	readonly water: (id: SproutIdValue) => Effect.Effect<Sprout, SproutError, SvelteKitRequestEvent>;
+	readonly remove: (
+		id: SproutIdValue,
+	) => Effect.Effect<{ readonly removed: true }, SproutError, SvelteKitRequestEvent>;
 }
 
 export class SproutService extends Context.Service<SproutService, SproutServiceShape>()(
 	"grove/SproutService",
 ) {}
+
+const unavailableDuringBuild = () => Effect.die("Sprout data is unavailable during build");
+
+export const SproutServiceBuildLayer = Layer.succeed(SproutService, {
+	list: unavailableDuringBuild(),
+	get: unavailableDuringBuild,
+	create: unavailableDuringBuild,
+	water: unavailableDuringBuild,
+	remove: unavailableDuringBuild,
+});
 
 interface SproutRow {
 	readonly id: Scalar.BigIntString;
@@ -78,6 +98,8 @@ const hasId = (id: Scalar.BigIntString) => Query.eq(sprouts.id, Query.cast(id, P
 
 const database = <A>(effect: Effect.Effect<A, unknown>) =>
 	effect.pipe(Effect.mapError((cause) => new SproutDatabaseError(cause)));
+const authenticated = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+	requireAuthenticatedUser.pipe(Effect.andThen(effect));
 
 export const SproutServiceLayer = Layer.effect(
 	SproutService,
@@ -107,70 +129,81 @@ export const SproutServiceLayer = Layer.effect(
 				return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
 			});
 		return {
-			list,
-			get,
+			list: authenticated(list),
+			get: (id) => authenticated(get(id)),
 			create: (input) =>
-				database(
-					execute(
-						executor.execute(
-							Query.insert(sprouts, { name: input.name }).pipe(Query.returning(sproutSelection)),
-						),
-					),
-				).pipe(Effect.map((rows) => fromRow(rows[0]))),
-			water: (id) =>
-				Effect.gen(function* () {
-					const dbId = yield* databaseId(id);
-					const rows = yield* execute(
-						Pg.Executor.withTransaction(
-							Effect.gen(function* () {
-								const current = yield* executor.execute(
-									Query.select(sproutSelection).pipe(Query.from(sprouts), Query.where(hasId(dbId))),
-								);
-								const row = current.at(0);
-								if (!row) return [];
-								const waterings = yield* Schema.decodeUnknownEffect(Counter)(row.waterings + 1);
-
-								const updated = yield* executor.execute(
-									Query.update(sprouts, { waterings }).pipe(
-										Query.where(Query.and(hasId(dbId), Query.eq(sprouts.waterings, row.waterings))),
-										Query.returning(sproutSelection),
-									),
-								);
-								if (updated.length > 0) return updated;
-								return yield* Effect.fail(new SproutOutOfDate());
-							}),
-						),
-					).pipe(
-						Effect.tapError((error) =>
-							error instanceof SproutOutOfDate
-								? Effect.sleep("10 millis")
-								: Effect.succeed(undefined),
-						),
-						Effect.retry({
-							times: 10,
-							while: (error) => error instanceof SproutOutOfDate,
-						}),
-						Effect.mapError((cause) => new SproutDatabaseError(cause)),
-					);
-					const row = rows.at(0);
-					return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
-				}),
-			remove: (id) =>
-				Effect.gen(function* () {
-					const dbId = yield* databaseId(id);
-					const rows = yield* database(
+				authenticated(
+					database(
 						execute(
 							executor.execute(
-								Query.delete(sprouts).pipe(
-									Query.where(hasId(dbId)),
-									Query.returning({ id: sprouts.id }),
-								),
+								Query.insert(sprouts, { name: input.name }).pipe(Query.returning(sproutSelection)),
 							),
 						),
-					);
-					if (rows.length === 0) return yield* Effect.fail(new SproutNotFound(id));
-					return { removed: true as const };
-				}),
+					).pipe(Effect.map((rows) => fromRow(rows[0]))),
+				),
+			water: (id) =>
+				authenticated(
+					Effect.gen(function* () {
+						const dbId = yield* databaseId(id);
+						const rows = yield* execute(
+							Pg.Executor.withTransaction(
+								Effect.gen(function* () {
+									const current = yield* executor.execute(
+										Query.select(sproutSelection).pipe(
+											Query.from(sprouts),
+											Query.where(hasId(dbId)),
+										),
+									);
+									const row = current.at(0);
+									if (!row) return [];
+									const waterings = yield* Schema.decodeUnknownEffect(Counter)(row.waterings + 1);
+
+									const updated = yield* executor.execute(
+										Query.update(sprouts, { waterings }).pipe(
+											Query.where(
+												Query.and(hasId(dbId), Query.eq(sprouts.waterings, row.waterings)),
+											),
+											Query.returning(sproutSelection),
+										),
+									);
+									if (updated.length > 0) return updated;
+									return yield* Effect.fail(new SproutOutOfDate());
+								}),
+							),
+						).pipe(
+							Effect.tapError((error) =>
+								error instanceof SproutOutOfDate
+									? Effect.sleep("10 millis")
+									: Effect.succeed(undefined),
+							),
+							Effect.retry({
+								times: 10,
+								while: (error) => error instanceof SproutOutOfDate,
+							}),
+							Effect.mapError((cause) => new SproutDatabaseError(cause)),
+						);
+						const row = rows.at(0);
+						return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
+					}),
+				),
+			remove: (id) =>
+				authenticated(
+					Effect.gen(function* () {
+						const dbId = yield* databaseId(id);
+						const rows = yield* database(
+							execute(
+								executor.execute(
+									Query.delete(sprouts).pipe(
+										Query.where(hasId(dbId)),
+										Query.returning({ id: sprouts.id }),
+									),
+								),
+							),
+						);
+						if (rows.length === 0) return yield* Effect.fail(new SproutNotFound(id));
+						return { removed: true as const };
+					}),
+				),
 		};
 	}),
 );

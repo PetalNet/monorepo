@@ -29,7 +29,8 @@
 		"effectdb.config.ts",
 		"src/**/*.js",
 		"src/**/*.ts",
-		"src/**/*.svelte"
+		"src/**/*.svelte",
+		"test/**/*.ts"
 	]
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	//
