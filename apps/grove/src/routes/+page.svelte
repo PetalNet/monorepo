@@ -90,7 +90,7 @@
 				maxlength="80"
 				placeholder="Silver fern"
 			/>
-			{#each plantForm.fields.name.issues() ?? [] as issue}
+			{#each plantForm.fields.name.issues() ?? [] as issue, index (index)}
 				<small class="text-error font-semibold">{issue.message}</small>
 			{/each}
 		</label>
@@ -128,7 +128,12 @@
 					</p>
 				</div>
 				<div class="flex flex-wrap gap-2">
-					<button class="btn btn-ghost btn-sm" onclick={() => inspect(sprout.id)}>Inspect</button>
+					<button
+						class="btn btn-ghost btn-sm"
+						onclick={() => {
+							inspect(sprout.id);
+						}}>Inspect</button
+					>
 					<form
 						class="contents"
 						{...waterForm.enhance(async (form) => {
@@ -146,11 +151,12 @@
 						<button
 							class="btn btn-primary btn-sm min-w-20"
 							disabled={planting}
-							onclick={() =>
+							onclick={() => {
 								watering.increment(
 									sprout.id,
 									Math.max(sprout.waterings, inspected?.id === sprout.id ? inspected.waterings : 0),
-								)}
+								);
+							}}
 						>
 							Water
 						</button>

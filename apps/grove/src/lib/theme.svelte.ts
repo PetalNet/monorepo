@@ -7,6 +7,7 @@ export class Theme {
 	toggle() {
 		if (
 			window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- startViewTransition is not available in all browsers (progressive enhancement)
 			!document.startViewTransition
 		) {
 			this.#applyToggle();

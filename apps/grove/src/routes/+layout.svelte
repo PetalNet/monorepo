@@ -2,13 +2,14 @@
 	import Moon from "@lucide/svelte/icons/moon";
 	import Sun from "@lucide/svelte/icons/sun";
 	import { ModeWatcher } from "mode-watcher";
+	import type { Snippet } from "svelte";
 
 	import favicon from "#lib/assets/favicon.svg";
 	import { Theme } from "#lib/theme.svelte.ts";
 
 	import "../app.css";
 
-	let { children } = $props();
+	let { children }: { children: Snippet } = $props();
 	const theme = new Theme();
 </script>
 
