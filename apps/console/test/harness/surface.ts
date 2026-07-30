@@ -21,7 +21,7 @@ export interface InjectResponse {
 	readonly statusCode: number;
 	readonly body: string;
 	readonly headers: Record<string, string>;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- inject parity with the old light-my-request json()
+
 	json<T = any>(): T;
 }
 

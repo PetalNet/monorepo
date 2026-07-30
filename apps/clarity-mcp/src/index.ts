@@ -77,6 +77,22 @@ const searxResponseSchema = z.object({
 	unresponsive_engines: z.array(unresponsiveEngineSchema).default([]),
 });
 
+// Codec pairing the raw JSON response body with the validated shape. JSON.parse runs inside the
+// decode step so a malformed body surfaces as a distinguishable `custom` issue (thrown at the call
+// site), while a well-formed-but-drifted shape still degrades to empty via the lenient field
+// schemas above. `web_search` decodes the body string straight through this in one step.
+const searxResponseCodec = z.codec(z.string(), searxResponseSchema, {
+	decode: (jsonText, ctx) => {
+		try {
+			return JSON.parse(jsonText) as z.input<typeof searxResponseSchema>;
+		} catch {
+			ctx.issues.push({ code: "custom", message: "invalid JSON", input: jsonText });
+			return z.NEVER;
+		}
+	},
+	encode: (value) => JSON.stringify(value),
+});
+
 function isBlockedIpv4(ip: string): boolean {
 	const parts = ip.split(".").map(Number);
 	if (
@@ -447,15 +463,13 @@ server.registerTool(
 
 		const res = await httpGet(`${BASE_URL}/search?${params.toString()}`);
 		const body = await res.text();
-		let payload: unknown;
-		try {
-			payload = JSON.parse(body);
-		} catch (err) {
-			throw new Error(`Invalid JSON from Clarity backend: ${body.slice(0, 200)}`, { cause: err });
+		// Decode + validate in one step: malformed JSON surfaces as a `custom` issue (thrown here),
+		// while a well-formed-but-drifted shape degrades to empty, so a backend hiccup never breaks
+		// the tool.
+		const parsed = searxResponseCodec.safeParse(body);
+		if (!parsed.success && parsed.error.issues.some((issue) => issue.code === "custom")) {
+			throw new Error(`Invalid JSON from Clarity backend: ${body.slice(0, 200)}`);
 		}
-		// Runtime-validate the shape; a payload that does not fit degrades to empty rather than
-		// throwing, so a backend hiccup never breaks the tool.
-		const parsed = searxResponseSchema.safeParse(payload);
 		const data = parsed.success
 			? parsed.data
 			: {
