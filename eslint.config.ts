@@ -137,7 +137,6 @@ export default defineConfig([
 			"svelte/no-navigation-without-resolve": "off",
 			"svelte/prefer-svelte-reactivity": "off",
 			"svelte/require-each-key": "off",
-			"@typescript-eslint/no-unsafe-member-access": "off",
 		},
 	},
 	...oxlint.buildFromOxlintConfigFile(path.join(root, ".oxlintrc.json")),
