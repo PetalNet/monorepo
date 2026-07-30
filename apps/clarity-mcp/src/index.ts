@@ -147,7 +147,7 @@ async function readResponseText(res: Response, controller?: AbortController): Pr
 	const decoder = new TextDecoder();
 	let bytesRead = 0;
 	let text = "";
-	for (;;) {
+	while (true) {
 		const { done, value } = await reader.read();
 		if (done) break;
 		bytesRead += value.byteLength;
