@@ -1,18 +1,6 @@
 <script lang="ts">
+	import type { UserWithCollege } from "$lib/collegeGroups";
 	import { onMount } from "svelte";
-
-	interface UserWithCollege {
-		id: string;
-		firstName: string;
-		lastName: string;
-		createdAt: string;
-		college: {
-			id: string;
-			name: string;
-			latitude: number;
-			longitude: number;
-		};
-	}
 
 	let {
 		users,
@@ -86,7 +74,9 @@
 	}
 
 	onMount(() => {
-		return () => cancelAnimationFrame(animFrame);
+		return () => {
+			cancelAnimationFrame(animFrame);
+		};
 	});
 </script>
 
@@ -108,7 +98,9 @@
 	<button
 		class="tl-btn"
 		aria-label={isPlaying ? "Pause" : "Play"}
-		onclick={() => (isPlaying ? pause() : play())}
+		onclick={() => {
+			isPlaying ? pause() : play();
+		}}
 	>
 		{#if isPlaying}
 			<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">

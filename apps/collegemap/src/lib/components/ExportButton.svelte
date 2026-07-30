@@ -17,7 +17,7 @@
 
 		try {
 			const leafletImage = (await import("leaflet-image")).default;
-			leafletImage(mapInstance, (err: Error | null, canvas: HTMLCanvasElement) => {
+			leafletImage(mapInstance, (err: Error | null, canvas: HTMLCanvasElement | null) => {
 				if (err || !canvas) {
 					exporting = false;
 					return;

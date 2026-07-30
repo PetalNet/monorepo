@@ -50,7 +50,7 @@ export function createWebsocketDispatcher(
 						},
 						on(event, handler) {
 							if (event === "message") {
-								const listener = handler as (data: Uint8Array) => void;
+								const listener = handler;
 								state.onMessage.push(listener);
 								// Flush frames that arrived before the handler was ready, in arrival order. A
 								// connection that already closed delivers nothing: its cleanup has run (or runs

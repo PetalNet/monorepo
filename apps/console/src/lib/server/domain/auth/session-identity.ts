@@ -26,13 +26,13 @@ export function parseBetterAuthIdentity(
 	user: Record<string, unknown>,
 	sessionId = "",
 ): BetterAuthSessionIdentity | null {
-	const userId = user["id"];
-	const tier = user["tier"];
+	const userId = user.id;
+	const tier = user.tier;
 	if (typeof userId === "string" && /^[A-Za-z0-9_-]{1,255}$/.test(userId) && isConsoleTier(tier))
 		return { kind: "app", userId, tier, sessionId };
-	const username = user["authentikUsername"];
-	const encodedGroups = user["authentikGroups"];
-	const subject = user["authentikSubject"];
+	const username = user.authentikUsername;
+	const encodedGroups = user.authentikGroups;
+	const subject = user.authentikSubject;
 	if (typeof username !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(username)) return null;
 	if (
 		typeof subject !== "string" ||

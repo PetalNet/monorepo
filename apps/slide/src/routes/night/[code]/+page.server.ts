@@ -131,7 +131,7 @@ export const actions: Actions = {
 			data: {
 				name,
 				emoji: emoji || "📊",
-				presentationType: "other" as string, // Default value
+				presentationType: "other", // Default value
 				inviteCode: inviteCode,
 				eventId: event.id,
 				members: {
@@ -180,7 +180,7 @@ export const actions: Actions = {
 			where: { inviteCode },
 		});
 
-		if (!group || group.eventId !== event.id) {
+		if (group?.eventId !== event.id) {
 			return fail(404, { error: "Invalid invite code for this event" });
 		}
 

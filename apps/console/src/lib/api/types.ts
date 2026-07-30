@@ -106,9 +106,9 @@ export type RosterItem = Mutable<typeof RosterItemSchema.Type> & {
 };
 export type CommsEvent = Mutable<typeof CommsEventSchema.Type>;
 
-export type GovernancePool = {
+export interface GovernancePool {
 	pool_tokens: number; pool_spent: number; fleet_mode: "parallel" | "sequential"; cascade_active: boolean; [key: string]: unknown;
-};
+}
 
 /** @public Compatibility fixtures for contract consumers and tests. */
 export const CONTRACT_FIXTURES = {

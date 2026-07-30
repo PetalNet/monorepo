@@ -28,7 +28,10 @@ export interface MatrixTransport {
 	send(owner: string, target: string, body: string, transactionId?: string): Promise<MatrixReceipt>;
 }
 
-type MatrixErrorBody = { errcode?: string; error?: string };
+interface MatrixErrorBody {
+	errcode?: string;
+	error?: string;
+}
 
 /** Minimal Matrix client-server transport for the decided default delivery channel. */
 export class HttpMatrixTransport implements MatrixTransport {

@@ -6,7 +6,7 @@ import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = (event) =>
 	runGrove(
-		Effect.promise(() => event.request.json().catch(() => undefined)).pipe(
+		Effect.promise(() => event.request.json().catch(() => undefined) as Promise<unknown>).pipe(
 			Effect.flatMap((body) =>
 				body === undefined
 					? Effect.succeed(
@@ -19,7 +19,7 @@ export const POST: RequestHandler = (event) =>
 								{ status: 400 },
 							),
 						)
-					: sproutApi.mcp(body),
+					: sproutApi.mcp(body as Parameters<typeof sproutApi.mcp>[0]),
 			),
 		),
 		event,

@@ -1,45 +1,30 @@
 <script lang="ts">
+	import { resolve } from "$app/paths";
+	import { groupUsersByCollege, type UserWithCollege } from "$lib/collegeGroups";
 	import { getLogoUrl } from "$lib/collegeLogos";
 	import ExportButton from "$lib/components/ExportButton.svelte";
-	import Map from "$lib/components/Map.svelte";
-	import Timeline from "$lib/components/Timeline.svelte";
 
 	import "leaflet/dist/leaflet.css";
 	import "leaflet.markercluster/dist/MarkerCluster.css";
+	import Map from "$lib/components/Map.svelte";
+	import Timeline from "$lib/components/Timeline.svelte";
+	import type { Map as LeafletMap } from "leaflet";
 	import { onMount } from "svelte";
 
-	type UserWithCollege = {
-		id: string;
-		firstName: string;
-		lastName: string;
-		createdAt: string;
-		college: {
-			id: string;
-			name: string;
-			latitude: number;
-			longitude: number;
-		};
-	};
+	import type { PageProps } from "./$types";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 
 	// Live users (reactive copy seeded from SSR, updated via SSE)
 	const initialUsers = data.users;
 	let liveUsers: UserWithCollege[] = $state(initialUsers);
 
 	// Recompute live rankings from liveUsers
-	let liveRankings = $derived.by(() => {
-		const countMap = new globalThis.Map<string, { name: string; count: number }>();
-		for (const u of liveUsers) {
-			const existing = countMap.get(u.college.id);
-			if (existing) {
-				existing.count++;
-			} else {
-				countMap.set(u.college.id, { name: u.college.name, count: 1 });
-			}
-		}
-		return Array.from(countMap.values()).toSorted((a, b) => b.count - a.count);
-	});
+	let liveRankings = $derived(
+		groupUsersByCollege(liveUsers)
+			.map((g) => ({ name: g.college.name, count: g.users.length }))
+			.toSorted((a, b) => b.count - a.count),
+	);
 
 	// Timeline state
 	let timelineActive = $state(false);
@@ -52,7 +37,7 @@
 	let displayCollegeCount = $derived(new Set(displayUsers.map((u) => u.college.id)).size);
 
 	// Map instance ref for export
-	let mapInstance: import("leaflet").Map | null = $state(null);
+	let mapInstance: LeafletMap | null = $state(null);
 
 	let showLeaderboard = $state(false);
 	let searchQuery = $state("");
@@ -126,7 +111,7 @@
 	// SSE connection for real-time updates
 	onMount(() => {
 		const es = new EventSource("/api/events");
-		es.addEventListener("user-added", (e) => {
+		es.addEventListener("user-added", (e: MessageEvent<string>) => {
 			try {
 				const user = JSON.parse(e.data) as UserWithCollege;
 				// Replace if user already exists (college change), else append
@@ -137,7 +122,9 @@
 				// ignore parse errors
 			}
 		});
-		return () => es.close();
+		return () => {
+			es.close();
+		};
 	});
 </script>
 
@@ -194,20 +181,27 @@
 					{data.user.lastName}
 				</span>
 				{#if !data.user.hasCollege}
-					<a href="/profile" class="btn-primary">Set Your College</a>
+					<a href={resolve("/profile")} class="btn-primary">Set Your College</a>
 				{:else}
-					<a href="/profile" class="btn-outline">Profile</a>
+					<a href={resolve("/profile")} class="btn-outline">Profile</a>
 				{/if}
 			{:else}
-				<a href="/login" class="btn-outline">Log In</a>
-				<a href="/signup" class="btn-primary">Sign Up</a>
+				<a href={resolve("/login")} class="btn-outline">Log In</a>
+				<a href={resolve("/signup")} class="btn-primary">Sign Up</a>
 			{/if}
 		</div>
 	</header>
 
 	<!-- Map -->
 	<main class="map-area">
-		<Map users={displayUsers} {viewMode} {selectedCollege} onMapReady={(m) => (mapInstance = m)} />
+		<Map
+			users={displayUsers}
+			{viewMode}
+			{selectedCollege}
+			onMapReady={(m: LeafletMap) => {
+				mapInstance = m;
+			}}
+		/>
 
 		<!-- Search Bar -->
 		<div class="search-container">
@@ -367,7 +361,12 @@
 
 		<!-- Timeline -->
 		{#if timelineActive}
-			<Timeline users={liveUsers} onFilteredUsersChange={(f) => (timelineFilteredUsers = f)} />
+			<Timeline
+				users={liveUsers}
+				onFilteredUsersChange={(f: UserWithCollege[]) => {
+					timelineFilteredUsers = f;
+				}}
+			/>
 		{/if}
 
 		<!-- Leaderboard -->

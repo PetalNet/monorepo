@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import type { IncomingMessage } from "node:http";
 import path from "node:path";
+import type { Duplex } from "node:stream";
 
 import type { Plugin, PreviewServer, ViteDevServer } from "vite";
 
@@ -37,13 +39,11 @@ export function websocket(): Plugin {
 		// attached and untouched. We run first, claim only application upgrades, and hand `vite-hmr`
 		// straight back by returning — the still-attached HMR listener handles it. removeAllListeners
 		// is avoided precisely because it would silently drop those siblings.
-		httpServer.prependListener("upgrade", (req, socket, head) => {
+		// `prependListener` is only typed through EventEmitter's catch-all overload, so the upgrade
+		// payload is annotated here rather than cast at each use.
+		httpServer.prependListener("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
 			if (req.headers["sec-websocket-protocol"] === "vite-hmr") return;
-			void dispatcher.handleUpgrade(
-				req as import("node:http").IncomingMessage,
-				socket as import("node:stream").Duplex,
-				head as Buffer,
-			);
+			void dispatcher.handleUpgrade(req, socket, head);
 		});
 	}
 

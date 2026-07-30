@@ -2,7 +2,7 @@ import { isHttpError, type RequestEvent } from "@sveltejs/kit";
 import { Cause, Context, Effect, Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { makeEffectSvelteKitRuntime, SvelteKitRequestEvent } from "../src/index";
+import { makeEffectSvelteKitRuntime, SvelteKitRequestEvent } from "../src/index.js";
 
 const eventFor = (signal = new AbortController().signal, path = "/example") =>
 	({ request: new Request(`https://grove.test${path}`, { signal }) }) as RequestEvent;
@@ -15,10 +15,11 @@ const deferred = () => {
 	return { promise, resolve };
 };
 
-const expectHttpError = async (result: Promise<unknown>, status: number, message: string) =>
-	expect(result).rejects.toSatisfy(
+const expectHttpError = async (result: Promise<unknown>, status: number, message: string) => {
+	await expect(result).rejects.toSatisfy(
 		(value: unknown) => isHttpError(value, status) && value.body.message === message,
 	);
+};
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -164,7 +165,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 	it("finalizes all active request and child fibers exactly once during disposal", async () => {
 		const runtime = makeEffectSvelteKitRuntime(Layer.empty);
 		const started = [deferred(), deferred(), deferred()];
-		const finalizers = vi.fn();
+		const finalizers = vi.fn<(name: string) => void>();
 		const requests = started.map((ready, index) =>
 			runtime.run(
 				Effect.gen(function* () {
@@ -172,13 +173,23 @@ describe("makeEffectSvelteKitRuntime", () => {
 					yield* Effect.forkChild(
 						Effect.sync(childStarted.resolve).pipe(
 							Effect.andThen(Effect.never),
-							Effect.ensuring(Effect.sync(() => finalizers(`child-${index}`))),
+							Effect.ensuring(
+								Effect.sync(() => {
+									finalizers(`child-${String(index)}`);
+								}),
+							),
 						),
 					);
 					yield* Effect.promise(() => childStarted.promise);
 					ready.resolve();
 					yield* Effect.never;
-				}).pipe(Effect.ensuring(Effect.sync(() => finalizers(`request-${index}`)))),
+				}).pipe(
+					Effect.ensuring(
+						Effect.sync(() => {
+							finalizers(`request-${String(index)}`);
+						}),
+					),
+				),
 				eventFor(),
 			),
 		);
@@ -350,7 +361,10 @@ describe("makeEffectSvelteKitRuntime", () => {
 		expect(logged.mock.calls[0]?.[0]).toMatchObject({
 			reasons: [
 				{ _tag: "Fail", error: "private original failure" },
-				{ _tag: "Die", defect: expect.objectContaining({ message: "private mapper defect" }) },
+				{
+					_tag: "Die",
+					defect: expect.objectContaining({ message: "private mapper defect" }) as unknown,
+				},
 			],
 		});
 		await runtime.dispose();

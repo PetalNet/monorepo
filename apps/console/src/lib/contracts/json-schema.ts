@@ -30,8 +30,8 @@ export function validateJsonSchema(
 	path = "args",
 	root: JsonSchema = schema,
 ): string | null {
-	if (typeof schema["$ref"] === "string") {
-		const ref = schema["$ref"];
+	if (typeof schema.$ref === "string") {
+		const ref = schema.$ref;
 		const target = ref.startsWith("#") ? schemaAtPointer(root, ref) : null;
 		return target
 			? validateJsonSchema(value, target, path, root)
@@ -52,22 +52,22 @@ export function validateJsonSchema(
 		else if (keyword === "oneOf" && errors.filter((error) => !error).length !== 1)
 			return `${path}: must match exactly one allowed shape`;
 	}
-	if (schema["if"] && typeof schema["if"] === "object") {
-		const conditionMatches = !validateJsonSchema(value, schema["if"] as JsonSchema, path, root);
-		const branch = conditionMatches ? schema["then"] : schema["else"];
+	if (schema.if && typeof schema.if === "object") {
+		const conditionMatches = !validateJsonSchema(value, schema.if as JsonSchema, path, root);
+		const branch = conditionMatches ? schema.then : schema.else;
 		if (branch && typeof branch === "object") {
 			const error = validateJsonSchema(value, branch as JsonSchema, path, root);
 			if (error) return error;
 		}
 	}
-	if (Object.hasOwn(schema, "const") && !Object.is(value, schema["const"]))
+	if (Object.hasOwn(schema, "const") && !Object.is(value, schema.const))
 		return `${path}: must equal the required value`;
-	if (Array.isArray(schema["enum"]) && !schema["enum"].some((item) => Object.is(item, value)))
+	if (Array.isArray(schema.enum) && !schema.enum.some((item) => Object.is(item, value)))
 		return `${path}: value is not allowed`;
-	const allowed = Array.isArray(schema["type"])
-		? schema["type"]
-		: typeof schema["type"] === "string"
-			? [schema["type"]]
+	const allowed = Array.isArray(schema.type)
+		? schema.type
+		: typeof schema.type === "string"
+			? [schema.type]
 			: [];
 	const actual = schemaType(value);
 	if (
@@ -77,37 +77,37 @@ export function validateJsonSchema(
 	)
 		return `${path}: expected ${allowed.join(" or ")}`;
 	if (typeof value === "string") {
-		if (typeof schema["minLength"] === "number" && value.length < schema["minLength"])
+		if (typeof schema.minLength === "number" && value.length < schema.minLength)
 			return `${path}: string is too short`;
-		if (typeof schema["maxLength"] === "number" && value.length > schema["maxLength"])
+		if (typeof schema.maxLength === "number" && value.length > schema.maxLength)
 			return `${path}: string is too long`;
-		if (typeof schema["pattern"] === "string" && !new RegExp(schema["pattern"]).test(value))
+		if (typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(value))
 			return `${path}: invalid format`;
-		if (schema["format"] === "uuid" && !UUID_RE.test(value)) return `${path}: invalid UUID`;
-		if (schema["format"] === "date-time" && !ISO_DATETIME_OFFSET_RE.test(value))
+		if (schema.format === "uuid" && !UUID_RE.test(value)) return `${path}: invalid UUID`;
+		if (schema.format === "date-time" && !ISO_DATETIME_OFFSET_RE.test(value))
 			return `${path}: invalid date-time`;
 	}
 	if (typeof value === "number") {
-		if (typeof schema["minimum"] === "number" && value < schema["minimum"])
+		if (typeof schema.minimum === "number" && value < schema.minimum)
 			return `${path}: below minimum`;
-		if (typeof schema["maximum"] === "number" && value > schema["maximum"])
+		if (typeof schema.maximum === "number" && value > schema.maximum)
 			return `${path}: above maximum`;
 	}
 	if (Array.isArray(value)) {
-		if (typeof schema["minItems"] === "number" && value.length < schema["minItems"])
+		if (typeof schema.minItems === "number" && value.length < schema.minItems)
 			return `${path}: too few items`;
-		if (typeof schema["maxItems"] === "number" && value.length > schema["maxItems"])
+		if (typeof schema.maxItems === "number" && value.length > schema.maxItems)
 			return `${path}: too many items`;
 		if (
-			schema["uniqueItems"] === true &&
+			schema.uniqueItems === true &&
 			new Set(value.map((item) => JSON.stringify(item))).size !== value.length
 		)
 			return `${path}: items must be unique`;
-		if (schema["items"] && typeof schema["items"] === "object")
+		if (schema.items && typeof schema.items === "object")
 			for (let index = 0; index < value.length; index += 1) {
 				const error = validateJsonSchema(
 					value[index],
-					schema["items"] as JsonSchema,
+					schema.items as JsonSchema,
 					`${path}.${String(index)}`,
 					root,
 				);
@@ -117,23 +117,23 @@ export function validateJsonSchema(
 	if (value && typeof value === "object" && !Array.isArray(value)) {
 		const record = value as Record<string, unknown>;
 		if (
-			typeof schema["maxProperties"] === "number" &&
-			Object.keys(record).length > schema["maxProperties"]
+			typeof schema.maxProperties === "number" &&
+			Object.keys(record).length > schema.maxProperties
 		)
 			return `${path}: too many fields`;
-		const requiredFields = Array.isArray(schema["required"]) ? schema["required"] : [];
+		const requiredFields = Array.isArray(schema.required) ? schema.required : [];
 		for (const key of requiredFields)
 			if (typeof key === "string" && !Object.hasOwn(record, key)) return `${path}.${key}: required`;
 		const properties =
-			schema["properties"] && typeof schema["properties"] === "object"
-				? (schema["properties"] as Record<string, JsonSchema>)
+			schema.properties && typeof schema.properties === "object"
+				? (schema.properties as Record<string, JsonSchema>)
 				: {};
 		for (const [key, item] of Object.entries(record)) {
 			if (Object.hasOwn(properties, key)) {
 				const propertySchema = properties[key];
 				const error = validateJsonSchema(item, propertySchema, `${path}.${key}`, root);
 				if (error) return error;
-			} else if (schema["additionalProperties"] === false) return `${path}.${key}: unknown field`;
+			} else if (schema.additionalProperties === false) return `${path}.${key}: unknown field`;
 		}
 	}
 	return null;

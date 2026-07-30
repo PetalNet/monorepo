@@ -7,6 +7,12 @@ import type { RequestHandler } from "./$types";
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+/** The two fields we read off Wikipedia's page-summary payload, both untrusted. */
+interface WikipediaSummary {
+	extract?: unknown;
+	thumbnail?: { source?: unknown };
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const name = url.searchParams.get("name");
 	if (!name) {
@@ -42,9 +48,12 @@ export const GET: RequestHandler = async ({ url }) => {
 		);
 
 		if (resp.ok) {
-			const data = await resp.json();
-			description = data.extract ? data.extract.slice(0, 500) : null;
-			thumbnailUrl = data.thumbnail?.source ?? null;
+			const data = (await resp.json()) as WikipediaSummary;
+			description =
+				typeof data.extract === "string" && data.extract.length > 0
+					? data.extract.slice(0, 500)
+					: null;
+			thumbnailUrl = typeof data.thumbnail?.source === "string" ? data.thumbnail.source : null;
 		}
 	} catch {
 		// Wikipedia fetch failed, return null description

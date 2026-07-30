@@ -103,7 +103,7 @@ export const SproutServiceLive = Layer.effect(
 						),
 					),
 				);
-				const row = rows[0];
+				const row = rows.at(0);
 				return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
 			});
 		return {
@@ -116,7 +116,7 @@ export const SproutServiceLive = Layer.effect(
 							Query.insert(sprouts, { name: input.name }).pipe(Query.returning(sproutSelection)),
 						),
 					),
-				).pipe(Effect.map((rows) => fromRow(rows[0]!))),
+				).pipe(Effect.map((rows) => fromRow(rows[0]))),
 			water: (id) =>
 				Effect.gen(function* () {
 					const dbId = yield* databaseId(id);
@@ -126,7 +126,7 @@ export const SproutServiceLive = Layer.effect(
 								const current = yield* executor.execute(
 									Query.select(sproutSelection).pipe(Query.from(sprouts), Query.where(hasId(dbId))),
 								);
-								const row = current[0];
+								const row = current.at(0);
 								if (!row) return [];
 								const waterings = yield* Schema.decodeUnknownEffect(Counter)(row.waterings + 1);
 
@@ -152,7 +152,7 @@ export const SproutServiceLive = Layer.effect(
 						}),
 						Effect.mapError((cause) => new SproutDatabaseError(cause)),
 					);
-					const row = rows[0];
+					const row = rows.at(0);
 					return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
 				}),
 			remove: (id) =>

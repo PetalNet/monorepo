@@ -63,7 +63,7 @@ export const actions: Actions = {
 			where: { id: params.id },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return fail(403, { error: "Forbidden" });
 		}
 
@@ -137,7 +137,7 @@ export const actions: Actions = {
 			where: { id: params.id },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return fail(403, { error: "Forbidden" });
 		}
 

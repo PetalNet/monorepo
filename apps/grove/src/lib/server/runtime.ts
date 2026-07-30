@@ -34,4 +34,4 @@ export const runGrove = <A, E>(effect: Effect.Effect<A, E, SproutService>, event
 
 export const disposeGroveRuntime = () => runtime?.dispose() ?? Promise.resolve();
 
-if (import.meta.hot) import.meta.hot.dispose(disposeGroveRuntime);
+if (import.meta.hot) import.meta.hot.dispose(() => void disposeGroveRuntime());

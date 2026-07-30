@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
+	import { resolve } from "$app/paths";
 
-	let { form } = $props();
+	import type { PageProps } from "./$types";
+
+	let { form }: PageProps = $props();
 </script>
 
 <svelte:head>
@@ -68,7 +71,7 @@
 
 			<p class="auth-link">
 				Don't have an account?
-				<a href="/signup">Sign up</a>
+				<a href={resolve("/signup")}>Sign up</a>
 			</p>
 		</div>
 	</div>

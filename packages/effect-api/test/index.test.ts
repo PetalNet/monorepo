@@ -1,7 +1,7 @@
 import { Cause, Context, Effect, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createEffectApi, operation } from "../src/index";
+import { createEffectApi, operation } from "../src/index.js";
 
 const Id = Schema.Struct({ id: Schema.String });
 const Item = Schema.Struct({ id: Schema.String, ok: Schema.Boolean });
@@ -164,7 +164,7 @@ describe("createEffectApi", () => {
 			),
 		);
 		for (const [index, result] of bodyResults.entries()) {
-			const expected = bodyCases[index]![1];
+			const expected = bodyCases[index]?.[1];
 			expect(result.body).toEqual(expected);
 		}
 		const malformed = await runJson(
@@ -332,7 +332,7 @@ describe("createEffectApi", () => {
 	});
 
 	it("maps failures, does not log 4xx, and sanitizes unmapped failures and defects", async () => {
-		const logged: Array<[string, Cause.Cause<unknown>]> = [];
+		const logged: [string, Cause.Cause<unknown>][] = [];
 		const failures = createEffectApi({
 			title: "F",
 			version: "1",
@@ -389,7 +389,7 @@ describe("createEffectApi", () => {
 	});
 
 	it("gives fatal causes precedence and contains invalid or defecting error mappers", async () => {
-		const logged: Array<[string, Cause.Cause<unknown>]> = [];
+		const logged: [string, Cause.Cause<unknown>][] = [];
 		const mixedMapper = vi.fn(() => 404);
 		const unsafe = createEffectApi({
 			title: "Unsafe",
@@ -428,10 +428,10 @@ describe("createEffectApi", () => {
 				}),
 				...[NaN, 399, 600].map((status, index) =>
 					operation({
-						name: `invalid-${index}`,
+						name: `invalid-${String(index)}`,
 						description: "",
 						method: "GET",
-						path: `/invalid-${index}`,
+						path: `/invalid-${String(index)}`,
 						input: Schema.Struct({}),
 						output: Schema.Unknown,
 						handler: () => Effect.fail("private"),
@@ -488,7 +488,9 @@ describe("createEffectApi", () => {
 		expect(mixedMapper).not.toHaveBeenCalled();
 		expect(logged.map(([name]) => name)).toEqual(paths);
 		expect(logged.at(-2)?.[1].reasons).toEqual(
-			expect.arrayContaining([expect.objectContaining({ _tag: "Die", defect: expect.any(Error) })]),
+			expect.arrayContaining([
+				expect.objectContaining({ _tag: "Die", defect: expect.any(Error) as unknown }),
+			]),
 		);
 	});
 

@@ -81,8 +81,8 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 		if (connSubs.delete(subId)) counters.subscriptions = Math.max(0, counters.subscriptions - 1);
 	};
 	const send = (frame: Record<string, unknown>): void => {
-		if (frame["kind"] === "resync_required" && typeof frame["sub_id"] === "string")
-			removeConnSub(frame["sub_id"]);
+		if (frame.kind === "resync_required" && typeof frame.sub_id === "string")
+			removeConnSub(frame.sub_id);
 		if (socket.isOpen()) socket.send(JSON.stringify(frame));
 	};
 	let pongReceived = true;
@@ -223,7 +223,7 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 					return;
 				}
 				const rawSubId =
-					raw && typeof raw === "object" ? (raw as Record<string, unknown>)["sub_id"] : undefined;
+					raw && typeof raw === "object" ? (raw as Record<string, unknown>).sub_id : undefined;
 				const candidateSubId =
 					typeof rawSubId === "string" && rawSubId.length <= 64 ? rawSubId : "?";
 				const decoded = decodeClientFrame(raw);

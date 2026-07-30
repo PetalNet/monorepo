@@ -152,8 +152,7 @@ export const readPlaneRemote = Query("unchecked", (plane: ReadPlane) =>
 				...envelope,
 				items: envelope.items.filter(
 					(item) =>
-						typeof item["lane"] !== "string" ||
-						principal.lanes.some((lane) => lane === item["lane"]),
+						typeof item.lane !== "string" || principal.lanes.some((lane) => lane === item.lane),
 				),
 			};
 		}
@@ -239,12 +238,12 @@ export const getAssistantSessionRemote = Query(
 		const rows = yield* Effect.tryPromise(
 			() =>
 				services.db.writer<
-					Array<{
+					{
 						manager_session_id: string | null;
 						state: string;
 						window_layout: unknown;
 						last_context: Record<string, unknown> | null;
-					}>
+					}[]
 				>`select manager_session_id, state, window_layout, last_context
 			  from assistant_sessions where principal_id = ${principal.id}`,
 		);

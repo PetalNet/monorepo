@@ -36,12 +36,18 @@ export function invokeOperation<R>(
 		Effect.map((value): InvocationResult => ({ kind: "success", value })),
 		Effect.catchCause((cause) => {
 			const failures = cause.reasons.filter(Cause.isFailReason);
-			if (Cause.hasDies(cause) || Cause.hasInterrupts(cause) || failures.length !== 1) {
+			const failureReason = failures[0];
+			if (
+				Cause.hasDies(cause) ||
+				Cause.hasInterrupts(cause) ||
+				failureReason === undefined ||
+				failures.length !== 1
+			) {
 				logCause(operation.name, cause);
 				return Effect.succeed(operationFailed());
 			}
 
-			const failure = failures[0]!.error;
+			const failure = failureReason.error;
 			try {
 				const status = operation.statusForError?.(failure) ?? 500;
 				if (!Number.isInteger(status) || status < 400 || status > 599) {
