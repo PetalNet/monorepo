@@ -13,7 +13,8 @@
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
-		"effect": "catalog:"
+		"effect": "catalog:",
+		"effect-qb": "catalog:"
 	},
 	"devDependencies": {
 		"@better-auth/test-utils": "catalog:",

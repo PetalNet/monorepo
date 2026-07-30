@@ -51,4 +51,24 @@ describe("effect-qb Postgres transaction", async () => {
 		).rejects.toThrow("rollback");
 		expect(await adapter.count({ model: "user" })).toBe(0);
 	});
+
+	it("does not turn an empty singular delete into a bulk delete", async () => {
+		await adapter.create({
+			model: "user",
+			data: {
+				id: "delete-guard-user",
+				name: "Delete Guard User",
+				email: "delete-guard@example.com",
+				emailVerified: true,
+				image: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+			forceAllowId: true,
+		});
+
+		await adapter.delete({ model: "user", where: [] });
+
+		expect(await adapter.count({ model: "user" })).toBe(1);
+	});
 });

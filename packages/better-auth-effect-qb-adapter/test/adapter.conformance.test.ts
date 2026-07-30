@@ -17,8 +17,7 @@ const sqlType = (type: unknown) => {
 	if (type === "boolean") return "boolean";
 	if (type === "number") return "double precision";
 	if (type === "date") return "timestamptz";
-	if (type === "json" || (typeof type === "string" && type.endsWith("[]")) || Array.isArray(type))
-		return "jsonb";
+	if (type === "json" || (typeof type === "string" && type.endsWith("[]"))) return "jsonb";
 	return "text";
 };
 
