@@ -19,6 +19,20 @@ export interface EffectSvelteKitOptions {
 	readonly logCause?: (cause: Cause.Cause<unknown>, event: RequestEvent | undefined) => void;
 }
 
+export interface EffectSvelteKitRuntime<R> {
+	readonly initialize: () => Promise<void>;
+	readonly run: <A, E>(
+		effect: Effect.Effect<A, E, R | SvelteKitRequestEvent>,
+		event: RequestEvent,
+	) => Promise<A>;
+	readonly handle: <E>(
+		handler: (
+			input: Parameters<Handle>[0],
+		) => Effect.Effect<Response, E, R | SvelteKitRequestEvent>,
+	) => Handle;
+	readonly dispose: () => Promise<void>;
+}
+
 const defaultLogCause: NonNullable<EffectSvelteKitOptions["logCause"]> = (cause) => {
 	console.error(Cause.pretty(cause));
 };
@@ -49,7 +63,7 @@ const validPublicFailure = (failure: PublicFailure | undefined): failure is Publ
 export function makeEffectSvelteKitRuntime<R, ER>(
 	layer: Layer.Layer<R, ER>,
 	options: EffectSvelteKitOptions = {},
-) {
+): EffectSvelteKitRuntime<R> {
 	const runtime = ManagedRuntime.make(layer);
 	const logCause = options.logCause ?? defaultLogCause;
 	const activeFibers = new Set<Fiber.Fiber<unknown, unknown>>();

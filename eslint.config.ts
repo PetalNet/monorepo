@@ -55,6 +55,20 @@ export default defineConfig([
 		},
 	},
 	{
+		files: ["apps/grove/**/*.{ts,svelte}"],
+		rules: {
+			"@typescript-eslint/no-restricted-types": [
+				"error",
+				{
+					types: {
+						Parameters: "Reference the parameter type directly.",
+						ReturnType: "Reference the return type directly.",
+					},
+				},
+			],
+		},
+	},
+	{
 		// The effect-api/effect-sveltekit build tsconfigs intentionally scope emit to
 		// src (emitDeclarationOnly + rootDir), so their test/ files are not part of the
 		// build project. Point typed linting for those tests at a dedicated

@@ -15,12 +15,13 @@
 		type Sprout,
 		type SproutIdValue,
 	} from "$lib/sprouts/schema";
+	import type { RemoteQuery } from "@sveltejs/kit";
 
 	const sproutsQuery = listSprouts();
 	const plantForm = createSprout.preflight(CreateSproutValidator);
 	const sprouts = $derived(await sproutsQuery);
 	let inspectedId = $state<string | null>(null);
-	let inspectedQuery = $state<ReturnType<typeof getSprout> | null>(null);
+	let inspectedQuery = $state<RemoteQuery<Sprout> | null>(null);
 	let error = $state("");
 	const inspected = $derived(inspectedQuery ? await inspectedQuery : null);
 	const watering = new OptimisticCounter<readonly Sprout[]>({
