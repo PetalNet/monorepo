@@ -1,3 +1,4 @@
+import type { AuthContext } from "better-auth";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
 
 export const GROVE_OIDC_PROVIDER_ID = "grove-oidc";
@@ -39,7 +40,7 @@ export const groveOidc = (config: GroveOidcConfig) => {
 
 	return {
 		...plugin,
-		async init(context: Parameters<NonNullable<typeof plugin.init>>[0]) {
+		async init(context: AuthContext) {
 			const initialized = await plugin.init(context);
 			const provider = initialized.context.socialProviders.find(
 				(candidate) => candidate.id === GROVE_OIDC_PROVIDER_ID,
