@@ -107,3 +107,18 @@ HTTPS. Plain HTTP is accepted only for loopback development. Begin browser login
 Email/password authentication is disabled. Grove also disables implicit account linking and requires
 the OIDC provider to return a verified email before issuing a session. The browser OIDC client ID and
 secret are never credentials for `/mcp`; MCP resource-server authorization has separate configuration.
+
+## MCP authorization deployment
+
+Grove's `/mcp` endpoint is a distinct OAuth 2.1 protected resource. Configure
+`GROVE_MCP_ISSUER`, `GROVE_MCP_JWKS_URL`, and `GROVE_MCP_RESOURCE` separately from the browser OIDC
+client. `GROVE_MCP_RESOURCE` is Grove's canonical public origin; the token audience is its `/mcp` URL.
+Production values must use HTTPS.
+
+Configure the separate authorization server to issue audience-restricted tokens with the `grove:mcp`
+scope. This deployment chooses pre-registration: pre-register only approved MCP clients and disable or
+restrict Dynamic Client Registration and Client ID Metadata Documents according to deployment policy.
+MCP clients perform Authorization Code + PKCE against that authorization server. Grove is only the
+protected resource and exposes no authorization, token, or client-registration endpoints.
+Protected-resource metadata is published at `/.well-known/oauth-protected-resource/mcp`. Browser
+session cookies do not authorize `/mcp`.
