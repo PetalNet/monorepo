@@ -13,7 +13,12 @@ import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, Redacted } from "effect";
 
 import { AuthenticationRequired } from "./authorization";
-import { CommandConflict, ProjectDatabaseError, ProjectService } from "./projects/service";
+import {
+	CommandConflict,
+	FenceConflict,
+	ProjectDatabaseError,
+	ProjectService,
+} from "./projects/service";
 import { SproutDatabaseError, SproutNotFound, SproutService } from "./sprouts/service";
 
 function makeRuntime() {
@@ -32,7 +37,8 @@ function makeRuntime() {
 		mapFailure: (failure) => {
 			if (failure instanceof AuthenticationRequired)
 				return { status: 401, message: failure.message };
-			if (failure instanceof CommandConflict) return { status: 409, message: failure.message };
+			if (failure instanceof CommandConflict || failure instanceof FenceConflict)
+				return { status: 409, message: failure.message };
 			if (failure instanceof ProjectDatabaseError)
 				return { status: 503, message: "The project database is unavailable", log: true };
 			if (failure instanceof SproutNotFound) return { status: 404, message: failure.message };

@@ -57,8 +57,18 @@ describe("Grove project foundation", () => {
 		expect(rejected).toBeInstanceOf(AuthenticationRequired);
 	});
 
-	it("discovers project.create through OpenAPI and MCP", async () => {
-		expect(JSON.stringify(groveApi.openapi)).toContain("project.create");
+	it("discovers every project execution operation through OpenAPI and MCP", async () => {
+		const operations = [
+			"project.create",
+			"project.plan",
+			"task.claim",
+			"claim.renew",
+			"claim.release",
+			"attempt.publish",
+			"work.ready",
+		];
+		const openapi = JSON.stringify(groveApi.openapi);
+		for (const operation of operations) expect(openapi).toContain(operation);
 		const response = await groveApi
 			.mcp({ jsonrpc: "2.0", id: 1, method: "tools/list" })
 			.pipe(
@@ -67,6 +77,7 @@ describe("Grove project foundation", () => {
 				Effect.provideService(SvelteKitRequestEvent, event("/mcp", {})),
 				Effect.runPromise,
 			);
-		expect(JSON.stringify(await response.json())).toContain("project.create");
+		const tools = JSON.stringify(await response.json());
+		for (const operation of operations) expect(tools).toContain(operation);
 	});
 });
