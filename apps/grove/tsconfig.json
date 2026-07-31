@@ -27,6 +27,7 @@
 		"vite.config.js",
 		"vite.config.ts",
 		"effectdb.config.ts",
+		"src/routes/.well-known/**/*.ts",
 		"src/**/*.js",
 		"src/**/*.ts",
 		"src/**/*.svelte",
