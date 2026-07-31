@@ -79,6 +79,25 @@ const rejectJoin = (join: JoinConfig | undefined) => {
 	if (join && Object.keys(join).length > 0)
 		throw new Error("The effect-qb adapter does not support joined reads");
 };
+const transaction = <A>(effect: Effect.Effect<A, unknown, PgClient.PgClient>) =>
+	Effect.flatMap(PgClient.PgClient, (sql) =>
+		sql.withTransaction(effect.pipe(Effect.provideService(PgClient.PgClient, sql))),
+	);
+const columnFor = (type: unknown) => {
+	const column = (() => {
+		if (type === "boolean") return Column.boolean();
+		if (type === "number") return Pg.Column.float8();
+		if (type === "date") return Pg.Column.timestamptz();
+		if (type === "json" || (typeof type === "string" && type.endsWith("[]")))
+			return Pg.Column.jsonb(Schema.Unknown).pipe(
+				Column.driverValueMapping({
+					toDriver: (value) => JSON.stringify(value),
+				}),
+			);
+		return Column.text();
+	})();
+	return column.pipe(Column.nullable);
+};
 
 export const createEffectQbAdapter = (
 	database: string | EffectQbAdapterRuntime,
@@ -107,11 +126,6 @@ export const createEffectQbAdapter = (
 		Effect.flatMap(PgClient.PgClient, (sql) =>
 			executor.execute(plan as never).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
 		) as Effect.Effect<readonly DatabaseRow[], unknown, PgClient.PgClient>;
-	const transaction = <A>(effect: Effect.Effect<A, unknown, PgClient.PgClient>) =>
-		Effect.flatMap(PgClient.PgClient, (sql) =>
-			sql.withTransaction(effect.pipe(Effect.provideService(PgClient.PgClient, sql))),
-		);
-
 	const factory = createAdapterFactory({
 		config: {
 			adapterId: "effect-qb-postgres",
@@ -150,21 +164,6 @@ export const createEffectQbAdapter = (
 				if (Object.values(fields).some((attributes) => attributes.fieldName === field))
 					return validIdentifier(field);
 				throw new Error(`Unknown field ${name}.${field}`);
-			};
-			const columnFor = (type: unknown) => {
-				const column = (() => {
-					if (type === "boolean") return Column.boolean();
-					if (type === "number") return Pg.Column.float8();
-					if (type === "date") return Pg.Column.timestamptz();
-					if (type === "json" || (typeof type === "string" && type.endsWith("[]")))
-						return Pg.Column.jsonb(Schema.Unknown).pipe(
-							Column.driverValueMapping({
-								toDriver: (value) => JSON.stringify(value),
-							}),
-						);
-					return Column.text();
-				})();
-				return column.pipe(Column.nullable);
 			};
 			const tables = new Map<string, DynamicTable>();
 			const tableFor = (name: string): DynamicTable => {
