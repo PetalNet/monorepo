@@ -5,19 +5,24 @@ import {
 	makeMcpRequestValidator,
 	mcpProtectedResourceMetadata,
 	type McpOAuthConfig,
+	type McpRequestValidator,
 } from "./mcp-oauth";
 
+const requireRuntimeString = (value: unknown, name: string) => {
+	if (typeof value !== "string" || value.length === 0)
+		throw new Error(`${name} is required at runtime`);
+	return value;
+};
+
 const runtimeConfig = (): McpOAuthConfig => {
-	if (!GROVE_MCP_ISSUER || !GROVE_MCP_JWKS_URL || !GROVE_MCP_RESOURCE)
-		throw new Error("Grove MCP OAuth configuration is required at runtime");
 	return {
-		issuer: GROVE_MCP_ISSUER,
-		jwksUrl: GROVE_MCP_JWKS_URL,
-		resourceOrigin: GROVE_MCP_RESOURCE,
+		issuer: requireRuntimeString(GROVE_MCP_ISSUER, "GROVE_MCP_ISSUER"),
+		jwksUrl: requireRuntimeString(GROVE_MCP_JWKS_URL, "GROVE_MCP_JWKS_URL"),
+		resourceOrigin: requireRuntimeString(GROVE_MCP_RESOURCE, "GROVE_MCP_RESOURCE"),
 	};
 };
 
-let runtimeValidator: ReturnType<typeof makeMcpRequestValidator> | undefined;
+let runtimeValidator: McpRequestValidator | undefined;
 
 export const validateMcpRequest = (request: Request) => {
 	if (!runtimeValidator) {

@@ -13,6 +13,8 @@ export interface McpPrincipal {
 	readonly scopes: ReadonlySet<string>;
 }
 
+export type McpRequestValidator = (request: Request) => Promise<McpPrincipal | Response>;
+
 const mcpResource = (origin: string) => `${origin.replace(/\/+$/, "")}/mcp`;
 
 const mcpResourceMetadataUrl = (origin: string) =>
@@ -45,8 +47,8 @@ const scopesFrom = (payload: JWTPayload) =>
 	new Set(typeof payload.scope === "string" ? payload.scope.split(/\s+/).filter(Boolean) : []);
 
 export const makeMcpRequestValidator =
-	(config: McpOAuthConfig, key: JWTVerifyGetKey) =>
-	async (request: Request): Promise<McpPrincipal | Response> => {
+	(config: McpOAuthConfig, key: JWTVerifyGetKey): McpRequestValidator =>
+	async (request) => {
 		const token = bearerToken(request);
 		if (!token) return challenge(config);
 
