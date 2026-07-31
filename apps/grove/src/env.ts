@@ -2,7 +2,12 @@ import { building, dev } from "$app/env";
 import { defineEnvVars } from "@sveltejs/kit/hooks";
 import { Schema } from "effect";
 
-import { authUrlSchema, oidcIssuerSchema, optionalWhenBuilding } from "./env-schema";
+import {
+	authUrlSchema,
+	mcpResourceSchema,
+	oidcIssuerSchema,
+	optionalWhenBuilding,
+} from "./env-schema";
 
 export const variables = defineEnvVars({
 	BETTER_AUTH_SECRET: {
@@ -42,5 +47,23 @@ export const variables = defineEnvVars({
 		static: false,
 		description: "Pinned OIDC issuer used for Grove browser login and discovery.",
 		schema: Schema.toStandardSchemaV1(oidcIssuerSchema(building, dev)),
+	},
+	GROVE_MCP_ISSUER: {
+		public: false,
+		static: false,
+		description: "Pinned authorization-server issuer for MCP bearer tokens.",
+		schema: Schema.toStandardSchemaV1(oidcIssuerSchema(building, dev)),
+	},
+	GROVE_MCP_JWKS_URL: {
+		public: false,
+		static: false,
+		description: "JWKS endpoint for validating MCP bearer tokens.",
+		schema: Schema.toStandardSchemaV1(oidcIssuerSchema(building, dev)),
+	},
+	GROVE_MCP_RESOURCE: {
+		public: false,
+		static: false,
+		description: "Canonical origin of Grove's MCP protected resource.",
+		schema: Schema.toStandardSchemaV1(mcpResourceSchema(building, dev)),
 	},
 });

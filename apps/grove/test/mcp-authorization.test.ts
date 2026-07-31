@@ -10,7 +10,11 @@ import { SproutServiceBuildLayer } from "../src/lib/server/sprouts/service";
 describe("handleMcpRequest", () => {
 	it("rejects unauthenticated JSON-RPC at the HTTP boundary", async () => {
 		const event = {
-			locals: { session: null, user: null },
+			locals: {
+				mcpPrincipal: null,
+				session: { id: "browser-session" },
+				user: { id: "browser-user" },
+			},
 			request: new Request("https://grove.test/mcp", {
 				method: "POST",
 				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
@@ -24,5 +28,32 @@ describe("handleMcpRequest", () => {
 		);
 
 		expect(error).toBeInstanceOf(AuthenticationRequired);
+	});
+
+	it("dispatches a tool request only with a bearer-token principal", async () => {
+		const request = new Request("https://grove.test/mcp", {
+			method: "POST",
+			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+		});
+		const event = {
+			locals: {
+				mcpPrincipal: { subject: "mcp-client-user", scopes: new Set(["grove:mcp"]) },
+				session: null,
+				user: null,
+			},
+			request,
+		} as unknown as RequestEvent;
+		const response = await handleMcpRequest(request).pipe(
+			Effect.provide(SproutServiceBuildLayer),
+			Effect.provideService(SvelteKitRequestEvent, event),
+			Effect.runPromise,
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			jsonrpc: "2.0",
+			id: 1,
+			result: { tools: expect.any(Array) },
+		});
 	});
 });

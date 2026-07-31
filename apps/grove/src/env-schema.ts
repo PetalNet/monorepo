@@ -37,3 +37,6 @@ export const authUrlSchema = (building: boolean, dev: boolean) =>
 
 export const oidcIssuerSchema = (building: boolean, dev: boolean) =>
 	optionalWhenBuilding(building, oidcIssuer(dev));
+
+export const mcpResourceSchema = (building: boolean, dev: boolean) =>
+	optionalWhenBuilding(building, authUrl(dev));
