@@ -3,7 +3,11 @@ import { DATABASE_URL } from "$app/env/private";
 import { GroveAuth, GroveAuthBuildLayer, GroveAuthLayer } from "$lib/server/auth";
 import { SproutServiceBuildLayer, SproutServiceLayer } from "$lib/server/sprouts/service";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { makeEffectSvelteKitRuntime, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
+import {
+	makeEffectSvelteKitRuntime,
+	SvelteKitRequestEvent,
+	type EffectSvelteKitRuntime,
+} from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, Redacted } from "effect";
 
@@ -33,7 +37,7 @@ function makeRuntime() {
 	});
 }
 
-let runtime: ReturnType<typeof makeRuntime> | undefined;
+let runtime: EffectSvelteKitRuntime<GroveAuth | SproutService> | undefined;
 
 export const initializeGroveRuntime = () => (runtime ??= makeRuntime());
 

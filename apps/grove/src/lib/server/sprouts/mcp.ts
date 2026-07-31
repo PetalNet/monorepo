@@ -1,3 +1,4 @@
+import type { McpRequest } from "@petalnet/effect-api";
 import { Effect } from "effect";
 
 import { requireAuthenticatedUser } from "../authorization";
@@ -20,7 +21,7 @@ export const handleMcpRequest = (request: Request) =>
 									{ status: 400 },
 								),
 							)
-						: sproutApi.mcp(body as Parameters<typeof sproutApi.mcp>[0]),
+						: sproutApi.mcp(body as McpRequest),
 				),
 			),
 		),
