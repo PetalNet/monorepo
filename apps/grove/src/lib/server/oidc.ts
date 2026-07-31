@@ -11,10 +11,10 @@ export interface GroveOidcConfig {
 
 const withoutTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
-export const oidcDiscoveryUrl = (issuer: string) =>
+const oidcDiscoveryUrl = (issuer: string) =>
 	`${withoutTrailingSlash(issuer)}/.well-known/openid-configuration`;
 
-export const oidcCallbackUrl = (origin: string) =>
+const oidcCallbackUrl = (origin: string) =>
 	`${withoutTrailingSlash(origin)}/api/auth/callback/${GROVE_OIDC_PROVIDER_ID}`;
 
 export const groveOidc = (config: GroveOidcConfig) => {

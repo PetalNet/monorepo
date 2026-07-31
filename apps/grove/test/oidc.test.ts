@@ -2,40 +2,28 @@ import { memoryAdapter } from "better-auth/adapters/memory";
 import { betterAuth } from "better-auth/minimal";
 import { describe, expect, it } from "vitest";
 
-import {
-	GROVE_OIDC_PROVIDER_ID,
-	groveOidc,
-	oidcCallbackUrl,
-	oidcDiscoveryUrl,
-} from "../src/lib/server/oidc";
+import { GROVE_OIDC_PROVIDER_ID, groveOidc } from "../src/lib/server/oidc";
 
 const base64Url = (value: string | ArrayBuffer) =>
 	Buffer.from(typeof value === "string" ? value : new Uint8Array(value)).toString("base64url");
 
 describe("Grove browser OIDC", () => {
-	it("derives fixed discovery and callback URLs from canonical configuration", () => {
-		expect(oidcDiscoveryUrl("https://identity.example/realm/grove/")).toBe(
-			"https://identity.example/realm/grove/.well-known/openid-configuration",
-		);
-		expect(oidcCallbackUrl("https://grove.example/")).toBe(
-			`https://grove.example/api/auth/callback/${GROVE_OIDC_PROVIDER_ID}`,
-		);
-	});
-
 	it("pins Authorization Code, PKCE, issuer, verified email, and browser-only credentials", () => {
 		const plugin = groveOidc({
-			issuer: "https://identity.example/realm/grove",
+			issuer: "https://identity.example/realm/grove/",
 			clientId: "grove-browser",
 			clientSecret: "browser-secret",
-			callbackOrigin: "https://grove.example",
+			callbackOrigin: "https://grove.example/",
 		});
 		const provider = plugin.options.config[0];
 
 		expect(provider).toMatchObject({
 			providerId: GROVE_OIDC_PROVIDER_ID,
-			accountIssuer: "https://identity.example/realm/grove",
+			accountIssuer: "https://identity.example/realm/grove/",
 			clientId: "grove-browser",
 			clientSecret: "browser-secret",
+			discoveryUrl: "https://identity.example/realm/grove/.well-known/openid-configuration",
+			redirectURI: `https://grove.example/api/auth/callback/${GROVE_OIDC_PROVIDER_ID}`,
 			responseType: "code",
 			pkce: true,
 			requireEmailVerification: true,
@@ -84,7 +72,7 @@ describe("Grove browser OIDC", () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = async (input, init) => {
 			const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
-			if (url === oidcDiscoveryUrl(issuer))
+			if (url === `${issuer}/.well-known/openid-configuration`)
 				return Response.json({
 					issuer,
 					authorization_endpoint: `${issuer}/authorize`,
