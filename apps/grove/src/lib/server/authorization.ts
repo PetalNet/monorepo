@@ -20,3 +20,23 @@ export const requireMcpPrincipal = Effect.flatMap(SvelteKitRequestEvent, (event)
 		? Effect.succeed(event.locals.mcpPrincipal)
 		: Effect.fail(new AuthenticationRequired()),
 );
+
+export interface GrovePrincipal {
+	readonly id: string;
+	readonly kind: "human" | "mcp";
+}
+
+/** Resolve identity according to transport. MCP can never fall back to a browser cookie. */
+export const requireGrovePrincipal: Effect.Effect<
+	GrovePrincipal,
+	AuthenticationRequired,
+	SvelteKitRequestEvent
+> = Effect.gen(function* () {
+	const event = yield* SvelteKitRequestEvent;
+	if (event.url.pathname === "/mcp") {
+		if (!event.locals.mcpPrincipal) return yield* Effect.fail(new AuthenticationRequired());
+		return { id: event.locals.mcpPrincipal.subject, kind: "mcp" };
+	}
+	if (!event.locals.user) return yield* Effect.fail(new AuthenticationRequired());
+	return { id: event.locals.user.id, kind: "human" };
+});

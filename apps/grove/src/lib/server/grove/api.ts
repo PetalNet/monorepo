@@ -1,6 +1,8 @@
 import { createEffectApi, operation } from "@petalnet/effect-api";
+import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import { Effect } from "effect";
 
+import { ProjectCreate, ProjectCreateReceipt } from "../../projects/schema";
 import {
 	CreateSprout,
 	EmptyInput,
@@ -11,21 +13,41 @@ import {
 	WaterSprout,
 } from "../../sprouts/schema";
 import { AuthenticationRequired } from "../authorization";
-import { SproutDatabaseError, SproutNotFound, SproutService } from "./service";
+import { CommandConflict, ProjectDatabaseError, ProjectService } from "../projects/service";
+import { SproutDatabaseError, SproutNotFound, SproutService } from "../sprouts/service";
 
-type OperationError = AuthenticationRequired | SproutNotFound | SproutDatabaseError;
+type OperationError =
+	| AuthenticationRequired
+	| SproutNotFound
+	| SproutDatabaseError
+	| CommandConflict
+	| ProjectDatabaseError;
 
 const statusForError = (error: OperationError): number => {
 	if (error instanceof AuthenticationRequired) return 401;
+	if (error instanceof CommandConflict) return 409;
 	return error instanceof SproutNotFound ? 404 : 503;
 };
 const messageForError = (error: OperationError): string => {
 	if (error instanceof AuthenticationRequired || error instanceof SproutNotFound)
 		return error.message;
+	if (error instanceof CommandConflict) return error.message;
+	if (error instanceof ProjectDatabaseError) return "The project database is unavailable";
 	return "The sprout database is unavailable";
 };
 
-const sproutOperations = [
+const groveOperations = [
+	operation({
+		name: "project.create",
+		description: "Create a Grove project Task and its initial immutable Version.",
+		method: "POST",
+		path: "/projects",
+		input: ProjectCreate,
+		output: ProjectCreateReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (service) => service.create(input)),
+		statusForError,
+		messageForError,
+	}),
 	operation({
 		name: "sprouts.list",
 		description: "List the dummy Grove sprouts.",
@@ -83,9 +105,9 @@ const sproutOperations = [
 	}),
 ] as const;
 
-export const sproutApi = createEffectApi({
-	title: "Grove sprouts API",
+export const groveApi = createEffectApi<SvelteKitRequestEvent | ProjectService | SproutService>({
+	title: "Grove API",
 	version: "1.0.0",
 	basePath: "/api/v1",
-	operations: sproutOperations,
+	operations: groveOperations,
 });

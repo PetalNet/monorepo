@@ -1,5 +1,5 @@
-import { sproutApi } from "$lib/server/sprouts/api";
+import { groveApi } from "$lib/server/grove/api";
 
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = () => Response.json(sproutApi.openapi);
+export const GET: RequestHandler = () => Response.json(groveApi.openapi);

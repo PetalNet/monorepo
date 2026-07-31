@@ -1,6 +1,6 @@
+import { groveApi } from "$lib/server/grove/api";
 import { runGrove } from "$lib/server/runtime";
-import { sproutApi } from "$lib/server/sprouts/api";
 
 import type { RequestHandler } from "./$types";
 
-export const fallback: RequestHandler = (event) => runGrove(sproutApi.fetch(event.request), event);
+export const fallback: RequestHandler = (event) => runGrove(groveApi.fetch(event.request), event);
