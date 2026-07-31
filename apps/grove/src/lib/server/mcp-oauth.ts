@@ -1,6 +1,6 @@
 import { jwtVerify, type JWTVerifyGetKey, type JWTPayload } from "jose";
 
-export const MCP_REQUIRED_SCOPE = "grove:mcp";
+const MCP_REQUIRED_SCOPE = "grove:mcp";
 
 export interface McpOAuthConfig {
 	readonly issuer: string;
@@ -13,9 +13,9 @@ export interface McpPrincipal {
 	readonly scopes: ReadonlySet<string>;
 }
 
-export const mcpResource = (origin: string) => `${origin.replace(/\/+$/, "")}/mcp`;
+const mcpResource = (origin: string) => `${origin.replace(/\/+$/, "")}/mcp`;
 
-export const mcpResourceMetadataUrl = (origin: string) =>
+const mcpResourceMetadataUrl = (origin: string) =>
 	`${origin.replace(/\/+$/, "")}/.well-known/oauth-protected-resource/mcp`;
 
 export const mcpProtectedResourceMetadata = (config: McpOAuthConfig) => ({

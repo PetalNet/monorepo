@@ -2,12 +2,18 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 
 import {
-	MCP_REQUIRED_SCOPE,
 	makeMcpRequestValidator,
 	mcpProtectedResourceMetadata,
-	mcpResource,
-	mcpResourceMetadataUrl,
+	type McpPrincipal,
 } from "../src/lib/server/mcp-oauth";
+
+const MCP_REQUIRED_SCOPE = "grove:mcp";
+const mcpResource = (origin: string) => `${origin}/mcp`;
+const asResponse = (result: McpPrincipal | Response) => {
+	expect(result).toBeInstanceOf(Response);
+	if (!(result instanceof Response)) throw new TypeError("Expected an OAuth error response");
+	return result;
+};
 
 const config = {
 	issuer: "https://identity.example/application/o/grove-mcp",
@@ -23,9 +29,6 @@ describe("Grove MCP OAuth resource server", () => {
 			bearer_methods_supported: ["header"],
 			scopes_supported: [MCP_REQUIRED_SCOPE],
 		});
-		expect(mcpResourceMetadataUrl(config.resourceOrigin)).toBe(
-			"https://grove.example/.well-known/oauth-protected-resource/mcp",
-		);
 	});
 
 	it("challenges missing tokens with discoverable protected-resource metadata", async () => {
@@ -35,10 +38,10 @@ describe("Grove MCP OAuth resource server", () => {
 			createLocalJWKSet({ keys: [await exportJWK(publicKey)] }),
 		);
 		const result = await validate(new Request(mcpResource(config.resourceOrigin)));
+		const response = asResponse(result);
 
-		expect(result).toBeInstanceOf(Response);
-		expect((result as Response).status).toBe(401);
-		expect((result as Response).headers.get("www-authenticate")).toBe(
+		expect(response.status).toBe(401);
+		expect(response.headers.get("www-authenticate")).toBe(
 			'Bearer resource_metadata="https://grove.example/.well-known/oauth-protected-resource/mcp"',
 		);
 	});
@@ -68,7 +71,7 @@ describe("Grove MCP OAuth resource server", () => {
 				}),
 			);
 		const error = async (accessToken: string) =>
-			((await request(accessToken)) as Response).headers.get("www-authenticate");
+			asResponse(await request(accessToken)).headers.get("www-authenticate");
 
 		expect(await request(await token())).toMatchObject({ subject: "mcp-user" });
 		expect(await error(await token({ iss: "https://attacker.example" }))).toContain(
@@ -81,7 +84,7 @@ describe("Grove MCP OAuth resource server", () => {
 			'error="invalid_token"',
 		);
 		expect(await error(await token({ exp: undefined }))).toContain('error="invalid_token"');
-		const insufficientScope = (await request(await token({ scope: "grove:read" }))) as Response;
+		const insufficientScope = asResponse(await request(await token({ scope: "grove:read" })));
 		expect(insufficientScope.status).toBe(403);
 		expect(insufficientScope.headers.get("www-authenticate")).toContain(
 			'error="insufficient_scope"',
