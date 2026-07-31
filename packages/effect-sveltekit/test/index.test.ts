@@ -1,4 +1,4 @@
-import { isHttpError, type Handle, type RequestEvent } from "@sveltejs/kit";
+import { isHttpError, type RequestEvent } from "@sveltejs/kit";
 import { Cause, Context, Effect, Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -77,7 +77,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 			}),
 		);
 		const event = eventFor(undefined, "/handle");
-		const response = await handle({ event, resolve: vi.fn() } as Parameters<Handle>[0]);
+		const response = await handle({ event, resolve: vi.fn() });
 
 		expect(await response.text()).toBe(
 			"from-runtime:https://grove.test/handle:https://grove.test/handle",
