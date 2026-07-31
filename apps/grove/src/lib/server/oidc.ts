@@ -32,7 +32,7 @@ export const groveOidc = (config: GroveOidcConfig) => {
 				pkce: true,
 				scopes: ["openid", "profile", "email"],
 				requireEmailVerification: true,
-				mapProfileToUser: (profile) => ({ emailVerified: profile.emailVerified === true }),
+				mapProfileToUser: (profile) => ({ emailVerified: profile.emailVerified }),
 			},
 		],
 	});
@@ -40,14 +40,13 @@ export const groveOidc = (config: GroveOidcConfig) => {
 	return {
 		...plugin,
 		async init(context: Parameters<NonNullable<typeof plugin.init>>[0]) {
-			const initialized = await plugin.init?.(context);
-			const provider = initialized?.context?.socialProviders.find(
+			const initialized = await plugin.init(context);
+			const provider = initialized.context.socialProviders.find(
 				(candidate) => candidate.id === GROVE_OIDC_PROVIDER_ID,
 			);
 			if (
-				!provider ||
+				!provider?.idToken ||
 				provider.issuer !== config.issuer ||
-				!provider.idToken ||
 				provider.requiresIdTokenNonce !== true
 			)
 				throw new Error("Grove OIDC discovery did not match the pinned issuer and nonce policy");
@@ -55,13 +54,15 @@ export const groveOidc = (config: GroveOidcConfig) => {
 			const getUserInfo = provider.getUserInfo.bind(provider);
 			provider.getUserInfo = async (tokens) => {
 				const result = await getUserInfo(tokens);
-				return result?.user.emailVerified === true ? result : null;
+				return result?.user.emailVerified ? result : null;
 			};
 
 			const validateAuthorizationCode = provider.validateAuthorizationCode.bind(provider);
 			provider.validateAuthorizationCode = async (data) => {
 				const tokens = await validateAuthorizationCode(data);
-				if (!tokens?.idToken)
+				if (tokens === null)
+					throw new Error("Grove OIDC token response omitted the required ID token");
+				if (!tokens.idToken)
 					throw new Error("Grove OIDC token response omitted the required ID token");
 				return tokens;
 			};

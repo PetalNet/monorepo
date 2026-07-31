@@ -83,7 +83,7 @@ describe("Grove browser OIDC", () => {
 		};
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = async (input, init) => {
-			const url = String(input);
+			const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
 			if (url === oidcDiscoveryUrl(issuer))
 				return Response.json({
 					issuer,
@@ -98,7 +98,9 @@ describe("Grove browser OIDC", () => {
 					keys: [{ ...publicJwk, kid: "grove-test", alg: "RS256", use: "sig" }],
 				});
 			if (url === `${issuer}/token`) {
-				expect(String(init?.body)).toContain("code_verifier=");
+				if (!(init?.body instanceof URLSearchParams))
+					throw new TypeError("Expected an OAuth token request body");
+				expect(init.body.has("code_verifier")).toBe(true);
 				return Response.json({
 					access_token: "provider-access-token",
 					token_type: "Bearer",
