@@ -66,6 +66,10 @@ describe("Grove project foundation", () => {
 			"claim.release",
 			"attempt.publish",
 			"work.ready",
+			"review.submit",
+			"task.complete",
+			"library.search",
+			"library.getVersion",
 		];
 		const openapi = JSON.stringify(groveApi.openapi);
 		for (const operation of operations) expect(openapi).toContain(operation);
