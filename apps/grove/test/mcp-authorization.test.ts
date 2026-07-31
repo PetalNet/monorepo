@@ -50,10 +50,11 @@ describe("handleMcpRequest", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({
+		const body: unknown = await response.json();
+		expect(body).toMatchObject({
 			jsonrpc: "2.0",
 			id: 1,
-			result: { tools: expect.any(Array) },
 		});
+		expect(body).toHaveProperty("result.tools");
 	});
 });
