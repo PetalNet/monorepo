@@ -17,8 +17,20 @@ import { Context, Effect, Layer } from "effect";
 
 import { GROVE_OIDC_PROVIDER_ID, groveOidc } from "./oidc";
 
+const requireRuntimeString = (value: unknown, name: string) => {
+	if (typeof value !== "string" || value.length === 0)
+		throw new Error(`${name} is required at runtime`);
+	return value;
+};
+
 const makeAuth = (database: AdapterFactory<BetterAuthOptions>) => {
 	if (!BETTER_AUTH_URL) throw new Error("BETTER_AUTH_URL is required at runtime");
+	const oidcIssuer = requireRuntimeString(GROVE_OIDC_ISSUER, "GROVE_OIDC_ISSUER");
+	const oidcClientId = requireRuntimeString(GROVE_OIDC_CLIENT_ID, "GROVE_OIDC_CLIENT_ID");
+	const oidcClientSecret = requireRuntimeString(
+		GROVE_OIDC_CLIENT_SECRET,
+		"GROVE_OIDC_CLIENT_SECRET",
+	);
 
 	return betterAuth({
 		appName: "Grove",
@@ -34,9 +46,9 @@ const makeAuth = (database: AdapterFactory<BetterAuthOptions>) => {
 		},
 		plugins: [
 			groveOidc({
-				issuer: GROVE_OIDC_ISSUER,
-				clientId: GROVE_OIDC_CLIENT_ID,
-				clientSecret: GROVE_OIDC_CLIENT_SECRET,
+				issuer: oidcIssuer,
+				clientId: oidcClientId,
+				clientSecret: oidcClientSecret,
 				callbackOrigin: BETTER_AUTH_URL,
 			}),
 			sveltekitCookies(getRequestEvent),
