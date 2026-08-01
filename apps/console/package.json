@@ -56,7 +56,6 @@
 		"fontless": "catalog:prod",
 		"svelte-check": "catalog:dev",
 		"svelte-global-typescript": "catalog:",
-		"svelte-plugin-composer": "catalog:",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
 		"vitest": "catalog:dev"

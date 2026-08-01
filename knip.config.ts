@@ -14,25 +14,9 @@ export default {
 		},
 		"apps/console": {
 			ignoreDependencies: ["crossws!"],
-			// Knip's SvelteKit plugin reads the SK3 config out of `vite.config.ts`, but it only
-			// does so when it statically sees `sveltekit` imported from `@sveltejs/kit/vite`
-			// (knip/src/plugins/sveltekit/resolveFromAST.ts). This app configures Kit through
-			// `svelte-plugin-composer`'s `kit()` wrapper instead, so that check never matches and
-			// the plugin contributes nothing. Until knip can see through the wrapper, restate the
-			// two things it would otherwise give us: the route/hook production entries and the
-			// `$lib` alias. Grove uses the bare `sveltekit()` call and needs none of this.
-			paths: {
-				$lib: ["src/lib"],
-				"$lib/*": ["src/lib/*"],
-			},
-			ignoreUnresolved: ["\\$app/.+"],
+			// Scripts are deploy/ops entrypoints (seed, bridge daemon, token mint, capability
+			// install) — production surface, hence the `!` markers.
 			entry: [
-				// Stand-ins for the SvelteKit plugin's production entries (see note above).
-				"src/routes/**/+{page,server,page.server,error,layout,layout.server}{,@*}.{js,ts,svelte}!",
-				"src/hooks.{server,client}.{js,ts}!",
-				"src/instrumentation.server.{js,ts}!",
-				// Scripts are deploy/ops entrypoints (seed, bridge daemon, token mint, capability
-				// install) — production surface, hence the `!` markers.
 				"effectdb.config.ts!",
 				"src/lib/server/db/tables.ts!",
 				"src/env.ts!",

@@ -120,7 +120,6 @@ catalog:
   effect-qb: 0.21.0
   svelte-effect-runtime: 4.1.1
   svelte-global-typescript: 1.0.1
-  svelte-plugin-composer: 1.0.1
   mode-watcher: ^1.1.0
   nanoid: ^6.0.0
   uuid: ^14.0.1
