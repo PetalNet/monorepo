@@ -4,8 +4,10 @@ import type {
 	CostComparisonResult,
 	CostComparisonSide,
 } from "@petalnet/types";
+import { Effect } from "effect";
 
 import type { Sql } from "../db/pool.ts";
+import { edge } from "../edge.ts";
 import { QueryError, runStructured } from "../query/structured.ts";
 import { compareCostPairWith, metricRows } from "./compare.ts";
 import {
@@ -16,7 +18,9 @@ import {
 	type MeterSide,
 } from "./meter.ts";
 
-export class CostComparisonUnavailableError extends Error {}
+export class CostComparisonUnavailableError extends Error {
+	readonly _tag = "CostComparisonUnavailableError";
+}
 
 function meterSide(value: string, side: MeterSide): CostComparisonSide {
 	return {
@@ -73,32 +77,37 @@ function meterResult(input: CostComparisonRequest, result: MeterComparison): Cos
 	};
 }
 
+/**
+ * Pairwise cost comparison as an Effect with a deliberately narrow error channel: a `QueryError`
+ * (the request is unanswerable from the price book / usage lake) or, when the structured path
+ * reports an unknown source and a meter fallback is authorized, a `CostComparisonUnavailableError`.
+ * The structured queries compose directly (`runStructured` is already an Effect); the AgentsView
+ * meter is an external HTTP adapter, so its call is the one promise edge — lifted with `edge(...)`
+ * so its two failure modes land in the error channel instead of being swallowed as defects.
+ */
 export function compareCostPair(
 	app: Sql,
 	scopes: readonly string[],
 	input: CostComparisonRequest,
 	meter?: CostMeter,
-): Promise<CostComparisonResult> {
-	return compareCostPairWith((request) => runStructured(app, scopes, request), input).catch(
-		async (error: unknown) => {
-			if (
-				!(error instanceof QueryError) ||
-				error.code !== "bad_from" ||
-				!meter ||
-				!scopes.includes("fleet")
-			)
-				throw error;
-			try {
-				const result = await meter.compare(input);
-
-				return meterResult(input, result);
-			} catch (meterError) {
-				if (meterError instanceof CostMeterWindowError)
-					throw new QueryError("comparison_window_unsupported", meterError.message);
-				if (meterError instanceof CostMeterUnavailableError)
-					throw new CostComparisonUnavailableError(meterError.message);
-				throw meterError;
-			}
-		},
+): Effect.Effect<CostComparisonResult, QueryError | CostComparisonUnavailableError> {
+	return compareCostPairWith((request) => runStructured(app, scopes, request), input).pipe(
+		Effect.catch((error) => {
+			if (error.code !== "bad_from" || !meter || !scopes.includes("fleet"))
+				return Effect.fail(error);
+			return edge(
+				(cause): cause is CostMeterWindowError | CostMeterUnavailableError =>
+					cause instanceof CostMeterWindowError || cause instanceof CostMeterUnavailableError,
+				() => meter.compare(input),
+			).pipe(
+				Effect.map((result) => meterResult(input, result)),
+				Effect.catch(
+					(meterError): Effect.Effect<never, QueryError | CostComparisonUnavailableError> =>
+						meterError instanceof CostMeterWindowError
+							? Effect.fail(new QueryError("comparison_window_unsupported", meterError.message))
+							: Effect.fail(new CostComparisonUnavailableError(meterError.message)),
+				),
+			);
+		}),
 	);
 }

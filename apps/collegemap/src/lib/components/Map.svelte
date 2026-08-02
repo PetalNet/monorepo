@@ -1,30 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import type { Map as LeafletMap, Marker, TileLayer } from 'leaflet';
-	import { getLogoUrl } from '$lib/collegeLogos';
-
-	interface UserWithCollege {
-		id: string;
-		firstName: string;
-		lastName: string;
-		createdAt: string;
-		college: {
-			id: string;
-			name: string;
-			latitude: number;
-			longitude: number;
-		};
-	}
-
-	interface CollegeGroup {
-		college: {
-			id: string;
-			name: string;
-			latitude: number;
-			longitude: number;
-		};
-		users: { firstName: string; lastName: string }[];
-	}
+	import { groupUsersByCollege, type CollegeGroup, type UserWithCollege } from "$lib/collegeGroups";
+	import { getLogoUrl } from "$lib/collegeLogos";
+	import type { Map as LeafletMap, Marker, MarkerOptions, TileLayer } from "leaflet";
+	import { onMount } from "svelte";
+	import { SvelteMap } from "svelte/reactivity";
 
 	interface SelectedCollege {
 		name: string;
@@ -32,45 +11,40 @@
 		longitude: number;
 	}
 
+	/** What `/api/college-info` answers with — also the shape held in the popup cache. */
+	interface CollegeInfo {
+		description: string | null;
+		thumbnailUrl: string | null;
+	}
+
+	/** Markers carry the college's headcount so a cluster can total its children (see below). */
+	interface CollegeMarkerOptions extends MarkerOptions {
+		collegeCount?: number;
+	}
+
 	let {
-		users = [],
-		viewMode = 'markers',
+		users,
+		viewMode = "markers",
 		selectedCollege = null,
-		onMapReady = (_m: LeafletMap) => {}
+		onMapReady,
 	}: {
 		users: UserWithCollege[];
-		viewMode?: 'markers' | 'heat';
+		viewMode?: "markers" | "heat";
 		selectedCollege?: SelectedCollege | null;
 		onMapReady?: (map: LeafletMap) => void;
 	} = $props();
 
 	let mapContainer = $state<HTMLDivElement>();
-	let map: LeafletMap;
-	let markersByCollege = new Map<string, Marker>();
-	let tileLayer: TileLayer;
-	let L: typeof import('leaflet');
-	let clusterGroup: import('leaflet').MarkerClusterGroup | null = null;
-	let heatLayer: import('leaflet').HeatLayer | null = null;
+	// Everything below is populated by the async Leaflet import in onMount, so it is genuinely
+	// absent until then -- the guards throughout this file depend on saying so.
+	let map: LeafletMap | undefined;
+	let tileLayer: TileLayer | undefined;
+	let L: typeof import("leaflet") | undefined;
+	let markersByCollege = new SvelteMap<string, Marker>();
+	let clusterGroup: import("leaflet").MarkerClusterGroup | null = null;
+	let heatLayer: import("leaflet").HeatLayer | null = null;
 	let collegeGroups: CollegeGroup[] = [];
-	const collegeInfoCache = new Map<string, { description: string | null; thumbnailUrl: string | null }>();
-
-	function groupUsersByCollege(sourceUsers: UserWithCollege[]): CollegeGroup[] {
-		const groups = new Map<string, CollegeGroup>();
-
-		for (const user of sourceUsers) {
-			const existing = groups.get(user.college.id);
-			if (existing) {
-				existing.users.push({ firstName: user.firstName, lastName: user.lastName });
-			} else {
-				groups.set(user.college.id, {
-					college: user.college,
-					users: [{ firstName: user.firstName, lastName: user.lastName }]
-				});
-			}
-		}
-
-		return Array.from(groups.values());
-	}
+	const collegeInfoCache = new SvelteMap<string, CollegeInfo>();
 
 	function getMarkerSize(count: number): number {
 		if (count >= 10) return 46;
@@ -79,86 +53,94 @@
 	}
 
 	function setTiles() {
-		if (!map || !L) return;
+		const leaflet = L;
+		const leafletMap = map;
+		if (!leafletMap || !leaflet) return;
 		if (tileLayer) tileLayer.remove();
 
-		tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-			attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-			maxZoom: 19
-		}).addTo(map);
+		tileLayer = leaflet
+			.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+				attribution:
+					'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+				maxZoom: 19,
+			})
+			.addTo(leafletMap);
 	}
 
 	onMount(() => {
-		let isDestroyed = false;
+		// A plain `let destroyed = false` would be narrowed to `false` for the whole closure; the
+		// signal is read through a getter, so the post-import check is a real read.
+		const teardown = new AbortController();
 
 		const init = async () => {
-			const LModule = await import('leaflet');
-			if (isDestroyed) return;
-			L = (LModule.default ?? LModule) as typeof import('leaflet');
+			const LModule = await import("leaflet");
+			// Both plugins extend L, so they load after it and before anything touches the map.
+			await import("leaflet.markercluster");
+			await import("leaflet.heat");
 
-			// Load markercluster plugin (extends L)
-			await import('leaflet.markercluster');
-			// Load heat plugin (extends L)
-			await import('leaflet.heat');
-
-			if (isDestroyed) return;
+			if (teardown.signal.aborted) return;
+			L = LModule.default;
 
 			if (!mapContainer) return;
 
 			map = L.map(mapContainer, {
-				zoomControl: true
+				zoomControl: true,
 			}).setView([39.8283, -98.5795], 4);
 
 			setTiles();
 			updateMarkers();
 			applyViewMode();
-			onMapReady(map);
+			onMapReady?.(map);
 		};
 
 		void init();
 
 		return () => {
-			isDestroyed = true;
+			teardown.abort();
 			map?.remove();
 		};
 	});
 
-	function getClusterTotalCount(cluster: import('leaflet').MarkerCluster): number {
+	function getClusterTotalCount(cluster: import("leaflet").MarkerCluster): number {
 		let total = 0;
 		const childMarkers = cluster.getAllChildMarkers();
 		for (const m of childMarkers) {
-			total += (m.options as any).collegeCount ?? 1;
+			total += (m.options as CollegeMarkerOptions).collegeCount ?? 1;
 		}
 		return total;
 	}
 
 	function updateMarkers() {
-		if (!L || !map) return;
+		// Narrowed once so the closures below (cluster icons, marker handlers) keep the non-null
+		// view of the async-loaded Leaflet module and map.
+		const leaflet = L;
+		const leafletMap = map;
+		if (!leaflet || !leafletMap) return;
 
 		// Clean up old cluster group
 		if (clusterGroup) {
 			clusterGroup.clearLayers();
-			map.removeLayer(clusterGroup);
+			leafletMap.removeLayer(clusterGroup);
 		}
 
 		markersByCollege.clear();
 
 		// Create cluster group with custom icon
-		clusterGroup = L.markerClusterGroup({
+		clusterGroup = leaflet.markerClusterGroup({
 			iconCreateFunction: (cluster) => {
 				const totalCount = getClusterTotalCount(cluster);
 				const size = totalCount >= 50 ? 56 : totalCount >= 20 ? 48 : 40;
-				return L.divIcon({
-					className: 'college-cluster',
-					html: `<div class="cluster-dot" style="width:${size}px;height:${size}px">
-						<div class="cluster-inner">${totalCount}</div>
+				return leaflet.divIcon({
+					className: "college-cluster",
+					html: `<div class="cluster-dot" style="width:${size.toString()}px;height:${size.toString()}px">
+						<div class="cluster-inner">${totalCount.toString()}</div>
 					</div>`,
 					iconSize: [size, size],
-					iconAnchor: [size / 2, size / 2]
+					iconAnchor: [size / 2, size / 2],
 				});
 			},
 			showCoverageOnHover: false,
-			maxClusterRadius: 60
+			maxClusterRadius: 60,
 		});
 
 		collegeGroups = groupUsersByCollege(users);
@@ -169,29 +151,30 @@
 			const logoUrl = getLogoUrl(group.college.name, size);
 			const names = group.users
 				.map((u) => `<span class="popup-student">${u.firstName} ${u.lastName}</span>`)
-				.join('');
+				.join("");
 
+			const logoSize = Math.round(size * 0.55).toString();
 			const markerHtml = logoUrl
-				? `<div class="marker-dot" style="width:${size}px;height:${size}px">
+				? `<div class="marker-dot" style="width:${size.toString()}px;height:${size.toString()}px">
 					<div class="marker-inner marker-logo">
-						<img src="${logoUrl}" alt="" width="${Math.round(size * 0.55)}" height="${Math.round(size * 0.55)}" onerror="this.style.display='none';this.parentElement.textContent='${userCount}'" />
+						<img src="${logoUrl}" alt="" width="${logoSize}" height="${logoSize}" onerror="this.style.display='none';this.parentElement.textContent='${userCount.toString()}'" />
 					</div>
 				</div>`
-				: `<div class="marker-dot" style="width:${size}px;height:${size}px">
-					<div class="marker-inner">${userCount}</div>
+				: `<div class="marker-dot" style="width:${size.toString()}px;height:${size.toString()}px">
+					<div class="marker-inner">${userCount.toString()}</div>
 				</div>`;
 
-			const icon = L.divIcon({
-				className: 'college-marker',
+			const icon = leaflet.divIcon({
+				className: "college-marker",
 				html: markerHtml,
 				iconSize: [size, size],
-				iconAnchor: [size / 2, size / 2]
+				iconAnchor: [size / 2, size / 2],
 			});
 
 			const popupLogoUrl = getLogoUrl(group.college.name, 32);
 			const popupLogoHtml = popupLogoUrl
 				? `<img class="popup-logo" src="${popupLogoUrl}" alt="" width="20" height="20" onerror="this.style.display='none'" />`
-				: '';
+				: "";
 
 			const popupContent = `
 				<div class="popup-content">
@@ -199,24 +182,24 @@
 						${popupLogoHtml}
 						<div class="popup-college-name">${group.college.name}</div>
 					</div>
-					<div class="popup-count">${userCount} ${userCount === 1 ? 'student' : 'students'}</div>
+					<div class="popup-count">${userCount.toString()} ${userCount === 1 ? "student" : "students"}</div>
 					<div class="popup-meta" id="popup-meta-${group.college.id}"></div>
 					<div class="popup-students">${names}</div>
 				</div>
 			`;
 
-			const marker = L.marker([group.college.latitude, group.college.longitude], {
-				icon,
-				collegeCount: userCount
-			} as any).bindPopup(popupContent, { maxWidth: 250 });
+			const markerOptions: CollegeMarkerOptions = { icon, collegeCount: userCount };
+			const marker = leaflet
+				.marker([group.college.latitude, group.college.longitude], markerOptions)
+				.bindPopup(popupContent, { maxWidth: 250 });
 
-			marker.on('click', () => {
-				map.flyTo([group.college.latitude, group.college.longitude], 10, {
-					duration: 1.2
+			marker.on("click", () => {
+				leafletMap.flyTo([group.college.latitude, group.college.longitude], 10, {
+					duration: 1.2,
 				});
 			});
 
-			marker.on('popupopen', async () => {
+			const loadPopupMeta = async () => {
 				const metaEl = document.getElementById(`popup-meta-${group.college.id}`);
 				if (!metaEl || metaEl.dataset.loaded) return;
 
@@ -226,48 +209,55 @@
 					if (cached.description) {
 						metaEl.innerHTML = `<div class="popup-description">${cached.description.slice(0, 150)}...</div>`;
 					}
-					metaEl.dataset.loaded = 'true';
+					metaEl.dataset.loaded = "true";
 					marker.getPopup()?.update();
 					return;
 				}
 
 				metaEl.innerHTML = '<div class="popup-meta-loading">Loading info...</div>';
 				try {
-					const resp = await fetch(`/api/college-info?name=${encodeURIComponent(group.college.name)}`);
-					const info = await resp.json();
+					const resp = await fetch(
+						`/api/college-info?name=${encodeURIComponent(group.college.name)}`,
+					);
+					const info = (await resp.json()) as CollegeInfo;
 					collegeInfoCache.set(group.college.name, info);
 					if (info.description) {
 						metaEl.innerHTML = `<div class="popup-description">${info.description.slice(0, 150)}...</div>`;
 					} else {
-						metaEl.innerHTML = '';
+						metaEl.innerHTML = "";
 					}
 				} catch {
-					metaEl.innerHTML = '';
+					metaEl.innerHTML = "";
 				}
-				metaEl.dataset.loaded = 'true';
+				metaEl.dataset.loaded = "true";
 				marker.getPopup()?.update();
+			};
+
+			// Leaflet's handler signature is void-returning, so the fetch is fired and not awaited.
+			marker.on("popupopen", () => {
+				void loadPopupMeta();
 			});
 
 			markersByCollege.set(group.college.name, marker);
-			clusterGroup!.addLayer(marker);
+			clusterGroup.addLayer(marker);
 		}
 
 		// Build heat data
 		const heatData: [number, number, number][] = collegeGroups.map((g) => [
 			g.college.latitude,
 			g.college.longitude,
-			g.users.length
+			g.users.length,
 		]);
 
 		if (heatLayer) {
-			map.removeLayer(heatLayer);
+			leafletMap.removeLayer(heatLayer);
 		}
 
-		heatLayer = L.heatLayer(heatData, {
+		heatLayer = leaflet.heatLayer(heatData, {
 			radius: 35,
 			blur: 25,
 			maxZoom: 10,
-			gradient: { 0.2: '#bfdbfe', 0.4: '#818cf8', 0.6: '#6366f1', 0.8: '#4f46e5', 1.0: '#312e81' }
+			gradient: { 0.2: "#bfdbfe", 0.4: "#818cf8", 0.6: "#6366f1", 0.8: "#4f46e5", 1.0: "#312e81" },
 		});
 
 		// Apply current view mode
@@ -275,20 +265,23 @@
 	}
 
 	function applyViewMode() {
-		if (!map || !clusterGroup || !heatLayer) return;
+		const leafletMap = map;
+		if (!leafletMap || !clusterGroup || !heatLayer) return;
 
-		if (viewMode === 'heat') {
-			if (map.hasLayer(clusterGroup)) map.removeLayer(clusterGroup);
-			if (!map.hasLayer(heatLayer)) heatLayer.addTo(map);
+		if (viewMode === "heat") {
+			if (leafletMap.hasLayer(clusterGroup)) leafletMap.removeLayer(clusterGroup);
+			if (!leafletMap.hasLayer(heatLayer)) heatLayer.addTo(leafletMap);
 		} else {
-			if (map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
-			if (!map.hasLayer(clusterGroup)) clusterGroup.addTo(map);
+			if (leafletMap.hasLayer(heatLayer)) leafletMap.removeLayer(heatLayer);
+			if (!leafletMap.hasLayer(clusterGroup)) clusterGroup.addTo(leafletMap);
 		}
 	}
 
-	// React to users prop changes
+	// React to users prop changes. `map` is a plain binding, so `users` has to be read
+	// unconditionally or the effect would stop tracking it before the map finishes loading.
 	$effect(() => {
-		if (map && users) {
+		void users;
+		if (map) {
 			updateMarkers();
 		}
 	});
@@ -301,7 +294,8 @@
 
 	// React to selectedCollege - fly to it
 	$effect(() => {
-		if (!selectedCollege || !map || !clusterGroup) return;
+		const leafletMap = map;
+		if (!selectedCollege || !leafletMap || !clusterGroup) return;
 
 		const marker = markersByCollege.get(selectedCollege.name);
 		if (marker) {
@@ -310,8 +304,8 @@
 			});
 		} else {
 			// College exists in data but has no marker (no users) - just fly to coords
-			map.flyTo([selectedCollege.latitude, selectedCollege.longitude], 10, {
-				duration: 1.2
+			leafletMap.flyTo([selectedCollege.latitude, selectedCollege.longitude], 10, {
+				duration: 1.2,
 			});
 		}
 	});
@@ -351,7 +345,7 @@
 		font-weight: 700;
 		font-size: 13px;
 		color: var(--marker-text);
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 	}
 
 	:global(.marker-logo) {
@@ -396,12 +390,18 @@
 		font-weight: 800;
 		font-size: 14px;
 		color: var(--marker-text);
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 	}
 
 	@keyframes cluster-pop {
-		from { transform: scale(0.5); opacity: 0; }
-		to { transform: scale(1); opacity: 1; }
+		from {
+			transform: scale(0.5);
+			opacity: 0;
+		}
+		to {
+			transform: scale(1);
+			opacity: 1;
+		}
 	}
 
 	/* Hide default markercluster styles */
@@ -418,7 +418,7 @@
 	}
 
 	:global(.popup-content) {
-		font-family: 'Inter', sans-serif;
+		font-family: "Inter", sans-serif;
 	}
 
 	:global(.popup-header) {

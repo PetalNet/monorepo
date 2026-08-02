@@ -56,7 +56,6 @@ pnpm prisma migrate reset
 - **Framework**: SvelteKit 5
 - **Database**: SQLite + Prisma
 - **Styling**: TailwindCSS
-- **Real-time**: Server-Sent Events (SSE)
 - **Auth**: Custom session-based auth with bcrypt
 
 ## ✨ Features

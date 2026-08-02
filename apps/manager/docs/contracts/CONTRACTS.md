@@ -1,8 +1,8 @@
-# Janet Fleet Harness — Shared Contracts (N0.1)
+# Janet Fleet Harness — Shared Contracts
 
-_Branch `docs/N0.1-contracts` · Fable, overnight 2026-07-09 · REVIEWABLE SPEC ONLY — no
-service code, no live changes. Decisions + ground-truth findings: [DECISIONS.md](DECISIONS.md).
-Machine-readable schemas: [`schemas/`](schemas/) (JSON Schema draft 2020-12)._
+_Historical N0.1 design, retained as the shared contract reference. Original findings:
+[DECISIONS.md](DECISIONS.md). Schemas: [`schemas/`](schemas/) (JSON Schema 2020-12).
+A schema does not imply that its producer, transport, or deployment exists._
 
 This is the foundation node (N0.1) of the harness-rewrite DAG: the canonical schemas every
 component speaks — manager, box-agents, workers, the tasks tracker, and the doorman
@@ -47,6 +47,11 @@ backchannel — so they agree on one shape instead of drifting.
 | Backchannel RPC | `backchannel-rpc.schema.json`                  | manager ↔ box agents (both directions)       | doorman edge routes it; Matrix floor carries it verbatim when doorman is blocked |
 | Manager config  | `manager-config.schema.json`                   | operator / nix module (per host)             | manager at boot (deny-unknown, fail-loud)                                        |
 
+Session state, heartbeat, healthcheck, tmux supervision, Matrix control, manager config,
+and the optional assistant HTTP service are implemented in `apps/manager/src`. Fleet
+events, task cards, queue leases, doorman RPC/transport, dispatcher/cockpit behavior, and
+host deployment modules are external or design-only from this app's perspective.
+
 ## 2. Session state + heartbeat (manager ↔ itself, healthcheck, deploys)
 
 **Session state** is the tiny durable file that survives manager restarts:
@@ -63,9 +68,9 @@ and three epoch clocks (`started_at_epoch`, `last_sync_ok_epoch`, `updated_at_ep
 Healthcheck asserts: fresh (≤30s default), pid alive, state allowed, pane alive+tagged when
 running, Matrix sync fresh (≤120s default, 0 = never = fail).
 
-**Versioning note:** the deployed heartbeat writes `schema: 1`. The canonical contract is
-`schema_version: 2` — the rename plus two additive fields: optional `handle` (which agent
-this manager supervises — one host can run several managers) and `channel_lock`.
+**Versioning note:** current `apps/manager` writes `schema_version: 2`; healthcheck can read
+the historical `schema: 1` shape with a deprecation note. Version 2 added optional `handle`
+and `channel_lock`.
 
 **Channel lock (LOCKED requirement).** The single-owner Matrix lock is load-bearing: exactly
 one process may speak as the agent on its channel. The heartbeat's `channel_lock` object
@@ -77,6 +82,10 @@ makes that state observable: `state ∈ held | released | lockout`, plus `owner`
 - `lockout` — another owner was detected (the Focus-squat reboot race): this process MUST
   NOT send on the channel, and healthcheck can now see and alert on the condition instead
   of it being invisible until Janet goes silent.
+
+**Implementation caveat:** the manager currently emits a stub `held` lock with unknown
+acquisition time. It does not detect contenders or enforce a cross-process lock; that full
+model remains design-only until an external Matrix channel lock is wired in.
 
 ## 3. Fleet event (lifecycle hooks → cockpit)
 
@@ -156,15 +165,22 @@ handlers must tolerate the same id twice. Errors carry a stable snake_case `code
 
 ## 7. Manager config (deny-unknown-fields)
 
-Exactly the shape manager-rs enforces today via serde `deny_unknown_fields`: a typo'd key
+The checked-in schema is intended to track the shape serde enforces with
+`deny_unknown_fields`: a typo'd key
 fails loudly at boot — this process is harness-critical, misconfiguration must be visible.
 Required: `creds_path` (→ `$defs/matrixCreds`: `homeserver`, `access_token`, `user_id`) and
 `control_room`. Everything else is optional with the documented defaults (agent name, paths
 for state/heartbeat/exit-code/rate-limit-hook/model-override, tmux session/pane-tag/geometry,
 `claude_bin`/`claude_args` — lab-specific flags live in config, never in code —
-`path_prepend`, `kill_agent_on_shutdown`). `schema_version` is optional _for this contract
-only_: the live binary rejects unknown keys, so it becomes writable with the first rewrite
-release (absence = 1).
+`path_prepend`, `kill_agent_on_shutdown`). Current source also implements paired,
+loopback-only `assistant_api_bind`/`assistant_api_token`, assistant receipt/model options,
+and optional `glitchtip_dsn`, as shown in `config.example.json`. `schema_version` is
+optional (absence = 1) and accepted by the current binary.
+
+**Schema-drift note:** schemas are documentation and are not loaded at runtime; serde is
+the boot-time enforcement mechanism. When representations drift, verify consumers against
+current `src/config.rs` and `config.example.json` rather than editing a schema as part of a
+documentation-only cleanup.
 
 ## 8. Cross-contract flows (how a unit of work moves)
 

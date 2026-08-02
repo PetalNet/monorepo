@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
-	 * Countdown (foundations §3.7): a mono lease timer — amber under 5m, danger
-	 * under 1m, "reaped" once the fence increments. Ticks client-side off the
-	 * server lease_expires_at; a live clock, not a trusted absolute.
+	 * Countdown (foundations §3.7): a mono lease timer — amber under 5m, danger under 1m, "reaped"
+	 * once the fence increments. Ticks client-side off the server lease_expires_at; a live clock, not
+	 * a trusted absolute.
 	 */
 	interface Props {
 		/** RFC 3339 lease expiry; null = no lease held (renders blank). */
@@ -37,8 +37,7 @@
 
 <style>
 	.cd {
-		font:
-			500 0.75rem var(--mono);
+		font: 500 0.75rem var(--mono);
 		font-feature-settings: "tnum" 1;
 		color: var(--text-2);
 	}

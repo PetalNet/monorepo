@@ -107,11 +107,11 @@ export class TrackerReader {
 			try {
 				const envelope = JSON.parse(match[1]) as Record<string, unknown>;
 				if (
-					envelope["schema_version"] === 1 &&
-					envelope["request_id"] === criteria.requestId &&
-					envelope["proposed_by"] === criteria.principalId &&
-					envelope["operation"] === criteria.operation &&
-					envelope["request_hash"] === criteria.requestHash &&
+					envelope.schema_version === 1 &&
+					envelope.request_id === criteria.requestId &&
+					envelope.proposed_by === criteria.principalId &&
+					envelope.operation === criteria.operation &&
+					envelope.request_hash === criteria.requestHash &&
 					Number.isSafeInteger(row.id) &&
 					Number(row.id) > 0
 				)

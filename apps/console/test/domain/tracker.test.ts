@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { Effect } from "effect";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import {
@@ -82,7 +83,7 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 	});
 
 	it("a project+fleet caller sees the project task and shared tasks, not eli's private", () => {
-		const env = readTasks(reader, ["fleet", "project:console"]);
+		const env = Effect.runSync(readTasks(reader, ["fleet", "project:console"]));
 		const ids = env.items.map((i) => i["id"]);
 		expect(ids).toContain(1); // project:console
 		expect(ids).toContain(3); // shared -> fleet
@@ -90,15 +91,17 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 	});
 
 	it("a PRIVATE task in a project does NOT leak to a project-only caller (codex P0)", () => {
-		const asProject = readTasks(reader, ["project:console"]).items.map((i) => i["id"]);
+		const asProject = Effect.runSync(readTasks(reader, ["project:console"])).items.map(
+			(i) => i["id"],
+		);
 		expect(asProject).toContain(1); // shared-in-project task
 		expect(asProject).not.toContain(6); // eli's private-in-project task — owner-only, not project
-		const asEli = readTasks(reader, ["user:eli"]).items.map((i) => i["id"]);
+		const asEli = Effect.runSync(readTasks(reader, ["user:eli"])).items.map((i) => i["id"]);
 		expect(asEli).toContain(6); // owner sees their own private task
 	});
 
 	it("leases are leasePublic (no claim_token), scoped, and exclude EXPIRED leases (codex P2)", () => {
-		const env = readLeases(reader, ["fleet"]);
+		const env = Effect.runSync(readLeases(reader, ["fleet"]));
 		expect(env.items).toHaveLength(1); // task 4 active; task 5 expired -> filtered
 		expect(env.items[0]?.["worker"]).toBe("janet");
 		expect(env.items[0]?.["task_id"]).toBe(4);
@@ -106,12 +109,14 @@ describe("TrackerReader over a temp sqlite (read-only, scope-mapped)", () => {
 	});
 
 	it("agents require fleet grant", () => {
-		expect(readAgents(reader, ["fleet"]).items).toHaveLength(1);
-		expect(readAgents(reader, ["user:nobody"]).items).toHaveLength(0);
+		expect(Effect.runSync(readAgents(reader, ["fleet"])).items).toHaveLength(1);
+		expect(Effect.runSync(readAgents(reader, ["user:nobody"])).items).toHaveLength(0);
 	});
 
 	it("serves complete scope-filtered settlement history with normalized timestamps", () => {
-		const snapshot = readWorkSettlement(reader, ["fleet"], new Date("2026-07-13T18:00:00Z"));
+		const snapshot = Effect.runSync(
+			readWorkSettlement(reader, ["fleet"], new Date("2026-07-13T18:00:00Z")),
+		);
 		expect(snapshot.history.map((item) => item["id"])).toContain(9);
 		expect(snapshot.history.find((item) => item["id"] === 9)?.["created_at"]).toBe(
 			"2026-07-01T10:00:00.000Z",

@@ -178,7 +178,7 @@ export const apiSchema = {
 		},
 		{
 			method: "post",
-			path: "/bus/emit",
+			path: "/emit",
 			operationId: "emitBusEvent",
 			request: "Emission",
 			response: "EmitResult",

@@ -21,10 +21,14 @@ That's it — no build toolchain. The server image is pulled from GHCR.
 ## First run
 
 ```sh
-# From a checkout of the repo, in apps/point/ (or copy these three files:
-# docker-compose.yml, .env.example, and — for local builds — docker-compose.build.yml)
+# From a checkout of the repo, in apps/point/. For a published-image install,
+# docker-compose.yml and .env.example are sufficient.
 cp .env.example .env
 ```
+
+A source build requires the full `apps/point` checkout: the build context includes
+the Cargo workspace, `core/`, `server/`, and `server/Dockerfile`. Copying only the
+Compose override is not sufficient.
 
 Edit `.env` and set the four required values:
 
@@ -63,19 +67,30 @@ closed and hand out invites. Point people at `https://$DOMAIN` from the app's
 
 ## Federating with other instances
 
-Nothing to configure. Any two reachable Point instances federate on demand: when
+There is no separate federation switch. Any two reachable Point instances
+federate on demand: when
 your user shares with `bob@their.example`, your server discovers theirs via
 `/.well-known/point`, and the two relay **ciphertext only** over a signed
 server-to-server channel. Trust is TOFU-pinned per contact — a remote identity
-key that changes later is rejected until re-verified. See
-[`docs/legacy/server-map.md`](legacy/server-map.md) §5 for the protocol and
-`server/src/api/federation.rs` for the implementation.
+key that changes later remains rejected. There is currently no supported key-reset
+or repinning flow; investigate the remote instance rather than bypassing the pin. See
+`../server/src/api/federation.rs` for the current implementation. The
+[`legacy server map`](legacy/server-map.md) describes the predecessor only.
 
 Requirements for your instance to be federatable:
 
 - Reachable over HTTPS at `$DOMAIN` with a valid cert (the Traefik setup above).
 - `PUBLIC_URL` correct (defaults to `https://$DOMAIN`; only set it if peers reach
   you at a different URL).
+- Public DNS must resolve to a routable address. Production federation rejects
+  loopback, private, link-local, and otherwise unsafe destinations and pins the
+  validated address for the outbound request. Never enable the test-only
+  `FEDERATION_ALLOW_PRIVATE` escape hatch in production.
+- The remote server must expose a valid `/.well-known/point` descriptor and
+  `POST /federation/inbox`. The sending server signs the exact request bytes with
+  its private Ed25519 server key; its descriptor publishes the corresponding
+  public key for receivers to verify. Receivers also apply replay and rate-limit
+  checks.
 
 ## Maps
 
@@ -91,6 +106,7 @@ monochrome style. Map data never leaves your server. One-time setup:
 # 1. The pmtiles CLI (single static binary): https://github.com/protomaps/go-pmtiles
 # 2. Extract your region from the latest Protomaps build (~tens of MB for a
 #    metro area, ~GBs for a continent). Find bounds at https://boundingbox.klokantech.com
+mkdir -p tileserver/data
 pmtiles extract https://build.protomaps.com/$(date -u -d yesterday +%Y%m%d).pmtiles \
   tileserver/data/basemap.pmtiles --bbox=-90.75,38.35,-89.90,38.95
 
@@ -125,15 +141,45 @@ involves Google.
 
 ## Bring your own reverse proxy
 
-Traefik is a convenience, not a requirement. To use Caddy/nginx/an existing
-proxy instead: delete the `traefik` service and the `point-server` `labels:`
-block from `docker-compose.yml`, publish `point-server` on a port you choose, and
-route your proxy to it. point-server speaks **plain HTTP by design** — TLS is
-always terminated at the proxy. If your proxy sits in front, keep
-`TRUST_PROXY_HEADERS=true` and make sure the proxy sets `X-Real-Ip` to the real
-client address (Traefik does this by default) so rate limits key off the client,
-not the proxy. If you expose the server directly, set `TRUST_PROXY_HEADERS=false`
-— otherwise clients could spoof their own rate-limit bucket via the header.
+Traefik is optional. Do not edit the tracked compose file. Create
+`compose.proxy.yml` beside it:
+
+```yaml
+services:
+  point-server:
+    ports:
+      - "127.0.0.1:8330:8330"
+    environment:
+      TRUST_PROXY_HEADERS: "true"
+    labels:
+      - traefik.enable=false
+```
+
+Start only Postgres and Point, applying the override that publishes container
+port 8330 on the host's loopback port 8330:
+
+```sh
+docker compose -f docker-compose.yml -f compose.proxy.yml up -d postgres point-server
+```
+
+Route Caddy/nginx to `http://127.0.0.1:8330`, terminate TLS there, and have the
+proxy **overwrite** (not append an untrusted value to) `X-Real-IP` with the
+connecting client's address. Keep `TRUST_PROXY_HEADERS=true` only for this
+trusted-proxy topology.
+
+If Point is directly reachable by clients, the base Compose file's hard-coded
+`TRUST_PROXY_HEADERS: "true"` must be overridden; setting it only in `.env` has
+no effect. Add this to the override before publishing the port:
+
+```yaml
+services:
+  point-server:
+    environment:
+      TRUST_PROXY_HEADERS: "false"
+```
+
+Otherwise a client can spoof the rate-limit address. Do not publish 8330 on
+`0.0.0.0` merely to reach a proxy running on the same host.
 
 ## Building from source instead of pulling
 
@@ -161,8 +207,29 @@ recovery:
 docker compose exec postgres pg_dump -U point point > point-backup.sql
 ```
 
-**Upgrades.** Pin `POINT_VERSION` to a release tag in `.env` (don't run `latest`
-blind in production), then:
+Test restores, not just dumps. To restore into a clean database (this replaces
+that database's Point state):
+
+```sh
+docker compose stop point-server
+docker compose exec -T postgres dropdb -U point --if-exists point
+docker compose exec -T postgres createdb -U point point
+docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U point -d point < point-backup.sql
+docker compose up -d point-server
+curl https://point.example.org/health
+```
+
+If `POSTGRES_USER` or `POSTGRES_DB` differs from the defaults, substitute those
+values. Keep the dump encrypted and off-host; it includes accounts, relationship
+metadata, server signing material, and user recovery ciphertext. A restore rolls
+all of that state back to the dump time.
+
+**Image pinning and upgrades.** `POINT_VERSION` is interpolated after
+`ghcr.io/petalnet/point-server:`. Pin a release tag (for example `1.2.12`) rather
+than accepting the compose default `latest`. For reproducible production pulls,
+you may pin a tag plus digest, for example
+`POINT_VERSION=1.2.12@sha256:<release-digest>`; obtain the digest from the GHCR
+release you intend to deploy. Back up first, then:
 
 ```sh
 docker compose pull point-server && docker compose up -d point-server

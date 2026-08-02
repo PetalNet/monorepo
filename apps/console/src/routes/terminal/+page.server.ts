@@ -8,6 +8,7 @@ import {
 	readTerminalAccess,
 	runQuery,
 } from "$lib/rpc/browser";
+import type { TerminalAccess } from "$lib/rpc/browser";
 import { error } from "@sveltejs/kit";
 
 import { formatUnknown } from "#format";
@@ -30,9 +31,9 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			isMock: true,
 		};
 
-	let access: Awaited<ReturnType<typeof readTerminalAccess>>;
+	let access: TerminalAccess;
 	try {
-		access = await readTerminalAccess(fetch);
+		access = await readTerminalAccess();
 	} catch (cause) {
 		if ((cause as { code?: string }).code === "term_denied")
 			error(403, "Not with your key. Ask an admin. This attempt was logged.");

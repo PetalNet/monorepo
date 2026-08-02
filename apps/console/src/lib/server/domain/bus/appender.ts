@@ -340,5 +340,5 @@ export class Appender {
 function isArchiveClass(e: Emission): boolean {
 	if (["audit.", "term.", "edge.", "security."].some((prefix) => e.type.startsWith(prefix)))
 		return true;
-	return e.meta?.["retention_class"] === "audit";
+	return e.meta?.retention_class === "audit";
 }
