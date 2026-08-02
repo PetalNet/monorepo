@@ -1,16 +1,17 @@
 <script lang="ts">
-	import type { PageData } from './$types';
-	import PageContainer from '$lib/components/PageContainer.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	
+	import PageContainer from "$lib/components/PageContainer.svelte";
+	import PageHeader from "$lib/components/PageHeader.svelte";
+
+	import type { PageData } from "./$types";
+
 	export let data: PageData;
-	
+
 	function formatBytes(bytes: number): string {
-		if (bytes === 0) return '0 B';
+		if (bytes === 0) return "0 B";
 		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const sizes = ["B", "KB", "MB", "GB"];
 		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+		return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 	}
 </script>
 
@@ -19,19 +20,16 @@
 </svelte:head>
 
 <PageContainer>
-	<PageHeader 
-		title="Storage Information"
-		subtitle="Database and file storage details"
-	/>
+	<PageHeader title="Storage Information" subtitle="Database and file storage details" />
 
-	<div class="grid grid-cols-1 gap-6 lg:grid-cols-2 mb-8">
+	<div class="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
 		<!-- Database Info -->
-		<div class="bg-white shadow rounded-lg p-6">
-			<h2 class="text-lg font-semibold text-gray-900 mb-4">Database</h2>
+		<div class="rounded-lg bg-white p-6 shadow">
+			<h2 class="mb-4 text-lg font-semibold text-gray-900">Database</h2>
 			<dl class="space-y-3">
 				<div class="flex justify-between">
 					<dt class="text-sm text-gray-500">Path</dt>
-					<dd class="text-sm font-medium text-gray-900 font-mono truncate ml-4">
+					<dd class="ml-4 truncate font-mono text-sm font-medium text-gray-900">
 						{data.database.path}
 					</dd>
 				</div>
@@ -63,12 +61,12 @@
 		</div>
 
 		<!-- Record Counts -->
-		<div class="bg-white shadow rounded-lg p-6">
-			<h2 class="text-lg font-semibold text-gray-900 mb-4">Records by Table</h2>
+		<div class="rounded-lg bg-white p-6 shadow">
+			<h2 class="mb-4 text-lg font-semibold text-gray-900">Records by Table</h2>
 			<dl class="space-y-3">
 				{#each Object.entries(data.database.recordCounts) as [table, count]}
 					<div class="flex justify-between">
-						<dt class="text-sm text-gray-500 capitalize">{table}</dt>
+						<dt class="text-sm capitalize text-gray-500">{table}</dt>
 						<dd class="text-sm font-medium text-gray-900">
 							{count.toLocaleString()}
 						</dd>
@@ -79,9 +77,9 @@
 	</div>
 
 	<!-- Storage Tips -->
-	<div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
-		<h3 class="text-sm font-semibold text-blue-900 mb-2">💡 Storage Tips</h3>
-		<ul class="text-sm text-blue-800 space-y-1 list-disc list-inside">
+	<div class="rounded-lg border border-blue-200 bg-blue-50 p-6">
+		<h3 class="mb-2 text-sm font-semibold text-blue-900">💡 Storage Tips</h3>
+		<ul class="list-inside list-disc space-y-1 text-sm text-blue-800">
 			<li>Regular backups are recommended when database size exceeds 100 MB</li>
 			<li>Consider archiving completed events to reduce database size</li>
 			<li>Monitor storage growth over time to plan for scaling</li>

@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+	themes: false;
+}
+
+@plugin "daisyui/theme" {
+	name: "grove";
+	default: true;
+	color-scheme: light dark;
+	--color-base-100: light-dark(#ffffff, #0d0c0b);
+	--color-base-200: light-dark(#fbfaf9, #161413);
+	--color-base-300: light-dark(#f6f5f3, #1d1b19);
+	--color-base-content: light-dark(#161412, #ece8e3);
+	--color-primary: light-dark(#8a3c28, #ec8a76);
+	--color-primary-content: light-dark(#ffffff, #0d0c0b);
+	--color-secondary: light-dark(#8a3c28, #ec8a76);
+	--color-secondary-content: light-dark(#ffffff, #0d0c0b);
+	--color-accent: light-dark(#8a3c28, #ec8a76);
+	--color-accent-content: light-dark(#ffffff, #0d0c0b);
+	--color-neutral: light-dark(#3a3631, #c4beb6);
+	--color-neutral-content: light-dark(#fbfaf9, #161413);
+	--color-info: light-dark(#4a6f93, #8fb0cc);
+	--color-success: light-dark(#2f8f5b, #4caf7d);
+	--color-warning: light-dark(#c77d11, #d99520);
+	--color-error: light-dark(#c5374b, #e2576b);
+	--radius-selector: 999px;
+	--radius-field: 0.5rem;
+	--radius-box: 0.125rem;
+	--border: 1px;
+}
+
+html,
+body {
+	background-color: var(--color-base-200);
+	color: var(--color-base-content);
+}
+
+body {
+	min-height: 100vh;
+	margin: 0;
+}

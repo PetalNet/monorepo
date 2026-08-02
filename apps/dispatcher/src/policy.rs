@@ -15,6 +15,8 @@
 //! A card claiming a privilege it doesn't qualify for is DEMOTED to `defer`
 //! and still delivered (D27): enforcement removes the interrupt privilege,
 //! not the content.
+//! The gate fails closed: any request that does not satisfy its authorization
+//! rule becomes non-interrupting `defer`; it can never retain interrupt power.
 
 use crate::card::{InterruptPolicy, SenderClass};
 
@@ -104,6 +106,13 @@ mod tests {
                 "case {req:?} {class:?} {card_task} {lease:?}"
             );
             assert_eq!(got.demoted, want_demoted, "case {req:?} {class:?}");
+
+            if want_demoted {
+                assert!(
+                    !interrupts(got.effective),
+                    "denied request retained interrupt power: {req:?} {class:?}"
+                );
+            }
         }
     }
 

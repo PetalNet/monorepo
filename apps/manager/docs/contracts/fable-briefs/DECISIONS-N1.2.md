@@ -1,6 +1,10 @@
 # N1.2 tmux Layer — DECISIONS log
 
-Brief: `FABLE-BRIEF-N1.2-tmux-layer.md` (this directory), as amended by the
+> **Historical/completed execution record.** The initiating brief was removed as obsolete.
+> Host paths and versions below are deployment-specific; use current `src/tmux.rs` and
+> `docs/tmux-host-config.md` for maintained context.
+
+The removed brief was amended by the
 2026-07-11 update directive (build-for-real: monorepo target, real PR + CI,
 container-tested, adversarial + codex review, self-merge after gates).
 

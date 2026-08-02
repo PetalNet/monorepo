@@ -94,19 +94,26 @@ class RelayQueue {
     await _persist();
   }
 
-  /// Drain up to [max] items in order (oldest first), removing them and
-  /// persisting the shrunken queue. The caller sends them; on send failure it
-  /// should re-enqueue (or not drain until connected).
-  Future<List<RelayItem>> drain({int max = 50}) async {
-    final take = _items.take(max).toList();
-    _items.removeRange(0, take.length);
-    await _persist();
-    return take;
-  }
+  /// Peek up to [max] items in order (oldest first) WITHOUT removing them — the
+  /// durable copy stays put until delivery is confirmed.
+  ///
+  /// R10: the old `drain` removed + persisted the shrunken queue BEFORE the send.
+  /// But `sink.add()` is not server receipt — a half-open socket or an OS kill
+  /// in the window between the persisted removal and the frame actually reaching
+  /// the server lost the whole batch (including the last pre-offline fix),
+  /// breaking the D-019 "never drops" promise. Now the caller sends the peeked
+  /// batch and only [ackThrough]s it once the socket has accepted it, so a crash
+  /// mid-flight leaves the batch durably queued to resend on reconnect.
+  List<RelayItem> peek({int max = 50}) => _items.take(max).toList();
 
-  /// Re-queue items at the FRONT (a flush that failed mid-way), preserving order.
-  Future<void> requeueFront(List<RelayItem> items) async {
-    _items.insertAll(0, items);
+  /// Remove every still-queued item up to and including [throughSeq] and
+  /// persist — the durable removal, performed only AFTER a send is confirmed
+  /// (never on enqueue-to-socket). Keyed on the monotonic [RelayItem.seq], not a
+  /// front index, so it stays correct even if a capacity eviction or a newer
+  /// same-audience enqueue reshuffled the queue while the batch was in flight;
+  /// items newer than the batch (higher seq) are preserved.
+  Future<void> ackThrough(int throughSeq) async {
+    _items.removeWhere((i) => i.seq <= throughSeq);
     await _persist();
   }
 

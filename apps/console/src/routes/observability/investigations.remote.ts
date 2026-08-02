@@ -1,62 +1,41 @@
-import { getRequestEvent, command, query } from "$app/server";
-import { env } from "$env/dynamic/public";
+import { publicConfig } from "$lib/config";
 import type {
 	InvestigationDetail,
 	InvestigationNode,
 	InvestigationPanel,
 } from "$lib/data/investigations";
-import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { executeNamedOp } from "$lib/operations.remote";
+import {
+	isDashboardError,
+	listDashboards,
+	loadDashboard,
+} from "$lib/server/domain/dashboard/store";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { branchQuery } from "$lib/server/domain/query/branch";
+import { readQueryRecord } from "$lib/server/domain/query/history";
+import { isQueryError, runStructured } from "$lib/server/domain/query/structured";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
+import { ConsoleDomain } from "$lib/server/domain/service";
+import { Effect, Schema } from "effect";
+import { Command, Error as HttpError, Query } from "svelte-effect-runtime";
 
-const nodeId = z.object({ id: z.string().min(1).max(100) }).strict();
-const branchInput = z
-	.object({
-		title: z.string().trim().min(1).max(200),
-		queryRef: z.string().min(1).max(100),
-		panelTitle: z.string().trim().min(1).max(200),
-		panelType: z.enum(["bar", "line", "stat", "table", "scatter"]),
-		parentId: z.string().min(1).max(100).nullable(),
-		parentQuestion: z.string().max(2_000).nullable(),
-		scope: z.string().min(1).max(500).nullable(),
-		selectedField: z.string().min(1).max(200),
-		selectedValue: z.union([z.string(), z.number(), z.boolean()]),
-	})
-	.strict();
+const nodeId = Schema.Struct({
+	id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+}).annotate(rejectUnknownKeys);
+const branchInput = Schema.Struct({
+	title: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	queryRef: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+	panelTitle: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	panelType: Schema.Literals(["bar", "line", "stat", "table", "scatter"]),
+	parentId: Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))),
+	parentQuestion: Schema.NullOr(Schema.String.check(Schema.isMaxLength(2_000))),
+	scope: Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500))),
+	selectedField: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+	selectedValue: Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
+}).annotate(rejectUnknownKeys);
 
 function isMock(): boolean {
-	return env.PUBLIC_CONSOLE_DATA_MODE !== "live";
-}
-
-function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
-}
-
-function headers(contentType = false): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const result = new Headers({ accept: "application/json" });
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) result.set(name, value);
-	}
-	if (contentType) result.set("content-type", "application/json");
-	return result;
-}
-
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await getRequestEvent().fetch(`${apiBase()}${path}`, {
-		...init,
-		headers: init?.headers ?? headers(init?.body !== undefined),
-	});
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as {
-			error?: { message?: string };
-		} | null;
-		error(
-			response.status,
-			body?.error?.message ?? `Console API returned ${String(response.status)}`,
-		);
-	}
-	return (await response.json()) as T;
+	return publicConfig.dataMode === "mock";
 }
 
 type DashboardRow = {
@@ -199,38 +178,57 @@ function mockDetail(node: InvestigationNode): InvestigationDetail {
 	};
 }
 
-export const getInvestigationGraph = query(async (): Promise<InvestigationNode[]> => {
-	if (isMock()) return mockNodes;
-	const nodes: InvestigationNode[] = [];
-	let cursor: string | null = null;
-	do {
-		// Cursor pages are causally ordered; the next request cannot be constructed in parallel.
-		// oxlint-disable-next-line no-await-in-loop
-		const envelope: { items: DashboardRow[]; next_cursor?: string | null } = await apiJson(
-			`/dashboards?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-		);
-		nodes.push(
-			...envelope.items
-				.filter(({ is_investigation }) => is_investigation === true)
-				.map(normalizeNode),
-		);
-		cursor = envelope.next_cursor ?? null;
-	} while (cursor);
-	return nodes;
-});
+export const getInvestigationGraph = Query(
+	Effect.gen(function* () {
+		if (isMock()) return mockNodes;
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const nodes: InvestigationNode[] = [];
+		let cursor: string | null = null;
+		do {
+			const envelope = (yield* listDashboards(
+				services.db.app,
+				principal.scopes,
+				services.cursorSecret,
+				{ limit: 1_000, ...(cursor ? { cursor } : {}) },
+			).pipe(
+				Effect.catch((cause) =>
+					isDashboardError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+				),
+			)) as { items: DashboardRow[]; next_cursor?: string | null };
+			nodes.push(
+				...envelope.items
+					.filter(({ is_investigation }) => is_investigation === true)
+					.map(normalizeNode),
+			);
+			cursor = envelope.next_cursor ?? null;
+		} while (cursor);
+		return nodes;
+	}),
+);
 
-export const loadInvestigationNode = query(nodeId, async ({ id }): Promise<InvestigationDetail> => {
-	if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]!);
-	const detail = await apiJson<DashboardDetail>(`/dashboards/${encodeURIComponent(id)}`);
-	return {
-		node: normalizeNode(detail),
-		panels: (detail.materialized_panels ?? []).map(normalizePanel),
-	};
-});
+export const loadInvestigationNode = Query(nodeId, ({ id }) =>
+	Effect.gen(function* () {
+		if (isMock()) return mockDetail(mockNodes.find((node) => node.id === id) ?? mockNodes[0]);
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const detail = (yield* loadDashboard(
+			services.db.app,
+			principal.scopes,
+			id,
+		)) as DashboardDetail | null;
+		if (!detail) return yield* HttpError("NotFound", "Dashboard not found");
+		return {
+			node: normalizeNode(detail),
+			panels: (detail.materialized_panels ?? []).map(normalizePanel),
+		};
+	}),
+);
 
-export const createInvestigationNode = command(
-	branchInput,
-	async (input): Promise<InvestigationNode> => {
+export const createInvestigationNode = Command(branchInput, (input) =>
+	Effect.gen(function* () {
 		if (isMock())
 			return {
 				id: `dash_mock_${crypto.randomUUID()}`,
@@ -243,44 +241,68 @@ export const createInvestigationNode = command(
 				scope: "lab",
 				isHome: false,
 			};
-		const saved = await apiJson<DashboardRow>("/investigations/branches", {
-			method: "POST",
-			headers: headers(true),
-			body: JSON.stringify({
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const record = yield* readQueryRecord(services.db.app, principal.scopes, input.queryRef);
+		if (!record) return yield* HttpError("NotFound", "Parent query not found");
+		const filtered = yield* runStructured(
+			services.db.app,
+			principal.scopes,
+			branchQuery(record.request, input.selectedField, input.selectedValue),
+		).pipe(
+			Effect.catch((cause) =>
+				isQueryError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+			),
+		);
+		const id = crypto.randomUUID();
+		const result = yield* executeNamedOp({
+			op: "dashboard.save",
+			args: {
 				schema_version: 1,
-				id: crypto.randomUUID(),
+				id,
 				title: input.title,
 				...(input.scope ? { scope: input.scope } : {}),
-				parent_dashboard_id: input.parentId,
-				parent_question: input.parentQuestion,
-				panel: {
-					type: input.panelType,
-					title: input.panelTitle,
-					query_ref: input.queryRef,
+				panels: [
+					{
+						schema_version: 2,
+						type: input.panelType,
+						title: input.panelTitle,
+						description: "Investigation branch · filtered replay as the current viewer",
+						query_ref: filtered.query_ref,
+					},
+				],
+				branch: {
+					parent_dashboard_id: input.parentId,
+					parent_question: input.parentQuestion,
+					filters: { [input.selectedField]: input.selectedValue },
+					selected_mark: {
+						element_kind: "table-row",
+						field: input.selectedField,
+						value: input.selectedValue,
+						query_ref: filtered.query_ref,
+					},
+					assumptions: [],
 				},
-				selected_mark: {
-					element_kind: "table-row",
-					field: input.selectedField,
-					value: input.selectedValue,
-				},
-			}),
+			},
 		});
+		if (!result.ok) return yield* HttpError("BadRequest", result.error.message);
+		const saved = result.result as DashboardRow;
 		return normalizeNode({
 			...saved,
 			is_investigation: true,
 			parent_id: input.parentId,
 			parent_question: input.parentQuestion,
 		});
-	},
+	}),
 );
 
-export const pinInvestigationNode = command(nodeId, async ({ id }) => {
-	if (isMock()) return { id, isHome: true };
-	await apiJson(`/dashboards/${encodeURIComponent(id)}/home`, {
-		method: "POST",
-		headers: headers(true),
-		body: JSON.stringify({ id: crypto.randomUUID() }),
-	});
-	void getInvestigationGraph().refresh();
-	return { id, isHome: true };
-});
+export const pinInvestigationNode = Command(nodeId, ({ id }) =>
+	Effect.gen(function* () {
+		if (isMock()) return { id, isHome: true };
+		const result = yield* executeNamedOp({ op: "dashboard.set_home", args: { id } });
+		if (!result.ok) return yield* HttpError("BadRequest", result.error.message);
+		yield* getInvestigationGraph().refresh();
+		return { id, isHome: true };
+	}),
+);

@@ -22,7 +22,9 @@ class SnackbarStore {
 		this.items = [...this.items, { ...s, id }];
 		// auto-dismiss after 6s unless it carries an undo the user may want.
 		const ttl = s.undo ? 9000 : 6000;
-		setTimeout(() => this.dismiss(id), ttl);
+		setTimeout(() => {
+			this.dismiss(id);
+		}, ttl);
 		return id;
 	}
 

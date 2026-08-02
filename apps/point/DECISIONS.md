@@ -1,5 +1,10 @@
 # Point v1 — Decision log (build-time)
 
+> **Current-use note:** this is an append-only historical log, not a setup guide
+> or consolidated specification. Later numbered decisions supersede earlier
+> entries where they conflict. Start with [`README.md`](README.md) and the
+> current documents in [`docs/`](docs/).
+
 _Every non-obvious call Fable makes during the build, grounded in the spec. The 18 product
 decisions are locked in `point-rebuild-decisions.md` and are not relitigated here — this file is
 implementation calls only. Newest at the bottom._
@@ -126,9 +131,10 @@ not a license to write the client blind.
 ## 2026-07-11 — D-015 · Client UI design LOCKED; final spec staged in-repo, supersedes direction doc
 
 Parker+Eli signed off the final client UI (`POINT-UI-SPEC-FINAL.md`). Staged into
-`apps/point/docs/design/` (UI-SPEC-FINAL.md, design-direction.md, flutter-playbook.md, and
-mockups.final.html = the pixel-close visual target) so M1 builds against them in-tree. Where the
-final spec and the earlier `design-direction.md` disagree, **the final spec wins** — notably:
+`apps/point/docs/design/` (UI-SPEC-FINAL.md, the since-removed exploratory
+design-direction.md, flutter-playbook.md, and mockups.final.html = the pixel-close
+visual target) so M1 builds against them in-tree. Where the final spec and that
+earlier direction document disagreed, **the final spec wins** — notably:
 router is **kaisel** (not go_router; pin in pubspec.lock; acceptance bar = animated adaptive shell
 
 - auth-change-without-router-reset, login outside the shell); typeface is **Schibsted Grotesk**
@@ -381,7 +387,8 @@ opaque (39 KB, `PTR1` magic, no MLS-state field names or group name present). PA
 
 ## 2026-07-12 — D-024 · Wave A onboarding: launch gate, word-phrase recovery, replace-pool rekey
 
-The non-sharing build wave (NONSHARING-BUILD-BRIEF.md) starts with the resumable first-run.
+The non-sharing build wave (its completed build brief has since been removed)
+starts with the resumable first-run.
 Implementation calls:
 
 - **Launch gate is client-side, per-account for recovery, device-level for the fork.** The gate
@@ -621,3 +628,115 @@ account-existence ambiguity for direct handle adds: an explicit exact-handle wor
 confirm failure and hide whether that exact handle resolves; relationship state remains hidden.
 Regression coverage spans the real Postgres/WS key-claim + Welcome path, two-way OpenMLS
 decrypt after device replacement, relay generation selection, handle shapes, and teardown delivery.
+
+## 2026-07-17 — D-030 · 1.3 P0: stable_fuzz lon-scale quantized to the snapped-cell latitude (deliberate deviation from the §4.2 pseudo-code)
+
+The spec's pseudo-code computes `m_per_deg_lon = 111_320 · cos(true_lat)` and reuses it for the
+inverse projection (`lon = cx / m_per_deg_lon`). Taken literally, the reported longitude varies
+continuously with `true_lat` _inside_ one cell — two fixes in the same cell at different latitudes
+return different longitudes, violating the spec's own headline property ("repeated fixes inside the
+same cell yield the **identical** shown point — nothing to average") and re-opening the averaging
+attack the function exists to kill: at lat 60° / lon 179° the within-cell lon drift is on the order
+of hundreds of meters and is a monotone function of `true_lat`, so a collector could regress the
+true latitude back out of it. **Call: compute the y-cell first, then use the snapped-cell-center
+latitude for the lon scale in both directions** (`m_per_deg_lon = 111_320 · cos(snapped_lat)`).
+Output is then a pure function of (cell_x, cell_y, offsets, cell) — byte-identical within a cell
+(asserted via `f64::to_bits` in tests). The within-radius guarantee survives: worst-case offset is
+(cell/2)·√2 ≈ 0.707·radius plus a cos-ratio error bounded by tan(lat)·(cell/2R) (≈0.2% at 70°),
+verified by a 2000-sample haversine property test. Acceptance criteria trump pseudo-code letter.
+
+## 2026-07-17 — D-031 · 1.3 P0: stable_fuzz encoding choices (HMAC input framing, endianness, city preset)
+
+- **HMAC domain separation:** the spec writes `HMAC(secret, sharer_id || audience_id)`. Raw
+  concatenation is boundary-ambiguous (("ab","c") ≡ ("a","bc")), so the implementation frames each
+  field as `u64-BE(len) || bytes`. Test `sharer_audience_boundary_is_domain_separated` pins this.
+- **Endianness:** `ox`/`oy` derive from `h[0..8]`/`h[8..16]` read **big-endian** (network order);
+  `(u64 as f64 / 2^64) · cell` per spec. The choice only needs to be stable, and BE is pinned by
+  the determinism tests.
+- **"City" preset = 5000 m**, exposed as `FUZZ_RADIUS_CITY_M` (with `FUZZ_RADIUS_NEAR_M = 300`,
+  `FUZZ_RADIUS_MID_M = 1000`, and `FUZZ_RADIUS_PRESETS_M`) — build-time constants per the brief;
+  the spec's "~5 km" is taken at face value.
+- **Cell-id seam for the caller contract:** `fuzz_cell_id(...) -> (i64, i64)` exposes the target
+  cell indices so callers cache the last emitted cell per (entity, audience) and re-emit only on
+  cell change (spec §4.2 "enforced by the caller"). Same snap path as `stable_fuzz`, so the two
+  can never disagree.
+- **Input guards:** asserts on finite radius > 0, |lat| ≤ 89°, |lon| ≤ 180° — polar rows and
+  antimeridian wrap are out of 1.3 scope; a panic surfaces as a Dart exception over frb rather
+  than silently emitting a corrupt coordinate.
+- **Secret-provider seam:** `secret: &[u8]` is caller-supplied; generation/secure-store lifecycle
+  is explicitly later-phase (spec §4.2 lifecycle note), P0 lands only the pure function.
+
+## 2026-07-17 — D-032 · 1.3 P0: FFI surface for stable_fuzz + bringing point_mls up to the lint gate
+
+- **One bridge call returns center + cell id.** `api::fuzz::stable_fuzz` returns a `FuzzedPoint
+{lat, lon, cell_x, cell_y}` rather than mirroring the two core functions: the P2 caller needs
+  the cell id on every fix anyway (re-emit-on-cell-change contract), and one sync FFI hop beats
+  two. `fuzz_radius_presets_m()` exposes the build-time presets so Dart never hardcodes them.
+- **`point_mls` was never fmt/clippy-clean** (CI only `cargo build`s it). The P0 gate demands
+  both, so: `cargo fmt` across the crate (formatting-only diff in crypto.rs) and a
+  `[lints.rust] unexpected_cfgs` check-cfg entry for `cfg(frb_expand)` — the documented
+  flutter_rust_bridge macro artifact — instead of blanket-allowing the lint.
+- **Dart smoke test loads the real cdylib** (`test/stable_fuzz_ffi_test.dart` via `RustLib.init()`
+  - `LD_LIBRARY_PATH=rust/target/release`, same mechanism CI already uses for the MLS tests), and
+    re-asserts determinism, per-audience grid divergence, cell-crossing, and the presets across the
+    bridge — proving load + call, not a stub.
+
+## 2026-07-17 — D-033 · 1.3 P0: client entity/audience/edge model shape (no UI, no fix-loop wiring)
+
+- **Feature dir `lib/features/sharing/`** (domain + data only — presentation lands in P4).
+- **Persistence = the settings pattern**, not the temp-shares pattern: temp shares are
+  server-backed rows, but edges are client-authoritative in 1.3 (the server only gets an advisory
+  copy later), so both new stores (`point.entities`, `point.share_edges`) follow
+  `SettingsController`'s secure-storage JSON blob with the load-completer + serialized write-tail
+  (same corrupt-blob-resets semantics, same race protections, snake_case keys).
+- **`Audience.key` is the canonical audience id**: `grp:<serverGroupId>` / `usr:<userId>`. The
+  kind prefix keeps a group and a user with the same raw id from colliding, and this exact string
+  is what P2 must pass to `stable_fuzz` as `audience_id` (grid selector), so it lives on the
+  model, not in call sites. Sealed class, two variants, per spec §2.4.
+- **Per-audience defaults are a separate keyspace** (`audience_defaults` beside `edges`), not
+  sentinel edges. `ShareSetting.perAudienceDefault` marks _provenance_ on a resolved setting
+  (true = inherited from the audience default / initial default; false = explicitly set on the
+  edge) — `setEdge` forces it false, `setAudienceDefault` forces it true, and
+  `effectiveSetting` resolves explicit edge → audience default → `ShareSetting.initial`
+  (Precise, per spec §3.3). Nested-map JSON (`entityId -> audienceKey -> setting`) avoids
+  composite-key separator ambiguity.
+- **`defaultFuzzRadiusM = 1000`** (middle preset) applied when a setting doesn't carry a radius,
+  per spec §3.3; `ShareSetting.isActive(now)` encodes the off/expiry semantics P2's fix loop
+  will consume (`fidelity != off && (expires_at == null || now < expires_at)`).
+- **Entity registry stores a flat list** (`upsert`/`remove`/`byId`); only self-`person` exists in
+  1.3 but `item`/`bridgeSource` parse and persist so the enum column is first-class from day one
+  (unknown types parse to `person`, the only instantiable 1.3 type).
+
+## 2026-07-18 — D-034 · 1.3 correction: single per-(sharer, radius) fuzz grid — audience dropped from the grid derivation (collusion-proof at any N)
+
+- **The leak.** P0 (D-031) derived the grid origin per-(sharer, audience):
+  `HMAC(secret, sharer_id || audience_id)`, so each audience saw a _different_ offset grid over the
+  same true point. Adversarial review confirmed this narrows under **N-audience collusion**:
+  intersecting the cells that N distinct offset grids each snap the point into shrinks the
+  consistent region far below one cell (~0.7% of a cell at N=10). Distinct grids were the bug, not a
+  feature — every extra audience a colluder controls buys another independent constraint on the
+  truth.
+- **The fix.** Derive one grid per **(sharer, radius)**: `HMAC(secret, u64-BE(len(sharer)) ||
+sharer || f64-BE-bits(cell))` — `audience_id` is dropped from the derivation entirely. All
+  audiences at a given radius now snap the same true point to the **same** cell and emit a
+  byte-identical center, so a colluding set of any size learns only that one cell: maximum
+  uncertainty (a full cell), no narrowing at any N. This is the privacy-maximizing choice — sharing
+  with more people can never leak _more_ than sharing with one.
+- **API surface unchanged.** `stable_fuzz` / `fuzz_cell_id` (core + frb FFI) keep `audience_id` in
+  their signatures — it is now accepted and ignored for grid selection — so no FFI/Dart/codegen
+  churn. `radius` (the sanitized cell size) enters the HMAC via its `f64` big-endian bit pattern;
+  the `u64-BE(len)` framing on `sharer_id` keeps the sharer/radius boundary unambiguous, and the
+  existing endianness/`(u64 as f64 / 2^64)·cell` structure is otherwise intact.
+- **Supersedes** the audience half of D-031's framing. `sharer_audience_boundary_is_domain_separated`
+  is replaced by `grid_is_domain_separated_by_sharer_and_radius` (different sharers → different
+  grids; same sharer at a different radius → a genuinely different grid _fraction_, proving radius
+  is a real HMAC input, not just a rescale).
+- **Tests.** `distinct_grids_per_audience` → `all_audiences_share_one_grid_at_a_given_radius`
+  (two audiences at one radius must yield the same cell + byte-identical center). Added
+  `n_audience_collusion_does_not_narrow_below_one_cell`: N=10 audiences report exactly one cell, and
+  — the property that matters — the set of candidate true-points consistent with **all N** reports
+  is byte-for-byte identical in size to the set consistent with a **single** report (sampled 20k
+  candidates), i.e. the N-way intersection is the whole cell. All other privacy properties
+  (determinism-in-cell, cell-crossing, within-circle, averaging-reveals-nothing, edge/hostile
+  no-panic) stay green; the Dart FFI test asserting per-audience divergence was flipped to assert
+  the shared grid.

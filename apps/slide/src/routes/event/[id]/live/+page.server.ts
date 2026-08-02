@@ -71,7 +71,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		orderedGroups = event.groups;
 	}
 
-	const isHost = locals.user && event.hostId === locals.user.id;
+	const isHost = event.hostId === locals.user?.id;
 
 	// Check for voting session cookie
 	const sessionCode = url.searchParams.get("session");
@@ -82,7 +82,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			where: { sessionCode },
 		});
 
-		if (votingSession && votingSession.eventId === event.id) {
+		if (votingSession?.eventId === event.id) {
 			await prisma.votingSession.update({
 				where: { id: votingSession.id },
 				data: { lastActive: new Date() },
@@ -155,7 +155,7 @@ export const actions: Actions = {
 			const session = await prisma.votingSession.findUnique({
 				where: { sessionCode },
 			});
-			if (!session || session.eventId !== params.id) {
+			if (session?.eventId !== params.id) {
 				return { error: "Invalid session" };
 			}
 			votingSessionId = session.id;
@@ -222,7 +222,7 @@ export const actions: Actions = {
 			where: { id: params.id },
 		});
 
-		if (!event || event.hostId !== locals.user.id) {
+		if (event?.hostId !== locals.user.id) {
 			return { error: "Unauthorized" };
 		}
 

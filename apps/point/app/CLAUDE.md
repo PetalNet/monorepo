@@ -1,15 +1,16 @@
-# Point Flutter client — build rules (pinned)
+# Point Flutter client — current build rules
 
-The client's design is **LOCKED**: `../docs/design/UI-SPEC-FINAL.md` (authoritative) +
-`../docs/design/design-direction.md` (rationale). Build to **match the mockup**
-(`../docs/design/mockups.final.html`) pixel-close via the render→screenshot→fix loop
-(`../docs/design/flutter-playbook.md`). Do not relitigate locked decisions.
+The implemented client's design record is
+[`../docs/design/UI-SPEC-FINAL.md`](../docs/design/UI-SPEC-FINAL.md). The checked-in
+mockup is historical visual reference; current source and tests are authoritative
+for shipped behavior.
 
 ## Non-negotiables
 
-- **Flutter 3.44.6 / Dart 3.12** (pinned via the repo `rust-toolchain`-equivalent expectation;
-  the CI uses `subosito/flutter-action` stable). **Zero `flutter analyze` warnings** is a gate —
-  run it before you look at pixels.
+- **Flutter 3.44.6** is pinned in `mise.toml` (and CI). Install it from this
+  directory with `mise install --yes flutter`, then run `flutter pub get`.
+  The `pubspec.yaml` SDK floor is Dart 3.10. **Zero `flutter analyze` warnings**
+  is a gate.
 - **State: Riverpod** (`hooks_riverpod`). Leaf-local ephemeral state may use `setState`; shared
   state is Riverpod. No other state library.
 - **Router: kaisel `0.22.0`, PINNED** in `pubspec.yaml`/`pubspec.lock`. Do NOT `pub upgrade` it.
@@ -44,8 +45,20 @@ Feature-first: `lib/features/<feature>/{data,domain,presentation}`; shared desig
 `lib/theme/`, shared widgets in `lib/widgets/`, service/provider wiring in `lib/services/` +
 `lib/providers.dart`. The server API base + WS live in `lib/services/api/`.
 
-## Validate
+## Platforms and validation
 
-`flutter analyze` (zero warnings) → `flutter test` (incl. alchemist goldens for the stable
-primitives: presence dot, ghost toggle, QR frame) → drive it (`flutter run -d chrome`) and
-screenshot against the mockup.
+Android is the production target: location, foreground-service, notification,
+deep-link, and native Rust behavior must be checked on an Android device or
+emulator. Web may be useful for layout iteration but cannot validate those
+platform paths. This repository does not contain iOS or desktop runner projects.
+
+```sh
+mise install --yes flutter
+flutter pub get
+flutter analyze
+cargo build --manifest-path rust/Cargo.toml --locked --release
+LD_LIBRARY_PATH="$PWD/rust/target/release" flutter test
+flutter build apk --release
+tool/check_version_code.sh
+tool/check_apk_libs.sh
+```

@@ -1,5 +1,6 @@
 pub mod crypto;
 pub mod errors;
+pub mod fuzz;
 pub mod recovery;
 pub mod types;
 

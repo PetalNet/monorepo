@@ -2,7 +2,9 @@
 
 ## Register
 
-product
+Point is an implemented mobile location-sharing product. This register describes
+the current product intent; protocol and operational details belong in the
+repository README and `docs/`.
 
 ## Users
 

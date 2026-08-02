@@ -2,14 +2,14 @@
 	import { humanAge } from "$lib/api/derive";
 	import type { UpdateRowView } from "$lib/data/updates";
 	import { clockNow } from "$lib/stores/clock.svelte";
+
 	import ApplyModeChip from "./ApplyModeChip.svelte";
 	import StatusPill from "./StatusPill.svelte";
 
 	/**
-	 * UpdateRow (09-updates §3.1): one box's update posture. A null count renders
-	 * "—", never 0 (a null is not a zero). A stale row watermarks "not verified"
-	 * regardless of stored status — a stale "Up to date" is never allowed to look
-	 * fine.
+	 * UpdateRow (09-updates §3.1): one box's update posture. A null count renders "—", never 0 (a
+	 * null is not a zero). A stale row watermarks "not verified" regardless of stored status — a
+	 * stale "Up to date" is never allowed to look fine.
 	 */
 	interface Props {
 		row: UpdateRowView;
@@ -57,7 +57,9 @@
 	<span class="n">{num(row.pending)}</span>
 	<span class="n sec" class:danger={row.securityCritical}>{num(row.securityCritical)}</span>
 	<span class="n">{num(row.vulns)}</span>
-	<span class="n reboot">{row.rebootRequired == null ? "—" : row.rebootRequired ? "reboot" : "no"}</span>
+	<span class="n reboot"
+		>{row.rebootRequired == null ? "—" : row.rebootRequired ? "reboot" : "no"}</span
+	>
 	<span class="mode">
 		<ApplyModeChip mode={row.applyMode} onask={() => onaskmode?.(row)} />
 	</span>
@@ -84,8 +86,7 @@
 		background: var(--s2);
 	}
 	.host {
-		font:
-			500 0.8125rem var(--mono);
+		font: 500 0.8125rem var(--mono);
 	}
 	.pill {
 		display: inline-flex;
@@ -93,13 +94,11 @@
 		gap: var(--s-1);
 	}
 	.stale {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--warn-text);
 	}
 	.n {
-		font:
-			500 0.75rem var(--mono);
+		font: 500 0.75rem var(--mono);
 		font-feature-settings: "tnum" 1;
 		color: var(--text-2);
 	}
@@ -113,8 +112,7 @@
 		color: var(--text-3);
 	}
 	.src {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-3);
 		white-space: nowrap;
 		overflow: hidden;

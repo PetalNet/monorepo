@@ -19,9 +19,11 @@ backup of the MLS state that it cannot decrypt**.
 
 ## How it works
 
-**Enrollment (on the device).** The client generates a 120-bit recovery code —
-24 Crockford-base32 symbols, grouped `XXXXXX-XXXXXX-XXXXXX-XXXXXX` — and shows it
-to the user once. It derives a key from the code with **Argon2id** (m=64 MiB,
+**Enrollment (on the device).** The client presents a **12-word recovery
+phrase**. It is a lossless, client-side encoding of the 120-bit raw recovery
+code (24 Crockford-base32 symbols, grouped
+`XXXXXX-XXXXXX-XXXXXX-XXXXXX`). It derives a key from that raw code with
+**Argon2id** (m=64 MiB,
 t=3, p=1) over a random 16-byte salt, encrypts the exported MLS state with
 **XChaCha20-Poly1305**, and uploads the blob:
 
@@ -41,7 +43,9 @@ protects. The point of "zero-knowledge" is that the **server** never learns the
 code, and it never does.
 
 **Recovery (on a new device).** The user signs in normally (password or SSO),
-then enters their recovery code. The client fetches the blob, derives the key,
+then enters their 12-word phrase. For backups created by older clients, the same
+field also accepts the raw 24-symbol code (dashes, spaces, case, and Crockford
+ambiguous characters are normalized). The client fetches the blob, derives the key,
 decrypts, and restores the MLS identity locally — after which it can decrypt the
 groups it was a member of. No code, no recovery: the server genuinely cannot
 help, by design.
@@ -57,6 +61,7 @@ that authority rests entirely with the person holding the recovery code.
 
 - Crypto: `core/src/recovery.rs` (`point_core::recovery`) — Argon2id + XChaCha20,
   unit-tested (roundtrip, wrong-code, tamper, no-plaintext-leak).
+- Phrase/raw-code conversion: `app/lib/features/recovery/recovery_words.dart`.
 - Server: `server/src/api/recovery.rs` + migration `0003_recovery.sql` —
   ciphertext-only `PUT`/`GET`/`DELETE /api/recovery/backup`, scoped to the
   authenticated user, integration-tested for per-user isolation.

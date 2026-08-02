@@ -50,6 +50,9 @@ environment:
 
 ## Port Configuration
 
-The application now runs on port **3420** by default (instead of 3000/3001).
+The Node adapter reads `PORT`; the container deployment sets it to **3420**. Other deployments
+may choose a different port (and development uses Vite's configured/default port).
 
-Update your Cloudflare Tunnel configuration to use `http://localhost:3420`.
+Configure any reverse proxy or tunnel to target the host and port used by that deployment. The
+included Compose file binds the service on loopback port 3420 for its Cloudflare Tunnel setup;
+that tunnel is deployment-specific, not an application requirement.

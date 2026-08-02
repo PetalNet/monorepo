@@ -1,0 +1,23 @@
+{
+	"name": "@petalnet/console-bus-rpc",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Typed RPC contract and clients for the console bus and command plane — Effect Schema wire types, no shape-guessing at the boundary",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc -b"
+	},
+	"dependencies": {
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"typescript": "catalog:dev"
+	}
+}

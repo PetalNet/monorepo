@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/people/people_presence.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
@@ -45,15 +46,43 @@ void main() {
         FixFreshness.recent,
       );
       expect(
-        fixFreshness(ago(const Duration(minutes: 15)), now: now),
+        fixFreshness(ago(const Duration(minutes: 45)), now: now),
         FixFreshness.recent,
       );
       expect(
         fixFreshness(
-          ago(const Duration(minutes: 15, milliseconds: 1)),
+          ago(const Duration(minutes: 45, milliseconds: 1)),
           now: now,
         ),
         FixFreshness.stale,
+      );
+    });
+
+    test('(a) the dark threshold sits strictly above the ACTUAL runtime parked '
+        'heartbeat with real margin — the go-dark invariant', () {
+      // Bind the REAL heartbeat the engine ships (LocationService.heartbeat),
+      // not a hand-copied literal, so the invariant can never silently pass
+      // against a stale mirror while the runtime floor drifts underneath it.
+      final heartbeat = LocationService().heartbeat;
+      // The presence-layer mirror exists only so the pure presence math can
+      // reason about the floor; pin it to the real value so it, too, can't drift.
+      expect(
+        parkedHeartbeat,
+        heartbeat,
+        reason: 'people_presence.parkedHeartbeat must mirror the real '
+            'LocationService.heartbeat',
+      );
+      expect(darkAfter, const Duration(minutes: 45));
+      expect(
+        heartbeat < darkAfter,
+        isTrue,
+        reason: 'a parked-alive phone checks in every $heartbeat; the dark '
+            'verdict must wait past that with margin or a live phone reads dead',
+      );
+      expect(
+        darkAfter - heartbeat,
+        greaterThanOrEqualTo(const Duration(minutes: 10)),
+        reason: 'margin covers acquisition + relay + the 30s viewer tick + skew',
       );
     });
 
@@ -136,7 +165,7 @@ void main() {
     test(
       'stale fix (> darkAfter) → DARK: frozen last-known + "Dark since"',
       () {
-        final darkTs = ago(const Duration(minutes: 20));
+        final darkTs = ago(const Duration(minutes: 50));
         final fix = PeerFix(
           userId: 'eli@point.dev',
           data: {
@@ -158,7 +187,75 @@ void main() {
       },
     );
 
-    test('server offline makes a fresh fix dark immediately', () {
+    test('(c) PARKED: recent keepalive + older position → alive & stationary, '
+        'NOT dark and NOT falsely-fresh "now"', () {
+      final parkedSince = ago(const Duration(hours: 2)); // hasn't moved in 2h
+      final fix = PeerFix(
+        userId: 'eli@point.dev',
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'accuracy': 12,
+          'timestamp': parkedSince, // REAL last-sample time (old)
+          'alive_at': ago(const Duration(minutes: 5)), // last keepalive (recent)
+          'parked': 1,
+        },
+      );
+      final merged = mergePresence(away, fix, now: now);
+      // Alive (not dark) …
+      expect(merged.presence, PresenceState.live);
+      expect(merged.hasLocation, isTrue);
+      // … but honestly parked since the real sample time — never "now"/"5m".
+      expect(merged.subtitle, 'Parked · here since ${clockHm(parkedSince)} · ±12 m');
+      expect(merged.subtitle, isNot(contains('now')));
+    });
+
+    test('(d) no keepalive past the threshold → DARK since the last keepalive '
+        '(a dead phone darks even though its last position looks placed)', () {
+      final lastKeepalive = ago(const Duration(minutes: 50)); // > darkAfter
+      final fix = PeerFix(
+        userId: 'eli@point.dev',
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'accuracy': 20,
+          'timestamp': ago(const Duration(hours: 3)), // parked long ago
+          'alive_at': lastKeepalive, // no keepalive since → dead
+          'parked': 1,
+        },
+      );
+      final merged = mergePresence(away, fix, now: now);
+      expect(merged.presence, PresenceState.stale);
+      expect(merged.hasLocation, isTrue);
+      // "Dark since" the LAST keepalive we heard, not the ancient position.
+      expect(
+        merged.subtitle,
+        'Last place · Dark since ${clockHm(lastKeepalive)} · ±20 m',
+      );
+    });
+
+    test('a parked keepalive that is itself recent (just parked) still reads '
+        'parked, not moving-live', () {
+      final justParked = ago(const Duration(seconds: 20));
+      final fix = PeerFix(
+        userId: 'eli@point.dev',
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': justParked,
+          'alive_at': justParked,
+          'parked': 1,
+        },
+      );
+      final merged = mergePresence(away, fix, now: now);
+      expect(merged.presence, PresenceState.live);
+      expect(merged.subtitle, 'Parked · here since ${clockHm(justParked)}');
+    });
+
+    // Task 750: the server flips offline the instant a socket drops, so a
+    // peer with a fresh fix used to read "Dark since 11:05" AT 11:05. Within
+    // [offlineDarkGrace] of the last liveness signal they must stay live.
+    test('server offline with a fresh fix stays live through the grace (750)', () {
       final disconnectedAt = now.subtract(const Duration(seconds: 5));
       final fix = PeerFix(
         userId: away.userId,
@@ -180,13 +277,98 @@ void main() {
         now: now,
       );
 
-      expect(merged.presence, PresenceState.stale);
+      expect(merged.presence, PresenceState.live);
       expect(merged.hasLocation, isTrue);
       expect(merged.lat, 38.6);
+      expect(merged.subtitle, isNot(contains('Dark')));
+    });
+
+    test('offline turns dark only past the grace boundary, stamped with the '
+        'last liveness signal — never "now" (750)', () {
+      final fix = PeerFix(
+        userId: away.userId,
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': ago(const Duration(minutes: 10)),
+        },
+      );
+      Person mergedWhenObserved(Duration sinceDisconnect) => mergePresence(
+        away,
+        fix,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: false,
+          observedAt: now.subtract(sinceDisconnect),
+        ),
+        now: now,
+      );
+
+      // AT the boundary: still within grace, still live.
       expect(
-        merged.subtitle,
+        mergedWhenObserved(offlineDarkGrace).presence,
+        PresenceState.live,
+      );
+
+      // Just past it: dark, and "dark since" = the disconnect observation
+      // (the last thing heard), not the moment the client noticed.
+      final justPast = offlineDarkGrace + const Duration(seconds: 1);
+      final dark = mergedWhenObserved(justPast);
+      expect(dark.presence, PresenceState.stale);
+      expect(
+        dark.darkSinceAt,
+        now.subtract(justPast).millisecondsSinceEpoch,
+      );
+      expect(
+        dark.subtitle,
         'Last place · Dark since '
-        '${clockHm(disconnectedAt.millisecondsSinceEpoch)}',
+        '${clockHm(now.subtract(justPast).millisecondsSinceEpoch)}',
+      );
+    });
+
+    test('a location update inside the grace outlives an older offline '
+        'observation (750)', () {
+      // Disconnect observed 5 minutes ago (past grace), but a fix arrived
+      // 1 minute ago (e.g. relayed): the newer liveness wins — not dark.
+      final fix = PeerFix(
+        userId: away.userId,
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': ago(const Duration(minutes: 1)),
+        },
+      );
+      final merged = mergePresence(
+        away,
+        fix,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: false,
+          observedAt: now.subtract(const Duration(minutes: 5)),
+        ),
+        now: now,
+      );
+      expect(merged.presence, PresenceState.live);
+      expect(merged.subtitle, isNot(contains('Dark')));
+    });
+
+    test('the offline grace never outlasts the liveness dark verdict (750)', () {
+      // The grace shields a socket blip, not a dead phone: a peer whose
+      // device has been quiet past [darkAfter] darks regardless.
+      expect(offlineDarkGrace < darkAfter, isTrue);
+      final fix = PeerFix(
+        userId: away.userId,
+        data: {
+          'lat': 38.6,
+          'lon': -90.2,
+          'timestamp': ago(const Duration(minutes: 50)),
+        },
+      );
+      final merged = mergePresence(away, fix, now: now);
+      expect(merged.presence, PresenceState.stale);
+      expect(
+        merged.darkSinceAt,
+        ago(const Duration(minutes: 50)),
       );
     });
 
@@ -211,6 +393,31 @@ void main() {
     });
 
     test('server offline without a fix is neutral dark, never ghosted', () {
+      final observedAt = now.subtract(
+        offlineDarkGrace + const Duration(minutes: 1),
+      );
+      final merged = mergePresence(
+        away,
+        null,
+        serverPresence: PeerPresence(
+          userId: away.userId,
+          online: false,
+          observedAt: observedAt,
+        ),
+        now: now,
+      );
+
+      expect(merged.presence, PresenceState.stale);
+      expect(merged.presence, isNot(PresenceState.ghosted));
+      expect(merged.hasLocation, isFalse);
+      expect(
+        merged.subtitle,
+        'Dark since ${clockHm(observedAt.millisecondsSinceEpoch)}',
+      );
+    });
+
+    test('server offline without a fix holds off dark through the grace (750)',
+        () {
       final merged = mergePresence(
         away,
         null,
@@ -222,8 +429,8 @@ void main() {
         now: now,
       );
 
-      expect(merged.presence, PresenceState.stale);
-      expect(merged.presence, isNot(PresenceState.ghosted));
+      expect(merged.presence, PresenceState.away);
+      expect(merged.subtitle, isNot(contains('Dark')));
       expect(merged.hasLocation, isFalse);
     });
 

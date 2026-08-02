@@ -24,23 +24,74 @@ const USER_AGENT = "clarity-mcp/1.0 (+https://clarity.petalcat.dev)";
 const MAX_RESPONSE_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
 
-// Shape of the SearXNG JSON response (only the fields we surface).
-interface SearxResult {
-	url?: string;
-	title?: string;
-	content?: string;
-	engine?: string;
-	category?: string;
-	score?: number;
-	publishedDate?: string | null;
-}
-interface SearxResponse {
-	query?: string;
-	results?: SearxResult[];
-	suggestions?: string[];
-	corrections?: string[];
-	unresponsive_engines?: unknown[];
-}
+// Runtime schema for the SearXNG JSON response (only the fields we surface). The payload is
+// untrusted, so every field is coerced leniently: a quirky shape degrades to empty rather than
+// throwing, keeping the tool alive even if the backend drifts. `web_search` below `safeParse`s
+// through this instead of asserting a hand-rolled interface.
+const asString = z.unknown().transform((v) => (typeof v === "string" ? v : ""));
+
+const searxResultSchema = z.object({
+	title: asString,
+	url: asString,
+	content: asString,
+	engine: asString,
+	category: asString,
+	score: z.unknown().transform((v) => (typeof v === "number" ? v : 0)),
+	publishedDate: z.unknown().transform((v) => (typeof v === "string" ? v : null)),
+});
+
+// One `unresponsive_engines` entry -- array, {name/engine, error/reason} object, or scalar --
+// flattened to a single "name: error" display string.
+const unresponsiveEngineSchema = z.unknown().transform((entry) => {
+	if (Array.isArray(entry)) return entry.map(String).join(": ");
+	if (typeof entry === "object" && entry !== null) {
+		const record = entry as Record<string, unknown>;
+		const name = record["name"] ?? record["engine"];
+		const error = record["error"] ?? record["reason"];
+		return [name, error]
+			.filter((part) => part !== undefined && part !== null)
+			.map(String)
+			.join(": ");
+	}
+	return String(entry);
+});
+
+const searxResponseSchema = z.object({
+	query: z.string().optional(),
+	results: z
+		.array(z.unknown())
+		.default([])
+		.transform((rows) =>
+			rows
+				.filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null)
+				.map((r) => searxResultSchema.parse(r)),
+		),
+	suggestions: z
+		.array(z.unknown())
+		.default([])
+		.transform((v) => v.map(String)),
+	corrections: z
+		.array(z.unknown())
+		.default([])
+		.transform((v) => v.map(String)),
+	unresponsive_engines: z.array(unresponsiveEngineSchema).default([]),
+});
+
+// Codec pairing the raw JSON response body with the validated shape. JSON.parse runs inside the
+// decode step so a malformed body surfaces as a distinguishable `custom` issue (thrown at the call
+// site), while a well-formed-but-drifted shape still degrades to empty via the lenient field
+// schemas above. `web_search` decodes the body string straight through this in one step.
+const searxResponseCodec = z.codec(z.string(), searxResponseSchema, {
+	decode: (jsonText, ctx) => {
+		try {
+			return JSON.parse(jsonText) as z.input<typeof searxResponseSchema>;
+		} catch {
+			ctx.issues.push({ code: "custom", message: "invalid JSON", input: jsonText });
+			return z.NEVER;
+		}
+	},
+	encode: (value) => JSON.stringify(value),
+});
 
 function isBlockedIpv4(ip: string): boolean {
 	const parts = ip.split(".").map(Number);
@@ -412,44 +463,31 @@ server.registerTool(
 
 		const res = await httpGet(`${BASE_URL}/search?${params.toString()}`);
 		const body = await res.text();
-		let data: SearxResponse;
-		try {
-			data = JSON.parse(body) as SearxResponse;
-		} catch (err) {
-			throw new Error(`Invalid JSON from Clarity backend: ${body.slice(0, 200)}`, { cause: err });
+		// Decode + validate in one step: malformed JSON surfaces as a `custom` issue (thrown here),
+		// while a well-formed-but-drifted shape degrades to empty, so a backend hiccup never breaks
+		// the tool.
+		const parsed = searxResponseCodec.safeParse(body);
+		if (!parsed.success && parsed.error.issues.some((issue) => issue.code === "custom")) {
+			throw new Error(`Invalid JSON from Clarity backend: ${body.slice(0, 200)}`);
 		}
+		const data = parsed.success
+			? parsed.data
+			: {
+					query: undefined,
+					results: [],
+					suggestions: [],
+					corrections: [],
+					unresponsive_engines: [],
+				};
 		const limit = max_results ?? 10;
 
-		const results = (data.results ?? [])
-			.filter((result): result is SearxResult => typeof result === "object" && result !== null)
-			.slice(0, limit)
-			.map((r) => ({
-				title: String(r.title ?? ""),
-				url: String(r.url ?? ""),
-				content: String(r.content ?? ""),
-				engine: String(r.engine ?? ""),
-				category: String(r.category ?? ""),
-				score: Number(r.score ?? 0),
-				publishedDate: r.publishedDate ?? null,
-			}));
+		const results = data.results.slice(0, limit);
 		const structured = {
-			query: String(data.query ?? query),
+			query: data.query ?? query,
 			results,
-			suggestions: (data.suggestions ?? []).map(String),
-			corrections: (data.corrections ?? []).map(String),
-			unresponsive_engines: (data.unresponsive_engines ?? []).map((entry) => {
-				if (Array.isArray(entry)) return entry.map(String).join(": ");
-				if (typeof entry === "object" && entry !== null) {
-					const record = entry as Record<string, unknown>;
-					const name = record["name"] ?? record["engine"];
-					const error = record["error"] ?? record["reason"];
-					return [name, error]
-						.filter((part) => part !== undefined && part !== null)
-						.map(String)
-						.join(": ");
-				}
-				return String(entry);
-			}),
+			suggestions: data.suggestions,
+			corrections: data.corrections,
+			unresponsive_engines: data.unresponsive_engines,
 		};
 
 		const text =
@@ -478,7 +516,7 @@ server.registerTool(
 			"Fetch a web page and return its readable text (HTML tags/scripts/styles stripped). Use after " +
 			"web_search to read a result in full. Returns plain text truncated to a character budget.",
 		inputSchema: {
-			url: z.string().url().describe("The absolute URL to fetch (http/https)."),
+			url: z.url().describe("The absolute URL to fetch (http/https)."),
 			max_chars: z
 				.number()
 				.int()

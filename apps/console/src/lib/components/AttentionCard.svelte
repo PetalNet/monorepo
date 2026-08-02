@@ -2,18 +2,18 @@
 	import { humanAge } from "$lib/api/derive";
 	import { opDef } from "$lib/api/ops";
 	import type { AttentionItem } from "$lib/api/types";
+
 	import Icon from "./Icon.svelte";
 	import OpButton from "./OpButton.svelte";
 	import StatusDot from "./StatusDot.svelte";
 
 	/**
-	 * AttentionCard (foundations §3.7/§4.4): fact-first reason, source signal, age,
-	 * inline fix ActionRow, ack + snooze, blast-radius line for host/service items.
-	 * A P0 renders as the facade crack (§4.6): the fact in danger grade, the fix
-	 * inline, the blast radius, and the vetted subline. fix_ops carry pre-bound
-	 * args — the client never derives op args from subject. The fix leads; the
-	 * generic attention controls (ack/snooze/resolve) collapse into an overflow so
-	 * the one card you hit at 2am is not a wall of near-identical verbs.
+	 * AttentionCard (foundations §3.7/§4.4): fact-first reason, source signal, age, inline fix
+	 * ActionRow, ack + snooze, blast-radius line for host/service items. A P0 renders as the facade
+	 * crack (§4.6): the fact in danger grade, the fix inline, the blast radius, and the vetted
+	 * subline. fix_ops carry pre-bound args — the client never derives op args from subject. The fix
+	 * leads; the generic attention controls (ack/snooze/resolve) collapse into an overflow so the one
+	 * card you hit at 2am is not a wall of near-identical verbs.
 	 */
 	interface Props {
 		item: AttentionItem;
@@ -93,7 +93,12 @@
 				<OpButton def={ackDef} args={{ id: item.id }} {lanes} variant="ghost" />
 			{/if}
 			{#if snoozeDef}
-				<OpButton def={snoozeDef} args={{ id: item.id, duration_s: 3600 }} {lanes} variant="ghost" />
+				<OpButton
+					def={snoozeDef}
+					args={{ id: item.id, duration_s: 3600 }}
+					{lanes}
+					variant="ghost"
+				/>
 			{/if}
 			{#if resolveDef}
 				<OpButton def={resolveDef} args={{ id: item.id }} {lanes} variant="ghost" />
@@ -119,8 +124,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--s-2);
-		font:
-			500 0.875rem var(--sans);
+		font: 500 0.875rem var(--sans);
 	}
 	.head.crack {
 		color: var(--danger-text);
@@ -166,8 +170,7 @@
 		background: var(--s2);
 	}
 	.crack-sub {
-		font:
-			400 0.75rem var(--sans);
+		font: 400 0.75rem var(--sans);
 		color: var(--text-3);
 		margin-top: var(--s-2);
 	}

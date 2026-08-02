@@ -1,4 +1,4 @@
-import { browser } from "$app/environment";
+import { browser } from "$app/env";
 
 /**
  * A shared 1s wall clock. Time-derived UI (lease countdowns, gone-quiet staleness, age labels) must
@@ -12,7 +12,9 @@ if (browser) {
 	const interval = setInterval(() => {
 		current = Date.now();
 	}, 1000);
-	import.meta.hot?.dispose(() => clearInterval(interval));
+	import.meta.hot?.dispose(() => {
+		clearInterval(interval);
+	});
 }
 
 export function clockNow(): number {

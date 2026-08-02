@@ -9,18 +9,21 @@
 		"dev": "vp run -r dev --parallel",
 		"fmt": "vp fmt",
 		"fmt:check": "vp fmt --check",
-		"lint": "oxlint --max-warnings=0 && eslint . --max-warnings=0",
-		"lint:eslint": "eslint .",
+		"lint": "pnpm lint:oxlint && pnpm lint:eslint",
+		"lint:eslint": "eslint -c eslint.config.ts . --max-warnings=0",
 		"lint:knip": "knip",
 		"lint:knip:prod": "knip --strict",
+		"lint:oxlint": "oxlint --max-warnings=0",
 		"manypkg": "manypkg check",
-		"test": "vp test -r",
+		"prepare": "effect-tsgo patch",
+		"test": "vp run -r test",
 		"ts-references:check": "update-ts-references --check",
 		"ts-references:update": "update-ts-references",
 		"typecheck": "tsc -b",
 		"typesync:check": "typesync --dry=fail"
 	},
 	"devDependencies": {
+		"@effect/tsgo": "catalog:",
 		"@eslint/js": "catalog:dev",
 		"@eslint/json": "catalog:dev",
 		"@eslint/markdown": "catalog:dev",
@@ -31,6 +34,7 @@
 		"eslint": "catalog:dev",
 		"eslint-plugin-oxlint": "catalog:dev",
 		"eslint-plugin-package-json": "catalog:dev",
+		"eslint-plugin-svelte": "catalog:dev",
 		"knip": "catalog:dev",
 		"oxlint": "catalog:dev",
 		"typescript": "catalog:dev",
@@ -40,14 +44,11 @@
 		"vite-plus": "catalog:dev"
 	},
 	"packageManager": "pnpm@11.11.0",
-	"engines": {
-		"node": "^26.0.0"
-	},
 	"devEngines": {
 		"runtime": {
 			"name": "node",
-			"onFail": "error",
-			"version": "^26.0.0"
+			"onFail": "ignore",
+			"version": "26.5.0"
 		}
 	},
 	"typesync": {

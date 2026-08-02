@@ -131,7 +131,7 @@ export function mockHosts(): HostsData {
 		Array.from({ length: row.workers_active }, (_, index) => ({
 			handle: row.handle,
 			host: row.host ?? "unknown",
-			label: `worker-${index + 1}`,
+			label: `worker-${String(index + 1)}`,
 			started_at: row.started_at ?? row.updated_at,
 			updated_at: row.updated_at,
 		})),
