@@ -19,8 +19,33 @@ Bridges to Find My / Google / SmartThings are planned for **v2**, not now.
 ```text
 core/     Lifted OpenMLS E2E crypto crate (reused from legacy point-core).
 server/   Rust (axum) home-server + Postgres (sqlx). Plain HTTP behind Traefik.
-app/      Flutter client — placeholder; rebuilt in a later wayfinder ticket.
-docs/     Strategy, ghost-mode concepts, implementation plan, locked decisions.
+app/      Implemented Flutter client and its Rust/Flutter bridge.
+docs/     Current operations/recovery docs, design records, and legacy maps.
+```
+
+## Development
+
+The server and core use the toolchain in `rust-toolchain.toml`. The app pins
+Flutter 3.44.6 with Mise:
+
+```sh
+cd app
+mise install --yes flutter
+flutter pub get
+flutter analyze
+cargo build --manifest-path rust/Cargo.toml --locked --release
+LD_LIBRARY_PATH="$PWD/rust/target/release" flutter test
+flutter build apk --release
+tool/check_version_code.sh
+tool/check_apk_libs.sh
+```
+
+Run the Rust checks from this directory:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
 ```
 
 ## Self-host quickstart
@@ -45,10 +70,8 @@ account recovery — in [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md). To build
 the server from source instead of pulling, add the
 `docker-compose.build.yml` override.
 
-## Decisions
+## Project records
 
-The four locked decisions for this rebuild live in
-[`docs/REBUILD.md`](docs/REBUILD.md): identity (open/self-hosted/E2E/federatable,
-bridges are v2), lift-the-jewels (reuse the legacy MLS core), community-first
-(self-hostable + federatable day one), and the stack (Rust/axum server, Flutter
-client, Postgres-only + PostGIS-ready).
+[`docs/REBUILD.md`](docs/REBUILD.md) records the completed rebuild's framing and
+current status. [`DECISIONS.md`](DECISIONS.md) is the chronological engineering
+decision log; later entries supersede earlier ones where they conflict.

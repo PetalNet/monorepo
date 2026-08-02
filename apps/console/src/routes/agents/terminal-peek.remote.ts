@@ -1,46 +1,31 @@
-import { command, getRequestEvent, query } from "$app/server";
-import { env } from "$env/dynamic/public";
+import { publicConfig } from "$lib/config";
 import { mockPtyLines } from "$lib/data/terminal";
-import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
+import { ConsoleDomain } from "$lib/server/domain/service";
+import { TerminalDomainError, terminalService } from "$lib/server/domain/terminal/service";
+import { Effect, Schema } from "effect";
+import { Command, Error as HttpError, Query } from "svelte-effect-runtime";
 
-const targetSchema = z
-	.object({
-		host: z.string().min(1).max(253),
-		tmux_session: z.string().min(1).max(128),
-		pane_id: z.string().regex(/^%[0-9]+$/),
-	})
-	.strict();
-const pollSchema = z
-	.object({
-		stream_id: z
-			.string()
-			.uuid()
-			.or(z.string().regex(/^mock-/)),
-		tick: z.number().int().nonnegative(),
-	})
-	.strict();
-const detachSchema = z.object({ stream_id: pollSchema.shape.stream_id }).strict();
+const targetSchema = Schema.Struct({
+	host: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(253)),
+	tmux_session: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+	pane_id: Schema.String.check(Schema.isPattern(/^%[0-9]+$/)),
+}).annotate(rejectUnknownKeys);
+const streamIdSchema = Schema.Union([
+	Schema.String.check(Schema.isUUID()),
+	Schema.String.check(Schema.isPattern(/^mock-/)),
+]);
+const pollSchema = Schema.Struct({
+	stream_id: streamIdSchema,
+	tick: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+}).annotate(rejectUnknownKeys);
+const detachSchema = Schema.Struct({ stream_id: streamIdSchema }).annotate(rejectUnknownKeys);
 
 export interface PtySnapshot {
 	readonly stream_id: string;
 	readonly seq: number;
 	readonly data_b64: string;
-}
-
-function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
-}
-
-function headers(json = false): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const result = new Headers({ accept: "application/json", origin: getRequestEvent().url.origin });
-	if (json) result.set("content-type", "application/json");
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) result.set(name, value);
-	}
-	return result;
 }
 
 function mockSnapshot(streamId = `mock-${crypto.randomUUID()}`, seq = 1): PtySnapshot {
@@ -51,44 +36,60 @@ function mockSnapshot(streamId = `mock-${crypto.randomUUID()}`, seq = 1): PtySna
 	};
 }
 
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await getRequestEvent().fetch(`${apiBase()}${path}`, init);
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as {
-			error?: { message?: string };
-		} | null;
-		error(response.status, body?.error?.message ?? "Terminal peek failed");
-	}
-	return (await response.json()) as T;
-}
+const mapTerminalError = (cause: TerminalDomainError) =>
+	HttpError(
+		cause.status === 403
+			? "Forbidden"
+			: cause.status === 404
+				? "NotFound"
+				: cause.status === 502
+					? "BadGateway"
+					: "ServiceUnavailable",
+		cause.message,
+	);
 
 /** Opens the audited read-only PTY path. No attach or input operation is exposed by this module. */
-export const openTerminalPeek = command(targetSchema, async (target): Promise<PtySnapshot> => {
-	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return mockSnapshot();
-	return apiJson<PtySnapshot>("/terminal/peek", {
-		method: "POST",
-		headers: headers(true),
-		body: JSON.stringify({ ...target, scrollback_lines: 10_000 }),
-	});
-});
-
-/** Polls an already-authorized server session; tick prevents Remote Function result reuse. */
-export const pollTerminalPeek = query(
-	pollSchema,
-	async ({ stream_id, tick }): Promise<PtySnapshot> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return mockSnapshot(stream_id, tick + 1);
-		return apiJson<PtySnapshot>(`/terminal/peek/${encodeURIComponent(stream_id)}`, {
-			headers: headers(),
-			cache: "no-store",
-		});
-	},
+export const openTerminalPeek = Command(targetSchema, (target) =>
+	Effect.gen(function* () {
+		if (publicConfig.dataMode === "mock") return mockSnapshot();
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		return yield* terminalService(services)
+			.openPeek(
+				principal,
+				{ host: target.host, tmuxSession: target.tmux_session, paneId: target.pane_id },
+				10_000,
+			)
+			.pipe(Effect.catch(mapTerminalError));
+	}),
 );
 
-export const closeTerminalPeek = command(detachSchema, async ({ stream_id }): Promise<void> => {
-	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") return;
-	await apiJson(`/terminal/streams/${encodeURIComponent(stream_id)}/detach`, {
-		method: "POST",
-		headers: headers(true),
-		body: "{}",
-	});
-});
+/** Polls an already-authorized server session; tick prevents Remote Function result reuse. */
+export const pollTerminalPeek = Query(pollSchema, ({ stream_id, tick }) =>
+	Effect.gen(function* () {
+		if (publicConfig.dataMode === "mock") return mockSnapshot(stream_id, tick + 1);
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		return yield* terminalService(services)
+			.pollPeek(principal, stream_id)
+			.pipe(Effect.catch(mapTerminalError));
+	}),
+);
+
+export const closeTerminalPeek = Command(detachSchema, ({ stream_id }) =>
+	Effect.gen(function* () {
+		if (publicConfig.dataMode === "mock") return;
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const service = terminalService(services);
+		const session = yield* service.owned(principal, stream_id).pipe(Effect.catch(mapTerminalError));
+		yield* service
+			.audit(principal, "detach", session.target, stream_id)
+			.pipe(Effect.catch(mapTerminalError));
+		service.close(stream_id);
+		session.end();
+	}),
+);

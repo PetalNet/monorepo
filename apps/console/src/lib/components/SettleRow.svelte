@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { onMount } from "svelte";
 	import type { SettlingTask } from "$lib/data/work-settlement";
+	import { onMount } from "svelte";
+
 	import AgentPresence from "./AgentPresence.svelte";
 	import Icon from "./Icon.svelte";
 
@@ -17,7 +18,9 @@
 	const elapsedRatio = $derived(
 		Math.min(1, Math.max(0, (now - Date.parse(task.updated_at)) / (24 * 60 * 60 * 1_000))),
 	);
-	const ageGrade = $derived(elapsedRatio >= 0.75 ? "late" : elapsedRatio >= 0.35 ? "middle" : "fresh");
+	const ageGrade = $derived(
+		elapsedRatio >= 0.75 ? "late" : elapsedRatio >= 0.35 ? "middle" : "fresh",
+	);
 	const countdown = $derived.by(() => {
 		if (remaining <= 0) return "settling now";
 		if (remaining >= 60 * 60 * 1_000)
@@ -74,32 +77,74 @@
 			opacity 240ms var(--ease-standard),
 			transform 240ms var(--ease-standard);
 	}
-	.settle-row:hover { background: var(--s2); }
-	.settle-row:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
-	.identity { min-width: 0; }
+	.settle-row:hover {
+		background: var(--s2);
+	}
+	.settle-row:focus-visible {
+		outline: 2px solid var(--petal);
+		outline-offset: 2px;
+	}
+	.identity {
+		min-width: 0;
+	}
 	.identity b {
 		display: block;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: .8125rem;
+		font-size: 0.8125rem;
 		font-weight: 500;
 	}
-	.identity small { display: block; color: var(--text-3); font-size: .6875rem; }
-	.middle :global(svg) { opacity: .78; }
-	.late :global(svg) { opacity: .62; }
-	.library-link { color: var(--petal-text); font-size: .6875rem; opacity: 0; transition: opacity var(--t); }
+	.identity small {
+		display: block;
+		color: var(--text-3);
+		font-size: 0.6875rem;
+	}
+	.middle :global(svg) {
+		opacity: 0.78;
+	}
+	.late :global(svg) {
+		opacity: 0.62;
+	}
+	.library-link {
+		color: var(--petal-text);
+		font-size: 0.6875rem;
+		opacity: 0;
+		transition: opacity var(--t);
+	}
 	.settle-row:hover .library-link,
-	.settle-row:focus-visible .library-link { opacity: 1; }
-	time { text-align: right; color: var(--text-2); font: 400 .6875rem var(--mono); }
-	.settling { opacity: 0; transform: translateY(2px); pointer-events: none; }
+	.settle-row:focus-visible .library-link {
+		opacity: 1;
+	}
+	time {
+		text-align: right;
+		color: var(--text-2);
+		font: 400 0.6875rem var(--mono);
+	}
+	.settling {
+		opacity: 0;
+		transform: translateY(2px);
+		pointer-events: none;
+	}
 	@media (max-width: 767px) {
-		.settle-row { grid-template-columns: 16px minmax(0, 1fr) 88px; }
-		.settle-row :global(.agent-presence), .library-link { display: none; }
+		.settle-row {
+			grid-template-columns: 16px minmax(0, 1fr) 88px;
+		}
+		.settle-row :global(.agent-presence),
+		.library-link {
+			display: none;
+		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.settle-row { transition: background var(--t); }
-		.settling { display: none; transform: none; }
-		.library-link { transition: none; }
+		.settle-row {
+			transition: background var(--t);
+		}
+		.settling {
+			display: none;
+			transform: none;
+		}
+		.library-link {
+			transition: none;
+		}
 	}
 </style>

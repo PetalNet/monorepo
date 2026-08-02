@@ -1,36 +1,20 @@
-import { getRequestEvent, query } from "$app/server";
-import { env } from "$env/dynamic/public";
-import { validateContract, type CommsEvent, type ReadEnvelope } from "$lib/api/types";
-import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import type { CommsEvent, ReadEnvelope } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { readCommsLog } from "$lib/server/domain/reads/comms";
+import { rejectUnknownKeys } from "$lib/server/domain/schema-conventions";
+import { ConsoleDomain } from "$lib/server/domain/service";
+import { Effect, Schema } from "effect";
+import { Query } from "svelte-effect-runtime";
 
-const filters = z
-	.object({
-		type: z.enum(["task-card", "rpc", "mail"]).nullable(),
-		agent: z.string().max(64).nullable(),
-		taskId: z.number().int().positive().nullable(),
-		cursor: z
-			.string()
-			.regex(/^[A-Za-z0-9_-]+$/)
-			.nullable(),
-	})
-	.strict();
+const filters = Schema.Struct({
+	type: Schema.NullOr(Schema.Literals(["task-card", "rpc", "mail"])),
+	agent: Schema.NullOr(Schema.String.check(Schema.isMaxLength(64))),
+	taskId: Schema.NullOr(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
+	cursor: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/))),
+}).annotate(rejectUnknownKeys);
 
 const relativeIso = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1_000).toISOString();
-
-function apiBase(): string {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
-}
-
-function headers(): Headers {
-	const incoming = getRequestEvent().request.headers;
-	const result = new Headers({ accept: "application/json", origin: getRequestEvent().url.origin });
-	for (const name of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(name);
-		if (value) result.set(name, value);
-	}
-	return result;
-}
 
 function mockRows(): CommsEvent[] {
 	return [
@@ -88,10 +72,9 @@ function mockRows(): CommsEvent[] {
 }
 
 /** Server-side RPC: browser code never reaches the query plane directly. */
-export const getCommsLog = query(
-	filters,
-	async ({ type, agent, taskId, cursor }): Promise<ReadEnvelope<CommsEvent>> => {
-		if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") {
+export const getCommsLog = Query(filters, ({ type, agent, taskId, cursor }) =>
+	Effect.gen(function* () {
+		if (publicConfig.dataMode === "mock") {
 			const needle = agent?.trim().toLocaleLowerCase();
 			const method = type
 				? ({ "task-card": "comms.card", rpc: "comms.rpc", mail: "comms.mail" } as const)[type]
@@ -112,23 +95,15 @@ export const getCommsLog = query(
 				truncated: false,
 			};
 		}
-		const params = new URLSearchParams({ limit: "100" });
-		if (type) params.set("type", type);
-		if (agent?.trim()) params.set("agent", agent.trim());
-		if (taskId) params.set("task_id", String(taskId));
-		if (cursor) params.set("cursor", cursor);
-		const response = await getRequestEvent().fetch(`${apiBase()}/comms?${params.toString()}`, {
-			headers: headers(),
-		});
-		if (!response.ok) {
-			const body = (await response.json().catch(() => null)) as {
-				error?: { message?: string };
-			} | null;
-			error(response.status, body?.error?.message ?? "Correspondence query failed");
-		}
-		const result = (await response.json()) as ReadEnvelope<CommsEvent>;
-		if (!result.items.every((item) => validateContract("CommsEvent", item).valid))
-			error(502, "Correspondence response failed its contract");
-		return result;
-	},
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		return (yield* readCommsLog(services.db.app, principal.scopes, {
+			...(type ? { type } : {}),
+			...(agent?.trim() ? { agent: agent.trim() } : {}),
+			...(taskId ? { taskId } : {}),
+			...(cursor ? { cursor } : {}),
+			limit: 100,
+		})) as ReadEnvelope<CommsEvent>;
+	}),
 );

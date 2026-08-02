@@ -1,5 +1,9 @@
 # Legacy point-server — deep survey (reference for the rebuild)
 
+> **Historical only:** this maps the pre-rebuild server. For current federation,
+> configuration, and routes, use `../../server/` and
+> [`../SELF-HOSTING.md`](../SELF-HOSTING.md).
+
 _Produced 2026-07-11 by a read-only survey of `/home/docker/point/point-server/`. This is the
 ground-truth inventory the greenfield server design lifts from. Legacy is SQLite-only (all SQL
 needs Postgres translation: `$1` placeholders, `now()`, `ON CONFLICT`, `BOOLEAN`, `BYTEA`).

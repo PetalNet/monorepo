@@ -11,6 +11,7 @@ import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/location/self_location_provider.dart';
 import 'package:point_app/features/map/map_tiles.dart';
+import 'package:point_app/features/map/presentation/fuzz_static_overlay.dart';
 import 'package:point_app/features/map/presentation/live_tracking_health_banner.dart';
 import 'package:point_app/features/map/presentation/person_map_sheet.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
@@ -638,6 +639,13 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
     );
     return Stack(
       children: [
+        // Task 751: dark/approximate peers read as an area, not a point — the
+        // TV-static sits under every marker/cluster covering the fuzz radius.
+        FuzzStaticMapLayer(
+          people: [for (final entry in _entries.values) entry.person],
+          motions: widget.motions,
+          reducedMotion: widget.reducedMotion,
+        ),
         for (final cluster in layout.clusters)
           _PeopleClusterMarker(
             cluster: cluster,

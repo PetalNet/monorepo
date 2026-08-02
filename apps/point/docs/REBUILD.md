@@ -1,7 +1,9 @@
-# Point rebuild — locked decisions
+# Point rebuild — completed framing
 
-These are the decisions that frame the Point rebuild. They are settled; changing
-one is a new decision, not a tweak.
+**Status: completed.** The Rust server/core and Flutter client described here are
+implemented. This short record preserves the rebuild's framing; current behavior
+is defined by manifests, source, tests, and the later entries in
+[`../DECISIONS.md`](../DECISIONS.md).
 
 ## 1. Identity
 
@@ -13,9 +15,8 @@ explicitly not now**.
 
 ## 2. Greenfield, but lift the jewels
 
-The rebuild is greenfield **except** for the crypto core: the legacy
-`point-core` OpenMLS crate is **reused as-is** (copied into `core/`). It is
-battle-tested and there is no reason to rewrite it. Extend it; don't rewrite it.
+The rebuild was greenfield **except** for the crypto core: the legacy
+`point-core` OpenMLS crate was copied into `core/` and subsequently extended.
 
 ## 3. Community-first
 
@@ -26,7 +27,7 @@ self-hosted deployments and forks open.
 ## 4. Stack
 
 - **Server:** Rust with **axum**.
-- **Client:** **Flutter** (rebuild is a later wayfinder ticket).
+- **Client:** implemented in **Flutter**, with a Rust bridge in `app/rust/`.
 - **Database:** **Postgres only**, via `docker-compose`, **PostGIS-ready**.
 - **TLS:** terminated by Traefik in front of the server; the binary speaks plain
   HTTP (no in-binary TLS).

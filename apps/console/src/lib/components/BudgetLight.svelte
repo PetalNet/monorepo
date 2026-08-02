@@ -2,9 +2,9 @@
 	import type { BudgetLightColor } from "$lib/api/types";
 
 	/**
-	 * BudgetLight (foundations §3.7): a traffic light (green/yellow/red at 70/90%)
-	 * plus optional tokens-spent mono. The light is the primary signal; grade is
-	 * governance-served (§6.2), never re-derived from a percent client-side.
+	 * BudgetLight (foundations §3.7): a traffic light (green/yellow/red at 70/90%) plus optional
+	 * tokens-spent mono. The light is the primary signal; grade is governance-served (§6.2), never
+	 * re-derived from a percent client-side.
 	 */
 	interface Props {
 		light: BudgetLightColor | null;
@@ -42,8 +42,7 @@
 		background: var(--danger-dot);
 	}
 	.lbl {
-		font:
-			500 0.75rem var(--mono);
+		font: 500 0.75rem var(--mono);
 		font-feature-settings: "tnum" 1;
 		color: var(--text-2);
 		margin-inline-start: var(--s-1);

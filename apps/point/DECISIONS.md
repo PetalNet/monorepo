@@ -1,5 +1,10 @@
 # Point v1 — Decision log (build-time)
 
+> **Current-use note:** this is an append-only historical log, not a setup guide
+> or consolidated specification. Later numbered decisions supersede earlier
+> entries where they conflict. Start with [`README.md`](README.md) and the
+> current documents in [`docs/`](docs/).
+
 _Every non-obvious call Fable makes during the build, grounded in the spec. The 18 product
 decisions are locked in `point-rebuild-decisions.md` and are not relitigated here — this file is
 implementation calls only. Newest at the bottom._
@@ -126,9 +131,10 @@ not a license to write the client blind.
 ## 2026-07-11 — D-015 · Client UI design LOCKED; final spec staged in-repo, supersedes direction doc
 
 Parker+Eli signed off the final client UI (`POINT-UI-SPEC-FINAL.md`). Staged into
-`apps/point/docs/design/` (UI-SPEC-FINAL.md, design-direction.md, flutter-playbook.md, and
-mockups.final.html = the pixel-close visual target) so M1 builds against them in-tree. Where the
-final spec and the earlier `design-direction.md` disagree, **the final spec wins** — notably:
+`apps/point/docs/design/` (UI-SPEC-FINAL.md, the since-removed exploratory
+design-direction.md, flutter-playbook.md, and mockups.final.html = the pixel-close
+visual target) so M1 builds against them in-tree. Where the final spec and that
+earlier direction document disagreed, **the final spec wins** — notably:
 router is **kaisel** (not go_router; pin in pubspec.lock; acceptance bar = animated adaptive shell
 
 - auth-change-without-router-reset, login outside the shell); typeface is **Schibsted Grotesk**
@@ -381,7 +387,8 @@ opaque (39 KB, `PTR1` magic, no MLS-state field names or group name present). PA
 
 ## 2026-07-12 — D-024 · Wave A onboarding: launch gate, word-phrase recovery, replace-pool rekey
 
-The non-sharing build wave (NONSHARING-BUILD-BRIEF.md) starts with the resumable first-run.
+The non-sharing build wave (its completed build brief has since been removed)
+starts with the resumable first-run.
 Implementation calls:
 
 - **Launch gate is client-side, per-account for recovery, device-level for the fork.** The gate

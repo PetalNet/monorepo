@@ -1,14 +1,14 @@
 <script lang="ts">
 	import type { HostView } from "$lib/data/hosts";
+
 	import Icon from "./Icon.svelte";
 	import StatusDot from "./StatusDot.svelte";
 	import StatusPill from "./StatusPill.svelte";
 
 	/**
-	 * HostCard (07-hosts §3.1): a host as a house. Roof band is jade — the place
-	 * charter (foundations §3 lists "the neighborhood" as a jade use); health never
-	 * recolors the roof, it shows in the liveness dot + tick line. Lit windows =
-	 * active workers. Clickable to the host drill.
+	 * HostCard (07-hosts §3.1): a host as a house. Roof band is jade — the place charter (foundations
+	 * §3 lists "the neighborhood" as a jade use); health never recolors the roof, it shows in the
+	 * liveness dot + tick line. Lit windows = active workers. Clickable to the host drill.
 	 */
 	interface Props {
 		host: HostView;
@@ -41,7 +41,8 @@
 		</div>
 		<div class="phone-status"><StatusPill {tone} label={host.liveness} /></div>
 		<div class="occ">
-			{host.residents.length} resident{host.residents.length === 1 ? "" : "s"} · {host.containers ?? "—"} containers
+			{host.residents.length} resident{host.residents.length === 1 ? "" : "s"} · {host.containers ??
+				"—"} containers
 		</div>
 		<div class="tick" class:warn={host.updateStatus !== "up_to_date"}>
 			{#if (host.securityCritical ?? 0) > 0}
@@ -107,22 +108,19 @@
 		gap: var(--s-1);
 	}
 	.name b {
-		font:
-			500 0.8125rem var(--mono);
+		font: 500 0.8125rem var(--mono);
 	}
 	.name :global(svg) {
 		color: var(--warn-dot);
 		margin-inline-start: auto;
 	}
 	.occ {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-3);
 		margin-top: 2px;
 	}
 	.tick {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-3);
 		margin-top: var(--s-1);
 	}

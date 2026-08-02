@@ -1,12 +1,12 @@
-# Runbook: agent-manager (Rust) — Scout-canary deploy, healthcheck gates, local rollback
+# Runbook: agent-manager (Rust) — manual canary deploy, health gates, local rollback
 
-task-561. Aligns with `janet-manager/FABLE-SPEC-canary-deploy.md`.
-Final repo home: `PetalNet/monorepo` (apps/agent-manager). This directory is the staging
-port — **do not push from here**; move it in as its own reviewed change.
+The binary and configuration described here live in `apps/manager`. This is an operator
+procedure, not deploy automation: this repository contains no Scout→Janet canary driver,
+release installer, systemd unit, or automatic promotion/rollback. Host names and layouts
+below are historical deployment examples and must be checked against the target host.
 
-**Status: WRITTEN, NOT RUN.** No part of this has executed against a live agent. A human
-plus the Scout canary validate everything below before it touches Janet. See
-"Untested / needs human review" at the bottom.
+**Status: MANUAL PROCEDURE; LIVE DEPLOYMENT NOT VERIFIED HERE.** Run each gate from an
+external operator shell and require human approval before promotion.
 
 ## 1. What this binary is
 
@@ -26,9 +26,10 @@ plus the Scout canary validate everything below before it touches Janet. See
 - heartbeat JSON rewritten every second; `agent-manager healthcheck` gates on it.
 
 Everything host-specific comes from the JSON config at `$AGENT_MANAGER_CONFIG`
-(schema: appendix A). No lab paths/rooms/tokens are compiled in.
+(example: [`config.example.json`](config.example.json)). No lab paths/rooms/tokens are
+compiled in.
 
-## 2. On-host layout (both Scout and Janet's host)
+## 2. Example on-host layout (deployment-specific)
 
 ```text
 ~/agent-manager/
@@ -49,8 +50,19 @@ Everything host-specific comes from the JSON config at `$AGENT_MANAGER_CONFIG`
 
 ## 3. Forward deploy (one target)
 
+This procedure requires an already-verified baseline. Before replacing `current`,
+prove that both the running target and offline rollback target resolve to executable
+files. A first deployment must establish and verify those symlinks outside this
+canary procedure.
+
 ```sh
+set -eu
 V=<version>
+current_target=$(readlink -f ~/agent-manager/current)
+rollback_target=$(readlink -f ~/agent-manager/last-good)
+test -x "$current_target"
+test -x "$rollback_target"
+
 # build: either `cargo build --release`, or `nix build .#default` (dream2nix, cache-backed)
 install -D -m755 <built-binary> ~/agent-manager/releases/$V/agent-manager
 ~/agent-manager/releases/$V/agent-manager version       # sanity: runs at all
@@ -68,12 +80,13 @@ AGENT_MANAGER_CONFIG=~/agent-manager/config.json ~/agent-manager/current healthc
 
 Asserts (exit 0 = healthy):
 
-1. heartbeat fresh (default ≤30s) and manager pid alive — process up under systemd;
+1. heartbeat fresh (default ≤30s) and the recorded manager pid alive (this does not
+   prove that systemd owns the process);
 2. state `running` and the recorded tmux pane id exists **with our ownership tag**;
 3. manager's Matrix `/sync` succeeded within the last 120s — connected to Matrix.
 
-**Not covered by the subcommand:** "agent answers a ping over Matrix" (FABLE-SPEC
-assert 3). That needs a second Matrix identity; the deploy driver does it: send a
+**Not covered by the subcommand:** "agent answers a ping over Matrix". That needs a
+second Matrix identity; an external operator or deploy driver must send a
 message to the agent from the deploy account, require any reply/reaction within N
 minutes. Until that driver exists it is a manual step in the canary window.
 
@@ -81,7 +94,7 @@ Window discipline: run healthcheck at boot+60s (startup prompts + first sync tak
 time), then every minute for the window (Scout: ≥30 min suggested — long enough to see
 one full crash/backoff cycle if the build is bad).
 
-## 5. Canary flow (Scout first, Janet only if Scout survives)
+## 5. Manual canary flow (example: Scout first)
 
 ```text
 deploy V to Scout                      (step 3, on scout-pc over ssh)
@@ -95,7 +108,7 @@ deploy V to Scout                      (step 3, on scout-pc over ssh)
        └─ FAIL ⇒ NO promote. ROLLBACK Scout (step 6) + alert (shawn-send)
 ```
 
-Rules (from FABLE-SPEC, non-negotiable):
+Operational safety rules:
 
 - rollback is driven **from outside the target process** (ssh / local shell), because a
   broken manager may be too broken to talk;
@@ -106,19 +119,21 @@ Rules (from FABLE-SPEC, non-negotiable):
 ## 6. Rollback (LOCAL, no network)
 
 ```sh
+set -eu
 cd ~/agent-manager
+rollback_target=$(readlink -f last-good)
+test -x "$rollback_target"
 ln -sfn "$(readlink last-good)" current
 systemctl --user restart <agent>.service
 AGENT_MANAGER_CONFIG=~/agent-manager/config.json ./current healthcheck   # verify recovery
 ```
 
-That is the whole procedure. It works with the homeserver down, the cache down, and
-the internet down. If even `last-good` fails healthcheck, the incident is not a deploy
-regression — debug the host, and as a last resort the JS manager remains runnable:
-`node /home/docker/manager.js /home/docker` behind the old unit (keep manager.js
-untouched until the Rust manager has survived on Janet for a comfortable period).
+The symlink rollback itself needs no network. The subsequent healthcheck still requires
+fresh Matrix sync, so it will fail while the homeserver is unavailable. If `last-good`
+also fails, diagnose the host and dependencies; any legacy JS fallback is host-specific
+and is not maintained by `apps/manager`.
 
-## 7. Migration from manager.js (first Janet deploy only)
+## 7. Historical manager.js migration notes (deployment-specific)
 
 1. `systemctl --user stop janet.service` — **the JS manager kills the tmux session on
    SIGTERM**; that is expected and means the Rust manager starts from a clean slate.
@@ -162,13 +177,26 @@ untouched until the Rust manager has survived on Janet for a comfortable period)
   hook file, model-override file, stale session-lock cleanup: all read/written
   compatibly with the JS manager and the existing hooks.
 
-## 9. Untested / needs human review before canary
+## 9. Deferred deployment requirements
+
+The removed held execution brief also proposed capabilities that are **not** completed
+by this manual runbook. They remain deferred rather than silently accepted:
+
+1. a Scout-first deploy driver with automatic promotion, rollback, and alerting;
+2. an agent-responsive Matrix ping from a second identity as an automated health gate;
+3. rewriting the external PARCS check-in and teardown scripts to use
+   `system-enqueue` instead of `tmux send-keys`.
+
+These require work in deployment or external repositories. Do not infer their
+completion from the existence of `apps/manager` or this procedure.
+
+## 10. Untested / needs human review before canary
 
 Honest list; none of this has run against a live agent:
 
-1. **Never executed end-to-end.** Only `cargo check`/`clippy`-level validation was
-   performed on this host. No spawn, no Matrix call, no tmux call has been made by
-   this binary.
+1. **Never executed end-to-end against a live deployment.** CI runs unit tests and
+   real tmux integration tests on isolated scratch sockets, but no live agent,
+   Matrix homeserver, systemd unit, or canary target has been verified by them.
 2. **`--session-id` first-boot path** — restored from the spec'd intent, but the JS
    manager has been running `--resume`-only; verify on Scout that a fresh id boots and
    that `kill session` → auto-restart lands in a fresh conversation.
@@ -191,8 +219,6 @@ Honest list; none of this has run against a live agent:
    measurements; tune on Scout.
 10. **agent-responsive ping** — not in the binary (needs a second Matrix identity);
     manual step or deploy-driver work, see §4.
-11. **PARCS checkin de-tmux** (FABLE-SPEC deliverable 6) — out of scope of this crate,
-    still open.
 
 ## Appendix A: config schema (`$AGENT_MANAGER_CONFIG`, JSON)
 
@@ -205,4 +231,19 @@ Required: `creds_path` (JSON with `homeserver`, `access_token`, `user_id`),
 `pane_tag` ("agent-manager"), `claude_bin` ("claude"), `claude_args`
 (`["--dangerously-skip-permissions"]` — lab flags like the matrix channel and --name go
 HERE), `path_prepend` (~/.local/bin), `kill_agent_on_shutdown` (true),
-`tmux_width`/`tmux_height` (220/50). Unknown keys are a boot error by design.
+`tmux_width`/`tmux_height` (220/50), `glitchtip_dsn` (unset).
+
+The optional assistant HTTP service is enabled only when **both** `assistant_api_bind`
+and `assistant_api_token` are set. The bind must be a loopback IP socket address and the
+token must contain at least 32 characters. Other options are `assistant_receipts_path`
+(`~/.claude/shared/assistant-manager-receipts.json`) and `assistant_model` (unset).
+Routes are unauthenticated `GET /healthz`, plus authenticated
+`POST /v1/sessions/ensure`, `POST /v1/sessions/{id}/messages`, and
+`POST /v1/sessions/{id}/messages/lookup`. Authenticated routes require
+`Authorization: Bearer <assistant_api_token>` and v1 JSON bodies.
+
+Keep the listener loopback-only and terminate TLS/authentication at the local console
+proxy. The receipt ledger is mode 0600 and does not persist caller-scoped MCP credentials.
+Browser authorization, proxying, credential minting, and deployment are external to this
+app. Unknown config keys are a boot error. `config.example.json` and `src/config.rs` are
+the authoritative implemented shape.
