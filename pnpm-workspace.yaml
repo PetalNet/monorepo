@@ -109,7 +109,7 @@ catalog:
   "@opentelemetry/api": ^1.9.0
   "@opentelemetry/auto-instrumentations-node": ^0.67.2
   "@opentelemetry/exporter-trace-otlp-proto": ^0.208.0
-  "@opentelemetry/sdk-node": ^0.208.0
+  "@opentelemetry/sdk-node": ^0.217.0
   import-in-the-middle: ^2.0.0
   "@sentry/sveltekit": ^10.58.0
   "@sveltejs/kit": 3.0.0-next.8
