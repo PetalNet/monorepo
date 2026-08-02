@@ -1,11 +1,3 @@
-import {
-	dataMode,
-	readAttention,
-	readExecutors,
-	readLeases,
-	readTasks,
-	runQuery,
-} from "$lib/api/client";
 import { readLiveLibrary } from "$lib/data/library";
 import {
 	mockBuildFeed,
@@ -15,6 +7,16 @@ import {
 	mockWorkEvents,
 	type WorkEvent,
 } from "$lib/data/work";
+import {
+	dataMode,
+	readAttention,
+	readExecutors,
+	readLeases,
+	readTasks,
+	runQuery,
+} from "$lib/rpc/browser";
+
+import { formatUnknown } from "#format";
 
 import type { PageLoad } from "./$types";
 
@@ -74,8 +76,8 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 				ts: String(row[1]),
 				type: String(row[2]),
 				taskId,
-				agent: row[4] == null ? undefined : String(row[4]),
-				detail: row[5] == null ? String(row[2]) : String(row[5]),
+				agent: row[4] == null ? undefined : formatUnknown(row[4]),
+				detail: row[5] == null ? String(row[2]) : formatUnknown(row[5]),
 			},
 		];
 	});
@@ -120,7 +122,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 		attentionAvailable: attention !== null,
 		ackedReviewTaskIds: (attention?.items ?? [])
 			.filter((item) => item.grade === "review" && item.acked_by && item.task_id)
-			.map((item) => item.task_id as number),
+			.map((item) => item.task_id!),
 		trackerLive: alive("tracker"),
 		dispatcherLive: alive("dispatcher"),
 		snapshotAt: tasks?.freshness.observed_at ?? null,

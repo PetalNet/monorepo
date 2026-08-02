@@ -1,0 +1,10 @@
+{
+	"extends": "@petalnet/tsconfig/base.json",
+	"compilerOptions": {
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"noEmit": true,
+		"types": ["vite/client"]
+	},
+	"include": [".storybook/**/*.ts", "src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
+}

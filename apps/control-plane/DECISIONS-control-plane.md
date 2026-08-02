@@ -5,6 +5,13 @@ Fable (backend-fable), 2026-07-12, branch `feat/control-plane` (stacked on
 (the Manager's brains: token/credential authority, cost/rate governance, tracker
 discipline) and DAG N2.2 ("Manager as control plane").
 
+This opening paragraph records the change's historical branch and design provenance; the app now
+lives at `apps/control-plane` in this monorepo. The spool runtime requires `ingest_dir` and
+`outbox_dir` in addition to the structurally required `db_path` and `vault_dir`; those two spool
+paths remain optional in the shared config type only so non-runtime library/test configurations can
+omit them. `CONTROL_PLANE_CONFIG` selects the config file (default
+`control-plane-config.json`).
+
 ## Decisions
 
 | #    | Decision                                                                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                            |
@@ -20,7 +27,7 @@ discipline) and DAG N2.2 ("Manager as control plane").
 | CP9  | Tracker discipline: an agent whose fleet-events say `working` for > grace (default 10 min) with NO active lease and no task_id on the event gets a `defer` nag card from sender `system:control-plane`; repeat violations escalate to a principal report, never to an interrupt                 | spec §2 "tracker-usage discipline enforcement" as data; nags must not become interrupt spam (LOCKED interrupt model)                                                                                                 |
 | CP10 | Registry: capacity reports (`agent.capacity` envelopes) upsert {handle, provides[], free_slots, last_seen}; staleness > 90s ⇒ `suspect`, > 5 min ⇒ `down` (consumer-derived, mirroring fleet-event offline derivation); persisted in the control-plane's own SQLite                             | same derived-staleness idiom as the cockpit (CONTRACTS §3); SWIM gossip is a multi-box follow-up (collab doc gap #3)                                                                                                 |
 | CP11 | Runtime v1 I/O mirrors the dispatcher: inbound envelope spool dir + outbound spool via the dispatcher's `SpoolTransport`; the doorman client replaces the spool at N1.4 integration behind the same seam                                                                                        | one transport idiom across the backend until doorman lands                                                                                                                                                           |
-| CP12 | Config deny_unknown_fields, required = {db_path, vault_dir}; Glitchtip DSN optional (dispatcher's client)                                                                                                                                                                                       | manager-config convention                                                                                                                                                                                            |
+| CP12 | Config deny_unknown_fields; `db_path` and `vault_dir` are structurally required, and daemon startup additionally requires `ingest_dir` and `outbox_dir`; Glitchtip DSN optional (dispatcher's client)                                                                                           | library/test use can omit runtime transport, while the runnable spool daemon fails loudly without both paths                                                                                                         |
 
 ## §0 compliance
 

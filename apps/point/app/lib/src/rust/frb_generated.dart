@@ -4,6 +4,7 @@
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
 import 'api/crypto.dart';
+import 'api/fuzz.dart';
 import 'api/recovery.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -36,12 +37,8 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
   /// Initialize flutter_rust_bridge in mock mode.
   /// No libraries for FFI are loaded.
-  static void initMock({
-    required RustLibApi api,
-  }) {
-    instance.initMockImpl(
-      api: api,
-    );
+  static void initMock({required RustLibApi api}) {
+    instance.initMockImpl(api: api);
   }
 
   /// Dispose flutter_rust_bridge
@@ -69,7 +66,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1994066408;
+  int get rustContentHash => 1510737196;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -135,6 +132,8 @@ abstract class RustLibApi extends BaseApi {
     required List<int> groupId,
   });
 
+  Float64List crateApiFuzzFuzzRadiusPresetsM();
+
   String crateApiRecoveryGenerateRecoveryCode();
 
   Uint8List crateApiRecoveryRecoveryDecrypt({
@@ -145,6 +144,15 @@ abstract class RustLibApi extends BaseApi {
   Uint8List crateApiRecoveryRecoveryEncrypt({
     required List<int> state,
     required String recoveryCode,
+  });
+
+  FuzzedPoint crateApiFuzzStableFuzz({
+    required double trueLat,
+    required double trueLon,
+    required double radiusM,
+    required String sharerId,
+    required String audienceId,
+    required List<int> secret,
   });
 
   RustArcIncrementStrongCountFnType
@@ -448,10 +456,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     );
   }
 
-  TaskConstMeta get kCrateApiCryptoPointMlsNewConstMeta => const TaskConstMeta(
-    debugName: "PointMls_new",
-    argNames: ["identity"],
-  );
+  TaskConstMeta get kCrateApiCryptoPointMlsNewConstMeta =>
+      const TaskConstMeta(debugName: "PointMls_new", argNames: ["identity"]);
 
   @override
   Future<void> crateApiCryptoPointMlsProcessCommit({
@@ -553,10 +559,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   TaskConstMeta get kCrateApiCryptoPointMlsRestoreConstMeta =>
-      const TaskConstMeta(
-        debugName: "PointMls_restore",
-        argNames: ["state"],
-      );
+      const TaskConstMeta(debugName: "PointMls_restore", argNames: ["state"]);
 
   @override
   Future<String> crateApiCryptoPointMlsSafetyNumber({
@@ -597,12 +600,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  String crateApiRecoveryGenerateRecoveryCode() {
+  Float64List crateApiFuzzFuzzRadiusPresetsM() {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_f_64_strict,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiFuzzFuzzRadiusPresetsMConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiFuzzFuzzRadiusPresetsMConstMeta =>
+      const TaskConstMeta(debugName: "fuzz_radius_presets_m", argNames: []);
+
+  @override
+  String crateApiRecoveryGenerateRecoveryCode() {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -616,10 +641,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   TaskConstMeta get kCrateApiRecoveryGenerateRecoveryCodeConstMeta =>
-      const TaskConstMeta(
-        debugName: "generate_recovery_code",
-        argNames: [],
-      );
+      const TaskConstMeta(debugName: "generate_recovery_code", argNames: []);
 
   @override
   Uint8List crateApiRecoveryRecoveryDecrypt({
@@ -632,7 +654,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_list_prim_u_8_loose(blob, serializer);
           sse_encode_String(recoveryCode, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 15)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -662,7 +684,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_list_prim_u_8_loose(state, serializer);
           sse_encode_String(recoveryCode, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 15)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 16)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -680,6 +702,50 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         debugName: "recovery_encrypt",
         argNames: ["state", "recoveryCode"],
       );
+
+  @override
+  FuzzedPoint crateApiFuzzStableFuzz({
+    required double trueLat,
+    required double trueLon,
+    required double radiusM,
+    required String sharerId,
+    required String audienceId,
+    required List<int> secret,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_f_64(trueLat, serializer);
+          sse_encode_f_64(trueLon, serializer);
+          sse_encode_f_64(radiusM, serializer);
+          sse_encode_String(sharerId, serializer);
+          sse_encode_String(audienceId, serializer);
+          sse_encode_list_prim_u_8_loose(secret, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 17)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_fuzzed_point,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiFuzzStableFuzzConstMeta,
+        argValues: [trueLat, trueLon, radiusM, sharerId, audienceId, secret],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiFuzzStableFuzzConstMeta => const TaskConstMeta(
+    debugName: "stable_fuzz",
+    argNames: [
+      "trueLat",
+      "trueLon",
+      "radiusM",
+      "sharerId",
+      "audienceId",
+      "secret",
+    ],
+  );
 
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_PointMls => wire
@@ -738,6 +804,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool dco_decode_bool(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as bool;
+  }
+
+  @protected
+  double dco_decode_f_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as double;
+  }
+
+  @protected
+  FuzzedPoint dco_decode_fuzzed_point(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return FuzzedPoint(
+      lat: dco_decode_f_64(arr[0]),
+      lon: dco_decode_f_64(arr[1]),
+      cellX: dco_decode_i_64(arr[2]),
+      cellY: dco_decode_i_64(arr[3]),
+    );
+  }
+
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeI64(raw);
+  }
+
+  @protected
+  Float64List dco_decode_list_prim_f_64_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as Float64List;
   }
 
   @protected
@@ -825,6 +923,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool sse_decode_bool(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
+  double sse_decode_f_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getFloat64();
+  }
+
+  @protected
+  FuzzedPoint sse_decode_fuzzed_point(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_lat = sse_decode_f_64(deserializer);
+    var var_lon = sse_decode_f_64(deserializer);
+    var var_cellX = sse_decode_i_64(deserializer);
+    var var_cellY = sse_decode_i_64(deserializer);
+    return FuzzedPoint(
+      lat: var_lat,
+      lon: var_lon,
+      cellX: var_cellX,
+      cellY: var_cellY,
+    );
+  }
+
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getPlatformInt64();
+  }
+
+  @protected
+  Float64List sse_decode_list_prim_f_64_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getFloat64List(len_);
   }
 
   @protected
@@ -923,6 +1055,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_bool(bool self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
+  void sse_encode_f_64(double self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putFloat64(self);
+  }
+
+  @protected
+  void sse_encode_fuzzed_point(FuzzedPoint self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_64(self.lat, serializer);
+    sse_encode_f_64(self.lon, serializer);
+    sse_encode_i_64(self.cellX, serializer);
+    sse_encode_i_64(self.cellY, serializer);
+  }
+
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putPlatformInt64(self);
+  }
+
+  @protected
+  void sse_encode_list_prim_f_64_strict(
+    Float64List self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putFloat64List(self);
   }
 
   @protected
@@ -1027,15 +1190,11 @@ class PointMlsImpl extends RustOpaque implements PointMls {
   /// Serialize the full MLS state for durable storage. Call after every
   /// mutation (create_group, add_member, process_welcome, process_commit).
   Future<Uint8List> exportState() =>
-      RustLib.instance.api.crateApiCryptoPointMlsExportState(
-        that: this,
-      );
+      RustLib.instance.api.crateApiCryptoPointMlsExportState(that: this);
 
   /// A fresh one-time KeyPackage to upload to the server pool.
   Future<Uint8List> generateKeyPackage() =>
-      RustLib.instance.api.crateApiCryptoPointMlsGenerateKeyPackage(
-        that: this,
-      );
+      RustLib.instance.api.crateApiCryptoPointMlsGenerateKeyPackage(that: this);
 
   bool hasGroup({required List<int> groupId}) => RustLib.instance.api
       .crateApiCryptoPointMlsHasGroup(that: this, groupId: groupId);

@@ -1,5 +1,12 @@
 # Building Flutter UI with AI — a Playbook
 
+> **Status:** generic research captured before the Point client was built. Most
+> sections below are optional recommendations, not repository requirements. For
+> Point, [`../../app/CLAUDE.md`](../../app/CLAUDE.md), `pubspec.yaml`, source, and
+> tests are authoritative. The Point-specific corrections in §7 supersede any
+> conflicting generic advice (notably `dynamic_color`, Google Maps, Widgetbook,
+> and required MCP tooling).
+
 *For Janet: you're strong at HTML/CSS craft and the headless-screenshot loop. This maps that muscle onto Flutter, where the terrain differs (no DOM to diff, a static analyzer as your best friend, and a real render-target requirement). Opinionated throughout — options collapsed to picks.*
 
 ---
@@ -158,21 +165,28 @@ Pass/fail rubric mirroring the web "impeccable" bar. Most items are a lint or a 
 Point = Android-first Material 3 location-sharing client: map UI, live presence dots, share/contacts surface, ghost on/off toggle, device-linking QR. Concrete calls:
 
 **Stack for Point**
-- **Agent:** Claude Code + Dart MCP server (day one). Run `flutter run -d chrome` in debug for the fast visual loop during build; validate real map/GPS behavior on an Android emulator/device only for the map-specific passes.
-- **Theming:** `ColorScheme.fromSeed` from Point's brand color + `dynamic_color` (Android-first — Material You wallpaper palettes feel native, with a `fromSeed` fallback). Both light and dark from the start.
+- **Tooling:** Flutter 3.44.6 is pinned by `app/mise.toml`; install it with Mise.
+  MCP and browser render loops are optional aids, not build prerequisites.
+- **Targets:** Android is the production target. Web is only a possible layout
+  aid; this checkout has no iOS or desktop runners.
+- **Theming:** fixed monochrome Material 3 with light, dark, and Pure-Black OLED.
+  `dynamic_color` is intentionally absent.
 - **State:** Riverpod. Presence stream, ghost toggle, and session/link state are exactly the async, compile-time-checked surface Riverpod is best at.
 - **Components:** Material 3. Don't reach for a shadcn port — Android-idiomatic is the goal.
-- **Nav shell:** `flutter_adaptive_scaffold` so the contacts/share surface reflows if you ever hit tablet/foldable.
+- **Routing:** pinned `kaisel` 0.22.0. `flutter_adaptive_scaffold` is not a dependency.
 
 **Screen-by-screen**
-- **Map + live presence dots:** the map is a plugin surface (google_maps_flutter / MapLibre) — treat markers as your widgets, keep marker-building in named classes, and drive presence off a Riverpod stream so only the marker layer rebuilds. This screen is where you'll fight `RenderFlex`/overlay issues — lean hard on the runtime screenshot loop.
-- **Presence dots as a component:** build them in **Widgetbook use-cases** (online/away/ghosted/stale states) and screenshot each in isolation — far faster than navigating the live map to reach each state. Animate appearance/pulse with `flutter_animate`.
+- **Map + live presence dots:** the implemented plugin is `flutter_map` 8.x
+  using raster sources advertised by the home server. Google Maps is deferred.
+- **Presence dots as a component:** test live/away/ghosted/stale states. Presence
+  is encoded by form; decorative pulse is prohibited. Widgetbook and
+  `flutter_animate` are not current dependencies.
 - **Ghost on/off toggle:** leaf-local `setState` for the switch's visual + a Riverpod action for the actual state change. This is a safety-critical control — give it a clear `Semantics` label, ≥48dp target, and an unmistakable on/off visual (don't rely on color alone). Golden-test both states.
 - **Share/contacts surface:** `ListView.builder` (never a `Column` of contacts). Constrain content width on large screens. Widgetbook use-cases for empty/loading/populated.
 - **Device-linking QR:** constrain the QR to a fixed sensible box, `SafeArea`, high-contrast, and a text fallback code beneath it. Test at large text-scale — QR screens are a classic overflow spot.
 
 **Loop discipline for Point**
-- Ship a **`CLAUDE.md`** pinning: Flutter version, Riverpod, Material 3 + `fromSeed`/`dynamic_color`, feature-first layout, "zero analyzer warnings," and the exact validate commands (`flutter analyze`, `flutter test`).
+- Follow the existing **`app/CLAUDE.md`** and run its exact validation commands.
 - Spec-first per feature (interview → spec → bounded tasks), one screen at a time, each closed via Recipe A, gated by analyzer + `meetsGuideline` + a driven run before you look at the next.
 - Golden-test the *stable primitives* (presence dot, ghost toggle, QR frame) with `alchemist`; don't golden the whole live map.
 

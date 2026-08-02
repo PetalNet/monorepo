@@ -1,12 +1,15 @@
 <script lang="ts">
-	import { runOp } from "$lib/api/client";
+	import { runOp } from "$lib/rpc/browser";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
+
+	import { required } from "#format";
+
 	import Icon from "./Icon.svelte";
 
 	/**
-	 * Snackbar host (foundations §2.1/§4.2): bottom-left, capped at 2 visible + a
-	 * "N more" collapse, clear of the centered dock. Every fired op lands here with
-	 * the op name and an undo where the op supports it.
+	 * Snackbar host (foundations §2.1/§4.2): bottom-left, capped at 2 visible + a "N more" collapse,
+	 * clear of the centered dock. Every fired op lands here with the op name and an undo where the op
+	 * supports it.
 	 */
 	const MAX_VISIBLE = 2;
 	const visible = $derived(snackbar.items.slice(-MAX_VISIBLE));
@@ -19,15 +22,16 @@
 	$effect(() => {
 		const count = snackbar.items.length;
 		const revision = ++popoverRevision;
-		if (!host) return;
-		if (host.matches(":popover-open")) host.hidePopover();
+		const popoverHost = host;
+		if (!popoverHost) return;
+		if (popoverHost.matches(":popover-open")) popoverHost.hidePopover();
 		const openDialog = document.querySelector<HTMLDialogElement>("dialog[open]");
 		const container = openDialog ?? document.body;
-		if (host.parentElement !== container) container.append(host);
+		if (popoverHost.parentElement !== container) container.append(popoverHost);
 		if (count > 0)
 			queueMicrotask(() => {
-				if (revision === popoverRevision && host && !host.matches(":popover-open"))
-					host.showPopover();
+				if (revision === popoverRevision && !popoverHost.matches(":popover-open"))
+					popoverHost.showPopover();
 			});
 	});
 
@@ -64,7 +68,9 @@
 			<Icon name={s.tone === "danger" ? "triangle-alert" : "circle-check"} size={14} />
 			<span>{s.message}</span>
 			{#if s.undo}
-				<button onclick={() => undo(s.id, s.undo!, s.onUndo)}>{s.actionLabel ?? "Undo"}</button>
+				<button onclick={() => undo(s.id, required(s.undo), s.onUndo)}
+					>{s.actionLabel ?? "Undo"}</button
+				>
 			{/if}
 		</div>
 	{/each}
@@ -87,8 +93,7 @@
 		overflow: visible;
 	}
 	.more {
-		font:
-			500 0.6875rem var(--mono);
+		font: 500 0.6875rem var(--mono);
 		color: var(--text-3);
 		background: var(--s2);
 		border-radius: var(--r-xs);

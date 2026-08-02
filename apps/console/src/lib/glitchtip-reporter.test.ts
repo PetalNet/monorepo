@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+
+import { describe, it } from "vitest";
 
 import { createCaughtFailureReporter, type SanitizedCaughtFailure } from "./glitchtip-reporter.ts";
 
 describe("caught GlitchTip failure reporting", () => {
 	it("sends only sanitized endpoint, surface, and exception-class context", () => {
-		const captured: Array<{ error: Error; context: SanitizedCaughtFailure }> = [];
+		const captured: { error: Error; context: SanitizedCaughtFailure }[] = [];
 		const report = createCaughtFailureReporter(
 			(error, context) => captured.push({ error, context }),
 			{ enabled: true, now: () => 1_000 },

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import type { AttentionItem } from "$lib/api/types";
+
 	import AttentionCard from "./AttentionCard.svelte";
 	import Icon from "./Icon.svelte";
 
 	/**
-	 * The cockpit attention board (foundations §4.4). Signs as Town Hall, plain
-	 * subtitle "Needs you". Severity-first order, incidents collapsed upstream.
-	 * Empty (green) = "All caught up." — but only honestly, the hero fine line
-	 * carries the positive-evidence check.
+	 * The cockpit attention board (foundations §4.4). Signs as Town Hall, plain subtitle "Needs you".
+	 * Severity-first order, incidents collapsed upstream. Empty (green) = "All caught up." — but only
+	 * honestly, the hero fine line carries the positive-evidence check.
 	 */
 	interface Props {
 		items: AttentionItem[];
@@ -37,7 +37,7 @@
 		</div>
 		{#if overflow > 0}
 			<button class="more-row" onclick={() => (expanded = !expanded)}>
-				{expanded ? "Show less" : `${overflow} more`}
+				{expanded ? "Show less" : `${String(overflow)} more`}
 			</button>
 		{/if}
 	{/if}
@@ -58,8 +58,7 @@
 	/* Signage secondary in sans, not serif: the one serif (sign-face) moment per
 	 * screen is the greeting row (foundations §7). */
 	.sign-sub {
-		font:
-			400 0.8125rem var(--sans);
+		font: 400 0.8125rem var(--sans);
 		color: var(--text-3);
 		font-style: italic;
 	}
@@ -88,8 +87,7 @@
 		border: 0;
 		border-top: 1px solid var(--rule);
 		color: var(--text-3);
-		font:
-			500 0.75rem var(--mono);
+		font: 500 0.75rem var(--mono);
 		cursor: pointer;
 		border-radius: var(--r-xs);
 		transition: background var(--t);

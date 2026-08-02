@@ -60,5 +60,5 @@ function findDomain(collegeName: string): string | null {
 export function getLogoUrl(collegeName: string, size = 64): string | null {
 	const domain = findDomain(collegeName);
 	if (!domain) return null;
-	return `https://www.google.com/s2/favicons?domain=${domain}&sz=${size}`;
+	return `https://www.google.com/s2/favicons?domain=${domain}&sz=${size.toString()}`;
 }

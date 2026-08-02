@@ -2,9 +2,9 @@
 	import StatusDot from "./StatusDot.svelte";
 
 	/**
-	 * A host as a house in the Neighborhood (foundations §3.7, lore: houses = boxes,
-	 * lit windows = active workers). Flavor, not geography. Roof band, lit windows
-	 * per active worker, dot-graded health.
+	 * A host as a house in the Neighborhood (foundations §3.7, lore: houses = boxes, lit windows =
+	 * active workers). Flavor, not geography. Roof band, lit windows per active worker, dot-graded
+	 * health.
 	 */
 	interface Props {
 		host: string;
@@ -62,8 +62,7 @@
 		background: var(--lit);
 	}
 	.name {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-2);
 		margin-top: var(--s-1);
 		display: flex;

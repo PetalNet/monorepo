@@ -1,6 +1,7 @@
-# Point v1 — Sharing UX spec (build brief)
+# Point v1 — Sharing UX spec (implemented design record)
 
-Grilled Parker × Janet 2026-07-11. **Design LOCKED — do not relitigate.** This is the client sharing UX on top of the already-shipped + proven engine (auth, server, tracking/battery engine, ghost, MLS reliability, federation, ZK recovery; two-account tracking E2E proves a synthetic client receives+decrypts a real phone's live location). Build the SCREENS that make it usable.
+Grilled Parker × Janet 2026-07-11. **Status: implemented; historical acceptance
+record.** Current source and tests are authoritative where later decisions differ.
 
 ## Roadmap (what's IN vs OUT of v1)
 - **v1 = a full standalone person-to-person location-sharing app** (this spec).
@@ -72,7 +73,10 @@ or detector yet. Neither may be represented as working notification plumbing.
 - Tap a person marker → compact bottom sheet (name, last place, last-updated, focus/directions, open detail).
 - "Recenter on me" FAB; global "go dark" reachable from the map.
 - Dark/location-off people don't plot (frozen last-known lives in People/detail, not a live pin).
-- Provider switch (Google ↔ MapLibre) in Settings, not on the map.
+- Provider choice is in Settings, not on the map. The implemented renderer is
+  `flutter_map` with server-advertised raster tiles: self-hosted tiles or an
+  authenticated home-server proxy, each with an honestly labeled public CARTO
+  fallback. Google is deferred and is not a current provider.
 
 ## 08 · Trust & federation
 - **Key verification:** invisible TOFU (just works, no crypto on the happy path) + **optional "verify"** (safety-number/QR) in person detail.
@@ -83,7 +87,9 @@ or detector yet. Neither may be represented as working notification plumbing.
 
 ## Carry-forward (already locked)
 - Monochrome **Pure-Black OLED**; **Schibsted Grotesk** self-hosted; mono for tabular figures. Presence by form not color; borderless/hairlines; surface-tone ladder.
-- Provider-agnostic maps (Google + MapLibre; CARTO positron-dark for MapLibre). Markers as widget CLASSES; presence off a Riverpod stream.
+- `flutter_map` raster maps with self-hosted/proxied providers and CARTO dark
+  fallback. Google remains deferred. Markers are widget classes; presence is
+  driven by Riverpod.
 - Riverpod + feature-first; `very_good_analysis`, zero-analyzer-warnings gate; motion subtle+meaningful. Nav: Map / People / You. Auth outside shell; no router reset on auth change.
 
 ## Build discipline

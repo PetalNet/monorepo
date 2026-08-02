@@ -52,6 +52,10 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 /// ...and drop the connection if no inbound frame (Pong included) arrives for
 /// this long — reaps half-open sockets that would otherwise leak (M3).
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(90);
+/// Layer-4 watcher-wake dedup window: at most one demand-wake push per watched
+/// person per this interval, across all watchers (location-strategy Layer 4:
+/// "Multiple viewers -> deduplicated -> max 1/15s").
+const WATCH_WAKE_DEDUP: Duration = Duration::from_secs(15);
 
 /// GET /ws — upgrade after the browser-origin guard. A present Origin header
 /// must match this server (or a localhost dev origin); a missing Origin
@@ -672,9 +676,21 @@ async fn presence_audience(pool: &PgPool, user_id: &str) -> Result<Vec<String>, 
 // nudge
 // ---------------------------------------------------------------------------
 
-/// The viewer asks the target's devices to wake and send a fresh fix. Allowed
-/// only when the VIEWER may currently see the TARGET (can_view). Deny/error =
-/// silent drop. (FCM wake for offline targets lands in M1, D-012.)
+/// Layer-4 watcher-wake. The viewer opened the target's live view; ask the
+/// target's device(s) to wake and send one fresh fix. Allowed only when the
+/// VIEWER may currently see the TARGET (`can_view` — which requires the target
+/// to be actively sharing to this viewer and not ghosting them), so a wake can
+/// never reach someone who chose to go dark. Deny/error = silent drop (no
+/// relationship oracle over the socket).
+///
+/// Two delivery paths, by liveness:
+///   - Target ONLINE (some device holds a live WS): forward the nudge over that
+///     socket; that device wakes its engine for one fix. Cheap, so it is not
+///     deduped here — the target client coalesces concurrent watchers.
+///   - Target OFFLINE (no live WS — parked past a dropped socket, dozing, or
+///     killed): send a contentless demand-wake push to its registered devices,
+///     DEDUPED to ~1/`WATCH_WAKE_DEDUP` per target across all watchers so a
+///     crowd opening one person's view yields a single push, not one per viewer.
 async fn on_nudge(state: &AppState, sender: &str, reply: &Sender<String>, frame: Frame) {
     let Some(target) = frame.target_user_id else {
         send_error(reply, "invalid frame");
@@ -683,8 +699,22 @@ async fn on_nudge(state: &AppState, sender: &str, reply: &Sender<String>, frame:
     let target = target.trim().to_lowercase();
     match authz::can_view(&state.pool, sender, &target).await {
         Ok(true) => {
-            let out = json!({ "type": "location.nudge", "from": sender }).to_string();
-            state.hub.send_to_user(&target, &out);
+            if state.hub.is_online(&target) {
+                // Online: forward the nudge; the target's engine wakes for one
+                // fix and relays it over its own live socket.
+                let out = json!({ "type": "location.nudge", "from": sender }).to_string();
+                state.hub.send_to_user(&target, &out);
+            } else if state.hub.note_watch_wake(&target, WATCH_WAKE_DEDUP) {
+                // Offline: contentless demand-wake push, deduped per target
+                // across watchers. Best-effort + fire-and-forget (spawned) so
+                // the viewer's action never blocks on it.
+                tokio::spawn(crate::push::wake_user(
+                    state.pool.clone(),
+                    target.clone(),
+                    crate::push::Wake::new("watch_wake"),
+                    state.config.federation_allow_private,
+                ));
+            }
         }
         Ok(false) => tracing::debug!(sender, "nudge dropped (authz)"),
         Err(e) => tracing::warn!(error = %e, "nudge dropped (authz error)"),

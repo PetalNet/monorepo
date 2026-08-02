@@ -17,12 +17,32 @@ void main() {
         ),
         PushTransportPlan.registerUnifiedPush,
       );
+      // D-027: the default choice (UnifiedPush) with no distributor is
+      // unavailable — it never silently falls back to FCM.
       expect(
         PushTransportPolicy.resolve(
           settings: const AppSettings(),
           hasDistributor: false,
         ),
         PushTransportPlan.unavailable,
+      );
+    });
+
+    test('an FCM choice on a build without Firebase never registers FCM — the '
+        'private path wins (D-027)', () {
+      // supportsFcm is false in the private base build, so the model itself
+      // refuses to hold an unsupported FCM choice: nothing downstream can
+      // register FCM behind the user's back.
+      const settings = AppSettings(
+        transport: NotifTransport.fcm,
+        fcmFallback: true,
+      );
+      expect(settings.transport, NotifTransport.unifiedPush);
+      expect(settings.fcmFallback, isFalse);
+      // The resolved plan therefore follows the (coerced) private choice.
+      expect(
+        PushTransportPolicy.resolve(settings: settings, hasDistributor: true),
+        PushTransportPlan.registerUnifiedPush,
       );
     });
   });

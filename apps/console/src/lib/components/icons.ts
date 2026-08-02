@@ -81,7 +81,6 @@ import ZoomOut from "@lucide/svelte/icons/zoom-out";
  */
 import type { Component } from "svelte";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LucideIcon = Component<any>;
 
 export const ICONS = {

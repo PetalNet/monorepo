@@ -1,23 +1,20 @@
 <script lang="ts">
 	import Icon from "./Icon.svelte";
+	import type { AssistantContextChip } from "./types";
 
 	/**
-	 * The ask box is the one input (foundations §5.1, /task/699). Three states:
-	 *   centered (fresh cockpit, 640px pill) — the home's pinned panels surround it
-	 *   docked  (after asking, 48px bottom-center bar) — drops out of the way,
-	 *           never leaves; a thin transcript strip sits above
-	 * While the assistant works the bar shows staged honest progress (pulse
-	 * permitted). Assistant-down state says so plainly; every surface stays live.
-	 * Class names avoid the DaisyUI component namespace (hero/dock/btn/progress).
+	 * The ask box is the one input (foundations §5.1, /task/699). Three states: centered (fresh
+	 * cockpit, 640px pill) — the home's pinned panels surround it docked (after asking, 48px
+	 * bottom-center bar) — drops out of the way, never leaves; a thin transcript strip sits above
+	 * While the assistant works the bar shows staged honest progress (pulse permitted).
+	 * Assistant-down state says so plainly; every surface stays live. Class names avoid the DaisyUI
+	 * component namespace (hero/dock/btn/progress).
 	 */
-	export interface ContextPayload {
-		label: string;
-	}
 	interface Props {
 		mode: "centered" | "docked";
 		greeting?: string;
 		/** Right-click-ask payload shown as a chip in the input (§4.3). */
-		context?: ContextPayload | null;
+		context?: AssistantContextChip | null;
 		/** Staged progress line while the assistant composes; null = quiet. */
 		progress?: string | null;
 		/** Last assistant line, shown in the transcript strip above the bar. */
@@ -64,6 +61,7 @@
 				</button>
 			{/if}
 			<input
+				data-ask-dock-input
 				bind:this={inputEl}
 				bind:value
 				data-global-ask
@@ -93,6 +91,7 @@
 				<span class="stage"><span class="pulse-dot"></span>{progress}</span>
 			{:else}
 				<input
+					data-ask-dock-input
 					bind:this={inputEl}
 					bind:value
 					data-global-ask
@@ -135,8 +134,7 @@
 		border: 0;
 		background: transparent;
 		color: var(--text);
-		font:
-			400 0.875rem var(--sans);
+		font: 400 0.875rem var(--sans);
 		min-width: 0;
 	}
 	input::placeholder {
@@ -154,8 +152,7 @@
 		margin-top: var(--s-2);
 	}
 	kbd {
-		font:
-			500 0.6875rem var(--mono);
+		font: 500 0.6875rem var(--mono);
 		background: var(--s2);
 		border-radius: var(--r-xs);
 		padding: 0 var(--s-1);
@@ -248,8 +245,7 @@
 		cursor: pointer;
 		border-radius: var(--r-xs);
 		padding: 2px var(--s-1);
-		font:
-			500 0.6875rem var(--mono);
+		font: 500 0.6875rem var(--mono);
 		flex: none;
 	}
 </style>

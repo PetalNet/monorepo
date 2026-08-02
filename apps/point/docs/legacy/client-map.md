@@ -1,5 +1,8 @@
 # Legacy Flutter client — deep survey (reference for the M1 rewrite)
 
+> **Historical only:** this maps the pre-rebuild client. It does not describe
+> the implemented app in `../../app/`; retain it only for provenance.
+
 _Produced 2026-07-11 from `/home/docker/point/point/` (55 Dart files, ~17.6k LOC,
 hooks_riverpod 3.x). Corrections to the brief's premises are flagged — the rewrite plans from
 what the code actually is._

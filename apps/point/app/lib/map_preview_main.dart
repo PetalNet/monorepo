@@ -6,6 +6,7 @@ import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/self_location_provider.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
 import 'package:point_app/features/people/people_controller.dart';
+import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/services/auth_controller.dart';
 import 'package:point_app/theme/app_theme.dart';
@@ -32,6 +33,7 @@ void main() {
           ),
         ),
         peopleControllerProvider.overrideWith(_PreviewPeople.new),
+        livePresenceProvider.overrideWith(_PreviewLive.new),
         authControllerProvider.overrideWith(_PreviewAuth.new),
       ],
       child: const _PreviewApp(),
@@ -82,5 +84,42 @@ class _PreviewPeople extends PeopleController {
           lat: 38.624,
           lon: -90.192,
         ),
+        // Task 751 fixtures: a DARK peer (frozen last-known + static aura) and
+        // an APPROXIMATE peer (coarse fix -> static over the fuzz radius).
+        Person(
+          userId: 'noor@point.petalcat.dev',
+          displayName: 'Noor',
+          presence: PresenceState.stale,
+          subtitle: 'Last place · Dark since 14:07',
+          lat: 38.633,
+          lon: -90.191,
+          darkSinceAt: 1747145220000,
+        ),
+        Person(
+          userId: 'janet@point.petalcat.dev',
+          displayName: 'Janet',
+          presence: PresenceState.live,
+          subtitle: 'Sharing · ±800 m · now',
+          lat: 38.620,
+          lon: -90.205,
+        ),
       ];
+}
+
+/// A coarse (fuzzed-scale) fix for Janet so the approximate path renders.
+class _PreviewLive extends LivePresence {
+  @override
+  Map<String, PeerMarkerMotion> build() => {
+        'janet@point.petalcat.dev': PeerMarkerMotion.initial(
+          PeerFix(
+            userId: 'janet@point.petalcat.dev',
+            data: {
+              'lat': 38.620,
+              'lon': -90.205,
+              'accuracy': 800,
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+            },
+          ),
+        ),
+      };
 }

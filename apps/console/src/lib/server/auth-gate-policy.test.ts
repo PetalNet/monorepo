@@ -1,20 +1,16 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, expect, it } from "vitest";
 
-import { authGateDecision } from "./auth-gate-policy.ts";
+import { isUnauthenticatedRoute } from "./auth-gate-policy";
 
-test("an unauthenticated app request is redirected before route loading", () => {
-	assert.deepEqual(authGateDecision("/network", "?view=lines", false), {
-		redirectTo: "/login?returnTo=%2Fnetwork%3Fview%3Dlines",
+describe("hard authentication gate", () => {
+	it("exposes the login page", () => {
+		expect(isUnauthenticatedRoute("/login")).toBe(true);
 	});
-});
-
-test("the login page is the only unauthenticated page allowed", () => {
-	assert.equal(authGateDecision("/login", "", false), "allow");
-	assert.deepEqual(authGateDecision("/", "", false), { redirectTo: "/login?returnTo=%2F" });
-});
-
-test("an authenticated request reaches the app and cannot return to login", () => {
-	assert.equal(authGateDecision("/network", "", true), "allow");
-	assert.equal(authGateDecision("/login", "", true), "home");
+	it("exposes the authentication protocol endpoints", () => {
+		expect(isUnauthenticatedRoute("/api/auth/callback/oidc")).toBe(true);
+	});
+	it("hides console and data routes", () => {
+		for (const path of ["/", "/api/v1/status", "/anything"])
+			expect(isUnauthenticatedRoute(path)).toBe(false);
+	});
 });

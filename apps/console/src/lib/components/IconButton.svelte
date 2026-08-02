@@ -22,7 +22,7 @@
 	}: Props = $props();
 </script>
 
-<!-- svelte-ignore a11y_autofocus -- Dialog close buttons intentionally receive initial focus. -->
+<!-- svelte-ignore a11y_autofocus -->
 <button
 	type="button"
 	class="icon-button {className}"
@@ -49,7 +49,9 @@
 		background: transparent;
 		color: var(--text-2);
 		cursor: pointer;
-		transition: background var(--t), color var(--t);
+		transition:
+			background var(--t),
+			color var(--t);
 	}
 	.icon-button:hover {
 		background: var(--s3);

@@ -1,6 +1,4 @@
-import { getRequestEvent, query } from "$app/server";
-import { env } from "$env/dynamic/public";
-import type { WorkSettlementSnapshot } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import {
 	libraryLinks,
 	libraryProvenance,
@@ -13,8 +11,18 @@ import {
 	settledTaskLibraryItem,
 	type SettlingTask,
 } from "$lib/data/work-settlement";
-import { error } from "@sveltejs/kit";
-import { z } from "zod";
+import {
+	isDashboardError,
+	listLibraryItems,
+	listLibraryLinks,
+	readLibraryItem,
+	readLibraryItemHistory,
+} from "$lib/server/domain/dashboard/store";
+import { currentPrincipal } from "$lib/server/domain/principal";
+import { readWorkSettlement } from "$lib/server/domain/reads/work-settlement";
+import { ConsoleDomain } from "$lib/server/domain/service";
+import { Effect, Schema } from "effect";
+import { Error as HttpError, Query } from "svelte-effect-runtime";
 
 export interface LibraryRevision {
 	version: number;
@@ -30,7 +38,7 @@ export interface LibraryDetail {
 	isMock: boolean;
 }
 
-const idSchema = z.string().regex(/^[A-Za-z0-9:_-]{1,128}$/);
+const idSchema = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9:_-]{1,128}$/));
 type ApiItem = {
 	id: string;
 	kind: LibraryItemView["kind"];
@@ -56,27 +64,6 @@ type ApiLink = {
 	rel_type: LibraryLinkFixture["rel"];
 	reason: string | null;
 };
-function base() {
-	return env.PUBLIC_CONSOLE_API_BASE ?? "https://console-api.petalcat.dev/api/v1";
-}
-function headers() {
-	const incoming = getRequestEvent().request.headers;
-	const out = new Headers({ accept: "application/json" });
-	for (const key of ["authorization", "cookie", "x-dev-principal"]) {
-		const value = incoming.get(key);
-		if (value) out.set(key, value);
-	}
-	return out;
-}
-async function api<T>(path: string): Promise<T> {
-	const response = await getRequestEvent().fetch(`${base()}${path}`, { headers: headers() });
-	if (!response.ok)
-		error(
-			response.status,
-			response.status === 404 ? "Library item not found" : "Library detail is unavailable",
-		);
-	return response.json() as Promise<T>;
-}
 function view(item: ApiItem): LibraryItemView {
 	return {
 		id: item.id,
@@ -110,71 +97,100 @@ function taskDetail(task: SettlingTask, isMock: boolean): LibraryDetail {
 	};
 }
 
-export const getLibraryItemDetail = query(idSchema, async (id): Promise<LibraryDetail> => {
-	if (id.startsWith("task:")) {
-		const isMock = env.PUBLIC_CONSOLE_DATA_MODE !== "live";
-		const settlement = isMock
-			? mockWorkSettlement()
-			: await api<WorkSettlementSnapshot>("/work/settlement");
-		const task = [...settlement.settling, ...settlement.history].find(
-			(candidate) => `task:${String(candidate.id)}` === id,
-		);
-		if (!task) error(404, "Library task not found");
-		return taskDetail(task, isMock);
-	}
-	if (env.PUBLIC_CONSOLE_DATA_MODE !== "live") {
-		const item = mockLibrary.items.find((candidate) => candidate.id === id);
-		if (!item) error(404, "Library item not found");
-		const txFrom = libraryProvenance[id]?.txFrom ?? new Date().toISOString();
-		return {
-			item,
-			links: (libraryLinks[id] ?? []).map((link) => ({
-				...link,
-				target: mockLibrary.items.find((candidate) => candidate.id === link.targetId) ?? null,
-			})),
-			revisions: [0, 1, 2]
-				.filter((offset) => item.version - offset > 0)
-				.map((offset) => ({
-					version: item.version - offset,
-					txFrom: new Date(Date.parse(txFrom) - offset * 86400000).toISOString(),
-					item: { ...item, version: item.version - offset },
-				})),
-			responsibleHuman: libraryProvenance[id]?.responsibleHuman ?? "unassigned",
-			txFrom,
-			isMock: true,
-		};
-	}
-	const encoded = encodeURIComponent(id);
-	const [current, history, links, items] = await Promise.all([
-		api<{ item: ApiItem }>(`/library/items/${encoded}`),
-		api<{ items: Array<{ version: number; tx_from: string; item: ApiItem }> }>(
-			`/library/items/${encoded}/history`,
-		),
-		api<{ items: ApiLink[] }>(`/library/links?item_id=${encoded}&limit=100`),
-		api<{ items: ApiItem[] }>("/library/items?limit=1000"),
-	]);
-	const targets = new Map(items.items.map((candidate) => [candidate.id, view(candidate)]));
-	return {
-		item: view(current.item),
-		links: links.items.map((link) => {
-			const outgoing = link.from_id === id;
-			const targetId = outgoing ? link.to_id : link.from_id;
-			const target = targets.get(targetId);
+export const getLibraryItemDetail = Query(idSchema, (id) =>
+	Effect.gen(function* () {
+		if (id.startsWith("task:")) {
+			const isMock = publicConfig.dataMode === "mock";
+			let settlement: ReturnType<typeof mockWorkSettlement>;
+			if (isMock) settlement = mockWorkSettlement();
+			else {
+				const domain = yield* ConsoleDomain;
+				const services = yield* domain.services;
+				const principal = yield* currentPrincipal;
+				if (!services.tracker)
+					return yield* HttpError("ServiceUnavailable", "Work settlement is unavailable");
+				settlement = (yield* readWorkSettlement(
+					services.tracker,
+					principal.scopes,
+				)) as unknown as ReturnType<typeof mockWorkSettlement>;
+			}
+			const task = [...settlement.settling, ...settlement.history].find(
+				(candidate) => `task:${String(candidate.id)}` === id,
+			);
+			if (!task) return yield* HttpError("NotFound", "Library task not found");
+			return taskDetail(task, isMock);
+		}
+		if (publicConfig.dataMode === "mock") {
+			const item = mockLibrary.items.find((candidate) => candidate.id === id);
+			if (!item) return yield* HttpError("NotFound", "Library item not found");
+			const txFrom = libraryProvenance[id].txFrom;
 			return {
-				direction: outgoing ? "out" : "in",
-				rel: link.rel_type,
-				targetId,
-				...(link.reason ? { reason: link.reason } : {}),
-				target: target?.status === "invalidated" ? null : (target ?? null),
+				item,
+				links: (libraryLinks[id] ?? []).map((link) => ({
+					...link,
+					target: mockLibrary.items.find((candidate) => candidate.id === link.targetId) ?? null,
+				})),
+				revisions: [0, 1, 2]
+					.filter((offset) => item.version - offset > 0)
+					.map((offset) => ({
+						version: item.version - offset,
+						txFrom: new Date(Date.parse(txFrom) - offset * 86400000).toISOString(),
+						item: { ...item, version: item.version - offset },
+					})),
+				responsibleHuman: libraryProvenance[id].responsibleHuman,
+				txFrom,
+				isMock: true,
 			};
-		}),
-		revisions: history.items.map((revision) => ({
-			version: revision.version,
-			txFrom: revision.tx_from,
-			item: view(revision.item),
-		})),
-		responsibleHuman: current.item.provenance.responsible_human ?? "unassigned",
-		txFrom: current.item.tx_from,
-		isMock: false,
-	};
-});
+		}
+		const domain = yield* ConsoleDomain;
+		const services = yield* domain.services;
+		const principal = yield* currentPrincipal;
+		const [current, history, links, items] = (yield* Effect.all(
+			[
+				readLibraryItem(services.db.app, principal.scopes, id),
+				readLibraryItemHistory(services.db.app, principal.scopes, id),
+				listLibraryLinks(services.db.app, principal.scopes, services.cursorSecret, id, {
+					limit: 100,
+				}),
+				listLibraryItems(services.db.app, principal.scopes, services.cursorSecret, {
+					limit: 1_000,
+				}),
+			],
+			{ concurrency: "unbounded" },
+		).pipe(
+			Effect.catch((cause) =>
+				isDashboardError(cause) ? HttpError("BadRequest", cause.message) : Effect.die(cause),
+			),
+		)) as [
+			{ item: ApiItem } | null,
+			{ items: Array<{ version: number; tx_from: string; item: ApiItem }> },
+			{ items: ApiLink[] },
+			{ items: ApiItem[] },
+		];
+		if (!current) return yield* HttpError("NotFound", "Library item not found");
+		const targets = new Map(items.items.map((candidate) => [candidate.id, view(candidate)]));
+		return {
+			item: view(current.item),
+			links: links.items.map((link) => {
+				const outgoing = link.from_id === id;
+				const targetId = outgoing ? link.to_id : link.from_id;
+				const target = targets.get(targetId);
+				return {
+					direction: outgoing ? "out" : "in",
+					rel: link.rel_type,
+					targetId,
+					...(link.reason ? { reason: link.reason } : {}),
+					target: target?.status === "invalidated" ? null : (target ?? null),
+				};
+			}),
+			revisions: history.items.map((revision) => ({
+				version: revision.version,
+				txFrom: revision.tx_from,
+				item: view(revision.item),
+			})),
+			responsibleHuman: current.item.provenance.responsible_human ?? "unassigned",
+			txFrom: current.item.tx_from,
+			isMock: false,
+		};
+	}),
+);

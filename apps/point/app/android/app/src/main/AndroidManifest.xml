@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- R9: resume sharing after a reboot (BootReceiver restarts our FGS). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS"/>
     <!-- Runtime-requested only after a notification transport is registered. -->
@@ -55,6 +57,29 @@
                 <data android:scheme="https" android:host="point.petalcat.dev" android:pathPrefix="/add/"/>
             </intent-filter>
         </activity>
+        <!-- DEFECT #2: Point's OWN persistent location foreground service — the
+             one we control, run for the whole sharing session and keep alive
+             across geolocator stream cancel→reopen so cadence can adapt without
+             the Android-12 background FGS-start block. -->
+        <service
+            android:name=".PointForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false" />
+
+        <!-- R9: restart the service after a reboot when an active share exists. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

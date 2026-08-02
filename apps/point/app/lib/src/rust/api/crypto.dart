@@ -66,10 +66,7 @@ class AddMemberResult {
   final Uint8List welcome;
   final Uint8List commit;
 
-  const AddMemberResult({
-    required this.welcome,
-    required this.commit,
-  });
+  const AddMemberResult({required this.welcome, required this.commit});
 
   @override
   int get hashCode => welcome.hashCode ^ commit.hashCode;

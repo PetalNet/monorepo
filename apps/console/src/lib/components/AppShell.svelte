@@ -1,25 +1,29 @@
 <script lang="ts">
-	import type { Snippet } from "svelte";
-	import { onMount } from "svelte";
+	import type { HealthVerdict } from "$lib/api/derive";
+	import type { Me } from "$lib/api/types";
 	import {
 		dataMode,
 		getAssistantSession,
 		sendAssistantContext,
 		sendAssistantMessage,
 		type AssistantContextPayload,
-	} from "$lib/api/client";
-	import type { HealthVerdict } from "$lib/api/derive";
-	import type { Me } from "$lib/api/types";
-	import AskDock, { type ContextPayload } from "./AskDock.svelte";
+	} from "$lib/rpc/browser";
+	import type { Snippet } from "svelte";
+	import { onMount } from "svelte";
+
+	import { formatUnknown } from "#format";
+
+	import AskDock from "./AskDock.svelte";
 	import CommandPalette from "./CommandPalette.svelte";
 	import Icon from "./Icon.svelte";
 	import Sidebar from "./Sidebar.svelte";
 	import Snackbar from "./Snackbar.svelte";
+	import type { AssistantContextChip } from "./types";
 
 	/**
-	 * The one fixed frame, three regions (foundations §2.1): sidebar 232px + canvas.
-	 * Collapses to a 56px icon rail below 1280px; single-column canvas below 1024px.
-	 * The shell owns the one durable assistant dock and universal selected-context seam.
+	 * The one fixed frame, three regions (foundations §2.1): sidebar 232px + canvas. Collapses to a
+	 * 56px icon rail below 1280px; single-column canvas below 1024px. The shell owns the one durable
+	 * assistant dock and universal selected-context seam.
 	 */
 	interface Props {
 		me: Me;
@@ -29,18 +33,10 @@
 		connected?: boolean;
 		children: Snippet;
 	}
-	let {
-		me,
-		verdict,
-		stateFact = null,
-		badges = {},
-		connected = true,
-		children,
-	}: Props = $props();
+	let { me, verdict, stateFact = null, badges = {}, connected = true, children }: Props = $props();
 
-	let askRef = $state<AskDock | null>(null);
 	let paletteOpen = $state(false);
-	let context = $state<ContextPayload | null>(null);
+	let context = $state<AssistantContextChip | null>(null);
 	let progress = $state<string | null>(null);
 	let transcript = $state<string | null>(null);
 	let panels = $state<MaterializedPanel[]>([]);
@@ -50,9 +46,11 @@
 	let contextDelivery: Promise<void> | null = null;
 	let menu = $state<{ x: number; y: number; target: HTMLElement } | null>(null);
 	let menuEl = $state<HTMLDivElement | null>(null);
-	const assistantDown = $derived(
-		!connected || dataMode() !== "live" || assistantFailed,
-	);
+	const assistantDown = $derived(!connected || dataMode() !== "live" || assistantFailed);
+
+	function focusAskDock(): void {
+		document.querySelector<HTMLInputElement>("[data-ask-dock-input]")?.focus();
+	}
 
 	type Scalar = string | number | boolean | null;
 	interface MaterializedPanel {
@@ -136,8 +134,7 @@
 			typeof panel.title === "string" &&
 			panelTypes.includes(String(panel.type)) &&
 			render &&
-			(result === null ||
-				(Array.isArray(result?.columns) && Array.isArray(result?.rows)))
+			(result === null || (Array.isArray(result.columns) && Array.isArray(result.rows)))
 		)
 			return candidate as unknown as MaterializedPanel;
 		for (const key of ["result", "output", "data"]) {
@@ -165,15 +162,13 @@
 	function layout(value: unknown): WindowLayout | null {
 		const candidate = record(value);
 		if (!candidate) return null;
-		const direct = record(candidate?.layout) ?? candidate;
-		if (Array.isArray(direct?.ops))
+		const direct = record(candidate.layout) ?? candidate;
+		if (Array.isArray(direct.ops))
 			return {
-				ops: direct.ops
-					.filter((op) => record(op))
-					.map((op) => op as WindowLayout["ops"][number]),
+				ops: direct.ops.filter((op) => record(op)).map((op) => op as WindowLayout["ops"][number]),
 			};
 		for (const key of ["result", "output", "data"]) {
-			const nested = layout(candidate?.[key]);
+			const nested = layout(candidate[key]);
 			if (nested) return nested;
 		}
 		return null;
@@ -196,23 +191,18 @@
 	function proofLabel(panel: MaterializedPanel): string {
 		if (panel.panel.type === "refusal") return "refused";
 		const bindings = panel.render.bindings ?? [];
-		if (bindings.some(({ status }) => status === "refused"))
-			return "partly refused";
-		if (bindings.length) return `${bindings.length} proved bindings`;
-		return panel.result ? `${panel.result.row_count} rows` : "proved surface";
+		if (bindings.some(({ status }) => status === "refused")) return "partly refused";
+		if (bindings.length) return `${String(bindings.length)} proved bindings`;
+		return panel.result ? `${String(panel.result.row_count)} rows` : "proved surface";
 	}
 	function panelSpan(panel: MaterializedPanel, index: number): number {
 		const arranged = windowLayout?.ops.findLast(
 			(op) => op.panel_index === index && (op.verb === "size" || op.verb === "place"),
 		)?.layout?.span;
-		const span =
-			typeof arranged === "number" ? arranged : panel.panel.layout?.span;
+		const span = typeof arranged === "number" ? arranged : panel.panel.layout?.span;
 		return Math.max(
 			3,
-			Math.min(
-				12,
-				typeof span === "number" ? span : panel.panel.type === "stat" ? 4 : 6,
-			),
+			Math.min(12, typeof span === "number" ? span : panel.panel.type === "stat" ? 4 : 6),
 		);
 	}
 	function panelStyle(panel: MaterializedPanel, index: number): string {
@@ -221,78 +211,60 @@
 		)?.layout;
 		const col = typeof placed?.col === "number" ? Math.max(0, Math.min(11, placed.col)) + 1 : null;
 		const row = typeof placed?.row === "number" ? Math.max(0, placed.row) + 1 : null;
-		return `grid-column:${col ? `${col} / span ` : "span "}${panelSpan(panel, index)};${row ? `grid-row-start:${row};` : ""}`;
+		return `grid-column:${col ? `${String(col)} / span ` : "span "}${String(panelSpan(panel, index))};${row ? `grid-row-start:${String(row)};` : ""}`;
 	}
 	function panelHighlighted(panel: MaterializedPanel, index: number): boolean {
-		return panel.panel.layout?.highlight === true || windowLayout?.ops.some(
-			(op) => op.panel_index === index && op.verb === "highlight",
-		) === true;
+		return (
+			panel.panel.layout?.highlight === true ||
+			windowLayout?.ops.some((op) => op.panel_index === index && op.verb === "highlight") === true
+		);
 	}
 	function points(panel: MaterializedPanel): string {
 		const values = (panel.result?.rows ?? []).map((row) =>
-			row
-				.toReversed()
-				.find((cell): cell is number => typeof cell === "number"),
+			row.toReversed().find((cell): cell is number => typeof cell === "number"),
 		);
-		const numeric = values.filter(
-			(value): value is number => value !== undefined,
-		);
+		const numeric = values.filter((value): value is number => value !== undefined);
 		if (numeric.length < 2) return "";
 		const min = Math.min(...numeric),
 			range = Math.max(1, Math.max(...numeric) - min);
 		return numeric
 			.map(
 				(value, index) =>
-					`${8 + (index * 464) / (numeric.length - 1)},${88 - ((value - min) * 72) / range}`,
+					`${String(8 + (index * 464) / (numeric.length - 1))},${String(88 - ((value - min) * 72) / range)}`,
 			)
 			.join(" ");
 	}
 
 	function payloadFor(target: HTMLElement): AssistantContextPayload {
 		const contributor =
-			target.closest<HTMLElement>(
-				"[data-ask], [data-query-ref], [data-entity-ref]",
-			) ?? target;
+			target.closest<HTMLElement>("[data-ask], [data-query-ref], [data-entity-ref]") ?? target;
 		const raw =
-			contributor.dataset.ask ??
-			contributor.getAttribute("aria-label") ??
-			contributor.textContent ??
-			contributor.tagName;
+			contributor.dataset.ask ?? contributor.getAttribute("aria-label") ?? contributor.textContent;
 		const value =
-			raw.replace(/\s+/g, " ").trim().slice(0, 500) ||
-			contributor.tagName.toLowerCase();
+			raw.replace(/\s+/g, " ").trim().slice(0, 500) || contributor.tagName.toLowerCase();
 		return {
 			element_kind:
 				contributor.dataset.askKind ??
 				contributor.getAttribute("role") ??
 				contributor.tagName.toLowerCase(),
 			value,
-			...(contributor.dataset.askField
-				? { field: contributor.dataset.askField }
-				: {}),
-			...(contributor.dataset.queryRef
-				? { query_ref: contributor.dataset.queryRef }
-				: {}),
-			...(contributor.dataset.entityRef
-				? { entity_ref: contributor.dataset.entityRef }
-				: {}),
+			...(contributor.dataset.askField ? { field: contributor.dataset.askField } : {}),
+			...(contributor.dataset.queryRef ? { query_ref: contributor.dataset.queryRef } : {}),
+			...(contributor.dataset.entityRef ? { entity_ref: contributor.dataset.entityRef } : {}),
 		};
 	}
 
 	function openContextMenu(event: MouseEvent) {
 		if (window.getSelection()?.toString()) return;
 		const target = event.target instanceof HTMLElement ? event.target : null;
-		if (!target || target.closest("input, textarea, [contenteditable=true]"))
-			return;
+		if (!target || target.closest("input, textarea, [contenteditable=true]")) return;
 		event.preventDefault();
 		menu = {
 			x: Math.min(event.clientX, window.innerWidth - 176),
 			y: Math.min(event.clientY, window.innerHeight - 104),
 			target,
 		};
-		queueMicrotask(() =>
-			menuEl?.querySelector<HTMLButtonElement>("button")?.focus(),
-		);
+		queueMicrotask(() => menuEl?.querySelector<HTMLButtonElement>("button")?.focus());
 	}
 
 	function openKeyboardMenu(event: KeyboardEvent) {
@@ -303,15 +275,14 @@
 				!!target.closest("input, textarea, [contenteditable=true]"));
 		if (event.key === "/" && !typing) {
 			event.preventDefault();
-			askRef?.focus();
+			focusAskDock();
 			return;
 		}
 		if (event.key === "Escape") {
 			menu = null;
 			return;
 		}
-		if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
-			return;
+		if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
 		if (!target) return;
 		event.preventDefault();
 		const box = target.getBoundingClientRect();
@@ -320,16 +291,14 @@
 			y: Math.min(box.bottom, window.innerHeight - 104),
 			target,
 		};
-		queueMicrotask(() =>
-			menuEl?.querySelector<HTMLButtonElement>("button")?.focus(),
-		);
+		queueMicrotask(() => menuEl?.querySelector<HTMLButtonElement>("button")?.focus());
 	}
 
 	async function askAbout(target: HTMLElement) {
 		const payload = payloadFor(target);
 		context = { label: payload.value.slice(0, 64) };
 		menu = null;
-		queueMicrotask(() => askRef?.focus());
+		queueMicrotask(focusAskDock);
 		if (assistantDown) return;
 		contextDelivery = (async () => {
 			try {
@@ -340,6 +309,15 @@
 		})();
 		await contextDelivery;
 		contextDelivery = null;
+	}
+	function askAboutMenuTarget(): void {
+		if (menu) void askAbout(menu.target);
+	}
+	function runMenuContextAction(): void {
+		if (menu) runContextAction(menu.target);
+	}
+	function copyMenuValue(): void {
+		if (menu) void copyValue(menu.target);
 	}
 
 	async function copyValue(target: HTMLElement) {
@@ -387,7 +365,7 @@
 					windowLayout = layout(session.window_layout);
 					if (session.last_context?.value)
 						context = {
-							label: String(session.last_context.value).slice(0, 64),
+							label: formatUnknown(session.last_context.value).slice(0, 64),
 						};
 					return session;
 				})
@@ -398,45 +376,30 @@
 				.finally(() => (sessionRestoring = false));
 		}
 		function commandKey(event: KeyboardEvent) {
-			if (
-				!(event.metaKey || event.ctrlKey) ||
-				event.key.toLocaleLowerCase() !== "k"
-			)
-				return;
+			if (!(event.metaKey || event.ctrlKey) || event.key.toLocaleLowerCase() !== "k") return;
 			event.preventDefault();
 			paletteOpen = true;
 		}
 		window.addEventListener("keydown", commandKey, { capture: true });
-		return () =>
+		return () => {
 			window.removeEventListener("keydown", commandKey, { capture: true });
+		};
 	});
 </script>
 
 <svelte:window onkeydown={openKeyboardMenu} onclick={() => (menu = null)} />
 
 <div class="shell">
-	<Sidebar
-		{me}
-		{verdict}
-		{stateFact}
-		{badges}
-		onpalette={() => (paletteOpen = true)}
-	/>
+	<Sidebar {me} {verdict} {stateFact} {badges} onpalette={() => (paletteOpen = true)} />
 	<main class="canvas" oncontextmenu={openContextMenu}>
 		<div class="surface">
 			{#if panels.length}
-				<section
-					class="assistant-window"
-					aria-label="Assistant-composed window"
-					aria-live="polite"
-				>
+				<section class="assistant-window" aria-label="Assistant-composed window" aria-live="polite">
 					<header>
 						<div>
 							<h1>Assistant window</h1>
 							<p>
-								{panels.length} proved {panels.length === 1
-									? "panel"
-									: "panels"} · caller-scoped
+								{panels.length} proved {panels.length === 1 ? "panel" : "panels"} · caller-scoped
 							</p>
 						</div>
 						<button type="button" onclick={() => (panels = [])}
@@ -444,7 +407,7 @@
 						>
 					</header>
 					<div class="assistant-grid">
-						{#each panels as item, index}
+						{#each panels as item, index (index)}
 							<article
 								class:highlight={panelHighlighted(item, index)}
 								style={panelStyle(item, index)}
@@ -466,14 +429,13 @@
 										<div>
 											<b>Couldn’t prove this panel</b>
 											<p>
-												{item.panel.refusal?.reason ??
-													"The requested evidence is unavailable."}
+												{item.panel.refusal?.reason ?? "The requested evidence is unavailable."}
 											</p>
-											{#each item.panel.refusal?.suggestions ?? [] as suggestion}<button
+											{#each item.panel.refusal?.suggestions ?? [] as suggestion, __eachKey0 (__eachKey0)}<button
 													type="button"
 													onclick={() => {
 														context = { label: suggestion };
-														queueMicrotask(() => askRef?.focus());
+														queueMicrotask(focusAskDock);
 													}}>{suggestion}</button
 												>{/each}
 										</div>
@@ -494,29 +456,25 @@
 											><line x1="0" y1="88" x2="480" y2="88" /><polyline
 												points={points(item)}
 											/></svg
-										>{:else}<p class="panel-empty">
-											No numeric series was returned.
-										</p>{/if}
+										>{:else}<p class="panel-empty">No numeric series was returned.</p>{/if}
 								{:else if item.result?.rows.length}
 									<div class="table-scroll">
 										<table>
 											<thead
 												><tr
-													>{#each item.result.columns as column}<th
+													>{#each item.result.columns as column, __eachKey1 (__eachKey1)}<th
 															>{column.name}</th
 														>{/each}</tr
 												></thead
 											><tbody
-												>{#each item.result.rows.slice(0, 20) as row}<tr
-														>{#each row as cell}<td>{cell ?? "—"}</td
+												>{#each item.result.rows.slice(0, 20) as row, __eachKey2 (__eachKey2)}<tr
+														>{#each row as cell, __eachKey3 (__eachKey3)}<td>{cell ?? "—"}</td
 															>{/each}</tr
 													>{/each}</tbody
 											>
 										</table>
 									</div>
-								{:else}<p class="panel-empty">
-										The query returned no visible rows.
-									</p>{/if}
+								{:else}<p class="panel-empty">The query returned no visible rows.</p>{/if}
 								<footer>
 									<Icon name="receipt-text" size={13} /><span
 										>{item.render.data_query_ref ??
@@ -528,16 +486,12 @@
 						{/each}
 					</div>
 				</section>
-			{:else if sessionRestoring}<div
-					class="window-restoring"
-					aria-live="polite"
-				>
+			{:else if sessionRestoring}<div class="window-restoring" aria-live="polite">
 					Restoring your assistant window…
 				</div>{/if}
 			{#if !panels.length}{@render children()}{/if}
 		</div>
 		<AskDock
-			bind:this={askRef}
 			mode="docked"
 			{context}
 			{progress}
@@ -548,37 +502,29 @@
 		/>
 	</main>
 </div>
-<CommandPalette
-	bind:open={paletteOpen}
-	lanes={me.lanes}
-	{connected}
-	onask={() => askRef?.focus()}
-/>
+<CommandPalette bind:open={paletteOpen} lanes={me.lanes} {connected} onask={focusAskDock} />
 {#if menu}
 	<div
 		bind:this={menuEl}
 		class="context-menu"
-		style:left={`${menu.x}px`}
-		style:top={`${menu.y}px`}
+		style:left={`${String(menu.x)}px`}
+		style:top={`${String(menu.y)}px`}
 		role="menu"
 		aria-label="Element actions"
 		tabindex="-1"
 	>
-		<button type="button" role="menuitem" onclick={() => askAbout(menu!.target)}
+		<button type="button" role="menuitem" onclick={askAboutMenuTarget}
 			><Icon name="sparkles" size={16} />Ask about this</button
 		>
 		{#if menu.target.closest("[data-context-action]")}<button
 				type="button"
 				role="menuitem"
-				onclick={() => runContextAction(menu!.target)}
+				onclick={runMenuContextAction}
 				><Icon name="columns-2" size={16} />{menu.target.closest<HTMLElement>(
 					"[data-context-action]",
 				)?.dataset.contextAction}</button
 			>{/if}
-		<button
-			type="button"
-			role="menuitem"
-			onclick={() => copyValue(menu!.target)}
+		<button type="button" role="menuitem" onclick={copyMenuValue}
 			><Icon name="copy" size={16} />Copy value</button
 		>
 	</div>

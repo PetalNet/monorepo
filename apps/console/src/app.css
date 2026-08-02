@@ -7,8 +7,8 @@
    retune token values — they are the spec's source of truth.
    Themes: Paper (light) / Ink (dark). data-theme on <html>; no pin
    follows the OS via prefers-color-scheme.
-   Fonts (Geist / Geist Mono) are self-hosted via @fontsource,
-   imported in +layout.svelte.
+   Fonts (Geist / Geist Mono) are self-hosted via fontless and
+   detected from the --font-* variables below.
    ============================================================ */
 @import "tailwindcss";
 
@@ -209,9 +209,12 @@
 
 :root {
 	/* type */
-	--sans: "Geist", system-ui, -apple-system, sans-serif;
-	--mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
-	--sign: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+	--font-sans: "Geist", system-ui, -apple-system, sans-serif;
+	--font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+	--font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+	--sans: var(--font-sans);
+	--mono: var(--font-mono);
+	--sign: var(--font-serif);
 	/* 8pt grid. Allowed steps: 4 (tight pairs) 8 16 24 32 48 64; 2px hairlines only. */
 	--s-1: 0.25rem;
 	--s-2: 0.5rem;

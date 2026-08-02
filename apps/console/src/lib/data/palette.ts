@@ -103,7 +103,7 @@ export function searchMockPalette(query: string): PaletteSearchResponse {
 	const items = MOCK_ITEMS.flatMap((item) => {
 		const score = mockScore(query, item);
 		return score === null ? [] : [{ ...item, score }];
-	}).toSorted((left, right) => (right.score ?? 0) - (left.score ?? 0));
+	}).toSorted((left, right) => right.score - left.score);
 	return {
 		schema_version: 1,
 		freshness: { source: "palette", observed_at: new Date().toISOString(), window_s: 0 },

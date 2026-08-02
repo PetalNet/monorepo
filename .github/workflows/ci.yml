@@ -33,6 +33,7 @@ jobs:
           run-install: true
           sfw: true
       - run: vp run check
+      - run: vp run test
       - run: vp run manypkg
       - run: vp dedupe --check -- --prefer-offline
       - run: vp run typesync:check
@@ -57,7 +58,9 @@ jobs:
           run-install: true
           sfw: true
       - name: Write app env
-        run: echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
+        run: |
+          echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
+          echo "DATABASE_URL=$DATABASE_URL" > apps/grove/.env
       - run: vp run build
 
   manager-rust:

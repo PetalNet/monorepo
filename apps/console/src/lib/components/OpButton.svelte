@@ -1,16 +1,15 @@
 <script lang="ts">
-	import { runOp } from "$lib/api/client";
 	import { canSeeOp, type OpDef } from "$lib/api/ops";
+	import { runOp } from "$lib/rpc/browser";
 	import { snackbar } from "$lib/stores/snackbar.svelte";
 
 	/**
-	 * A named-op button (foundations §4.2, /task/683). Plain verb on the face; the
-	 * op name lives in the hover audit note and the fired snackbar, never the
-	 * label. Same op an agent calls, same effect, same audit line. Rules:
-	 *   - visibility gates on the caller's lane (a viewer sees state, not controls)
-	 *   - availability gates on the gating executor's liveness, NOT target freshness
-	 *     (recovery stays hot; §2.3). Unreachable executor => disabled with reason.
-	 *   - no op => no button (there is no UI-only action).
+	 * A named-op button (foundations §4.2, /task/683). Plain verb on the face; the op name lives in
+	 * the hover audit note and the fired snackbar, never the label. Same op an agent calls, same
+	 * effect, same audit line. Rules: - visibility gates on the caller's lane (a viewer sees state,
+	 * not controls) - availability gates on the gating executor's liveness, NOT target freshness
+	 * (recovery stays hot; §2.3). Unreachable executor => disabled with reason. - no op => no button
+	 * (there is no UI-only action).
 	 */
 	interface Props {
 		def: OpDef;
@@ -24,8 +23,10 @@
 		/** Remote-Function execution seam. Defaults to the browser named-op client. */
 		execute?: (args: Record<string, unknown>) => Promise<unknown>;
 		variant?: "primary" | "tonal" | "ghost" | "danger";
-		/** Display label override (e.g. "Restore" for a preset-arg variant of an op);
-		 * the wire op + audit note stay `def.op`. Defaults to the catalog verb. */
+		/**
+		 * Display label override (e.g. "Restore" for a preset-arg variant of an op); the wire op +
+		 * audit note stay `def.op`. Defaults to the catalog verb.
+		 */
 		label?: string;
 		/** Optional stale note surfaced in the soft-confirm ("state is 84s stale"). */
 		staleNote?: string | null;
@@ -51,7 +52,7 @@
 	const visible = $derived(canSeeOp(def, lanes));
 	const disabled = $derived(!executorLive || !available || busy);
 	const auditNote = $derived(
-		`${def.op}` +
+		def.op +
 			(!executorLive ? " · executor unreachable" : !available ? ` · ${unavailableNote}` : ""),
 	);
 
@@ -106,8 +107,7 @@
 
 <style>
 	.op-btn {
-		font:
-			500 0.8125rem var(--sans);
+		font: 500 0.8125rem var(--sans);
 		border: 0;
 		cursor: pointer;
 		border-radius: var(--r-sm);
