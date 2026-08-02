@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { TrackerReader, TrackerRow } from "../../src/lib/server/domain/reads/tracker.ts";
@@ -20,7 +21,7 @@ function task(id: number, status: "done" | "dropped" | "doing", updatedAt: strin
 
 function settlement(rows: TrackerRow[]) {
 	const tracker = { closedTasks: () => rows } as unknown as TrackerReader;
-	return readWorkSettlement(tracker, ["project:console"], NOW);
+	return Effect.runSync(readWorkSettlement(tracker, ["project:console"], NOW));
 }
 
 describe("work auto-settlement", () => {

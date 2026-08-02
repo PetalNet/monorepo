@@ -1,75 +1,77 @@
+import { Effect } from "effect";
+
 import type { Sql } from "../db/pool.ts";
 import { withScopes } from "../db/pool.ts";
 
 export type AvailabilityState = "up" | "degraded" | "down";
 
 export interface AvailabilityPoint {
-	readonly ts: string;
-	readonly ok: boolean;
-	readonly latency_ms: number | null;
+	ts: string;
+	ok: boolean;
+	latency_ms: number | null;
 }
 
 export interface AvailabilityItem {
-	readonly subject: string;
-	readonly service: string;
-	readonly host: string | null;
-	readonly state: AvailabilityState;
-	readonly p50_latency_ms: number | null;
-	readonly p95_latency_ms: number | null;
-	readonly degraded_threshold_ms: number;
-	readonly uptime_pct: number | null;
-	readonly coverage_pct: number;
-	readonly window_s: number;
-	readonly cadence_s: number;
-	readonly observed_probes: number;
-	readonly expected_probes: number;
-	readonly invalid_probes: number;
-	readonly source_error: string | null;
-	readonly last_probe_at: string | null;
-	readonly outage_since: string | null;
-	readonly largest_gap: { readonly from: string; readonly to: string } | null;
-	readonly points: readonly AvailabilityPoint[];
+	subject: string;
+	service: string;
+	host: string | null;
+	state: AvailabilityState;
+	p50_latency_ms: number | null;
+	p95_latency_ms: number | null;
+	degraded_threshold_ms: number;
+	uptime_pct: number | null;
+	coverage_pct: number;
+	window_s: number;
+	cadence_s: number;
+	observed_probes: number;
+	expected_probes: number;
+	invalid_probes: number;
+	source_error: string | null;
+	last_probe_at: string | null;
+	outage_since: string | null;
+	largest_gap: { from: string; to: string } | null;
+	points: AvailabilityPoint[];
 }
 
 export interface AvailabilitySnapshot {
-	readonly schema_version: 1;
-	readonly freshness: {
-		readonly source: "lake";
-		readonly observed_at: string | null;
-		readonly window_s: number;
+	schema_version: 1;
+	freshness: {
+		source: "lake";
+		observed_at: string | null;
+		window_s: number;
 	};
-	readonly probe_runner: string | null;
-	readonly items: readonly AvailabilityItem[];
+	probe_runner: string | null;
+	items: AvailabilityItem[];
 }
 
 export interface ProbeSummary {
-	readonly subject: string;
-	readonly service: string;
-	readonly host: string | null;
-	readonly observed_probes: number;
-	readonly successful_probes: number;
-	readonly invalid_probes: number;
-	readonly p50_latency_ms: number | null;
-	readonly p95_latency_ms: number | null;
-	readonly cadence_s: number | null;
-	readonly threshold_ms: number | null;
-	readonly first_probe_at: string;
-	readonly last_probe_at: string;
-	readonly largest_gap_from: string | null;
-	readonly largest_gap_to: string | null;
-	readonly probe_runner: string | null;
+	subject: string;
+	service: string;
+	host: string | null;
+	observed_probes: number;
+	successful_probes: number;
+	invalid_probes: number;
+	p50_latency_ms: number | null;
+	p95_latency_ms: number | null;
+	cadence_s: number | null;
+	threshold_ms: number | null;
+	first_probe_at: string;
+	last_probe_at: string;
+	largest_gap_from: string | null;
+	largest_gap_to: string | null;
+	probe_runner: string | null;
 }
 
 export interface KnownService {
-	readonly subject: string;
-	readonly service: string | null;
-	readonly host: string | null;
-	readonly probe_runner: string | null;
-	readonly observed_at: string;
-	readonly last_probe_at: string | null;
-	readonly last_probe_result: unknown;
-	readonly last_signal_type: "service.down" | "service.up" | null;
-	readonly last_signal_at: string | null;
+	subject: string;
+	service: string | null;
+	host: string | null;
+	probe_runner: string | null;
+	observed_at: string;
+	last_probe_at: string | null;
+	last_probe_result: unknown;
+	last_signal_type: "service.down" | "service.up" | null;
+	last_signal_at: string | null;
 }
 
 const DEFAULT_CADENCE_S = 30;
@@ -262,14 +264,17 @@ interface KnownServiceRow {
 	observed_at: string | Date;
 }
 
-export async function readAvailability(
+export function readAvailability(
 	app: Sql,
 	scopes: readonly string[],
 	windowS: number,
 	now = new Date(),
-): Promise<AvailabilitySnapshot> {
-	return withScopes(app, scopes, async (tx) => {
-		const summaries = await tx<SummaryRow[]>`
+): Effect.Effect<AvailabilitySnapshot> {
+	// One scoped transaction fans three lake queries into the pure availability derivation. It is a
+	// single external edge (`Effect.promise` over the pg transaction); a lake fault is a defect.
+	return Effect.promise(() =>
+		withScopes(app, scopes, async (tx) => {
+			const summaries = await tx<SummaryRow[]>`
 			with parsed as (
 				select subject, received_at,
 					coalesce(nullif(dimensions->>'service', ''),
@@ -319,7 +324,7 @@ export async function readAvailability(
 				(array_agg(probe_runner order by received_at desc) filter (where probe_runner is not null))[1] as probe_runner
 			from samples group by subject order by subject`;
 
-		const pointRows = await tx<PointRow[]>`
+			const pointRows = await tx<PointRow[]>`
 			with parsed as (
 				select subject, received_at as ts,
 					case
@@ -336,56 +341,63 @@ export async function readAvailability(
 			select subject, ts, ok, latency_ms from parsed
 			where position <= 60 and ok is not null order by subject, ts`;
 
-		const knownRows = await tx<KnownServiceRow[]>`
+			const knownRows = await tx<KnownServiceRow[]>`
 			select subject, state, observed_at from current_state
 			where kind = 'availability' order by subject`;
 
-		const normalizedSummaries: ProbeSummary[] = summaries.map((row) => ({
-			...row,
-			observed_probes: Number(row.observed_probes),
-			successful_probes: Number(row.successful_probes),
-			invalid_probes: Number(row.invalid_probes),
-			p50_latency_ms: row.p50_latency_ms == null ? null : Number(row.p50_latency_ms),
-			p95_latency_ms: row.p95_latency_ms == null ? null : Number(row.p95_latency_ms),
-			cadence_s: row.cadence_s == null ? null : Number(row.cadence_s),
-			threshold_ms: row.threshold_ms == null ? null : Number(row.threshold_ms),
-			first_probe_at: iso(row.first_probe_at),
-			last_probe_at: iso(row.last_probe_at),
-			largest_gap_from: row.largest_gap_from ? iso(row.largest_gap_from) : null,
-			largest_gap_to: row.largest_gap_to ? iso(row.largest_gap_to) : null,
-		}));
-		const points = new Map<string, AvailabilityPoint[]>();
-		for (const row of pointRows) {
-			const list = points.get(row.subject) ?? [];
-			list.push({
-				ts: iso(row.ts),
-				ok: row.ok,
-				latency_ms: row.latency_ms == null ? null : Number(row.latency_ms),
-			});
-			points.set(row.subject, list);
-		}
-		const knownServices: KnownService[] = knownRows.map((row) => ({
-			subject: row.subject,
-			service: typeof row.state["service"] === "string" ? row.state["service"] : null,
-			host: typeof row.state["host"] === "string" ? row.state["host"] : null,
-			probe_runner:
-				typeof row.state["probe_runner"] === "string"
-					? row.state["probe_runner"]
-					: typeof row.state["source"] === "string"
-						? row.state["source"]
+			const normalizedSummaries: ProbeSummary[] = summaries.map((row) => ({
+				...row,
+				observed_probes: Number(row.observed_probes),
+				successful_probes: Number(row.successful_probes),
+				invalid_probes: Number(row.invalid_probes),
+				p50_latency_ms: row.p50_latency_ms == null ? null : Number(row.p50_latency_ms),
+				p95_latency_ms: row.p95_latency_ms == null ? null : Number(row.p95_latency_ms),
+				cadence_s: row.cadence_s == null ? null : Number(row.cadence_s),
+				threshold_ms: row.threshold_ms == null ? null : Number(row.threshold_ms),
+				first_probe_at: iso(row.first_probe_at),
+				last_probe_at: iso(row.last_probe_at),
+				largest_gap_from: row.largest_gap_from ? iso(row.largest_gap_from) : null,
+				largest_gap_to: row.largest_gap_to ? iso(row.largest_gap_to) : null,
+			}));
+			const points = new Map<string, AvailabilityPoint[]>();
+			for (const row of pointRows) {
+				const list = points.get(row.subject) ?? [];
+				list.push({
+					ts: iso(row.ts),
+					ok: row.ok,
+					latency_ms: row.latency_ms == null ? null : Number(row.latency_ms),
+				});
+				points.set(row.subject, list);
+			}
+			const knownServices: KnownService[] = knownRows.map((row) => ({
+				subject: row.subject,
+				service: typeof row.state["service"] === "string" ? row.state["service"] : null,
+				host: typeof row.state["host"] === "string" ? row.state["host"] : null,
+				probe_runner:
+					typeof row.state["probe_runner"] === "string"
+						? row.state["probe_runner"]
+						: typeof row.state["source"] === "string"
+							? row.state["source"]
+							: null,
+				observed_at: iso(row.observed_at),
+				last_probe_at:
+					typeof row.state["last_probe_at"] === "string" ? iso(row.state["last_probe_at"]) : null,
+				last_probe_result: row.state["last_probe_result"],
+				last_signal_type:
+					row.state["last_signal_type"] === "service.down" ||
+					row.state["last_signal_type"] === "service.up"
+						? row.state["last_signal_type"]
 						: null,
-			observed_at: iso(row.observed_at),
-			last_probe_at:
-				typeof row.state["last_probe_at"] === "string" ? iso(row.state["last_probe_at"]) : null,
-			last_probe_result: row.state["last_probe_result"],
-			last_signal_type:
-				row.state["last_signal_type"] === "service.down" ||
-				row.state["last_signal_type"] === "service.up"
-					? row.state["last_signal_type"]
-					: null,
-			last_signal_at:
-				typeof row.state["last_signal_at"] === "string" ? iso(row.state["last_signal_at"]) : null,
-		}));
-		return assembleAvailability(normalizedSummaries, points, knownServices, windowS, now.getTime());
-	});
+				last_signal_at:
+					typeof row.state["last_signal_at"] === "string" ? iso(row.state["last_signal_at"]) : null,
+			}));
+			return assembleAvailability(
+				normalizedSummaries,
+				points,
+				knownServices,
+				windowS,
+				now.getTime(),
+			);
+		}),
+	);
 }

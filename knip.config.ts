@@ -1,12 +1,11 @@
 import type { KnipConfig } from "knip";
 
 export default {
+	// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
+	ignoreDependencies: ["@effect/language-service"],
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
-		".": {
-			entry: ["vite.config.ts"],
-		},
 		"apps/collegemap": {
 			drizzle: {
 				config: [],
@@ -14,22 +13,23 @@ export default {
 			},
 		},
 		"apps/console": {
-			sveltekit: {
-				config: ["vite.config.ts"],
-			},
-			paths: {
-				"$app/env": ["node_modules/@sveltejs/kit/types/index.d.ts"],
-				"$app/server": ["node_modules/@sveltejs/kit/types/index.d.ts"],
-			},
+			ignoreDependencies: ["crossws!"],
 			// Scripts are deploy/ops entrypoints (seed, bridge daemon, token mint, capability
 			// install) — production surface, hence the `!` markers.
 			entry: [
 				"effectdb.config.ts!",
 				"src/lib/server/db/tables.ts!",
+				"src/env.ts!",
 				"scripts/*.{ts,mjs}!",
 				"src/**/*.test.ts",
 				"test/**/*.ts",
 			],
+		},
+		"apps/grove": {
+			entry: ["effectdb.config.ts!", "src/env.ts!"],
+		},
+		"apps/storybook": {
+			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],
 		},
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],

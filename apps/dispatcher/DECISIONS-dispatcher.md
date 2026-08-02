@@ -9,6 +9,13 @@ and runs the hybrid push/pull wanted board. Contracts:
 gallery `collab-wanted-board`, `fleet-dispatcher-review`, `fleet-manager-spec` v2,
 CONTRACTS.md §4/§6.
 
+The branch, external design-source names, and `/home/docker/backend-fable` note below are
+historical provenance from the original implementation. The current app is
+`apps/dispatcher` in this monorepo. Its spool daemon requires `ingest_dir` and `outbox_dir` at
+startup in addition to the config type's required `db_path`; the spool fields remain optional in
+the shared config type for library/tests. `DISPATCHER_CONFIG` selects the config file (default
+`dispatcher-config.json`).
+
 ## Ground-truth findings
 
 - The task-card contract requires `recipient` + `task_id` on every card and
@@ -47,7 +54,7 @@ CONTRACTS.md §4/§6.
 | DP9  | Runtime v1 I/O: ingest = JSONL spool dir (one InboundMessage per line, files consumed atomically); delivery = `CardTransport` trait with SpoolTransport (per-recipient outbox JSONL) + InProc test transport; doorman RPC transport arrives with N1.4 integration | mirrors the proven drain-hook spool pattern; gives a real runnable daemon that disposable test agents can exercise today without any live service                                                  |
 | DP10 | Wake notifications go through a token bucket (default 2 wakes/s burst 5) with full jitter                                                                                                                                                                         | dispatcher-review §5: wake stampede is the classic thundering herd; token bucket + jitter is the standard guard                                                                                    |
 | DP11 | Digest: per recipient, deferred cards grouped by thread, ordered by surfacing score, capped at `digest_max_items`; bodies truncated at 200 chars with an explicit `…` marker and the card_id for retrieval                                                        | compact inbox digest per CONTRACTS §4; truncation is not paraphrase — the full verbatim body stays on the card                                                                                     |
-| DP12 | Config: serde `deny_unknown_fields`, required = {db_path}; everything else defaulted; `schema_version` optional const 1                                                                                                                                           | manager-config convention: harness-critical processes fail loudly on typos                                                                                                                         |
+| DP12 | Config: serde `deny_unknown_fields`; `db_path` is structurally required, and daemon startup additionally requires `ingest_dir` and `outbox_dir`; everything else defaulted; `schema_version` optional const 1                                                     | library/test configurations can omit spool transport, while the runnable daemon fails loudly without both runtime paths                                                                            |
 | DP13 | Dead-letter after `max_reaps` (default 3) consecutive reaps; parked cards (no eligible agent) are re-surfaced by a capacity-change event (`agent.capacity` ingest) or the reap tick, never hot-polled                                                             | collab-wanted-board lifecycle + Nomad blocked-evals pattern                                                                                                                                        |
 
 ## §0 compliance

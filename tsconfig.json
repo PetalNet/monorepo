@@ -1,6 +1,6 @@
 {
 	"extends": "@petalnet/tsconfig/base.json",
-	"files": ["eslint.config.ts"],
+	"files": ["eslint.config.ts", "vite.config.ts", "knip.config.ts"],
 	"compilerOptions": {
 		"types": ["node"],
 		"noEmit": true

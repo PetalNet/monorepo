@@ -1,8 +1,11 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
-	import CollegeSearch from '$lib/components/CollegeSearch.svelte';
+	import { enhance } from "$app/forms";
+	import { resolve } from "$app/paths";
+	import CollegeSearch from "$lib/components/CollegeSearch.svelte";
 
-	let { data, form } = $props();
+	import type { PageProps } from "./$types";
+
+	let { data, form }: PageProps = $props();
 
 	let selectedCollege = $state<{
 		name: string;
@@ -47,10 +50,17 @@
 				<h2 class="section-label">Current College</h2>
 				{#if data.currentCollege}
 					<div class="college-badge">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M12 2L2 7l10 5 10-5-10-5z"/>
-							<path d="M2 17l10 5 10-5"/>
-							<path d="M2 12l10 5 10-5"/>
+						<svg
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<path d="M12 2L2 7l10 5 10-5-10-5z" />
+							<path d="M2 17l10 5 10-5" />
+							<path d="M2 12l10 5 10-5" />
 						</svg>
 						{data.currentCollege.name}
 					</div>
@@ -74,8 +84,15 @@
 					<input type="hidden" name="isCustom" value={selectedCollege.isCustom} />
 
 					<div class="selected-badge">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<polyline points="20 6 9 17 4 12"/>
+						<svg
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<polyline points="20 6 9 17 4 12" />
 						</svg>
 						{selectedCollege.name}
 					</div>
@@ -94,9 +111,16 @@
 		</div>
 
 		<div class="back-link">
-			<a href="/">
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M19 12H5M12 19l-7-7 7-7"/>
+			<a href={resolve("/")}>
+				<svg
+					width="14"
+					height="14"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<path d="M19 12H5M12 19l-7-7 7-7" />
 				</svg>
 				Back to Map
 			</a>
@@ -122,8 +146,14 @@
 	}
 
 	@keyframes fade-in {
-		from { opacity: 0; transform: translateY(12px); }
-		to { opacity: 1; transform: translateY(0); }
+		from {
+			opacity: 0;
+			transform: translateY(12px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.profile-card {

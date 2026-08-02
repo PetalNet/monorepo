@@ -1,0 +1,9 @@
+services:
+  grove:
+    command: >-
+      sudo -u postgres psql -tAc "select 1 from pg_roles where rolname = 'user'" | grep -q 1 || sudo -u postgres createuser user;
+      sudo -u postgres psql -tAc "select 1 from pg_database where datname = 'grove'" | grep -q 1 || sudo -u postgres createdb --owner user grove;
+      cd apps/grove && export DATABASE_URL='postgresql:///grove?host=/var/run/postgresql' __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS='.e2b.app' && ~/.local/bin/mise exec -- vp exec effectdb migrate up && ~/.local/bin/mise exec -- vp exec vite dev --host 0.0.0.0 --port "$PORT"
+    portal:
+      title: Grove
+      description: Effect domain demo backed by PostgreSQL.

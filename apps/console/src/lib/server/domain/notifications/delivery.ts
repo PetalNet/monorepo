@@ -34,28 +34,28 @@ export interface DeliveryOperationResult {
 const TEST_BODY = "Test from the lab. If you can read this, the line works.";
 
 function isSafetyException(emission: Emission): boolean {
-	return emission.severity === "p0" || emission.dimensions?.["interrupt_policy"] === "safety";
+	return emission.severity === "p0" || emission.dimensions?.interrupt_policy === "safety";
 }
 
 function filterMatches(filter: unknown, emission: Emission): boolean {
 	if (!filter || typeof filter !== "object" || Array.isArray(filter)) return true;
 	const fields = filter as Record<string, unknown>;
 	if (
-		typeof fields["source_service"] === "string" &&
-		fields["source_service"] !== emission.source.service
+		typeof fields.source_service === "string" &&
+		fields.source_service !== emission.source.service
 	)
 		return false;
-	if (typeof fields["subject"] === "string" && fields["subject"] !== emission.subject) return false;
-	if (typeof fields["severity_gte"] === "string") {
+	if (typeof fields.subject === "string" && fields.subject !== emission.subject) return false;
+	if (typeof fields.severity_gte === "string") {
 		const grades = ["debug", "info", "warn", "danger", "p0"];
-		if (grades.indexOf(emission.severity) < grades.indexOf(fields["severity_gte"])) return false;
+		if (grades.indexOf(emission.severity) < grades.indexOf(fields.severity_gte)) return false;
 	}
 	return true;
 }
 
 function isInterruptEligible(emission: Emission): boolean {
 	return (
-		isSafetyException(emission) || emission.dimensions?.["interrupt_policy"] === "principal_command"
+		isSafetyException(emission) || emission.dimensions?.interrupt_policy === "principal_command"
 	);
 }
 
@@ -190,7 +190,7 @@ export class DeliveryService {
 			where type = 'delivery.receipt' and scope = ${`user:${owner}`}
 			  and ts >= now() - interval '10 minutes'
 			order by seq desc limit 2`;
-		if (rows.length < 2 || rows.some((row) => row.dimensions["status"] !== "failed")) return;
+		if (rows.length < 2 || rows.some((row) => row.dimensions.status !== "failed")) return;
 		const failingSince = [...rows].toSorted((left, right) => left.ts.localeCompare(right.ts))[0].ts;
 		await this.#createAttention(owner, now, failingSince, "delivery.failed");
 	}
@@ -357,7 +357,7 @@ export class DeliveryService {
 			  and type = 'delivery.receipt' and scope = ${`user:${owner}`} limit 1`;
 		const receipt = rows[0];
 
-		if (receipt.dimensions["status"] !== "failed" || receipt.dimensions["retryable"] !== true)
+		if (receipt.dimensions.status !== "failed" || receipt.dimensions.retryable !== true)
 			throw new MatrixDeliveryError("not_retryable", "Receipt is not retryable", false);
 		const config = await this.#config(owner);
 		if (!config)
@@ -365,9 +365,9 @@ export class DeliveryService {
 		return this.#send({
 			owner,
 			target: config.target,
-			body: String(receipt.dimensions["body"] ?? receipt.subject),
-			tier: String(receipt.dimensions["tier"] ?? "interrupt"),
-			signalRef: String(receipt.dimensions["signal_ref"] ?? "delivery.resend"),
+			body: String(receipt.dimensions.body ?? receipt.subject),
+			tier: String(receipt.dimensions.tier ?? "interrupt"),
+			signalRef: String(receipt.dimensions.signal_ref ?? "delivery.resend"),
 			subject: receipt.subject,
 		});
 	}
@@ -387,13 +387,13 @@ export class DeliveryService {
 		  and (state->>'tier' = 'interrupt' or coalesce((state->>'loud')::boolean, false))`;
 		const owners = new Map<string, { tier: string }>();
 		for (const row of rows) {
-			const pattern = formatUnknown(row.state["pattern"] ?? "");
-			const tier = formatUnknown(row.state["tier"] ?? "feed");
-			const loud = row.state["loud"] === true;
+			const pattern = formatUnknown(row.state.pattern ?? "");
+			const tier = formatUnknown(row.state.tier ?? "feed");
+			const loud = row.state.loud === true;
 			if (
 				!pattern ||
 				!matchPattern(pattern, emission.type) ||
-				!filterMatches(row.state["filter"], emission)
+				!filterMatches(row.state.filter, emission)
 			)
 				continue;
 			if (!loud && (tier !== "interrupt" || !isInterruptEligible(emission))) continue;

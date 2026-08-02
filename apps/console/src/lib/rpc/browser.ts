@@ -7,14 +7,16 @@ import type {
 	RosterItem,
 	StructuredQuery,
 } from "$lib/api/types";
+import { publicConfig } from "$lib/config";
 import type { ReadPlane, ReadPlaneResult } from "$lib/operations.remote";
 import {
 	executeNamedOp,
 	getAssistantSessionRemote,
+	readPlaneRemote,
+	readTerminalAccessRemote,
 	runStructuredQuery,
 	sendAssistantRemote,
 } from "$lib/operations.remote";
-import { readPlane } from "$lib/rpc/read-plane";
 import type { QueryResult } from "$lib/server/domain/query/structured";
 import {
 	connectBusClient,
@@ -24,13 +26,10 @@ import {
 import { Effect } from "effect";
 
 export type DataMode = "mock" | "live";
-export const dataMode = (): DataMode =>
-	import.meta.env.PUBLIC_CONSOLE_DATA_MODE === "mock" ? "mock" : "live";
+export const dataMode = (): DataMode => publicConfig.dataMode;
 
-export const runRemote = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
-	Effect.runPromise(effect);
 const read = <P extends ReadPlane>(plane: P): Promise<ReadPlaneResult[P]> =>
-	runRemote(readPlane(plane));
+	Effect.runPromise(readPlaneRemote(plane)) as Promise<ReadPlaneResult[P]>;
 
 export const readMe = (_fetch?: typeof fetch): Promise<Me> => read("me");
 export const readHealth = (_fetch?: typeof fetch): Promise<ConsoleHealth> => read("health");
@@ -52,13 +51,13 @@ export const readCards = (_fetch?: typeof fetch) => read("cards");
 export const readAttention = (_fetch?: typeof fetch) => read("attention");
 
 export const runQuery = (request: StructuredQuery, _fetch?: typeof fetch): Promise<QueryResult> =>
-	runRemote(runStructuredQuery(request));
+	Effect.runPromise(runStructuredQuery(request));
 
 export const runOp = (
 	op: string,
 	args: Record<string, unknown>,
 	opts: { dry_run?: boolean; fetchFn?: typeof fetch } = {},
-): Promise<OpResult> => runRemote(executeNamedOp({ op, args, dry_run: opts.dry_run }));
+): Promise<OpResult> => Effect.runPromise(executeNamedOp({ op, args, dry_run: opts.dry_run }));
 
 export type { BusConnectionState } from "@petalnet/console-bus-rpc";
 export type BusSubscription = BusSubscriptionSpec;
@@ -107,10 +106,8 @@ export type TerminalFrame =
 	| { schema_version: 1; stream_id: string; kind: "snapshot"; seq: number; data_b64: string }
 	| { schema_version: 1; stream_id: string; kind: "error"; seq: number; code: string };
 
-export async function readTerminalAccess(_fetch?: typeof fetch): Promise<TerminalAccess> {
-	const me = await readMe();
-	return { audit_writable: true, pty_live: me.lanes.includes("term_admin"), audit_seq: 0 };
-}
+export const readTerminalAccess = (): Promise<TerminalAccess> =>
+	Effect.runPromise(readTerminalAccessRemote());
 
 export function connectTerminal(
 	target: Record<string, unknown>,
@@ -168,8 +165,8 @@ export interface AssistantContextPayload {
 	query_ref?: string;
 	entity_ref?: string;
 }
-export const getAssistantSession = () => runRemote(getAssistantSessionRemote());
+export const getAssistantSession = () => Effect.runPromise(getAssistantSessionRemote());
 export const sendAssistantMessage = (message: string) =>
-	runRemote(sendAssistantRemote({ kind: "user", content: message }));
+	Effect.runPromise(sendAssistantRemote({ kind: "user", content: message }));
 export const sendAssistantContext = (payload: AssistantContextPayload) =>
-	runRemote(sendAssistantRemote({ kind: "context", content: JSON.stringify(payload) }));
+	Effect.runPromise(sendAssistantRemote({ kind: "context", content: JSON.stringify(payload) }));

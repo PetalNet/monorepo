@@ -2,6 +2,13 @@ import { json } from "@sveltejs/kit";
 
 import type { RequestHandler } from "./$types";
 
+/** The fields we read off a Nominatim search hit. */
+interface NominatimPlace {
+	display_name: string;
+	lat: string;
+	lon: string;
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const query = url.searchParams.get("q");
 
@@ -24,9 +31,9 @@ export const GET: RequestHandler = async ({ url }) => {
 			return json({ error: "Geocoding service unavailable" }, { status: 502 });
 		}
 
-		const results = await response.json();
+		const results = (await response.json()) as NominatimPlace[];
 
-		const formatted = results.map((r: { display_name: string; lat: string; lon: string }) => ({
+		const formatted = results.map((r) => ({
 			name: r.display_name,
 			lat: parseFloat(r.lat),
 			lng: parseFloat(r.lon),

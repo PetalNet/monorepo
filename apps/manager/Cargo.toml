@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 description = "Supervisor for a persistent Claude Code agent session in tmux: spawn/resume, crash backoff, rate-limit wait, Matrix control channel, healthcheck."
 license = "MIT"
-# NOTE: final home is PetalNet/monorepo (apps/agent-manager per FABLE-SPEC-canary-deploy.md).
-# This directory is the staging port; do not publish/push from here.
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

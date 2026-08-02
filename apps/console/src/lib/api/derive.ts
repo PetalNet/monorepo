@@ -66,36 +66,35 @@ export function flattenRosterItem(row: JoinedRosterItem): RosterItem {
 	].filter((clock): clock is string => typeof clock === "string");
 	const newestClock =
 		clocks.toSorted((a, b) => Date.parse(b) - Date.parse(a))[0] ?? new Date(0).toISOString();
-	const channelLock = heartbeat["channel_lock"];
+	const channelLock = heartbeat.channel_lock;
 	return {
 		handle: row.handle,
-		host:
-			stringValue(fleet["host"]) ?? stringValue(registry["host"]) ?? stringValue(identity["host"]),
-		status: (stringValue(fleet["status"]) as RosterItem["status"]) ?? null,
-		current_tool: stringValue(fleet["current_tool"]),
-		task_id: numberValue(fleet["task_id"]) ?? numberValue(lease["task_id"]),
-		task_title: stringValue(lease["task_title"]),
-		heartbeat_state: (stringValue(heartbeat["state"]) as RosterItem["heartbeat_state"]) ?? null,
-		crash_count: numberValue(heartbeat["crash_count"]),
+		host: stringValue(fleet.host) ?? stringValue(registry.host) ?? stringValue(identity.host),
+		status: (stringValue(fleet.status) as RosterItem["status"]) ?? null,
+		current_tool: stringValue(fleet.current_tool),
+		task_id: numberValue(fleet.task_id) ?? numberValue(lease.task_id),
+		task_title: stringValue(lease.task_title),
+		heartbeat_state: (stringValue(heartbeat.state) as RosterItem["heartbeat_state"]) ?? null,
+		crash_count: numberValue(heartbeat.crash_count),
 		channel_lock_state:
 			channelLock && typeof channelLock === "object" && !Array.isArray(channelLock)
 				? ((stringValue(
-						(channelLock as Record<string, unknown>)["state"],
+						(channelLock as Record<string, unknown>).state,
 					) as RosterItem["channel_lock_state"]) ?? null)
 				: null,
-		autonomy: (stringValue(identity["autonomy"]) as RosterItem["autonomy"]) ?? null,
-		lane: stringValue(identity["lane"]),
-		light: (stringValue(governance["light"]) as RosterItem["light"]) ?? null,
-		tokens_spent: numberValue(governance["tokens_spent"]),
-		tier: stringValue(governance["tier"]),
-		lease_expires_at: stringValue(lease["lease_expires_at"]),
-		fence: numberValue(lease["fence"]),
+		autonomy: (stringValue(identity.autonomy) as RosterItem["autonomy"]) ?? null,
+		lane: stringValue(identity.lane),
+		light: (stringValue(governance.light) as RosterItem["light"]) ?? null,
+		tokens_spent: numberValue(governance.tokens_spent),
+		tier: stringValue(governance.tier),
+		lease_expires_at: stringValue(lease.lease_expires_at),
+		fence: numberValue(lease.fence),
 		workers_active: numberValue(row.workers_active) ?? 0,
 		updated_at: newestClock,
 		observed_at: newestClock,
-		fleet_updated_at: stringValue(fleet["updated_at"]),
-		started_at: stringValue(fleet["started_at"]),
-		registry_last_seen_epoch: numberValue(registry["last_seen_epoch"]),
+		fleet_updated_at: stringValue(fleet.updated_at),
+		started_at: stringValue(fleet.started_at),
+		registry_last_seen_epoch: numberValue(registry.last_seen_epoch),
 		sources: Object.fromEntries(
 			(["fleet", "heartbeat", "registry", "governance", "identity", "lease"] as const).map(
 				(key) => [
@@ -117,11 +116,9 @@ export function consoleHealthBusAgeS(health: ConsoleHealth, now = Date.now()): n
 			if (typeof value === "string" && Number.isFinite(Date.parse(value)))
 				return [(now - Date.parse(value)) / 1_000];
 		}
-		const epoch = item["last_seen_epoch"];
+		const epoch = item.last_seen_epoch;
 		if (typeof epoch === "number" && Number.isFinite(epoch)) return [now / 1_000 - epoch];
-		return item["state"] === "up" || item["status"] === "ok" || item["liveness"] === "alive"
-			? [0]
-			: [];
+		return item.state === "up" || item.status === "ok" || item.liveness === "alive" ? [0] : [];
 	});
 	return ages.length ? Math.min(...ages) : null;
 }

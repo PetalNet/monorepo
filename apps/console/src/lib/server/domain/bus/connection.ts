@@ -6,7 +6,6 @@ import { BusClientFrameSchema } from "@petalnet/console-bus-rpc";
 import { Exit, Schema } from "effect";
 
 import type { Principal } from "../auth/principal.ts";
-import { withScopes } from "../db/pool.ts";
 import { sanitizedException, type ExceptionMonitor } from "../observability.ts";
 import type { Services } from "../substrate.ts";
 import type { SubscribeSpec } from "./broker.ts";
@@ -42,6 +41,33 @@ export interface BusConnectionOptions {
 	counters: BusCounters;
 }
 
+interface IngestSnapshot {
+	readonly readAt: number;
+	readonly rows: readonly { source_service: string; last_received_at: string }[];
+}
+
+const ingestSnapshots = new WeakMap<Services, IngestSnapshot>();
+const ingestReads = new WeakMap<Services, Promise<IngestSnapshot>>();
+
+async function readIngestSnapshot(services: Services): Promise<IngestSnapshot> {
+	const cached = ingestSnapshots.get(services);
+	if (cached && Date.now() - cached.readAt < 15_000) return cached;
+	const active = ingestReads.get(services);
+	if (active) return active;
+	const read = services.db.app<{ source_service: string; last_received_at: string }[]>`
+		select source_service, max(received_at)::text as last_received_at
+		from events group by source_service
+	`
+		.then((rows) => {
+			const snapshot = { readAt: Date.now(), rows };
+			ingestSnapshots.set(services, snapshot);
+			return snapshot;
+		})
+		.finally(() => ingestReads.delete(services));
+	ingestReads.set(services, read);
+	return read;
+}
+
 export function attachBusConnection(socket: BusSocket, options: BusConnectionOptions): void {
 	const { services, monitor, resolvePrincipal, refreshable, counters } = options;
 	const maxFrameBytes = 16 * 1024;
@@ -55,8 +81,8 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 		if (connSubs.delete(subId)) counters.subscriptions = Math.max(0, counters.subscriptions - 1);
 	};
 	const send = (frame: Record<string, unknown>): void => {
-		if (frame["kind"] === "resync_required" && typeof frame["sub_id"] === "string")
-			removeConnSub(frame["sub_id"]);
+		if (frame.kind === "resync_required" && typeof frame.sub_id === "string")
+			removeConnSub(frame.sub_id);
 		if (socket.isOpen()) socket.send(JSON.stringify(frame));
 	};
 	let pongReceived = true;
@@ -96,15 +122,7 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 		const ts = new Date();
 		let ingest: Record<string, number> | null = null;
 		try {
-			const rows = await withScopes(
-				services.db.app,
-				principal.scopes,
-				async (tx) =>
-					tx<{ source_service: string; last_received_at: string }[]>`
-					select source_service, max(received_at)::text as last_received_at
-					from events
-					group by source_service`,
-			);
+			const { rows } = await readIngestSnapshot(services);
 			ingest = Object.fromEntries(
 				rows.map((row) => [
 					row.source_service,
@@ -205,7 +223,7 @@ export function attachBusConnection(socket: BusSocket, options: BusConnectionOpt
 					return;
 				}
 				const rawSubId =
-					raw && typeof raw === "object" ? (raw as Record<string, unknown>)["sub_id"] : undefined;
+					raw && typeof raw === "object" ? (raw as Record<string, unknown>).sub_id : undefined;
 				const candidateSubId =
 					typeof rawSubId === "string" && rawSubId.length <= 64 ? rawSubId : "?";
 				const decoded = decodeClientFrame(raw);

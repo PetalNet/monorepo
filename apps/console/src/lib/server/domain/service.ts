@@ -35,8 +35,7 @@ const acquire = (): Promise<Services> => {
 };
 
 export const ConsoleDomainLive = Layer.succeed(ConsoleDomain, {
-	services: Effect.tryPromise({
-		try: acquire,
-		catch: (cause) => new ConsoleDomainUnavailable(cause),
-	}),
+	services: Effect.promise(acquire).pipe(
+		Effect.mapError((cause) => new ConsoleDomainUnavailable(cause)),
+	),
 });

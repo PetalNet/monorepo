@@ -49,7 +49,9 @@
 		background: transparent;
 		color: var(--text-2);
 		cursor: pointer;
-		transition: background var(--t), color var(--t);
+		transition:
+			background var(--t),
+			color var(--t);
 	}
 	.icon-button:hover {
 		background: var(--s3);

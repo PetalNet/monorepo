@@ -1,7 +1,6 @@
 packages:
   - apps/*
   - packages/*
-  - tools/*
 
 # Why: every dependency version must come from a catalog. `pnpm add` routes new
 # deps into a catalog automatically and refuses to introduce a divergent range.
@@ -44,13 +43,14 @@ catalogs:
     "@sveltejs/adapter-node": ^5.5.2
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.1.18
+    "@vitest/coverage-v8": ^4.0.0
     eslint-plugin-svelte: ^3.20.0
     autoprefixer: ^10.4.20
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
     eslint-plugin-oxlint: ^1.67.0
     eslint-plugin-package-json: ^1.2.0
-    knip: ^6.16.1
+    knip: ^6.31.0
     oxlint: ^1.67.0
     postcss: ^8.4.49
     prisma: ^5.22.0
@@ -105,7 +105,7 @@ catalogs:
 catalog:
   "@better-auth/test-utils": 1.7.0-rc.1
   crossws: ^0.3.5
-  "@effect/sql-pg": 4.0.0-beta.98
+  "@effect/sql-pg": 4.0.0-beta.102
   "@opentelemetry/api": ^1.9.0
   "@opentelemetry/auto-instrumentations-node": ^0.67.2
   "@opentelemetry/exporter-trace-otlp-proto": ^0.208.0
@@ -115,13 +115,17 @@ catalog:
   "@sveltejs/kit": 3.0.0-next.8
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.0-rc.1
-  effect: 4.0.0-beta.98
-  effect-db: 0.20.0
-  effect-qb: 0.20.0
-  svelte-effect-runtime: 4.0.0
+  effect: 4.0.0-beta.102
+  effect-db: 0.21.0
+  effect-qb: 0.21.0
+  svelte-effect-runtime: 4.1.1
   svelte-global-typescript: 1.0.1
-  svelte-plugin-composer: 1.0.1
   mode-watcher: ^1.1.0
   nanoid: ^6.0.0
   uuid: ^14.0.1
   "@sentry/node": ^10.65.0
+  "@effect/tsgo": ^0.24.3
+  storybook: 10.5.4
+  "@storybook/svelte-vite": 10.5.4
+  "@storybook/addon-a11y": 10.5.4
+  "@storybook/addon-docs": 10.5.4

@@ -1,6 +1,9 @@
 # Migration journal
 
-Tracks source repos pulled into this monorepo.
+This is a partial, historical journal of source repositories pulled into the
+monorepo. It records migration-era decisions and gotchas rather than the full
+current repository inventory; use the root README and current configuration for
+the authoritative layout and commands.
 
 ## Method
 
@@ -29,7 +32,11 @@ Then, the things that bit slide:
 - **Svelte 5 `state_referenced_locally`:** `data` destructured/read at module top from `$props()` isn't reactive — wrap in `$derived`.
 - **Unused deps:** drop whatever knip flags (slide shipped `better-sqlite3` it never imported) and remove the now-orphaned catalog entries.
 - **Standalone-repo ops cruft:** PowerShell/shell deploy scripts, Cloudflare-tunnel-per-app setup, and "deploy to a remote box" docs don't belong here (lab routes via Traefik + central deploy). Audit for secrets, then delete; trim the README's deploy section.
-- **knip + SvelteKit `$lib` / `./$types` (resolved):** under the monorepo workspace config, knip historically gave false "unused file/dependency" on `src/lib/**` and failed to resolve `./$types`. Root cause was a missing per-workspace `rootDirs` fallback (knip 6.15 regression, webpro-nl/knip#1778); fixed upstream in **knip 6.16.1**. Until 6.16.1 is adopted, `patches/knip.patch` re-adds the per-workspace `paths`/`rootDirs` scoping. Drop the patch once on 6.16.1.
+- **knip + SvelteKit `$lib` / `./$types` (resolved):** Knip 6.15 historically
+  produced false unused-file/dependency reports and failed to resolve generated
+  `./$types` imports because of a per-workspace `rootDirs` regression
+  (webpro-nl/knip#1778). The workspace now uses Knip 6.16.1 or newer, which
+  contains the upstream fix; no local patch is required.
 
 ## Migrated
 
@@ -58,14 +65,16 @@ Then, the things that bit slide:
   pattern audit across all blobs: clean).
 
 - `point` → `apps/point` — "Matrix for location": Rust home-server (axum+Postgres) +
-  lifted OpenMLS `core` crate + Flutter client placeholder, **not** a pnpm app (no
-  `package.json`; own Cargo workspace like `apps/manager`). Imported mid-build from
+  lifted OpenMLS `core` crate + an active Flutter client under `apps/point/app`,
+  **not** a pnpm app (no `package.json`; its Rust code has its own Cargo workspace
+  and the client has its own Flutter toolchain). Imported mid-build from
   `PetalNet/point` (Fable's v1 build retargeted here by directive, 2026-07-11) with
   full history: seed → M0 scaffolding → wave-A auth. Toolchain pinned 1.96 via
   `rust-toolchain.toml`; validation Cargo-native in `.github/workflows/point.yml`
-  (path-filtered: fmt/clippy/build/test vs a Postgres 16 service; Flutter analyze
-  activates when `apps/point/app` gains a pubspec). Keeps its AGPL-3.0 LICENSE.
-  Source repo stays up (vestigial). Build log: `apps/point/PLAN.md` + `DECISIONS.md`.
+  (path-filtered: fmt/clippy/build/test against a Postgres 16 service, plus Flutter
+  analyze, its Rust bridge build, and Flutter tests). Keeps its AGPL-3.0 LICENSE.
+  Source repo stays up (vestigial). The durable build and design record is
+  `apps/point/DECISIONS.md`; the completed execution plan was removed.
 
 _(populated as repos land — see issue #1 for the live checklist)_
 

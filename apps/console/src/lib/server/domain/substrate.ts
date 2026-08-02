@@ -44,6 +44,8 @@ export interface EmitOutcome {
 }
 
 export interface Services {
+	/** Process exception channel shared by HTTP, WebSocket, and in-process command surfaces. */
+	readonly monitor: ExceptionMonitor;
 	readonly db: Db;
 	readonly appender: Appender;
 	readonly broker: Broker;
@@ -232,17 +234,17 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 		);
 		// Registration remains the first fence. The only grant exception below is a subscription
 		// entity whose owner and private scope agree exactly; all other writes use grant intersection.
-		const entity = e.meta?.["entity"];
+		const entity = e.meta?.entity;
 		const entityOwner =
 			entity && typeof entity === "object" && !Array.isArray(entity)
-				? (entity as Record<string, unknown>)["owner"]
+				? (entity as Record<string, unknown>).owner
 				: undefined;
 		const internalSubscriptionWrite =
 			producerSubject === "system:console-api" &&
 			e.type === "subscription.changed" &&
 			typeof entityOwner === "string" &&
 			e.scope === (entityOwner.startsWith("agent:") ? entityOwner : `user:${entityOwner}`);
-		const internalOwner = e.dimensions?.["owner"];
+		const internalOwner = e.dimensions?.owner;
 		const internalPrivateWrite =
 			producerSubject === "system:console-api" &&
 			(e.type.startsWith("delivery.") || e.type.startsWith("attention.")) &&
@@ -306,12 +308,12 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 			e.type === "edge.enroll.approved" ||
 			e.type === "edge.enroll.denied"
 		) {
-			const enrollmentEntity = e.meta?.["entity"];
+			const enrollmentEntity = e.meta?.entity;
 			const typedEntity =
 				enrollmentEntity && typeof enrollmentEntity === "object" && !Array.isArray(enrollmentEntity)
 					? (enrollmentEntity as Record<string, unknown>)
 					: {};
-			const fingerprint = e.dimensions?.["pubkey_fp"] ?? typedEntity["pubkey_fp"];
+			const fingerprint = e.dimensions?.pubkey_fp ?? typedEntity.pubkey_fp;
 			if (typeof fingerprint === "string" && fingerprint) {
 				const resolved = e.type !== "edge.enroll.request";
 				const now = new Date().toISOString();
@@ -407,6 +409,7 @@ export async function buildServices(env: Env, opts?: ServiceOptions): Promise<Se
 	stormExpiryTimer.unref();
 
 	return {
+		monitor,
 		db,
 		appender,
 		broker,
