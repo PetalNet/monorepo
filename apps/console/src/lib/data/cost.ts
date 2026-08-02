@@ -6,15 +6,7 @@ import type {
 	CostDimension,
 } from "@petalnet/types";
 
-export type {
-	CostComparisonMetric,
-	CostComparisonMetricKey,
-	CostComparisonReceipt,
-	CostComparisonRequest,
-	CostComparisonResult,
-	CostComparisonSide,
-	CostDimension,
-} from "@petalnet/types";
+export type { CostComparisonMetric, CostComparisonResult, CostDimension } from "@petalnet/types";
 
 export interface DailyCost {
 	day: string;
