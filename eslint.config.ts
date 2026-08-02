@@ -16,6 +16,9 @@ export default defineConfig([
 		gitignoreResolution: true,
 	}),
 	{
+		ignores: [".agents/skills/impeccable/**"],
+	},
+	{
 		// This root config is an untyped baseline that lints every workspace's files. Type-aware
 		// eslint-disable directives (e.g. @typescript-eslint/no-deprecated) can't be evaluated
 		// without type information here, so this pass must not adjudicate directive usage —
