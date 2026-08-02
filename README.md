@@ -1,27 +1,53 @@
 # PetalNet/Monorepo
 
-The plan + canonical decisions: [tasks task-178](https://tasks.petalcat.dev/task/178).
-Full spec snapshot: [docs/PLAN.md](./docs/PLAN.md).
+PetalNet applications and shared libraries live in this monorepo. JavaScript and
+TypeScript projects share a pnpm workspace and Vite+ toolchain; Rust and Flutter
+projects keep their language-native workspaces and toolchains.
 
 ## Layout
 
 ```tree
-apps/         each ships independently
-packages/     shared libs (ui, utils, types)
-tools/        repo-internal scripts
-docs/         design / architecture / runbooks
+apps/         independently shipped applications and services
+packages/     shared TypeScript libraries and configuration
+docs/         repository architecture and migration history
 ```
 
-## Stack
+### Applications
 
-- **pnpm 11** with workspace `catalog:` for shared dep versions
-- **Vite+** for build / test / lint / fmt / task running (`vp run` with `dependsOn`, `-r`, `-t`, content-addressable cache)
-- **oxlint + eslint** dual lint, overlap killed by `eslint-plugin-oxlint`
-- **Tailwind v4 + DaisyUI** as the runtime styling layer
-- **knip + manypkg + typesync + update-ts-references** for hygiene
-- **Renovate** for dep bumps
-- No Turbo, no Prettier, no changesets
+- Web and Node: `clarity-mcp`, `collegemap`, `console`, `grove`, and `slide`
+- Rust: `box-agent`, `control-plane`, `courier`, `dispatcher`, `manager`, and the
+  Point server
+- Flutter: the Point client under `apps/point/app`
 
-## Status
+### Shared packages
 
-**Not live yet.** Migrations of source repos land here over the next sessions; originals stay authoritative until Parker greenlights the cutover.
+- `@petalnet/better-auth-effect-qb-adapter`
+- `@petalnet/console-bus-rpc`
+- `@petalnet/svelte-ws`
+- `@petalnet/tsconfig`, `@petalnet/types`, `@petalnet/ui`, and `@petalnet/utils`
+
+## Toolchain
+
+- Node 26 (see `.nvmrc` and `package.json`) and pnpm 11
+- Vite+ (`vp`) for task running and formatting
+- oxlint and ESLint for linting; Knip, manypkg, typesync, and
+  update-ts-references for workspace hygiene
+- Tailwind CSS v4 for pnpm apps that use Tailwind, except `apps/slide`, which
+  remains on the shared Tailwind v3 legacy catalog
+- Cargo and Flutter tooling for non-pnpm projects
+
+Install dependencies with `pnpm install`. Run the root workflows through Vite+:
+
+```sh
+vp run check
+vp run test
+vp run build
+```
+
+Useful focused commands include `vp run lint:knip`, `vp run manypkg`, and
+`vp run typesync:check`. Root script definitions are in [`package.json`](./package.json),
+and workspace membership and dependency catalogs are in
+[`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
+
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for repository mechanics and
+[`docs/MIGRATION.md`](./docs/MIGRATION.md) for the historical migration journal.

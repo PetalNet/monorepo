@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+
+import { test } from "vitest";
 
 import type { RosterItem } from "../api/types.ts";
 import { deriveRoster } from "./agents.ts";

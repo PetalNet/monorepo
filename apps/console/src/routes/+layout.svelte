@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import favicon from "$lib/assets/favicon.svg";
-	import "@fontsource/geist-sans/400.css";
-	import "@fontsource/geist-sans/500.css";
-	import "@fontsource/geist-mono/400.css";
-	import "@fontsource/geist-mono/500.css";
-	import "../app.css";
 	import AppShell from "$lib/components/AppShell.svelte";
 	import { visibleNav } from "$lib/nav";
 
-	let { data, children } = $props();
+	import "../app.css";
+	import { ModeWatcher } from "mode-watcher";
+
+	import type { LayoutProps } from "./$types";
+
+	let { data, children }: LayoutProps = $props();
 
 	// Deterministic quick-nav (foundations §3.6): `g` then a surface key jumps
 	// surfaces, never routing through the assistant (no LLM in the emergency
@@ -32,6 +32,7 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
+		if (!data.authenticated) return;
 		if (isTyping(e.target)) return;
 		if (e.key === "/") {
 			e.preventDefault();
@@ -59,14 +60,20 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
+<ModeWatcher defaultMode="system" defaultTheme="light" disableTransitions />
+
 <svelte:window onkeydown={onKey} />
 
-<AppShell
-	me={data.me}
-	verdict={data.health.verdict}
-	stateFact={data.health.stateFact}
-	badges={data.health.badges}
-	connected={data.connected}
->
+{#if data.authenticated}
+	<AppShell
+		me={data.me}
+		verdict={data.health.verdict}
+		stateFact={data.health.stateFact}
+		badges={data.health.badges}
+		connected={data.connected}
+	>
+		{@render children()}
+	</AppShell>
+{:else}
 	{@render children()}
-</AppShell>
+{/if}

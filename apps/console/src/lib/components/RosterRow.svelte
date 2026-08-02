@@ -2,20 +2,20 @@
 	import { humanAge, rosterState, rosterTone } from "$lib/api/derive";
 	import { opDef } from "$lib/api/ops";
 	import type { HeartbeatItem, RosterItem } from "$lib/api/types";
-	import Icon from "./Icon.svelte";
 	import { hueForHandle, initial } from "$lib/util";
+
 	import BudgetLight from "./BudgetLight.svelte";
 	import Countdown from "./Countdown.svelte";
+	import Icon from "./Icon.svelte";
 	import IconButton from "./IconButton.svelte";
 	import OpButton from "./OpButton.svelte";
 	import StatusPill from "./StatusPill.svelte";
 
 	/**
-	 * RosterRow (04-agents §3.2): one agent as a live 48px row — who/where/status
-	 * + now-playing + governance + lease + the overflow ActionRow. The row never
-	 * disables; its ops do (lane-gated + executor-liveness). Presence merges fleet
-	 * status with heartbeat state + staleness (a gone-quiet resident is down, not
-	 * alive) via the shared derivation.
+	 * RosterRow (04-agents §3.2): one agent as a live 48px row — who/where/status + now-playing +
+	 * governance + lease + the overflow ActionRow. The row never disables; its ops do (lane-gated +
+	 * executor-liveness). Presence merges fleet status with heartbeat state + staleness (a gone-quiet
+	 * resident is down, not alive) via the shared derivation.
 	 */
 	interface Props {
 		row: RosterItem;
@@ -25,7 +25,14 @@
 		peekDisabledReason?: string | null;
 		onwatch?: (session: HeartbeatItem) => void;
 	}
-	let { row, lanes, now = Date.now(), session = null, peekDisabledReason = null, onwatch }: Props = $props();
+	let {
+		row,
+		lanes,
+		now = Date.now(),
+		session = null,
+		peekDisabledReason = null,
+		onwatch,
+	}: Props = $props();
 
 	let menuOpen = $state(false);
 
@@ -40,11 +47,13 @@
 				: st.replace("_", " "),
 	);
 	const nowPlaying = $derived.by(() => {
-		if (st === "gone_quiet") return `derived ${Math.round((now - Date.parse(row.fleet_updated_at ?? row.updated_at)) / 1000)}s stale`;
+		if (st === "gone_quiet")
+			return `derived ${String(Math.round((now - Date.parse(row.fleet_updated_at ?? row.updated_at)) / 1000))}s stale`;
 		if (st === "paused") return "Marbleized. Suspended, not destroyed.";
 		if (row.status === "idle" || !row.current_tool) return "In the void. Ready when called.";
 		const parts = [row.current_tool];
-		if (row.task_id) parts.push(`task ${row.task_id}${row.task_title ? ` ${row.task_title}` : ""}`);
+		if (row.task_id)
+			parts.push(`task ${String(row.task_id)}${row.task_title ? ` ${row.task_title}` : ""}`);
 		if (row.started_at) parts.push(humanAge(now - Date.parse(row.started_at)));
 		return parts.join(" · ");
 	});
@@ -54,7 +63,10 @@
 </script>
 
 <div class="row" class:active={menuOpen}>
-	<span class="ava" style="background: oklch(var(--avatar-l) var(--avatar-c) {hueForHandle(row.handle)})">
+	<span
+		class="ava"
+		style="background: oklch(var(--avatar-l) var(--avatar-c) {hueForHandle(row.handle)})"
+	>
 		{initial(row.handle)}
 	</span>
 	<div class="who">
@@ -69,11 +81,24 @@
 	</div>
 	<div class="lease"><Countdown expiresAt={row.lease_expires_at ?? null} {now} /></div>
 	<div class="overflow">
-		<IconButton name="ellipsis" label="Actions for {row.handle}" onclick={() => (menuOpen = !menuOpen)} />
+		<IconButton
+			name="ellipsis"
+			label="Actions for {row.handle}"
+			onclick={() => (menuOpen = !menuOpen)}
+		/>
 		{#if menuOpen}
 			<div class="menu" role="menu">
 				{#if session?.tmux_session && session.pane_id && onwatch}
-					<button class="menu-action" role="menuitem" disabled={peekDisabledReason !== null} title={peekDisabledReason ?? "Watch read-only terminal"} onclick={() => { menuOpen = false; onwatch?.(session!); }}>
+					<button
+						class="menu-action"
+						role="menuitem"
+						disabled={peekDisabledReason !== null}
+						title={peekDisabledReason ?? "Watch read-only terminal"}
+						onclick={() => {
+							menuOpen = false;
+							onwatch(session);
+						}}
+					>
 						<Icon name="eye" size={13} />Watch session
 					</button>
 				{/if}
@@ -115,21 +140,18 @@
 		border-radius: 50%;
 		display: grid;
 		place-items: center;
-		font:
-			500 0.6875rem var(--sans);
+		font: 500 0.6875rem var(--sans);
 		color: var(--on-avatar);
 	}
 	.who {
 		min-width: 0;
 	}
 	.who b {
-		font:
-			500 0.8125rem var(--sans);
+		font: 500 0.8125rem var(--sans);
 		display: block;
 	}
 	.meta {
-		font:
-			400 0.6875rem var(--mono);
+		font: 400 0.6875rem var(--mono);
 		color: var(--text-3);
 		white-space: nowrap;
 		overflow: hidden;
@@ -137,8 +159,7 @@
 		display: block;
 	}
 	.playing {
-		font:
-			400 0.75rem var(--mono);
+		font: 400 0.75rem var(--mono);
 		color: var(--text-3);
 		white-space: nowrap;
 		overflow: hidden;
@@ -154,8 +175,7 @@
 		gap: var(--s-1);
 	}
 	.tier {
-		font:
-			500 0.6875rem var(--mono);
+		font: 500 0.6875rem var(--mono);
 		color: var(--text-3);
 	}
 	.lease {
@@ -192,9 +212,17 @@
 		gap: var(--s-2);
 		font: 500 0.75rem var(--sans);
 	}
-	.menu-action:hover { background: var(--s2); }
-	.menu-action:disabled { color: var(--text-3); cursor: not-allowed; }
-	.menu-action:focus-visible { outline: 2px solid var(--petal); outline-offset: 2px; }
+	.menu-action:hover {
+		background: var(--s2);
+	}
+	.menu-action:disabled {
+		color: var(--text-3);
+		cursor: not-allowed;
+	}
+	.menu-action:focus-visible {
+		outline: 2px solid var(--petal);
+		outline-offset: 2px;
+	}
 	@media (max-width: 767px) {
 		.row {
 			grid-template-columns: 24px minmax(0, 1fr) auto;

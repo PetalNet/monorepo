@@ -1,7 +1,9 @@
-import { dataMode, readEdgeSessions, readExecutors, runQuery } from "$lib/api/client";
 import type { QueryResult } from "$lib/api/types";
 import { mockEdgeHealth, mockSessions, mockWireEvents } from "$lib/data/network";
 import { captureCaughtFailure } from "$lib/glitchtip";
+import { dataMode, readEdgeSessions, readExecutors, runQuery } from "$lib/rpc/browser";
+
+import { formatUnknown } from "#format";
 
 import type { PageLoad } from "./$types";
 
@@ -27,7 +29,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 			error: null,
 		};
 	}
-	const executors = await readExecutors(fetch).catch((error) => {
+	const executors = await readExecutors(fetch).catch((error: unknown) => {
 		captureCaughtFailure(error, { surface: "network", endpoint: "/executors" });
 		return null;
 	});
@@ -59,26 +61,25 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 	).catch(() => null);
 	const history = doormanHistory ? queryRecords(doormanHistory) : [];
 	const edgeEvidence = edgeHealth ? queryRecords(edgeHealth)[0] : null;
-	const edgeObservedAt = typeof edgeEvidence?.["ts"] === "string" ? edgeEvidence["ts"] : null;
+	const edgeObservedAt = typeof edgeEvidence?.ts === "string" ? edgeEvidence.ts : null;
 	const newerStatus = history.find(
 		(event) =>
-			["doorman.dark", "doorman.degrade", "doorman.recover"].includes(String(event["type"])) &&
-			typeof event["ts"] === "string" &&
-			(!edgeObservedAt || Date.parse(event["ts"]) > Date.parse(edgeObservedAt)),
+			["doorman.dark", "doorman.degrade", "doorman.recover"].includes(String(event.type)) &&
+			typeof event.ts === "string" &&
+			(!edgeObservedAt || Date.parse(event.ts) > Date.parse(edgeObservedAt)),
 	);
-	const newestEvidenceAt =
-		typeof newerStatus?.["ts"] === "string" ? newerStatus["ts"] : edgeObservedAt;
+	const newestEvidenceAt = typeof newerStatus?.ts === "string" ? newerStatus.ts : edgeObservedAt;
 	const newestEvidenceAgeMs = newestEvidenceAt
 		? Date.now() - Date.parse(newestEvidenceAt)
 		: Number.POSITIVE_INFINITY;
-	const newestEvidenceType = String(newerStatus?.["type"] ?? "doorman.health");
-	const reportedState = edgeEvidence?.["state"];
+	const newestEvidenceType = formatUnknown(newerStatus?.type ?? "doorman.health");
+	const reportedState = edgeEvidence?.state;
 	const health =
 		edgeEvidence &&
 		edgeObservedAt &&
 		["open", "degraded", "dark"].includes(String(reportedState)) &&
-		typeof edgeEvidence["listener"] === "string" &&
-		typeof edgeEvidence["caddy_ok"] === "boolean"
+		typeof edgeEvidence.listener === "string" &&
+		typeof edgeEvidence.caddy_ok === "boolean"
 			? {
 					state:
 						newestEvidenceAgeMs > 90_000 || newestEvidenceType === "doorman.dark"
@@ -88,25 +89,25 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 								: newestEvidenceType === "doorman.recover"
 									? ("open" as const)
 									: (reportedState as "open" | "degraded" | "dark"),
-					listener: edgeEvidence["listener"],
+					listener: edgeEvidence.listener,
 					caddyOk:
 						newestEvidenceAgeMs <= 30_000 &&
-						(newestEvidenceType === "doorman.recover" || edgeEvidence["caddy_ok"]),
-					updatedAt: newestEvidenceAt ?? (edgeObservedAt as string),
+						(newestEvidenceType === "doorman.recover" || edgeEvidence.caddy_ok),
+					updatedAt: newestEvidenceAt ?? edgeObservedAt,
 				}
 			: null;
 	const wire = history
 		.filter((event) =>
 			/^(doorman\.(link\.flap|session\.resume|degrade|recover|auth\.failure))$/.test(
-				String(event["type"]),
+				String(event.type),
 			),
 		)
 		.slice(0, 6)
 		.map((event) => ({
-			type: String(event["type"]).replace(/^doorman\./, ""),
-			handle: String(event["source_agent"] ?? event["subject"] ?? "unknown"),
-			detail: String(event["subject"] ?? "event persisted"),
-			at: String(event["ts"]),
+			type: String(event.type).replace(/^doorman\./, ""),
+			handle: formatUnknown(event.source_agent ?? event.subject ?? "unknown"),
+			detail: formatUnknown(event.subject ?? "event persisted"),
+			at: String(event.ts),
 		}));
 	try {
 		const response = await readEdgeSessions(fetch);

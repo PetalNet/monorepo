@@ -1,0 +1,27 @@
+{
+	"name": "@petalnet/effect-api",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Effect Schema operations exposed consistently as REST, OpenAPI, and MCP",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"coverage": "vitest run --coverage --coverage.include=src/**/*.ts --coverage.thresholds.100",
+		"test": "vitest run",
+		"typecheck": "tsc -b"
+	},
+	"dependencies": {
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@vitest/coverage-v8": "catalog:dev",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}

@@ -2,6 +2,5 @@
 
 /eslint.config.ts @lishaduck
 /.oxlintrc.json @lishaduck
-/vite.config.ts @lishaduck @petalcat
-/renovate.json @lishaduck @petalcat
-/tools/ @petalcat
+/vite.config.ts @lishaduck
+/renovate.json @lishaduck

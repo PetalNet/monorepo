@@ -1,15 +1,17 @@
 <script lang="ts">
 	import { page } from "$app/state";
-	import { onMount } from "svelte";
-	import { connectBus } from "$lib/api/client";
 	import AvailabilityPanel from "$lib/components/AvailabilityPanel.svelte";
 	import HostCard from "$lib/components/HostCard.svelte";
 	import HudChip from "$lib/components/HudChip.svelte";
 	import Icon from "$lib/components/Icon.svelte";
 	import SurfaceSign from "$lib/components/SurfaceSign.svelte";
+	import { connectBus } from "$lib/rpc/browser";
+	import { onMount } from "svelte";
+
+	import type { PageProps } from "./$types";
 	import { getAvailability } from "./availability.remote";
 
-	let { data } = $props();
+	let { data }: PageProps = $props();
 	const h = $derived(data.hosts);
 	// The cockpit crack card links /hosts?host=<h>; highlight that house (§3.7).
 	const focusHost = $derived(page.url.searchParams.get("host"));
@@ -36,7 +38,11 @@
 		const disconnect = connectBus(
 			() => [{ sub_id: "console-hosts-availability", pattern: "service.*" }],
 			(frame) => {
-				if (frame["kind"] === "event" || frame["kind"] === "gap" || frame["kind"] === "resync_required")
+				if (
+					frame["kind"] === "event" ||
+					frame["kind"] === "gap" ||
+					frame["kind"] === "resync_required"
+				)
 					refreshSoon();
 			},
 		);
@@ -73,7 +79,10 @@
 	{#if Object.values(data.sources).some((source) => source !== "live")}
 		<p class="source-note" role="status">
 			<Icon name="radio-tower" size={14} />
-			{Object.entries(data.sources).filter(([, state]) => state !== "live").map(([source, state]) => `${source} ${state}`).join(" · ")}
+			{Object.entries(data.sources)
+				.filter(([, state]) => state !== "live")
+				.map(([source, state]) => `${source} ${state}`)
+				.join(" · ")}
 		</p>
 	{/if}
 
@@ -128,8 +137,7 @@
 		border: 0;
 		background: transparent;
 		color: var(--text);
-		font:
-			400 0.8125rem var(--sans);
+		font: 400 0.8125rem var(--sans);
 		min-width: 0;
 	}
 	.filter input:focus {
@@ -182,13 +190,17 @@
 		max-width: 46ch;
 	}
 	@media (max-width: 767px) {
-		.filter { width: 100%; }
+		.filter {
+			width: 100%;
+		}
 		.grid {
 			display: flex;
 			flex-direction: column;
 			gap: 1px;
 			margin-top: var(--s-3);
 		}
-		.note { display: none; }
+		.note {
+			display: none;
+		}
 	}
 </style>
