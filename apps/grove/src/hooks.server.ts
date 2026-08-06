@@ -18,6 +18,7 @@ export const handle = handleGrove(({ event, resolve }) =>
 		if (building) return yield* Effect.promise(() => Promise.resolve(resolve(event)));
 
 		const auth = yield* GroveAuth;
+		event.locals.mcpPrincipal = null;
 		event.locals.session = null;
 		event.locals.user = null;
 
