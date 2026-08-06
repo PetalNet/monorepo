@@ -9,6 +9,7 @@ import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { ProjectCreate } from "../src/lib/projects/schema";
+import { groveApi } from "../src/lib/server/grove/api";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import {
 	CommandConflict,
@@ -16,7 +17,9 @@ import {
 	ProjectDatabaseError,
 	ProjectService,
 	ProjectServiceLayer,
+	type ProjectServiceShape,
 } from "../src/lib/server/projects/service";
+import { SproutServiceBuildLayer } from "../src/lib/server/sprouts/service";
 
 const input = (commandId: string = randomUUID()) => ({
 	commandId,
@@ -68,6 +71,11 @@ describe("ProjectService PostgreSQL integration", async () => {
 			"utf8",
 		);
 		await query(taskMigration.split("-- effect-db:down")[0].replace("-- effect-db:up", ""));
+		const reviewMigration = await readFile(
+			new URL("../migrations/0005_review_library.sql", import.meta.url),
+			"utf8",
+		);
+		await query(reviewMigration.split("-- effect-db:down")[0].replace("-- effect-db:up", ""));
 	}, 60_000);
 
 	afterAll(async () => {
@@ -114,6 +122,489 @@ describe("ProjectService PostgreSQL integration", async () => {
 			),
 		).toEqual([{ status: "planning" }]);
 	});
+
+	it("enforces reviewed completion and exposes only exact accepted completed provenance", async () => {
+		const runAs = <A, E>(
+			principalId: string,
+			kind: "human" | "mcp",
+			effect: Effect.Effect<A, E, SvelteKitRequestEvent | ProjectService>,
+		) =>
+			runtime.runPromise(
+				effect.pipe(
+					Effect.provideService(
+						SvelteKitRequestEvent,
+						kind === "human"
+							? principalEvent(principalId)
+							: ({
+									url: new URL("https://grove.test/mcp"),
+									locals: {
+										mcpPrincipal: { subject: principalId, scopes: new Set(["grove:mcp"]) },
+										session: null,
+										user: null,
+									},
+								} as unknown as RequestEvent),
+					),
+				),
+			);
+		const call = <A, E>(
+			principalId: string,
+			kind: "human" | "mcp",
+			invoke: (service: ProjectServiceShape) => Effect.Effect<A, E, SvelteKitRequestEvent>,
+		) => runAs(principalId, kind, Effect.flatMap(ProjectService, invoke));
+		const advanceArtifactWhileLifecycleWaits = async <A>(
+			objectId: string,
+			versionId: string,
+			lifecycle: () => Promise<A>,
+		) => {
+			const { promise: locked, resolve: signalLocked } = Promise.withResolvers<undefined>();
+			const { promise: advanceRequested, resolve: advance } = Promise.withResolvers<undefined>();
+			const transaction = runtime.runPromise(
+				Effect.flatMap(PgClient.PgClient, (sql) =>
+					sql.withTransaction(
+						Effect.gen(function* () {
+							yield* sql.unsafe("select id from grove_objects where id=$1 for update", [objectId]);
+							signalLocked(undefined);
+							yield* Effect.promise(() => advanceRequested);
+							yield* sql.unsafe("update grove_objects set current_version_id=$2 where id=$1", [
+								objectId,
+								versionId,
+							]);
+						}),
+					),
+				),
+			);
+			await locked;
+			let settled = false;
+			const pending = lifecycle();
+			void pending.then(
+				() => (settled = true),
+				() => (settled = true),
+			);
+			const deadline = Date.now() + 5_000;
+			const waitForArtifactLock = async (): Promise<void> => {
+				const rows = await query<{ waiting: boolean }>(
+					"select exists(select 1 from pg_stat_activity where datname=current_database() and state='active' and wait_event_type='Lock' and query not like '%pg_stat_activity%') waiting",
+				);
+				if (rows[0].waiting) return;
+				if (Date.now() >= deadline) throw new Error("Timed out waiting for artifact row lock");
+				await delay(20);
+				return waitForArtifactLock();
+			};
+			try {
+				await waitForArtifactLock();
+				expect(settled).toBe(false);
+			} finally {
+				advance(undefined);
+				await transaction;
+			}
+			const [result] = await Promise.allSettled([pending]);
+			expect(result.status).toBe("rejected");
+			if (result.status === "rejected") expect(result.reason).toBeInstanceOf(CommandConflict);
+		};
+		const project = await create(input(), "worker");
+		const plan = await call("worker", "human", (s) =>
+			s.plan({
+				commandId: randomUUID(),
+				projectId: project.objectId,
+				expectedVersionId: project.versionId,
+				tasks: [
+					{
+						key: "work",
+						title: "Reviewed",
+						objective: "Lifecycle",
+						completionContract: { requiredOutputs: ["artifact"], reviewRequired: true },
+					},
+				],
+				dependencies: [],
+			}),
+		);
+		const taskId = plan.taskIds.work;
+		const [taskHead] = await query<{ current_version_id: string }>(
+			`select current_version_id from grove_objects where id='${taskId}'`,
+		);
+		const claim = await call("shared", "human", (s) =>
+			s.claim({ commandId: randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+		const output = await call("shared", "human", (s) =>
+			s.publish({
+				commandId: randomUUID(),
+				claimId: claim.claimId,
+				fence: claim.fence,
+				attemptId: claim.attemptId,
+				title: "Pinned provenance",
+				content: "accepted searchable lifecycle",
+			}),
+		);
+		expect(
+			await call("reader", "human", (s) =>
+				s.search({ projectId: project.objectId, query: "lifecycle" }),
+			),
+		).toEqual([]);
+		const reviewInput = {
+			commandId: randomUUID(),
+			taskId,
+			attemptId: claim.attemptId,
+			objectId: output.objectId,
+			versionId: output.versionId,
+			outcome: "accepted" as const,
+		};
+		await expect(call("shared", "human", (s) => s.review(reviewInput))).rejects.toBeInstanceOf(
+			CommandConflict,
+		);
+		await expect(
+			call("reviewer", "human", (s) =>
+				s.review({ ...reviewInput, commandId: randomUUID(), taskId: randomUUID() }),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		await expect(
+			call("reviewer", "human", (s) =>
+				s.review({ ...reviewInput, commandId: randomUUID(), attemptId: randomUUID() }),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		await expect(
+			call("reviewer", "human", (s) =>
+				s.review({ ...reviewInput, commandId: randomUUID(), objectId: randomUUID() }),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		await expect(
+			call("reviewer", "human", (s) =>
+				s.review({ ...reviewInput, commandId: randomUUID(), versionId: randomUUID() }),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		const staleReviewVersion = randomUUID();
+		const staleReviewPayload = { type: "artifact", title: "new head", content: "unsubmitted" };
+		await query(
+			`insert into grove_object_versions(id,object_id,parent_version_id,payload,digest,actor_id,actor_kind) values('${staleReviewVersion}','${output.objectId}','${output.versionId}','${JSON.stringify(staleReviewPayload)}','${canonicalDigest(staleReviewPayload)}','other','human')`,
+		);
+		await advanceArtifactWhileLifecycleWaits(output.objectId, staleReviewVersion, () =>
+			call("reviewer", "human", (s) => s.review({ ...reviewInput, commandId: randomUUID() })),
+		);
+		await query(
+			`update grove_objects set current_version_id='${output.versionId}' where id='${output.objectId}'`,
+		);
+		// IDs are namespaced by principal kind: the executor's ID as MCP is a distinct reviewer.
+		const review = await call("shared", "mcp", (s) => s.review(reviewInput));
+		expect(
+			await call("reader", "human", (s) =>
+				s.search({ projectId: project.objectId, query: "lifecycle" }),
+			),
+		).toEqual([]);
+		await expect(
+			call("late-worker", "human", (s) =>
+				s.claim({ commandId: randomUUID(), taskId, leaseSeconds: 60 }),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		expect(
+			(await call("reader", "human", (s) => s.ready({ projectId: project.objectId }))).some(
+				(task) => task.taskId === taskId,
+			),
+		).toBe(false);
+		expect(await call("shared", "mcp", (s) => s.review(reviewInput))).toEqual({
+			...review,
+			replayed: true,
+		});
+		await expect(
+			call("reviewer", "human", (s) => s.review({ ...reviewInput, commandId: randomUUID() })),
+		).rejects.toBeInstanceOf(CommandConflict);
+		await expect(
+			query(`update grove_reviews set outcome='rejected' where object_id='${review.reviewId}'`),
+		).rejects.toBeDefined();
+		const mismatchedReviewId = randomUUID();
+		const mismatchedReviewVersionId = randomUUID();
+		await query(
+			`insert into grove_objects(id,kind,scope) values('${mismatchedReviewId}','review','team/core');
+			 insert into grove_object_versions(id,object_id,payload,digest,actor_id,actor_kind)
+			 values('${mismatchedReviewVersionId}','${mismatchedReviewId}','{}','${canonicalDigest({})}','shared','mcp')`,
+		);
+		await expect(
+			query(
+				`insert into grove_reviews(object_id,version_id,reviewer_id,reviewer_kind,subject_object_id,subject_version_id,attempt_id,task_id,outcome)
+				 values('${mismatchedReviewId}','${mismatchedReviewVersionId}','shared','mcp','${output.objectId}','${output.versionId}','${claim.attemptId}','${taskId}','accepted')`,
+			),
+		).rejects.toBeDefined();
+		await expect(
+			query(
+				`update grove_attempt_outputs set version_id='${randomUUID()}' where attempt_id='${claim.attemptId}'`,
+			),
+		).rejects.toBeDefined();
+		await expect(
+			query(`update grove_attempts set executor_id='other' where id='${claim.attemptId}'`),
+		).rejects.toBeDefined();
+
+		await expect(
+			call("finisher", "human", (s) =>
+				s.complete({ commandId: randomUUID(), taskId, expectedVersionId: randomUUID() }),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		const staleArtifactVersion = randomUUID();
+		const staleArtifactPayload = { type: "artifact", title: "changed", content: "unreviewed" };
+		await query(
+			`insert into grove_object_versions(id,object_id,parent_version_id,payload,digest,actor_id,actor_kind) values('${staleArtifactVersion}','${output.objectId}','${output.versionId}','${JSON.stringify(staleArtifactPayload)}','${canonicalDigest(staleArtifactPayload)}','other','human')`,
+		);
+		await advanceArtifactWhileLifecycleWaits(output.objectId, staleArtifactVersion, () =>
+			call("finisher", "human", (s) =>
+				s.complete({
+					commandId: randomUUID(),
+					taskId,
+					expectedVersionId: taskHead.current_version_id,
+				}),
+			),
+		);
+		await query(
+			`update grove_objects set current_version_id='${output.versionId}' where id='${output.objectId}'`,
+		);
+		const completionInput = {
+			commandId: randomUUID(),
+			taskId,
+			expectedVersionId: taskHead.current_version_id,
+		};
+		const concurrent = await Promise.allSettled([
+			call("finisher", "human", (s) => s.complete(completionInput)),
+			call("finisher", "human", (s) => s.complete({ ...completionInput, commandId: randomUUID() })),
+		]);
+		expect(concurrent.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+		expect(concurrent.filter((x) => x.status === "rejected")).toHaveLength(1);
+		const completedResult = concurrent.find((result) => result.status === "fulfilled");
+		if (!completedResult) throw new Error("Expected one successful concurrent completion");
+		const completed = completedResult.value;
+		const usedInput =
+			completed.commandId === completionInput.commandId
+				? completionInput
+				: { ...completionInput, commandId: completed.commandId };
+		expect(await call("finisher", "human", (s) => s.complete(usedInput))).toEqual({
+			...completed,
+			replayed: true,
+		});
+		const laterTaskVersion = randomUUID();
+		const laterTaskPayload = { type: "task", status: "archived" };
+		await query(
+			`insert into grove_object_versions(id,object_id,parent_version_id,payload,digest,actor_id,actor_kind)
+			 values('${laterTaskVersion}','${taskId}','${completed.versionId}','${JSON.stringify(laterTaskPayload)}','${canonicalDigest(laterTaskPayload)}','finisher','human');
+			 update grove_objects set current_version_id='${laterTaskVersion}' where id='${taskId}'`,
+		);
+		expect(
+			await query<{ parent_version_id: string; completion: Record<string, unknown> }>(
+				`select parent_version_id,payload->'completion' completion from grove_object_versions where id='${completed.versionId}'`,
+			),
+		).toEqual([
+			{
+				parent_version_id: taskHead.current_version_id,
+				completion: {
+					attemptId: claim.attemptId,
+					output: { objectId: output.objectId, versionId: output.versionId },
+					review: { objectId: review.reviewId, versionId: review.reviewVersionId },
+				},
+			},
+		]);
+
+		expect(
+			await call("reader", "human", (s) => s.search({ projectId: taskId, query: "lifecycle" })),
+		).toEqual([]);
+		const results = await call("reader", "human", (s) =>
+			s.search({ projectId: project.objectId, query: "lifecycle" }),
+		);
+		expect(results).toEqual([
+			expect.objectContaining({
+				objectId: output.objectId,
+				versionId: output.versionId,
+				reviewVersionId: review.reviewVersionId,
+				reviewOutcome: "accepted",
+				reviewerId: "shared",
+				reviewerKind: "mcp",
+			}),
+		]);
+		const restEvent = principalEvent("rest-reader");
+		const restResponse = await runtime.runPromise(
+			groveApi
+				.fetch(
+					new Request(
+						`https://grove.test/api/v1/library/search?projectId=${project.objectId}&query=lifecycle`,
+					),
+				)
+				.pipe(
+					Effect.provide(SproutServiceBuildLayer),
+					Effect.provideService(SvelteKitRequestEvent, restEvent),
+				),
+		);
+		expect(restResponse.status).toBe(200);
+		expect(await restResponse.json()).toEqual(results);
+		const pinned = await call("reader", "human", (s) =>
+			s.getVersion({
+				projectId: project.objectId,
+				objectId: output.objectId,
+				versionId: output.versionId,
+			}),
+		);
+		const otherProject = await create(input(), "reader");
+		await expect(
+			call("reader", "human", (s) =>
+				s.getVersion({
+					projectId: otherProject.objectId,
+					objectId: output.objectId,
+					versionId: output.versionId,
+				}),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		expect(pinned).toEqual(
+			expect.objectContaining({
+				taskId,
+				attemptId: claim.attemptId,
+				authorId: "shared",
+				authorKind: "human",
+				reviewId: review.reviewId,
+				reviewVersionId: review.reviewVersionId,
+				reviewOutcome: "accepted",
+				reviewerId: "shared",
+				reviewerKind: "mcp",
+			}),
+		);
+		const restPinnedResponse = await runtime.runPromise(
+			groveApi
+				.fetch(
+					new Request(
+						`https://grove.test/api/v1/library/objects/${output.objectId}/versions/${output.versionId}?projectId=${project.objectId}`,
+					),
+				)
+				.pipe(
+					Effect.provide(SproutServiceBuildLayer),
+					Effect.provideService(SvelteKitRequestEvent, restEvent),
+				),
+		);
+		expect(restPinnedResponse.status).toBe(200);
+		expect(await restPinnedResponse.json()).toEqual(pinned);
+		const mcpResponse = await runtime.runPromise(
+			groveApi
+				.mcp({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: {
+						name: "library.getVersion",
+						arguments: {
+							projectId: project.objectId,
+							objectId: output.objectId,
+							versionId: output.versionId,
+						},
+					},
+				})
+				.pipe(
+					Effect.provide(SproutServiceBuildLayer),
+					Effect.provideService(SvelteKitRequestEvent, {
+						url: new URL("https://grove.test/mcp"),
+						locals: {
+							mcpPrincipal: { subject: "mcp-reader", scopes: new Set(["grove:mcp"]) },
+							session: null,
+							user: null,
+						},
+					} as unknown as RequestEvent),
+				),
+		);
+		expect(await mcpResponse.json()).toMatchObject({
+			result: { isError: false, structuredContent: pinned },
+		});
+		const laterVersion = randomUUID();
+		const laterPayload = { type: "artifact", title: "later", content: "later" };
+		await query(
+			`insert into grove_object_versions(id,object_id,parent_version_id,payload,digest,actor_id,actor_kind) values('${laterVersion}','${output.objectId}','${output.versionId}','${JSON.stringify(laterPayload)}','${canonicalDigest(laterPayload)}','other','human'); update grove_objects set current_version_id='${laterVersion}' where id='${output.objectId}'`,
+		);
+		expect(
+			(
+				await call("reader", "human", (s) =>
+					s.getVersion({
+						projectId: project.objectId,
+						objectId: output.objectId,
+						versionId: output.versionId,
+					}),
+				)
+			).versionId,
+		).toBe(output.versionId);
+
+		const rejectedProject = await create(input(), "reject-worker");
+		const rejectedPlan = await call("reject-worker", "human", (s) =>
+			s.plan({
+				commandId: randomUUID(),
+				projectId: rejectedProject.objectId,
+				expectedVersionId: rejectedProject.versionId,
+				tasks: [
+					{
+						key: "work",
+						title: "Rejected",
+						objective: "Retry",
+						completionContract: { requiredOutputs: ["artifact"], reviewRequired: true },
+					},
+				],
+				dependencies: [],
+			}),
+		);
+		const rejectedTask = rejectedPlan.taskIds.work;
+		const rejectedClaim = await call("reject-worker", "human", (s) =>
+			s.claim({ commandId: randomUUID(), taskId: rejectedTask, leaseSeconds: 60 }),
+		);
+		const rejectedOutput = await call("reject-worker", "human", (s) =>
+			s.publish({
+				commandId: randomUUID(),
+				claimId: rejectedClaim.claimId,
+				fence: rejectedClaim.fence,
+				attemptId: rejectedClaim.attemptId,
+				title: "Rejected searchable",
+				content: "must stay hidden",
+			}),
+		);
+		await call("independent-reviewer", "human", (s) =>
+			s.review({
+				commandId: randomUUID(),
+				taskId: rejectedTask,
+				attemptId: rejectedClaim.attemptId,
+				objectId: rejectedOutput.objectId,
+				versionId: rejectedOutput.versionId,
+				outcome: "rejected",
+			}),
+		);
+		const [releasedClaim] = await query<{ status: string; released_at: string | null }>(
+			`select status,released_at::text from grove_claims where id='${rejectedClaim.claimId}'`,
+		);
+		expect(releasedClaim.status).toBe("released");
+		expect(releasedClaim.released_at).toEqual(expect.any(String));
+		const retry = await call("retry-worker", "human", (s) =>
+			s.claim({ commandId: randomUUID(), taskId: rejectedTask, leaseSeconds: 60 }),
+		);
+		expect(retry.attemptId).not.toBe(rejectedClaim.attemptId);
+		const retryOutput = await call("retry-worker", "human", (s) =>
+			s.publish({
+				commandId: randomUUID(),
+				claimId: retry.claimId,
+				fence: retry.fence,
+				attemptId: retry.attemptId,
+				title: "Accepted retry",
+				content: "retry is searchable",
+			}),
+		);
+		await call("retry-reviewer", "human", (s) =>
+			s.review({
+				commandId: randomUUID(),
+				taskId: rejectedTask,
+				attemptId: retry.attemptId,
+				objectId: retryOutput.objectId,
+				versionId: retryOutput.versionId,
+				outcome: "accepted",
+			}),
+		);
+		const [retryTaskHead] = await query<{ current_version_id: string }>(
+			`select current_version_id from grove_objects where id='${rejectedTask}'`,
+		);
+		await call("retry-finisher", "human", (s) =>
+			s.complete({
+				commandId: randomUUID(),
+				taskId: rejectedTask,
+				expectedVersionId: retryTaskHead.current_version_id,
+			}),
+		);
+		expect(
+			await call("reader", "human", (s) =>
+				s.search({ projectId: rejectedProject.objectId, query: "searchable" }),
+			),
+		).toEqual([expect.objectContaining({ objectId: retryOutput.objectId })]);
+	}, 15_000);
 
 	it("rejects orphan commands and mismatched aggregate/version outbox rows", async () => {
 		const project = await create(input());
@@ -472,8 +963,50 @@ describe("ProjectService PostgreSQL integration", async () => {
 				{ taskId: plan.taskIds.independent, title: "Independent", dependencyTaskIds: [] },
 			].toSorted((a, b) => a.taskId.localeCompare(b.taskId)),
 		);
-		await query(
-			`update grove_tasks set status='completed' where object_id='${plan.taskIds.foundation}'`,
+		const foundationClaim = await run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.claim({
+					commandId: randomUUID(),
+					taskId: plan.taskIds.foundation,
+					leaseSeconds: 30,
+				}),
+			),
+		);
+		const foundationOutput = await run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.publish({
+					commandId: randomUUID(),
+					claimId: foundationClaim.claimId,
+					fence: foundationClaim.fence,
+					attemptId: foundationClaim.attemptId,
+					title: "Foundation result",
+					content: "Dependency complete",
+				}),
+			),
+		);
+		await runtime.runPromise(
+			Effect.flatMap(ProjectService, (service) =>
+				service.review({
+					commandId: randomUUID(),
+					taskId: plan.taskIds.foundation,
+					attemptId: foundationClaim.attemptId,
+					objectId: foundationOutput.objectId,
+					versionId: foundationOutput.versionId,
+					outcome: "accepted",
+				}),
+			).pipe(Effect.provideService(SvelteKitRequestEvent, principalEvent("foundation-reviewer"))),
+		);
+		const [foundationHead] = await query<{ current_version_id: string }>(
+			`select current_version_id from grove_objects where id='${plan.taskIds.foundation}'`,
+		);
+		await run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.complete({
+					commandId: randomUUID(),
+					taskId: plan.taskIds.foundation,
+					expectedVersionId: foundationHead.current_version_id,
+				}),
+			),
 		);
 		const readyAfterDependency = await run(
 			Effect.flatMap(ProjectService, (service) => service.ready({ projectId: project.objectId })),
@@ -655,6 +1188,23 @@ describe("ProjectService PostgreSQL integration", async () => {
 			),
 		);
 		expect(next.attemptId).not.toBe(claim.attemptId);
+		await expect(
+			runtime.runPromise(
+				Effect.flatMap(ProjectService, (service) =>
+					service.review({
+						commandId: randomUUID(),
+						taskId: plan.taskIds.build,
+						attemptId: claim.attemptId,
+						objectId: published.objectId,
+						versionId: published.versionId,
+						outcome: "accepted",
+					}),
+				).pipe(Effect.provideService(SvelteKitRequestEvent, principalEvent("late-reviewer"))),
+			),
+		).rejects.toMatchObject({
+			_tag: "CommandConflict",
+			message: "A newer Attempt is already active",
+		});
 		expect(
 			await query<{ status: string }>(
 				`select status from grove_attempts where id='${claim.attemptId}'`,
@@ -860,7 +1410,7 @@ describe("ProjectService PostgreSQL integration", async () => {
 		);
 		let renewalReleaseTime: number;
 		try {
-			await waitForLockWaiter("select c.attempt_id,c.task_id,a.task_version_id");
+			await waitForLockWaiter("select attempt_id,task_id,expires_at::text");
 			await delay(1_200);
 			renewalReleaseTime = await databaseTime();
 		} finally {
@@ -910,7 +1460,7 @@ describe("ProjectService PostgreSQL integration", async () => {
 							),
 						);
 			try {
-				await waitForLockWaiter("select c.attempt_id,c.task_id,a.task_version_id");
+				await waitForLockWaiter("select attempt_id,task_id,expires_at::text");
 				await delay(1_200);
 			} finally {
 				rowLock.release();
