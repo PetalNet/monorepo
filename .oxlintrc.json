@@ -16,6 +16,7 @@
 		"prefer-regex-literals": "error"
 	},
 	"ignorePatterns": [
+		".agents/skills/impeccable/**",
 		"**/dist/**",
 		"**/build/**",
 		"**/.svelte-kit/**",

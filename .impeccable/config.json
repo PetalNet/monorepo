@@ -1,0 +1,24 @@
+{
+	"detector": {
+		"ignoreFiles": [
+			"apps/collegemap/src/lib/components/CollegeSearch.svelte",
+			"apps/collegemap/src/lib/components/Map.svelte",
+			"apps/collegemap/src/routes/+layout.svelte",
+			"apps/collegemap/src/routes/+page.svelte",
+			"apps/collegemap/src/routes/layout.css",
+			"apps/collegemap/src/routes/login/+page.svelte",
+			"apps/collegemap/src/routes/signup/+page.svelte",
+			"apps/console/src/lib/components/LibraryManagerSession.svelte",
+			"apps/grove/src/routes/+page.svelte",
+			"apps/point/docs/design/mockups.final.html",
+			"apps/point/docs/ghost-mode-concepts.html",
+			"apps/point/docs/location-strategy.html",
+			"apps/slide/src/routes/+error.svelte",
+			"apps/slide/src/routes/+page.svelte",
+			"apps/slide/src/routes/dashboard/+page.svelte",
+			"apps/slide/src/routes/event/[id]/live/+page.svelte",
+			"apps/slide/src/routes/night/[code]/+page.svelte",
+			"apps/slide/src/routes/night/[code]/live/+page.svelte"
+		]
+	}
+}

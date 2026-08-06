@@ -17,6 +17,9 @@ export default defineConfig([
 		gitignoreResolution: true,
 	}),
 	{
+		ignores: [".agents/skills/impeccable/**"],
+	},
+	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,svelte}"],
 		extends: [
 			js.configs.recommended,

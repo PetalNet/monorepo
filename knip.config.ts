@@ -1,6 +1,7 @@
 import type { KnipConfig } from "knip";
 
 export default {
+	ignore: [".agents/skills/impeccable/**"],
 	// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 	ignoreDependencies: ["@effect/language-service"],
 	ignoreExportsUsedInFile: { type: true, interface: true },
