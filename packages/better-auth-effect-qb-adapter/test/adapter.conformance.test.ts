@@ -4,8 +4,8 @@ import {
 	testAdapter,
 } from "@better-auth/test-utils/adapter";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import type { BetterAuthOptions } from "better-auth";
 import { getAuthTables } from "better-auth/db";
+import type { BetterAuthOptions } from "better-auth/minimal";
 import { Effect, ManagedRuntime, Redacted } from "effect";
 import { describe } from "vitest";
 
@@ -37,6 +37,14 @@ describe("effect-qb Postgres adapter conformance", async () => {
 					if (attributes.required) clauses.push("not null");
 					if (attributes.unique) clauses.push("unique");
 					columns.push(clauses.join(" "));
+				}
+				// RC2 expresses account identity as a compound issuer + providerAccountId index.
+				// Older releases marked providerAccountId unique directly on the column instead.
+				for (const index of table.indexes ?? []) {
+					if (!index.unique) continue;
+					columns.push(
+						`unique (${index.fields.map((field) => quote(table.fields[field].fieldName ?? field)).join(", ")})`,
+					);
 				}
 				return `create table ${quote(table.modelName)} (${columns.join(", ")})`;
 			});

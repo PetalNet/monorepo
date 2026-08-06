@@ -13,14 +13,17 @@
 		"dev": "vite dev",
 		"migrate": "effectdb migrate up",
 		"prepare": "svelte-kit sync",
-		"preview": "vite preview"
+		"preview": "vite preview",
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
 		"@lucide/svelte": "catalog:prod",
+		"@petalnet/better-auth-effect-qb-adapter": "workspace:*",
 		"@petalnet/effect-api": "workspace:*",
 		"@petalnet/effect-sveltekit": "workspace:*",
 		"@sveltejs/kit": "catalog:",
+		"better-auth": "catalog:",
 		"daisyui": "catalog:prod",
 		"effect": "catalog:",
 		"effect-db": "catalog:",
@@ -33,8 +36,15 @@
 		"@sveltejs/adapter-node": "catalog:dev",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",
+		"@types/node": "catalog:types",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
-		"vite": "catalog:dev"
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
+	},
+	"dependenciesMeta": {
+		"@petalnet/better-auth-effect-qb-adapter": {
+			"injected": true
+		}
 	}
 }

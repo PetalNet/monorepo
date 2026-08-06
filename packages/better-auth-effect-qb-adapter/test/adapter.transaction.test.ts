@@ -9,7 +9,9 @@ import { startPostgres, stopPostgres } from "./postgres.js";
 describe("effect-qb Postgres transaction", async () => {
 	const databaseUrl = await startPostgres();
 	const runtime = ManagedRuntime.make(PgClient.layer({ url: Redacted.make(databaseUrl) }));
-	const factory = createEffectQbAdapter(databaseUrl);
+	const factory = createEffectQbAdapter({
+		runPromise: (effect) => runtime.runPromise(effect),
+	});
 	const adapter = factory({});
 
 	beforeAll(async () => {
