@@ -1108,7 +1108,7 @@ async function backfillEmissionFingerprints(admin: Sql): Promise<void> {
 	for await (const iteration of asynchronously(indefinitely())) {
 		void iteration;
 		const rows = await admin<
-			Array<{
+			{
 				seq: string;
 				id: string;
 				type: string;
@@ -1127,7 +1127,7 @@ async function backfillEmissionFingerprints(admin: Sql): Promise<void> {
 				links: NonNullable<Emission["links"]>;
 				body_ref: string | null;
 				meta: NonNullable<Emission["meta"]>;
-			}>
+			}[]
 		>`select e.seq, e.id, e.type, e.ts::text as ts, e.source_service, e.source_host,
 		         e.source_agent, e.subject, e.subject_kind, e.severity, e.action, e.task_id,
 		         e.scope, e.dimensions, e.measures, e.links, e.body_ref, e.meta

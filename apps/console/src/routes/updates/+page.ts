@@ -28,7 +28,7 @@ export const load: PageLoad = async ({
 		});
 		const liveHosts = (executors?.items ?? [])
 			.filter((e) => e.kind === "box-agent" && e.liveness === "alive" && e.ref)
-			.map((e) => e.ref as string);
+			.map((e) => e.ref!);
 		const rawResults = await Promise.allSettled(
 			response.items.filter((row) => row.raw_ref).map((row) => readBoxUpdateRaw(row.box_id, fetch)),
 		);

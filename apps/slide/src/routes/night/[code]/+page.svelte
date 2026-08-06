@@ -26,7 +26,7 @@
 	let showCategoriesModal = $state(false);
 	let hostPresentationListElement = $state<HTMLElement | null>(null);
 	let editingCategories = $state<
-		Array<{ id?: string; name: string; description: string; order: number }>
+		{ id?: string; name: string; description: string; order: number }[]
 	>([]);
 
 	// Emoji picker state for create/edit

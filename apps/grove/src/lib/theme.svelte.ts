@@ -1,4 +1,4 @@
-import { mode, setMode, setTheme } from "mode-watcher";
+import { mode, setMode } from "mode-watcher";
 import { tick } from "svelte";
 
 export class Theme {
@@ -7,6 +7,7 @@ export class Theme {
 	toggle() {
 		if (
 			window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- startViewTransition is not available in all browsers (progressive enhancement)
 			!document.startViewTransition
 		) {
 			this.#applyToggle();
@@ -22,7 +23,5 @@ export class Theme {
 	#applyToggle() {
 		const nextMode = this.dark ? "light" : "dark";
 		setMode(nextMode);
-		// DaisyUI reads data-theme; mode remains Grove's source of truth.
-		setTheme(nextMode);
 	}
 }

@@ -1,0 +1,10 @@
+{
+	// Operator scripts: not part of the app build, but they must belong to *some* project or
+	// typescript-eslint's project service cannot parse them. Own project, no emit -- same shape as
+	// packages/svelte-ws/files/tsconfig.json.
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"noEmit": true
+	},
+	"include": ["**/*.ts"]
+}

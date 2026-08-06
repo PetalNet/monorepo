@@ -15,10 +15,8 @@ const routes = [
 describe("schema-derived OpenAPI", () => {
 	it("renders component schemas directly from the domain Effect schemas", () => {
 		const doc = buildOpenApiDocument(routes);
-		expect(doc.components.schemas["OpCall"]).toEqual(
-			Schema.toJsonSchemaDocument(OpCallSchema).schema,
-		);
-		expect(doc.components.schemas["QueryRequest"]).toEqual(
+		expect(doc.components.schemas.OpCall).toEqual(Schema.toJsonSchemaDocument(OpCallSchema).schema);
+		expect(doc.components.schemas.QueryRequest).toEqual(
 			Schema.toJsonSchemaDocument(QueryRequestSchema).schema,
 		);
 	});

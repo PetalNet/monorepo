@@ -122,7 +122,7 @@ export const load: PageLoad = async ({ fetch, parent }) => {
 		attentionAvailable: attention !== null,
 		ackedReviewTaskIds: (attention?.items ?? [])
 			.filter((item) => item.grade === "review" && item.acked_by && item.task_id)
-			.map((item) => item.task_id as number),
+			.map((item) => item.task_id!),
 		trackerLive: alive("tracker"),
 		dispatcherLive: alive("dispatcher"),
 		snapshotAt: tasks?.freshness.observed_at ?? null,

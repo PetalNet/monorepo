@@ -133,7 +133,7 @@
 	let accountDropdownOpen = $state(false);
 	let showWinnersScreen = $state(false);
 	let confettiPieces = $state<
-		Array<{ id: number; left: number; delay: number; duration: number; color: string }>
+		{ id: number; left: number; delay: number; duration: number; color: string }[]
 	>([]);
 	let confettiCounter = $state(0);
 	let lastConfettiCount = $state(0);

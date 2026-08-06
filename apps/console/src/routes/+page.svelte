@@ -118,7 +118,7 @@
 		const disconnect = connectBus(
 			() => [{ sub_id: "console-cockpit-attention", pattern: "attention.**" }],
 			(frame) => {
-				if (frame["kind"] !== "event") return;
+				if (frame.kind !== "event") return;
 				if (queued) clearTimeout(queued);
 				queued = setTimeout(() => {
 					queued = null;

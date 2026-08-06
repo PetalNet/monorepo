@@ -11,7 +11,7 @@
 		"build": "vite build",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"dev": "vite dev",
-		"lint": "svelte-kit sync && eslint -c eslint.config.ts src tests vite.config.ts playwright.config.ts --max-warnings=0",
+		"lint": "svelte-kit sync && eslint src tests vite.config.ts playwright.config.ts --max-warnings=0",
 		"migrate": "effectdb migrate up",
 		"prepare": "svelte-kit sync",
 		"preview": "vite preview",
@@ -53,13 +53,10 @@
 		"@tailwindcss/vite": "catalog:dev",
 		"@types/node": "catalog:types",
 		"eslint": "catalog:dev",
-		"eslint-plugin-svelte": "catalog:dev",
 		"fontless": "catalog:prod",
 		"svelte-check": "catalog:dev",
 		"svelte-global-typescript": "catalog:",
-		"svelte-plugin-composer": "catalog:",
 		"typescript": "catalog:dev",
-		"typescript-eslint": "catalog:dev",
 		"vite": "catalog:dev",
 		"vitest": "catalog:dev"
 	}

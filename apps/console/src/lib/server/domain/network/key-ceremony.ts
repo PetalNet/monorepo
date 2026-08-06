@@ -1,9 +1,9 @@
-export type KeyCeremonyResult = {
+export interface KeyCeremonyResult {
 	readonly pubkey_fp: string;
 	readonly handle: string | null;
 	readonly state: "enrolled" | "denied" | "revoked";
 	readonly applied_at: string;
-};
+}
 
 export class KeyCeremonyError extends Error {
 	readonly _tag = "KeyCeremonyError";

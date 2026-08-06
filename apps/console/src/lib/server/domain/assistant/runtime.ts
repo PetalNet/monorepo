@@ -100,9 +100,9 @@ export class ClaudeCodeAssistantManager {
 				bearer_token: input.toolToken,
 			},
 		});
-		if (!wire || typeof wire["session_id"] !== "string" || wire["session_id"].length > 256)
+		if (!wire || typeof wire.session_id !== "string" || wire.session_id.length > 256)
 			throw new AssistantRuntimeError("assistant_manager_invalid", "manager omitted session id");
-		return wire["session_id"];
+		return wire.session_id;
 	}
 
 	async sendMessage(
@@ -137,18 +137,18 @@ export class ClaudeCodeAssistantManager {
 	} {
 		if (
 			!wire ||
-			typeof wire["message_id"] !== "string" ||
-			typeof wire["content"] !== "string" ||
-			wire["content"].length > 100_000
+			typeof wire.message_id !== "string" ||
+			typeof wire.content !== "string" ||
+			wire.content.length > 100_000
 		)
 			throw new AssistantRuntimeError(
 				"assistant_manager_invalid",
 				"manager returned invalid message",
 			);
 		const result = {
-			messageId: wire["message_id"],
-			content: wire["content"],
-			toolResults: Array.isArray(wire["tool_results"]) ? wire["tool_results"] : [],
+			messageId: wire.message_id,
+			content: wire.content,
+			toolResults: Array.isArray(wire.tool_results) ? wire.tool_results : [],
 		};
 		if (!scrubUnknown(result, "assistant.response").ok)
 			throw new AssistantRuntimeError(

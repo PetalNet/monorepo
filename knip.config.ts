@@ -6,9 +6,6 @@ export default {
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
-		".": {
-			entry: ["vite.config.ts"],
-		},
 		"apps/collegemap": {
 			drizzle: {
 				config: [],
@@ -17,13 +14,6 @@ export default {
 		},
 		"apps/console": {
 			ignoreDependencies: ["crossws!"],
-			sveltekit: {
-				config: ["vite.config.ts"],
-			},
-			paths: {
-				"$app/env": ["node_modules/@sveltejs/kit/types/index.d.ts"],
-				"$app/server": ["node_modules/@sveltejs/kit/types/index.d.ts"],
-			},
 			// Scripts are deploy/ops entrypoints (seed, bridge daemon, token mint, capability
 			// install) — production surface, hence the `!` markers.
 			entry: [
@@ -36,9 +26,6 @@ export default {
 			],
 		},
 		"apps/grove": {
-			sveltekit: {
-				config: ["vite.config.ts"],
-			},
 			entry: ["effectdb.config.ts!", "src/env.ts!"],
 		},
 		"apps/storybook": {

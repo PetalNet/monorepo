@@ -43,7 +43,7 @@ const queries = {
 	},
 } satisfies Record<string, StructuredQuery>;
 
-const queryEntries = Object.entries(queries) as Array<[keyof typeof queries, StructuredQuery]>;
+const queryEntries = Object.entries(queries) as [keyof typeof queries, StructuredQuery][];
 
 export const load: PageLoad = async ({ fetch, parent }) => {
 	const shell = await parent();

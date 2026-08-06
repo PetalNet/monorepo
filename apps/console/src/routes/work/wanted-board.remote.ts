@@ -51,8 +51,7 @@ export const claimWantedCard = Command(claimArgs, (input) =>
 		const snapshot = (yield* readPlaneRemote("cards")) as ReadEnvelope<CardItem>;
 		const current = snapshot.items.find((card) => card.card_id === input.card_id);
 		if (
-			!current ||
-			current.task_id !== input.task_id ||
+			current?.task_id !== input.task_id ||
 			current.updated_at_ms !== input.updated_at_ms ||
 			current.state !== "posted"
 		) {

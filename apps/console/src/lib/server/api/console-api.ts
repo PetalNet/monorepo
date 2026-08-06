@@ -98,7 +98,7 @@ import {
 } from "../domain/terminal/service.ts";
 import { readUpdateApprovals } from "../domain/updates/approvals.ts";
 
-export type { TerminalAdapter, TerminalTarget } from "../domain/terminal/service.ts";
+export type { TerminalAdapter } from "../domain/terminal/service.ts";
 
 const askRequestSchema = Schema.Struct({
 	question: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2_000)),

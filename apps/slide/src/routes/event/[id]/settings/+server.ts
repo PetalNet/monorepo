@@ -12,7 +12,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 		where: { id: params.id },
 	});
 
-	if (!event || event.hostId !== locals.user.id) {
+	if (event?.hostId !== locals.user.id) {
 		return json({ error: "Forbidden" }, { status: 403 });
 	}
 

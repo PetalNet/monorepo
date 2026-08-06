@@ -36,7 +36,9 @@ export function createOpenApi<R>(config: OpenApiConfig<R>) {
 		const inputSchema = schemaJson(operation.input);
 		const inputProperties = (inputSchema as ObjectSchema).properties;
 		const pathNames = new Set(
-			[...operation.path.matchAll(/:([A-Za-z][A-Za-z0-9_]*)/g)].map(([, name]) => name!),
+			[...operation.path.matchAll(/:([A-Za-z][A-Za-z0-9_]*)/g)].flatMap(([, name]) =>
+				name === undefined ? [] : [name],
+			),
 		);
 		const pathParameters = [...pathNames].map((name) => ({
 			name,

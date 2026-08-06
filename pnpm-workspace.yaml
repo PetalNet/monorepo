@@ -52,7 +52,7 @@ catalogs:
     eslint-plugin-oxlint: ^1.67.0
     eslint-plugin-package-json: ^1.2.0
     impeccable: ^3.4.0
-    knip: ^6.16.1
+    knip: ^6.31.0
     oxlint: ^1.67.0
     postcss: ^8.4.49
     prisma: ^5.22.0
@@ -111,7 +111,7 @@ catalog:
   "@opentelemetry/api": ^1.9.0
   "@opentelemetry/auto-instrumentations-node": ^0.67.2
   "@opentelemetry/exporter-trace-otlp-proto": ^0.208.0
-  "@opentelemetry/sdk-node": ^0.208.0
+  "@opentelemetry/sdk-node": ^0.217.0
   import-in-the-middle: ^2.0.0
   "@sentry/sveltekit": ^10.58.0
   "@sveltejs/kit": 3.0.0-next.8
@@ -122,7 +122,6 @@ catalog:
   effect-qb: 0.21.0
   svelte-effect-runtime: 4.1.1
   svelte-global-typescript: 1.0.1
-  svelte-plugin-composer: 1.0.1
   mode-watcher: ^1.1.0
   nanoid: ^6.0.0
   uuid: ^14.0.1

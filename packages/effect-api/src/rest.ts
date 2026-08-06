@@ -16,9 +16,9 @@ function matchPath(pattern: string, pathname: string): Record<string, string> | 
 	const actual = pathname.split("/").filter(Boolean);
 	if (expected.length !== actual.length) return undefined;
 	const params: Record<string, string> = {};
-	for (let index = 0; index < expected.length; index += 1) {
-		const segment = expected[index]!;
-		const value = actual[index]!;
+	for (const [index, segment] of expected.entries()) {
+		const value = actual[index];
+		if (value === undefined) return undefined;
 		if (segment.startsWith(":")) params[segment.slice(1)] = decodeURIComponent(value);
 		else if (segment !== value) return undefined;
 	}
@@ -57,7 +57,11 @@ export const createRestHandler =
 			}))
 			.find((candidate) => candidate.params !== undefined);
 		if (!match) return Effect.succeed(json({ error: { code: "not_found" } }, { status: 404 }));
-		return Effect.promise(() => requestInput(request, match.params!).catch(() => undefined)).pipe(
+		const params = match.params;
+		if (params === undefined) {
+			return Effect.succeed(json({ error: { code: "not_found" } }, { status: 404 }));
+		}
+		return Effect.promise(() => requestInput(request, params).catch(() => undefined)).pipe(
 			Effect.flatMap((input) =>
 				input === undefined
 					? Effect.succeed(

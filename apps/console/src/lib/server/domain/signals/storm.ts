@@ -45,18 +45,15 @@ type ResolveOwnerScopes = (owner: string) => Promise<readonly string[]>;
 const signalPatternMatches = matchPattern;
 
 function filterMatches(state: Record<string, unknown>, row: EventCountRow): boolean {
-	const filter = state["filter"];
+	const filter = state.filter;
 	if (!filter || typeof filter !== "object" || Array.isArray(filter)) return true;
 	const fields = filter as Record<string, unknown>;
-	if (
-		typeof fields["source_service"] === "string" &&
-		fields["source_service"] !== row.source_service
-	)
+	if (typeof fields.source_service === "string" && fields.source_service !== row.source_service)
 		return false;
-	if (typeof fields["subject"] === "string" && fields["subject"] !== row.subject) return false;
-	if (typeof fields["severity_gte"] === "string") {
+	if (typeof fields.subject === "string" && fields.subject !== row.subject) return false;
+	if (typeof fields.severity_gte === "string") {
 		const grades = ["debug", "info", "warn", "danger", "p0"];
-		if (grades.indexOf(row.severity) < grades.indexOf(fields["severity_gte"])) return false;
+		if (grades.indexOf(row.severity) < grades.indexOf(fields.severity_gte)) return false;
 	}
 	return true;
 }
@@ -80,8 +77,8 @@ function stormCount(
 }
 
 function stormSubscriptionEmission(row: SubscriptionRow, count: number, now: Date): Emission {
-	const pattern = String(row.state["pattern"]);
-	const owner = String(row.state["owner"]);
+	const pattern = String(row.state.pattern);
+	const owner = String(row.state.owner);
 	const mutedAt = now.toISOString();
 	const windowStartedAt = new Date(now.getTime() - SIGNAL_STORM_WINDOW_MS).toISOString();
 	const bucket = Math.floor(now.getTime() / SIGNAL_STORM_WINDOW_MS);
@@ -124,13 +121,13 @@ function stormSubscriptionEmission(row: SubscriptionRow, count: number, now: Dat
 }
 
 function expiredStormEmission(row: SubscriptionRow, now: Date): Emission {
-	const pattern = String(row.state["pattern"]);
-	const owner = String(row.state["owner"]);
-	const storm = row.state["storm"] as Record<string, unknown>;
+	const pattern = String(row.state.pattern);
+	const owner = String(row.state.owner);
+	const storm = row.state.storm as Record<string, unknown>;
 	const expiredAt = now.toISOString();
 	return {
 		schema_version: 1,
-		id: uuidv5(`signal-storm-expired:${owner}:${pattern}:${String(storm["expires_at"])}`),
+		id: uuidv5(`signal-storm-expired:${owner}:${pattern}:${String(storm.expires_at)}`),
 		type: "subscription.changed",
 		ts: expiredAt,
 		source: { service: "console-api", host: null, agent: null },
@@ -230,8 +227,8 @@ export class SignalStormDetector {
 			from events where received_at >= ${since}
 			group by type, scope, severity, source_service, subject`;
 		for await (const subscription of asynchronously(subscriptions)) {
-			const pattern = subscription.state["pattern"];
-			const owner = subscription.state["owner"];
+			const pattern = subscription.state.pattern;
+			const owner = subscription.state.owner;
 			if (typeof pattern !== "string" || typeof owner !== "string") continue;
 			const readableScopes = await this.#resolveOwnerScopes(owner);
 			const count = stormCount(pattern, subscription.state, counts, readableScopes);

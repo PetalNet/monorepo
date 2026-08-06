@@ -2,6 +2,7 @@ import { clearSession } from "$lib/server/auth";
 import { db } from "$lib/server/db";
 import { users, colleges } from "$lib/server/db/schema";
 import { emit } from "$lib/server/events";
+import { formText } from "$lib/server/form";
 import { fail, redirect } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 
@@ -9,7 +10,7 @@ import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) {
-		throw redirect(302, "/login");
+		redirect(302, "/login");
 	}
 
 	// Get current college if set
@@ -34,14 +35,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 export const actions: Actions = {
 	save: async ({ request, locals }) => {
 		if (!locals.user) {
-			throw redirect(302, "/login");
+			redirect(302, "/login");
 		}
 
 		const data = await request.formData();
-		const collegeName = data.get("collegeName")?.toString();
-		const latitude = parseFloat(data.get("latitude")?.toString() ?? "");
-		const longitude = parseFloat(data.get("longitude")?.toString() ?? "");
-		const isCustom = data.get("isCustom")?.toString() === "true";
+		const collegeName = formText(data, "collegeName");
+		const latitude = parseFloat(formText(data, "latitude") ?? "");
+		const longitude = parseFloat(formText(data, "longitude") ?? "");
+		const isCustom = formText(data, "isCustom") === "true";
 
 		if (!collegeName || isNaN(latitude) || isNaN(longitude)) {
 			return fail(400, { error: "Please select a college" });
@@ -77,7 +78,7 @@ export const actions: Actions = {
 			id: locals.user.id,
 			firstName: locals.user.firstName,
 			lastName: locals.user.lastName,
-			createdAt: updatedUser?.createdAt?.toISOString() ?? new Date().toISOString(),
+			createdAt: updatedUser?.createdAt.toISOString() ?? new Date().toISOString(),
 			college: {
 				id: college.id,
 				name: college.name,
@@ -89,8 +90,8 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	logout: async ({ cookies }) => {
+	logout: ({ cookies }) => {
 		clearSession(cookies);
-		throw redirect(302, "/");
+		redirect(302, "/");
 	},
 };

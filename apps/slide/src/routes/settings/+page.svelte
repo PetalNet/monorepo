@@ -231,7 +231,7 @@
 		<div class="glass-strong w-full max-w-md rounded-xl p-8 shadow-2xl">
 			<h3 class="mb-4 text-2xl font-bold text-white">Edit Name</h3>
 
-			{#if form?.error && form?.error.includes("name")}
+			{#if form?.error?.includes("name")}
 				<div class="mb-4 rounded-lg border border-red-700 bg-red-900/30 p-3 text-sm text-red-300">
 					{form.error}
 				</div>
@@ -253,7 +253,9 @@
 						await update();
 						if (result.type === "success") {
 							await invalidateAll();
-							setTimeout(() => closeModals(), 1500);
+							setTimeout(() => {
+								closeModals();
+							}, 1500);
 						}
 					};
 				}}
@@ -325,7 +327,9 @@
 						await update();
 						if (result.type === "success") {
 							await invalidateAll();
-							setTimeout(() => closeModals(), 1500);
+							setTimeout(() => {
+								closeModals();
+							}, 1500);
 						}
 					};
 				}}
@@ -393,7 +397,7 @@
 		<div class="glass-strong w-full max-w-md rounded-xl p-8 shadow-2xl">
 			<h3 class="mb-4 text-2xl font-bold text-white">Change Password</h3>
 
-			{#if form?.error && form?.error.includes("password")}
+			{#if form?.error?.includes("password")}
 				<div class="mb-4 rounded-lg border border-red-700 bg-red-900/30 p-3 text-sm text-red-300">
 					{form.error}
 				</div>

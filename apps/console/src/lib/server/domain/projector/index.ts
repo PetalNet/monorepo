@@ -64,27 +64,25 @@ function projectionKind(type: string): ProjectionKind | null {
 }
 
 function typedEntityOf(e: Emission): Record<string, unknown> {
-	const entity = e.meta?.["entity"];
+	const entity = e.meta?.entity;
 	return entity && typeof entity === "object" && !Array.isArray(entity)
 		? (entity as Record<string, unknown>)
 		: {};
 }
 
 function bridgeSourceOf(e: Emission): { kind: "bridge_source"; id: string } | null {
-	const source = e.meta?.["bridge_source"];
+	const source = e.meta?.bridge_source;
 	if (!source || typeof source !== "object" || Array.isArray(source)) return null;
 	const reference = source as Record<string, unknown>;
-	return reference["kind"] === "bridge_source" &&
-		typeof reference["id"] === "string" &&
-		reference["id"]
-		? { kind: "bridge_source", id: reference["id"] }
+	return reference.kind === "bridge_source" && typeof reference.id === "string" && reference.id
+		? { kind: "bridge_source", id: reference.id }
 		: null;
 }
 
 function projectionSubject(e: Emission, kind: ProjectionKind): string {
 	const typedEntity = typedEntityOf(e);
 	if (kind === "edge_session") {
-		const sessionId = typedEntity["session_id"] ?? e.dimensions?.["session_id"];
+		const sessionId = typedEntity.session_id ?? e.dimensions?.session_id;
 		if (typeof sessionId === "string" && sessionId) return sessionId;
 	}
 	return e.subject;
@@ -94,12 +92,12 @@ function projectionSubject(e: Emission, kind: ProjectionKind): string {
 function stateOf(e: Emission, receivedAt: string): Record<string, unknown> {
 	const typedEntity = typedEntityOf(e);
 	const bridgeSource = bridgeSourceOf(e);
-	const raw = e.meta?.["box_update_raw"];
+	const raw = e.meta?.box_update_raw;
 	const availabilityState =
 		e.type === "service.probe"
 			? {
 					last_probe_at: receivedAt,
-					last_probe_result: e.dimensions?.["ok"] ?? e.measures?.["ok"] ?? null,
+					last_probe_result: e.dimensions?.ok ?? e.measures?.ok ?? null,
 					probe_runner: e.source.agent ?? e.source.service,
 				}
 			: e.type === "service.down" || e.type === "service.up"
@@ -125,9 +123,7 @@ function stateOf(e: Emission, receivedAt: string): Record<string, unknown> {
 	};
 }
 
-export interface ProjectorAlarm {
-	(type: string, subject: string, message: string): void;
-}
+export type ProjectorAlarm = (type: string, subject: string, message: string) => void;
 
 // Aggregate-surface kinds MUST carry the `fleet` scope so a fleet-granted viewer can read them
 // (flat model: `fleet` does not imply `agent:x`). A per-agent-private projection is Phase 3+.
@@ -359,9 +355,7 @@ export class Projector {
 		}
 		if (
 			kind === "subscription" &&
-			(e.type === "subscription.removed" ||
-				e.action === "remove" ||
-				e.dimensions?.["removed"] === true)
+			(e.type === "subscription.removed" || e.action === "remove" || e.dimensions?.removed === true)
 		) {
 			await sql`delete from current_state
 				where kind = 'subscription' and subject = ${subject} and scope = ${e.scope} and seq < ${seq}`;

@@ -170,7 +170,7 @@ export async function proposeMutation(
 			where principal_id = ${principal.id} and request_id = ${input.requestId}`;
 		row = existing.at(0);
 	}
-	if (!row || row.request_hash !== hash)
+	if (row?.request_hash !== hash)
 		throw new ProposalError("id_reused", "mutation id was already used with a different body");
 
 	const result = (taskId: number): Record<string, unknown> => ({

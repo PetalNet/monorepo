@@ -88,7 +88,7 @@ export class TrackerCommandWriter {
 			);
 		}
 		const claimed = (wire as { claimed?: { id?: unknown; status?: unknown } | null }).claimed;
-		if (!claimed || claimed.id !== input.taskId)
+		if (claimed?.id !== input.taskId)
 			throw new TrackerCommandError("claim_lost", "the task was claimed by another resident first");
 		if (claimed.status !== "doing")
 			throw new TrackerCommandError(

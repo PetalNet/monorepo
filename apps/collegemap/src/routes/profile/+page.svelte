@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
+	import { resolve } from "$app/paths";
 	import CollegeSearch from "$lib/components/CollegeSearch.svelte";
 
-	let { data, form } = $props();
+	import type { PageProps } from "./$types";
+
+	let { data, form }: PageProps = $props();
 
 	let selectedCollege = $state<{
 		name: string;
@@ -108,7 +111,7 @@
 		</div>
 
 		<div class="back-link">
-			<a href="/">
+			<a href={resolve("/")}>
 				<svg
 					width="14"
 					height="14"
