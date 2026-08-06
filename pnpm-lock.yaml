@@ -705,6 +705,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.102
+      effect-qb:
+        specifier: 'catalog:'
+        version: 0.21.0(effect@4.0.0-beta.102)
     devDependencies:
       '@better-auth/test-utils':
         specifier: 'catalog:'
@@ -10967,6 +10970,7 @@ snapshots:
       '@effect/sql-pg': 4.0.0-beta.102(effect@4.0.0-beta.102)
       better-auth: 1.7.0-rc.1(656a02da59d51d0b75ee596d7a2c06ef)
       effect: 4.0.0-beta.102
+      effect-qb: 0.21.0(effect@4.0.0-beta.102)
     transitivePeerDependencies:
       - pg-native
 
@@ -10975,6 +10979,7 @@ snapshots:
       '@effect/sql-pg': 4.0.0-beta.102(effect@4.0.0-beta.102)
       better-auth: 1.7.0-rc.2(@opentelemetry/api@1.9.1)(@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)))(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(better-sqlite3@12.11.1)(drizzle-kit@0.31.10)(mysql2@3.15.3)(pg@8.22.0)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vitest@4.1.10)
       effect: 4.0.0-beta.102
+      effect-qb: 0.21.0(effect@4.0.0-beta.102)
     transitivePeerDependencies:
       - pg-native
 
