@@ -2,7 +2,21 @@ import { createEffectApi, operation } from "@petalnet/effect-api";
 import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import { Effect } from "effect";
 
-import { ProjectCreate, ProjectCreateReceipt } from "../../projects/schema";
+import {
+	AttemptPublish,
+	ClaimMutationReceipt,
+	ClaimReceipt,
+	ClaimRelease,
+	ClaimRenew,
+	ProjectCreate,
+	ProjectCreateReceipt,
+	ProjectPlan,
+	ProjectPlanReceipt,
+	PublishReceipt,
+	ReadyTasks,
+	TaskClaim,
+	WorkReady,
+} from "../../projects/schema";
 import {
 	CreateSprout,
 	EmptyInput,
@@ -13,7 +27,12 @@ import {
 	WaterSprout,
 } from "../../sprouts/schema";
 import { AuthenticationRequired } from "../authorization";
-import { CommandConflict, ProjectDatabaseError, ProjectService } from "../projects/service";
+import {
+	CommandConflict,
+	FenceConflict,
+	ProjectDatabaseError,
+	ProjectService,
+} from "../projects/service";
 import { SproutDatabaseError, SproutNotFound, SproutService } from "../sprouts/service";
 
 type OperationError =
@@ -21,17 +40,18 @@ type OperationError =
 	| SproutNotFound
 	| SproutDatabaseError
 	| CommandConflict
+	| FenceConflict
 	| ProjectDatabaseError;
 
 const statusForError = (error: OperationError): number => {
 	if (error instanceof AuthenticationRequired) return 401;
-	if (error instanceof CommandConflict) return 409;
+	if (error instanceof CommandConflict || error instanceof FenceConflict) return 409;
 	return error instanceof SproutNotFound ? 404 : 503;
 };
 const messageForError = (error: OperationError): string => {
 	if (error instanceof AuthenticationRequired || error instanceof SproutNotFound)
 		return error.message;
-	if (error instanceof CommandConflict) return error.message;
+	if (error instanceof CommandConflict || error instanceof FenceConflict) return error.message;
 	if (error instanceof ProjectDatabaseError) return "The project database is unavailable";
 	return "The sprout database is unavailable";
 };
@@ -45,6 +65,72 @@ const groveOperations = [
 		input: ProjectCreate,
 		output: ProjectCreateReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.create(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "project.plan",
+		description: "Accept a bounded child Task DAG.",
+		method: "POST",
+		path: "/projects/:projectId/plan",
+		input: ProjectPlan,
+		output: ProjectPlanReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (s) => s.plan(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "task.claim",
+		description: "Claim a ready Task and create an Attempt.",
+		method: "POST",
+		path: "/tasks/:taskId/claims",
+		input: TaskClaim,
+		output: ClaimReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (s) => s.claim(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "claim.renew",
+		description: "Renew an exact fenced Claim.",
+		method: "POST",
+		path: "/claims/:claimId/renew",
+		input: ClaimRenew,
+		output: ClaimMutationReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (s) => s.renew(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "claim.release",
+		description: "Release an exact fenced Claim.",
+		method: "POST",
+		path: "/claims/:claimId/release",
+		input: ClaimRelease,
+		output: ClaimMutationReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (s) => s.release(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "attempt.publish",
+		description: "Publish one immutable Attempt output.",
+		method: "POST",
+		path: "/attempts/:attemptId/outputs",
+		input: AttemptPublish,
+		output: PublishReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (s) => s.publish(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "work.ready",
+		description: "List visible ready Tasks in deterministic dependency order.",
+		method: "GET",
+		path: "/projects/:projectId/work/ready",
+		input: WorkReady,
+		output: ReadyTasks,
+		handler: (input) => Effect.flatMap(ProjectService, (s) => s.ready(input)),
 		statusForError,
 		messageForError,
 	}),

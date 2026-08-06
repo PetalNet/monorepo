@@ -9,8 +9,10 @@ import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { ProjectCreate } from "../src/lib/projects/schema";
+import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import {
 	CommandConflict,
+	FenceConflict,
 	ProjectDatabaseError,
 	ProjectService,
 	ProjectServiceLayer,
@@ -23,7 +25,18 @@ const input = (commandId: string = randomUUID()) => ({
 	ask: "Create the object foundation",
 });
 
+const principalEvent = (principalId = "principal-a") =>
+	({
+		url: new URL("https://grove.test/api/v1/projects"),
+		locals: { mcpPrincipal: null, session: null, user: { id: principalId } },
+	}) as RequestEvent;
+const delay = (milliseconds: number) =>
+	new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
 describe("ProjectService PostgreSQL integration", async () => {
+	const upgradeCommand = input();
+	const upgradeObjectId = randomUUID();
+	const upgradeVersionId = randomUUID();
 	const container = await new PostgreSqlContainer("postgres:17-alpine").start();
 	const postgres = PgClient.layer({ url: Redacted.make(container.getConnectionUri()) });
 	const runtime = ManagedRuntime.make(
@@ -38,6 +51,23 @@ describe("ProjectService PostgreSQL integration", async () => {
 		const [upMigration] = migration.split("-- effect-db:down");
 		const up = upMigration.replace("-- effect-db:up", "");
 		await query(up);
+		const payload = {
+			scope: upgradeCommand.scope,
+			title: upgradeCommand.title,
+			task: upgradeCommand.ask,
+		};
+		const versionPayload = { type: "project", ...payload };
+		await query(`insert into grove_objects(id,kind,scope) values('${upgradeObjectId}','task','${upgradeCommand.scope}');
+			insert into grove_object_versions(id,object_id,payload,digest,actor_id,actor_kind) values('${upgradeVersionId}','${upgradeObjectId}','${JSON.stringify(versionPayload)}','${canonicalDigest(versionPayload)}','principal-a','human');
+			update grove_objects set current_version_id='${upgradeVersionId}' where id='${upgradeObjectId}';
+			insert into grove_project_tasks(object_id) values('${upgradeObjectId}');
+			insert into grove_command_receipts(command_id,operation,principal_id,principal_kind,input_hash,object_id,version_id,version_digest) values('${upgradeCommand.commandId}','project.create','principal-a','human','${canonicalDigest(payload)}','${upgradeObjectId}','${upgradeVersionId}','${canonicalDigest(versionPayload)}');
+			insert into grove_outbox(id,command_id,version_id,event_type,aggregate_id,payload) values('${randomUUID()}','${upgradeCommand.commandId}','${upgradeVersionId}','project.created','${upgradeObjectId}','{}')`);
+		const taskMigration = await readFile(
+			new URL("../migrations/0004_task_execution.sql", import.meta.url),
+			"utf8",
+		);
+		await query(taskMigration.split("-- effect-db:down")[0].replace("-- effect-db:up", ""));
 	}, 60_000);
 
 	afterAll(async () => {
@@ -70,6 +100,35 @@ describe("ProjectService PostgreSQL integration", async () => {
 			),
 		);
 	};
+	it("upgrades an open 0003 project and preserves #359 project.create replay", async () => {
+		expect(await create(upgradeCommand)).toEqual(
+			expect.objectContaining({
+				objectId: upgradeObjectId,
+				versionId: upgradeVersionId,
+				replayed: true,
+			}),
+		);
+		expect(
+			await query<{ status: string }>(
+				`select status from grove_tasks where object_id='${upgradeObjectId}'`,
+			),
+		).toEqual([{ status: "planning" }]);
+	});
+
+	it("rejects orphan commands and mismatched aggregate/version outbox rows", async () => {
+		const project = await create(input());
+		await expect(
+			query(
+				`insert into grove_outbox(id,command_id,version_id,event_type,aggregate_id,payload) values('${randomUUID()}','${randomUUID()}','${project.versionId}','bad','${project.objectId}','{}')`,
+			),
+		).rejects.toBeDefined();
+		const other = await create(input());
+		await expect(
+			query(
+				`insert into grove_outbox(id,command_id,version_id,event_type,aggregate_id,payload) values('${randomUUID()}','${project.commandId}','${other.versionId}','bad','${project.objectId}','{}')`,
+			),
+		).rejects.toBeDefined();
+	});
 
 	it("atomically creates one object, head Version, project Task, receipt, and outbox", async () => {
 		const receipt = await create(input());
@@ -85,7 +144,7 @@ describe("ProjectService PostgreSQL integration", async () => {
 		}>(`select o.current_version_id, t.role, t.status, r.operation, r.principal_id,
 			x.command_id::text, x.version_id
 			from grove_objects o join grove_object_versions v on v.object_id = o.id
-			join grove_project_tasks t on t.object_id = o.id
+			join grove_tasks t on t.object_id = o.id
 			join grove_command_receipts r on r.object_id = o.id
 			join grove_outbox x on x.command_id = r.command_id
 			where o.id = '${receipt.objectId}'`);
@@ -94,7 +153,7 @@ describe("ProjectService PostgreSQL integration", async () => {
 				current_version_id: receipt.versionId,
 				version_id: receipt.versionId,
 				role: "project",
-				status: "open",
+				status: "planning",
 				operation: "project.create",
 				principal_id: "principal-a",
 			}),
@@ -178,7 +237,7 @@ describe("ProjectService PostgreSQL integration", async () => {
 			query<{ objects: number; versions: number; tasks: number; receipts: number; outbox: number }>(
 				`select (select count(*)::int from grove_objects) objects,
 			(select count(*)::int from grove_object_versions) versions,
-			(select count(*)::int from grove_project_tasks) tasks,
+			(select count(*)::int from grove_tasks) tasks,
 			(select count(*)::int from grove_command_receipts) receipts,
 			(select count(*)::int from grove_outbox) outbox`,
 			);
@@ -190,4 +249,681 @@ describe("ProjectService PostgreSQL integration", async () => {
 			"drop trigger grove_test_fail_receipt on grove_command_receipts; drop function grove_test_fail_receipt() ",
 		);
 	});
+
+	it("plans, derives readiness, fences exclusive Attempts, and publishes exact immutable output", async () => {
+		const project = await create(input());
+		const request = principalEvent();
+		const run = <A, E>(effect: Effect.Effect<A, E, SvelteKitRequestEvent | ProjectService>) =>
+			runtime.runPromise(effect.pipe(Effect.provideService(SvelteKitRequestEvent, request)));
+		const contract = { requiredOutputs: ["artifact"] as const, reviewRequired: true as const };
+		const planInput = {
+			commandId: randomUUID(),
+			projectId: project.objectId,
+			expectedVersionId: project.versionId,
+			tasks: [
+				{
+					key: "foundation",
+					title: "Foundation",
+					objective: "Prepare inputs",
+					completionContract: contract,
+				},
+				{
+					key: "build",
+					title: "Build",
+					objective: "Produce output",
+					completionContract: contract,
+				},
+				{
+					key: "independent",
+					title: "Independent",
+					objective: "Work in parallel",
+					completionContract: contract,
+				},
+			],
+			dependencies: [{ task: "build", dependsOn: "foundation" }],
+		};
+		const plan = await run(Effect.flatMap(ProjectService, (service) => service.plan(planInput)));
+		const plannedRows = await query<{
+			object_id: string;
+			current_version_id: string;
+			parent_task_id: string;
+			parent_version_id: string | null;
+			status: string;
+		}>(`select o.id object_id,o.current_version_id,t.parent_task_id,v.parent_version_id,t.status
+			from grove_objects o join grove_tasks t on t.object_id=o.id
+			join grove_object_versions v on v.id=o.current_version_id
+			where t.parent_task_id='${project.objectId}' order by o.id`);
+		expect(plannedRows).toHaveLength(3);
+		expect(plannedRows.map(({ object_id }) => object_id)).toEqual(
+			Object.values(plan.taskIds).toSorted(),
+		);
+		expect(
+			plannedRows.every(
+				({ parent_task_id, parent_version_id, status }) =>
+					parent_task_id === project.objectId && parent_version_id === null && status === "planned",
+			),
+		).toBe(true);
+		expect(
+			await query(
+				`select 1 from grove_task_dependencies where task_id='${plan.taskIds.build}' and depends_on_task_id='${plan.taskIds.foundation}'`,
+			),
+		).toHaveLength(1);
+		expect(
+			await query<{ parent_version_id: string; status: string }>(
+				`select v.parent_version_id,t.status from grove_objects o join grove_object_versions v on v.id=o.current_version_id join grove_tasks t on t.object_id=o.id where o.id='${project.objectId}'`,
+			),
+		).toEqual([{ parent_version_id: project.versionId, status: "planned" }]);
+		expect(
+			await query(`select 1 from grove_command_receipts where command_id='${plan.commandId}'`),
+		).toHaveLength(1);
+		expect(
+			await query(`select 1 from grove_outbox where command_id='${plan.commandId}'`),
+		).toHaveLength(4);
+		const claimWriteCounts = () =>
+			query<{ attempts: number; claims: number; receipts: number; events: number }>(`select
+				(select count(*)::int from grove_attempts) attempts,
+				(select count(*)::int from grove_claims) claims,
+				(select count(*)::int from grove_command_receipts) receipts,
+				(select count(*)::int from grove_outbox) events`);
+		const [beforeProjectClaim] = await claimWriteCounts();
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.claim({
+						commandId: randomUUID(),
+						taskId: project.objectId,
+						leaseSeconds: 30,
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		expect((await claimWriteCounts())[0]).toEqual(beforeProjectClaim);
+		expect(
+			(await run(Effect.flatMap(ProjectService, (service) => service.plan(planInput)))).replayed,
+		).toBe(true);
+		expect(
+			await query(`select 1 from grove_command_receipts where command_id='${plan.commandId}'`),
+		).toHaveLength(1);
+		expect(
+			await query(`select 1 from grove_outbox where command_id='${plan.commandId}'`),
+		).toHaveLength(4);
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.plan({
+						...planInput,
+						commandId: randomUUID(),
+						expectedVersionId: plan.versionId,
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		const countAll = () =>
+			query<{
+				objects: number;
+				versions: number;
+				tasks: number;
+				dependencies: number;
+				receipts: number;
+				events: number;
+			}>(`select
+			(select count(*)::int from grove_objects) objects,
+			(select count(*)::int from grove_object_versions) versions,
+			(select count(*)::int from grove_tasks) tasks,
+			(select count(*)::int from grove_task_dependencies) dependencies,
+			(select count(*)::int from grove_command_receipts) receipts,
+			(select count(*)::int from grove_outbox) events`);
+		const [before] = await countAll();
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.plan({
+						...planInput,
+						commandId: randomUUID(),
+						expectedVersionId: plan.versionId,
+						dependencies: [{ task: "build", dependsOn: "missing" }],
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.plan({
+						...planInput,
+						commandId: randomUUID(),
+						expectedVersionId: plan.versionId,
+						dependencies: [
+							{ task: "build", dependsOn: "independent" },
+							{ task: "independent", dependsOn: "build" },
+						],
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		expect((await countAll())[0]).toEqual(before);
+		const unplanned = await create(input());
+		const [beforeStale] = await countAll();
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.plan({
+						...planInput,
+						commandId: randomUUID(),
+						projectId: unplanned.objectId,
+						expectedVersionId: randomUUID(),
+					}),
+				),
+			),
+		).rejects.toMatchObject({ _tag: "CommandConflict", message: "Stale expected project version" });
+		expect((await countAll())[0]).toEqual(beforeStale);
+		const duplicateEdgeProject = await create(input());
+		const [beforeDuplicateEdge] = await countAll();
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.plan({
+						...planInput,
+						commandId: randomUUID(),
+						projectId: duplicateEdgeProject.objectId,
+						expectedVersionId: duplicateEdgeProject.versionId,
+						dependencies: [
+							{ task: "build", dependsOn: "foundation" },
+							{ task: "build", dependsOn: "foundation" },
+						],
+					}),
+				),
+			),
+		).rejects.toMatchObject({
+			_tag: "CommandConflict",
+			message: "Dependency edges must be unique",
+		});
+		expect((await countAll())[0]).toEqual(beforeDuplicateEdge);
+		const prototypeKeyProject = await create(input());
+		const prototypeKeyPlan = await run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.plan({
+					commandId: randomUUID(),
+					projectId: prototypeKeyProject.objectId,
+					expectedVersionId: prototypeKeyProject.versionId,
+					tasks: [
+						{
+							key: "__proto__",
+							title: "Prototype-safe task",
+							objective: "Keep local keys opaque",
+							completionContract: contract,
+						},
+					],
+					dependencies: [],
+				}),
+			),
+		);
+		expect(Object.hasOwn(prototypeKeyPlan.taskIds, "__proto__")).toBe(true);
+		expect(prototypeKeyPlan.taskIds.__proto__).toMatch(/^[\da-f-]{36}$/);
+		const ready = await run(
+			Effect.flatMap(ProjectService, (service) => service.ready({ projectId: project.objectId })),
+		);
+		expect(ready.map(({ taskId }) => taskId)).toEqual(
+			[plan.taskIds.foundation, plan.taskIds.independent].toSorted(),
+		);
+		expect(ready).toEqual(
+			[
+				{ taskId: plan.taskIds.foundation, title: "Foundation", dependencyTaskIds: [] },
+				{ taskId: plan.taskIds.independent, title: "Independent", dependencyTaskIds: [] },
+			].toSorted((a, b) => a.taskId.localeCompare(b.taskId)),
+		);
+		await query(
+			`update grove_tasks set status='completed' where object_id='${plan.taskIds.foundation}'`,
+		);
+		const readyAfterDependency = await run(
+			Effect.flatMap(ProjectService, (service) => service.ready({ projectId: project.objectId })),
+		);
+		expect(readyAfterDependency.map(({ taskId }) => taskId)).toEqual([
+			plan.taskIds.independent,
+			plan.taskIds.build,
+		]);
+		expect(
+			readyAfterDependency.find(({ taskId }) => taskId === plan.taskIds.build)?.dependencyTaskIds,
+		).toEqual([plan.taskIds.foundation]);
+
+		const claimCommand = { commandId: randomUUID(), taskId: plan.taskIds.build, leaseSeconds: 30 };
+		const claims = await Promise.allSettled([
+			run(Effect.flatMap(ProjectService, (service) => service.claim(claimCommand))),
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.claim({ ...claimCommand, commandId: randomUUID() }),
+				),
+			),
+		]);
+		expect(claims.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+		const rejectedClaim = claims.find(({ status }) => status === "rejected");
+		expect(rejectedClaim?.status === "rejected" && rejectedClaim.reason).toBeInstanceOf(
+			CommandConflict,
+		);
+		const successful = claims.find(({ status }) => status === "fulfilled");
+		if (successful?.status !== "fulfilled") throw new Error("claim did not succeed");
+		const claim = successful.value;
+		const winningClaimInput =
+			claim.commandId === claimCommand.commandId
+				? claimCommand
+				: { ...claimCommand, commandId: claim.commandId };
+		expect(await query(`select 1 from grove_attempts where id='${claim.attemptId}'`)).toHaveLength(
+			1,
+		);
+		expect(await query(`select 1 from grove_claims where id='${claim.claimId}'`)).toHaveLength(1);
+		expect(
+			await query(`select 1 from grove_command_receipts where command_id='${claim.commandId}'`),
+		).toHaveLength(1);
+		expect(
+			await query(
+				`select 1 from grove_outbox where command_id='${claim.commandId}' and event_type='task.claimed'`,
+			),
+		).toHaveLength(1);
+		expect(
+			await run(Effect.flatMap(ProjectService, (service) => service.claim(winningClaimInput))),
+		).toEqual({ ...claim, replayed: true });
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.renew({
+						commandId: randomUUID(),
+						claimId: claim.claimId,
+						fence: "stale",
+						leaseSeconds: 30,
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(FenceConflict);
+		const renewInput = {
+			commandId: randomUUID(),
+			claimId: claim.claimId,
+			fence: claim.fence,
+			leaseSeconds: 30,
+		};
+		const renewed = await run(
+			Effect.flatMap(ProjectService, (service) => service.renew(renewInput)),
+		);
+		expect(renewed.expiresAt).not.toBeNull();
+		expect(
+			await run(Effect.flatMap(ProjectService, (service) => service.renew(renewInput))),
+		).toEqual({ ...renewed, replayed: true });
+		expect(
+			await query(
+				`select 1 from grove_command_receipts where command_id='${renewInput.commandId}'`,
+			),
+		).toHaveLength(1);
+		expect(
+			await query(`select 1 from grove_outbox where command_id='${renewInput.commandId}'`),
+		).toHaveLength(1);
+		const publishInput = {
+			commandId: randomUUID(),
+			claimId: claim.claimId,
+			fence: claim.fence,
+			attemptId: claim.attemptId,
+			title: "Result",
+			content: "Immutable bytes",
+		};
+		const published = await run(
+			Effect.flatMap(ProjectService, (service) => service.publish(publishInput)),
+		);
+		expect(
+			await run(Effect.flatMap(ProjectService, (service) => service.publish(publishInput))),
+		).toEqual({ ...published, replayed: true });
+		expect(
+			await query(
+				`select 1 from grove_objects where id='${published.objectId}' and kind='artifact'`,
+			),
+		).toHaveLength(1);
+		expect(
+			await query(`select 1 from grove_object_versions where object_id='${published.objectId}'`),
+		).toHaveLength(1);
+		expect(
+			await query(
+				`select 1 from grove_attempt_outputs where attempt_id='${claim.attemptId}' and task_id='${plan.taskIds.build}' and object_id='${published.objectId}' and version_id='${published.versionId}'`,
+			),
+		).toHaveLength(1);
+		expect(
+			await query(
+				`select 1 from grove_command_receipts where command_id='${publishInput.commandId}'`,
+			),
+		).toHaveLength(1);
+		expect(
+			await query(
+				`select 1 from grove_outbox where command_id='${publishInput.commandId}' and event_type='attempt.output_published'`,
+			),
+		).toHaveLength(1);
+		const [beforeRepublish] = await countAll();
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.publish({
+						...publishInput,
+						commandId: randomUUID(),
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+		expect((await countAll())[0]).toEqual(beforeRepublish);
+		const output = await query<{
+			status: string;
+			task_status: string;
+			payload: Record<string, string>;
+		}>(
+			`select a.status,t.status task_status,v.payload from grove_attempts a join grove_tasks t on t.object_id=a.task_id join grove_attempt_outputs x on x.attempt_id=a.id join grove_object_versions v on v.id=x.version_id where a.id='${claim.attemptId}' and x.object_id='${published.objectId}'`,
+		);
+		expect(output[0]).toMatchObject({
+			status: "result_submitted",
+			task_status: "planned",
+		});
+		expect(output[0].payload).toMatchObject({
+			taskId: plan.taskIds.build,
+			attemptId: claim.attemptId,
+		});
+		expect(
+			await query<{ completion_contract: typeof contract }>(
+				`select v.payload->'completionContract' completion_contract from grove_objects o join grove_object_versions v on v.id=o.current_version_id where o.id='${plan.taskIds.build}'`,
+			),
+		).toEqual([{ completion_contract: contract }]);
+		await expect(
+			query(`update grove_object_versions set payload='{}' where id='${published.versionId}'`),
+		).rejects.toBeDefined();
+		const releaseInput = { commandId: randomUUID(), claimId: claim.claimId, fence: claim.fence };
+		const released = await run(
+			Effect.flatMap(ProjectService, (service) => service.release(releaseInput)),
+		);
+		expect(
+			await run(Effect.flatMap(ProjectService, (service) => service.release(releaseInput))),
+		).toEqual({ ...released, replayed: true });
+		expect(
+			await query(
+				`select 1 from grove_command_receipts where command_id='${releaseInput.commandId}'`,
+			),
+		).toHaveLength(1);
+		expect(
+			await query(`select 1 from grove_outbox where command_id='${releaseInput.commandId}'`),
+		).toHaveLength(1);
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.release({ commandId: randomUUID(), claimId: claim.claimId, fence: claim.fence }),
+				),
+			),
+		).rejects.toBeInstanceOf(FenceConflict);
+		const next = await run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.claim({ ...claimCommand, commandId: randomUUID() }),
+			),
+		);
+		expect(next.attemptId).not.toBe(claim.attemptId);
+		expect(
+			await query<{ status: string }>(
+				`select status from grove_attempts where id='${claim.attemptId}'`,
+			),
+		).toEqual([{ status: "result_submitted" }]);
+		await query(
+			`update grove_claims set issued_at=now()-interval '2 seconds', expires_at=now()-interval '1 second' where id='${next.claimId}'`,
+		);
+		await expect(
+			run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.renew({
+						commandId: randomUUID(),
+						claimId: next.claimId,
+						fence: next.fence,
+						leaseSeconds: 30,
+					}),
+				),
+			),
+		).rejects.toBeInstanceOf(FenceConflict);
+		expect(
+			await query<{ claim_status: string; attempt_status: string }>(
+				`select c.status claim_status,a.status attempt_status from grove_claims c join grove_attempts a on a.id=c.attempt_id where c.id='${next.claimId}'`,
+			),
+		).toEqual([{ claim_status: "expired", attempt_status: "fenced" }]);
+		const afterExpiry = await run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.claim({ ...claimCommand, commandId: randomUUID() }),
+			),
+		);
+		expect(afterExpiry.attemptId).not.toBe(next.attemptId);
+		expect(
+			await query<{ status: string }>(
+				`select status from grove_attempts where id='${next.attemptId}'`,
+			),
+		).toEqual([{ status: "fenced" }]);
+		const otherRequest = principalEvent("other-holder");
+		await expect(
+			runtime.runPromise(
+				Effect.flatMap(ProjectService, (service) =>
+					service.release({
+						commandId: randomUUID(),
+						claimId: afterExpiry.claimId,
+						fence: afterExpiry.fence,
+					}),
+				).pipe(Effect.provideService(SvelteKitRequestEvent, otherRequest)),
+			),
+		).rejects.toBeInstanceOf(FenceConflict);
+
+		const publishCounts = () =>
+			query<{
+				objects: number;
+				versions: number;
+				outputs: number;
+				receipts: number;
+				events: number;
+			}>(`select
+			(select count(*)::int from grove_objects) objects,
+			(select count(*)::int from grove_object_versions) versions,
+			(select count(*)::int from grove_attempt_outputs) outputs,
+			(select count(*)::int from grove_command_receipts) receipts,
+			(select count(*)::int from grove_outbox) events`);
+		const rejectPublishWithoutWrites = async (
+			candidate: typeof publishInput,
+			requestEvent = request,
+		) => {
+			const [beforePublish] = await publishCounts();
+			await expect(
+				runtime.runPromise(
+					Effect.flatMap(ProjectService, (service) => service.publish(candidate)).pipe(
+						Effect.provideService(SvelteKitRequestEvent, requestEvent),
+					),
+				),
+			).rejects.toBeInstanceOf(FenceConflict);
+			expect((await publishCounts())[0]).toEqual(beforePublish);
+		};
+		const activePublish = {
+			...publishInput,
+			commandId: randomUUID(),
+			claimId: afterExpiry.claimId,
+			fence: afterExpiry.fence,
+			attemptId: afterExpiry.attemptId,
+		};
+		await rejectPublishWithoutWrites({ ...activePublish, commandId: randomUUID(), fence: "wrong" });
+		await rejectPublishWithoutWrites({ ...activePublish, commandId: randomUUID() }, otherRequest);
+		// The original claim is both released and a genuinely stale prior lease for this task.
+		await rejectPublishWithoutWrites({ ...publishInput, commandId: randomUUID() });
+		await query(
+			`update grove_claims set issued_at=now()-interval '2 seconds', expires_at=now()-interval '1 second' where id='${afterExpiry.claimId}'`,
+		);
+		await rejectPublishWithoutWrites({ ...activePublish, commandId: randomUUID() });
+	});
+
+	it("uses live lease time after PostgreSQL lock waits and fences mutations at the boundary", async () => {
+		const request = principalEvent();
+		const run = <A, E>(effect: Effect.Effect<A, E, SvelteKitRequestEvent | ProjectService>) =>
+			runtime.runPromise(effect.pipe(Effect.provideService(SvelteKitRequestEvent, request)));
+		const freshTask = async () => {
+			const project = await create(input());
+			const plan = await run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.plan({
+						commandId: randomUUID(),
+						projectId: project.objectId,
+						expectedVersionId: project.versionId,
+						tasks: [
+							{
+								key: "work",
+								title: "Boundary work",
+								objective: "Exercise lock timing",
+								completionContract: { requiredOutputs: ["artifact"], reviewRequired: true },
+							},
+						],
+						dependencies: [],
+					}),
+				),
+			);
+			return plan.taskIds.work;
+		};
+		const holdTransactionLock = (
+			lock: (sql: PgClient.PgClient) => Effect.Effect<unknown, unknown>,
+		) => {
+			let signalAcquired!: () => void;
+			let release!: () => void;
+			const acquired = new Promise<void>((resolve) => (signalAcquired = resolve));
+			const held = new Promise<void>((resolve) => (release = resolve));
+			const transaction = runtime.runPromise(
+				Effect.flatMap(PgClient.PgClient, (sql) =>
+					sql.withTransaction(
+						Effect.gen(function* () {
+							yield* lock(sql);
+							signalAcquired();
+							yield* Effect.promise(() => held);
+						}),
+					),
+				),
+			);
+			return { acquired, release, transaction };
+		};
+		const waitForLockWaiter = async (queryFragment: string) => {
+			const deadline = Date.now() + 5_000;
+			const poll = async (): Promise<void> => {
+				const rows = await query<{ waiting: boolean }>(
+					`select exists(select 1 from pg_stat_activity where state='active' and wait_event_type='Lock' and position('${queryFragment}' in query)>0) waiting`,
+				);
+				if (rows[0].waiting) return;
+				if (Date.now() >= deadline)
+					throw new Error(`Timed out waiting for blocked PostgreSQL query: ${queryFragment}`);
+				await delay(20);
+				return poll();
+			};
+			return poll();
+		};
+		const databaseTime = async () => {
+			const rows = await query<{ value: string }>("select clock_timestamp()::text value");
+			return new Date(rows[0].value).getTime();
+		};
+
+		const claimTaskId = await freshTask();
+		const advisory = holdTransactionLock((sql) =>
+			sql.unsafe("select pg_advisory_xact_lock(hashtextextended($1,1))", [claimTaskId]),
+		);
+		await advisory.acquired;
+		const pendingClaim = run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.claim({ commandId: randomUUID(), taskId: claimTaskId, leaseSeconds: 1 }),
+			),
+		);
+		let claimReleaseTime: number;
+		try {
+			await waitForLockWaiter("pg_advisory_xact_lock(hashtextextended($1,1))");
+			await delay(1_200);
+			claimReleaseTime = await databaseTime();
+		} finally {
+			advisory.release();
+			await advisory.transaction;
+		}
+		const liveClaim = await pendingClaim;
+		expect(new Date(liveClaim.expiresAt).getTime() - claimReleaseTime).toBeGreaterThan(900);
+
+		const renewalTaskId = await freshTask();
+		const renewalClaim = await run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.claim({ commandId: randomUUID(), taskId: renewalTaskId, leaseSeconds: 30 }),
+			),
+		);
+		const renewalLock = holdTransactionLock((sql) =>
+			sql.unsafe(
+				"select c.id from grove_claims c join grove_attempts a on a.id=c.attempt_id where c.id=$1 for update of c,a",
+				[renewalClaim.claimId],
+			),
+		);
+		await renewalLock.acquired;
+		const pendingRenewal = run(
+			Effect.flatMap(ProjectService, (service) =>
+				service.renew({
+					commandId: randomUUID(),
+					claimId: renewalClaim.claimId,
+					fence: renewalClaim.fence,
+					leaseSeconds: 1,
+				}),
+			),
+		);
+		let renewalReleaseTime: number;
+		try {
+			await waitForLockWaiter("select c.attempt_id,c.task_id,a.task_version_id");
+			await delay(1_200);
+			renewalReleaseTime = await databaseTime();
+		} finally {
+			renewalLock.release();
+			await renewalLock.transaction;
+		}
+		const liveRenewal = await pendingRenewal;
+		if (liveRenewal.expiresAt === null) throw new Error("renewal did not return an expiry");
+		expect(new Date(liveRenewal.expiresAt).getTime() - renewalReleaseTime).toBeGreaterThan(900);
+
+		const assertBoundaryFence = async (operation: "publish" | "renew") => {
+			const taskId = await freshTask();
+			const claim = await run(
+				Effect.flatMap(ProjectService, (service) =>
+					service.claim({ commandId: randomUUID(), taskId, leaseSeconds: 1 }),
+				),
+			);
+			const rowLock = holdTransactionLock((sql) =>
+				sql.unsafe(
+					"select c.id from grove_claims c join grove_attempts a on a.id=c.attempt_id where c.id=$1 for update of c,a",
+					[claim.claimId],
+				),
+			);
+			await rowLock.acquired;
+			const mutation =
+				operation === "renew"
+					? run(
+							Effect.flatMap(ProjectService, (service) =>
+								service.renew({
+									commandId: randomUUID(),
+									claimId: claim.claimId,
+									fence: claim.fence,
+									leaseSeconds: 30,
+								}),
+							),
+						)
+					: run(
+							Effect.flatMap(ProjectService, (service) =>
+								service.publish({
+									commandId: randomUUID(),
+									claimId: claim.claimId,
+									fence: claim.fence,
+									attemptId: claim.attemptId,
+									title: "Too late",
+									content: "Expired while waiting",
+								}),
+							),
+						);
+			try {
+				await waitForLockWaiter("select c.attempt_id,c.task_id,a.task_version_id");
+				await delay(1_200);
+			} finally {
+				rowLock.release();
+				await rowLock.transaction;
+			}
+			await expect(mutation).rejects.toBeInstanceOf(FenceConflict);
+			expect(
+				await query<{ claim_status: string; attempt_status: string }>(
+					`select c.status claim_status,a.status attempt_status from grove_claims c join grove_attempts a on a.id=c.attempt_id where c.id='${claim.claimId}'`,
+				),
+			).toEqual([{ claim_status: "expired", attempt_status: "fenced" }]);
+		};
+		await assertBoundaryFence("publish");
+		await assertBoundaryFence("renew");
+	}, 30_000);
 });
