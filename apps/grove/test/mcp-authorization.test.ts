@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { AuthenticationRequired } from "../src/lib/server/authorization";
+import { ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
 import { handleMcpRequest } from "../src/lib/server/sprouts/mcp";
 import { SproutServiceBuildLayer } from "../src/lib/server/sprouts/service";
 
@@ -21,6 +22,7 @@ describe("handleMcpRequest", () => {
 			}),
 		} as RequestEvent;
 		const error = await handleMcpRequest(event.request).pipe(
+			Effect.provide(ProjectServiceBuildLayer),
 			Effect.provide(SproutServiceBuildLayer),
 			Effect.provideService(SvelteKitRequestEvent, event),
 			Effect.flip,
@@ -44,6 +46,7 @@ describe("handleMcpRequest", () => {
 			request,
 		} as unknown as RequestEvent;
 		const response = await handleMcpRequest(request).pipe(
+			Effect.provide(ProjectServiceBuildLayer),
 			Effect.provide(SproutServiceBuildLayer),
 			Effect.provideService(SvelteKitRequestEvent, event),
 			Effect.runPromise,

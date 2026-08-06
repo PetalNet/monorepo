@@ -593,6 +593,9 @@ importers:
       '@tailwindcss/vite':
         specifier: catalog:dev
         version: 4.3.1(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@testcontainers/postgresql':
+        specifier: 'catalog:'
+        version: 11.14.0
       '@types/node':
         specifier: catalog:types
         version: 25.9.4

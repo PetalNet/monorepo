@@ -2,7 +2,7 @@ import type { McpRequest } from "@petalnet/effect-api";
 import { Effect } from "effect";
 
 import { requireMcpPrincipal } from "../authorization";
-import { sproutApi } from "./api";
+import { groveApi } from "../grove/api";
 
 /** Authenticate before JSON-RPC dispatch so missing identity is an HTTP 401, not an MCP 200 error. */
 export const handleMcpRequest = (request: Request) =>
@@ -21,7 +21,7 @@ export const handleMcpRequest = (request: Request) =>
 									{ status: 400 },
 								),
 							)
-						: sproutApi.mcp(body as McpRequest),
+						: groveApi.mcp(body as McpRequest),
 				),
 			),
 		),
