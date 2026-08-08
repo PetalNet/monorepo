@@ -45,7 +45,7 @@
 		"update-ts-references": "catalog:dev",
 		"vite-plus": "catalog:dev"
 	},
-	"packageManager": "pnpm@11.11.0",
+	"packageManager": "pnpm@11.20.0",
 	"devEngines": {
 		"runtime": {
 			"name": "node",
