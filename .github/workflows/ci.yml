@@ -27,7 +27,7 @@ jobs:
         with:
           # Keep in lockstep with the vite-plus catalog pin (renovate-managed).
           # renovate: datasource=npm depName=vite-plus
-          version: "0.2.4"
+          version: "0.2.8"
           cache: true
           node-version-file: package.json
           run-install: true
@@ -53,7 +53,7 @@ jobs:
         with:
           # Keep in lockstep with the vite-plus catalog pin (renovate-managed).
           # renovate: datasource=npm depName=vite-plus
-          version: "0.2.4"
+          version: "0.2.8"
           cache: true
           node-version-file: package.json
           run-install: true
