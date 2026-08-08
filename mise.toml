@@ -1,7 +1,7 @@
 monorepo_root = true
 
 [tools]
-vp = "0.2.4"
+vp = "0.2.8"
 
 [settings]
 idiomatic_version_file_enable_tools = ["node", "pnpm", "rust"]
