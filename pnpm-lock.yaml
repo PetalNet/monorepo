@@ -34,14 +34,14 @@ catalogs:
       specifier: ^10.58.0
       version: 10.65.0
     '@storybook/addon-a11y':
-      specifier: 10.5.4
-      version: 10.5.4
+      specifier: 10.5.6
+      version: 10.5.6
     '@storybook/addon-docs':
-      specifier: 10.5.4
-      version: 10.5.4
+      specifier: 10.5.6
+      version: 10.5.6
     '@storybook/svelte-vite':
-      specifier: 10.5.4
-      version: 10.5.4
+      specifier: 10.5.6
+      version: 10.5.6
     '@sveltejs/kit':
       specifier: 3.0.0-next.8
       version: 3.0.0-next.8
@@ -73,8 +73,8 @@ catalogs:
       specifier: ^6.0.0
       version: 6.0.0
     storybook:
-      specifier: 10.5.4
-      version: 10.5.4
+      specifier: 10.5.6
+      version: 10.5.6
     svelte-effect-runtime:
       specifier: 4.1.1
       version: 4.1.1
@@ -646,19 +646,19 @@ importers:
         version: link:../../packages/tsconfig
       '@storybook/addon-a11y':
         specifier: 'catalog:'
-        version: 10.5.4(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))
+        version: 10.5.6(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))
       '@storybook/addon-docs':
         specifier: 'catalog:'
-        version: 10.5.4(@types/react@19.2.17)(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+        version: 10.5.6(@types/react@19.2.17)(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       '@storybook/svelte-vite':
         specifier: 'catalog:'
-        version: 10.5.4(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+        version: 10.5.6(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       '@sveltejs/vite-plugin-svelte':
         specifier: catalog:dev
         version: 7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       storybook:
         specifier: 'catalog:'
-        version: 10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+        version: 10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
       svelte:
         specifier: catalog:prod
         version: 5.56.5(@typescript-eslint/types@8.61.1)
@@ -3968,32 +3968,32 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@storybook/addon-a11y@10.5.4':
-    resolution: {integrity: sha512-UWdZtB7Dh1GjqxTPOrisUNDhDGF5pKGzZdzW9DSSHMBcAOx2dsTmXGzLSFprAz4LTT0OHCtKhxNqKK0JZJ0Y8g==}
+  '@storybook/addon-a11y@10.5.6':
+    resolution: {integrity: sha512-pMqbmtvkIgb7/kVE2BTNovGhSerRXWsVag62zpwQe0SwYYkgN+1Q9h4TYuIe2+npGkxgwALCjwtqkcnpOoND+A==}
     peerDependencies:
-      storybook: ^10.5.4
+      storybook: ^10.5.6
 
-  '@storybook/addon-docs@10.5.4':
-    resolution: {integrity: sha512-2Z/x2pKEmXOCQjmttYzPuQBu9aWeMly8uEs3msrCTBLiHs/F7IlBFnMu0Z+T2Qvk0LEy8O93AlcPSP76aCcKjw==}
+  '@storybook/addon-docs@10.5.6':
+    resolution: {integrity: sha512-zyUJBrrpC9NTrmsREaVFNr+9WW6pikJtmRvo7GgZGqthEyhjQKSarHrW0aNWkwae2ep3jp1CZi8vIUVG1Dnp0w==}
     peerDependencies:
       '@types/react': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      storybook: ^10.5.4
+      storybook: ^10.5.6
     peerDependenciesMeta:
       '@types/react':
         optional: true
 
-  '@storybook/builder-vite@10.5.4':
-    resolution: {integrity: sha512-eXdgow+brSzZrG3CnG18YwxZwEYNAZIh2G5qKwNoZf0uk2ZCPgLRQwtVAcd7BiiEDGnXUHm9pycAS+UiF4F4Mg==}
+  '@storybook/builder-vite@10.5.6':
+    resolution: {integrity: sha512-Ts8EohKPj8okDPCkueeKVN+IRGNpI3LuddsFGupqraRvK6aRWawDKA28uc0PlsLCLWbMkMsGVw+IpFXfmoLJgQ==}
     peerDependencies:
-      storybook: ^10.5.4
+      storybook: ^10.5.6
       vite: ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
 
-  '@storybook/csf-plugin@10.5.4':
-    resolution: {integrity: sha512-DSp5Z/eZlRnKq0KrKLJE6uoYf/Ysc+FP0Z5DVTGnOrie+z3tC0lNi9I4RB++EXkJeUDS9/4dxvJZVSWjhLlXxw==}
+  '@storybook/csf-plugin@10.5.6':
+    resolution: {integrity: sha512-PJLyOmcKe1OZDBw7RaGX/gjuiJuVfS5pVgc4W2RnHYOFpU6F5Bv9+9MqQwp0i7tWZBWc4fsCJudgVqwgjuTROA==}
     peerDependencies:
       esbuild: '*'
       rollup: '*'
-      storybook: ^10.5.4
+      storybook: ^10.5.6
       vite: '*'
       webpack: '*'
     peerDependenciesMeta:
@@ -4014,32 +4014,32 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  '@storybook/react-dom-shim@10.5.4':
-    resolution: {integrity: sha512-YdlppEOReg8MvTECRNuf79gu2zL83JqKDHIR/65eS0M6y+ue9pkpfjYo7hZVIcyOcRd9npBDXMdt2kC92bCuaA==}
+  '@storybook/react-dom-shim@10.5.6':
+    resolution: {integrity: sha512-dV3oOHc5ImggxEqeIiUj4vvnQO5SKScFtqAkxgIWLju1wiSZSIqQ5Q4Mp12Rhs9hQrjF039DueH7f2xJJZfvSw==}
     peerDependencies:
       '@types/react': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       '@types/react-dom': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      storybook: ^10.5.4
+      storybook: ^10.5.6
     peerDependenciesMeta:
       '@types/react':
         optional: true
       '@types/react-dom':
         optional: true
 
-  '@storybook/svelte-vite@10.5.4':
-    resolution: {integrity: sha512-XQj2vvfw40S1ohmgs5pPobbYGT76k8B90haDQinHJ+IdW8b8MEI7gI38gkSFQnE/q6TeR9iniix1Rll1QXP1dA==}
+  '@storybook/svelte-vite@10.5.6':
+    resolution: {integrity: sha512-jMmCOvOJ3VL7ee0258nbqrnRBT7e0kFjimnwe7MGUz1HnmOHvH7gUlcZXGh79kb8kkFjJJ6x4ZPHNK689IndNQ==}
     peerDependencies:
       '@sveltejs/vite-plugin-svelte': ^2.0.0 || ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
-      storybook: ^10.5.4
+      storybook: ^10.5.6
       svelte: ^5.0.0
       vite: ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
 
-  '@storybook/svelte@10.5.4':
-    resolution: {integrity: sha512-mPEDAxFxfKXLAr0KNl2IGyrMCPM+SP85q0KhXI2IQqdlJoSG6mk6L9l6255d21FD13IGndsKV95gyCKclLLUjQ==}
+  '@storybook/svelte@10.5.6':
+    resolution: {integrity: sha512-dx95/i86Lvif3wJZvMIWa/FnnyRljdIbDYicdBitbqS3SBldX6EE9DhYEY/e3ELEbRHMhsIANKoP2rzxs5xjVw==}
     peerDependencies:
-      storybook: ^10.5.4
+      storybook: ^10.5.6
       svelte: ^5.0.0
 
   '@sveltejs/acorn-typescript@1.0.10':
@@ -7766,8 +7766,8 @@ packages:
   std-env@4.1.0:
     resolution: {integrity: sha512-Rq7ybcX2RuC55r9oaPVEW7/xu3tj8u4GeBYHBWCychFtzMIr86A7e3PPEBPT37sHStKX3+TiX/Fr/ACmJLVlLQ==}
 
-  storybook@10.5.4:
-    resolution: {integrity: sha512-bmLxPsxVSPnbeiZqYQpozyNOiJXfk+pf7WfHZflvPkwT6Y+rvYz3Cj/D6H4Kf2jHpuDNiMXBKO3yawLN2OWirg==}
+  storybook@10.5.6:
+    resolution: {integrity: sha512-VhYwqxPySa24CVXKoWD6gCZXx9//DTmo43YpusGuAoHDYj5Osjt8wuBRQVeGoaLUWnHiPWv8S+GYHrJEaBM6Rg==}
     hasBin: true
     peerDependencies:
       '@types/react': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -11374,21 +11374,21 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@storybook/addon-a11y@10.5.4(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))':
+  '@storybook/addon-a11y@10.5.6(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))':
     dependencies:
       '@storybook/global': 5.0.0
       axe-core: 4.12.1
-      storybook: 10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      storybook: 10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
 
-  '@storybook/addon-docs@10.5.4(@types/react@19.2.17)(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
+  '@storybook/addon-docs@10.5.6(@types/react@19.2.17)(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
       '@mdx-js/react': 3.1.1(@types/react@19.2.17)(react@19.2.7)
-      '@storybook/csf-plugin': 10.5.4(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@storybook/csf-plugin': 10.5.6(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       '@storybook/icons': 2.1.0(react@19.2.7)
-      '@storybook/react-dom-shim': 10.5.4(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))
+      '@storybook/react-dom-shim': 10.5.6(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
-      storybook: 10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      storybook: 10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
       ts-dedent: 2.3.0
     optionalDependencies:
       '@types/react': 19.2.17
@@ -11399,10 +11399,10 @@ snapshots:
       - vite
       - webpack
 
-  '@storybook/builder-vite@10.5.4(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
+  '@storybook/builder-vite@10.5.6(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
-      '@storybook/csf-plugin': 10.5.4(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-      storybook: 10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      '@storybook/csf-plugin': 10.5.6(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      storybook: 10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
       ts-dedent: 2.3.0
       vite: 8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
     transitivePeerDependencies:
@@ -11410,9 +11410,9 @@ snapshots:
       - rollup
       - webpack
 
-  '@storybook/csf-plugin@10.5.4(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
+  '@storybook/csf-plugin@10.5.6(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
-      storybook: 10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      storybook: 10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
       unplugin: 2.3.11
     optionalDependencies:
       esbuild: 0.28.1
@@ -11425,21 +11425,21 @@ snapshots:
     dependencies:
       react: 19.2.7
 
-  '@storybook/react-dom-shim@10.5.4(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))':
+  '@storybook/react-dom-shim@10.5.6(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))':
     dependencies:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
-      storybook: 10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      storybook: 10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
     optionalDependencies:
       '@types/react': 19.2.17
 
-  '@storybook/svelte-vite@10.5.4(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
+  '@storybook/svelte-vite@10.5.6(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
-      '@storybook/builder-vite': 10.5.4(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-      '@storybook/svelte': 10.5.4(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(svelte@5.56.5(@typescript-eslint/types@8.61.1))
+      '@storybook/builder-vite': 10.5.6(esbuild@0.28.1)(rollup@4.62.2)(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@storybook/svelte': 10.5.6(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(svelte@5.56.5(@typescript-eslint/types@8.61.1))
       '@sveltejs/vite-plugin-svelte': 7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       magic-string: 0.30.21
-      storybook: 10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      storybook: 10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
       svelte: 5.56.5(@typescript-eslint/types@8.61.1)
       svelte2tsx: 0.7.59(svelte@5.56.5(@typescript-eslint/types@8.61.1))(typescript@5.9.3)
       typescript: 5.9.3
@@ -11449,9 +11449,9 @@ snapshots:
       - rollup
       - webpack
 
-  '@storybook/svelte@10.5.4(storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(svelte@5.56.5(@typescript-eslint/types@8.61.1))':
+  '@storybook/svelte@10.5.6(storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)))(svelte@5.56.5(@typescript-eslint/types@8.61.1))':
     dependencies:
-      storybook: 10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      storybook: 10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
       svelte: 5.56.5(@typescript-eslint/types@8.61.1)
       ts-dedent: 2.3.0
       type-fest: 5.8.0
@@ -15786,7 +15786,7 @@ snapshots:
 
   std-env@4.1.0: {}
 
-  storybook@10.5.4(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
+  storybook@10.5.6(@types/react@19.2.17)(react@19.2.7)(vite-plus@0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
     dependencies:
       '@storybook/global': 5.0.0
       '@storybook/icons': 2.1.0(react@19.2.7)
