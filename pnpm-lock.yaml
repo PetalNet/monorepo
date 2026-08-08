@@ -10,8 +10,8 @@ catalogs:
       specifier: 1.7.0-rc.1
       version: 1.7.0-rc.1
     '@effect/sql-pg':
-      specifier: 4.0.0-beta.102
-      version: 4.0.0-beta.102
+      specifier: 4.0.0-beta.103
+      version: 4.0.0-beta.103
     '@effect/tsgo':
       specifier: ^0.24.3
       version: 0.24.3
@@ -409,7 +409,7 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
+        version: 4.0.0-beta.103(effect@4.0.0-beta.102)
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -524,7 +524,7 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
+        version: 4.0.0-beta.103(effect@4.0.0-beta.102)
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -676,7 +676,7 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
+        version: 4.0.0-beta.103(effect@4.0.0-beta.102)
       better-auth:
         specifier: 'catalog:'
         version: 1.7.0-rc.1(aef3430e688a78278aa4f297842c7b61)
@@ -1018,10 +1018,10 @@ packages:
       effect: ^4.0.0-beta.98
       ioredis: ^5.7.0
 
-  '@effect/sql-pg@4.0.0-beta.102':
-    resolution: {integrity: sha512-02a+fNfECWCZIZcgHl7OLQN2jZj42gq90EdwdnvR3KA6GLGypY02swABS4zFtaW9H80rTa0ukqVnTdcO/DT5GQ==}
+  '@effect/sql-pg@4.0.0-beta.103':
+    resolution: {integrity: sha512-jzlTFtFaaoOmT87rQMKUBhkFeIQQwDKtlB+MOYn1jIPssLvXZVnMqo9GahCjsNcXVlB6QGBkUgD1HCA6+tJvBw==}
     peerDependencies:
-      effect: ^4.0.0-beta.102
+      effect: ^4.0.0-beta.103
 
   '@effect/sql-pg@4.0.0-beta.98':
     resolution: {integrity: sha512-gpV56KkKBH0bamPdp5yJN/pARpHLPbLZm/7zgRH1FZ5TZPPh4fwMrBpgb9zuTXPCdaGzMqNEKyDejMo4QOfCag==}
@@ -8743,7 +8743,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@effect/sql-pg@4.0.0-beta.102(effect@4.0.0-beta.102)':
+  '@effect/sql-pg@4.0.0-beta.103(effect@4.0.0-beta.102)':
     dependencies:
       effect: 4.0.0-beta.102
       pg: 8.22.0
