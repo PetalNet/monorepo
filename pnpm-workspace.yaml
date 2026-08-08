@@ -105,7 +105,7 @@ catalogs:
     tailwindcss: ^3.4.17
 
 catalog:
-  "@better-auth/test-utils": 1.7.0-rc.1
+  "@better-auth/test-utils": 1.7.0-rc.4
   crossws: ^0.3.5
   "@effect/sql-pg": 4.0.0-beta.102
   "@opentelemetry/api": ^1.9.0
@@ -116,7 +116,7 @@ catalog:
   "@sentry/sveltekit": ^10.58.0
   "@sveltejs/kit": 3.0.0-next.8
   "@testcontainers/postgresql": ^11.10.0
-  better-auth: 1.7.0-rc.1
+  better-auth: 1.7.0-rc.4
   effect: 4.0.0-beta.102
   effect-db: 0.21.0
   effect-qb: 0.21.0
