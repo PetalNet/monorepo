@@ -61,8 +61,8 @@ catalogs:
       specifier: 0.21.0
       version: 0.21.0
     effect-qb:
-      specifier: 0.21.0
-      version: 0.21.0
+      specifier: 0.22.0
+      version: 0.22.0
     import-in-the-middle:
       specifier: ^2.0.0
       version: 2.0.6
@@ -457,7 +457,7 @@ importers:
         version: 0.21.0(effect@4.0.0-beta.102)(ioredis@5.11.1)
       effect-qb:
         specifier: 'catalog:'
-        version: 0.21.0(effect@4.0.0-beta.102)
+        version: 0.22.0(effect@4.0.0-beta.102)
       import-in-the-middle:
         specifier: 'catalog:'
         version: 2.0.6
@@ -548,7 +548,7 @@ importers:
         version: 0.21.0(effect@4.0.0-beta.102)(ioredis@5.11.1)
       effect-qb:
         specifier: 'catalog:'
-        version: 0.21.0(effect@4.0.0-beta.102)
+        version: 0.22.0(effect@4.0.0-beta.102)
       mode-watcher:
         specifier: 'catalog:'
         version: 1.1.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -5547,6 +5547,12 @@ packages:
 
   effect-qb@0.21.0:
     resolution: {integrity: sha512-ZR2b0nEYFKqJJ5xJINkUUtfSwQO6AVBALkB5BijZsV5mQAuYWYmoc7zyj9wwFSz21P22hEyCx5N7w8AK/YxnHw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      effect: 4.0.0-beta.98
+
+  effect-qb@0.22.0:
+    resolution: {integrity: sha512-WfTEKlvydJLGgccaP6dBLB74jn/Cu41PcETDftzmRGXxtAqIzn7pP9FXyH4+Ng/CHKVQ4UX6yIPI2yuIDixeDQ==}
     engines: {node: '>=22'}
     peerDependencies:
       effect: 4.0.0-beta.98
@@ -12991,6 +12997,11 @@ snapshots:
       - utf-8-validate
 
   effect-qb@0.21.0(effect@4.0.0-beta.102):
+    dependencies:
+      effect: 4.0.0-beta.102
+      pgsql-ast-parser: 12.0.2
+
+  effect-qb@0.22.0(effect@4.0.0-beta.102):
     dependencies:
       effect: 4.0.0-beta.102
       pgsql-ast-parser: 12.0.2
