@@ -117,7 +117,7 @@ catalog:
   "@sveltejs/kit": 3.0.0-next.8
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.0-rc.1
-  effect: 4.0.0-beta.102
+  effect: 4.0.0-beta.103
   effect-db: 0.21.0
   effect-qb: 0.21.0
   svelte-effect-runtime: 4.1.1
