@@ -114,7 +114,7 @@ catalog:
   "@opentelemetry/sdk-node": ^0.217.0
   import-in-the-middle: ^2.0.0
   "@sentry/sveltekit": ^10.58.0
-  "@sveltejs/kit": 3.0.0-next.8
+  "@sveltejs/kit": 3.0.0-next.14
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.0-rc.1
   effect: 4.0.0-beta.102
