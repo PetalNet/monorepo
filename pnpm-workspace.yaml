@@ -119,7 +119,7 @@ catalog:
   better-auth: 1.7.0-rc.1
   effect: 4.0.0-beta.102
   effect-db: 0.21.0
-  effect-qb: 0.21.0
+  effect-qb: 0.22.0
   svelte-effect-runtime: 4.1.1
   svelte-global-typescript: 1.0.1
   mode-watcher: ^1.1.0
