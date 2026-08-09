@@ -141,3 +141,4 @@ catalog:
   "@storybook/svelte-vite": 10.5.6
   "@storybook/addon-a11y": 10.5.6
   "@storybook/addon-docs": 10.5.6
+  jose: ^6.2.5

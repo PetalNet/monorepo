@@ -1,7 +1,7 @@
 import { Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { authUrlSchema, oidcIssuerSchema } from "../src/env";
+import { authUrlSchema, mcpResourceSchema, oidcIssuerSchema } from "../src/env";
 
 const accepts = (schema: Schema.ConstraintDecoder<unknown>, value: unknown) =>
 	Exit.isSuccess(Schema.decodeUnknownExit(schema)(value));
@@ -33,5 +33,12 @@ describe("Grove environment", () => {
 		expect(
 			accepts(oidcIssuerSchema(false, false), "https://identity.example.com/realm/grove#other"),
 		).toBe(false);
+	});
+
+	it("requires an HTTPS origin for the canonical MCP resource", () => {
+		expect(accepts(mcpResourceSchema(false, false), "https://grove.example")).toBe(true);
+		expect(accepts(mcpResourceSchema(false, false), "http://grove.example")).toBe(false);
+		expect(accepts(mcpResourceSchema(false, false), "https://grove.example/mcp")).toBe(false);
+		expect(accepts(mcpResourceSchema(false, true), "http://localhost:5173")).toBe(true);
 	});
 });

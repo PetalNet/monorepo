@@ -1,12 +1,12 @@
 import type { McpRequest } from "@petalnet/effect-api";
 import { Effect } from "effect";
 
-import { requireAuthenticatedUser } from "../authorization";
+import { requireMcpPrincipal } from "../authorization";
 import { sproutApi } from "./api";
 
 /** Authenticate before JSON-RPC dispatch so missing identity is an HTTP 401, not an MCP 200 error. */
 export const handleMcpRequest = (request: Request) =>
-	requireAuthenticatedUser.pipe(
+	requireMcpPrincipal.pipe(
 		Effect.andThen(
 			Effect.promise(() => request.json().catch(() => undefined) as Promise<unknown>).pipe(
 				Effect.flatMap((body) =>

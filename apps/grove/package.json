@@ -28,6 +28,7 @@
 		"effect": "catalog:",
 		"effect-db": "catalog:",
 		"effect-qb": "catalog:",
+		"jose": "catalog:",
 		"mode-watcher": "catalog:",
 		"svelte": "catalog:prod",
 		"tailwindcss": "catalog:prod"
