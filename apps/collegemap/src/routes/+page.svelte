@@ -156,6 +156,25 @@
 		</div>
 
 		<div class="header-right">
+			<a href={resolve("/calendar")} class="btn-outline btn-icon">
+				<svg
+					width="16"
+					height="16"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
+					<path d="M8 2v4" />
+					<path d="M16 2v4" />
+					<rect width="18" height="18" x="3" y="4" rx="2" />
+					<path d="M3 10h18" />
+				</svg>
+				<span class="btn-label">Breaks</span>
+			</a>
+
 			<button
 				class="btn-outline btn-leaderboard"
 				onclick={() => (showLeaderboard = !showLeaderboard)}
@@ -567,19 +586,26 @@
 		color: var(--text-primary);
 	}
 
+	.btn-icon,
 	.btn-leaderboard {
 		display: flex;
 		align-items: center;
 		gap: 5px;
+	}
+
+	.btn-leaderboard {
 		color: var(--accent);
 		border-color: var(--border-accent);
 	}
 
+	/* Below 480px the header only has room for the icons. */
+	.btn-label,
 	.leaderboard-label {
 		display: none;
 	}
 
 	@media (min-width: 480px) {
+		.btn-label,
 		.leaderboard-label {
 			display: inline;
 		}
