@@ -89,3 +89,21 @@ GROVE-HANDOFF/
 - duplicated console snapshots.
 
 Those remain in the source workspace for provenance and can be fetched deliberately through the context map.
+
+## Browser authentication deployment
+
+Grove browser sessions use a dedicated confidential OIDC client through Authorization Code + PKCE.
+Register this exact callback URL with the identity provider:
+
+```text
+${BETTER_AUTH_URL}/api/auth/callback/grove-oidc
+```
+
+Set `BETTER_AUTH_URL` to Grove's canonical public origin and configure
+`GROVE_OIDC_ISSUER`, `GROVE_OIDC_CLIENT_ID`, `GROVE_OIDC_CLIENT_SECRET`, and
+`BETTER_AUTH_SECRET` through the deployment secret manager. Production origins and issuers must use
+HTTPS. Plain HTTP is accepted only for loopback development. Begin browser login at `/login`.
+
+Email/password authentication is disabled. Grove also disables implicit account linking and requires
+the OIDC provider to return a verified email before issuing a session. The browser OIDC client ID and
+secret are never credentials for `/mcp`; MCP resource-server authorization has separate configuration.

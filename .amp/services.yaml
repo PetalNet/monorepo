@@ -3,7 +3,7 @@ services:
     command: >-
       sudo -u postgres psql -tAc "select 1 from pg_roles where rolname = 'user'" | grep -q 1 || sudo -u postgres createuser user;
       sudo -u postgres psql -tAc "select 1 from pg_database where datname = 'grove'" | grep -q 1 || sudo -u postgres createdb --owner user grove;
-      cd apps/grove && export DATABASE_URL='postgresql:///grove?host=/var/run/postgresql' BETTER_AUTH_SECRET='grove-development-secret-at-least-32-characters' __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS='.e2b.app' && ~/.local/bin/mise exec -- vp exec effectdb migrate up && ~/.local/bin/mise exec -- vp exec vite dev --host 0.0.0.0 --port "$PORT"
+      cd apps/grove && export DATABASE_URL='postgresql:///grove?host=/var/run/postgresql' BETTER_AUTH_URL="http://localhost:$PORT" BETTER_AUTH_SECRET="$(openssl rand -base64 32)" GROVE_OIDC_ISSUER='http://localhost:8080/realms/grove' GROVE_OIDC_CLIENT_ID='grove-browser-development' GROVE_OIDC_CLIENT_SECRET="$(openssl rand -base64 32)" __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS='.e2b.app' && ~/.local/bin/mise exec -- vp exec effectdb migrate up && ~/.local/bin/mise exec -- vp exec vite dev --host 0.0.0.0 --port "$PORT"
     portal:
       title: Grove
       description: Effect domain demo backed by PostgreSQL.
