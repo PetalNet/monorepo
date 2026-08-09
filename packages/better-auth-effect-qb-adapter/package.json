@@ -13,15 +13,18 @@
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
-		"better-auth": "catalog:",
 		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@better-auth/test-utils": "catalog:",
 		"@testcontainers/postgresql": "catalog:",
 		"@types/node": "catalog:types",
+		"better-auth": "catalog:",
 		"eslint": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"
+	},
+	"peerDependencies": {
+		"better-auth": "*"
 	}
 }

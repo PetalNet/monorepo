@@ -2,6 +2,16 @@ packages:
   - apps/*
   - packages/*
 
+# The minimal Better Auth runtime does not load Kysely, but Better Auth still
+# declares it in its package manifest. Keep Console on its pinned full-runtime
+# release and remove Kysely only from the newer minimal-runtime dependency graph.
+overrides:
+  "better-auth@1.7.0-rc.2>@better-auth/drizzle-adapter": "-"
+  "better-auth@1.7.0-rc.2>@better-auth/kysely-adapter": "-"
+  "better-auth@1.7.0-rc.2>drizzle-orm": "-"
+  "better-auth@1.7.0-rc.2>kysely": "-"
+  "@better-auth/core@1.7.0-rc.2>kysely": "-"
+
 # Why: every dependency version must come from a catalog. `pnpm add` routes new
 # deps into a catalog automatically and refuses to introduce a divergent range.
 catalogMode: strict
@@ -105,7 +115,7 @@ catalogs:
     tailwindcss: ^3.4.17
 
 catalog:
-  "@better-auth/test-utils": 1.7.0-rc.1
+  "@better-auth/test-utils": 1.7.0-rc.2
   crossws: ^0.3.5
   "@effect/sql-pg": 4.0.0-beta.102
   "@opentelemetry/api": ^1.9.0
@@ -116,7 +126,7 @@ catalog:
   "@sentry/sveltekit": ^10.58.0
   "@sveltejs/kit": 3.0.0-next.8
   "@testcontainers/postgresql": ^11.10.0
-  better-auth: 1.7.0-rc.1
+  better-auth: 1.7.0-rc.2
   effect: 4.0.0-beta.103
   effect-db: 0.21.0
   effect-qb: 0.21.0

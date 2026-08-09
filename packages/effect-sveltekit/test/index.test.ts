@@ -66,6 +66,25 @@ describe("makeEffectSvelteKitRuntime", () => {
 		await runtime.dispose();
 	});
 
+	it("wraps a SvelteKit handle with runtime services and its request event", async () => {
+		class Value extends Context.Service<Value, string>()("test/HandleValue") {}
+		const runtime = makeEffectSvelteKitRuntime(Layer.succeed(Value, "from-runtime"));
+		const handle = runtime.handle(({ event }) =>
+			Effect.gen(function* () {
+				const value = yield* Value;
+				const request = yield* SvelteKitRequestEvent;
+				return new Response(`${value}:${request.request.url}:${event.request.url}`);
+			}),
+		);
+		const event = eventFor(undefined, "/handle");
+		const response = await handle({ event, resolve: vi.fn() });
+
+		expect(await response.text()).toBe(
+			"from-runtime:https://grove.test/handle:https://grove.test/handle",
+		);
+		await runtime.dispose();
+	});
+
 	it("interrupts on request abort, preserves its exact reason, and finishes cleanup first", async () => {
 		const runtime = makeEffectSvelteKitRuntime(Layer.empty, { logCause: vi.fn() });
 		const controller = new AbortController();
