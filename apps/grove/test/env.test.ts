@@ -1,17 +1,12 @@
 import { Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { authUrlSchema, optionalWhenBuilding } from "../src/env-schema";
+import { authUrlSchema } from "../src/env";
 
 const accepts = (schema: Schema.ConstraintDecoder<unknown>, value: unknown) =>
 	Exit.isSuccess(Schema.decodeUnknownExit(schema)(value));
 
-describe("Grove environment schemas", () => {
-	it("allows runtime-only values to be absent only while building", () => {
-		expect(accepts(optionalWhenBuilding(true, Schema.NonEmptyString), undefined)).toBe(true);
-		expect(accepts(optionalWhenBuilding(false, Schema.NonEmptyString), undefined)).toBe(false);
-	});
-
+describe("Grove environment", () => {
 	it("requires a canonical HTTPS auth URL in production", () => {
 		const production = authUrlSchema(false, false);
 

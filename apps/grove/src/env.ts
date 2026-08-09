@@ -2,7 +2,11 @@ import { building, dev } from "$app/env";
 import { defineEnvVars } from "@sveltejs/kit/hooks";
 import { Schema } from "effect";
 
-import { authUrlSchema, optionalWhenBuilding } from "./env-schema";
+const canonicalAuthUrl = Schema.NonEmptyString.check(Schema.isPattern(/^https:\/\//));
+const authSecret = Schema.String.check(Schema.isMinLength(32));
+
+export const authUrlSchema = (building: boolean, dev: boolean) =>
+	building || dev ? Schema.optional(Schema.NonEmptyString) : canonicalAuthUrl;
 
 export const variables = defineEnvVars({
 	BETTER_AUTH_SECRET: {
@@ -10,7 +14,7 @@ export const variables = defineEnvVars({
 		static: false,
 		description: "Secret used to sign and encrypt Grove authentication state.",
 		schema: Schema.toStandardSchemaV1(
-			optionalWhenBuilding(building, Schema.String.check(Schema.isMinLength(32))),
+			(building ? Schema.optional(authSecret) : authSecret) as typeof authSecret,
 		),
 	},
 	BETTER_AUTH_URL: {
@@ -23,6 +27,10 @@ export const variables = defineEnvVars({
 		public: false,
 		static: false,
 		description: "PostgreSQL connection URL for Grove's durable state.",
-		schema: Schema.toStandardSchemaV1(optionalWhenBuilding(building, Schema.NonEmptyString)),
+		schema: Schema.toStandardSchemaV1(
+			(building
+				? Schema.optional(Schema.NonEmptyString)
+				: Schema.NonEmptyString) as typeof Schema.NonEmptyString,
+		),
 	},
 });

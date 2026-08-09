@@ -129,81 +129,73 @@ export const SproutServiceLayer = Layer.effect(
 				return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
 			});
 		return {
-			list: authenticated(list),
-			get: (id) => authenticated(get(id)),
+			list: list.pipe(authenticated),
+			get: (id) => get(id).pipe(authenticated),
 			create: (input) =>
-				authenticated(
-					database(
-						execute(
-							executor.execute(
-								Query.insert(sprouts, { name: input.name }).pipe(Query.returning(sproutSelection)),
-							),
+				database(
+					execute(
+						executor.execute(
+							Query.insert(sprouts, { name: input.name }).pipe(Query.returning(sproutSelection)),
 						),
-					).pipe(Effect.map((rows) => fromRow(rows[0]))),
+					),
+				).pipe(
+					Effect.map((rows) => fromRow(rows[0])),
+					authenticated,
 				),
 			water: (id) =>
-				authenticated(
-					Effect.gen(function* () {
-						const dbId = yield* databaseId(id);
-						const rows = yield* execute(
-							Pg.Executor.withTransaction(
-								Effect.gen(function* () {
-									const current = yield* executor.execute(
-										Query.select(sproutSelection).pipe(
-											Query.from(sprouts),
-											Query.where(hasId(dbId)),
-										),
-									);
-									const row = current.at(0);
-									if (!row) return [];
-									const waterings = yield* Schema.decodeUnknownEffect(Counter)(row.waterings + 1);
+				Effect.gen(function* () {
+					const dbId = yield* databaseId(id);
+					const rows = yield* execute(
+						Pg.Executor.withTransaction(
+							Effect.gen(function* () {
+								const current = yield* executor.execute(
+									Query.select(sproutSelection).pipe(Query.from(sprouts), Query.where(hasId(dbId))),
+								);
+								const row = current.at(0);
+								if (!row) return [];
+								const waterings = yield* Schema.decodeUnknownEffect(Counter)(row.waterings + 1);
 
-									const updated = yield* executor.execute(
-										Query.update(sprouts, { waterings }).pipe(
-											Query.where(
-												Query.and(hasId(dbId), Query.eq(sprouts.waterings, row.waterings)),
-											),
-											Query.returning(sproutSelection),
-										),
-									);
-									if (updated.length > 0) return updated;
-									return yield* Effect.fail(new SproutOutOfDate());
-								}),
-							),
-						).pipe(
-							Effect.tapError((error) =>
-								error instanceof SproutOutOfDate
-									? Effect.sleep("10 millis")
-									: Effect.succeed(undefined),
-							),
-							Effect.retry({
-								times: 10,
-								while: (error) => error instanceof SproutOutOfDate,
-							}),
-							Effect.mapError((cause) => new SproutDatabaseError(cause)),
-						);
-						const row = rows.at(0);
-						return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
-					}),
-				),
-			remove: (id) =>
-				authenticated(
-					Effect.gen(function* () {
-						const dbId = yield* databaseId(id);
-						const rows = yield* database(
-							execute(
-								executor.execute(
-									Query.delete(sprouts).pipe(
-										Query.where(hasId(dbId)),
-										Query.returning({ id: sprouts.id }),
+								const updated = yield* executor.execute(
+									Query.update(sprouts, { waterings }).pipe(
+										Query.where(Query.and(hasId(dbId), Query.eq(sprouts.waterings, row.waterings))),
+										Query.returning(sproutSelection),
 									),
+								);
+								if (updated.length > 0) return updated;
+								return yield* Effect.fail(new SproutOutOfDate());
+							}),
+						),
+					).pipe(
+						Effect.tapError((error) =>
+							error instanceof SproutOutOfDate
+								? Effect.sleep("10 millis")
+								: Effect.succeed(undefined),
+						),
+						Effect.retry({
+							times: 10,
+							while: (error) => error instanceof SproutOutOfDate,
+						}),
+						Effect.mapError((cause) => new SproutDatabaseError(cause)),
+					);
+					const row = rows.at(0);
+					return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
+				}).pipe(authenticated),
+			remove: (id) =>
+				Effect.gen(function* () {
+					const dbId = yield* databaseId(id);
+					const rows = yield* database(
+						execute(
+							executor.execute(
+								Query.delete(sprouts).pipe(
+									Query.where(hasId(dbId)),
+									Query.returning({ id: sprouts.id }),
 								),
 							),
-						);
-						if (rows.length === 0) return yield* Effect.fail(new SproutNotFound(id));
-						return { removed: true as const };
-					}),
-				),
+						),
+					);
+					if (rows.length === 0) return yield* Effect.fail(new SproutNotFound(id));
+					return { removed: true as const };
+				}).pipe(authenticated),
 		};
 	}),
 );
