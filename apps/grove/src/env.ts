@@ -45,9 +45,9 @@ export const oidcIssuerSchema = (isBuilding: boolean, isDev: boolean) => {
 	return (isBuilding ? Schema.optional(schema) : schema) as typeof schema;
 };
 
-export const mcpResourceSchema = (building: boolean, dev: boolean) => {
-	const schema = authUrl(dev);
-	return (building ? Schema.optional(schema) : schema) as typeof schema;
+export const mcpResourceSchema = (isBuilding: boolean, isDev: boolean) => {
+	const schema = authUrl(isDev);
+	return (isBuilding ? Schema.optional(schema) : schema) as typeof schema;
 };
 
 export const variables = defineEnvVars({
