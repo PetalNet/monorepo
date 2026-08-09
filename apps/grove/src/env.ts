@@ -5,8 +5,8 @@ import { Schema } from "effect";
 const canonicalAuthUrl = Schema.NonEmptyString.check(Schema.isPattern(/^https:\/\//));
 const authSecret = Schema.String.check(Schema.isMinLength(32));
 
-export const authUrlSchema = (building: boolean, dev: boolean) =>
-	building || dev ? Schema.optional(Schema.NonEmptyString) : canonicalAuthUrl;
+export const authUrlSchema = (isBuilding: boolean, isDev: boolean) =>
+	isBuilding || isDev ? Schema.optional(Schema.NonEmptyString) : canonicalAuthUrl;
 
 export const variables = defineEnvVars({
 	BETTER_AUTH_SECRET: {
