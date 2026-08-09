@@ -24,11 +24,15 @@ const safeUrl = (value: string, isDev: boolean, originOnly: boolean) => {
 };
 const authUrl = (isDev: boolean) =>
 	Schema.NonEmptyString.check(
-		Schema.makeFilter((value) => safeUrl(value, isDev, true) || "expected a canonical HTTPS origin"),
+		Schema.makeFilter(
+			(value) => safeUrl(value, isDev, true) || "expected a canonical HTTPS origin",
+		),
 	);
 const oidcIssuer = (isDev: boolean) =>
 	Schema.NonEmptyString.check(
-		Schema.makeFilter((value) => safeUrl(value, isDev, false) || "expected a canonical HTTPS issuer"),
+		Schema.makeFilter(
+			(value) => safeUrl(value, isDev, false) || "expected a canonical HTTPS issuer",
+		),
 	);
 
 export const authUrlSchema = (isBuilding: boolean, isDev: boolean) => {
