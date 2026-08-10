@@ -48,3 +48,28 @@ export const collegeMetadata = sqliteTable("college_metadata", {
 });
 
 export type Settings = typeof settings.$inferSelect;
+
+/**
+ * A break is a named, inclusive range of calendar days belonging to one person.
+ *
+ * The dates are TEXT in `YYYY-MM-DD`, not timestamps, on purpose. "Winter break starts Dec 19"
+ * means Dec 19 wherever you are standing; storing an instant would let a timezone shift it by a
+ * day. See `$lib/dates`.
+ */
+export const breaks = sqliteTable("breaks", {
+	id: text("id")
+		.primaryKey()
+		.$defaultFn(() => crypto.randomUUID()),
+	userId: text("user_id")
+		.notNull()
+		.references(() => users.id),
+	label: text("label").notNull(),
+	startDate: text("start_date").notNull(),
+	endDate: text("end_date").notNull(),
+	createdAt: integer("created_at", { mode: "timestamp" })
+		.notNull()
+		.$defaultFn(() => new Date()),
+});
+
+export type Break = typeof breaks.$inferSelect;
+export type NewBreak = typeof breaks.$inferInsert;

@@ -13,10 +13,12 @@
 		"db:studio": "drizzle-kit studio",
 		"dev": "vite dev",
 		"prepare": "svelte-kit sync || echo ''",
-		"preview": "vite preview"
+		"preview": "vite preview",
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"@libsql/client": "catalog:prod",
+		"@lucide/svelte": "catalog:prod",
 		"@sveltejs/kit": "catalog:prod",
 		"@types/leaflet": "catalog:types",
 		"drizzle-orm": "catalog:prod",
@@ -37,6 +39,7 @@
 		"drizzle-kit": "catalog:dev",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
-		"vite": "catalog:dev"
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
 	}
 }
