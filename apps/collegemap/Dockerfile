@@ -34,39 +34,13 @@ RUN DATABASE_URL=file:placeholder.db pnpm build
 WORKDIR /repo
 RUN pnpm deploy --filter=@petalnet/collegemap --prod --legacy /out
 
-# drizzle-kit is a devDependency, and that is CORRECT: no collegemap source file
-# imports it, and `knip --strict` fails the build if it is declared as a runtime
-# dependency. But the CONTAINER genuinely needs it -- docker-entrypoint.sh runs
-# `drizzle-kit push` at boot, and drizzle.config.ts itself does
-#   import { defineConfig } from "drizzle-kit"
-# which resolves relative to /app. Without it the container does not merely fetch
-# from the network, it fails to start:
-#   Cannot find module 'drizzle-kit'  Require stack: /app/drizzle.config.ts
-#
-# So this is a deployment need rather than a source dependency, and it belongs in
-# the image rather than in the manifest. The version is read back from the build
-# stage instead of hardcoded, so it is always exactly what the workspace lockfile
-# resolved and cannot drift from the catalog.
-#
-# `--config.strict-dep-builds=false` is needed because /out has no
-# `onlyBuiltDependencies` allowlist (that lives in the workspace root, which is
-# deliberately not copied here), so pnpm 11 hard-errors on the ignored build scripts
-# of packages we do not use anyway -- prisma, better-sqlite3 and friends arrive only
-# as unused optional peers of drizzle-orm. Nothing collegemap runs needs them built.
-#
-# The version is read from the manifest BY PATH rather than via require(): drizzle-kit's
-# `exports` map does not expose "./package.json", so require('drizzle-kit/package.json')
-# throws ERR_PACKAGE_PATH_NOT_EXPORTED. readFileSync follows pnpm's symlink into the store.
-#
-# The `test -x` is a build-time assertion, not decoration: if the install ever silently
-# stops landing the binary, the build fails here rather than producing an image that dies
-# on first boot. It only proves the binary ARRIVED -- the container boot test with
-# --network none is what proves it actually runs.
-RUN DK_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('/repo/apps/collegemap/node_modules/drizzle-kit/package.json','utf8')).version")" \
- && echo "pinning drizzle-kit@${DK_VERSION} into the runtime tree" \
- && node apps/collegemap/docker/resolve-runtime-manifest.ts /out /repo/apps/collegemap/node_modules \
- && pnpm --dir /out add --config.strict-dep-builds=false "drizzle-kit@${DK_VERSION}" \
- && test -x /out/node_modules/.bin/drizzle-kit
+# `pnpm deploy` copies the manifest verbatim, catalog: specs and devDependencies
+# included, and /out has no pnpm-workspace.yaml to resolve them against -- so any
+# pnpm command run against the deployed tree dies with
+# ERR_PNPM_CATALOG_ENTRY_NOT_FOUND_FOR_SPEC. This rewrites each catalog spec to the
+# version actually installed and drops devDependencies, and fails loudly if any
+# spec is left unresolved.
+RUN node apps/collegemap/docker/resolve-runtime-manifest.ts /out /repo/apps/collegemap/node_modules
 
 # Stage 2: Runtime
 FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd
@@ -77,8 +51,13 @@ COPY --from=build /out/package.json ./package.json
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/collegemap/build ./build
 
-COPY apps/collegemap/drizzle.config.ts ./
-COPY apps/collegemap/src/lib/server/db/schema.ts ./src/lib/server/db/schema.ts
+# Reviewed, committed migration SQL, applied at boot by drizzle-orm's migrator.
+# This replaces `npx drizzle-kit push --force`, which diffed the live schema on
+# every start with no review step. drizzle-kit is therefore NOT in this image, and
+# neither drizzle.config.ts nor schema.ts are needed here any more -- both existed
+# solely to feed the push.
+COPY apps/collegemap/drizzle ./drizzle
+COPY apps/collegemap/docker/migrate.ts ./docker/migrate.ts
 COPY apps/collegemap/docker-entrypoint.sh ./
 
 RUN chmod +x docker-entrypoint.sh
