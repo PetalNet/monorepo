@@ -1,4 +1,4 @@
-import { Check, Column, Function, Query } from "effect-qb";
+import { Check, Column, Query } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 
 import { Counter } from "../../sprouts/schema.ts";
@@ -8,7 +8,7 @@ const publicSchema = Pg.Schema.make("public");
 const sproutsTable = publicSchema.table("grove_demo_sprouts", {
 	id: Pg.Column.int8().pipe(Pg.Column.identityAlways, Column.primaryKey),
 	name: Column.text(),
-	planted_at: Pg.Column.timestamptz().pipe(Column.default(Function.now())),
+	planted_at: Pg.Column.timestamptz().pipe(Column.default(Pg.Function.now())),
 	waterings: Column.int().pipe(Column.default(Query.literal(0)), Column.schema(Counter)),
 });
 
