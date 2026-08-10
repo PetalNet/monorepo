@@ -54,16 +54,17 @@ RUN pnpm deploy --filter=@petalnet/collegemap --prod --legacy /out
 # of packages we do not use anyway -- prisma, better-sqlite3 and friends arrive only
 # as unused optional peers of drizzle-orm. Nothing collegemap runs needs them built.
 #
-# The `test -x` is a build-time assertion, not decoration: if the install ever
-# silently stops landing the binary, the build fails here rather than producing an
-# image that dies on first boot. The container boot test is what proves it actually
-# RUNS -- this only proves it arrived.
-# Read the manifest by PATH, not via require(): drizzle-kit's `exports` map does not
-# expose "./package.json", so require('drizzle-kit/package.json') throws
-# ERR_PACKAGE_PATH_NOT_EXPORTED. readFileSync follows pnpm's symlink into the store.
+# The version is read from the manifest BY PATH rather than via require(): drizzle-kit's
+# `exports` map does not expose "./package.json", so require('drizzle-kit/package.json')
+# throws ERR_PACKAGE_PATH_NOT_EXPORTED. readFileSync follows pnpm's symlink into the store.
+#
+# The `test -x` is a build-time assertion, not decoration: if the install ever silently
+# stops landing the binary, the build fails here rather than producing an image that dies
+# on first boot. It only proves the binary ARRIVED -- the container boot test with
+# --network none is what proves it actually runs.
 RUN DK_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('/repo/apps/collegemap/node_modules/drizzle-kit/package.json','utf8')).version")" \
  && echo "pinning drizzle-kit@${DK_VERSION} into the runtime tree" \
- && node apps/collegemap/docker/resolve-runtime-manifest.mjs /out /repo/apps/collegemap/node_modules \
+ && node apps/collegemap/docker/resolve-runtime-manifest.ts /out /repo/apps/collegemap/node_modules \
  && pnpm --dir /out add --config.strict-dep-builds=false "drizzle-kit@${DK_VERSION}" \
  && test -x /out/node_modules/.bin/drizzle-kit
 
