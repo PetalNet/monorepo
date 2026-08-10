@@ -15,16 +15,20 @@ import { AuthenticationRequired } from "./authorization";
 import { SproutDatabaseError, SproutNotFound, SproutService } from "./sprouts/service";
 
 function makeRuntime() {
-	const GroveServicesLayer = building
-		? Layer.merge(GroveAuthBuildLayer, SproutServiceBuildLayer)
-		: Layer.merge(GroveAuthLayer, SproutServiceLayer).pipe(
-				Layer.provide(
-					PgClient.layer({
-						url: Redacted.make(DATABASE_URL),
-						maxConnections: 5,
-					}),
-				),
-			);
+	let GroveServicesLayer;
+	if (building) {
+		GroveServicesLayer = Layer.merge(GroveAuthBuildLayer, SproutServiceBuildLayer);
+	} else {
+		if (!DATABASE_URL) throw new Error("DATABASE_URL is required at runtime");
+		GroveServicesLayer = Layer.merge(GroveAuthLayer, SproutServiceLayer).pipe(
+			Layer.provide(
+				PgClient.layer({
+					url: Redacted.make(DATABASE_URL),
+					maxConnections: 5,
+				}),
+			),
+		);
+	}
 
 	return makeEffectSvelteKitRuntime(Layer.orDie(GroveServicesLayer), {
 		mapFailure: (failure) => {
