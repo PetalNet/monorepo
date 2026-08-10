@@ -21,5 +21,15 @@ export default defineConfig({
 		// apps/point/docs/design: vendored design references (the client UI spec
 		// + the pixel-close mockup target) — kept byte-faithful, not reformatted.
 		ignorePatterns: ["**/package.json", "pnpm-lock.yaml", "apps/point/docs/design/**"],
+		overrides: [
+			{
+				// drizzle-kit writes these with JSON.stringify and does not know the
+				// formatter exists, so every new migration would fail fmt until someone
+				// remembered a manual pass. Format them the way they are emitted instead
+				// of exempting them.
+				files: ["**/drizzle/meta/*.json"],
+				options: { parser: "json-stringify", useTabs: false, tabWidth: 2 },
+			},
+		],
 	},
 });

@@ -1,5 +1,5 @@
 #!/bin/sh
 set -e
 
-npx drizzle-kit push --force
+node docker/migrate.ts
 exec node build/index.js
