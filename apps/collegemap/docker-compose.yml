@@ -1,6 +1,10 @@
 services:
   map:
-    build: .
+    build:
+      # The Dockerfile installs from the workspace lockfile, so the build
+      # context has to be the monorepo root, not this directory.
+      context: ../..
+      dockerfile: apps/collegemap/Dockerfile
     ports:
       - "4718:3000"
     volumes:
