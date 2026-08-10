@@ -20,13 +20,16 @@ export default defineConfig({
 		// package.json sorting is owned by eslint-plugin-package-json.
 		// apps/point/docs/design: vendored design references (the client UI spec
 		// + the pixel-close mockup target) — kept byte-faithful, not reformatted.
-		// drizzle-kit generate emits these and does not know about the formatter, so every
-		// new migration would otherwise fail fmt until someone remembered a manual pass.
-		ignorePatterns: [
-			"**/package.json",
-			"pnpm-lock.yaml",
-			"apps/point/docs/design/**",
-			"apps/*/drizzle/meta/**",
+		ignorePatterns: ["**/package.json", "pnpm-lock.yaml", "apps/point/docs/design/**"],
+		overrides: [
+			{
+				// drizzle-kit writes these with JSON.stringify and does not know the
+				// formatter exists, so every new migration would fail fmt until someone
+				// remembered a manual pass. Format them the way they are emitted instead
+				// of exempting them.
+				files: ["**/drizzle/meta/*.json"],
+				options: { parser: "json-stringify", useTabs: false, tabWidth: 2 },
+			},
 		],
 	},
 });
