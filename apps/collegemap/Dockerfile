@@ -19,20 +19,22 @@ WORKDIR /repo
 COPY . .
 
 # The filter narrows the install to collegemap and skips the other 21 workspace
-# members. It does not exclude the workspace root, whose `prepare` script runs
-# `effect-tsgo patch` -- so this install must stay non-`--prod`, otherwise the
-# root's `@effect/tsgo` devDependency is missing and prepare dies with
-# `effect-tsgo: not found`. Pruning to production happens at the deploy step.
-RUN pnpm install --frozen-lockfile --filter=@petalnet/collegemap...
+# members. `--ignore-scripts` skips the workspace root's `prepare`
+# (`effect-tsgo patch`), which would otherwise need the root's devDependencies
+# present just to run and then be discarded.
+RUN pnpm install --frozen-lockfile --filter=@petalnet/collegemap... --ignore-scripts
 
 WORKDIR /repo/apps/collegemap
-RUN DATABASE_URL=file:placeholder.db pnpm build
+# `--ignore-scripts` above also skipped collegemap's own `prepare` (svelte-kit sync),
+# which generates .svelte-kit/tsconfig.json and $types -- so run it explicitly rather
+# than letting the build fail on missing generated files.
+RUN pnpm exec svelte-kit sync && DATABASE_URL=file:placeholder.db pnpm build
 
 # Prune to a production-only tree at /out that is self-contained, so it can be
 # copied to a different path in the runtime stage without the surrounding
 # workspace layout coming with it.
 WORKDIR /repo
-RUN pnpm deploy --filter=@petalnet/collegemap --prod --legacy /out
+RUN pnpm deploy --filter=@petalnet/collegemap --prod --config.inject-workspace-packages=true /out
 
 # `pnpm deploy` copies the manifest verbatim, catalog: specs and devDependencies
 # included, and /out has no pnpm-workspace.yaml to resolve them against -- so any
