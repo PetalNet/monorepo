@@ -5,7 +5,6 @@ import {
 	pickInitialMonth,
 	shiftMonth,
 	toParticipants,
-	weekdayOf,
 	WEEKDAY_LABELS,
 } from "./calendar";
 import { toDay } from "./dates";
@@ -19,16 +18,51 @@ const cell = (view: ReturnType<typeof buildMonthView>, iso: string) => {
 	return found;
 };
 
-describe("weekdayOf", () => {
+/**
+ * The weekday of a calendar date, worked out without the module under test.
+ *
+ * `Date` is safe here only because the string is pinned to UTC midnight and read back through
+ * `getUTCDay`. This is the independent oracle the grid gets checked against, so it deliberately
+ * shares no arithmetic with it.
+ */
+function utcWeekday(iso: string): number {
+	return new Date(`${iso}T00:00:00Z`).getUTCDay();
+}
+
+/**
+ * The column the month grid files a date under.
+ *
+ * Every row runs Sunday to Saturday, so a cell's index inside its week is the weekday the calendar
+ * believes it to be. That column is where the module's weekday arithmetic becomes something a
+ * person can see, which makes it the place to assert on it.
+ */
+function gridColumn(iso: string): number {
+	for (const week of buildMonthView([], iso).weeks) {
+		const column = week.findIndex((c) => c.iso === iso);
+		if (column !== -1) return column;
+	}
+	throw new Error(`${iso} is missing from its own month grid`);
+}
+
+describe("the weekday a date lands on", () => {
 	it("anchors on the epoch, which was a Thursday", () => {
-		expect(WEEKDAY_LABELS[weekdayOf(toDay("1970-01-01"))]).toBe("Thu");
+		expect(WEEKDAY_LABELS[gridColumn("1970-01-01")]).toBe("Thu");
 	});
 
 	it("agrees with the calendar on real dates", () => {
-		expect(WEEKDAY_LABELS[weekdayOf(toDay("2026-12-01"))]).toBe("Tue");
-		expect(WEEKDAY_LABELS[weekdayOf(toDay("2026-12-25"))]).toBe("Fri");
-		expect(WEEKDAY_LABELS[weekdayOf(toDay("2027-01-01"))]).toBe("Fri");
-		expect(WEEKDAY_LABELS[weekdayOf(toDay("2028-02-29"))]).toBe("Tue");
+		expect(WEEKDAY_LABELS[gridColumn("2026-12-01")]).toBe("Tue");
+		expect(WEEKDAY_LABELS[gridColumn("2026-12-25")]).toBe("Fri");
+		expect(WEEKDAY_LABELS[gridColumn("2027-01-01")]).toBe("Fri");
+		expect(WEEKDAY_LABELS[gridColumn("2028-02-29")]).toBe("Tue");
+	});
+
+	it("files every cell of a month under its real weekday", () => {
+		for (const week of buildMonthView([], "2026-12-01").weeks) {
+			for (const [column, dayCell] of week.entries()) {
+				expect(column).toBe(utcWeekday(dayCell.iso));
+				expect(dayCell.isWeekend).toBe(column === 0 || column === 6);
+			}
+		}
 	});
 });
 
@@ -37,8 +71,8 @@ describe("buildMonthView grid shape", () => {
 
 	it("starts on a Sunday and ends on a Saturday", () => {
 		const flat = cells(view);
-		expect(WEEKDAY_LABELS[weekdayOf(toDay(flat[0].iso))]).toBe("Sun");
-		expect(WEEKDAY_LABELS[weekdayOf(toDay(flat[flat.length - 1].iso))]).toBe("Sat");
+		expect(WEEKDAY_LABELS[utcWeekday(flat[0].iso)]).toBe("Sun");
+		expect(WEEKDAY_LABELS[utcWeekday(flat[flat.length - 1].iso)]).toBe("Sat");
 	});
 
 	it("pads with the neighbouring months so every row has seven cells", () => {

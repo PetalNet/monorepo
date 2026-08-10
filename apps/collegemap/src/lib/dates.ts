@@ -97,8 +97,8 @@ function formatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
 	return f;
 }
 
-/** "Sat Dec 19" — no year. */
-export function formatShort(iso: string): string {
+/** "Sat Dec 19" — no year. Internal: reached through `formatRange`. */
+function formatShort(iso: string): string {
 	return formatter({ weekday: "short", month: "short", day: "numeric" }).format(
 		new Date(toDay(iso) * MS_PER_DAY),
 	);

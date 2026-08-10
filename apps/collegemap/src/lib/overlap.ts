@@ -64,23 +64,23 @@ function covers(ranges: DayRange[], day: number): boolean {
 }
 
 /**
- * Every maximal stretch of days over which the free set does not change, for every free set of at
- * least `minFree` people.
+ * Every maximal stretch of days over which the free set does not change.
  *
  * Method: collect the boundaries (each range's start, and each range's end + 1, which is the first
  * day the person is back). Between two consecutive boundaries nobody's status changes, so each gap
  * has one constant free set. Then glue touching gaps that have the identical free set.
  *
+ * Internal: `buildReport` is the surface, and it is what decides which of these windows are worth
+ * showing.
+ *
  * Deliberately the obvious O(boundaries x people) version rather than a clever counting sweep: a
  * friend group is a handful of people with a handful of breaks, and a counting sweep cannot tell
  * you _which_ people are free without extra bookkeeping, which is exactly where the bugs live.
  */
-export function computeWindows(participants: Participant[], minFree = 2): FreeWindow[] {
+function computeWindows(participants: Participant[]): FreeWindow[] {
 	const active = participants
 		.map((p) => ({ id: p.id, ranges: mergeRanges(p.ranges) }))
 		.filter((p) => p.ranges.length > 0);
-
-	if (active.length < minFree || active.length < 2) return [];
 
 	const boundarySet = new Set<number>();
 	for (const p of active) {
@@ -104,7 +104,6 @@ export function computeWindows(participants: Participant[], minFree = 2): FreeWi
 		const end = boundaries[i + 1] - 1;
 		if (end < start) continue;
 		const freeIds = active.filter((p) => covers(p.ranges, start)).map((p) => p.id);
-		if (freeIds.length < minFree) continue;
 		segments.push({ start, end, freeIds, key: freeIds.join("\u0000") });
 	}
 
@@ -166,7 +165,7 @@ export function buildReport(
 	const silent = participants.filter((p) => p.ranges.length === 0).map((p) => p.id);
 
 	const cutoff = options.todayIso ? toDay(options.todayIso) : null;
-	const all = computeWindows(participants, 2).filter((w) => cutoff === null || w.endDay >= cutoff);
+	const all = computeWindows(participants).filter((w) => cutoff === null || w.endDay >= cutoff);
 
 	const everyone = all
 		.filter((w) => w.freeIds.length === counted.length && counted.length >= 2)

@@ -4,7 +4,6 @@ import {
 	addDays,
 	dayCount,
 	formatRange,
-	formatShort,
 	fromDay,
 	isIsoDate,
 	startOfMonth,
@@ -95,8 +94,10 @@ describe("addDays", () => {
 
 describe("formatting", () => {
 	it("renders the calendar day it was given", () => {
-		expect(formatShort("2026-12-19")).toBe("Sat, Dec 19");
-		expect(formatShort("2027-01-01")).toBe("Fri, Jan 1");
+		// A one-day range inside its own reference year is the bare short form and nothing else,
+		// so this is the short formatter with the range logic switched off around it.
+		expect(formatRange("2026-12-19", "2026-12-19", 2026)).toBe("Sat, Dec 19");
+		expect(formatRange("2027-01-01", "2027-01-01", 2027)).toBe("Fri, Jan 1");
 	});
 
 	it("shows both years when a range crosses New Year", () => {

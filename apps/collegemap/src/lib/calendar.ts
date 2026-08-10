@@ -10,8 +10,13 @@
 import { fromDay, startOfMonth, startOfNextMonth, toDay } from "./dates";
 import { mergeRanges, type DayRange, type Participant } from "./overlap";
 
-/** Day number of 1970-01-01 was a Thursday, so +4 lands Sunday on 0. */
-export function weekdayOf(dayNumber: number): number {
+/**
+ * Day number of 1970-01-01 was a Thursday, so +4 lands Sunday on 0.
+ *
+ * Internal: the grid this module builds is where a weekday becomes observable, so callers read a
+ * column index or a `DayCell.isWeekend` rather than this.
+ */
+function weekdayOf(dayNumber: number): number {
 	return (((dayNumber + 4) % 7) + 7) % 7;
 }
 
