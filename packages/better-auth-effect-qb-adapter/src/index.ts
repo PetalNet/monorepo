@@ -122,7 +122,9 @@ export const createEffectQbAdapter = (
 		const provided = context ? Effect.provide(effect, context) : effect;
 		return owner.runPromise(provided);
 	};
-	const execute = (plan: Query.QueryPlan<never, never, never, never, never, never, never, never>) =>
+	const execute = (
+		plan: Query.QueryPlan<never, never, never, never, never, never, never, never, never, never>,
+	) =>
 		Effect.flatMap(PgClient.PgClient, (sql) =>
 			executor.execute(plan as never).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
 		) as Effect.Effect<readonly DatabaseRow[], unknown, PgClient.PgClient>;
@@ -213,7 +215,7 @@ export const createEffectQbAdapter = (
 			const conditionExpression = (name: string, condition: CleanedWhere): unknown => {
 				const column = fieldColumn(name, condition.field);
 				const insensitive = condition.mode === "insensitive";
-				const operand = insensitive ? Query.lower(column as never) : column;
+				const operand = insensitive ? Pg.Function.lower(column as never) : column;
 				const value = insensitive
 					? String(condition.value).toLocaleLowerCase("en-US")
 					: condition.value;
