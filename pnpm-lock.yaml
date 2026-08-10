@@ -121,6 +121,9 @@ catalogs:
     autoprefixer:
       specifier: ^10.4.20
       version: 10.5.0
+    drizzle-kit:
+      specifier: ^0.31.8
+      version: 0.31.10
     eslint:
       specifier: ^10.4.1
       version: 10.5.0
@@ -201,9 +204,6 @@ catalogs:
     date-fns:
       specifier: ^4.1.0
       version: 4.4.0
-    drizzle-kit:
-      specifier: ^0.31.8
-      version: 0.31.10
     drizzle-orm:
       specifier: ^0.45.1
       version: 0.45.2
@@ -365,9 +365,6 @@ importers:
       '@types/leaflet':
         specifier: catalog:types
         version: 1.9.21
-      drizzle-kit:
-        specifier: catalog:prod
-        version: 0.31.10
       drizzle-orm:
         specifier: catalog:prod
         version: 0.45.2(@electric-sql/pglite@0.4.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)))(@types/pg@8.20.0)(better-sqlite3@12.11.1)(kysely@0.29.3)(mysql2@3.15.3)(pg@8.22.0)(postgres@3.4.9)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))
@@ -408,6 +405,9 @@ importers:
       '@types/node':
         specifier: catalog:types
         version: 25.9.4
+      drizzle-kit:
+        specifier: catalog:dev
+        version: 0.31.10
       svelte-check:
         specifier: catalog:dev
         version: 4.6.0(@typescript/typescript6@6.0.2)(picomatch@4.0.5)(svelte@5.56.5(@typescript-eslint/types@8.61.1))
