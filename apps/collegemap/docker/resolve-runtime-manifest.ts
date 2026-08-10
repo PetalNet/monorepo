@@ -22,13 +22,16 @@ interface Manifest {
 	devDependencies?: Record<string, string>;
 }
 
-const outDir: string | undefined = process.argv[2];
-const modulesDir: string | undefined = process.argv[3];
-
-if (outDir === undefined || modulesDir === undefined) {
+// Check arity rather than comparing each argument to undefined. process.argv is typed
+// string[] without noUncheckedIndexedAccess, so TypeScript narrows a const away from
+// `string | undefined` to `string` and then flags an === undefined guard as an
+// impossible condition -- even though it is perfectly possible at run time.
+const args = process.argv.slice(2);
+if (args.length < 2) {
 	console.error("usage: resolve-runtime-manifest.ts <deploy-dir> <installed-modules-dir>");
 	process.exit(2);
 }
+const [outDir, modulesDir] = args;
 
 const manifestPath = `${outDir}/package.json`;
 const pkg = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
@@ -42,9 +45,9 @@ const dependencies = pkg.dependencies ?? {};
 for (const [name, spec] of Object.entries(dependencies)) {
 	if (!spec.startsWith("catalog:")) continue;
 	try {
-		const installed = JSON.parse(
-			readFileSync(`${modulesDir}/${name}/package.json`, "utf8"),
-		) as { version?: string };
+		const installed = JSON.parse(readFileSync(`${modulesDir}/${name}/package.json`, "utf8")) as {
+			version?: string;
+		};
 		if (installed.version === undefined) {
 			unresolved.push(`${name} (${spec}) - installed manifest has no version`);
 			continue;
