@@ -34,6 +34,39 @@ RUN DATABASE_URL=file:placeholder.db pnpm build
 WORKDIR /repo
 RUN pnpm deploy --filter=@petalnet/collegemap --prod --legacy /out
 
+# drizzle-kit is a devDependency, and that is CORRECT: no collegemap source file
+# imports it, and `knip --strict` fails the build if it is declared as a runtime
+# dependency. But the CONTAINER genuinely needs it -- docker-entrypoint.sh runs
+# `drizzle-kit push` at boot, and drizzle.config.ts itself does
+#   import { defineConfig } from "drizzle-kit"
+# which resolves relative to /app. Without it the container does not merely fetch
+# from the network, it fails to start:
+#   Cannot find module 'drizzle-kit'  Require stack: /app/drizzle.config.ts
+#
+# So this is a deployment need rather than a source dependency, and it belongs in
+# the image rather than in the manifest. The version is read back from the build
+# stage instead of hardcoded, so it is always exactly what the workspace lockfile
+# resolved and cannot drift from the catalog.
+#
+# `--config.strict-dep-builds=false` is needed because /out has no
+# `onlyBuiltDependencies` allowlist (that lives in the workspace root, which is
+# deliberately not copied here), so pnpm 11 hard-errors on the ignored build scripts
+# of packages we do not use anyway -- prisma, better-sqlite3 and friends arrive only
+# as unused optional peers of drizzle-orm. Nothing collegemap runs needs them built.
+#
+# The `test -x` is a build-time assertion, not decoration: if the install ever
+# silently stops landing the binary, the build fails here rather than producing an
+# image that dies on first boot. The container boot test is what proves it actually
+# RUNS -- this only proves it arrived.
+# Read the manifest by PATH, not via require(): drizzle-kit's `exports` map does not
+# expose "./package.json", so require('drizzle-kit/package.json') throws
+# ERR_PACKAGE_PATH_NOT_EXPORTED. readFileSync follows pnpm's symlink into the store.
+RUN DK_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('/repo/apps/collegemap/node_modules/drizzle-kit/package.json','utf8')).version")" \
+ && echo "pinning drizzle-kit@${DK_VERSION} into the runtime tree" \
+ && node apps/collegemap/docker/resolve-runtime-manifest.mjs /out /repo/apps/collegemap/node_modules \
+ && pnpm --dir /out add --config.strict-dep-builds=false "drizzle-kit@${DK_VERSION}" \
+ && test -x /out/node_modules/.bin/drizzle-kit
+
 # Stage 2: Runtime
 FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd
 
