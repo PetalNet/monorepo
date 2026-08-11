@@ -191,7 +191,7 @@ describe("rendered breaks against academic obligations", () => {
 		// never "the comparison never found anything to compare against".
 		const schools = await importAndGroup();
 		const undetected = schools.filter(({ obligations, winter }) => {
-			const span = winter[0];
+			const span = winter.at(0);
 			if (!span) return true;
 			const ends = obligations
 				.filter((row) => row.endDate < span.startDate)
