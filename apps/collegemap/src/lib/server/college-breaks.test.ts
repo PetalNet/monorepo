@@ -8,6 +8,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { getRenderedCollegeBreaks } from "./college-breaks";
+import { MISSING_ACADEMIC_DATE } from "./college-breaks-constants";
 import { COLLEGE_NAME_MAP, importCollegeBreaks, resolveCollegeIds } from "./college-breaks-import";
 import { collegeBreaks } from "./db/schema";
 import * as schema from "./db/schema";
@@ -24,6 +25,8 @@ const DERIVED_SPANS = [
 	["Cornell University", "2026-12-20", "2027-01-24"],
 	["Kennesaw State University", "2026-12-15", "2027-01-10"],
 	["Missouri University of Science and Technology", "2026-12-19", "2027-01-18"],
+	["Otterbein University", "2026-12-11", "2027-01-13"],
+	["Saint Louis University", "2026-12-12", "2027-01-10"],
 	[WASHU_JSON_NAME, "2026-12-17", "2027-01-18"],
 ] as const;
 
@@ -115,5 +118,108 @@ describe("rendered institutional breaks", () => {
 		expect(rows.length).toBeGreaterThan(0); // Positive control: an empty query is not success.
 		expect(rows.every((row) => row.kind === "break" || row.kind === "holiday")).toBe(true);
 		expect(rows.map((row) => row.label)).not.toContain("Hidden unknown");
+	});
+});
+
+// A winter-break span that a source calendar never published gets bracketed by hand from two other
+// entries, and the bracketing lands the endpoints ON those entries — telling a student the break
+// starts the morning of their last exam and ends on the first day of spring class. Two rows shipped
+// that way. Rather than pin those two dates (see above), assert the property they violated, against
+// the whole imported dataset, so a fourteenth school transcribed the same way fails on arrival.
+const OBLIGATION_KINDS = new Set<string>(["exam", "term_boundary"]);
+const RENDERED_KINDS = new Set<string>(["break", "holiday"]);
+
+interface Span {
+	label: string;
+	startDate: string;
+	endDate: string;
+}
+
+/** Inclusive on both ends: sharing a single calendar day is the whole defect. */
+function collides(left: Span, right: Span): boolean {
+	return left.startDate <= right.endDate && right.startDate <= left.endDate;
+}
+
+function hasRealDates(row: Span): boolean {
+	return row.startDate !== MISSING_ACADEMIC_DATE && row.endDate !== MISSING_ACADEMIC_DATE;
+}
+
+describe("rendered breaks against academic obligations", () => {
+	interface SchoolRows {
+		school: string;
+		obligations: Span[];
+		rendered: Span[];
+		/** The span crossing New Year's Day — every school publishes exactly one: its winter break. */
+		winter: Span[];
+	}
+
+	async function importAndGroup(): Promise<SchoolRows[]> {
+		await importCollegeBreaks(db);
+		const resolved = await resolveCollegeIds(db);
+		const rows = await db.select().from(collegeBreaks);
+		const byCollege = new Map<string, typeof rows>();
+		for (const row of rows) {
+			byCollege.set(row.collegeId, [...(byCollege.get(row.collegeId) ?? []), row]);
+		}
+		return [...resolved].map(([school, collegeId]) => {
+			const dated = (byCollege.get(collegeId) ?? []).filter(hasRealDates);
+			const rendered = dated.filter((row) => RENDERED_KINDS.has(row.kind));
+			return {
+				school,
+				obligations: dated.filter((row) => OBLIGATION_KINDS.has(row.kind)),
+				rendered,
+				winter: rendered.filter((row) => row.startDate.slice(0, 4) !== row.endDate.slice(0, 4)),
+			};
+		});
+	}
+
+	it("gives every school obligations, rendered rows and one winter span to check", async () => {
+		// Without this the collision sweep below passes just as happily over an empty dataset.
+		const schools = await importAndGroup();
+		expect(schools).toHaveLength(13);
+		expect(schools.filter((entry) => entry.obligations.length === 0)).toEqual([]);
+		expect(schools.filter((entry) => entry.rendered.length === 0)).toEqual([]);
+		expect(
+			schools
+				.filter((entry) => entry.winter.length !== 1)
+				.map((entry) => `${entry.school} -> ${String(entry.winter.length)} winter spans`),
+		).toEqual([]);
+	});
+
+	it("detects a collision for every school when a winter span is stretched onto its brackets", async () => {
+		// Positive control for the sweep itself: a green result below has to mean "no school collides",
+		// never "the comparison never found anything to compare against".
+		const schools = await importAndGroup();
+		const undetected = schools.filter(({ obligations, winter }) => {
+			const span = winter[0];
+			if (!span) return true;
+			const ends = obligations
+				.filter((row) => row.endDate < span.startDate)
+				.map((row) => row.endDate);
+			const starts = obligations
+				.filter((row) => row.startDate > span.endDate)
+				.map((row) => row.startDate);
+			const lastFall = ends.toSorted().at(-1);
+			const firstSpring = starts.toSorted().at(0);
+			if (lastFall === undefined || firstSpring === undefined) return true;
+			const stretched = { label: span.label, startDate: lastFall, endDate: firstSpring };
+			return !obligations.some((row) => collides(stretched, row));
+		});
+		expect(undetected.map((entry) => entry.school)).toEqual([]);
+	});
+
+	it("renders no break that shares a day with one of its own school's obligations", async () => {
+		const schools = await importAndGroup();
+		const collisions = schools.flatMap(({ school, obligations, rendered }) =>
+			rendered.flatMap((row) =>
+				obligations
+					.filter((obligation) => collides(row, obligation))
+					.map(
+						(obligation) =>
+							`${school}: "${row.label}" ${row.startDate}..${row.endDate} covers "${obligation.label}" ${obligation.startDate}..${obligation.endDate}`,
+					),
+			),
+		);
+		expect(collisions).toEqual([]);
 	});
 });

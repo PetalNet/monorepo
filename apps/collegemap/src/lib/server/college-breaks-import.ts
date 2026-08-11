@@ -40,6 +40,12 @@ export const COLLEGE_NAME_MAP: Record<string, string> = {
 	"Washington University in St. Louis (WashU)": "Washington University in St Louis",
 };
 
+/**
+ * Winter-break rows a source calendar never published as an event: the transcriber bracketed them
+ * from two neighbouring entries, so both endpoints land ON the bracketing events. Every span here
+ * restates that gap exclusively — the day AFTER the last fall obligation through the day BEFORE the
+ * first spring class day — and flips the row's derivation to "derived", which is what it is.
+ */
 const DERIVED_SPANS: Record<
 	string,
 	{ label: string; startDate: string; endDate: string } | undefined
@@ -58,6 +64,16 @@ const DERIVED_SPANS: Record<
 		label: "Winter break (fall semester close to spring classwork start)",
 		startDate: "2026-12-19",
 		endDate: "2027-01-18",
+	},
+	"Otterbein University": {
+		label: "Winter break (fall exams end to spring classes begin)",
+		startDate: "2026-12-11",
+		endDate: "2027-01-13",
+	},
+	"Saint Louis University": {
+		label: "Winter break (fall exams end to spring classes begin)",
+		startDate: "2026-12-12",
+		endDate: "2027-01-10",
 	},
 	"Washington University in St. Louis (WashU)": {
 		label:
