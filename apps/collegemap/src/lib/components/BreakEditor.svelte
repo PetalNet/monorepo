@@ -13,6 +13,7 @@
 		label: string;
 		startDate: string;
 		endDate: string;
+		source: "user" | "college";
 	}
 
 	let {
@@ -30,9 +31,11 @@
 	/** Common US academic break names, offered as one-tap labels. */
 	const PRESETS = ["Fall break", "Thanksgiving", "Winter break", "Spring break", "Summer"];
 
+	// Same predicate the remove action deletes by. An institutional row is nobody's to delete, so
+	// listing one here would put a button next to it that silently does nothing.
 	const mine = $derived(
 		breaks
-			.filter((b) => b.userId === meId)
+			.filter((b) => b.source === "user" && b.userId === meId)
 			.toSorted((a, b) => a.startDate.localeCompare(b.startDate)),
 	);
 
