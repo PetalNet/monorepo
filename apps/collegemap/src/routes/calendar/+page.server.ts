@@ -1,5 +1,6 @@
 import { isIsoDate, todayIso, toDay } from "$lib/dates";
 import { db } from "$lib/server/db";
+import { getRenderedCollegeBreaks } from "$lib/server/college-breaks";
 import { breaks, colleges, users } from "$lib/server/db/schema";
 import { formText } from "$lib/server/form";
 import { fail } from "@sveltejs/kit";
@@ -23,22 +24,25 @@ export const load: PageServerLoad = async ({ locals }) => {
 			id: users.id,
 			firstName: users.firstName,
 			lastName: users.lastName,
+			collegeId: users.collegeId,
 			collegeName: colleges.name,
 		})
 		.from(users)
 		.leftJoin(colleges, eq(users.collegeId, colleges.id))
 		.orderBy(asc(users.firstName), asc(users.lastName));
 
-	const breakRows = await db
-		.select({
-			id: breaks.id,
-			userId: breaks.userId,
-			label: breaks.label,
-			startDate: breaks.startDate,
-			endDate: breaks.endDate,
-		})
-		.from(breaks)
-		.orderBy(asc(breaks.startDate));
+	const collegeBreakRows = await getRenderedCollegeBreaks(db);
+	const breakRowsByCollege = new Map<string, typeof collegeBreakRows>();
+	for (const collegeBreak of collegeBreakRows) {
+		breakRowsByCollege.set(collegeBreak.collegeId, [
+			...(breakRowsByCollege.get(collegeBreak.collegeId) ?? []),
+			collegeBreak,
+		]);
+	}
+	const breakRows = people.flatMap((person) =>
+		(person.collegeId ? (breakRowsByCollege.get(person.collegeId) ?? []) : [])
+			.map((collegeBreak) => ({ ...collegeBreak, userId: person.id })),
+	);
 
 	return {
 		people: people.map((p) => ({

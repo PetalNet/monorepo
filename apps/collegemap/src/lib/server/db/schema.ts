@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
 	id: text("id")
@@ -71,5 +71,45 @@ export const breaks = sqliteTable("breaks", {
 		.$defaultFn(() => new Date()),
 });
 
+/**
+ * An institutional academic-calendar entry. Unlike `breaks`, these belong to a college rather
+ * than to a person, so one cited calendar can serve every student at that college.
+ */
+export const collegeBreaks = sqliteTable(
+	"college_breaks",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		collegeId: text("college_id")
+			.notNull()
+			.references(() => colleges.id),
+		label: text("label").notNull(),
+		startDate: text("start_date").notNull(),
+		endDate: text("end_date").notNull(),
+		kind: text("kind", {
+			enum: ["break", "holiday", "term_boundary", "exam", "commencement", "admin", "unknown"],
+		}).notNull(),
+		derivation: text("derivation", { enum: ["quoted", "derived"] }).notNull(),
+		sourceUrl: text("source_url"),
+		quote: text("quote"),
+		academicYear: text("academic_year").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.$defaultFn(() => new Date()),
+	},
+	(table) => [
+		index("college_breaks_college_id_start_date_idx").on(table.collegeId, table.startDate),
+		uniqueIndex("college_breaks_identity_unique").on(
+			table.collegeId,
+			table.label,
+			table.startDate,
+			table.academicYear,
+		),
+	],
+);
+
 export type Break = typeof breaks.$inferSelect;
 export type NewBreak = typeof breaks.$inferInsert;
+export type CollegeBreak = typeof collegeBreaks.$inferSelect;
+export type NewCollegeBreak = typeof collegeBreaks.$inferInsert;

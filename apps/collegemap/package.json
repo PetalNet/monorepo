@@ -11,6 +11,7 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
+		"db:import-college-breaks": "tsx scripts/import-college-breaks.ts",
 		"dev": "vite dev",
 		"prepare": "svelte-kit sync || echo ''",
 		"preview": "vite preview",
@@ -38,6 +39,7 @@
 		"@types/node": "catalog:types",
 		"drizzle-kit": "catalog:dev",
 		"svelte-check": "catalog:dev",
+		"tsx": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
 		"vitest": "catalog:dev"
