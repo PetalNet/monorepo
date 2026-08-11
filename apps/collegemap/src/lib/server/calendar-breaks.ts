@@ -12,9 +12,16 @@
  * that confidently shows someone free while they are on watch is worse than one that shows nothing,
  * because people plan around it. So those rows carry `source: "default"` rather than being dressed
  * up as an institutional calendar, and any day the person has already spoken for drops them.
+ *
+ * This is also where a break that touches a weekend is stretched across it. That belongs here and
+ * not on the way into the database: the stored rows have to keep matching the calendars they were
+ * transcribed from, and the import upserts on the start date, so rewriting dates at import time
+ * would add rows rather than update them. It reaches the two sources that are statements — a
+ * person's own dates and a transcribed institutional calendar — and not the filled-in third; see
+ * `assumedRows` for why that is the same decision rather than an exception to it.
  */
 
-import { toDay } from "../dates";
+import { fromDay, toDay, weekdayOf } from "../dates";
 import { federalHolidays } from "../federal-holidays";
 import {
 	ASSUMED_SOURCE,
@@ -22,6 +29,62 @@ import {
 	type BreakSource,
 	type InstitutionKind,
 } from "../institutions";
+
+/** Weekday numbers as `weekdayOf` returns them: Sunday is 0. */
+const SUNDAY = 0;
+const MONDAY = 1;
+const FRIDAY = 5;
+const SATURDAY = 6;
+
+/**
+ * A break that touches a weekend is off for the whole of it.
+ *
+ * Colleges write the same real break down differently. For Thanksgiving 2026 some publish the end
+ * as Sun Nov 29 and some as Fri Nov 27, and the second group's students are just as plainly not at
+ * class on the Saturday. The other end works the same way: a break beginning Mon Sep 7 begins, for
+ * anyone planning around it, on the Saturday. Taking the published dates literally makes the grid
+ * claim half the group is back at school on a weekend, so the days when everyone is actually free
+ * never light up.
+ *
+ * Both directions, in one pass, because a break can qualify at both ends at once:
+ *
+ * - Ends Friday or Saturday -> runs through the Sunday after it
+ * - Starts Monday or Sunday -> runs back to the Saturday before it
+ *
+ * A single day is left exactly as it is, whichever weekday it lands on. The calendars are full of
+ * one-day holidays — Labor Day, MLK Day, Veterans Day, Presidents' Day, Good Friday — and a day off
+ * in the middle of an otherwise ordinary week says nothing about the weekend around it. Good Friday
+ * is the case that makes the point: it is a Friday, and it is still just a day off.
+ *
+ * The arithmetic runs on day numbers rather than `Date`, so no timezone can move it: `new
+ * Date('2026-11-27')` read back with local getters is Thursday evening anywhere west of Greenwich,
+ * and a break would silently stop extending.
+ */
+function acrossTheWeekend(span: { startDate: string; endDate: string }): {
+	startDate: string;
+	endDate: string;
+} {
+	if (span.startDate === span.endDate) return { startDate: span.startDate, endDate: span.endDate };
+
+	const start = toDay(span.startDate);
+	const end = toDay(span.endDate);
+	const startWeekday = weekdayOf(start);
+	const endWeekday = weekdayOf(end);
+	return {
+		startDate:
+			startWeekday === MONDAY
+				? fromDay(start - 2)
+				: startWeekday === SUNDAY
+					? fromDay(start - 1)
+					: span.startDate,
+		endDate:
+			endWeekday === FRIDAY
+				? fromDay(end + 2)
+				: endWeekday === SATURDAY
+					? fromDay(end + 1)
+					: span.endDate,
+	};
+}
 
 /** What the calendar grid and the editor consume. */
 export interface CalendarBreakRow {
@@ -86,8 +149,7 @@ export function mergeBreakRows(
 			id: `${collegeBreak.id}:${person.id}`,
 			userId: person.id,
 			label: collegeBreak.label,
-			startDate: collegeBreak.startDate,
-			endDate: collegeBreak.endDate,
+			...acrossTheWeekend(collegeBreak),
 			source: "college" as const,
 		})),
 	);
@@ -96,11 +158,13 @@ export function mergeBreakRows(
 		id: userBreak.id,
 		userId: userBreak.userId,
 		label: userBreak.label,
-		startDate: userBreak.startDate,
-		endDate: userBreak.endDate,
+		...acrossTheWeekend(userBreak),
 		source: "user" as const,
 	}));
 
+	// `own` is passed already stretched, because a stretched row is what the grid shows: if a
+	// person's break covers a day, the weaker guess for that day has nothing left to add. Widening
+	// it can only ever drop more, never fewer — but see below for why it drops exactly the same ones.
 	return [...own, ...institutional, ...assumedRows(people, own, holidayYears)];
 }
 
@@ -114,6 +178,18 @@ export function mergeBreakRows(
  * guesses they are rather than mixing them in with transcribed dates. And the person's own entries
  * win: a federal holiday is a single day, so if the person has already said something about that
  * day the guess is dropped entirely instead of stacking a second, weaker row on top of a real one.
+ *
+ * These rows are not stretched across a weekend, and that is the weekend rule agreeing with itself
+ * rather than an exception carved out of it. Two facts about `federalHolidays`, both pinned by
+ * test:
+ *
+ * 1. Every row here is one day — `startDate` and `endDate` are the same holiday date — which is
+ *    exactly the case `acrossTheWeekend` leaves alone. Routing these through it would return them
+ *    unchanged, so the choice is between a no-op and not writing it; and a lone public holiday
+ *    saying nothing about the weekend around it is the guard's own stated reason.
+ * 2. No observed date ever lands on a Saturday or a Sunday: 5 U.S.C. 6103 moves one that would.
+ *    Stretching a `user` row only ever adds Saturdays and Sundays, so it cannot swallow a holiday
+ *    it did not already cover, and the precedence above decides the same way it did before.
  */
 function assumedRows(
 	people: Person[],
