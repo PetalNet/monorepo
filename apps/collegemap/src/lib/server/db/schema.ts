@@ -32,9 +32,6 @@ export const settings = sqliteTable("settings", {
 });
 
 export type User = typeof users.$inferSelect;
-export type NewUser = typeof users.$inferInsert;
-export type College = typeof colleges.$inferSelect;
-export type NewCollege = typeof colleges.$inferInsert;
 export const collegeMetadata = sqliteTable("college_metadata", {
 	id: text("id")
 		.primaryKey()
@@ -47,7 +44,6 @@ export const collegeMetadata = sqliteTable("college_metadata", {
 		.$defaultFn(() => new Date()),
 });
 
-export type Settings = typeof settings.$inferSelect;
 
 /**
  * A break is a named, inclusive range of calendar days belonging to one person.
@@ -109,7 +105,3 @@ export const collegeBreaks = sqliteTable(
 	],
 );
 
-export type Break = typeof breaks.$inferSelect;
-export type NewBreak = typeof breaks.$inferInsert;
-export type CollegeBreak = typeof collegeBreaks.$inferSelect;
-export type NewCollegeBreak = typeof collegeBreaks.$inferInsert;
