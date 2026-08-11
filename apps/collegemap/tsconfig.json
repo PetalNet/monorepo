@@ -16,7 +16,8 @@
 		"drizzle.config.ts",
 		"svelte.config.js",
 		"docker/resolve-runtime-manifest.ts",
-		"docker/migrate.ts"
+		"docker/migrate.ts",
+		"scripts/import-college-breaks.ts"
 	]
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files

@@ -1,4 +1,6 @@
 import { isIsoDate, todayIso, toDay } from "$lib/dates";
+import { mergeBreakRows } from "$lib/server/calendar-breaks";
+import { getRenderedCollegeBreaks } from "$lib/server/college-breaks";
 import { db } from "$lib/server/db";
 import { breaks, colleges, users } from "$lib/server/db/schema";
 import { formText } from "$lib/server/form";
@@ -23,22 +25,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 			id: users.id,
 			firstName: users.firstName,
 			lastName: users.lastName,
+			collegeId: users.collegeId,
 			collegeName: colleges.name,
 		})
 		.from(users)
 		.leftJoin(colleges, eq(users.collegeId, colleges.id))
 		.orderBy(asc(users.firstName), asc(users.lastName));
 
-	const breakRows = await db
-		.select({
-			id: breaks.id,
-			userId: breaks.userId,
-			label: breaks.label,
-			startDate: breaks.startDate,
-			endDate: breaks.endDate,
-		})
-		.from(breaks)
-		.orderBy(asc(breaks.startDate));
+	const [userBreakRows, collegeBreakRows] = await Promise.all([
+		db
+			.select({
+				id: breaks.id,
+				userId: breaks.userId,
+				label: breaks.label,
+				startDate: breaks.startDate,
+				endDate: breaks.endDate,
+			})
+			.from(breaks)
+			.orderBy(asc(breaks.startDate)),
+		getRenderedCollegeBreaks(db),
+	]);
 
 	return {
 		people: people.map((p) => ({
@@ -50,7 +56,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			initials: initialsOf(p.firstName, p.lastName),
 			collegeName: p.collegeName,
 		})),
-		breaks: breakRows,
+		breaks: mergeBreakRows(people, userBreakRows, collegeBreakRows),
 		meId: locals.user?.id ?? null,
 		todayIso: todayIso("America/New_York"),
 	};

@@ -8,6 +8,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"db:generate": "drizzle-kit generate",
+		"db:import-college-breaks": "tsx scripts/import-college-breaks.ts",
 		"db:migrate": "drizzle-kit migrate",
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
@@ -38,6 +39,7 @@
 		"@types/node": "catalog:types",
 		"drizzle-kit": "catalog:dev",
 		"svelte-check": "catalog:dev",
+		"tsx": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
 		"vitest": "catalog:dev"

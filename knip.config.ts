@@ -8,9 +8,11 @@ export default {
 	treatConfigHintsAsErrors: true,
 	workspaces: {
 		"apps/collegemap": {
-			// Build-time deploy script run by the Dockerfile, never imported. Same shape as
-			// apps/console scripts/* below: production surface, hence the `!` marker.
-			entry: ["docker/*.ts!"],
+			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
+			// against the deployed database to load institutional breaks. Neither is imported by
+			// anything: they are how the app gets built and how its data gets in. Same shape as
+			// apps/console scripts/* below: production surface, hence the `!` markers.
+			entry: ["docker/*.ts!", "scripts/*.ts!"],
 			drizzle: {
 				config: [],
 				entry: ["drizzle.config.ts"],

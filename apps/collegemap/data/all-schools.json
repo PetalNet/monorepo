@@ -1,0 +1,1618 @@
+{
+	"generated_for": "2026-27 academic year",
+	"schools": [
+		{
+			"name": "Cornell University",
+			"calendar_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall term begins (first day of instruction)",
+					"start_date": "2026-08-24",
+					"end_date": "2026-08-24",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Aug 24: Fall 2026: Fall term begins: First-year writing seminar, project session full, regular, and 7 week 1 session instruction begins"
+				},
+				{
+					"label": "Labor Day (no classes)",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Sep 7: Labor Day/Holiday/No classes"
+				},
+				{
+					"label": "Fall break",
+					"start_date": "2026-10-10",
+					"end_date": "2026-10-13",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Oct 10 – Oct 13 Fall Break/No classes"
+				},
+				{
+					"label": "Thanksgiving break",
+					"start_date": "2026-11-25",
+					"end_date": "2026-11-29",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Nov 25 – Nov 29 Thanksgiving Break/No classes"
+				},
+				{
+					"label": "Last day of fall instruction",
+					"start_date": "2026-12-07",
+					"end_date": "2026-12-07",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Dec 7: Fall 2026: Last day of instruction for classes in first-year writing seminar, project session full, and regular session"
+				},
+				{
+					"label": "Fall study days",
+					"start_date": "2026-12-08",
+					"end_date": "2026-12-10",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Dec 8 – Dec 10: Fall 2026: Study days"
+				},
+				{
+					"label": "Fall final exams",
+					"start_date": "2026-12-11",
+					"end_date": "2026-12-19",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Dec 11 – Dec 19: Fall 2026: Final exams"
+				},
+				{
+					"label": "Winter break (derived: last day of fall term through start of spring term)",
+					"start_date": "2026-12-19",
+					"end_date": "2027-01-25",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Dec 19: Fall 2026: Last day of term and academic activity ... Jan 25: Spring 2027: Spring term begins: First-year writing seminar, project session full, regular, and 7 week 1 session instruction begins"
+				},
+				{
+					"label": "Winter session instruction (optional term inside winter break)",
+					"start_date": "2027-01-04",
+					"end_date": "2027-01-23",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Jan 4: Winter 2027: Winter session instruction begins ... Jan 23: Winter 2027: Last day of instruction for classes in winter session"
+				},
+				{
+					"label": "Spring term begins (first day of instruction)",
+					"start_date": "2027-01-25",
+					"end_date": "2027-01-25",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Jan 25: Spring 2027: Spring term begins: First-year writing seminar, project session full, regular, and 7 week 1 session instruction begins"
+				},
+				{
+					"label": "February break",
+					"start_date": "2027-02-13",
+					"end_date": "2027-02-16",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Feb 13 – Feb 16 February Break/No classes"
+				},
+				{
+					"label": "Spring break",
+					"start_date": "2027-03-27",
+					"end_date": "2027-04-04",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "Mar 27 – Apr 4 Spring Break/No classes"
+				},
+				{
+					"label": "Last day of spring instruction",
+					"start_date": "2027-05-11",
+					"end_date": "2027-05-11",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "May 11: Spring 2027: Last day of instruction for classes in first year writing, project session full, regular and 7 week 2 session"
+				},
+				{
+					"label": "Spring study days",
+					"start_date": "2027-05-12",
+					"end_date": "2027-05-14",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "May 12 – May 14: Spring 2027: Study days"
+				},
+				{
+					"label": "Spring final exams",
+					"start_date": "2027-05-15",
+					"end_date": "2027-05-22",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "May 15 – May 22: Spring 2027: Final exams"
+				},
+				{
+					"label": "Commencement",
+					"start_date": "2027-05-28",
+					"end_date": "2027-05-30",
+					"source_url": "https://registrar.cornell.edu/calendars-exams/academic-calendar/2026-2027",
+					"quote": "May 28 – May 30: 2027 Commencement weekend"
+				}
+			],
+			"notes": "Source is the Office of the University Registrar's official 2026-2027 university academic calendar for the Ithaca campus (main undergraduate calendar). Cornell does NOT publish an entry literally labeled 'winter break'; the winter-break row above is bounded by two quoted official entries (last day of fall term Dec 19, 2026 and spring term start Jan 25, 2027) and is flagged as derived. A separate optional Winter Session runs Jan 4-23, 2027 inside that gap. Cornell Tech (NYC), Weill Cornell Medicine, the Law School, and the College of Veterinary Medicine publish their own separate calendars that differ from these dates."
+		},
+		{
+			"name": "Gustavus Adolphus College",
+			"calendar_url": "https://gustavus.edu/about/administrative-offices/registrar/calendar-courses-registrar",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall classes begin",
+					"start_date": "2026-08-31",
+					"end_date": "2026-08-31",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Fall Classes Begin ... 2026-2027: Aug 31"
+				},
+				{
+					"label": "New Student Orientation",
+					"start_date": "2026-08-27",
+					"end_date": "2026-08-30",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "New Student Orientation ... 2026-2027: Aug 27-30"
+				},
+				{
+					"label": "Labor Day (no classes)",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Labor Day (no classes) ... 2026-2027: Sep 7"
+				},
+				{
+					"label": "Fall break (no classes)",
+					"start_date": "2026-10-19",
+					"end_date": "2026-10-23",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Fall Break (no classes) ... 2026-2027: Oct 19-23"
+				},
+				{
+					"label": "Advising Day (no classes, fall)",
+					"start_date": "2026-11-11",
+					"end_date": "2026-11-11",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Advising Day (no classes) ... 2026-2027: Nov 11"
+				},
+				{
+					"label": "Thanksgiving break (no classes)",
+					"start_date": "2026-11-25",
+					"end_date": "2026-11-27",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Thanksgiving Break (no classes) ... 2026-2027: Nov 25-27"
+				},
+				{
+					"label": "Last class day (fall)",
+					"start_date": "2026-12-15",
+					"end_date": "2026-12-15",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Last Class Day ... 2026-2027: Dec 15"
+				},
+				{
+					"label": "Reading day (no classes, fall)",
+					"start_date": "2026-12-16",
+					"end_date": "2026-12-16",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Reading Day (no classes) ... 2026-2027: Dec 16"
+				},
+				{
+					"label": "Fall final exams",
+					"start_date": "2026-12-17",
+					"end_date": "2026-12-18",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Final Exams ... 2026-2027: Dec 17-18"
+				},
+				{
+					"label": "Fall semester ends",
+					"start_date": "2026-12-18",
+					"end_date": "2026-12-18",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Fall Semester Ends ... 2026-2027: Dec 18"
+				},
+				{
+					"label": "Winter break (no classes)",
+					"start_date": "2026-12-21",
+					"end_date": "2027-01-08",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Winter Break (no classes) ... 2026-2027: Dec 21-Jan 8"
+				},
+				{
+					"label": "Spring classes begin",
+					"start_date": "2027-01-11",
+					"end_date": "2027-01-11",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Spring Classes Begin ... 2026-2027: Jan 11"
+				},
+				{
+					"label": "MLK Day (no classes)",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "MLK Day (no classes) ... 2026-2027: Jan 18"
+				},
+				{
+					"label": "Spring break (no classes)",
+					"start_date": "2027-03-01",
+					"end_date": "2027-03-05",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Spring Break (no classes) ... 2026-2027: Mar 1-5"
+				},
+				{
+					"label": "Advising Day (no classes, spring)",
+					"start_date": "2027-03-17",
+					"end_date": "2027-03-17",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Advising Day (no classes) ... 2026-2027: Mar 17"
+				},
+				{
+					"label": "Semester Break (college closed)",
+					"start_date": "2027-03-26",
+					"end_date": "2027-03-26",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Semester Break (college closed) ... 2026-2027: Mar 26"
+				},
+				{
+					"label": "Last class day (spring)",
+					"start_date": "2027-04-26",
+					"end_date": "2027-04-26",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Last Class Day ... 2026-2027: Apr 26"
+				},
+				{
+					"label": "Reading day (no classes, spring)",
+					"start_date": "2027-04-27",
+					"end_date": "2027-04-27",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Reading Day (no classes) ... 2026-2027: Apr 27"
+				},
+				{
+					"label": "Spring final exams",
+					"start_date": "2027-04-28",
+					"end_date": "2027-04-29",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Final Exams ... 2026-2027: Apr 28-29"
+				},
+				{
+					"label": "Spring semester ends",
+					"start_date": "2027-04-29",
+					"end_date": "2027-04-29",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Spring Semester Ends ... 2026-2027: Apr 29"
+				},
+				{
+					"label": "Commencement",
+					"start_date": "2027-05-02",
+					"end_date": "2027-05-02",
+					"source_url": "https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/edit?usp=sharing",
+					"quote": "Commencement ... 2026-2027: May 2"
+				}
+			],
+			"notes": "Gustavus publishes its official academic calendar as a Google Sheet linked from the Registrar's 'Calendar + Courses' page under the link text 'View the Academic Calendar' (registrar page: https://gustavus.edu/about/administrative-offices/registrar/calendar-courses-registrar). The sheet has one column per academic year; all dates above come from the '2026-2027' column. I read it via the CSV export of that same sheet (https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/export?format=csv), so the quotes are the sheet's literal row label plus that column's cell value, joined with ' ... ' (the sheet is a grid, not prose). The sheet itself carries the disclaimer: 'The Academic Calendar is subject to change, with the most up-to-date version posted on this page.' Only one undergraduate calendar is published (single campus, St. Peter MN). January Term has been phased out; the year is two semesters plus a summer term. Fall 2026 exam dates cross-check against the separately published Final Exam Schedule sheet, which lists exams on 12/17/26. A stale 6-year PDF also exists at https://gustavus.edu/registrar/concertFiles/media/Academic_Calendar_2024-2030_1.pdf but I could not extract text from it (no PDF tooling available), so it was NOT used."
+		},
+		{
+			"name": "Kennesaw State University",
+			"calendar_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall 2026 first day of classes (14-week session)",
+					"start_date": "2026-08-24",
+					"end_date": "2026-08-24",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "First Day of Classes | 14-Week: Aug 24 (M)"
+				},
+				{
+					"label": "Labor Day (holiday, no classes)",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Holidays / Breaks | 14-Week: Sept 7 (M); Nov 23 (M) – Nov 29 (Su)"
+				},
+				{
+					"label": "Fall break",
+					"start_date": null,
+					"end_date": null,
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "not_found — the Fall 2026 'Holidays / Breaks' row lists only 'Sept 7 (M); Nov 23 (M) – Nov 29 (Su)'; no separate October fall break appears anywhere in the Fall 2026 calendar."
+				},
+				{
+					"label": "Thanksgiving break",
+					"start_date": "2026-11-23",
+					"end_date": "2026-11-29",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Holidays / Breaks | 14-Week: Sept 7 (M); Nov 23 (M) – Nov 29 (Su)"
+				},
+				{
+					"label": "Last day of fall classes (14-week session)",
+					"start_date": "2026-12-07",
+					"end_date": "2026-12-07",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Last Day of Classes | 14-Week: Dec 7 (M)"
+				},
+				{
+					"label": "Fall final exams (14-week session)",
+					"start_date": "2026-12-08",
+					"end_date": "2026-12-14",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Final Exams | 14-Week: Dec 8 (Tu) – Dec 14 (M)"
+				},
+				{
+					"label": "Fall 2026 commencement",
+					"start_date": "2026-12-15",
+					"end_date": "2026-12-18",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Commencement | Dec 15 (Tu) – Dec 18 (Fri)"
+				},
+				{
+					"label": "Winter break (derived: last day of fall exams through first day of spring classes)",
+					"start_date": "2026-12-14",
+					"end_date": "2027-01-11",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Final Exams | 14-Week: Dec 8 (Tu) – Dec 14 (M) ... First Day of Classes | 14-Week: Jan 11 (M)"
+				},
+				{
+					"label": "Spring 2027 first day of classes (14-week session)",
+					"start_date": "2027-01-11",
+					"end_date": "2027-01-11",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "First Day of Classes | 14-Week: Jan 11 (M)"
+				},
+				{
+					"label": "MLK Day (holiday, no classes)",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Holidays / Breaks | 14-Week: Jan 18 (M) Mar 1 (M) – 7 (Su)"
+				},
+				{
+					"label": "Spring break",
+					"start_date": "2027-03-01",
+					"end_date": "2027-03-07",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Holidays / Breaks | 14-Week: Jan 18 (M) Mar 1 (M) – 7 (Su)"
+				},
+				{
+					"label": "Last day of spring classes (14-week session)",
+					"start_date": "2027-04-26",
+					"end_date": "2027-04-26",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Last Day of Classes | 14-Week: April 26 (M)"
+				},
+				{
+					"label": "Spring final exams (14-week session)",
+					"start_date": "2027-04-27",
+					"end_date": "2027-05-03",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Final Exams | 14-Week: April 27 (T) – May 3 (M)"
+				},
+				{
+					"label": "Spring 2027 commencement",
+					"start_date": "2027-05-04",
+					"end_date": "2027-05-08",
+					"source_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
+					"quote": "Commencement | May 4 (Tu) – 5 (W) - 6 (Th) - 7 (F)- 8 (Sa)"
+				}
+			],
+			"notes": "Source is the Office of the Registrar's 'Academic Calendars' page on KSU's Campus Hub (campus.kennesaw.edu, an official KSU domain; registrar.kennesaw.edu 301-redirects into the kennesaw.edu registrar site). The Fall 2026 and Spring 2027 calendars are rendered as HTML tables directly on that page; I read the page HTML rather than the mirrored PDFs (https://campus.kennesaw.edu/current-students/registrar/docs/academic-calendars-docs/fall26.pdf and .../spring2027-14week.pdf), whose text layers could not be extracted here. Each calendar has THREE session columns — 14-Week, 7-Week I, 7-Week II — with different dates; all dates above are the 14-Week (main/full-semester) column, which is the standard undergraduate session. Quotes are the table's row label plus the 14-Week cell, joined with ' | ' (source is a grid, not prose). CAVEAT: the page states 'The Spring 2027 Academic Calendar is in its final review stage. The official final exam schedule will be released on this page soon to help you plan for the upcoming semester.' — so Spring 2027 dates are subject to change. KSU has NO October fall break; the only fall non-holiday break is Thanksgiving. KSU also notes eCore/eMajor dates may differ from these. No entry literally labeled 'winter break' exists; that row is derived from two quoted official entries and flagged as such."
+		},
+		{
+			"name": "Lindenwood University",
+			"calendar_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall term start (academic period begins)",
+					"start_date": "2026-08-24",
+					"end_date": "2026-08-24",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "FA 26 & FA I 26\tU & G\tAcademic Period Begins\tAug. 24"
+				},
+				{
+					"label": "Labor Day holiday",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "Labor Day holiday - No classes held\tSept. 7"
+				},
+				{
+					"label": "Fall break",
+					"start_date": "2026-10-05",
+					"end_date": "2026-10-06",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "Fall Break - No classes held\tOct. 5 - 6"
+				},
+				{
+					"label": "Thanksgiving break",
+					"start_date": "2026-11-25",
+					"end_date": "2026-11-27",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "U & G\tThanksgiving holiday - No classes held\tNov. 25 - 27"
+				},
+				{
+					"label": "Fall final exams",
+					"start_date": "2026-12-07",
+					"end_date": "2026-12-11",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "FA 26\tU & G\tFinal Exams\tDec. 7 - 11"
+				},
+				{
+					"label": "Fall term end (academic period ends)",
+					"start_date": "2026-12-11",
+					"end_date": "2026-12-11",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "FA 26 & FA II 26\tU & G\tAcademic Period Ends\tDec. 11"
+				},
+				{
+					"label": "Winter Break (campus closed)",
+					"start_date": "2026-12-23",
+					"end_date": "2027-01-01",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "Winter Break - campus closed\tDec. 23 - Jan. 1"
+				},
+				{
+					"label": "Spring term start (academic period begins)",
+					"start_date": "2027-01-11",
+					"end_date": "2027-01-11",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "SP 27 & SP I 27\tU & G\tAcademic Period Begins\tJan. 11"
+				},
+				{
+					"label": "Martin Luther King Jr. Day",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "Martin Luther King Jr. Day - No classes held\tJan. 18"
+				},
+				{
+					"label": "Spring break",
+					"start_date": "2027-03-08",
+					"end_date": "2027-03-12",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "Spring Break\tMar. 8 - 12"
+				},
+				{
+					"label": "Good Friday",
+					"start_date": "2027-03-26",
+					"end_date": "2027-03-26",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "Good Friday - No classes held\tMar. 26"
+				},
+				{
+					"label": "Lindenwood Showcase (no classes)",
+					"start_date": "2027-04-22",
+					"end_date": "2027-04-22",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "Lindenwood Showcase - No classes held\tApr. 22***"
+				},
+				{
+					"label": "Spring final exams",
+					"start_date": "2027-05-03",
+					"end_date": "2027-05-07",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "SP 27\tU & G\tFinal Exams\tMay 3 - 7"
+				},
+				{
+					"label": "Spring term end (academic period ends)",
+					"start_date": "2027-05-07",
+					"end_date": "2027-05-07",
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "SP 27 & SP II 27\tU & G\tAcademic Period Ends\tMay 7"
+				},
+				{
+					"label": "Commencement",
+					"start_date": null,
+					"end_date": null,
+					"source_url": "https://catalogs.lindenwood.edu/content.php?catoid=12&navoid=315",
+					"quote": "U & G\tCommencement Ceremonies - See website for commencement information.\tTBD"
+				}
+			],
+			"notes": "Source is the 2026-2027 Undergraduate Catalog's '2026-2027 Academic Calendar' page (catoid=12). Lindenwood also publishes a 2026-2027 Graduate Catalog and a separate 2026-2027 Accelerated Online Catalog; the table used here is the undergraduate catalog's and its rows are explicitly marked 'U & G' (undergraduate and graduate), so the same dates cover both for the main terms. ACCESS NOTE: lindenwood.edu and catalogs.lindenwood.edu sit behind an AWS WAF JavaScript challenge (HTTP 202, 'x-amzn-waf-action: challenge') that blocks plain HTTP fetches; the page was read by rendering it in a real headless Chromium browser. The old PDF URL https://www.lindenwood.edu/files/resources/academic-calendar-2026-2027.pdf now 301-redirects to this catalog page. AMBIGUITIES: (1) The calendar prints month/day only, with no year on each row -- years are taken from the section headings 'FALL 2026' / 'SPRING 2027' and the term codes in each row ('FA 26', 'SP 27'). 'Winter Break - campus closed Dec. 23 - Jan. 1' spans the year boundary under the FALL 2026 heading, hence 2026-12-23 to 2027-01-01. (2) Commencement is listed as 'TBD' -- NOT reported as a date. Honors Convocation is likewise 'TBD'. (3) There is no separate 'last day of classes' row; the fall/spring 'Academic Period Ends' rows (Dec. 11 / May 7) coincide with the last day of finals. (4) 'Winter Break - campus closed' is a campus closure, narrower than the student gap between terms (fall period ends Dec. 11, 2026; spring period begins Jan. 11, 2027 -- both quoted above). (5) The page footnotes state 'Date updated after publishing - April Addendum - 4/10/2026**' and 'Event added after publishing - July Addendum - 7/23/2026***'; the Apr. 22, 2027 Lindenwood Showcase carries the *** marker. (6) The page header states 'All statements in this publication are subject to change without notice.'"
+		},
+		{
+			"name": "Missouri Baptist University",
+			"calendar_url": "https://www.mobap.edu/academics/academic-calendar/",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall term start (day classes)",
+					"start_date": "2026-08-26",
+					"end_date": "2026-08-26",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Fall Day Classes Begin 8/26/2026"
+				},
+				{
+					"label": "Fall term start (evening classes)",
+					"start_date": "2026-08-24",
+					"end_date": "2026-08-24",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Fall Evening Classes Begin 8/24/2026"
+				},
+				{
+					"label": "Labor Day",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Labor Day 9/7/2026"
+				},
+				{
+					"label": "Fall break",
+					"start_date": "2026-10-22",
+					"end_date": "2026-10-23",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Fall Break (No Semester Day Classes/8-Week Classes Will Meet/Offices Closed 10/23) 10/22-10/23/2026"
+				},
+				{
+					"label": "Thanksgiving break",
+					"start_date": "2026-11-23",
+					"end_date": "2026-11-27",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Thanksgiving Break (No Classes/Offices Closed Wednesday through Friday) 11/23-11/27/2026"
+				},
+				{
+					"label": "Fall final exams (day classes)",
+					"start_date": "2026-12-15",
+					"end_date": "2026-12-18",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Final Exams for Fall Semester Day Classes 12/15-12/18/2026"
+				},
+				{
+					"label": "Christmas Break (offices closed)",
+					"start_date": "2026-12-21",
+					"end_date": "2027-01-03",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Christmas Break (Offices Closed) 12/21-1/3/2027"
+				},
+				{
+					"label": "Residence halls close (end of fall term)",
+					"start_date": "2026-12-18",
+					"end_date": "2026-12-18",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Residence Halls Close, 5:00 p.m. 12/18/2026"
+				},
+				{
+					"label": "Residence halls open (start of spring term)",
+					"start_date": "2027-01-10",
+					"end_date": "2027-01-10",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Residence Halls Open, 3:00pm 1/10/2027"
+				},
+				{
+					"label": "Spring term start (day classes)",
+					"start_date": "2027-01-11",
+					"end_date": "2027-01-15",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Spring Day Classes Begin 1/11-1/15/2027"
+				},
+				{
+					"label": "Martin Luther King, Jr. Day",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Martin Luther King, Jr. Day (No Semester Day Classes/8-Week Classes Will Meet/Offices Closed) 1/18/2027"
+				},
+				{
+					"label": "Assessment/In-Service Day (no day classes)",
+					"start_date": "2027-02-24",
+					"end_date": "2027-02-24",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Assessment/In-Service Day (No Day Classes for Main Campus Day Students) 2/24/2027"
+				},
+				{
+					"label": "Spring break",
+					"start_date": "2027-03-15",
+					"end_date": "2027-03-21",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Spring Break (No Semester Day Classes/8-Week Classes Will Meet/Offices Closed) 3/15-3/21/2027"
+				},
+				{
+					"label": "Easter Recess",
+					"start_date": "2027-03-26",
+					"end_date": "2027-03-28",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Easter Recess (No Semester Day Classes/8-Week Classes Will Meet) 3/26-3/28/2027"
+				},
+				{
+					"label": "Spring final exams (day classes)",
+					"start_date": "2027-04-27",
+					"end_date": "2027-04-30",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Final Exams for Spring Semester Day Classes 4/27-4/30/2027"
+				},
+				{
+					"label": "Commencement",
+					"start_date": "2027-05-04",
+					"end_date": "2027-05-04",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Commencement, 7:00 p.m., Family Arena, St. Charles, Missouri 5/4/2027"
+				},
+				{
+					"label": "Fall Degree Conferral Day",
+					"start_date": "2026-12-19",
+					"end_date": "2026-12-19",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Fall Degree Conferral Day 12/19/2026"
+				},
+				{
+					"label": "Spring Degree Conferral Day",
+					"start_date": "2027-05-01",
+					"end_date": "2027-05-01",
+					"source_url": "https://www.mobap.edu/academics/academic-calendar/",
+					"quote": "Spring Degree Conferral Day 5/1/2027"
+				}
+			],
+			"notes": "Source is the university's own 'Academic Calendar - 2026-2027' section on mobap.edu (single university-wide calendar; day vs. evening vs. 8-week class distinctions are noted inline on the page itself). Calendar rows are rendered as '<strong>Label</strong><br>date' pairs; quotes above join label and date. IMPORTANT AMBIGUITIES, verbatim from the page: (1) 'Spring Day Classes Begin' is printed as a RANGE '1/11-1/15/2027', which is unusual for a start date -- 2027-01-11 is the first day, but the page's own text is a range and I did not silently normalize it. (2) 'Fall 1st 8-Week Begins' is printed as '8/24-8/29-2026' (malformed) and 'Fall Semester Mid-Term' as '10/115-10/16/2026' (typo for 10/15) -- I did NOT report either, since the printed dates are not usable as-is. (3) NO explicit 'last day of fall classes' or 'last day of spring classes' row exists; only final-exam periods are published, so those are omitted rather than inferred. (4) There is no separately-labeled student 'winter break'; the page lists 'Christmas Break (Offices Closed) 12/21-1/3/2027' (an offices closure). The de facto student gap runs from the end of fall exams (12/18/2026, when residence halls close) to spring day classes beginning 1/11/2027 (halls open 1/10/2027) -- each of those anchor dates is quoted above individually. (5) Only one commencement is listed (5/4/2027); fall completers get a 'Fall Degree Conferral Day' 12/19/2026, not a ceremony line."
+		},
+		{
+			"name": "Missouri State University-Springfield",
+			"calendar_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall term start (first day of classes)",
+					"start_date": "2026-08-17",
+					"end_date": "2026-08-17",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Aug. 17, 2026 | Full Semester & First Block Classes Begin"
+				},
+				{
+					"label": "Labor Day Holiday",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Sept. 7, 2026 | Labor Day Holiday (No Classes/Offices Closed)"
+				},
+				{
+					"label": "Fall break",
+					"start_date": "2026-10-08",
+					"end_date": "2026-10-11",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Oct. 8, 2026 - Oct. 11, 2026 | Fall Break (No Classes/Offices Open)"
+				},
+				{
+					"label": "Thanksgiving break",
+					"start_date": "2026-11-21",
+					"end_date": "2026-11-29",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Nov. 21, 2026 - Nov. 29, 2026 | Thanksgiving Holiday (No Classes. Offices Closed Nov. 25-27.)"
+				},
+				{
+					"label": "Last day of fall classes",
+					"start_date": "2026-12-03",
+					"end_date": "2026-12-03",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Dec. 3, 2026 | Full Semester & Second Block Classes End"
+				},
+				{
+					"label": "Fall final exams",
+					"start_date": "2026-12-05",
+					"end_date": "2026-12-10",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Dec. 5, 2026 - Dec. 10, 2026 | Final Exam Period"
+				},
+				{
+					"label": "Fall commencement",
+					"start_date": "2026-12-11",
+					"end_date": "2026-12-11",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Dec. 11, 2026 | Fall Commencement"
+				},
+				{
+					"label": "Winter Break (as labeled on the calendar)",
+					"start_date": "2026-12-21",
+					"end_date": "2027-01-01",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Dec. 21, 2026 - Jan. 1, 2027 | Winter Break (No Classes/Offices Closed)"
+				},
+				{
+					"label": "Martin Luther King Jr. Holiday",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Jan. 18, 2027 | Martin Luther King Jr. Holiday (No Classes, Offices Closed)"
+				},
+				{
+					"label": "Spring term start (first day of classes)",
+					"start_date": "2027-01-19",
+					"end_date": "2027-01-19",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Jan. 19, 2027 | Full Semester & First Block Classes Begin"
+				},
+				{
+					"label": "Presidents' Day Holiday",
+					"start_date": "2027-02-15",
+					"end_date": "2027-02-15",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Feb. 15, 2027 | Presidents' Day Holiday (No Classes, Offices Closed)"
+				},
+				{
+					"label": "Spring break",
+					"start_date": "2027-03-13",
+					"end_date": "2027-03-21",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Mar. 13, 2027 - Mar. 21, 2027 | Spring Break (No Classes/Offices Open)"
+				},
+				{
+					"label": "Spring Holiday",
+					"start_date": "2027-03-26",
+					"end_date": "2027-03-28",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "Mar. 26, 2027 - Mar. 28, 2027 | Spring Holiday (No Classes/Offices Closed)"
+				},
+				{
+					"label": "Last day of spring classes",
+					"start_date": "2027-05-06",
+					"end_date": "2027-05-06",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "May 6, 2027 | Full Semester & Second Block Classes End"
+				},
+				{
+					"label": "Spring final exams",
+					"start_date": "2027-05-08",
+					"end_date": "2027-05-13",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "May 8, 2027 to May 13, 2027 | Final Exam Period"
+				},
+				{
+					"label": "Spring commencement",
+					"start_date": "2027-05-14",
+					"end_date": "2027-05-14",
+					"source_url": "https://www.missouristate.edu/Registrar/2026-2027-academic-calendar.htm",
+					"quote": "May 14, 2027 | Spring Commencement"
+				}
+			],
+			"notes": "Source is the Springfield campus Office of the Registrar 2026-2027 academic calendar (page title '2026-2027 Academic Calendar', dateModified April 14, 2025). Missouri State-West Plains publishes a SEPARATE calendar at https://wp.missouristate.edu/RecReg/academic-calendar-2026-2027.htm -- not used here; all dates above are the main Springfield undergraduate calendar. Term envelope printed at top of page: 'Fall 2026: August 17 - December 10' and 'Spring 2027: January 19 - May 13'. On the winter gap: the calendar's own labeled 'Winter Break' is only the Dec 21 - Jan 1 offices-closed period; the full no-classes gap runs from the end of fall exams (Dec 10, 2026) to the start of spring classes (Jan 19, 2027), and a separate Winter Intersession runs 'Jan. 11, 2027 - Jan. 15, 2027'. Also note a 'Study Day (No Classes/Offices Open)' on Dec. 4, 2026 and May 7, 2027 between last class day and exams."
+		},
+		{
+			"name": "Missouri University of Science and Technology",
+			"calendar_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+			"calendar_found": true,
+			"term_system": "semester",
+			"breaks": [
+				{
+					"label": "Fall term start (first day of classes)",
+					"start_date": "2026-08-24",
+					"end_date": "2026-08-24",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "FALL SEMESTER 2026 ... Classwork begins 8:00 a.m. — August 24, Monday"
+				},
+				{
+					"label": "Labor Day Holiday",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Labor Day Holiday — September 7, Monday"
+				},
+				{
+					"label": "Fall Break",
+					"start_date": "2026-10-08",
+					"end_date": "2026-10-12",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Fall Break Begins 8:00 a.m. — October 8, Thursday / Fall Break Ends 8:00 a.m. — October 12, Monday"
+				},
+				{
+					"label": "Veteran's Day Holiday",
+					"start_date": "2026-11-11",
+					"end_date": "2026-11-11",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Veteran's Day Holiday — November 11, Wednesday"
+				},
+				{
+					"label": "Thanksgiving vacation",
+					"start_date": "2026-11-22",
+					"end_date": "2026-11-30",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Thanksgiving vacation begins 8:00 a.m. — November 22, Sunday / Thanksgiving vacation ends 8:00 a.m. — November 30, Monday"
+				},
+				{
+					"label": "Last day of fall classes",
+					"start_date": "2026-12-11",
+					"end_date": "2026-12-11",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Last Class Day — December 11, Friday"
+				},
+				{
+					"label": "Fall final examinations",
+					"start_date": "2026-12-14",
+					"end_date": "2026-12-18",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Final Examinations begin 7:30 a.m. — December 14, Monday / Final Examinations end 5:00 p.m. — December 18, Friday"
+				},
+				{
+					"label": "December Commencement",
+					"start_date": "2026-12-18",
+					"end_date": "2026-12-19",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "December Commencement - 6:00 p.m. - PhD and Master's Degrees in All Departments — December 18, Friday / December Commencement - 10 a.m. - Undergraduate Degrees in Designated Departments — December 19, Saturday"
+				},
+				{
+					"label": "Winter break (fall semester close to spring classwork start)",
+					"start_date": "2026-12-18",
+					"end_date": "2027-01-19",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Fall Semester closes 6:00 p.m. — December 18, Friday ... Classwork begins 8:00 a.m. — January 19, Tuesday"
+				},
+				{
+					"label": "Spring term start (first day of classes)",
+					"start_date": "2027-01-19",
+					"end_date": "2027-01-19",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "SPRING SEMESTER 2027 ... Spring semester opens 8:00 a.m. — January 19, Tuesday / Classwork begins 8:00 a.m. — January 19, Tuesday"
+				},
+				{
+					"label": "Martin Luther King, Jr. Recognition Holiday",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Martin Luther King, Jr. Recognition Holiday — January 18, Monday"
+				},
+				{
+					"label": "Spring Recess (mid-semester, separate from Spring Break)",
+					"start_date": "2027-03-11",
+					"end_date": "2027-03-15",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Spring Recess begins 8:00 a.m. — March 11, Thursday / Spring Recess ends 8:00 a.m. — March 15, Monday"
+				},
+				{
+					"label": "Spring Break",
+					"start_date": "2027-03-28",
+					"end_date": "2027-04-05",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Spring Break begins 8:00 a.m. — March 28, Sunday / Spring Break ends 8:00 a.m. — April 5, Monday"
+				},
+				{
+					"label": "Last day of spring classes",
+					"start_date": "2027-05-07",
+					"end_date": "2027-05-07",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Last Class Day — May 7, Friday"
+				},
+				{
+					"label": "Spring final examinations",
+					"start_date": "2027-05-10",
+					"end_date": "2027-05-14",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "Final Examinations begin 7:30 a.m. — May 10, Monday / Final Examinations end 5:00 p.m. — May 14, Friday"
+				},
+				{
+					"label": "May Commencement",
+					"start_date": "2027-05-14",
+					"end_date": "2027-05-15",
+					"source_url": "https://registrar.mst.edu/media/administrative/registrar/documents/calendars/2026/Academic%20Calendar%20AY2026-2027.pdf",
+					"quote": "May Commencement - 6 p.m. - PhD and Master's Degrees in All Departments — May 14, Friday / May Commencement - 10 a.m. - Undergraduate Degrees in Designated Departments — May 15, Saturday"
+				}
+			],
+			"notes": "Single campus-wide calendar published by the Office of the Registrar; linked from https://registrar.mst.edu/calendars/ as '2026-2027 Academic Calendar'. Quotes are transcribed from the PDF text layer; the PDF prints the label on the left and the date on the right of the same row (rendered here with an em dash between them), and stray intra-number kerning spaces in the source ('December 1 8') have been closed up. Break entries follow the PDF's 'begins 8:00 a.m. / ends 8:00 a.m.' convention: the END date is the day classes RESUME, not the last day off. So Fall Break = Thu Oct 8 and Fri Oct 9 off, classes resume Mon Oct 12; Thanksgiving = Sun Nov 22 through Sun Nov 29 off, classes resume Mon Nov 30; Spring Recess = Thu Mar 11 and Fri Mar 12 off, classes resume Mon Mar 15; Spring Break = Sun Mar 28 through Sun Apr 4 off, classes resume Mon Apr 5. S&T publishes BOTH a 'Spring Recess' (mid-March) and a separate week-long 'Spring Break' (late March/early April) in 2027 - both are listed above. No date labeled 'winter break' appears on the calendar; the winter-break entry is bracketed by two literal rows (fall semester closes Dec 18, 2026; spring classwork begins Jan 19, 2027)."
+		},
+		{
+			"name": "Otterbein University",
+			"calendar_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+			"calendar_found": true,
+			"term_system": "semester",
+			"breaks": [
+				{
+					"label": "Fall term start (first day of classes)",
+					"start_date": "2026-08-19",
+					"end_date": "2026-08-19",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "FALL SEMESTER / FULL TERM ... First day of classes — Aug 19 (W) [2026 column]"
+				},
+				{
+					"label": "Labor Day: no classes, offices closed",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Labor Day: no classes, offices closed — Sep 7 (M) [2026 column]"
+				},
+				{
+					"label": "Fall student/faculty break",
+					"start_date": "2026-10-12",
+					"end_date": "2026-10-13",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Fall student/faculty break: no classes — Oct 12-13 (M-T) [2026 column]"
+				},
+				{
+					"label": "Thanksgiving break",
+					"start_date": "2026-11-25",
+					"end_date": "2026-11-27",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Thanksgiving break: no classes — Nov 25-27 (W-F) [2026 column]"
+				},
+				{
+					"label": "Last day of fall classes",
+					"start_date": "2026-12-02",
+					"end_date": "2026-12-02",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Last day of classes — Dec 2 (W) [2026 column]"
+				},
+				{
+					"label": "Fall reading day",
+					"start_date": "2026-12-03",
+					"end_date": "2026-12-03",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Reading Day — Dec 3 (R) [2026 column]"
+				},
+				{
+					"label": "Fall exams",
+					"start_date": "2026-12-04",
+					"end_date": "2026-12-10",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Exams — Dec 4, 7-10 (F, M-R) [2026 column]"
+				},
+				{
+					"label": "Cardinal Term (optional winter intersession)",
+					"start_date": "2026-12-14",
+					"end_date": "2027-01-08",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "CARDINAL TERM ... First day of classes — Dec 14 (M) [2026 column] ... Last day of classes — Jan 7 (R) ... Exams — Jan 8 (F)"
+				},
+				{
+					"label": "Christmas: no classes, offices closed (within Cardinal Term)",
+					"start_date": "2026-12-24",
+					"end_date": "2026-12-31",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Christmas: no classes, offices closed — Dec 24-31 (R-R) [2026 column]"
+				},
+				{
+					"label": "Winter break (fall exams end to spring classes begin)",
+					"start_date": "2026-12-10",
+					"end_date": "2027-01-14",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Exams — Dec 4, 7-10 (F, M-R) [Fall 2026 column] ... SPRING SEMESTER / FULL TERM ... First day of classes — Jan 14 (R) [2027 column]"
+				},
+				{
+					"label": "Spring term start (first day of classes)",
+					"start_date": "2027-01-14",
+					"end_date": "2027-01-14",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "SPRING SEMESTER / FULL TERM ... First day of classes — Jan 14 (R) [2027 column]"
+				},
+				{
+					"label": "Martin Luther King Day: no classes, offices closed",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Martin Luther King Day: no classes, offices closed — Jan 18 (M) [2027 column]"
+				},
+				{
+					"label": "Spring student/faculty break (spring break)",
+					"start_date": "2027-03-08",
+					"end_date": "2027-03-12",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Spring student/faculty break: no classes — Mar 8-12 (M-F) [2027 column]"
+				},
+				{
+					"label": "Good Friday: no classes, offices closed",
+					"start_date": "2027-03-26",
+					"end_date": "2027-03-26",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Good Friday: no classes, offices closed — Mar 26 (F) [2027 column]"
+				},
+				{
+					"label": "Last day of spring classes",
+					"start_date": "2027-04-28",
+					"end_date": "2027-04-28",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Last day of classes — Apr 28 (W) [2027 column]"
+				},
+				{
+					"label": "Spring reading day",
+					"start_date": "2027-04-29",
+					"end_date": "2027-04-29",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Reading Day — Apr 29 (R) [2027 column]"
+				},
+				{
+					"label": "Spring exams",
+					"start_date": "2027-04-30",
+					"end_date": "2027-05-06",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Exams — Apr 30, May 3-6 (F, M-R) [2027 column]"
+				},
+				{
+					"label": "Commencement Ceremonies",
+					"start_date": "2027-05-09",
+					"end_date": "2027-05-09",
+					"source_url": "https://www.otterbein.edu/wp-content/uploads/2025/12/academic_calendar.pdf",
+					"quote": "Commencement Ceremonies — May 9 (N) [2027 column]"
+				}
+			],
+			"notes": "Otterbein publishes ONE 'Printable 5 Year Otterbein University Academic Calendar' PDF linked from https://www.otterbein.edu/academic-affairs/academic-calendar/ - the current file is the 2025/12 upload above (last-updated stamp inside the PDF reads 12/19/2025). IMPORTANT: it is a multi-year GRID, one row per event and one COLUMN per year, so no row can be quoted as a single contiguous line of prose. Each quote above is the row label plus the cell read from the relevant year column, with the column marked in brackets. Fall Semester columns are headed 2025/2026/2027/2028/2029 (2026 column used); Spring Semester columns are headed 2026/2027/2028/2029/2030 (2027 column used). Day codes printed by Otterbein: M=Mon, T=Tue, W=Wed, R=Thu, F=Fri, S=Sat, N=Sun (confirmed against the header row 'Aug 1 (F)/(S)/(N)/(T)/(W)' for 2025-2029). Dates above are the FULL TERM (standard 15-week undergraduate) track; the PDF also lists separate 1ST HALF and 2ND HALF 7-week tracks whose class-start/exam dates differ. The PDF carries the disclaimer 'Dates for academic years beyond the current should be considered tentative and are subject to change.' There is no event labeled 'winter break'; the winter-break entry is bracketed by the last fall exam date and the spring first-day-of-classes, and Otterbein runs an optional Cardinal Term intersession (Dec 14, 2026 - Jan 8, 2027) inside that window."
+		},
+		{
+			"name": "Rose-Hulman Institute of Technology",
+			"calendar_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+			"calendar_found": true,
+			"term_system": "quarter",
+			"breaks": [
+				{
+					"label": "Fall Quarter classes begin",
+					"start_date": "2026-09-03",
+					"end_date": "2026-09-03",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "Fall Quarter ... September 3   Thursday   Classes Begin – 8:00 a.m."
+				},
+				{
+					"label": "Labor Day - Holiday",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "September 7   Monday   Labor Day - Holiday"
+				},
+				{
+					"label": "Fall Break",
+					"start_date": "2026-10-08",
+					"end_date": "2026-10-09",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "October 8-9   Thurs.-Fri.   Fall Break – No classes"
+				},
+				{
+					"label": "Thanksgiving break",
+					"start_date": "not_found",
+					"end_date": "not_found",
+					"source_url": null,
+					"quote": null
+				},
+				{
+					"label": "Fall Quarter final examinations",
+					"start_date": "2026-11-16",
+					"end_date": "2026-11-19",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "November 16   Monday   Final Examinations Begin – 8:00 a.m. / November 19   Thursday   Final Examinations End – 5:00 p.m."
+				},
+				{
+					"label": "Fall Term ends",
+					"start_date": "2026-11-23",
+					"end_date": "2026-11-23",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "November 23   Monday   Final Grades Due – 9:00 a.m. & Fall Term Ends - 5:00 p.m."
+				},
+				{
+					"label": "Winter Quarter classes begin",
+					"start_date": "2026-11-30",
+					"end_date": "2026-11-30",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "Winter Quarter ... November 30   Monday   Classes Begin – 8:00 a.m."
+				},
+				{
+					"label": "Holiday Vacation (winter break)",
+					"start_date": "2026-12-18",
+					"end_date": "2027-01-04",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "December 18   Friday   Holiday Vacation Begins – After Last Class / January 4   Monday   Classes Resume – 8:00 a.m."
+				},
+				{
+					"label": "Martin Luther King, Jr Day - Holiday",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "January 18   Monday   Martin Luther King, Jr Day - Holiday"
+				},
+				{
+					"label": "Winter Quarter final examinations",
+					"start_date": "2027-02-22",
+					"end_date": "2027-02-25",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "February 22   Monday   Final Examinations Begin – 8:00 a.m. / February 25   Thursday   Final Examinations End – 5:00 p.m."
+				},
+				{
+					"label": "Winter Term ends",
+					"start_date": "2027-03-01",
+					"end_date": "2027-03-01",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "March 1   Monday   Final Grades Due - 9:00 a.m. & Winter Term Ends – 5:00 p.m."
+				},
+				{
+					"label": "Spring Quarter classes begin",
+					"start_date": "2027-03-08",
+					"end_date": "2027-03-08",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "Spring Quarter ... March 8   Monday   Classes Begin- 8:00 a.m."
+				},
+				{
+					"label": "Spring Break",
+					"start_date": "2027-04-09",
+					"end_date": "2027-04-19",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "April 09   Friday   Spring Break Begins after Last Class / April 19   Monday   Classes resume – 8:00 a.m."
+				},
+				{
+					"label": "Spring Quarter final examinations",
+					"start_date": "2027-05-24",
+					"end_date": "2027-05-27",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "May 24   Monday   Final Examinations Begin – 8:00 a.m. / May 27   Thursday   Final Examinations End – 5:00 p.m."
+				},
+				{
+					"label": "Commencement",
+					"start_date": "2027-05-29",
+					"end_date": "2027-05-29",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "May 29   Saturday   Commencement 10:00 a.m."
+				},
+				{
+					"label": "Memorial Day - Holiday",
+					"start_date": "2027-05-31",
+					"end_date": "2027-05-31",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "May 31   Monday   Memorial Day - Holiday"
+				},
+				{
+					"label": "Spring Term ends",
+					"start_date": "2027-06-01",
+					"end_date": "2027-06-01",
+					"source_url": "https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+					"quote": "June 1   Tuesday   Final Grades Due – 9:00 a.m. & Spring Term Ends – 5:00 p.m."
+				}
+			],
+			"notes": "QUARTER SYSTEM, not semesters. Rose-Hulman runs three 10-week academic quarters plus finals: Fall Quarter (classes Sep 3 - finals end Nov 19, 2026; term formally ends Nov 23), Winter Quarter (classes Nov 30, 2026 - finals end Feb 25, 2027; term ends Mar 1), Spring Quarter (classes Mar 8 - finals end May 27, 2027; term ends Jun 1), then a Summer session (Jun 3 - Aug 20, 2027). There is therefore no 'fall/spring semester' structure - the 'spring term start' asked for is the SPRING QUARTER start, Mar 8, 2027, and the long winter recess is the Holiday Vacation that falls INSIDE Winter Quarter (Dec 18, 2026 - Jan 4, 2027), not between terms. THANKSGIVING: the 2026-27 calendar lists NO event named Thanksgiving. Thanksgiving Day 2026 (Nov 26) falls in the unlabeled gap between Fall Term ending Nov 23 and Winter Quarter classes beginning Nov 30, so students are between quarters, but the calendar does not label that gap as a break and I did not invent dates for it - reported as not_found. Similarly, no 'last day of classes' row is printed for any quarter; only the finals begin/end rows are published, so those are what is reported. The PDF prints month/day without a year; years above are assigned from the document title '2026-27 Academic Year Calendar' and the printed weekday for each date, all of which check out (e.g. Sep 3, 2026 is a Thursday; Jan 4, 2027 is a Monday). Confirmed as the current official file: linked from https://www.rose-hulman.edu/campus-life/student-services/registrar/academic-calendars.html as 'Printable 2026-27 Academic Calendar'."
+		},
+		{
+			"name": "Saint Louis University",
+			"calendar_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+			"calendar_found": true,
+			"term_system": "semester",
+			"breaks": [
+				{
+					"label": "Fall term start (first day of classes)",
+					"start_date": "2026-08-19",
+					"end_date": "2026-08-19",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "AUGUST 2026 ... 19   Fall Classes Begin"
+				},
+				{
+					"label": "No Classes (Labor Day)",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "SEPTEMBER 2026 ... 7   No Classes (Labor Day)"
+				},
+				{
+					"label": "No Classes (Wellness Day) - fall",
+					"start_date": "2026-09-23",
+					"end_date": "2026-09-23",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "SEPTEMBER 2026 ... 23   No Classes (Wellness Day)"
+				},
+				{
+					"label": "Fall Break",
+					"start_date": "2026-10-22",
+					"end_date": "2026-10-23",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "OCTOBER 2026 ... 22-23   No Classes (Fall Break)"
+				},
+				{
+					"label": "Thanksgiving break",
+					"start_date": "2026-11-25",
+					"end_date": "2026-11-27",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "NOVEMBER 2026 ... 25-27   No Classes (Thanksgiving)"
+				},
+				{
+					"label": "Last day of fall classes",
+					"start_date": "2026-12-04",
+					"end_date": "2026-12-04",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "DECEMBER 2026 ... 4   Fall Classes End"
+				},
+				{
+					"label": "Fall final exams",
+					"start_date": "2026-12-07",
+					"end_date": "2026-12-11",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "DECEMBER 2026 ... 7-11   Final Exams"
+				},
+				{
+					"label": "Fall Degree Conferral and Commencement",
+					"start_date": "2026-12-12",
+					"end_date": "2026-12-12",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "DECEMBER 2026 ... 12   Fall Degree Conferral and Commencement"
+				},
+				{
+					"label": "Winter session (optional intersession)",
+					"start_date": "2026-12-14",
+					"end_date": "2027-01-08",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "DECEMBER 2026 ... 14   Winter Classes Begin ... JANUARY 2027 ... 8   Winter Classes End"
+				},
+				{
+					"label": "Winter break (fall exams end to spring classes begin)",
+					"start_date": "2026-12-11",
+					"end_date": "2027-01-11",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "DECEMBER 2026 ... 7-11   Final Exams ... JANUARY 2027 ... 11   Spring Classes Begin"
+				},
+				{
+					"label": "Spring term start (first day of classes)",
+					"start_date": "2027-01-11",
+					"end_date": "2027-01-11",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "JANUARY 2027 ... 11   Spring Classes Begin"
+				},
+				{
+					"label": "No Classes (MLK Day)",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "JANUARY 2027 ... 18   No Classes (MLK Day)"
+				},
+				{
+					"label": "No Classes (Wellness Day) - spring",
+					"start_date": "2027-02-10",
+					"end_date": "2027-02-10",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "FEBRUARY 2027 ... 10   No Classes (Wellness Day)"
+				},
+				{
+					"label": "Spring Break",
+					"start_date": "2027-03-08",
+					"end_date": "2027-03-12",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "MARCH 2027 ... 8-12 No Classes (Spring Break)"
+				},
+				{
+					"label": "Easter Break",
+					"start_date": "2027-03-25",
+					"end_date": "2027-03-29",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "MARCH 2027 ... 25-29 No Classes (Easter Break)"
+				},
+				{
+					"label": "Last day of spring classes",
+					"start_date": "2027-05-03",
+					"end_date": "2027-05-03",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "MAY 2027 ... 3   Spring Classes End"
+				},
+				{
+					"label": "No Classes (Study Day)",
+					"start_date": "2027-05-04",
+					"end_date": "2027-05-04",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "MAY 2027 ... 4   No Classes (Study Day)"
+				},
+				{
+					"label": "Spring final exams",
+					"start_date": "2027-05-05",
+					"end_date": "2027-05-11",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "MAY 2027 ... 5-11 Final Exams"
+				},
+				{
+					"label": "Graduation Events",
+					"start_date": "2027-05-12",
+					"end_date": "2027-05-14",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "MAY 2027 ... 12-14 Graduation Events"
+				},
+				{
+					"label": "Spring Degree Conferral and Commencement",
+					"start_date": "2027-05-15",
+					"end_date": "2027-05-15",
+					"source_url": "https://www.slu.edu/registrar/pdfs/2026-2027-academic-calendar.pdf",
+					"quote": "MAY 2027 ... 15   Spring Degree Conferral and Commencement"
+				}
+			],
+			"notes": "This is the main University Academic Calendar for the St. Louis campus, linked from https://www.slu.edu/registrar/calendars/index.php as 'View a printable version (PDF) of the 2026-2027 Academic Calendar' (PDF header 'Saint Louis University 2026-2027 Academic Year', 'Published: July 29, 2025'). SLU publishes SEPARATE calendars for the School of Law, School of Medicine, School for Professional Studies (SPS), the 1818 Advanced College Credit program, and the SLU-Madrid campus - those have different dates and are NOT reflected here; the main undergraduate/university calendar was used. The PDF is a year-at-a-glance grid: month blocks with a marginal legend list of 'day-number  event' entries. Quotes above pair the month heading with the marginal entry exactly as printed. There is no event labeled 'winter break'; that entry is bracketed by two literal entries (fall Final Exams 7-11 December, Spring Classes Begin 11 January), and SLU runs an optional Winter session (Dec 14, 2026 - Jan 8, 2027) inside that window. Note SLU has TWO spring no-class weeks: Spring Break (Mar 8-12) and a separate Easter Break (Mar 25-29), both listed."
+		},
+		{
+			"name": "Truman State University",
+			"calendar_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall 2026 classes begin",
+					"start_date": "2026-08-17",
+					"end_date": "2026-08-17",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Fall Semester 2026 ... Classes Begin Monday, August 17"
+				},
+				{
+					"label": "Labor Day (University Closed)",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Labor Day (University Closed) Monday, September 7"
+				},
+				{
+					"label": "Midterm Break (fall break)",
+					"start_date": "2026-10-08",
+					"end_date": "2026-10-09",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Midterm Break Thursday-Friday, October 8-9"
+				},
+				{
+					"label": "Thanksgiving Break",
+					"start_date": "2026-11-23",
+					"end_date": "2026-11-27",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Thanksgiving Break Monday-Friday, November 23-27"
+				},
+				{
+					"label": "Last day of fall classes",
+					"start_date": "2026-12-04",
+					"end_date": "2026-12-04",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Last Day of Classes Friday, December 4"
+				},
+				{
+					"label": "Fall final exams",
+					"start_date": "2026-12-07",
+					"end_date": "2026-12-11",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Finals Start Monday, December 7 ... Finals End Friday, December 11"
+				},
+				{
+					"label": "Fall commencement",
+					"start_date": "2026-12-12",
+					"end_date": "2026-12-12",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Commencement Saturday, December 12, 11 a.m."
+				},
+				{
+					"label": "Winter Interim 2026-27 (winter break period)",
+					"start_date": "2026-12-12",
+					"end_date": "2027-01-09",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Winter Interim 2026-27 Begins Saturday, December 12 Ends Saturday, January 9"
+				},
+				{
+					"label": "Spring 2027 classes begin",
+					"start_date": "2027-01-11",
+					"end_date": "2027-01-11",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Spring Semester 2027 Classes Begin Monday, January 11"
+				},
+				{
+					"label": "Martin Luther King, Jr. Day (University Closed)",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Martin Luther King, Jr. Day (University Closed) Monday, January 18"
+				},
+				{
+					"label": "Spring Break",
+					"start_date": "2027-03-08",
+					"end_date": "2027-03-12",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Spring Break Monday-Friday, March 8-12"
+				},
+				{
+					"label": "Term Break",
+					"start_date": "2027-03-29",
+					"end_date": "2027-03-29",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Term Break Monday, March 29 (ends at 5 p.m.)"
+				},
+				{
+					"label": "Student Research Conference (no classes)",
+					"start_date": "2027-04-15",
+					"end_date": "2027-04-15",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Student Research Conference Thursday, April 15 (No classes; 7:30 a.m.-5:30 p.m.)"
+				},
+				{
+					"label": "Last day of spring classes",
+					"start_date": "2027-04-30",
+					"end_date": "2027-04-30",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Last Day of Classes Friday, April 30"
+				},
+				{
+					"label": "Spring final exams",
+					"start_date": "2027-05-03",
+					"end_date": "2027-05-07",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Finals Start Monday, May 3 ... Finals End Friday, May 7"
+				},
+				{
+					"label": "Spring commencement",
+					"start_date": "2027-05-08",
+					"end_date": "2027-05-08",
+					"source_url": "https://www.truman.edu/majors-programs/academic-resources/academic-calendar-schedules/academic-calendar/2026-27-academic-calendar/",
+					"quote": "Commencement Saturday, May 8, 2 p.m."
+				}
+			],
+			"notes": "Official Truman registrar/academic-resources 2026-27 calendar page. Years come from the page's own section headers ('Fall Semester 2026', 'Spring Semester 2027', 'Winter Interim 2026-27'); the individual rows print only month/day. Winter break is published as 'Winter Interim 2026-27' (Dec 12 - Jan 9), a for-credit interim term, not a pure vacation block; spring classes resume Jan 11, 2027. Truman also lists a one-day 'Term Break' (Mar 29, 2027) and a no-class Student Research Conference day (Apr 15, 2027). Page footer: 'Calendar subject to change without notice'."
+		},
+		{
+			"name": "University of Missouri-Kansas City (UMKC)",
+			"calendar_url": "https://calendar.umkc.edu/academic-calendar/",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall 2026 classes begin (full 16 week session)",
+					"start_date": "2026-08-24",
+					"end_date": "2026-08-24",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/47916-classes-begin-full-16-week-session",
+					"quote": "\"name\": \"Classes Begin (full 16 week session)\", \"startDate\": \"2026-08-24T05:00:00+00:00\", \"endDate\": \"2026-08-24T05:00:00+00:00\""
+				},
+				{
+					"label": "Labor Day Holiday (University Closed)",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/47953-labor-day-holiday-university-closed",
+					"quote": "\"name\": \"Labor Day Holiday (University Closed)\", \"startDate\": \"2026-09-07T05:00:00+00:00\", \"endDate\": \"2026-09-07T05:00:00+00:00\""
+				},
+				{
+					"label": "Fall Break",
+					"start_date": "2026-10-08",
+					"end_date": "2026-10-11",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/49517-fall-break",
+					"quote": "\"name\": \"Fall Break\", \"startDate\": \"2026-10-08T05:00:00+00:00\", \"endDate\": \"2026-10-11T05:00:00+00:00\""
+				},
+				{
+					"label": "Thanksgiving Week Break",
+					"start_date": "2026-11-23",
+					"end_date": "2026-11-29",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/47959-thanksgiving-week-break",
+					"quote": "\"name\": \"Thanksgiving Week Break\", \"startDate\": \"2026-11-23T06:00:00+00:00\", \"endDate\": \"2026-11-29T06:00:00+00:00\""
+				},
+				{
+					"label": "Last day of fall classes (full 16 week session)",
+					"start_date": "2026-12-11",
+					"end_date": "2026-12-11",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/47927-last-day-of-classes-full-16-week-session",
+					"quote": "\"name\": \"Last day of classes (full 16 week session)\", \"startDate\": \"2026-12-11T06:00:00+00:00\", \"endDate\": \"2026-12-11T06:00:00+00:00\""
+				},
+				{
+					"label": "Fall Finals Week (All Academic Units, except Law - full 16 week session)",
+					"start_date": "2026-12-12",
+					"end_date": "2026-12-18",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/47902-finals-week-all-academic-units-except-law-full",
+					"quote": "\"name\": \"Finals Week (All Academic Units, except Law - full 16 week session)\", \"startDate\": \"2026-12-12T06:00:00+00:00\", \"endDate\": \"2026-12-18T06:00:00+00:00\""
+				},
+				{
+					"label": "Winter Break (University Closed)",
+					"start_date": "2026-12-25",
+					"end_date": "2027-01-03",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/47958-winter-break-university-closed",
+					"quote": "\"name\": \"Winter Break (University Closed)\", \"startDate\": \"2026-12-25T06:00:00+00:00\", \"endDate\": \"2027-01-03T06:00:00+00:00\""
+				},
+				{
+					"label": "Martin Luther King, Jr. Holiday (University Closed)",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/49629-martin-luther-king-jr-holiday-university-closed",
+					"quote": "\"name\": \"Martin Luther King, Jr. Holiday (University Closed)\", \"startDate\": \"2027-01-18T06:00:00+00:00\", \"endDate\": \"2027-01-18T06:00:00+00:00\""
+				},
+				{
+					"label": "Spring 2027 classes begin (full 16 week session)",
+					"start_date": "2027-01-19",
+					"end_date": "2027-01-19",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/49590-classes-begin-full-16-week-session",
+					"quote": "\"name\": \"Classes Begin (full 16 week session)\", \"startDate\": \"2027-01-19T06:00:00+00:00\", \"endDate\": \"2027-01-19T06:00:00+00:00\""
+				},
+				{
+					"label": "Spring Break",
+					"start_date": "2027-03-29",
+					"end_date": "2027-04-04",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/49576-spring-break",
+					"quote": "\"name\": \"Spring Break\", \"startDate\": \"2027-03-29T05:00:00+00:00\", \"endDate\": \"2027-04-04T05:00:00+00:00\""
+				},
+				{
+					"label": "Last day of spring classes (full 16 week session)",
+					"start_date": "2027-05-07",
+					"end_date": "2027-05-07",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/49602-last-day-of-classes-full-16-week-session",
+					"quote": "\"name\": \"Last day of classes (full 16 week session)\", \"startDate\": \"2027-05-07T05:00:00+00:00\", \"endDate\": \"2027-05-07T05:00:00+00:00\""
+				},
+				{
+					"label": "Spring Finals Week (All Academic Units, except Law - full 16 week session)",
+					"start_date": "2027-05-08",
+					"end_date": "2027-05-14",
+					"source_url": "https://calendar.umkc.edu/academic-calendar/event/49574-finals-week-all-academic-units-except-law-full",
+					"quote": "\"name\": \"Finals Week (All Academic Units, except Law - full 16 week session)\", \"startDate\": \"2027-05-08T05:00:00+00:00\", \"endDate\": \"2027-05-14T05:00:00+00:00\""
+				},
+				{
+					"label": "Spring 2027 commencement",
+					"start_date": "not_found",
+					"end_date": "not_found",
+					"source_url": null,
+					"quote": null
+				}
+			],
+			"notes": "www.umkc.edu/registrar/academic-calendar.html is a meta-refresh redirect to https://calendar.umkc.edu/academic-calendar/, so that LiveWhale calendar IS the registrar's official academic calendar. Dates for the full 16-week session (main undergraduate term); UMKC also runs 8-week sessions, intersessions, and a separate Law finals week, all listed on the same calendar. IMPORTANT for trip planning: UMKC's public calendar feed only exposes ~180 days ahead, so spring 2027 entries were read one at a time from their individual official event pages (URLs cited). The rendered event pages compute the display date in JavaScript; the only literal date text in the served HTML is the schema.org JSON-LD block, which is what is quoted. Quoted endDate is the LAST day of the break, inclusive (verified against the feed's per-day instances: Fall Break has instances on Oct 8, 9, 10 and 11). 'Winter Break (University Closed)' is the university's holiday closure (Dec 25 - Jan 3), NOT the full inter-semester gap; the actual gap for students runs from the end of fall finals (Dec 18, 2026) to the start of spring classes (Jan 19, 2027), with a January intersession Jan 4-15, 2027 in between. Spring 2027 commencement: NOT FOUND. www.umkc.edu/commencement/ currently says 'Saturday, May 16' with no year, which matches May 2026 (May 16, 2027 is a Sunday), so the page has not yet been updated for 2027; no commencement event exists on the academic calendar. Reported as not_found rather than inferred."
+		},
+		{
+			"name": "Washington University in St. Louis (WashU)",
+			"calendar_url": "https://bulletin.wustl.edu/washu/calendar/",
+			"calendar_found": true,
+			"breaks": [
+				{
+					"label": "Fall 2026 first day of classes",
+					"start_date": "2026-08-24",
+					"end_date": "2026-08-24",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "Fall Semester 2026 ... August 24 | Monday | First day of classes"
+				},
+				{
+					"label": "Labor Day holiday (no classes)",
+					"start_date": "2026-09-07",
+					"end_date": "2026-09-07",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "September 7 | Monday | Labor Day holiday (no classes)"
+				},
+				{
+					"label": "Fall Break (no classes)",
+					"start_date": "2026-10-03",
+					"end_date": "2026-10-06",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "October 3-6 | Saturday-Tuesday | Fall Break (no classes)"
+				},
+				{
+					"label": "Thanksgiving Break (no classes)",
+					"start_date": "2026-11-25",
+					"end_date": "2026-11-29",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "November 25-November 29 | Wednesday-Sunday | Thanksgiving Break (no classes)"
+				},
+				{
+					"label": "Last day of fall classes",
+					"start_date": "2026-12-07",
+					"end_date": "2026-12-07",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "December 7 | Monday | Last day of classes"
+				},
+				{
+					"label": "Fall reading days",
+					"start_date": "2026-12-08",
+					"end_date": "2026-12-09",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "December 8-9 | Tuesday-Wednesday | Reading days"
+				},
+				{
+					"label": "Fall final exams",
+					"start_date": "2026-12-10",
+					"end_date": "2026-12-16",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "December 10-16 | Thursday-Wednesday | Final exams"
+				},
+				{
+					"label": "Winter break (gap between fall exams ending and spring classes starting; WashU publishes no named 'winter break' entry)",
+					"start_date": "2026-12-17",
+					"end_date": "2027-01-18",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "December 10-16 | Thursday-Wednesday | Final exams ... January 19 | Tuesday | First day of classes"
+				},
+				{
+					"label": "Martin Luther King, Jr. holiday (no classes)",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "January 18 | Monday | Martin Luther King, Jr. holiday (no classes)"
+				},
+				{
+					"label": "Spring 2027 first day of classes",
+					"start_date": "2027-01-19",
+					"end_date": "2027-01-19",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "Spring Semester 2027 ... January 19 | Tuesday | First day of classes"
+				},
+				{
+					"label": "Spring Break (no classes)",
+					"start_date": "2027-03-14",
+					"end_date": "2027-03-21",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "March 14-21 | Sunday-Sunday | Spring Break (no classes)"
+				},
+				{
+					"label": "Last day of spring classes",
+					"start_date": "2027-05-03",
+					"end_date": "2027-05-03",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "May 3 | Monday | Last day of classes"
+				},
+				{
+					"label": "Spring reading days",
+					"start_date": "2027-05-04",
+					"end_date": "2027-05-05",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "May 4-5 | Tuesday-Wednesday | Reading days"
+				},
+				{
+					"label": "Spring final exams",
+					"start_date": "2027-05-06",
+					"end_date": "2027-05-12",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "May 6-12 | Thursday-Wednesday | Final exams"
+				},
+				{
+					"label": "Class of 2027 Commencement",
+					"start_date": "2027-05-21",
+					"end_date": "2027-05-21",
+					"source_url": "https://bulletin.wustl.edu/washu/calendar/",
+					"quote": "Commencement ... May 21 | Friday | Class of 2027 Commencement"
+				}
+			],
+			"notes": "Source is the university-wide standard semester calendar in the official 2026-27 WashU Bulletin (https://bulletin.wustl.edu/washu/calendar/, PDF at https://bulletin.wustl.edu/washu/calendar/calendar.pdf). The Bulletin states: 'The dates listed here are the outline of the standard semester calendar, applicable to traditional undergraduate and many graduate programs. Certain schools or programs may have varying calendars due to the nature of particular fields of study.' That is the calendar Arts & Sciences undergraduates follow; Law and Medicine publish separate calendars that were NOT used here. The registrar page https://registrar.washu.edu/academic-calendars/2026-2027-academic-calendar/ (redirected from registrar.wustl.edu) exists but serves no date content - the calendar table is not in the delivered HTML - so the Bulletin is the citable source. The quote pipe separators reflect the Date | Day | Description table columns; the wording is verbatim. WashU publishes NO named winter-break entry: the winter-break row above is bounded strictly by the two quoted official dates (fall final exams end December 16, 2026; spring classes begin January 19, 2027); the intervening start/end days are the bounds implied by those, not a separately published break. Fall Break runs Saturday Oct 3 - Tuesday Oct 6, 2026 (weekday labels are the Bulletin's own and are internally consistent with 2026)."
+		}
+	]
+}
