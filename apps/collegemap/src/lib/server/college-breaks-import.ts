@@ -1,10 +1,10 @@
-import schoolData from "../../../data/all-schools.json";
-import classifyMap from "../../../data/classify-map.json";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
-import { collegeBreaks, colleges } from "./db/schema";
+import schoolData from "../../../data/all-schools.json";
+import classifyMap from "../../../data/classify-map.json";
 import { MISSING_ACADEMIC_DATE } from "./college-breaks-constants";
+import { collegeBreaks, colleges } from "./db/schema";
 import * as schema from "./db/schema";
 
 type Database = LibSQLDatabase<typeof schema>;
@@ -40,7 +40,10 @@ export const COLLEGE_NAME_MAP: Record<string, string> = {
 	"Washington University in St. Louis (WashU)": "Washington University in St Louis",
 };
 
-const DERIVED_SPANS: Record<string, { label: string; startDate: string; endDate: string }> = {
+const DERIVED_SPANS: Record<
+	string,
+	{ label: string; startDate: string; endDate: string } | undefined
+> = {
 	"Cornell University": {
 		label: "Winter break (derived: last day of fall term through start of spring term)",
 		startDate: "2026-12-20",
@@ -85,7 +88,7 @@ export async function resolveCollegeIds(database: Database): Promise<Map<string,
 	for (const school of schools) {
 		const dbName = COLLEGE_NAME_MAP[school.name];
 		const ids = dbName ? byName.get(dbName) : undefined;
-		if (!ids || ids.length !== 1) throw new Error(`Unmatched college: ${school.name}`);
+		if (ids?.length !== 1) throw new Error(`Unmatched college: ${school.name}`);
 		resolved.set(school.name, ids[0]);
 	}
 	if (resolved.size !== schools.length) throw new Error("Could not resolve every source school");
@@ -97,28 +100,35 @@ export async function importCollegeBreaks(database: Database): Promise<number> {
 	const collegeIds = await resolveCollegeIds(database);
 	const academicYear = schoolData.generated_for;
 	let rowNumber = 0;
-	const rows = schools.flatMap((school) =>
-		school.breaks.map((source) => {
+	const rows = schools.flatMap((school) => {
+		// resolveCollegeIds already threw for anything unmatched, so this is belt-and-braces — but a
+		// silent undefined here would write rows against no college at all.
+		const collegeId = collegeIds.get(school.name);
+		if (collegeId === undefined) throw new Error(`Unresolved college: ${school.name}`);
+
+		return school.breaks.map((source) => {
 			rowNumber++;
-			const derived = DERIVED_SPANS[school.name];
-			const isDerived = derived?.label === source.label;
+			// A school's derived span applies to exactly the one row whose label matches; its other
+			// rows are quoted from the calendar as normal.
+			const candidate = DERIVED_SPANS[school.name];
+			const derived = candidate?.label === source.label ? candidate : undefined;
 			const isUnverifiable = UNVERIFIABLE_ROWS.has(`${school.name}\u0000${source.label}`);
 			return {
-				collegeId: collegeIds.get(school.name)!,
+				collegeId,
 				label: source.label,
 				// Source calendars occasionally give no date at all. Keep the row and use a stable
 				// non-date marker so the identity key remains re-runnable (SQLite UNIQUE treats NULLs
 				// as distinct). The read path only renders real ISO dates.
-				startDate: isDerived ? derived.startDate : (source.start_date ?? MISSING_ACADEMIC_DATE),
-				endDate: isDerived ? derived.endDate : (source.end_date ?? MISSING_ACADEMIC_DATE),
+				startDate: derived ? derived.startDate : (source.start_date ?? MISSING_ACADEMIC_DATE),
+				endDate: derived ? derived.endDate : (source.end_date ?? MISSING_ACADEMIC_DATE),
 				kind: isUnverifiable ? "unknown" : kindsByRow[String(rowNumber)],
-				derivation: isDerived ? ("derived" as const) : ("quoted" as const),
+				derivation: derived ? ("derived" as const) : ("quoted" as const),
 				sourceUrl: source.source_url,
 				quote: source.quote,
 				academicYear,
 			};
-		}),
-	);
+		});
+	});
 
 	await database.transaction(async (tx) => {
 		await tx

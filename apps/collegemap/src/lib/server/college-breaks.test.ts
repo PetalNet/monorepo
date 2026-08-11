@@ -1,19 +1,23 @@
-import { createClient } from "@libsql/client";
-import { and, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { createClient } from "@libsql/client";
+import { and, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/libsql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-	COLLEGE_NAME_MAP,
-	importCollegeBreaks,
-	resolveCollegeIds,
-} from "./college-breaks-import";
 import { getRenderedCollegeBreaks } from "./college-breaks";
+import { COLLEGE_NAME_MAP, importCollegeBreaks, resolveCollegeIds } from "./college-breaks-import";
 import { collegeBreaks } from "./db/schema";
 import * as schema from "./db/schema";
+
+/** A lookup that fails the test loudly instead of asserting non-null and reading undefined. */
+function resolvedId(resolved: Map<string, string>, school: string): string {
+	const id = resolved.get(school);
+	if (id === undefined) throw new Error(`test setup: ${school} did not resolve`);
+	return id;
+}
 
 const WASHU_JSON_NAME = "Washington University in St. Louis (WashU)";
 const DERIVED_SPANS = [
@@ -69,17 +73,21 @@ describe("institutional college-break import", () => {
 	it("pins all corrected and derived winter-break spans", async () => {
 		await importCollegeBreaks(db);
 		const resolved = await resolveCollegeIds(db);
-		for (const [school, startDate, endDate] of DERIVED_SPANS) {
-			const rows = await db
-				.select()
-				.from(collegeBreaks)
-				.where(
-					and(
-						eq(collegeBreaks.collegeId, resolved.get(school)!),
-						eq(collegeBreaks.derivation, "derived"),
+		const found = await Promise.all(
+			DERIVED_SPANS.map(([school]) =>
+				db
+					.select()
+					.from(collegeBreaks)
+					.where(
+						and(
+							eq(collegeBreaks.collegeId, resolvedId(resolved, school)),
+							eq(collegeBreaks.derivation, "derived"),
+						),
 					),
-				);
-			expect(rows).toEqual([
+			),
+		);
+		for (const [index, [, startDate, endDate]] of DERIVED_SPANS.entries()) {
+			expect(found[index]).toEqual([
 				expect.objectContaining({ startDate, endDate, derivation: "derived" }),
 			]);
 		}
@@ -90,7 +98,7 @@ describe("rendered institutional breaks", () => {
 	it("returns a known college's break rows while excluding every non-rendered kind", async () => {
 		await importCollegeBreaks(db);
 		const resolved = await resolveCollegeIds(db);
-		const cornellId = resolved.get("Cornell University")!;
+		const cornellId = resolvedId(resolved, "Cornell University");
 		await db.insert(collegeBreaks).values(
 			["term_boundary", "exam", "commencement", "admin", "unknown"].map((kind, index) => ({
 				collegeId: cornellId,
