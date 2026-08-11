@@ -1,8 +1,8 @@
 import { and, asc, eq, inArray, not } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
-import * as schema from "./db/schema";
 import { MISSING_ACADEMIC_DATE } from "./college-breaks-constants";
+import * as schema from "./db/schema";
 
 type Database = LibSQLDatabase<typeof schema>;
 

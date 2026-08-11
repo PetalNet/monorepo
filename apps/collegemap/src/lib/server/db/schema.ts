@@ -72,8 +72,8 @@ export const breaks = sqliteTable("breaks", {
 });
 
 /**
- * An institutional academic-calendar entry. Unlike `breaks`, these belong to a college rather
- * than to a person, so one cited calendar can serve every student at that college.
+ * An institutional academic-calendar entry. Unlike `breaks`, these belong to a college rather than
+ * to a person, so one cited calendar can serve every student at that college.
  */
 export const collegeBreaks = sqliteTable(
 	"college_breaks",
