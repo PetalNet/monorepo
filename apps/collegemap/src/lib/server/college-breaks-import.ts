@@ -23,7 +23,12 @@ interface SourceSchool {
 	breaks: SourceBreak[];
 }
 
-/** Deliberate exact-name joins. Do not normalize names: near-collisions must fail loudly. */
+/**
+ * Deliberate exact-name joins. Do not normalize names: near-collisions must fail loudly.
+ *
+ * @public Checked directly by tests - every right-hand side has to name a real college, and
+ * one that did not once aborted the whole import.
+ */
 export const COLLEGE_NAME_MAP: Record<string, string> = {
 	"Cornell University": "Cornell University",
 	"Gustavus Adolphus College": "Gustavus Adolphus College",
@@ -91,6 +96,7 @@ const UNVERIFIABLE_ROWS = new Set([
 const schools = schoolData.schools as SourceSchool[];
 const kindsByRow = classifyMap as Record<string, BreakKind>;
 
+/** @public Exposed so tests can group imported rows by school without re-deriving the join. */
 export async function resolveCollegeIds(database: Database): Promise<Map<string, string>> {
 	const dbNames = Object.values(COLLEGE_NAME_MAP);
 	const rows = await database
