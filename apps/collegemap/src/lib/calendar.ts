@@ -7,18 +7,9 @@
  * a day.
  */
 
-import { fromDay, startOfMonth, startOfNextMonth, toDay } from "./dates";
+import { fromDay, startOfMonth, startOfNextMonth, toDay, weekdayOf } from "./dates";
+import { ASSUMED_SOURCE } from "./institutions";
 import { mergeRanges, type DayRange, type Participant } from "./overlap";
-
-/**
- * Day number of 1970-01-01 was a Thursday, so +4 lands Sunday on 0.
- *
- * Internal: the grid this module builds is where a weekday becomes observable, so callers read a
- * column index or a `DayCell.isWeekend` rather than this.
- */
-function weekdayOf(dayNumber: number): number {
-	return (((dayNumber + 4) % 7) + 7) % 7;
-}
 
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -215,6 +206,41 @@ export function pickInitialMonth(participants: Participant[], todayIso: string):
 	// 3. Everything is in the past: show where the breaks actually are.
 	const latest = active.flatMap((p) => p.ranges).toSorted((a, b) => b.start - a.start)[0];
 	return monthOf(latest.start);
+}
+
+/** A break row as the page holds it: a span, a person, and where it came from. */
+interface SourcedBreak {
+	userId: string;
+	startDate: string;
+	endDate: string;
+	source: string;
+}
+
+/**
+ * Who is only _assumed_ to be free on a day.
+ *
+ * A federal holiday is a default the app filled in for a kind of workplace, not a check that this
+ * particular person is off: duty, watch, shift work and leave are all personal. The grid cannot say
+ * that on its own — it reduces every row to a day range and forgets where it came from — so this
+ * answers the question the grid dropped, for the one day being looked at.
+ *
+ * Anyone with a stated reason on that day drops out, even if they also hold an assumed one. The
+ * stated reason is what they are shown by, so there is nothing left to hedge.
+ */
+export function assumedFreeIds(rows: SourcedBreak[], iso: string | null): string[] {
+	if (iso === null) return [];
+	const day = toDay(iso);
+	const covering = rows.filter((row) => toDay(row.startDate) <= day && day <= toDay(row.endDate));
+	const stated = new Set(
+		covering.filter((row) => row.source !== ASSUMED_SOURCE).map((row) => row.userId),
+	);
+	return Array.from(
+		new Set(
+			covering
+				.filter((row) => row.source === ASSUMED_SOURCE && !stated.has(row.userId))
+				.map((row) => row.userId),
+		),
+	);
 }
 
 /** Rows shaped for the DB: turn stored ISO breaks into engine participants. */

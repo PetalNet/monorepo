@@ -1,5 +1,7 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+import { INSTITUTION_KINDS } from "../../institutions";
+
 export const users = sqliteTable("users", {
 	id: text("id")
 		.primaryKey()
@@ -13,11 +15,30 @@ export const users = sqliteTable("users", {
 		.$defaultFn(() => new Date()),
 });
 
+/**
+ * A place someone is affiliated with: a college, a base, a workplace, or something else.
+ *
+ * Still called `colleges`, and still the row every `college_id` points at. Generalising it meant
+ * one new column rather than a second table and a second nullable foreign key, so every join, every
+ * map pin and every who-is-free path kept working unchanged. The name is now a misnomer; renaming
+ * the table is a separate, purely cosmetic migration.
+ *
+ * `latitude` and `longitude` stay NOT NULL for every kind. They are all places and this is a map;
+ * the existing `isCustom` path already lets someone supply coordinates for somewhere that is not in
+ * the pre-seeded list.
+ */
 export const colleges = sqliteTable("colleges", {
 	id: text("id")
 		.primaryKey()
 		.$defaultFn(() => crypto.randomUUID()),
 	name: text("name").notNull(),
+	/**
+	 * What sort of place this is, and so which calendar the app fills in for the people here.
+	 *
+	 * Defaults to `college` because that is what every row was before the column existed, and what
+	 * the migration set them all to.
+	 */
+	kind: text("kind", { enum: INSTITUTION_KINDS }).notNull().default("college"),
 	latitude: real("latitude").notNull(),
 	longitude: real("longitude").notNull(),
 	isCustom: integer("is_custom", { mode: "boolean" }).notNull().default(false),

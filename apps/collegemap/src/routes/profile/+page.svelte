@@ -2,25 +2,37 @@
 	import { enhance } from "$app/forms";
 	import { resolve } from "$app/paths";
 	import CollegeSearch from "$lib/components/CollegeSearch.svelte";
+	import {
+		INSTITUTION_KIND_HINTS,
+		INSTITUTION_KIND_LABELS,
+		INSTITUTION_KINDS,
+		type InstitutionKind,
+	} from "$lib/institutions";
 
 	import type { PageProps } from "./$types";
 
 	let { data, form }: PageProps = $props();
 
-	let selectedCollege = $state<{
+	interface SelectedInstitution {
 		name: string;
 		latitude: number;
 		longitude: number;
 		isCustom: boolean;
-	} | null>(null);
+	}
 
-	function handleCollegeSelect(college: {
-		name: string;
-		latitude: number;
-		longitude: number;
-		isCustom: boolean;
-	}) {
-		selectedCollege = college;
+	let kind = $state<InstitutionKind>(data.currentCollege?.kind ?? "college");
+	let selectedInstitution = $state<SelectedInstitution | null>(null);
+
+	function selectKind(next: InstitutionKind) {
+		kind = next;
+		// A base picked while the kind said "college" would be filed as a college and given an
+		// academic calendar. Changing the kind therefore throws the choice away rather than
+		// re-labelling it.
+		selectedInstitution = null;
+	}
+
+	function handleInstitutionSelect(institution: SelectedInstitution) {
+		selectedInstitution = institution;
 	}
 </script>
 
@@ -39,7 +51,7 @@
 			</div>
 
 			{#if form?.success}
-				<div class="msg-success">College updated successfully!</div>
+				<div class="msg-success">Saved.</div>
 			{/if}
 
 			{#if form?.error}
@@ -47,7 +59,7 @@
 			{/if}
 
 			<div class="current-college">
-				<h2 class="section-label">Current College</h2>
+				<h2 class="section-label">Where you are</h2>
 				{#if data.currentCollege}
 					<div class="college-badge">
 						<svg
@@ -63,25 +75,52 @@
 							<path d="M2 12l10 5 10-5" />
 						</svg>
 						{data.currentCollege.name}
+						<span class="badge-kind">{INSTITUTION_KIND_LABELS[data.currentCollege.kind]}</span>
 					</div>
 				{:else}
-					<p class="no-college">No college selected</p>
+					<p class="no-college">Nothing picked yet</p>
 				{/if}
 			</div>
 
 			<form method="POST" action="?/save" use:enhance class="college-form">
+				<fieldset class="kind-field">
+					<legend class="section-label">What sort of place</legend>
+					<div class="kind-options">
+						{#each INSTITUTION_KINDS as option (option)}
+							<label class="kind-option" class:selected={kind === option}>
+								<input
+									type="radio"
+									name="kind"
+									value={option}
+									checked={kind === option}
+									onchange={() => {
+										selectKind(option);
+									}}
+								/>
+								{INSTITUTION_KIND_LABELS[option]}
+							</label>
+						{/each}
+					</div>
+					<!-- Said before the choice is made, not after: which calendar shows up without you
+					     doing anything is the only difference between these four, so it is what someone
+					     is actually choosing between. -->
+					<p class="kind-hint">{INSTITUTION_KIND_HINTS[kind]}</p>
+				</fieldset>
+
 				<div>
-					<label for="college-search" class="section-label">Select Your College</label>
+					<label for="college-search" class="section-label">Find it</label>
 					<div class="search-wrapper">
-						<CollegeSearch inputId="college-search" onselect={handleCollegeSelect} />
+						{#key kind}
+							<CollegeSearch {kind} inputId="college-search" onselect={handleInstitutionSelect} />
+						{/key}
 					</div>
 				</div>
 
-				{#if selectedCollege}
-					<input type="hidden" name="collegeName" value={selectedCollege.name} />
-					<input type="hidden" name="latitude" value={selectedCollege.latitude} />
-					<input type="hidden" name="longitude" value={selectedCollege.longitude} />
-					<input type="hidden" name="isCustom" value={selectedCollege.isCustom} />
+				{#if selectedInstitution}
+					<input type="hidden" name="collegeName" value={selectedInstitution.name} />
+					<input type="hidden" name="latitude" value={selectedInstitution.latitude} />
+					<input type="hidden" name="longitude" value={selectedInstitution.longitude} />
+					<input type="hidden" name="isCustom" value={selectedInstitution.isCustom} />
 
 					<div class="selected-badge">
 						<svg
@@ -94,13 +133,11 @@
 						>
 							<polyline points="20 6 9 17 4 12" />
 						</svg>
-						{selectedCollege.name}
+						{selectedInstitution.name}
 					</div>
 				{/if}
 
-				<button type="submit" disabled={!selectedCollege} class="profile-submit">
-					Save College
-				</button>
+				<button type="submit" disabled={!selectedInstitution} class="profile-submit">Save</button>
 			</form>
 
 			<div class="profile-divider"></div>
@@ -237,10 +274,81 @@
 		font-weight: 500;
 	}
 
+	.badge-kind {
+		padding: 1px 6px;
+		border-radius: 999px;
+		background: var(--bg-card);
+		border: 1px solid var(--border-accent);
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
 	.no-college {
 		color: var(--text-muted);
 		font-style: italic;
 		font-size: 0.85rem;
+	}
+
+	.kind-field {
+		border: none;
+	}
+
+	.kind-options {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 2px;
+	}
+
+	.kind-option {
+		flex: 1 1 auto;
+		text-align: center;
+		padding: 8px 10px;
+		border-radius: 8px;
+		background: var(--bg-input);
+		border: 1px solid var(--border-card);
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition:
+			border-color 0.2s,
+			color 0.2s;
+	}
+
+	.kind-option:hover {
+		border-color: var(--border-accent);
+	}
+
+	.kind-option.selected {
+		background: var(--accent-bg);
+		border-color: var(--accent);
+		color: var(--accent);
+		font-weight: 600;
+	}
+
+	/* The radio itself is redundant once the label is the control, but it stays in the accessibility
+	   tree and keeps the group keyboard-navigable. */
+	.kind-option input {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.kind-option:focus-within {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+
+	.kind-hint {
+		margin-top: 8px;
+		font-size: 0.78rem;
+		line-height: 1.5;
+		color: var(--text-muted);
 	}
 
 	.college-form {

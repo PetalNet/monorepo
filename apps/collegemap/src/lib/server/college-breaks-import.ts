@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
 import schoolData from "../../../data/all-schools.json";
@@ -99,10 +99,12 @@ const kindsByRow = classifyMap as Record<string, BreakKind>;
 /** @public Exposed so tests can group imported rows by school without re-deriving the join. */
 export async function resolveCollegeIds(database: Database): Promise<Map<string, string>> {
 	const dbNames = Object.values(COLLEGE_NAME_MAP);
+	// Colleges only. The table now holds bases and workplaces too, and one of those sharing a name
+	// with a school would make the join ambiguous and abort an import that has nothing wrong with it.
 	const rows = await database
 		.select({ id: colleges.id, name: colleges.name })
 		.from(colleges)
-		.where(inArray(colleges.name, dbNames));
+		.where(and(inArray(colleges.name, dbNames), eq(colleges.kind, "college")));
 	const byName = new Map<string, string[]>();
 	for (const row of rows) byName.set(row.name, [...(byName.get(row.name) ?? []), row.id]);
 

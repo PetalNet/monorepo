@@ -38,7 +38,7 @@ beforeEach(async () => {
 	databasePath = join(tmpdir(), `collegemap-breaks-${crypto.randomUUID()}.db`);
 	client = createClient({ url: `file:${databasePath}` });
 	await client.executeMultiple(`
-		CREATE TABLE colleges (id text PRIMARY KEY NOT NULL, name text NOT NULL, latitude real NOT NULL, longitude real NOT NULL, is_custom integer NOT NULL DEFAULT false);
+		CREATE TABLE colleges (id text PRIMARY KEY NOT NULL, name text NOT NULL, kind text NOT NULL DEFAULT 'college', latitude real NOT NULL, longitude real NOT NULL, is_custom integer NOT NULL DEFAULT false);
 		CREATE TABLE college_breaks (id text PRIMARY KEY NOT NULL, college_id text NOT NULL, label text NOT NULL, start_date text NOT NULL, end_date text NOT NULL, kind text NOT NULL, derivation text NOT NULL, source_url text, quote text, academic_year text NOT NULL, created_at integer NOT NULL, FOREIGN KEY (college_id) REFERENCES colleges(id));
 		CREATE UNIQUE INDEX college_breaks_identity_unique ON college_breaks (college_id, label, start_date, academic_year);
 	`);
@@ -64,6 +64,18 @@ describe("institutional college-break import", () => {
 		const resolved = await resolveCollegeIds(db);
 		expect(resolved).toHaveLength(13);
 		expect(resolved.get(WASHU_JSON_NAME)).toBeDefined();
+	});
+
+	it("does not match a workplace that happens to share a college's name", async () => {
+		// The table holds bases and workplaces now. A second row with the same name would make the
+		// exact-name join ambiguous and abort the whole import — but only if the kind is ignored.
+		await client.execute({
+			sql: "INSERT INTO colleges (id, name, kind, latitude, longitude, is_custom) VALUES (?, ?, 'work', 0, 0, 0)",
+			args: ["work-cornell", "Cornell University"],
+		});
+		const resolved = await resolveCollegeIds(db);
+		expect(resolved).toHaveLength(13);
+		expect(resolved.get("Cornell University")).not.toBe("work-cornell");
 	});
 
 	it("imports all 215 source rows idempotently", async () => {

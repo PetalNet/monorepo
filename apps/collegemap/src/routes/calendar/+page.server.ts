@@ -15,6 +15,15 @@ const MAX_LABEL = 40;
 const MAX_SPAN_DAYS = 366;
 const MAX_BREAKS_PER_PERSON = 40;
 
+/**
+ * Which years get federal holidays filled in, relative to today.
+ *
+ * The grid pages freely in both directions, so last year has to be populated too or a work
+ * affiliation looks like it started existing in January. Three years is thirty-three single days
+ * per person: cheap enough to compute on every load and not worth caching.
+ */
+const HOLIDAY_YEAR_OFFSETS = [-1, 0, 1];
+
 function initialsOf(first: string, last: string): string {
 	return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase();
 }
@@ -27,6 +36,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			lastName: users.lastName,
 			collegeId: users.collegeId,
 			collegeName: colleges.name,
+			// Null for anyone who has not picked a place yet: the join is a left join.
+			institutionKind: colleges.kind,
 		})
 		.from(users)
 		.leftJoin(colleges, eq(users.collegeId, colleges.id))
@@ -46,6 +57,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getRenderedCollegeBreaks(db),
 	]);
 
+	const today = todayIso("America/New_York");
+	const thisYear = Number(today.slice(0, 4));
+
 	return {
 		people: people.map((p) => ({
 			id: p.id,
@@ -56,9 +70,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 			initials: initialsOf(p.firstName, p.lastName),
 			collegeName: p.collegeName,
 		})),
-		breaks: mergeBreakRows(people, userBreakRows, collegeBreakRows),
+		breaks: mergeBreakRows(
+			people,
+			userBreakRows,
+			collegeBreakRows,
+			HOLIDAY_YEAR_OFFSETS.map((offset) => thisYear + offset),
+		),
 		meId: locals.user?.id ?? null,
-		todayIso: todayIso("America/New_York"),
+		todayIso: today,
 	};
 };
 

@@ -64,6 +64,16 @@ export function fromDay(dayNumber: number): string {
 	return `${year}-${month}-${day}`;
 }
 
+/**
+ * Day of the week for a day number, Sunday first: 0 is Sunday, 6 is Saturday.
+ *
+ * 1970-01-01 was a Thursday, so +4 lands Sunday on 0. Takes a day number rather than an ISO string
+ * because a day number is the form no timezone can move — the whole reason this module exists.
+ */
+export function weekdayOf(dayNumber: number): number {
+	return (((dayNumber + 4) % 7) + 7) % 7;
+}
+
 /** Inclusive length of a day range: Dec 19 to Dec 19 is 1 day, not 0. */
 export function dayCount(startDay: number, endDay: number): number {
 	return endDay - startDay + 1;
