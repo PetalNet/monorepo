@@ -36,7 +36,7 @@ export const COLLEGE_NAME_MAP: Record<string, string> = {
 	"Rose-Hulman Institute of Technology": "Rose-Hulman Institute of Technology",
 	"Saint Louis University": "Saint Louis University",
 	"Truman State University": "Truman State University",
-	"University of Missouri-Kansas City (UMKC)": "University of Missouri-Kansas City (UMKC)",
+	"University of Missouri-Kansas City (UMKC)": "University of Missouri-Kansas City",
 	"Washington University in St. Louis (WashU)": "Washington University in St Louis",
 };
 

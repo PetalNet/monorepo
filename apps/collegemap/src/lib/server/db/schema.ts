@@ -44,7 +44,6 @@ export const collegeMetadata = sqliteTable("college_metadata", {
 		.$defaultFn(() => new Date()),
 });
 
-
 /**
  * A break is a named, inclusive range of calendar days belonging to one person.
  *
@@ -104,4 +103,3 @@ export const collegeBreaks = sqliteTable(
 		),
 	],
 );
-
