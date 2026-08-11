@@ -2,6 +2,7 @@
 	import { enhance } from "$app/forms";
 	import { resolve } from "$app/paths";
 	import { formatRange } from "$lib/dates";
+	import type { BreakSource } from "$lib/institutions";
 	import CircleAlert from "@lucide/svelte/icons/circle-alert";
 	import LogIn from "@lucide/svelte/icons/log-in";
 	import Plus from "@lucide/svelte/icons/plus";
@@ -13,7 +14,7 @@
 		label: string;
 		startDate: string;
 		endDate: string;
-		source: "user" | "college";
+		source: BreakSource;
 	}
 
 	let {
@@ -31,8 +32,9 @@
 	/** Common US academic break names, offered as one-tap labels. */
 	const PRESETS = ["Fall break", "Thanksgiving", "Winter break", "Spring break", "Summer"];
 
-	// Same predicate the remove action deletes by. An institutional row is nobody's to delete, so
-	// listing one here would put a button next to it that silently does nothing.
+	// Same predicate the remove action deletes by. Neither an institutional row nor a filled-in
+	// default is anybody's to delete, so listing one here would put a button next to it that
+	// silently does nothing.
 	const mine = $derived(
 		breaks
 			.filter((b) => b.source === "user" && b.userId === meId)

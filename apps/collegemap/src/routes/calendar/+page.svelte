@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from "$app/paths";
 	import {
+		assumedFreeIds,
 		buildMonthView,
 		pickInitialMonth,
 		shiftMonth,
@@ -58,6 +59,11 @@
 	let focusIso = $state<string | null>(null);
 
 	const selectedCell = $derived(flatCells.find((c) => c.iso === selectedIso) ?? null);
+
+	// Who is on the free list for the selected day only because the app filled a federal holiday in
+	// for them. The grid reduces every break to a day range and forgets its source, so the detail
+	// panel has to ask separately rather than reading it off the cell.
+	const assumedIds = $derived(assumedFreeIds(data.breaks, selectedCell?.iso ?? null));
 
 	// The cell that owns tabindex 0. Keeps the grid to a single tab stop.
 	const rovingIso = $derived(
@@ -315,6 +321,7 @@
 					countedIds={view.countedIds}
 					{referenceYear}
 					allPeople={data.people}
+					{assumedIds}
 				/>
 			{/if}
 

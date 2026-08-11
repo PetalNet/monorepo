@@ -19,14 +19,18 @@
 		countedIds,
 		referenceYear,
 		allPeople,
+		assumedIds,
 	}: {
 		cell: DayCell | null;
 		peopleById: Map<string, Person>;
 		countedIds: string[];
 		referenceYear: number;
 		allPeople: Person[];
+		/** Anyone free today only because a federal holiday was filled in for them. */
+		assumedIds: string[];
 	} = $props();
 
+	const assumedSet = $derived(new Set(assumedIds));
 	const freeSet = $derived(new Set(cell?.freeIds ?? []));
 	const free = $derived(
 		(cell?.freeIds ?? []).map((id) => peopleById.get(id)).filter((p): p is Person => !!p),
@@ -52,7 +56,9 @@
 		{#if cell.allFree}
 			<p class="detail-flag">
 				<PartyPopper size={15} aria-hidden="true" />
-				Everyone is free
+				<!-- Not "Everyone is free" flat out when part of the answer is a filled-in default. That
+				     is the line people plan around, so it has to carry its own caveat. -->
+				{assumedIds.length > 0 ? "Everyone is free, if the defaults hold" : "Everyone is free"}
 			</p>
 		{:else if cell.freeCount === 0}
 			<p class="detail-hint">Nobody is off on this day.</p>
@@ -64,7 +70,7 @@
 			<h4 class="detail-label">Off</h4>
 			<ul class="detail-list">
 				{#each free as person (person.id)}
-					<li class="detail-row is-free">
+					<li class="detail-row is-free" class:is-assumed={assumedSet.has(person.id)}>
 						<span class="detail-avatar" aria-hidden="true">{person.initials}</span>
 						<span class="detail-names">
 							<span class="detail-name">{person.shortName}</span>
@@ -75,10 +81,24 @@
 								</span>
 							{/if}
 						</span>
-						<Check class="detail-tick" size={15} aria-hidden="true" />
+						{#if assumedSet.has(person.id)}
+							<!-- A word, not a tick. The tick means somebody said so; this person said
+							     nothing and the app filled a federal holiday in for them. -->
+							<span class="detail-assumed">assumed</span>
+						{:else}
+							<Check class="detail-tick" size={15} aria-hidden="true" />
+						{/if}
 					</li>
 				{/each}
 			</ul>
+
+			{#if assumedIds.length > 0}
+				<p class="detail-note">
+					Federal holidays are filled in as a default for work and military. They are not a check
+					that anyone is actually off — duty, shifts, leave and training days are personal. Dates
+					you enter yourself replace the default for those days.
+				</p>
+			{/if}
 		{/if}
 
 		{#if away.length > 0}
@@ -104,7 +124,8 @@
 		{#if silent.length > 0}
 			<p class="detail-note">
 				{silent.length}
-				{silent.length === 1 ? "person has" : "people have"} not added any breaks, so they are not counted:
+				{silent.length === 1 ? "person has" : "people have"} nothing on the calendar yet — no dates of
+				their own, and no institution the app knows a calendar for — so they are not counted:
 				{silent.map((p) => p.firstName).join(", ")}.
 			</p>
 		{/if}
@@ -171,11 +192,31 @@
 		min-width: 0;
 		padding: 6px 8px;
 		border-radius: 9px;
+		/* Transparent by default so the assumed variant can turn it on without moving the row. */
+		border: 1px solid transparent;
 		background: var(--cal-recess);
 	}
 
 	.detail-row.is-free {
 		background: var(--cal-free-tint);
+	}
+
+	/* Dashed, and without the solid free tint: the row is a placeholder, and it should not look as
+	   settled as the rows next to it that somebody actually stands behind. */
+	.detail-row.is-free.is-assumed {
+		background: var(--cal-recess);
+		border: 1px dashed var(--cal-border-strong);
+	}
+
+	.detail-assumed {
+		flex: 0 0 auto;
+		padding: 1px 7px;
+		border-radius: 999px;
+		border: 1px solid var(--cal-border-strong);
+		color: var(--cal-ink-2);
+		font-size: 0.68rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
 	}
 
 	.detail-avatar {

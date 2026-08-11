@@ -1,10 +1,11 @@
+import { isInstitutionKind } from "$lib/institutions";
 import { clearSession } from "$lib/server/auth";
 import { db } from "$lib/server/db";
 import { users, colleges } from "$lib/server/db/schema";
 import { emit } from "$lib/server/events";
 import { formText } from "$lib/server/form";
 import { fail, redirect } from "@sveltejs/kit";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -13,7 +14,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		redirect(302, "/login");
 	}
 
-	// Get current college if set
+	// Get the place they are affiliated with, if they have picked one
 	let currentCollege = null;
 	if (locals.user.collegeId) {
 		currentCollege = await db
@@ -43,20 +44,31 @@ export const actions: Actions = {
 		const latitude = parseFloat(formText(data, "latitude") ?? "");
 		const longitude = parseFloat(formText(data, "longitude") ?? "");
 		const isCustom = formText(data, "isCustom") === "true";
+		const kind = formText(data, "kind");
 
 		if (!collegeName || isNaN(latitude) || isNaN(longitude)) {
-			return fail(400, { error: "Please select a college" });
+			return fail(400, { error: "Please pick a place" });
 		}
 
-		// Check if college already exists
-		let college = await db.select().from(colleges).where(eq(colleges.name, collegeName)).get();
+		if (!isInstitutionKind(kind)) {
+			return fail(400, { error: "Please pick what kind of place that is" });
+		}
 
-		// Create college if it doesn't exist
+		// Match on the kind as well as the name. A hospital and a university can share a name, and
+		// they are not the same row: the kind is what decides which calendar the people there get.
+		let college = await db
+			.select()
+			.from(colleges)
+			.where(and(eq(colleges.name, collegeName), eq(colleges.kind, kind)))
+			.get();
+
+		// Create it if we have not seen it before
 		if (!college) {
 			[college] = await db
 				.insert(colleges)
 				.values({
 					name: collegeName,
+					kind,
 					latitude,
 					longitude,
 					isCustom,

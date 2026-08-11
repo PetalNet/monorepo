@@ -2,6 +2,7 @@
 	import { getLogoUrl } from "$lib/collegeLogos";
 	import { collegeNames } from "$lib/collegeNames";
 	import collegesJson from "$lib/colleges.json";
+	import { INSTITUTION_SEARCH_PLACEHOLDERS, type InstitutionKind } from "$lib/institutions";
 
 	interface SelectedCollege {
 		name: string;
@@ -18,13 +19,22 @@
 
 	let {
 		onselect,
-		placeholder = "Search for your college...",
+		placeholder,
 		inputId = "college-search",
+		kind = "college",
 	}: {
 		onselect: (college: SelectedCollege) => void;
 		placeholder?: string;
 		inputId?: string;
+		/**
+		 * Which sort of place is being searched for. Only `college` has a name list to search; a base,
+		 * a workplace or anything else is typed in and geocoded, because no such list exists.
+		 */
+		kind?: InstitutionKind;
 	} = $props();
+
+	const isCollege = $derived(kind === "college");
+	const effectivePlaceholder = $derived(placeholder ?? INSTITUTION_SEARCH_PLACEHOLDERS[kind]);
 
 	let query = $state("");
 	let results = $state<string[]>([]);
@@ -40,7 +50,12 @@
 	);
 
 	function searchLocal(q: string): string[] {
-		if (!q.trim() || q.length < 2) return [];
+		const trimmed = q.trim();
+		if (!trimmed || q.length < 2) return [];
+		// There is no directory of every base and every employer in the country, and inventing a
+		// short one would just be a list to not be on. So for those kinds the only offer is what the
+		// person typed, geocoded the same way an off-list college already is.
+		if (!isCollege) return [trimmed];
 		const lower = q.toLowerCase();
 		return collegeNames.filter((name) => name.toLowerCase().includes(lower)).slice(0, 10);
 	}
@@ -95,7 +110,7 @@
 			showResults = false;
 			results = [];
 		} else {
-			geocodeError = "Could not find location for this college. Try another.";
+			geocodeError = "Could not find a location for that. Try naming it another way.";
 		}
 
 		isGeocoding = false;
@@ -138,7 +153,7 @@
 		onblur={() => setTimeout(() => (showResults = false), 200)}
 		onkeydown={handleKeydown}
 		type="text"
-		{placeholder}
+		placeholder={effectivePlaceholder}
 		disabled={isGeocoding}
 		class="cs-input"
 	/>
@@ -156,7 +171,9 @@
 	{#if showResults && results.length > 0 && !isGeocoding}
 		<ul class="dropdown">
 			{#each results as name, i (name)}
-				{@const logoUrl = getLogoUrl(name, 32)}
+				<!-- The logo lookup is keyed on college names. Anything else is free text somebody just
+				     typed, and looking it up would only ever produce a wrong badge. -->
+				{@const logoUrl = isCollege ? getLogoUrl(name, 32) : null}
 				<li>
 					<button
 						type="button"

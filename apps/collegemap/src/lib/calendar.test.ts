@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	assumedFreeIds,
 	buildMonthView,
 	pickInitialMonth,
 	shiftMonth,
@@ -302,5 +303,46 @@ describe("toParticipants", () => {
 			[{ userId: "ghost", startDate: "2026-12-19", endDate: "2026-12-28" }],
 		);
 		expect(parts).toEqual([{ id: "a", ranges: [] }]);
+	});
+});
+
+describe("assumedFreeIds", () => {
+	// One assumed row and one stated row on the same day, for two different people.
+	const ROWS = [
+		{ userId: "ana", startDate: "2026-07-03", endDate: "2026-07-03", source: "default" },
+		{ userId: "ben", startDate: "2026-07-01", endDate: "2026-07-06", source: "user" },
+		{ userId: "cass", startDate: "2026-07-03", endDate: "2026-07-03", source: "college" },
+	];
+
+	it("names the person whose only reason to be off is a filled-in default", () => {
+		expect(assumedFreeIds(ROWS, "2026-07-03")).toEqual(["ana"]);
+	});
+
+	it("leaves out people whose day came from themselves or their college", () => {
+		const named = assumedFreeIds(ROWS, "2026-07-03");
+		expect(named).not.toContain("ben");
+		expect(named).not.toContain("cass");
+	});
+
+	it("drops someone who holds both, because the stated reason is what they are shown by", () => {
+		const both = [
+			...ROWS,
+			{ userId: "ana", startDate: "2026-07-01", endDate: "2026-07-04", source: "user" },
+		];
+		expect(assumedFreeIds(both, "2026-07-03")).toEqual([]);
+	});
+
+	it("names a person once however many defaults cover the day", () => {
+		const twice = [
+			...ROWS,
+			{ userId: "ana", startDate: "2026-07-03", endDate: "2026-07-03", source: "default" },
+		];
+		expect(assumedFreeIds(twice, "2026-07-03")).toEqual(["ana"]);
+	});
+
+	it("returns nothing for a day nobody is off, and for no day at all", () => {
+		// The positive control: an empty answer has to be reachable only when it is the true one.
+		expect(assumedFreeIds(ROWS, "2026-07-08")).toEqual([]);
+		expect(assumedFreeIds(ROWS, null)).toEqual([]);
 	});
 });
