@@ -18,7 +18,11 @@ The issuer-qualified pair `(issuer, subject)` asserted by a verified identity pr
 
 ## Home Host
 
-The one Host to which an Agent belongs. Its Person owner owns the Agent even when a Runtime executes elsewhere.
+The one Host to which an Agent belongs. Its Person owner owns the Agent even when a Runtime executes elsewhere. Changing which Person is eligible to claim an unowned Home Host does not transfer an existing owner.
+
+## Actor lifecycle
+
+Whether an Actor may currently act. Suspension is a reversible loss of acting authority. Retirement is the permanent end of future acting authority.
 
 ## Runner
 
