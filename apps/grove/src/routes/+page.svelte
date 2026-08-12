@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { AgentCapabilityValidator, ContainmentFixValidator } from "$lib/actors/schema";
+	import { requestAgentCapability, resolveContainmentConflict } from "$lib/authority.remote";
 	import { OptimisticCounter } from "$lib/optimistic-counter.svelte";
+	import type { ContainmentConflict, ContainmentFix } from "$lib/server/actors/authority";
 	import {
 		createSprout,
 		getSprout,
@@ -16,13 +19,25 @@
 		type SproutIdValue,
 	} from "$lib/sprouts/schema";
 	import type { RemoteQuery } from "@sveltejs/kit";
+	import { SvelteSet } from "svelte/reactivity";
+
+	type ContainmentResult =
+		| { readonly ok: true }
+		| { readonly ok: false; readonly message: string }
+		| {
+				readonly ok: false;
+				readonly conflicts: readonly ContainmentConflict[];
+				readonly fixes: readonly ContainmentFix[];
+		  };
 
 	const sproutsQuery = listSprouts();
 	const plantForm = createSprout.preflight(CreateSproutValidator);
+	const authorityForm = requestAgentCapability.preflight(AgentCapabilityValidator);
 	const sprouts = $derived(await sproutsQuery);
 	let inspectedId = $state<string | null>(null);
 	let inspectedQuery = $state<RemoteQuery<Sprout> | null>(null);
 	let error = $state("");
+	let containment = $state<ContainmentResult | null>(null);
 	const inspected = $derived(inspectedQuery ? await inspectedQuery : null);
 	const watering = new OptimisticCounter<readonly Sprout[]>({
 		withOverride: (update) => sproutsQuery.withOverride(update),
@@ -44,6 +59,20 @@
 	function inspect(id: SproutIdValue) {
 		inspectedId = id;
 		inspectedQuery = getSprout({ id });
+	}
+
+	function failureMessage(cause: unknown) {
+		return cause instanceof Error ? cause.message : "The authority change could not be applied.";
+	}
+
+	function availableFixes(result: Extract<ContainmentResult, { conflicts: unknown }>) {
+		const seen = new SvelteSet<string>();
+		return result.fixes.filter((fix) => {
+			const key = `${fix.action}:${fix.agentId}:${fix.personId}:${fix.capability}`;
+			if (!fix.available || seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
 	}
 </script>
 
@@ -67,6 +96,8 @@
 				name: plantedName,
 				plantedAt: new Date().toISOString(),
 				waterings: Counter.make(0),
+				createdByActorId: null,
+				lastActorId: null,
 			};
 
 			error = "";
@@ -203,6 +234,106 @@
 				2,
 			)}</pre>
 	{/if}
+
+	<section class="border-base-300 bg-base-100 rounded-box mt-10 border p-5 shadow-sm">
+		<h2 class="text-xl font-semibold">Agent authority</h2>
+		<p class="text-base-content/65 mt-1 text-sm">
+			Home Host owners can request an Agent capability. Containment conflicts require an explicit
+			fix.
+		</p>
+		<form
+			class="mt-4 grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
+			{...authorityForm.enhance(async (form) => {
+				containment = null;
+				try {
+					if (await form.submit()) {
+						const result = form.result;
+						if (result) containment = result;
+					}
+				} catch (cause) {
+					containment = { ok: false, message: failureMessage(cause) };
+				}
+			})}
+		>
+			<label class="fieldset min-w-0">
+				<span class="fieldset-legend">Agent ID</span>
+				<input
+					class="input w-full"
+					{...authorityForm.fields.agentId.as("text")}
+					maxlength="120"
+					placeholder="agent-…"
+				/>
+				{#each authorityForm.fields.agentId.issues() ?? [] as issue, index (index)}
+					<small class="text-error font-semibold">{issue.message}</small>
+				{/each}
+			</label>
+			<label class="fieldset min-w-0">
+				<span class="fieldset-legend">Capability</span>
+				<input
+					class="input w-full"
+					{...authorityForm.fields.capability.as("text")}
+					maxlength="120"
+					placeholder="agents.delegate"
+				/>
+				{#each authorityForm.fields.capability.issues() ?? [] as issue, index (index)}
+					<small class="text-error font-semibold">{issue.message}</small>
+				{/each}
+			</label>
+			<button class="btn btn-secondary" disabled={authorityForm.pending > 0}
+				>{authorityForm.pending > 0 ? "Requesting…" : "Request capability"}</button
+			>
+		</form>
+		{#if containment?.ok}
+			<div class="alert alert-success mt-4" role="status">Authority change applied.</div>
+		{:else if containment && "message" in containment}
+			<div class="alert alert-error mt-4" role="alert">{containment.message}</div>
+		{/if}
+		{#if containment && !containment.ok && "conflicts" in containment}
+			<div class="alert alert-warning mt-4" role="alert">
+				<div>
+					<strong>Capability containment conflict</strong>
+					<p class="text-sm">Choose an explicit resolution; Grove will not cascade changes.</p>
+					<ul class="mt-2 list-inside list-disc text-sm">
+						{#each containment.conflicts as conflict (`${conflict.agentId}-${conflict.personId}`)}
+							<li class="break-words">
+								Person <code>{conflict.personId}</code> lacks
+								{conflict.missingCapabilities.join(", ")}.
+							</li>
+						{/each}
+					</ul>
+					<div class="mt-3 flex flex-wrap gap-2">
+						{#each availableFixes(containment) as fix, index (`${fix.action}-${fix.agentId}-${fix.personId}-${fix.capability}`)}
+							{@const fixForm = resolveContainmentConflict
+								.for(index)
+								.preflight(ContainmentFixValidator)}
+							<form
+								class="contents"
+								{...fixForm.enhance(async (form) => {
+									try {
+										if (await form.submit()) containment = { ok: true };
+									} catch (cause) {
+										containment = { ok: false, message: failureMessage(cause) };
+									}
+								})}
+							>
+								<input {...fixForm.fields.action.as("hidden", fix.action)} />
+								<input {...fixForm.fields.agentId.as("hidden", fix.agentId)} />
+								<input {...fixForm.fields.personId.as("hidden", fix.personId)} />
+								<input {...fixForm.fields.capability.as("hidden", fix.capability)} />
+								<button class="btn btn-sm" disabled={fixForm.pending > 0}>
+									{fix.action === "grant-person-capability"
+										? `Grant ${fix.capability} to Person`
+										: fix.action === "remove-agent-access"
+											? `Remove ${fix.personId}'s access`
+											: `Remove ${fix.capability} from Agent`}
+								</button>
+							</form>
+						{/each}
+					</div>
+				</div>
+			</div>
+		{/if}
+	</section>
 </main>
 
 <style>

@@ -1,13 +1,5 @@
-import {
-	BETTER_AUTH_SECRET,
-	BETTER_AUTH_URL,
-	GROVE_OIDC_CLIENT_ID,
-	GROVE_OIDC_CLIENT_SECRET,
-	GROVE_OIDC_ISSUER,
-} from "$app/env/private";
 import { getRequestEvent } from "$app/server";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { createEffectQbAdapter } from "@petalnet/better-auth-effect-qb-adapter";
 import type { RequestEvent, ResolveOptions } from "@sveltejs/kit";
 import type { BetterAuthOptions, Session, User } from "better-auth";
 import type { AdapterFactory } from "better-auth/adapters";
@@ -15,110 +7,130 @@ import { betterAuth } from "better-auth/minimal";
 import { isAuthPath, svelteKitHandler, sveltekitCookies } from "better-auth/svelte-kit";
 import { Context, Effect, Layer } from "effect";
 
+import { ActorAuthority, type PersonPrincipal } from "./actors/authority";
 import { GROVE_OIDC_PROVIDER_ID, groveOidc } from "./oidc";
 
-const requireRuntimeString = (value: unknown, name: string) => {
-	if (typeof value !== "string" || value.length === 0)
-		throw new Error(`${name} is required at runtime`);
-	return value;
-};
+export interface GroveBrowserAuthConfig {
+	readonly baseUrl: string;
+	readonly secret: string;
+	readonly issuer: string;
+	readonly clientId: string;
+	readonly clientSecret: string;
+}
 
-const makeAuth = (database: AdapterFactory<BetterAuthOptions>) => {
-	if (!BETTER_AUTH_URL) throw new Error("BETTER_AUTH_URL is required at runtime");
-	const oidcIssuer = requireRuntimeString(GROVE_OIDC_ISSUER, "GROVE_OIDC_ISSUER");
-	const oidcClientId = requireRuntimeString(GROVE_OIDC_CLIENT_ID, "GROVE_OIDC_CLIENT_ID");
-	const oidcClientSecret = requireRuntimeString(
-		GROVE_OIDC_CLIENT_SECRET,
-		"GROVE_OIDC_CLIENT_SECRET",
-	);
-
-	return betterAuth({
-		appName: "Grove",
-		baseURL: BETTER_AUTH_URL,
-		secret: BETTER_AUTH_SECRET,
-		database,
-		emailAndPassword: { enabled: false },
-		account: {
-			accountLinking: {
-				enabled: false,
-				disableImplicitLinking: true,
-			},
-		},
-		plugins: [
-			groveOidc({
-				issuer: oidcIssuer,
-				clientId: oidcClientId,
-				clientSecret: oidcClientSecret,
-				callbackOrigin: BETTER_AUTH_URL,
-			}),
-			sveltekitCookies(getRequestEvent),
-		],
-	});
-};
-
-interface GroveBetterAuth {
-	readonly handler: (request: Request) => Promise<Response>;
-	readonly options: BetterAuthOptions;
-	readonly api: {
-		readonly getSession: (input: {
-			readonly headers: Headers;
-		}) => Promise<{ session: Session; user: User } | null>;
-		readonly signInSocial: (input: {
-			readonly body: { readonly provider: string; readonly callbackURL: string };
-			readonly headers: Headers;
-			readonly asResponse: true;
-		}) => Promise<Response>;
-	};
+export interface BrowserSession {
+	readonly session: Session;
+	readonly user: User;
+	readonly actor: PersonPrincipal;
 }
 
 interface GroveAuthShape {
-	readonly isAuthPath: (url: string) => Effect.Effect<boolean>;
-	readonly getSession: (headers: Headers) => Effect.Effect<{ session: Session; user: User } | null>;
-	readonly handle: (input: {
+	readonly isBrowserAuthRoute: (url: string) => Effect.Effect<boolean>;
+	readonly hydrateSession: (headers: Headers) => Effect.Effect<BrowserSession | null, unknown>;
+	readonly dispatch: (input: {
 		readonly event: RequestEvent;
 		readonly resolve: (
 			event: RequestEvent,
 			options?: ResolveOptions,
 		) => Response | Promise<Response>;
 	}) => Effect.Effect<Response>;
-	readonly signIn: (headers: Headers) => Effect.Effect<Response>;
+	readonly beginLogin: (headers: Headers) => Effect.Effect<Response>;
+	readonly readiness: ActorAuthority["Service"]["homeReadiness"];
 }
 
 export class GroveAuth extends Context.Service<GroveAuth, GroveAuthShape>()("grove/GroveAuth") {}
 
-const fromAuth = (auth: GroveBetterAuth): GroveAuthShape => ({
-	isAuthPath: (url) => Effect.sync(() => isAuthPath(url, auth.options)),
-	getSession: (headers) => Effect.promise(() => auth.api.getSession({ headers })),
-	handle: ({ event, resolve }) =>
-		Effect.promise(() => svelteKitHandler({ event, resolve, auth, building: false })),
-	signIn: (headers) =>
-		Effect.promise(() =>
-			auth.api.signInSocial({
-				body: { provider: GROVE_OIDC_PROVIDER_ID, callbackURL: "/" },
-				headers,
-				asResponse: true,
+type Sql = PgClient.PgClient;
+type Authority = ActorAuthority["Service"];
+
+export const makeGroveBrowserAuth = async (
+	config: GroveBrowserAuthConfig,
+	database: AdapterFactory<BetterAuthOptions>,
+	sql: Sql,
+	authority: Authority,
+	requestEvent: () => RequestEvent = getRequestEvent,
+): Promise<GroveAuthShape> => {
+	const issuer = config.issuer.replace(/\/+$/, "");
+	const auth = betterAuth({
+		appName: "Grove",
+		baseURL: config.baseUrl,
+		secret: config.secret,
+		database,
+		emailAndPassword: { enabled: false },
+		account: {
+			encryptOAuthTokens: true,
+			accountLinking: { enabled: false, disableImplicitLinking: true },
+		},
+		databaseHooks: {
+			account: {
+				create: {
+					before: (account) => Promise.resolve({ data: { ...account, idToken: null } }),
+				},
+				update: {
+					before: (account) => Promise.resolve({ data: { ...account, idToken: null } }),
+				},
+			},
+		},
+		plugins: [
+			groveOidc({
+				issuer,
+				clientId: config.clientId,
+				clientSecret: config.clientSecret,
+				callbackOrigin: config.baseUrl,
 			}),
-		),
-});
+			sveltekitCookies(requestEvent),
+		],
+	});
+
+	// Generic OIDC discovery is part of constructing Grove auth, so bad discovery fails startup.
+	await auth.$context;
+
+	return {
+		isBrowserAuthRoute: (url) => Effect.sync(() => isAuthPath(url, auth.options)),
+		hydrateSession: (headers) =>
+			Effect.gen(function* () {
+				const current = yield* Effect.promise(() => auth.api.getSession({ headers }));
+				if (!current?.user.emailVerified) return null;
+				const accounts = yield* sql.unsafe<{ issuer: string; subject: string }>(
+					`select "issuer", "providerAccountId" as subject
+             from "account"
+            where "userId" = $1 and "providerId" = $2 and "issuer" = $3`,
+					[current.user.id, GROVE_OIDC_PROVIDER_ID, issuer],
+				);
+				const account = accounts.at(0);
+				if (!account || accounts.length !== 1) return null;
+				const actor = yield* authority.bindBrowserIdentity({
+					authUserId: current.user.id,
+					issuer: account.issuer,
+					subject: account.subject,
+					name: current.user.name,
+					emailVerified: current.user.emailVerified,
+				});
+				return { ...current, actor };
+			}),
+		dispatch: ({ event, resolve }) => {
+			if (event.request.method === "POST" && event.url.pathname === "/api/auth/sign-in/social")
+				return Effect.succeed(new Response("Not found", { status: 404 }));
+			return Effect.promise(() => svelteKitHandler({ event, resolve, auth, building: false }));
+		},
+		beginLogin: (headers) =>
+			Effect.promise(() =>
+				auth.api.signInSocial({
+					body: { provider: GROVE_OIDC_PROVIDER_ID, callbackURL: "/" },
+					headers,
+					asResponse: true,
+				}),
+			),
+		readiness: authority.homeReadiness,
+	};
+};
 
 const unavailableDuringBuild = () => Effect.die("Grove authentication is unavailable during build");
 
 export const GroveAuthBuildLayer = Layer.succeed(GroveAuth, {
-	isAuthPath: unavailableDuringBuild,
-	getSession: unavailableDuringBuild,
-	handle: unavailableDuringBuild,
-	signIn: unavailableDuringBuild,
+	isBrowserAuthRoute: unavailableDuringBuild,
+	hydrateSession: unavailableDuringBuild,
+	dispatch: unavailableDuringBuild,
+	beginLogin: unavailableDuringBuild,
+	readiness: unavailableDuringBuild(),
 });
-
-export const GroveAuthLayer = Layer.effect(
-	GroveAuth,
-	Effect.map(Effect.context<PgClient.PgClient>(), (context) =>
-		fromAuth(
-			makeAuth(
-				createEffectQbAdapter({
-					runPromise: (effect) => Effect.runPromise(Effect.provide(effect, context)),
-				}),
-			),
-		),
-	),
-);

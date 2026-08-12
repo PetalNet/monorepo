@@ -1,13 +1,15 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Cause, Context, Effect, Layer } from "effect";
 
-export const SPROUT_CAPABILITIES = [
+const SPROUT_CAPABILITIES = [
 	"sprouts.list",
 	"sprouts.get",
 	"sprouts.create",
 	"sprouts.water",
 	"sprouts.remove",
 ] as const;
+const isSproutCapability = (capability: string) =>
+	(SPROUT_CAPABILITIES as readonly string[]).includes(capability);
 
 export interface ExternalIdentity {
 	readonly issuer: string;
@@ -62,9 +64,11 @@ export class ActorNotCurrent extends Error {
 
 export class ActorDenied extends Error {
 	readonly _tag = "ActorDenied";
+	readonly reason: string;
 
-	constructor(readonly reason: string) {
+	constructor(reason: string) {
 		super(reason);
+		this.reason = reason;
 	}
 }
 
@@ -123,7 +127,7 @@ type HomeReadiness =
 	  }
 	| { readonly status: "ready"; readonly ownerPersonId: string };
 
-type AuthorityError =
+export type AuthorityError =
 	| ActorDatabaseError
 	| ActorDenied
 	| ActorNotCurrent
@@ -164,6 +168,20 @@ interface ActorAuthorityShape {
 	readonly applyContainmentFix: (
 		fix: Omit<ContainmentFix, "available" | "reason">,
 	) => Effect.Effect<void, AuthorityError>;
+	readonly requestAgentCapability: (
+		principal: PersonPrincipal,
+		agentId: string,
+		capability: string,
+	) => Effect.Effect<void, AuthorityError>;
+	readonly removePersonCapabilityAs: (
+		principal: PersonPrincipal,
+		personId: string,
+		capability: string,
+	) => Effect.Effect<void, AuthorityError>;
+	readonly applyContainmentFixAs: (
+		principal: PersonPrincipal,
+		fix: Omit<ContainmentFix, "available" | "reason">,
+	) => Effect.Effect<void, AuthorityError>;
 	readonly suspendActor: (actorId: string) => Effect.Effect<void, AuthorityError>;
 	readonly retireActor: (actorId: string) => Effect.Effect<void, AuthorityError>;
 }
@@ -171,6 +189,26 @@ interface ActorAuthorityShape {
 export class ActorAuthority extends Context.Service<ActorAuthority, ActorAuthorityShape>()(
 	"grove/ActorAuthority",
 ) {}
+
+const unavailableDuringBuild = () => Effect.die("Actor authority is unavailable during build");
+
+export const ActorAuthorityBuildLayer = Layer.succeed(ActorAuthority, {
+	homeReadiness: unavailableDuringBuild(),
+	bindBrowserIdentity: unavailableDuringBuild,
+	resolveMachineIdentity: unavailableDuringBuild,
+	enrollSelf: unavailableDuringBuild,
+	authorizeActor: unavailableDuringBuild,
+	authorizedOperations: unavailableDuringBuild,
+	grantAgentAccess: unavailableDuringBuild,
+	addAgentCapability: unavailableDuringBuild,
+	removePersonCapability: unavailableDuringBuild,
+	applyContainmentFix: unavailableDuringBuild,
+	requestAgentCapability: unavailableDuringBuild,
+	removePersonCapabilityAs: unavailableDuringBuild,
+	applyContainmentFixAs: unavailableDuringBuild,
+	suspendActor: unavailableDuringBuild,
+	retireActor: unavailableDuringBuild,
+});
 
 interface ActorRow {
 	readonly actor_id: string;
@@ -272,6 +310,13 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
           where i.issuer = $1 and i.subject = $2`,
 					[identity.issuer, identity.subject],
 				);
+			const lockExternalIdentity = (identity: ExternalIdentity) =>
+				sql
+					.unsafe("select pg_advisory_xact_lock(hashtext($1), hashtext($2))", [
+						identity.issuer,
+						identity.subject,
+					])
+					.pipe(Effect.asVoid);
 			const capabilitiesFor = (actorIdValue: string) =>
 				sql.unsafe<CapabilityRow>(
 					"select capability from grove_actor_capabilities where actor_id = $1 order by capability",
@@ -284,6 +329,14 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						[actorIdValue, capability],
 					),
 				).pipe(Effect.asVoid);
+			const serializeContainment = <A, E>(effect: Effect.Effect<A, E>) =>
+				asDatabaseError(
+					sql.withTransaction(
+						sql
+							.unsafe("select pg_advisory_xact_lock(hashtext('grove-capability-containment'))")
+							.pipe(Effect.andThen(effect)),
+					),
+				);
 			const homeReadiness = asDatabaseError(
 				sql
 					.unsafe<{ owner_person_id: string | null }>(
@@ -291,7 +344,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					)
 					.pipe(
 						Effect.map((rows): HomeReadiness => {
-							const owner = rows[0]?.owner_person_id;
+							const owner = rows.at(0)?.owner_person_id;
 							return owner
 								? { status: "ready", ownerPersonId: owner }
 								: { status: "owner-unbound", configuredIdentity: config.homeOwner };
@@ -307,7 +360,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				return asDatabaseError(
 					sql.withTransaction(
 						Effect.gen(function* () {
-							const existing = (yield* actorForIdentity(input))[0];
+							yield* lockExternalIdentity(input);
+							const existing = (yield* actorForIdentity(input)).at(0);
 							let actorIdValue: string;
 							if (existing) {
 								if (
@@ -356,7 +410,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								const host = yield* sql.unsafe<{ owner_person_id: string | null }>(
 									"select owner_person_id from grove_hosts where id = 'host-local'",
 								);
-								if (host[0]?.owner_person_id !== actorIdValue)
+								if (host.at(0)?.owner_person_id !== actorIdValue)
 									return yield* Effect.fail(
 										new ActorDenied("The local Home Host is already owned by another Person"),
 									);
@@ -376,7 +430,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				asDatabaseError(
 					actorForIdentity(identity).pipe(
 						Effect.flatMap((rows): Effect.Effect<MachinePrincipal, ActorDenied> => {
-							const actor = rows[0];
+							const actor = rows.at(0);
 							if (!actor)
 								return Effect.succeed(
 									identity.scopes.has("grove:agent:enroll")
@@ -410,7 +464,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				return asDatabaseError(
 					sql.withTransaction(
 						Effect.gen(function* () {
-							const existing = (yield* actorForIdentity(identity))[0];
+							yield* lockExternalIdentity(identity);
+							yield* sql.unsafe(
+								"select pg_advisory_xact_lock(hashtext('grove-capability-containment'))",
+							);
+							const existing = (yield* actorForIdentity(identity)).at(0);
 							if (existing) {
 								if (
 									existing.kind !== "agent" ||
@@ -421,7 +479,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									return yield* Effect.fail(
 										new ActorDenied("The external identity is already bound to another actor"),
 									);
-								return {
+								const principal = {
 									...identity,
 									kind: "agent" as const,
 									actorId: existing.actor_id,
@@ -429,6 +487,29 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									homeHostId: existing.home_host_id,
 									ownerPersonId: existing.owner_person_id,
 								};
+								const current = yield* sql.unsafe<{
+									agent_lifecycle: string;
+									owner_lifecycle: string;
+									host_owner_id: string | null;
+								}>(
+									`select agent_actor.lifecycle as agent_lifecycle,
+                        owner_actor.lifecycle as owner_lifecycle,
+                        h.owner_person_id as host_owner_id
+                   from grove_agents g
+                   join grove_actors agent_actor on agent_actor.id = g.actor_id
+                   join grove_actors owner_actor on owner_actor.id = g.owner_person_id
+                   join grove_hosts h on h.id = g.home_host_id
+                  where g.actor_id = $1`,
+									[existing.actor_id],
+								);
+								const row = current.at(0);
+								if (
+									row?.agent_lifecycle !== "active" ||
+									row.owner_lifecycle !== "active" ||
+									row.host_owner_id !== existing.owner_person_id
+								)
+									return yield* Effect.fail(new ActorNotCurrent(existing.actor_id));
+								return principal;
 							}
 							if (!identity.scopes.has("grove:agent:enroll"))
 								return yield* Effect.fail(new ActorDenied("Agent enrollment scope is required"));
@@ -442,7 +523,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
                   where h.id = 'host-local'
                   for update of h`,
 							);
-							const owner = host[0];
+							const owner = host.at(0);
 							if (!owner?.owner_person_id)
 								return yield* Effect.fail(new HomeOwnerUnbound(config.homeOwner));
 							if (owner.owner_lifecycle !== "active")
@@ -486,9 +567,10 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
                   where a.id = $1 and p.better_auth_user_id = $2`,
 								[principal.actorId, principal.authUserId, operation],
 							);
-							if (rows[0]?.lifecycle !== "active")
+							const row = rows.at(0);
+							if (row?.lifecycle !== "active")
 								return yield* Effect.fail(new ActorNotCurrent(principal.actorId));
-							if (!rows[0]?.capability)
+							if (!row.capability)
 								return yield* Effect.fail(new ActorDenied(`Actor lacks ${operation}`));
 							return;
 						}
@@ -512,10 +594,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
                   where i.actor_id = $1 and i.issuer = $2 and i.subject = $3 and i.use = 'machine'`,
 							[principal.actorId, principal.issuer, principal.subject, operation],
 						);
-						const row = rows[0];
+						const row = rows.at(0);
 						if (
-							!row ||
-							row.agent_lifecycle !== "active" ||
+							row?.agent_lifecycle !== "active" ||
 							row.owner_lifecycle !== "active" ||
 							row.host_owner_id !== principal.ownerPersonId
 						)
@@ -544,18 +625,56 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				sql.unsafe<PersonCapabilityRow>(
 					`select g.owner_person_id as person_id, c.capability, true as is_owner
                from grove_agents g
+			   join grove_actors agent_actor on agent_actor.id = g.actor_id and agent_actor.lifecycle = 'active'
+			   join grove_actors owner_actor on owner_actor.id = g.owner_person_id and owner_actor.lifecycle = 'active'
+			   join grove_hosts h on h.id = g.home_host_id and h.owner_person_id = g.owner_person_id
                left join grove_actor_capabilities c on c.actor_id = g.owner_person_id
               where g.actor_id = $1
               union all
              select aa.person_id, c.capability, false as is_owner
                from grove_agent_access aa
+			   join grove_actors agent_actor on agent_actor.id = aa.agent_id and agent_actor.lifecycle = 'active'
+			   join grove_actors person_actor on person_actor.id = aa.person_id and person_actor.lifecycle = 'active'
                left join grove_actor_capabilities c on c.actor_id = aa.person_id
               where aa.agent_id = $1 and aa.valid`,
 					[agentIdValue],
 				);
 			const grantAgentAccess = (agentIdValue: string, personIdValue: string) =>
-				asDatabaseError(
+				serializeContainment(
 					Effect.gen(function* () {
+						const agent = yield* sql.unsafe<{
+							agent_lifecycle: string;
+							owner_lifecycle: string;
+							owner_person_id: string;
+							host_owner_id: string | null;
+						}>(
+							`select agent_actor.lifecycle as agent_lifecycle,
+                        owner_actor.lifecycle as owner_lifecycle,
+                        g.owner_person_id,
+                        h.owner_person_id as host_owner_id
+                   from grove_agents g
+                   join grove_actors agent_actor on agent_actor.id = g.actor_id
+                   join grove_actors owner_actor on owner_actor.id = g.owner_person_id
+                   join grove_hosts h on h.id = g.home_host_id
+                  where g.actor_id = $1`,
+							[agentIdValue],
+						);
+						const currentAgent = agent.at(0);
+						if (
+							currentAgent?.agent_lifecycle !== "active" ||
+							currentAgent.owner_lifecycle !== "active" ||
+							currentAgent.owner_person_id !== currentAgent.host_owner_id
+						)
+							return yield* Effect.fail(new ActorNotCurrent(agentIdValue));
+						const person = yield* sql.unsafe<{ lifecycle: string }>(
+							`select a.lifecycle
+                   from grove_actors a
+                   join grove_persons p on p.actor_id = a.id
+                  where a.id = $1`,
+							[personIdValue],
+						);
+						if (person.at(0)?.lifecycle !== "active")
+							return yield* Effect.fail(new ActorNotCurrent(personIdValue));
 						const agentCapabilities = (yield* capabilitiesFor(agentIdValue)).map(
 							(row) => row.capability,
 						);
@@ -584,7 +703,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					}),
 				);
 			const addAgentCapability = (agentIdValue: string, capability: string) =>
-				asDatabaseError(
+				serializeContainment(
 					Effect.gen(function* () {
 						const rows = yield* allowedPersons(agentIdValue);
 						const grouped = new Map<string, { capabilities: Set<string>; isOwner: boolean }>();
@@ -596,6 +715,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							if (row.capability) person.capabilities.add(row.capability);
 							grouped.set(row.person_id, person);
 						}
+						if (grouped.size === 0) return yield* Effect.fail(new ActorNotCurrent(agentIdValue));
 						const conflicts = [...grouped].filter(
 							([, person]) => !person.capabilities.has(capability),
 						);
@@ -616,17 +736,23 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						);
 					}),
 				);
-			const removePersonCapability = (personIdValue: string, capability: string) =>
-				asDatabaseError(
+			const removePersonCapability = (personIdValue: string, capability: string) => {
+				if (isSproutCapability(capability))
+					return Effect.fail(
+						new ActorDenied("Sprout compatibility capabilities apply to every active actor"),
+					);
+				return serializeContainment(
 					Effect.gen(function* () {
 						const rows = yield* sql.unsafe<{ agent_id: string; is_owner: boolean }>(
 							`select g.actor_id as agent_id, true as is_owner
                    from grove_agents g
+				   join grove_actors a on a.id = g.actor_id and a.lifecycle = 'active'
                    join grove_actor_capabilities c on c.actor_id = g.actor_id and c.capability = $2
                   where g.owner_person_id = $1
                   union all
                  select aa.agent_id, false as is_owner
                    from grove_agent_access aa
+				   join grove_actors a on a.id = aa.agent_id and a.lifecycle = 'active'
                    join grove_actor_capabilities c on c.actor_id = aa.agent_id and c.capability = $2
                   where aa.person_id = $1 and aa.valid`,
 							[personIdValue, capability],
@@ -648,25 +774,40 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						);
 					}),
 				);
+			};
 			const applyContainmentFix = (fix: Omit<ContainmentFix, "available" | "reason">) => {
 				switch (fix.action) {
 					case "grant-person-capability":
-						return asDatabaseError(
-							sql
-								.unsafe(
+						return serializeContainment(
+							Effect.gen(function* () {
+								const relationship = yield* sql.unsafe<{ allowed: boolean }>(
+									`select true as allowed
+                       from grove_agents g
+                      where g.actor_id = $1 and g.owner_person_id = $2
+                      union all
+                     select true as allowed
+                       from grove_agent_access aa
+                      where aa.agent_id = $1 and aa.person_id = $2 and aa.valid`,
+									[fix.agentId, fix.personId],
+								);
+								if (relationship.length === 0)
+									return yield* Effect.fail(
+										new ActorDenied("The Person does not have access to this Agent"),
+									);
+								yield* sql.unsafe(
 									"insert into grove_actor_capabilities (actor_id, capability) values ($1, $2) on conflict do nothing",
 									[fix.personId, fix.capability],
-								)
-								.pipe(Effect.asVoid),
+								);
+							}),
 						);
 					case "remove-agent-access":
-						return asDatabaseError(
+						return serializeContainment(
 							Effect.gen(function* () {
 								const owner = yield* sql.unsafe<{ owner_person_id: string }>(
 									"select owner_person_id from grove_agents where actor_id = $1",
 									[fix.agentId],
 								);
-								if (owner[0]?.owner_person_id === fix.personId)
+								if (owner.at(0)?.owner_person_id === fix.personId)
 									return yield* Effect.fail(
 										new ActorDenied("A Home Host owner cannot lose access to a hosted Agent"),
 									);
@@ -679,7 +820,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							}),
 						);
 					case "remove-agent-capability":
-						return asDatabaseError(
+						if (isSproutCapability(fix.capability))
+							return Effect.fail(
+								new ActorDenied("Sprout compatibility capabilities apply to every active actor"),
+							);
+						return serializeContainment(
 							sql
 								.unsafe(
 									"delete from grove_actor_capabilities where actor_id = $1 and capability = $2",
@@ -689,25 +834,42 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						);
 				}
 			};
-			const setLifecycle = (actorIdValue: string, lifecycle: "suspended" | "retired") =>
+			const requireAgentManager = (principal: PersonPrincipal, agentIdValue: string) =>
 				asDatabaseError(
-					sql.withTransaction(
-						Effect.gen(function* () {
-							yield* sql.unsafe(
-								"update grove_actors set lifecycle = $2, updated_at = now() where id = $1",
-								[actorIdValue, lifecycle],
-							);
-							yield* sql.unsafe(
-								`update grove_agent_access
+					sql
+						.unsafe<{ owner_person_id: string }>(
+							`select g.owner_person_id
+                 from grove_agents g
+                 join grove_persons p on p.actor_id = g.owner_person_id
+                 join grove_actors a on a.id = p.actor_id and a.lifecycle = 'active'
+                where g.actor_id = $1 and g.owner_person_id = $2 and p.better_auth_user_id = $3`,
+							[agentIdValue, principal.actorId, principal.authUserId],
+						)
+						.pipe(
+							Effect.flatMap((rows) =>
+								rows.length === 1
+									? Effect.void
+									: Effect.fail(new ActorDenied("Only the Home Host owner may manage this Agent")),
+							),
+						),
+				);
+			const setLifecycle = (actorIdValue: string, lifecycle: "suspended" | "retired") =>
+				serializeContainment(
+					Effect.gen(function* () {
+						yield* sql.unsafe(
+							"update grove_actors set lifecycle = $2, updated_at = now() where id = $1",
+							[actorIdValue, lifecycle],
+						);
+						yield* sql.unsafe(
+							`update grove_agent_access
                      set valid = false, invalid_reason = $2, updated_at = now()
                    where valid and (
                      agent_id = $1 or person_id = $1 or
                      agent_id in (select actor_id from grove_agents where owner_person_id = $1)
                    )`,
-								[actorIdValue, `actor-${lifecycle}`],
-							);
-						}),
-					),
+							[actorIdValue, `actor-${lifecycle}`],
+						);
+					}),
 				);
 
 			return {
@@ -721,6 +883,18 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				addAgentCapability,
 				removePersonCapability,
 				applyContainmentFix,
+				requestAgentCapability: (principal, agentIdValue, capability) =>
+					requireAgentManager(principal, agentIdValue).pipe(
+						Effect.andThen(addAgentCapability(agentIdValue, capability)),
+					),
+				removePersonCapabilityAs: (principal, personIdValue, capability) =>
+					personIdValue === principal.actorId
+						? removePersonCapability(personIdValue, capability)
+						: Effect.fail(new ActorDenied("A Person may reduce only their own capabilities")),
+				applyContainmentFixAs: (principal, fix) =>
+					requireAgentManager(principal, fix.agentId).pipe(
+						Effect.andThen(applyContainmentFix(fix)),
+					),
 				suspendActor: (actorIdValue) => setLifecycle(actorIdValue, "suspended"),
 				retireActor: (actorIdValue) => setLifecycle(actorIdValue, "retired"),
 			};

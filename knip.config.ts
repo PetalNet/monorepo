@@ -32,7 +32,7 @@ export default {
 			],
 		},
 		"apps/grove": {
-			entry: ["effectdb.config.ts!", "src/env.ts!"],
+			entry: ["effectdb.config.ts!", "src/env.ts!", "test/**/*.ts"],
 		},
 		"apps/storybook": {
 			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],

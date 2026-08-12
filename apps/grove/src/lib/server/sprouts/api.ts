@@ -10,22 +10,24 @@ import {
 	SproutList,
 	WaterSprout,
 } from "../../sprouts/schema";
-import { AuthenticationRequired } from "../authorization";
-import { SproutDatabaseError, SproutNotFound, SproutService } from "./service";
+import { ActorDenied, ActorNotCurrent } from "../actors/authority";
+import { SproutCommands, SproutNotFound, type SproutError } from "./service";
 
-type OperationError = AuthenticationRequired | SproutNotFound | SproutDatabaseError;
-
-const statusForError = (error: OperationError): number => {
-	if (error instanceof AuthenticationRequired) return 401;
+const statusForError = (error: SproutError): number => {
+	if (error instanceof ActorDenied || error instanceof ActorNotCurrent) return 403;
 	return error instanceof SproutNotFound ? 404 : 503;
 };
-const messageForError = (error: OperationError): string => {
-	if (error instanceof AuthenticationRequired || error instanceof SproutNotFound)
+const messageForError = (error: SproutError): string => {
+	if (
+		error instanceof SproutNotFound ||
+		error instanceof ActorDenied ||
+		error instanceof ActorNotCurrent
+	)
 		return error.message;
 	return "The sprout database is unavailable";
 };
 
-const sproutOperations = [
+export const sproutOperations = [
 	operation({
 		name: "sprouts.list",
 		description: "List the dummy Grove sprouts.",
@@ -33,7 +35,7 @@ const sproutOperations = [
 		path: "/sprouts",
 		input: EmptyInput,
 		output: SproutList,
-		handler: () => Effect.flatMap(SproutService, (service) => service.list),
+		handler: () => Effect.flatMap(SproutCommands, (commands) => commands.list),
 		statusForError,
 		messageForError,
 	}),
@@ -44,7 +46,7 @@ const sproutOperations = [
 		path: "/sprouts/:id",
 		input: SproutId,
 		output: Sprout,
-		handler: ({ id }) => Effect.flatMap(SproutService, (service) => service.get(id)),
+		handler: ({ id }) => Effect.flatMap(SproutCommands, (commands) => commands.get(id)),
 		statusForError,
 		messageForError,
 	}),
@@ -55,7 +57,7 @@ const sproutOperations = [
 		path: "/sprouts",
 		input: CreateSprout,
 		output: Sprout,
-		handler: (input) => Effect.flatMap(SproutService, (service) => service.create(input)),
+		handler: (input) => Effect.flatMap(SproutCommands, (commands) => commands.create(input)),
 		statusForError,
 		messageForError,
 	}),
@@ -66,7 +68,7 @@ const sproutOperations = [
 		path: "/sprouts/:id/water",
 		input: WaterSprout,
 		output: Sprout,
-		handler: ({ id }) => Effect.flatMap(SproutService, (service) => service.water(id)),
+		handler: ({ id }) => Effect.flatMap(SproutCommands, (commands) => commands.water(id)),
 		statusForError,
 		messageForError,
 	}),
@@ -77,7 +79,7 @@ const sproutOperations = [
 		path: "/sprouts/:id",
 		input: SproutId,
 		output: RemovedSprout,
-		handler: ({ id }) => Effect.flatMap(SproutService, (service) => service.remove(id)),
+		handler: ({ id }) => Effect.flatMap(SproutCommands, (commands) => commands.remove(id)),
 		statusForError,
 		messageForError,
 	}),

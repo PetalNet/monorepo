@@ -20,6 +20,8 @@ const machine = (issuer: string, subject: string, enrollment = true): MachineIde
 	subject,
 	scopes: new Set(["grove:mcp", ...(enrollment ? ["grove:agent:enroll"] : [])]),
 });
+const authority = <A, E>(use: (service: ActorAuthority["Service"]) => Effect.Effect<A, E>) =>
+	Effect.flatMap(ActorAuthority, use);
 
 describe("actor authority", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<ActorAuthority, unknown>;
@@ -34,13 +36,11 @@ describe("actor authority", () => {
 	}, 60_000);
 
 	afterAll(async () => {
-		await runtime?.dispose();
+		await runtime.dispose();
 		await stopGrovePostgres();
 	});
 
 	const run = <A, E>(effect: Effect.Effect<A, E, ActorAuthority>) => runtime.runPromise(effect);
-	const authority = <A, E>(use: (service: ActorAuthority["Service"]) => Effect.Effect<A, E>) =>
-		Effect.flatMap(ActorAuthority, use);
 
 	it("JIT-binds verified browser identities and only the configured identity claims Home Host", async () => {
 		const other = await run(
@@ -107,6 +107,16 @@ describe("actor authority", () => {
 		expect(other.actorId).not.toBe(janet.actorId);
 	});
 
+	it("serializes concurrent enrollment retries for the same external identity", async () => {
+		const identity = machine("https://machine.example/issuer-a", "concurrent-agent");
+		const [first, second] = await Promise.all([
+			run(authority((actors) => actors.enrollSelf(identity, { name: "Concurrent Agent" }))),
+			run(authority((actors) => actors.enrollSelf(identity, { name: "Concurrent Agent" }))),
+		]);
+
+		expect(second.actorId).toBe(first.actorId);
+	});
+
 	it("keeps unbound identities restricted and blocks enrollment before owner binding", async () => {
 		const postgres = await startGrovePostgres();
 		const isolated = ManagedRuntime.make(
@@ -163,26 +173,69 @@ describe("actor authority", () => {
 		await run(
 			authority((service) => service.grantAgentAccess(agent.actorId, actors.guest.actorId)),
 		);
-
-		const reducing = await run(
+		const compatibilityPolicy = await run(
 			authority((service) =>
 				service.removePersonCapability(actors.guest.actorId, "sprouts.water").pipe(Effect.flip),
 			),
 		);
-		expect(reducing).toBeInstanceOf(CapabilityContainmentConflict);
-		expect(reducing).toMatchObject({
-			conflicts: [{ agentId: agent.actorId, personId: actors.guest.actorId }],
-			fixes: expect.arrayContaining([
-				expect.objectContaining({ action: "grant-person-capability" }),
-				expect.objectContaining({ action: "remove-agent-access" }),
-				expect.objectContaining({ action: "remove-agent-capability" }),
-			]),
-		});
+		expect(compatibilityPolicy).toMatchObject({ _tag: "ActorDenied" });
+		await Promise.all(
+			[actors.owner, actors.guest].map((person) =>
+				run(
+					authority((service) =>
+						service.applyContainmentFix({
+							action: "grant-person-capability",
+							agentId: agent.actorId,
+							personId: person.actorId,
+							capability: "agents.observe",
+						}),
+					),
+				),
+			),
+		);
+		await run(authority((service) => service.addAgentCapability(agent.actorId, "agents.observe")));
+
+		const reducing = await run(
+			authority((service) =>
+				service
+					.removePersonCapabilityAs(actors.guest, actors.guest.actorId, "agents.observe")
+					.pipe(Effect.flip),
+			),
+		);
+		if (!(reducing instanceof CapabilityContainmentConflict)) throw reducing;
+		expect(reducing.conflicts).toMatchObject([
+			{ agentId: agent.actorId, personId: actors.guest.actorId },
+		]);
+		const reducingActions = reducing.fixes.map((fix) => fix.action);
+		expect(reducingActions).toContain("grant-person-capability");
+		expect(reducingActions).toContain("remove-agent-access");
+		expect(reducingActions).toContain("remove-agent-capability");
+
+		const expanding = await run(
+			authority((service) =>
+				service
+					.requestAgentCapability(actors.owner, agent.actorId, "agents.delegate")
+					.pipe(Effect.flip),
+			),
+		);
+		if (!(expanding instanceof CapabilityContainmentConflict)) throw expanding;
+		const conflictPersonIds = expanding.conflicts.map((conflict) => conflict.personId);
+		expect(conflictPersonIds).toContain(actors.owner.actorId);
+		expect(conflictPersonIds).toContain(actors.guest.actorId);
 
 		await run(authority((service) => service.suspendActor(agent.actorId)));
 		const stale = await run(
 			authority((service) => service.authorizeActor(agent, "sprouts.list").pipe(Effect.flip)),
 		);
 		expect(stale).toMatchObject({ _tag: "ActorNotCurrent", actorId: agent.actorId });
+		const enrollmentRetry = await run(
+			authority((service) =>
+				service.enrollSelf(agent, { name: "Cannot reactivate" }).pipe(Effect.flip),
+			),
+		);
+		expect(enrollmentRetry).toMatchObject({
+			_tag: "ActorNotCurrent",
+			actorId: agent.actorId,
+		});
 	});
 });

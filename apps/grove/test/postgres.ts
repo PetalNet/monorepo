@@ -12,14 +12,32 @@ export const startGrovePostgres = async () => {
 	const databaseUrl = container.getConnectionUri();
 	const runtime = ManagedRuntime.make(PgClient.layer({ url: Redacted.make(databaseUrl) }));
 
-	for (const name of ["0001_initial.sql", "0002_auth.sql", "0003_actor_auth.sql"]) {
-		const migration = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
-		const up = migration.split("-- effect-db:down", 1)[0]?.replace("-- effect-db:up", "");
-		if (!up) throw new Error(`Migration ${name} has no up section`);
-		await runtime.runPromise(
-			Effect.flatMap(PgClient.PgClient, (sql) => sql.unsafe<Record<string, never>>(up).raw),
-		);
-	}
+	const names = [
+		"0001_initial.sql",
+		"0002_auth.sql",
+		"0003_actor_auth.sql",
+		"0004_clear_oidc_id_tokens.sql",
+	] as const;
+	const migrations = await Promise.all(
+		names.map(async (name) => ({
+			name,
+			migration: await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"),
+		})),
+	);
+	await runtime.runPromise(
+		Effect.forEach(
+			migrations,
+			({ name, migration }) => {
+				const up = migration.split("-- effect-db:down", 1)[0]?.replace("-- effect-db:up", "");
+				if (!up) return Effect.die(new Error(`Migration ${name} has no up section`));
+				return Effect.flatMap(
+					PgClient.PgClient,
+					(sql) => sql.unsafe<Record<string, never>>(up).raw,
+				);
+			},
+			{ concurrency: 1, discard: true },
+		),
+	);
 
 	return { databaseUrl, runtime };
 };

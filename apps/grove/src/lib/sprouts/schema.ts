@@ -39,6 +39,8 @@ export const Sprout = Schema.Struct({
 	name: Schema.String,
 	plantedAt: Schema.String,
 	waterings: Counter,
+	createdByActorId: Schema.NullOr(Schema.String),
+	lastActorId: Schema.NullOr(Schema.String),
 });
 
 export const SproutList = Schema.Array(Sprout);
