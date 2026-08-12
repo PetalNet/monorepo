@@ -18,7 +18,7 @@ const eventFor = (request: Request) =>
 		request,
 		url: new URL(request.url),
 		locals: { actor: null, session: null, user: null },
-		cookies: { set() {} },
+		cookies: { set: () => undefined },
 	}) as unknown as RequestEvent;
 
 describe("production Grove browser auth composition", () => {
@@ -35,7 +35,7 @@ describe("production Grove browser auth composition", () => {
 
 	afterAll(async () => {
 		globalThis.fetch = originalFetch;
-		await runtime?.dispose();
+		await runtime.dispose();
 		await stopGrovePostgres();
 	});
 
@@ -199,17 +199,19 @@ describe("production Grove browser auth composition", () => {
 	}, 60_000);
 
 	it("fails construction when OIDC discovery does not match the pinned issuer", async () => {
-		globalThis.fetch = async (input) => {
+		globalThis.fetch = (input) => {
 			const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
 			if (url !== `${issuer}/.well-known/openid-configuration`)
 				throw new Error(`Unexpected OIDC request: ${url}`);
-			return Response.json({
-				issuer: "https://unexpected-identity.example/realm/grove",
-				authorization_endpoint: `${issuer}/authorize`,
-				token_endpoint: `${issuer}/token`,
-				jwks_uri: `${issuer}/jwks`,
-				id_token_signing_alg_values_supported: ["RS256"],
-			});
+			return Promise.resolve(
+				Response.json({
+					issuer: "https://unexpected-identity.example/realm/grove",
+					authorization_endpoint: `${issuer}/authorize`,
+					token_endpoint: `${issuer}/token`,
+					jwks_uri: `${issuer}/jwks`,
+					id_token_signing_alg_values_supported: ["RS256"],
+				}),
+			);
 		};
 		const sql = await runtime.runPromise(PgClient.PgClient);
 		const authority = await runtime.runPromise(ActorAuthority);

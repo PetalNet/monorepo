@@ -10,7 +10,7 @@ import {
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
 import { InvocationContext } from "../src/lib/server/invocation";
-import { makeMcpIngress } from "../src/lib/server/mcp/ingress";
+import { makeMcpIngress, type McpIngress } from "../src/lib/server/mcp/ingress";
 import { SproutCommands, SproutCommandsLayer } from "../src/lib/server/sprouts/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
@@ -25,11 +25,20 @@ const ownerIdentity = {
 };
 const rpc = (id: number, method: string, params?: object) =>
 	JSON.stringify({ jsonrpc: "2.0", id, method, ...(params ? { params } : {}) });
-const json = async (response: Response) => (await response.json()) as Record<string, any>;
+interface McpJson {
+	readonly result: {
+		readonly tools: readonly { readonly name: string }[];
+		readonly isError: boolean;
+		readonly structuredContent: Record<string, unknown>;
+	};
+	readonly error: { readonly code: number };
+}
+const responseJson = (response: Response): Promise<unknown> => response.json() as Promise<unknown>;
+const json = async (response: Response) => (await responseJson(response)) as McpJson;
 
 describe("MCP protected-resource ingress", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<ActorAuthority | SproutCommands, unknown>;
-	let ingress: ReturnType<typeof makeMcpIngress>;
+	let ingress: McpIngress;
 	let privateKey: CryptoKey;
 	let owner: PersonPrincipal;
 
@@ -60,7 +69,7 @@ describe("MCP protected-resource ingress", () => {
 	}, 60_000);
 
 	afterAll(async () => {
-		await runtime?.dispose();
+		await runtime.dispose();
 		await stopGrovePostgres();
 	});
 
@@ -80,20 +89,20 @@ describe("MCP protected-resource ingress", () => {
 		body: string,
 		extraHeaders?: HeadersInit,
 		target = ingress,
-	) =>
-		runtime.runPromise(
+	) => {
+		const headers = new Headers(extraHeaders);
+		headers.set("content-type", "application/json");
+		if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
+		return runtime.runPromise(
 			target.handle(
 				new Request(`${config.resourceOrigin}/mcp`, {
 					method: "POST",
-					headers: {
-						"content-type": "application/json",
-						...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-						...extraHeaders,
-					},
+					headers,
 					body,
 				}),
 			),
 		);
+	};
 	it("publishes the existing RFC 9728 resource metadata", () => {
 		expect(ingress.metadata()).toEqual({
 			resource: "https://grove.example/mcp",
@@ -180,13 +189,16 @@ describe("MCP protected-resource ingress", () => {
 			isError: false,
 			structuredContent: {
 				name: "Bearer-grown fern",
-				createdByActorId: expect.stringMatching(/^agent-/),
-				lastActorId: expect.stringMatching(/^agent-/),
 			},
 		});
-		expect(created.result.structuredContent.createdByActorId).toBe(
-			created.result.structuredContent.lastActorId,
-		);
+		const createdBy = created.result.structuredContent.createdByActorId;
+		const lastActor = created.result.structuredContent.lastActorId;
+		expect(createdBy).toEqual(expect.any(String));
+		expect(lastActor).toEqual(expect.any(String));
+		if (typeof createdBy !== "string" || typeof lastActor !== "string")
+			throw new TypeError("Expected Agent actor IDs");
+		expect(createdBy).toMatch(/^agent-/);
+		expect(lastActor).toBe(createdBy);
 
 		const listedForBrowserActor = await runtime.runPromise(
 			Effect.flatMap(SproutCommands, (commands) => commands.list).pipe(
@@ -261,7 +273,7 @@ describe("MCP protected-resource ingress", () => {
 		);
 		expect(unknownKid.status).toBe(401);
 
-		const unavailable = makeMcpIngress(config, async () => {
+		const unavailable = makeMcpIngress(config, () => {
 			throw new TypeError("simulated JWKS network failure");
 		});
 		const dependencyFailure = await request(
@@ -283,7 +295,7 @@ describe("MCP protected-resource ingress", () => {
 				new errors.JOSEError("simulated non-200 response"),
 				new errors.JWKSInvalid("simulated malformed JWKS"),
 			].map(async (error) => {
-				const failedDependency = makeMcpIngress(config, async () => {
+				const failedDependency = makeMcpIngress(config, () => {
 					throw error;
 				});
 				const response = await request(

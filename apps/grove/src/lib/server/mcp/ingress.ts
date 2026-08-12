@@ -7,10 +7,12 @@ import {
 	ActorAuthority,
 	ActorDatabaseError,
 	ActorDenied,
+	type AuthorityError,
 	type MachineIdentity,
 } from "../actors/authority";
 import { InvocationContext } from "../invocation";
 import { sproutOperations } from "../sprouts/api";
+import type { SproutCommands } from "../sprouts/service";
 
 const MCP_SCOPE = "grove:mcp";
 
@@ -18,6 +20,18 @@ export interface McpIngressConfig {
 	readonly issuer: string;
 	readonly jwksUrl: string;
 	readonly resourceOrigin: string;
+}
+
+export interface McpIngress {
+	readonly metadata: () => {
+		readonly resource: string;
+		readonly authorization_servers: readonly string[];
+		readonly bearer_methods_supported: readonly string[];
+		readonly scopes_supported: readonly string[];
+	};
+	readonly handle: (
+		request: Request,
+	) => Effect.Effect<Response, AuthorityError, ActorAuthority | SproutCommands>;
 }
 
 class InvalidMcpConfiguration extends Error {
@@ -106,9 +120,12 @@ const parseError = () =>
 		{ status: 400 },
 	);
 
-const allOperations: readonly ApiOperation<any>[] = [enrollAgentSelfOperation, ...sproutOperations];
+const readJson = (request: Request): Promise<unknown> => request.json() as Promise<unknown>;
 
-export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey) => {
+const allOperations: readonly ApiOperation<ActorAuthority | InvocationContext | SproutCommands>[] =
+	[enrollAgentSelfOperation, ...sproutOperations];
+
+export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): McpIngress => {
 	const config = validatedConfig(input);
 	const verificationKey =
 		key ??
@@ -129,7 +146,9 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey) =
 			});
 			const scopes = scopesFrom(payload);
 			if (!scopes.has(MCP_SCOPE)) return challenge(config, "insufficient_scope");
-			return { issuer: config.issuer, subject: payload.sub!, scopes };
+			if (typeof payload.sub !== "string" || payload.sub.length === 0)
+				return challenge(config, "invalid_token");
+			return { issuer: config.issuer, subject: payload.sub, scopes };
 		} catch (error) {
 			return invalidTokenFailure(error)
 				? challenge(config, "invalid_token")
@@ -146,7 +165,7 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey) =
 					return Effect.gen(function* () {
 						const authority = yield* ActorAuthority;
 						const principal = yield* authority.resolveMachineIdentity(identity);
-						const body = yield* Effect.promise(() => request.json().catch(() => undefined));
+						const body = yield* Effect.promise(() => readJson(request).catch(() => undefined));
 						if (body === undefined || body === null || typeof body !== "object")
 							return parseError();
 						const mcpRequest = body as McpRequest;

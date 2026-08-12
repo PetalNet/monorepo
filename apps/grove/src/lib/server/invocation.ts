@@ -27,3 +27,17 @@ export const withBrowserInvocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =
 			}),
 		);
 	});
+
+export const withRestInvocation = <E, R>(effect: Effect.Effect<Response, E, R>) =>
+	withBrowserInvocation(effect).pipe(
+		Effect.catchIf(
+			(error): error is AuthenticationRequired => error instanceof AuthenticationRequired,
+			(error) =>
+				Effect.succeed(
+					Response.json(
+						{ error: { code: "operation_failed", message: error.message } },
+						{ status: 401 },
+					),
+				),
+		),
+	);

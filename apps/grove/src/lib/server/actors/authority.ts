@@ -125,6 +125,16 @@ type HomeReadiness =
 			readonly status: "owner-unbound";
 			readonly configuredIdentity: ExternalIdentity;
 	  }
+	| {
+			readonly status: "owner-config-mismatch";
+			readonly configuredIdentity: ExternalIdentity;
+			readonly ownerPersonId: string;
+	  }
+	| {
+			readonly status: "owner-not-current";
+			readonly ownerPersonId: string;
+			readonly lifecycle: "dormant" | "suspended" | "retired";
+	  }
 	| { readonly status: "ready"; readonly ownerPersonId: string };
 
 export type AuthorityError =
@@ -153,20 +163,10 @@ interface ActorAuthorityShape {
 	readonly authorizedOperations: (
 		principal: MachinePrincipal,
 	) => Effect.Effect<readonly string[], AuthorityError>;
-	readonly grantAgentAccess: (
+	readonly grantAgentAccessAs: (
+		principal: PersonPrincipal,
 		agentId: string,
 		personId: string,
-	) => Effect.Effect<void, AuthorityError>;
-	readonly addAgentCapability: (
-		agentId: string,
-		capability: string,
-	) => Effect.Effect<void, AuthorityError>;
-	readonly removePersonCapability: (
-		personId: string,
-		capability: string,
-	) => Effect.Effect<void, AuthorityError>;
-	readonly applyContainmentFix: (
-		fix: Omit<ContainmentFix, "available" | "reason">,
 	) => Effect.Effect<void, AuthorityError>;
 	readonly requestAgentCapability: (
 		principal: PersonPrincipal,
@@ -199,10 +199,7 @@ export const ActorAuthorityBuildLayer = Layer.succeed(ActorAuthority, {
 	enrollSelf: unavailableDuringBuild,
 	authorizeActor: unavailableDuringBuild,
 	authorizedOperations: unavailableDuringBuild,
-	grantAgentAccess: unavailableDuringBuild,
-	addAgentCapability: unavailableDuringBuild,
-	removePersonCapability: unavailableDuringBuild,
-	applyContainmentFix: unavailableDuringBuild,
+	grantAgentAccessAs: unavailableDuringBuild,
 	requestAgentCapability: unavailableDuringBuild,
 	removePersonCapabilityAs: unavailableDuringBuild,
 	applyContainmentFixAs: unavailableDuringBuild,
@@ -339,15 +336,41 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				);
 			const homeReadiness = asDatabaseError(
 				sql
-					.unsafe<{ owner_person_id: string | null }>(
-						"select owner_person_id from grove_hosts where id = 'host-local'",
+					.unsafe<{
+						owner_person_id: string | null;
+						owner_lifecycle: "active" | "dormant" | "suspended" | "retired" | null;
+						configured_owner: boolean;
+					}>(
+						`select h.owner_person_id, a.lifecycle as owner_lifecycle,
+                  exists (
+                    select 1
+                      from grove_external_identities i
+                     where i.actor_id = h.owner_person_id
+                       and i.issuer = $1 and i.subject = $2 and i.use = 'browser'
+                  ) as configured_owner
+             from grove_hosts h
+             left join grove_actors a on a.id = h.owner_person_id
+            where h.id = 'host-local'`,
+						[config.homeOwner.issuer, config.homeOwner.subject],
 					)
 					.pipe(
 						Effect.map((rows): HomeReadiness => {
-							const owner = rows.at(0)?.owner_person_id;
-							return owner
-								? { status: "ready", ownerPersonId: owner }
-								: { status: "owner-unbound", configuredIdentity: config.homeOwner };
+							const row = rows.at(0);
+							if (!row?.owner_person_id)
+								return { status: "owner-unbound", configuredIdentity: config.homeOwner };
+							if (!row.configured_owner)
+								return {
+									status: "owner-config-mismatch",
+									configuredIdentity: config.homeOwner,
+									ownerPersonId: row.owner_person_id,
+								};
+							if (row.owner_lifecycle !== "active")
+								return {
+									status: "owner-not-current",
+									ownerPersonId: row.owner_person_id,
+									lifecycle: row.owner_lifecycle ?? "retired",
+								};
+							return { status: "ready", ownerPersonId: row.owner_person_id };
 						}),
 					),
 			);
@@ -564,7 +587,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
                    from grove_actors a
                    join grove_persons p on p.actor_id = a.id
                    left join grove_actor_capabilities c on c.actor_id = a.id and c.capability = $3
-                  where a.id = $1 and p.better_auth_user_id = $2`,
+                  where a.id = $1 and p.better_auth_user_id = $2
+                    for share of a`,
 								[principal.actorId, principal.authUserId, operation],
 							);
 							const row = rows.at(0);
@@ -591,7 +615,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
                    join grove_actors owner_actor on owner_actor.id = g.owner_person_id
                    join grove_hosts h on h.id = g.home_host_id
                    left join grove_actor_capabilities c on c.actor_id = g.actor_id and c.capability = $4
-                  where i.actor_id = $1 and i.issuer = $2 and i.subject = $3 and i.use = 'machine'`,
+                  where i.actor_id = $1 and i.issuer = $2 and i.subject = $3 and i.use = 'machine'
+                    for share of agent_actor, owner_actor, h`,
 							[principal.actorId, principal.issuer, principal.subject, operation],
 						);
 						const row = rows.at(0);
@@ -856,6 +881,14 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 			const setLifecycle = (actorIdValue: string, lifecycle: "suspended" | "retired") =>
 				serializeContainment(
 					Effect.gen(function* () {
+						const actors = yield* sql.unsafe<{ lifecycle: string }>(
+							"select lifecycle from grove_actors where id = $1 for update",
+							[actorIdValue],
+						);
+						const current = actors.at(0)?.lifecycle;
+						if (!current) return yield* Effect.fail(new ActorNotCurrent(actorIdValue));
+						if (current === "retired" && lifecycle !== "retired")
+							return yield* Effect.fail(new ActorDenied("A retired Actor cannot change lifecycle"));
 						yield* sql.unsafe(
 							"update grove_actors set lifecycle = $2, updated_at = now() where id = $1",
 							[actorIdValue, lifecycle],
@@ -879,10 +912,10 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				enrollSelf,
 				authorizeActor,
 				authorizedOperations,
-				grantAgentAccess,
-				addAgentCapability,
-				removePersonCapability,
-				applyContainmentFix,
+				grantAgentAccessAs: (principal, agentIdValue, personIdValue) =>
+						requireAgentManager(principal, agentIdValue).pipe(
+							Effect.andThen(grantAgentAccess(agentIdValue, personIdValue)),
+						),
 				requestAgentCapability: (principal, agentIdValue, capability) =>
 					requireAgentManager(principal, agentIdValue).pipe(
 						Effect.andThen(addAgentCapability(agentIdValue, capability)),

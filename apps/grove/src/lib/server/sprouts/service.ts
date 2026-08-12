@@ -3,6 +3,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { Query, type Scalar } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { SqlError } from "effect/unstable/sql/SqlError";
 
 import {
 	Counter,
@@ -135,11 +136,19 @@ export const SproutCommandsLayer = Layer.effect(
 		const command = <A, E>(
 			operation: string,
 			run: (actor: ActorPrincipal) => Effect.Effect<A, E>,
-		): Effect.Effect<A, E | AuthorityError, InvocationContext> =>
+		): Effect.Effect<A, E | AuthorityError | SproutDatabaseError, InvocationContext> =>
 			Effect.flatMap(InvocationContext, ({ principal }) => {
 				if (principal.kind !== "person" && principal.kind !== "agent")
 					return Effect.fail(new ActorDenied("An enrolled actor is required"));
-				return authority.authorizeActor(principal, operation).pipe(Effect.andThen(run(principal)));
+				return sql
+					.withTransaction(
+						authority.authorizeActor(principal, operation).pipe(Effect.andThen(run(principal))),
+					)
+					.pipe(
+						Effect.mapError((error) =>
+							error instanceof SqlError ? new SproutDatabaseError(error) : error,
+						),
+					);
 			});
 		return {
 			list: command("sprouts.list", () => list),
