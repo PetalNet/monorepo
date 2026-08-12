@@ -644,9 +644,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				if (principal.kind === "bootstrap") return Effect.succeed(["agents.enrollSelf"]);
 				if (principal.kind === "unbound") return Effect.succeed([]);
 				return asDatabaseError(
-					authorizeActor(principal, "sprouts.list").pipe(
-						Effect.andThen(capabilitiesFor(principal.actorId)),
-						Effect.map((rows) => rows.map((row) => row.capability)),
+					sql.withTransaction(
+						authorizeActor(principal, "sprouts.list").pipe(
+							Effect.andThen(capabilitiesFor(principal.actorId)),
+							Effect.map((rows) => rows.map((row) => row.capability)),
+						),
 					),
 				).pipe(
 					Effect.catchIf(
