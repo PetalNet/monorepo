@@ -21,11 +21,14 @@ function resolvedId(resolved: Map<string, string>, school: string): string {
 }
 
 const WASHU_JSON_NAME = "Washington University in St. Louis (WashU)";
+const ROSE_HULMAN = "Rose-Hulman Institute of Technology";
+const UMKC_JSON_NAME = "University of Missouri-Kansas City (UMKC)";
 const DERIVED_SPANS = [
 	["Cornell University", "2026-12-20", "2027-01-24"],
 	["Kennesaw State University", "2026-12-15", "2027-01-10"],
 	["Missouri University of Science and Technology", "2026-12-19", "2027-01-18"],
 	["Otterbein University", "2026-12-11", "2027-01-13"],
+	[ROSE_HULMAN, "2026-11-24", "2026-11-29"],
 	["Saint Louis University", "2026-12-12", "2027-01-10"],
 	[WASHU_JSON_NAME, "2026-12-17", "2027-01-18"],
 ] as const;
@@ -85,7 +88,7 @@ describe("institutional college-break import", () => {
 		expect((await db.select().from(collegeBreaks)).length).toBe(229);
 	});
 
-	it("pins all corrected and derived winter-break spans", async () => {
+	it("pins every derived span and renders each one", async () => {
 		await importCollegeBreaks(db);
 		const resolved = await resolveCollegeIds(db);
 		const found = await Promise.all(
@@ -101,10 +104,18 @@ describe("institutional college-break import", () => {
 					),
 			),
 		);
-		for (const [index, [, startDate, endDate]] of DERIVED_SPANS.entries()) {
+		const rendered = await getRenderedCollegeBreaks(db);
+		for (const [index, [school, startDate, endDate]] of DERIVED_SPANS.entries()) {
 			expect(found[index]).toEqual([
 				expect.objectContaining({ startDate, endDate, derivation: "derived" }),
 			]);
+			// Deriving a span and rendering it are one claim. A derived row that something else still
+			// forces to `unknown` satisfies the pin above and then never reaches a calendar.
+			expect(
+				rendered.filter(
+					(row) => row.collegeId === resolvedId(resolved, school) && row.startDate === startDate,
+				),
+			).toHaveLength(1);
 		}
 	});
 
@@ -135,6 +146,68 @@ describe("institutional college-break import", () => {
 			"Martin Luther King Jr. Holiday (campus closed) 2027-01-18..2027-01-18",
 			"Winter Break (campus closed) 2026-12-17..2027-01-03",
 		]);
+	});
+});
+
+// Rose-Hulman runs quarters, so the scraper's hunt for an event named "Thanksgiving break" found
+// nothing and left the row undated and unverifiable, hiding a real six-day gap between the fall
+// term ending and the winter quarter starting. The published entries bracket it exactly, so the row
+// is derived like the winter breaks above and leaves UNVERIFIABLE_ROWS. The commencement below is
+// the control: it has no neighbouring entries to bracket it from and stays exactly as it was.
+describe("rows the source calendar never published as an event", () => {
+	it("derives Rose-Hulman's Thanksgiving break from its own term boundaries", async () => {
+		await importCollegeBreaks(db);
+		const resolved = await resolveCollegeIds(db);
+		const collegeId = resolvedId(resolved, ROSE_HULMAN);
+		const stored = await db
+			.select()
+			.from(collegeBreaks)
+			.where(
+				and(eq(collegeBreaks.collegeId, collegeId), eq(collegeBreaks.label, "Thanksgiving break")),
+			);
+		expect(stored).toEqual([
+			expect.objectContaining({
+				startDate: "2026-11-24",
+				endDate: "2026-11-29",
+				kind: "break",
+				derivation: "derived",
+			}),
+		]);
+		// An inferred span still has to say what it was inferred from.
+		expect(stored.at(0)?.sourceUrl).toContain("rose-hulman.edu");
+		expect(stored.at(0)?.quote).toContain("Fall Term Ends");
+
+		const rendered = await getRenderedCollegeBreaks(db, collegeId);
+		expect(rendered.map((row) => row.label)).toContain("Thanksgiving break");
+	});
+
+	it("leaves UMKC's undated commencement unverifiable and unrendered", async () => {
+		await importCollegeBreaks(db);
+		const resolved = await resolveCollegeIds(db);
+		const collegeId = resolvedId(resolved, UMKC_JSON_NAME);
+		const stored = await db
+			.select()
+			.from(collegeBreaks)
+			.where(
+				and(
+					eq(collegeBreaks.collegeId, collegeId),
+					eq(collegeBreaks.label, "Spring 2027 commencement"),
+				),
+			);
+		// `unknown`, not the `commencement` the classifier would otherwise give it: the row is still
+		// being forced, so the mechanism is intact rather than merely unused.
+		expect(stored).toEqual([
+			expect.objectContaining({
+				kind: "unknown",
+				startDate: MISSING_ACADEMIC_DATE,
+				endDate: MISSING_ACADEMIC_DATE,
+				derivation: "quoted",
+			}),
+		]);
+
+		const rendered = await getRenderedCollegeBreaks(db, collegeId);
+		expect(rendered.length).toBeGreaterThan(0); // Positive control: an empty query is not success.
+		expect(rendered.map((row) => row.label)).not.toContain("Spring 2027 commencement");
 	});
 });
 

@@ -47,14 +47,19 @@ export const COLLEGE_NAME_MAP: Record<string, string> = {
 };
 
 /**
- * Winter-break rows a source calendar never published as an event: the transcriber bracketed them
- * from two neighbouring entries, so both endpoints land ON the bracketing events. Every span here
- * restates that gap exclusively — the day AFTER the last fall obligation through the day BEFORE the
- * first spring class day — and flips the row's derivation to "derived", which is what it is.
+ * Breaks that exist only as the gap between two published entries. Either the transcriber bracketed
+ * one by hand and landed both endpoints ON the bracketing events, or the scraper looked for an
+ * event that the calendar never names and left the row undated. Every span here restates that gap
+ * exclusively — the day AFTER the closing term's last obligation through the day BEFORE the next
+ * term's first class day — and flips the row's derivation to "derived", which is what it is.
+ *
+ * `sourceUrl` and `quote` are for a row the source JSON left with none of its own: an inferred span
+ * still has to say which published entries it was inferred from.
  */
 const DERIVED_SPANS: Record<
 	string,
-	{ label: string; startDate: string; endDate: string } | undefined
+	| { label: string; startDate: string; endDate: string; sourceUrl?: string; quote?: string }
+	| undefined
 > = {
 	"Cornell University": {
 		label: "Winter break (derived: last day of fall term through start of spring term)",
@@ -76,6 +81,15 @@ const DERIVED_SPANS: Record<
 		startDate: "2026-12-11",
 		endDate: "2027-01-13",
 	},
+	"Rose-Hulman Institute of Technology": {
+		label: "Thanksgiving break",
+		startDate: "2026-11-24",
+		endDate: "2026-11-29",
+		sourceUrl:
+			"https://www.rose-hulman.edu/campus-life/student-services/registrar/2026-27_Academic_Year_Calendar.pdf",
+		quote:
+			"Inferred from this calendar, not quoted from it: Rose-Hulman runs quarters and names no Thanksgiving event, so the break is the gap between the day after 'November 23 Monday Final Grades Due & Fall Term Ends' and the day before 'Winter Quarter, November 30 Monday Classes Begin'.",
+	},
 	"Saint Louis University": {
 		label: "Winter break (fall exams end to spring classes begin)",
 		startDate: "2026-12-12",
@@ -89,8 +103,14 @@ const DERIVED_SPANS: Record<
 	},
 };
 
+/**
+ * Rows the source calendar dated `not_found` and gave no URL for, and that nothing else
+ * establishes: forced to `unknown` so nothing downstream reads an undated row as a real break.
+ * Membership is a claim about what could not be established, so a row leaves this set the moment
+ * DERIVED_SPANS brackets it from published entries. UMKC's stays: a commencement is a single
+ * ceremony date, a point event with no neighbouring entries to bracket it from.
+ */
 const UNVERIFIABLE_ROWS = new Set([
-	"Rose-Hulman Institute of Technology\u0000Thanksgiving break",
 	"University of Missouri-Kansas City (UMKC)\u0000Spring 2027 commencement",
 ]);
 
@@ -148,8 +168,10 @@ export async function importCollegeBreaks(database: Database): Promise<number> {
 				endDate: derived ? derived.endDate : (source.end_date ?? MISSING_ACADEMIC_DATE),
 				kind: isUnverifiable ? "unknown" : kindsByRow[String(rowNumber)],
 				derivation: derived ? ("derived" as const) : ("quoted" as const),
-				sourceUrl: source.source_url,
-				quote: source.quote,
+				// A derived row states its own provenance when the source row carries none, so a later
+				// reader can see which published entries the span was inferred from.
+				sourceUrl: derived?.sourceUrl ?? source.source_url,
+				quote: derived?.quote ?? source.quote,
 				academicYear,
 			};
 		});
