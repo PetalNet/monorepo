@@ -182,8 +182,14 @@ interface ActorAuthorityShape {
 		principal: PersonPrincipal,
 		fix: Omit<ContainmentFix, "available" | "reason">,
 	) => Effect.Effect<void, AuthorityError>;
-	readonly suspendActor: (actorId: string) => Effect.Effect<void, AuthorityError>;
-	readonly retireActor: (actorId: string) => Effect.Effect<void, AuthorityError>;
+	readonly suspendAgentAs: (
+		principal: PersonPrincipal,
+		agentId: string,
+	) => Effect.Effect<void, AuthorityError>;
+	readonly retireAgentAs: (
+		principal: PersonPrincipal,
+		agentId: string,
+	) => Effect.Effect<void, AuthorityError>;
 }
 
 export class ActorAuthority extends Context.Service<ActorAuthority, ActorAuthorityShape>()(
@@ -203,8 +209,8 @@ export const ActorAuthorityBuildLayer = Layer.succeed(ActorAuthority, {
 	requestAgentCapability: unavailableDuringBuild,
 	removePersonCapabilityAs: unavailableDuringBuild,
 	applyContainmentFixAs: unavailableDuringBuild,
-	suspendActor: unavailableDuringBuild,
-	retireActor: unavailableDuringBuild,
+	suspendAgentAs: unavailableDuringBuild,
+	retireAgentAs: unavailableDuringBuild,
 });
 
 interface ActorRow {
@@ -891,30 +897,38 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						),
 				);
 			const setLifecycle = (actorIdValue: string, lifecycle: "suspended" | "retired") =>
-				serializeContainment(
-					Effect.gen(function* () {
-						const actors = yield* sql.unsafe<{ lifecycle: string }>(
-							"select lifecycle from grove_actors where id = $1 for update",
-							[actorIdValue],
-						);
-						const current = actors.at(0)?.lifecycle;
-						if (!current) return yield* Effect.fail(new ActorNotCurrent(actorIdValue));
-						if (current === "retired" && lifecycle !== "retired")
-							return yield* Effect.fail(new ActorDenied("A retired Actor cannot change lifecycle"));
-						yield* sql.unsafe(
-							"update grove_actors set lifecycle = $2, updated_at = now() where id = $1",
-							[actorIdValue, lifecycle],
-						);
-						yield* sql.unsafe(
-							`update grove_agent_access
+				Effect.gen(function* () {
+					const actors = yield* sql.unsafe<{ lifecycle: string }>(
+						"select lifecycle from grove_actors where id = $1 for update",
+						[actorIdValue],
+					);
+					const current = actors.at(0)?.lifecycle;
+					if (!current) return yield* Effect.fail(new ActorNotCurrent(actorIdValue));
+					if (current === "retired" && lifecycle !== "retired")
+						return yield* Effect.fail(new ActorDenied("A retired Actor cannot change lifecycle"));
+					yield* sql.unsafe(
+						"update grove_actors set lifecycle = $2, updated_at = now() where id = $1",
+						[actorIdValue, lifecycle],
+					);
+					yield* sql.unsafe(
+						`update grove_agent_access
                      set valid = false, invalid_reason = $2, updated_at = now()
                    where valid and (
                      agent_id = $1 or person_id = $1 or
                      agent_id in (select actor_id from grove_agents where owner_person_id = $1)
                    )`,
-							[actorIdValue, `actor-${lifecycle}`],
-						);
-					}),
+						[actorIdValue, `actor-${lifecycle}`],
+					);
+				});
+			const setAgentLifecycleAs = (
+				principal: PersonPrincipal,
+				agentIdValue: string,
+				lifecycle: "suspended" | "retired",
+			) =>
+				serializeContainment(
+					requireAgentManager(principal, agentIdValue).pipe(
+						Effect.andThen(setLifecycle(agentIdValue, lifecycle)),
+					),
 				);
 
 			return {
@@ -940,8 +954,10 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					requireAgentManager(principal, fix.agentId).pipe(
 						Effect.andThen(applyContainmentFix(fix)),
 					),
-				suspendActor: (actorIdValue) => setLifecycle(actorIdValue, "suspended"),
-				retireActor: (actorIdValue) => setLifecycle(actorIdValue, "retired"),
+				suspendAgentAs: (principal, agentIdValue) =>
+					setAgentLifecycleAs(principal, agentIdValue, "suspended"),
+				retireAgentAs: (principal, agentIdValue) =>
+					setAgentLifecycleAs(principal, agentIdValue, "retired"),
 			};
 		}),
 	);

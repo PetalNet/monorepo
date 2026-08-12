@@ -35,7 +35,10 @@ const actorInvocation = <A, E, R>(principal: AgentPrincipal, effect: Effect.Effe
 	);
 
 describe("actor authority", () => {
-	let runtime: ManagedRuntime.ManagedRuntime<ActorAuthority | SproutCommands, unknown>;
+	let runtime: ManagedRuntime.ManagedRuntime<
+		ActorAuthority | PgClient.PgClient | SproutCommands,
+		unknown
+	>;
 	let databaseRuntime: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
 	let databaseUrl: string;
 
@@ -54,25 +57,34 @@ describe("actor authority", () => {
 		await stopGrovePostgres();
 	});
 
-	const run = <A, E>(effect: Effect.Effect<A, E, ActorAuthority | SproutCommands>) =>
-		runtime.runPromise(effect);
-	const waitForBlockedSproutWrite = async (attempt = 0): Promise<undefined> => {
+	const run = <A, E>(
+		effect: Effect.Effect<A, E, ActorAuthority | PgClient.PgClient | SproutCommands>,
+	) => runtime.runPromise(effect);
+	const waitForDatabaseLock = async (queryFragment: string, attempt = 0): Promise<undefined> => {
 		const waiting = await databaseRuntime.runPromise(
 			Effect.flatMap(PgClient.PgClient, (sql) =>
 				sql.unsafe<{ waiting: number }>(
 					`select count(*)::int as waiting
                from pg_stat_activity
               where wait_event_type = 'Lock'
-                and query like '%grove_demo_sprouts%'
+                and query like $1
                 and query not like '%pg_stat_activity%'`,
+					[`%${queryFragment}%`],
 				),
 			),
 		);
 		if ((waiting.at(0)?.waiting ?? 0) > 0) return undefined;
-		if (attempt >= 99) throw new Error("Sprout write did not block on the table lock");
+		if (attempt >= 99) throw new Error(`${queryFragment} did not reach the expected database lock`);
 		await new Promise((resolve) => setTimeout(resolve, 10));
-		return waitForBlockedSproutWrite(attempt + 1);
+		return waitForDatabaseLock(queryFragment, attempt + 1);
 	};
+
+	it("does not expose unauthenticated lifecycle mutators", async () => {
+		const publicMethods = await run(authority((service) => Effect.succeed(Object.keys(service))));
+
+		expect(publicMethods).not.toContain("suspendActor");
+		expect(publicMethods).not.toContain("retireActor");
+	});
 
 	it("JIT-binds verified browser identities and only the configured identity claims Home Host", async () => {
 		const other = await run(
@@ -263,7 +275,14 @@ describe("actor authority", () => {
 		expect(conflictPersonIds).toContain(actors.owner.actorId);
 		expect(conflictPersonIds).toContain(actors.guest.actorId);
 
-		await run(authority((service) => service.suspendActor(agent.actorId)));
+		const unauthorizedSuspension = await run(
+			authority((service) => service.suspendAgentAs(actors.guest, agent.actorId).pipe(Effect.flip)),
+		);
+		expect(unauthorizedSuspension).toMatchObject({
+			_tag: "ActorDenied",
+			reason: "Only the Home Host owner may manage this Agent",
+		});
+		await run(authority((service) => service.suspendAgentAs(actors.owner, agent.actorId)));
 		const stale = await run(
 			authority((service) => service.authorizeActor(agent, "sprouts.list").pipe(Effect.flip)),
 		);
@@ -280,6 +299,16 @@ describe("actor authority", () => {
 	});
 
 	it("serializes an authorized write before concurrent suspension completes", async () => {
+		const owner = await run(
+			authority((service) =>
+				service.bindBrowserIdentity({
+					authUserId: "auth-owner",
+					...ownerIdentity,
+					name: "Grove Operator",
+					emailVerified: true,
+				}),
+			),
+		);
 		const agent = await run(
 			authority((service) =>
 				service.enrollSelf(machine("https://machine.example", "linearizable-revocation"), {
@@ -317,9 +346,11 @@ describe("actor authority", () => {
 			completionOrder.push("write");
 			return created;
 		});
-		await waitForBlockedSproutWrite();
+		await waitForDatabaseLock("grove_demo_sprouts");
 
-		const suspension = run(authority((service) => service.suspendActor(agent.actorId))).then(() => {
+		const suspension = run(
+			authority((service) => service.suspendAgentAs(owner, agent.actorId)),
+		).then(() => {
 			completionOrder.push("suspension");
 			return undefined;
 		});
@@ -336,7 +367,176 @@ describe("actor authority", () => {
 		expect(completionOrder).toEqual(["write", "suspension"]);
 	});
 
+	it("serializes capability removal after an authorized operation", async () => {
+		const owner = await run(
+			authority((service) =>
+				service.bindBrowserIdentity({
+					authUserId: "auth-owner",
+					...ownerIdentity,
+					name: "Grove Operator",
+					emailVerified: true,
+				}),
+			),
+		);
+		const agent = await run(
+			authority((service) =>
+				service.enrollSelf(machine("https://machine.example", "capability-revocation"), {
+					name: "Capability Agent",
+				}),
+			),
+		);
+		await run(
+			authority((service) =>
+				service.applyContainmentFixAs(owner, {
+					action: "grant-person-capability",
+					agentId: agent.actorId,
+					personId: owner.actorId,
+					capability: "agents.observe",
+				}),
+			),
+		);
+		await run(
+			authority((service) =>
+				service.requestAgentCapability(owner, agent.actorId, "agents.observe"),
+			),
+		);
+
+		const authorized = Promise.withResolvers<undefined>();
+		const release = Promise.withResolvers<undefined>();
+		const completionOrder: string[] = [];
+		const operation = run(
+			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient;
+				const service = yield* ActorAuthority;
+				yield* sql.withTransaction(
+					service.authorizeActor(agent, "agents.observe").pipe(
+						Effect.tap(() =>
+							Effect.sync(() => {
+								authorized.resolve(undefined);
+							}),
+						),
+						Effect.andThen(Effect.promise(() => release.promise)),
+					),
+				);
+			}),
+		).then(() => {
+			completionOrder.push("operation");
+			return undefined;
+		});
+		await authorized.promise;
+
+		const removal = run(
+			authority((service) =>
+				service.applyContainmentFixAs(owner, {
+					action: "remove-agent-capability",
+					agentId: agent.actorId,
+					personId: owner.actorId,
+					capability: "agents.observe",
+				}),
+			),
+		).then(() => {
+			completionOrder.push("removal");
+			return undefined;
+		});
+		let lockError: Error | undefined;
+		try {
+			await waitForDatabaseLock("delete from grove_actor_capabilities");
+			expect(completionOrder).toEqual([]);
+		} catch (error) {
+			lockError =
+				error instanceof Error ? error : new Error("Database lock check failed", { cause: error });
+		} finally {
+			release.resolve(undefined);
+		}
+		await Promise.all([operation, removal]);
+		if (lockError) throw lockError;
+		expect(completionOrder).toEqual(["operation", "removal"]);
+		await expect(
+			run(
+				authority((service) => service.authorizeActor(agent, "agents.observe").pipe(Effect.flip)),
+			),
+		).resolves.toMatchObject({ _tag: "ActorDenied" });
+	});
+
+	it("serializes current tool visibility before concurrent suspension", async () => {
+		const owner = await run(
+			authority((service) =>
+				service.bindBrowserIdentity({
+					authUserId: "auth-owner",
+					...ownerIdentity,
+					name: "Grove Operator",
+					emailVerified: true,
+				}),
+			),
+		);
+		const agent = await run(
+			authority((service) =>
+				service.enrollSelf(machine("https://machine.example", "tool-visibility"), {
+					name: "Tool Visibility Agent",
+				}),
+			),
+		);
+		const acquired = Promise.withResolvers<undefined>();
+		const release = Promise.withResolvers<undefined>();
+		const blocker = databaseRuntime.runPromise(
+			Effect.flatMap(PgClient.PgClient, (sql) =>
+				sql.withTransaction(
+					sql.unsafe("lock table grove_actor_capabilities in access exclusive mode").pipe(
+						Effect.tap(() =>
+							Effect.sync(() => {
+								acquired.resolve(undefined);
+							}),
+						),
+						Effect.andThen(Effect.promise(() => release.promise)),
+					),
+				),
+			),
+		);
+		await acquired.promise;
+
+		const completionOrder: string[] = [];
+		const listing = run(authority((service) => service.authorizedOperations(agent))).then(
+			(operations) => {
+				completionOrder.push("listing");
+				return operations;
+			},
+		);
+		await waitForDatabaseLock("from grove_actor_capabilities");
+		const suspension = run(
+			authority((service) => service.suspendAgentAs(owner, agent.actorId)),
+		).then(() => {
+			completionOrder.push("suspension");
+			return undefined;
+		});
+		let lockError: Error | undefined;
+		try {
+			await waitForDatabaseLock("select lifecycle from grove_actors");
+			expect(completionOrder).toEqual([]);
+		} catch (error) {
+			lockError =
+				error instanceof Error ? error : new Error("Database lock check failed", { cause: error });
+		} finally {
+			release.resolve(undefined);
+			await blocker;
+		}
+		const [visibleBefore] = await Promise.all([listing, suspension]);
+		if (lockError) throw lockError;
+		expect(visibleBefore).toContain("sprouts.list");
+		expect(completionOrder).toEqual(["listing", "suspension"]);
+		expect(await run(authority((service) => service.authorizedOperations(agent)))).toEqual([]);
+	});
+
 	it("keeps retirement terminal", async () => {
+		const owner = await run(
+			authority((service) =>
+				service.bindBrowserIdentity({
+					authUserId: "auth-owner",
+					...ownerIdentity,
+					name: "Grove Operator",
+					emailVerified: true,
+				}),
+			),
+		);
 		const agent = await run(
 			authority((service) =>
 				service.enrollSelf(machine("https://machine.example", "retired-agent"), {
@@ -344,10 +544,10 @@ describe("actor authority", () => {
 				}),
 			),
 		);
-		await run(authority((service) => service.retireActor(agent.actorId)));
+		await run(authority((service) => service.retireAgentAs(owner, agent.actorId)));
 
 		const transition = await run(
-			authority((service) => service.suspendActor(agent.actorId).pipe(Effect.flip)),
+			authority((service) => service.suspendAgentAs(owner, agent.actorId).pipe(Effect.flip)),
 		);
 
 		expect(transition).toMatchObject({
@@ -389,7 +589,13 @@ describe("actor authority", () => {
 				}),
 			),
 		);
-		await run(authority((service) => service.suspendActor(owner.actorId)));
+		await databaseRuntime.runPromise(
+			Effect.flatMap(PgClient.PgClient, (sql) =>
+				sql
+					.unsafe("update grove_actors set lifecycle = 'suspended' where id = $1", [owner.actorId])
+					.pipe(Effect.asVoid),
+			),
+		);
 
 		expect(await run(authority((service) => service.homeReadiness))).toMatchObject({
 			status: "owner-not-current",

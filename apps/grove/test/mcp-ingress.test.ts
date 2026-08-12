@@ -227,7 +227,7 @@ describe("MCP protected-resource ingress", () => {
 		);
 		const agentId = enrolled.result.structuredContent.actorId as string;
 		await runtime.runPromise(
-			Effect.flatMap(ActorAuthority, (authority) => authority.suspendActor(agentId)),
+			Effect.flatMap(ActorAuthority, (authority) => authority.suspendAgentAs(owner, agentId)),
 		);
 
 		const retried = await json(
