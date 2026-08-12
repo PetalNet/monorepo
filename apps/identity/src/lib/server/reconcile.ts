@@ -73,7 +73,7 @@ async function reconcile(
 		const index = cursor++;
 		if (index >= jobs.length) return;
 
-		const { person, resource } = jobs[index]!;
+		const { person, resource } = jobs[index];
 		const explanation = explainFor(state, person.id, resource.slug);
 		if (explanation) {
 			let evaluated: AccessEvidence["evaluated"];
@@ -126,6 +126,17 @@ async function reconcile(
  */
 let cached: { state: LabState; reconciliation: Reconciliation } | null = null;
 let inFlight: Promise<{ state: LabState; reconciliation: Reconciliation }> | null = null;
+
+/**
+ * Drop the cache after a mutation.
+ *
+ * Without this the page would keep serving the pre-change picture and quietly contradict the
+ * verification that just ran, which is the exact "configured says one thing, screen says another"
+ * confusion the product exists to remove.
+ */
+export function invalidateReconciliation(): void {
+	cached = null;
+}
 
 export function evidenceAgeMs(reconciliation: Reconciliation, now: number): number {
 	return now - Date.parse(reconciliation.finishedAt);

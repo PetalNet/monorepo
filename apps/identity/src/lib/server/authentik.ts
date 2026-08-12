@@ -93,7 +93,7 @@ export class AuthentikClient {
 		}
 		if (!response.ok) {
 			throw new AuthentikError(
-				`Authentik returned ${response.status} for ${path}`,
+				`Authentik returned ${String(response.status)} for ${path}`,
 				response.status,
 				path,
 			);
@@ -115,7 +115,7 @@ export class AuthentikClient {
 			const body = await this.#get<{
 				results: T[];
 				pagination?: { next: number; total_pages: number };
-			}>(`${path}${separator}page_size=100&page=${page}`);
+			}>(`${path}${separator}page_size=100&page=${String(page)}`);
 			const all = [...collected, ...body.results];
 			const pagination = body.pagination;
 			if (!pagination || page >= pagination.total_pages) return all;
@@ -150,7 +150,7 @@ export class AuthentikClient {
 	 */
 	async checkAccess(slug: string, userPk: number): Promise<boolean> {
 		const body = await this.#get<{ passing: boolean }>(
-			`/core/applications/${slug}/check_access/?for_user=${userPk}`,
+			`/core/applications/${slug}/check_access/?for_user=${String(userPk)}`,
 		);
 		return body.passing;
 	}

@@ -1,0 +1,78 @@
+/*
+ * Design tokens and base styles for the whole app.
+ *
+ * These live here rather than in a component's <style> block for a reason worth recording: they
+ * started inside the home page's scoped styles, which meant loading /p/<someone> directly gave a
+ * page with no --ink, no --rule and no --surface. Every declaration referencing them became
+ * invalid at computed-value time and was dropped, so the page rendered as unstyled serif text.
+ * It typechecked, returned 200, and logged no console errors. Only looking at it caught it.
+ */
+
+:root {
+	--ink: #17181c;
+	--ink-2: #4a4d57;
+	--ink-3: #74788a;
+	--paper: #f7f6f3;
+	--surface: #fffefc;
+	--rule: #dedbd3;
+	--accent: #9c4221;
+	--danger: #a3241e;
+	--danger-soft: #f6e3e1;
+	--ok: #2f6b46;
+	--ok-soft: #e2efe7;
+	--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/*
+ * Dark is the default the viewer's OS asks for; the explicit light choice has to win over it,
+ * hence the :not() guard rather than a bare media query.
+ */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--ink: #eceae5;
+		--ink-2: #b6b3ab;
+		--ink-3: #8a877f;
+		--paper: #14151a;
+		--surface: #1b1d23;
+		--rule: #31343c;
+		--accent: #e08a5f;
+		--danger: #e58a80;
+		--danger-soft: #331e1c;
+		--ok: #7cc79b;
+		--ok-soft: #1b2b22;
+	}
+}
+
+:root[data-theme="dark"] {
+	--ink: #eceae5;
+	--ink-2: #b6b3ab;
+	--ink-3: #8a877f;
+	--paper: #14151a;
+	--surface: #1b1d23;
+	--rule: #31343c;
+	--accent: #e08a5f;
+	--danger: #e58a80;
+	--danger-soft: #331e1c;
+	--ok: #7cc79b;
+	--ok-soft: #1b2b22;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	line-height: 1.5;
+	-webkit-text-size-adjust: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	* {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}

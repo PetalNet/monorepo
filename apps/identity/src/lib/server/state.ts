@@ -113,7 +113,7 @@ export async function loadLabState(client: AuthentikClient, readAt: string): Pro
 		// reports "no problems" when what actually happened is "we could not look".
 		const message =
 			cause instanceof AuthentikError
-				? `Could not read Authentik (${cause.status} on ${cause.path}). Nothing below is current.`
+				? `Could not read Authentik (${String(cause.status)} on ${cause.path}). Nothing below is current.`
 				: `Could not read Authentik: ${String(cause)}`;
 		return {
 			people: [],
@@ -130,7 +130,7 @@ export async function loadLabState(client: AuthentikClient, readAt: string): Pro
 	const bindingsByApp = new Map<string, string[]>();
 	for (const binding of bindings) {
 		if (!binding.enabled) continue;
-		const label = binding.group_obj?.name ?? binding.policy_obj?.name ?? `user:${binding.user}`;
+		const label = binding.group_obj?.name ?? binding.policy_obj?.name ?? `user:${String(binding.user)}`;
 		bindingsByApp.set(binding.target, [...(bindingsByApp.get(binding.target) ?? []), label]);
 	}
 
@@ -138,18 +138,25 @@ export async function loadLabState(client: AuthentikClient, readAt: string): Pro
 		roles: ROLE_GRAPH.roles,
 		// A binding on a group this app models as a role becomes a grant. That keeps the
 		// explanation tree describing what Authentik really enforces, not a parallel fiction.
-		grants: bindings
-			.filter((b) => b.enabled && b.group_obj && ROLE_GRAPH.roles.has(b.group_obj.name))
-			.map((b) => ({
-				roleId: b.group_obj!.name,
-				resourceId: applications.find((a) => a.pk === b.target)?.slug ?? b.target,
-			})),
+		// flatMap rather than filter-then-map: TypeScript does not carry a .filter() narrowing
+		// into a following .map(), so the two-step version needs a non-null assertion to compile.
+		// Doing the guard and the construction in one pass keeps the type honest.
+		grants: bindings.flatMap((b) => {
+			const group = b.group_obj;
+			if (!b.enabled || !group || !ROLE_GRAPH.roles.has(group.name)) return [];
+			return [
+				{
+					roleId: group.name,
+					resourceId: applications.find((a) => a.pk === b.target)?.slug ?? b.target,
+				},
+			];
+		}),
 		denies: [],
 	};
 
 	const humans = peopleOnly(users);
 	const people: Person[] = humans.map((user) => {
-		const { roleIds, unmapped } = toRoleIds(user.groups_obj ?? []);
+		const { roleIds, unmapped } = toRoleIds(user.groups_obj);
 		return {
 			id: user.username,
 			pk: user.pk,

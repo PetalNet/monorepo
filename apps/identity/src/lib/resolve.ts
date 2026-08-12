@@ -106,8 +106,9 @@ function reachableRoles(graph: RoleGraph, directRoleIds: string[]): ExplanationS
 	// cannot tell a cycle apart from a diamond: both revisit a node. A diamond is legal.
 	detectCycles(graph);
 
-	for (let i = 0; i < queue.length; i++) {
-		const current = queue[i]!;
+	// for...of walks the array iterator, which re-reads length on each step, so items pushed
+	// during the walk are visited. That is the whole point of a breadth-first queue.
+	for (const current of queue) {
 		const role = graph.roles.get(current.roleId);
 		if (!role) continue;
 		for (const parentId of role.inherits) {
@@ -165,16 +166,18 @@ export function explainAccess(
 
 	const denials = graph.denies
 		.filter((deny) => deny.resourceId === resourceId && byRole.has(deny.roleId))
-		.map((deny) => byRole.get(deny.roleId)!)
+		.map((deny) => byRole.get(deny.roleId))
+		.filter((step) => step !== undefined)
 		.toSorted(byDistance);
 
 	const allows = graph.grants
 		.filter((grant) => grant.resourceId === resourceId && byRole.has(grant.roleId))
-		.map((grant) => byRole.get(grant.roleId)!)
+		.map((grant) => byRole.get(grant.roleId))
+		.filter((step) => step !== undefined)
 		.toSorted(byDistance);
 
 	if (denials.length > 0) {
-		const deciding = denials[0]!;
+		const deciding = denials[0];
 		return {
 			decision: "deny",
 			reason: deciding.distance === 0 ? "explicit-direct-deny" : "inherited-deny",
@@ -187,7 +190,7 @@ export function explainAccess(
 	}
 
 	if (allows.length > 0) {
-		const deciding = allows[0]!;
+		const deciding = allows[0];
 		return {
 			decision: "allow",
 			reason: deciding.distance === 0 ? "direct-allow" : "inherited-allow",

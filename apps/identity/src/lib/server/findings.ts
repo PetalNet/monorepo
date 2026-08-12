@@ -146,7 +146,7 @@ export function onboardingGate(applications: AuthentikApplication[]): Onboarding
 		reason:
 			(slugs.length === 1
 				? "1 application currently permits every authenticated account."
-				: `${slugs.length} applications currently permit every authenticated account.`) +
+				: `${String(slugs.length)} applications currently permit every authenticated account.`) +
 			" Creating another account could expose data.",
 		unboundApplications: slugs,
 	};
