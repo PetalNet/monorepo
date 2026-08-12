@@ -10,8 +10,18 @@
 import { fromDay, startOfMonth, startOfNextMonth, toDay, weekdayOf } from "./dates";
 import { ASSUMED_SOURCE } from "./institutions";
 import { mergeRanges, type DayRange, type Participant } from "./overlap";
+import { breakName, deriveSeason, type Season } from "./season";
 
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/** One named reason a person is off. */
+export interface DayReason {
+	/** What the break is called: the label with its trailing provenance dropped. */
+	name: string;
+	/** The label exactly as entered or published, for a tooltip. */
+	label: string;
+	season: Season;
+}
 
 export interface DayCell {
 	iso: string;
@@ -25,6 +35,21 @@ export interface DayCell {
 	freeCount: number;
 	/** Every counted participant is off, and there are at least two of them. */
 	allFree: boolean;
+	/**
+	 * Why each free person is off, keyed by their id, earliest break first.
+	 *
+	 * Keyed by person rather than grouped by break on purpose: two people can be off on the same day
+	 * for entirely different reasons, and one of them can be off for two at once. A person is the
+	 * thing that appears exactly once.
+	 */
+	reasons: ReadonlyMap<string, DayReason[]>;
+	/**
+	 * Counted people who are at school today but were off yesterday: the ones who have just come
+	 * back, rather than the ones who never left.
+	 */
+	returningIds: string[];
+	/** The prevailing season of the day's named breaks, or null when nothing named covers it. */
+	season: Season | null;
 }
 
 export interface MonthView {
@@ -85,9 +110,48 @@ function covers(ranges: DayRange[], day: number): boolean {
 	return false;
 }
 
+/** A stored break with the name it was entered or published under. */
+export interface LabeledBreak {
+	userId: string;
+	label: string;
+	startDate: string;
+	endDate: string;
+}
+
+interface NamedRange extends DayRange, DayReason {}
+
 export interface MonthOptions {
 	/** `YYYY-MM-DD`; the day to mark as today. Omit to mark none. */
 	todayIso?: string;
+	/**
+	 * The named breaks behind the participants' ranges. Supply them and every cell can say _why_ each
+	 * person is off; omit them and the grid is unchanged, it just cannot name a reason.
+	 */
+	breaks?: readonly LabeledBreak[];
+}
+
+/** The named breaks per person, sorted so a day's reasons come out in a stable order. */
+function namedRangesByPerson(rows: readonly LabeledBreak[]): Map<string, NamedRange[]> {
+	const byUser = new Map<string, NamedRange[]>();
+	for (const row of rows) {
+		const range: NamedRange = {
+			start: toDay(row.startDate),
+			end: toDay(row.endDate),
+			name: breakName(row.label),
+			label: row.label,
+			season: deriveSeason(row.label, row.startDate),
+		};
+		const list = byUser.get(row.userId);
+		if (list) list.push(range);
+		else byUser.set(row.userId, [range]);
+	}
+	for (const [id, list] of byUser) {
+		byUser.set(
+			id,
+			list.toSorted((a, b) => a.start - b.start || a.label.localeCompare(b.label)),
+		);
+	}
+	return byUser;
 }
 
 /**
@@ -109,6 +173,7 @@ export function buildMonthView(
 		.map((p) => ({ id: p.id, ranges: mergeRanges(p.ranges) }))
 		.filter((p) => p.ranges.length > 0);
 	const countedIds = active.map((p) => p.id);
+	const named = namedRangesByPerson(options.breaks ?? []);
 
 	const firstDay = toDay(firstIso);
 	const length = daysInMonth(year, month);
@@ -131,6 +196,30 @@ export function buildMonthView(
 		if (allFree && inMonth) allFreeDays++;
 		const weekday = weekdayOf(day);
 
+		// "Back at school" is exactly this: not off now, off the day before.
+		const returningIds = active
+			.filter((p) => !covers(p.ranges, day) && covers(p.ranges, day - 1))
+			.map((p) => p.id);
+
+		const reasons = new Map<string, DayReason[]>();
+		const tally = new Map<Season, number>();
+		let season: Season | null = null;
+		for (const id of freeIds) {
+			const seen = new Set<string>();
+			const mine: DayReason[] = [];
+			for (const range of named.get(id) ?? []) {
+				if (day < range.start || day > range.end || seen.has(range.label)) continue;
+				seen.add(range.label);
+				mine.push({ name: range.name, label: range.label, season: range.season });
+				const count = (tally.get(range.season) ?? 0) + 1;
+				tally.set(range.season, count);
+				// First past the post, ties going to whoever got there first, so the mark on a
+				// mixed day is the season most of the group is actually in.
+				if (season === null || count > (tally.get(season) ?? 0)) season = range.season;
+			}
+			if (mine.length > 0) reasons.set(id, mine);
+		}
+
 		week.push({
 			iso,
 			dayOfMonth: Number(iso.slice(8, 10)),
@@ -140,6 +229,9 @@ export function buildMonthView(
 			freeIds,
 			freeCount: freeIds.length,
 			allFree,
+			reasons,
+			returningIds,
+			season,
 		});
 
 		if (week.length === 7) {
@@ -157,6 +249,28 @@ export function buildMonthView(
 		countedIds,
 		allFreeDays,
 	};
+}
+
+/**
+ * The day's reasons with repeated names collapsed, in participant order.
+ *
+ * Eleven friends at eleven colleges produce eleven separately worded entries for one Labor Day, so
+ * anything that reads the day out loud wants the distinct names, not one per person. Matching is
+ * case-insensitive because "Labor Day holiday" and "Labor Day Holiday" are two colleges spelling
+ * the same day, not two days.
+ */
+export function distinctReasons(cell: DayCell): DayReason[] {
+	const seen = new Set<string>();
+	const out: DayReason[] = [];
+	for (const id of cell.freeIds) {
+		for (const reason of cell.reasons.get(id) ?? []) {
+			const key = reason.name.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(reason);
+		}
+	}
+	return out;
 }
 
 /** Step a `YYYY-MM-01` month string by whole months. */
