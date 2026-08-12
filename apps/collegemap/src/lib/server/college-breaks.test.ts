@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createClient } from "@libsql/client";
-import { and, eq } from "drizzle-orm";
+import { and, eq, like, not } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -23,6 +23,23 @@ function resolvedId(resolved: Map<string, string>, school: string): string {
 const WASHU_JSON_NAME = "Washington University in St. Louis (WashU)";
 const ROSE_HULMAN = "Rose-Hulman Institute of Technology";
 const UMKC_JSON_NAME = "University of Missouri-Kansas City (UMKC)";
+const KCAI = "Kansas City Art Institute";
+/**
+ * Two unrelated things carry derivation "derived": the hand-bracketed spans listed below, one per
+ * school at most, and the computed summer span every school gets. The label prefix is what tells
+ * them apart, so the lists below stay about what they were about.
+ */
+const SUMMER_LABEL_PREFIX = "Summer break";
+/** Spelled out once, in full: the label is the only place a reader learns the start is a guess. */
+const SUMMER_LABEL =
+	"Summer break (derived: ends the day before fall classes begin; opens 2026-07-01, the academic-year window boundary rather than a published date)";
+
+/** Day arithmetic done independently of the helper the importer uses, so both cannot agree wrongly. */
+function dayBefore(iso: string): string {
+	const at = new Date(`${iso}T00:00:00Z`);
+	at.setUTCDate(at.getUTCDate() - 1);
+	return at.toISOString().slice(0, 10);
+}
 const DERIVED_SPANS = [
 	["Cornell University", "2026-12-20", "2027-01-24"],
 	["Kennesaw State University", "2026-12-15", "2027-01-10"],
@@ -81,11 +98,12 @@ describe("institutional college-break import", () => {
 		expect(resolved.get("Cornell University")).not.toBe("work-cornell");
 	});
 
-	it("imports all 229 source rows idempotently", async () => {
-		expect(await importCollegeBreaks(db)).toBe(229);
-		expect((await db.select().from(collegeBreaks)).length).toBe(229);
-		expect(await importCollegeBreaks(db)).toBe(229);
-		expect((await db.select().from(collegeBreaks)).length).toBe(229);
+	it("imports all 243 rows idempotently", async () => {
+		// 229 transcribed source rows plus one derived summer span for each of the 14 schools.
+		expect(await importCollegeBreaks(db)).toBe(243);
+		expect((await db.select().from(collegeBreaks)).length).toBe(243);
+		expect(await importCollegeBreaks(db)).toBe(243);
+		expect((await db.select().from(collegeBreaks)).length).toBe(243);
 	});
 
 	it("pins every derived span and renders each one", async () => {
@@ -100,6 +118,9 @@ describe("institutional college-break import", () => {
 						and(
 							eq(collegeBreaks.collegeId, resolvedId(resolved, school)),
 							eq(collegeBreaks.derivation, "derived"),
+							// Everything here is a hand-bracketed span. The computed summer span is derived
+							// too, and is checked on its own below.
+							not(like(collegeBreaks.label, `${SUMMER_LABEL_PREFIX}%`)),
 						),
 					),
 			),
@@ -119,18 +140,21 @@ describe("institutional college-break import", () => {
 		}
 	});
 
-	it("imports Kansas City Art Institute wholly quoted, with nothing derived", async () => {
+	it("imports every transcribed Kansas City Art Institute row quoted, bracketing none of them", async () => {
 		// An art school: KCAI publishes no exam period at all, and names its own "Winter Break"
-		// rather than leaving it as the gap between two other entries. So every row is quoted
-		// straight off the calendar and none of it is bracketed by hand.
+		// rather than leaving it as the gap between two other entries. So every transcribed row is
+		// quoted straight off the calendar and none of it is bracketed by hand. Its summer span is
+		// the one derived row, computed from its own fall boundary like every other school's.
 		await importCollegeBreaks(db);
 		const resolved = await resolveCollegeIds(db);
 		const rows = await db
 			.select()
 			.from(collegeBreaks)
-			.where(eq(collegeBreaks.collegeId, resolvedId(resolved, "Kansas City Art Institute")));
-		expect(rows).toHaveLength(14);
-		expect(rows.filter((row) => row.derivation !== "quoted")).toEqual([]);
+			.where(eq(collegeBreaks.collegeId, resolvedId(resolved, KCAI)));
+		const transcribed = rows.filter((row) => !row.label.startsWith(SUMMER_LABEL_PREFIX));
+		expect(rows).toHaveLength(15);
+		expect(transcribed).toHaveLength(14);
+		expect(transcribed.filter((row) => row.derivation !== "quoted")).toEqual([]);
 		expect(rows.filter((row) => row.kind === "exam")).toEqual([]);
 		expect(rows.filter((row) => row.quote === null || row.sourceUrl === null)).toEqual([]);
 		expect(
@@ -144,6 +168,9 @@ describe("institutional college-break import", () => {
 			"Fall Break (no classes) 2026-11-25..2026-11-29",
 			"Labor Day holiday (campus closed) 2026-09-05..2026-09-07",
 			"Martin Luther King Jr. Holiday (campus closed) 2027-01-18..2027-01-18",
+			// Derived, not published: KCAI's fall classes begin 2026-08-24, and having no exam period
+			// anywhere in its year changes nothing about where the summer window closes.
+			`${SUMMER_LABEL} 2026-07-01..2026-08-23`,
 			"Winter Break (campus closed) 2026-12-17..2027-01-03",
 		]);
 	});
@@ -208,6 +235,112 @@ describe("rows the source calendar never published as an event", () => {
 		const rendered = await getRenderedCollegeBreaks(db, collegeId);
 		expect(rendered.length).toBeGreaterThan(0); // Positive control: an empty query is not success.
 		expect(rendered.map((row) => row.label)).not.toContain("Spring 2027 commencement");
+	});
+});
+
+/**
+ * The derived summer spans, checked against the data rather than against a list of dates.
+ *
+ * Nothing below names a school's fall-start date except the deliberate pins: the expectation is
+ * re-read out of the imported rows every run, so a school added tomorrow is covered the day it
+ * lands and a corrected fall-start date moves the assertion with it. Kansas City Art Institute is
+ * the proof rather than the promise: it arrived after this rule was written and got its span with
+ * no change here.
+ */
+describe("derived summer break spans", () => {
+	interface SummerCheck {
+		school: string;
+		summer: (typeof collegeBreaks.$inferSelect)[];
+		fallStart: string | undefined;
+	}
+
+	async function importAndCollect(): Promise<SummerCheck[]> {
+		await importCollegeBreaks(db);
+		const resolved = await resolveCollegeIds(db);
+		const rows = await db.select().from(collegeBreaks);
+		return [...resolved].map(([school, collegeId]) => {
+			const mine = rows.filter((row) => row.collegeId === collegeId);
+			return {
+				school,
+				summer: mine.filter((row) => row.label.startsWith(SUMMER_LABEL_PREFIX)),
+				fallStart: mine
+					.filter((row) => row.kind === "term_boundary" && row.startDate.startsWith("20"))
+					.map((row) => row.startDate)
+					.toSorted()
+					.at(0),
+			};
+		});
+	}
+
+	it("gives every school exactly one summer span, ending the day before its own fall start", async () => {
+		const checks = await importAndCollect();
+		expect(checks).toHaveLength(14);
+		// Positive control: without a fall-start row on every school the comparison below has nothing
+		// to compare against and would pass on an empty dataset.
+		expect(checks.filter((entry) => entry.fallStart === undefined).map((e) => e.school)).toEqual(
+			[],
+		);
+		expect(
+			checks
+				.filter((entry) => entry.summer.length !== 1)
+				.map((entry) => `${entry.school} -> ${String(entry.summer.length)} summer spans`),
+		).toEqual([]);
+		expect(
+			checks
+				.filter((entry) => entry.summer.at(0)?.endDate !== dayBefore(entry.fallStart ?? ""))
+				.map(
+					(entry) =>
+						`${entry.school}: summer ends ${String(entry.summer.at(0)?.endDate)}, fall starts ${String(entry.fallStart)}`,
+				),
+		).toEqual([]);
+	});
+
+	it("pins the two extremes: Rose-Hulman ends 2026-09-02 and Missouri State ends 2026-08-16", async () => {
+		const checks = await importAndCollect();
+		const endOf = (school: string) =>
+			checks.find((entry) => entry.school === school)?.summer.at(0)?.endDate;
+		expect(endOf(ROSE_HULMAN)).toBe("2026-09-02");
+		expect(endOf("Missouri State University-Springfield")).toBe("2026-08-16");
+	});
+
+	it("covers a school that publishes no exam period at all", async () => {
+		// KCAI landed after this rule was written and has fewer obligation rows than anything else in
+		// the set: no finals week anywhere in its year. The anchor is a term boundary, not an exam, so
+		// nothing about that changes where its summer closes.
+		const checks = await importAndCollect();
+		const kcai = checks.find((entry) => entry.school === KCAI);
+		expect(kcai?.fallStart).toBe("2026-08-24");
+		expect(kcai?.summer.at(0)?.endDate).toBe("2026-08-23");
+	});
+
+	it("opens every summer span on the academic-year boundary, says so in the label, and renders", async () => {
+		const checks = await importAndCollect();
+		const rendered = await getRenderedCollegeBreaks(db);
+		for (const entry of checks) {
+			expect(entry.summer).toEqual([
+				expect.objectContaining({
+					label: SUMMER_LABEL,
+					startDate: "2026-07-01",
+					kind: "break",
+					derivation: "derived",
+				}),
+			]);
+			const row = entry.summer.at(0);
+			// Provenance: the row has to point at the published boundary it was derived from.
+			expect(row?.quote).toContain(String(entry.fallStart));
+			expect(row?.sourceUrl).toMatch(/^https:\/\//);
+			// Deriving a span and rendering it are one claim, the same way the hand-bracketed spans
+			// are checked: a summer row that never reaches a calendar has fixed nothing.
+			expect(rendered.filter((candidate) => candidate.id === row?.id)).toHaveLength(1);
+		}
+	});
+
+	it("takes the earliest fall boundary where a school publishes two, so nobody is shown free in class", async () => {
+		// Missouri Baptist starts evening classes 2026-08-24 and day classes 2026-08-26.
+		const checks = await importAndCollect();
+		const mbu = checks.find((entry) => entry.school === "Missouri Baptist University");
+		expect(mbu?.summer.at(0)?.endDate).toBe("2026-08-23");
+		expect(mbu?.summer.at(0)?.quote).toContain("evening classes");
 	});
 });
 
