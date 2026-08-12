@@ -582,19 +582,25 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				asDatabaseError(
 					Effect.gen(function* () {
 						if (principal.kind === "person") {
-							const rows = yield* sql.unsafe<{ lifecycle: string; capability: string | null }>(
-								`select a.lifecycle, c.capability
+							const rows = yield* sql.unsafe<{ lifecycle: string }>(
+								`select a.lifecycle
                    from grove_actors a
                    join grove_persons p on p.actor_id = a.id
-                   left join grove_actor_capabilities c on c.actor_id = a.id and c.capability = $3
                   where a.id = $1 and p.better_auth_user_id = $2
                     for share of a`,
-								[principal.actorId, principal.authUserId, operation],
+								[principal.actorId, principal.authUserId],
 							);
 							const row = rows.at(0);
 							if (row?.lifecycle !== "active")
 								return yield* Effect.fail(new ActorNotCurrent(principal.actorId));
-							if (!row.capability)
+							const capabilities = yield* sql.unsafe<CapabilityRow>(
+								`select capability
+                   from grove_actor_capabilities
+                  where actor_id = $1 and capability = $2
+                    for share`,
+								[principal.actorId, operation],
+							);
+							if (capabilities.length === 0)
 								return yield* Effect.fail(new ActorDenied(`Actor lacks ${operation}`));
 							return;
 						}
@@ -603,21 +609,18 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							agent_lifecycle: string;
 							owner_lifecycle: string;
 							host_owner_id: string | null;
-							capability: string | null;
 						}>(
 							`select agent_actor.lifecycle as agent_lifecycle,
                         owner_actor.lifecycle as owner_lifecycle,
-                        h.owner_person_id as host_owner_id,
-                        c.capability
+                        h.owner_person_id as host_owner_id
                    from grove_external_identities i
                    join grove_agents g on g.actor_id = i.actor_id
                    join grove_actors agent_actor on agent_actor.id = g.actor_id
                    join grove_actors owner_actor on owner_actor.id = g.owner_person_id
                    join grove_hosts h on h.id = g.home_host_id
-                   left join grove_actor_capabilities c on c.actor_id = g.actor_id and c.capability = $4
                   where i.actor_id = $1 and i.issuer = $2 and i.subject = $3 and i.use = 'machine'
                     for share of agent_actor, owner_actor, h`,
-							[principal.actorId, principal.issuer, principal.subject, operation],
+							[principal.actorId, principal.issuer, principal.subject],
 						);
 						const row = rows.at(0);
 						if (
@@ -626,7 +629,14 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							row.host_owner_id !== principal.ownerPersonId
 						)
 							return yield* Effect.fail(new ActorNotCurrent(principal.actorId));
-						if (!row.capability)
+						const capabilities = yield* sql.unsafe<CapabilityRow>(
+							`select capability
+                   from grove_actor_capabilities
+                  where actor_id = $1 and capability = $2
+                    for share`,
+							[principal.actorId, operation],
+						);
+						if (capabilities.length === 0)
 							return yield* Effect.fail(new ActorDenied(`Actor lacks ${operation}`));
 					}),
 				);
