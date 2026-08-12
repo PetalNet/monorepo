@@ -32,6 +32,7 @@ interface SourceSchool {
 export const COLLEGE_NAME_MAP: Record<string, string> = {
 	"Cornell University": "Cornell University",
 	"Gustavus Adolphus College": "Gustavus Adolphus College",
+	"Kansas City Art Institute": "Kansas City Art Institute",
 	"Kennesaw State University": "Kennesaw State University",
 	"Lindenwood University": "Lindenwood University",
 	"Missouri Baptist University": "Missouri Baptist University",

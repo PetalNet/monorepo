@@ -62,7 +62,7 @@ describe("institutional college-break import", () => {
 	it("resolves every source school exactly once, including the explicit WashU name mapping", async () => {
 		expect(COLLEGE_NAME_MAP[WASHU_JSON_NAME]).toBe("Washington University in St Louis");
 		const resolved = await resolveCollegeIds(db);
-		expect(resolved).toHaveLength(13);
+		expect(resolved).toHaveLength(14);
 		expect(resolved.get(WASHU_JSON_NAME)).toBeDefined();
 	});
 
@@ -74,15 +74,15 @@ describe("institutional college-break import", () => {
 			args: ["work-cornell", "Cornell University"],
 		});
 		const resolved = await resolveCollegeIds(db);
-		expect(resolved).toHaveLength(13);
+		expect(resolved).toHaveLength(14);
 		expect(resolved.get("Cornell University")).not.toBe("work-cornell");
 	});
 
-	it("imports all 215 source rows idempotently", async () => {
-		expect(await importCollegeBreaks(db)).toBe(215);
-		expect((await db.select().from(collegeBreaks)).length).toBe(215);
-		expect(await importCollegeBreaks(db)).toBe(215);
-		expect((await db.select().from(collegeBreaks)).length).toBe(215);
+	it("imports all 229 source rows idempotently", async () => {
+		expect(await importCollegeBreaks(db)).toBe(229);
+		expect((await db.select().from(collegeBreaks)).length).toBe(229);
+		expect(await importCollegeBreaks(db)).toBe(229);
+		expect((await db.select().from(collegeBreaks)).length).toBe(229);
 	});
 
 	it("pins all corrected and derived winter-break spans", async () => {
@@ -106,6 +106,35 @@ describe("institutional college-break import", () => {
 				expect.objectContaining({ startDate, endDate, derivation: "derived" }),
 			]);
 		}
+	});
+
+	it("imports Kansas City Art Institute wholly quoted, with nothing derived", async () => {
+		// An art school: KCAI publishes no exam period at all, and names its own "Winter Break"
+		// rather than leaving it as the gap between two other entries. So every row is quoted
+		// straight off the calendar and none of it is bracketed by hand.
+		await importCollegeBreaks(db);
+		const resolved = await resolveCollegeIds(db);
+		const rows = await db
+			.select()
+			.from(collegeBreaks)
+			.where(eq(collegeBreaks.collegeId, resolvedId(resolved, "Kansas City Art Institute")));
+		expect(rows).toHaveLength(14);
+		expect(rows.filter((row) => row.derivation !== "quoted")).toEqual([]);
+		expect(rows.filter((row) => row.kind === "exam")).toEqual([]);
+		expect(rows.filter((row) => row.quote === null || row.sourceUrl === null)).toEqual([]);
+		expect(
+			rows
+				.filter((row) => row.kind === "break" || row.kind === "holiday")
+				.map((row) => `${row.label} ${row.startDate}..${row.endDate}`)
+				.toSorted(),
+		).toEqual([
+			"Degree programs mid-semester break (spring break) 2027-03-13..2027-03-21",
+			"Election Day (campus closed) 2026-11-03..2026-11-03",
+			"Fall Break (no classes) 2026-11-25..2026-11-29",
+			"Labor Day holiday (campus closed) 2026-09-05..2026-09-07",
+			"Martin Luther King Jr. Holiday (campus closed) 2027-01-18..2027-01-18",
+			"Winter Break (campus closed) 2026-12-17..2027-01-03",
+		]);
 	});
 });
 
@@ -188,7 +217,7 @@ describe("rendered breaks against academic obligations", () => {
 	it("gives every school obligations, rendered rows and one winter span to check", async () => {
 		// Without this the collision sweep below passes just as happily over an empty dataset.
 		const schools = await importAndGroup();
-		expect(schools).toHaveLength(13);
+		expect(schools).toHaveLength(14);
 		expect(schools.filter((entry) => entry.obligations.length === 0)).toEqual([]);
 		expect(schools.filter((entry) => entry.rendered.length === 0)).toEqual([]);
 		expect(

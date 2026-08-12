@@ -967,6 +967,7 @@ export const collegeNames = [
 	"Fontbonne University",
 	"Hannibal-LaGrange University",
 	"Harris-Stowe State University",
+	"Kansas City Art Institute",
 	"Lincoln University",
 	"Lindenwood University",
 	"Maryville University of Saint Louis",

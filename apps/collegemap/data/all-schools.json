@@ -277,6 +277,113 @@
 			"notes": "Gustavus publishes its official academic calendar as a Google Sheet linked from the Registrar's 'Calendar + Courses' page under the link text 'View the Academic Calendar' (registrar page: https://gustavus.edu/about/administrative-offices/registrar/calendar-courses-registrar). The sheet has one column per academic year; all dates above come from the '2026-2027' column. I read it via the CSV export of that same sheet (https://docs.google.com/spreadsheets/d/1wxZgNHVsGwIrGCYcFrbdsZ7LIoCYUQovSzE8xxOy_CI/export?format=csv), so the quotes are the sheet's literal row label plus that column's cell value, joined with ' ... ' (the sheet is a grid, not prose). The sheet itself carries the disclaimer: 'The Academic Calendar is subject to change, with the most up-to-date version posted on this page.' Only one undergraduate calendar is published (single campus, St. Peter MN). January Term has been phased out; the year is two semesters plus a summer term. Fall 2026 exam dates cross-check against the separately published Final Exam Schedule sheet, which lists exams on 12/17/26. A stale 6-year PDF also exists at https://gustavus.edu/registrar/concertFiles/media/Academic_Calendar_2024-2030_1.pdf but I could not extract text from it (no PDF tooling available), so it was NOT used."
 		},
 		{
+			"name": "Kansas City Art Institute",
+			"calendar_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+			"calendar_found": true,
+			"term_system": "semester",
+			"breaks": [
+				{
+					"label": "Fall 2026 first day of classes",
+					"start_date": "2026-08-24",
+					"end_date": "2026-08-24",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Monday Aug 24 First day of classes"
+				},
+				{
+					"label": "Labor Day holiday (campus closed)",
+					"start_date": "2026-09-05",
+					"end_date": "2026-09-07",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Saturday - Monday Sep 5 - 7 Labor Day holiday - campus closed"
+				},
+				{
+					"label": "Election Day (campus closed)",
+					"start_date": "2026-11-03",
+					"end_date": "2026-11-03",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Tuesday Nov 3 Election Day - campus closed"
+				},
+				{
+					"label": "Fall Break (no classes)",
+					"start_date": "2026-11-25",
+					"end_date": "2026-11-29",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Wednesday - Sunday Nov 25 - 29 Fall Break - no classes (administrative offices close at noon on Wed Nov 25)"
+				},
+				{
+					"label": "Fall end of semester show begins",
+					"start_date": "2026-12-04",
+					"end_date": "2026-12-04",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Friday Dec 4 End of semester show begins: 5:00pm"
+				},
+				{
+					"label": "Last day of fall classes (fall semester ends)",
+					"start_date": "2026-12-11",
+					"end_date": "2026-12-11",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Friday Dec 11 Last day of classes / semester ends"
+				},
+				{
+					"label": "Residence Hall closed (fall close through spring open)",
+					"start_date": "2026-12-12",
+					"end_date": "2027-01-21",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Saturday - Thursday Dec 12 - Jan 21 Residence Hall closed"
+				},
+				{
+					"label": "Winter Break (campus closed)",
+					"start_date": "2026-12-17",
+					"end_date": "2027-01-03",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Thursday - Sunday Dec 17 - Jan 3 Winter Break - campus closed"
+				},
+				{
+					"label": "Martin Luther King Jr. Holiday (campus closed)",
+					"start_date": "2027-01-18",
+					"end_date": "2027-01-18",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Monday Jan 18 Martin Luther King Jr. Holiday - campus closed"
+				},
+				{
+					"label": "Spring 2027 first day of classes",
+					"start_date": "2027-01-25",
+					"end_date": "2027-01-25",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Monday Jan 25 First day of classes"
+				},
+				{
+					"label": "Degree programs mid-semester break (spring break)",
+					"start_date": "2027-03-13",
+					"end_date": "2027-03-21",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Saturday - Sunday Mar 13 - 21 Degree programs mid-semester break"
+				},
+				{
+					"label": "Spring end of semester show begins",
+					"start_date": "2027-05-07",
+					"end_date": "2027-05-07",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Friday May 7 End of semester show begins: 5:00pm"
+				},
+				{
+					"label": "Last day of spring classes (spring semester ends)",
+					"start_date": "2027-05-14",
+					"end_date": "2027-05-14",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Friday May 14 Last day of classes / semester ends"
+				},
+				{
+					"label": "Commencement",
+					"start_date": "2027-05-15",
+					"end_date": "2027-05-15",
+					"source_url": "https://kcai.edu/documents/511/Academic_Calendar_2026-2027_Xe2XE3K.pdf",
+					"quote": "Saturday May 15 Commencement"
+				}
+			],
+			"notes": "Source is KCAI's own 'Academic Calendar 2026-2027' PDF, the revision currently linked from https://kcai.edu/academics/download-academic-calendar/ (documents/511). A second 2026-2027 PDF is also reachable at https://kcai.edu/documents/483/Academic_Calendar_2026-2027.pdf; both were extracted and diffed in full, and they differ only in Student Town Hall / loan-counselling meeting TIMES and one Summer Session I withdrawal deadline (Jun 2 vs Jun 10). Every date transcribed above is identical in both revisions. The PDF prints month/day only, with no year on each row -- years are taken from the 'FALL' and 'SPRING' section headings, and the two spans written 'Dec 12 - Jan 21' and 'Dec 17 - Jan 3' sit under the FALL heading and therefore cross into 2027. Weekday labels on every transcribed row were checked against the real 2026-27 calendar and all agree. AMBIGUITIES AND JUDGEMENT CALLS: (1) KCAI publishes NO exam period at all -- there is no finals week, no reading day and no study day anywhere in the year. Work is assessed through the 'End of semester show', recorded above as an admin row in each semester so that the absence is visible in the data rather than merely implied. The school's only academic obligations are therefore its four term boundaries. (2) 'Winter Break - campus closed' Dec 17 - Jan 3 is a published, named event, so it is quoted rather than derived. It is a campus closure and is narrower than the student gap between terms (fall classes end Dec 11, 2026; spring classes begin Jan 25, 2027 -- both quoted above), the same situation Lindenwood, Missouri State, Missouri Baptist and UMKC are in. The published 'Residence Hall closed' span Dec 12 - Jan 21 is kept as an admin row because it documents that wider gap. (3) The Martin Luther King Jr. holiday on Jan 18, 2027 falls BEFORE spring classes begin on Jan 25, i.e. inside the between-terms gap; it is still transcribed because KCAI publishes it as a campus closure. (4) Labor Day is a three-day closure (Sep 5 - 7), not the single day most schools publish, and Election Day (Nov 3, 2026) is a campus closure. (5) Spring break is published as 'Degree programs mid-semester break', Mar 13 - 21, 2027; there is no equivalent mid-semester break in the fall, whose only break is Fall Break at Thanksgiving. (6) Summer Session I and II (Jun 1 - Jul 29, 2026, including the Jun 19 Juneteenth closure) are published on the same PDF but are omitted here, as summer terms are for all other schools in this file. (7) The PDF's own header labels the year '2026-2027'; no revision date or 'subject to change' notice is printed on it."
+		},
+		{
 			"name": "Kennesaw State University",
 			"calendar_url": "https://campus.kennesaw.edu/current-students/registrar/academic-calendars.php",
 			"calendar_found": true,
