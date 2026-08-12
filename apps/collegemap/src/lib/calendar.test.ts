@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	assumedFreeIds,
 	buildMonthView,
+	distinctReasons,
 	pickInitialMonth,
 	shiftMonth,
 	toParticipants,
@@ -344,5 +345,158 @@ describe("assumedFreeIds", () => {
 		// The positive control: an empty answer has to be reachable only when it is the true one.
 		expect(assumedFreeIds(ROWS, "2026-07-08")).toEqual([]);
 		expect(assumedFreeIds(ROWS, null)).toEqual([]);
+	});
+});
+
+describe("why each person is off", () => {
+	// Two people at two colleges, off together over Thanksgiving week for differently named
+	// breaks, and one of them also away on a trip she entered herself.
+	const people = [{ id: "a" }, { id: "b" }];
+	const rows = [
+		{
+			userId: "a",
+			label: "Thanksgiving break",
+			startDate: "2026-11-23",
+			endDate: "2026-11-29",
+		},
+		{ userId: "a", label: "Ski trip", startDate: "2026-11-27", endDate: "2026-11-30" },
+		{
+			userId: "b",
+			label: "Thanksgiving Week Break",
+			startDate: "2026-11-25",
+			endDate: "2026-11-27",
+		},
+	];
+	const view = buildMonthView(toParticipants(people, rows), "2026-11-01", { breaks: rows });
+
+	it("names the break each person is off for, on the person", () => {
+		expect(
+			cell(view, "2026-11-23")
+				.reasons.get("a")
+				?.map((why) => why.label),
+		).toEqual(["Thanksgiving break"]);
+		expect(cell(view, "2026-11-23").reasons.get("b")).toBeUndefined();
+	});
+
+	it("keeps two people's different reasons for the same day apart", () => {
+		const day = cell(view, "2026-11-25");
+		expect(day.freeIds).toEqual(["a", "b"]);
+		expect(day.reasons.get("a")?.map((why) => why.label)).toEqual(["Thanksgiving break"]);
+		expect(day.reasons.get("b")?.map((why) => why.label)).toEqual(["Thanksgiving Week Break"]);
+	});
+
+	it("gives one person both of their overlapping reasons, earliest first", () => {
+		expect(
+			cell(view, "2026-11-27")
+				.reasons.get("a")
+				?.map((why) => why.label),
+		).toEqual(["Thanksgiving break", "Ski trip"]);
+	});
+
+	it("collapses the day's reasons to the distinct names, in participant order", () => {
+		expect(distinctReasons(cell(view, "2026-11-27")).map((why) => why.name)).toEqual([
+			"Thanksgiving break",
+			"Ski trip",
+			"Thanksgiving Week Break",
+		]);
+		expect(distinctReasons(cell(view, "2026-11-22"))).toEqual([]);
+	});
+
+	it("counts one holiday spelled two ways as one name, and two wordings as two", () => {
+		// Verbatim from the 2026-27 data: eleven colleges, one Labor Day, and no two of them
+		// writing it down the same way.
+		const labels = ["Labor Day (no classes)", "Labor Day Holiday", "Labor Day holiday"];
+		const labor = ["a", "b", "c"].map((userId, i) => ({
+			userId,
+			label: labels[i],
+			startDate: "2026-09-07",
+			endDate: "2026-09-07",
+		}));
+		const day = cell(
+			buildMonthView(toParticipants([{ id: "a" }, { id: "b" }, { id: "c" }], labor), "2026-09-01", {
+				breaks: labor,
+			}),
+			"2026-09-07",
+		);
+		// Positive control: all three are off, so a shorter list is a collapse and not a loss.
+		expect(day.freeIds).toEqual(["a", "b", "c"]);
+		expect(distinctReasons(day).map((why) => why.name)).toEqual(["Labor Day", "Labor Day Holiday"]);
+	});
+
+	it("says nothing at all when the labelled rows are not supplied", () => {
+		const bare = buildMonthView(toParticipants(people, rows), "2026-11-01");
+		// Positive control: the grid itself is unchanged, so an empty reasons map is the reasons
+		// being absent rather than the whole month being empty.
+		expect(cell(bare, "2026-11-25").freeIds).toEqual(["a", "b"]);
+		expect(cell(bare, "2026-11-25").reasons.size).toBe(0);
+		expect(cell(bare, "2026-11-25").season).toBeNull();
+	});
+
+	it("tints a day by the season most of the group is in", () => {
+		expect(cell(view, "2026-11-25").season).toBe("autumn");
+		expect(cell(view, "2026-11-22").season).toBeNull();
+	});
+
+	it("keeps a winter break winter after the New Year, where the date alone would not", () => {
+		const winterRows = [
+			{ userId: "a", label: "Winter break", startDate: "2026-12-19", endDate: "2027-01-18" },
+		];
+		const jan = buildMonthView(toParticipants([{ id: "a" }], winterRows), "2027-01-01", {
+			breaks: winterRows,
+		});
+		expect(cell(jan, "2027-01-11").reasons.get("a")?.[0]).toEqual({
+			name: "Winter break",
+			label: "Winter break",
+			season: "winter",
+		});
+	});
+});
+
+describe("back at school versus still at school", () => {
+	const people = [{ id: "a" }, { id: "b" }, { id: "c" }];
+	// a is off through Sunday Jan 10; b came back on Jan 4 and c on New Year's Day.
+	const rows = [
+		{ userId: "a", label: "Winter break", startDate: "2026-12-12", endDate: "2027-01-10" },
+		{ userId: "b", label: "Christmas Break", startDate: "2026-12-21", endDate: "2027-01-03" },
+		{ userId: "c", label: "Winter Break", startDate: "2026-12-21", endDate: "2026-12-31" },
+	];
+	const view = buildMonthView(toParticipants(people, rows), "2027-01-01", { breaks: rows });
+
+	it("counts someone as back only on the first day after their break", () => {
+		expect(cell(view, "2027-01-03").returningIds).toEqual([]);
+		expect(cell(view, "2027-01-04").returningIds).toEqual(["b"]);
+		expect(cell(view, "2027-01-05").returningIds).toEqual([]);
+	});
+
+	it("says back for the person who just returned and nothing for the one still away", () => {
+		const day = cell(view, "2027-01-04");
+		expect(day.freeIds).toEqual(["a"]);
+		expect(day.returningIds).toEqual(["b"]);
+	});
+
+	it("reads a Monday after a break that ended on the Sunday as back", () => {
+		// 2027-01-10 is a Sunday and 2027-01-11 the Monday after it. This is the case the
+		// weekend-extension change is meant to produce, and the rule has to survive it.
+		expect(cell(view, "2027-01-10").freeIds).toEqual(["a"]);
+		expect(cell(view, "2027-01-11").returningIds).toEqual(["a"]);
+	});
+
+	it("never calls someone back who has not been off at all", () => {
+		const never = buildMonthView(toParticipants([{ id: "a" }, { id: "n" }], rows), "2027-01-01", {
+			breaks: rows,
+		});
+		expect(never.countedIds).toEqual(["a"]);
+		expect(cells(never).every((c) => !c.returningIds.includes("n"))).toBe(true);
+	});
+
+	it("gives a padding day the same answer as the month that owns it", () => {
+		const dec = buildMonthView(toParticipants(people, rows), "2026-12-01", { breaks: rows });
+		const jan = buildMonthView(toParticipants(people, rows), "2027-01-01", { breaks: rows });
+		expect(cell(dec, "2027-01-01").inMonth).toBe(false);
+		expect(cell(jan, "2027-01-01").inMonth).toBe(true);
+		// Non-empty on both sides, so this is two views agreeing about a real return rather than
+		// two views both finding nothing.
+		expect(cell(dec, "2027-01-01").returningIds).toEqual(["c"]);
+		expect(cell(jan, "2027-01-01").returningIds).toEqual(["c"]);
 	});
 });

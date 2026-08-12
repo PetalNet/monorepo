@@ -3,6 +3,7 @@
 	import {
 		assumedFreeIds,
 		buildMonthView,
+		distinctReasons,
 		pickInitialMonth,
 		shiftMonth,
 		toParticipants,
@@ -35,7 +36,9 @@
 		untrack(() => pickInitialMonth(toParticipants(data.people, data.breaks), data.todayIso)),
 	);
 
-	const view = $derived(buildMonthView(participants, month, { todayIso: data.todayIso }));
+	const view = $derived(
+		buildMonthView(participants, month, { todayIso: data.todayIso, breaks: data.breaks }),
+	);
 	const report = $derived(buildReport(participants, { todayIso: data.todayIso }));
 	const countedCount = $derived(view.countedIds.length);
 
@@ -125,12 +128,30 @@
 		}
 	}
 
+	/**
+	 * Names as one spoken phrase, capped.
+	 *
+	 * Eleven friends at eleven colleges spell one Labor Day eleven different ways, and reading all of
+	 * them out is worse than saying how many there are.
+	 */
+	function listSentence(names: string[], limit: number): string {
+		const shown = names.slice(0, limit);
+		const rest = names.length - shown.length;
+		const parts = rest > 0 ? [...shown, `${String(rest)} more`] : shown;
+		if (parts.length === 1) return parts[0];
+		return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+	}
+
 	function describe(cell: (typeof flatCells)[number]): string {
 		const date = formatRange(cell.iso, cell.iso, referenceYear);
 		if (countedCount === 0) return date;
-		if (cell.allFree) return `${date}, everyone is free`;
 		if (cell.freeCount === 0) return `${date}, nobody is off`;
-		return `${date}, ${String(cell.freeCount)} of ${String(countedCount)} free`;
+		// The reason is the part a screen reader had no way to reach: the grid draws a green
+		// square and the label said only how many people it stood for.
+		const names = distinctReasons(cell).map((r) => r.name);
+		const why = names.length > 0 ? `, for ${listSentence(names, 2)}` : "";
+		if (cell.allFree) return `${date}, everyone is free${why}`;
+		return `${date}, ${String(cell.freeCount)} of ${String(countedCount)} free${why}`;
 	}
 
 	// The one line under the month title. It is the calendar's own subtitle,
@@ -267,7 +288,13 @@
 											if (!cell.inMonth) month = startOfMonth(cell.iso);
 										}}
 									>
-										<span class="cal-daynum">{cell.dayOfMonth}</span>
+										<span class="cal-dayhead">
+											<span class="cal-daynum">{cell.dayOfMonth}</span>
+											{#if cell.season}
+												<span class="cal-daymark" data-season={cell.season} aria-hidden="true"
+												></span>
+											{/if}
+										</span>
 										{#if cell.freeCount > 0 && countedCount > 0}
 											<span class="cal-daycount">{cell.freeCount}</span>
 										{/if}
@@ -298,7 +325,8 @@
 					</span>
 					<span class="cal-legend-note">
 						<Info size={13} aria-hidden="true" />
-						Each notch is one person, in the same order every day.
+						Each notch is one person, in the same order every day. A dot beside the date means the day
+						has a named break; pick it to read the names.
 					</span>
 				</div>
 			{/if}
@@ -356,27 +384,66 @@
 
 <style>
 	.cal-root {
-		/* Feature-scoped tokens. Every value below was measured with a WCAG
-		   contrast script, not eyeballed; see the ratios in the review notes.
-		   Scoped rather than global because the rest of College Map has no dark
-		   theme, and silently darkening the map is not this change's job. */
-		--cal-page: #f8fafc;
+		/* One token set for the whole calendar surface: colour, shape, rhythm,
+		   elevation, motion. Feature-scoped rather than global because the rest of
+		   College Map has no dark theme, and silently darkening the map is not this
+		   change's job. Every colour pair is measured by
+		   src/lib/calendar-contrast.test.ts, never eyeballed. */
+		--cal-page: #eceff4;
 		--cal-surface: #ffffff;
 		--cal-recess: #f1f5f9;
-		--cal-border: #e2e8f0;
-		--cal-border-strong: #cbd5e1;
-		--cal-ink: #0f172a; /* 17.85:1 on surface */
-		--cal-ink-2: #41505f; /* 8.28:1 on surface, 7.55:1 on recess, 7.30:1 on free tint */
-		--cal-accent: #3b31b0; /* 9.32:1 on surface, 8.22:1 on free tint */
-		--cal-accent-ink: #ffffff; /* 9.32:1 on accent */
+		/* A hairline rule, not a border: it separates two surfaces, it never wraps
+		   one. Nothing on this page draws a box. */
+		--cal-rule: #e2e8f0;
+		--cal-fill-strong: #cbd5e1;
+		--cal-ink: #0f172a;
+		--cal-ink-2: #41505f;
+		--cal-accent: #3b31b0;
+		--cal-accent-ink: #ffffff;
 		--cal-accent-tint: #eef2ff;
 		--cal-free: #065f46;
-		--cal-free-ink: #ffffff; /* 7.68:1 on free */
+		--cal-free-ink: #ffffff;
 		--cal-free-tint: #d1fae5;
 		--cal-seg-on: #3b31b0;
-		--cal-seg-off: #dbe1ea;
-		--cal-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
-		--cal-ring: 0 0 0 2px var(--cal-accent);
+		--cal-seg-off: #ccd5e2;
+
+		/* Seasonal accents. Strictly a second channel: they colour the break-name
+		   chip and the small dot on a named day, and nothing else. The cell fill
+		   still carries free / not free, which is the only thing the grid is for.
+		   Every -ink is >= 7:1 on its own -bg and every -mark >= 4.5:1 on both cell
+		   backgrounds; the lightnesses were searched for those targets in OKLCH. */
+		--season-autumn-bg: #ffd5c3;
+		--season-autumn-ink: #7a2e00;
+		--season-autumn-mark: #bd4e02;
+		--season-winter-bg: #bbe7ff;
+		--season-winter-ink: #004d6b;
+		--season-winter-mark: #0078a3;
+		--season-spring-bg: #ffd1e5;
+		--season-spring-ink: #772853;
+		--season-spring-mark: #b74683;
+		--season-summer-bg: #ece0b2;
+		--season-summer-ink: #554600;
+		--season-summer-mark: #856e00;
+
+		/* Shape. One radius for everything that is not a circle: two tiles that
+		   differ by a pixel of rounding is exactly the drift a close reading finds,
+		   so there is nothing here to drift. */
+		--radius: 2px;
+
+		/* Rhythm. 8pt grid with a 4px half-step, and nothing off it. */
+		--space-1: 4px;
+		--space-2: 8px;
+		--space-3: 12px;
+		--space-4: 16px;
+		--space-5: 24px;
+		--space-6: 32px;
+		--header-h: 56px;
+
+		/* Depth. Elevation only: no gradient, no glow, no heavy shadow. */
+		--elevation-1: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+		--elevation-2: 0 2px 4px rgba(15, 23, 42, 0.08), 0 4px 10px rgba(15, 23, 42, 0.06);
+
+		--motion: 160ms cubic-bezier(0.22, 1, 0.36, 1);
 
 		--z-base: 1;
 		--z-sticky: 100;
@@ -385,60 +452,114 @@
 		min-height: 100dvh;
 		background: var(--cal-page);
 		color: var(--cal-ink);
+		hanging-punctuation: first last;
 	}
 
 	@media (prefers-color-scheme: dark) {
 		.cal-root {
 			--cal-page: #0b1120;
 			--cal-surface: #151c2c;
-			/* Darker than the surface so a recessed tile reads as pushed back,
-			   which is the only cue separating a neighbouring month's days. */
+			/* Darker than the surface so a recessed tile reads as pushed back. With
+			   no borders left, this difference is what separates a day from its
+			   card. */
 			--cal-recess: #0a0f1c;
-			--cal-border: #2a3550;
-			--cal-border-strong: #3b4767;
-			--cal-ink: #f8fafc; /* 16.26:1 on surface */
-			--cal-ink-2: #cbd5e1; /* 11.46:1 on surface */
-			--cal-accent: #c7d2fe; /* 11.41:1 on surface */
+			--cal-rule: #2a3550;
+			--cal-fill-strong: #3b4767;
+			--cal-ink: #f8fafc;
+			--cal-ink-2: #cbd5e1;
+			--cal-accent: #c7d2fe;
 			--cal-accent-ink: #10182c;
 			--cal-accent-tint: #1e2740;
 			--cal-free: #34d399;
-			--cal-free-ink: #052e1f; /* 7.71:1 on free */
+			--cal-free-ink: #052e1f;
 			--cal-free-tint: #14342c;
 			--cal-seg-on: #818cf8;
 			--cal-seg-off: #334155;
-			--cal-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+
+			/* Same hues, re-searched against the dark surfaces. A soft autumn orange
+			   that reads beautifully on white is exactly the one that fails here, so
+			   none of these are the light values dimmed. */
+			--season-autumn-bg: #3c1c0d;
+			--season-autumn-ink: #f29971;
+			--season-autumn-mark: #d46225;
+			--season-winter-bg: #002a3c;
+			--season-winter-ink: #52bcee;
+			--season-winter-mark: #008ebf;
+			--season-spring-bg: #391a2a;
+			--season-spring-ink: #ed93be;
+			--season-spring-mark: #ce5b97;
+			--season-summer-bg: #2e2500;
+			--season-summer-ink: #c8af4e;
+			--season-summer-mark: #9b8200;
+
+			--elevation-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+			--elevation-2: 0 2px 4px rgba(0, 0, 0, 0.55), 0 4px 10px rgba(0, 0, 0, 0.45);
 		}
+	}
+
+	/* One mapping for both surfaces that use a season: the chip in the detail
+	   panel and the dot on the day cell. */
+	:global(.cal-root [data-season="autumn"]) {
+		--season-bg: var(--season-autumn-bg);
+		--season-ink: var(--season-autumn-ink);
+		--season-mark: var(--season-autumn-mark);
+	}
+
+	:global(.cal-root [data-season="winter"]) {
+		--season-bg: var(--season-winter-bg);
+		--season-ink: var(--season-winter-ink);
+		--season-mark: var(--season-winter-mark);
+	}
+
+	:global(.cal-root [data-season="spring"]) {
+		--season-bg: var(--season-spring-bg);
+		--season-ink: var(--season-spring-ink);
+		--season-mark: var(--season-spring-mark);
+	}
+
+	:global(.cal-root [data-season="summer"]) {
+		--season-bg: var(--season-summer-bg);
+		--season-ink: var(--season-summer-ink);
+		--season-mark: var(--season-summer-mark);
 	}
 
 	:global(.cal-root *) {
 		box-sizing: border-box;
 	}
 
-	/* Header: same shape and rhythm as the map header so this reads as one app. */
+	/* Every focus ring on the page is this one outline, and it hugs whatever
+	   radius it lands on. */
+	:global(.cal-root :focus-visible) {
+		outline: 2px solid var(--cal-accent);
+		outline-offset: 2px;
+	}
+
+	/* Header: one hairline rule under it, no box around it. */
 	.cal-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 10px;
-		padding: 10px 16px;
+		gap: var(--space-2);
+		height: var(--header-h);
+		padding-inline: var(--space-4);
 		background: var(--cal-surface);
-		border-bottom: 1px solid var(--cal-border);
+		border-block-end: 1px solid var(--cal-rule);
 		position: sticky;
-		top: 0;
+		inset-block-start: 0;
 		z-index: var(--z-sticky);
 	}
 
 	.cal-brand {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-2);
 		color: var(--cal-accent);
 		min-width: 0;
 	}
 
 	.cal-brand h1 {
 		font-size: 1rem;
-		font-weight: 700;
+		font-weight: 600;
 		color: var(--cal-ink);
 		white-space: nowrap;
 		overflow: hidden;
@@ -449,15 +570,17 @@
 	.cal-link {
 		display: inline-flex;
 		align-items: center;
-		gap: 5px;
+		gap: var(--space-1);
 		color: var(--cal-ink-2);
 		text-decoration: none;
 		font-size: 0.85rem;
 		font-weight: 500;
-		padding: 6px 10px;
-		border-radius: 8px;
-		border: 1px solid transparent;
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius);
 		white-space: nowrap;
+		transition:
+			background var(--motion),
+			color var(--motion);
 	}
 
 	.cal-back:hover,
@@ -466,19 +589,9 @@
 		color: var(--cal-ink);
 	}
 
-	.cal-back:focus-visible,
-	.cal-link:focus-visible,
-	.cal-step:focus-visible,
-	.cal-today:focus-visible,
-	.cal-jump:focus-visible,
-	.cal-textbtn:focus-visible {
-		outline: none;
-		box-shadow: var(--cal-ring);
-	}
-
 	.cal-header-right {
 		display: flex;
-		justify-content: flex-end;
+		justify-content: end;
 	}
 
 	.cal-back,
@@ -488,14 +601,14 @@
 	}
 
 	.cal-back {
-		justify-content: flex-start;
+		justify-content: start;
 	}
 
 	.cal-main {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		gap: 16px;
-		padding: 16px 12px 48px;
+		gap: var(--space-4);
+		padding: var(--space-4) var(--space-3) var(--space-6);
 		max-width: 1180px;
 		margin: 0 auto;
 	}
@@ -504,8 +617,7 @@
 		.cal-main {
 			grid-template-columns: minmax(0, 1fr) 320px;
 			align-items: start;
-			padding: 20px 20px 56px;
-			gap: 20px;
+			padding: var(--space-5) var(--space-5) var(--space-6);
 		}
 	}
 
@@ -514,20 +626,20 @@
 	}
 
 	.cal-toolbar {
-		margin-bottom: 12px;
+		margin-block-end: var(--space-3);
 	}
 
 	.cal-monthline {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	.cal-month {
 		font-size: 1.15rem;
-		font-weight: 700;
+		font-weight: 600;
 		color: var(--cal-ink);
-		margin: 0 4px;
+		margin-inline: var(--space-1);
 		min-width: 0;
 		flex: 1 1 auto;
 	}
@@ -539,51 +651,45 @@
 		}
 	}
 
-	.cal-step {
+	/* Filled tonal controls: the fill separates them from the page, so there is
+	   nothing to outline. Both share this block, so they cannot drift apart. */
+	.cal-step,
+	.cal-today {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 34px;
-		height: 34px;
 		flex: 0 0 auto;
-		border-radius: 9px;
-		border: 1px solid var(--cal-border);
-		background: var(--cal-surface);
-		color: var(--cal-ink-2);
-		cursor: pointer;
-		transition:
-			background 180ms cubic-bezier(0.22, 1, 0.36, 1),
-			color 180ms;
-	}
-
-	.cal-step:hover {
+		height: 32px;
+		border-radius: var(--radius);
+		border: none;
 		background: var(--cal-recess);
-		color: var(--cal-ink);
-	}
-
-	.cal-today {
-		margin-left: auto;
-		flex: 0 0 auto;
-		padding: 7px 12px;
-		border-radius: 9px;
-		border: 1px solid var(--cal-border);
-		background: var(--cal-surface);
 		color: var(--cal-ink-2);
 		font-size: 0.82rem;
 		font-weight: 600;
+		font-family: inherit;
 		cursor: pointer;
 		transition:
-			background 180ms cubic-bezier(0.22, 1, 0.36, 1),
-			color 180ms;
+			background var(--motion),
+			color var(--motion);
 	}
 
+	.cal-step {
+		width: 32px;
+	}
+
+	.cal-today {
+		margin-inline-start: auto;
+		padding-inline: var(--space-3);
+	}
+
+	.cal-step:hover,
 	.cal-today:hover {
-		background: var(--cal-recess);
+		background: var(--cal-accent-tint);
 		color: var(--cal-ink);
 	}
 
 	.cal-summary {
-		margin-top: 6px;
+		margin-block-start: var(--space-2);
 		font-size: 0.88rem;
 		color: var(--cal-ink-2);
 		line-height: 1.45;
@@ -593,18 +699,24 @@
 	.cal-jump {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-2);
 		width: 100%;
-		margin-bottom: 12px;
-		padding: 10px 12px;
-		border-radius: 10px;
-		border: 1px solid var(--cal-border);
+		margin-block-end: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius);
+		border: none;
 		background: var(--cal-free-tint);
 		color: var(--cal-ink);
 		font-size: 0.85rem;
 		font-weight: 500;
-		text-align: left;
+		font-family: inherit;
+		text-align: start;
 		cursor: pointer;
+		transition: box-shadow var(--motion);
+	}
+
+	.cal-jump:hover {
+		box-shadow: var(--elevation-1);
 	}
 
 	.cal-jump > span:first-of-type {
@@ -614,33 +726,33 @@
 
 	.cal-jump-go {
 		flex: 0 0 auto;
-		font-weight: 700;
+		font-weight: 600;
 		color: var(--cal-accent);
 		text-decoration: underline;
 	}
 
+	/* The grid is a card. The days inside it are recessed tiles, so the grid
+	   reads without a single box being drawn. */
 	.cal-grid-wrap {
 		background: var(--cal-surface);
-		border: 1px solid var(--cal-border);
-		border-radius: 14px;
-		padding: 10px;
-		box-shadow: var(--cal-shadow);
+		border-radius: var(--radius);
+		padding: var(--space-2);
+		box-shadow: var(--elevation-1);
 	}
 
 	.cal-weekdays,
 	.cal-week {
 		display: grid;
 		grid-template-columns: repeat(7, minmax(0, 1fr));
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	.cal-weekday {
 		text-align: center;
 		font-size: 0.72rem;
-		font-weight: 700;
+		font-weight: 600;
 		color: var(--cal-ink-2);
-		padding-bottom: 6px;
-		letter-spacing: 0.01em;
+		padding-block-end: var(--space-2);
 	}
 
 	.cal-weekday-rest {
@@ -656,7 +768,7 @@
 	.cal-grid {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	.cal-cellwrap {
@@ -670,79 +782,84 @@
 		align-items: flex-start;
 		width: 100%;
 		height: 100%;
-		min-height: 58px;
-		padding: 5px 5px 8px;
-		border-radius: 9px;
-		border: 1px solid var(--cal-border);
-		background: var(--cal-surface);
+		min-height: 56px;
+		padding: var(--space-1);
+		padding-block-end: var(--space-2);
+		border-radius: var(--radius);
+		border: none;
+		background: var(--cal-recess);
 		color: var(--cal-ink);
+		font-family: inherit;
 		cursor: pointer;
-		text-align: left;
+		text-align: start;
 		transition:
-			transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
-			box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1),
-			background 160ms;
+			background var(--motion),
+			box-shadow var(--motion),
+			outline-color var(--motion);
 	}
 
 	@media (min-width: 700px) {
 		.cal-day {
-			min-height: 84px;
-			padding: 8px 8px 11px;
-			border-radius: 11px;
+			min-height: 88px;
+			padding: var(--space-2);
+			padding-block-end: var(--space-3);
 		}
 	}
 
 	.cal-day:hover {
-		box-shadow: 0 2px 10px rgba(15, 23, 42, 0.1);
-		transform: translateY(-1px);
+		background: var(--cal-accent-tint);
+		box-shadow: var(--elevation-1);
 	}
 
-	.cal-day:focus-visible {
-		outline: none;
-		box-shadow: var(--cal-ring);
-		z-index: var(--z-base);
-	}
-
+	/* Padding days belong to a neighbouring month: they drop back to the card. */
 	.cal-day.is-out {
-		background: var(--cal-recess);
-		border-color: transparent;
+		background: transparent;
 	}
 
-	.cal-day.is-empty {
-		background: var(--cal-surface);
+	.cal-day.is-out:hover {
+		background: var(--cal-accent-tint);
 	}
 
-	.cal-day.is-out.is-empty {
-		background: var(--cal-recess);
-	}
-
+	/* The one M3 outlined tile on the page, spent on today. Inset so it can never
+	   collide with the selection ring on the neighbouring cell. */
 	.cal-day.is-today {
-		border-color: var(--cal-accent);
-		border-width: 2px;
-		padding: 4px 4px 7px;
-	}
-
-	@media (min-width: 700px) {
-		.cal-day.is-today {
-			padding: 7px 7px 10px;
-		}
+		outline: 1px solid var(--cal-accent);
+		outline-offset: -1px;
 	}
 
 	/* The strongest state on the page. Nothing else is a solid saturated block. */
 	.cal-day.is-allfree {
 		background: var(--cal-free);
-		border-color: var(--cal-free);
 		color: var(--cal-free-ink);
+	}
+
+	.cal-day.is-allfree:hover {
+		background: var(--cal-free);
 	}
 
 	.cal-day.is-allfree.is-out {
 		background: var(--cal-free-tint);
-		border-color: transparent;
 		color: var(--cal-ink);
 	}
 
-	.cal-day.is-selected {
-		box-shadow: var(--cal-ring);
+	.cal-day.is-allfree.is-out:hover {
+		background: var(--cal-free-tint);
+	}
+
+	/* Inset, for the same reason as today: 42 tiles four pixels apart cannot each
+	   carry a ring that sits outside them. */
+	.cal-day.is-selected,
+	.cal-day:focus-visible {
+		outline: 2px solid var(--cal-accent);
+		outline-offset: -2px;
+		z-index: var(--z-base);
+	}
+
+	.cal-dayhead {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		min-width: 0;
 	}
 
 	.cal-daynum {
@@ -767,12 +884,34 @@
 		color: var(--cal-ink);
 	}
 
+	/* The whole seasonal budget on the grid: one dot saying "this day has a name",
+	   tinted by which season the name belongs to. It sits beside the date, well
+	   clear of the fill and the notches, because those two are the data. */
+	.cal-daymark {
+		width: 6px;
+		height: 6px;
+		flex: 0 0 auto;
+		border-radius: 50%;
+		background: var(--season-mark);
+	}
+
+	/* On the solid all-free fill the season would have to fight the strongest
+	   state on the page, so it stands down and the dot borrows the fill's own ink,
+	   exactly as the notch strip already does. */
+	.cal-day.is-allfree .cal-daymark {
+		background: var(--cal-free-ink);
+	}
+
+	.cal-day.is-allfree.is-out .cal-daymark {
+		background: var(--cal-free);
+	}
+
 	.cal-daycount {
 		position: absolute;
-		top: 5px;
-		right: 6px;
+		inset-block-start: var(--space-1);
+		inset-inline-end: var(--space-1);
 		font-size: 0.7rem;
-		font-weight: 700;
+		font-weight: 600;
 		font-variant-numeric: tabular-nums;
 		color: var(--cal-ink-2);
 		line-height: 1;
@@ -780,8 +919,8 @@
 
 	@media (min-width: 700px) {
 		.cal-daycount {
-			top: 8px;
-			right: 9px;
+			inset-block-start: var(--space-2);
+			inset-inline-end: var(--space-2);
 			font-size: 0.78rem;
 		}
 	}
@@ -800,22 +939,21 @@
 		display: flex;
 		gap: 1px;
 		width: 100%;
-		margin-top: auto;
-		padding-top: 6px;
+		margin-block-start: auto;
+		padding-block-start: var(--space-2);
 	}
 
 	.cal-seg {
 		flex: 1 1 0;
 		min-width: 0;
 		height: 4px;
-		border-radius: 1px;
+		border-radius: var(--radius);
 		background: var(--cal-seg-off);
 	}
 
 	@media (min-width: 700px) {
 		.cal-seg {
 			height: 6px;
-			border-radius: 2px;
 		}
 	}
 
@@ -835,8 +973,8 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 8px 16px;
-		margin-top: 12px;
+		gap: var(--space-2) var(--space-4);
+		margin-block-start: var(--space-3);
 		font-size: 0.8rem;
 		color: var(--cal-ink-2);
 	}
@@ -845,14 +983,14 @@
 	.cal-legend-note {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-1);
 		min-width: 0;
 	}
 
 	.cal-swatch {
-		width: 13px;
-		height: 13px;
-		border-radius: 4px;
+		width: 12px;
+		height: 12px;
+		border-radius: var(--radius);
 		flex: 0 0 auto;
 	}
 
@@ -860,28 +998,28 @@
 		background: var(--cal-free);
 	}
 
+	/* A day tile in miniature: the recessed fill plus one notch. The inset shadow
+	   draws the notch, it is not a border in disguise. */
 	.cal-swatch.is-some {
-		background: var(--cal-surface);
-		border: 1px solid var(--cal-border-strong);
-		box-shadow: inset 0 -4px 0 -1px var(--cal-seg-on);
+		background: var(--cal-recess);
+		box-shadow: inset 0 -3px 0 var(--cal-seg-on);
 	}
 
 	.cal-side {
 		display: flex;
 		flex-direction: column;
-		gap: 14px;
+		gap: var(--space-3);
 		min-width: 0;
 	}
 
 	/* The detail panel plus the editor run taller than the grid, which on a wide
 	   screen left most of the left-hand column empty. Pinning the column and
-	   letting it scroll on its own keeps the page as tall as the calendar.
-	   Header is 55px, so 71px clears it with the same 16px rhythm as the gap. */
+	   letting it scroll on its own keeps the page as tall as the calendar. */
 	@media (min-width: 900px) {
 		.cal-side {
 			position: sticky;
-			top: 71px;
-			max-height: calc(100dvh - 87px);
+			inset-block-start: calc(var(--header-h) + var(--space-2));
+			max-height: calc(100dvh - var(--header-h) - var(--space-4));
 			overflow-y: auto;
 			scrollbar-gutter: stable;
 		}
@@ -889,27 +1027,26 @@
 
 	:global(.cal-panel) {
 		background: var(--cal-surface);
-		border: 1px solid var(--cal-border);
-		border-radius: 14px;
-		padding: 16px;
-		box-shadow: var(--cal-shadow);
+		border-radius: var(--radius);
+		padding: var(--space-4);
+		box-shadow: var(--elevation-1);
 		min-width: 0;
 	}
 
 	.cal-onboard {
-		text-align: left;
+		text-align: start;
 		color: var(--cal-accent);
 	}
 
 	.cal-onboard h3 {
-		margin-top: 8px;
+		margin-block-start: var(--space-2);
 		font-size: 1rem;
-		font-weight: 700;
+		font-weight: 600;
 		color: var(--cal-ink);
 	}
 
 	.cal-onboard p {
-		margin-top: 6px;
+		margin-block-start: var(--space-2);
 		font-size: 0.86rem;
 		line-height: 1.55;
 		color: var(--cal-ink-2);
@@ -917,46 +1054,41 @@
 
 	.cal-nearmiss h3 {
 		font-size: 0.95rem;
-		font-weight: 700;
+		font-weight: 600;
 		color: var(--cal-ink);
 	}
 
 	.cal-nearmiss-range {
-		margin-top: 6px;
+		margin-block-start: var(--space-2);
 		font-size: 0.95rem;
 		font-weight: 600;
 		color: var(--cal-ink);
 	}
 
 	.cal-nearmiss-body {
-		margin-top: 4px;
+		margin-block-start: var(--space-1);
 		font-size: 0.85rem;
 		line-height: 1.5;
 		color: var(--cal-ink-2);
 	}
 
 	.cal-textbtn {
-		margin-top: 8px;
+		margin-block-start: var(--space-2);
 		padding: 0;
 		border: none;
 		background: none;
 		color: var(--cal-accent);
 		font-size: 0.85rem;
 		font-weight: 600;
+		font-family: inherit;
 		text-decoration: underline;
 		cursor: pointer;
-		border-radius: 4px;
+		border-radius: var(--radius);
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.cal-day,
-		.cal-step,
-		.cal-today {
-			transition: none;
-		}
-
-		.cal-day:hover {
-			transform: none;
+		:global(.cal-root *) {
+			transition: none !important;
 		}
 	}
 </style>

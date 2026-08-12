@@ -176,46 +176,68 @@
 
 	.editor-title {
 		font-size: 1rem;
-		font-weight: 700;
+		font-weight: 600;
 		color: var(--cal-ink);
 	}
 
 	.editor-hint {
-		margin-top: 6px;
+		margin-block-start: var(--space-2);
 		font-size: 0.85rem;
 		line-height: 1.55;
 		color: var(--cal-ink-2);
 	}
 
-	.editor-login {
+	.editor-login,
+	.editor-submit {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
-		margin-top: 12px;
-		padding: 9px 14px;
-		border-radius: 9px;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius);
+		border: none;
 		background: var(--cal-accent);
 		color: var(--cal-accent-ink);
 		font-size: 0.85rem;
 		font-weight: 600;
+		font-family: inherit;
 		text-decoration: none;
+		cursor: pointer;
+		transition: box-shadow var(--motion);
+	}
+
+	/* M3 filled buttons answer a hover with elevation, not with a colour the
+	   contrast was never measured against. */
+	.editor-login:hover,
+	.editor-submit:hover:not(:disabled) {
+		box-shadow: var(--elevation-2);
+	}
+
+	.editor-login {
+		margin-block-start: var(--space-3);
+	}
+
+	.editor-submit:disabled {
+		background: var(--cal-fill-strong);
+		color: var(--cal-ink);
+		cursor: not-allowed;
 	}
 
 	.editor-list {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
-		margin-top: 10px;
+		gap: var(--space-1);
+		margin-block-start: var(--space-3);
 		list-style: none;
 	}
 
 	.editor-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-2);
 		min-width: 0;
-		padding: 8px 8px 8px 11px;
-		border-radius: 9px;
+		padding: var(--space-2);
+		border-radius: var(--radius);
 		background: var(--cal-recess);
 	}
 
@@ -248,51 +270,49 @@
 		align-items: center;
 		justify-content: center;
 		flex: 0 0 auto;
-		width: 30px;
-		height: 30px;
-		border-radius: 8px;
-		border: 1px solid transparent;
+		width: 32px;
+		height: 32px;
+		border-radius: var(--radius);
+		border: none;
 		background: none;
 		color: var(--cal-ink-2);
 		cursor: pointer;
 		transition:
-			background 160ms cubic-bezier(0.22, 1, 0.36, 1),
-			color 160ms;
+			background var(--motion),
+			color var(--motion);
 	}
 
 	.editor-del:hover {
 		background: var(--cal-surface);
-		border-color: var(--cal-border);
 		color: var(--cal-ink);
 	}
 
 	.editor-error {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		margin-top: 12px;
-		padding: 9px 11px;
-		border-radius: 9px;
+		gap: var(--space-2);
+		margin-block-start: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius);
 		background: var(--cal-recess);
-		border: 1px solid var(--cal-border-strong);
 		color: var(--cal-ink);
 		font-size: 0.82rem;
 		line-height: 1.45;
 	}
 
 	.editor-form {
-		margin-top: 14px;
-		padding-top: 14px;
-		border-top: 1px solid var(--cal-border);
+		margin-block-start: var(--space-4);
+		padding-block-start: var(--space-4);
+		border-block-start: 1px solid var(--cal-rule);
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: var(--space-3);
 	}
 
 	.editor-field {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-1);
 		min-width: 0;
 	}
 
@@ -302,13 +322,14 @@
 		color: var(--cal-ink-2);
 	}
 
+	/* M3 filled text fields: the fill is the affordance, so no box is drawn. */
 	.editor-form input {
 		width: 100%;
 		min-width: 0;
-		padding: 9px 10px;
-		border-radius: 9px;
-		border: 1px solid var(--cal-border-strong);
-		background: var(--cal-surface);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius);
+		border: none;
+		background: var(--cal-recess);
 		color: var(--cal-ink);
 		font-size: 0.85rem;
 		font-family: inherit;
@@ -318,34 +339,25 @@
 		color: var(--cal-ink-2);
 	}
 
-	.editor-form input:focus-visible,
-	.editor-preset:focus-visible,
-	.editor-submit:focus-visible,
-	.editor-del:focus-visible,
-	.editor-login:focus-visible {
-		outline: none;
-		box-shadow: var(--cal-ring);
-		border-color: var(--cal-accent);
-	}
-
 	.editor-presets {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 5px;
+		gap: var(--space-1);
 	}
 
 	.editor-preset {
-		padding: 5px 9px;
-		border-radius: 999px;
-		border: 1px solid var(--cal-border-strong);
-		background: var(--cal-surface);
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius);
+		border: none;
+		background: var(--cal-recess);
 		color: var(--cal-ink-2);
 		font-size: 0.76rem;
 		font-weight: 500;
+		font-family: inherit;
 		cursor: pointer;
 		transition:
-			background 160ms cubic-bezier(0.22, 1, 0.36, 1),
-			color 160ms;
+			background var(--motion),
+			color var(--motion);
 	}
 
 	.editor-preset:hover {
@@ -356,46 +368,12 @@
 	.editor-dates {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		gap: 8px;
+		gap: var(--space-2);
 	}
 
 	.editor-tip {
 		font-size: 0.74rem;
 		line-height: 1.45;
 		color: var(--cal-ink-2);
-	}
-
-	.editor-submit {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		padding: 10px;
-		border-radius: 9px;
-		border: none;
-		background: var(--cal-accent);
-		color: var(--cal-accent-ink);
-		font-size: 0.87rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: filter 160ms cubic-bezier(0.22, 1, 0.36, 1);
-	}
-
-	.editor-submit:hover:not(:disabled) {
-		filter: brightness(1.08);
-	}
-
-	.editor-submit:disabled {
-		background: var(--cal-border-strong);
-		color: var(--cal-ink);
-		cursor: not-allowed;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.editor-del,
-		.editor-preset,
-		.editor-submit {
-			transition: none;
-		}
 	}
 </style>
