@@ -29,6 +29,12 @@
 23. Every Grove Site includes local execution by default and may enroll additional hosts using the same host implementation.
 24. Host and model selection are resolved per Task under capability, policy, privacy, locality, and budget.
 25. A2A is an optional boundary adapter, never Grove's internal object or workflow model.
+26. Browser login binds a Person to the verified issuer-qualified identity `(issuer, subject)`; email and display name are not identity correlation keys.
+27. The singleton local Home Host can be claimed only by the operator-pinned browser identity configured for that deployment. Its first verified login binds the Person and Host ownership atomically; other logins do not compete for ownership.
+28. MCP machine OAuth identifies Agents by issuer-qualified subject. Unbound identities require explicit enrollment scope and an explicit self-enrollment command; ordinary discovery never creates an Agent.
+29. Agent capability is contained by every Person allowed to interact with that Agent. Conflicts require an explicit grant, access removal, or Agent-capability removal rather than a silent cascade.
+30. Browser sessions, REST browser credentials, and MCP bearer credentials are separate trust channels. A bearer-authenticated MCP request acts only as that machine identity even when browser cookies are present.
+31. The first-slice Sprout operations are fixed compatibility capabilities of every active Actor; ordinary authority mutation cannot remove them.
 
 ## Superseded
 

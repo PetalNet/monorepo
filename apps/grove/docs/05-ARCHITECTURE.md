@@ -367,6 +367,14 @@ Transport adapters:
 
 They do not duplicate business logic.
 
+### Actor authentication spine
+
+Browser OIDC and MCP machine OAuth terminate at separate protected-resource ingress modules. Browser login binds a Person by the verified issuer-qualified subject. MCP validates bearer tokens without consulting browser cookies, resolves the machine identity to an Agent, and exposes only currently authorized operations. An enrollment-scoped but unbound machine identity is a restricted bootstrap principal until it explicitly enrolls itself.
+
+The local Home Host owner is deployment-pinned by browser `(issuer, subject)`. Owner-unbound is a visible readiness state and does not disable login, so the configured owner can establish the binding. Agent placement and ownership remain stable when execution moves between Runners.
+
+Every transport stamps the invocation Actor and context before calling a named domain command. Commands reauthorize at invocation time. Agent capability changes and Person authority reductions preserve capability containment or return typed conflicts with explicit remediation choices; revocation and lifecycle safety still fail closed immediately. The Sprout demo operations are a fixed first-slice compatibility policy for every active Actor and cannot be removed through authority mutation.
+
 ## 9. Agent, Runtime, and host architecture
 
 ### Agent
