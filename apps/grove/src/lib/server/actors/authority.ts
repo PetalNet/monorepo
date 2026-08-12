@@ -913,9 +913,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				authorizeActor,
 				authorizedOperations,
 				grantAgentAccessAs: (principal, agentIdValue, personIdValue) =>
-						requireAgentManager(principal, agentIdValue).pipe(
-							Effect.andThen(grantAgentAccess(agentIdValue, personIdValue)),
-						),
+					requireAgentManager(principal, agentIdValue).pipe(
+						Effect.andThen(grantAgentAccess(agentIdValue, personIdValue)),
+					),
 				requestAgentCapability: (principal, agentIdValue, capability) =>
 					requireAgentManager(principal, agentIdValue).pipe(
 						Effect.andThen(addAgentCapability(agentIdValue, capability)),
