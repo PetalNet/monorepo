@@ -1,38 +1,18 @@
-const SENSITIVE_KEY = /authorization|cookie|password|secret|token/i;
+import { sanitizeDevBrowserLogText, sanitizeDevBrowserLogValue } from "./dev-browser-log-sanitizer";
+
 const MAX_SERIALIZED_VALUE = 2_000;
 
-const redactText = (value: string) =>
-	value
-		.replace(/\bauthorization\s*[:=]\s*Bearer\s+[^\s,;]+/gi, "authorization=[REDACTED]")
-		.replace(/\bBearer\s+[A-Za-z\d._~+/-]+=*/gi, "Bearer [REDACTED]")
-		.replace(
-			/\b(cookie|password|secret|token)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi,
-			"$1=[REDACTED]",
-		);
-
 export const serializeDevBrowserLogValue = (value: unknown) => {
-	if (typeof value === "string") return redactText(value).slice(0, MAX_SERIALIZED_VALUE);
-	if (value instanceof Error)
-		return redactText(`${value.name}: ${value.message}\n${value.stack ?? ""}`).slice(
-			0,
-			MAX_SERIALIZED_VALUE,
-		);
-	const seen = new WeakSet<object>();
+	const sanitized = sanitizeDevBrowserLogValue(value);
+	if (typeof sanitized === "string") return sanitized.slice(0, MAX_SERIALIZED_VALUE);
 	try {
-		const serialized: unknown = JSON.stringify(value, (key: string, entry: unknown) => {
-			if (SENSITIVE_KEY.test(key)) return "[REDACTED]";
-			if (entry !== null && typeof entry === "object") {
-				if (seen.has(entry)) return "[Circular]";
-				seen.add(entry);
-			}
-			return entry;
-		});
-		return redactText(typeof serialized === "string" ? serialized : String(value)).slice(
+		const serialized: unknown = JSON.stringify(sanitized);
+		return (typeof serialized === "string" ? serialized : String(sanitized)).slice(
 			0,
 			MAX_SERIALIZED_VALUE,
 		);
 	} catch {
-		return redactText(String(value)).slice(0, MAX_SERIALIZED_VALUE);
+		return sanitizeDevBrowserLogText(String(sanitized)).slice(0, MAX_SERIALIZED_VALUE);
 	}
 };
 
@@ -45,7 +25,6 @@ const submit = (level: BrowserLogLevel, source: string, values: readonly unknown
 				level,
 				message: values.map(serializeDevBrowserLogValue).join(" ").slice(0, MAX_SERIALIZED_VALUE),
 				source,
-				timestamp: new Date().toISOString(),
 			},
 		],
 	});

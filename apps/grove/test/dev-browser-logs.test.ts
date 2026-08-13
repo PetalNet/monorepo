@@ -22,22 +22,64 @@ afterEach(async () => {
 });
 
 describe("Grove development browser logs", () => {
-	it("serializes useful errors while redacting sensitive keys and bearer credentials", () => {
+	it("structurally sanitizes browser values before serialization without erasing useful fields", () => {
+		const headers = new Headers({
+			authorization: `Basic ${Buffer.from("operator:basic-secret").toString("base64")}`,
+			"x-api-key": "api-key-secret",
+			"x-request-id": "request-123",
+		});
 		const serialized = serializeDevBrowserLogValue({
 			message: "request failed",
-			headers: { authorization: "Bearer browser-secret-token", cookie: "session=private" },
+			headers,
+			credential: "private-credential",
 			password: "hidden-password",
+			nested: {
+				clientSecret: "client-secret-value",
+				sessionId: "session-secret-value",
+				access_token: "access-token-value",
+			},
+			url: "https://api.example/items?page=2&api_key=query-secret&X-Amz-Signature=signed-secret",
 		});
 
 		expect(serialized).toContain("request failed");
+		expect(serialized).toContain("request-123");
+		expect(serialized).toContain("page=2");
 		expect(serialized).toContain("[REDACTED]");
-		expect(serialized).not.toContain("browser-secret-token");
-		expect(serialized).not.toContain("session=private");
-		expect(serialized).not.toContain("hidden-password");
+		for (const secret of [
+			"basic-secret",
+			"api-key-secret",
+			"private-credential",
+			"hidden-password",
+			"client-secret-value",
+			"session-secret-value",
+			"access-token-value",
+			"query-secret",
+			"signed-secret",
+		])
+			expect(serialized).not.toContain(secret);
 	});
 
-	it("accepts bounded structured entries and writes one sanitized line per event", async () => {
+	it("redacts credentials embedded in console text", () => {
+		const serialized = serializeDevBrowserLogValue(
+			"Authorization: Bearer bearer-value authorization=Basic YmFzaWM6dmFsdWU= " +
+				"x-api-key=api-value credential: credential-value " +
+				"https://api.example/path?token=query-value&requestId=visible-request",
+		);
+
+		expect(serialized).toContain("visible-request");
+		for (const secret of [
+			"bearer-value",
+			"YmFzaWM6dmFsdWU=",
+			"api-value",
+			"credential-value",
+			"query-value",
+		])
+			expect(serialized).not.toContain(secret);
+	});
+
+	it("uses server chronology and writes terminal-safe redacted lines", async () => {
 		const path = await logPath();
+		const before = Date.now();
 		const response = await ingestDevBrowserLogs(
 			new Request("https://grove.test/__dev/logs/browser", {
 				method: "POST",
@@ -47,9 +89,11 @@ describe("Grove development browser logs", () => {
 						{
 							level: "unhandled-rejection",
 							message:
-								"fetch failed\nauthorization=Bearer should-not-reach-disk cookie=session-secret",
-							source: "window.unhandledrejection",
-							timestamp: "2026-08-13T00:00:00.000Z",
+								"fetch failed\n\tAuthorization: Basic should-not-reach-disk x-api-key=api-secret " +
+								"credential=credential-secret https://api.example/path?session=session-secret&request=kept " +
+								"\u001b[31mred\u0000nul\bbackspace\u0085c1\u202Espoof\u2066isolate",
+							source: "window.unhandledrejection\u001b[2J",
+							timestamp: "1999-12-31T23:59:59.000Z",
 						},
 					],
 				}),
@@ -60,12 +104,25 @@ describe("Grove development browser logs", () => {
 		expect(response.status).toBe(202);
 		const contents = await readFile(path, "utf8");
 		expect(contents.split("\n").filter(Boolean)).toHaveLength(1);
+		const timestamp = contents.slice(0, contents.indexOf(" "));
+		expect(Date.parse(timestamp)).toBeGreaterThanOrEqual(before);
+		expect(Date.parse(timestamp)).toBeLessThanOrEqual(Date.now());
+		expect(contents).not.toContain("1999-12-31");
 		expect(contents).toContain(
-			"2026-08-13T00:00:00.000Z [browser:unhandled-rejection] window.unhandledrejection fetch failed",
+			"[browser:unhandled-rejection] window.unhandledrejection fetch failed\\n\\t",
 		);
+		expect(contents).toContain("request=kept");
 		expect(contents).toContain("[REDACTED]");
-		expect(contents).not.toContain("should-not-reach-disk");
-		expect(contents).not.toContain("session-secret");
+		for (const secret of [
+			"should-not-reach-disk",
+			"api-secret",
+			"credential-secret",
+			"session-secret",
+		])
+			expect(contents).not.toContain(secret);
+		expect(contents).not.toMatch(
+			/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u,
+		);
 	});
 
 	it("rejects oversized and malformed requests before writing", async () => {

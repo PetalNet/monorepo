@@ -2,6 +2,8 @@ import { appendFile, mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 
+import { sanitizeDevBrowserLogText } from "$lib/dev-browser-log-sanitizer";
+
 export const DEV_BROWSER_LOG_MAX_BYTES = 1024 * 1024;
 const MAX_REQUEST_BYTES = 16_384;
 const MAX_ENTRIES = 20;
@@ -13,7 +15,6 @@ interface BrowserLogEntry {
 	readonly level: string;
 	readonly message: string;
 	readonly source: string;
-	readonly timestamp?: string;
 }
 
 let pendingWrite = Promise.resolve();
@@ -68,30 +69,16 @@ const validEntry = (value: unknown): value is BrowserLogEntry => {
 		entry.message.length <= MAX_MESSAGE_LENGTH &&
 		typeof entry.source === "string" &&
 		entry.source.length > 0 &&
-		entry.source.length <= MAX_SOURCE_LENGTH &&
-		(entry.timestamp === undefined ||
-			(typeof entry.timestamp === "string" &&
-				entry.timestamp.length <= 40 &&
-				!Number.isNaN(Date.parse(entry.timestamp))))
+		entry.source.length <= MAX_SOURCE_LENGTH
 	);
 };
 
-const redact = (value: string) =>
-	value
-		.replace(/\bauthorization\s*[:=]\s*Bearer\s+[^\s,;]+/gi, "authorization=[REDACTED]")
-		.replace(/\bBearer\s+[A-Za-z\d._~+/-]+=*/gi, "Bearer [REDACTED]")
-		.replace(
-			/\b(cookie|password|secret|token)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi,
-			"$1=[REDACTED]",
-		)
-		.replace(/[\r\n\t]+/g, " ");
-
 const linesFor = (entries: readonly BrowserLogEntry[]) =>
 	entries
-		.map((entry) => {
-			const timestamp = entry.timestamp ?? new Date().toISOString();
-			return `${timestamp} [browser:${entry.level}] ${redact(entry.source)} ${redact(entry.message)}\n`;
-		})
+		.map(
+			(entry) =>
+				`${new Date().toISOString()} [browser:${entry.level}] ${sanitizeDevBrowserLogText(entry.source)} ${sanitizeDevBrowserLogText(entry.message)}\n`,
+		)
 		.join("");
 
 const writeBounded = (path: string, lines: string) => {
