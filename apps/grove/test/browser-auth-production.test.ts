@@ -188,7 +188,7 @@ describe("production Grove browser auth composition", () => {
 		expect(signedOut.status).toBe(302);
 		expect(signedOut.headers.get("location")).toBe("/signed-out");
 		expect(signedOut.headers.getSetCookie().join("\n")).toMatch(
-			/better-auth\.session_token=;.*Max-Age=0/i,
+			/(?:__Secure-)?better-auth\.session_token=;.*Max-Age=0/i,
 		);
 		await expect(
 			runtime.runPromise(browserAuth.hydrateSession(new Headers({ cookie: sessionCookies }))),
