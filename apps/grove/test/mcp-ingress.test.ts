@@ -23,10 +23,25 @@ const ownerIdentity = {
 	issuer: "https://identity.example/realms/grove",
 	subject: "operator-1",
 };
+const MCP_PROTOCOL_VERSION = "2026-07-28";
+const MCP_META = {
+	"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+	"io.modelcontextprotocol/clientInfo": { name: "grove-ingress-test", version: "1.0.0" },
+	"io.modelcontextprotocol/clientCapabilities": {},
+};
 const rpc = (id: number, method: string, params?: object) =>
-	JSON.stringify({ jsonrpc: "2.0", id, method, ...(params ? { params } : {}) });
+	JSON.stringify({
+		jsonrpc: "2.0",
+		id,
+		method,
+		params: { ...params, _meta: MCP_META },
+	});
 interface McpJson {
 	readonly result: {
+		readonly resultType: string;
+		readonly supportedVersions: readonly string[];
+		readonly ttlMs: number;
+		readonly cacheScope: string;
 		readonly tools: readonly { readonly name: string }[];
 		readonly isError: boolean;
 		readonly structuredContent: Record<string, unknown>;
@@ -89,9 +104,27 @@ describe("MCP protected-resource ingress", () => {
 		body: string,
 		extraHeaders?: HeadersInit,
 		target = ingress,
+		standardHeaders = true,
 	) => {
 		const headers = new Headers(extraHeaders);
 		if (!headers.has("content-type")) headers.set("content-type", "application/json");
+		if (!headers.has("accept")) headers.set("accept", "application/json, text/event-stream");
+		if (standardHeaders) {
+			try {
+				const parsed = JSON.parse(body) as {
+					readonly method?: unknown;
+					readonly params?: { readonly name?: unknown };
+				};
+				if (typeof parsed.method === "string" && !headers.has("mcp-method"))
+					headers.set("mcp-method", parsed.method);
+				if (typeof parsed.params?.name === "string" && !headers.has("mcp-name"))
+					headers.set("mcp-name", parsed.params.name);
+			} catch {
+				// Ingress parse-error tests deliberately send malformed JSON.
+			}
+			if (!headers.has("mcp-protocol-version"))
+				headers.set("mcp-protocol-version", MCP_PROTOCOL_VERSION);
+		}
 		if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
 		return runtime.runPromise(
 			target.handle(
@@ -130,9 +163,63 @@ describe("MCP protected-resource ingress", () => {
 		expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
 	});
 
+	it("serves modern discovery and lets the SDK enforce the modern request envelope", async () => {
+		const accessToken = await token("modern-discovery", ["grove:mcp"]);
+		const discovered = await json(await request(accessToken, rpc(20, "server/discover")));
+		expect(discovered.result).toMatchObject({
+			resultType: "complete",
+			supportedVersions: [MCP_PROTOCOL_VERSION],
+			capabilities: { tools: {} },
+			ttlMs: 0,
+			cacheScope: "private",
+		});
+
+		const missingVersion = await request(
+			accessToken,
+			rpc(21, "tools/list"),
+			undefined,
+			ingress,
+			false,
+		);
+		expect(missingVersion.status).toBe(400);
+		expect(await json(missingVersion)).toMatchObject({ error: { code: -32020 } });
+
+		const unknownMethod = await request(accessToken, rpc(23, "grove/not-a-method"));
+		expect(unknownMethod.status).toBe(404);
+		expect(await json(unknownMethod)).toMatchObject({ error: { code: -32601 } });
+	});
+
+	it("keeps the SDK's documented stateless legacy fallback", async () => {
+		const accessToken = await token("legacy-fallback", ["grove:mcp"]);
+		const response = await request(
+			accessToken,
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 22,
+				method: "initialize",
+				params: {
+					protocolVersion: "2025-06-18",
+					capabilities: {},
+					clientInfo: { name: "legacy-grove-test", version: "1.0.0" },
+				},
+			}),
+			undefined,
+			ingress,
+			false,
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toContain("text/event-stream");
+		expect(await response.text()).toContain('"protocolVersion":"2025-06-18"');
+	});
+
 	it("restricts bootstrap visibility, explicitly enrolls, and keeps retries idempotent", async () => {
 		const accessToken = await token("janet-machine", ["grove:mcp", "grove:agent:enroll"]);
 		const listedBefore = await json(await request(accessToken, rpc(1, "tools/list")));
+		expect(listedBefore.result).toMatchObject({
+			resultType: "complete",
+			ttlMs: 0,
+			cacheScope: "private",
+		});
 		expect(listedBefore.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
 			"agents.enrollSelf",
 		]);
@@ -147,6 +234,7 @@ describe("MCP protected-resource ingress", () => {
 			),
 		);
 		expect(enrolled.result).toMatchObject({
+			resultType: "complete",
 			isError: false,
 			structuredContent: { kind: "agent", name: "Janet", homeHostId: "host-local" },
 		});

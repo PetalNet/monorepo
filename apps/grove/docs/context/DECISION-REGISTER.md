@@ -35,6 +35,7 @@
 29. Agent capability is contained by every Person allowed to interact with that Agent. Conflicts require an explicit grant, access removal, or Agent-capability removal rather than a silent cascade.
 30. Browser sessions, REST browser credentials, and MCP bearer credentials are separate trust channels. A bearer-authenticated MCP request acts only as that machine identity even when browser cookies are present.
 31. The first-slice Sprout operations are fixed compatibility capabilities of every active Actor; ordinary authority mutation cannot remove them.
+32. The March 2026 IETF `draft-klrc-aiagent-auth-00` informs Grove's OAuth posture: issuer-qualified short-lived credentials, exact audience, mutable reauthorization, and distinct Agent and Host audit actors. Grove does not implement Better Auth's separate Agent Auth Protocol `v1.0-draft`: a Grove Agent is durable, acts as itself, is owned by its Host, and derives current capability from database-backed access relationships rather than natural-language or on-behalf-of authority.
 
 ## Superseded
 

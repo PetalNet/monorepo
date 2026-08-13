@@ -1,4 +1,4 @@
-import { createEffectApi, type ApiOperation, type McpRequest } from "@petalnet/effect-api";
+import { createEffectApi, type ApiOperation, type McpRequestOptions } from "@petalnet/effect-api";
 import { Effect } from "effect";
 import { createRemoteJWKSet, errors, jwtVerify, type JWTVerifyGetKey, type JWTPayload } from "jose";
 
@@ -33,6 +33,11 @@ export interface McpIngress {
 	readonly handle: (
 		request: Request,
 	) => Effect.Effect<Response, AuthorityError, ActorAuthority | SproutCommands>;
+}
+
+interface AuthenticatedMachine {
+	readonly identity: MachineIdentity;
+	readonly authInfo: NonNullable<McpRequestOptions["authInfo"]>;
 }
 
 class InvalidMcpConfiguration extends Error {
@@ -171,6 +176,14 @@ const readJson = async (request: Request): Promise<unknown> => {
 	return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
 };
 
+const requestedToolName = (body: unknown) => {
+	if (body === null || typeof body !== "object" || Array.isArray(body)) return undefined;
+	const params = "params" in body ? body.params : undefined;
+	if (params === null || typeof params !== "object" || Array.isArray(params)) return undefined;
+	const name = "name" in params ? params.name : undefined;
+	return typeof name === "string" ? name : undefined;
+};
+
 const allOperations: readonly ApiOperation<ActorAuthority | InvocationContext | SproutCommands>[] =
 	[enrollAgentSelfOperation, ...sproutOperations];
 
@@ -183,7 +196,7 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): 
 			cooldownDuration: 30_000,
 		});
 
-	const authenticate = async (request: Request): Promise<MachineIdentity | Response> => {
+	const authenticate = async (request: Request): Promise<AuthenticatedMachine | Response> => {
 		const token = tokenFrom(request);
 		if (!token) return challenge(config);
 		try {
@@ -197,7 +210,24 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): 
 			if (!scopes.has(MCP_SCOPE)) return challenge(config, "insufficient_scope");
 			if (typeof payload.sub !== "string" || payload.sub.length === 0)
 				return challenge(config, "invalid_token");
-			return { issuer: config.issuer, subject: payload.sub, scopes };
+			const identity = { issuer: config.issuer, subject: payload.sub, scopes };
+			const clientId =
+				typeof payload.client_id === "string"
+					? payload.client_id
+					: typeof payload.azp === "string"
+						? payload.azp
+						: payload.sub;
+			return {
+				identity,
+				authInfo: {
+					token,
+					clientId,
+					scopes: [...scopes],
+					...(payload.exp === undefined ? {} : { expiresAt: payload.exp }),
+					resource: new URL(resource(config)),
+					extra: { issuer: config.issuer, subject: payload.sub },
+				},
+			};
 		} catch (error) {
 			return invalidTokenFailure(error)
 				? challenge(config, "invalid_token")
@@ -209,20 +239,18 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): 
 		metadata: () => mcpProtectedResourceMetadata(config),
 		handle: (request: Request) =>
 			Effect.promise(() => authenticate(request)).pipe(
-				Effect.flatMap((identity) => {
-					if (identity instanceof Response) return Effect.succeed(identity);
+				Effect.flatMap((authenticated) => {
+					if (authenticated instanceof Response) return Effect.succeed(authenticated);
 					return Effect.gen(function* () {
 						const authority = yield* ActorAuthority;
-						const principal = yield* authority.resolveMachineIdentity(identity);
+						const principal = yield* authority.resolveMachineIdentity(authenticated.identity);
 						const body = yield* Effect.promise(() => readJson(request).catch(() => undefined));
 						if (body instanceof Response) return body;
-						if (body === undefined || body === null || typeof body !== "object")
-							return parseError();
-						const mcpRequest = body as McpRequest;
+						if (body === undefined) return parseError();
 						const authorized = new Set(yield* authority.authorizedOperations(principal));
 						const canRetryEnrollment =
-							principal.kind === "agent" && identity.scopes.has("grove:agent:enroll");
-						if (canRetryEnrollment && mcpRequest.params?.name === "agents.enrollSelf")
+							principal.kind === "agent" && authenticated.identity.scopes.has("grove:agent:enroll");
+						if (canRetryEnrollment && requestedToolName(body) === "agents.enrollSelf")
 							authorized.add("agents.enrollSelf");
 						const api = createEffectApi({
 							title: "Grove MCP",
@@ -232,13 +260,18 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): 
 								.filter((operation) => authorized.has(operation.name))
 								.toSorted((left, right) => left.name.localeCompare(right.name)),
 						});
-						return yield* api.mcp(mcpRequest).pipe(
-							Effect.provideService(InvocationContext, {
-								principal,
-								transport: "mcp",
-								requestId: request.headers.get("x-request-id") ?? crypto.randomUUID(),
-							}),
-						);
+						return yield* api
+							.mcp(request, {
+								authInfo: authenticated.authInfo,
+								parsedBody: body,
+							})
+							.pipe(
+								Effect.provideService(InvocationContext, {
+									principal,
+									transport: "mcp",
+									requestId: request.headers.get("x-request-id") ?? crypto.randomUUID(),
+								}),
+							);
 					});
 				}),
 				Effect.catchIf(
