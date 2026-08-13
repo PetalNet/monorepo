@@ -1,6 +1,7 @@
 import type { KnipConfig } from "knip";
 
 export default {
+	entry: ["tools/*.mjs!"],
 	ignore: [".agents/skills/impeccable/**"],
 	// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 	ignoreDependencies: ["@effect/language-service"],
@@ -32,14 +33,8 @@ export default {
 			],
 		},
 		"apps/grove": {
-			// Local OIDC and Agent enrollment are orb operations entrypoints, not imported by Grove.
-			entry: [
-				"dev-oidc.mjs",
-				"effectdb.config.ts!",
-				"scripts/*.mjs!",
-				"src/env.ts!",
-				"test/**/*.ts",
-			],
+			// Local OIDC is an orb operation entrypoint, not imported by Grove.
+			entry: ["dev-oidc.mjs", "effectdb.config.ts!", "src/env.ts!", "test/**/*.ts"],
 		},
 		"apps/storybook": {
 			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],

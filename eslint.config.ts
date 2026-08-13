@@ -44,7 +44,7 @@ export default defineConfig([
 		},
 	},
 	{
-		files: ["apps/grove/dev-oidc.mjs", "apps/grove/scripts/**/*.mjs"],
+		files: ["apps/grove/dev-oidc.mjs", "tools/**/*.mjs"],
 		extends: [tseslint.configs.disableTypeChecked],
 		languageOptions: {
 			parserOptions: {

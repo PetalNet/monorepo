@@ -9,11 +9,11 @@ import {
 } from "@modelcontextprotocol/client";
 
 const developmentSecret = "grove-mcp-development-only-secret";
-const root = fileURLToPath(new URL("../../../", import.meta.url));
+const root = fileURLToPath(new URL("../", import.meta.url));
 
 const usage = () => {
 	console.error(
-		"Usage: vp node --use-system-ca apps/grove/scripts/enroll-dev-agent.mjs --subject <unique-id> --name <display-name>",
+		"Usage: vp node --use-system-ca tools/enroll-grove-dev-agent.mjs --subject <unique-id> --name <display-name>",
 	);
 };
 
