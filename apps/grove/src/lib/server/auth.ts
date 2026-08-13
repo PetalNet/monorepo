@@ -4,7 +4,7 @@ import type { RequestEvent, ResolveOptions } from "@sveltejs/kit";
 import type { BetterAuthOptions, Session, User } from "better-auth";
 import type { AdapterFactory } from "better-auth/adapters";
 import { betterAuth } from "better-auth/minimal";
-import { isAuthPath, svelteKitHandler, sveltekitCookies } from "better-auth/svelte-kit";
+import { sveltekitCookies } from "better-auth/svelte-kit";
 import { Context, Effect, Layer } from "effect";
 
 import { ActorAuthority, type PersonPrincipal } from "./actors/authority";
@@ -42,6 +42,7 @@ export class GroveAuth extends Context.Service<GroveAuth, GroveAuthShape>()("gro
 
 type Sql = PgClient.PgClient;
 type Authority = ActorAuthority["Service"];
+const isBrowserAuthPath = (url: string) => new URL(url).pathname.startsWith("/api/auth/");
 
 export const makeGroveBrowserAuth = async (
 	config: GroveBrowserAuthConfig,
@@ -86,7 +87,7 @@ export const makeGroveBrowserAuth = async (
 	await auth.$context;
 
 	return {
-		isBrowserAuthRoute: (url) => Effect.sync(() => isAuthPath(url, auth.options)),
+		isBrowserAuthRoute: (url) => Effect.sync(() => isBrowserAuthPath(url)),
 		hydrateSession: (headers) =>
 			Effect.gen(function* () {
 				const current = yield* Effect.promise(() => auth.api.getSession({ headers }));
@@ -111,16 +112,23 @@ export const makeGroveBrowserAuth = async (
 		dispatch: ({ event, resolve }) => {
 			if (event.request.method === "POST" && event.url.pathname === "/api/auth/sign-in/social")
 				return Effect.succeed(new Response("Not found", { status: 404 }));
-			return Effect.promise(() => svelteKitHandler({ event, resolve, auth, building: false }));
+			if (isBrowserAuthPath(event.url.toString()))
+				return Effect.promise(() => auth.handler(event.request));
+			return Effect.promise(() => Promise.resolve(resolve(event)));
 		},
 		beginLogin: (headers) =>
-			Effect.promise(() =>
-				auth.api.signInSocial({
+			Effect.promise(async () => {
+				const initiated = await auth.api.signInSocial({
 					body: { provider: GROVE_OIDC_PROVIDER_ID, callbackURL: "/" },
 					headers,
 					asResponse: true,
-				}),
-			),
+				});
+				const location = initiated.headers.get("location");
+				if (!location) throw new Error("Grove OIDC login initiation omitted its redirect");
+				const redirectHeaders = new Headers(initiated.headers);
+				redirectHeaders.delete("content-type");
+				return new Response(null, { status: 302, headers: redirectHeaders });
+			}),
 		readiness: authority.homeReadiness,
 	};
 };

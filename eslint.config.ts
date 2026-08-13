@@ -44,6 +44,15 @@ export default defineConfig([
 		},
 	},
 	{
+		files: ["apps/grove/dev-oidc.mjs"],
+		extends: [tseslint.configs.disableTypeChecked],
+		languageOptions: {
+			parserOptions: {
+				projectService: false,
+			},
+		},
+	},
+	{
 		files: ["apps/{collegemap,console,grove,slide,storybook}/**/*.svelte"],
 		extends: svelte.configs.recommended,
 		languageOptions: {

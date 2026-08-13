@@ -8,6 +8,9 @@ export default defineConfig({
 		// Preserve light-dark(); its media-query fallback ignores explicit mode overrides.
 		cssTarget: ["chrome123", "firefox120", "safari17.5"],
 	},
+	server: {
+		allowedHosts: [".e2b.app", ".onamp.dev"],
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

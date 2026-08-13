@@ -102,6 +102,11 @@ describe("production Grove browser auth composition", () => {
 			authority,
 			() => activeEvent,
 		);
+		expect(
+			await Effect.runPromise(
+				browserAuth.isBrowserAuthRoute("http://grove.example/api/auth/get-session"),
+			),
+		).toBe(true);
 		const beginAuthorization = async () => {
 			activeEvent = eventFor(new Request(`${origin}/login`));
 			const loginResponse = await Effect.runPromise(browserAuth.beginLogin(new Headers()));
@@ -128,6 +133,7 @@ describe("production Grove browser auth composition", () => {
 			status: "owner-unbound",
 		});
 		const { loginResponse: login, url: authorizationUrl } = await beginAuthorization();
+		expect(login.status).toBe(302);
 		expect(authorizationUrl.searchParams.get("response_type")).toBe("code");
 		expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe("S256");
 		expect(expectedNonce).not.toBe("");

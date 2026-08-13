@@ -91,7 +91,7 @@ describe("MCP protected-resource ingress", () => {
 		target = ingress,
 	) => {
 		const headers = new Headers(extraHeaders);
-		headers.set("content-type", "application/json");
+		if (!headers.has("content-type")) headers.set("content-type", "application/json");
 		if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
 		return runtime.runPromise(
 			target.handle(
@@ -258,6 +258,33 @@ describe("MCP protected-resource ingress", () => {
 
 		expect(response.status).toBe(400);
 		expect(await json(response)).toMatchObject({ error: { code: -32700 } });
+	});
+
+	it("requires the MCP JSON media type", async () => {
+		const accessToken = await token("wrong-media-type", ["grove:mcp"]);
+		const response = await request(accessToken, rpc(14, "tools/list"), {
+			"content-type": "text/plain",
+		});
+
+		expect(response.status).toBe(415);
+		expect(await responseJson(response)).toEqual({
+			error: "unsupported_media_type",
+			message: "MCP requests must use application/json",
+		});
+	});
+
+	it("rejects an MCP body that exceeds one MiB", async () => {
+		const accessToken = await token("oversized-body", ["grove:mcp"]);
+		const response = await request(
+			accessToken,
+			JSON.stringify({ padding: "x".repeat(1024 * 1024) }),
+		);
+
+		expect(response.status).toBe(413);
+		expect(await responseJson(response)).toEqual({
+			error: "request_too_large",
+			message: "MCP requests must not exceed 1 MiB",
+		});
 	});
 
 	it("distinguishes insufficient admission, unknown keys, and JWKS dependency failure", async () => {

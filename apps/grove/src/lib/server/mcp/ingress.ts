@@ -15,6 +15,7 @@ import { sproutOperations } from "../sprouts/api";
 import type { SproutCommands } from "../sprouts/service";
 
 const MCP_SCOPE = "grove:mcp";
+const MCP_MAX_REQUEST_BYTES = 1024 * 1024;
 
 export interface McpIngressConfig {
 	readonly issuer: string;
@@ -120,7 +121,55 @@ const parseError = () =>
 		{ status: 400 },
 	);
 
-const readJson = (request: Request): Promise<unknown> => request.json() as Promise<unknown>;
+const unsupportedMediaType = () =>
+	Response.json(
+		{ error: "unsupported_media_type", message: "MCP requests must use application/json" },
+		{ status: 415 },
+	);
+
+const requestTooLarge = () =>
+	Response.json(
+		{ error: "request_too_large", message: "MCP requests must not exceed 1 MiB" },
+		{ status: 413 },
+	);
+
+const readJson = async (request: Request): Promise<unknown> => {
+	const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+	if (mediaType !== "application/json") return unsupportedMediaType();
+	const contentLength = request.headers.get("content-length");
+	if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MCP_MAX_REQUEST_BYTES)
+		return requestTooLarge();
+
+	const reader = request.body?.getReader();
+	if (!reader) throw new SyntaxError("MCP request body is empty");
+	const chunks: Uint8Array[] = [];
+	let byteLength = 0;
+	try {
+		while (true) {
+			// A stream reader is sequential by contract; parallel reads would not preserve the byte bound.
+			// oxlint-disable-next-line no-await-in-loop
+			const { done, value } = await reader.read();
+			if (done) break;
+			byteLength += value.byteLength;
+			if (byteLength > MCP_MAX_REQUEST_BYTES) {
+				// oxlint-disable-next-line no-await-in-loop
+				await reader.cancel();
+				return requestTooLarge();
+			}
+			chunks.push(value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+
+	const bytes = new Uint8Array(byteLength);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+};
 
 const allOperations: readonly ApiOperation<ActorAuthority | InvocationContext | SproutCommands>[] =
 	[enrollAgentSelfOperation, ...sproutOperations];
@@ -166,6 +215,7 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): 
 						const authority = yield* ActorAuthority;
 						const principal = yield* authority.resolveMachineIdentity(identity);
 						const body = yield* Effect.promise(() => readJson(request).catch(() => undefined));
+						if (body instanceof Response) return body;
 						if (body === undefined || body === null || typeof body !== "object")
 							return parseError();
 						const mcpRequest = body as McpRequest;

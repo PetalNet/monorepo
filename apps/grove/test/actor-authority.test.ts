@@ -143,6 +143,25 @@ describe("actor authority", () => {
 		);
 		expect(repeated).toEqual(janet);
 		expect(janet).toMatchObject({ kind: "agent", name: "Janet", homeHostId: "host-local" });
+		const retryWithoutEnrollmentScope = await run(
+			authority((actors) =>
+				actors
+					.enrollSelf(machine(identity.issuer, identity.subject, false), {
+						name: "Scope-free retry",
+					})
+					.pipe(Effect.flip),
+			),
+		);
+		expect(retryWithoutEnrollmentScope).toMatchObject({
+			_tag: "ActorDenied",
+			reason: "Agent enrollment scope is required",
+		});
+		expect(await run(authority((actors) => actors.resolveMachineIdentity(identity)))).toMatchObject(
+			{
+				actorId: janet.actorId,
+				name: "Janet",
+			},
+		);
 
 		const sameSubjectOtherIssuer = machine("https://machine.example/issuer-b", "janet");
 		const other = await run(
@@ -295,6 +314,89 @@ describe("actor authority", () => {
 		expect(enrollmentRetry).toMatchObject({
 			_tag: "ActorNotCurrent",
 			actorId: agent.actorId,
+		});
+	});
+
+	it("rechecks manager currentness inside the authority mutation transaction", async () => {
+		const owner = await run(
+			authority((service) =>
+				service.bindBrowserIdentity({
+					authUserId: "auth-owner",
+					...ownerIdentity,
+					name: "Grove Operator",
+					emailVerified: true,
+				}),
+			),
+		);
+		const agent = await run(
+			authority((service) =>
+				service.enrollSelf(machine("https://machine.example", "manager-atomicity"), {
+					name: "Manager Atomicity Agent",
+				}),
+			),
+		);
+		const acquired = Promise.withResolvers<undefined>();
+		const release = Promise.withResolvers<undefined>();
+		const blocker = databaseRuntime.runPromise(
+			Effect.flatMap(PgClient.PgClient, (sql) =>
+				sql.withTransaction(
+					sql.unsafe("select pg_advisory_xact_lock(hashtext('grove-capability-containment'))").pipe(
+						Effect.tap(() =>
+							Effect.sync(() => {
+								acquired.resolve(undefined);
+							}),
+						),
+						Effect.andThen(Effect.promise(() => release.promise)),
+					),
+				),
+			),
+		);
+		await acquired.promise;
+
+		const mutation = run(
+			authority((service) =>
+				service.applyContainmentFixAs(owner, {
+					action: "grant-person-capability",
+					agentId: agent.actorId,
+					personId: owner.actorId,
+					capability: "agents.atomicity-test",
+				}),
+			),
+		).then(
+			() => "allowed" as const,
+			(error: unknown) => error,
+		);
+		await waitForDatabaseLock("grove-capability-containment");
+
+		let outcome: unknown;
+		try {
+			await databaseRuntime.runPromise(
+				Effect.flatMap(PgClient.PgClient, (sql) =>
+					sql
+						.unsafe("update grove_actors set lifecycle = 'suspended' where id = $1", [
+							owner.actorId,
+						])
+						.pipe(Effect.asVoid),
+				),
+			);
+			release.resolve(undefined);
+			await blocker;
+			outcome = await mutation;
+		} finally {
+			release.resolve(undefined);
+			await blocker;
+			await databaseRuntime.runPromise(
+				Effect.flatMap(PgClient.PgClient, (sql) =>
+					sql
+						.unsafe("update grove_actors set lifecycle = 'active' where id = $1", [owner.actorId])
+						.pipe(Effect.asVoid),
+				),
+			);
+		}
+
+		expect(outcome).toMatchObject({
+			_tag: "ActorDenied",
+			reason: "Only the Home Host owner may manage this Agent",
 		});
 	});
 
