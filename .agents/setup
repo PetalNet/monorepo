@@ -45,6 +45,7 @@ cat > "$amp_config_dir/AGENTS.md" <<'EOF_AGENTS'
 - Rust is lazy: from a Rust app directory, run `mise install --locked rust`; mise reads that app's `rust-toolchain.toml`.
 - Flutter is lazy: from a Flutter app directory, run `mise install --locked flutter`, then `flutter pub get`.
 - Docker runs as the supervised `docker` Amp service for Testcontainers.
+- For Grove development, run `.agents/ensure-grove` from the repository root, then follow `apps/grove/AGENTS.md` and the public URLs in its JSON output.
 
 ## Stacked pull requests
 
