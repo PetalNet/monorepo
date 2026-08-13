@@ -107,9 +107,11 @@ describe("production Grove browser auth composition", () => {
 				browserAuth.isBrowserAuthRoute("http://grove.example/api/auth/get-session"),
 			),
 		).toBe(true);
-		const beginAuthorization = async () => {
+		const beginAuthorization = async (callbackURL = "/") => {
 			activeEvent = eventFor(new Request(`${origin}/login`));
-			const loginResponse = await Effect.runPromise(browserAuth.beginLogin(new Headers()));
+			const loginResponse = await Effect.runPromise(
+				browserAuth.beginLogin(new Headers(), callbackURL),
+			);
 			const url = new URL(loginResponse.headers.get("location") ?? "");
 			expectedNonce = url.searchParams.get("nonce") ?? "";
 			return { loginResponse, url };
@@ -132,7 +134,8 @@ describe("production Grove browser auth composition", () => {
 		expect(await runtime.runPromise(browserAuth.readiness)).toMatchObject({
 			status: "owner-unbound",
 		});
-		const { loginResponse: login, url: authorizationUrl } = await beginAuthorization();
+		const { loginResponse: login, url: authorizationUrl } =
+			await beginAuthorization("/sprouts?view=agent");
 		expect(login.status).toBe(302);
 		expect(authorizationUrl.searchParams.get("response_type")).toBe("code");
 		expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe("S256");
@@ -150,6 +153,7 @@ describe("production Grove browser auth composition", () => {
 		expect(direct.status).toBe(404);
 
 		const callback = await completeAuthorization(login, authorizationUrl);
+		expect(callback.headers.get("location")).toBe("/sprouts?view=agent");
 		const sessionCookies = callback.headers
 			.getSetCookie()
 			.map((cookie) => cookie.split(";", 1)[0])
@@ -174,6 +178,21 @@ describe("production Grove browser auth composition", () => {
 		expect(accounts[0]?.accessToken).toEqual(expect.any(String));
 		expect(accounts[0]?.accessToken).not.toBe("provider-access-token");
 		expect(accounts[0]?.idToken).toBeNull();
+
+		activeEvent = eventFor(
+			new Request(`${origin}/__dev/log-me-out`, { headers: { cookie: sessionCookies } }),
+		);
+		const signedOut = await Effect.runPromise(
+			browserAuth.endSession(new Headers({ cookie: sessionCookies }), "/signed-out"),
+		);
+		expect(signedOut.status).toBe(302);
+		expect(signedOut.headers.get("location")).toBe("/signed-out");
+		expect(signedOut.headers.getSetCookie().join("\n")).toMatch(
+			/better-auth\.session_token=;.*Max-Age=0/i,
+		);
+		await expect(
+			runtime.runPromise(browserAuth.hydrateSession(new Headers({ cookie: sessionCookies }))),
+		).resolves.toBeNull();
 
 		includeIssuedAt = false;
 		const missingIssuedAt = await beginAuthorization();

@@ -34,7 +34,8 @@ interface GroveAuthShape {
 			options?: ResolveOptions,
 		) => Response | Promise<Response>;
 	}) => Effect.Effect<Response>;
-	readonly beginLogin: (headers: Headers) => Effect.Effect<Response>;
+	readonly beginLogin: (headers: Headers, callbackURL?: string) => Effect.Effect<Response>;
+	readonly endSession: (headers: Headers, returnTo: string) => Effect.Effect<Response>;
 	readonly readiness: ActorAuthority["Service"]["homeReadiness"];
 }
 
@@ -116,10 +117,10 @@ export const makeGroveBrowserAuth = async (
 				return Effect.promise(() => auth.handler(event.request));
 			return Effect.promise(() => Promise.resolve(resolve(event)));
 		},
-		beginLogin: (headers) =>
+		beginLogin: (headers, callbackURL = "/") =>
 			Effect.promise(async () => {
 				const initiated = await auth.api.signInSocial({
-					body: { provider: GROVE_OIDC_PROVIDER_ID, callbackURL: "/" },
+					body: { provider: GROVE_OIDC_PROVIDER_ID, callbackURL },
 					headers,
 					asResponse: true,
 				});
@@ -127,6 +128,14 @@ export const makeGroveBrowserAuth = async (
 				if (!location) throw new Error("Grove OIDC login initiation omitted its redirect");
 				const redirectHeaders = new Headers(initiated.headers);
 				redirectHeaders.delete("content-type");
+				return new Response(null, { status: 302, headers: redirectHeaders });
+			}),
+		endSession: (headers, returnTo) =>
+			Effect.promise(async () => {
+				const signedOut = await auth.api.signOut({ headers, asResponse: true });
+				const redirectHeaders = new Headers(signedOut.headers);
+				redirectHeaders.delete("content-type");
+				redirectHeaders.set("location", returnTo);
 				return new Response(null, { status: 302, headers: redirectHeaders });
 			}),
 		readiness: authority.homeReadiness,
@@ -140,5 +149,6 @@ export const GroveAuthBuildLayer = Layer.succeed(GroveAuth, {
 	hydrateSession: unavailableDuringBuild,
 	dispatch: unavailableDuringBuild,
 	beginLogin: unavailableDuringBuild,
+	endSession: unavailableDuringBuild,
 	readiness: unavailableDuringBuild(),
 });
