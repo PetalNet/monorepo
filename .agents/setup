@@ -8,13 +8,16 @@ eval "$(~/.local/bin/mise activate --shims bash)"
 mise trust --yes mise.toml
 mise install --yes --locked node pnpm vp
 
-cat >> "$HOME/.bash_profile" <<'EOF_PROFILE'
-eval "$("$HOME/.local/bin/mise" activate --shims bash)"
-EOF_PROFILE
+mise_profile_line='eval "$("$HOME/.local/bin/mise" activate --shims bash)"'
+if ! grep -Fqx "$mise_profile_line" "$HOME/.bash_profile" 2>/dev/null; then
+	printf '\n%s\n' "$mise_profile_line" >> "$HOME/.bash_profile"
+fi
 
 vp install --frozen-lockfile
 
-gh extension install github/gh-stack
+if ! gh extension list | grep -q '^gh stack[[:space:]]'; then
+	gh extension install github/gh-stack
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
 	sudo apt-get update -q
