@@ -32,8 +32,14 @@ export default {
 			],
 		},
 		"apps/grove": {
-			// Local OIDC is launched by the supervised Amp orb service, not imported by Grove.
-			entry: ["dev-oidc.mjs", "effectdb.config.ts!", "src/env.ts!", "test/**/*.ts"],
+			// Local OIDC and Agent enrollment are orb operations entrypoints, not imported by Grove.
+			entry: [
+				"dev-oidc.mjs",
+				"effectdb.config.ts!",
+				"scripts/*.mjs!",
+				"src/env.ts!",
+				"test/**/*.ts",
+			],
 		},
 		"apps/storybook": {
 			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],

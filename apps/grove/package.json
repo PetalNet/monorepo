@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
 		"@lucide/svelte": "catalog:prod",
+		"@modelcontextprotocol/client": "catalog:",
 		"@petalnet/better-auth-effect-qb-adapter": "workspace:*",
 		"@petalnet/effect-api": "workspace:*",
 		"@petalnet/effect-sveltekit": "workspace:*",
