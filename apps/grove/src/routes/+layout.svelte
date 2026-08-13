@@ -2,15 +2,19 @@
 	import Moon from "@lucide/svelte/icons/moon";
 	import Sun from "@lucide/svelte/icons/sun";
 	import { ModeWatcher } from "mode-watcher";
-	import type { Snippet } from "svelte";
+	import { onMount, type Snippet } from "svelte";
 
 	import favicon from "#lib/assets/favicon.svg";
+	import { installDevBrowserLogs } from "#lib/dev-browser-logs.ts";
 	import { Theme } from "#lib/theme.svelte.ts";
 
 	import "../app.css";
 
-	let { children }: { children: Snippet } = $props();
+	import type { LayoutData } from "./$types";
+
+	let { children, data }: { children: Snippet; data: LayoutData } = $props();
 	const theme = new Theme();
+	onMount(() => (data.devBrowserLogs ? installDevBrowserLogs() : undefined));
 </script>
 
 <svelte:head>

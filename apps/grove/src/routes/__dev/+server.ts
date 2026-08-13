@@ -1,3 +1,4 @@
+import { BETTER_AUTH_URL } from "$app/env/private";
 import {
 	devEndpointInventory,
 	devRouteNotFound,
@@ -6,7 +7,12 @@ import {
 
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = (event) =>
+const grovePublicOrigin = () => {
+	if (!BETTER_AUTH_URL) throw new Error("BETTER_AUTH_URL is required at runtime");
+	return new URL(BETTER_AUTH_URL).origin;
+};
+
+export const GET: RequestHandler = () =>
 	groveDevControlPlaneEnabled()
-		? Response.json(devEndpointInventory(event.url.origin))
+		? Response.json(devEndpointInventory(grovePublicOrigin()))
 		: devRouteNotFound();
