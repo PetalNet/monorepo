@@ -18,7 +18,14 @@ export const enrollAgentSelfOperation = operation({
 			if (principal.kind !== "bootstrap" && principal.kind !== "agent")
 				return yield* Effect.fail(new ActorDenied("A machine enrollment identity is required"));
 			const authority = yield* ActorAuthority;
-			return yield* authority.enrollSelf(principal, input);
+			const enrolled = yield* authority.enrollSelf(principal, input);
+			return {
+				kind: enrolled.kind,
+				actorId: enrolled.actorId,
+				name: enrolled.name,
+				homeHostId: enrolled.homeHostId,
+				ownerPersonId: enrolled.ownerPersonId,
+			};
 		}),
 	statusForError: () => 403,
 	messageForError: (error) => error.message,

@@ -238,6 +238,13 @@ describe("MCP protected-resource ingress", () => {
 			isError: false,
 			structuredContent: { kind: "agent", name: "Janet", homeHostId: "host-local" },
 		});
+		expect(enrolled.result.structuredContent).toEqual({
+			kind: "agent",
+			actorId: expect.any(String) as unknown,
+			name: "Janet",
+			homeHostId: "host-local",
+			ownerPersonId: owner.actorId,
+		});
 		const agentId = enrolled.result.structuredContent.actorId as string;
 
 		const repeated = await json(

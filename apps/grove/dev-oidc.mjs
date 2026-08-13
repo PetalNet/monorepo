@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -7,8 +8,11 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 const port = Number(process.env.PORT ?? 8080);
 const origin = (process.env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/$/, "");
 const issuer = `${origin}/realms/grove`;
+const mcpIssuer = `${origin}/realms/grove-mcp`;
 const clientId = "grove-browser-development";
 const clientSecret = "grove-browser-development-secret";
+const mcpClientSecret = process.env.GROVE_MCP_CLIENT_SECRET ?? "grove-mcp-development-only-secret";
+const mcpScopes = ["grove:mcp", "grove:agent:enroll"];
 const ownerSubject = "operator-development";
 const authorizationCodes = new Map();
 const accessTokens = new Set();
@@ -20,12 +24,64 @@ const publicJwk = {
 	use: "sig",
 };
 
-const sendJson = (response, status, body) => {
+const sendJson = (response, status, body, headers = {}) => {
 	response.writeHead(status, {
 		"cache-control": "no-store",
 		"content-type": "application/json",
+		...headers,
 	});
 	response.end(JSON.stringify(body));
+};
+
+const canonicalMcpResource = (value) => {
+	const url = new URL(value);
+	if (
+		(url.protocol !== "https:" &&
+			!(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) ||
+		url.username ||
+		url.password ||
+		url.search ||
+		url.hash ||
+		url.pathname !== "/mcp"
+	)
+		throw new Error("Invalid Grove MCP resource URL");
+	return url.href;
+};
+
+const groveMcpResource = async () => {
+	if (process.env.GROVE_MCP_RESOURCE) return canonicalMcpResource(process.env.GROVE_MCP_RESOURCE);
+	const manifest = JSON.parse(
+		await readFile(process.env.GROVE_MCP_PORTAL_MANIFEST ?? ".amp/portals/grove.json", "utf8"),
+	);
+	const portal = manifest?.links?.[0]?.url;
+	if (typeof portal !== "string") throw new Error("Grove portal URL is unavailable");
+	return canonicalMcpResource(new URL("mcp", portal).href);
+};
+
+const mcpMetadata = {
+	issuer: mcpIssuer,
+	authorization_endpoint: `${mcpIssuer}/authorize`,
+	token_endpoint: `${mcpIssuer}/token`,
+	jwks_uri: `${mcpIssuer}/jwks`,
+	grant_types_supported: ["client_credentials"],
+	token_endpoint_auth_methods_supported: ["client_secret_basic"],
+	scopes_supported: mcpScopes,
+	response_types_supported: [],
+	resource_indicators_supported: true,
+};
+
+const basicCredentials = (authorization) => {
+	const encoded = authorization?.match(/^Basic ([A-Za-z\d+/]+={0,2})$/i)?.[1];
+	if (!encoded) return undefined;
+	const decoded = Buffer.from(encoded, "base64").toString("utf8");
+	// The official MCP client sends the client ID verbatim, so split from the fixed shared secret
+	// at the final colon to permit URL-shaped Agent subjects.
+	const separator = decoded.lastIndexOf(":");
+	if (separator < 1) return undefined;
+	return {
+		clientId: decoded.slice(0, separator),
+		clientSecret: decoded.slice(separator + 1),
+	};
 };
 
 const readForm = async (request) => {
@@ -74,8 +130,70 @@ createServer(async (request, response) => {
 		return;
 	}
 
-	if (url.pathname === "/realms/grove/jwks") {
+	if (
+		[
+			"/.well-known/oauth-authorization-server/realms/grove-mcp",
+			"/.well-known/openid-configuration/realms/grove-mcp",
+			"/realms/grove-mcp/.well-known/openid-configuration",
+		].includes(url.pathname)
+	) {
+		sendJson(response, 200, mcpMetadata);
+		return;
+	}
+
+	if (["/realms/grove/jwks", "/realms/grove-mcp/jwks"].includes(url.pathname)) {
 		sendJson(response, 200, { keys: [publicJwk] });
+		return;
+	}
+
+	if (url.pathname === "/realms/grove-mcp/authorize") {
+		sendJson(response, 400, { error: "unsupported_response_type" });
+		return;
+	}
+
+	if (request.method === "POST" && url.pathname === "/realms/grove-mcp/token") {
+		try {
+			const credentials = basicCredentials(request.headers.authorization);
+			if (!credentials || credentials.clientSecret !== mcpClientSecret) {
+				sendJson(response, 401, { error: "invalid_client" }, { "www-authenticate": "Basic" });
+				return;
+			}
+			const form = await readForm(request);
+			if (form.get("grant_type") !== "client_credentials") {
+				sendJson(response, 400, { error: "unsupported_grant_type" });
+				return;
+			}
+			const resource = await groveMcpResource();
+			if (form.get("resource") !== resource) {
+				sendJson(response, 400, { error: "invalid_target" });
+				return;
+			}
+			const scopes = [...new Set((form.get("scope") ?? "").split(/\s+/).filter(Boolean))];
+			if (scopes.some((scope) => !mcpScopes.includes(scope))) {
+				sendJson(response, 400, { error: "invalid_scope" });
+				return;
+			}
+			const now = Math.floor(Date.now() / 1000);
+			const accessToken = await new SignJWT({
+				client_id: credentials.clientId,
+				scope: scopes.join(" "),
+			})
+				.setProtectedHeader({ alg: "RS256", kid: "grove-development", typ: "JWT" })
+				.setIssuer(mcpIssuer)
+				.setAudience(resource)
+				.setSubject(credentials.clientId)
+				.setIssuedAt(now)
+				.setExpirationTime(now + 300)
+				.sign(keys.privateKey);
+			sendJson(response, 200, {
+				access_token: accessToken,
+				expires_in: 300,
+				scope: scopes.join(" "),
+				token_type: "Bearer",
+			});
+		} catch {
+			sendJson(response, 400, { error: "invalid_request" });
+		}
 		return;
 	}
 
