@@ -101,7 +101,7 @@ describe("Grove development control plane", () => {
 					subject: "operator-development",
 				},
 			},
-			actor: null,
+			browserSession: null,
 			fetch: healthyFetch,
 		});
 
@@ -138,11 +138,13 @@ describe("Grove development control plane", () => {
 			requestOrigin: "https://grove.test",
 			config: preflightConfig,
 			homeReadiness: { status: "ready", ownerPersonId: "person-owner" },
-			actor: {
-				kind: "person",
-				actorId: "person-owner",
-				authUserId: "private-auth-user-id",
-				name: "Grove Operator",
+			browserSession: {
+				actor: {
+					kind: "person",
+					actorId: "person-owner",
+					authUserId: "private-auth-user-id",
+					name: "Grove Operator",
+				},
 			},
 			fetch: healthyFetch,
 		});
@@ -163,12 +165,40 @@ describe("Grove development control plane", () => {
 		expect(JSON.stringify(report)).not.toContain("private-auth-user-id");
 	});
 
+	it("reports a validated browser session without provisioning a missing Actor", async () => {
+		const report = await runDevPreflight({
+			requestOrigin: "https://grove.test",
+			config: preflightConfig,
+			homeReadiness: {
+				status: "owner-unbound",
+				configuredIdentity: {
+					issuer: preflightConfig.browserIssuer,
+					subject: "operator-development",
+				},
+			},
+			browserSession: { actor: null },
+			fetch: healthyFetch,
+		});
+
+		expect(report.status).toBe("ready");
+		expect(report.checks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "browser-session",
+					required: false,
+					status: "action-required",
+					details: { authenticated: true, actor: null },
+				}),
+			]),
+		);
+	});
+
 	it("keeps MCP enrollment readiness independent from request browser cookies", async () => {
 		const report = await runDevPreflight({
 			requestOrigin: "https://grove.test",
 			config: preflightConfig,
 			homeReadiness: { status: "ready", ownerPersonId: "person-owner" },
-			actor: null,
+			browserSession: null,
 			fetch: healthyFetch,
 		});
 
@@ -189,7 +219,7 @@ describe("Grove development control plane", () => {
 			requestOrigin: "http://grove.test",
 			config: preflightConfig,
 			homeReadiness: { status: "ready", ownerPersonId: "person-owner" },
-			actor: null,
+			browserSession: null,
 			fetch: healthyFetch,
 		});
 
@@ -206,7 +236,7 @@ describe("Grove development control plane", () => {
 			requestOrigin: "https://wrong-grove.test",
 			config: { ...preflightConfig, mcpClientCredentialsAvailable: false },
 			homeReadiness: undefined,
-			actor: null,
+			browserSession: null,
 			fetch: () => Promise.reject(new Error("provider leaked-secret-value")),
 		});
 

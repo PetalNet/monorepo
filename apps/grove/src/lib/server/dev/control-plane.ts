@@ -87,7 +87,7 @@ interface DevPreflightInput {
 	readonly requestOrigin: string;
 	readonly config: DevPreflightConfig;
 	readonly homeReadiness: HomeReadiness | undefined;
-	readonly actor: BrowserActor | null;
+	readonly browserSession: { readonly actor: BrowserActor | null } | null;
 	readonly fetch?: typeof fetch;
 }
 
@@ -206,27 +206,44 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 	};
 };
 
-const browserSessionCheck = (actor: BrowserActor | null): DevPreflightCheck =>
-	actor
-		? {
-				id: "browser-session",
-				required: false,
-				status: "pass",
-				summary: "This request carries a current Better Auth browser session and Person Actor.",
-				details: {
-					authenticated: true,
-					actor: { kind: actor.kind, actorId: actor.actorId, name: actor.name },
-				},
-			}
-		: {
-				id: "browser-session",
-				required: false,
-				status: "not-authenticated",
-				summary: "No current browser session was supplied; environment readiness is unaffected.",
-				repair:
-					"Use /__dev/log-me-in/operator?returnTo=/ in the browser when authentication is needed.",
-				details: { authenticated: false, actor: null },
-			};
+const browserSessionCheck = (
+	browserSession: DevPreflightInput["browserSession"],
+): DevPreflightCheck => {
+	if (!browserSession)
+		return {
+			id: "browser-session",
+			required: false,
+			status: "not-authenticated",
+			summary: "No current browser session was supplied; environment readiness is unaffected.",
+			repair:
+				"Use /__dev/log-me-in/operator?returnTo=/ in the browser when authentication is needed.",
+			details: { authenticated: false, actor: null },
+		};
+	if (!browserSession.actor)
+		return {
+			id: "browser-session",
+			required: false,
+			status: "action-required",
+			summary:
+				"This request carries a validated Better Auth session without a current Person Actor; preflight did not provision one.",
+			repair: "Visit / once to complete normal browser Actor provisioning, then retry preflight.",
+			details: { authenticated: true, actor: null },
+		};
+	return {
+		id: "browser-session",
+		required: false,
+		status: "pass",
+		summary: "This request carries a current Better Auth browser session and Person Actor.",
+		details: {
+			authenticated: true,
+			actor: {
+				kind: browserSession.actor.kind,
+				actorId: browserSession.actor.actorId,
+				name: browserSession.actor.name,
+			},
+		},
+	};
+};
 
 export const runDevPreflight = async (input: DevPreflightInput) => {
 	const fetcher = input.fetch ?? globalThis.fetch;
@@ -281,7 +298,7 @@ export const runDevPreflight = async (input: DevPreflightInput) => {
 	const checks: DevPreflightCheck[] = [
 		databaseCheck(input.homeReadiness),
 		homeOwnerCheck(input.homeReadiness),
-		browserSessionCheck(input.actor),
+		browserSessionCheck(input.browserSession),
 		groveOriginsHealthy
 			? {
 					id: "grove-public-origin",

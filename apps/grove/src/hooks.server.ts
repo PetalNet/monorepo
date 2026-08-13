@@ -26,7 +26,10 @@ export const handle = handleGrove(({ event, resolve }) =>
 			return yield* Effect.promise(() => Promise.resolve(resolve(event)));
 
 		const auth = yield* GroveAuth;
-		if (!(yield* auth.isBrowserAuthRoute(event.url.toString()))) {
+		if (
+			event.url.pathname !== "/__dev/preflight" &&
+			!(yield* auth.isBrowserAuthRoute(event.url.toString()))
+		) {
 			const session = yield* auth.hydrateSession(event.request.headers);
 			event.locals.actor = session?.actor ?? null;
 			event.locals.session = session?.session ?? null;

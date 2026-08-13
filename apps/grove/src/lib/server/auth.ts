@@ -24,8 +24,17 @@ export interface BrowserSession {
 	readonly actor: PersonPrincipal;
 }
 
+export interface BrowserSessionInspection {
+	readonly session: Session;
+	readonly user: User;
+	readonly actor: PersonPrincipal | null;
+}
+
 interface GroveAuthShape {
 	readonly isBrowserAuthRoute: (url: string) => Effect.Effect<boolean>;
+	readonly inspectSession: (
+		headers: Headers,
+	) => Effect.Effect<BrowserSessionInspection | null, unknown>;
 	readonly hydrateSession: (headers: Headers) => Effect.Effect<BrowserSession | null, unknown>;
 	readonly dispatch: (input: {
 		readonly event: RequestEvent;
@@ -86,29 +95,47 @@ export const makeGroveBrowserAuth = async (
 
 	// Generic OIDC discovery is part of constructing Grove auth, so bad discovery fails startup.
 	await auth.$context;
-
-	return {
-		isBrowserAuthRoute: (url) => Effect.sync(() => isBrowserAuthPath(url)),
-		hydrateSession: (headers) =>
-			Effect.gen(function* () {
-				const current = yield* Effect.promise(() => auth.api.getSession({ headers }));
-				if (!current?.user.emailVerified) return null;
-				const accounts = yield* sql.unsafe<{ issuer: string; subject: string }>(
-					`select "issuer", "providerAccountId" as subject
+	const validatedSession = (headers: Headers) =>
+		Effect.gen(function* () {
+			const current = yield* Effect.promise(() => auth.api.getSession({ headers }));
+			if (!current?.user.emailVerified) return null;
+			const accounts = yield* sql.unsafe<{ issuer: string; subject: string }>(
+				`select "issuer", "providerAccountId" as subject
              from "account"
             where "userId" = $1 and "providerId" = $2 and "issuer" = $3`,
-					[current.user.id, GROVE_OIDC_PROVIDER_ID, issuer],
-				);
-				const account = accounts.at(0);
-				if (!account || accounts.length !== 1) return null;
-				const actor = yield* authority.bindBrowserIdentity({
+				[current.user.id, GROVE_OIDC_PROVIDER_ID, issuer],
+			);
+			const account = accounts.at(0);
+			if (!account || accounts.length !== 1) return null;
+			return {
+				current,
+				identity: {
 					authUserId: current.user.id,
 					issuer: account.issuer,
 					subject: account.subject,
-					name: current.user.name,
-					emailVerified: current.user.emailVerified,
+				},
+			};
+		});
+
+	return {
+		isBrowserAuthRoute: (url) => Effect.sync(() => isBrowserAuthPath(url)),
+		inspectSession: (headers) =>
+			Effect.gen(function* () {
+				const validated = yield* validatedSession(headers);
+				if (!validated) return null;
+				const actor = yield* authority.lookupBrowserIdentity(validated.identity);
+				return { ...validated.current, actor };
+			}),
+		hydrateSession: (headers) =>
+			Effect.gen(function* () {
+				const validated = yield* validatedSession(headers);
+				if (!validated) return null;
+				const actor = yield* authority.bindBrowserIdentity({
+					...validated.identity,
+					name: validated.current.user.name,
+					emailVerified: validated.current.user.emailVerified,
 				});
-				return { ...current, actor };
+				return { ...validated.current, actor };
 			}),
 		dispatch: ({ event, resolve }) => {
 			if (event.request.method === "POST" && event.url.pathname === "/api/auth/sign-in/social")
@@ -146,6 +173,7 @@ const unavailableDuringBuild = () => Effect.die("Grove authentication is unavail
 
 export const GroveAuthBuildLayer = Layer.succeed(GroveAuth, {
 	isBrowserAuthRoute: unavailableDuringBuild,
+	inspectSession: unavailableDuringBuild,
 	hydrateSession: unavailableDuringBuild,
 	dispatch: unavailableDuringBuild,
 	beginLogin: unavailableDuringBuild,

@@ -116,6 +116,8 @@ interface BrowserIdentityInput extends ExternalIdentity {
 	readonly emailVerified: boolean;
 }
 
+type BrowserIdentityLookup = Pick<BrowserIdentityInput, "authUserId" | "issuer" | "subject">;
+
 interface EnrollSelfInput {
 	readonly name: string;
 }
@@ -146,6 +148,9 @@ export type AuthorityError =
 
 interface ActorAuthorityShape {
 	readonly homeReadiness: Effect.Effect<HomeReadiness, AuthorityError>;
+	readonly lookupBrowserIdentity: (
+		input: BrowserIdentityLookup,
+	) => Effect.Effect<PersonPrincipal | null, AuthorityError>;
 	readonly bindBrowserIdentity: (
 		input: BrowserIdentityInput,
 	) => Effect.Effect<PersonPrincipal, AuthorityError>;
@@ -200,6 +205,7 @@ const unavailableDuringBuild = () => Effect.die("Actor authority is unavailable 
 
 export const ActorAuthorityBuildLayer = Layer.succeed(ActorAuthority, {
 	homeReadiness: unavailableDuringBuild(),
+	lookupBrowserIdentity: unavailableDuringBuild,
 	bindBrowserIdentity: unavailableDuringBuild,
 	resolveMachineIdentity: unavailableDuringBuild,
 	enrollSelf: unavailableDuringBuild,
@@ -380,6 +386,27 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						}),
 					),
 			);
+			const lookupBrowserIdentity = (input: BrowserIdentityLookup) =>
+				asDatabaseError(
+					actorForIdentity(input).pipe(
+						Effect.map((rows): PersonPrincipal | null => {
+							const actor = rows.at(0);
+							if (
+								actor?.kind !== "person" ||
+								actor.identity_use !== "browser" ||
+								actor.auth_user_id !== input.authUserId ||
+								actor.lifecycle !== "active"
+							)
+								return null;
+							return {
+								kind: "person",
+								actorId: actor.actor_id,
+								authUserId: input.authUserId,
+								name: actor.name,
+							};
+						}),
+					),
+				);
 			const bindBrowserIdentity = (input: BrowserIdentityInput) => {
 				if (!input.emailVerified)
 					return Effect.fail(new ActorDenied("A verified browser email is required"));
@@ -943,6 +970,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 			return {
 				homeReadiness,
+				lookupBrowserIdentity,
 				bindBrowserIdentity,
 				resolveMachineIdentity,
 				enrollSelf,

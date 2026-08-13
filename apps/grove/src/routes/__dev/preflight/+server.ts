@@ -29,6 +29,7 @@ export const GET: RequestHandler = (event) => {
 		Effect.gen(function* () {
 			const auth = yield* GroveAuth;
 			const readiness = yield* Effect.result(auth.readiness);
+			const browserSession = yield* Effect.result(auth.inspectSession(event.request.headers));
 			return yield* Effect.promise(() =>
 				runDevPreflight({
 					requestOrigin: event.url.origin,
@@ -42,7 +43,10 @@ export const GET: RequestHandler = (event) => {
 							process.env.GROVE_MCP_CLIENT_SECRET.length > 0,
 					},
 					homeReadiness: Result.isSuccess(readiness) ? readiness.success : undefined,
-					actor: event.locals.actor,
+					browserSession:
+						Result.isSuccess(browserSession) && browserSession.success
+							? { actor: browserSession.success.actor }
+							: null,
 				}),
 			);
 		}),
