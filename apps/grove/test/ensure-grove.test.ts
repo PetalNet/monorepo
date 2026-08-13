@@ -85,6 +85,7 @@ const postgresInspection = (image = "postgres:17-alpine") =>
 
 const serviceFixture = async (
 	options: {
+		inspectFailure?: { message: string; status: number };
 		image?: string;
 		oidcReady?: boolean;
 		postgresReady?: boolean;
@@ -99,7 +100,13 @@ const serviceFixture = async (
 		`#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$DOCKER_CALLS"
 case "$1" in
-  inspect) printf '%s\\n' "$DOCKER_INSPECTION" ;;
+  inspect)
+    if [[ -n "$DOCKER_INSPECTION_ERROR" ]]; then
+      printf '%s\\n' "$DOCKER_INSPECTION_ERROR" >&2
+      exit "$DOCKER_INSPECTION_STATUS"
+    fi
+    printf '%s\\n' "$DOCKER_INSPECTION"
+    ;;
   start) printf '%s\\n' grove-postgres ;;
   exec)
     if [[ "$3" == pg_isready ]]; then
@@ -129,6 +136,8 @@ exit 0
 			...result.env,
 			DOCKER_CALLS: join(result.root, "docker.calls"),
 			DOCKER_INSPECTION: postgresInspection(options.image),
+			DOCKER_INSPECTION_ERROR: options.inspectFailure?.message ?? "",
+			DOCKER_INSPECTION_STATUS: String(options.inspectFailure?.status ?? 1),
 			GROVE_DEPENDENCY_TIMEOUT_SECONDS: "1",
 			OIDC_READY: options.oidcReady === false ? "0" : "1",
 			PORT: "3000",
@@ -205,6 +214,31 @@ describe("ensure Grove orb services", () => {
 			},
 		});
 	}, 5_000);
+
+	it("classifies a TERM-ignoring supervisor killed after timeout as a timeout", async () => {
+		const { root, env } = await fixture();
+		await writeFile(
+			join(root, "bin/amp"),
+			"#!/usr/bin/env bash\ntrap '' TERM\nwhile true; do sleep 10; done\n",
+		);
+		await chmod(join(root, "bin/amp"), 0o755);
+		const started = Date.now();
+
+		const ensured = await run(join(root, ".agents/ensure-grove"), [], {
+			cwd: root,
+			env: { ...env, GROVE_ENSURE_TIMEOUT_SECONDS: "1" },
+		});
+
+		expect(Date.now() - started).toBeLessThan(8_000);
+		expect(ensured.code).toBe(137);
+		expect(JSON.parse(ensured.stdout)).toMatchObject({
+			status: "not-ready",
+			error: {
+				id: "service-ensure-timeout",
+				repair: expect.stringContaining("amp orb service logs grove") as unknown,
+			},
+		});
+	}, 10_000);
 });
 
 describe("Grove supervised service startup", () => {
@@ -235,6 +269,39 @@ describe("Grove supervised service startup", () => {
 		expect(started.stderr).toContain("it was not deleted because it may contain demo data");
 		expect(started.stderr).toContain("docker stop grove-postgres && docker rm grove-postgres");
 		expect(await readFile(join(root, "docker.calls"), "utf8")).toBe("inspect grove-postgres\n");
+	});
+
+	it("does not create PostgreSQL when Docker inspect fails for any reason except absence", async () => {
+		const { root, env } = await serviceFixture({
+			inspectFailure: {
+				message: "permission denied while trying to connect to the Docker daemon socket",
+				status: 126,
+			},
+		});
+
+		const started = await run(join(root, "tools/start-grove-orb"), [], { cwd: root, env });
+
+		expect(started.code).toBe(126);
+		expect(started.stderr).toContain(
+			"permission denied while trying to connect to the Docker daemon socket",
+		);
+		expect(started.stderr).toContain("No container was created or changed");
+		expect(await readFile(join(root, "docker.calls"), "utf8")).toBe("inspect grove-postgres\n");
+	});
+
+	it("creates PostgreSQL only when Docker confirms that the named container is absent", async () => {
+		const { root, env } = await serviceFixture({
+			inspectFailure: { message: "[]\nError: No such object: grove-postgres", status: 1 },
+		});
+
+		const started = await run(join(root, "tools/start-grove-orb"), [], { cwd: root, env });
+
+		expect(started).toMatchObject({ code: 0, stderr: "" });
+		const dockerCalls = await readFile(join(root, "docker.calls"), "utf8");
+		expect(dockerCalls).toContain("inspect grove-postgres\n");
+		expect(dockerCalls).toContain(
+			"run --detach --name grove-postgres --restart unless-stopped --env POSTGRES_USER=grove",
+		);
 	});
 
 	it("terminates with actionable diagnostics when PostgreSQL never becomes ready", async () => {

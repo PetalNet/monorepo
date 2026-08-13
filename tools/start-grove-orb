@@ -75,16 +75,27 @@ if (portal.protocol !== "https:") process.exit(1);
 ' >/dev/null 2>&1
 }
 
-if inspection=$(docker_call 10 inspect grove-postgres 2>/dev/null); then
+if inspection=$(docker_call 10 inspect grove-postgres 2>&1); then
 	if ! validate_postgres_container "$inspection"; then
 		printf 'The existing grove-postgres container is incompatible; it was not deleted because it may contain demo data.\nRepair explicitly as the orb owner: %s\n' \
 			"$postgres_repair" >&2
 		exit 78
 	fi
 else
-	docker_call 120 run --detach --name grove-postgres --restart unless-stopped \
-		--env POSTGRES_USER=grove --env POSTGRES_PASSWORD=grove --env POSTGRES_DB=grove \
-		--publish 127.0.0.1:54320:5432 postgres:17-alpine >/dev/null
+	inspect_status=$?
+	if ((inspect_status == 1)) && \
+		[[ "$inspection" == "Error: No such object: grove-postgres" || \
+			"$inspection" == "Error: No such container: grove-postgres" || \
+			"$inspection" == $'[]\nError: No such object: grove-postgres' || \
+			"$inspection" == $'[]\nError: No such container: grove-postgres' ]]; then
+		docker_call 120 run --detach --name grove-postgres --restart unless-stopped \
+			--env POSTGRES_USER=grove --env POSTGRES_PASSWORD=grove --env POSTGRES_DB=grove \
+			--publish 127.0.0.1:54320:5432 postgres:17-alpine >/dev/null
+	else
+		printf 'Unable to inspect grove-postgres (docker exit %s). No container was created or changed.\n%s\nInspect the Docker service with amp orb service status docker and amp orb service logs docker, then rerun .agents/ensure-grove.\n' \
+			"$inspect_status" "${inspection:-Docker returned no diagnostic output.}" >&2
+		exit "$inspect_status"
+	fi
 fi
 
 docker_call 15 start grove-postgres >/dev/null

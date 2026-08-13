@@ -23,7 +23,9 @@ ensure_status=$?
 set -e
 if ((ensure_status != 0)); then
 	error_id=service-ensure-failed
-	[[ "$ensure_status" == 124 ]] && error_id=service-ensure-timeout
+	if ((ensure_status == 124 || ensure_status == 137)); then
+		error_id=service-ensure-timeout
+	fi
 	jq -n \
 		--arg status not-ready \
 		--arg error "$error_id" \
