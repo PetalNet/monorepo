@@ -2,19 +2,19 @@
  * The change engine: simulate, apply, verify.
  *
  * A successful API call is not a successful identity change. Authentik can accept a group
- * membership write and still not grant what you expected, because access is the product of a
- * policy graph rather than of one row. So every mutation goes: work out the impact, make the
- * change, read the configuration back, then ask Authentik what it now evaluates for that person.
- * Only when the observed result matches the predicted one does the change get called verified.
+ * membership write and still not grant what you expected, because access is the product of a policy
+ * graph rather than of one row. So every mutation goes: work out the impact, make the change, read
+ * the configuration back, then ask Authentik what it now evaluates for that person. Only when the
+ * observed result matches the predicted one does the change get called verified.
  *
  * The prediction is the load-bearing part. Applying and then reporting whatever happened is easy
- * and worthless: without a prediction there is nothing for the verification to disagree with, and
- * a verification that cannot fail is decoration.
+ * and worthless: without a prediction there is nothing for the verification to disagree with, and a
+ * verification that cannot fail is decoration.
  */
 
+import { explainAccess } from "../resolve";
 import type { AuthentikClient } from "./authentik";
 import type { LabState } from "./state";
-import { explainAccess } from "../resolve";
 
 export interface RoleChange {
 	kind: "add-role" | "remove-role";
@@ -54,9 +54,9 @@ export interface ChangeSetResult {
 /**
  * Work out what a role change would do, without touching anything.
  *
- * This is pure: it runs the same resolver the rest of the product uses against a hypothetical
- * role list. Using a different code path for the prediction than for the live answer would be
- * how the two quietly stop agreeing.
+ * This is pure: it runs the same resolver the rest of the product uses against a hypothetical role
+ * list. Using a different code path for the prediction than for the live answer would be how the
+ * two quietly stop agreeing.
  */
 export function simulate(state: LabState, change: RoleChange): Impact {
 	const person = state.people.find((p) => p.id === change.personId);
@@ -98,7 +98,9 @@ export function simulate(state: LabState, change: RoleChange): Impact {
 
 	const postconditions = [
 		...gains.map((resourceId) => ({ resourceId, expect: "allow" as const })),
-		...loses.filter((slug) => !unbound.has(slug)).map((resourceId) => ({ resourceId, expect: "deny" as const })),
+		...loses
+			.filter((slug) => !unbound.has(slug))
+			.map((resourceId) => ({ resourceId, expect: "deny" as const })),
 		...denySample.map((resourceId) => ({ resourceId, expect: "deny" as const })),
 	];
 
@@ -118,8 +120,8 @@ export function impactLevel(impact: Impact): "normal" | "significant" | "dangero
  * Resources where a wrong grant is not merely inconvenient.
  *
  * Deliberately a small hand-maintained list rather than something inferred: guessing which
- * applications hold sensitive data from their names is exactly the kind of cleverness that is
- * wrong once and then trusted forever.
+ * applications hold sensitive data from their names is exactly the kind of cleverness that is wrong
+ * once and then trusted forever.
  */
 const DANGEROUS_RESOURCES = new Set([
 	"accounting",

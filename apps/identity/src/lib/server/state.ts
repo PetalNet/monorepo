@@ -1,12 +1,13 @@
 /**
  * Builds the reconciled view of the lab from live Authentik data.
  *
- * This is the only place that decides what a "role" is today. Authentik has groups, not roles,
- * and no inheritance, so the role graph is declared here and projected onto what Authentik
- * actually holds. That projection is the honest version of the story: PetalNet owns intent,
- * Authentik owns authentication, and the gap between them is exactly what the product reports.
+ * This is the only place that decides what a "role" is today. Authentik has groups, not roles, and
+ * no inheritance, so the role graph is declared here and projected onto what Authentik actually
+ * holds. That projection is the honest version of the story: PetalNet owns intent, Authentik owns
+ * authentication, and the gap between them is exactly what the product reports.
  */
 
+import { explainAccess, type Explanation, type RoleGraph } from "../resolve";
 import {
 	AuthentikClient,
 	AuthentikError,
@@ -23,7 +24,6 @@ import {
 	type Finding,
 	type OnboardingGate,
 } from "./findings";
-import { explainAccess, type Explanation, type RoleGraph } from "../resolve";
 
 /**
  * The role hierarchy, declared rather than discovered.
@@ -130,7 +130,8 @@ export async function loadLabState(client: AuthentikClient, readAt: string): Pro
 	const bindingsByApp = new Map<string, string[]>();
 	for (const binding of bindings) {
 		if (!binding.enabled) continue;
-		const label = binding.group_obj?.name ?? binding.policy_obj?.name ?? `user:${String(binding.user)}`;
+		const label =
+			binding.group_obj?.name ?? binding.policy_obj?.name ?? `user:${String(binding.user)}`;
 		bindingsByApp.set(binding.target, [...(bindingsByApp.get(binding.target) ?? []), label]);
 	}
 
@@ -193,7 +194,11 @@ export async function loadLabState(client: AuthentikClient, readAt: string): Pro
 }
 
 /** Why a named person can or cannot reach a named resource. */
-export function explainFor(state: LabState, personId: string, resourceId: string): Explanation | null {
+export function explainFor(
+	state: LabState,
+	personId: string,
+	resourceId: string,
+): Explanation | null {
 	const person = state.people.find((p) => p.id === personId);
 	if (!person) return null;
 	return explainAccess(state.roleGraph, person.roleIds, resourceId);

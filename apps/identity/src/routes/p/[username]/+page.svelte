@@ -24,7 +24,10 @@
 
 	<header>
 		<h1>{data.person.displayName}</h1>
-		<p class="handle">{data.person.username}{#if data.person.email} · {data.person.email}{/if}</p>
+		<p class="handle">
+			{data.person.username}{#if data.person.email}
+				· {data.person.email}{/if}
+		</p>
 		<p class="roles">{data.person.roleIds.join(" · ") || "no roles"}</p>
 	</header>
 
@@ -45,8 +48,8 @@
 			</ul>
 			{#if !form.verified}
 				<p class="dim">
-					The write went through but at least one check did not match. Treat access as
-					unknown until this is understood.
+					The write went through but at least one check did not match. Treat access as unknown until
+					this is understood.
 				</p>
 			{/if}
 		</div>
@@ -159,8 +162,8 @@
 	{#if data.person.unmappedGroups.length}
 		<h2>Other Authentik groups</h2>
 		<p class="dim small">
-			Groups this tool has no role for. Shown rather than hidden, because a group nobody models
-			is exactly the sort of thing that turns out to grant something.
+			Groups this tool has no role for. Shown rather than hidden, because a group nobody models is
+			exactly the sort of thing that turns out to grant something.
 		</p>
 		<p class="mono dim">{data.person.unmappedGroups.join("  ")}</p>
 	{/if}

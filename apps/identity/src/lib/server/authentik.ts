@@ -1,14 +1,14 @@
 /**
  * Read-only Authentik client.
  *
- * Authentik stays the authentication source of truth; this app never reimplements sessions, MFA
- * or OAuth. Everything here is a GET. Mutation lives behind the change engine, which simulates
- * and verifies, and it is deliberately not in this file so that nothing can mutate by accident.
+ * Authentik stays the authentication source of truth; this app never reimplements sessions, MFA or
+ * OAuth. Everything here is a GET. Mutation lives behind the change engine, which simulates and
+ * verifies, and it is deliberately not in this file so that nothing can mutate by accident.
  *
  * The important call is `checkAccess`. Authentik will evaluate its own policies for a named user
- * and tell you the answer, which gives a truthful per-person result for every SSO application
- * with no connector work and no impersonation. That is the EVALUATED state: weaker than probing
- * the application itself, far stronger than reading configuration and hoping.
+ * and tell you the answer, which gives a truthful per-person result for every SSO application with
+ * no connector work and no impersonation. That is the EVALUATED state: weaker than probing the
+ * application itself, far stronger than reading configuration and hoping.
  */
 
 export interface AuthentikUser {
@@ -78,9 +78,9 @@ export class AuthentikClient {
 	}
 
 	/**
-	 * Every failure throws. A connector that turns an error into an empty list is the exact bug
-	 * this product is meant to catch: "no users found" and "the request failed" must never render
-	 * the same, or a broken connector shows up as a clean bill of health.
+	 * Every failure throws. A connector that turns an error into an empty list is the exact bug this
+	 * product is meant to catch: "no users found" and "the request failed" must never render the
+	 * same, or a broken connector shows up as a clean bill of health.
 	 */
 	async #get<T>(path: string): Promise<T> {
 		let response: Response;
@@ -102,9 +102,9 @@ export class AuthentikClient {
 	}
 
 	/**
-	 * Authentik paginates. Following the pagination is not optional: a silently truncated first
-	 * page would under-report who can reach a resource, which is a security answer that is wrong
-	 * in the dangerous direction.
+	 * Authentik paginates. Following the pagination is not optional: a silently truncated first page
+	 * would under-report who can reach a resource, which is a security answer that is wrong in the
+	 * dangerous direction.
 	 */
 	async #list<T>(path: string): Promise<T[]> {
 		const separator = path.includes("?") ? "&" : "?";
@@ -141,12 +141,24 @@ export class AuthentikClient {
 		return this.#list<AuthentikBinding>("/policies/bindings/");
 	}
 
+	/** The enrollment flow an invitation must be attached to, or null if it is missing. */
+	async enrollmentFlow(slug: string): Promise<{ pk: string; slug: string } | null> {
+		try {
+			return await this.#get<{ pk: string; slug: string }>(`/flows/instances/${slug}/`);
+		} catch (cause) {
+			// A missing flow is a real answer; anything else is a failure and must not be
+			// flattened into "no flow", which would read as a configuration problem.
+			if (cause instanceof AuthentikError && cause.status === 404) return null;
+			throw cause;
+		}
+	}
+
 	/**
 	 * Ask Authentik whether a specific real user passes an application's policies.
 	 *
-	 * This is the EVALUATED state. It is authoritative for the SSO path and requires no
-	 * credentials of theirs, but it says nothing about a local account inside the application,
-	 * which is why local-identity discovery remains a separate and necessary signal.
+	 * This is the EVALUATED state. It is authoritative for the SSO path and requires no credentials
+	 * of theirs, but it says nothing about a local account inside the application, which is why
+	 * local-identity discovery remains a separate and necessary signal.
 	 */
 	async checkAccess(slug: string, userPk: number): Promise<boolean> {
 		const body = await this.#get<{ passing: boolean }>(
@@ -160,8 +172,8 @@ export class AuthentikClient {
  * Applications with no policy binding at all.
  *
  * Authentik's default for an unbound application is to let every authenticated account in, which
- * reads as "no configuration yet" and behaves as "open to everyone". Naming them explicitly is
- * the single most valuable thing this product does before any new account is created.
+ * reads as "no configuration yet" and behaves as "open to everyone". Naming them explicitly is the
+ * single most valuable thing this product does before any new account is created.
  */
 export function unboundApplications(
 	applications: AuthentikApplication[],

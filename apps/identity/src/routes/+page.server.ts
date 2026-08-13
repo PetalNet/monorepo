@@ -1,11 +1,9 @@
-import { error } from "@sveltejs/kit";
-
 import { env } from "$env/dynamic/private";
-
 import { AuthentikClient } from "$lib/server/authentik";
-import { evidenceAgeMs, getReconciliation, isStale } from "$lib/server/reconcile";
 import { reconciliationFindings, sortFindings } from "$lib/server/findings";
+import { evidenceAgeMs, getReconciliation, isStale } from "$lib/server/reconcile";
 import { loadLabState, whoReaches } from "$lib/server/state";
+import { error } from "@sveltejs/kit";
 
 import type { PageServerLoad } from "./$types";
 

@@ -1,12 +1,10 @@
-import { error, fail } from "@sveltejs/kit";
-
 import { env } from "$env/dynamic/private";
-
 import { AuthentikClient } from "$lib/server/authentik";
 import { AuthentikWriter } from "$lib/server/authentik-write";
 import { applyAndVerify, impactLevel, simulate } from "$lib/server/changes";
 import { getReconciliation, invalidateReconciliation } from "$lib/server/reconcile";
 import { loadLabState } from "$lib/server/state";
+import { error, fail } from "@sveltejs/kit";
 
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -71,9 +69,9 @@ export const actions: Actions = {
 	/**
 	 * Toggle a role, then prove it took.
 	 *
-	 * A dangerous change requires the person's username typed back. Not theatre: the failure mode
-	 * for a mistaken tap on a phone is silent and immediate, and the confirmation is the only
-	 * thing standing between a fat finger and someone getting the finances.
+	 * A dangerous change requires the person's username typed back. Not theatre: the failure mode for
+	 * a mistaken tap on a phone is silent and immediate, and the confirmation is the only thing
+	 * standing between a fat finger and someone getting the finances.
 	 */
 	toggleRole: async ({ params, request }) => {
 		const { url, token } = config();

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from "$app/paths";
 
-import type { PageData } from "./$types";
+	import type { PageData } from "./$types";
 
 	const { data }: { data: PageData } = $props();
 
@@ -44,8 +44,8 @@ import type { PageData } from "./$types";
 			<h2>Nothing below is current</h2>
 			<p>{data.state.error}</p>
 			<p class="dim">
-				This is missing information, not a clean result. The page will not show a calm
-				dashboard it cannot stand behind.
+				This is missing information, not a clean result. The page will not show a calm dashboard it
+				cannot stand behind.
 			</p>
 		</section>
 	{:else}
@@ -73,7 +73,9 @@ import type { PageData } from "./$types";
 		/>
 
 		{#if data.state.findings.length}
-			<h2 class="sectionTitle">Needs attention <span class="count">{data.state.findings.length}</span></h2>
+			<h2 class="sectionTitle">
+				Needs attention <span class="count">{data.state.findings.length}</span>
+			</h2>
 			<ul class="cards">
 				{#each data.state.findings.slice(0, 8) as finding (finding.id)}
 					<li class="card" class:alarm={finding.severity === "critical"}>

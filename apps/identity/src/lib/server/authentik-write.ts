@@ -37,6 +37,25 @@ export class AuthentikWriter {
 		this.#fetch = options.fetch ?? globalThis.fetch;
 	}
 
+	async #postJson<T>(path: string, body: unknown): Promise<T> {
+		const response = await this.#fetch(`${this.#baseUrl}${path}`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${this.#token}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(body),
+		});
+		const text = await response.text();
+		if (!response.ok) {
+			throw new AuthentikWriteError(
+				`Authentik refused ${path} with ${String(response.status)}${text ? `: ${text.slice(0, 300)}` : ""}`,
+				response.status,
+			);
+		}
+		return JSON.parse(text) as T;
+	}
+
 	async #post(path: string, body: unknown): Promise<void> {
 		const response = await this.#fetch(`${this.#baseUrl}${path}`, {
 			method: "POST",
@@ -63,5 +82,33 @@ export class AuthentikWriter {
 
 	removeUserFromGroup(groupUuid: string, userPk: number): Promise<void> {
 		return this.#post(`/core/groups/${groupUuid}/remove_user/`, { pk: userPk });
+	}
+
+	/**
+	 * Mint an invitation and return its token.
+	 *
+	 * The token IS the credential: whoever holds the resulting link becomes that account. An expiry
+	 * is required, because an invitation with no end date is a standing credential nobody remembers
+	 * issuing.
+	 *
+	 * `singleUse` is consumed when the link is OPENED, not when signup completes, so a single-use
+	 * link dies to any prefetch - including the link preview a messaging app generates. The caller
+	 * decides, and for links sent over chat the answer is false.
+	 */
+	async createInvitation(options: {
+		name: string;
+		expires: string;
+		flow: string;
+		fixedData: Record<string, unknown>;
+		singleUse: boolean;
+	}): Promise<string> {
+		const body = await this.#postJson<{ pk: string }>("/stages/invitation/invitations/", {
+			name: options.name,
+			expires: options.expires,
+			flow: options.flow,
+			single_use: options.singleUse,
+			fixed_data: options.fixedData,
+		});
+		return body.pk;
 	}
 }

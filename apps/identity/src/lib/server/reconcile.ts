@@ -1,22 +1,21 @@
 /**
  * The reconciliation cycle, and the cache that keeps it off the request path.
  *
- * Evaluating every person against every application is ~800 calls to Authentik. Doing that inside
- * a page load made the page take 36 seconds, and even with a worker pool it was 15. More
- * concurrency was the wrong fix: the real mistake was treating a reconciliation cycle as a
- * rendering step.
+ * Evaluating every person against every application is ~800 calls to Authentik. Doing that inside a
+ * page load made the page take 36 seconds, and even with a worker pool it was 15. More concurrency
+ * was the wrong fix: the real mistake was treating a reconciliation cycle as a rendering step.
  *
- * So it runs on its own, the result is cached with the time it was produced, and the UI shows
- * that age. This is the evidence model the spec asks for rather than a performance trick: a
- * result verified two minutes ago and one verified nineteen days ago are different claims, and
- * the interface has to be able to tell them apart. Rendering a live number every time would
- * actually make that *harder*, because it hides the fact that evidence has an age at all.
+ * So it runs on its own, the result is cached with the time it was produced, and the UI shows that
+ * age. This is the evidence model the spec asks for rather than a performance trick: a result
+ * verified two minutes ago and one verified nineteen days ago are different claims, and the
+ * interface has to be able to tell them apart. Rendering a live number every time would actually
+ * make that _harder_, because it hides the fact that evidence has an age at all.
  */
 
+import { renderExplanation } from "../resolve";
 import type { AuthentikClient } from "./authentik";
 import type { LabState } from "./state";
 import { explainFor } from "./state";
-import { renderExplanation } from "../resolve";
 
 export interface AccessEvidence {
 	personId: string;
@@ -49,8 +48,8 @@ const CONCURRENCY = 12;
  * Run one full cycle: for every person and every application, compare intended, configured and
  * evaluated.
  *
- * `now` is injected rather than read from the clock so this is testable and so two rows in the
- * same cycle cannot disagree about when the cycle happened.
+ * `now` is injected rather than read from the clock so this is testable and so two rows in the same
+ * cycle cannot disagree about when the cycle happened.
  */
 async function reconcile(
 	client: AuthentikClient,
@@ -65,9 +64,9 @@ async function reconcile(
 	let cursor = 0;
 
 	/**
-	 * One job, then the next. Recursive rather than a loop so that the sequential await is the
-	 * shape of the function instead of something hidden inside one: a worker takes the next job
-	 * only after finishing the current one, and that is precisely what bounds the concurrency.
+	 * One job, then the next. Recursive rather than a loop so that the sequential await is the shape
+	 * of the function instead of something hidden inside one: a worker takes the next job only after
+	 * finishing the current one, and that is precisely what bounds the concurrency.
 	 */
 	async function worker(): Promise<void> {
 		const index = cursor++;
@@ -121,8 +120,8 @@ async function reconcile(
  * Process-wide cache of the last cycle.
  *
  * Deliberately in memory: this is derived state that can always be rebuilt from Authentik, so
- * persisting it would create a second thing that can be stale in a way nobody notices. Losing it
- * on restart costs one slow page and nothing else.
+ * persisting it would create a second thing that can be stale in a way nobody notices. Losing it on
+ * restart costs one slow page and nothing else.
  */
 let cached: { state: LabState; reconciliation: Reconciliation } | null = null;
 let inFlight: Promise<{ state: LabState; reconciliation: Reconciliation }> | null = null;
@@ -149,8 +148,8 @@ export function isStale(reconciliation: Reconciliation, now: number): boolean {
 /**
  * Return the current reconciliation, refreshing if it has aged out.
  *
- * Concurrent callers share one in-flight run. Without that, three tabs opening at once would
- * each start their own ~800-call sweep against the service that authenticates the lab.
+ * Concurrent callers share one in-flight run. Without that, three tabs opening at once would each
+ * start their own ~800-call sweep against the service that authenticates the lab.
  */
 export async function getReconciliation(
 	client: AuthentikClient,

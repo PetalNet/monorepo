@@ -43,8 +43,8 @@ export interface AccessRow {
 }
 
 /**
- * An application nobody has bound. Critical rather than warning: the failure mode is silent and
- * the blast radius is every account that exists now or later.
+ * An application nobody has bound. Critical rather than warning: the failure mode is silent and the
+ * blast radius is every account that exists now or later.
  */
 export function unboundApplicationFindings(applications: AuthentikApplication[]): Finding[] {
 	return applications.map((app) => ({
@@ -62,9 +62,9 @@ export function unboundApplicationFindings(applications: AuthentikApplication[])
 /**
  * Where the three states disagree.
  *
- * `unknown` never produces a finding here. An unknown is a hole in our visibility, not a
- * statement about access, and reporting it as drift would manufacture alarm out of ignorance.
- * It gets its own VISIBILITY_LOSS finding instead so the gap is still visible.
+ * `unknown` never produces a finding here. An unknown is a hole in our visibility, not a statement
+ * about access, and reporting it as drift would manufacture alarm out of ignorance. It gets its own
+ * VISIBILITY_LOSS finding instead so the gap is still visible.
  */
 export function reconciliationFindings(rows: AccessRow[]): Finding[] {
 	const findings: Finding[] = [];
@@ -125,10 +125,10 @@ export function reconciliationFindings(rows: AccessRow[]): Finding[] {
 /**
  * The onboarding gate.
  *
- * Creating an account while applications are open to every authenticated user hands the new
- * person everything the moment they claim it. The gate exists because that mistake is invisible
- * at the moment it is made and expensive afterwards, and because it is the exact situation the
- * lab is in right now.
+ * Creating an account while applications are open to every authenticated user hands the new person
+ * everything the moment they claim it. The gate exists because that mistake is invisible at the
+ * moment it is made and expensive afterwards, and because it is the exact situation the lab is in
+ * right now.
  */
 export interface OnboardingGate {
 	blocked: boolean;
@@ -139,7 +139,11 @@ export interface OnboardingGate {
 export function onboardingGate(applications: AuthentikApplication[]): OnboardingGate {
 	const slugs = applications.map((app) => app.slug).toSorted();
 	if (slugs.length === 0) {
-		return { blocked: false, reason: "Every application has an access policy.", unboundApplications: [] };
+		return {
+			blocked: false,
+			reason: "Every application has an access policy.",
+			unboundApplications: [],
+		};
 	}
 	return {
 		blocked: true,
@@ -165,7 +169,6 @@ export function sortFindings(findings: Finding[]): Finding[] {
 /** Machine accounts are exempt from person-shaped rules; they get their own lifecycle. */
 export function peopleOnly(users: AuthentikUser[]): AuthentikUser[] {
 	return users.filter(
-		(user) =>
-			user.type === "internal" && user.username !== "AnonymousUser" && user.is_active,
+		(user) => user.type === "internal" && user.username !== "AnonymousUser" && user.is_active,
 	);
 }

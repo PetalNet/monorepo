@@ -3,16 +3,16 @@
  *
  * Everything the product claims rests on this file, so it is deliberately pure: no database, no
  * network, no clock. Feed it a role graph and it tells you whether a subject reaches a resource
- * and, more importantly, *why*. If this is wrong then every green tick in the UI is a lie, which
- * is the specific failure the product exists to prevent.
+ * and, more importantly, _why_. If this is wrong then every green tick in the UI is a lie, which is
+ * the specific failure the product exists to prevent.
  *
  * Resolution order, highest priority first:
  *
- *   1. explicit direct deny    - a deny on a role the subject holds directly
- *   2. inherited deny          - a deny on a role reached through inheritance
- *   3. direct allow            - a grant on a role the subject holds directly
- *   4. inherited allow         - a grant on a role reached through inheritance
- *   5. default deny            - nothing said anything, so no
+ * 1. Explicit direct deny - a deny on a role the subject holds directly
+ * 2. Inherited deny - a deny on a role reached through inheritance
+ * 3. Direct allow - a grant on a role the subject holds directly
+ * 4. Inherited allow - a grant on a role reached through inheritance
+ * 5. Default deny - nothing said anything, so no
  *
  * Deny beating allow at every distance is what makes "Friends inherits Media, but Friends must
  * never see Accounting" expressible. Without it you end up cloning roles to carve out exceptions,
@@ -83,13 +83,13 @@ class RoleCycleError extends Error {
 /**
  * Walk the inheritance graph breadth-first from the roles a subject holds directly.
  *
- * Breadth-first matters rather than being an implementation detail: it guarantees the first time
- * a role is reached is by its shortest path, so `distance` is the true distance and the "direct
- * beats inherited" tiers below are meaningful. A role reachable both directly and through a
- * long chain must count as direct.
+ * Breadth-first matters rather than being an implementation detail: it guarantees the first time a
+ * role is reached is by its shortest path, so `distance` is the true distance and the "direct beats
+ * inherited" tiers below are meaningful. A role reachable both directly and through a long chain
+ * must count as direct.
  *
- * Throws on a cycle instead of silently truncating. A cycle means somebody built a role graph
- * that cannot be reasoned about, and quietly returning a partial answer would hide it forever.
+ * Throws on a cycle instead of silently truncating. A cycle means somebody built a role graph that
+ * cannot be reasoned about, and quietly returning a partial answer would hide it forever.
  */
 function reachableRoles(graph: RoleGraph, directRoleIds: string[]): ExplanationStep[] {
 	const seen = new Map<string, ExplanationStep>();
@@ -153,8 +153,8 @@ function detectCycles(graph: RoleGraph): void {
 /**
  * Decide whether a subject holding `directRoleIds` reaches `resourceId`, and explain it.
  *
- * The explanation is not decoration. A bare allow/deny is unauditable, and the whole premise of
- * the product is that no permission answer should require a human to trace groups by hand.
+ * The explanation is not decoration. A bare allow/deny is unauditable, and the whole premise of the
+ * product is that no permission answer should require a human to trace groups by hand.
  */
 export function explainAccess(
 	graph: RoleGraph,

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import type { RoleGraph } from "../resolve";
 import { impactLevel, simulate, type RoleChange } from "./changes";
 import type { LabState } from "./state";
-import type { RoleGraph } from "../resolve";
 
 /** The lab's real role shape and a slice of its real applications. */
 function state(): LabState {
@@ -44,9 +44,33 @@ function state(): LabState {
 
 	return {
 		people: [
-			{ id: "cooper", pk: 1, username: "cooper", displayName: "Cooper", email: "", roleIds: ["media", "glovebox-admins"], unmappedGroups: [] },
-			{ id: "parker", pk: 2, username: "parker", displayName: "Parker", email: "", roleIds: ["owner"], unmappedGroups: [] },
-			{ id: "lola", pk: 3, username: "lola", displayName: "Lola", email: "", roleIds: ["media"], unmappedGroups: [] },
+			{
+				id: "cooper",
+				pk: 1,
+				username: "cooper",
+				displayName: "Cooper",
+				email: "",
+				roleIds: ["media", "glovebox-admins"],
+				unmappedGroups: [],
+			},
+			{
+				id: "parker",
+				pk: 2,
+				username: "parker",
+				displayName: "Parker",
+				email: "",
+				roleIds: ["owner"],
+				unmappedGroups: [],
+			},
+			{
+				id: "lola",
+				pk: 3,
+				username: "lola",
+				displayName: "Lola",
+				email: "",
+				roleIds: ["media"],
+				unmappedGroups: [],
+			},
 		],
 		machines: [],
 		resources: slugs.map((slug) => ({ slug, name: slug, boundTo: ["x"], unbound: false })),
@@ -58,8 +82,16 @@ function state(): LabState {
 	};
 }
 
-const give = (personId: string, roleId: string): RoleChange => ({ kind: "add-role", personId, roleId });
-const take = (personId: string, roleId: string): RoleChange => ({ kind: "remove-role", personId, roleId });
+const give = (personId: string, roleId: string): RoleChange => ({
+	kind: "add-role",
+	personId,
+	roleId,
+});
+const take = (personId: string, roleId: string): RoleChange => ({
+	kind: "remove-role",
+	personId,
+	roleId,
+});
 
 describe("simulate", () => {
 	it("computes the defining interaction: give Cooper Friends", () => {
@@ -91,13 +123,26 @@ describe("simulate", () => {
 
 	it("follows inheritance, so a high role grants the whole chain", () => {
 		const impact = simulate(state(), give("lola", "owner"));
-		expect(impact.gains).toEqual(["petalnotes", "ideas", "homepage", "grafana", "paperless", "dawarich"]);
+		expect(impact.gains).toEqual([
+			"petalnotes",
+			"ideas",
+			"homepage",
+			"grafana",
+			"paperless",
+			"dawarich",
+		]);
 		expect(impact.keeps).toEqual(["jellyfin"]);
 	});
 
 	it("returns an empty impact for someone who does not exist, rather than throwing", () => {
 		const impact = simulate(state(), give("nobody", "friends"));
-		expect(impact).toEqual({ gains: [], keeps: [], loses: [], stillDenied: [], postconditions: [] });
+		expect(impact).toEqual({
+			gains: [],
+			keeps: [],
+			loses: [],
+			stillDenied: [],
+			postconditions: [],
+		});
 	});
 });
 
@@ -133,8 +178,8 @@ describe("unbound applications are excluded from postconditions", () => {
 	/**
 	 * Found by driving a real change through the UI. An unbound application admits every
 	 * authenticated account, so intended=deny and evaluated=allow for everyone regardless of the
-	 * change under test. Asserting on it marked an otherwise-correct change "not verified" and
-	 * would have trained the operator to ignore the red banner.
+	 * change under test. Asserting on it marked an otherwise-correct change "not verified" and would
+	 * have trained the operator to ignore the red banner.
 	 */
 	function withUnbound(): LabState {
 		const base = state();
@@ -177,7 +222,13 @@ describe("impactLevel", () => {
 
 	it("treats anything touching a sensitive resource as dangerous, however small", () => {
 		// One resource, but it is the finances. Size is the wrong axis on its own.
-		const impact = { gains: ["firefly"], keeps: [], loses: [], stillDenied: [], postconditions: [] };
+		const impact = {
+			gains: ["firefly"],
+			keeps: [],
+			loses: [],
+			stillDenied: [],
+			postconditions: [],
+		};
 		expect(impactLevel(impact)).toBe("dangerous");
 	});
 

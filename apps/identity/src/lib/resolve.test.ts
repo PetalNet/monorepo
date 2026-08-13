@@ -15,8 +15,8 @@ const resolveAgainst = (graph: RoleGraph, roleIds: string[]) => () =>
 	explainAccess(graph, roleIds, "jellyfin");
 
 /**
- * The lab's actual role shape, so these tests fail on real mistakes rather than toy ones:
- * Owner -> Admin -> Friends -> Media, plus two side roles that inherit nothing.
+ * The lab's actual role shape, so these tests fail on real mistakes rather than toy ones: Owner ->
+ * Admin -> Friends -> Media, plus two side roles that inherit nothing.
  */
 function labGraph(overrides: Partial<RoleGraph> = {}): RoleGraph {
 	const roles = new Map(
