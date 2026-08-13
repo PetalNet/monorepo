@@ -1,13 +1,16 @@
 import type { KnipConfig } from "knip";
 
 export default {
-	entry: ["tools/*.mjs!"],
 	ignore: [".agents/skills/impeccable/**"],
 	// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 	ignoreDependencies: ["@effect/language-service"],
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
+		".": {
+			// Repository-only operations are invoked by agents and build scripts, not imported.
+			entry: ["tools/*.mjs!"],
+		},
 		"apps/collegemap": {
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
 			// against the deployed database to load institutional breaks. Neither is imported by

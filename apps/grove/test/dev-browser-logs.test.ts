@@ -120,9 +120,17 @@ describe("Grove development browser logs", () => {
 			"session-secret",
 		])
 			expect(contents).not.toContain(secret);
-		expect(contents).not.toMatch(
-			/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u,
-		);
+		for (const character of contents) {
+			const codePoint = character.codePointAt(0) ?? 0;
+			expect(
+				codePoint <= 0x08 ||
+					(codePoint >= 0x0b && codePoint <= 0x0c) ||
+					(codePoint >= 0x0e && codePoint <= 0x1f) ||
+					(codePoint >= 0x7f && codePoint <= 0x9f) ||
+					(codePoint >= 0x202a && codePoint <= 0x202e) ||
+					(codePoint >= 0x2066 && codePoint <= 0x2069),
+			).toBe(false);
+		}
 	});
 
 	it("rejects oversized and malformed requests before writing", async () => {

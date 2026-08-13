@@ -48,6 +48,7 @@ const readSigningKey = async () => {
 		if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
 		throw new Error(
 			`Grove development OIDC signing key is invalid at ${signingKeyPath}; stop grove-oidc and remove the corrupted file, then rerun .agents/ensure-grove`,
+			{ cause: error },
 		);
 	}
 };

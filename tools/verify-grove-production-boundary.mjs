@@ -26,9 +26,11 @@ const files = async (directory) => {
 };
 
 const leaks = [];
-for (const path of await files(build)) {
-	if (![".js", ".map"].includes(extname(path))) continue;
-	const content = await readFile(path, "utf8");
+const candidates = (await files(build)).filter((path) => [".js", ".map"].includes(extname(path)));
+const artifacts = await Promise.all(
+	candidates.map(async (path) => ({ content: await readFile(path, "utf8"), path })),
+);
+for (const { content, path } of artifacts) {
 	for (const marker of forbidden) {
 		if (content.includes(marker)) leaks.push({ marker, path: path.slice(root.length) });
 	}

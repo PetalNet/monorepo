@@ -9,21 +9,44 @@ const sensitiveKey = (key: string) =>
 const sensitiveQueryParameter = (key: string) =>
 	sensitiveKey(key) || /^(?:auth|code|key|sig)$/i.test(key.replace(/[^a-z\d]/gi, ""));
 
-const terminalSafe = (value: string) =>
-	value
-		.replace(/\u001b\[[\d;?]*[ -/]*[@-~]/gu, "")
-		.replace(/\r\n?|\n/g, "\\n")
-		.replace(/\t/g, "\\t")
-		.replace(
-			/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu,
-			"",
-		);
+const unsafeTerminalCodePoint = (codePoint: number) =>
+	codePoint <= 0x08 ||
+	(codePoint >= 0x0b && codePoint <= 0x0c) ||
+	(codePoint >= 0x0e && codePoint <= 0x1f) ||
+	(codePoint >= 0x7f && codePoint <= 0x9f) ||
+	(codePoint >= 0x202a && codePoint <= 0x202e) ||
+	(codePoint >= 0x2066 && codePoint <= 0x2069);
+
+const terminalSafe = (value: string) => {
+	let safe = "";
+	for (let index = 0; index < value.length; ) {
+		const codePoint = value.codePointAt(index) ?? 0;
+		const character = String.fromCodePoint(codePoint);
+		if (codePoint === 0x1b && value[index + 1] === "[") {
+			index += 2;
+			while (index < value.length) {
+				const ansiCodePoint = value.codePointAt(index) ?? 0;
+				index += String.fromCodePoint(ansiCodePoint).length;
+				if (ansiCodePoint >= 0x40 && ansiCodePoint <= 0x7e) break;
+			}
+			continue;
+		}
+		index += character.length;
+		if (codePoint === 0x0d) {
+			if (value[index] === "\n") index += 1;
+			safe += "\\n";
+		} else if (codePoint === 0x0a) safe += "\\n";
+		else if (codePoint === 0x09) safe += "\\t";
+		else if (!unsafeTerminalCodePoint(codePoint)) safe += character;
+	}
+	return safe;
+};
 
 const sanitizedUrl = (candidate: string) => {
 	const relative = candidate.startsWith("/");
 	try {
 		const url = new URL(candidate, "https://grove.invalid");
-		for (const key of [...url.searchParams.keys()]) {
+		for (const key of url.searchParams.keys()) {
 			if (sensitiveQueryParameter(key)) url.searchParams.set(key, REDACTED);
 		}
 		return relative ? `${url.pathname}${url.search}${url.hash}` : url.href;

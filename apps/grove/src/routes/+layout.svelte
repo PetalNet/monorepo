@@ -22,6 +22,7 @@
 			const installed = installDevBrowserLogs();
 			if (disposed) installed();
 			else remove = installed;
+			return undefined;
 		});
 		return () => {
 			disposed = true;
