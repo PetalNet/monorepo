@@ -22,7 +22,8 @@ afterEach(async () => {
 });
 
 describe("Grove development browser logs", () => {
-	it("structurally sanitizes browser values before serialization without erasing useful fields", () => {
+	it("structurally sanitizes browser values before serialization and persistence", async () => {
+		const path = await logPath();
 		const headers = new Headers({
 			authorization: `Basic ${Buffer.from("operator:basic-secret").toString("base64")}`,
 			"x-api-key": "api-key-secret",
@@ -33,6 +34,10 @@ describe("Grove development browser logs", () => {
 			headers,
 			credential: "private-credential",
 			password: "hidden-password",
+			objectUrl: new URL("https://object-user:object-password@api.example/object?page=3"),
+			plainUrl: "https://plain-user:plain-password@api.example/plain?page=4",
+			embeddedUrl:
+				"request to https://embedded-user:embedded-password@api.example/embedded?page=5 failed",
 			nested: {
 				clientSecret: "client-secret-value",
 				sessionId: "session-secret-value",
@@ -44,7 +49,23 @@ describe("Grove development browser logs", () => {
 		expect(serialized).toContain("request failed");
 		expect(serialized).toContain("request-123");
 		expect(serialized).toContain("page=2");
+		expect(serialized).toContain("/object?page=3");
+		expect(serialized).toContain("/plain?page=4");
+		expect(serialized).toContain("/embedded?page=5");
 		expect(serialized).toContain("[REDACTED]");
+		const response = await ingestDevBrowserLogs(
+			new Request("https://grove.test/__dev/logs/browser", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					entries: [{ level: "error", message: serialized, source: "console.error" }],
+				}),
+			}),
+			path,
+		);
+		expect(response.status).toBe(202);
+		const persisted = await readFile(path, "utf8");
+		expect(persisted).toContain("request-123");
 		for (const secret of [
 			"basic-secret",
 			"api-key-secret",
@@ -55,8 +76,16 @@ describe("Grove development browser logs", () => {
 			"access-token-value",
 			"query-secret",
 			"signed-secret",
-		])
+			"object-user",
+			"object-password",
+			"plain-user",
+			"plain-password",
+			"embedded-user",
+			"embedded-password",
+		]) {
 			expect(serialized).not.toContain(secret);
+			expect(persisted).not.toContain(secret);
+		}
 	});
 
 	it("redacts credentials embedded in console text", () => {
@@ -91,6 +120,7 @@ describe("Grove development browser logs", () => {
 							message:
 								"fetch failed\n\tAuthorization: Basic should-not-reach-disk x-api-key=api-secret " +
 								"credential=credential-secret https://api.example/path?session=session-secret&request=kept " +
+								"https://server-user:server-password@api.example/userinfo?request=also-kept " +
 								"\u001b[31mred\u0000nul\bbackspace\u0085c1\u202Espoof\u2066isolate",
 							source: "window.unhandledrejection\u001b[2J",
 							timestamp: "1999-12-31T23:59:59.000Z",
@@ -112,12 +142,15 @@ describe("Grove development browser logs", () => {
 			"[browser:unhandled-rejection] window.unhandledrejection fetch failed\\n\\t",
 		);
 		expect(contents).toContain("request=kept");
+		expect(contents).toContain("request=also-kept");
 		expect(contents).toContain("[REDACTED]");
 		for (const secret of [
 			"should-not-reach-disk",
 			"api-secret",
 			"credential-secret",
 			"session-secret",
+			"server-user",
+			"server-password",
 		])
 			expect(contents).not.toContain(secret);
 		for (const character of contents) {

@@ -46,6 +46,8 @@ const sanitizedUrl = (candidate: string) => {
 	const relative = candidate.startsWith("/");
 	try {
 		const url = new URL(candidate, "https://grove.invalid");
+		url.username = "";
+		url.password = "";
 		for (const key of url.searchParams.keys()) {
 			if (sensitiveQueryParameter(key)) url.searchParams.set(key, REDACTED);
 		}
