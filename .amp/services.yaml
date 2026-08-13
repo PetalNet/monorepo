@@ -5,7 +5,7 @@ services:
       set -o pipefail;
       mkdir -p .amp/in;
       touch .amp/in/grove-oidc.log;
-      GROVE_MCP_CLIENT_SECRET='grove-mcp-development-only-secret' node apps/grove/dev-oidc.mjs 2>&1 | tee -a .amp/in/grove-oidc.log
+      GROVE_MCP_CLIENT_SECRET='grove-mcp-development-only-secret' GROVE_OIDC_SIGNING_KEY_PATH="$PWD/.amp/state/grove-oidc-signing-key.json" node apps/grove/dev-oidc.mjs 2>&1 | tee -a .amp/in/grove-oidc.log
     portal:
       title: Grove development OIDC
       description: Automatic operator sign-in for the Grove orb demo.

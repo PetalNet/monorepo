@@ -1,8 +1,15 @@
-import { createHash, randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import {
+	createHash,
+	createPrivateKey,
+	createPublicKey,
+	generateKeyPairSync,
+	randomBytes,
+} from "node:crypto";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { dirname, resolve } from "node:path";
 
-import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import { SignJWT } from "jose";
 
 // This auto-approving provider is only started by the orb development service.
 const port = Number(process.env.PORT ?? 8080);
@@ -16,10 +23,61 @@ const mcpScopes = ["grove:mcp", "grove:agent:enroll"];
 const ownerSubject = "operator-development";
 const authorizationCodes = new Map();
 const accessTokens = new Set();
-const keys = await generateKeyPair("RS256");
-const keyId = `grove-development-${randomBytes(12).toString("base64url")}`;
+const signingKeyPath = resolve(
+	process.env.GROVE_OIDC_SIGNING_KEY_PATH ?? ".amp/state/grove-oidc-signing-key.json",
+);
+
+const keyIdFor = (publicKey) =>
+	`grove-development-${createHash("sha256")
+		.update(publicKey.export({ type: "spki", format: "der" }))
+		.digest("base64url")
+		.slice(0, 24)}`;
+
+const readSigningKey = async () => {
+	try {
+		await chmod(signingKeyPath, 0o600);
+		const stored = JSON.parse(await readFile(signingKeyPath, "utf8"));
+		if (
+			stored?.version !== 1 ||
+			typeof stored.privateKeyPkcs8 !== "string" ||
+			!stored.privateKeyPkcs8.includes("BEGIN PRIVATE KEY")
+		)
+			throw new Error("invalid signing key document");
+		return createPrivateKey(stored.privateKeyPkcs8);
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+		throw new Error(
+			`Grove development OIDC signing key is invalid at ${signingKeyPath}; stop grove-oidc and remove the corrupted file, then rerun .agents/ensure-grove`,
+		);
+	}
+};
+
+const createSigningKey = async () => {
+	await mkdir(dirname(signingKeyPath), { recursive: true, mode: 0o700 });
+	await chmod(dirname(signingKeyPath), 0o700);
+	const generated = generateKeyPairSync("rsa", { modulusLength: 2048 });
+	const privateKeyPkcs8 = generated.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+	try {
+		await writeFile(signingKeyPath, `${JSON.stringify({ version: 1, privateKeyPkcs8 })}\n`, {
+			encoding: "utf8",
+			flag: "wx",
+			mode: 0o600,
+		});
+		return generated.privateKey;
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+			const existing = await readSigningKey();
+			if (existing) return existing;
+		}
+		throw error;
+	}
+};
+
+const privateKey = (await readSigningKey()) ?? (await createSigningKey());
+const publicKey = createPublicKey(privateKey);
+const keyId = keyIdFor(publicKey);
 const publicJwk = {
-	...(await exportJWK(keys.publicKey)),
+	...publicKey.export({ format: "jwk" }),
 	alg: "RS256",
 	kid: keyId,
 	use: "sig",
@@ -185,7 +243,7 @@ createServer(async (request, response) => {
 				.setSubject(credentials.clientId)
 				.setIssuedAt(now)
 				.setExpirationTime(now + 300)
-				.sign(keys.privateKey);
+				.sign(privateKey);
 			sendJson(response, 200, {
 				access_token: accessToken,
 				expires_in: 300,
@@ -271,7 +329,7 @@ createServer(async (request, response) => {
 				.setSubject(ownerSubject)
 				.setIssuedAt()
 				.setExpirationTime("5m")
-				.sign(keys.privateKey);
+				.sign(privateKey);
 			sendJson(response, 200, {
 				access_token: accessToken,
 				expires_in: 300,

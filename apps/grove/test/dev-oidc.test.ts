@@ -1,6 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createLocalJWKSet, jwtVerify } from "jose";
@@ -60,8 +63,12 @@ describe("Grove development MCP authorization server", () => {
 	let origin: string;
 	let issuer: string;
 	let stderr = "";
+	let signingKeyPath: string;
+	let temporaryDirectory: string;
 
 	beforeAll(async () => {
+		temporaryDirectory = await mkdtemp(join(tmpdir(), "grove-dev-oidc-"));
+		signingKeyPath = join(temporaryDirectory, "signing-key.json");
 		const port = await availablePort();
 		origin = `http://127.0.0.1:${String(port)}`;
 		issuer = `${origin}/realms/grove-mcp`;
@@ -73,6 +80,7 @@ describe("Grove development MCP authorization server", () => {
 				PUBLIC_URL: origin,
 				GROVE_MCP_CLIENT_SECRET: mcpSecret,
 				GROVE_MCP_RESOURCE: mcpResource,
+				GROVE_OIDC_SIGNING_KEY_PATH: signingKeyPath,
 			},
 		});
 		child.stderr?.on("data", (chunk: Buffer) => {
@@ -86,9 +94,11 @@ describe("Grove development MCP authorization server", () => {
 	}, 10_000);
 
 	afterAll(async () => {
-		if (child.exitCode !== null) return;
-		child.kill("SIGTERM");
-		await once(child, "exit");
+		if (child.exitCode === null) {
+			child.kill("SIGTERM");
+			await once(child, "exit");
+		}
+		await rm(temporaryDirectory, { recursive: true });
 	});
 
 	it("publishes RFC 8414, OIDC fallback, and public signing metadata", async () => {
@@ -127,8 +137,13 @@ describe("Grove development MCP authorization server", () => {
 		});
 	});
 
-	it("gives each provider process a distinguishable signing key ID", async () => {
+	it("persists a secure signing key with a stable key ID across provider processes", async () => {
 		const firstKeyId = await keyIdAt(origin);
+		const firstJwks = (await (
+			await fetch(`${origin}/realms/grove-mcp/jwks`)
+		).json()) as DevelopmentJwks;
+		expect((await stat(signingKeyPath)).mode & 0o777).toBe(0o600);
+		expect(await readFile(signingKeyPath, "utf8")).not.toContain(firstKeyId);
 		const secondPort = await availablePort();
 		const secondOrigin = `http://127.0.0.1:${String(secondPort)}`;
 		const second = spawn(process.execPath, [providerPath], {
@@ -139,17 +154,70 @@ describe("Grove development MCP authorization server", () => {
 				PUBLIC_URL: secondOrigin,
 				GROVE_MCP_CLIENT_SECRET: mcpSecret,
 				GROVE_MCP_RESOURCE: mcpResource,
+				GROVE_OIDC_SIGNING_KEY_PATH: signingKeyPath,
 			},
 		});
 		try {
 			await waitForProvider(secondOrigin, second);
-			expect(await keyIdAt(secondOrigin)).not.toBe(firstKeyId);
+			expect(await keyIdAt(secondOrigin)).toBe(firstKeyId);
+			const clientId = "restart-verification-agent";
+			const tokenResponse = await fetch(`${secondOrigin}/realms/grove-mcp/token`, {
+				method: "POST",
+				headers: {
+					authorization: `Basic ${Buffer.from(`${clientId}:${mcpSecret}`).toString("base64")}`,
+					"content-type": "application/x-www-form-urlencoded",
+				},
+				body: new URLSearchParams({
+					grant_type: "client_credentials",
+					resource: mcpResource,
+					scope: "grove:mcp grove:agent:enroll",
+				}),
+			});
+			expect(tokenResponse.status).toBe(200);
+			const issued = (await tokenResponse.json()) as { access_token: string };
+			await expect(
+				jwtVerify(issued.access_token, createLocalJWKSet(firstJwks), {
+					issuer: `${secondOrigin}/realms/grove-mcp`,
+					audience: mcpResource,
+				}),
+			).resolves.toMatchObject({ protectedHeader: { kid: firstKeyId } });
 		} finally {
 			if (second.exitCode === null) {
 				second.kill("SIGTERM");
 				await once(second, "exit");
 			}
 		}
+	});
+
+	it("fails clearly instead of rotating corrupted signing material", async () => {
+		const corruptedPath = join(temporaryDirectory, "corrupted-signing-key.json");
+		await writeFile(corruptedPath, '{"version":1,"privateKeyPkcs8":"not-a-key"}', {
+			mode: 0o600,
+		});
+		const failedPort = await availablePort();
+		const failedOrigin = `http://127.0.0.1:${String(failedPort)}`;
+		let failedStderr = "";
+		const failed = spawn(process.execPath, [providerPath], {
+			stdio: ["ignore", "ignore", "pipe"],
+			env: {
+				...process.env,
+				PORT: String(failedPort),
+				PUBLIC_URL: failedOrigin,
+				GROVE_MCP_CLIENT_SECRET: mcpSecret,
+				GROVE_MCP_RESOURCE: mcpResource,
+				GROVE_OIDC_SIGNING_KEY_PATH: corruptedPath,
+			},
+		});
+		failed.stderr.on("data", (chunk: Buffer) => {
+			failedStderr += chunk.toString();
+		});
+
+		await once(failed, "exit");
+
+		expect(failed.exitCode).not.toBe(0);
+		expect(failedStderr).toContain("Grove development OIDC signing key is invalid");
+		expect(failedStderr).toContain("remove the corrupted file");
+		expect(failedStderr).not.toContain("PRIVATE KEY");
 	});
 
 	it("issues short-lived, resource-bound Agent credentials", async () => {
