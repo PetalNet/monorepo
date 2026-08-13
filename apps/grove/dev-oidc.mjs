@@ -300,4 +300,6 @@ createServer(async (request, response) => {
 	}
 
 	sendJson(response, 404, { error: "not_found" });
-}).listen(port, "0.0.0.0");
+}).listen(port, "0.0.0.0", () => {
+	console.log(`[grove-oidc] listening at ${origin}`);
+});
