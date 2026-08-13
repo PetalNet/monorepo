@@ -61,6 +61,7 @@ describe("Grove development control plane", () => {
 		["", "/"],
 		["sprouts", "/"],
 		["//attacker.example/path", "/"],
+		["/\\attacker.example/path", "/"],
 		["https://attacker.example/path", "/"],
 		["/sprouts?filter=mine#today", "/sprouts?filter=mine#today"],
 	] as const)("maps returnTo %s to %s", (candidate, expected) => {
