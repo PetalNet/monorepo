@@ -7,7 +7,7 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"scripts": {
-		"build": "vite build",
+		"build": "vite build && node ../../tools/verify-grove-production-boundary.mjs",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"dev": "vite dev",

@@ -9,9 +9,9 @@ import {
 import { GroveAuth } from "$lib/server/auth";
 import {
 	devRouteNotFound,
-	groveDevControlPlaneEnabled,
-	runDevPreflight,
-} from "$lib/server/dev/control-plane";
+	groveDevelopmentBuild,
+	groveOrbDevAuthFlagEnabled,
+} from "$lib/server/dev/guard";
 import { runGrove } from "$lib/server/runtime";
 import { Effect, Result } from "effect";
 
@@ -23,8 +23,9 @@ const required = (value: unknown, name: string) => {
 	return value.replace(/\/$/, "");
 };
 
-export const GET: RequestHandler = (event) => {
-	if (!groveDevControlPlaneEnabled()) return devRouteNotFound();
+export const GET: RequestHandler = async (event) => {
+	if (!groveDevelopmentBuild || !groveOrbDevAuthFlagEnabled()) return devRouteNotFound();
+	const { runDevPreflight } = await import("$lib/server/dev/control-plane");
 	return runGrove(
 		Effect.gen(function* () {
 			const auth = yield* GroveAuth;

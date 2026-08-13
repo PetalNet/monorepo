@@ -1,4 +1,4 @@
-import { groveDevControlPlaneEnabled } from "$lib/server/dev/control-plane";
+import { groveDevControlPlaneEnabled } from "$lib/server/dev/guard";
 
 import type { LayoutServerLoad } from "./$types";
 

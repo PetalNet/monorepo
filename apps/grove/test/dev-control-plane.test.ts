@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
 	devEndpointInventory,
-	isGroveDevControlPlaneEnabled,
 	runDevPreflight,
 	safeReturnTo,
 } from "../src/lib/server/dev/control-plane";
+import { isGroveDevControlPlaneEnabled } from "../src/lib/server/dev/guard";
 
 const preflightConfig = {
 	groveOrigin: "https://grove.test",
@@ -73,6 +73,12 @@ describe("Grove development control plane", () => {
 
 		expect(inventory).toMatchObject({
 			status: "development-only",
+			mcpDevelopmentTrust: {
+				browserCookiesAuthorizeMcp: false,
+				credentialModel: "shared-owner-orb",
+				operatorCanChooseOrImpersonateAgentSubject: true,
+				warning: expect.stringContaining("never production-safe") as unknown,
+			},
 			endpoints: {
 				login: {
 					method: "GET",
@@ -88,6 +94,7 @@ describe("Grove development control plane", () => {
 			},
 		});
 		expect(JSON.stringify(inventory)).not.toContain("localhost");
+		expect(inventory.mcpDevelopmentTrust.warning).toContain("do not copy it to production");
 	});
 
 	it("reports a logged-out fresh orb as ready to log in without binding its owner", async () => {
@@ -129,6 +136,19 @@ describe("Grove development control plane", () => {
 				expect.objectContaining({ id: "mcp-protected-resource", status: "pass" }),
 				expect.objectContaining({ id: "mcp-authorization-server", status: "pass" }),
 				expect.objectContaining({ id: "dev-mcp-credentials", status: "pass" }),
+			]),
+		);
+		expect(report.checks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "dev-mcp-credentials",
+					details: {
+						available: true,
+						credentialModel: "shared-owner-orb",
+						operatorCanChooseOrImpersonateAgentSubject: true,
+						productionSafe: false,
+					},
+				}),
 			]),
 		);
 	});

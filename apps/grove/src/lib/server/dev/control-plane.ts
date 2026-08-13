@@ -1,16 +1,4 @@
-import process from "node:process";
-
-import { dev } from "$app/env";
-
 const returnToBase = "https://grove.invalid";
-
-export const isGroveDevControlPlaneEnabled = (development: boolean, flag: string | undefined) =>
-	development && flag === "1";
-
-export const groveDevControlPlaneEnabled = () =>
-	isGroveDevControlPlaneEnabled(dev, process.env.GROVE_ORB_DEV_AUTH);
-
-export const devRouteNotFound = () => new Response("Not found", { status: 404 });
 
 export const safeReturnTo = (candidate: string | null | undefined) => {
 	if (!candidate?.startsWith("/") || candidate.startsWith("//")) return "/";
@@ -32,6 +20,13 @@ export const devEndpointInventory = (origin: string) => ({
 		ensureServices: ".agents/ensure-grove",
 		portalManifests: ".amp/portals/grove.json and .amp/portals/grove-oidc.json",
 		logs: ".amp/in/grove.log, .amp/in/grove-oidc.log, and .amp/in/grove-browser.log",
+	},
+	mcpDevelopmentTrust: {
+		browserCookiesAuthorizeMcp: false,
+		credentialModel: "shared-owner-orb" as const,
+		operatorCanChooseOrImpersonateAgentSubject: true,
+		warning:
+			"Every orb operator is a trusted development owner and the shared credential lets one choose or impersonate any Agent subject. This disposable-orb shortcut is never production-safe; do not copy it to production or add a per-Agent credential system here.",
 	},
 	endpoints: {
 		index: { method: "GET", href: `${origin}/__dev` },
@@ -379,8 +374,13 @@ export const runDevPreflight = async (input: DevPreflightInput) => {
 					required: true,
 					status: "pass",
 					summary:
-						"Development MCP client credentials are configured for explicit Agent enrollment.",
-					details: { available: true },
+						"The shared owner-orb MCP credential is configured for explicit Agent enrollment; any trusted orb operator can choose or impersonate an Agent subject.",
+					details: {
+						available: true,
+						credentialModel: "shared-owner-orb",
+						operatorCanChooseOrImpersonateAgentSubject: true,
+						productionSafe: false,
+					},
 				}
 			: {
 					id: "dev-mcp-credentials",
