@@ -17,10 +17,11 @@ const ownerSubject = "operator-development";
 const authorizationCodes = new Map();
 const accessTokens = new Set();
 const keys = await generateKeyPair("RS256");
+const keyId = `grove-development-${randomBytes(12).toString("base64url")}`;
 const publicJwk = {
 	...(await exportJWK(keys.publicKey)),
 	alg: "RS256",
-	kid: "grove-development",
+	kid: keyId,
 	use: "sig",
 };
 
@@ -178,7 +179,7 @@ createServer(async (request, response) => {
 				client_id: credentials.clientId,
 				scope: scopes.join(" "),
 			})
-				.setProtectedHeader({ alg: "RS256", kid: "grove-development", typ: "JWT" })
+				.setProtectedHeader({ alg: "RS256", kid: keyId, typ: "JWT" })
 				.setIssuer(mcpIssuer)
 				.setAudience(resource)
 				.setSubject(credentials.clientId)
@@ -264,7 +265,7 @@ createServer(async (request, response) => {
 				name: "Grove Operator",
 				nonce: authorization.nonce,
 			})
-				.setProtectedHeader({ alg: "RS256", kid: "grove-development" })
+				.setProtectedHeader({ alg: "RS256", kid: keyId })
 				.setIssuer(issuer)
 				.setAudience(clientId)
 				.setSubject(ownerSubject)

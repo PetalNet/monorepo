@@ -10,6 +10,10 @@ const mcpResource = "https://grove.example/mcp";
 const mcpSecret = "grove-mcp-test-development-secret";
 const providerPath = fileURLToPath(new URL("../dev-oidc.mjs", import.meta.url));
 
+interface DevelopmentJwks {
+	readonly keys: (JsonWebKey & { readonly kid?: string })[];
+}
+
 const availablePort = async () => {
 	const server = createServer();
 	server.listen(0, "127.0.0.1");
@@ -40,6 +44,15 @@ const waitForProvider = async (origin: string, child: ChildProcess) => {
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	}
 	throw new Error("Development OIDC provider did not become ready");
+};
+
+const keyIdAt = async (origin: string) => {
+	const response = await fetch(`${origin}/realms/grove-mcp/jwks`);
+	if (!response.ok) throw new Error(`Development JWKS returned HTTP ${String(response.status)}`);
+	const jwks = (await response.json()) as DevelopmentJwks;
+	const keyId = jwks.keys[0]?.kid;
+	if (!keyId) throw new Error("Development JWKS did not publish a key ID");
+	return keyId;
 };
 
 describe("Grove development MCP authorization server", () => {
@@ -103,8 +116,40 @@ describe("Grove development MCP authorization server", () => {
 		const jwks = await fetch(`${issuer}/jwks`);
 		expect(jwks.status).toBe(200);
 		expect(await jwks.json()).toMatchObject({
-			keys: [{ alg: "RS256", kid: "grove-development", kty: "RSA", use: "sig" }],
+			keys: [
+				{
+					alg: "RS256",
+					kid: expect.stringMatching(/^grove-development-[A-Za-z\d_-]+$/) as unknown,
+					kty: "RSA",
+					use: "sig",
+				},
+			],
 		});
+	});
+
+	it("gives each provider process a distinguishable signing key ID", async () => {
+		const firstKeyId = await keyIdAt(origin);
+		const secondPort = await availablePort();
+		const secondOrigin = `http://127.0.0.1:${String(secondPort)}`;
+		const second = spawn(process.execPath, [providerPath], {
+			stdio: ["ignore", "ignore", "pipe"],
+			env: {
+				...process.env,
+				PORT: String(secondPort),
+				PUBLIC_URL: secondOrigin,
+				GROVE_MCP_CLIENT_SECRET: mcpSecret,
+				GROVE_MCP_RESOURCE: mcpResource,
+			},
+		});
+		try {
+			await waitForProvider(secondOrigin, second);
+			expect(await keyIdAt(secondOrigin)).not.toBe(firstKeyId);
+		} finally {
+			if (second.exitCode === null) {
+				second.kill("SIGTERM");
+				await once(second, "exit");
+			}
+		}
 	});
 
 	it("issues short-lived, resource-bound Agent credentials", async () => {
@@ -134,7 +179,7 @@ describe("Grove development MCP authorization server", () => {
 			token_type: "Bearer",
 		});
 
-		const jwks = (await (await fetch(`${issuer}/jwks`)).json()) as { keys: JsonWebKey[] };
+		const jwks = (await (await fetch(`${issuer}/jwks`)).json()) as DevelopmentJwks;
 		const { payload, protectedHeader } = await jwtVerify(
 			tokens.access_token,
 			createLocalJWKSet(jwks),
@@ -145,7 +190,7 @@ describe("Grove development MCP authorization server", () => {
 				requiredClaims: ["sub", "iat", "exp"],
 			},
 		);
-		expect(protectedHeader).toMatchObject({ alg: "RS256", kid: "grove-development" });
+		expect(protectedHeader).toMatchObject({ alg: "RS256", kid: jwks.keys[0]?.kid });
 		expect(payload).toMatchObject({
 			sub: clientId,
 			client_id: clientId,
