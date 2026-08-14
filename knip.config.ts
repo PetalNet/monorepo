@@ -9,7 +9,8 @@ export default {
 	workspaces: {
 		".": {
 			// Repository-only operations are invoked by agents and build scripts, not imported.
-			entry: ["tools/*.mjs!"],
+			// The enrollment client is development-only; the boundary verifier runs in production builds.
+			entry: ["tools/enroll-grove-dev-agent.mjs", "tools/verify-grove-production-boundary.mjs!"],
 		},
 		"apps/collegemap": {
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
