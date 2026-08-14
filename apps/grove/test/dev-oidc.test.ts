@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -142,8 +142,13 @@ describe("Grove development MCP authorization server", () => {
 		const firstJwks = (await (
 			await fetch(`${origin}/realms/grove-mcp/jwks`)
 		).json()) as DevelopmentJwks;
-		expect((await stat(signingKeyPath)).mode & 0o777).toBe(0o600);
-		expect(await readFile(signingKeyPath, "utf8")).not.toContain(firstKeyId);
+		const signingKey = await open(signingKeyPath, "r");
+		try {
+			expect((await signingKey.stat()).mode & 0o777).toBe(0o600);
+			expect(await signingKey.readFile("utf8")).not.toContain(firstKeyId);
+		} finally {
+			await signingKey.close();
+		}
 		const secondPort = await availablePort();
 		const secondOrigin = `http://127.0.0.1:${String(secondPort)}`;
 		const second = spawn(process.execPath, [providerPath], {

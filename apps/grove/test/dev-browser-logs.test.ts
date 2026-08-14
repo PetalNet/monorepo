@@ -5,12 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { serializeDevBrowserLogValue } from "../src/lib/dev-browser-logs";
-import {
-	DEV_BROWSER_LOG_MAX_BYTES,
-	ingestDevBrowserLogs,
-} from "../src/lib/server/dev/browser-logs";
+import { ingestDevBrowserLogs } from "../src/lib/server/dev/browser-logs";
 
 const temporaryDirectories: string[] = [];
+const browserLogMaxBytes = 1024 * 1024;
 const logPath = async () => {
 	const directory = await mkdtemp(join(tmpdir(), "grove-browser-log-"));
 	temporaryDirectories.push(directory);
@@ -192,7 +190,7 @@ describe("Grove development browser logs", () => {
 
 	it("rotates the stable file before it can exceed its bound", async () => {
 		const path = await logPath();
-		await writeFile(path, `old-marker${"x".repeat(DEV_BROWSER_LOG_MAX_BYTES)}`);
+		await writeFile(path, `old-marker${"x".repeat(browserLogMaxBytes)}`);
 
 		const response = await ingestDevBrowserLogs(
 			new Request("https://grove.test/__dev/logs/browser", {
@@ -206,8 +204,8 @@ describe("Grove development browser logs", () => {
 		);
 
 		expect(response.status).toBe(202);
-		expect((await stat(path)).size).toBeLessThanOrEqual(DEV_BROWSER_LOG_MAX_BYTES);
 		const contents = await readFile(path, "utf8");
+		expect(Buffer.byteLength(contents)).toBeLessThanOrEqual(browserLogMaxBytes);
 		expect(contents).toContain("new bounded event");
 		expect(contents).not.toContain("old-marker");
 	});

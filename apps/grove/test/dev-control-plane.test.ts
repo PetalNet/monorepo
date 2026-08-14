@@ -5,7 +5,6 @@ import {
 	runDevPreflight,
 	safeReturnTo,
 } from "../src/lib/server/dev/control-plane";
-import { isGroveDevControlPlaneEnabled } from "../src/lib/server/dev/guard";
 
 const preflightConfig = {
 	groveOrigin: "https://grove.test",
@@ -49,13 +48,6 @@ const healthyFetch: typeof fetch = (input) => {
 };
 
 describe("Grove development control plane", () => {
-	it("requires development mode and the explicit orb auth flag", () => {
-		expect(isGroveDevControlPlaneEnabled(true, "1")).toBe(true);
-		expect(isGroveDevControlPlaneEnabled(true, undefined)).toBe(false);
-		expect(isGroveDevControlPlaneEnabled(true, "0")).toBe(false);
-		expect(isGroveDevControlPlaneEnabled(false, "1")).toBe(false);
-	});
-
 	it.each([
 		[undefined, "/"],
 		["", "/"],

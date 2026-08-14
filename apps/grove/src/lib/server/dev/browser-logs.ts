@@ -1,10 +1,10 @@
-import { appendFile, mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, open } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 
 import { sanitizeDevBrowserLogText } from "$lib/dev-browser-log-sanitizer";
 
-export const DEV_BROWSER_LOG_MAX_BYTES = 1024 * 1024;
+const DEV_BROWSER_LOG_MAX_BYTES = 1024 * 1024;
 const MAX_REQUEST_BYTES = 16_384;
 const MAX_ENTRIES = 20;
 const MAX_MESSAGE_LENGTH = 2_000;
@@ -81,21 +81,22 @@ const linesFor = (entries: readonly BrowserLogEntry[]) =>
 		)
 		.join("");
 
+const appendBounded = async (path: string, lines: string) => {
+	await mkdir(dirname(path), { recursive: true });
+	const incomingBytes = Buffer.byteLength(lines);
+	const file = await open(path, "a+", 0o600);
+	try {
+		await file.chmod(0o600);
+		const currentBytes = (await file.stat()).size;
+		if (currentBytes + incomingBytes > DEV_BROWSER_LOG_MAX_BYTES) await file.truncate(0);
+		await file.appendFile(lines, "utf8");
+	} finally {
+		await file.close();
+	}
+};
+
 const writeBounded = (path: string, lines: string) => {
-	const write = pendingWrite.then(async () => {
-		await mkdir(dirname(path), { recursive: true });
-		const incomingBytes = Buffer.byteLength(lines);
-		const currentBytes = await stat(path).then(
-			(value) => value.size,
-			(error: unknown) => {
-				if (error instanceof Error && "code" in error && error.code === "ENOENT") return 0;
-				throw error;
-			},
-		);
-		if (currentBytes + incomingBytes > DEV_BROWSER_LOG_MAX_BYTES) await writeFile(path, "");
-		await appendFile(path, lines, { encoding: "utf8", mode: 0o600 });
-		return undefined;
-	});
+	const write = pendingWrite.then(() => appendBounded(path, lines));
 	pendingWrite = write.catch(() => undefined);
 	return write;
 };

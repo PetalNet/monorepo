@@ -23,13 +23,15 @@
 		"typecheck": "tsc -b",
 		"typesync:check": "typesync --dry=fail"
 	},
+	"dependencies": {
+		"@modelcontextprotocol/client": "catalog:"
+	},
 	"devDependencies": {
 		"@effect/tsgo": "catalog:",
 		"@eslint/js": "catalog:dev",
 		"@eslint/json": "catalog:dev",
 		"@eslint/markdown": "catalog:dev",
 		"@manypkg/cli": "catalog:dev",
-		"@modelcontextprotocol/client": "catalog:",
 		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
 		"@typescript/native": "catalog:dev",
