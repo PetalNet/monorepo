@@ -1,15 +1,24 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Cause, Context, Effect, Layer } from "effect";
 
-const SPROUT_CAPABILITIES = [
+const GROVE_CAPABILITIES = [
 	"sprouts.list",
 	"sprouts.get",
 	"sprouts.create",
 	"sprouts.water",
 	"sprouts.remove",
+	"project.create",
+	"project.plan",
+	"work.ready",
+	"task.claim",
+	"attempt.publish",
+	"review.submit",
+	"task.complete",
+	"library.search",
+	"library.getVersion",
 ] as const;
-const isSproutCapability = (capability: string) =>
-	(SPROUT_CAPABILITIES as readonly string[]).includes(capability);
+const isGroveCapability = (capability: string) =>
+	(GROVE_CAPABILITIES as readonly string[]).includes(capability);
 
 export interface ExternalIdentity {
 	readonly issuer: string;
@@ -332,7 +341,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					[actorIdValue],
 				);
 			const insertDefaultCapabilities = (actorIdValue: string) =>
-				Effect.forEach(SPROUT_CAPABILITIES, (capability) =>
+				Effect.forEach(GROVE_CAPABILITIES, (capability) =>
 					sql.unsafe(
 						"insert into grove_actor_capabilities (actor_id, capability) values ($1, $2) on conflict do nothing",
 						[actorIdValue, capability],
@@ -803,7 +812,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					);
 				});
 			const removePersonCapability = (personIdValue: string, capability: string) => {
-				if (isSproutCapability(capability))
+				if (isGroveCapability(capability))
 					return Effect.fail(
 						new ActorDenied("Sprout compatibility capabilities apply to every active actor"),
 					);
@@ -882,7 +891,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							);
 						});
 					case "remove-agent-capability":
-						if (isSproutCapability(fix.capability))
+						if (isGroveCapability(fix.capability))
 							return Effect.fail(
 								new ActorDenied("Sprout compatibility capabilities apply to every active actor"),
 							);

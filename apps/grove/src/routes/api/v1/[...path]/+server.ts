@@ -1,8 +1,8 @@
 import { withRestInvocation } from "$lib/server/invocation";
+import { loopApi } from "$lib/server/loop/api";
 import { runGrove } from "$lib/server/runtime";
-import { sproutApi } from "$lib/server/sprouts/api";
 
 import type { RequestHandler } from "./$types";
 
 export const fallback: RequestHandler = (event) =>
-	runGrove(withRestInvocation(sproutApi.fetch(event.request)), event);
+	runGrove(withRestInvocation(loopApi.fetch(event.request)), event);
