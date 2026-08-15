@@ -17,6 +17,7 @@ export const startGrovePostgres = async () => {
 		"0002_auth.sql",
 		"0003_actor_auth.sql",
 		"0004_clear_oidc_id_tokens.sql",
+		"0005_agent_loop.sql",
 	] as const;
 	const migrations = await Promise.all(
 		names.map(async (name) => ({

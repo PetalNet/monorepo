@@ -11,6 +11,13 @@ import {
 import { GroveAuth, GroveAuthBuildLayer } from "$lib/server/auth";
 import { GroveAuthLayer } from "$lib/server/auth-runtime";
 import {
+	LoopCommands,
+	LoopCommandsBuildLayer,
+	LoopCommandsLayer,
+	LoopConflict,
+	LoopDatabaseError,
+} from "$lib/server/loop/service";
+import {
 	SproutCommands,
 	SproutCommandsBuildLayer,
 	SproutCommandsLayer,
@@ -40,6 +47,7 @@ function makeRuntime() {
 			GroveAuthBuildLayer,
 			ActorAuthorityBuildLayer,
 			SproutCommandsBuildLayer,
+			LoopCommandsBuildLayer,
 		);
 	} else {
 		if (!DATABASE_URL) throw new Error("DATABASE_URL is required at runtime");
@@ -49,7 +57,7 @@ function makeRuntime() {
 				subject: required(GROVE_HOME_OWNER_SUBJECT, "GROVE_HOME_OWNER_SUBJECT"),
 			},
 		});
-		const consumers = Layer.merge(GroveAuthLayer, SproutCommandsLayer).pipe(
+		const consumers = Layer.mergeAll(GroveAuthLayer, SproutCommandsLayer, LoopCommandsLayer).pipe(
 			Layer.provide(actorAuthority),
 		);
 		GroveServicesLayer = Layer.merge(actorAuthority, consumers).pipe(
@@ -73,18 +81,23 @@ function makeRuntime() {
 			if (failure instanceof SproutNotFound) return { status: 404, message: failure.message };
 			if (failure instanceof SproutDatabaseError)
 				return { status: 503, message: "The sprout database is unavailable", log: true };
+			if (failure instanceof LoopConflict) return { status: 409, message: failure.message };
+			if (failure instanceof LoopDatabaseError)
+				return { status: 503, message: failure.message, log: true };
 		},
 	});
 }
 
-let runtime: EffectSvelteKitRuntime<GroveAuth | ActorAuthority | SproutCommands> | undefined;
+let runtime:
+	| EffectSvelteKitRuntime<GroveAuth | ActorAuthority | SproutCommands | LoopCommands>
+	| undefined;
 
 export const initializeGroveRuntime = () => (runtime ??= makeRuntime());
 
 export const runGrove = <
 	A,
 	E,
-	R extends GroveAuth | ActorAuthority | SproutCommands | SvelteKitRequestEvent,
+	R extends GroveAuth | ActorAuthority | SproutCommands | LoopCommands | SvelteKitRequestEvent,
 >(
 	effect: Effect.Effect<A, E, R>,
 	event: RequestEvent,
