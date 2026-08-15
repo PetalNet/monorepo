@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+dependency_timeout=${GROVE_DEPENDENCY_TIMEOUT_SECONDS:-45}
+[[ "$dependency_timeout" =~ ^[1-9][0-9]*$ ]] || {
+	printf 'GROVE_DEPENDENCY_TIMEOUT_SECONDS must be a positive integer\n' >&2
+	exit 64
+}
+
+postgres_repair='docker stop grove-postgres && docker rm grove-postgres && .agents/ensure-grove'
+
+docker_call() {
+	local seconds=$1
+	shift
+	timeout --kill-after=2s "${seconds}s" docker "$@"
+}
+
+wait_until() {
+	local description=$1
+	local repair=$2
+	shift 2
+	local deadline=$((SECONDS + dependency_timeout))
+	until "$@"; do
+		if ((SECONDS >= deadline)); then
+			printf 'Timed out after %ss waiting for %s. Repair: %s\n' \
+				"$dependency_timeout" "$description" "$repair" >&2
+			exit 1
+		fi
+		sleep 1
+	done
+}
+
+validate_postgres_container() {
+	POSTGRES_INSPECT_JSON=$1 node <<'NODE'
+const containers = JSON.parse(process.env.POSTGRES_INSPECT_JSON ?? "[]");
+const container = containers[0];
+const expectedEnvironment = ["POSTGRES_USER=grove", "POSTGRES_PASSWORD=grove", "POSTGRES_DB=grove"];
+const binding = container?.HostConfig?.PortBindings?.["5432/tcp"];
+const problems = [];
+if (container?.Config?.Image !== "postgres:17-alpine") problems.push("image must be postgres:17-alpine");
+for (const entry of expectedEnvironment) {
+	if (!container?.Config?.Env?.includes(entry)) problems.push(`missing ${entry.split("=", 1)[0]} setup`);
+}
+if (
+	!Array.isArray(binding) ||
+	binding.length !== 1 ||
+	binding[0]?.HostIp !== "127.0.0.1" ||
+	binding[0]?.HostPort !== "54320"
+)
+	problems.push("port binding must be 127.0.0.1:54320->5432/tcp");
+if (problems.length > 0) {
+	console.error(problems.join("; "));
+	process.exit(1);
+}
+NODE
+}
+
+postgres_ready() {
+	docker_call 5 exec grove-postgres pg_isready --username grove --dbname grove >/dev/null 2>&1
+}
+
+oidc_ready() {
+	curl --fail --silent --show-error --connect-timeout 2 --max-time 3 \
+		http://127.0.0.1:8080/ >/dev/null 2>&1
+}
+
+oidc_manifest_ready() {
+	timeout --kill-after=1s 3s node -e '
+const manifest = JSON.parse(require("node:fs").readFileSync(".amp/portals/grove-oidc.json", "utf8"));
+const portal = new URL(manifest.links?.[0]?.url);
+if (portal.protocol !== "https:") process.exit(1);
+' >/dev/null 2>&1
+}
+
+if inspection=$(docker_call 10 inspect grove-postgres 2>&1); then
+	if ! validate_postgres_container "$inspection"; then
+		printf 'The existing grove-postgres container is incompatible; it was not deleted because it may contain demo data.\nRepair explicitly as the orb owner: %s\n' \
+			"$postgres_repair" >&2
+		exit 78
+	fi
+else
+	inspect_status=$?
+	if ((inspect_status == 1)) && \
+		[[ "$inspection" == "Error: No such object: grove-postgres" || \
+			"$inspection" == "Error: No such container: grove-postgres" || \
+			"$inspection" == $'[]\nError: No such object: grove-postgres' || \
+			"$inspection" == $'[]\nError: No such container: grove-postgres' ]]; then
+		docker_call 120 run --detach --name grove-postgres --restart unless-stopped \
+			--env POSTGRES_USER=grove --env POSTGRES_PASSWORD=grove --env POSTGRES_DB=grove \
+			--publish 127.0.0.1:54320:5432 postgres:17-alpine >/dev/null
+	else
+		printf 'Unable to inspect grove-postgres (docker exit %s). No container was created or changed.\n%s\nInspect the Docker service with amp orb service status docker and amp orb service logs docker, then rerun .agents/ensure-grove.\n' \
+			"$inspect_status" "${inspection:-Docker returned no diagnostic output.}" >&2
+		exit "$inspect_status"
+	fi
+fi
+
+docker_call 15 start grove-postgres >/dev/null
+wait_until "grove-postgres readiness" \
+	"amp orb service logs docker; if its configuration is incompatible, run: $postgres_repair" \
+	postgres_ready
+
+database_identity=$(docker_call 5 exec grove-postgres psql --username grove --dbname grove \
+	--tuples-only --no-align --command "select current_user || ':' || current_database()" 2>/dev/null) || {
+	printf 'grove-postgres does not provide the configured grove user/database. It was not deleted.\nRepair explicitly as the orb owner: %s\n' \
+		"$postgres_repair" >&2
+	exit 78
+}
+[[ "$database_identity" == "grove:grove" ]] || {
+	printf 'grove-postgres returned an unexpected database identity. It was not deleted.\nRepair explicitly as the orb owner: %s\n' \
+		"$postgres_repair" >&2
+	exit 78
+}
+
+wait_until "the local Grove development OIDC provider" \
+	"inspect .amp/in/grove-oidc.log and run .agents/ensure-grove" oidc_ready
+wait_until "the OIDC portal manifest" \
+	"inspect amp orb service status grove-oidc and run .agents/ensure-grove" oidc_manifest_ready
+
+oidc_portal=$(timeout --kill-after=1s 3s node -e '
+const manifest = JSON.parse(require("node:fs").readFileSync(".amp/portals/grove-oidc.json", "utf8"));
+process.stdout.write(new URL(manifest.links[0].url).origin);
+')
+grove_origin=${PUBLIC_URL%/}
+
+export DATABASE_URL='postgresql://grove:grove@127.0.0.1:54320/grove'
+export BETTER_AUTH_URL="$grove_origin"
+export BETTER_AUTH_SECRET='grove-orb-development-only-secret'
+export GROVE_ORB_DEV_AUTH='1'
+export GROVE_OIDC_ISSUER="$oidc_portal/realms/grove"
+export GROVE_OIDC_CLIENT_ID='grove-browser-development'
+export GROVE_OIDC_CLIENT_SECRET='grove-browser-development-secret'
+export GROVE_HOME_OWNER_ISSUER="$oidc_portal/realms/grove"
+export GROVE_HOME_OWNER_SUBJECT='operator-development'
+export GROVE_MCP_ISSUER="$oidc_portal/realms/grove-mcp"
+export GROVE_MCP_JWKS_URL="$oidc_portal/realms/grove-mcp/jwks"
+export GROVE_MCP_RESOURCE="$grove_origin"
+export GROVE_MCP_CLIENT_SECRET='grove-mcp-development-only-secret'
+export GROVE_BROWSER_LOG_PATH="$root/.amp/in/grove-browser.log"
+export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=${grove_origin#*://}
+
+cd apps/grove
+timeout --kill-after=5s 60s vp exec effectdb migrate up
+exec vp exec vite dev --host 0.0.0.0 --port "$PORT"

@@ -89,4 +89,18 @@ export const variables = defineEnvVars({
 		description: "Canonical origin of Grove's MCP protected resource.",
 		schema: Schema.toStandardSchemaV1(mcpResourceSchema),
 	},
+	GROVE_HOME_OWNER_ISSUER: {
+		public: false,
+		static: false,
+		description: "Pinned browser identity issuer eligible to own the local Home Host.",
+		schema: Schema.toStandardSchemaV1(oidcIssuerSchema),
+	},
+	GROVE_HOME_OWNER_SUBJECT: {
+		public: false,
+		static: false,
+		description: "Pinned browser identity subject eligible to own the local Home Host.",
+		schema: Schema.toStandardSchemaV1(
+			building ? Schema.optional(Schema.NonEmptyString) : Schema.NonEmptyString,
+		),
+	},
 });

@@ -15,6 +15,12 @@ catalogs:
     '@effect/tsgo':
       specifier: ^0.24.3
       version: 0.24.3
+    '@modelcontextprotocol/client':
+      specifier: 2.0.0
+      version: 2.0.0
+    '@modelcontextprotocol/server':
+      specifier: 2.0.0
+      version: 2.0.0
     '@opentelemetry/api':
       specifier: ^1.9.0
       version: 1.9.1
@@ -289,6 +295,9 @@ importers:
       '@manypkg/cli':
         specifier: catalog:dev
         version: 0.25.1
+      '@modelcontextprotocol/client':
+        specifier: 'catalog:'
+        version: 2.0.0
       '@petalnet/tsconfig':
         specifier: workspace:*
         version: link:packages/tsconfig
@@ -605,6 +614,9 @@ importers:
       '@tailwindcss/vite':
         specifier: catalog:dev
         version: 4.3.1(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@testcontainers/postgresql':
+        specifier: 'catalog:'
+        version: 11.14.0
       '@types/node':
         specifier: catalog:types
         version: 25.9.4
@@ -764,6 +776,9 @@ importers:
 
   packages/effect-api:
     dependencies:
+      '@modelcontextprotocol/server':
+        specifier: 'catalog:'
+        version: 2.0.0
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.103
@@ -2029,6 +2044,14 @@ packages:
       '@types/react': '>=16'
       react: '>=16'
 
+  '@modelcontextprotocol/client@2.0.0':
+    resolution: {integrity: sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/core@2.0.0':
+    resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
+    engines: {node: '>=20'}
+
   '@modelcontextprotocol/sdk@1.29.0':
     resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
     engines: {node: '>=18'}
@@ -2038,6 +2061,10 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
+
+  '@modelcontextprotocol/server@2.0.0':
+    resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
+    engines: {node: '>=20'}
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     resolution: {integrity: sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ==}
@@ -9609,6 +9636,20 @@ snapshots:
       '@types/react': 19.2.17
       react: 19.2.7
 
+  '@modelcontextprotocol/client@2.0.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.0.0
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.0
+      jose: 6.2.8
+      pkce-challenge: 5.0.1
+      zod: 4.4.3
+
+  '@modelcontextprotocol/core@2.0.0':
+    dependencies:
+      zod: 4.4.3
+
   '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.26)
@@ -9630,6 +9671,11 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - supports-color
+
+  '@modelcontextprotocol/server@2.0.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.0.0
+      zod: 4.4.3
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     optional: true

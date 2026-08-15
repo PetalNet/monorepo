@@ -9,7 +9,7 @@ export interface ApiOperation<R> {
 	readonly path: string;
 	readonly body: boolean;
 	readonly input: Schema.ConstraintDecoder<unknown>;
-	readonly output: Schema.Constraint;
+	readonly output: Schema.ConstraintDecoder<unknown>;
 	readonly handle: (input: unknown) => Effect.Effect<unknown, unknown, R>;
 	readonly statusForError?: (error: unknown) => number;
 	readonly messageForError?: (error: unknown) => string;

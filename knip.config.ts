@@ -7,6 +7,11 @@ export default {
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
+		".": {
+			// Repository-only operations are invoked by agents and build scripts, not imported.
+			// The enrollment client is development-only; the boundary verifier runs in production builds.
+			entry: ["tools/enroll-grove-dev-agent.mjs", "tools/verify-grove-production-boundary.mjs!"],
+		},
 		"apps/collegemap": {
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
 			// against the deployed database to load institutional breaks. Neither is imported by
@@ -32,7 +37,8 @@ export default {
 			],
 		},
 		"apps/grove": {
-			entry: ["effectdb.config.ts!", "src/env.ts!"],
+			// Local OIDC is an orb operation entrypoint, not imported by Grove.
+			entry: ["dev-oidc.mjs", "effectdb.config.ts!", "src/env.ts!", "test/**/*.ts"],
 		},
 		"apps/storybook": {
 			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],
