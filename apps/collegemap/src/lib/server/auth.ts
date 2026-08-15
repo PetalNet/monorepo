@@ -1,3 +1,4 @@
+import { env } from "$env/dynamic/private";
 import type { Cookies } from "@sveltejs/kit";
 import { eq, and } from "drizzle-orm";
 
@@ -6,7 +7,22 @@ import { users } from "./db/schema";
 import type { User } from "./db/schema";
 
 const SESSION_COOKIE = "session";
-const SESSION_SECRET = "college-map-secret-key-change-in-production";
+// Signs the session cookie. Read from the environment and deliberately WITHOUT a default:
+// this file lives in a public repo, so any literal here is a published signing key, and the
+// cookie is base64(userId + ":" + sha256(userId + SESSION_SECRET)) — a known secret plus a
+// user id is a valid session for that user. The user ids are on the public calendar page.
+// An app that refuses to boot is a much better failure than one that boots forgeable.
+function requireSessionSecret(): string {
+	const secret = env.SESSION_SECRET;
+	if (!secret) {
+		throw new Error(
+			"SESSION_SECRET is not set. Generate one (openssl rand -base64 48) and pass it to the " +
+				"container; sessions cannot be signed safely without it.",
+		);
+	}
+	return secret;
+}
+const SESSION_SECRET = requireSessionSecret();
 
 // Simple hash using Web Crypto API
 async function sha256(message: string): Promise<string> {
