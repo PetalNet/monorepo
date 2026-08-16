@@ -1,12 +1,22 @@
 // Client-side fingerprint signal collector.
 //
-// The whole point of this app is the INVERSION of a normal fingerprinter: instead
-// of "you are 1 in N", it enumerates every signal a site can read off you, shows
-// the value, and says what it leaks. Nothing is sent anywhere and nothing is
-// stored — collection runs in the browser and stays in the browser.
+// This is the INVERSION of a normal fingerprinter. A tracker reads these signals
+// silently and asks "how unique are you". This reads the same signals out loud and
+// scores each on TWO axes:
 //
-// Every probe is wrapped so one failure never blanks the whole report, and the
-// module is import-safe on the server (guards `typeof window`).
+//   entropy       — how much this value narrows you down (bits, dataset-relative)
+//   reproducibility — is the value re-derivable and stable (so it LINKS you over
+//                     time / across sites), or randomized/volatile (high apparent
+//                     entropy that burns per session and does NOT track you)
+//
+// The dangerous quadrant is high-entropy + stable. High-entropy + randomized
+// (Brave farbling, RFP canvas) looks scary but is fine for cross-session linkage.
+// Standardized-to-common (RFP UA/timezone, hardwareConcurrency=2) is low entropy
+// BY DESIGN — that's blending in, the good outcome.
+//
+// Nothing is sent anywhere and nothing is stored — collection runs in the browser
+// and stays in the browser. Every probe is wrapped so one failure never blanks the
+// report, and the module is import-safe on the server (guards `typeof window`).
 
 export type SignalCategory =
 	| "navigator"
@@ -16,22 +26,32 @@ export type SignalCategory =
 	| "canvas"
 	| "webgl"
 	| "audio"
-	| "fonts"
-	| "network"
-	| "features";
+	| "features"
+	| "network";
+
+/** The reproducibility axis — how a value behaves across requests/sessions/sites. */
+export type Repro =
+	| "stable" // deterministic, re-derivable from the machine, survives cache clears — LINKS you
+	| "randomized" // per-session/per-site noise (farbling, RFP) — high apparent entropy, does NOT link
+	| "standardized" // forced to a shared common value (RFP) — low entropy by design, blends in
+	| "volatile"; // changes on its own over time (network, IP) — poor linker
 
 export interface Signal {
-	/** Stable id, e.g. "navigator.userAgent" */
+	/** stable id, e.g. "navigator.userAgent" */
 	id: string;
-	/** Human label */
 	label: string;
 	category: SignalCategory;
-	/** The value a site reads, stringified for display */
+	/** the value a site reads, stringified for display */
 	value: string;
-	/** Plain-language note: what this reveals / how identifying it is */
+	/** the common / default value, for deviation-from-default display */
+	typical: string;
+	/** plain-language note: what this reveals and how to read it */
 	note: string;
-	/** Rough entropy weight, 0 (trivial) .. 3 (strongly identifying) */
-	weight: 0 | 1 | 2 | 3;
+	/** rough entropy in bits — dataset-relative, for RANK ordering not precise math */
+	entropy: number;
+	reproducibility: Repro;
+	/** true when this signal feeds the cross-site linkability hash (stable + identifying) */
+	linking?: boolean;
 }
 
 const NA = "(unavailable)";
@@ -57,14 +77,14 @@ function safe(fn: () => unknown): string {
 	}
 }
 
-/** A short, stable hash of a string — for canvas/webgl/audio readback digests. */
-function digest(input: string): string {
-	let h1 = 0x811c9dc5;
+/** A short, stable FNV-1a hash of a string — for canvas/webgl/audio digests and the linkability id. */
+export function digest(input: string): string {
+	let h = 0x811c9dc5;
 	for (let i = 0; i < input.length; i++) {
-		h1 ^= input.charCodeAt(i);
-		h1 = Math.imul(h1, 0x01000193);
+		h ^= input.charCodeAt(i);
+		h = Math.imul(h, 0x01000193);
 	}
-	return (h1 >>> 0).toString(16).padStart(8, "0");
+	return (h >>> 0).toString(16).padStart(8, "0");
 }
 
 function canvasDigest(): string {
@@ -138,8 +158,8 @@ function timezone(): string {
 }
 
 /**
- * Collect every signal. Async because audio rendering is async. Returns [] on the server so the
- * module is import-safe.
+ * Collect every signal. Async because audio rendering is async.
+ * Returns [] on the server so the module is import-safe.
  */
 export async function collectSignals(): Promise<Signal[]> {
 	if (typeof window === "undefined" || typeof navigator === "undefined") return [];
@@ -147,247 +167,48 @@ export async function collectSignals(): Promise<Signal[]> {
 	const n = navigator;
 	const s = screen;
 	const wgl = webglInfo();
+	const tz = timezone();
+	const isUtc = tz === "UTC" || tz === "Etc/UTC";
+	const hc = n.hardwareConcurrency;
+	const dpr = window.devicePixelRatio;
+	const dprFractional = typeof dpr === "number" && dpr % 1 !== 0;
+
 	const out: Signal[] = [
 		// navigator / UA
-		{
-			id: "navigator.userAgent",
-			label: "User agent",
-			category: "navigator",
-			value: safe(() => n.userAgent),
-			note: "Browser, version, and OS in one string. Sent on every request. High signal unless RFP generalises it.",
-			weight: 3,
-		},
-		{
-			id: "navigator.platform",
-			label: "Platform",
-			category: "navigator",
-			value: safe(() => n.platform),
-			note: "Your OS family. Should agree with the user agent — a mismatch flags a spoofer.",
-			weight: 2,
-		},
-		{
-			id: "navigator.vendor",
-			label: "Vendor",
-			category: "navigator",
-			value: safe(() => n.vendor),
-			note: "Engine vendor. Low on its own.",
-			weight: 1,
-		},
-		{
-			id: "navigator.webdriver",
-			label: "Automation flag",
-			category: "navigator",
-			value: safe(() => n.webdriver),
-			note: "True only under automation. For humans it's false; a forced value is itself unusual.",
-			weight: 1,
-		},
-		{
-			id: "navigator.doNotTrack",
-			label: "Do Not Track",
-			category: "navigator",
-			value: safe(() => n.doNotTrack),
-			note: "Ironically a bit of entropy — few people set it, so setting it can mark you.",
-			weight: 1,
-		},
+		{ id: "navigator.userAgent", label: "User agent", category: "navigator", value: safe(() => n.userAgent), typical: "a common browser/OS build string", note: "Browser, version, and OS in one string, sent on every request. One of the two heaviest signals — but everyone leaks their OS, so the OS part isn't worth hiding; the exact build+version is.", entropy: 8, reproducibility: "stable", linking: true },
+		{ id: "navigator.platform", label: "Platform", category: "navigator", value: safe(() => n.platform), typical: "Win32 / MacIntel / Linux x86_64", note: "Your OS family. Should agree with the user agent — a mismatch is a spoofing tell, not entropy.", entropy: 2, reproducibility: "stable" },
+		{ id: "navigator.vendor", label: "Vendor", category: "navigator", value: safe(() => n.vendor), typical: '"Google Inc." (Chromium) / "" (Firefox)', note: "Engine vendor. Empty on Firefox, set on Chromium — pairs with the UA as a consistency check.", entropy: 1, reproducibility: "stable" },
+		{ id: "navigator.webdriver", label: "Automation flag", category: "navigator", value: safe(() => n.webdriver), typical: "false", note: "True only under automation. For humans it's false; a forced non-default is itself unusual.", entropy: 1, reproducibility: "stable" },
+		{ id: "navigator.doNotTrack", label: "Do Not Track", category: "navigator", value: safe(() => n.doNotTrack), typical: "null (unset)", note: "Ironically a bit of entropy — few people set it, so setting it can mark you rather than protect you.", entropy: 1, reproducibility: "stable" },
 		// locale / time
-		{
-			id: "navigator.language",
-			label: "Language",
-			category: "locale-time",
-			value: safe(() => n.language),
-			note: "Primary language. Sent as Accept-Language too. Identifying for non-English locales.",
-			weight: 2,
-		},
-		{
-			id: "navigator.languages",
-			label: "Language list",
-			category: "locale-time",
-			value: safe(() => (n.languages || []).slice(0, 6)),
-			note: "Ordered language preferences. A custom list is high entropy.",
-			weight: 2,
-		},
-		{
-			id: "intl.timeZone",
-			label: "Time zone",
-			category: "locale-time",
-			value: timezone(),
-			note: "Your IANA time zone — geolocates you to a region. RFP forces UTC for everyone.",
-			weight: 3,
-		},
-		{
-			id: "intl.timeZoneOffset",
-			label: "UTC offset (min)",
-			category: "locale-time",
-			value: safe(() => new Date().getTimezoneOffset()),
-			note: "Minutes from UTC. Coarser than the zone name but still regional.",
-			weight: 1,
-		},
+		{ id: "navigator.language", label: "Language", category: "locale-time", value: safe(() => n.language), typical: "en-US", note: "Primary language, also sent as Accept-Language. Identifying for non-dominant locales.", entropy: 2, reproducibility: "stable", linking: true },
+		{ id: "navigator.languages", label: "Language list", category: "locale-time", value: safe(() => (n.languages || []).slice(0, 6)), typical: '["en-US","en"]', note: "Ordered language preferences. A long custom list is high entropy; Safari/incognito trim it to one to blend in.", entropy: 3, reproducibility: "stable" },
+		{ id: "intl.timeZone", label: "Time zone", category: "locale-time", value: tz, typical: "your regional IANA zone", note: isUtc ? "UTC — this is RFP forcing everyone to the same zone. Blending in." : "Your IANA zone geolocates you to a region. RFP forces UTC for everyone. Check it against your IP country below.", entropy: isUtc ? 0 : 3, reproducibility: isUtc ? "standardized" : "stable", linking: !isUtc },
+		{ id: "intl.timeZoneOffset", label: "UTC offset (min)", category: "locale-time", value: safe(() => new Date().getTimezoneOffset()), typical: "matches your zone", note: "Minutes from UTC. Coarser than the zone name but still regional.", entropy: 1, reproducibility: "stable" },
 		// screen / display
-		{
-			id: "screen.resolution",
-			label: "Screen resolution",
-			category: "screen",
-			value: safe(() => `${s.width}x${s.height}`),
-			note: "Monitor size. Combined with window size, strongly identifying.",
-			weight: 2,
-		},
-		{
-			id: "screen.avail",
-			label: "Available screen",
-			category: "screen",
-			value: safe(() => `${s.availWidth}x${s.availHeight}`),
-			note: "Screen minus OS chrome — leaks taskbar/dock position and size.",
-			weight: 2,
-		},
-		{
-			id: "window.inner",
-			label: "Window inner size",
-			category: "screen",
-			value: safe(() => `${window.innerWidth}x${window.innerHeight}`),
-			note: "Your exact window size. RFP letterboxing snaps this to shared steps.",
-			weight: 2,
-		},
-		{
-			id: "screen.colorDepth",
-			label: "Color depth",
-			category: "screen",
-			value: safe(() => s.colorDepth),
-			note: "Bits per pixel. Low entropy — almost always 24.",
-			weight: 0,
-		},
-		{
-			id: "window.devicePixelRatio",
-			label: "Device pixel ratio",
-			category: "screen",
-			value: safe(() => window.devicePixelRatio),
-			note: "Display scaling. A non-integer custom value is distinctive.",
-			weight: 1,
-		},
-		{
-			id: "css.prefersColorScheme",
-			label: "Color scheme",
-			category: "screen",
-			value: safe(() =>
-				window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light",
-			),
-			note: "Your light/dark preference — one bit, but adds up.",
-			weight: 1,
-		},
-		{
-			id: "css.prefersReducedMotion",
-			label: "Reduced motion",
-			category: "screen",
-			value: safe(() =>
-				window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-					? "reduce"
-					: "no-preference",
-			),
-			note: "Accessibility preference exposed to sites — one bit.",
-			weight: 1,
-		},
+		{ id: "screen.resolution", label: "Screen resolution", category: "screen", value: safe(() => `${s.width}x${s.height}`), typical: "1920x1080", note: "Monitor size. Common sizes blend in; an odd or rounded size is an RFP/letterbox tell. These values already fold in your pixel ratio.", entropy: 4, reproducibility: "stable", linking: true },
+		{ id: "screen.avail", label: "Available screen", category: "screen", value: safe(() => `${s.availWidth}x${s.availHeight}`), typical: "resolution minus the taskbar", note: "Screen minus OS chrome — leaks taskbar/dock size and position.", entropy: 2, reproducibility: "stable" },
+		{ id: "window.inner", label: "Window inner size", category: "screen", value: safe(() => `${window.innerWidth}x${window.innerHeight}`), typical: "your window size", note: "Your exact window size. RFP letterboxes this to shared 200x100 steps so everyone lands on the same few values.", entropy: 2, reproducibility: "stable" },
+		{ id: "screen.colorDepth", label: "Color depth", category: "screen", value: safe(() => s.colorDepth), typical: "24", note: "Bits per pixel. Almost always 24 — in the crowd. HDR displays may report 30.", entropy: 0.3, reproducibility: "stable" },
+		{ id: "window.devicePixelRatio", label: "Device pixel ratio", category: "screen", value: safe(() => dpr), typical: "1, 2, or 3", note: dprFractional ? "A fractional ratio (1.25 / 1.5 / 1.75) strongly implies Windows display scaling. Maps back to a default step, so it's not as unique as it looks — but it must agree with your platform." : "Display scaling. 1 or 2 is desktop/Mac, 3 is a modern phone. Page zoom folds in here too, so it isn't pure hardware.", entropy: 1.5, reproducibility: "stable" },
+		{ id: "css.prefersColorScheme", label: "Color scheme", category: "screen", value: safe(() => (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light")), typical: "dark or light", note: "Your light/dark preference — one bit, but it adds to the pile.", entropy: 1, reproducibility: "stable" },
+		{ id: "css.prefersReducedMotion", label: "Reduced motion", category: "screen", value: safe(() => (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "reduce" : "no-preference")), typical: "no-preference", note: "Accessibility preference exposed to sites — one bit.", entropy: 1, reproducibility: "stable" },
 		// hardware
-		{
-			id: "navigator.hardwareConcurrency",
-			label: "CPU cores",
-			category: "hardware",
-			value: safe(() => n.hardwareConcurrency),
-			note: "Logical core count. RFP forces 2 for everyone; the real number is moderate entropy.",
-			weight: 2,
-		},
-		{
-			id: "navigator.deviceMemory",
-			label: "Device memory (GB)",
-			category: "hardware",
-			value: safe(() => (n as unknown as { deviceMemory?: number }).deviceMemory),
-			note: "Coarse RAM bucket. Chrome-only; another hardware bit.",
-			weight: 1,
-		},
-		{
-			id: "navigator.maxTouchPoints",
-			label: "Max touch points",
-			category: "hardware",
-			value: safe(() => n.maxTouchPoints),
-			note: "Touch support — distinguishes phones/tablets/touch laptops from desktops.",
-			weight: 2,
-		},
+		{ id: "navigator.hardwareConcurrency", label: "CPU cores", category: "hardware", value: safe(() => hc), typical: "4, 8, or 16", note: hc === 2 ? "Exactly 2 — Tor/RFP caps everyone here. The value blends in, but 2 on an otherwise-modern browser is itself an RFP tell." : "Logical core count. RFP forces 2 for everyone; a real modern number is moderate entropy.", entropy: hc === 2 ? 0.3 : 2, reproducibility: hc === 2 ? "standardized" : "stable" },
+		{ id: "navigator.deviceMemory", label: "Device memory (GB)", category: "hardware", value: safe(() => (n as unknown as { deviceMemory?: number }).deviceMemory), typical: "8 (present only on Chromium)", note: "Coarse RAM bucket, clamped to 0.25–8. Chromium-only — its very presence says Chromium, so seeing it under a Firefox UA is a spoof tell.", entropy: 1.5, reproducibility: "stable" },
+		{ id: "navigator.maxTouchPoints", label: "Max touch points", category: "hardware", value: safe(() => n.maxTouchPoints), typical: "0 desktop / 5 phone", note: "Touch support. Must agree with your platform — >0 under a desktop UA (or 0 under a mobile UA) is a contradiction.", entropy: 1, reproducibility: "stable" },
 		// canvas / webgl / audio
-		{
-			id: "canvas.digest",
-			label: "Canvas fingerprint",
-			category: "canvas",
-			value: canvasDigest(),
-			note: "A hash of how your GPU/driver/fonts render a test image. A top-tier, stable identifier. RFP randomises it per site.",
-			weight: 3,
-		},
-		{
-			id: "webgl.renderer",
-			label: "GPU renderer",
-			category: "webgl",
-			value: wgl.renderer,
-			note: "Your exact GPU model string. Extremely identifying when unmasked.",
-			weight: 3,
-		},
-		{
-			id: "webgl.vendor",
-			label: "GPU vendor",
-			category: "webgl",
-			value: wgl.vendor,
-			note: "GPU vendor. Pairs with the renderer.",
-			weight: 2,
-		},
-		{
-			id: "webgl.digest",
-			label: "WebGL param digest",
-			category: "webgl",
-			value: wgl.digest,
-			note: "Hash of WebGL limits and extensions — hardware/driver specific.",
-			weight: 2,
-		},
-		{
-			id: "audio.digest",
-			label: "Audio fingerprint",
-			category: "audio",
-			value: "(computing…)",
-			note: "A hash of tiny floating-point differences in your audio stack. Stable and hardware-specific. RFP neutralises it.",
-			weight: 3,
-		},
+		{ id: "canvas.digest", label: "Canvas fingerprint", category: "canvas", value: canvasDigest(), typical: "varies by GPU/driver/fonts", note: "A hash of how your stack renders a test image. In default Chrome/Safari it's a top-tier, stable identifier. Brave and RFP randomise it per site — high apparent entropy, but then it can't link you across sites. Use the linkability test to see which you have.", entropy: 8, reproducibility: "stable", linking: true },
+		{ id: "webgl.renderer", label: "GPU renderer", category: "webgl", value: wgl.renderer, typical: "(masked) under RFP", note: "Your exact GPU model string, and the fastest-rising stable hardware signal. Re-derivable from the machine, survives cache clears. (masked) means RFP is hiding it — good.", entropy: 5, reproducibility: wgl.renderer === "(masked)" ? "standardized" : "stable", linking: wgl.renderer !== "(masked)" },
+		{ id: "webgl.vendor", label: "GPU vendor", category: "webgl", value: wgl.vendor, typical: "(masked) under RFP", note: "GPU vendor. Pairs with the renderer.", entropy: 2, reproducibility: "stable" },
+		{ id: "webgl.digest", label: "WebGL param digest", category: "webgl", value: wgl.digest, typical: "varies by driver", note: "Hash of WebGL limits and extensions — hardware and driver specific.", entropy: 2, reproducibility: "stable" },
+		{ id: "audio.digest", label: "Audio fingerprint", category: "audio", value: "(computing…)", typical: "varies by audio stack", note: "A hash of tiny floating-point differences in your audio stack. Stable and hardware-specific by default; RFP and Brave neutralise it.", entropy: 3, reproducibility: "stable" },
 		// features / storage
-		{
-			id: "features.cookiesEnabled",
-			label: "Cookies enabled",
-			category: "features",
-			value: safe(() => n.cookieEnabled),
-			note: "Whether cookies are on. Low entropy.",
-			weight: 0,
-		},
-		{
-			id: "features.storage",
-			label: "Local storage",
-			category: "features",
-			value: safe(() => (typeof localStorage !== "undefined" ? "available" : "blocked")),
-			note: "Storage availability — disabling it entirely is rare and distinctive.",
-			weight: 1,
-		},
-		{
-			id: "features.pdfViewer",
-			label: "PDF viewer",
-			category: "features",
-			value: safe(() => n.pdfViewerEnabled),
-			note: "Built-in PDF viewer flag — a small bit.",
-			weight: 0,
-		},
+		{ id: "features.cookiesEnabled", label: "Cookies enabled", category: "features", value: safe(() => n.cookieEnabled), typical: "true", note: "Whether cookies are on. Low entropy.", entropy: 0.2, reproducibility: "stable" },
+		{ id: "features.storage", label: "Local storage", category: "features", value: safe(() => (typeof localStorage !== "undefined" ? "available" : "blocked")), typical: "available", note: "Storage availability — disabling it entirely is rare and therefore distinctive.", entropy: 1, reproducibility: "stable" },
+		{ id: "features.pdfViewer", label: "PDF viewer", category: "features", value: safe(() => n.pdfViewerEnabled), typical: "true", note: "Built-in PDF viewer flag — a small bit.", entropy: 0.3, reproducibility: "stable" },
 		// network
-		{
-			id: "network.effectiveType",
-			label: "Connection type",
-			category: "network",
-			value: safe(
-				() =>
-					(n as unknown as { connection?: { effectiveType?: string } }).connection?.effectiveType,
-			),
-			note: "Coarse connection speed bucket. Changes over time, so weak on its own.",
-			weight: 1,
-		},
+		{ id: "network.effectiveType", label: "Connection type", category: "network", value: safe(() => (n as unknown as { connection?: { effectiveType?: string } }).connection?.effectiveType), typical: "4g", note: "Coarse connection-speed bucket. Changes as your network changes, so it's a weak, volatile signal.", entropy: 1, reproducibility: "volatile" },
 	];
 
 	// audio is async — fill it in after the synchronous signals so the UI can render immediately
@@ -398,15 +219,38 @@ export async function collectSignals(): Promise<Signal[]> {
 	return out;
 }
 
+/**
+ * The cross-site linkability hash: a digest of ONLY the stable, identifying signals
+ * (the ones flagged `linking`). This is what a tracker would use to recognise you on
+ * a return visit or on another site. Randomized/volatile signals are excluded on
+ * purpose — they can't link you, so folding them in would overstate the risk.
+ *
+ * If this hash is identical across incognito, containers, or a VPN switch, those
+ * measures did NOT stop cross-visit tracking. If it differs on a second registrable
+ * domain, farbling or state-partitioning is breaking the cross-site link.
+ */
+export function linkabilityHash(signals: Signal[]): string {
+	const parts = signals
+		.filter((sig) => sig.linking && sig.value && sig.value !== NA)
+		.map((sig) => `${sig.id}=${sig.value}`);
+	return digest(parts.join(""));
+}
+
 export const CATEGORY_LABELS: Record<SignalCategory, string> = {
-	navigator: "Browser & agent",
-	screen: "Screen & window",
-	"locale-time": "Language & time",
-	hardware: "Hardware",
-	canvas: "Canvas",
-	webgl: "GPU / WebGL",
-	audio: "Audio",
-	fonts: "Fonts",
-	network: "Network",
-	features: "Features",
+	navigator: "browser & agent",
+	screen: "screen & window",
+	"locale-time": "language & time",
+	hardware: "hardware",
+	canvas: "canvas",
+	webgl: "gpu / webgl",
+	audio: "audio",
+	features: "features",
+	network: "network",
+};
+
+export const REPRO_LABELS: Record<Repro, string> = {
+	stable: "stable — re-derivable, links you over time",
+	randomized: "randomized — noisy per session, does not link",
+	standardized: "standardized — forced to a shared value, blends in",
+	volatile: "volatile — drifts on its own, weak link",
 };
