@@ -22,7 +22,7 @@ export interface ServerSignals {
 	dnt: string | null;
 	cfCountry: string | null;
 	cfRay: string | null;
-	/** the visitor's own IP, shown back to them; never logged or stored */
+	/** The visitor's own IP, shown back to them; never logged or stored */
 	ip: string | null;
 }
 
@@ -58,7 +58,7 @@ export interface Contradiction {
 	severity: Severity;
 	title: string;
 	detail: string;
-	/** the two (or more) surfaces that disagree, shown as evidence */
+	/** The two (or more) surfaces that disagree, shown as evidence */
 	evidence: { label: string; value: string }[];
 }
 
@@ -67,17 +67,17 @@ function uaFamily(ua: string): "chromium" | "firefox" | "safari" | "unknown" {
 	if (/edg\/|edga\/|edgios\//.test(u)) return "chromium";
 	if (/firefox\/|fxios\//.test(u)) return "firefox";
 	if (/chrome\/|chromium\/|crios\//.test(u)) return "chromium";
-	if (/safari\//.test(u) && !/chrome\//.test(u)) return "safari";
+	if (u.includes("safari/") && !u.includes("chrome/")) return "safari";
 	return "unknown";
 }
 
 function uaOs(ua: string): "windows" | "macos" | "linux" | "android" | "ios" | "unknown" {
 	const u = ua.toLowerCase();
-	if (/windows/.test(u)) return "windows";
-	if (/android/.test(u)) return "android";
+	if (u.includes("windows")) return "windows";
+	if (u.includes("android")) return "android";
 	if (/iphone|ipad|ipod/.test(u)) return "ios";
 	if (/mac os x|macintosh/.test(u)) return "macos";
-	if (/linux/.test(u)) return "linux";
+	if (u.includes("linux")) return "linux";
 	return "unknown";
 }
 
@@ -87,7 +87,7 @@ function uaMobile(ua: string): boolean {
 
 // Compact country -> acceptable IANA timezone prefixes, for the VPN / travel check.
 // Deliberately partial: only flag when we have a confident mismatch, else stay quiet.
-const COUNTRY_TZ: Record<string, string[]> = {
+const COUNTRY_TZ: Record<string, string[] | undefined> = {
 	US: ["America/", "Pacific/Honolulu", "Pacific/Pago", "America/Adak"],
 	CA: ["America/"],
 	MX: ["America/"],
@@ -118,7 +118,7 @@ export function checkConsistency(
 ): Contradiction[] {
 	const out: Contradiction[] = [];
 	const sUa = server.userAgent ?? "";
-	const cUa = client.userAgent ?? "";
+	const cUa = client.userAgent;
 
 	// 1. UA header vs navigator.userAgent — should be byte-identical.
 	if (sUa && cUa && sUa !== cUa) {
@@ -126,7 +126,8 @@ export function checkConsistency(
 			id: "ua.header-vs-js",
 			severity: "high",
 			title: "Your User-Agent header and navigator.userAgent don't match",
-			detail: "The browser normally sends the same UA string in the header and in JS. A difference means one is being spoofed — the classic automation/anti-detect tell.",
+			detail:
+				"The browser normally sends the same UA string in the header and in JS. A difference means one is being spoofed — the classic automation/anti-detect tell.",
 			evidence: [
 				{ label: "header", value: sUa },
 				{ label: "navigator.userAgent", value: cUa },
@@ -136,13 +137,14 @@ export function checkConsistency(
 
 	// 2. Sec-CH-UA presence vs UA family (Chromium-only header).
 	const fam = uaFamily(cUa || sUa);
-	const hasCh = !!(server.secChUa && server.secChUa.trim());
+	const hasCh = !!server.secChUa?.trim();
 	if (fam === "chromium" && !hasCh) {
 		out.push({
 			id: "ch.missing-on-chromium",
 			severity: "high",
 			title: "UA claims Chromium, but no Sec-CH-UA header was sent",
-			detail: "Chromium browsers send Sec-CH-UA client hints by default. A Chrome/Edge UA with no Sec-CH-UA is almost always a spoofed UA on a non-Chromium engine.",
+			detail:
+				"Chromium browsers send Sec-CH-UA client hints by default. A Chrome/Edge UA with no Sec-CH-UA is almost always a spoofed UA on a non-Chromium engine.",
 			evidence: [
 				{ label: "UA family", value: "Chromium" },
 				{ label: "Sec-CH-UA", value: "(absent)" },
@@ -154,7 +156,8 @@ export function checkConsistency(
 			id: "ch.present-on-nonchromium",
 			severity: "high",
 			title: `UA claims ${fam === "firefox" ? "Firefox" : "Safari"}, but a Sec-CH-UA header was sent`,
-			detail: "Firefox and Safari do not send Sec-CH-UA at all. Its presence under their UA means the UA is spoofed on a Chromium engine.",
+			detail:
+				"Firefox and Safari do not send Sec-CH-UA at all. Its presence under their UA means the UA is spoofed on a Chromium engine.",
 			evidence: [
 				{ label: "UA family", value: fam === "firefox" ? "Firefox" : "Safari" },
 				{ label: "Sec-CH-UA", value: server.secChUa ?? "" },
@@ -168,7 +171,8 @@ export function checkConsistency(
 			id: "devicememory.on-nonchromium",
 			severity: "high",
 			title: "navigator.deviceMemory is present under a non-Chromium UA",
-			detail: "deviceMemory is a Chromium-only API; Firefox and Safari don't implement it. Seeing a value here contradicts the claimed browser.",
+			detail:
+				"deviceMemory is a Chromium-only API; Firefox and Safari don't implement it. Seeing a value here contradicts the claimed browser.",
 			evidence: [
 				{ label: "UA family", value: fam === "firefox" ? "Firefox" : "Safari" },
 				{ label: "deviceMemory", value: String(client.deviceMemory) },
@@ -182,7 +186,8 @@ export function checkConsistency(
 			id: "vendor.empty-on-chromium",
 			severity: "medium",
 			title: "UA claims Chromium, but navigator.vendor is empty",
-			detail: 'Chromium sets navigator.vendor to "Google Inc."; an empty vendor is the Firefox behaviour, contradicting the UA.',
+			detail:
+				'Chromium sets navigator.vendor to "Google Inc."; an empty vendor is the Firefox behaviour, contradicting the UA.',
 			evidence: [
 				{ label: "UA family", value: "Chromium" },
 				{ label: "navigator.vendor", value: "(empty)" },
@@ -194,7 +199,8 @@ export function checkConsistency(
 			id: "vendor.google-on-firefox",
 			severity: "medium",
 			title: 'UA claims Firefox, but navigator.vendor is "Google Inc."',
-			detail: "Firefox leaves navigator.vendor empty. A Google vendor string under a Firefox UA is a spoof.",
+			detail:
+				"Firefox leaves navigator.vendor empty. A Google vendor string under a Firefox UA is a spoof.",
 			evidence: [
 				{ label: "UA family", value: "Firefox" },
 				{ label: "navigator.vendor", value: client.vendor },
@@ -209,7 +215,8 @@ export function checkConsistency(
 		(os === "windows" && plat.includes("win")) ||
 		(os === "macos" && (plat.includes("mac") || plat.includes("iphone"))) ||
 		(os === "linux" && (plat.includes("linux") || plat.includes("x86") || plat.includes("arm"))) ||
-		(os === "android" && (plat.includes("linux") || plat.includes("arm") || plat.includes("android"))) ||
+		(os === "android" &&
+			(plat.includes("linux") || plat.includes("arm") || plat.includes("android"))) ||
 		(os === "ios" && (plat.includes("iphone") || plat.includes("ipad") || plat.includes("mac"))) ||
 		os === "unknown" ||
 		plat === "" ||
@@ -219,7 +226,8 @@ export function checkConsistency(
 			id: "platform.vs-ua-os",
 			severity: "high",
 			title: "navigator.platform disagrees with the OS in your UA",
-			detail: "The platform string should match the operating system named in the user agent. A mismatch is a spoofing tell.",
+			detail:
+				"The platform string should match the operating system named in the user agent. A mismatch is a spoofing tell.",
 			evidence: [
 				{ label: "UA OS", value: os },
 				{ label: "navigator.platform", value: client.platform },
@@ -233,7 +241,8 @@ export function checkConsistency(
 			id: "touch.zero-on-mobile",
 			severity: "medium",
 			title: "UA claims a mobile device, but reports zero touch points",
-			detail: "Phones and tablets report touch support. Zero touch points under a mobile UA is unusual — often an emulated or spoofed mobile profile.",
+			detail:
+				"Phones and tablets report touch support. Zero touch points under a mobile UA is unusual — often an emulated or spoofed mobile profile.",
 			evidence: [
 				{ label: "UA", value: "mobile" },
 				{ label: "maxTouchPoints", value: "0" },
@@ -247,7 +256,8 @@ export function checkConsistency(
 			id: "dpr.fractional-on-apple",
 			severity: "info",
 			title: "Fractional device pixel ratio under an Apple UA",
-			detail: "Fractional ratios (1.25 / 1.5 / 1.75) come from Windows display scaling; Apple devices use whole-number ratios. Often just page zoom, but worth noting.",
+			detail:
+				"Fractional ratios (1.25 / 1.5 / 1.75) come from Windows display scaling; Apple devices use whole-number ratios. Often just page zoom, but worth noting.",
 			evidence: [
 				{ label: "UA OS", value: os },
 				{ label: "devicePixelRatio", value: String(client.dpr) },
@@ -264,7 +274,8 @@ export function checkConsistency(
 				id: "lang.header-vs-js",
 				severity: "medium",
 				title: "Accept-Language header and navigator.language disagree",
-				detail: "The primary language in the request header should match the one JS reports. A mismatch suggests one is being overridden.",
+				detail:
+					"The primary language in the request header should match the one JS reports. A mismatch suggests one is being overridden.",
 				evidence: [
 					{ label: "Accept-Language", value: server.acceptLanguage },
 					{ label: "navigator.language", value: client.language },
@@ -276,15 +287,21 @@ export function checkConsistency(
 	// 9. Timezone vs IP country — the classic VPN tell. Suppressed when on WARP,
 	//    because then the edge IP is Cloudflare's, not the user's real location.
 	const onWarp = trace?.warp === "on" || trace?.warp === "plus";
-	const country = (trace?.loc || server.cfCountry || "").toUpperCase();
-	if (!onWarp && country && COUNTRY_TZ[country] && client.timezone && client.timezone !== "UTC") {
-		const ok = COUNTRY_TZ[country].some((prefix) => client.timezone.startsWith(prefix));
+	const country = (trace?.loc ?? server.cfCountry ?? "").toUpperCase();
+	const tzPrefixes: string[] | undefined = COUNTRY_TZ[country];
+	if (!onWarp && country && tzPrefixes && client.timezone && client.timezone !== "UTC") {
+		const ok = tzPrefixes.some((prefix) => client.timezone.startsWith(prefix));
 		if (!ok) {
 			out.push({
 				id: "tz.vs-ip-country",
 				severity: "medium",
 				title: "Your timezone doesn't match the country of your IP",
-				detail: "The edge sees your connection coming from " + country + ", but your browser timezone is " + client.timezone + ". That's the classic VPN/proxy signature — or you're travelling.",
+				detail:
+					"The edge sees your connection coming from " +
+					country +
+					", but your browser timezone is " +
+					client.timezone +
+					". That's the classic VPN/proxy signature — or you're travelling.",
 				evidence: [
 					{ label: "IP country (edge)", value: country },
 					{ label: "browser timezone", value: client.timezone },
