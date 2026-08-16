@@ -13,7 +13,7 @@ export async function fetchTrace(): Promise<EdgeTrace | null> {
 		const res = await fetch("/cdn-cgi/trace", { cache: "no-store" });
 		if (!res.ok) return null;
 		const text = await res.text();
-		const map: Record<string, string> = {};
+		const map: Record<string, string | undefined> = {};
 		for (const line of text.split("\n")) {
 			const eq = line.indexOf("=");
 			if (eq > 0) map[line.slice(0, eq)] = line.slice(eq + 1);

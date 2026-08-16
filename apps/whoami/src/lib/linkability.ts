@@ -17,7 +17,7 @@
 export interface CarriedRef {
 	hash: string;
 	fromHost: string | null;
-	/** true when the reference came from a different host (a real jump vs a refresh) */
+	/** True when the reference came from a different host (a real jump vs a refresh) */
 	crossContext: boolean;
 }
 
@@ -38,10 +38,9 @@ export function readCarriedRef(): CarriedRef | null {
 }
 
 /**
- * Build a URL that opens the same app in a sibling context, carrying THIS context's
- * hash as the reference. Defaults to the same origin (so it works today for the
- * refresh / incognito / container / VPN cases); pass a sibling host for the
- * cross-context demo.
+ * Build a URL that opens the same app in a sibling context, carrying THIS context's hash as the
+ * reference. Defaults to the same origin (so it works today for the refresh / incognito / container
+ * / VPN cases); pass a sibling host for the cross-context demo.
  */
 export function buildJumpUrl(myHash: string, siblingHost?: string): string {
 	if (typeof window === "undefined") return "#";
@@ -56,10 +55,4 @@ export type LinkResult = "match" | "differ";
 
 export function compareHashes(mine: string, carried: string): LinkResult {
 	return mine === carried ? "match" : "differ";
-}
-
-/** Clear the fragment so a reload doesn't re-trigger the compare view. */
-export function clearFragment(): void {
-	if (typeof window === "undefined") return;
-	history.replaceState(null, "", window.location.pathname + window.location.search);
 }

@@ -15,7 +15,6 @@
 		type EdgeTrace,
 		type Verdict,
 	} from "$lib/consistency";
-	import { fetchTrace } from "$lib/trace";
 	import { detectExtensions, type ExtFinding } from "$lib/extensions";
 	import {
 		readCarriedRef,
@@ -24,7 +23,8 @@
 		type CarriedRef,
 		type LinkResult,
 	} from "$lib/linkability";
-	import { mountCrt } from "$lib/crt";
+	import { fetchTrace } from "$lib/trace";
+
 	import type { PageData } from "./$types";
 
 	let { data }: { data: PageData } = $props();
@@ -41,9 +41,6 @@
 	let ready = $state(false);
 	let copied = $state(false);
 
-	let canvas = $state<HTMLCanvasElement | null>(null);
-
-	// derive a sibling subdomain for the cross-context demo, if one is configured
 	const SIBLINGS: Record<string, string> = {
 		"fingerprint.petalcat.dev": "fingerprint-b.petalcat.dev",
 		"fingerprint-b.petalcat.dev": "fingerprint.petalcat.dev",
@@ -51,18 +48,17 @@
 	let siblingHost = $state<string | undefined>(undefined);
 
 	$effect(() => {
-		let alive = true;
+		const ctx = { alive: true };
 		carried = readCarriedRef();
-		siblingHost =
-			typeof window !== "undefined" ? SIBLINGS[window.location.host] : undefined;
+		siblingHost = typeof window !== "undefined" ? SIBLINGS[window.location.host] : undefined;
 
-		(async () => {
+		void (async () => {
 			const [sigs, tr, ext] = await Promise.all([
 				collectSignals(),
 				fetchTrace(),
 				detectExtensions(),
 			]);
-			if (!alive) return;
+			if (!ctx.alive) return;
 			signals = sigs;
 			hash = linkabilityHash(sigs);
 			trace = tr;
@@ -73,7 +69,7 @@
 			contradictions = checkConsistency(data.server, tr, {
 				userAgent: n.userAgent,
 				language: n.language,
-				languages: [...(n.languages || [])],
+				languages: [...n.languages],
 				platform: n.platform,
 				vendor: n.vendor,
 				deviceMemory: (n as unknown as { deviceMemory?: number }).deviceMemory,
@@ -88,31 +84,23 @@
 		})();
 
 		return () => {
-			alive = false;
+			ctx.alive = false;
 		};
 	});
 
-	// mount the CRT field once the canvas exists
-	$effect(() => {
-		if (!canvas) return;
-		const handle = mountCrt(canvas, [1.0, 0.71, 0.26]); // amber phosphor
-		return () => handle.destroy();
-	});
-
 	const grouped = $derived.by(() => {
-		const map = new Map<SignalCategory, Signal[]>();
+		const order: SignalCategory[] = [];
 		for (const s of signals) {
-			const arr = map.get(s.category) ?? [];
-			arr.push(s);
-			map.set(s.category, arr);
+			if (!order.includes(s.category)) order.push(s.category);
 		}
-		return [...map.entries()];
+		return order.map((cat): [SignalCategory, Signal[]] => [
+			cat,
+			signals.filter((s) => s.category === cat),
+		]);
 	});
 
-	// cumulative entropy — shown WITH the caveat that signals correlate, so the true
-	// joint entropy is well below this sum. We never present the sum as a hard bit count.
 	const entropySum = $derived(
-		Math.round(signals.reduce((acc, s) => acc + (s.reproducibility === "stable" ? s.entropy : 0), 0)),
+		Math.round(signals.reduce((a, s) => a + (s.reproducibility === "stable" ? s.entropy : 0), 0)),
 	);
 
 	type Quad = "dangerous" | "linking" | "randomized" | "standardized" | "volatile" | "common";
@@ -124,469 +112,521 @@
 		if (s.entropy >= 1) return "linking";
 		return "common";
 	}
-	const QUAD_LABEL: Record<Quad, string> = {
-		dangerous: "identifying + stable",
-		linking: "mild + stable",
-		randomized: "randomized",
-		standardized: "standardized",
-		volatile: "volatile",
-		common: "in the crowd",
-	};
 
-	function bars(entropy: number): string {
-		const n = entropy >= 7 ? 4 : entropy >= 4 ? 3 : entropy >= 2 ? 2 : entropy >= 1 ? 1 : 0;
+	function bars(e: number): string {
+		const n = e >= 7 ? 4 : e >= 4 ? 3 : e >= 2 ? 2 : e >= 1 ? 1 : 0;
 		return "▮".repeat(n) + "▯".repeat(4 - n);
 	}
-
-	function reproTag(r: Repro): string {
-		return r === "stable" ? "STABLE" : r === "randomized" ? "RANDOM" : r === "standardized" ? "STANDARD" : "VOLATILE";
+	function tag(r: Repro): string {
+		return r === "stable"
+			? "STABLE"
+			: r === "randomized"
+				? "RAND"
+				: r === "standardized"
+					? "STD"
+					: "VOL";
 	}
-
-	const VERDICT_TEXT: Record<Verdict, string> = {
-		coherent: "COHERENT — every surface agrees",
+	const VTEXT: Record<Verdict, string> = {
+		coherent: "COHERENT",
 		minor: "MINOR MISMATCHES",
-		contradictions: "CONTRADICTIONS FOUND",
+		contradictions: "CONTRADICTIONS",
 	};
 
 	async function copyUrl() {
 		try {
 			await navigator.clipboard.writeText(buildJumpUrl(hash));
 			copied = true;
-			setTimeout(() => (copied = false), 1800);
+			setTimeout(() => (copied = false), 1600);
 		} catch {
-			/* clipboard blocked; ignore */
+			/* clipboard blocked */
 		}
 	}
-
 	function jumpSibling() {
 		if (siblingHost) window.location.href = buildJumpUrl(hash, siblingHost);
 	}
 </script>
 
-<canvas bind:this={canvas} class="crt" aria-hidden="true"></canvas>
-
 <main>
-	<header>
-		<div class="prompt"><span class="user">visitor</span><span class="at">@</span><span class="host">whoami</span><span class="sep">:~$</span> <span class="cmd">cat /proc/self/fingerprint</span><span class="cursor" aria-hidden="true">█</span></div>
-		<p class="lede">
-			A tracker reads these signals off you silently and asks how unique you are. This reads
-			them back out loud — and answers a better question: not "are you unique," but
-			<em>can they follow you</em>. Nothing leaves your browser. Nothing is stored.
-		</p>
-	</header>
+	<div class="prompt">
+		<span class="dim">visitor@whoami</span><span class="dim">:~$</span> cat /proc/self/fingerprint<span
+			class="cur"
+			aria-hidden="true">█</span
+		>
+	</div>
+	<p class="tag">
+		What your browser tells every site — and whether they can follow you. Nothing leaves this page.
+	</p>
 
 	{#if carried && linkResult}
-		<section class="link-result {linkResult}">
-			<div class="lr-head">
-				{#if linkResult === "match"}
-					◉ LINKABLE — two contexts, one fingerprint
-				{:else}
-					◎ NOT LINKED — the fingerprint changed across contexts
-				{/if}
-			</div>
-			<p>
-				This context independently computed <code>{hash}</code>. You carried
-				<code>{carried.hash}</code>
-				{#if carried.fromHost}from <code>{carried.fromHost}</code>{/if}.
-				{#if linkResult === "match"}
-					They're identical — derived separately, same result — so whatever you changed
-					(incognito, a container, a VPN) did <strong>not</strong> break the link. A site on
-					both sides would recognise you as the same person.
-				{:else}
-					They differ, so something (farbling, RFP per-site randomisation, or a genuinely
-					different device) broke the cross-context link here.
-				{/if}
-			</p>
-			{#if carried.fromHost && !carried.crossContext}
-				<p class="disclaimer">
-					Same host — this is a within-context re-check (a refresh, incognito, or container
-					on the same origin), not a cross-site test.
-				</p>
-			{/if}
-		</section>
+		<div class="banner {linkResult}">
+			{#if linkResult === "match"}◉ LINKABLE — {hash} on both{:else}◎ NOT LINKED — {hash} vs {carried.hash}{/if}
+			<span class="dim">
+				{#if linkResult === "match"}derived separately, identical → whatever you changed didn't
+					break the link{:else}differ → farbling / RFP / a different device broke it{/if}
+			</span>
+		</div>
 	{/if}
 
 	{#if !ready}
-		<p class="loading">reading signals<span class="cursor" aria-hidden="true">▁</span></p>
+		<p class="load">reading signals<span class="cur" aria-hidden="true">▁</span></p>
 	{:else}
-		<!-- THE VERDICT — the answer, first -->
-		<section class="verdict {verdict}">
-			<div class="v-line">
-				<span class="v-glyph" aria-hidden="true"></span>
-				<span class="v-text">{VERDICT_TEXT[verdict]}</span>
-			</div>
-			{#if contradictions.length === 0}
-				<p class="v-body">
-					No cross-surface contradictions. Your HTTP headers, the network edge, and your JS
-					environment tell one consistent story — which is what a real browser looks like. A
-					uniqueness score would flag you; a <em>consistency</em> check clears you. That's the
-					difference between "are you unusual" and "are you lying," and only the second is
-					evidence.
-				</p>
-			{:else}
-				<p class="v-body">
-					A visitor can be dead-average on every single value and still get caught here: a
-					coherent real machine cannot emit contradictory signals. These surfaces disagree.
-				</p>
-				<ul class="contradictions">
-					{#each contradictions as c (c.id)}
-						<li class="c {c.severity}">
-							<div class="c-title"><span class="c-sev">{c.severity}</span> {c.title}</div>
-							<p class="c-detail">{c.detail}</p>
-							<div class="c-evidence">
-								{#each c.evidence as e (e.label)}
-									<span class="ev"><span class="ev-label">{e.label}</span> {e.value}</span>
-								{/each}
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</section>
+		<div class="verdict {verdict}">
+			<span class="dot" aria-hidden="true"></span>
+			<span class="vt"
+				>{VTEXT[verdict]}{verdict === "contradictions"
+					? ` (${String(contradictions.length)})`
+					: ""}</span
+			>
+			<span class="dim"
+				>{verdict === "coherent"
+					? "headers, edge & JS agree"
+					: "surfaces disagree — a real machine can't"}</span
+			>
+		</div>
+		{#if contradictions.length}
+			<ul class="cx">
+				{#each contradictions as c (c.id)}
+					<li class="sev-{c.severity}" title={c.detail}>
+						<span class="sev">{c.severity}</span>{c.title}
+						<span class="ev">{c.evidence.map((e) => `${e.label}=${e.value}`).join("  ")}</span>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 
-		<!-- LINKABILITY -->
-		<section class="panel">
-			<h2>can they follow you</h2>
-			<div class="hashrow">
-				<span class="hlabel">your stable fingerprint</span>
-				<code class="bighash">{hash}</code>
-			</div>
-			<p class="panel-note">
-				A digest of only your <em>stable, identifying</em> signals — the ones that re-derive
-				from your machine and survive a cache clear. Randomised and volatile signals are left
-				out on purpose: they can't link you, so folding them in would overstate the risk.
-			</p>
-			<div class="actions">
-				<button onclick={copyUrl}>{copied ? "copied ✓" : "copy my compare-link"}</button>
-				{#if siblingHost}
-					<button onclick={jumpSibling}>test against {siblingHost}</button>
-				{/if}
-			</div>
-			<p class="panel-note dim">
-				Open the copied link in an incognito window, a fresh container, or with your VPN on. If
-				the hash matches, that measure didn't stop cross-visit tracking — a VPN, for instance,
-				changes your IP but not your canvas, so the fingerprint stays put.
-			</p>
-			{#if siblingHost}
-				<p class="disclaimer">
-					The sibling is a subdomain — the <strong>same site</strong> (eTLD+1), so cookies and
-					storage aren't actually partitioned; a real tracker wouldn't need your fingerprint
-					here, it'd just set a cookie. We manually isolate (no cookies, no shared storage, hash
-					only) so this test measures purely the fingerprint channel. A true cross-<em>site</em>
-					test needs a second registrable domain.
-				</p>
-			{/if}
-		</section>
+		<div class="rule"></div>
 
-		<!-- ENTROPY, honestly -->
-		<section class="panel">
-			<h2>how much you leak</h2>
-			<div class="entropy">
-				<span class="ebig">~{entropySum}</span><span class="eunit">bits of stable entropy</span>
+		<div class="link">
+			<div class="lk-top">
+				<span class="dim">can they follow you</span>
+				<code class="hash">{hash}</code>
+				<button onclick={copyUrl}>{copied ? "copied ✓" : "copy compare-link"}</button>
+				{#if siblingHost}<button onclick={jumpSibling}>test → {siblingHost}</button>{/if}
 			</div>
-			<p class="panel-note">
-				This is a <em>sum</em>, and the sum lies high: these signals are heavily correlated
-				(canvas ↔ fonts ↔ GPU ↔ OS all move together), so the true joint entropy — how much you
-				actually narrow down to — is well below this. Roughly, ~10 bits ≈ 1-in-a-million, ~20 ≈
-				1-in-a-thousand, ~30 ≈ globally unique — but read it as a pile that builds up, not a
-				scoreboard. The buildup is the point; no single line is the leak.
+			<p class="dim sm">
+				Open it in incognito / a container / VPN-on. Same hash = still trackable (a VPN moves your
+				IP, not your canvas).{#if siblingHost}
+					A subdomain is the same site, so we isolate manually — hash only, no cookies.{/if}
 			</p>
-		</section>
+		</div>
 
-		<!-- THE INVENTORY -->
-		{#each grouped as [category, items] (category)}
-			<section class="readout">
-				<h3>{CATEGORY_LABELS[category]}</h3>
-				<div class="rows">
-					{#each items as sig (sig.id)}
-						{@const q = quadrant(sig)}
-						<div class="row q-{q}">
-							<span class="glyph" aria-hidden="true" title={QUAD_LABEL[q]}></span>
-							<span class="label">{sig.label}</span>
-							<span class="value">{sig.value}</span>
-							<span class="meta">
-								<span class="ebars" title="{sig.entropy} bits (relative)">{bars(sig.entropy)}</span>
-								<span class="rtag r-{sig.reproducibility}" title={REPRO_LABELS[sig.reproducibility]}>{reproTag(sig.reproducibility)}</span>
-							</span>
-							<span class="deviation">you: {sig.value} · crowd: {sig.typical}</span>
-							<span class="note">{sig.note}</span>
-						</div>
-					{/each}
-				</div>
+		<div class="entropy">
+			<span class="ebig">~{entropySum}</span> bits stable
+			<span
+				class="dim sm"
+				title="Signals are correlated (canvas↔fonts↔GPU↔OS), so joint entropy is well below the sum. ~10 bits ≈ 1-in-a-million."
+			>
+				· sum overstates (correlated) · it's the buildup, not any one line
+			</span>
+		</div>
+
+		{#each grouped as [cat, items] (cat)}
+			<section>
+				<h3>{CATEGORY_LABELS[cat]}</h3>
+				{#each items as s (s.id)}
+					{@const q = quadrant(s)}
+					<div class="row q-{q}" title={s.note}>
+						<span class="g" aria-hidden="true"></span>
+						<span class="lab">{s.label}</span>
+						<span class="val">{s.value}</span>
+						<span class="bars" title="{s.entropy} bits (relative)">{bars(s.entropy)}</span>
+						<span class="rt r-{s.reproducibility}" title={REPRO_LABELS[s.reproducibility]}
+							>{tag(s.reproducibility)}</span
+						>
+						<span class="dev" title="typical value">{s.typical}</span>
+					</div>
+				{/each}
 			</section>
 		{/each}
 
-		<!-- SERVER SURFACE -->
-		<section class="panel">
-			<h2>what the server saw</h2>
-			<div class="srows">
-				<div class="srow"><span class="sk">your IP</span><span class="sv">{data.server.ip ?? "(hidden)"} <span class="dim">— your own address, shown back to you; not stored</span></span></div>
-				{#if trace}
-					<div class="srow"><span class="sk">WARP</span><span class="sv">{trace.warp ?? "?"}{trace.warp === "on" || trace.warp === "plus" ? " — you're on Cloudflare WARP; the edge IP above is Cloudflare's, not your real location" : ""}</span></div>
-					<div class="srow"><span class="sk">Zero Trust gateway</span><span class="sv">{trace.gateway ?? "?"}</span></div>
-					<div class="srow"><span class="sk">edge sees you in</span><span class="sv">{trace.loc ?? "?"}</span></div>
-					<div class="srow"><span class="sk">TLS</span><span class="sv">{trace.tls ?? "?"}</span></div>
-					<div class="srow"><span class="sk">CF datacenter</span><span class="sv">{trace.colo ?? "?"}</span></div>
-				{/if}
-				<div class="srow"><span class="sk">Accept-Language</span><span class="sv">{data.server.acceptLanguage ?? "(none)"}</span></div>
-				<div class="srow"><span class="sk">Sec-CH-UA</span><span class="sv">{data.server.secChUa ?? "(absent — Firefox/Safari don't send it)"}</span></div>
-				<div class="srow"><span class="sk">Accept-Encoding</span><span class="sv">{data.server.acceptEncoding ?? "(none)"}</span></div>
+		<section>
+			<h3>what the server saw</h3>
+			<div class="row srv">
+				<span class="lab">IP</span><span class="val">{data.server.ip ?? "—"}</span><span
+					class="dim sm">your own; not stored</span
+				>
 			</div>
-			<p class="panel-note dim">
-				The richest server-only signals — the TLS JA3/JA4 fingerprint and raw HTTP/2
-				header order — aren't here, and that's honest: this app sits behind a Cloudflare tunnel,
-				which terminates TLS and normalises headers, so the ClientHello never reaches the origin.
-				They'd need CF Enterprise. We show what actually survives.
+			{#if trace}
+				<div class="row srv">
+					<span class="lab">WARP</span><span class="val">{trace.warp ?? "?"}</span
+					>{#if trace.warp === "on" || trace.warp === "plus"}<span class="dim sm"
+							>edge IP is Cloudflare's, not you</span
+						>{/if}
+				</div>
+				<div class="row srv">
+					<span class="lab">gateway</span><span class="val">{trace.gateway ?? "?"}</span>
+				</div>
+				<div class="row srv">
+					<span class="lab">edge loc</span><span class="val">{trace.loc ?? "?"}</span>
+				</div>
+				<div class="row srv">
+					<span class="lab">TLS</span><span class="val">{trace.tls ?? "?"}</span><span
+						class="dim sm">colo {trace.colo ?? "?"}</span
+					>
+				</div>
+			{/if}
+			<div class="row srv">
+				<span class="lab">Accept-Lang</span><span class="val"
+					>{data.server.acceptLanguage ?? "—"}</span
+				>
+			</div>
+			<div class="row srv">
+				<span class="lab">Sec-CH-UA</span><span class="val"
+					>{data.server.secChUa ?? "absent (FF/Safari)"}</span
+				>
+			</div>
+			<p
+				class="dim sm"
+				title="This app is behind a Cloudflare tunnel: it terminates TLS and normalises headers, so JA3/JA4 and raw header order never reach the origin (they need CF Enterprise)."
+			>
+				no JA3 / header-order here — CF tunnel eats them (why?)
 			</p>
 		</section>
 
-		<!-- EXTENSIONS -->
-		<section class="panel">
-			<h2>installed extensions</h2>
-			{#if extFindings.length > 0}
-				<ul class="ext">
-					{#each extFindings as f (f.id)}
-						<li>
-							<div class="ext-name">▸ {f.name} <span class="ext-conf">{f.confidence}</span></div>
-							<p class="ext-detail">{f.detail} <span class="dim">({f.method})</span></p>
-						</li>
-					{/each}
-				</ul>
+		<section>
+			<h3>installed extensions</h3>
+			{#if extFindings.length}
+				{#each extFindings as f (f.id)}
+					<div class="row srv" title={f.detail}>
+						<span class="lab">▸</span><span class="val">{f.name}</span><span class="rt"
+							>{f.confidence}</span
+						>
+					</div>
+				{/each}
 			{:else if extRan}
-				<p class="panel-note">
-					Nothing detected — but read that carefully. A clean result means <em>either</em> no
-					detectable extension <em>or</em> a defense is active (some tools route
-					getComputedStyle through a Shadow DOM so injected styles read clean). Absence here is
-					not proof of absence.
+				<p
+					class="dim sm"
+					title="Detected by CSS style-injection with a baseline control. A clean result means no detectable extension OR a defense (Shadow-DOM getComputedStyle reroute) is active — absence isn't proof."
+				>
+					none detected — but clean is ambiguous (why?)
 				</p>
 			{/if}
-			<p class="panel-note dim">
-				Detection is by CSS style-injection: we plant a decoy an extension's stylesheet would
-				target, plus an identical baseline that it wouldn't, and diff the computed styles — the
-				baseline is the control that makes "was a style applied" decidable. This ships a small
-				hand-seeded bait list (ad-blockers, page-wide theming); real breadth needs a maintained,
-				versioned trigger corpus. The method works on Firefox; the selectors rot.
-			</p>
 		</section>
 
-		<footer>
-			<p>read-only · no storage · no logs · no network calls beyond this page and its own edge trace</p>
-		</footer>
+		<footer>read-only · no storage · no logs</footer>
 	{/if}
 </main>
 
 <style>
 	:global(html) {
-		background: #0a0705;
+		background: #020a06;
 	}
 	:global(body) {
 		margin: 0;
-		background: #0a0705;
-		color: #ffb642;
-		font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
-		font-size: 15px;
-		line-height: 1.5;
+		background: #020a06;
+		color: #4ee87a;
+		font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+		font-size: 14px;
+		line-height: 1.45;
 		-webkit-font-smoothing: antialiased;
 	}
-
-	.crt {
+	/* subtle scanline texture — flat, no curvature */
+	:global(body)::before {
+		content: "";
 		position: fixed;
 		inset: 0;
-		width: 100vw;
-		height: 100vh;
 		z-index: 0;
-		display: block;
+		pointer-events: none;
+		background: repeating-linear-gradient(
+			0deg,
+			rgba(0, 0, 0, 0.16) 0,
+			rgba(0, 0, 0, 0.16) 1px,
+			transparent 1px,
+			transparent 3px
+		);
 	}
 
 	main {
 		position: relative;
 		z-index: 1;
-		max-width: 60rem;
+		max-width: 64rem;
 		margin-inline: auto;
-		padding: clamp(1.25rem, 4vw, 3rem) 1.25rem 5rem;
+		padding: clamp(1rem, 3vw, 2rem) 1.1rem 3rem;
 	}
 
-	/* faint scanline overlay tuned to the shader, plus a readability scrim */
-	main::before {
-		content: "";
-		position: fixed;
-		inset: 0;
-		z-index: -1;
-		background:
-			radial-gradient(120% 90% at 50% 30%, rgba(10, 7, 5, 0.35), rgba(10, 7, 5, 0.82) 75%),
-			repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.22) 0, rgba(0, 0, 0, 0.22) 1px, transparent 1px, transparent 3px);
-		pointer-events: none;
+	.dim {
+		color: #2f8f52;
+	}
+	.sm {
+		font-size: 0.82rem;
 	}
 
-	/* header / prompt */
 	.prompt {
-		font-size: clamp(0.95rem, 2.6vw, 1.25rem);
-		color: #ffd9a0;
-		text-shadow: 0 0 6px rgba(255, 160, 60, 0.45);
+		color: #b9ffcf;
+		font-size: clamp(0.9rem, 2.4vw, 1.05rem);
 		word-break: break-word;
 	}
-	.user { color: #ffb642; }
-	.at, .sep { color: #b87a2e; }
-	.host { color: #ff9f4a; }
-	.cmd { color: #ffe7c4; }
-	.cursor {
-		color: #ffd9a0;
+	.cur {
+		color: #4ee87a;
 		animation: blink 1.1s steps(1) infinite;
 	}
-	@keyframes blink { 50% { opacity: 0; } }
-	.lede {
-		max-width: 54ch;
-		color: #d69a54;
-		margin: 1rem 0 2.25rem;
-		line-height: 1.6;
+	@keyframes blink {
+		50% {
+			opacity: 0;
+		}
 	}
-	.lede em { color: #ffd9a0; font-style: normal; }
+	.tag {
+		color: #3a9d5f;
+		margin: 0.35rem 0 1.4rem;
+		max-width: 70ch;
+	}
+	.load {
+		color: #4ee87a;
+	}
 
-	.loading { color: #ffb642; }
-
-	/* verdict — the lede answer */
+	/* verdict — one line, no box */
 	.verdict {
-		border: 1px solid #3a2a12;
-		background: rgba(20, 13, 6, 0.55);
-		padding: 1.1rem 1.25rem;
-		margin-bottom: 2.25rem;
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		font-size: 1.05rem;
+		flex-wrap: wrap;
 	}
-	.verdict.contradictions { border-color: #5a241f; background: rgba(30, 12, 10, 0.6); }
-	.verdict.minor { border-color: #5a4a1c; }
-	.v-line { display: flex; align-items: center; gap: 0.7rem; font-size: 1.15rem; letter-spacing: 0.02em; }
-	.v-glyph { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: #7ee0a8; box-shadow: 0 0 10px #7ee0a8; }
-	.verdict.minor .v-glyph { background: #ffc95a; box-shadow: 0 0 10px #ffc95a; }
-	.verdict.contradictions .v-glyph { background: #ff6b5c; box-shadow: 0 0 10px #ff6b5c; }
-	.v-text { color: #ffe7c4; }
-	.verdict.contradictions .v-text { color: #ff8f83; }
-	.v-body { color: #d69a54; max-width: 60ch; margin: 0.8rem 0 0; }
-	.v-body em { color: #ffd9a0; font-style: normal; }
+	.dot {
+		width: 0.6rem;
+		height: 0.6rem;
+		border-radius: 50%;
+		background: #4ee87a;
+		box-shadow: 0 0 8px #4ee87a;
+	}
+	.verdict.minor .dot {
+		background: #ffcf5a;
+		box-shadow: 0 0 8px #ffcf5a;
+	}
+	.verdict.contradictions .dot {
+		background: #ff5f56;
+		box-shadow: 0 0 8px #ff5f56;
+	}
+	.vt {
+		color: #b9ffcf;
+		letter-spacing: 0.04em;
+	}
+	.verdict.contradictions .vt {
+		color: #ff8079;
+	}
 
-	.contradictions { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.8rem; }
-	.c { border: 1px solid #3a2a12; background: rgba(0, 0, 0, 0.25); padding: 0.7rem 0.85rem; }
-	.c.high { border-color: #5a241f; }
-	.c.medium { border-color: #5a4a1c; }
-	.c-title { color: #ffe7c4; font-weight: 600; }
-	.c-sev {
-		font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
-		border: 1px solid currentColor; padding: 0.05rem 0.35rem; margin-right: 0.4rem; vertical-align: middle;
+	.cx {
+		list-style: none;
+		padding: 0;
+		margin: 0.6rem 0 0;
+		display: grid;
+		gap: 0.25rem;
 	}
-	.c.high .c-sev { color: #ff6b5c; }
-	.c.medium .c-sev { color: #ffc95a; }
-	.c.info .c-sev { color: #b87a2e; }
-	.c-detail { color: #c79350; margin: 0.4rem 0; max-width: 62ch; }
-	.c-evidence { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; }
-	.ev { color: #ffd9a0; font-size: 0.88rem; word-break: break-all; }
-	.ev-label { color: #8f6428; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.06em; margin-right: 0.3rem; }
+	.cx li {
+		color: #cfeeda;
+		padding-left: 0.2rem;
+	}
+	.sev {
+		display: inline-block;
+		font-size: 0.64rem;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		padding: 0 0.3rem;
+		margin-right: 0.45rem;
+		border: 1px solid currentColor;
+	}
+	.sev-high .sev {
+		color: #ff5f56;
+	}
+	.sev-medium .sev {
+		color: #ffcf5a;
+	}
+	.sev-info .sev {
+		color: #2f8f52;
+	}
+	.cx .ev {
+		display: block;
+		color: #2f8f52;
+		font-size: 0.78rem;
+		padding-left: 2.6rem;
+		word-break: break-all;
+	}
 
-	/* panels */
-	.panel { margin-bottom: 2.25rem; }
-	h2 {
-		font-size: 0.95rem; color: #ff9f4a; margin: 0 0 0.75rem; font-weight: 700;
-		border-bottom: 1px solid #2c2010; padding-bottom: 0.45rem;
+	.rule {
+		height: 1px;
+		background: #123a24;
+		margin: 1.4rem 0;
 	}
-	h2::before { content: "> "; color: #6f4e1f; }
-	.panel-note { color: #c79350; max-width: 64ch; margin: 0.7rem 0 0; line-height: 1.6; }
-	.panel-note em { color: #ffd9a0; font-style: normal; }
-	.panel-note.dim { color: #916630; font-size: 0.9rem; }
-	.disclaimer {
-		color: #d69a54; font-size: 0.9rem; margin: 0.8rem 0 0; padding: 0.6rem 0.75rem;
-		border: 1px dashed #5a4a1c; background: rgba(255, 200, 80, 0.04); max-width: 64ch;
-	}
-	.disclaimer strong, .disclaimer em { color: #ffd9a0; font-style: normal; }
-	.dim { color: #916630; }
 
 	/* linkability */
-	.hashrow { display: flex; align-items: baseline; gap: 0.9rem; flex-wrap: wrap; }
-	.hlabel { color: #b87a2e; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.08em; }
-	.bighash {
-		font-size: clamp(1.6rem, 6vw, 2.6rem); color: #ffd9a0; letter-spacing: 0.06em;
-		text-shadow: 0 0 12px rgba(255, 160, 60, 0.4);
+	.lk-top {
+		display: flex;
+		align-items: baseline;
+		gap: 0.8rem;
+		flex-wrap: wrap;
 	}
-	.actions { display: flex; gap: 0.7rem; flex-wrap: wrap; margin: 1.1rem 0 0.3rem; }
+	.hash {
+		font-size: clamp(1.5rem, 5vw, 2.2rem);
+		color: #b9ffcf;
+		letter-spacing: 0.06em;
+		text-shadow: 0 0 10px rgba(78, 232, 122, 0.35);
+	}
 	button {
-		font: inherit; font-size: 0.9rem; color: #ffd9a0; background: rgba(255, 170, 66, 0.08);
-		border: 1px solid #5a3f16; padding: 0.5rem 0.9rem; cursor: pointer;
-		transition: background 0.18s cubic-bezier(0.2, 0, 0, 1), border-color 0.18s;
+		font: inherit;
+		font-size: 0.82rem;
+		color: #b9ffcf;
+		background: rgba(78, 232, 122, 0.08);
+		border: 1px solid #1f6e3f;
+		padding: 0.35rem 0.7rem;
+		cursor: pointer;
+		transition: background 0.15s cubic-bezier(0.2, 0, 0, 1);
 	}
-	button:hover { background: rgba(255, 170, 66, 0.16); border-color: #8a6222; }
-	button:focus-visible { outline: 2px solid #ffb642; outline-offset: 2px; }
+	button:hover {
+		background: rgba(78, 232, 122, 0.18);
+	}
+	button:focus-visible {
+		outline: 2px solid #4ee87a;
+		outline-offset: 2px;
+	}
+	.link .sm {
+		margin: 0.5rem 0 0;
+		max-width: 72ch;
+	}
 
-	/* link result banner */
-	.link-result { border: 1px solid; padding: 1rem 1.25rem; margin-bottom: 2rem; }
-	.link-result.match { border-color: #5a241f; background: rgba(30, 12, 10, 0.55); }
-	.link-result.differ { border-color: #24503a; background: rgba(10, 26, 18, 0.5); }
-	.lr-head { font-size: 1.1rem; color: #ffe7c4; }
-	.link-result.match .lr-head { color: #ff8f83; }
-	.link-result.differ .lr-head { color: #7ee0a8; }
-	.link-result p { color: #d69a54; max-width: 64ch; margin: 0.6rem 0 0; }
-	.link-result code { color: #ffd9a0; }
-	.link-result strong { color: #ffe7c4; }
+	.banner {
+		margin: 0 0 1.2rem;
+		padding: 0.5rem 0;
+		color: #ff8079;
+		border-block: 1px solid #4a1f1c;
+	}
+	.banner.differ {
+		color: #4ee87a;
+		border-block-color: #123a24;
+	}
+	.banner .dim {
+		display: block;
+		font-size: 0.8rem;
+	}
 
-	.entropy { display: flex; align-items: baseline; gap: 0.6rem; }
-	.ebig { font-size: clamp(2rem, 7vw, 3rem); color: #ffd9a0; text-shadow: 0 0 12px rgba(255, 160, 60, 0.4); }
-	.eunit { color: #b87a2e; }
+	.entropy {
+		margin: 1.4rem 0;
+		color: #6cc48a;
+	}
+	.ebig {
+		font-size: clamp(1.6rem, 5vw, 2.2rem);
+		color: #b9ffcf;
+		text-shadow: 0 0 10px rgba(78, 232, 122, 0.35);
+	}
 
-	/* readout rows */
-	.readout { margin-bottom: 1.6rem; }
+	/* sections — hairline header, flat rows, no boxes */
+	section {
+		margin-top: 1.5rem;
+	}
 	h3 {
-		font-size: 0.72rem; color: #8f6428; text-transform: uppercase; letter-spacing: 0.14em;
-		margin: 0 0 0.5rem;
+		font-size: 0.68rem;
+		color: #2f8f52;
+		text-transform: uppercase;
+		letter-spacing: 0.16em;
+		margin: 0 0 0.35rem;
+		border-bottom: 1px solid #123a24;
+		padding-bottom: 0.3rem;
 	}
-	h3::before { content: "── "; color: #4a3616; }
-	.rows { display: grid; gap: 0.15rem; }
 	.row {
 		display: grid;
-		grid-template-columns: 0.8rem minmax(9rem, 1fr) minmax(0, 1.4fr) auto;
-		grid-template-areas:
-			"glyph label value meta"
-			". deviation deviation deviation"
-			". note note note";
-		gap: 0.15rem 0.75rem;
+		grid-template-columns: 0.7rem minmax(7rem, 10rem) minmax(0, 1fr) auto auto minmax(4rem, 9rem);
 		align-items: baseline;
-		padding: 0.5rem 0.5rem;
-		border-bottom: 1px solid rgba(60, 42, 18, 0.4);
+		gap: 0.6rem;
+		padding: 0.18rem 0.2rem;
 	}
-	.row:hover { background: rgba(255, 170, 66, 0.04); }
-	.glyph { grid-area: glyph; width: 0.5rem; height: 0.5rem; border-radius: 50%; align-self: center; background: #6f4e1f; }
-	.q-dangerous .glyph { background: #ff6b5c; box-shadow: 0 0 7px rgba(255, 107, 92, 0.7); }
-	.q-linking .glyph { background: #ffb642; }
-	.q-randomized .glyph { background: #6aa9ff; }
-	.q-standardized .glyph { background: #7ee0a8; box-shadow: 0 0 6px rgba(126, 224, 168, 0.5); }
-	.q-volatile .glyph { background: #916630; }
-	.q-common .glyph { background: #4a6a52; }
-	.label { grid-area: label; color: #c79350; }
-	.value { grid-area: value; color: #ffe7c4; word-break: break-word; }
-	.meta { grid-area: meta; display: flex; gap: 0.6rem; align-items: center; white-space: nowrap; }
-	.ebars { color: #ff9f4a; letter-spacing: -1px; font-size: 0.85rem; }
-	.rtag { font-size: 0.62rem; letter-spacing: 0.06em; padding: 0.05rem 0.3rem; border: 1px solid; }
-	.r-stable { color: #ff9f4a; border-color: #5a3f16; }
-	.r-randomized { color: #6aa9ff; border-color: #24405a; }
-	.r-standardized { color: #7ee0a8; border-color: #24503a; }
-	.r-volatile { color: #916630; border-color: #4a3616; }
-	.deviation { grid-area: deviation; color: #8f6428; font-size: 0.82rem; word-break: break-word; }
-	.note { grid-area: note; color: #a97e3e; font-size: 0.85rem; line-height: 1.5; max-width: 68ch; }
-
-	/* server rows */
-	.srows { display: grid; gap: 0.3rem; }
-	.srow { display: grid; grid-template-columns: minmax(9rem, 12rem) 1fr; gap: 0.75rem; padding: 0.35rem 0; border-bottom: 1px solid rgba(60, 42, 18, 0.35); }
-	.sk { color: #8f6428; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.06em; }
-	.sv { color: #ffe7c4; word-break: break-word; }
-
-	/* extensions */
-	.ext { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.7rem; }
-	.ext-name { color: #ffe7c4; }
-	.ext-conf { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: #ff9f4a; border: 1px solid #5a3f16; padding: 0.05rem 0.35rem; margin-left: 0.3rem; }
-	.ext-detail { color: #c79350; margin: 0.3rem 0 0; max-width: 64ch; }
-
-	footer { margin-top: 3rem; border-top: 1px solid #2c2010; padding-top: 1rem; color: #6f4e1f; font-size: 0.82rem; }
-
-	@media (max-width: 34rem) {
-		.row { grid-template-columns: 0.8rem 1fr; grid-template-areas: "glyph label" "glyph value" ". meta" ". deviation" ". note"; }
-		.meta { flex-wrap: wrap; white-space: normal; }
+	.row:hover {
+		background: rgba(78, 232, 122, 0.05);
+	}
+	.g {
+		width: 0.45rem;
+		height: 0.45rem;
+		border-radius: 50%;
+		align-self: center;
+		background: #1f6e3f;
+	}
+	.q-dangerous .g {
+		background: #ff5f56;
+		box-shadow: 0 0 6px rgba(255, 95, 86, 0.7);
+	}
+	.q-linking .g {
+		background: #4ee87a;
+	}
+	.q-randomized .g {
+		background: #58a6ff;
+	}
+	.q-standardized .g {
+		background: #7dffb0;
+		box-shadow: 0 0 6px rgba(125, 255, 176, 0.5);
+	}
+	.q-volatile .g {
+		background: #2f8f52;
+	}
+	.q-common .g {
+		background: #1f4a30;
+	}
+	.lab {
+		color: #6cc48a;
+	}
+	.val {
+		color: #cfeeda;
+		word-break: break-word;
+	}
+	.bars {
+		color: #4ee87a;
+		letter-spacing: -1px;
+		font-size: 0.8rem;
+		white-space: nowrap;
+	}
+	.rt {
+		font-size: 0.6rem;
+		letter-spacing: 0.05em;
+		padding: 0 0.25rem;
+		border: 1px solid;
+		white-space: nowrap;
+	}
+	.r-stable {
+		color: #4ee87a;
+		border-color: #1f6e3f;
+	}
+	.r-randomized {
+		color: #58a6ff;
+		border-color: #1f4a6e;
+	}
+	.r-standardized {
+		color: #7dffb0;
+		border-color: #1f6e4f;
+	}
+	.r-volatile {
+		color: #2f8f52;
+		border-color: #123a24;
+	}
+	.dev {
+		color: #2f8f52;
+		font-size: 0.8rem;
+		text-align: right;
+		word-break: break-word;
+	}
+	.srv {
+		grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr) auto;
 	}
 
+	footer {
+		margin-top: 2.2rem;
+		border-top: 1px solid #123a24;
+		padding-top: 0.7rem;
+		color: #1f6e3f;
+		font-size: 0.8rem;
+	}
+
+	@media (max-width: 40rem) {
+		.row {
+			grid-template-columns: 0.7rem 1fr auto;
+			grid-template-areas: "g lab val" ". val val" ". bars rt" ". dev dev";
+		}
+		.row .val {
+			grid-column: 2 / 4;
+		}
+		.dev {
+			text-align: left;
+		}
+	}
 	@media (prefers-reduced-motion: reduce) {
-		.cursor { animation: none; }
+		.cur {
+			animation: none;
+		}
 	}
 </style>

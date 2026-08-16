@@ -26,9 +26,9 @@ export interface ExtFinding {
 interface Bait {
 	id: string;
 	name: string;
-	/** class/id applied to the trigger element (the thing an extension's CSS targets) */
+	/** Class/id applied to the trigger element (the thing an extension's CSS targets) */
 	trigger: { tag?: string; id?: string; className?: string; html?: string };
-	/** which computed properties to compare against the baseline */
+	/** Which computed properties to compare against the baseline */
 	props: string[];
 	method: string;
 	detail: string;
@@ -42,7 +42,8 @@ const BAITS: Bait[] = [
 		trigger: { className: "ad-slot banner_ad sponsored-ad adsbox" },
 		props: ["display", "visibility", "height", "opacity"],
 		method: "cosmetic-filter bait",
-		detail: "An element carrying common ad-slot classes was hidden by an injected cosmetic filter, while an identical element without those classes stayed visible. That's an element-hiding blocker. (Distinguishing uBO from AdGuard/ABP needs filter-list-specific bait.)",
+		detail:
+			"An element carrying common ad-slot classes was hidden by an injected cosmetic filter, while an identical element without those classes stayed visible. That's an element-hiding blocker. (Distinguishing uBO from AdGuard/ABP needs filter-list-specific bait.)",
 	},
 	{
 		id: "content-blocker.pubad",
@@ -50,7 +51,8 @@ const BAITS: Bait[] = [
 		trigger: { id: "pub_300x250", className: "adsbygoogle" },
 		props: ["display", "visibility", "height"],
 		method: "ad-unit id bait",
-		detail: "A canonical ad-unit id was hidden by an injected rule while its baseline twin was not — a second, independent element-hiding signal.",
+		detail:
+			"A canonical ad-unit id was hidden by an injected rule while its baseline twin was not — a second, independent element-hiding signal.",
 	},
 ];
 
@@ -61,9 +63,8 @@ function applyTrigger(el: HTMLElement, t: Bait["trigger"]): void {
 }
 
 /**
- * Run the probes. Returns findings plus a `clean` flag whose meaning is explicitly
- * ambiguous (see the module note). Async because injected styles need a paint tick
- * to take effect.
+ * Run the probes. Returns findings plus a `clean` flag whose meaning is explicitly ambiguous (see
+ * the module note). Async because injected styles need a paint tick to take effect.
  */
 export async function detectExtensions(): Promise<{ findings: ExtFinding[]; ran: boolean }> {
 	if (typeof document === "undefined") return { findings: [], ran: false };
@@ -108,11 +109,11 @@ export async function detectExtensions(): Promise<{ findings: ExtFinding[]; ran:
 	await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
 	// Re-read: children are [baseline, trigger] pairs in order.
-	const kids = Array.from(host.children) as HTMLElement[];
+	const kids = Array.from(host.children) as (HTMLElement | undefined)[];
 	let ci = 0;
 	for (const bait of BAITS) {
-		const baseline = kids[ci++];
-		const trigger = kids[ci++];
+		const baseline: HTMLElement | undefined = kids[ci++];
+		const trigger: HTMLElement | undefined = kids[ci++];
 		if (!baseline || !trigger) continue;
 		const cbase = getComputedStyle(baseline);
 		const ctrig = getComputedStyle(trigger);
@@ -145,7 +146,7 @@ export async function detectExtensions(): Promise<{ findings: ExtFinding[]; ran:
 			id: "injected-stylesheets",
 			name: "Page-wide style injection",
 			method: "MutationObserver",
-			detail: `${injectedNodes} <style>/<link> node(s) were injected into the page after load — consistent with an extension (a theming or blocking add-on) rewriting the page. This is a hint, not an identification.`,
+			detail: `${String(injectedNodes)} <style>/<link> node(s) were injected into the page after load — consistent with an extension (a theming or blocking add-on) rewriting the page. This is a hint, not an identification.`,
 			confidence: "observed",
 		});
 	}
