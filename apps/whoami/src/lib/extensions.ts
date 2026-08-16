@@ -78,6 +78,26 @@ export async function detectExtensions(): Promise<{ findings: ExtFinding[]; ran:
 
 	const findings: ExtFinding[] = [];
 
+	// Dark Reader / theming extensions leave a direct signature on the document root
+	// (it stamps data-darkreader-* and injects its own stylesheets). This is a
+	// high-confidence attribute fingerprint, not a style-effect inference.
+	const root = document.documentElement;
+	if (
+		root.getAttribute("data-darkreader-mode") ||
+		root.getAttribute("data-darkreader-scheme") ||
+		document.querySelector('meta[name="darkreader"]') ||
+		document.querySelector("style.darkreader")
+	) {
+		findings.push({
+			id: "dark-reader",
+			name: "Dark Reader",
+			method: "root-attribute fingerprint",
+			detail:
+				"Dark Reader stamps the document root (data-darkreader-*) and injects its own stylesheets — a direct signature, no inference needed.",
+			confidence: "detected",
+		});
+	}
+
 	// A MutationObserver catches <style>/<link> nodes injected after we mount — a
 	// browser-agnostic corroborating signal (some extensions inject page-wide styles).
 	let injectedNodes = 0;
