@@ -525,10 +525,3 @@ export const CATEGORY_LABELS: Record<SignalCategory, string> = {
 	features: "features",
 	network: "network",
 };
-
-export const REPRO_LABELS: Record<Repro, string> = {
-	stable: "stable — re-derivable, links you over time",
-	randomized: "randomized — noisy per session, does not link",
-	standardized: "standardized — forced to a shared value, blends in",
-	volatile: "volatile — drifts on its own, weak link",
-};
