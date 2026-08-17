@@ -508,11 +508,11 @@
 		--bg: #000000;
 		--fg: #00ff00;
 		--dim: #00a600;
-		/* muted + red nudged off pure Homebrew to clear WCAG AA on black
-		   (#666666 was 3.7:1, #e50000 was 3.9:1 — both fail for text) */
-		--muted: #8c8c8c;
+		/* pure macOS Terminal.app "Homebrew" — authenticity kept over WCAG AA
+		   contrast on muted/red per Eli's call */
+		--muted: #666666;
 		--bright: #e5e5e5;
-		--red: #ff5555;
+		--red: #e50000;
 		--yellow: #e5e500;
 		--cyan: #00e5e5;
 		--cursor: #23ff18;
@@ -598,6 +598,28 @@
 	/* real box-drawing: glyph corners + a flex-filled ─ rule, thin sides join them */
 	.box {
 		margin-top: 0.8rem;
+		position: relative;
+	}
+	/* sides drawn as real │ glyphs at the exact corner columns (left:0 aligns
+	   with ┌/└, right:0 with ┐/┘) — same glyph cell as the corners, so the
+	   strokes line up. not a CSS border (that sat off the glyph stroke). */
+	.box::before,
+	.box::after {
+		content: "│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A";
+		position: absolute;
+		top: 1.2em;
+		bottom: 1.2em;
+		white-space: pre;
+		line-height: 0.92;
+		color: var(--dim);
+		overflow: hidden;
+		pointer-events: none;
+	}
+	.box::before {
+		left: 0;
+	}
+	.box::after {
+		right: 0;
 	}
 	.btop,
 	.bbot {
@@ -623,9 +645,8 @@
 		content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
 	}
 	.bin {
-		border-left: 1px solid var(--dim);
-		border-right: 1px solid var(--dim);
-		padding: 0.25rem 1ch 0.35rem;
+		/* clears the │ glyph rails drawn by .box::before/::after */
+		padding: 0.25rem 2ch 0.35rem;
 	}
 
 	.verdict.contradictions .c,
