@@ -241,12 +241,6 @@
 <svelte:window onkeydown={ready ? onKey : undefined} />
 
 <main bind:this={screen} tabindex="-1" aria-label="whoami fingerprint inventory">
-	<div class="topbar">
-		<span><span class="bright">whoami</span>(1)<span class="tb-sub"> — fingerprint inventory</span></span>
-		<span class="tb-right">{ready ? `${String(signals.length)} signals` : "loading…"}</span>
-	</div>
-	<div class="hr" aria-hidden="true"></div>
-
 	<div class="body">
 		{#if carried && linkResult}
 			<section class="box {linkResult}">
@@ -530,36 +524,9 @@
 		box-sizing: border-box;
 	}
 
-	.bright {
-		color: var(--bright);
-		font-weight: 700;
-	}
-
-	/* top: a plain title line + a full-width box-drawing rule (not a heavy bar) */
-	.topbar {
-		display: flex;
-		justify-content: space-between;
-		gap: 1ch;
-		padding: 0.2rem 1ch 0;
-		color: var(--fg);
-		white-space: nowrap;
-	}
-	.tb-right {
-		color: var(--dim);
-	}
-	.hr {
-		overflow: hidden;
-		white-space: nowrap;
-		color: var(--dim);
-		padding: 0 1ch;
-	}
-	.hr::after {
-		content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
-	}
-
 	.body {
 		flex: 1;
-		padding: 0.3rem 1ch 2rem;
+		padding: 0.6rem 1ch 2rem;
 	}
 	.load {
 		color: var(--fg);
