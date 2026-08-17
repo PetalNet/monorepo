@@ -228,17 +228,19 @@
 
 {#snippet btop(t: string)}
 	<div class="btop">
-		<span class="c">┌──</span><span class="btt">{t}</span><span class="bfill" aria-hidden="true"
-		></span><span class="c">┐</span>
+		<span class="c" aria-hidden="true">┌──</span><span class="btt">{t}</span><span
+			class="bfill"
+			aria-hidden="true"
+		></span><span class="c" aria-hidden="true">┐</span>
 	</div>
 {/snippet}
 {#snippet bbot()}
-	<div class="bbot"><span class="c">└</span><span class="bfill" aria-hidden="true"></span><span class="c">┘</span></div>
+	<div class="bbot" aria-hidden="true"><span class="c">└</span><span class="bfill"></span><span class="c">┘</span></div>
 {/snippet}
 
 <svelte:window onkeydown={ready ? onKey : undefined} />
 
-<main bind:this={screen} tabindex="-1" role="application" aria-label="whoami fingerprint inventory">
+<main bind:this={screen} tabindex="-1" aria-label="whoami fingerprint inventory">
 	<div class="topbar">
 		<span><span class="bright">whoami</span>(1)<span class="tb-sub"> — fingerprint inventory</span></span>
 		<span class="tb-right">{ready ? `${String(signals.length)} signals` : "loading…"}</span>
@@ -292,7 +294,7 @@
 											toggle(c.id);
 										}}
 									>
-										<span class="tw">{expanded.has(c.id) ? "[-]" : "[+]"}</span>
+										<span class="tw" aria-hidden="true">{expanded.has(c.id) ? "[-]" : "[+]"}</span>
 										<span class="sev">{c.severity}</span>
 										<span class="cxtitle">{c.title}</span>
 									</button>
@@ -361,7 +363,8 @@
 								class:sel={s.id === selectedId}
 								data-id={s.id}
 								role="button"
-								tabindex="-1"
+								tabindex="0"
+								aria-expanded={expanded.has(s.id)}
 								onclick={() => {
 									selectRow(s.id);
 								}}
@@ -372,7 +375,7 @@
 								<span class="g" aria-hidden="true">{expanded.has(s.id) ? "[-]" : "[+]"}</span>
 								<span class="lab">{s.label}</span>
 								<span class="val">{s.value}</span>
-								<span class="bars" title="{String(s.entropy)} bits (relative)">{bars(s.entropy)}</span
+								<span class="bars" aria-hidden="true" title="{String(s.entropy)} bits (relative)">{bars(s.entropy)}</span
 								>
 								<span class="rt r-{s.reproducibility}" title={tagTitle(s)}>{tag(s)}</span>
 							</div>
@@ -439,7 +442,8 @@
 							<div
 								class="row"
 								role="button"
-								tabindex="-1"
+								tabindex="0"
+								aria-expanded={expanded.has(f.id)}
 								onclick={() => {
 									toggle(f.id);
 								}}
@@ -447,7 +451,7 @@
 									if (e.key === "Enter") toggle(f.id);
 								}}
 							>
-								<span class="g">{expanded.has(f.id) ? "[-]" : "[+]"}</span>
+								<span class="g" aria-hidden="true">{expanded.has(f.id) ? "[-]" : "[+]"}</span>
 								<span class="lab">{f.name}</span>
 								<span class="rt">{f.confidence}</span>
 							</div>
@@ -504,9 +508,11 @@
 		--bg: #000000;
 		--fg: #00ff00;
 		--dim: #00a600;
-		--muted: #666666;
+		/* muted + red nudged off pure Homebrew to clear WCAG AA on black
+		   (#666666 was 3.7:1, #e50000 was 3.9:1 — both fail for text) */
+		--muted: #8c8c8c;
 		--bright: #e5e5e5;
-		--red: #e50000;
+		--red: #ff5555;
 		--yellow: #e5e500;
 		--cyan: #00e5e5;
 		--cursor: #23ff18;
@@ -749,7 +755,8 @@
 	/* rows */
 	.row {
 		display: grid;
-		grid-template-columns: 3.5ch minmax(9ch, 15ch) minmax(0, 1fr) auto auto;
+		/* fixed bar + tag columns so every tag right-aligns in one clean column */
+		grid-template-columns: 3.5ch minmax(9ch, 15ch) minmax(0, 1fr) 5ch 9ch;
 		align-items: baseline;
 		gap: 0 1ch;
 		padding: 0.05rem 0;
@@ -760,6 +767,10 @@
 		text-align: left;
 		font: inherit;
 		color: inherit;
+	}
+	.row:focus-visible {
+		outline: 1px solid var(--fg);
+		outline-offset: -1px;
 	}
 	.row.sel {
 		background: var(--fg);
@@ -794,10 +805,12 @@
 	.bars {
 		color: var(--dim);
 		white-space: nowrap;
+		text-align: right;
 	}
 	.rt {
 		white-space: nowrap;
 		color: var(--fg);
+		text-align: right;
 	}
 	.rt::before {
 		content: "[";
