@@ -53,7 +53,7 @@ export default defineConfig([
 		},
 	},
 	{
-		files: ["apps/{collegemap,console,grove,slide,storybook}/**/*.svelte"],
+		files: ["apps/{collegemap,console,grove,slide,storybook,whoami}/**/*.svelte"],
 		extends: svelte.configs.recommended,
 		languageOptions: {
 			parserOptions: {
