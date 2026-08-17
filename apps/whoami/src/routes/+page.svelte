@@ -308,17 +308,25 @@
 					{#if siblingHost}<button class="tbtn" onclick={jumpSibling}
 							>[ test &rarr; sibling ]</button
 						>{/if}
+					<button
+						class="tbtn"
+						onclick={() => {
+							toggle("why:link");
+						}}>[ {expanded.has("why:link") ? "−" : "?"} why ]</button
+					>
 				</div>
-				<p class="muted sm">
-					Open the link in incognito / a container / VPN-on. Same hash = still trackable (a VPN
-					moves your IP, not your canvas).{#if siblingHost}
-						The sibling is a subdomain &mdash; same site, so we isolate manually (hash only, no
-						cookies).{/if}
-				</p>
-				<p class="muted sm">
-					~{entropySum} bits stable &mdash; a sum, and correlated, so real joint entropy is lower. It's
-					the buildup, not any one line.
-				</p>
+				{#if expanded.has("why:link")}
+					<p class="muted sm">
+						Open the link in incognito / a container / VPN-on. Same hash = still trackable (a VPN
+						moves your IP, not your canvas).{#if siblingHost}
+							The sibling is a subdomain &mdash; same site, so we isolate manually (hash only, no
+							cookies).{/if}
+					</p>
+					<p class="muted sm">
+						~{entropySum} bits stable &mdash; a sum, and correlated, so real joint entropy is lower.
+						It's the buildup, not any one line.
+					</p>
+				{/if}
 			</div>
 
 			<!-- INVENTORY -->
@@ -394,10 +402,6 @@
 						>{data.server.secChUa ?? "absent (FF/Safari)"}</span
 					>
 				</div>
-				<p class="muted sm">
-					No JA3 / header-order here &mdash; a Cloudflare tunnel terminates TLS and normalises
-					headers, so the ClientHello never reaches origin (needs CF Enterprise).
-				</p>
 			</section>
 
 			<!-- EXTENSIONS -->
@@ -429,12 +433,20 @@
 				{:else if extRan}
 					<p class="muted sm">none detected via CSS-injection probes.</p>
 				{/if}
-				<p class="muted sm">
-					Detection is by CSS style-injection with a baseline control &mdash; a clean result is
-					ambiguous (no extension, OR a defense reroutes getComputedStyle). And a userstyle manager
-					(Stylus, Zen) only injects on sites it targets, so one that doesn't target this domain
-					genuinely won't show here.
-				</p>
+				<button
+					class="tbtn"
+					onclick={() => {
+						toggle("why:ext");
+					}}>[ {expanded.has("why:ext") ? "−" : "?"} how ]</button
+				>
+				{#if expanded.has("why:ext")}
+					<p class="muted sm">
+						Detection is by CSS style-injection with a baseline control &mdash; a clean result is
+						ambiguous (no extension, OR a defense reroutes getComputedStyle). And a userstyle manager
+						(Stylus, Zen) only injects on sites it targets, so one that doesn't target this domain
+						genuinely won't show here.
+					</p>
+				{/if}
 			</section>
 		{/if}
 	</div>
@@ -640,8 +652,12 @@
 	.sev {
 		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		padding: 0 0.4rem;
-		border: 1px solid currentColor;
+	}
+	.sev::before {
+		content: "[";
+	}
+	.sev::after {
+		content: "]";
 	}
 	.sev-high .sev {
 		color: var(--danger);
@@ -757,11 +773,17 @@
 		letter-spacing: -1px;
 		white-space: nowrap;
 	}
+	/* status tags are terminal-native: bracketed + colored text, NOT boxed
+	   (box-drawing borders are for panels, not inline labels) */
 	.rt {
 		letter-spacing: 0.04em;
-		padding: 0 0.4rem;
-		border: 1px solid;
 		white-space: nowrap;
+	}
+	.rt::before {
+		content: "[";
+	}
+	.rt::after {
+		content: "]";
 	}
 	.r-stable {
 		color: var(--fg);
