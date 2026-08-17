@@ -230,7 +230,7 @@
 
 <main bind:this={screen} tabindex="-1" role="application" aria-label="whoami fingerprint inventory">
 	<div class="titlebar">
-		<span>whoami(1) &middot; fingerprint inventory</span>
+		<span>whoami(1)<span class="tb-sub">&nbsp;&middot; fingerprint inventory</span></span>
 		<span class="tb-right">{ready ? `${String(signals.length)} signals` : "loading"}</span>
 	</div>
 
@@ -441,7 +441,8 @@
 
 	<div class="statusbar">
 		{#if ready}
-			<span>&uarr;&darr; move &nbsp; ⏎ expand &nbsp; click to select</span>
+			<span class="hint-kbd">&uarr;&darr; move &nbsp; ⏎ expand &nbsp; click to select</span>
+			<span class="hint-touch">tap a row to expand</span>
 			<span class="sb-right"
 				>~{entropySum} bits &nbsp;&middot;&nbsp;
 				<span class="sb-v {verdict}"
@@ -530,6 +531,10 @@
 	.tb-right,
 	.sb-right {
 		font-weight: 400;
+	}
+	/* keyboard hint is the default; a touch-only hint replaces it on coarse pointers */
+	.hint-touch {
+		display: none;
 	}
 
 	.body {
@@ -814,14 +819,89 @@
 	}
 
 	@media (max-width: 40rem) {
+		:global(body) {
+			font-size: 14px;
+		}
+		main {
+			border-inline: none;
+		}
+		.body {
+			padding: 0.7rem 0.6rem 1.2rem;
+		}
+		/* title/status bars: drop the long subtitle, let them breathe, never clip */
+		.titlebar,
+		.statusbar {
+			gap: 0.6rem;
+			padding: 0.35rem 0.6rem;
+		}
+		.tb-sub {
+			display: none;
+		}
+
+		/* signal rows: two-line layout — [gutter label TAG] over [value] — with a
+		   real touch target height. entropy bars stay hidden (desktop-only nicety). */
 		.row {
 			grid-template-columns: 1.1rem 1fr auto;
+			grid-template-areas: "g lab tag" "g val val";
+			gap: 0.1rem 0.5rem;
+			padding-block: 0.5rem;
+			align-items: center;
+		}
+		.row .g {
+			grid-area: g;
+			align-self: start;
+		}
+		.row .lab {
+			grid-area: lab;
+			font-size: 0.72rem;
+			text-transform: uppercase;
+			letter-spacing: 0.03em;
 		}
 		.row .val {
-			grid-column: 2 / 4;
+			grid-area: val;
+			font-size: 0.95rem;
+		}
+		.row .rt {
+			grid-area: tag;
+			font-size: 0.62rem;
 		}
 		.row .bars {
 			display: none;
+		}
+		.detail {
+			padding-left: 1.6rem;
+		}
+
+		/* server rows: stack key over value so long tokens (the IP!) never
+		   char-wrap down a collapsed column */
+		.srow {
+			grid-template-columns: 1fr;
+			gap: 0.05rem;
+			padding-block: 0.35rem 0.5rem;
+		}
+		.srow .sk {
+			font-size: 0.62rem;
+		}
+		.srow .sv {
+			font-size: 0.95rem;
+			word-break: break-word;
+		}
+
+		/* swap keyboard hints for a touch hint */
+		.hint-kbd {
+			display: none;
+		}
+		.hint-touch {
+			display: inline;
+		}
+	}
+	/* pointer-based fallback: any no-hover device gets the touch hint even ≥40rem */
+	@media (hover: none) and (pointer: coarse) {
+		.hint-kbd {
+			display: none;
+		}
+		.hint-touch {
+			display: inline;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
