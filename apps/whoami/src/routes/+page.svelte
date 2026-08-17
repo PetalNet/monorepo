@@ -118,7 +118,9 @@
 			signals.filter((s) => s.category === cat),
 		]);
 	});
-	const flatIds = $derived(signals.map((s) => s.id));
+	// keyboard nav spans the signal inventory AND the extension rows, in visual
+	// order, so j/k selects extensions the same way as signals.
+	const flatIds = $derived([...signals.map((s) => s.id), ...extFindings.map((f) => f.id)]);
 
 	const entropySum = $derived(
 		Math.round(signals.reduce((a, s) => a + (s.reproducibility === "stable" ? s.entropy : 0), 0)),
@@ -134,9 +136,8 @@
 		return "common";
 	}
 
-	function bars(e: number): string {
-		const n = e >= 7 ? 4 : e >= 4 ? 3 : e >= 2 ? 2 : e >= 1 ? 1 : 0;
-		return "█".repeat(n) + "░".repeat(4 - n);
+	function barN(e: number): number {
+		return e >= 7 ? 4 : e >= 4 ? 3 : e >= 2 ? 2 : e >= 1 ? 1 : 0;
 	}
 	function tag(s: Signal): string {
 		const r = s.reproducibility;
@@ -228,10 +229,9 @@
 
 {#snippet btop(t: string)}
 	<div class="btop">
-		<span class="c" aria-hidden="true">┌──</span><span class="btt">{t}</span><span
-			class="bfill"
-			aria-hidden="true"
-		></span><span class="c" aria-hidden="true">┐</span>
+		<span class="c" aria-hidden="true">┌──</span><span class="btt" role="heading" aria-level="2"
+			>{t}</span
+		><span class="bfill" aria-hidden="true"></span><span class="c" aria-hidden="true">┐</span>
 	</div>
 {/snippet}
 {#snippet bbot()}
@@ -375,7 +375,7 @@
 								<span class="g" aria-hidden="true">{expanded.has(s.id) ? "[-]" : "[+]"}</span>
 								<span class="lab">{s.label}</span>
 								<span class="val">{s.value}</span>
-								<span class="bars" aria-hidden="true" title="{String(s.entropy)} bits (relative)">{bars(s.entropy)}</span
+								<span class="bars" aria-hidden="true" title="{String(s.entropy)} bits (relative)">{"█".repeat(barN(s.entropy))}<span class="bar-empty">{"░".repeat(4 - barN(s.entropy))}</span></span
 								>
 								<span class="rt r-{s.reproducibility}" title={tagTitle(s)}>{tag(s)}</span>
 							</div>
@@ -441,14 +441,16 @@
 						{#each extFindings as f (f.id)}
 							<div
 								class="row"
+								class:sel={f.id === selectedId}
+								data-id={f.id}
 								role="button"
 								tabindex="0"
 								aria-expanded={expanded.has(f.id)}
 								onclick={() => {
-									toggle(f.id);
+									selectRow(f.id);
 								}}
 								onkeydown={(e) => {
-									if (e.key === "Enter") toggle(f.id);
+									if (e.key === "Enter") selectRow(f.id);
 								}}
 							>
 								<span class="g" aria-hidden="true">{expanded.has(f.id) ? "[-]" : "[+]"}</span>
@@ -824,9 +826,17 @@
 		word-break: break-word;
 	}
 	.bars {
-		color: var(--dim);
+		color: var(--fg);
 		white-space: nowrap;
 		text-align: right;
+	}
+	.bar-empty {
+		color: var(--muted);
+	}
+	/* on the reverse-video selected row the ░ shade dithers ugly — blank it
+	   (green-on-green) so only the clean filled blocks show */
+	.row.sel .bar-empty {
+		color: var(--fg);
 	}
 	.rt {
 		white-space: nowrap;
