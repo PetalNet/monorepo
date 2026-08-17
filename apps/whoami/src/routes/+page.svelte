@@ -486,22 +486,6 @@
 		{/if}
 	</div>
 
-	<div class="statusbar">
-		{#if ready}
-			<span class="hint-kbd">j/k move &nbsp; ⏎ expand &nbsp; :q</span>
-			<span class="hint-touch">tap a row to expand</span>
-			<span class="sb-right"
-				>~{entropySum} bits &nbsp;&middot;&nbsp;
-				<span class="sb-v {verdict}"
-					>{VTEXT[verdict]}{verdict === "contradictions"
-						? ` ${String(contradictions.length)}`
-						: ""}</span
-				></span
-			>
-		{:else}
-			<span>initialising…</span>
-		{/if}
-	</div>
 </main>
 
 <style>
@@ -886,26 +870,6 @@
 		word-break: break-word;
 	}
 
-	/* bottom: tmux/vim-style reverse-video status line */
-	.statusbar {
-		position: sticky;
-		bottom: 0;
-		display: flex;
-		justify-content: space-between;
-		gap: 1ch;
-		padding: 0.15rem 1ch;
-		background: var(--fg);
-		color: var(--bg);
-		white-space: nowrap;
-		overflow: hidden;
-	}
-	.sb-v.contradictions {
-		color: var(--red);
-	}
-	.hint-touch {
-		display: none;
-	}
-
 	@media (max-width: 40rem) {
 		.row {
 			grid-template-columns: 3.5ch 1fr auto;
@@ -932,14 +896,6 @@
 		}
 		.srow {
 			grid-template-columns: 1fr;
-		}
-	}
-	@media (hover: none) and (pointer: coarse) {
-		.hint-kbd {
-			display: none;
-		}
-		.hint-touch {
-			display: inline;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
