@@ -477,8 +477,10 @@
 		background: var(--bg);
 		color: var(--fg);
 		font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-		font-size: 13.5px;
-		line-height: 1.5;
+		/* a real terminal is ONE cell size everywhere — no per-element font sizes.
+		   everything below inherits this; only color/weight/reverse-video vary. */
+		font-size: 15px;
+		line-height: 1.55;
 		-webkit-font-smoothing: antialiased;
 	}
 	:global(body)::before {
@@ -556,28 +558,26 @@
 		color: var(--dim);
 	}
 	.sm {
-		font-size: 0.82rem;
 		max-width: 74ch;
-		margin: 0.5rem 0 0;
+		margin: 0.6rem 0 0;
 	}
 
 	/* box-drawing panels: border with the title breaking the top rule */
 	.frame {
 		position: relative;
 		border: 1px solid var(--line);
-		padding: 0.7rem 0.7rem 0.6rem;
-		margin-top: 1.3rem;
+		padding: 1.1rem 1rem 0.9rem;
+		margin-top: 1.6rem;
 	}
 	.frame:first-child {
-		margin-top: 0.4rem;
+		margin-top: 0.6rem;
 	}
 	.ftitle {
 		position: absolute;
-		top: -0.72em;
-		left: 0.7rem;
+		top: -0.75em;
+		left: 0.9rem;
 		background: var(--bg);
-		padding: 0 0.4rem;
-		font-size: 0.7rem;
+		padding: 0 0.5rem;
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		color: var(--dim);
@@ -595,7 +595,6 @@
 		align-items: baseline;
 		gap: 0.6rem;
 		flex-wrap: wrap;
-		font-size: 1.05rem;
 	}
 	.dot {
 		color: var(--fg);
@@ -639,10 +638,9 @@
 		color: var(--dim);
 	}
 	.sev {
-		font-size: 0.62rem;
 		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		padding: 0 0.3rem;
+		padding: 0 0.4rem;
 		border: 1px solid currentColor;
 	}
 	.sev-high .sev {
@@ -665,13 +663,11 @@
 		flex-wrap: wrap;
 		gap: 0.3rem 1.1rem;
 		color: var(--bright);
-		font-size: 0.82rem;
 		word-break: break-all;
 	}
 	.evk {
 		color: var(--dim);
 		text-transform: uppercase;
-		font-size: 0.66rem;
 	}
 
 	/* linkability */
@@ -682,13 +678,12 @@
 		flex-wrap: wrap;
 	}
 	.hash {
-		font-size: clamp(1.5rem, 5vw, 2.2rem);
 		color: var(--bright);
-		letter-spacing: 0.06em;
+		font-weight: 700;
+		letter-spacing: 0.14em;
 	}
 	.tbtn {
 		font: inherit;
-		font-size: 0.82rem;
 		color: var(--bright);
 		background: none;
 		border: none;
@@ -717,7 +712,7 @@
 		grid-template-columns: 1.1rem minmax(7rem, 11rem) minmax(0, 1fr) auto auto;
 		align-items: baseline;
 		gap: 0.6rem;
-		padding: 0.12rem 0.35rem;
+		padding: 0.32rem 0.5rem;
 		cursor: pointer;
 		border: none;
 		background: none;
@@ -760,13 +755,11 @@
 	.bars {
 		color: var(--fg);
 		letter-spacing: -1px;
-		font-size: 0.8rem;
 		white-space: nowrap;
 	}
 	.rt {
-		font-size: 0.6rem;
 		letter-spacing: 0.04em;
-		padding: 0 0.25rem;
+		padding: 0 0.4rem;
 		border: 1px solid;
 		white-space: nowrap;
 	}
@@ -787,18 +780,15 @@
 		border-color: var(--line);
 	}
 	.detail {
-		padding: 0.2rem 0 0.4rem 1.7rem;
+		padding: 0.3rem 0 0.6rem 1.7rem;
 		max-width: 78ch;
 	}
 	.dnote {
 		color: var(--dim);
-		font-size: 0.85rem;
-		line-height: 1.5;
 	}
 	.ddev {
 		color: var(--dim);
-		font-size: 0.8rem;
-		margin-top: 0.2rem;
+		margin-top: 0.3rem;
 	}
 
 	/* server */
@@ -806,12 +796,11 @@
 		display: grid;
 		grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr) auto;
 		gap: 0.6rem;
-		padding: 0.12rem 0.35rem;
+		padding: 0.32rem 0.5rem;
 	}
 	.sk {
 		color: var(--dim);
 		text-transform: uppercase;
-		font-size: 0.72rem;
 	}
 	.sv {
 		color: var(--bright);
@@ -819,14 +808,11 @@
 	}
 
 	@media (max-width: 40rem) {
-		:global(body) {
-			font-size: 14px;
-		}
 		main {
 			border-inline: none;
 		}
 		.body {
-			padding: 0.7rem 0.6rem 1.2rem;
+			padding: 0.8rem 0.7rem 1.2rem;
 		}
 		/* title/status bars: drop the long subtitle, let them breathe, never clip */
 		.titlebar,
@@ -853,17 +839,14 @@
 		}
 		.row .lab {
 			grid-area: lab;
-			font-size: 0.72rem;
 			text-transform: uppercase;
 			letter-spacing: 0.03em;
 		}
 		.row .val {
 			grid-area: val;
-			font-size: 0.95rem;
 		}
 		.row .rt {
 			grid-area: tag;
-			font-size: 0.62rem;
 		}
 		.row .bars {
 			display: none;
@@ -876,14 +859,10 @@
 		   char-wrap down a collapsed column */
 		.srow {
 			grid-template-columns: 1fr;
-			gap: 0.05rem;
-			padding-block: 0.35rem 0.5rem;
-		}
-		.srow .sk {
-			font-size: 0.62rem;
+			gap: 0.1rem;
+			padding-block: 0.4rem 0.6rem;
 		}
 		.srow .sv {
-			font-size: 0.95rem;
 			word-break: break-word;
 		}
 
