@@ -1,4 +1,4 @@
-import { createEffectApi, type ApiOperation, type McpRequestOptions } from "@petalnet/effect-api";
+import { createEffectApi, type ApiOperation } from "@petalnet/effect-api";
 import { Effect } from "effect";
 import { createRemoteJWKSet, errors, jwtVerify, type JWTVerifyGetKey, type JWTPayload } from "jose";
 
@@ -37,7 +37,6 @@ export interface McpIngress {
 
 interface AuthenticatedMachine {
 	readonly identity: MachineIdentity;
-	readonly authInfo: NonNullable<McpRequestOptions["authInfo"]>;
 }
 
 class InvalidMcpConfiguration extends Error {
@@ -211,23 +210,7 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): 
 			if (typeof payload.sub !== "string" || payload.sub.length === 0)
 				return challenge(config, "invalid_token");
 			const identity = { issuer: config.issuer, subject: payload.sub, scopes };
-			const clientId =
-				typeof payload.client_id === "string"
-					? payload.client_id
-					: typeof payload.azp === "string"
-						? payload.azp
-						: payload.sub;
-			return {
-				identity,
-				authInfo: {
-					token,
-					clientId,
-					scopes: [...scopes],
-					...(payload.exp === undefined ? {} : { expiresAt: payload.exp }),
-					resource: new URL(resource(config)),
-					extra: { issuer: config.issuer, subject: payload.sub },
-				},
-			};
+			return { identity };
 		} catch (error) {
 			return invalidTokenFailure(error)
 				? challenge(config, "invalid_token")
@@ -262,7 +245,6 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): 
 						});
 						return yield* api
 							.mcp(request, {
-								authInfo: authenticated.authInfo,
 								parsedBody: body,
 							})
 							.pipe(

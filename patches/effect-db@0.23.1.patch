@@ -1,0 +1,67 @@
+diff --git a/dist/cli.js b/dist/cli.js
+index 546ec533f1edb24391640ee9b1287e5977285484..29beeb8db7c48c201aa6c6b65b058b1a0f3cdb5f 100755
+--- a/dist/cli.js
++++ b/dist/cli.js
+@@ -5356,12 +5356,12 @@ var outputLines = (lines) => lines.length === 0 ? Effect9.void : Effect9.flatMap
+ `));
+ var logInfoLines = (lines) => Effect9.forEach(lines, (line) => Effect9.logInfo(line), { discard: true });
+ var logWarningLines = (lines) => Effect9.forEach(lines, (line) => Effect9.logWarning(line), { discard: true });
+-var configOption = Flag.string("config").pipe(Flag.optional, Flag.withAlias("c"), Flag.withDescription("Path to effectdb.config.ts"));
+-var urlOption = Flag.string("url").pipe(Flag.optional, Flag.withDescription("Override the Postgres connection URL"));
+-var dryRunOption = Flag.boolean("dry-run").pipe(Flag.withDefault(false), Flag.withDescription("Print the computed plan without writing"));
+-var allowDestructiveOption = Flag.boolean("allow-destructive").pipe(Flag.withDefault(false), Flag.withDescription("Include destructive SQL instead of safe-only changes"));
+-var nameOption = Flag.string("name").pipe(Flag.optional, Flag.withDescription("Migration name"));
+-var stepsOption = Flag.integer("steps").pipe(Flag.optional, Flag.withDescription("Number of applied migrations to roll back"));
++var configOption = Flag.String("config").pipe(Flag.optional, Flag.withAlias("c"), Flag.withDescription("Path to effectdb.config.ts"));
++var urlOption = Flag.String("url").pipe(Flag.optional, Flag.withDescription("Override the Postgres connection URL"));
++var dryRunOption = Flag.Boolean("dry-run").pipe(Flag.withDefault(false), Flag.withDescription("Print the computed plan without writing"));
++var allowDestructiveOption = Flag.Boolean("allow-destructive").pipe(Flag.withDefault(false), Flag.withDescription("Include destructive SQL instead of safe-only changes"));
++var nameOption = Flag.String("name").pipe(Flag.optional, Flag.withDescription("Migration name"));
++var stepsOption = Flag.Int("steps").pipe(Flag.optional, Flag.withDescription("Number of applied migrations to roll back"));
+ var loadConfig = (explicitConfigPath) => loadPostgresConfigEffect(process.cwd(), Option2.getOrUndefined(explicitConfigPath)).pipe(Effect9.tap((loaded) => Effect9.logDebug("loaded database config", {
+   cwd: loaded.cwd,
+   path: loaded.path
+diff --git a/src/commands.ts b/src/commands.ts
+index fce033aa4cd6700b99f0a4b19a7024cf0f68cf93..b1464875c37490a9ec5e83c7f4a2fcf3e24fd2ba 100644
+--- a/src/commands.ts
++++ b/src/commands.ts
+@@ -41,33 +41,33 @@ const logInfoLines = (lines: readonly string[]) =>
+ const logWarningLines = (lines: readonly string[]) =>
+   Effect.forEach(lines, (line) => Effect.logWarning(line), { discard: true })
+ 
+-const configOption = Flag.string("config").pipe(
++const configOption = Flag.String("config").pipe(
+   Flag.optional,
+   Flag.withAlias("c"),
+   Flag.withDescription("Path to effectdb.config.ts")
+ )
+ 
+-const urlOption = Flag.string("url").pipe(
++const urlOption = Flag.String("url").pipe(
+   Flag.optional,
+   Flag.withDescription("Override the Postgres connection URL")
+ )
+ 
+-const dryRunOption = Flag.boolean("dry-run").pipe(
++const dryRunOption = Flag.Boolean("dry-run").pipe(
+   Flag.withDefault(false),
+   Flag.withDescription("Print the computed plan without writing")
+ )
+ 
+-const allowDestructiveOption = Flag.boolean("allow-destructive").pipe(
++const allowDestructiveOption = Flag.Boolean("allow-destructive").pipe(
+   Flag.withDefault(false),
+   Flag.withDescription("Include destructive SQL instead of safe-only changes")
+ )
+ 
+-const nameOption = Flag.string("name").pipe(
++const nameOption = Flag.String("name").pipe(
+   Flag.optional,
+   Flag.withDescription("Migration name")
+ )
+ 
+-const stepsOption = Flag.integer("steps").pipe(
++const stepsOption = Flag.Int("steps").pipe(
+   Flag.optional,
+   Flag.withDescription("Number of applied migrations to roll back")
+ )

@@ -16,10 +16,10 @@
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
-		"@modelcontextprotocol/server": "catalog:",
 		"effect": "catalog:"
 	},
 	"devDependencies": {
+		"@modelcontextprotocol/client": "catalog:",
 		"@petalnet/tsconfig": "workspace:*",
 		"@vitest/coverage-v8": "catalog:dev",
 		"typescript": "catalog:dev",

@@ -163,16 +163,17 @@ describe("MCP protected-resource ingress", () => {
 		expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
 	});
 
-	it("serves modern discovery and lets the SDK enforce the modern request envelope", async () => {
+	it("serves modern discovery and lets Effect enforce the modern request envelope", async () => {
 		const accessToken = await token("modern-discovery", ["grove:mcp"]);
 		const discovered = await json(await request(accessToken, rpc(20, "server/discover")));
 		expect(discovered.result).toMatchObject({
 			resultType: "complete",
 			supportedVersions: [MCP_PROTOCOL_VERSION],
-			capabilities: { tools: {} },
 			ttlMs: 0,
 			cacheScope: "private",
 		});
+		// This identity has no authorized tools, so Effect omits the capability.
+		expect(discovered.result).not.toHaveProperty("capabilities.tools");
 
 		const missingVersion = await request(
 			accessToken,
@@ -189,7 +190,7 @@ describe("MCP protected-resource ingress", () => {
 		expect(await json(unknownMethod)).toMatchObject({ error: { code: -32601 } });
 	});
 
-	it("keeps the SDK's documented stateless legacy fallback", async () => {
+	it("rejects legacy initialization on the July-only endpoint", async () => {
 		const accessToken = await token("legacy-fallback", ["grove:mcp"]);
 		const response = await request(
 			accessToken,
@@ -207,9 +208,8 @@ describe("MCP protected-resource ingress", () => {
 			ingress,
 			false,
 		);
-		expect(response.status).toBe(200);
-		expect(response.headers.get("content-type")).toContain("text/event-stream");
-		expect(await response.text()).toContain('"protocolVersion":"2025-06-18"');
+		expect(response.status).toBe(400);
+		expect(await json(response)).toHaveProperty("error");
 	});
 
 	it("restricts bootstrap visibility, explicitly enrolls, and keeps retries idempotent", async () => {

@@ -11,10 +11,6 @@ export type InvocationResult =
 			readonly message: string;
 	  };
 
-interface InvocationOptions {
-	readonly inputIsDecoded?: boolean;
-}
-
 const operationFailed = (status = 500, message = "The operation failed"): InvocationResult => ({
 	kind: "failure",
 	status,
@@ -26,11 +22,8 @@ export function invokeOperation<R>(
 	operation: ApiOperation<R>,
 	input: unknown,
 	logCause: LogCause,
-	options?: InvocationOptions,
 ): Effect.Effect<InvocationResult, never, R> {
-	const decoded = options?.inputIsDecoded
-		? Exit.succeed(input)
-		: Schema.decodeUnknownExit(operation.input)(input, { errors: "all" });
+	const decoded = Schema.decodeUnknownExit(operation.input)(input, { errors: "all" });
 	if (Exit.isFailure(decoded)) {
 		return Effect.succeed({
 			kind: "failure",
