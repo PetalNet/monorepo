@@ -1,16 +1,14 @@
-import {
-	createMcpHandler as createSdkMcpHandler,
-	McpServer,
-	type CallToolResult,
-	type McpHandlerRequestOptions,
-	type StandardSchemaWithJSON,
-} from "@modelcontextprotocol/server";
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
+import { McpProtocol, McpSchema, McpServer, Tool } from "effect/unstable/ai";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { invokeOperation, type InvocationResult } from "./invoke.js";
 import type { ApiOperation, LogCause } from "./operation.js";
 
-export type McpRequestOptions = McpHandlerRequestOptions;
+export interface McpRequestOptions {
+	/** A body already parsed and bounded by the authenticated ingress. */
+	readonly parsedBody?: unknown;
+}
 
 interface McpConfig<R> {
 	readonly title: string;
@@ -19,49 +17,92 @@ interface McpConfig<R> {
 	readonly logCause: LogCause;
 }
 
-const standardSchema = (schema: Schema.ConstraintDecoder<unknown>): StandardSchemaWithJSON =>
-	Schema.toStandardJSONSchemaV1(Schema.toStandardSchemaV1(schema));
-
-const contentFor = (result: InvocationResult): CallToolResult => {
+const contentFor = (result: InvocationResult): McpSchema.CallToolResult => {
 	const value =
 		result.kind === "success"
 			? result.value
 			: { error: { code: result.code, message: result.message } };
-	return {
+	return new McpSchema.CallToolResult({
 		content: [{ type: "text", text: JSON.stringify(value) }],
-		structuredContent: value,
+		structuredContent: Schema.decodeUnknownSync(Schema.Json)(value),
 		isError: result.kind === "failure",
-	};
+	});
 };
 
-export const createMcpHandler =
-	<R>(config: McpConfig<R>) =>
-	(request: Request, options?: McpRequestOptions): Effect.Effect<Response, never, R> =>
-		Effect.flatMap(Effect.context<R>(), (context) =>
-			Effect.promise(() => {
-				const handler = createSdkMcpHandler(() => {
-					const server = new McpServer(
-						{ name: config.title, version: config.version },
-						{ capabilities: { tools: { listChanged: false } } },
-					);
+export const createMcpHandler = <R>(config: McpConfig<R>) =>
+	Effect.fnUntraced(
+		function* (request: Request, options?: McpRequestOptions) {
+			const context = yield* Effect.context<R>();
+			// Keep both the authorized catalog and captured services local to this request.
+			const tools = Layer.effectDiscard(
+				Effect.gen(function* () {
+					const server = yield* McpServer.McpServer;
 					for (const operation of config.operations) {
-						server.registerTool(
-							operation.name,
-							{
+						yield* server.addTool({
+							tool: new McpSchema.Tool({
+								name: operation.name,
 								description: operation.description,
-								inputSchema: standardSchema(operation.input),
-								outputSchema: standardSchema(operation.output),
-							},
-							(input) =>
-								Effect.runPromise(
-									invokeOperation(operation, input, config.logCause, {
-										inputIsDecoded: true,
-									}).pipe(Effect.provide(context)),
-								).then(contentFor),
-						);
+								inputSchema: yield* Schema.decodeUnknownEffect(McpSchema.ToolJson)({
+									type: "object",
+									...Tool.getJsonSchemaFromSchema(operation.input),
+								}),
+								outputSchema: yield* Schema.decodeUnknownEffect(McpSchema.ToolOutputJson)(
+									Tool.getJsonSchemaFromSchema(operation.output),
+								),
+							}),
+							annotations: Context.empty(),
+							handle: (input: unknown) =>
+								Effect.gen(function* () {
+									const result = yield* invokeOperation(operation, input, config.logCause);
+									if (result.kind === "success") {
+										yield* Schema.decodeUnknownEffect(operation.output)(result.value);
+									}
+									return contentFor(result);
+								}).pipe(
+									Effect.catchCause((cause) => {
+										config.logCause(operation.name, cause);
+										return Effect.succeed(
+											contentFor({
+												kind: "failure",
+												status: 500,
+												code: "operation_failed",
+												message: "The operation failed",
+											}),
+										);
+									}),
+									Effect.provide(context),
+								),
+						});
 					}
-					return server;
-				});
-				return handler.fetch(request, options);
-			}),
-		);
+				}),
+			).pipe(
+				Layer.provide(
+					McpServer.layerHttp({
+						name: config.title,
+						version: config.version,
+						path: new URL(request.url).pathname as `/${string}`,
+						protocols: [McpProtocol.v2026_07_28],
+					}),
+				),
+			);
+			const handler = yield* HttpRouter.toHttpEffect(tools);
+			const incoming =
+				options?.parsedBody === undefined
+					? request
+					: new Request(request.url, {
+							method: request.method,
+							headers: request.headers,
+							body: JSON.stringify(options.parsedBody),
+							signal: request.signal,
+						});
+			const response = yield* handler.pipe(
+				Effect.provideService(
+					HttpServerRequest.HttpServerRequest,
+					HttpServerRequest.fromWeb(incoming),
+				),
+			);
+			return HttpServerResponse.toWeb(response);
+		},
+		Effect.scoped,
+		Effect.orDie,
+	);

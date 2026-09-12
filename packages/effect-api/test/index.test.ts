@@ -1,3 +1,4 @@
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { Cause, Context, Effect, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -280,9 +281,23 @@ describe("createEffectApi", () => {
 		await expect(mcpResult.json()).resolves.toMatchObject({
 			result: { resultType: "complete", structuredContent: "#a", isError: false },
 		});
+		const concurrent = await Promise.all(
+			["alice:", "bob:"].map(async (prefix) => {
+				const response = await Effect.runPromise(
+					serviced
+						.mcp(modernMcpRequest(2, "tools/call", { name: "service", arguments: { id: "x" } }))
+						.pipe(Effect.provideService(Prefix, prefix)),
+				);
+				return response.json() as Promise<unknown>;
+			}),
+		);
+		expect(concurrent).toMatchObject([
+			{ result: { structuredContent: "alice:x" } },
+			{ result: { structuredContent: "bob:x" } },
+		]);
 	});
 
-	it("uses Effect Standard Schema decoding exactly once for MCP tool input", async () => {
+	it("uses Effect Schema decoding exactly once for MCP tool input", async () => {
 		const transformed = createEffectApi({
 			title: "Transformed",
 			version: "1",
@@ -359,14 +374,14 @@ describe("createEffectApi", () => {
 			parameters: [
 				{
 					name: "id",
-					schema: { type: "string", allOf: [{ pattern: "^item-[0-9]+$" }] },
+					schema: { type: "string", pattern: "^item-[0-9]+$" },
 				},
 			],
 			requestBody: {
 				content: {
 					"application/json": {
 						schema: {
-							properties: { count: { type: "integer", allOf: [{ minimum: 0 }] } },
+							properties: { count: { type: "integer", minimum: 0 } },
 							required: ["count"],
 						},
 					},
@@ -691,7 +706,100 @@ describe("createEffectApi", () => {
 		expect(docs.paths["/plain"]?.get).not.toHaveProperty("requestBody");
 	});
 
-	it("serves modern discovery, tools, SDK validation, and stateless legacy fallback", async () => {
+	it("logs and sanitizes results that violate the advertised output schema", async () => {
+		const logCause = vi.fn();
+		const invalidOutput = createEffectApi({
+			title: "Invalid output",
+			version: "1",
+			basePath: "/",
+			logCause,
+			operations: [
+				operation({
+					name: "items.invalid",
+					description: "Invalid output",
+					method: "GET",
+					path: "/",
+					input: Schema.Struct({}),
+					output: Schema.Struct({ id: Schema.String.check(Schema.isPattern(/^item-/)) }),
+					handler: () => Effect.succeed({ id: "private-invalid-result" }),
+				}),
+			],
+		});
+		const result = await runJson(
+			invalidOutput.mcp(
+				modernMcpRequest(1, "tools/call", {
+					name: "items.invalid",
+					arguments: {},
+				}),
+			),
+		);
+		expect(result.body).toMatchObject({
+			result: {
+				isError: true,
+				structuredContent: { error: { code: "operation_failed", message: "The operation failed" } },
+			},
+		});
+		expect(JSON.stringify(result.body)).not.toContain("private-invalid-result");
+		expect(logCause).toHaveBeenCalledOnce();
+	});
+
+	it("interoperates with the official July client without a session", async () => {
+		const client = new Client(
+			{ name: "interop-test", version: "1" },
+			{ versionNegotiation: { mode: { pin: MCP_PROTOCOL_VERSION } } },
+		);
+		const transport = new StreamableHTTPClientTransport(new URL("https://effect-api.test/mcp"), {
+			fetch: async (url, init) => {
+				const response = await Effect.runPromise(api.mcp(new Request(url, init)));
+				expect(response.headers.has("mcp-session-id")).toBe(false);
+				return response;
+			},
+		});
+		try {
+			await client.connect(transport);
+			expect(await client.listTools()).toMatchObject({ tools: [{ name: "items.get" }] });
+			expect(await client.callTool({ name: "items.get", arguments: { id: "sdk" } })).toMatchObject({
+				isError: false,
+				structuredContent: { id: "sdk", ok: true },
+			});
+		} finally {
+			await client.close();
+		}
+	});
+
+	it("rejects mismatched routing headers before invoking an operation", async () => {
+		const handler = vi.fn(() => Effect.succeed({ id: "never", ok: true }));
+		const guarded = createEffectApi({
+			title: "Guarded",
+			version: "1",
+			basePath: "/",
+			operations: [
+				operation({
+					name: "items.get",
+					description: "Get an item",
+					method: "GET",
+					path: "/",
+					input: Id,
+					output: Item,
+					handler,
+				}),
+			],
+		});
+		await Promise.all(
+			["mcp-method", "mcp-name", "mcp-protocol-version"].map(async (header) => {
+				const request = modernMcpRequest(1, "tools/call", {
+					name: "items.get",
+					arguments: { id: "x" },
+				});
+				request.headers.set(header, "mismatch");
+				const response = await Effect.runPromise(guarded.mcp(request));
+				expect(response.status).toBe(400);
+			}),
+		);
+		expect(handler).not.toHaveBeenCalled();
+	});
+
+	it("serves July discovery and tools with Effect protocol validation", async () => {
 		const call = (request: Request) => runJson(api.mcp(request));
 		const discovered = await call(modernMcpRequest(1, "server/discover"));
 		expect(discovered.response.status).toBe(200);
@@ -751,15 +859,9 @@ describe("createEffectApi", () => {
 			result: {
 				resultType: "complete",
 				isError: true,
-				content: [
-					{
-						type: "text",
-						text: expect.stringContaining("Input validation error") as unknown,
-					},
-				],
+				structuredContent: { error: { code: "invalid_input" } },
 			},
 		});
-		expect(invalid.body).not.toHaveProperty("result.structuredContent");
 
 		const success = await call(
 			modernMcpRequest(6, "tools/call", {
@@ -777,22 +879,7 @@ describe("createEffectApi", () => {
 		});
 
 		const legacyResponse = await Effect.runPromise(api.mcp(legacyInitializeRequest()));
-		expect(legacyResponse.status).toBe(200);
-		expect(legacyResponse.headers.get("content-type")).toContain("text/event-stream");
-		const legacyData = (await legacyResponse.text())
-			.split("\n")
-			.find((line) => line.startsWith("data: "));
-		expect(legacyData).toBeDefined();
-		const legacyBody = JSON.parse(legacyData?.slice("data: ".length) ?? "null") as unknown;
-		expect(legacyBody).toMatchObject({
-			jsonrpc: "2.0",
-			id: 99,
-			result: {
-				protocolVersion: "2025-06-18",
-				capabilities: { tools: {} },
-				serverInfo: { name: "Test API", version: "1.0.0" },
-			},
-		});
-		expect(legacyBody).not.toHaveProperty("result.resultType");
+		expect(legacyResponse.status).toBe(400);
+		expect(await legacyResponse.json()).toHaveProperty("error");
 	});
 });
