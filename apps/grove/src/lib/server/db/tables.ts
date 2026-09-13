@@ -10,6 +10,8 @@ const sproutsTable = publicSchema.table("grove_demo_sprouts", {
 	name: Column.text(),
 	planted_at: Pg.Column.timestamptz().pipe(Column.default(Pg.Function.now())),
 	waterings: Column.int().pipe(Column.default(Query.literal(0)), Column.schema(Counter)),
+	created_by_actor_id: Column.text().pipe(Column.nullable),
+	last_actor_id: Column.text().pipe(Column.nullable),
 });
 
 // The effect-qb check predicate receives an untyped (`any`) table, so reference the typed

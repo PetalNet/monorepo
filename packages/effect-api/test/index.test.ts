@@ -5,6 +5,52 @@ import { createEffectApi, operation } from "../src/index.js";
 
 const Id = Schema.Struct({ id: Schema.String });
 const Item = Schema.Struct({ id: Schema.String, ok: Schema.Boolean });
+const MCP_PROTOCOL_VERSION = "2026-07-28";
+const MCP_META = {
+	"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+	"io.modelcontextprotocol/clientInfo": { name: "effect-api-test", version: "1.0.0" },
+	"io.modelcontextprotocol/clientCapabilities": {},
+};
+
+const modernMcpRequest = (id: number, method: string, params: Record<string, unknown> = {}) => {
+	const headers = new Headers({
+		accept: "application/json, text/event-stream",
+		"content-type": "application/json",
+		"mcp-protocol-version": MCP_PROTOCOL_VERSION,
+		"mcp-method": method,
+	});
+	if (method === "tools/call" && typeof params.name === "string")
+		headers.set("mcp-name", params.name);
+	return new Request("https://effect-api.test/mcp", {
+		method: "POST",
+		headers,
+		body: JSON.stringify({
+			jsonrpc: "2.0",
+			id,
+			method,
+			params: { ...params, _meta: MCP_META },
+		}),
+	});
+};
+
+const legacyInitializeRequest = () =>
+	new Request("https://effect-api.test/mcp", {
+		method: "POST",
+		headers: {
+			accept: "application/json, text/event-stream",
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({
+			jsonrpc: "2.0",
+			id: 99,
+			method: "initialize",
+			params: {
+				protocolVersion: "2025-06-18",
+				capabilities: {},
+				clientInfo: { name: "legacy-test", version: "1.0.0" },
+			},
+		}),
+	});
 
 const api = createEffectApi({
 	title: "Test API",
@@ -225,6 +271,58 @@ describe("createEffectApi", () => {
 			serviced.fetch(new Request("https://x/service/a")).pipe(Effect.provideService(Prefix, "#")),
 		);
 		await expect(result.json()).resolves.toBe("#a");
+
+		const mcpResult = await Effect.runPromise(
+			serviced
+				.mcp(modernMcpRequest(1, "tools/call", { name: "service", arguments: { id: "a" } }))
+				.pipe(Effect.provideService(Prefix, "#")),
+		);
+		await expect(mcpResult.json()).resolves.toMatchObject({
+			result: { resultType: "complete", structuredContent: "#a", isError: false },
+		});
+	});
+
+	it("uses Effect Standard Schema decoding exactly once for MCP tool input", async () => {
+		const transformed = createEffectApi({
+			title: "Transformed",
+			version: "1",
+			basePath: "/",
+			operations: [
+				operation({
+					name: "numbers.double",
+					description: "Double an encoded number.",
+					method: "POST",
+					path: "/double",
+					input: Schema.Struct({ count: Schema.NumberFromString }),
+					output: Schema.Struct({ doubled: Schema.Number }),
+					handler: ({ count }) => Effect.succeed({ doubled: count * 2 }),
+				}),
+			],
+		});
+
+		const listed = await runJson(transformed.mcp(modernMcpRequest(1, "tools/list")));
+		expect(listed.body).toMatchObject({
+			result: {
+				tools: [
+					{
+						name: "numbers.double",
+						inputSchema: { properties: { count: { type: "string" } } },
+					},
+				],
+			},
+		});
+
+		const called = await runJson(
+			transformed.mcp(
+				modernMcpRequest(2, "tools/call", {
+					name: "numbers.double",
+					arguments: { count: "21" },
+				}),
+			),
+		);
+		expect(called.body).toMatchObject({
+			result: { resultType: "complete", structuredContent: { doubled: 42 }, isError: false },
+		});
 	});
 
 	it("derives matching OpenAPI and MCP surfaces", async () => {
@@ -279,23 +377,25 @@ describe("createEffectApi", () => {
 			"requestBody.content.application/json.schema.required",
 		);
 
-		const listed = await Effect.runPromise(
-			api.mcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-		);
+		const listed = await Effect.runPromise(api.mcp(modernMcpRequest(1, "tools/list")));
 		expect(await listed.json()).toMatchObject({
-			result: { tools: [{ name: "items.get" }] },
+			result: { resultType: "complete", tools: [{ name: "items.get" }] },
 		});
 
 		const called = await Effect.runPromise(
-			api.mcp({
-				jsonrpc: "2.0",
-				id: 2,
-				method: "tools/call",
-				params: { name: "items.get", arguments: { id: "example" } },
-			}),
+			api.mcp(
+				modernMcpRequest(2, "tools/call", {
+					name: "items.get",
+					arguments: { id: "example" },
+				}),
+			),
 		);
 		expect(await called.json()).toMatchObject({
-			result: { structuredContent: { id: "example", ok: true }, isError: false },
+			result: {
+				resultType: "complete",
+				structuredContent: { id: "example", ok: true },
+				isError: false,
+			},
 		});
 	});
 
@@ -328,7 +428,26 @@ describe("createEffectApi", () => {
 		await expect(response.json()).resolves.toEqual({
 			error: { code: "operation_failed", message: "Service temporarily unavailable" },
 		});
-		expect(causes).toHaveLength(1);
+
+		const mcpFailure = await runJson(
+			failing.mcp(modernMcpRequest(7, "tools/call", { name: "items.fail", arguments: {} })),
+		);
+		expect(mcpFailure.body).toMatchObject({
+			result: {
+				resultType: "complete",
+				isError: true,
+				structuredContent: {
+					error: { code: "operation_failed", message: "Service temporarily unavailable" },
+				},
+				content: [
+					{
+						type: "text",
+						text: '{"error":{"code":"operation_failed","message":"Service temporarily unavailable"}}',
+					},
+				],
+			},
+		});
+		expect(causes).toHaveLength(2);
 	});
 
 	it("maps failures, does not log 4xx, and sanitizes unmapped failures and defects", async () => {
@@ -572,52 +691,108 @@ describe("createEffectApi", () => {
 		expect(docs.paths["/plain"]?.get).not.toHaveProperty("requestBody");
 	});
 
-	it("implements MCP validation, discovery, defaults, success, and tool errors", async () => {
-		const call = (request: Parameters<typeof api.mcp>[0]) => runJson(api.mcp(request));
-		expect((await call({ method: "initialize" })).body).toEqual({
+	it("serves modern discovery, tools, SDK validation, and stateless legacy fallback", async () => {
+		const call = (request: Request) => runJson(api.mcp(request));
+		const discovered = await call(modernMcpRequest(1, "server/discover"));
+		expect(discovered.response.status).toBe(200);
+		expect(discovered.body).toMatchObject({
 			jsonrpc: "2.0",
-			id: null,
-			error: { code: -32600, message: "Invalid Request" },
-		});
-		expect((await call({ jsonrpc: "2.0", method: "initialize" })).body).toMatchObject({
-			id: null,
+			id: 1,
 			result: {
-				protocolVersion: "2025-06-18",
+				resultType: "complete",
+				supportedVersions: [MCP_PROTOCOL_VERSION],
 				capabilities: { tools: {} },
-				serverInfo: { name: "Test API" },
+				_meta: {
+					"io.modelcontextprotocol/serverInfo": { name: "Test API", version: "1.0.0" },
+				},
+				ttlMs: 0,
+				cacheScope: "private",
 			},
 		});
-		expect((await call({ jsonrpc: "2.0", id: 0, method: "tools/list" })).body).toMatchObject({
-			id: 0,
-			result: { tools: [{ name: "items.get", inputSchema: {}, outputSchema: {} }] },
+
+		const listed = await call(modernMcpRequest(2, "tools/list"));
+		expect(listed.body).toMatchObject({
+			id: 2,
+			result: {
+				resultType: "complete",
+				tools: [{ name: "items.get", inputSchema: {}, outputSchema: {} }],
+				ttlMs: 0,
+				cacheScope: "private",
+			},
 		});
-		expect((await call({ jsonrpc: "2.0", method: "wat" })).body).toMatchObject({
-			error: { code: -32601 },
+
+		const missingHeader = modernMcpRequest(3, "tools/list");
+		missingHeader.headers.delete("mcp-method");
+		const rejectedHeader = await call(missingHeader);
+		expect(rejectedHeader).toMatchObject({
+			response: { status: 400 },
+			body: { error: { code: -32020 } },
 		});
-		expect((await call({ jsonrpc: "2.0", method: "tools/call" })).body).toMatchObject({
-			error: { code: -32602, message: "Unknown tool" },
+
+		const missingEnvelope = new Request("https://effect-api.test/mcp", {
+			method: "POST",
+			headers: {
+				accept: "application/json, text/event-stream",
+				"content-type": "application/json",
+				"mcp-protocol-version": MCP_PROTOCOL_VERSION,
+				"mcp-method": "tools/list",
+			},
+			body: JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/list", params: {} }),
 		});
-		const invalid = await call({
-			jsonrpc: "2.0",
-			id: 3,
-			method: "tools/call",
-			params: { name: "items.get" },
+		expect(await call(missingEnvelope)).toMatchObject({
+			response: { status: 400 },
+			body: { error: { code: -32602 } },
 		});
+
+		const invalid = await call(
+			modernMcpRequest(5, "tools/call", { name: "items.get", arguments: {} }),
+		);
 		expect(invalid.body).toMatchObject({
-			result: { isError: true, structuredContent: { error: { code: "invalid_input" } } },
+			result: {
+				resultType: "complete",
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: expect.stringContaining("Input validation error") as unknown,
+					},
+				],
+			},
 		});
-		const success = await call({
-			jsonrpc: "2.0",
-			id: 4,
-			method: "tools/call",
-			params: { name: "items.get", arguments: { id: "x" } },
-		});
+		expect(invalid.body).not.toHaveProperty("result.structuredContent");
+
+		const success = await call(
+			modernMcpRequest(6, "tools/call", {
+				name: "items.get",
+				arguments: { id: "x" },
+			}),
+		);
 		expect(success.body).toMatchObject({
 			result: {
+				resultType: "complete",
 				isError: false,
 				structuredContent: { id: "x", ok: true },
 				content: [{ type: "text", text: '{"id":"x","ok":true}' }],
 			},
 		});
+
+		const legacyResponse = await Effect.runPromise(api.mcp(legacyInitializeRequest()));
+		expect(legacyResponse.status).toBe(200);
+		expect(legacyResponse.headers.get("content-type")).toContain("text/event-stream");
+		const legacyData = (await legacyResponse.text())
+			.split("\n")
+			.find((line) => line.startsWith("data: "));
+		expect(legacyData).toBeDefined();
+		const legacyBody = JSON.parse(legacyData?.slice("data: ".length) ?? "null") as unknown;
+		expect(legacyBody).toMatchObject({
+			jsonrpc: "2.0",
+			id: 99,
+			result: {
+				protocolVersion: "2025-06-18",
+				capabilities: { tools: {} },
+				serverInfo: { name: "Test API", version: "1.0.0" },
+			},
+		});
+		expect(legacyBody).not.toHaveProperty("result.resultType");
 	});
 });

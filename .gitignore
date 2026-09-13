@@ -15,3 +15,7 @@
 **/.cache/
 /.vscode/settings.json
 .pnpm-store/
+/.amp/in/
+/.amp/portals/
+/.amp/state/
+/.amp/*.bundle

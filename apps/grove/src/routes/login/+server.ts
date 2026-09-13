@@ -6,6 +6,6 @@ import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = (event) =>
 	runGrove(
-		Effect.flatMap(GroveAuth, (auth) => auth.signIn(event.request.headers)),
+		Effect.flatMap(GroveAuth, (auth) => auth.beginLogin(event.request.headers)),
 		event,
 	);

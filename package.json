@@ -29,6 +29,7 @@
 		"@eslint/json": "catalog:dev",
 		"@eslint/markdown": "catalog:dev",
 		"@manypkg/cli": "catalog:dev",
+		"@modelcontextprotocol/client": "catalog:",
 		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
 		"@typescript/native": "catalog:dev",

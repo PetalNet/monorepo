@@ -16,6 +16,7 @@
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/server": "catalog:",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

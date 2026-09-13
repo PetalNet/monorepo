@@ -1,5 +1,6 @@
 import type { AuthContext } from "better-auth";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
+import { decodeJwt } from "jose";
 
 export const GROVE_OIDC_PROVIDER_ID = "grove-oidc";
 
@@ -19,13 +20,14 @@ const oidcCallbackUrl = (origin: string) =>
 	`${withoutTrailingSlash(origin)}/api/auth/callback/${GROVE_OIDC_PROVIDER_ID}`;
 
 export const groveOidc = (config: GroveOidcConfig) => {
+	const issuer = withoutTrailingSlash(config.issuer);
 	const plugin = genericOAuth({
 		config: [
 			{
 				providerId: GROVE_OIDC_PROVIDER_ID,
 				name: "Grove identity provider",
-				discoveryUrl: oidcDiscoveryUrl(config.issuer),
-				accountIssuer: config.issuer,
+				discoveryUrl: oidcDiscoveryUrl(issuer),
+				accountIssuer: issuer,
 				clientId: config.clientId,
 				clientSecret: config.clientSecret,
 				redirectURI: oidcCallbackUrl(config.callbackOrigin),
@@ -47,7 +49,7 @@ export const groveOidc = (config: GroveOidcConfig) => {
 			);
 			if (
 				!provider?.idToken ||
-				provider.issuer !== config.issuer ||
+				provider.issuer !== issuer ||
 				provider.requiresIdTokenNonce !== true
 			)
 				throw new Error("Grove OIDC discovery did not match the pinned issuer and nonce policy");
@@ -55,7 +57,19 @@ export const groveOidc = (config: GroveOidcConfig) => {
 			const getUserInfo = provider.getUserInfo.bind(provider);
 			provider.getUserInfo = async (tokens) => {
 				const result = await getUserInfo(tokens);
-				return result?.user.emailVerified ? result : null;
+				if (!result?.user.emailVerified || !tokens.idToken) return null;
+				const claims = decodeJwt(tokens.idToken);
+				const audience = Array.isArray(claims.aud) ? claims.aud : claims.aud ? [claims.aud] : [];
+				if (
+					typeof claims.sub !== "string" ||
+					claims.sub.length === 0 ||
+					typeof claims.exp !== "number" ||
+					typeof claims.iat !== "number" ||
+					(claims.azp !== undefined && claims.azp !== config.clientId) ||
+					(audience.length > 1 && claims.azp !== config.clientId)
+				)
+					return null;
+				return result;
 			};
 
 			const validateAuthorizationCode = provider.validateAuthorizationCode.bind(provider);

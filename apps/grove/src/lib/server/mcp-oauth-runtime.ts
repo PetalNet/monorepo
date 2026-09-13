@@ -1,12 +1,6 @@
 import { GROVE_MCP_ISSUER, GROVE_MCP_JWKS_URL, GROVE_MCP_RESOURCE } from "$app/env/private";
-import { createRemoteJWKSet } from "jose";
 
-import {
-	makeMcpRequestValidator,
-	mcpProtectedResourceMetadata,
-	type McpOAuthConfig,
-	type McpRequestValidator,
-} from "./mcp-oauth";
+import { makeMcpIngress, type McpIngressConfig } from "./mcp/ingress";
 
 const requireRuntimeString = (value: unknown, name: string) => {
 	if (typeof value !== "string" || value.length === 0)
@@ -14,7 +8,7 @@ const requireRuntimeString = (value: unknown, name: string) => {
 	return value;
 };
 
-const runtimeConfig = (): McpOAuthConfig => {
+const runtimeConfig = (): McpIngressConfig => {
 	return {
 		issuer: requireRuntimeString(GROVE_MCP_ISSUER, "GROVE_MCP_ISSUER"),
 		jwksUrl: requireRuntimeString(GROVE_MCP_JWKS_URL, "GROVE_MCP_JWKS_URL"),
@@ -22,15 +16,9 @@ const runtimeConfig = (): McpOAuthConfig => {
 	};
 };
 
-let runtimeValidator: McpRequestValidator | undefined;
+export const groveMcpIngress = (<T>(initialize: () => T) => {
+	let ingress: T | undefined;
+	return () => (ingress ??= initialize());
+})(() => makeMcpIngress(runtimeConfig()));
 
-export const validateMcpRequest = (request: Request) => {
-	if (!runtimeValidator) {
-		const config = runtimeConfig();
-		runtimeValidator = makeMcpRequestValidator(config, createRemoteJWKSet(new URL(config.jwksUrl)));
-	}
-	return runtimeValidator(request);
-};
-
-export const groveMcpProtectedResourceMetadata = () =>
-	mcpProtectedResourceMetadata(runtimeConfig());
+export const groveMcpProtectedResourceMetadata = () => groveMcpIngress().metadata();

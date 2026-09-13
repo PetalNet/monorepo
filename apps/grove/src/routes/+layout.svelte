@@ -1,16 +1,34 @@
 <script lang="ts">
+	import { dev } from "$app/env";
 	import Moon from "@lucide/svelte/icons/moon";
 	import Sun from "@lucide/svelte/icons/sun";
 	import { ModeWatcher } from "mode-watcher";
-	import type { Snippet } from "svelte";
+	import { onMount, type Snippet } from "svelte";
 
 	import favicon from "#lib/assets/favicon.svg";
 	import { Theme } from "#lib/theme.svelte.ts";
 
 	import "../app.css";
 
-	let { children }: { children: Snippet } = $props();
+	import type { LayoutData } from "./$types";
+
+	let { children, data }: { children: Snippet; data: LayoutData } = $props();
 	const theme = new Theme();
+	onMount(() => {
+		if (!dev || !data.devBrowserLogs) return;
+		let disposed = false;
+		let remove: (() => void) | undefined;
+		void import("#lib/dev-browser-logs.ts").then(({ installDevBrowserLogs }) => {
+			const installed = installDevBrowserLogs();
+			if (disposed) installed();
+			else remove = installed;
+			return undefined;
+		});
+		return () => {
+			disposed = true;
+			remove?.();
+		};
+	});
 </script>
 
 <svelte:head>

@@ -1,17 +1,23 @@
-import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
-import type { RequestEvent } from "@sveltejs/kit";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { SproutService, SproutServiceBuildLayer } from "../src/lib/server/sprouts/service";
+import { InvocationContext } from "../src/lib/server/invocation";
+import { SproutCommands, SproutCommandsBuildLayer } from "../src/lib/server/sprouts/service";
 
-describe("SproutServiceBuildLayer", () => {
+describe("SproutCommandsBuildLayer", () => {
 	it("initializes for prerender but defects if build code touches the database", async () => {
-		const useService = Effect.flatMap(SproutService, (service) => service.list).pipe(
-			Effect.provide(SproutServiceBuildLayer),
-			Effect.provideService(SvelteKitRequestEvent, {
-				request: new Request("https://grove.test/prerender"),
-			} as RequestEvent),
+		const useService = Effect.flatMap(SproutCommands, (commands) => commands.list).pipe(
+			Effect.provide(SproutCommandsBuildLayer),
+			Effect.provideService(InvocationContext, {
+				principal: {
+					kind: "unbound",
+					issuer: "https://machine.example",
+					subject: "build",
+					scopes: new Set<string>(),
+				},
+				transport: "browser",
+				requestId: "build",
+			}),
 			Effect.exit,
 		);
 		const exit = await Effect.runPromise(useService);

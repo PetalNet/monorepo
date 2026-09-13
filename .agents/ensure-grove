@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+for command in amp curl jq timeout; do
+	command -v "$command" >/dev/null 2>&1 || {
+		printf 'Grove ensure requires %s\n' "$command" >&2
+		exit 127
+	}
+done
+
+mkdir -p .amp/in
+ensure_timeout=${GROVE_ENSURE_TIMEOUT_SECONDS:-180}
+[[ "$ensure_timeout" =~ ^[1-9][0-9]*$ ]] || {
+	printf 'GROVE_ENSURE_TIMEOUT_SECONDS must be a positive integer\n' >&2
+	exit 64
+}
+set +e
+services=$(timeout --kill-after=5s "${ensure_timeout}s" amp orb services ensure --json)
+ensure_status=$?
+set -e
+if ((ensure_status != 0)); then
+	error_id=service-ensure-failed
+	if ((ensure_status == 124 || ensure_status == 137)); then
+		error_id=service-ensure-timeout
+	fi
+	jq -n \
+		--arg status not-ready \
+		--arg error "$error_id" \
+		--arg repair "Inspect amp orb service status grove, amp orb service logs grove, and .amp/in/grove.log; then rerun .agents/ensure-grove." \
+		'{status: $status, error: {id: $error, repair: $repair}}'
+	exit "$ensure_status"
+fi
+
+grove_manifest=.amp/portals/grove.json
+oidc_manifest=.amp/portals/grove-oidc.json
+for manifest in "$grove_manifest" "$oidc_manifest"; do
+	[[ -s "$manifest" ]] || {
+		printf 'Grove portal manifest is missing: %s\n' "$manifest" >&2
+		exit 1
+	}
+done
+
+grove_portal=$(jq -er '.links[0].url | rtrimstr("/")' "$grove_manifest")
+oidc_portal=$(jq -er '.links[0].url | rtrimstr("/")' "$oidc_manifest")
+preflight=$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 15 \
+	"$grove_portal/__dev/preflight")
+preflight_status=$(jq -er '.status' <<<"$preflight")
+
+jq -n \
+	--arg status "$preflight_status" \
+	--arg grovePortal "$grove_portal" \
+	--arg oidcPortal "$oidc_portal" \
+	--argjson services "$services" \
+	--argjson preflight "$preflight" \
+	'{
+		status: $status,
+		grovePortal: $grovePortal,
+		oidcPortal: $oidcPortal,
+		portalManifests: {
+			grove: ".amp/portals/grove.json",
+			oidc: ".amp/portals/grove-oidc.json"
+		},
+		services: $services,
+		preflight: $preflight
+	}'
+
+[[ "$preflight_status" == ready ]]
