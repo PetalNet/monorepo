@@ -1,5 +1,5 @@
-export { createEffectApi, type EffectApiConfig } from "./create-api.js";
-export type { McpRequestOptions } from "./mcp.js";
+export { ApiServer, createEffectApi, type EffectApiConfig } from "./create-api.js";
+export type { McpPermissions } from "./request.js";
 export {
 	operation,
 	type ApiOperation,

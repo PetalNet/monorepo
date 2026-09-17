@@ -1,7 +1,46 @@
-import { Cause, Context, Effect, Schema } from "effect";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import {
+	Cause,
+	Context,
+	Effect,
+	Exit,
+	Layer,
+	ManagedRuntime,
+	Schema,
+	SchemaTransformation,
+} from "effect";
+import { HttpServerRequest } from "effect/unstable/http";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
-import { createEffectApi, operation } from "../src/index.js";
+import {
+	ApiServer,
+	createEffectApi as createApplication,
+	type EffectApiConfig,
+	operation,
+} from "../src/index.js";
+
+const disposals: (() => Promise<void>)[] = [];
+afterAll(async () => {
+	await Promise.all(disposals.map((dispose) => dispose()));
+});
+
+// Each application owns one runtime. Only invocation services cross this test bridge.
+function createEffectApi<R>(config: EffectApiConfig<R>) {
+	const application = createApplication(config);
+	const runtime = ManagedRuntime.make(application.layer);
+	disposals.push(() => runtime.dispose());
+	const fetch = (...args: Parameters<typeof application.fetch>) =>
+		Effect.gen(function* () {
+			const services = yield* Effect.context<R>();
+			const exit = yield* Effect.promise(() =>
+				runtime.runPromiseExit(application.fetch(...args).pipe(Effect.provide(services))),
+			);
+			return yield* Exit.isSuccess(exit)
+				? Effect.succeed(exit.value)
+				: Effect.failCause(exit.cause);
+		});
+	return { ...application, fetch, mcp: fetch };
+}
 
 const Id = Schema.Struct({ id: Schema.String });
 const Item = Schema.Struct({ id: Schema.String, ok: Schema.Boolean });
@@ -69,10 +108,8 @@ const api = createEffectApi({
 	],
 });
 
-const runJson = async <R>(effect: Effect.Effect<Response, never, R>, service?: R) => {
-	const response = await Effect.runPromise(
-		service === undefined ? (effect as Effect.Effect<Response>) : Effect.provide(effect, service),
-	);
+const runJson = async <E>(effect: Effect.Effect<Response, E>) => {
+	const response = await Effect.runPromise(effect);
 	return { response, body: (await response.json()) as unknown };
 };
 
@@ -91,6 +128,356 @@ const operationForMethod = (method: "GET" | "POST", body?: boolean) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe("createEffectApi", () => {
+	it("builds and registers one server for concurrent REST/MCP calls and finalizes its persistent scope", async () => {
+		const registration = vi.fn(() => "Shared operation");
+		const finalized = vi.fn(() => undefined);
+		const built = vi.fn();
+		const Caller = Context.Service<string>("LifecycleCaller");
+		const shared = createApplication({
+			title: "Shared",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "shared",
+					description: "Shared",
+					method: "GET",
+					path: "/shared",
+					input: Schema.Struct({}),
+					output: Schema.String,
+					handler: () => Caller,
+				}),
+			],
+			mcpOperations: [
+				{
+					...operation({
+						name: "shared",
+						description: "Shared",
+						method: "GET",
+						path: "/shared",
+						input: Schema.Struct({}),
+						output: Schema.String,
+						handler: () => Caller,
+					}),
+					get description() {
+						return registration();
+					},
+				},
+			],
+		});
+		const runtime = ManagedRuntime.make(
+			shared.layer.pipe(
+				Layer.tap(() =>
+					Effect.gen(function* () {
+						built();
+						yield* Effect.addFinalizer(() => Effect.sync(finalized));
+					}),
+				),
+			),
+		);
+		disposals.push(() => runtime.dispose());
+		// Build with no Caller service: registration must not capture invocation dependencies.
+		const server = await runtime.runPromise(ApiServer);
+		const results = await Promise.all(
+			["alice", "bob", "carol", "dave"].map(async (caller, i) => {
+				const request =
+					i % 2 === 0
+						? new Request("https://x/api/shared")
+						: modernMcpRequest(i, "tools/call", { name: "shared", arguments: {} });
+				const response = await runtime.runPromise(
+					shared.fetch(request).pipe(Effect.provideService(Caller, caller)),
+				);
+				return response.json() as Promise<unknown>;
+			}),
+		);
+		expect(results).toMatchObject([
+			"alice",
+			{ result: { structuredContent: "bob" } },
+			"carol",
+			{ result: { structuredContent: "dave" } },
+		]);
+		expect(await runtime.runPromise(ApiServer)).toBe(server);
+		expect(built).toHaveBeenCalledOnce();
+		expect(registration).toHaveBeenCalledOnce();
+		expect(finalized).not.toHaveBeenCalled();
+		await runtime.dispose();
+		expect(finalized).toHaveBeenCalledOnce();
+	});
+
+	it("isolates concurrent callers' catalog and invocation permissions without leaking defaults", async () => {
+		const handler = vi.fn(() => Effect.succeed("ok"));
+		const catalog = createEffectApi({
+			title: "Catalog",
+			version: "1",
+			basePath: "/api",
+			operations: [],
+			mcpOperations: ["alpha", "beta"].map((name) =>
+				operation({
+					name,
+					description: name,
+					method: "GET",
+					path: `/${name}`,
+					input: Schema.Struct({}),
+					output: Schema.String,
+					handler,
+				}),
+			),
+		});
+		await Promise.all(
+			["alpha", "beta"].map(async (name, i) => {
+				const permissions = { listed: new Set([name]), callable: new Set([name]) };
+				const listed = await runJson(catalog.mcp(modernMcpRequest(i, "tools/list"), permissions));
+				expect(listed.body).toMatchObject({ result: { tools: [{ name }] } });
+				expect((listed.body as { result: { tools: unknown[] } }).result.tools).toHaveLength(1);
+				const denied = await runJson(
+					catalog.mcp(
+						modernMcpRequest(i + 2, "tools/call", {
+							name: name === "alpha" ? "beta" : "alpha",
+							arguments: {},
+						}),
+						permissions,
+					),
+				);
+				expect(denied.body).toMatchObject({ error: { code: -32602 } });
+				const allowed = await runJson(
+					catalog.mcp(modernMcpRequest(i + 4, "tools/call", { name, arguments: {} }), permissions),
+				);
+				expect(allowed.body).toMatchObject({ result: { isError: false, structuredContent: "ok" } });
+			}),
+		);
+		expect(handler).toHaveBeenCalledTimes(2);
+		const unrestricted = await runJson(catalog.mcp(modernMcpRequest(7, "tools/list")));
+		expect((unrestricted.body as { result: { tools: unknown[] } }).result.tools).toHaveLength(2);
+		const empty = await runJson(
+			catalog.mcp(modernMcpRequest(8, "tools/list"), { listed: new Set(), callable: new Set() }),
+		);
+		expect(empty.body).toMatchObject({ result: { tools: [] } });
+	});
+
+	it("interrupts a delayed handler when its Web request is aborted", async () => {
+		let started!: () => void;
+		const ready = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const finalized = vi.fn(() => undefined);
+		const delayed = createEffectApi({
+			title: "Abort",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "delay",
+					description: "delay",
+					method: "GET",
+					path: "/delay",
+					input: Schema.Struct({}),
+					output: Schema.Unknown,
+					handler: () =>
+						Effect.gen(function* () {
+							yield* Effect.addFinalizer(() => Effect.sync(finalized));
+							started();
+							return yield* Effect.never;
+						}).pipe(Effect.scoped),
+				}),
+			],
+		});
+		const controller = new AbortController();
+		const pending = Effect.runPromiseExit(
+			delayed.fetch(new Request("https://x/api/delay", { signal: controller.signal })),
+		);
+		await ready;
+		controller.abort();
+		const exit = await pending;
+		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+		expect(finalized).toHaveBeenCalledOnce();
+	});
+
+	it("runs asynchronous input transforms once per REST/MCP invocation and sanitizes decoder defects", async () => {
+		const decode = vi.fn((value: string) =>
+			Effect.promise(async () => {
+				await Promise.resolve();
+				return Number(value);
+			}),
+		);
+		const logCause = vi.fn();
+		const transformed = createEffectApi({
+			title: "Async",
+			version: "1",
+			basePath: "/api",
+			logCause,
+			operations: [
+				operation({
+					name: "async",
+					description: "async",
+					method: "POST",
+					path: "/async",
+					input: Schema.Struct({
+						value: Schema.String.pipe(
+							Schema.decodeTo(
+								Schema.Number,
+								SchemaTransformation.transformEffect({
+									decode,
+									encode: (value) => Effect.succeed(String(value)),
+								}),
+							),
+						),
+					}),
+					output: Schema.Number,
+					handler: ({ value }) => Effect.succeed(value * 2),
+				}),
+				operation({
+					name: "defective",
+					description: "defective",
+					method: "POST",
+					path: "/defective",
+					input: Schema.Struct({
+						value: Schema.String.pipe(
+							Schema.decodeTo(
+								Schema.String,
+								SchemaTransformation.transformEffect<string, string>({
+									decode: () => Effect.die("private-input-defect"),
+									encode: Effect.succeed,
+								}),
+							),
+						),
+					}),
+					output: Schema.Unknown,
+					handler: Effect.succeed,
+				}),
+			],
+		});
+		const rest = await runJson(
+			transformed.fetch(
+				new Request("https://x/api/async", {
+					method: "POST",
+					body: JSON.stringify({ value: "21" }),
+				}),
+			),
+		);
+		expect(rest.body).toBe(42);
+		expect(decode).toHaveBeenCalledOnce();
+		const mcp = await runJson(
+			transformed.mcp(
+				modernMcpRequest(1, "tools/call", { name: "async", arguments: { value: "21" } }),
+			),
+		);
+		expect(mcp.body).toMatchObject({ result: { structuredContent: 42, isError: false } });
+		expect(decode).toHaveBeenCalledTimes(2);
+		const failures = await Promise.all([
+			runJson(
+				transformed.fetch(
+					new Request("https://x/api/defective", {
+						method: "POST",
+						body: JSON.stringify({ value: "secret" }),
+					}),
+				),
+			),
+			runJson(
+				transformed.mcp(
+					modernMcpRequest(2, "tools/call", { name: "defective", arguments: { value: "secret" } }),
+				),
+			),
+		]);
+		expect(failures[0]).toMatchObject({
+			response: { status: 500 },
+			body: { error: { code: "operation_failed" } },
+		});
+		expect(failures[1].body).toMatchObject({
+			result: { isError: true, structuredContent: { error: { code: "operation_failed" } } },
+		});
+		expect(JSON.stringify(failures)).not.toContain("private-input-defect");
+		expect(logCause).toHaveBeenCalledTimes(2);
+	});
+
+	it("serves MCP independently without reading REST publication metadata", async () => {
+		const { mcp } = createEffectApi({
+			title: "MCP only",
+			version: "1",
+			basePath: "/api",
+			operations: [],
+			mcpOperations: [
+				{
+					...operation({
+						name: "items.get",
+						description: "Get an item",
+						method: "GET",
+						path: "/items/:id",
+						input: Id,
+						output: Item,
+						handler: ({ id }) => Effect.succeed({ id, ok: true }),
+					}),
+					get path(): string {
+						throw new Error("MCP must not construct REST or OpenAPI");
+					},
+				},
+			],
+		});
+		const result = await runJson(
+			mcp(
+				modernMcpRequest(1, "tools/call", {
+					name: "items.get",
+					arguments: { id: "standalone" },
+				}),
+			),
+		);
+		expect(result.body).toMatchObject({
+			result: { isError: false, structuredContent: { id: "standalone", ok: true } },
+		});
+	});
+
+	it("keeps call-only tools out of discovery and validates routing before invoking them", async () => {
+		const handler = vi.fn(() => Effect.succeed({ error: { code: -32700 } }));
+		const application = createEffectApi({
+			title: "Call only",
+			version: "1",
+			basePath: "/api",
+			operations: [],
+			mcpOperations: [
+				operation({
+					name: "items.retry",
+					description: "Retry",
+					method: "POST",
+					path: "/retry",
+					input: Id,
+					output: Schema.Struct({ error: Schema.Struct({ code: Schema.Number }) }),
+					handler,
+				}),
+			],
+		});
+		const mcp = (request: Request | HttpServerRequest.HttpServerRequest) =>
+			application.mcp(request, {
+				listed: new Set(),
+				callable: new Set(["items.retry"]),
+			});
+		const listed = await runJson(mcp(modernMcpRequest(1, "tools/list")));
+		expect(listed.body).toMatchObject({ result: { tools: [] } });
+		const forgedList = modernMcpRequest(2, "tools/list");
+		forgedList.headers.set("mcp-method", "tools/call");
+		forgedList.headers.set("mcp-name", "items.retry");
+		expect((await runJson(mcp(forgedList))).response.status).toBe(400);
+		const forgedCall = modernMcpRequest(3, "tools/call", {
+			name: "items.retry",
+			arguments: { id: "retry" },
+		});
+		forgedCall.headers.set("mcp-name", "items.other");
+		expect((await runJson(mcp(forgedCall))).response.status).toBe(400);
+		expect(handler).not.toHaveBeenCalled();
+
+		const called = await runJson(
+			mcp(
+				HttpServerRequest.fromWeb(
+					modernMcpRequest(4, "tools/call", { name: "items.retry", arguments: { id: "retry" } }),
+				),
+			),
+		);
+		// An error-shaped tool result is not a protocol parse failure.
+		expect(called.response.status).toBe(200);
+		expect(called.body).toMatchObject({
+			result: { isError: false, structuredContent: { error: { code: -32700 } } },
+		});
+		expect(handler).toHaveBeenCalledExactlyOnceWith({ id: "retry" });
+	});
+
 	it("routes REST requests through the declared Effect operation", async () => {
 		const response = await Effect.runPromise(
 			api.fetch(new Request("https://grove.test/api/v1/items/example")),
@@ -156,7 +543,7 @@ describe("createEffectApi", () => {
 		).toEqual({ a: "1" });
 		expect(
 			(await runJson(root.fetch(new Request("https://x/", { method: "DELETE" })))).response.status,
-		).toBe(200);
+		).toBe(404);
 		const missing = await Promise.all(
 			[
 				new Request("https://x/api", { method: "POST" }),
@@ -280,9 +667,23 @@ describe("createEffectApi", () => {
 		await expect(mcpResult.json()).resolves.toMatchObject({
 			result: { resultType: "complete", structuredContent: "#a", isError: false },
 		});
+		const concurrent = await Promise.all(
+			["alice:", "bob:"].map(async (prefix) => {
+				const response = await Effect.runPromise(
+					serviced
+						.mcp(modernMcpRequest(2, "tools/call", { name: "service", arguments: { id: "x" } }))
+						.pipe(Effect.provideService(Prefix, prefix)),
+				);
+				return response.json() as Promise<unknown>;
+			}),
+		);
+		expect(concurrent).toMatchObject([
+			{ result: { structuredContent: "alice:x" } },
+			{ result: { structuredContent: "bob:x" } },
+		]);
 	});
 
-	it("uses Effect Standard Schema decoding exactly once for MCP tool input", async () => {
+	it("uses Effect Schema decoding exactly once for MCP tool input", async () => {
 		const transformed = createEffectApi({
 			title: "Transformed",
 			version: "1",
@@ -359,14 +760,14 @@ describe("createEffectApi", () => {
 			parameters: [
 				{
 					name: "id",
-					schema: { type: "string", allOf: [{ pattern: "^item-[0-9]+$" }] },
+					schema: { type: "string", pattern: "^item-[0-9]+$" },
 				},
 			],
 			requestBody: {
 				content: {
 					"application/json": {
 						schema: {
-							properties: { count: { type: "integer", allOf: [{ minimum: 0 }] } },
+							properties: { count: { type: "integer", minimum: 0 } },
 							required: ["count"],
 						},
 					},
@@ -587,13 +988,16 @@ describe("createEffectApi", () => {
 		const paths = [
 			"mixed",
 			"multiple",
-			"interrupt",
 			"invalid-0",
 			"invalid-1",
 			"invalid-2",
 			"status-defect",
 			"message-defect",
 		];
+		const interrupted = await Effect.runPromiseExit(
+			unsafe.fetch(new Request("https://x/interrupt")),
+		);
+		expect(Exit.isFailure(interrupted) && Cause.hasInterruptsOnly(interrupted.cause)).toBe(true);
 
 		const results = await Promise.all(
 			paths.map((path) => runJson(unsafe.fetch(new Request(`https://x/${path}`)))),
@@ -691,7 +1095,100 @@ describe("createEffectApi", () => {
 		expect(docs.paths["/plain"]?.get).not.toHaveProperty("requestBody");
 	});
 
-	it("serves modern discovery, tools, SDK validation, and stateless legacy fallback", async () => {
+	it("logs and sanitizes results that violate the advertised output schema", async () => {
+		const logCause = vi.fn();
+		const invalidOutput = createEffectApi({
+			title: "Invalid output",
+			version: "1",
+			basePath: "/",
+			logCause,
+			operations: [
+				operation({
+					name: "items.invalid",
+					description: "Invalid output",
+					method: "GET",
+					path: "/",
+					input: Schema.Struct({}),
+					output: Schema.Struct({ id: Schema.String.check(Schema.isPattern(/^item-/)) }),
+					handler: () => Effect.succeed({ id: "private-invalid-result" }),
+				}),
+			],
+		});
+		const result = await runJson(
+			invalidOutput.mcp(
+				modernMcpRequest(1, "tools/call", {
+					name: "items.invalid",
+					arguments: {},
+				}),
+			),
+		);
+		expect(result.body).toMatchObject({
+			result: {
+				isError: true,
+				structuredContent: { error: { code: "operation_failed", message: "The operation failed" } },
+			},
+		});
+		expect(JSON.stringify(result.body)).not.toContain("private-invalid-result");
+		expect(logCause).toHaveBeenCalledOnce();
+	});
+
+	it("interoperates with the official July client without a session", async () => {
+		const client = new Client(
+			{ name: "interop-test", version: "1" },
+			{ versionNegotiation: { mode: { pin: MCP_PROTOCOL_VERSION } } },
+		);
+		const transport = new StreamableHTTPClientTransport(new URL("https://effect-api.test/mcp"), {
+			fetch: async (url, init) => {
+				const response = await Effect.runPromise(api.mcp(new Request(url, init)));
+				expect(response.headers.has("mcp-session-id")).toBe(false);
+				return response;
+			},
+		});
+		try {
+			await client.connect(transport);
+			expect(await client.listTools()).toMatchObject({ tools: [{ name: "items.get" }] });
+			expect(await client.callTool({ name: "items.get", arguments: { id: "sdk" } })).toMatchObject({
+				isError: false,
+				structuredContent: { id: "sdk", ok: true },
+			});
+		} finally {
+			await client.close();
+		}
+	});
+
+	it("rejects mismatched routing headers before invoking an operation", async () => {
+		const handler = vi.fn(() => Effect.succeed({ id: "never", ok: true }));
+		const guarded = createEffectApi({
+			title: "Guarded",
+			version: "1",
+			basePath: "/",
+			operations: [
+				operation({
+					name: "items.get",
+					description: "Get an item",
+					method: "GET",
+					path: "/",
+					input: Id,
+					output: Item,
+					handler,
+				}),
+			],
+		});
+		await Promise.all(
+			["mcp-method", "mcp-name", "mcp-protocol-version"].map(async (header) => {
+				const request = modernMcpRequest(1, "tools/call", {
+					name: "items.get",
+					arguments: { id: "x" },
+				});
+				request.headers.set(header, "mismatch");
+				const response = await Effect.runPromise(guarded.mcp(request));
+				expect(response.status).toBe(400);
+			}),
+		);
+		expect(handler).not.toHaveBeenCalled();
+	});
+
+	it("serves July discovery and tools with Effect protocol validation", async () => {
 		const call = (request: Request) => runJson(api.mcp(request));
 		const discovered = await call(modernMcpRequest(1, "server/discover"));
 		expect(discovered.response.status).toBe(200);
@@ -751,15 +1248,9 @@ describe("createEffectApi", () => {
 			result: {
 				resultType: "complete",
 				isError: true,
-				content: [
-					{
-						type: "text",
-						text: expect.stringContaining("Input validation error") as unknown,
-					},
-				],
+				structuredContent: { error: { code: "invalid_input" } },
 			},
 		});
-		expect(invalid.body).not.toHaveProperty("result.structuredContent");
 
 		const success = await call(
 			modernMcpRequest(6, "tools/call", {
@@ -777,22 +1268,7 @@ describe("createEffectApi", () => {
 		});
 
 		const legacyResponse = await Effect.runPromise(api.mcp(legacyInitializeRequest()));
-		expect(legacyResponse.status).toBe(200);
-		expect(legacyResponse.headers.get("content-type")).toContain("text/event-stream");
-		const legacyData = (await legacyResponse.text())
-			.split("\n")
-			.find((line) => line.startsWith("data: "));
-		expect(legacyData).toBeDefined();
-		const legacyBody = JSON.parse(legacyData?.slice("data: ".length) ?? "null") as unknown;
-		expect(legacyBody).toMatchObject({
-			jsonrpc: "2.0",
-			id: 99,
-			result: {
-				protocolVersion: "2025-06-18",
-				capabilities: { tools: {} },
-				serverInfo: { name: "Test API", version: "1.0.0" },
-			},
-		});
-		expect(legacyBody).not.toHaveProperty("result.resultType");
+		expect(legacyResponse.status).toBe(400);
+		expect(await legacyResponse.json()).toHaveProperty("error");
 	});
 });

@@ -31,6 +31,10 @@ export interface OperationConfig<I, A, E, R> {
 
 export type LogCause = (operationName: string, cause: Cause.Cause<unknown>) => void;
 
+export const defaultLogCause: LogCause = (operationName, cause) => {
+	console.error(`${operationName} failed\n${Cause.pretty(cause)}`);
+};
+
 /** Declare one transport-neutral operation backed by an Effect handler. */
 export function operation<I, A, E, R>(config: OperationConfig<I, A, E, R>): ApiOperation<R> {
 	const declared = {

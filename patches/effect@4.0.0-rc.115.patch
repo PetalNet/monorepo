@@ -1,0 +1,58 @@
+diff --git a/dist/SchemaParser.js b/dist/SchemaParser.js
+index b3c8f7bcbb2a51ece181de1d9511273e5f684ee2..71c837c3fd86255753dcb11b5f335eaf8c98bed8 100644
+--- a/dist/SchemaParser.js
++++ b/dist/SchemaParser.js
+@@ -890,8 +890,9 @@ function makeParser(ast, compile, compileConstructorDefault, constructorDefault)
+   const checks = ast.checks;
+   const links = constructorDefault ? ast.encoding ? [...ast.encoding, constructorDefault] : [constructorDefault] : ast.encoding;
+   const encodingChecks = ast.encodingChecks;
++  const astOptions = (checks ? checks[checks.length - 1].annotations : ast.annotations)?.["parseOptions"];
+   if (!links && !checks && !encodingChecks) {
+-    return parser;
++    return astOptions ? (input, options) => parser(input, mergeParseOptions(options, astOptions)) : parser;
+   }
+   let encodingParsers;
+   const parseLocal = (input, options) => {
+@@ -944,9 +945,10 @@ function makeParser(ast, compile, compileConstructorDefault, constructorDefault)
+     return result;
+   };
+   if (!links) {
+-    return parseLocal;
++    return astOptions ? (input, options) => parseLocal(input, mergeParseOptions(options, astOptions)) : parseLocal;
+   }
+   return (input, options) => {
++    if (astOptions) options = mergeParseOptions(options, astOptions);
+     const parsers = encodingParsers ??= links.map(link => compile(link.to));
+     let current = input;
+     let result = parsers[parsers.length - 1](input, options);
+diff --git a/src/SchemaParser.ts b/src/SchemaParser.ts
+index 47b068c7c9b7b4ab592810b870481bcd3eec1eb4..905379ef7afdaf7b772601212e6f3a91c0de7f26 100644
+--- a/src/SchemaParser.ts
++++ b/src/SchemaParser.ts
+@@ -1094,8 +1094,10 @@ function makeParser(
+     ? ast.encoding ? [...ast.encoding, constructorDefault] : [constructorDefault]
+     : ast.encoding
+   const encodingChecks = (ast as any).encodingChecks
++  const astOptions = (checks ? checks[checks.length - 1].annotations : ast.annotations)
++    ?.["parseOptions"] as SchemaAST.ParseOptions | undefined
+   if (!links && !checks && !encodingChecks) {
+-    return parser
++    return astOptions ? (input, options) => parser(input, mergeParseOptions(options, astOptions)) : parser
+   }
+   let encodingParsers: ReadonlyArray<Parser> | undefined
+   const parseLocal = (
+@@ -1157,12 +1159,13 @@ function makeParser(
+     return result
+   }
+   if (!links) {
+-    return parseLocal
++    return astOptions ? (input, options) => parseLocal(input, mergeParseOptions(options, astOptions)) : parseLocal
+   }
+   return (
+     input: unknown,
+     options: SchemaAST.ParseOptions
+   ) => {
++    if (astOptions) options = mergeParseOptions(options, astOptions)
+     const parsers = encodingParsers ??= links.map((link) => compile(link.to))
+     let current = input
+     let result = parsers[parsers.length - 1](input, options)

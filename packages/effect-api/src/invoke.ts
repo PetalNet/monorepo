@@ -1,73 +1,72 @@
-import { Cause, Effect, Exit, Schema } from "effect";
+import { Cause, Data, Effect, Schema } from "effect";
 
 import type { ApiOperation, LogCause } from "./operation.js";
 
-export type InvocationResult =
-	| { readonly kind: "success"; readonly value: unknown }
-	| {
-			readonly kind: "failure";
-			readonly status: number;
-			readonly code: "invalid_input" | "operation_failed";
-			readonly message: string;
-	  };
+export class InvocationFailure extends Data.TaggedError("InvocationFailure")<{
+	readonly status: number;
+	readonly code: "invalid_input" | "operation_failed";
+	readonly message: string;
+}> {}
 
-interface InvocationOptions {
-	readonly inputIsDecoded?: boolean;
-}
+const operationFailed = (status = 500, message = "The operation failed") =>
+	new InvocationFailure({ status, code: "operation_failed", message });
 
-const operationFailed = (status = 500, message = "The operation failed"): InvocationResult => ({
-	kind: "failure",
-	status,
-	code: "operation_failed",
-	message,
+const handleCause = Effect.fnUntraced(function* <R>(
+	operation: ApiOperation<R>,
+	logCause: LogCause,
+	phase: "input" | "handler" | "output",
+	cause: Cause.Cause<unknown>,
+): Effect.fn.Return<never, InvocationFailure> {
+	// Pure interruption is control flow, not a public operation failure.
+	if (Cause.hasInterrupts(cause) && !Cause.hasFails(cause) && !Cause.hasDies(cause)) {
+		return yield* Effect.failCause(cause as Cause.Cause<never>);
+	}
+	const failures = cause.reasons.filter(Cause.isFailReason);
+	const failure = failures[0];
+	if (!Cause.hasDies(cause) && !Cause.hasInterrupts(cause) && failures.length === 1 && failure) {
+		if (phase === "input" && Schema.isSchemaError(failure.error)) {
+			return yield* new InvocationFailure({
+				status: 400,
+				code: "invalid_input",
+				message: failure.error.message,
+			});
+		}
+		if (phase === "handler") {
+			const mapped = yield* Effect.sync(() => {
+				const status = operation.statusForError?.(failure.error) ?? 500;
+				if (!Number.isInteger(status) || status < 400 || status > 599) {
+					return operationFailed();
+				}
+				const message = operation.messageForError?.(failure.error) ?? "The operation failed";
+				return typeof message === "string" ? operationFailed(status, message) : operationFailed();
+			}).pipe(
+				Effect.catchCause((mapperCause) => {
+					logCause(operation.name, Cause.combine(cause, mapperCause));
+					return Effect.fail(operationFailed());
+				}),
+			);
+			if (mapped.status >= 500) logCause(operation.name, cause);
+			return yield* mapped;
+		}
+	}
+	logCause(operation.name, cause);
+	return yield* operationFailed();
 });
 
-export function invokeOperation<R>(
+export const invokeOperation = Effect.fnUntraced(function* <R>(
 	operation: ApiOperation<R>,
 	input: unknown,
 	logCause: LogCause,
-	options?: InvocationOptions,
-): Effect.Effect<InvocationResult, never, R> {
-	const decoded = options?.inputIsDecoded
-		? Exit.succeed(input)
-		: Schema.decodeUnknownExit(operation.input)(input, { errors: "all" });
-	if (Exit.isFailure(decoded)) {
-		return Effect.succeed({
-			kind: "failure",
-			status: 400,
-			code: "invalid_input",
-			message: Cause.pretty(decoded.cause),
-		});
-	}
-	return operation.handle(decoded.value).pipe(
-		Effect.map((value): InvocationResult => ({ kind: "success", value })),
-		Effect.catchCause((cause) => {
-			const failures = cause.reasons.filter(Cause.isFailReason);
-			const failureReason = failures[0];
-			if (
-				Cause.hasDies(cause) ||
-				Cause.hasInterrupts(cause) ||
-				failureReason === undefined ||
-				failures.length !== 1
-			) {
-				logCause(operation.name, cause);
-				return Effect.succeed(operationFailed());
-			}
-
-			const failure = failureReason.error;
-			try {
-				const status = operation.statusForError?.(failure) ?? 500;
-				if (!Number.isInteger(status) || status < 400 || status > 599) {
-					logCause(operation.name, cause);
-					return Effect.succeed(operationFailed());
-				}
-				const message = operation.messageForError?.(failure) ?? "The operation failed";
-				if (status >= 500) logCause(operation.name, cause);
-				return Effect.succeed(operationFailed(status, message));
-			} catch (defect) {
-				logCause(operation.name, Cause.combine(cause, Cause.die(defect)));
-				return Effect.succeed(operationFailed());
-			}
-		}),
+): Effect.fn.Return<unknown, InvocationFailure, R> {
+	const decoded = yield* Effect.suspend(() =>
+		Schema.decodeUnknownEffect(operation.input)(input, { errors: "all" }),
+	).pipe(Effect.catchCause((cause) => handleCause(operation, logCause, "input", cause)));
+	const value = yield* Effect.suspend(() => operation.handle(decoded)).pipe(
+		Effect.catchCause((cause) => handleCause(operation, logCause, "handler", cause)),
 	);
-}
+	// Handlers return decoded values: validate the type side without replaying transformations.
+	yield* Effect.suspend(() =>
+		Schema.decodeUnknownEffect(Schema.toType(operation.output))(value, { errors: "all" }),
+	).pipe(Effect.catchCause((cause) => handleCause(operation, logCause, "output", cause)));
+	return value;
+});
