@@ -24,8 +24,8 @@ peerDependencyRules:
     "@sveltejs/adapter-node@5.5.4>@sveltejs/kit": 3.0.0-next.8
     "better-auth@1.7.0-rc.1>@sveltejs/kit": 3.0.0-next.8
     "better-auth@1.7.0-rc.2>@sveltejs/kit": 3.0.0-next.8
-    "effect-db@0.22.0>effect": 4.0.0-beta.103
-    "effect-qb@0.22.0>effect": 4.0.0-beta.103
+    "effect-db@0.23.1>effect": 4.0.0-rc.115
+    "effect-qb@0.23.1>effect": 4.0.0-rc.115
     "eslint-plugin-oxlint@1.70.0>oxlint": 1.72.0
 
 # Why: every dependency version must come from a catalog. `pnpm add` routes new
@@ -134,7 +134,8 @@ catalogs:
 catalog:
   "@better-auth/test-utils": 1.7.0-rc.2
   crossws: ^0.3.5
-  "@effect/sql-pg": 4.0.0-beta.102
+  # The newer native driver rejects multi-statement migrations, even unprepared.
+  "@effect/sql-pg": 4.0.0-rc.112
   "@opentelemetry/api": ^1.9.0
   "@opentelemetry/auto-instrumentations-node": ^0.67.2
   "@opentelemetry/exporter-trace-otlp-proto": ^0.208.0
@@ -144,9 +145,10 @@ catalog:
   "@sveltejs/kit": 3.0.0-next.8
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.0-rc.2
-  effect: 4.0.0-beta.103
-  effect-db: 0.22.0
-  effect-qb: 0.22.0
+  # July MCP support merged after rc.115.
+  effect: https://pkg.pr.new/effect@a2c4154
+  effect-db: 0.23.1
+  effect-qb: 0.23.1
   svelte-effect-runtime: 4.1.1
   svelte-global-typescript: 1.0.1
   mode-watcher: ^1.1.0
@@ -160,4 +162,10 @@ catalog:
   "@storybook/addon-docs": 10.5.6
   jose: ^6.2.5
   "@modelcontextprotocol/client": 2.0.0
-  "@modelcontextprotocol/server": 2.0.0
+
+patchedDependencies:
+  # RC compatibility until these libraries support the new AST/options API.
+  effect-db@0.23.1: patches/effect-db@0.23.1.patch
+  effect-qb@0.23.1: patches/effect-qb@0.23.1.patch
+  # Preserve Console's existing nested strict/open schema boundaries during the MCP upgrade.
+  effect@4.0.0-rc.115: patches/effect@4.0.0-rc.115.patch

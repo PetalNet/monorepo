@@ -1,4 +1,4 @@
-import { createEffectApi, operation } from "@petalnet/effect-api";
+import { operation } from "@petalnet/effect-api";
 import { Effect } from "effect";
 
 import {
@@ -84,10 +84,3 @@ export const sproutOperations = [
 		messageForError,
 	}),
 ] as const;
-
-export const sproutApi = createEffectApi({
-	title: "Grove sprouts API",
-	version: "1.0.0",
-	basePath: "/api/v1",
-	operations: sproutOperations,
-});

@@ -1,0 +1,44 @@
+diff --git a/dist/internal/runtime/schema.js b/dist/internal/runtime/schema.js
+index 53fc10644aa6289214b53c38f53dda40fd2964cb..1f6baf46d4f3130d7d8083030e21c5a4b2429e68 100644
+--- a/dist/internal/runtime/schema.js
++++ b/dist/internal/runtime/schema.js
+@@ -80,7 +80,7 @@ const unionAst = (asts) => {
+     if (asts.length === 1) {
+         return asts[0];
+     }
+-    return new SchemaAST.Union(asts, "anyOf");
++    return new SchemaAST.Union(asts, { mode: "anyOf" });
+ };
+ const propertyAstOf = (ast, key) => {
+     switch (ast._tag) {
+@@ -166,7 +166,7 @@ const setJsonPathAst = (ast, segments, next) => {
+     if (ast._tag === "Suspend")
+         return setJsonPathAst(ast.thunk(), segments, next);
+     if (ast._tag === "Union") {
+-        return new SchemaAST.Union(ast.types.map((member) => setJsonPathAst(member, segments, next)), "anyOf");
++        return new SchemaAST.Union(ast.types.map((member) => setJsonPathAst(member, segments, next)), { mode: "anyOf" });
+     }
+     if (head.kind === "key" && ast._tag === "Objects") {
+         const existing = ast.propertySignatures.find((property) => property.name === head.key);
+diff --git a/src/internal/runtime/schema.ts b/src/internal/runtime/schema.ts
+index 9e893a58bf2e8c39cbb2b28de46b7e55470e7638..98ff157fe5a8a9f58913678396344d963d6980b3 100644
+--- a/src/internal/runtime/schema.ts
++++ b/src/internal/runtime/schema.ts
+@@ -121,7 +121,7 @@ const unionAst = (asts: ReadonlyArray<SchemaAST.AST>): SchemaAST.AST | undefined
+   if (asts.length === 1) {
+     return asts[0]
+   }
+-  return new SchemaAST.Union(asts, "anyOf")
++  return new SchemaAST.Union(asts, { mode: "anyOf" })
+ }
+ 
+ const propertyAstOf = (
+@@ -226,7 +226,7 @@ const setJsonPathAst = (
+   if (head === undefined) return next
+   if (ast._tag === "Suspend") return setJsonPathAst(ast.thunk(), segments, next)
+   if (ast._tag === "Union") {
+-    return new SchemaAST.Union(ast.types.map((member) => setJsonPathAst(member, segments, next)), "anyOf")
++    return new SchemaAST.Union(ast.types.map((member) => setJsonPathAst(member, segments, next)), { mode: "anyOf" })
+   }
+   if (head.kind === "key" && ast._tag === "Objects") {
+     const existing = ast.propertySignatures.find((property) => property.name === head.key)

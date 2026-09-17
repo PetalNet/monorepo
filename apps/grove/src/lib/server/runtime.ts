@@ -16,6 +16,7 @@ import {
 	SproutCommandsLayer,
 } from "$lib/server/sprouts/service";
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { ApiServer } from "@petalnet/effect-api";
 import {
 	makeEffectSvelteKitRuntime,
 	SvelteKitRequestEvent,
@@ -24,6 +25,7 @@ import {
 import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, Redacted } from "effect";
 
+import { groveApi } from "./api";
 import { AuthenticationRequired } from "./authorization";
 import { SproutDatabaseError, SproutNotFound } from "./sprouts/service";
 
@@ -62,7 +64,7 @@ function makeRuntime() {
 		);
 	}
 
-	return makeEffectSvelteKitRuntime(Layer.orDie(GroveServicesLayer), {
+	return makeEffectSvelteKitRuntime(Layer.orDie(Layer.merge(GroveServicesLayer, groveApi.layer)), {
 		mapFailure: (failure) => {
 			if (failure instanceof AuthenticationRequired)
 				return { status: 401, message: failure.message };
@@ -77,14 +79,16 @@ function makeRuntime() {
 	});
 }
 
-let runtime: EffectSvelteKitRuntime<GroveAuth | ActorAuthority | SproutCommands> | undefined;
+let runtime:
+	| EffectSvelteKitRuntime<GroveAuth | ActorAuthority | SproutCommands | ApiServer>
+	| undefined;
 
 export const initializeGroveRuntime = () => (runtime ??= makeRuntime());
 
 export const runGrove = <
 	A,
 	E,
-	R extends GroveAuth | ActorAuthority | SproutCommands | SvelteKitRequestEvent,
+	R extends GroveAuth | ActorAuthority | SproutCommands | SvelteKitRequestEvent | ApiServer,
 >(
 	effect: Effect.Effect<A, E, R>,
 	event: RequestEvent,

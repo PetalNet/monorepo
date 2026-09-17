@@ -1,7 +1,8 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
+import type { ApiServer } from "@petalnet/effect-api";
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted } from "effect";
 import { createLocalJWKSet, errors, exportJWK, generateKeyPair, SignJWT } from "jose";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
 	ActorAuthority,
@@ -9,6 +10,7 @@ import {
 	ActorDatabaseError,
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
+import { groveApi } from "../src/lib/server/api";
 import { InvocationContext } from "../src/lib/server/invocation";
 import { makeMcpIngress, type McpIngress } from "../src/lib/server/mcp/ingress";
 import { SproutCommands, SproutCommandsLayer } from "../src/lib/server/sprouts/service";
@@ -52,7 +54,7 @@ const responseJson = (response: Response): Promise<unknown> => response.json() a
 const json = async (response: Response) => (await responseJson(response)) as McpJson;
 
 describe("MCP protected-resource ingress", () => {
-	let runtime: ManagedRuntime.ManagedRuntime<ActorAuthority | SproutCommands, unknown>;
+	let runtime: ManagedRuntime.ManagedRuntime<ActorAuthority | SproutCommands | ApiServer, unknown>;
 	let ingress: McpIngress;
 	let privateKey: CryptoKey;
 	let owner: PersonPrincipal;
@@ -64,7 +66,7 @@ describe("MCP protected-resource ingress", () => {
 			Layer.provideMerge(database),
 		);
 		const domain = SproutCommandsLayer.pipe(Layer.provideMerge(actors));
-		runtime = ManagedRuntime.make(domain);
+		runtime = ManagedRuntime.make(Layer.merge(domain, groveApi.layer));
 
 		owner = await runtime.runPromise(
 			Effect.flatMap(ActorAuthority, (authority) =>
@@ -163,16 +165,20 @@ describe("MCP protected-resource ingress", () => {
 		expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
 	});
 
-	it("serves modern discovery and lets the SDK enforce the modern request envelope", async () => {
+	it("serves modern discovery and lets Effect enforce the modern request envelope", async () => {
 		const accessToken = await token("modern-discovery", ["grove:mcp"]);
 		const discovered = await json(await request(accessToken, rpc(20, "server/discover")));
 		expect(discovered.result).toMatchObject({
 			resultType: "complete",
 			supportedVersions: [MCP_PROTOCOL_VERSION],
-			capabilities: { tools: {} },
 			ttlMs: 0,
 			cacheScope: "private",
 		});
+		// Capabilities describe the shared server; tool discovery remains caller-specific.
+		expect(discovered.result).toHaveProperty("capabilities.tools");
+		expect((await json(await request(accessToken, rpc(21, "tools/list")))).result.tools).toEqual(
+			[],
+		);
 
 		const missingVersion = await request(
 			accessToken,
@@ -189,7 +195,7 @@ describe("MCP protected-resource ingress", () => {
 		expect(await json(unknownMethod)).toMatchObject({ error: { code: -32601 } });
 	});
 
-	it("keeps the SDK's documented stateless legacy fallback", async () => {
+	it("rejects legacy initialization on the July-only endpoint", async () => {
 		const accessToken = await token("legacy-fallback", ["grove:mcp"]);
 		const response = await request(
 			accessToken,
@@ -207,9 +213,8 @@ describe("MCP protected-resource ingress", () => {
 			ingress,
 			false,
 		);
-		expect(response.status).toBe(200);
-		expect(response.headers.get("content-type")).toContain("text/event-stream");
-		expect(await response.text()).toContain('"protocolVersion":"2025-06-18"');
+		expect(response.status).toBe(400);
+		expect(await json(response)).toHaveProperty("error");
 	});
 
 	it("restricts bootstrap visibility, explicitly enrolls, and keeps retries idempotent", async () => {
@@ -257,6 +262,15 @@ describe("MCP protected-resource ingress", () => {
 			),
 		);
 		expect(repeated.result.structuredContent.actorId).toBe(agentId);
+
+		const unscopedRetry = await json(
+			await request(
+				await token("janet-machine", ["grove:mcp"]),
+				rpc(15, "tools/call", { name: "agents.enrollSelf", arguments: { name: "Denied retry" } }),
+			),
+		);
+		expect(unscopedRetry).toMatchObject({ error: { code: -32602 } });
+		expect(unscopedRetry).not.toHaveProperty("result");
 
 		const listedAfter = await json(await request(accessToken, rpc(4, "tools/list")));
 		expect(listedAfter.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
@@ -382,6 +396,92 @@ describe("MCP protected-resource ingress", () => {
 		});
 	});
 
+	it("cancels a pending body read on request interruption", async () => {
+		const accessToken = await token("interrupted-body", ["grove:mcp"]);
+		const pulled = Promise.withResolvers<undefined>();
+		const cancel = vi.fn();
+		const body = new ReadableStream<Uint8Array>(
+			{
+				pull() {
+					pulled.resolve(undefined);
+				},
+				cancel,
+			},
+			{ highWaterMark: 0 },
+		);
+		const controller = new AbortController();
+		const incoming = new Request(`${config.resourceOrigin}/mcp`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+			body,
+			duplex: "half",
+		} as RequestInit);
+		const pending = runtime.runPromiseExit(ingress.handle(incoming), { signal: controller.signal });
+		await pulled.promise;
+		controller.abort();
+		const exit = await pending;
+		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+		expect(cancel).toHaveBeenCalledOnce();
+	});
+
+	it("bounds streamed bytes, cancels overflow, and rejects invalid UTF-8", async () => {
+		const accessToken = await token("stream-boundary", ["grove:mcp"]);
+		const encoder = new TextEncoder();
+		const raw = rpc(16, "tools/list", { padding: "é" });
+		const encoded = encoder.encode(raw);
+		const atLimit = encoder.encode(raw + " ".repeat(1024 * 1024 - encoded.byteLength));
+		const split = encoded.indexOf(0xc3) + 1;
+		const cases = [
+			{
+				chunks: [atLimit.subarray(0, split), atLimit.subarray(split)],
+				length: undefined,
+				status: 200,
+			},
+			{ chunks: [atLimit, encoder.encode(" ")], length: undefined, status: 413 },
+			{ chunks: [atLimit, encoder.encode(" ")], length: "1", status: 413 },
+			{ chunks: [new Uint8Array([0xc3, 0x28])], length: undefined, status: 400 },
+		];
+		await Promise.all(
+			cases.map(async ({ chunks, length, status }) => {
+				const cancel = vi.fn();
+				let index = 0;
+				const body = new ReadableStream<Uint8Array>(
+					{
+						pull(controller) {
+							const chunk = chunks.at(index++);
+							if (chunk) controller.enqueue(chunk);
+							else controller.close();
+						},
+						cancel,
+					},
+					{ highWaterMark: 0 },
+				);
+				const headers = new Headers({
+					authorization: `Bearer ${accessToken}`,
+					"content-type": "application/json",
+					accept: "application/json, text/event-stream",
+					"mcp-protocol-version": MCP_PROTOCOL_VERSION,
+					"mcp-method": "tools/list",
+				});
+				if (length) headers.set("content-length", length);
+				const incoming = new Request(`${config.resourceOrigin}/mcp`, {
+					method: "POST",
+					headers,
+					body,
+					duplex: "half",
+				} as RequestInit);
+				const response = await runtime.runPromise(ingress.handle(incoming));
+				expect(response.status).toBe(status);
+				if (status === 200) expect(await json(response)).toMatchObject({ result: { tools: [] } });
+				if (status === 400) expect(await json(response)).toMatchObject({ error: { code: -32700 } });
+				if (status === 413) {
+					expect(await responseJson(response)).toMatchObject({ error: "request_too_large" });
+					expect(cancel).toHaveBeenCalledOnce();
+				} else expect(cancel).not.toHaveBeenCalled();
+			}),
+		);
+	});
+
 	it("distinguishes insufficient admission, unknown keys, and JWKS dependency failure", async () => {
 		const insufficient = await request(
 			await token("scope-missing", ["grove:agent:enroll"]),
@@ -446,7 +546,7 @@ describe("MCP protected-resource ingress", () => {
 						Effect.fail(new ActorDatabaseError(new Error("simulated database outage"))),
 				}),
 				Layer.succeed(SproutCommands, commands),
-			),
+			).pipe(Layer.merge(groveApi.layer)),
 		);
 		try {
 			const response = await failingRuntime.runPromise(
