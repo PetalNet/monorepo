@@ -61,6 +61,9 @@ jobs:
       - name: Write app env
         run: |
           echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
+          # Build-time only: SvelteKit's postbuild analyse imports the server modules, and
+          # auth.ts refuses to load without a session secret. Never used to sign anything.
+          echo "SESSION_SECRET=build-time-placeholder-not-a-real-secret" >> apps/collegemap/.env
           echo "DATABASE_URL=$DATABASE_URL" > apps/grove/.env
       - run: vp run build
 
