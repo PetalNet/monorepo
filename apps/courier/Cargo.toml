@@ -16,7 +16,7 @@ async-trait = "0.1"
 clap = { version = "4", features = ["derive", "env"] }
 dotenvy = "0.15"
 futures-util = "0.3"
-matrix-sdk = { version = "0.14", default-features = false, features = [
+matrix-sdk = { version = "0.18", default-features = false, features = [
 	"anyhow",
 	"e2e-encryption",
 	"sqlite",
