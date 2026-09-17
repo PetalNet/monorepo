@@ -460,7 +460,7 @@ importers:
         version: 0.217.0(@opentelemetry/api@1.9.1)
       '@petalnet/better-auth-effect-qb-adapter':
         specifier: workspace:*
-        version: file:packages/better-auth-effect-qb-adapter(better-auth@1.7.0-rc.1(e69b7772f5df1f829a0ac4e9b0d45ab5))
+        version: file:packages/better-auth-effect-qb-adapter(better-auth@1.7.0-rc.1(e69b7772f5df1f829a0ac4e9b0d45ab5))(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
       '@petalnet/console-bus-rpc':
         specifier: workspace:*
         version: link:../../packages/console-bus-rpc
@@ -566,7 +566,7 @@ importers:
         version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
       '@petalnet/better-auth-effect-qb-adapter':
         specifier: workspace:*
-        version: file:packages/better-auth-effect-qb-adapter(better-auth@1.7.0-rc.2(@opentelemetry/api@1.9.1)(@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)))(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(better-sqlite3@12.11.1)(drizzle-kit@0.31.10)(mysql2@3.15.3)(pg@8.23.0)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vitest@4.1.10))
+        version: file:packages/better-auth-effect-qb-adapter(7051f041ebfdbeb212898ab858c516ff)
       '@petalnet/effect-api':
         specifier: workspace:*
         version: link:../../packages/effect-api
@@ -734,9 +734,6 @@ importers:
       '@effect/sql-pg':
         specifier: 'catalog:'
         version: 4.0.0-rc.112(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
-      effect:
-        specifier: 'catalog:'
-        version: https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9)
       effect-qb:
         specifier: 'catalog:'
         version: 0.23.1(patch_hash=3bcb7ba5599bb0a4b3ade3a2411a837091e2d6880116f1fcebcbb432c4d484fb)(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
@@ -753,6 +750,9 @@ importers:
       better-auth:
         specifier: 'catalog:'
         version: 1.7.0-rc.2(@opentelemetry/api@1.9.1)(@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)))(@sveltejs/kit@2.66.0(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(better-sqlite3@12.11.1)(drizzle-kit@0.31.10)(mysql2@3.15.3)(pg@8.23.0)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vitest@4.1.10)
+      effect:
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9)
       eslint:
         specifier: catalog:dev
         version: 10.5.0(jiti@2.7.0)
@@ -3408,6 +3408,7 @@ packages:
     resolution: {directory: packages/better-auth-effect-qb-adapter, type: directory}
     peerDependencies:
       better-auth: '*'
+      effect: '*'
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -7271,9 +7272,6 @@ packages:
     peerDependencies:
       pg: '>=8.0'
 
-  pg-protocol@1.15.0:
-    resolution: {integrity: sha512-cq9sECI5s0+uPUXjbz8ioyPJni6RzsRib0US67i5IoTZKw8fNeYlVE7u8F4dG7vEJJtc5wdD1K189lCCUwqWTQ==}
-
   pg-protocol@1.16.0:
     resolution: {integrity: sha512-sILXutLVjCLjcDuOmvhX5e2Z4cS5qG/6Bu3VkpFwdf/633ElGLpEh9bgmuI5I4sqKqkifQiGyiCcx1HdtrK7tg==}
 
@@ -8585,18 +8583,6 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.21.1:
-    resolution: {integrity: sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   ws@8.21.3:
     resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
     engines: {node: '>=10.0.0'}
@@ -9555,7 +9541,7 @@ snapshots:
   '@libsql/isomorphic-ws@0.1.5':
     dependencies:
       '@types/ws': 8.18.1
-      ws: 8.21.1
+      ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -10990,19 +10976,19 @@ snapshots:
 
   '@oxlint/plugins@1.68.0': {}
 
-  '@petalnet/better-auth-effect-qb-adapter@file:packages/better-auth-effect-qb-adapter(better-auth@1.7.0-rc.1(e69b7772f5df1f829a0ac4e9b0d45ab5))':
+  '@petalnet/better-auth-effect-qb-adapter@file:packages/better-auth-effect-qb-adapter(7051f041ebfdbeb212898ab858c516ff)':
     dependencies:
       '@effect/sql-pg': 4.0.0-rc.112(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
-      better-auth: 1.7.0-rc.1(e69b7772f5df1f829a0ac4e9b0d45ab5)
+      better-auth: 1.7.0-rc.2(@opentelemetry/api@1.9.1)(@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)))(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(better-sqlite3@12.11.1)(drizzle-kit@0.31.10)(mysql2@3.15.3)(pg@8.23.0)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vitest@4.1.10)
       effect: https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9)
       effect-qb: 0.23.1(patch_hash=3bcb7ba5599bb0a4b3ade3a2411a837091e2d6880116f1fcebcbb432c4d484fb)(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
     transitivePeerDependencies:
       - pg-native
 
-  ? '@petalnet/better-auth-effect-qb-adapter@file:packages/better-auth-effect-qb-adapter(better-auth@1.7.0-rc.2(@opentelemetry/api@1.9.1)(@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)))(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(better-sqlite3@12.11.1)(drizzle-kit@0.31.10)(mysql2@3.15.3)(pg@8.23.0)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vitest@4.1.10))'
-  : dependencies:
+  '@petalnet/better-auth-effect-qb-adapter@file:packages/better-auth-effect-qb-adapter(better-auth@1.7.0-rc.1(e69b7772f5df1f829a0ac4e9b0d45ab5))(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))':
+    dependencies:
       '@effect/sql-pg': 4.0.0-rc.112(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
-      better-auth: 1.7.0-rc.2(@opentelemetry/api@1.9.1)(@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)))(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(better-sqlite3@12.11.1)(drizzle-kit@0.31.10)(mysql2@3.15.3)(pg@8.23.0)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vitest@4.1.10)
+      better-auth: 1.7.0-rc.1(e69b7772f5df1f829a0ac4e9b0d45ab5)
       effect: https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9)
       effect-qb: 0.23.1(patch_hash=3bcb7ba5599bb0a4b3ade3a2411a837091e2d6880116f1fcebcbb432c4d484fb)(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
     transitivePeerDependencies:
@@ -12055,7 +12041,7 @@ snapshots:
   '@types/pg@8.15.6':
     dependencies:
       '@types/node': 26.0.0
-      pg-protocol: 1.15.0
+      pg-protocol: 1.16.0
       pg-types: 2.2.0
 
   '@types/pg@8.20.0':
@@ -15260,8 +15246,6 @@ snapshots:
     dependencies:
       pg: 8.23.0
 
-  pg-protocol@1.15.0: {}
-
   pg-protocol@1.16.0: {}
 
   pg-types@2.2.0:
@@ -15558,7 +15542,7 @@ snapshots:
       devtools-protocol: 0.0.1653615
       typed-query-selector: 2.12.2
       webdriver-bidi-protocol: 0.4.2
-      ws: 8.21.1
+      ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
       - proxy-agent
@@ -16057,7 +16041,7 @@ snapshots:
       recast: 0.23.12
       semver: 7.8.5
       use-sync-external-store: 1.6.0(react@19.2.7)
-      ws: 8.21.1
+      ws: 8.21.3
     optionalDependencies:
       '@types/react': 19.2.17
       vite-plus: 0.2.4(@opentelemetry/api@1.9.1)(@types/node@26.0.0)(@typescript/typescript6@6.0.2)(@vitest/coverage-v8@4.1.10)(esbuild@0.28.1)(jiti@2.7.0)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(tsx@4.22.4)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
@@ -16916,8 +16900,6 @@ snapshots:
     optional: true
 
   wrappy@1.0.2: {}
-
-  ws@8.21.1: {}
 
   ws@8.21.3: {}
 

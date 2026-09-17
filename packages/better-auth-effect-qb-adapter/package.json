@@ -13,7 +13,6 @@
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
-		"effect": "catalog:",
 		"effect-qb": "catalog:"
 	},
 	"devDependencies": {
@@ -21,11 +20,13 @@
 		"@testcontainers/postgresql": "catalog:",
 		"@types/node": "catalog:types",
 		"better-auth": "catalog:",
+		"effect": "catalog:",
 		"eslint": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"
 	},
 	"peerDependencies": {
-		"better-auth": "*"
+		"better-auth": "*",
+		"effect": "*"
 	}
 }

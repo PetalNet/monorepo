@@ -146,7 +146,6 @@ catalog:
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.0-rc.2
   # July MCP support merged after rc.115.
-  # Regenerate this preview lock with pnpm install --config.block-exotic-subdeps=false.
   effect: https://pkg.pr.new/effect@a2c4154
   effect-db: 0.23.1
   effect-qb: 0.23.1
