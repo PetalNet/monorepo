@@ -18,7 +18,7 @@
 
 services:
   traefik:
-    image: traefik:v3.2
+    image: traefik:v3.2@sha256:e561a37f8710d9cf41c78bdf421d822b2c0b48267ec0552e644565fb55466ea9
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
