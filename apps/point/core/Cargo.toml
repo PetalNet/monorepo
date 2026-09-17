@@ -12,7 +12,7 @@ openmls = "0.6"
 openmls_traits = "0.3"
 openmls_rust_crypto = "0.3"
 openmls_basic_credential = "0.3"
-openmls_memory_storage = { version = "0.3", features = ["persistence"] }
+openmls_memory_storage = { version = "0.5", features = ["persistence"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
