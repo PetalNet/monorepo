@@ -10,8 +10,8 @@ catalogs:
       specifier: 1.7.0-rc.2
       version: 1.7.0-rc.2
     '@effect/sql-pg':
-      specifier: 4.0.0-rc.112
-      version: 4.0.0-rc.112
+      specifier: 4.0.0-rc.118
+      version: 4.0.0-rc.118
     '@effect/tsgo':
       specifier: ^0.24.3
       version: 0.24.3
@@ -442,7 +442,7 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-rc.112(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
+        version: 4.0.0-rc.118(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -560,7 +560,7 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-rc.112(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
+        version: 4.0.0-rc.118(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.56.5(@typescript-eslint/types@8.61.1))
@@ -733,7 +733,7 @@ importers:
     dependencies:
       '@effect/sql-pg':
         specifier: 'catalog:'
-        version: 4.0.0-rc.112(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
+        version: 4.0.0-rc.118(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
       effect-qb:
         specifier: 'catalog:'
         version: 0.23.1(patch_hash=3bcb7ba5599bb0a4b3ade3a2411a837091e2d6880116f1fcebcbb432c4d484fb)(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
@@ -1140,6 +1140,12 @@ packages:
     version: 4.0.0-rc.112
     peerDependencies:
       effect: ^4.0.0-rc.112
+
+  '@effect/sql-pg@4.0.0-rc.118':
+    resolution: {integrity: sha512-aNl7fRpnu7o4TXIKr/Awzty1MwOss6o1uyRLrS416ouMTSRrItI/qIs4YNbtXIcLoMOny2HW3f2uE6A6/684cA==}
+    version: 4.0.0-rc.118
+    peerDependencies:
+      effect: ^4.0.0-rc.118
 
   '@effect/tsgo-darwin-arm64@0.24.3':
     resolution: {integrity: sha512-eO83D7ZmpAsocA5WJQ8SSAPnAOZ+dEduFIozg9c2SmH36PCHG1Eb++I0UiQml+2LAr4o/QE2wKdWj7LExebjZA==}
@@ -8963,6 +8969,10 @@ snapshots:
     transitivePeerDependencies:
       - pg-native
 
+  '@effect/sql-pg@4.0.0-rc.118(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))':
+    dependencies:
+      effect: https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9)
+
   '@effect/tsgo-darwin-arm64@0.24.3':
     optional: true
 
@@ -10978,21 +10988,17 @@ snapshots:
 
   '@petalnet/better-auth-effect-qb-adapter@file:packages/better-auth-effect-qb-adapter(7051f041ebfdbeb212898ab858c516ff)':
     dependencies:
-      '@effect/sql-pg': 4.0.0-rc.112(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
+      '@effect/sql-pg': 4.0.0-rc.118(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
       better-auth: 1.7.0-rc.2(@opentelemetry/api@1.9.1)(@prisma/client@7.8.0(@typescript/typescript6@6.0.2)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)))(@sveltejs/kit@3.0.0-next.8(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vite@8.0.16(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(better-sqlite3@12.11.1)(drizzle-kit@0.31.10)(mysql2@3.15.3)(pg@8.23.0)(prisma@7.8.0(@types/react@19.2.17)(@typescript/typescript6@6.0.2)(better-sqlite3@12.11.1)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(svelte@5.56.5(@typescript-eslint/types@8.61.1))(vitest@4.1.10)
       effect: https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9)
       effect-qb: 0.23.1(patch_hash=3bcb7ba5599bb0a4b3ade3a2411a837091e2d6880116f1fcebcbb432c4d484fb)(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
-    transitivePeerDependencies:
-      - pg-native
 
   '@petalnet/better-auth-effect-qb-adapter@file:packages/better-auth-effect-qb-adapter(better-auth@1.7.0-rc.1(e69b7772f5df1f829a0ac4e9b0d45ab5))(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))':
     dependencies:
-      '@effect/sql-pg': 4.0.0-rc.112(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
+      '@effect/sql-pg': 4.0.0-rc.118(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
       better-auth: 1.7.0-rc.1(e69b7772f5df1f829a0ac4e9b0d45ab5)
       effect: https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9)
       effect-qb: 0.23.1(patch_hash=3bcb7ba5599bb0a4b3ade3a2411a837091e2d6880116f1fcebcbb432c4d484fb)(effect@https://pkg.pr.new/effect@a2c4154(patch_hash=0526c2b8830c368890545dc8ef1483663effdfc331140381450672f48b30e6d9))
-    transitivePeerDependencies:
-      - pg-native
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
