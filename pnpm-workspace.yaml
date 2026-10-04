@@ -133,7 +133,7 @@ catalogs:
 
 catalog:
   "@better-auth/test-utils": 1.7.0-rc.2
-  crossws: ^0.3.5
+  crossws: ^0.4.0
   # The newer native driver rejects multi-statement migrations, even unprepared.
   "@effect/sql-pg": 4.0.0-rc.112
   "@opentelemetry/api": ^1.9.0
