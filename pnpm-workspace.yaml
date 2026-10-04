@@ -149,7 +149,7 @@ catalog:
   effect: https://pkg.pr.new/effect@a2c4154
   effect-db: 0.23.1
   effect-qb: 0.23.1
-  svelte-effect-runtime: 4.1.1
+  svelte-effect-runtime: 4.2.7
   svelte-global-typescript: 1.0.1
   mode-watcher: ^1.1.0
   nanoid: ^6.0.0
