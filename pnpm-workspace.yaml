@@ -132,7 +132,7 @@ catalogs:
     tailwindcss: ^3.4.17
 
 catalog:
-  "@better-auth/test-utils": 1.7.0-rc.2
+  "@better-auth/test-utils": 1.7.7
   crossws: ^0.3.5
   # The newer native driver rejects multi-statement migrations, even unprepared.
   "@effect/sql-pg": 4.0.0-rc.112
@@ -144,7 +144,7 @@ catalog:
   "@sentry/sveltekit": ^10.58.0
   "@sveltejs/kit": 3.0.0-next.8
   "@testcontainers/postgresql": ^11.10.0
-  better-auth: 1.7.0-rc.2
+  better-auth: 1.7.7
   # July MCP support merged after rc.115.
   effect: https://pkg.pr.new/effect@a2c4154
   effect-db: 0.23.1
