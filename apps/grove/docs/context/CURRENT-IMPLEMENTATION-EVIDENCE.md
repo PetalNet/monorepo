@@ -1,9 +1,15 @@
-# Current implementation evidence
+# Historical Console implementation evidence
 
-**Purpose:** Code-grounded evidence used to keep the Grove specification aligned with the actual architecture.  
-**Baseline:** `sip-mega-export/console/console-monorepo-current-daca287a`
+**Purpose:** Preserve the source evidence behind the original Grove specification, not describe the live repository.
 
-This document is descriptive, not normative. `../01-GROVE-BUILD-SPEC.md` owns the target decisions.
+**Historical baseline:** `sip-mega-export/console/console-monorepo-current-daca287a`
+
+Console and its private support packages have been removed from this repository. The source paths,
+line numbers, and migration conclusions below describe that archived export only; they are not
+instructions to preserve or rebuild Console. Grove is the standalone SvelteKit app in `apps/grove`.
+For live code, inspect its server services and migrations, `packages/effect-api`,
+`packages/effect-sveltekit`, and `packages/better-auth-effect-qb-adapter`.
+`../01-GROVE-BUILD-SPEC.md` owns the target product decisions.
 
 ## 1. Source selection
 
