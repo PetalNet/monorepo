@@ -6,14 +6,11 @@ import {
 	GROVE_MCP_RESOURCE,
 	GROVE_OIDC_ISSUER,
 } from "$app/env/private";
-import { GroveAuth } from "$lib/server/auth";
-import {
-	devRouteNotFound,
-	groveDevelopmentBuild,
-	groveOrbDevAuthFlagEnabled,
-} from "$lib/server/dev/guard";
-import { runGrove } from "$lib/server/runtime";
 import { Effect, Result } from "effect";
+
+import { GroveAuth } from "#lib/server/auth.ts";
+import { devRouteNotFound, groveOrbDevAuthFlagEnabled } from "#lib/server/dev-guard.ts";
+import { runGrove } from "#lib/server/runtime.ts";
 
 import type { RequestHandler } from "./$types";
 
@@ -24,8 +21,8 @@ const required = (value: unknown, name: string) => {
 };
 
 export const GET: RequestHandler = async (event) => {
-	if (!groveDevelopmentBuild || !groveOrbDevAuthFlagEnabled()) return devRouteNotFound();
-	const { runDevPreflight } = await import("$lib/server/dev/control-plane");
+	if (!import.meta.env.DEV || !groveOrbDevAuthFlagEnabled()) return devRouteNotFound();
+	const { runDevPreflight } = await import("#lib/server/dev/control-plane.ts");
 	return runGrove(
 		Effect.gen(function* () {
 			const auth = yield* GroveAuth;

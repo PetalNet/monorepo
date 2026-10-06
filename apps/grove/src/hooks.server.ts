@@ -1,11 +1,12 @@
 import process from "node:process";
 
 import { building } from "$app/env";
-import { GroveAuth } from "$lib/server/auth";
-import { groveMcpIngress } from "$lib/server/mcp-oauth-runtime";
-import { disposeGroveRuntime, handleGrove, initializeGroveRuntime } from "$lib/server/runtime";
-import type { ServerInit } from "@sveltejs/kit";
+import type { ServerInit } from "@sveltejs/kit/hooks";
 import { Effect } from "effect";
+
+import { GroveAuth } from "#lib/server/auth.ts";
+import { groveMcpIngress } from "#lib/server/mcp-oauth-runtime.ts";
+import { disposeGroveRuntime, handleGrove, initializeGroveRuntime } from "#lib/server/runtime.ts";
 
 export const init: ServerInit = async () => {
 	if (!building) groveMcpIngress();

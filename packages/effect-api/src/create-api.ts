@@ -1,10 +1,5 @@
 import { Context, Effect, Layer, Predicate, Schema, Stream, type Scope } from "effect";
-import {
-	HttpRouter,
-	HttpServerError,
-	HttpServerRequest,
-	HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { createMcpLayer } from "./mcp.js";
 import { createOpenApi } from "./openapi.js";

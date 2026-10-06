@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { dev } from "$app/env";
 	import Moon from "@lucide/svelte/icons/moon";
 	import Sun from "@lucide/svelte/icons/sun";
 	import { ModeWatcher } from "mode-watcher";
@@ -15,10 +14,10 @@
 	let { children, data }: { children: Snippet; data: LayoutData } = $props();
 	const theme = new Theme();
 	onMount(() => {
-		if (!dev || !data.devBrowserLogs) return;
+		if (!import.meta.env.DEV || !data.devBrowserLogs) return;
 		let disposed = false;
 		let remove: (() => void) | undefined;
-		void import("#lib/dev-browser-logs.ts").then(({ installDevBrowserLogs }) => {
+		void import("#lib/dev/browser-logs.ts").then(({ installDevBrowserLogs }) => {
 			const installed = installDevBrowserLogs();
 			if (disposed) installed();
 			else remove = installed;

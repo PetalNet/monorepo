@@ -9,7 +9,7 @@ import {
 	Schema,
 	SchemaTransformation,
 } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -739,7 +739,7 @@ describe("createEffectApi", () => {
 					method: "POST",
 					path: "/items/:id",
 					input: Schema.Struct({
-						id: Schema.String.check(Schema.isPattern(/^item-[0-9]+$/)),
+						id: Schema.String.check(Schema.isPattern(/^item-[0-9]+$/u)),
 						count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 					}),
 					output: Item,

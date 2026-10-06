@@ -1,4 +1,4 @@
-import { groveApi } from "$lib/server/api";
+import { groveApi } from "#lib/server/api.ts";
 
 import type { RequestHandler } from "./$types";
 

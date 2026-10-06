@@ -1,5 +1,5 @@
 import { Data, Effect, Layer, Predicate, Schema } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { invokeOperation } from "./invoke.js";
 import type { ApiOperation, LogCause } from "./operation.js";

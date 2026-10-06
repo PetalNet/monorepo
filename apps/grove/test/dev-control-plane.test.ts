@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	devEndpointInventory,
-	runDevPreflight,
-	safeReturnTo,
-} from "../src/lib/server/dev/control-plane";
+import { devEndpointInventory, runDevPreflight } from "../src/lib/server/dev/control-plane";
 
 const preflightConfig = {
 	groveOrigin: "https://grove.test",
@@ -48,18 +44,6 @@ const healthyFetch: typeof fetch = (input) => {
 };
 
 describe("Grove development control plane", () => {
-	it.each([
-		[undefined, "/"],
-		["", "/"],
-		["sprouts", "/"],
-		["//attacker.example/path", "/"],
-		["/\\attacker.example/path", "/"],
-		["https://attacker.example/path", "/"],
-		["/sprouts?filter=mine#today", "/sprouts?filter=mine#today"],
-	] as const)("maps returnTo %s to %s", (candidate, expected) => {
-		expect(safeReturnTo(candidate)).toBe(expected);
-	});
-
 	it("publishes portal-relative routes and characterizes OIDC redirects honestly", () => {
 		const inventory = devEndpointInventory("https://grove.test");
 

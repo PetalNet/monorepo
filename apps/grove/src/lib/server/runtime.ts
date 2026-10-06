@@ -1,20 +1,5 @@
 import { building } from "$app/env";
 import { DATABASE_URL, GROVE_HOME_OWNER_ISSUER, GROVE_HOME_OWNER_SUBJECT } from "$app/env/private";
-import {
-	ActorAuthority,
-	ActorAuthorityBuildLayer,
-	ActorDatabaseError,
-	ActorDenied,
-	ActorNotCurrent,
-	ActorAuthorityLayer,
-} from "$lib/server/actors/authority";
-import { GroveAuth, GroveAuthBuildLayer } from "$lib/server/auth";
-import { GroveAuthLayer } from "$lib/server/auth-runtime";
-import {
-	SproutCommands,
-	SproutCommandsBuildLayer,
-	SproutCommandsLayer,
-} from "$lib/server/sprouts/service";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { ApiServer } from "@petalnet/effect-api";
 import {
@@ -24,6 +9,22 @@ import {
 } from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, Redacted } from "effect";
+
+import {
+	ActorAuthority,
+	ActorAuthorityBuildLayer,
+	ActorDatabaseError,
+	ActorDenied,
+	ActorNotCurrent,
+	ActorAuthorityLayer,
+} from "#lib/server/actors/authority.ts";
+import { GroveAuthLayer } from "#lib/server/auth-runtime.ts";
+import { GroveAuth, GroveAuthBuildLayer } from "#lib/server/auth.ts";
+import {
+	SproutCommands,
+	SproutCommandsBuildLayer,
+	SproutCommandsLayer,
+} from "#lib/server/sprouts/service.ts";
 
 import { groveApi } from "./api";
 import { AuthenticationRequired } from "./authorization";

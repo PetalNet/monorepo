@@ -34,7 +34,8 @@
 		"tailwindcss": "catalog:prod"
 	},
 	"devDependencies": {
-		"@sveltejs/adapter-node": "catalog:dev",
+		"@effect/platform-node": "catalog:",
+		"@sveltejs/adapter-node": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",
 		"@testcontainers/postgresql": "catalog:",

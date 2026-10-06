@@ -14,7 +14,7 @@ describe("Grove browser OIDC policy", () => {
 
 		expect(provider).toMatchObject({
 			providerId: GROVE_OIDC_PROVIDER_ID,
-			accountIssuer: "https://identity.example/realm/grove",
+			requireIdTokenVerification: true,
 			clientId: "grove-browser",
 			clientSecret: "browser-secret",
 			discoveryUrl: "https://identity.example/realm/grove/.well-known/openid-configuration",

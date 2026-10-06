@@ -27,7 +27,7 @@ export const groveOidc = (config: GroveOidcConfig) => {
 				providerId: GROVE_OIDC_PROVIDER_ID,
 				name: "Grove identity provider",
 				discoveryUrl: oidcDiscoveryUrl(issuer),
-				accountIssuer: issuer,
+				requireIdTokenVerification: true,
 				clientId: config.clientId,
 				clientSecret: config.clientSecret,
 				redirectURI: oidcCallbackUrl(config.callbackOrigin),

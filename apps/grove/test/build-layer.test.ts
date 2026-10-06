@@ -15,8 +15,6 @@ describe("SproutCommandsBuildLayer", () => {
 					subject: "build",
 					scopes: new Set<string>(),
 				},
-				transport: "browser",
-				requestId: "build",
 			}),
 			Effect.exit,
 		);

@@ -1,5 +1,6 @@
 import { error } from "@sveltejs/kit";
-import type { Handle, RequestEvent } from "@sveltejs/kit";
+import type { RequestEvent } from "@sveltejs/kit";
+import type { Handle } from "@sveltejs/kit/hooks";
 import { Cause, Context, Effect, Exit, Fiber, ManagedRuntime, type Layer } from "effect";
 
 /** The current SvelteKit request, provided only to the fiber handling that request. */

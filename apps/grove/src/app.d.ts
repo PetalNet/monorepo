@@ -1,5 +1,6 @@
-import type { PersonPrincipal } from "$lib/server/actors/authority";
 import type { Session, User } from "better-auth/types";
+
+import type { PersonPrincipal } from "#lib/server/actors/authority.ts";
 
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces

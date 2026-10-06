@@ -197,6 +197,18 @@ describe("production Grove browser auth composition", () => {
 			status: "ready",
 			ownerPersonId: hydrated?.actor.actorId,
 		});
+		expect((await authorityState()).identities).toEqual([
+			expect.objectContaining({
+				issuer,
+				subject: owner.subject,
+				actor_id: hydrated?.actor.actorId,
+			}),
+		]);
+		await runtime.runPromise(sql`update account set "providerId" = 'untrusted-provider'`);
+		await expect(
+			runtime.runPromise(browserAuth.hydrateSession(new Headers({ cookie: sessionCookies }))),
+		).resolves.toBeNull();
+		await runtime.runPromise(sql`update account set "providerId" = ${GROVE_OIDC_PROVIDER_ID}`);
 		const accounts = await runtime.runPromise(
 			sql.unsafe<{ accessToken: string | null; idToken: string | null }>(
 				`select "accessToken", "idToken" from "account"`,

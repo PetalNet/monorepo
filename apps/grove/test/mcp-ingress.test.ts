@@ -313,8 +313,6 @@ describe("MCP protected-resource ingress", () => {
 			Effect.flatMap(SproutCommands, (commands) => commands.list).pipe(
 				Effect.provideService(InvocationContext, {
 					principal: owner,
-					transport: "browser",
-					requestId: "browser-parity",
 				}),
 			),
 		);

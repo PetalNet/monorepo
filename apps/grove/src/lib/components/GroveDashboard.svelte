@@ -1,15 +1,18 @@
 <script lang="ts">
-	import { AgentCapabilityValidator, ContainmentFixValidator } from "$lib/actors/schema";
-	import { requestAgentCapability, resolveContainmentConflict } from "$lib/authority.remote";
-	import { OptimisticCounter } from "$lib/optimistic-counter.svelte";
-	import type { ContainmentConflict, ContainmentFix } from "$lib/server/actors/authority";
+	import type { RemoteQuery } from "$app/server";
+	import { SvelteSet } from "svelte/reactivity";
+
+	import { AgentCapabilityValidator, ContainmentFixValidator } from "#lib/actors/schema.ts";
+	import { requestAgentCapability, resolveContainmentConflict } from "#lib/authority.remote.ts";
+	import { OptimisticCounter } from "#lib/optimistic-counter.svelte.ts";
+	import type { ContainmentConflict, ContainmentFix } from "#lib/server/actors/authority.ts";
 	import {
 		createSprout,
 		getSprout,
 		listSprouts,
 		removeSprout,
 		waterSprout,
-	} from "$lib/sprouts.remote";
+	} from "#lib/sprouts.remote.ts";
 	import {
 		Counter,
 		CreateSproutValidator,
@@ -17,9 +20,7 @@
 		WaterSproutValidator,
 		type Sprout,
 		type SproutIdValue,
-	} from "$lib/sprouts/schema";
-	import type { RemoteQuery } from "@sveltejs/kit";
-	import { SvelteSet } from "svelte/reactivity";
+	} from "#lib/sprouts/schema.ts";
 
 	type ContainmentResult =
 		| { readonly ok: true }

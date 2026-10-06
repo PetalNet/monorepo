@@ -1,4 +1,4 @@
-import { groveMcpProtectedResourceMetadata } from "$lib/server/mcp-oauth-runtime";
+import { groveMcpProtectedResourceMetadata } from "#lib/server/mcp-oauth-runtime.ts";
 
 import type { RequestHandler } from "./$types";
 

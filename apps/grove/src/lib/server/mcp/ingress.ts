@@ -2,7 +2,7 @@ import { isUtf8 } from "node:buffer";
 
 import type { ApiServer } from "@petalnet/effect-api";
 import { Data, Effect, Stream } from "effect";
-import { HttpClientRequest, HttpServerRequest, type HttpMethod } from "effect/unstable/http";
+import { HttpClientRequest, HttpServerRequest, type HttpMethod } from "effect/http";
 import { createRemoteJWKSet, errors, jwtVerify, type JWTVerifyGetKey, type JWTPayload } from "jose";
 
 import {
@@ -231,8 +231,6 @@ export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): 
 				return yield* groveApi.fetch(incoming, { listed, callable }).pipe(
 					Effect.provideService(InvocationContext, {
 						principal,
-						transport: "mcp",
-						requestId: request.headers.get("x-request-id") ?? crypto.randomUUID(),
 					}),
 				);
 			},

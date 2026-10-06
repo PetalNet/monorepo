@@ -59,7 +59,7 @@ The current architecture intentionally has:
 - one browser authentication and actor-authority spine;
 - transport-agnostic Effect services;
 - Effect Schema as the contract source;
-- `@effect/sql-pg` with effect-db migrations and effect-qb queries;
+- stable `@effect/sql-pg` with effect-db migrations and effect-qb queries;
 - shared REST/MCP adapters in `packages/effect-api`;
 - request-scoped Effect integration in `packages/effect-sveltekit`.
 

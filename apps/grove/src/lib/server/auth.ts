@@ -1,13 +1,18 @@
 import { getRequestEvent } from "$app/server";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import type { RequestEvent, ResolveOptions } from "@sveltejs/kit";
+import type { RequestEvent } from "@sveltejs/kit";
+import type { ResolveOptions } from "@sveltejs/kit/hooks";
 import type { BetterAuthOptions, Session, User } from "better-auth";
 import type { AdapterFactory } from "better-auth/adapters";
 import { betterAuth } from "better-auth/minimal";
 import { sveltekitCookies } from "better-auth/svelte-kit";
 import { Context, Effect, Layer } from "effect";
+import { Query } from "effect-qb";
+import * as Pg from "effect-qb/postgres";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { ActorAuthority, type PersonPrincipal } from "./actors/authority";
+import { accounts as accountsTable } from "./db/tables";
 import { GROVE_OIDC_PROVIDER_ID, groveOidc } from "./oidc";
 
 export interface GroveBrowserAuthConfig {
@@ -95,23 +100,32 @@ export const makeGroveBrowserAuth = async (
 
 	// Generic OIDC discovery is part of constructing Grove auth, so bad discovery fails startup.
 	await auth.$context;
+	const executor = Pg.Executor.make();
 	const validatedSession = (headers: Headers) =>
 		Effect.gen(function* () {
 			const current = yield* Effect.promise(() => auth.api.getSession({ headers }));
 			if (!current?.user.emailVerified) return null;
-			const accounts = yield* sql.unsafe<{ issuer: string; subject: string }>(
-				`select "issuer", "providerAccountId" as subject
-             from "account"
-            where "userId" = $1 and "providerId" = $2 and "issuer" = $3`,
-				[current.user.id, GROVE_OIDC_PROVIDER_ID, issuer],
-			);
+			// This provider is bound to the discovery-verified configured issuer at startup.
+			const accounts = yield* executor
+				.execute(
+					Query.select({ subject: accountsTable.accountId }).pipe(
+						Query.from(accountsTable),
+						Query.where(
+							Query.and(
+								Query.eq(accountsTable.userId, current.user.id),
+								Query.eq(accountsTable.providerId, GROVE_OIDC_PROVIDER_ID),
+							),
+						),
+					),
+				)
+				.pipe(Effect.provideService(SqlClient.SqlClient, sql));
 			const account = accounts.at(0);
 			if (!account || accounts.length !== 1) return null;
 			return {
 				current,
 				identity: {
 					authUserId: current.user.id,
-					issuer: account.issuer,
+					issuer,
 					subject: account.subject,
 				},
 			};

@@ -3,7 +3,11 @@ import type { RequestEvent } from "@sveltejs/kit";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { InvocationContext, withRestInvocation } from "../src/lib/server/invocation";
+import {
+	InvocationContext,
+	withBrowserInvocation,
+	withRestInvocation,
+} from "../src/lib/server/invocation";
 
 const eventFor = (actor: App.Locals["actor"]) => {
 	const request = new Request("https://grove.example/api/v1/sprouts");
@@ -15,6 +19,27 @@ const eventFor = (actor: App.Locals["actor"]) => {
 };
 
 describe("REST invocation", () => {
+	it("allows remote queries whose request event hides URL access", async () => {
+		const actor = {
+			kind: "person" as const,
+			actorId: "person-query",
+			authUserId: "auth-query",
+			name: "Query Person",
+		};
+		const event = eventFor(actor);
+		Object.defineProperty(event, "url", {
+			get: () => {
+				throw new Error("Kit remote query hides event.url");
+			},
+		});
+		const invocation = await Effect.runPromise(
+			withBrowserInvocation(Effect.map(InvocationContext, (context) => context)).pipe(
+				Effect.provideService(SvelteKitRequestEvent, event),
+			),
+		);
+		expect(invocation).toEqual({ principal: actor });
+	});
+
 	it("keeps unauthenticated failures in the REST error envelope", async () => {
 		const response = await Effect.runPromise(
 			withRestInvocation(Effect.succeed(new Response("unreachable"))).pipe(
@@ -28,7 +53,7 @@ describe("REST invocation", () => {
 		});
 	});
 
-	it("stamps the browser actor as a REST invocation", async () => {
+	it("provides the authenticated browser actor to REST operations", async () => {
 		const actor = {
 			kind: "person" as const,
 			actorId: "person-rest",
@@ -41,6 +66,6 @@ describe("REST invocation", () => {
 			).pipe(Effect.provideService(SvelteKitRequestEvent, eventFor(actor))),
 		);
 
-		expect(await response.json()).toMatchObject({ principal: actor, transport: "rest" });
+		expect(await response.json()).toEqual({ principal: actor });
 	});
 });
