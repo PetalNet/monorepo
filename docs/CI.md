@@ -66,11 +66,12 @@ its two jobs are intentionally skipped and default setup remains the security ga
 
 1. Land the workflow changes after checking the new `finish` result. Existing
    required check names remain available during this transition.
-2. In [the Primary ruleset](https://github.com/PetalNet/monorepo/settings/rules/17085602),
+2. In repository Settings → Rules → Rulesets, edit
+   [the Primary ruleset](https://github.com/PetalNet/monorepo/rules/17085602) and
    add `finish` as a required GitHub Actions status check. Once a main run has
    passed, replace the individual build/check/link/zizmor/typos requirements with
    `finish`. Keep code scanning and code quality required; do not add bypasses.
-3. In [Code Security settings](https://github.com/PetalNet/monorepo/settings/security_analysis),
+3. In repository Settings → Code Security → CodeQL analysis,
    switch CodeQL off from default setup. Immediately set repository Actions
    variable `CODEQL_ADVANCED` to `true`. Use an admin session or a token with
    repository administration, Actions variables, and code-scanning configuration
