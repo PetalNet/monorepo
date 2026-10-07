@@ -250,14 +250,10 @@ patchedDependencies:
 importers:
 
   .:
-    dependencies:
+    devDependencies:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.1(effect@4.0.1)(redis@6.2.1(@opentelemetry/api@1.9.1))
-      effect:
-        specifier: 'catalog:'
-        version: 4.0.1
-    devDependencies:
       '@effect/tsgo':
         specifier: 'catalog:'
         version: 0.24.3
@@ -285,6 +281,9 @@ importers:
       '@typescript/native':
         specifier: catalog:dev
         version: typescript@7.0.2
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.1
       eslint:
         specifier: catalog:dev
         version: 10.5.0(jiti@2.7.0)(supports-color@7.2.0)

@@ -27,11 +27,8 @@
 		"typecheck": "tsc -b",
 		"typesync:check": "typesync --dry=fail"
 	},
-	"dependencies": {
-		"@effect/platform-node": "catalog:",
-		"effect": "catalog:"
-	},
 	"devDependencies": {
+		"@effect/platform-node": "catalog:",
 		"@effect/tsgo": "catalog:",
 		"@eslint/js": "catalog:dev",
 		"@eslint/json": "catalog:dev",
@@ -41,6 +38,7 @@
 		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
 		"@typescript/native": "catalog:dev",
+		"effect": "catalog:",
 		"eslint": "catalog:dev",
 		"eslint-plugin-oxlint": "catalog:dev",
 		"eslint-plugin-package-json": "catalog:dev",

@@ -104,14 +104,14 @@ for (const scenario of scenarios) {
 			Object.entries(scenario.results).map(([job, result]) => [job, { result }]),
 		),
 	};
-	await test(`${scenario.name}: exact expected conclusions pass`, async () => {
+	void test(`${scenario.name}: exact expected conclusions pass`, async () => {
 		const conclusions = await Effect.runPromise(evaluateGate(jobs, scenario.codeql));
 		assert.equal(conclusions.length, 15);
 	});
 	for (const [job, expected] of Object.entries(jobs)) {
 		for (const result of ["success", "failure", "cancelled", "skipped"]) {
 			if (result === expected.result) continue;
-			await test(`${scenario.name}: rejects ${job}=${result}`, async () => {
+			void test(`${scenario.name}: rejects ${job}=${result}`, async () => {
 				await assert.rejects(
 					Effect.runPromise(
 						evaluateGate(
@@ -126,13 +126,13 @@ for (const scenario of scenarios) {
 				);
 			});
 		}
-		await test(`${scenario.name}: rejects missing ${job}`, async () => {
+		void test(`${scenario.name}: rejects missing ${job}`, async () => {
 			const missing = Object.fromEntries(Object.entries(jobs).filter(([name]) => name !== job));
 			await assert.rejects(Effect.runPromise(evaluateGate(missing, scenario.codeql)));
 		});
 	}
 	for (const key of Object.keys(scenario.selection)) {
-		await test(`${scenario.name}: rejects malformed ${key} selection`, async () => {
+		void test(`${scenario.name}: rejects malformed ${key} selection`, async () => {
 			await assert.rejects(
 				Effect.runPromise(
 					evaluateGate(
@@ -147,7 +147,7 @@ for (const scenario of scenarios) {
 		});
 	}
 	for (const name of ["new-job", "constructor"]) {
-		await test(`${scenario.name}: rejects unclassified ${name}`, async () => {
+		void test(`${scenario.name}: rejects unclassified ${name}`, async () => {
 			await assert.rejects(
 				Effect.runPromise(
 					evaluateGate(

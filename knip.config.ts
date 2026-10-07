@@ -7,6 +7,9 @@ export default {
 	ignoreDependencies: [
 		// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 		"@effect/language-service",
+		// CI's production entrypoint uses dev-only dependencies in this private workspace.
+		"effect!",
+		"@effect/platform-node!",
 	],
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
