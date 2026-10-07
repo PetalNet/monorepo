@@ -5,6 +5,19 @@ the work; `finish` waits for every validation job and checks its exact expected
 conclusion. This follows [Roc's CI manager](https://github.com/roc-lang/roc/blob/main/.github/workflows/ci_manager.yml),
 with Turborepo owning the JavaScript dependency graph.
 
+The manager is an Effect CLI at `tools/ci-manager/main.ts`. `policy.ts` defines
+native selection and formatting reuse; `select.ts` performs Git/Turbo planning;
+`gate.ts` contains the explicit expected-job inventory and validates GitHub's
+inputs with Effect Schema. Run `pnpm test:ci-manager` for the gate matrix and
+real Git/Turbo regression fixtures; it also runs as part of the root checks.
+
+JS jobs reuse `.github/actions/setup`, following
+[Flint's setup action](https://github.com/flint-fyi/flint/tree/main/.github/actions/setup).
+It installs the manifest-pinned pnpm/Node and frozen dependencies once per job.
+The workflow sets `PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false` after relying on
+that explicit install; Turbo passes it through to child tasks so pnpm does not
+attempt implicit dependency installation inside dry plans or checks.
+
 ## Selection
 
 - Pull requests compare the event's base SHA with the checked-out merge commit.
@@ -15,8 +28,10 @@ with Turborepo owning the JavaScript dependency graph.
   uses the same base/head and `--affected`. Turbo propagates package dependency
   changes. `globalDependencies` still invalidate cache hashes, but are not
   additional dependency edges for affected selection. Root inputs can select
-  all JS packages. Root `pnpm check` always runs
-  because it includes repository-wide checks, not just package tasks.
+  all JS packages. Root code checks always run because they include
+  repository-wide checks, not just package tasks. `TURBO_SCM_BASE` and
+  `TURBO_SCM_HEAD=HEAD` ensure planning and execution compare the same commits,
+  instead of using Turbo's default base-branch inference.
 - Rust sources, Cargo manifests/locks/toolchains, `.cargo` configuration, and
   shared CI inputs select all native apps and Rust CodeQL. This conservative
   fan-out covers cross-app dependencies such as Box Agent and Control Plane
@@ -29,6 +44,13 @@ with Turborepo owning the JavaScript dependency graph.
   scans also analyze all four languages, independent of change selection.
   JavaScript/TypeScript, Actions, and Python scan on every PR; only Rust is
   conditional. This preserves the existing default setup's language coverage.
+- Repository formatting runs on PRs, merge groups, and manual runs. A main push may skip
+  `pnpm fmt:check` **only** when GitHub's CI workflow history confirms a
+  successful `merge_group` run for that exact head SHA. Missing history, an API
+  failure, or a different SHA keeps formatting enabled. Code checks, builds,
+  tests, Clippy, and scans still run in full on main. Local `pnpm check` always
+  includes formatting. Native `cargo fmt` still runs on main: a successful
+  JS-only queue run does not prove those conditional native jobs ran.
 
 Native Turbo Rust execution is not required for this design. Experimental Cargo
 workspace support stays disabled. If enabled later, JS plans and commands must

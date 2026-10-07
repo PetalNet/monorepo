@@ -5,7 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"build": "turbo run build",
-		"check": "turbo run typecheck check fmt:check lint:oxlint lint:eslint:root lint:eslint:apps lint:impeccable manypkg dedupe:check typesync:check lint:knip lint:knip:prod --continue=always --concurrency=2",
+		"check": "pnpm check:code && pnpm fmt:check",
+		"check:code": "turbo run typecheck check lint:oxlint lint:eslint:root lint:eslint:apps lint:impeccable manypkg dedupe:check typesync:check lint:knip lint:knip:prod test:ci-manager --continue=always --concurrency=2",
 		"dedupe:check": "pnpm dedupe --check --prefer-offline",
 		"dev": "pnpm -r --parallel run dev",
 		"fmt": "oxfmt -c oxfmt.config.ts",
@@ -20,10 +21,15 @@
 		"manypkg": "manypkg check",
 		"prepare": "effect-tsgo patch",
 		"test": "turbo run test",
+		"test:ci-manager": "node --test tools/ci-manager/*.test.ts",
 		"ts-references:check": "update-ts-references --check",
 		"ts-references:update": "update-ts-references",
 		"typecheck": "tsc -b",
 		"typesync:check": "typesync --dry=fail"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@effect/tsgo": "catalog:",
