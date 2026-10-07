@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-const source = resolve(import.meta.dirname, "../../../.agents/ensure-grove");
-const serviceSource = resolve(import.meta.dirname, "../../../tools/start-grove-orb");
+const source = resolvePath(import.meta.dirname, "../../../.agents/ensure-grove");
+const serviceSource = resolvePath(import.meta.dirname, "../../../tools/start-grove-orb");
 const temporaryDirectories: string[] = [];
 
 const run = (
@@ -14,7 +14,7 @@ const run = (
 	arguments_: readonly string[],
 	options: { cwd: string; env?: NodeJS.ProcessEnv },
 ) =>
-	new Promise<{ code: number | null; stdout: string; stderr: string }>((_resolve) => {
+	new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
 		const child = spawn(command, arguments_, options);
 		let stdout = "";
 		let stderr = "";
@@ -25,7 +25,7 @@ const run = (
 			stderr += chunk.toString();
 		});
 		child.on("close", (code) => {
-			_resolve({ code, stdout, stderr });
+			resolve({ code, stdout, stderr });
 		});
 	});
 

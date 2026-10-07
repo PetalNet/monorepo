@@ -120,14 +120,13 @@ Effect's unstable-API check remains enabled: the tsconfig plugin settings allow
 the HTTP, AI/MCP, and SQL families used by the workspace, not all unstable APIs.
 
 Both Oxlint and `eslint-plugin-oxlint` consume `oxlint.config.ts`, so enabled rules
-are the source of truth for disabling overlap in ESLint. Generated disable blocks
-exclude `.svelte` files: ESLint retains their full typed and framework-aware rules,
+are the source of truth for disabling overlap in ESLint. A scoped `extends` block
+excludes `.svelte` files: ESLint retains their full typed and framework-aware rules,
 as well as Markdown, JSON/JSONC, and package manifest checks. Slide's existing
 ESLint exceptions remain during its rewrite, and Oxlint skips Slide. ESLint runs
-in sequential, cached shards to bound memory; Knip follows ESLint. Root tests
-check effective Svelte configurations and exercise the patched backend against
-both valid code and deliberately floating Promises, Effects, and unapproved
-unstable APIs. Remaining ESLint rules stay enabled when Oxlint does not own them.
+in sequential, cached shards to bound memory; Knip follows ESLint. Remaining
+ESLint rules stay enabled when Oxlint does not own them. Both local checks and CI
+run the linters with `--max-warnings=0`, so warning-level rules also fail the check.
 Knip owns circular-import detection (`cycles` is an error); Oxlint's import plugin
 is not enabled. Oxfmt owns package-manifest sorting, while ESLint retains manifest
 validation and naming rules. First-party tooling and Grove's development OIDC

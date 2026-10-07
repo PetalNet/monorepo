@@ -14,12 +14,11 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const HERE = import.meta.dirname;
-const PAGE = path.join(HERE, "../routes/calendar/+page.svelte");
+const PAGE = path.join(import.meta.dirname, "../routes/calendar/+page.svelte");
 const SURFACE = [
 	PAGE,
-	path.join(HERE, "components/BreakDayDetail.svelte"),
-	path.join(HERE, "components/BreakEditor.svelte"),
+	path.join(import.meta.dirname, "components/BreakDayDetail.svelte"),
+	path.join(import.meta.dirname, "components/BreakEditor.svelte"),
 ];
 
 const THEMES = ["light", "dark"] as const;

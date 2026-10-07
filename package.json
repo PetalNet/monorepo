@@ -19,7 +19,7 @@
 		"lint:oxlint": "oxlint --max-warnings=0",
 		"manypkg": "manypkg check",
 		"prepare": "effect-tsgo patch --oxlint",
-		"test": "node --test tools/lint-config.test.ts && turbo run test",
+		"test": "turbo run test",
 		"ts-references:check": "update-ts-references --check",
 		"ts-references:update": "update-ts-references",
 		"typecheck": "tsc -b",

@@ -7,8 +7,10 @@ export default {
 	sortTailwindcss: true,
 	jsdoc: true,
 	svelte: true,
-	// Vendored designs stay byte-faithful.
-	ignorePatterns: ["pnpm-lock.yaml", "apps/point/docs/design/**"],
+	ignorePatterns: [
+		// Vendored designs stay byte-faithful.
+		"apps/point/docs/design/**",
+	],
 	overrides: [
 		{
 			// Match drizzle-kit's JSON.stringify output for generated migration metadata.

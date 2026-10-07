@@ -162,17 +162,16 @@ export default defineConfig([
 			"svelte/require-each-key": "off",
 		},
 	},
-	// Never apply Oxlint's global ignores to ESLint: it still owns Svelte and Slide.
-	// Scope every generated rule-disable block, including future bridge additions.
-	...oxlint
-		// Effect has no ESLint counterparts; omit its preset from the bridge's narrower types.
-		.buildFromOxlintConfig(
-			{ ...structuredClone(lintConfig), extends: [] },
-			{ typeAware: true, withNursery: true },
-		)
-		.filter((config) => config.rules)
-		.map((config) => ({
-			...config,
-			ignores: [...(config.ignores ?? []), "**/*.svelte", "apps/slide/**"],
-		})),
+	{
+		name: "oxlint",
+		ignores: ["**/*.svelte", "apps/slide/**"],
+		extends: oxlint
+			// Effect has no ESLint counterparts; omit its preset from the bridge's narrower types.
+			.buildFromOxlintConfig(
+				{ ...structuredClone(lintConfig), extends: [] },
+				{ typeAware: true, withNursery: true },
+			)
+			// ESLint owns its global ignores independently of Oxlint.
+			.filter((config) => config.rules),
+	},
 ]);

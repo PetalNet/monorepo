@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const mcpResource = "https://grove.example/mcp";
 const mcpSecret = "grove-mcp-test-development-secret";
-const providerPath = fileURLToPath(new URL("../dev-oidc.ts", import.meta.url));
+const providerPath = fileURLToPath(import.meta.resolve("../dev-oidc.ts"));
 
 interface DevelopmentJwks {
 	readonly keys: (JsonWebKey & { readonly kid?: string })[];
