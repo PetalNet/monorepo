@@ -21,7 +21,7 @@ export interface ApiOperation<R> {
 	readonly messageForError?: (error: unknown) => string;
 }
 
-export type OperationConfig<I, A, E, R> = {
+export interface OperationConfig<I, A, E, R> extends Partial<RestBinding> {
 	readonly name: string;
 	readonly description: string;
 	readonly input: Schema.ConstraintDecoder<I>;
@@ -29,7 +29,7 @@ export type OperationConfig<I, A, E, R> = {
 	readonly handler: (input: I) => Effect.Effect<A, E, R>;
 	readonly statusForError?: (error: E) => number;
 	readonly messageForError?: (error: E) => string;
-} & (RestBinding | { readonly method?: never; readonly path?: never; readonly body?: never });
+}
 
 export type LogCause = (operationName: string, cause: Cause.Cause<unknown>) => void;
 
@@ -38,7 +38,10 @@ export const defaultLogCause: LogCause = (operationName, cause) => {
 };
 
 /** Declare an Effect operation. Omit method/path for MCP-only exposure. */
-export function operation<I, A, E, R>(config: OperationConfig<I, A, E, R>): ApiOperation<R> {
+export function operation<I, A, E, R>(
+	config: OperationConfig<I, A, E, R> &
+		(RestBinding | { readonly method?: never; readonly path?: never; readonly body?: never }),
+): ApiOperation<R> {
 	const declared = {
 		name: config.name,
 		description: config.description,
