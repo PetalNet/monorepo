@@ -18,6 +18,31 @@ permissions:
   contents: read
 
 jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      manager-rust: ${{ steps.select.outputs.manager-rust }}
+      courier-rust: ${{ steps.select.outputs.courier-rust }}
+      dispatcher-rust: ${{ steps.select.outputs.dispatcher-rust }}
+      control-plane-rust: ${{ steps.select.outputs.control-plane-rust }}
+      box-agent-rust: ${{ steps.select.outputs.box-agent-rust }}
+      point: ${{ steps.select.outputs.point }}
+      rust: ${{ steps.select.outputs.rust }}
+      js: ${{ steps.select.outputs.js }}
+      base: ${{ steps.select.outputs.base }}
+      affected: ${{ steps.select.outputs.affected }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        with:
+          cache: true
+          require-lockfile: true
+      - id: select
+        run: pnpm exec node tools/ci-manager.mjs select
+
   check:
     runs-on: ubuntu-latest
     steps:
@@ -35,10 +60,16 @@ jobs:
       - run: pnpm check
 
   test:
+    needs: select
+    if: needs.select.outputs.js == 'true'
     runs-on: ubuntu-latest
+    env:
+      TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
+      TURBO_SCM_HEAD: HEAD
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
         with:
@@ -48,15 +79,23 @@ jobs:
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
-      - run: pnpm test
+      - if: needs.select.outputs.affected == 'true'
+        run: pnpm test --affected
+      - if: needs.select.outputs.affected != 'true'
+        run: pnpm test
 
   build:
+    needs: select
+    if: needs.select.outputs.js == 'true'
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: "file:/tmp/build.db"
+      TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
+      TURBO_SCM_HEAD: HEAD
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
         with:
@@ -70,9 +109,14 @@ jobs:
         run: |
           echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
           echo "DATABASE_URL=$DATABASE_URL" > apps/grove/.env
-      - run: pnpm build
+      - if: needs.select.outputs.affected == 'true'
+        run: pnpm build --affected
+      - if: needs.select.outputs.affected != 'true'
+        run: pnpm build
 
   manager-rust:
+    needs: select
+    if: needs.select.outputs.manager-rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,6 +133,8 @@ jobs:
         run: N12_TMUX_IT=1 cargo test -p agent-manager --locked --test tmux_it -- --ignored
 
   courier-rust:
+    needs: select
+    if: needs.select.outputs.courier-rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -105,6 +151,8 @@ jobs:
       - run: cargo test -p 'courier*' --locked
 
   dispatcher-rust:
+    needs: select
+    if: needs.select.outputs.dispatcher-rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,6 +165,8 @@ jobs:
       - run: cargo test -p dispatcher --locked
 
   control-plane-rust:
+    needs: select
+    if: needs.select.outputs.control-plane-rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -129,6 +179,8 @@ jobs:
       - run: cargo test -p control-plane --locked
 
   box-agent-rust:
+    needs: select
+    if: needs.select.outputs.box-agent-rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -139,6 +191,44 @@ jobs:
       - run: cargo fmt -p box-agent --check
       - run: cargo clippy -p box-agent --all-targets --locked -- -D warnings
       - run: cargo test -p box-agent --locked
+
+  point:
+    needs: select
+    if: needs.select.outputs.point == 'true'
+    uses: ./.github/workflows/point.yml # zizmor: ignore[self-repository] actionlint compatibility
+
+  zizmor:
+    timeout-minutes: 2
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql-js:
+    if: vars.CODEQL_ADVANCED == 'true'
+    uses: ./.github/workflows/codeql.yml # zizmor: ignore[self-repository] actionlint compatibility
+    with:
+      languages: '["javascript-typescript", "actions"]'
+    permissions:
+      contents: read
+      security-events: write
+
+  codeql-rust:
+    needs: select
+    if: vars.CODEQL_ADVANCED == 'true' && needs.select.outputs.rust == 'true'
+    uses: ./.github/workflows/codeql.yml # zizmor: ignore[self-repository] actionlint compatibility
+    with:
+      languages: '["rust"]'
+    permissions:
+      contents: read
+      security-events: write
 
   typos:
     runs-on: ubuntu-latest
@@ -166,3 +256,33 @@ jobs:
         with:
           args: --cache --max-cache-age 1d .
           token: ${{ github.token }}
+
+  finish:
+    if: always()
+    needs:
+      - select
+      - check
+      - test
+      - build
+      - manager-rust
+      - courier-rust
+      - dispatcher-rust
+      - control-plane-rust
+      - box-agent-rust
+      - point
+      - zizmor
+      - codeql-js
+      - codeql-rust
+      - typos
+      - link-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require exactly the selected job conclusions
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          CODEQL_ADVANCED: ${{ vars.CODEQL_ADVANCED == 'true' && 'true' || 'false' }}
+        run: node tools/ci-manager.mjs gate
