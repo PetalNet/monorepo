@@ -1,0 +1,81 @@
+name: pullfrog
+
+# Pullfrog (https://docs.pullfrog.com) running action-only, without the GitHub
+# App: reviews same-repo PRs and answers @pullfrog mentions from people with
+# write access. Codex CLI agent on GPT Sol (openai/gpt-6.1-sol) at medium
+# effort, paid by a ChatGPT/Codex subscription in the CODEX_AUTH_JSON secret.
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    if: >-
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: pullfrog-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write # Pullfrog run-context lookup over OIDC
+      issues: write # progress comment
+      pull-requests: write # the review itself
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pullfrog/pullfrog@ed800018463e1b84e8e3377f662173aed1da98b0 # v0.1.95
+        with:
+          prompt: Review pull request #${{ github.event.pull_request.number }} and submit a GitHub review with inline comments on any bugs.
+          model: openai/gpt-sol
+          effort: medium
+          timeout: 20m
+          push: disabled
+          shell: restricted
+        env:
+          PULLFROG_AGENT: codex
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          GH_TOKEN: ${{ github.token }}
+
+  mention:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      contains(github.event.comment.body, '@pullfrog') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: pullfrog-mention-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # Pullfrog run-context lookup over OIDC
+      issues: write # replies on issues and PR conversations
+      pull-requests: write # reviews when asked on a PR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pullfrog/pullfrog@ed800018463e1b84e8e3377f662173aed1da98b0 # v0.1.95
+        with:
+          prompt: Someone mentioned @pullfrog in comment ${{ github.event.comment.id }} on issue or pull request #${{ github.event.issue.number }}. Read that comment and its thread with your GitHub tools, do what it asks, and reply on #${{ github.event.issue.number }}.
+          model: openai/gpt-sol
+          effort: medium
+          timeout: 20m
+          push: disabled
+          shell: restricted
+        env:
+          PULLFROG_AGENT: codex
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          GH_TOKEN: ${{ github.token }}
