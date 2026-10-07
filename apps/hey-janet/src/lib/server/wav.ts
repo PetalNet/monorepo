@@ -1,8 +1,8 @@
-export function wavInfo(bytes: Uint8Array) {
+export function wavInfo(bytes: Uint8Array, maxSeconds = 8) {
 	const b = Buffer.from(bytes);
 	if (
 		b.length < 44 ||
-		b.length > 256044 ||
+		b.length > 44 + maxSeconds * 32000 ||
 		b.toString("ascii", 0, 4) !== "RIFF" ||
 		b.readUInt32LE(4) !== b.length - 8 ||
 		b.toString("ascii", 8, 16) !== "WAVEfmt " ||
@@ -17,7 +17,7 @@ export function wavInfo(bytes: Uint8Array) {
 		b.readUInt32LE(40) !== b.length - 44 ||
 		(b.length - 44) % 2
 	)
-		throw new Error("Use a 16 kHz mono 16-bit PCM WAV, up to 8 seconds.");
+		throw new Error(`Use a 16 kHz mono 16-bit PCM WAV, up to ${String(maxSeconds)} seconds.`);
 	const duration = (b.length - 44) / 32000;
 	if (duration < 0.2) throw new Error("Recording is too short.");
 	let peak = 0,

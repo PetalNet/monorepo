@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, writeFile, statfs } from "node:fs/promises";
 import path from "node:path";
 
-import { prompts } from "../prompts";
+import { allPrompts, prompts, maxDuration, type PromptKind } from "../prompts";
 import { wavInfo } from "./wav";
 
 export interface Participant {
@@ -15,7 +15,7 @@ export interface Clip extends Pick<Participant, "id" | "name"> {
 	file: string;
 	clipId: string;
 	setId: string;
-	kind: string;
+	kind: PromptKind;
 	say: string;
 	how: string;
 	peak: number;
@@ -38,7 +38,7 @@ export function participant(
 		: anonymousId;
 	return { id, name, authSub };
 }
-function folder(p: Pick<Participant, "id" | "name">) {
+export function participantFolder(p: Pick<Participant, "id">) {
 	return `${p.id}_${
 		p.name
 			.toLowerCase()
@@ -84,14 +84,14 @@ export async function saveClip(
 	bytes: Uint8Array,
 	userAgent: string,
 ) {
-	const prompt: (typeof prompts)[number] | undefined = Number.isInteger(index)
-		? prompts[index]
+	const prompt: (typeof allPrompts)[number] | undefined = Number.isInteger(index)
+		? allPrompts[index]
 		: undefined;
 	if (!prompt || !uuid.test(clipId) || !uuid.test(setId))
 		throw new Error("Invalid prompt or recording identifier.");
-	const info = wavInfo(bytes);
+	const info = wavInfo(bytes, maxDuration(prompt.kind));
 	return serialized(async () => {
-		const dir = path.join(root(), folder(p));
+		const dir = path.join(root(), participantFolder(p));
 		await mkdir(dir, { recursive: true, mode: 0o700 });
 		const meta = path.join(dir, `${clipId}.clip.json`);
 		try {
@@ -107,11 +107,18 @@ export async function saveClip(
 		const entries = await readdir(dir);
 		if (entries.filter((n) => n.endsWith(".clip.json")).length >= 4000)
 			throw new Error("Participant limit reached. Contact Parker.");
-		const file = `${prompt.kind}_${String(index).padStart(2, "0")}_${prompt.say
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, "-")
-			.replace(/-$/, "")
-			.slice(0, 24)}_${clipId}.wav`;
+		const freeNumber = entries.reduce((next, entry) => {
+			const match = /^free_(\d+)\.wav$/.exec(entry);
+			return match ? Math.max(next, Number(match[1]) + 1) : next;
+		}, 0);
+		const file =
+			prompt.kind === "free"
+				? `free_${String(freeNumber).padStart(2, "0")}.wav`
+				: `${prompt.kind}_${String(prompt.kind === "enroll" ? index - prompts.length : index).padStart(2, "0")}_${prompt.say
+						.toLowerCase()
+						.replace(/[^a-z0-9]+/g, "-")
+						.replace(/-$/, "")
+						.slice(0, 24)}_${clipId}.wav`;
 		const clip: Clip = {
 			id: p.id,
 			name: p.name,
@@ -142,14 +149,16 @@ export async function review(ids: string[], decision: Decision) {
 			clips.map(async (clip) => {
 				clip.decision = decision;
 				await atomic(
-					path.join(root(), folder(clip), `${clip.clipId}.clip.json`),
+					path.join(root(), participantFolder(clip), `${clip.clipId}.clip.json`),
 					JSON.stringify(clip),
 				);
 			}),
 		);
-		await Promise.all([...new Set(clips.map((c) => path.join(root(), folder(c))))].map(journal));
+		await Promise.all(
+			[...new Set(clips.map((c) => path.join(root(), participantFolder(c))))].map(journal),
+		);
 	});
 }
 export async function audio(clip: Clip) {
-	return readFile(path.join(root(), folder(clip), clip.file));
+	return readFile(path.join(root(), participantFolder(clip), clip.file));
 }

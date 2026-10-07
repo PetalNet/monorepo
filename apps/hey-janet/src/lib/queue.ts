@@ -1,4 +1,7 @@
+import type { RecordingMode } from "./prompts";
+
 export interface Progress {
+	mode?: RecordingMode;
 	name: string;
 	participantId: string;
 	setId: string;

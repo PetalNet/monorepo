@@ -1,6 +1,6 @@
 # Hey Janet
 
-A recording booth for Parker's wake-word training set. Participants give a first name and consent, then record 25 wake phrases and 15 near misses. PetalNet sign-in is optional. Accepted takes survive reloads in IndexedDB and retry failed uploads. Parker can review clips at `/admin` and export kept recordings as `positives/` and `negatives/`.
+A recording booth for Parker's wake-word training set. Participants give a first name and consent, then record 25 wake phrases and 15 near misses. An optional voice profile adds ten sentences and two 20–30 second answers, either on its own or after the wake-word set. PetalNet sign-in is optional. Accepted takes survive reloads in IndexedDB and retry failed uploads. Parker can review clips at `/admin` and export kept recordings as `positives/` and `negatives/`.
 
 ## Run
 
@@ -11,7 +11,7 @@ pnpm install --frozen-lockfile
 pnpm --filter @petalnet/hey-janet dev --host 127.0.0.1 --port 18806
 ```
 
-Use HTTPS outside localhost. Local recordings go into `apps/hey-janet/.cache/recordings`. Each participant has a stable ID/name folder containing 16 kHz mono 16-bit WAVs, clip metadata and `clips.jsonl`. Keep/drop changes metadata, never audio. Run one server process.
+Use HTTPS outside localhost. Local recordings go into `apps/hey-janet/.cache/recordings`. Each participant has a stable ID/name folder containing 16 kHz mono 16-bit WAVs, clip metadata and `clips.jsonl`. Wake-word clips keep their `pos_`/`neg_` names. Voice profiles use `enroll_NN_*.wav` and `free_NN.wav`; free-speech numbers increase across sets to avoid overwriting takes. Keep/drop changes metadata, never audio. Speaker-ID export contains kept enrollment and free-speech clips in per-participant folders, each with `clips.jsonl`. Run one server process.
 
 ```sh
 pnpm --filter @petalnet/hey-janet check

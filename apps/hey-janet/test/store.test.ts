@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { prompts } from "../src/lib/prompts";
+import { prompts, allPrompts, recordingSets } from "../src/lib/prompts";
 import { allClips, audio, participant, review, saveClip } from "../src/lib/server/store";
 import { wavInfo } from "../src/lib/server/wav";
 import { zip } from "../src/lib/server/zip";
@@ -14,8 +14,8 @@ afterEach(async () => {
 	await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 	delete process.env.BOOTH_DATA;
 });
-function wav() {
-	const b = Buffer.alloc(32044);
+function wav(seconds = 1) {
+	const b = Buffer.alloc(44 + seconds * 32000);
 	b.write("RIFF");
 	b.writeUInt32LE(b.length - 8, 4);
 	b.write("WAVEfmt ", 8);
@@ -27,7 +27,7 @@ function wav() {
 	b.writeUInt16LE(2, 32);
 	b.writeUInt16LE(16, 34);
 	b.write("data", 36);
-	b.writeUInt32LE(32000, 40);
+	b.writeUInt32LE(b.length - 44, 40);
 	for (let i = 44; i < b.length; i += 2) b.writeInt16LE(Math.round(Math.sin(i / 20) * 12000), i);
 	return b;
 }
@@ -91,6 +91,33 @@ describe("training store", () => {
 		expect(lines).toHaveLength(1);
 		expect(lines.join("")).not.toContain("private-oidc-subject");
 		expect(JSON.parse(lines[0])).toMatchObject({ decision: "drop" });
+	});
+	it("stores enrollment and long free speech without overwriting earlier takes", async () => {
+		expect(recordingSets.speaker.filter((p) => p.kind === "enroll")).toHaveLength(10);
+		expect(recordingSets.speaker.filter((p) => p.kind === "free")).toHaveLength(2);
+		const dir = await mkdtemp(path.join(tmpdir(), "hey-janet-test-"));
+		dirs.push(dir);
+		process.env.BOOTH_DATA = dir;
+		const p = participant("Alex", null, randomUUID());
+		const set = randomUUID();
+		const sentence = await saveClip(p, randomUUID(), set, prompts.length, wav(12), "iPhone");
+		expect(sentence.file).toMatch(/^enroll_00_.*\.wav$/);
+		expect(sentence).toMatchObject({ kind: "enroll", duration: 12 });
+		const freeIndex = allPrompts.findIndex((prompt) => prompt.kind === "free");
+		const id = randomUUID();
+		const first = await saveClip(p, id, set, freeIndex, wav(25), "iPhone");
+		const retry = await saveClip(p, id, set, freeIndex, wav(25), "iPhone");
+		const second = await saveClip(p, randomUUID(), randomUUID(), freeIndex, wav(30), "iPhone");
+		expect(first).toMatchObject({ file: "free_00.wav", kind: "free", duration: 25 });
+		expect(retry.clipId).toBe(first.clipId);
+		expect(second).toMatchObject({ file: "free_01.wav", kind: "free", duration: 30 });
+		expect(await audio(first)).toEqual(wav(25));
+		expect(await allClips()).toHaveLength(3);
+		await expect(saveClip(p, randomUUID(), set, 0, wav(9), "iPhone")).rejects.toThrow();
+		await expect(
+			saveClip(p, randomUUID(), set, prompts.length, wav(16), "iPhone"),
+		).rejects.toThrow();
+		await expect(saveClip(p, randomUUID(), set, freeIndex, wav(31), "iPhone")).rejects.toThrow();
 	});
 	it("writes a standard ZIP with local and central headers", async () => {
 		async function* entries() {

@@ -79,10 +79,11 @@
 			Keep the voices you want in the training set. Dropped takes stay in the archive.
 		</p>
 	</section>
-	<a
-		class="btn btn-primary min-h-12 border-0 shadow-none"
-		href={resolve("/api/admin/export")}
-		download><Download size={20} />Export kept set</a
+	<a class="btn btn-primary min-h-12 border-0 shadow-none" href={resolve("/api/admin/export")} download
+		><Download size={20} />Export wake-word set</a
+	>
+	<a class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none" href={`${resolve("/api/admin/export")}?set=speaker`} download
+		><Download size={20} />Export speaker-ID set</a
 	>
 	<fieldset disabled={!loaded}>
 		<div class="my-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -98,13 +99,11 @@
 				>
 			</div>
 			<div>
-				<label class="block" for="kind">Phrase</label><select
-					class="select bg-base-100 min-h-12 w-full border-0"
-					id="kind"
-					bind:value={kind}
-					onchange={reset}
-					><option value="all">All phrases</option><option value="pos">Wake phrase</option><option
+			<label for="kind">Kind</label><select class="select w-full min-h-12 bg-base-100 border-0" id="kind" bind:value={kind} onchange={reset}
+				><option value="all">All recordings</option><option value="pos">Wake phrase</option><option
 						value="neg">Near miss</option
+				><option value="enroll">Voice profile sentence</option><option value="free"
+					>Free speech</option
 					></select
 				>
 			</div>

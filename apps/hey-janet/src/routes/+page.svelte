@@ -3,12 +3,15 @@
 	import { Mic, Square, Check, RotateCcw, ArrowRight } from "@lucide/svelte";
 	import { onMount } from "svelte";
 
-	import { prompts } from "#lib/prompts.ts";
+	import { prompts, recordingSets, type RecordingMode } from "#lib/prompts.ts";
 	import { queue, type Progress, type Take } from "#lib/queue.ts";
 	import { Recorder, type Recording } from "#lib/recorder.ts";
+	import RecordingStation from "#lib/RecordingStation.svelte";
 
 	import type { PageData } from "./$types";
 	let { data }: { data: PageData } = $props();
+	let mode = $state<RecordingMode>("wake");
+	let elapsed = $state(0);
 	let name = $state(""),
 		consent = $state(false),
 		stage = $state<"landing" | "ready" | "recording" | "review" | "done">("landing");
@@ -23,7 +26,10 @@
 		loaded = $state(false);
 	let recorder: Recorder | null = null;
 	let flushing = $state(false);
-	const prompt = $derived(prompts[progress?.index ?? 0]);
+	const currentSet = $derived(recordingSets[progress?.mode ?? "wake"]);
+	const prompt = $derived(currentSet[progress?.index ?? 0]);
+	const sentenceCount = recordingSets.speaker.filter((p) => p.kind === "enroll").length;
+	const freeCount = recordingSets.speaker.length - sentenceCount;
 	const totalPending = $derived(pending.length);
 	function revoke() {
 		if (preview) URL.revokeObjectURL(preview);
@@ -43,7 +49,7 @@
 					method: "POST",
 					headers: { "Content-Type": "audio/wav", "X-Participant-Id": take.participantId },
 					body: take.wav,
-					signal: AbortSignal.timeout(20000),
+					signal: AbortSignal.timeout(120000),
 				},
 			);
 			if (!response.ok) {
@@ -129,6 +135,7 @@
 			if (progress && progress.participantId !== p.id)
 				throw new Error("This session belongs to another participant. Start over to record.");
 			progress ??= {
+				mode,
 				name: name.trim(),
 				participantId: p.id,
 				setId: crypto.randomUUID(),
@@ -161,6 +168,9 @@
 				micError = "The microphone disconnected. Reconnect it and record this phrase again.";
 				stage = "ready";
 			},
+			(seconds) => {
+				elapsed = seconds;
+			},
 		);
 		try {
 			await recorder.open();
@@ -183,7 +193,7 @@
 		try {
 			if (await connect()) {
 				stage = "recording";
-				await recorder?.start();
+				await recorder?.start(prompt.kind);
 			}
 		} finally {
 			busy = false;
@@ -205,7 +215,7 @@
 						id: crypto.randomUUID(),
 						setId: progress.setId,
 						participantId: progress.participantId,
-						index: progress.index,
+						index: progress.index + (progress.mode === "speaker" ? prompts.length : 0),
 						wav: await recording.wav.arrayBuffer(),
 						attempts: 0,
 						next: 0,
@@ -217,7 +227,8 @@
 			await refresh();
 			progress = next;
 			revoke();
-			stage = next.index >= prompts.length ? "done" : "ready";
+			elapsed = 0;
+			stage = next.index >= currentSet.length ? "done" : "ready";
 			if (stage === "done") recorder?.close();
 			void flush();
 		} catch {
@@ -247,12 +258,47 @@
 			busy = false;
 		}
 	}
-	async function more() {
-		if (!progress) return;
-		const next = { ...progress, setId: crypto.randomUUID(), index: 0, accepted: 0, skipped: 0 };
+	async function more(nextMode = progress?.mode ?? "wake") {
+		if (!progress || busy) return;
+		busy = true;
+		try {
+			const next = {
+				...progress,
+				mode: nextMode,
+				setId: crypto.randomUUID(),
+				index: 0,
+				accepted: 0,
+				skipped: 0,
+			};
 		await queue.saveProgress(next);
 		progress = next;
+			elapsed = 0;
 		stage = "ready";
+		} catch {
+			message = "Could not start another set. Please try again.";
+		} finally {
+			busy = false;
+		}
+	}
+	async function finishProfile() {
+		if (!progress || busy) return;
+		busy = true;
+		const next = {
+			...progress,
+			index: currentSet.length,
+			skipped: progress.skipped + currentSet.length - progress.index,
+		};
+		try {
+			await queue.saveProgress(next);
+			progress = next;
+			recorder?.close();
+			revoke();
+			stage = "done";
+		} catch {
+			message = "Could not save your progress. Keep this tab open and try again.";
+		} finally {
+			busy = false;
+		}
 	}
 	async function startOver() {
 		if (busy || flushing) return;
@@ -287,7 +333,7 @@
 <svelte:head
 	><title>Hey Janet · Recording booth</title><meta
 		name="description"
-		content="Lend your voice to Parker’s Janet wake-word training set. About three minutes, no account needed."
+		content="Help Janet learn when to listen and who is speaking. Record a wake-word set or an optional voice profile."
 	/></svelte:head
 >
 <svelte:window onkeydown={keyboard} />
@@ -315,8 +361,12 @@
 			<span class="text-primary font-semibold">A little of your voice. A better Janet.</span>
 			<h1>Help Janet<br />hear you.</h1>
 			<p>
-				Say “Hey Janet” a few different ways, then a few phrases that sound close. Your real voice
-				helps Parker teach Janet when to listen.
+				Record wake words to help Janet know when to listen, or a voice profile to help recognize
+				who is speaking.
+			</p>
+			<p class="text-base-content">
+				{mode === "speaker" ? "10 sentences and 2 spoken answers" : "40 short phrases"} · About 3 minutes
+				· No account needed
 			</p>
 			<p class="text-base-content">40 short phrases · About 3 minutes · No account needed</p>
 		</section>
@@ -328,8 +378,14 @@
 			}}
 		>
 			<div>
-				<label class="block" for="first-name">Your first name</label><input
-					class="input bg-base-100 min-h-12 w-full border-0"
+				<label for="recording-set">Recording set</label>
+				<select class="select w-full min-h-12 bg-base-100 border-0" id="recording-set" bind:value={mode}
+					><option value="wake">Wake word</option><option value="speaker">Voice profile</option
+					></select
+				>
+			</div>
+			<div>
+				<label for="first-name">Your first name</label><input class="input w-full min-h-12 bg-base-100 border-0"
 					id="first-name"
 					disabled={!loaded || !!progress}
 					name="given-name"
@@ -379,52 +435,55 @@
 					: "Your takes have uploaded. You can close this page."}
 			</div>
 		</section>
+		{#if progress?.mode !== "speaker"}
+			<section class="max-w-xl pt-8 pb-6">
+				<h2>Add a voice profile?</h2>
+				<p>
+					Optional: read 10 sentences, then give two 20–30 second answers. These samples may help
+					Janet recognize who is speaking. You can skip any prompt or finish early.
+				</p>
+				<button class="btn btn-primary min-h-12 border-0 shadow-none"
+					onclick={() => {
+						void more("speaker");
+					}}>Add a voice profile<ArrowRight size={20} /></button
+				>
+			</section>
+		{/if}
 		<button
 			class="btn btn-primary min-h-12 border-0 shadow-none"
 			onclick={() => {
 				void more();
 			}}>Record another set<ArrowRight size={20} /></button
 		>
+		{#if progress?.mode === "speaker"}<button
+				class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
+				disabled={busy}
+				onclick={() => {
+					void more("wake");
+				}}>Record a wake-word set</button
+			>{/if}
 	{:else}
 		<div class="flex flex-wrap items-center gap-4" style="margin-block-start:32px">
-			<span>Hi, {progress?.name}</span><span class="text-base-content"
-				>Phrase {(progress?.index ?? 0) + 1} of {prompts.length}</span
+			<span>Hi, {progress?.name}</span><span class="text-base-content">
+				{#if progress?.mode === "speaker"}
+					{prompt.kind === "free"
+						? `Free speech ${String(progress.index - sentenceCount + 1)} of ${String(freeCount)}`
+						: `Sentence ${String(progress.index + 1)} of ${String(sentenceCount)}`}
+				{:else}Phrase {(progress?.index ?? 0) + 1} of {currentSet.length}{/if}</span
 			>
 		</div>
 		<progress
-			class="progress progress-primary h-1 w-full"
-			max={prompts.length}
+			class="progress progress-primary w-full h-1"
+			max={currentSet.length}
 			value={progress?.index ?? 0}
 			aria-label="Set progress"
 		></progress>
-		<section class="station" aria-label="Current phrase">
-			<span class="text-primary font-semibold"
-				>{prompt.kind === "pos" ? "Wake phrase" : "Near miss · should not wake Janet"}</span
-			>
-			<h1 class="phrase">“{prompt.say}”</h1>
-			<p class="direction">{prompt.how}</p>
-			<div
-				class="meter"
-				role="meter"
-				aria-label="Microphone level"
-				aria-valuemin="0"
-				aria-valuemax="100"
-				aria-valuenow={Math.round(level * 100)}
-			>
-				<div
-					class="meter-fill"
-					style:transform={`scaleX(${String(Math.min(1, level * 1.8))})`}
-				></div>
-			</div>
-			<small
-				>{stage === "recording"
-					? "Listening. Say the phrase once."
-					: stage === "review"
-						? "Listen back before you continue."
-						: "Tap Record, then speak when you see “Listening”."}</small
-			>
-		</section>
+		<RecordingStation {prompt} {stage} {level} {elapsed} />
 		{#if stage === "review" && recording}
+			{#if prompt.kind === "free" && recording.duration < 20}<p class="my-4 bg-base-100 p-4 leading-relaxed">
+					This take is under 20 seconds. A little more speech helps; you can redo it or keep this
+					take.
+				</p>{/if}
 			<audio controls src={preview} aria-label="Play your take"></audio>
 			{#if recording.peak < 1500 / 32768 || recording.clipped}<p
 					class="bg-base-100 my-4 p-4 leading-relaxed"
@@ -466,10 +525,17 @@
 				disabled={busy || stage === "recording"}
 				onclick={() => {
 					void advance(true);
-				}}>Skip this phrase</button
+				}}>{prompt.kind === "free" ? "Skip this prompt" : "Skip this phrase"}</button
 			><small>Space to record or stop</small>
 		</div>
-		{#if micError}<p class="bg-base-100 my-4 p-4 leading-relaxed" role="alert">{micError}</p>{/if}
+		{#if progress?.mode === "speaker"}<button
+				class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
+				disabled={busy || stage === "recording"}
+				onclick={() => {
+					void finishProfile();
+				}}>Finish voice profile</button
+			>{/if}
+		{#if micError}<p class="my-4 bg-base-100 p-4 leading-relaxed" role="alert">{micError}</p>{/if}
 	{/if}
 	{#if message}<p class="bg-base-100 my-4 p-4 leading-relaxed" role="alert">{message}</p>{/if}
 	{#if totalPending}<div class="my-6 min-h-12 leading-relaxed" role="status">
