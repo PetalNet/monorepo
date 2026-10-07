@@ -8,7 +8,7 @@ export default defineConfig({
 		fontless({
 			families: [
 				{
-					name: "Geist",
+					name: "Public Sans",
 					provider: "fontsource",
 					weights: [400, 500, 600],
 					styles: ["normal"],

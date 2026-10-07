@@ -181,7 +181,6 @@ jobs:
       - run: pnpm --filter @petalnet/hey-janet exec playwright install --with-deps chromium webkit firefox
       - name: Provide headless audio output for Firefox
         run: |
-          sudo apt-get update -q
           sudo apt-get install -y -q pulseaudio
           pulseaudio --start --exit-idle-time=-1 --load="module-null-sink sink_name=hey_janet_test"
       - run: pnpm --filter @petalnet/hey-janet build
