@@ -331,7 +331,7 @@
 				<label class="block" for="first-name">Your first name</label><input
 					class="input bg-base-100 min-h-12 w-full border-0"
 					id="first-name"
-					disabled={!!progress}
+					disabled={!loaded || !!progress}
 					name="given-name"
 					autocomplete="given-name"
 					required
@@ -344,6 +344,7 @@
 					class="checkbox checkbox-primary shrink-0"
 					type="checkbox"
 					autocomplete="off"
+					disabled={!loaded}
 					required
 					bind:checked={consent}
 				/><span

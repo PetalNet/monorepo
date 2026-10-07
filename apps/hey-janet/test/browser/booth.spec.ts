@@ -120,6 +120,24 @@ test("permission denied has recovery guidance", async ({ page }) => {
 	await expect(page.getByRole("alert")).toContainText("Microphone access is blocked");
 	await expect(page.getByRole("button", { name: "Record", exact: true })).toBeEnabled();
 });
+test("landing waits for startup before accepting input", async ({ page }) => {
+	const startup = Promise.withResolvers<undefined>();
+	await page.route("**/_app/immutable/entry/*.js", async (route) => {
+		await startup.promise;
+		await route.continue();
+	});
+	await page.goto("/", { waitUntil: "commit" });
+	try {
+		await expect(page.getByLabel("Your first name")).toBeDisabled();
+		await expect(page.getByRole("checkbox", { name: /wake-word/ })).toBeDisabled();
+	} finally {
+		startup.resolve(undefined);
+	}
+	await page.getByLabel("Your first name").fill("Slow connection");
+	await page.getByRole("checkbox", { name: /wake-word/ }).check();
+	await expect(page.getByRole("button", { name: "Start recording" })).toBeEnabled();
+	await expect(page.getByLabel("Your first name")).toHaveValue("Slow connection");
+});
 test("keyboard, labels, contrast and responsive overflow", async ({ page }) => {
 	await begin(page);
 	await page.locator("h1").click();
@@ -165,7 +183,18 @@ test("admin boundary, curation, metadata persistence and ZIP export", async ({
 			sameSite: "Lax",
 		},
 	]);
-	await page.goto("/admin");
+	const startup = Promise.withResolvers<undefined>();
+	await page.route("**/_app/immutable/entry/*.js", async (route) => {
+		await startup.promise;
+		await route.continue();
+	});
+	await page.goto("/admin", { waitUntil: "commit" });
+	try {
+		await expect(page.getByLabel("Participant")).toBeDisabled();
+		await expect(page.getByRole("button", { name: /Select visible/ })).toBeDisabled();
+	} finally {
+		startup.resolve(undefined);
+	}
 	await page.getByRole("button", { name: /Select visible/ }).click();
 	await page.getByRole("button", { name: "Keep selected", exact: true }).click();
 	await expect(page.getByText("Review saved. Audio is preserved.")).toBeVisible();

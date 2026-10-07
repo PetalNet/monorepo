@@ -2,12 +2,17 @@
 	import { refreshAll } from "$app/navigation";
 	import { resolve } from "$app/paths";
 	import { Mic, Download } from "@lucide/svelte";
+	import { onMount } from "svelte";
 
 	import type { Decision } from "#lib/server/store.ts";
 
 	import type { PageData } from "./$types";
 	let { data }: { data: PageData } = $props();
 	let pageSize = $state(50);
+	let loaded = $state(false);
+	onMount(() => {
+		loaded = true;
+	});
 	let kind = $state("all"),
 		device = $state("all"),
 		status = $state("undecided"),
@@ -79,127 +84,129 @@
 		href={resolve("/api/admin/export")}
 		download><Download size={20} />Export kept set</a
 	>
-	<div class="my-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-		<div>
-			<label class="block" for="person">Participant</label><select
-				class="select bg-base-100 min-h-12 w-full border-0"
-				id="person"
-				bind:value={person}
-				onchange={reset}
-				><option value="all">All participants</option>{#each participants as p (p.id)}<option
-						value={p.id}>{p.name} · {p.id.slice(0, 8)}</option
-					>{/each}</select
-			>
-		</div>
-		<div>
-			<label class="block" for="kind">Phrase</label><select
-				class="select bg-base-100 min-h-12 w-full border-0"
-				id="kind"
-				bind:value={kind}
-				onchange={reset}
-				><option value="all">All phrases</option><option value="pos">Wake phrase</option><option
-					value="neg">Near miss</option
-				></select
-			>
-		</div>
-		<div>
-			<label class="block" for="device">Device</label><select
-				class="select bg-base-100 min-h-12 w-full border-0"
-				id="device"
-				bind:value={device}
-				onchange={reset}
-				><option value="all">All devices</option><option value="phone">Phone</option><option
-					value="tablet">Tablet</option
-				><option value="desktop">Desktop</option></select
-			>
-		</div>
-		<div>
-			<label class="block" for="status">Review</label><select
-				class="select bg-base-100 min-h-12 w-full border-0"
-				id="status"
-				bind:value={status}
-				onchange={reset}
-				><option value="undecided">Unreviewed</option><option value="keep">Kept</option><option
-					value="drop">Dropped</option
-				><option value="all">All takes</option></select
-			>
-		</div>
-	</div>
-	<div class="flex flex-wrap items-center gap-4">
-		<button
-			class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
-			onclick={() => {
-				selected = shown.map((c) => c.clipId);
-			}}>Select visible ({shown.length})</button
-		><button
-			class="btn btn-primary min-h-12 border-0 shadow-none"
-			disabled={busy || !selected.length}
-			onclick={() => {
-				void decide("keep");
-			}}>Keep selected</button
-		><button
-			class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
-			disabled={busy || !selected.length}
-			onclick={() => {
-				void decide("drop");
-			}}>Drop selected</button
-		><button
-			class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
-			disabled={busy || !selected.length}
-			onclick={() => {
-				void decide("undecided");
-			}}>Reset selected</button
-		>
-	</div>
-	<p role="status">{message || `${String(selected.length)} selected`}</p>
-	<ul class="divide-base-300 list-none divide-y p-0">
-		{#each shown as clip (clip.clipId)}<li class="py-6">
-				<label class="flex items-center gap-4"
-					><input
-						class="checkbox checkbox-primary shrink-0"
-						type="checkbox"
-						bind:group={selected}
-						value={clip.clipId}
-					/><span>{clip.name} · “{clip.say}”<br /><small>{clip.how}</small></span></label
+	<fieldset disabled={!loaded}>
+		<div class="my-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+			<div>
+				<label class="block" for="person">Participant</label><select
+					class="select bg-base-100 min-h-12 w-full border-0"
+					id="person"
+					bind:value={person}
+					onchange={reset}
+					><option value="all">All participants</option>{#each participants as p (p.id)}<option
+							value={p.id}>{p.name} · {p.id.slice(0, 8)}</option
+						>{/each}</select
 				>
-				<p class="text-base-content">
-					{clip.deviceType} · {clip.duration.toFixed(1)} s · {clip.decision}{clip.flags.length
-						? ` · ${clip.flags.join(", ")}`
-						: ""}
-				</p>
-				<audio
-					controls
-					preload="none"
-					src={resolve("/api/admin/audio/[id]", { id: clip.clipId })}
-					aria-label={`Play ${clip.name}: ${clip.say}`}
-				></audio>
-				<div class="flex flex-wrap items-center gap-4">
-					<button
-						class="btn btn-primary min-h-12 border-0 shadow-none"
-						disabled={busy}
-						onclick={() => {
-							void decide("keep", [clip.clipId]);
-						}}>Keep</button
-					><button
-						disabled={busy}
-						class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
-						onclick={() => {
-							void decide("drop", [clip.clipId]);
-						}}>Drop</button
-					><button
-						disabled={busy}
-						class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
-						onclick={() => {
-							void decide("undecided", [clip.clipId]);
-						}}>Reset</button
+			</div>
+			<div>
+				<label class="block" for="kind">Phrase</label><select
+					class="select bg-base-100 min-h-12 w-full border-0"
+					id="kind"
+					bind:value={kind}
+					onchange={reset}
+					><option value="all">All phrases</option><option value="pos">Wake phrase</option><option
+						value="neg">Near miss</option
+					></select
+				>
+			</div>
+			<div>
+				<label class="block" for="device">Device</label><select
+					class="select bg-base-100 min-h-12 w-full border-0"
+					id="device"
+					bind:value={device}
+					onchange={reset}
+					><option value="all">All devices</option><option value="phone">Phone</option><option
+						value="tablet">Tablet</option
+					><option value="desktop">Desktop</option></select
+				>
+			</div>
+			<div>
+				<label class="block" for="status">Review</label><select
+					class="select bg-base-100 min-h-12 w-full border-0"
+					id="status"
+					bind:value={status}
+					onchange={reset}
+					><option value="undecided">Unreviewed</option><option value="keep">Kept</option><option
+						value="drop">Dropped</option
+					><option value="all">All takes</option></select
+				>
+			</div>
+		</div>
+		<div class="flex flex-wrap items-center gap-4">
+			<button
+				class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
+				onclick={() => {
+					selected = shown.map((c) => c.clipId);
+				}}>Select visible ({shown.length})</button
+			><button
+				class="btn btn-primary min-h-12 border-0 shadow-none"
+				disabled={busy || !selected.length}
+				onclick={() => {
+					void decide("keep");
+				}}>Keep selected</button
+			><button
+				class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
+				disabled={busy || !selected.length}
+				onclick={() => {
+					void decide("drop");
+				}}>Drop selected</button
+			><button
+				class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
+				disabled={busy || !selected.length}
+				onclick={() => {
+					void decide("undecided");
+				}}>Reset selected</button
+			>
+		</div>
+		<p role="status">{message || `${String(selected.length)} selected`}</p>
+		<ul class="divide-base-300 list-none divide-y p-0">
+			{#each shown as clip (clip.clipId)}<li class="py-6">
+					<label class="flex items-center gap-4"
+						><input
+							class="checkbox checkbox-primary shrink-0"
+							type="checkbox"
+							bind:group={selected}
+							value={clip.clipId}
+						/><span>{clip.name} · “{clip.say}”<br /><small>{clip.how}</small></span></label
 					>
-				</div>
-			</li>{:else}<li>All caught up.</li>{/each}
-	</ul>
-	{#if shown.length < visible.length}<button
-			class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
-			onclick={() => {
-				pageSize += 50;
-			}}>Show 50 more</button
-		>{/if}
+					<p class="text-base-content">
+						{clip.deviceType} · {clip.duration.toFixed(1)} s · {clip.decision}{clip.flags.length
+							? ` · ${clip.flags.join(", ")}`
+							: ""}
+					</p>
+					<audio
+						controls
+						preload="none"
+						src={resolve("/api/admin/audio/[id]", { id: clip.clipId })}
+						aria-label={`Play ${clip.name}: ${clip.say}`}
+					></audio>
+					<div class="flex flex-wrap items-center gap-4">
+						<button
+							class="btn btn-primary min-h-12 border-0 shadow-none"
+							disabled={busy}
+							onclick={() => {
+								void decide("keep", [clip.clipId]);
+							}}>Keep</button
+						><button
+							disabled={busy}
+							class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
+							onclick={() => {
+								void decide("drop", [clip.clipId]);
+							}}>Drop</button
+						><button
+							disabled={busy}
+							class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
+							onclick={() => {
+								void decide("undecided", [clip.clipId]);
+							}}>Reset</button
+						>
+					</div>
+				</li>{:else}<li>All caught up.</li>{/each}
+		</ul>
+		{#if shown.length < visible.length}<button
+				class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
+				onclick={() => {
+					pageSize += 50;
+				}}>Show 50 more</button
+			>{/if}
+	</fieldset>
 </main>
