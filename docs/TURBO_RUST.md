@@ -4,7 +4,10 @@ Primary-source review and executed adoption checks, 2026-10-07. Native support
 uses pinned Turbo 2.11.7 without crate `package.json` wrappers. The Cargo
 foundation ([PR #430](https://github.com/PetalNet/monorepo/pull/430)) is merged;
 this layer builds on the published selective-CI
-[PR #439 head](https://github.com/PetalNet/monorepo/commit/dbe9ac5ce100e558794e81e548c464207b3a4ea3).
+[PR #439 head](https://github.com/PetalNet/monorepo/commit/812e688e1eacad22717d6bc2b4b9d2fa545abd71).
+The reviewed parent is merged into the native layer without rewriting its
+published history; its workflows, gate, formatting policy and security settings
+are unchanged by this layer.
 
 **Native discovery is enabled for direct Turbo commands.** The root virtual
 workspace supplies the identity, one lockfile, and eleven service crates. The
@@ -166,13 +169,17 @@ JS commands and CI planning share `tools/turbo-js.mjs`. It preserves task
 settings, environment (including `TURBO_SCM_BASE`/`HEAD`), and Turbo's exit status.
 Each invocation owns and removes a unique temporary config, including on failure;
 dry-plan stdout contains only Turbo's JSON. The runner selects `@petalnet/*`,
-including Whoami. `pnpm check` also selects `//` so repository-wide checks always
-run; CI does not make check affected-only.
+including Whoami. The TS/Effect selector in `tools/ci-manager/select.ts` invokes
+that same runner for affected build/test plans. `pnpm check:code` also selects
+`//` so repository-wide checks, including uncached `test:ci-manager`, always run;
+CI does not make check affected-only. `pnpm check` retains the parent's separate
+`pnpm check:code && pnpm fmt:check` policy. The parent's global
+`PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN` passthrough remains intact.
 
 ```sh
 pnpm build --affected --dry=json
 pnpm test --affected --dry=json
-pnpm check --dry=json
+pnpm check:code --dry=json
 
 # Install Rust lazily before direct native commands in an orb.
 mise install --locked rust
@@ -225,7 +232,9 @@ Checks used the installed 2.11.7 binary in this orb, not upstream test results:
   affected plans passed. Dispatcher edits select every native lane and no JS;
   Flutter-only edits select Point and no JS; Effect API edits select JS including
   its Grove dependent but not unrelated Whoami; root Cargo edits select all
-  native lanes and JS. Actual `pnpm build --affected` and `pnpm test --affected`
+  native lanes and JS. Runner edits likewise select all native lanes and JS.
+  These cases also passed through the reviewed parent's actual TS/Effect CLI.
+  Actual `pnpm build --affected` and `pnpm test --affected`
   for a Whoami-only edit selected one task each and passed (seven tests), with
   both Rust executables absent. The full JS test command passed 507 tests across
   six tasks. The JS graph contains no Cargo commands.
@@ -241,6 +250,8 @@ Checks used the installed 2.11.7 binary in this orb, not upstream test results:
 
 **Evidence limits:** hosted native artifact caching, private-registry resolution,
 upstream test execution, cross-compilation, cache-performance benchmarking, Nix,
-and arbitrary custom-command caching are unverified. The existing successful
-Cargo/Flutter CI verification is not evidence that this new layer has run hosted.
+and arbitrary custom-command caching are unverified. The original native layer's
+[hosted run](https://github.com/PetalNet/monorepo/actions/runs/37581834099) passed
+all selected jobs, including native lanes, Flutter and finish. That result does
+not verify the subsequent reviewed-parent integration; it needs its own run.
 Experimental support is not a stability commitment.
