@@ -1,4 +1,4 @@
-import { sanitizeDevBrowserLogText, sanitizeDevBrowserLogValue } from "./dev-browser-log-sanitizer";
+import { sanitizeDevBrowserLogText, sanitizeDevBrowserLogValue } from "./browser-log-sanitizer";
 
 const MAX_SERIALIZED_VALUE = 2_000;
 

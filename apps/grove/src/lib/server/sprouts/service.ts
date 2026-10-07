@@ -2,8 +2,8 @@ import * as PgClient from "@effect/sql-pg/PgClient";
 import { Context, Effect, Layer, Schema } from "effect";
 import { Query, type Scalar } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { SqlError } from "effect/unstable/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
+import { SqlError } from "effect/sql/SqlError";
 
 import {
 	Counter,

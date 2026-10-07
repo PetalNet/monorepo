@@ -1,6 +1,7 @@
 const REDACTED = "[REDACTED]";
 const MAX_DEPTH = 8;
 
+// Shared only by development browser collection and server ingestion.
 const sensitiveKey = (key: string) =>
 	/(?:authorization|cookie|password|passwd|credential|secret|token|session|apikey|signature)/i.test(
 		key.replace(/[^a-z\d]/gi, ""),

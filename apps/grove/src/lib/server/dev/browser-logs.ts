@@ -2,7 +2,7 @@ import { mkdir, open } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 
-import { sanitizeDevBrowserLogText } from "$lib/dev-browser-log-sanitizer";
+import { sanitizeDevBrowserLogText } from "#lib/dev/browser-log-sanitizer.ts";
 
 const DEV_BROWSER_LOG_MAX_BYTES = 1024 * 1024;
 const MAX_REQUEST_BYTES = 16_384;

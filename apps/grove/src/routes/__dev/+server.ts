@@ -1,9 +1,6 @@
 import { BETTER_AUTH_URL } from "$app/env/private";
-import {
-	devRouteNotFound,
-	groveDevelopmentBuild,
-	groveOrbDevAuthFlagEnabled,
-} from "$lib/server/dev/guard";
+
+import { devRouteNotFound, groveOrbDevAuthFlagEnabled } from "#lib/server/dev-guard.ts";
 
 import type { RequestHandler } from "./$types";
 
@@ -13,7 +10,7 @@ const grovePublicOrigin = () => {
 };
 
 export const GET: RequestHandler = async () => {
-	if (!groveDevelopmentBuild || !groveOrbDevAuthFlagEnabled()) return devRouteNotFound();
-	const { devEndpointInventory } = await import("$lib/server/dev/control-plane");
+	if (!import.meta.env.DEV || !groveOrbDevAuthFlagEnabled()) return devRouteNotFound();
+	const { devEndpointInventory } = await import("#lib/server/dev/control-plane.ts");
 	return Response.json(devEndpointInventory(grovePublicOrigin()));
 };

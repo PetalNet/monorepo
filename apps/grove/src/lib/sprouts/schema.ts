@@ -3,12 +3,12 @@ import { Schema } from "effect";
 export const EmptyInput = Schema.Struct({});
 
 const SproutDatabaseId = Schema.String.pipe(
-	Schema.check(Schema.isStringBigInt(), Schema.isPattern(/^[1-9][0-9]*$/)),
+	Schema.check(Schema.isStringBigInt(), Schema.isPattern(/^[1-9][0-9]*$/u)),
 	Schema.brand("BigIntString"),
 );
 
 export const SproutIdValue = Schema.TemplateLiteral(["sprout-", SproutDatabaseId]).check(
-	Schema.isPattern(/^sprout-[1-9][0-9]*$/),
+	Schema.isPattern(/^sprout-[1-9][0-9]*$/u),
 );
 export const ParsedSproutId = Schema.TemplateLiteralParser(["sprout-", SproutDatabaseId]);
 

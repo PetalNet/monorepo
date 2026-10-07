@@ -29,8 +29,6 @@ const actorInvocation = <A, E, R>(principal: AgentPrincipal, effect: Effect.Effe
 	effect.pipe(
 		Effect.provideService(InvocationContext, {
 			principal,
-			transport: "mcp",
-			requestId: crypto.randomUUID(),
 		}),
 	);
 
@@ -542,7 +540,7 @@ describe("actor authority", () => {
 		});
 		let lockError: Error | undefined;
 		try {
-			await waitForDatabaseLock("delete from grove_actor_capabilities");
+			await waitForDatabaseLock('delete from "grove_actor_capabilities"');
 			expect(completionOrder).toEqual([]);
 		} catch (error) {
 			lockError =
@@ -603,7 +601,7 @@ describe("actor authority", () => {
 				return operations;
 			},
 		);
-		await waitForDatabaseLock("from grove_actor_capabilities");
+		await waitForDatabaseLock('from "grove_actor_capabilities"');
 		const suspension = run(
 			authority((service) => service.suspendAgentAs(owner, agent.actorId)),
 		).then(() => {
@@ -612,7 +610,7 @@ describe("actor authority", () => {
 		});
 		let lockError: Error | undefined;
 		try {
-			await waitForDatabaseLock("select lifecycle from grove_actors");
+			await waitForDatabaseLock('from "grove_actors"');
 			expect(completionOrder).toEqual([]);
 		} catch (error) {
 			lockError =

@@ -1,6 +1,6 @@
 import { Cause, Context, Effect, Layer, Option, Schema } from "effect";
-import { McpProtocol, McpSchema, McpServer, Tool } from "effect/unstable/ai";
-import { HttpServerRequest } from "effect/unstable/http";
+import { McpProtocol, McpSchema, McpServer, Tool } from "effect/ai";
+import { HttpServerRequest } from "effect/http";
 
 import { invokeOperation } from "./invoke.js";
 import type { ApiOperation, LogCause } from "./operation.js";

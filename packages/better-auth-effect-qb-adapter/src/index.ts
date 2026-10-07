@@ -11,7 +11,7 @@ import { createAdapterFactory } from "better-auth/adapters";
 import { Context, Effect, ManagedRuntime, Redacted, Schema } from "effect";
 import { Column, Function, Query, Table } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const MAX_LIMIT = 1000;
 const MAX_OFFSET = 100_000;

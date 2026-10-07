@@ -1,17 +1,3 @@
-const returnToBase = "https://grove.invalid";
-
-export const safeReturnTo = (candidate: string | null | undefined) => {
-	if (!candidate?.startsWith("/") || candidate.startsWith("//")) return "/";
-	try {
-		const parsed = new URL(candidate, returnToBase);
-		return parsed.origin === returnToBase
-			? `${parsed.pathname}${parsed.search}${parsed.hash}`
-			: "/";
-	} catch {
-		return "/";
-	}
-};
-
 export const devEndpointInventory = (origin: string) => ({
 	status: "development-only" as const,
 	productionBoundary:

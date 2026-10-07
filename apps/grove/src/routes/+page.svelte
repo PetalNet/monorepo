@@ -1,7 +1,8 @@
 <script lang="ts">
-	import GroveDashboard from "$lib/components/GroveDashboard.svelte";
 	import LogIn from "@lucide/svelte/icons/log-in";
 	import ShieldCheck from "@lucide/svelte/icons/shield-check";
+
+	import GroveDashboard from "#lib/components/GroveDashboard.svelte";
 
 	import type { PageProps } from "./$types";
 

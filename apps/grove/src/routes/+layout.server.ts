@@ -1,4 +1,4 @@
-import { groveDevControlPlaneEnabled } from "$lib/server/dev/guard";
+import { groveDevControlPlaneEnabled } from "#lib/server/dev-guard.ts";
 
 import type { LayoutServerLoad } from "./$types";
 

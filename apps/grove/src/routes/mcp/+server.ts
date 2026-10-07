@@ -1,5 +1,5 @@
-import { groveMcpIngress } from "$lib/server/mcp-oauth-runtime";
-import { runGrove } from "$lib/server/runtime";
+import { groveMcpIngress } from "#lib/server/mcp-oauth-runtime.ts";
+import { runGrove } from "#lib/server/runtime.ts";
 
 import type { RequestHandler } from "./$types";
 

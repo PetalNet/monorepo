@@ -1,6 +1,7 @@
-import { GroveAuth } from "$lib/server/auth";
-import { runGrove } from "$lib/server/runtime";
 import { Effect } from "effect";
+
+import { GroveAuth } from "#lib/server/auth.ts";
+import { runGrove } from "#lib/server/runtime.ts";
 
 import type { RequestHandler } from "./$types";
 

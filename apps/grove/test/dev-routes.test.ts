@@ -1,8 +1,8 @@
 import type { RequestEvent } from "@sveltejs/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("$lib/server/auth", () => ({ GroveAuth: {} }));
-vi.mock("$lib/server/runtime", () => ({
+vi.mock("#lib/server/auth.ts", () => ({ GroveAuth: {} }));
+vi.mock("#lib/server/runtime.ts", () => ({
 	runGrove: () => {
 		throw new Error("A disabled development route must not enter the Grove runtime");
 	},
@@ -13,7 +13,7 @@ vi.mock("$app/env/private", () => ({
 	GROVE_MCP_RESOURCE: "https://grove.test",
 	GROVE_OIDC_ISSUER: "https://oidc.test/realms/grove",
 }));
-vi.mock("$lib/server/mcp-oauth-runtime", () => ({
+vi.mock("#lib/server/mcp-oauth-runtime.ts", () => ({
 	groveMcpProtectedResourceMetadata: () => ({
 		resource: "https://grove.test/mcp",
 		authorization_servers: ["https://oidc.test/realms/grove-mcp"],

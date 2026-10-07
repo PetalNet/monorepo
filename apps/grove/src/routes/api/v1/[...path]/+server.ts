@@ -1,6 +1,6 @@
-import { groveApi } from "$lib/server/api";
-import { withRestInvocation } from "$lib/server/invocation";
-import { runGrove } from "$lib/server/runtime";
+import { groveApi } from "#lib/server/api.ts";
+import { withRestInvocation } from "#lib/server/invocation.ts";
+import { runGrove } from "#lib/server/runtime.ts";
 
 import type { RequestHandler } from "./$types";
 

@@ -37,8 +37,7 @@ describe("effect-qb Postgres adapter conformance", async () => {
 					if (attributes.unique) clauses.push("unique");
 					columns.push(clauses.join(" "));
 				}
-				// RC2 expresses account identity as a compound issuer + providerAccountId index.
-				// Older releases marked providerAccountId unique directly on the column instead.
+				// Account identity uses the compound providerId + accountId index.
 				for (const index of table.indexes ?? []) {
 					if (!index.unique) continue;
 					columns.push(
@@ -50,7 +49,8 @@ describe("effect-qb Postgres adapter conformance", async () => {
 		await runtime.runPromise(
 			Effect.flatMap(PgClient.PgClient, (sql) =>
 				Effect.gen(function* () {
-					yield* sql.unsafe("drop schema public cascade; create schema public");
+					yield* sql.unsafe("drop schema public cascade");
+					yield* sql.unsafe("create schema public");
 					for (const statement of statements) yield* sql.unsafe(statement);
 				}),
 			),

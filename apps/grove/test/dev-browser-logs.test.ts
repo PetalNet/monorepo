@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { serializeDevBrowserLogValue } from "../src/lib/dev-browser-logs";
+import { serializeDevBrowserLogValue } from "../src/lib/dev/browser-logs";
 import { ingestDevBrowserLogs } from "../src/lib/server/dev/browser-logs";
 
 const temporaryDirectories: string[] = [];

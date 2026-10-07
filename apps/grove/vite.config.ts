@@ -1,31 +1,34 @@
+import { fileURLToPath } from "node:url";
+
 import adapter from "@sveltejs/adapter-node";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
-const excludeGroveDevModules = (): Plugin => {
-	const prefix = "\0grove-production-boundary:";
-	const modules = new Map([
-		["#lib/dev-browser-logs.ts", "client-logs"],
-		["$lib/server/dev/browser-logs", "server-logs"],
-		["$lib/server/dev/control-plane", "control-plane"],
-	]);
+export const excludeGroveDevModules = (): Plugin => {
+	const root = fileURLToPath(new URL("./src/lib/", import.meta.url)).replaceAll("\\", "/");
+	const forbidden = new Set<string>();
 	return {
 		name: "grove-production-boundary",
 		enforce: "pre",
-		resolveId: (source) => {
-			const replacement = modules.get(source);
-			return replacement ? `${prefix}${replacement}` : undefined;
+		async resolveId(source, importer) {
+			const resolved = await this.resolve(source, importer, { skipSelf: true });
+			if (!resolved) return undefined;
+			const path = resolved.id.replaceAll("\\", "/").split(/[?#]/)[0];
+			if (!path.startsWith(`${root}server/dev/`) && !path.startsWith(`${root}dev/`))
+				return undefined;
+			forbidden.add(resolved.id);
+			// Never load dev implementations. Dead imports can tree-shake; live ones
+			// remain external and are rejected below, rather than replaced with stubs.
+			return { id: resolved.id, external: "absolute", moduleSideEffects: false };
 		},
-		load: (id) => {
-			if (!id.startsWith(prefix)) return undefined;
-			const unavailable =
-				'const unavailable = () => { throw new Error("Grove development control plane is excluded from production builds") };';
-			if (id === `${prefix}client-logs`)
-				return `${unavailable} export { unavailable as installDevBrowserLogs };`;
-			if (id === `${prefix}server-logs`)
-				return `${unavailable} export { unavailable as ingestDevBrowserLogs };`;
-			return `${unavailable} export { unavailable as devEndpointInventory, unavailable as runDevPreflight, unavailable as safeReturnTo };`;
+		generateBundle(_options, bundle) {
+			for (const output of Object.values(bundle)) {
+				if (output.type !== "chunk") continue;
+				for (const id of [...output.imports, ...output.dynamicImports]) {
+					if (forbidden.has(id)) this.error(`Production build retains a development import: ${id}`);
+				}
+			}
 		},
 	};
 };
@@ -34,6 +37,9 @@ export default defineConfig(({ command }) => ({
 	build: {
 		// Preserve light-dark(); its media-query fallback ignores explicit mode overrides.
 		cssTarget: ["chrome123", "firefox120", "safari17.5"],
+		// Better Auth imports this only without a database. Grove always supplies
+		// effect-qb; leave the removed fallback unresolved rather than bundling it.
+		rolldownOptions: { external: ["@better-auth/memory-adapter"] },
 	},
 	server: {
 		allowedHosts: [".e2b.app", ".onamp.dev"],

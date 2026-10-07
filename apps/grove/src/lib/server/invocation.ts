@@ -6,8 +6,6 @@ import { AuthenticationRequired } from "./authorization";
 
 export interface Invocation {
 	readonly principal: ActorPrincipal | MachinePrincipal;
-	readonly transport: "browser" | "mcp" | "rest";
-	readonly requestId: string;
 }
 
 export class InvocationContext extends Context.Service<InvocationContext, Invocation>()(
@@ -22,8 +20,6 @@ export const withBrowserInvocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =
 		return yield* effect.pipe(
 			Effect.provideService(InvocationContext, {
 				principal,
-				transport: event.url.pathname.startsWith("/api/") ? "rest" : "browser",
-				requestId: event.request.headers.get("x-request-id") ?? crypto.randomUUID(),
 			}),
 		);
 	});

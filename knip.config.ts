@@ -23,8 +23,18 @@ export default {
 			},
 		},
 		"apps/grove": {
-			// Local OIDC is an orb operation entrypoint, not imported by Grove.
-			entry: ["dev-oidc.mjs", "effectdb.config.ts!", "src/env.ts!", "test/**/*.ts"],
+			// Local OIDC and the dynamically installed browser collector are dev entrypoints.
+			// Their exports are intentionally absent from production's entry graph.
+			ignoreIssues: { "src/lib/dev/**": ["exports"] },
+			entry: [
+				"dev-oidc.mjs",
+				"src/lib/dev/browser-logs.ts",
+				"effectdb.config.ts!",
+				// effect-db discovers these exported tables from its source glob.
+				"src/lib/server/db/tables.ts!",
+				"src/env.ts!",
+				"test/**/*.ts",
+			],
 		},
 		"apps/storybook": {
 			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],

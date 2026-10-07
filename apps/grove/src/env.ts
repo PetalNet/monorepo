@@ -1,5 +1,5 @@
 import { building, dev } from "$app/env";
-import { defineEnvVars } from "@sveltejs/kit/hooks";
+import { defineEnvVars } from "@sveltejs/kit/env";
 import { Schema } from "effect";
 
 const authSecret = Schema.String.check(Schema.isMinLength(32));
