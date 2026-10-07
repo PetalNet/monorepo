@@ -34,7 +34,7 @@ wait_until() {
 }
 
 validate_postgres_container() {
-	POSTGRES_INSPECT_JSON=$1 node <<'NODE'
+	POSTGRES_INSPECT_JSON=$1 pnpm exec node <<'NODE'
 const containers = JSON.parse(process.env.POSTGRES_INSPECT_JSON ?? "[]");
 const container = containers[0];
 const expectedEnvironment = ["POSTGRES_USER=grove", "POSTGRES_PASSWORD=grove", "POSTGRES_DB=grove"];
@@ -68,7 +68,7 @@ oidc_ready() {
 }
 
 oidc_manifest_ready() {
-	timeout --kill-after=1s 3s node -e '
+	timeout --kill-after=1s 3s pnpm exec node -e '
 const manifest = JSON.parse(require("node:fs").readFileSync(".amp/portals/grove-oidc.json", "utf8"));
 const portal = new URL(manifest.links?.[0]?.url);
 if (portal.protocol !== "https:") process.exit(1);
@@ -120,7 +120,7 @@ wait_until "the local Grove development OIDC provider" \
 wait_until "the OIDC portal manifest" \
 	"inspect amp orb service status grove-oidc and run .agents/ensure-grove" oidc_manifest_ready
 
-oidc_portal=$(timeout --kill-after=1s 3s node -e '
+oidc_portal=$(timeout --kill-after=1s 3s pnpm exec node -e '
 const manifest = JSON.parse(require("node:fs").readFileSync(".amp/portals/grove-oidc.json", "utf8"));
 process.stdout.write(new URL(manifest.links[0].url).origin);
 ')
@@ -143,5 +143,5 @@ export GROVE_BROWSER_LOG_PATH="$root/.amp/in/grove-browser.log"
 export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=${grove_origin#*://}
 
 cd apps/grove
-timeout --kill-after=5s 60s vp exec effectdb migrate up
-exec vp exec vite dev --host 0.0.0.0 --port "$PORT"
+timeout --kill-after=5s 60s pnpm exec effectdb migrate up
+exec pnpm exec vite dev --host 0.0.0.0 --port "$PORT"

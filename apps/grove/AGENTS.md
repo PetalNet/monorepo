@@ -27,7 +27,7 @@ Browser cookies authorize only browser requests. Every Agent needs a unique, dur
 explicit enrollment. After the operator has logged in at least once, enroll from the repository root:
 
 ```bash
-vp node --use-system-ca tools/enroll-grove-dev-agent.mjs \
+pnpm exec node --use-system-ca tools/enroll-grove-dev-agent.mjs \
   --subject '<unique-durable-agent-subject>' \
   --name '<Agent display name>'
 ```

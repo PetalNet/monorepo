@@ -120,16 +120,22 @@ esac
 `,
 	);
 	await writeFile(join(result.root, "bin/curl"), '#!/usr/bin/env bash\n[[ "$OIDC_READY" == 1 ]]\n');
+	await writeFile(join(result.root, "bin/node"), "#!/usr/bin/env bash\nexit 99\n");
 	await writeFile(
-		join(result.root, "bin/vp"),
+		join(result.root, "bin/pnpm"),
 		`#!/usr/bin/env bash
-printf '%s\\n' "$*" >> "$VP_CALLS"
+if [[ "$1" == exec && "$2" == node ]]; then
+  shift 2
+  exec "${process.execPath}" "$@"
+fi
+printf '%s\\n' "$*" >> "$PNPM_CALLS"
 exit 0
 `,
 	);
 	await chmod(join(result.root, "bin/docker"), 0o755);
 	await chmod(join(result.root, "bin/curl"), 0o755);
-	await chmod(join(result.root, "bin/vp"), 0o755);
+	await chmod(join(result.root, "bin/node"), 0o755);
+	await chmod(join(result.root, "bin/pnpm"), 0o755);
 	return {
 		...result,
 		env: {
@@ -143,7 +149,7 @@ exit 0
 			PORT: "3000",
 			POSTGRES_READY: options.postgresReady === false ? "0" : "1",
 			PUBLIC_URL: "https://grove.portal.test",
-			VP_CALLS: join(result.root, "vp.calls"),
+			PNPM_CALLS: join(result.root, "pnpm.calls"),
 		},
 	};
 };
@@ -254,7 +260,7 @@ describe("Grove supervised service startup", () => {
 		expect(dockerCalls).toContain(
 			`psql --username grove --dbname grove --tuples-only --no-align --command select current_user || ':' || current_database()`,
 		);
-		expect(await readFile(join(root, "vp.calls"), "utf8")).toBe(
+		expect(await readFile(join(root, "pnpm.calls"), "utf8")).toBe(
 			"exec effectdb migrate up\nexec vite dev --host 0.0.0.0 --port 3000\n",
 		);
 	});

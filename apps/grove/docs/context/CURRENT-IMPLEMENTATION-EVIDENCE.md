@@ -28,7 +28,7 @@ Evidence:
 
 - `docs/ARCHITECTURE.md:5-21` defines `apps/*`, `packages/*`, and `tools/*`;
 - `docs/ARCHITECTURE.md:21` prohibits apps from depending directly on other apps;
-- `docs/ARCHITECTURE.md:23-37` defines the `vp run` workspace graph and content-addressed cache;
+- `docs/ARCHITECTURE.md` defines the pnpm/Turborepo workspace graph and content-addressed cache;
 - `docs/ARCHITECTURE.md:48-50` lists CI gates.
 
 Conclusion: Grove changes should keep the existing dependency layout and task runner. A new app may not import implementation code from another app.

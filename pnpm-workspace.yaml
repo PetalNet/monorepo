@@ -2,6 +2,10 @@ packages:
   - apps/*
   - packages/*
 
+# Mise bootstraps pnpm locally; pnpm/setup bootstraps it in CI. pnpm provisions Node.
+# pnpm must not provision a second package manager.
+pmOnFail: ignore
+
 # Grove uses its effect-qb adapter and Better Auth's minimal runtime. The conformance
 # harness is routed to that same runtime, so built-in adapters and Kysely are unused.
 overrides:
@@ -12,6 +16,8 @@ overrides:
   "better-auth@1.7.7>@better-auth/prisma-adapter": "-"
   "better-auth@1.7.7>kysely": "-"
   "@better-auth/core@1.7.7>kysely": "-"
+  vite: catalog:dev
+  vitest: catalog:dev
 
 # Why: fail installs on undeclared or incompatible peers. These package-scoped
 # exceptions cover compatibility already exercised by this workspace without
@@ -23,18 +29,17 @@ peerDependencyRules:
     "@napi-rs/wasm-runtime@1.2.0>@emnapi/runtime": ^1.9.0
     # Better Auth's SvelteKit helper still declares Kit 2; auth boundary tests cover Kit 3.
     "better-auth@1.7.7>@sveltejs/kit": ^3.0.1
-    "eslint-plugin-oxlint@1.70.0>oxlint": 1.72.0
 
 # Why: every dependency version must come from a catalog. `pnpm add` routes new
 # deps into a catalog automatically and refuses to introduce a divergent range.
 catalogMode: strict
 
-# Why exclude: the supply-chain age gate stays on for everything except a
-# handful of brand-new releases we want today for CI signal (eslint 10
-# major dropped <12h ago, etc.). Drop these once their default 7-day age
-# elapses.
+# Retain the existing release-age exceptions and pnpm's default age gate.
+# allowBuilds below limits dependency lifecycle scripts. Renovate separately
+# waits seven days.
 minimumReleaseAgeExclude:
   - eslint
+  - eslint-plugin-oxlint
   - "@eslint/plugin-kit"
   - "@eslint/json"
   - "@eslint/markdown"
@@ -45,7 +50,7 @@ minimumReleaseAgeExclude:
   - effect-qb@0.24.1
   - vite@8.3.3
 
-# Why: pnpm 11 sandboxes post-install scripts by default; these have legitimate
+# Why: pnpm sandboxes post-install scripts by default; these have legitimate
 # native-binding or codegen needs.
 allowBuilds:
   "@prisma/client": true
@@ -69,16 +74,18 @@ catalogs:
     "@sveltejs/adapter-node": ^5.5.7
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.3.3
-    "@vitest/coverage-v8": ^4.0.0
+    "@vitest/coverage-v8": 4.1.10
     eslint-plugin-svelte: ^3.20.0
     autoprefixer: ^10.4.20
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
-    eslint-plugin-oxlint: ^1.67.0
+    # Keep the ESLint compatibility rules aligned with standalone Oxlint.
+    eslint-plugin-oxlint: 1.76.0
     eslint-plugin-package-json: ^1.2.0
     impeccable: ^3.4.0
     knip: ^6.31.0
-    oxlint: ^1.67.0
+    oxfmt: 0.61.0
+    oxlint: 1.76.0
     postcss: ^8.4.49
     prisma: ^5.22.0
     svelte-check: ^4.3.5
@@ -89,12 +96,10 @@ catalogs:
     typescript-eslint: ^8.60.0
     typesync: ^0.14.3
     tsx: ^4.22.4
+    turbo: 2.11.7
     update-ts-references: ^6.0.0
     vite: ^8.3.3
-    vitest: ^4.0.0
-    # Exact-pinned (not ^) so it stays in lockstep with the CI-installed vp
-    # (.github/workflows/ci.yml setup-vp version). Renovate bumps both together.
-    vite-plus: 0.2.4
+    vitest: 4.1.10
 
   types:
     "@types/leaflet": ^1.9.21

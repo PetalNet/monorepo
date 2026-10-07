@@ -10,6 +10,8 @@ import svelte from "eslint-plugin-svelte";
 import { defineConfig, includeIgnoreFile } from "eslint/config";
 import tseslint from "typescript-eslint";
 
+import { lintConfig } from "./oxlint.config.ts";
+
 const root = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig([
@@ -165,5 +167,5 @@ export default defineConfig([
 			"svelte/require-each-key": "off",
 		},
 	},
-	...oxlint.buildFromOxlintConfigFile(path.join(root, ".oxlintrc.json")),
+	...oxlint.buildFromOxlintConfig(lintConfig),
 ]);

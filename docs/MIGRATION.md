@@ -26,7 +26,7 @@ After the merge, each app needs cleanup commits in this order:
 
 Then, the things that bit slide:
 
-- **Actually run `pnpm --filter <app> build`.** `vp run check` (typecheck + lint + fmt) does **not** run the production build, so build-only failures slip through.
+- **Actually run `pnpm --filter <app> build`.** `pnpm check` does **not** run the production build, so build-only failures slip through.
 - **Vite 8 / rolldown:** object-form `rollupOptions.output.manualChunks` throws `manualChunks is not a function`. Remove it (let Vite auto-chunk) or use the function form.
 - **Prisma apps:** add `prisma generate` to the `build` and `prepare` scripts — the hoisted `@prisma/client` can't find the app's schema, so the build dies with "did not initialize yet". Delete any vestigial `prisma.config.ts` (Prisma 6 syntax) if the app actually runs Prisma 5 (it reads `prisma/schema.prisma` directly).
 - **Svelte 5 `state_referenced_locally`:** `data` destructured/read at module top from `$props()` isn't reactive — wrap in `$derived`.
@@ -42,7 +42,7 @@ Then, the things that bit slide:
 
 - `courier` → `apps/courier` — reliability-first, from-scratch Rust rewrite and
   drop-in successor to `matrix-bot` (Matrix E2EE relay bot + plugin crates), **not**
-  a pnpm app. No `package.json` (pnpm/`vp`/knip ignore it); oxfmt owns
+  a pnpm app. No `package.json` (pnpm/Turbo/Knip ignore it); oxfmt owns
   `.toml`/`.md`, `cargo fmt` owns `.rs`. Its crates remain in their own Cargo
   workspace; `Cargo.lock` is kept for `--locked` validation. CI runs workspace
   fmt, pedantic clippy, all-targets build, and tests with the sqlite/OpenSSL build
@@ -52,7 +52,7 @@ Then, the things that bit slide:
 
 - `janet-manager` → `apps/manager` — Rust supervisor for a persistent Claude Code
   agent session (manager-rs, N1.1-hardened: heartbeat v2 + contract conformance +
-  state-machine tests), **not** a pnpm app. No `package.json` (pnpm/`vp`/knip ignore
+  state-machine tests), **not** a pnpm app. No `package.json` (pnpm/Turbo/Knip ignore
   it); oxfmt owns `.toml`/`.md`/`.json`, `cargo fmt` owns `.rs` (first-ever rustfmt
   pass = own blame-ignored commit, ditto the oxfmt pass). Validation is Cargo-native:
   `cargo fmt --check`, `clippy --all-targets --locked -D warnings`, `cargo build

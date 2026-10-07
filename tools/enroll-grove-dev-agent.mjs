@@ -13,7 +13,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 
 const usage = () => {
 	console.error(
-		"Usage: vp node --use-system-ca tools/enroll-grove-dev-agent.mjs --subject <unique-id> --name <display-name>",
+		"Usage: pnpm exec node --use-system-ca tools/enroll-grove-dev-agent.mjs --subject <unique-id> --name <display-name>",
 	);
 };
 

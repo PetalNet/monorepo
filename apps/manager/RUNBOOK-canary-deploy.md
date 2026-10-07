@@ -226,8 +226,8 @@ Required: `creds_path` (JSON with `homeserver`, `access_token`, `user_id`),
 `control_room`. Optional (defaults in parentheses, `~` expands):
 `agent_name` ("agent"), `work_dir` ($HOME; CLI arg wins), `state_path`,
 `rate_limit_hook_path`, `exit_code_path`, `heartbeat_path`
-(~/.claude/shared/agent-\*), `model_override_path` (unset = no --model),
-`sessions_dir` (~/.claude/sessions), `tmux_session` ("agent-claude"),
+(`~/.claude/shared/agent-*`), `model_override_path` (unset = no --model),
+`sessions_dir` (`~/.claude/sessions`), `tmux_session` ("agent-claude"),
 `pane_tag` ("agent-manager"), `claude_bin` ("claude"), `claude_args`
 (`["--dangerously-skip-permissions"]` — lab flags like the matrix channel and --name go
 HERE), `path_prepend` (~/.local/bin), `kill_agent_on_shutdown` (true),

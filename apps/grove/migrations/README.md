@@ -7,15 +7,15 @@ accept only portable sources. They do not maintain separate column definitions.
 
 From `apps/grove`, with `DATABASE_URL` pointing to a disposable PostgreSQL database:
 
-1. Run `vp run migrate` to establish the completed migration history.
+1. Run `pnpm migrate` to establish the completed migration history.
 2. Change the canonical table definitions.
-3. Run `vp exec effectdb push --dry-run` to inspect the schema diff, then
-   `vp exec effectdb migrate generate --name <change>`. Add `--allow-destructive`
+3. Run `pnpm exec effectdb push --dry-run` to inspect the schema diff, then
+   `pnpm exec effectdb migrate generate --name <change>`. Add `--allow-destructive`
    only after reviewing the proposed destructive changes.
 4. Review the generated SQL before applying it. Tweaks such as replacing a generated
    drop/add pair with a data-preserving rename belong at this stage. Review rollback
    behavior too; do not invent values for discarded data.
-5. Run `vp run migrate`, then `vp run test` and `vp run check`.
+5. Run `pnpm migrate`, then `pnpm test` and `pnpm check`.
 
 The initial migration is a fresh baseline generated with effect-db, replacing the
 unused prerelease history before any deployment. Existing disposable databases need

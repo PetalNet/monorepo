@@ -108,7 +108,7 @@
 				if (m.group.event.submissionDeadline) {
 					const deadline = new Date(m.group.event.submissionDeadline);
 					if (deadline > new Date()) {
-						deadlines.push( { type: "presentation", name: m.group.name, emoji: m.group.emoji, eventName: m.group.event.name, deadline, status: m.group.status, link: `/night/${m.group.event.joinCode}` }, );
+						deadlines.push( { type: "presentation", name: m.group.name, emoji: m.group.emoji, eventName: m.group.event.name, deadline, status: m.group.status, link: `/night/${m.group.event.joinCode}` } );
 					}
 				}
 			});

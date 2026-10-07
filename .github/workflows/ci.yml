@@ -12,6 +12,7 @@ concurrency:
 
 env:
   CI: true
+  TURBO_TELEMETRY_DISABLED: "1"
 
 permissions:
   contents: read
@@ -23,23 +24,31 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
+      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
         with:
-          # Keep in lockstep with the vite-plus catalog pin (renovate-managed).
-          # renovate: datasource=npm depName=vite-plus
-          version: "0.2.4"
           cache: true
-          node-version-file: package.json
-          run-install: true
-          sfw: true
-      - run: vp run check
-      - run: vp run lint:impeccable
-      - run: vp run test
-      - run: vp run manypkg
-      - run: vp dedupe --check -- --prefer-offline
-      - run: vp run typesync:check
-      - run: vp run lint:knip
-      - run: vp run lint:knip:prod
+          require-lockfile: true
+      - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+        with:
+          cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
+          use-relative-cache-path: true
+      - run: pnpm check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        with:
+          cache: true
+          require-lockfile: true
+      - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+        with:
+          cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
+          use-relative-cache-path: true
+      - run: pnpm test
 
   build:
     runs-on: ubuntu-latest
@@ -49,20 +58,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
+      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
         with:
-          # Keep in lockstep with the vite-plus catalog pin (renovate-managed).
-          # renovate: datasource=npm depName=vite-plus
-          version: "0.2.4"
           cache: true
-          node-version-file: package.json
-          run-install: true
-          sfw: true
+          require-lockfile: true
+      - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+        with:
+          cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
+          use-relative-cache-path: true
       - name: Write app env
         run: |
           echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
           echo "DATABASE_URL=$DATABASE_URL" > apps/grove/.env
-      - run: vp run build
+      - run: pnpm build
 
   manager-rust:
     runs-on: ubuntu-latest
