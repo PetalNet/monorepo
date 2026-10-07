@@ -16,6 +16,7 @@ import {
 	ApiServer,
 	createEffectApi as createApplication,
 	type EffectApiConfig,
+	type HttpMethod,
 	operation,
 } from "../src/index.js";
 
@@ -113,7 +114,7 @@ const runJson = async <E>(effect: Effect.Effect<Response, E>) => {
 	return { response, body: (await response.json()) as unknown };
 };
 
-const operationForMethod = (method: "GET" | "POST", body?: boolean) =>
+const operationForMethod = (method: HttpMethod, body?: boolean) =>
 	operation({
 		name: method,
 		description: method,
@@ -489,7 +490,11 @@ describe("createEffectApi", () => {
 
 	it("applies body defaults and explicit overrides", () => {
 		expect(operationForMethod("GET").rest?.body).toBe(false);
+		expect(operationForMethod("OPTIONS").rest?.body).toBe(false);
 		expect(operationForMethod("POST").rest?.body).toBe(true);
+		expect(operationForMethod("DELETE").rest?.body).toBe(true);
+		expect(operationForMethod("QUERY").rest?.body).toBe(true);
+		expect(operationForMethod("DELETE", false).rest?.body).toBe(false);
 		expect(operationForMethod("POST", false).rest?.body).toBe(false);
 	});
 

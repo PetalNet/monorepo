@@ -1,11 +1,12 @@
 import { Cause, Effect, Schema } from "effect";
+import { HttpMethod as HttpMethods, type HttpRouter } from "effect/http";
 
-export type HttpMethod = "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
+export type HttpMethod = Exclude<Parameters<HttpRouter.HttpRouter["add"]>[0], "*">;
 
 interface RestBinding {
 	readonly method: HttpMethod;
 	readonly path: string;
-	/** Read JSON input, merging path and query fields. Defaults to true for PATCH, POST and PUT. */
+	/** Read JSON input, merging path and query fields. Defaults to Effect's HTTP method body policy. */
 	readonly body?: boolean;
 }
 
@@ -47,7 +48,7 @@ export function operation<I, A, E, R>(config: OperationConfig<I, A, E, R>): ApiO
 					rest: {
 						method: config.method,
 						path: config.path,
-						body: config.body ?? ["PATCH", "POST", "PUT"].includes(config.method),
+						body: config.body ?? HttpMethods.hasBody(config.method),
 					},
 				}),
 		input: config.input,
