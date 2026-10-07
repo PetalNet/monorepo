@@ -86,4 +86,11 @@ function remove(id: string) {
 	return transaction(["takes"], "readwrite", (tx) => tx.objectStore("takes").delete(id));
 }
 
-export const queue = { progress, saveProgress, takes, accept, update, remove };
+function clear() {
+	return transaction(["takes", "state"], "readwrite", (tx) => {
+		tx.objectStore("takes").clear();
+		return tx.objectStore("state").clear();
+	});
+}
+
+export const queue = { progress, saveProgress, takes, accept, update, remove, clear };

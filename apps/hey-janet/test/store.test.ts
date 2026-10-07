@@ -63,7 +63,7 @@ describe("training store", () => {
 		const dir = await mkdtemp(path.join(tmpdir(), "hey-janet-test-"));
 		dirs.push(dir);
 		process.env.BOOTH_DATA = dir;
-		const p = participant("Alex", null, randomUUID()),
+		const p = participant("Alex", "private-oidc-subject", randomUUID()),
 			id = randomUUID(),
 			set = randomUUID(),
 			bytes = wav();
@@ -73,11 +73,14 @@ describe("training store", () => {
 		]);
 		const clips = await allClips();
 		expect(clips).toHaveLength(1);
+		expect(clips[0]).not.toHaveProperty("authSub");
+		expect(clips[0]).not.toHaveProperty("participantId");
+		expect(clips[0]).not.toHaveProperty("participantName");
 		expect(clips[0]).toMatchObject({
 			decision: "undecided",
 			deviceType: "phone",
 			duration: 1,
-			participantName: "Alex",
+			name: "Alex",
 		});
 		await review([id], "drop");
 		expect((await allClips())[0].decision).toBe("drop");
@@ -86,6 +89,7 @@ describe("training store", () => {
 			.trim()
 			.split("\n");
 		expect(lines).toHaveLength(1);
+		expect(lines.join("")).not.toContain("private-oidc-subject");
 		expect(JSON.parse(lines[0])).toMatchObject({ decision: "drop" });
 	});
 	it("writes a standard ZIP with local and central headers", async () => {

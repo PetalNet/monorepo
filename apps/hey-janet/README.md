@@ -21,14 +21,14 @@ pnpm --filter @petalnet/hey-janet exec playwright install chromium webkit firefo
 pnpm --filter @petalnet/hey-janet test:e2e
 ```
 
-Browser tests use fake microphones, port 18806 and isolated storage. Screenshots stay in `.cache/browser-results` and CI artifacts. Headless Firefox needs PulseAudio, which CI starts.
+Browser tests use fake microphones, port 18806 and isolated storage. Headless Firefox needs PulseAudio, which CI starts.
 
 ## Deploy
 
 Janet applies from reviewed main. Do not build images on .14.
 
 1. On another machine, build from the monorepo root with `docker build -f apps/hey-janet/Dockerfile -t hey-janet .`. Transfer the image with `docker save` and `docker load` to .14.
-2. Verify `findmnt -M /services` shows `10.10.10.12:/mnt/JeremyBearimy/Backups/Services`. Create `/services/hey-janet/recordings`, writable by uid 1000. Janet imports the prototype clips at deploy time, preserving all 40 WAVs and marking pos_17 as a probable silent misfire.
+2. Verify `findmnt -M /services` shows `10.10.10.12:/mnt/JeremyBearimy/Backups/Services`. Create `/services/hey-janet/recordings`, writable by uid 1000.
 3. Copy `deploy/.env.example` to `deploy/.env`. Set a stable random `BOOTH_SECRET` of at least 32 characters. For optional sign-in, create a confidential Authentik OIDC provider with `openid profile`, the issuer shown in the example, and strict redirect `https://heyjanet.petalcat.dev/auth/callback`. Set its client credentials and Parker's exact `BOOTH_ADMIN_SUB`, or a Parker-only `BOOTH_ADMIN_GROUP` included in the signed ID token.
 4. Verify port 8806 is free. Run `docker compose -f apps/hey-janet/deploy/compose.yml config --quiet`, then `docker compose -f apps/hey-janet/deploy/compose.yml up -d --no-build`. Check `curl --fail http://127.0.0.1:8806/health`.
 5. Copy `deploy/traefik.yml` to `/home/docker/traefik/dynamic/hey-janet.yml`. Verify DNS and HTTPS for `heyjanet.petalcat.dev`, guest recording on physical iPhone Safari, upload recovery, Parker's review/export access, and denial for other accounts before sharing the link.

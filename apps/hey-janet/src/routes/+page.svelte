@@ -1,8 +1,3 @@
-<!-- THESIS: A recording station for one real voice at a time.
-OWN-WORLD: Lab Material surfaces, plum action, precise 8px rhythm.
-STORY: Consent, speak, listen, accept; see where each take is saved.
-FIRST VIEWPORT: Booth rail, purpose, first name and consent, start action.
-FORM: Brief-pinned sequential booth, expanding to a compact review list for Parker. -->
 <script lang="ts">
 	import { resolve } from "$app/paths";
 	import { Mic, Square, Check, RotateCcw, ArrowRight } from "@lucide/svelte";
@@ -26,8 +21,8 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 		micError = $state(""),
 		busy = $state(false),
 		loaded = $state(false);
-	let recorder: Recorder | null = null,
-		flushing = false;
+	let recorder: Recorder | null = null;
+	let flushing = $state(false);
 	const prompt = $derived(prompts[progress?.index ?? 0]);
 	const totalPending = $derived(pending.length);
 	function revoke() {
@@ -75,7 +70,7 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 		await uploadNext(items);
 	}
 	async function flush(force = false) {
-		if (flushing || !navigator.onLine || !progress) return;
+		if (flushing || !navigator.onLine || !progress || !consent || stage === "landing") return;
 		flushing = true;
 		try {
 			const items = (await queue.takes()).filter(
@@ -97,8 +92,6 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 				await refresh();
 				if (progress) {
 					name = progress.name;
-					consent = true;
-					stage = progress.index >= prompts.length ? "done" : "ready";
 				}
 				loaded = true;
 				await flush();
@@ -122,17 +115,20 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 		};
 	});
 	async function start() {
+		if (!consent || busy) return;
 		busy = true;
 		message = "";
 		try {
 			const response = await fetch("/api/session", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name, consent: true }),
+				body: JSON.stringify({ name, consent }),
 			});
 			if (!response.ok) throw new Error("Could not start. Check your connection and try again.");
 			const p = (await response.json()) as { id: string };
-			progress = {
+			if (progress && progress.participantId !== p.id)
+				throw new Error("This session belongs to another participant. Start over to record.");
+			progress ??= {
 				name: name.trim(),
 				participantId: p.id,
 				setId: crypto.randomUUID(),
@@ -141,7 +137,8 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 				skipped: 0,
 			};
 			await queue.saveProgress(progress);
-			stage = "ready";
+			stage = progress.index >= prompts.length ? "done" : "ready";
+			void flush(true);
 		} catch (e) {
 			message = e instanceof Error ? e.message : "Could not save your session.";
 		} finally {
@@ -231,13 +228,13 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 		}
 	}
 	async function reconnect() {
-		if (!progress) return;
+		if (!progress || !consent) return;
 		busy = true;
 		try {
 			const response = await fetch("/api/session", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name: progress.name, consent: true }),
+				body: JSON.stringify({ name: progress.name, consent }),
 			});
 			const p = (await response.json()) as { id?: string };
 			if (!response.ok || p.id !== progress.participantId) {
@@ -256,6 +253,21 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 		await queue.saveProgress(next);
 		progress = next;
 		stage = "ready";
+	}
+	async function startOver() {
+		if (busy || flushing) return;
+		busy = true;
+		try {
+			const response = await fetch("/api/session", { method: "DELETE" });
+			if (!response.ok) throw new Error("Could not reset this session. Try again.");
+			await queue.clear();
+			recorder?.close();
+			revoke();
+			window.location.assign(resolve("/"));
+		} catch (e) {
+			message = e instanceof Error ? e.message : "Could not clear saved progress.";
+			busy = false;
+		}
 	}
 	function keyboard(e: KeyboardEvent) {
 		if (
@@ -279,32 +291,47 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 	/></svelte:head
 >
 <svelte:window onkeydown={keyboard} />
-<main class="shell">
-	<header class="topbar">
-		<a class="brand" href={resolve("/")}><Mic size={20} /> Hey Janet</a><span class="muted"
-			>Recording booth</span
-		>
+<main class="mx-auto max-w-3xl p-4 sm:p-6">
+	<header class="border-base-300 flex items-center justify-between gap-4 border-b pt-2 pb-6">
+		<a
+			class="text-base-content flex items-center gap-2 font-semibold no-underline"
+			href={resolve("/")}><Mic size={20} /> Hey Janet</a
+		><span class="text-base-content">Recording booth</span>
 	</header>
+	{#if progress}<div class="my-4">
+			<button
+				class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
+				disabled={busy || flushing || stage === "recording"}
+				onclick={() => {
+					void startOver();
+				}}>Not {progress.name}? Start over</button
+			>
+			<small class="block"
+				>Starting over clears saved progress and unuploaded takes from this device.</small
+			>
+		</div>{/if}
 	{#if stage === "landing"}
-		<section class="intro">
-			<span class="kind">A little of your voice. A better Janet.</span>
+		<section class="max-w-xl pt-8 pb-6">
+			<span class="text-primary font-semibold">A little of your voice. A better Janet.</span>
 			<h1>Help Janet<br />hear you.</h1>
 			<p>
 				Say “Hey Janet” a few different ways, then a few phrases that sound close. Your real voice
 				helps Parker teach Janet when to listen.
 			</p>
-			<p class="muted">40 short phrases · About 3 minutes · No account needed</p>
+			<p class="text-base-content">40 short phrases · About 3 minutes · No account needed</p>
 		</section>
 		<form
-			class="form"
+			class="grid max-w-lg gap-6"
 			onsubmit={(e) => {
 				e.preventDefault();
 				void start();
 			}}
 		>
 			<div>
-				<label for="first-name">Your first name</label><input
+				<label class="block" for="first-name">Your first name</label><input
+					class="input bg-base-100 min-h-12 w-full border-0"
 					id="first-name"
+					disabled={!!progress}
 					name="given-name"
 					autocomplete="given-name"
 					required
@@ -312,53 +339,65 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 					bind:value={name}
 				/>
 			</div>
-			<label class="consent"
-				><input type="checkbox" required bind:checked={consent} /><span
+			<label class="flex items-start gap-4 text-sm leading-relaxed font-normal"
+				><input
+					class="checkbox checkbox-primary shrink-0"
+					type="checkbox"
+					autocomplete="off"
+					required
+					bind:checked={consent}
+				/><span
 					>I agree that my recordings go into Parker’s Janet wake-word training set. I can ask to
 					have them deleted by contacting the person who sent me this link.</span
 				></label
 			>
-			<button type="submit" disabled={!loaded || busy || !consent || !name.trim()}
-				>{busy ? "Starting…" : "Start recording"}<ArrowRight size={20} /></button
+			<button
+				class="btn btn-primary min-h-12 border-0 shadow-none"
+				type="submit"
+				disabled={!loaded || busy || !consent || !name.trim()}
+				>{busy ? "Starting…" : progress ? "Resume recording" : "Start recording"}<ArrowRight
+					size={20}
+				/></button
 			>
 			{#if data.auth}<p>
 					Signed in with PetalNet as {data.auth.name || name}.
 					<a href={resolve("/admin")}>Review recordings</a>
 				</p>{:else if data.oidcEnabled}<a href={resolve("/auth/login")}
-					>Sign in with PetalNet <span class="muted">(optional)</span></a
+					>Sign in with PetalNet <span class="text-base-content">(optional)</span></a
 				>{/if}
 		</form>
 	{:else if stage === "done"}
-		<section class="intro">
+		<section class="max-w-xl pt-8 pb-6">
 			<Check size={40} />
 			<h1>That’s a wrap,<br />{progress?.name}.</h1>
 			<p>Thank you for helping Janet recognize more voices.</p>
 			<p>{progress?.accepted} takes accepted. {progress?.skipped} skipped.</p>
-			<div class="notice" role="status">
+			<div class="bg-base-100 my-4 p-4 leading-relaxed" role="status">
 				{totalPending
 					? `${String(totalPending)} takes are saved on this device and waiting to upload. Keep this page open while they finish.`
 					: "Your takes have uploaded. You can close this page."}
 			</div>
 		</section>
 		<button
+			class="btn btn-primary min-h-12 border-0 shadow-none"
 			onclick={() => {
 				void more();
 			}}>Record another set<ArrowRight size={20} /></button
 		>
 	{:else}
-		<div class="row" style="margin-block-start:32px">
-			<span>Hi, {progress?.name}</span><span class="muted"
+		<div class="flex flex-wrap items-center gap-4" style="margin-block-start:32px">
+			<span>Hi, {progress?.name}</span><span class="text-base-content"
 				>Phrase {(progress?.index ?? 0) + 1} of {prompts.length}</span
 			>
 		</div>
 		<progress
-			class="progress"
+			class="progress progress-primary h-1 w-full"
 			max={prompts.length}
 			value={progress?.index ?? 0}
 			aria-label="Set progress"
 		></progress>
 		<section class="station" aria-label="Current phrase">
-			<span class="kind"
+			<span class="text-primary font-semibold"
 				>{prompt.kind === "pos" ? "Wake phrase" : "Near miss · should not wake Janet"}</span
 			>
 			<h1 class="phrase">“{prompt.say}”</h1>
@@ -386,20 +425,24 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 		</section>
 		{#if stage === "review" && recording}
 			<audio controls src={preview} aria-label="Play your take"></audio>
-			{#if recording.peak < 1500 / 32768 || recording.clipped}<p class="notice" role="status">
+			{#if recording.peak < 1500 / 32768 || recording.clipped}<p
+					class="bg-base-100 my-4 p-4 leading-relaxed"
+					role="status"
+				>
 					{recording.clipped
 						? "This take may be distorted. Move a little farther from the mic and try again."
 						: "This take is very quiet. Try moving closer to the mic."} You can still use it if it sounds
 					right.
 				</p>{/if}
-			<div class="row">
+			<div class="flex flex-wrap items-center gap-4">
 				<button
+					class="btn btn-primary min-h-12 border-0 shadow-none"
 					disabled={busy}
 					onclick={() => {
 						void advance();
 					}}>Use this take<Check size={20} /></button
 				><button
-					class="secondary"
+					class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
 					onclick={() => {
 						revoke();
 						stage = "ready";
@@ -407,7 +450,7 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 				>
 			</div>
 		{:else}<button
-				class="record"
+				class="btn btn-primary min-h-12 min-h-18 w-full border-0 text-lg shadow-none"
 				disabled={busy}
 				onclick={() => {
 					void record();
@@ -416,32 +459,34 @@ FORM: Brief-pinned sequential booth, expanding to a compact review list for Park
 						? "Opening microphone…"
 						: "Record"}{/if}</button
 			>{/if}
-		<div class="row" style="margin-block-start:16px">
+		<div class="flex flex-wrap items-center gap-4" style="margin-block-start:16px">
 			<button
-				class="text-button"
+				class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
 				disabled={busy || stage === "recording"}
 				onclick={() => {
 					void advance(true);
 				}}>Skip this phrase</button
 			><small>Space to record or stop</small>
 		</div>
-		{#if micError}<p class="notice" role="alert">{micError}</p>{/if}
+		{#if micError}<p class="bg-base-100 my-4 p-4 leading-relaxed" role="alert">{micError}</p>{/if}
 	{/if}
-	{#if message}<p class="notice" role="alert">{message}</p>{/if}
-	{#if totalPending}<div class="status" role="status">
+	{#if message}<p class="bg-base-100 my-4 p-4 leading-relaxed" role="alert">{message}</p>{/if}
+	{#if totalPending}<div class="my-6 min-h-12 leading-relaxed" role="status">
 			{totalPending}
 			{totalPending === 1 ? "take" : "takes"} saved on this device, waiting to upload.{#if pending[0]?.problem}<p
 				>
 					{pending[0].problem}
 				</p>{/if}<button
-				class="text-button"
-				disabled={busy}
+				class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
+				disabled={busy || !consent || stage === "landing"}
 				onclick={() => {
 					void reconnect();
 				}}>Retry uploads</button
 			>
 		</div>{/if}
-	<footer class="footer">
+	<footer
+		class="border-base-300 text-base-content mt-10 flex flex-wrap justify-between gap-4 border-t py-6 text-sm"
+	>
 		<span
 			>{progress
 				? `${String(progress.accepted)} accepted in this set`

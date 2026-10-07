@@ -1,13 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { test, expect, type Page, type TestInfo } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { SignJWT } from "jose";
-async function shot(page: Page, info: TestInfo, name: string) {
-	await page.screenshot({
-		path: info.outputPath(`${name}.png`),
-		fullPage: name !== "12-curation",
-		scale: "css",
-	});
-}
 async function begin(page: Page) {
 	await page.goto("/");
 	if (page.context().browser()?.browserType().name() === "webkit") await fakeWebkit(page);
@@ -41,18 +34,17 @@ async function take(page: Page) {
 	await page.getByRole("button", { name: "Stop recording" }).click();
 	await expect(page.getByRole("button", { name: "Use this take" })).toBeVisible();
 }
-test("full 40 phrase session, playback, more sets and screenshots", async ({ page }, info) => {
+test("full 40 phrase session, playback and more sets", async ({ page }) => {
 	test.setTimeout(90000);
 	await page.goto("/");
-	await shot(page, info, "01-landing");
+
 	await begin(page);
-	await shot(page, info, "02-microphone-ready");
 
 	async function step(i: number): Promise<void> {
 		if (i >= 40) return;
 		await page.getByRole("button", { name: "Record", exact: true }).click();
 		await expect(page.getByRole("button", { name: "Stop recording" })).toBeVisible();
-		if (i === 0) await shot(page, info, "03-recording");
+
 		await page.waitForTimeout(260);
 		await page.getByRole("button", { name: "Stop recording" }).click();
 		await expect(page.getByRole("button", { name: "Use this take" })).toBeVisible();
@@ -60,9 +52,8 @@ test("full 40 phrase session, playback, more sets and screenshots", async ({ pag
 			await page.locator("audio").evaluate(async (a: HTMLAudioElement) => {
 				await a.play();
 			});
-			await shot(page, info, "04-playback");
 		}
-		if (i === 25) await shot(page, info, "05-near-miss");
+
 		await page.getByRole("button", { name: "Use this take" }).click();
 		await step(i + 1);
 	}
@@ -71,14 +62,14 @@ test("full 40 phrase session, playback, more sets and screenshots", async ({ pag
 	await expect(page.getByText("Your takes have uploaded. You can close this page.")).toBeVisible({
 		timeout: 30000,
 	});
-	await shot(page, info, "06-thank-you");
+
 	await page.getByRole("button", { name: "Record another set" }).click();
 	await expect(page.getByText("Phrase 1 of 40")).toBeVisible();
 });
 test("redo, skip, offline upload recovery and reload keep the session", async ({
 	page,
 	context,
-}, info) => {
+}) => {
 	await begin(page);
 	await take(page);
 	await page.getByRole("button", { name: "Redo", exact: true }).click();
@@ -87,20 +78,37 @@ test("redo, skip, offline upload recovery and reload keep the session", async ({
 	await page.route("**/api/clips?**", (route) => route.abort("internetdisconnected"));
 	await page.getByRole("button", { name: "Use this take" }).click();
 	await expect(page.getByRole("status").filter({ hasText: "saved on this device" })).toBeVisible();
-	await shot(page, info, "07-offline-queue");
+
 	await page.reload();
+	await expect(page.getByRole("checkbox")).not.toBeChecked();
+	await page.getByRole("checkbox").check();
+	await page.getByRole("button", { name: "Resume recording" }).click();
 	await expect(page.getByText("Phrase 2 of 40")).toBeVisible();
 	await expect(page.getByRole("status").filter({ hasText: "saved on this device" })).toBeVisible();
-	await shot(page, info, "08-resumed");
+
 	await page.unroute("**/api/clips?**");
 	await context.setOffline(true);
 	await context.setOffline(false);
 	await expect(page.getByText("All accepted takes uploaded")).toBeVisible();
 	await page.getByRole("button", { name: "Skip this phrase" }).click();
 	await expect(page.getByText("Phrase 3 of 40")).toBeVisible();
-	await shot(page, info, "09-skip");
+	if (page.context().browser()?.browserType().name() === "webkit") await fakeWebkit(page);
+	await take(page);
+	await page.route("**/api/clips?**", (route) => route.abort("internetdisconnected"));
+	await page.getByRole("button", { name: "Use this take" }).click();
+	await expect(page.getByRole("status").filter({ hasText: "saved on this device" })).toBeVisible();
+	await page.getByRole("button", { name: "Not Test Voice? Start over" }).click();
+	await expect(page.getByLabel("Your first name")).toHaveValue("");
+	await expect(page.getByRole("checkbox")).not.toBeChecked();
+	await expect(page.getByRole("button", { name: "Start recording" })).toBeDisabled();
+	await expect(page.getByText(/saved on this device, waiting to upload/)).toHaveCount(0);
+	expect((await context.cookies()).some((cookie) => cookie.name === "booth-participant")).toBe(
+		false,
+	);
+	await page.reload();
+	await expect(page.getByLabel("Your first name")).toHaveValue("");
 });
-test("permission denied has recovery guidance", async ({ page }, info) => {
+test("permission denied has recovery guidance", async ({ page }) => {
 	await begin(page);
 	await page.evaluate(() => {
 		Object.defineProperty(MediaDevices.prototype, "getUserMedia", {
@@ -111,9 +119,8 @@ test("permission denied has recovery guidance", async ({ page }, info) => {
 	await page.getByRole("button", { name: "Record", exact: true }).click();
 	await expect(page.getByRole("alert")).toContainText("Microphone access is blocked");
 	await expect(page.getByRole("button", { name: "Record", exact: true })).toBeEnabled();
-	await shot(page, info, "10-mic-denied");
 });
-test("keyboard, labels, contrast and responsive overflow", async ({ page }, info) => {
+test("keyboard, labels, contrast and responsive overflow", async ({ page }) => {
 	await begin(page);
 	await page.locator("h1").click();
 	await page.keyboard.press("Space");
@@ -134,13 +141,12 @@ test("keyboard, labels, contrast and responsive overflow", async ({ page }, info
 		(await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze())
 			.violations,
 	).toEqual([]);
-	await shot(page, info, "11-dark");
 });
 test("admin boundary, curation, metadata persistence and ZIP export", async ({
 	page,
 	context,
 	request,
-}, info) => {
+}) => {
 	expect((await request.get("/api/admin/export")).status()).toBe(403);
 	expect((await request.get("/admin")).status()).toBe(403);
 	const token = await new SignJWT({ sub: "test-parker", name: "Test Parker", admin: true })
@@ -165,7 +171,7 @@ test("admin boundary, curation, metadata persistence and ZIP export", async ({
 	await expect(page.getByText("Review saved. Audio is preserved.")).toBeVisible();
 	await page.getByLabel("Review", { exact: true }).selectOption("keep");
 	await expect(page.locator("audio").first()).toBeVisible();
-	await shot(page, info, "12-curation");
+
 	const download = page.waitForEvent("download");
 	await page.getByRole("link", { name: "Export kept set" }).click();
 	const zip = await download;
@@ -179,7 +185,7 @@ test("admin boundary, curation, metadata persistence and ZIP export", async ({
 	).toEqual([]);
 });
 
-test("silent input auto-stops with a quiet warning", async ({ page }, info) => {
+test("silent input auto-stops with a quiet warning", async ({ page }) => {
 	await begin(page);
 	await page.evaluate(() => {
 		Object.defineProperty(MediaDevices.prototype, "getUserMedia", {
@@ -200,10 +206,9 @@ test("silent input auto-stops with a quiet warning", async ({ page }, info) => {
 	await page.getByRole("button", { name: "Record", exact: true }).click();
 	await expect(page.getByRole("button", { name: "Use this take" })).toBeVisible({ timeout: 12000 });
 	await expect(page.getByText(/This take is very quiet/)).toBeVisible();
-	await shot(page, info, "13-quiet-auto-stop");
 });
 
-test("clipped input offers a redo warning", async ({ page }, info) => {
+test("clipped input offers a redo warning", async ({ page }) => {
 	await begin(page);
 	await page.evaluate(() => {
 		Object.defineProperty(MediaDevices.prototype, "getUserMedia", {
@@ -230,5 +235,4 @@ test("clipped input offers a redo warning", async ({ page }, info) => {
 	await page.waitForTimeout(2000);
 	await page.getByRole("button", { name: "Stop recording" }).click();
 	await expect(page.getByText(/This take may be distorted/)).toBeVisible();
-	await shot(page, info, "14-clipped");
 });

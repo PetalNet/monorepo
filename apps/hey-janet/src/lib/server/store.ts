@@ -11,7 +11,7 @@ export interface Participant {
 	authSub: string | null;
 }
 export type Decision = "undecided" | "keep" | "drop";
-export interface Clip extends Participant {
+export interface Clip extends Pick<Participant, "id" | "name"> {
 	file: string;
 	clipId: string;
 	setId: string;
@@ -23,8 +23,6 @@ export interface Clip extends Participant {
 	at: string;
 	userAgent: string;
 	deviceType: string;
-	participantId: string;
-	participantName: string;
 	decision: Decision;
 	flags: string[];
 }
@@ -40,7 +38,7 @@ export function participant(
 		: anonymousId;
 	return { id, name, authSub };
 }
-function folder(p: Participant) {
+function folder(p: Pick<Participant, "id" | "name">) {
 	return `${p.id}_${
 		p.name
 			.toLowerCase()
@@ -86,7 +84,9 @@ export async function saveClip(
 	bytes: Uint8Array,
 	userAgent: string,
 ) {
-	const prompt: (typeof prompts)[number] | undefined = prompts.find((_, i) => i === index);
+	const prompt: (typeof prompts)[number] | undefined = Number.isInteger(index)
+		? prompts[index]
+		: undefined;
 	if (!prompt || !uuid.test(clipId) || !uuid.test(setId))
 		throw new Error("Invalid prompt or recording identifier.");
 	const info = wavInfo(bytes);
@@ -113,7 +113,8 @@ export async function saveClip(
 			.replace(/-$/, "")
 			.slice(0, 24)}_${clipId}.wav`;
 		const clip: Clip = {
-			...p,
+			id: p.id,
+			name: p.name,
 			...prompt,
 			...info,
 			file,
@@ -126,8 +127,6 @@ export async function saveClip(
 				: /Mobile|Android|iPhone/i.test(userAgent)
 					? "phone"
 					: "desktop",
-			participantId: p.id,
-			participantName: p.name,
 			decision: "undecided",
 		};
 		await atomic(path.join(dir, file), bytes);

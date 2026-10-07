@@ -185,10 +185,3 @@ jobs:
           pulseaudio --start --exit-idle-time=-1 --load="module-null-sink sink_name=hey_janet_test"
       - run: pnpm --filter @petalnet/hey-janet build
       - run: pnpm --filter @petalnet/hey-janet test:e2e
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: hey-janet-browser-evidence
-          path: apps/hey-janet/.cache/browser-results
-          include-hidden-files: true
-          retention-days: 7

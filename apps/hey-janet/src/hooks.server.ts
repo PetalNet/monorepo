@@ -7,7 +7,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		limit(`ip:${event.getClientAddress()}`, 600);
 	if (
 		!["GET", "HEAD", "OPTIONS"].includes(event.request.method) &&
-		event.request.headers.get("origin") !== (process.env.ORIGIN ?? event.url.origin)
+		event.request.headers.get("origin") !== event.url.origin
 	)
 		error(403, "Request origin did not match. Reload this page and try again.");
 	const response = await resolve(event);

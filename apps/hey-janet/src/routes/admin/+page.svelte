@@ -53,30 +53,36 @@
 </script>
 
 <svelte:head><title>Review voices · Hey Janet</title></svelte:head>
-<main class="shell admin">
-	<header class="topbar">
-		<a class="brand" href={resolve("/")}><Mic size={20} /> Hey Janet</a>
+<main class="mx-auto max-w-3xl max-w-5xl p-4 sm:p-6">
+	<header class="border-base-300 flex items-center justify-between gap-4 border-b pt-2 pb-6">
+		<a
+			class="text-base-content flex items-center gap-2 font-semibold no-underline"
+			href={resolve("/")}><Mic size={20} /> Hey Janet</a
+		>
 		<form method="POST" action={resolve("/auth/logout")}>
-			<button class="text-button">Sign out</button>
+			<button class="btn btn-ghost text-primary min-h-12 border-0 shadow-none">Sign out</button>
 		</form>
 	</header>
-	<section class="intro">
+	<section class="max-w-xl pt-8 pb-6">
 		<h1>Listen. Choose.<br />Teach Janet.</h1>
 		<p>
 			{participants.length} participants · {data.clips.length} takes · {data.clips.filter(
 				(c) => c.decision === "keep",
 			).length} kept
 		</p>
-		<p class="muted">
+		<p class="text-base-content">
 			Keep the voices you want in the training set. Dropped takes stay in the archive.
 		</p>
 	</section>
-	<a class="button" href={resolve("/api/admin/export")} download
-		><Download size={20} />Export kept set</a
+	<a
+		class="btn btn-primary min-h-12 border-0 shadow-none"
+		href={resolve("/api/admin/export")}
+		download><Download size={20} />Export kept set</a
 	>
-	<div class="filters">
+	<div class="my-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 		<div>
-			<label for="person">Participant</label><select
+			<label class="block" for="person">Participant</label><select
+				class="select bg-base-100 min-h-12 w-full border-0"
 				id="person"
 				bind:value={person}
 				onchange={reset}
@@ -86,46 +92,59 @@
 			>
 		</div>
 		<div>
-			<label for="kind">Phrase</label><select id="kind" bind:value={kind} onchange={reset}
+			<label class="block" for="kind">Phrase</label><select
+				class="select bg-base-100 min-h-12 w-full border-0"
+				id="kind"
+				bind:value={kind}
+				onchange={reset}
 				><option value="all">All phrases</option><option value="pos">Wake phrase</option><option
 					value="neg">Near miss</option
 				></select
 			>
 		</div>
 		<div>
-			<label for="device">Device</label><select id="device" bind:value={device} onchange={reset}
+			<label class="block" for="device">Device</label><select
+				class="select bg-base-100 min-h-12 w-full border-0"
+				id="device"
+				bind:value={device}
+				onchange={reset}
 				><option value="all">All devices</option><option value="phone">Phone</option><option
 					value="tablet">Tablet</option
-				><option value="desktop">Desktop</option><option value="unknown">Unknown</option></select
+				><option value="desktop">Desktop</option></select
 			>
 		</div>
 		<div>
-			<label for="status">Review</label><select id="status" bind:value={status} onchange={reset}
+			<label class="block" for="status">Review</label><select
+				class="select bg-base-100 min-h-12 w-full border-0"
+				id="status"
+				bind:value={status}
+				onchange={reset}
 				><option value="undecided">Unreviewed</option><option value="keep">Kept</option><option
 					value="drop">Dropped</option
 				><option value="all">All takes</option></select
 			>
 		</div>
 	</div>
-	<div class="row">
+	<div class="flex flex-wrap items-center gap-4">
 		<button
-			class="secondary"
+			class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
 			onclick={() => {
 				selected = shown.map((c) => c.clipId);
 			}}>Select visible ({shown.length})</button
 		><button
+			class="btn btn-primary min-h-12 border-0 shadow-none"
 			disabled={busy || !selected.length}
 			onclick={() => {
 				void decide("keep");
 			}}>Keep selected</button
 		><button
-			class="secondary"
+			class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
 			disabled={busy || !selected.length}
 			onclick={() => {
 				void decide("drop");
 			}}>Drop selected</button
 		><button
-			class="text-button"
+			class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
 			disabled={busy || !selected.length}
 			onclick={() => {
 				void decide("undecided");
@@ -133,14 +152,17 @@
 		>
 	</div>
 	<p role="status">{message || `${String(selected.length)} selected`}</p>
-	<ul class="review-list">
-		{#each shown as clip (clip.clipId)}<li>
-				<label class="review-label"
-					><input type="checkbox" bind:group={selected} value={clip.clipId} /><span
-						>{clip.name} · “{clip.say}”<br /><small>{clip.how}</small></span
-					></label
+	<ul class="divide-base-300 list-none divide-y p-0">
+		{#each shown as clip (clip.clipId)}<li class="py-6">
+				<label class="flex items-center gap-4"
+					><input
+						class="checkbox checkbox-primary shrink-0"
+						type="checkbox"
+						bind:group={selected}
+						value={clip.clipId}
+					/><span>{clip.name} · “{clip.say}”<br /><small>{clip.how}</small></span></label
 				>
-				<p class="muted">
+				<p class="text-base-content">
 					{clip.deviceType} · {clip.duration.toFixed(1)} s · {clip.decision}{clip.flags.length
 						? ` · ${clip.flags.join(", ")}`
 						: ""}
@@ -151,21 +173,22 @@
 					src={resolve("/api/admin/audio/[id]", { id: clip.clipId })}
 					aria-label={`Play ${clip.name}: ${clip.say}`}
 				></audio>
-				<div class="row">
+				<div class="flex flex-wrap items-center gap-4">
 					<button
+						class="btn btn-primary min-h-12 border-0 shadow-none"
 						disabled={busy}
 						onclick={() => {
 							void decide("keep", [clip.clipId]);
 						}}>Keep</button
 					><button
 						disabled={busy}
-						class="secondary"
+						class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
 						onclick={() => {
 							void decide("drop", [clip.clipId]);
 						}}>Drop</button
 					><button
 						disabled={busy}
-						class="text-button"
+						class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
 						onclick={() => {
 							void decide("undecided", [clip.clipId]);
 						}}>Reset</button
@@ -174,7 +197,7 @@
 			</li>{:else}<li>All caught up.</li>{/each}
 	</ul>
 	{#if shown.length < visible.length}<button
-			class="secondary"
+			class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
 			onclick={() => {
 				pageSize += 50;
 			}}>Show 50 more</button

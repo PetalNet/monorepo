@@ -34,5 +34,12 @@ export const POST: RequestHandler = async (event) => {
 		secure: event.url.protocol === "https:",
 		maxAge: 30 * 86400,
 	});
-	return Response.json(p);
+	return Response.json({ id: p.id, name: p.name });
+};
+
+export const DELETE: RequestHandler = (event) => {
+	const options = { path: "/", secure: event.url.protocol === "https:" };
+	event.cookies.delete("booth-participant", options);
+	event.cookies.delete("booth-auth", options);
+	return new Response(null, { status: 204 });
 };

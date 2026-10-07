@@ -9,8 +9,6 @@ export default defineConfig({
 	use: {
 		extraHTTPHeaders: { "X-Forwarded-Proto": "http" },
 		baseURL: "http://127.0.0.1:18806",
-		trace: "retain-on-failure",
-		screenshot: "only-on-failure",
 	},
 	projects: [
 		{
@@ -59,7 +57,7 @@ export default defineConfig({
 		},
 	],
 	webServer: {
-		command: "sh test/start-server.sh",
+		command: "rm -rf .cache/browser-recordings && exec node build",
 		url: "http://127.0.0.1:18806",
 		reuseExistingServer: false,
 		timeout: 30000,

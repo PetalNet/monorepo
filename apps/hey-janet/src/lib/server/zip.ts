@@ -1,15 +1,10 @@
+import { crc32 } from "node:zlib";
+
 export interface ZipEntry {
 	name: string;
 	data: Uint8Array;
 }
-function crc32(bytes: Uint8Array) {
-	let crc = 0xffffffff;
-	for (const b of bytes) {
-		crc ^= b;
-		for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-	}
-	return (crc ^ 0xffffffff) >>> 0;
-}
+
 export async function* zip(entries: AsyncIterable<ZipEntry>) {
 	const central: Buffer[] = [];
 	let offset = 0;
