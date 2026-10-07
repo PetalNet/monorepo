@@ -1,10 +1,10 @@
+import { getAuthTables } from "@better-auth/core/db";
 import {
 	caseInsensitiveTestSuite,
 	normalTestSuite,
 	testAdapter,
 } from "@better-auth/test-utils/adapter";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { getAuthTables } from "better-auth/db";
 import type { BetterAuthOptions } from "better-auth/minimal";
 import { Effect, ManagedRuntime, Redacted } from "effect";
 import { describe } from "vitest";

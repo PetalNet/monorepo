@@ -53,7 +53,7 @@ export default defineConfig([
 		},
 	},
 	{
-		files: ["apps/{collegemap,console,grove,slide,storybook}/**/*.svelte"],
+		files: ["apps/{collegemap,grove,slide,storybook}/**/*.svelte"],
 		extends: svelte.configs.recommended,
 		languageOptions: {
 			parserOptions: {
@@ -127,7 +127,7 @@ export default defineConfig([
 		extends: [json.configs.recommended],
 	},
 	{
-		files: ["apps/{slide,console}/**"],
+		files: ["apps/slide/**"],
 		rules: {
 			"@typescript-eslint/dot-notation": "off",
 			"@typescript-eslint/array-type": "off",

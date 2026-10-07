@@ -62,8 +62,7 @@ oxlint runs first because it's ~10-100x faster on the same rules. The overlap-di
 runs `vp run check`, `vp run test`, manypkg, a dedupe check, typesync, and both
 Knip modes. A separate job runs `vp run build`. Additional jobs validate the
 Rust applications, Point's Rust and Flutter projects, spelling, and links.
-Release workflows build the Console and Point container images when their
-relevant paths change.
+The Point release workflow builds its container image when relevant paths change.
 
 ## Adding an app
 

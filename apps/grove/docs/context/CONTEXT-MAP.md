@@ -2,11 +2,15 @@
 
 This is the fetch-deeper index for the Grove handoff. Do not bulk-load the source export.
 
-All paths below are relative to the original Grove preparation workspace, not this zip. The evidence summary in `CURRENT-IMPLEMENTATION-EVIDENCE.md` is sufficient for ordinary implementation planning.
+Grove's live implementation is in `apps/grove`, with shared transport and database adapters in
+`packages/effect-api`, `packages/effect-sveltekit`, and `packages/better-auth-effect-qb-adapter`.
+Console has been removed. The export paths below are relative to the original preparation workspace
+and are historical references only. `CURRENT-IMPLEMENTATION-EVIDENCE.md` records that legacy baseline,
+not the current repository architecture.
 
-## Current implementation
+## Historical implementation export
 
-Load these first when verifying architecture:
+Use these only when tracing the original specification's provenance:
 
 | Need                                  | Source                                                                                                             |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |

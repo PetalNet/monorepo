@@ -1,7 +1,0 @@
-{
-	"extends": "@petalnet/tsconfig/base.json",
-	"compilerOptions": {
-		"noEmit": true
-	},
-	"include": ["*.ts"]
-}

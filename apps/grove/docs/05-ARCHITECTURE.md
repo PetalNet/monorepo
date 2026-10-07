@@ -39,33 +39,32 @@ The current monorepo uses:
 
 Do not bypass these rules to make the Grove change appear smaller.
 
-### Unified Console to preserve
+### Standalone Grove application
 
-`apps/console` is already one full-stack SvelteKit application.
+`apps/grove` is the full-stack SvelteKit application. The legacy Console and its private
+support packages have been removed; Grove does not depend on them.
 
-Its server-side domain services live under:
-
-`apps/console/src/lib/server/domain`
+Its server-side domain services live under `apps/grove/src/lib/server`.
 
 Its public surfaces derive from the same domain layer:
 
 - SvelteKit Remote Functions for the UI;
 - `/api/v1/**` REST/OpenAPI;
-- `/api/v1/mcp` and assistant MCP;
-- SvelteKit-owned WebSockets.
+- authenticated MCP ingress;
+- shared invocation and authority checks across transports.
 
 The current architecture intentionally has:
 
-- one Node artifact for the Console;
-- one auth and telemetry spine;
+- one Node artifact for Grove;
+- one browser authentication and actor-authority spine;
 - transport-agnostic Effect services;
 - Effect Schema as the contract source;
-- `@effect/sql-pg` behind the current database facade;
-- scoped PostgreSQL access and RLS;
-- typed bus/RPC contracts;
-- ordered replay, resume cursors, gaps, backpressure, and grant revalidation.
+- `@effect/sql-pg` with effect-db migrations and effect-qb queries;
+- shared REST/MCP adapters in `packages/effect-api`;
+- request-scoped Effect integration in `packages/effect-sveltekit`.
 
-These are foundations, not migration debris.
+RLS, replay, backpressure, and grant revalidation remain target requirements where specified,
+not claims that the removed Console implementation is available to Grove.
 
 ### Existing authoritative components
 
@@ -76,24 +75,24 @@ The source export contains:
 - `apps/box-agent`
 - `apps/dispatcher`
 - `apps/courier`
-- `apps/console`
+- `apps/grove`
 - supporting deployables and packages
 
 Their existing lease, fencing, signing, idempotency, supervision, and host-operation behavior must be preserved by contract tests while product boundaries are folded into the Grove Site.
 
 ### Current domain seam
 
-The accepted Console ADR currently describes:
+The historical Console export described:
 
 - tracker as Task authority;
 - Library plane/store as Library authority;
 - Console adapters as non-authoritative.
 
-The target decision supersedes only the Task/Library authority split:
+The target Grove authority model is:
 
 - the Library domain becomes the sole Task authority;
-- tracker-named adapters remain temporary compatibility seams;
-- Console remains a projection and command surface rather than inventing domain state;
+- any tracker adapters are temporary compatibility seams;
+- Grove transport adapters remain projections and command surfaces rather than inventing domain state;
 - no second Task writer is introduced.
 
 The migration must explicitly move authority. Renaming an adapter is not enough.
@@ -102,8 +101,8 @@ The migration must explicitly move authority. Renaming an adapter is not enough.
 
 | Area              | Current base                                          | Target change                                                                         |
 | ----------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Console packaging | unified full-stack SvelteKit Node app                 | preserve; become participant + Admin Grove shell                                      |
-| Domain layer      | Effect services under Console server                  | preserve patterns; add Library Task module and shared commands                        |
+| Grove packaging   | standalone full-stack SvelteKit Node app              | become participant + Admin Grove shell                                                |
+| Domain layer      | Effect services under Grove server                    | add Library Task module and shared commands                                           |
 | Task authority    | tracker via adapter                                   | migrate into Library Task module, then retire legacy authority                        |
 | Library           | items, revisions, links, search, curation projections | become universal Grove object graph with signed immutable Versions                    |
 | Versions          | current revision support                              | strengthen with content address, parent Versions, canonical serialization, signatures |
@@ -653,7 +652,7 @@ Required checks:
 
 Do not:
 
-- build another frontend or gateway beside `apps/console`;
+- build another frontend or gateway beside `apps/grove`;
 - move domain logic into Svelte components or route handlers;
 - treat Matrix as the Task database;
 - treat search as authoritative;

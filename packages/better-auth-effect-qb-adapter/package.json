@@ -16,6 +16,7 @@
 		"effect-qb": "catalog:"
 	},
 	"devDependencies": {
+		"@better-auth/core": "catalog:",
 		"@better-auth/test-utils": "catalog:",
 		"@testcontainers/postgresql": "catalog:",
 		"@types/node": "catalog:types",

@@ -3,11 +3,11 @@
 **Status:** Focused implementation view  
 **Normative source:** `01-GROVE-BUILD-SPEC.md`
 
-This reconciles Eli's craft bar, the current Console foundations, and the final Grove Library model.
+This reconciles Eli's craft bar, Grove's SvelteKit foundations, and the final Grove Library model.
 
 ## 1. Product shell
 
-Grove uses the current unified SvelteKit application. Participant and Admin surfaces share the same identity, domain operations, design system, and deep-link model.
+Grove uses the standalone SvelteKit application in `apps/grove`. Participant and Admin surfaces share the same identity, domain operations, design system, and deep-link model. The legacy Console is not a dependency.
 
 ### Participant navigation
 

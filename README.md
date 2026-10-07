@@ -14,7 +14,7 @@ docs/         repository architecture and migration history
 
 ### Applications
 
-- Web and Node: `clarity-mcp`, `collegemap`, `console`, `grove`, and `slide`
+- Web and Node: `clarity-mcp`, `collegemap`, `grove`, and `slide`
 - Rust: `box-agent`, `control-plane`, `courier`, `dispatcher`, `manager`, and the
   Point server
 - Flutter: the Point client under `apps/point/app`
@@ -22,8 +22,7 @@ docs/         repository architecture and migration history
 ### Shared packages
 
 - `@petalnet/better-auth-effect-qb-adapter`
-- `@petalnet/console-bus-rpc`
-- `@petalnet/svelte-ws`
+- `@petalnet/effect-api` and `@petalnet/effect-sveltekit`
 - `@petalnet/tsconfig`, `@petalnet/types`, `@petalnet/ui`, and `@petalnet/utils`
 
 ## Toolchain

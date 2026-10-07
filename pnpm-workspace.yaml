@@ -3,8 +3,8 @@ packages:
   - packages/*
 
 # The minimal Better Auth runtime does not load Kysely, but Better Auth still
-# declares it in its package manifest. Keep Console on its pinned full-runtime
-# release and remove Kysely only from the newer minimal-runtime dependency graph.
+# declares it in its package manifest. Remove unused adapters from Grove's
+# minimal-runtime dependency graph until the stable upgrade.
 overrides:
   "better-auth@1.7.0-rc.2>@better-auth/drizzle-adapter": "-"
   "better-auth@1.7.0-rc.2>@better-auth/kysely-adapter": "-"
@@ -20,9 +20,7 @@ peerDependencyRules:
   allowedVersions:
     "@napi-rs/wasm-runtime@1.2.0>@emnapi/core": ^1.9.0
     "@napi-rs/wasm-runtime@1.2.0>@emnapi/runtime": ^1.9.0
-    "@sentry/sveltekit@10.65.0>@sveltejs/kit": 3.0.0-next.8
     "@sveltejs/adapter-node@5.5.4>@sveltejs/kit": 3.0.0-next.8
-    "better-auth@1.7.0-rc.1>@sveltejs/kit": 3.0.0-next.8
     "better-auth@1.7.0-rc.2>@sveltejs/kit": 3.0.0-next.8
     "effect-db@0.23.1>effect": 4.0.0-rc.115
     "effect-qb@0.23.1>effect": 4.0.0-rc.115
@@ -49,8 +47,6 @@ minimumReleaseAgeExclude:
 allowBuilds:
   "@prisma/client": true
   "@prisma/engines": true
-  # Source-map upload CLI only; runtime error capture works without its binary.
-  "@sentry/cli": false
   better-sqlite3: true
   esbuild: true
   msgpackr-extract: false
@@ -62,7 +58,6 @@ allowBuilds:
 
 catalogs:
   dev:
-    "@playwright/test": ^1.61.1
     "@eslint/js": ^10.0.1
     "@eslint/json": ^2.0.0
     "@eslint/markdown": ^8.0.2
@@ -113,7 +108,6 @@ catalogs:
     "@sveltejs/kit": ^2.50.1
     bcryptjs: ^3.0.0
     daisyui: ^5.6.13
-    fontless: ^0.2.1
     date-fns: ^4.1.0
     drizzle-orm: ^0.45.1
     leaflet: ^1.9.4
@@ -132,16 +126,10 @@ catalogs:
     tailwindcss: ^3.4.17
 
 catalog:
+  "@better-auth/core": 1.7.0-rc.2
   "@better-auth/test-utils": 1.7.0-rc.2
-  crossws: ^0.3.5
   # The newer native driver rejects multi-statement migrations, even unprepared.
   "@effect/sql-pg": 4.0.0-rc.112
-  "@opentelemetry/api": ^1.9.0
-  "@opentelemetry/auto-instrumentations-node": ^0.67.2
-  "@opentelemetry/exporter-trace-otlp-proto": ^0.208.0
-  "@opentelemetry/sdk-node": ^0.217.0
-  import-in-the-middle: ^2.0.0
-  "@sentry/sveltekit": ^10.58.0
   "@sveltejs/kit": 3.0.0-next.8
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.0-rc.2
@@ -149,12 +137,7 @@ catalog:
   effect: https://pkg.pr.new/effect@a2c4154
   effect-db: 0.23.1
   effect-qb: 0.23.1
-  svelte-effect-runtime: 4.1.1
-  svelte-global-typescript: 1.0.1
   mode-watcher: ^1.1.0
-  nanoid: ^6.0.0
-  uuid: ^14.0.1
-  "@sentry/node": ^10.65.0
   "@effect/tsgo": ^0.24.3
   storybook: 10.5.10
   "@storybook/svelte-vite": 10.5.10
@@ -167,5 +150,3 @@ patchedDependencies:
   # RC compatibility until these libraries support the new AST/options API.
   effect-db@0.23.1: patches/effect-db@0.23.1.patch
   effect-qb@0.23.1: patches/effect-qb@0.23.1.patch
-  # Preserve Console's existing nested strict/open schema boundaries during the MCP upgrade.
-  effect@4.0.0-rc.115: patches/effect@4.0.0-rc.115.patch
