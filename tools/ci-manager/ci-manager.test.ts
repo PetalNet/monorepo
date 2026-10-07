@@ -9,7 +9,7 @@ import { NodeServices } from "@effect/platform-node";
 import { Effect } from "effect";
 
 import { evaluateGate } from "./gate.ts";
-import { nativeSelection, queueAlreadyCheckedFormatting } from "./policy.ts";
+import { nativeSelection } from "./policy.ts";
 import { commandOutput } from "./process.ts";
 
 const disabled = {
@@ -21,7 +21,7 @@ const disabled = {
 	point: "false",
 	rust: "false",
 	js: "false",
-	format: "true",
+	actions: "false",
 };
 
 const required = {
@@ -46,7 +46,8 @@ const scenarios = [
 			"control-plane-rust": "skipped",
 			"box-agent-rust": "skipped",
 			point: "skipped",
-			"codeql-other": "success",
+			"codeql-js-python": "success",
+			"codeql-actions": "skipped",
 			"codeql-rust": "skipped",
 		},
 	},
@@ -63,12 +64,13 @@ const scenarios = [
 			"control-plane-rust": "skipped",
 			"box-agent-rust": "skipped",
 			point: "success",
-			"codeql-other": "skipped",
+			"codeql-js-python": "skipped",
+			"codeql-actions": "skipped",
 			"codeql-rust": "skipped",
 		},
 	},
 	{
-		name: "full main run after queue formatting",
+		name: "full main run",
 		codeql: "true",
 		selection: {
 			"manager-rust": "true",
@@ -79,7 +81,7 @@ const scenarios = [
 			point: "true",
 			rust: "true",
 			js: "true",
-			format: "false",
+			actions: "true",
 		},
 		results: {
 			build: "success",
@@ -90,8 +92,27 @@ const scenarios = [
 			"control-plane-rust": "success",
 			"box-agent-rust": "success",
 			point: "success",
-			"codeql-other": "success",
+			"codeql-js-python": "success",
+			"codeql-actions": "success",
 			"codeql-rust": "success",
+		},
+	},
+	{
+		name: "Actions scan selected independently of JS and Rust",
+		codeql: "true",
+		selection: { ...disabled, actions: "true" },
+		results: {
+			build: "skipped",
+			test: "skipped",
+			"manager-rust": "skipped",
+			"courier-rust": "skipped",
+			"dispatcher-rust": "skipped",
+			"control-plane-rust": "skipped",
+			"box-agent-rust": "skipped",
+			point: "skipped",
+			"codeql-js-python": "success",
+			"codeql-actions": "success",
+			"codeql-rust": "skipped",
 		},
 	},
 ];
@@ -106,7 +127,7 @@ for (const scenario of scenarios) {
 	};
 	void test(`${scenario.name}: exact expected conclusions pass`, async () => {
 		const conclusions = await Effect.runPromise(evaluateGate(jobs, scenario.codeql));
-		assert.equal(conclusions.length, 15);
+		assert.equal(conclusions.length, 16);
 	});
 	for (const [job, expected] of Object.entries(jobs)) {
 		for (const result of ["success", "failure", "cancelled", "skipped"]) {
@@ -202,20 +223,6 @@ await test("native selection does not confuse JS paths, Rust consumers, or Flutt
 	}
 });
 
-await test("formatting reuse requires success, merge_group, and the exact head together", () => {
-	const matching = { event: "merge_group", head_sha: "head", conclusion: "success" };
-	assert.equal(queueAlreadyCheckedFormatting({ workflow_runs: [matching] }, "head"), true);
-	for (const run of [
-		{ ...matching, head_sha: "base" },
-		{ ...matching, event: "pull_request" },
-		{ ...matching, conclusion: "failure" },
-		{ ...matching, conclusion: null },
-	]) {
-		assert.equal(queueAlreadyCheckedFormatting({ workflow_runs: [run] }, "head"), false);
-	}
-	assert.equal(queueAlreadyCheckedFormatting({ workflow_runs: [] }, "head"), false);
-});
-
 await test("command output cannot hide a nonzero exit behind valid JSON", async () => {
 	const printJson = "process.stdout.write(JSON.stringify({ tasks: [] }))";
 	assert.equal(
@@ -251,6 +258,11 @@ await test("real Git/Turbo selection: dependency propagation, rename sides, full
 	};
 	try {
 		mkdirSync(join(root, "apps"));
+		mkdirSync(join(root, ".github/workflows"), { recursive: true });
+		mkdirSync(join(root, ".github/actions/fixture"), { recursive: true });
+		write(".github/workflows/fixture.yml", "name: fixture\n");
+		write(".github/actions/fixture/action.yaml", "name: fixture\n");
+		write(".github/README.md", "Documentation\n");
 		for (const app of ["consumer", "unrelated", "shared", "point"])
 			mkdirSync(join(root, "apps", app));
 		write(
@@ -316,6 +328,7 @@ await test("real Git/Turbo selection: dependency propagation, rename sides, full
 		assert.equal(affected.result.status, 0, affected.result.stderr);
 		assert.match(affected.outputs, /js=true/u);
 		assert.match(affected.outputs, /rust=false/u);
+		assert.match(affected.outputs, /actions=false/u);
 		const plan = run(
 			"pnpm",
 			["exec", "turbo", "run", "build", "test", "--affected", "--dry=json"],
@@ -334,37 +347,34 @@ await test("real Git/Turbo selection: dependency propagation, rename sides, full
 		assert.equal(renamed.result.status, 0, renamed.result.stderr);
 		assert.match(renamed.outputs, /point=true/u);
 		assert.match(renamed.outputs, /js=true/u);
-		assert.match(renamed.outputs, /format=true/u);
-		const manual = select({}, "workflow_dispatch");
-		assert.equal(manual.result.status, 0, manual.result.stderr);
-		assert.match(manual.outputs, /affected=false/u);
-		assert.match(manual.outputs, /manager-rust=true/u);
-		assert.match(manual.outputs, /js=true/u);
-		assert.match(manual.outputs, /format=true/u);
-		mkdirSync(join(root, "bin"));
-		writeFileSync(
-			join(root, "bin/gh"),
-			`#!${process.execPath}\nprocess.stdout.write(JSON.stringify({ workflow_runs: [{ event: "merge_group", head_sha: "missing", conclusion: "success" }] }));\n`,
-			{ mode: 0o755 },
-		);
-		const originalPath = process.env["PATH"];
-		try {
-			process.env["PATH"] = `${join(root, "bin")}:${originalPath ?? ""}`;
-			const main = select({}, "push");
-			assert.equal(main.result.status, 0, main.result.stderr);
-			assert.match(main.outputs, /format=false/u);
-			assert.match(main.outputs, /js=true/u);
-			assert.match(main.outputs, /courier-rust=true/u);
-			assert.match(main.outputs, /affected=false/u);
-			writeFileSync(join(root, "bin/gh"), `#!${process.execPath}\nprocess.exit(3);\n`, {
-				mode: 0o755,
-			});
-			const fallback = select({}, "push");
-			assert.equal(fallback.result.status, 0, fallback.result.stderr);
-			assert.match(fallback.outputs, /format=true/u);
-		} finally {
-			if (originalPath === undefined) delete process.env["PATH"];
-			else process.env["PATH"] = originalPath;
+		assert.match(renamed.outputs, /actions=false/u);
+		for (const [path, expected] of [
+			[".github/workflows/fixture.yml", "true"],
+			[".github/actions/fixture/action.yaml", "true"],
+			[".github/README.md", "false"],
+		] as const) {
+			run("git", ["reset", "--hard", base]);
+			write(path, "changed\n");
+			run("git", ["add", "."]);
+			run("git", ["commit", "-qm", path]);
+			const changed = select({ pull_request: { base: { sha: base } } });
+			assert.equal(changed.result.status, 0, changed.result.stderr);
+			assert.match(changed.outputs, new RegExp(`actions=${expected}`, "u"));
+		}
+		run("git", ["reset", "--hard", base]);
+		run("git", ["mv", ".github/workflows/fixture.yml", "former-workflow.txt"]);
+		run("git", ["commit", "-qm", "workflow renamed outside Actions paths"]);
+		const deletedWorkflow = select({ merge_group: { base_sha: base } }, "merge_group");
+		assert.equal(deletedWorkflow.result.status, 0, deletedWorkflow.result.stderr);
+		assert.match(deletedWorkflow.outputs, /actions=true/u);
+		for (const eventName of ["workflow_dispatch", "push"]) {
+			const full = select({}, eventName);
+			assert.equal(full.result.status, 0, full.result.stderr);
+			assert.match(full.outputs, /affected=false/u);
+			assert.match(full.outputs, /manager-rust=true/u);
+			assert.match(full.outputs, /js=true/u);
+			assert.match(full.outputs, /actions=true/u);
+			assert.match(full.outputs, /rust=true/u);
 		}
 		const bad = select({ merge_group: { base_sha: "nonexistent-ref" } }, "merge_group");
 		assert.notEqual(bad.result.status, 0);
