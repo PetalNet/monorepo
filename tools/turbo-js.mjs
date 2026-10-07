@@ -7,6 +7,7 @@ import { join } from "node:path";
 // Turbo 2.11.7 loads every toolchain for --affected, before applying filters.
 // Derive the JS lane from the single source of truth, without provisioning Rust.
 const config = JSON.parse(readFileSync("turbo.json", "utf8"));
+config.futureFlags ??= {};
 config.futureFlags.experimentalCargoWorkspaces = false;
 const directory = mkdtempSync(join(tmpdir(), "petalnet-turbo-js-"));
 try {
@@ -15,14 +16,13 @@ try {
 	const result = spawnSync(
 		"pnpm",
 		[
-			"--config.verifyDepsBeforeRun=false",
 			"exec",
 			"turbo",
-			"run",
+			...process.argv.slice(2, 3),
 			"--root-turbo-json",
 			path,
 			"--filter=@petalnet/*",
-			...process.argv.slice(2),
+			...process.argv.slice(3),
 		],
 		{ stdio: "inherit" },
 	);

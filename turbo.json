@@ -5,6 +5,7 @@
 		"experimentalCargoWorkspaces": true,
 		"experimentalTaskCommand": true
 	},
+	"globalPassThroughEnv": ["PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN"],
 	"globalDependencies": [
 		"*",
 		"!.git",
@@ -269,6 +270,7 @@
 			"outputs": ["node_modules/.cache/tsbuild/**"]
 		},
 		"//#fmt:check": { "outputs": [] },
+		"//#test:ci-manager": { "cache": false },
 		"//#lint:oxlint": { "outputs": [] },
 		"//#lint:impeccable": { "outputs": [] },
 		"//#manypkg": { "outputs": [] },

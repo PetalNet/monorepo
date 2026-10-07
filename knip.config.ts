@@ -16,7 +16,8 @@ export default {
 			// The enrollment client is development-only; the boundary verifier runs in production builds.
 			entry: [
 				"tools/enroll-grove-dev-agent.mjs",
-				"tools/{ci-manager,turbo-js,verify-grove-production-boundary}.mjs!",
+				"tools/{turbo-js,verify-grove-production-boundary}.mjs!",
+				"tools/ci-manager/main.*!",
 			],
 		},
 		"apps/collegemap": {

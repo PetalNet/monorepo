@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   analyze:
+    # Default CodeQL rejects advanced uploads; enable only during the documented admin cutover.
     if: vars.CODEQL_ADVANCED == 'true'
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
@@ -30,9 +31,14 @@ jobs:
         with:
           persist-credentials: false
       - if: matrix.language == 'rust'
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        name: Install repository-pinned Rust toolchain
+        run: rustup toolchain install
+      - if: matrix.language == 'rust'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          toolchain: "1.96"
+          # CodeQL's none mode still compiles build scripts and procedural macros.
+          workspaces: . -> target
+          prefix-key: codeql-rust
       - uses: github/codeql-action/init@7999b86c43a865dc79d8923397f35af22de63401 # v4
         with:
           languages: ${{ matrix.language }}

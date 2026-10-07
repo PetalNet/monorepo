@@ -13,6 +13,8 @@ concurrency:
 env:
   CI: true
   TURBO_TELEMETRY_DISABLED: "1"
+  # Every JS job installs frozen dependencies through the setup action first.
+  PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
 
 permissions:
   contents: read
@@ -20,6 +22,9 @@ permissions:
 jobs:
   select:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
       manager-rust: ${{ steps.select.outputs.manager-rust }}
       courier-rust: ${{ steps.select.outputs.courier-rust }}
@@ -31,33 +36,29 @@ jobs:
       js: ${{ steps.select.outputs.js }}
       base: ${{ steps.select.outputs.base }}
       affected: ${{ steps.select.outputs.affected }}
+      format: ${{ steps.select.outputs.format }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: $/.github/actions/setup
         with:
           fetch-depth: 0
-          persist-credentials: false
-      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
-        with:
-          cache: true
-          require-lockfile: true
       - id: select
-        run: pnpm exec node tools/ci-manager.mjs select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec node tools/ci-manager/main.ts select
 
   check:
+    needs: select
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
-        with:
-          cache: true
-          require-lockfile: true
+      - uses: $/.github/actions/setup
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
-      - run: pnpm check
+      - run: pnpm check:code
+      - if: needs.select.outputs.format != 'false'
+        run: pnpm fmt:check
 
   test:
     needs: select
@@ -67,14 +68,9 @@ jobs:
       TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
       TURBO_SCM_HEAD: HEAD
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: $/.github/actions/setup
         with:
           fetch-depth: 0
-          persist-credentials: false
-      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
-        with:
-          cache: true
-          require-lockfile: true
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
@@ -93,14 +89,9 @@ jobs:
       TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
       TURBO_SCM_HEAD: HEAD
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: $/.github/actions/setup
         with:
           fetch-depth: 0
-          persist-credentials: false
-      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
-        with:
-          cache: true
-          require-lockfile: true
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
@@ -195,7 +186,7 @@ jobs:
   point:
     needs: select
     if: needs.select.outputs.point == 'true'
-    uses: ./.github/workflows/point.yml # zizmor: ignore[self-repository] actionlint compatibility
+    uses: $/.github/workflows/point.yml
 
   zizmor:
     timeout-minutes: 2
@@ -213,7 +204,7 @@ jobs:
 
   codeql-other:
     if: vars.CODEQL_ADVANCED == 'true'
-    uses: ./.github/workflows/codeql.yml # zizmor: ignore[self-repository] actionlint compatibility
+    uses: $/.github/workflows/codeql.yml
     with:
       languages: '["javascript-typescript", "actions", "python"]'
     permissions:
@@ -223,7 +214,7 @@ jobs:
   codeql-rust:
     needs: select
     if: vars.CODEQL_ADVANCED == 'true' && needs.select.outputs.rust == 'true'
-    uses: ./.github/workflows/codeql.yml # zizmor: ignore[self-repository] actionlint compatibility
+    uses: $/.github/workflows/codeql.yml
     with:
       languages: '["rust"]'
     permissions:
@@ -278,14 +269,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
-        with:
-          install: false
+      - uses: $/.github/actions/setup
       - name: Require exactly the selected job conclusions
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           CODEQL_ADVANCED: ${{ vars.CODEQL_ADVANCED == 'true' && 'true' || 'false' }}
-        run: pnpm --config.verifyDepsBeforeRun=false exec node tools/ci-manager.mjs gate
+        run: pnpm exec node tools/ci-manager/main.ts gate

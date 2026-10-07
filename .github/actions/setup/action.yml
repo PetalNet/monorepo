@@ -1,0 +1,20 @@
+name: Setup
+description: Check out the repository and install pinned pnpm, Node, and frozen dependencies.
+
+inputs:
+  fetch-depth:
+    description: Git history depth (0 for affected planning and execution).
+    default: "1"
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: ${{ inputs.fetch-depth }}
+        persist-credentials: false
+    - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+      with:
+        cache: true
+        require-lockfile: true
