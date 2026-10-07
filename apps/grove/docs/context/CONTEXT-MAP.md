@@ -33,11 +33,11 @@ Use these only when tracing the original specification's provenance:
 
 | Need                                           | Source                                                                                       |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Full chronological Wayfinder/chat history      | `branch-mega-project-spec-merge.md`, principally lines 6,660-21,291                          |
+| Full chronological design-session/chat history | `branch-mega-project-spec-merge.md`, principally lines 6,660-21,291                          |
 | Final late Task/Version/recordicide correction | `branch-mega-project-spec-merge.md`, principally lines 20,607-21,010                         |
 | Collaborative Room product seed                | `collab-rooms-inspiration.md.markdown`                                                       |
 | Eli's UI craft bar                             | `eli-design-taste.md`                                                                        |
-| Console Wayfinder decisions                    | `sip-mega-export/console/console-fable/WAYFINDER-DECISIONS.md`                               |
+| Console design decisions                       | `sip-mega-export/console/console-fable/WAYFINDER-DECISIONS.md`                               |
 | Shared console foundations                     | `sip-mega-export/console/console-fable/specs/src/00-foundations.html`                        |
 | Work surface brief                             | `sip-mega-export/console/console-fable/specs/briefs/05-work.md`                              |
 | Library surface brief                          | `sip-mega-export/console/console-fable/specs/briefs/06-library.md`                           |
