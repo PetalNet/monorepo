@@ -2,7 +2,7 @@ import { Config, Console, Effect, FileSystem, Record, Schema } from "effect";
 import type { PlatformError } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 
-import { nativeApps, nativeSelection, QueueRuns, queueAlreadyCheckedFormatting } from "./policy.ts";
+import { nativeApps, nativeSelection } from "./policy.ts";
 import { commandOutput, type CommandFailed } from "./process.ts";
 
 const Event = Schema.Struct({
@@ -13,31 +13,6 @@ const Event = Schema.Struct({
 const TurboPlan = Schema.Struct({
 	tasks: Schema.Array(Schema.Struct({ command: Schema.String, task: Schema.String })),
 });
-
-// Formatting is only redundant when this exact commit passed the full merge-queue workflow.
-// Missing permission/network/history is not evidence: keep checking formatting in that case.
-const formattingRequired = Effect.gen(function* () {
-	const eventName = yield* Config.String("GITHUB_EVENT_NAME").pipe(Config.withDefault(""));
-	if (eventName !== "push") return true;
-	const repository = yield* Config.String("GITHUB_REPOSITORY");
-	const head = yield* Config.String("GITHUB_SHA");
-	const output = yield* commandOutput("gh", [
-		"api",
-		`repos/${repository}/actions/workflows/ci.yml/runs`,
-		"--method",
-		"GET",
-		"-f",
-		"event=merge_group",
-		"-f",
-		`head_sha=${head}`,
-		"-f",
-		"status=success",
-		"-f",
-		"per_page=100",
-	]);
-	const runs = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(QueueRuns))(output);
-	return !queueAlreadyCheckedFormatting(runs, head);
-}).pipe(Effect.orElseSucceed(() => true));
 
 export const select: Effect.Effect<
 	void,
@@ -53,6 +28,7 @@ export const select: Effect.Effect<
 	const base = event.pull_request?.base.sha ?? event.merge_group?.base_sha;
 	let native: ReturnType<typeof nativeSelection>;
 	let js = true;
+	let actions = true;
 	if (base) {
 		// Disable rename detection so both deletion and addition participate in selection.
 		const diff = yield* commandOutput("git", [
@@ -63,7 +39,11 @@ export const select: Effect.Effect<
 			base,
 			"HEAD",
 		]);
-		native = nativeSelection(diff.split("\0").filter(Boolean));
+		const paths = diff.split("\0").filter(Boolean);
+		native = nativeSelection(paths);
+		actions = paths.some(
+			(path) => path.startsWith(".github/workflows/") || path.startsWith(".github/actions/"),
+		);
 		const plan = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TurboPlan))(
 			yield* commandOutput(
 				"pnpm",
@@ -87,9 +67,9 @@ export const select: Effect.Effect<
 	const outputs = {
 		...native,
 		js,
+		actions,
 		base: base ?? "",
 		affected: Boolean(base),
-		format: yield* formattingRequired,
 	};
 	const lines = Object.entries(outputs)
 		.map(([key, value]) => `${key}=${String(value)}`)

@@ -6,7 +6,7 @@ conclusion. This follows [Roc's CI manager](https://github.com/roc-lang/roc/blob
 with Turborepo owning the JavaScript dependency graph.
 
 The manager is an Effect CLI at `tools/ci-manager/main.ts`. `policy.ts` defines
-native selection and formatting reuse; `select.ts` performs Git/Turbo planning;
+native selection; `select.ts` performs Git/Turbo planning;
 `gate.ts` contains the explicit expected-job inventory and validates GitHub's
 inputs with Effect Schema. Run `pnpm test:ci-manager` for the gate matrix and
 real Git/Turbo regression fixtures; it also runs as part of the root checks.
@@ -42,15 +42,15 @@ attempt implicit dependency installation inside dry plans or checks.
   pnpm-lockfile, and JS tool changes do not select native checks or Rust CodeQL.
 - Main pushes and manual runs execute the whole validation suite. Weekly CodeQL
   scans also analyze all four languages, independent of change selection.
-  JavaScript/TypeScript, Actions, and Python scan on every PR; only Rust is
-  conditional. This preserves the existing default setup's language coverage.
-- Repository formatting runs on PRs, merge groups, and manual runs. A main push may skip
-  `pnpm fmt:check` **only** when GitHub's CI workflow history confirms a
-  successful `merge_group` run for that exact head SHA. Missing history, an API
-  failure, or a different SHA keeps formatting enabled. Code checks, builds,
-  tests, Clippy, and scans still run in full on main. Local `pnpm check` always
-  includes formatting. Native `cargo fmt` still runs on main: a successful
-  JS-only queue run does not prove those conditional native jobs ran.
+  JavaScript/TypeScript and Python scan on every PR. Actions scans only when
+  `.github/workflows/` or `.github/actions/` changes, including deleted or renamed
+  paths. Rust scans when native Rust inputs are selected. Python coverage remains
+  for `apps/manager/docs/contracts/validate.py`; replacing that validator with
+  TypeScript is outside this PR.
+- Work that is only partially selected on PRs runs in full on main: JS builds
+  and tests, native checks, and all CodeQL languages. Repository-wide checks,
+  including formatting, already run in full on PRs and remain full on main;
+  there is no formatting-specific merge-queue history lookup.
 
 Native Turbo Rust execution is not required for this design. Experimental Cargo
 workspace support stays disabled. If enabled later, JS plans and commands must
@@ -83,7 +83,7 @@ but is not an alert-severity gate for a merge group.
 The existing GitHub-generated **default setup** continues scanning until an admin
 switches it off. Advanced uploads cannot coexist with default setup, so the new
 workflow is staged behind repository variable `CODEQL_ADVANCED=true`. Until then,
-its two jobs are intentionally skipped and default setup remains the security gate.
+its jobs are intentionally skipped and default setup remains the security gate.
 **Rust CodeQL will still run on JS-only PRs until this cutover is done.**
 
 1. Land the workflow changes after checking the new `finish` result. Existing
@@ -101,7 +101,8 @@ its two jobs are intentionally skipped and default setup remains the security ga
 4. Run `ci` manually on `main` and wait for all languages to upload and `finish`
    to pass. Confirm the repository's code-scanning rule is satisfied. Do not
    resume auto-merging during this initialization window.
-5. Verify a JS-only PR: native lanes and Rust CodeQL skip, non-Rust scans finish,
+5. Verify a JS-only PR: native lanes, Rust CodeQL, and Actions CodeQL skip;
+   JS/TS and Python scans finish. Verify a workflow/action PR selects Actions.
    `finish` passes, and the code-scanning rule permits merging. Verify a Rust PR:
    Rust CodeQL runs. Verify a deliberately failing selected check makes `finish`
    fail. Old default-setup analysis configurations may need retirement in the

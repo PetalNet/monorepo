@@ -1,4 +1,4 @@
-import { Record, Schema } from "effect";
+import { Record } from "effect";
 
 // Keep these keys identical to the native job IDs in ci.yml.
 export const nativeApps = {
@@ -9,16 +9,6 @@ export const nativeApps = {
 	"box-agent-rust": "box-agent",
 	point: "point",
 } as const;
-
-export const QueueRuns = Schema.Struct({
-	workflow_runs: Schema.Array(
-		Schema.Struct({
-			event: Schema.String,
-			head_sha: Schema.String,
-			conclusion: Schema.NullOr(Schema.String),
-		}),
-	),
-});
 
 export function nativeSelection(paths: readonly string[]) {
 	const shared = paths.some(
@@ -43,10 +33,4 @@ export function nativeSelection(paths: readonly string[]) {
 		(app) => rust || paths.some((path) => path.startsWith(`apps/${app}/`)),
 	);
 	return { ...apps, rust };
-}
-
-export function queueAlreadyCheckedFormatting(runs: typeof QueueRuns.Type, head: string) {
-	return runs.workflow_runs.some(
-		(run) => run.event === "merge_group" && run.head_sha === head && run.conclusion === "success",
-	);
 }
