@@ -173,7 +173,7 @@ await test("native selection does not confuse JS paths, Rust consumers, or Flutt
 		"box-agent-rust": false,
 		point: false,
 		rust: false,
-	});
+	} as const);
 	assert.deepEqual(nativeSelection(["apps/point/app/lib/main.dart"]), {
 		"manager-rust": false,
 		"courier-rust": false,
@@ -182,7 +182,7 @@ await test("native selection does not confuse JS paths, Rust consumers, or Flutt
 		"box-agent-rust": false,
 		point: true,
 		rust: false,
-	});
+	} as const);
 	for (const path of [
 		"apps/dispatcher/src/lib.rs",
 		"Cargo.lock",
@@ -198,7 +198,7 @@ await test("native selection does not confuse JS paths, Rust consumers, or Flutt
 			"box-agent-rust": true,
 			point: true,
 			rust: true,
-		});
+		} as const);
 	}
 });
 

@@ -1,8 +1,9 @@
-import { Config, Console, Effect, FileSystem, Schema } from "effect";
+import { Config, Console, Effect, FileSystem, Record, Schema } from "effect";
+import type { PlatformError } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 
 import { nativeApps, nativeSelection, QueueRuns, queueAlreadyCheckedFormatting } from "./policy.ts";
-import { commandOutput } from "./process.ts";
+import { commandOutput, type CommandFailed } from "./process.ts";
 
 const Event = Schema.Struct({
 	pull_request: Schema.optionalKey(Schema.Struct({ base: Schema.Struct({ sha: Schema.String }) })),
@@ -40,7 +41,7 @@ const formattingRequired = Effect.gen(function* () {
 
 export const select: Effect.Effect<
 	void,
-	unknown,
+	Config.ConfigError | Schema.SchemaError | PlatformError.PlatformError | CommandFailed,
 	FileSystem.FileSystem | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem;
@@ -79,7 +80,7 @@ export const select: Effect.Effect<
 	} else {
 		// Main and manual runs always execute the complete validation suite.
 		native = {
-			...Object.fromEntries(Object.keys(nativeApps).map((job) => [job, true])),
+			...Record.map(nativeApps, () => true),
 			rust: true,
 		};
 	}

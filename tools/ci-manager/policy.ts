@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Record, Schema } from "effect";
 
 // Keep these keys identical to the native job IDs in ci.yml.
 export const nativeApps = {
@@ -37,11 +37,9 @@ export function nativeSelection(paths: readonly string[]) {
 				path,
 			),
 		);
-	const apps = Object.fromEntries(
-		Object.entries(nativeApps).map(([job, app]) => [
-			job,
-			rust || paths.some((path) => path.startsWith(`apps/${app}/`)),
-		]),
+	const apps = Record.map(
+		nativeApps,
+		(app) => rust || paths.some((path) => path.startsWith(`apps/${app}/`)),
 	);
 	return { ...apps, rust };
 }
