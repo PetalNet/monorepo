@@ -103,12 +103,14 @@ void main() {
           return http.Response('{"ok":true}', 200);
         }
         if (request.url.path.endsWith('/outgoing')) {
+          // The server's lifecycle verdict keeps this pending fixture independent
+          // of the wall clock, even after its timestamp passes the fallback TTL.
           return http.Response(
             cancelled
                 ? '[]'
                 : '[{"id":"r1","to_user_id":"mara@point.dev",'
                       '"to_display_name":"Mara",'
-                      '"created_at":"2026-07-13T15:30:00Z"}]',
+                      '"created_at":"2026-07-13T15:30:00Z","expired":false}]',
             200,
           );
         }
@@ -155,7 +157,7 @@ void main() {
           return http.Response(
             '[{"id":"r1","to_user_id":"mara@point.dev",'
             '"to_display_name":"Mara",'
-            '"created_at":"2026-07-13T15:30:00Z"}]',
+            '"created_at":"2026-07-13T15:30:00Z","expired":false}]',
             200,
           );
         }
@@ -184,6 +186,44 @@ void main() {
     expect(cancelled, isTrue);
     expect(find.textContaining('Cancelled'), findsWidgets);
     expect(find.textContaining('Could not cancel. Try again.'), findsNothing);
+    expect(find.text('Cancel'), findsNothing);
+  });
+
+  testWidgets('expired sent request offers retry instead of cancellation', (
+    tester,
+  ) async {
+    final api = PointApi(
+      baseUrl: 'https://point.dev',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/outgoing')) {
+          return http.Response(
+            '[{"id":"r1","to_user_id":"mara@point.dev",'
+            '"to_display_name":"Mara",'
+            '"created_at":"2026-07-13T15:30:00Z","expired":true}]',
+            200,
+          );
+        }
+        return http.Response('[]', 200);
+      }),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_SignedInAuth.new),
+          apiProvider.overrideWithValue(api),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.dark(pureBlack: true),
+          home: const RequestsScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mara'), findsOneWidget);
+    expect(find.textContaining('Expired. Send it again?'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsNothing);
   });
 
