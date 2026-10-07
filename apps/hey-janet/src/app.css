@@ -82,9 +82,7 @@ button,
 	justify-content: center;
 	cursor: pointer;
 	text-decoration: none;
-	transition:
-		background-color 160ms ease,
-		transform 160ms ease;
+	transition: transform 160ms ease;
 }
 button:hover,
 .button:hover {
