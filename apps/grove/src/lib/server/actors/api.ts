@@ -8,8 +8,6 @@ import { ActorAuthority, ActorDenied } from "./authority";
 export const enrollAgentSelfOperation = operation({
 	name: "agents.enrollSelf",
 	description: "Enroll this verified machine identity as an Agent on its local Home Host.",
-	method: "POST",
-	path: "/agents/enroll-self",
 	input: EnrollAgentSelf,
 	output: EnrolledAgent,
 	handler: (input) =>

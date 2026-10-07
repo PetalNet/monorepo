@@ -488,9 +488,64 @@ describe("createEffectApi", () => {
 	});
 
 	it("applies body defaults and explicit overrides", () => {
-		expect(operationForMethod("GET").body).toBe(false);
-		expect(operationForMethod("POST").body).toBe(true);
-		expect(operationForMethod("POST", false).body).toBe(false);
+		expect(operationForMethod("GET").rest?.body).toBe(false);
+		expect(operationForMethod("POST").rest?.body).toBe(true);
+		expect(operationForMethod("POST", false).rest?.body).toBe(false);
+	});
+
+	it("derives REST and MCP exposure from one mixed operation catalog", async () => {
+		const machineOnly = vi.fn(({ id }: { readonly id: string }) =>
+			Effect.succeed({ id, ok: true }),
+		);
+		const mixed = createEffectApi({
+			title: "Mixed catalog",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "machine",
+					description: "MCP only",
+					input: Id,
+					output: Item,
+					handler: machineOnly,
+				}),
+				operation({
+					name: "shared",
+					description: "Both transports",
+					method: "GET",
+					path: "/shared/:id",
+					input: Id,
+					output: Item,
+					handler: ({ id }) => Effect.succeed({ id, ok: false }),
+				}),
+			],
+		});
+		expect(Object.keys(mixed.openapi.paths)).toEqual(["/shared/{id}"]);
+		const rejected = await runJson(
+			mixed.fetch(
+				new Request("https://x/api/machine", {
+					method: "POST",
+					body: JSON.stringify({ id: "rest" }),
+				}),
+			),
+		);
+		expect(rejected.response.status).toBe(404);
+		expect(machineOnly).not.toHaveBeenCalled();
+		expect((await runJson(mixed.fetch(new Request("https://x/api/shared/rest")))).body).toEqual({
+			id: "rest",
+			ok: false,
+		});
+		const listed = await runJson(mixed.mcp(modernMcpRequest(40, "tools/list")));
+		expect(listed.body).toMatchObject({
+			result: { tools: [{ name: "machine" }, { name: "shared" }] },
+		});
+		const called = await runJson(
+			mixed.mcp(modernMcpRequest(41, "tools/call", { name: "machine", arguments: { id: "mcp" } })),
+		);
+		expect(called.body).toMatchObject({
+			result: { isError: false, structuredContent: { id: "mcp", ok: true } },
+		});
+		expect(machineOnly).toHaveBeenCalledExactlyOnceWith({ id: "mcp" });
 	});
 
 	it("merges query, JSON object, and decoded path fields with path taking precedence", async () => {

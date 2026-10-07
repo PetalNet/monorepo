@@ -32,11 +32,13 @@ const withoutProperties = (schema: object, names: ReadonlySet<string>): object =
 export function createOpenApi<R>(config: OpenApiConfig<R>) {
 	const paths: Record<string, Record<string, object>> = {};
 	for (const operation of config.operations) {
-		const path = openApiPath(operation.path);
+		const rest = operation.rest;
+		if (!rest) continue;
+		const path = openApiPath(rest.path);
 		const inputSchema = schemaJson(operation.input);
 		const inputProperties = (inputSchema as ObjectSchema).properties;
 		const pathNames = new Set(
-			[...operation.path.matchAll(/:([A-Za-z][A-Za-z0-9_]*)/g)].flatMap(([, name]) =>
+			[...rest.path.matchAll(/:([A-Za-z][A-Za-z0-9_]*)/g)].flatMap(([, name]) =>
 				name === undefined ? [] : [name],
 			),
 		);
@@ -47,11 +49,11 @@ export function createOpenApi<R>(config: OpenApiConfig<R>) {
 			schema: inputProperties?.[name] ?? { type: "string" },
 		}));
 		paths[path] ??= {};
-		paths[path][operation.method.toLowerCase()] = {
+		paths[path][rest.method.toLowerCase()] = {
 			operationId: operation.name,
 			description: operation.description,
 			...(pathParameters.length > 0 ? { parameters: pathParameters } : {}),
-			...(operation.body
+			...(rest.body
 				? {
 						requestBody: {
 							required: true,

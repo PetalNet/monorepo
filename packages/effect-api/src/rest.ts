@@ -18,14 +18,16 @@ export const createRestLayer = <R>(config: RestConfig<R>) =>
 		Effect.gen(function* () {
 			const router = yield* HttpRouter.HttpRouter;
 			for (const operation of config.operations) {
+				const rest = operation.rest;
+				if (!rest) continue;
 				yield* router.add(
-					operation.method,
-					`${config.basePath.replace(/\/$/, "")}${operation.path}` as `/${string}`,
+					rest.method,
+					`${config.basePath.replace(/\/$/, "")}${rest.path}` as `/${string}`,
 					Effect.gen(function* () {
 						const request = yield* HttpServerRequest.HttpServerRequest;
 						const params = yield* HttpRouter.params;
 						const query = Object.fromEntries(new URL(request.originalUrl).searchParams.entries());
-						const input = yield* operation.body
+						const input = yield* rest.body
 							? request.text.pipe(
 									Effect.flatMap((text) =>
 										text.length === 0
