@@ -20,7 +20,7 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 /// Deadline for one MCP request round-trip.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 
 type PendingMap = HashMap<u64, oneshot::Sender<Result<Value>>>;
 

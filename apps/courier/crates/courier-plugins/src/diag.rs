@@ -59,8 +59,7 @@ impl Plugin for DiagTool {
             .room
             .latest_encryption_state()
             .await
-            .map(|s| s.is_encrypted())
-            .unwrap_or(false);
+            .is_ok_and(|s| s.is_encrypted());
         let bot_verified = if let Ok(Some(dev)) = ctx.client.encryption().get_own_device().await {
             Some(dev.is_verified())
         } else {

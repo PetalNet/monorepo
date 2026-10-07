@@ -80,7 +80,7 @@ const BACKFILL_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 /// cluster can fan out to several targets. A too-small outer budget kills
 /// valid media relays mid-flight before their own bounded retries finish —
 /// expiry here abandons the event (backfill then retries it).
-const RELAY_PASSIVE_BUDGET: Duration = Duration::from_secs(1800);
+const RELAY_PASSIVE_BUDGET: Duration = Duration::from_mins(30);
 
 /// The relay plugin.
 #[derive(Debug)]

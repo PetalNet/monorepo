@@ -52,7 +52,7 @@ cat > "$amp_config_dir/AGENTS.md" <<'EOF_AGENTS'
 - Mise installs pnpm; pnpm installs the Node runtime pinned in package.json. Use `pnpm exec node` for standalone Node commands.
 - Run repository workflows with `pnpm check`, `pnpm test`, and `pnpm build`; turbo.json owns the cache policy.
 - Install missing tools with `mise install --locked <tool>`, then run the command directly. Do not use `mise exec`, `mise x`, or `mise activate &&`.
-- Rust is lazy: from a Rust app directory, run `mise install --locked rust`; mise reads that app's `rust-toolchain.toml`.
+- Rust is lazy: run `mise install --locked rust` from the repository root; the root `rust-toolchain.toml` pins the shared Cargo workspace and standalone Point Flutter bridge toolchain.
 - Flutter is lazy: from a Flutter app directory, run `mise install --locked flutter`, then `flutter pub get`.
 - Docker runs as the supervised `docker` Amp service for Testcontainers.
 - For Grove development, run `.agents/ensure-grove` from the repository root, then follow `apps/grove/AGENTS.md` and the public URLs in its JSON output.

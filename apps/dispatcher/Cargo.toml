@@ -8,7 +8,7 @@ license = "MIT"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite.workspace = true
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rand = "0.10"
@@ -16,7 +16,3 @@ ureq = { version = "3.0", default-features = false, features = ["rustls", "json"
 
 [dev-dependencies]
 tempfile = "3"
-
-[profile.release]
-lto = true
-strip = true

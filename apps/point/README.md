@@ -25,8 +25,10 @@ docs/     Current operations/recovery docs, design records, and legacy maps.
 
 ## Development
 
-The server and core use the toolchain in `rust-toolchain.toml`. The app pins
-Flutter 3.44.6 with Mise:
+The server and core are members of the repository-root Cargo workspace and use
+its `rust-toolchain.toml`, `Cargo.lock` and `target/`. The Flutter bridge remains
+a standalone workspace with its own lockfile and output directory, using the
+same Rust toolchain. The app pins Flutter with Mise:
 
 ```sh
 cd app
@@ -43,9 +45,9 @@ tool/check_apk_libs.sh
 Run the Rust checks from this directory:
 
 ```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+cargo fmt -p point-core -p point-server --check
+cargo clippy -p point-core -p point-server --all-targets --locked -- -D warnings
+cargo test -p point-core -p point-server --locked
 ```
 
 ## Self-host quickstart

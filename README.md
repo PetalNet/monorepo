@@ -1,8 +1,9 @@
 # PetalNet/Monorepo
 
 PetalNet applications and shared libraries live in this monorepo. JavaScript and
-TypeScript projects share a pnpm workspace and Turborepo task graph; Rust and Flutter
-projects keep their language-native workspaces and toolchains.
+TypeScript projects share a pnpm workspace and Turborepo task graph. Rust services
+share a root Cargo workspace; Point's Flutter client and its Rust bridge remain
+standalone.
 
 ## Layout
 
@@ -33,7 +34,8 @@ docs/         repository architecture and migration history
   update-ts-references for workspace hygiene
 - Tailwind CSS v4 for pnpm apps that use Tailwind, except `apps/slide`, which
   remains on the shared Tailwind v3 legacy catalog
-- Cargo and Flutter tooling for non-pnpm projects
+- Cargo with root `rust-toolchain.toml`, `Cargo.toml`, and `Cargo.lock` for Rust
+  services; Flutter tooling and a separate Cargo lock for Point's client bridge
 
 Install dependencies with `pnpm install --frozen-lockfile`. Run the root workflows:
 
@@ -48,6 +50,22 @@ Useful focused commands include `pnpm lint:knip`, `pnpm manypkg`, and
 [`turbo.json`](./turbo.json), workflow scripts remain in
 [`package.json`](./package.json), and workspace membership and dependency catalogs
 are in [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
+
+Rust remains Cargo-native; the pnpm/Turbo workflows do not run Rust tasks yet.
+Install Rust lazily with `mise install --locked rust` from the repository root:
+
+```sh
+cargo build --workspace --locked
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo fmt --all --check
+```
+
+Point's tests require PostgreSQL and a `DATABASE_URL`; its CI job supplies both.
+Manager's tmux integration tests remain a separate opt-in run.
+Use `-p <crate>` to work on one service, such as `cargo run -p courier`.
+Outputs live in root `target/`. Point's bridge retains its separate
+`apps/point/app/rust/target/` and lockfile.
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for repository mechanics and
 [`docs/MIGRATION.md`](./docs/MIGRATION.md) for the historical migration journal.

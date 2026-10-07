@@ -27,17 +27,21 @@ Reliability mechanisms are first-class, not bolted on:
 
 ## Build
 
+Run from this directory or the repository root. Courier's five crates are members
+of the root Cargo workspace and share its Rust toolchain, lockfile and `target/`.
+
 ```sh
-cargo build --release        # binary at target/release/courier
-cargo test
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all --check
+cargo build -p courier --release --locked  # binary at repository-root target/release/courier
+cargo test -p 'courier*' --locked
+cargo clippy -p 'courier*' --all-targets --locked -- -D warnings
+cargo fmt -p courier -p courier-ai -p courier-core -p courier-plugins -p courier-relay --check
 ```
 
 ## Run
 
 Copy `.env.example` to `.env` and `config.example.yaml` to `config.yaml`,
-then `cargo run --release`. All flags are also environment variables
+then `cargo run -p courier --release --locked` from this directory.
+All flags are also environment variables
 (`courier --help`); flags override env.
 
 - `--check-config` parses and prints the config, then exits.
@@ -58,8 +62,8 @@ managed rollout, then verify relay health with the `Relay health` logs and
 1. `crates/courier/src/service.rs` — `SERVICE_NAME` (CLI name + default
    device display name).
 2. Crate dirs + names: `crates/courier*`, the `[workspace.dependencies]`
-   path entries, and the `courier=info,courier_ai=debug` log directives in
-   `crates/courier/src/logging.rs`.
+   path entries in the root `Cargo.toml`, and the `courier=info,courier_ai=debug`
+   log directives in `crates/courier/src/logging.rs`.
 3. `grep -ri courier` to catch stragglers. Everything else is name-neutral.
 
 ## Git hygiene

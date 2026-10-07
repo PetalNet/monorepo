@@ -32,7 +32,7 @@ use courier_core::bound;
 pub const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 pub const SEND_ATTEMPTS: u32 = 3;
 pub const MEDIA_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(90);
-pub const MEDIA_UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+pub const MEDIA_UPLOAD_TIMEOUT: Duration = Duration::from_mins(2);
 pub const MEDIA_ATTEMPTS: u32 = 2;
 pub const RETRY_BASE_DELAY: Duration = Duration::from_secs(1);
 

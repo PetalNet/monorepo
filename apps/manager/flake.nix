@@ -33,9 +33,9 @@
           modules = [
             ./nix/agent-manager.nix
             {
-              paths.projectRoot = ./.;
-              paths.projectRootFile = "flake.nix";
-              paths.package = ./.;
+              paths.projectRoot = ../..;
+              paths.projectRootFile = "Cargo.toml";
+              paths.package = ../..;
             }
           ];
         };
@@ -44,8 +44,10 @@
         fallback = pkgs.rustPlatform.buildRustPackage {
           pname = "agent-manager";
           version = "0.1.0";
-          src = pkgs.lib.cleanSource ./.;
-          cargoLock.lockFile = ./Cargo.lock;
+          src = pkgs.lib.cleanSource ../..;
+          cargoLock.lockFile = ../../Cargo.lock;
+          cargoBuildFlags = [ "-p" "agent-manager" ];
+          cargoTestFlags = [ "-p" "agent-manager" ];
         };
       });
     };

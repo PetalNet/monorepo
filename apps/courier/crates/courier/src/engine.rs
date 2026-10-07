@@ -101,7 +101,7 @@ pub async fn run(
     heartbeat: Heartbeat,
 ) -> anyhow::Result<()> {
     let settings = SyncSettings::new().timeout(config.sync_timeout);
-    let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(60));
+    let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_mins(1));
     let mut consecutive_failures: u64 = 0;
 
     info!(
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn success_resets_backoff() {
-        let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(60));
+        let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_mins(1));
         let _ = next_action(IterationOutcome::Transient, &mut backoff);
         let _ = next_action(IterationOutcome::Transient, &mut backoff);
         assert_eq!(
@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn fatal_exits() {
-        let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(60));
+        let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_mins(1));
         assert_eq!(
             next_action(IterationOutcome::Fatal, &mut backoff),
             LoopAction::Exit

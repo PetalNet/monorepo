@@ -5,13 +5,5 @@ idiomatic_version_file_enable_tools = ["pnpm", "rust"]
 lockfile = true
 
 [monorepo]
-config_roots = [
-	"apps/box-agent",
-	"apps/control-plane",
-	"apps/courier",
-	"apps/dispatcher",
-	"apps/manager",
-	"apps/point",
-	"apps/point/app",
-]
+config_roots = ["apps/point/app"]
 lockfile = true
