@@ -90,7 +90,7 @@ feature; this comparison is not a claim that all main code equals 2.11.7.
   the RFC still requires npm-ecosystem installation of the Turbo binary.
   The tagged test `test_cargo_root_package_can_be_filtered_and_built` demonstrates
   a root package too, so the guide's virtual-workspace prerequisite is narrower
-  than the tested implementation. [Guide and source above.]
+  than the tested implementation. (Guide and source above.)
 - **Tasks and selection:** native verbs are `build`, `run`/`dev`, `test`,
   `check`, `lint` (Clippy), and `format`. Libraries remain graph nodes; unfiltered
   builds prefer entrypoints, falling back to libraries if there are none.
@@ -98,13 +98,13 @@ feature; this comparison is not a claim that all main code equals 2.11.7.
   crate filters select per-crate verification. `run`/`dev` require an entrypoint
   with exactly one binary. Common JS/Rust task names can therefore select both
   ecosystems; the tagged flag documentation supports package `extends: false`
-  to exclude defaults. [Tagged FutureFlags, Cargo source, and tests above.]
+  to exclude defaults. (Tagged FutureFlags, Cargo source, and tests above.)
 - **Argument routing matters:** build/check accept Cargo arguments after Turbo's
   `--`; run/test/lint/format insert Cargo's second `--`, forwarding to the
   binary, test harness, Clippy, or rustfmt instead. Cargo-level feature selection,
   exclusions, or nextest are not equivalent to arbitrary passthrough on `test`;
   use an explicit `command` with `experimentalTaskCommand` when necessary.
-  [Tagged guide above.]
+  (Tagged guide above.)
 - **Caching is deliverable caching, not a replacement for Cargo's cache:**
   automatic outputs are exact final `bin`/`cdylib`/`staticlib` artifacts, not
   incremental `target/` state. Library builds and formatting default uncached;
@@ -115,7 +115,7 @@ feature; this comparison is not a claim that all main code equals 2.11.7.
   closure, Cargo root files, external dependency closure, and relevant environment
   contribute to hashing. Unresolved compiler identity disables implicit caching.
   Build-script environment and extra file inputs still require explicit task
-  configuration. [Tagged guide; Cargo source's output-layout tests above.]
+  configuration. (Tagged guide; Cargo source's output-layout tests above.)
 
 ## Caveats when interpreting the RFC and docs
 
@@ -128,14 +128,14 @@ The RFC's July comments are questions/reports, **not current guarantees**:
    manifest discovery without Cargo/rustc, and full discovery has conservative
    lockfile-resolution fallbacks. Do not repeat the stronger claim that _every_
    JS-only command always requires Rust credentials: the precise CLI path and
-   fallback error category need validation. [Tagged Cargo source above.]
+   fallback error category need validation. (Tagged Cargo source above.)
 2. A commenter reports command overrides discarding Cargo contracts. That is
    not an accurate blanket description of 2.11.7: tagged tests
    `test_cargo_command_override_preserves_native_task_contract` and
    `test_command_override_preserves_native_cache_defaults` explicitly assert
    preservation of native inputs, outputs, hash environment, and defaults.
    This does not prove arbitrary commands produce the inferred artifacts or
-   preserve every compile-cache/serialization behavior. [Tagged tests above.]
+   preserve every compile-cache/serialization behavior. (Tagged tests above.)
 3. A commenter reports task-only JS/Rust dependencies not propagating package
    affectedness or prune. 2.11.7 documents the separate
    `affectedUsingTaskInputs` future flag and tests
@@ -143,13 +143,13 @@ The RFC's July comments are questions/reports, **not current guarantees**:
    `test_prune_task_aware_cross_toolchain_buildable_output`. These cover
    task-aware affectedness and prune across toolchains without manifest edges;
    they do not create a Cargo-to-JS package-manifest dependency or imply identical
-   behavior with the flag disabled. [Tagged FutureFlags and tests above.]
+   behavior with the flag disabled. (Tagged FutureFlags and tests above.)
 
 4. The guide's custom-task JSON repeats the same `acme-rust` key for both
    examples, rather than distinct package-qualified task keys. Do not copy it:
    duplicate keys can discard the docs command. Verify `acme-rust#docs` and
    `acme-rust#lint` against the pinned binary's task configuration before using
-   an override. [Live and tagged guide above.]
+   an override. (Live and tagged guide above.)
 
 ## Smallest useful next experiment
 
