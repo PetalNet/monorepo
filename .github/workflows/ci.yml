@@ -190,8 +190,6 @@ jobs:
         if: always()
         with:
           name: hey-janet-browser-evidence
-          path: |
-            apps/hey-janet/test/evidence
-            apps/hey-janet/.cache/browser-results
+          path: apps/hey-janet/.cache/browser-results
           include-hidden-files: true
           retention-days: 7

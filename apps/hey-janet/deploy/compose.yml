@@ -1,20 +1,15 @@
 services:
   hey-janet:
-    # Build and push on a CI runner or another machine, never on .14.
-    image: ${BOOTH_IMAGE:?Set an immutable image digest built from the reviewed commit}
+    image: hey-janet
+    build:
+      context: ../../..
+      dockerfile: apps/hey-janet/Dockerfile
     restart: unless-stopped
-    user: "1000:1000"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    ports: ["127.0.0.1:8806:3000"]
     env_file: .env
+    ports:
+      - "127.0.0.1:8806:3000"
     environment:
-      NODE_ENV: production
       ORIGIN: https://heyjanet.petalcat.dev
-      HOST: 0.0.0.0
-      PORT: "3000"
-      BODY_SIZE_LIMIT: "262144"
       PROTOCOL_HEADER: X-Forwarded-Proto
       ADDRESS_HEADER: X-Forwarded-For
       XFF_DEPTH: "1"
@@ -25,9 +20,6 @@ services:
         target: /data
         bind:
           create_host_path: false
-    tmpfs: ["/tmp:size=16m,mode=1777"]
-    mem_limit: 256m
-    pids_limit: 100
     healthcheck:
       test:
         [

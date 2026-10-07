@@ -1,6 +1,5 @@
 {
 	"detector": {
-		"ignoreRules": [],
 		"ignoreFiles": [
 			"**/build/**",
 			"**/storybook-static/**",
@@ -21,15 +20,6 @@
 			"apps/slide/src/routes/event/[id]/live/+page.svelte",
 			"apps/slide/src/routes/night/[code]/+page.svelte",
 			"apps/slide/src/routes/night/[code]/live/+page.svelte"
-		],
-		"ignoreValues": [
-			{
-				"rule": "overused-font",
-				"value": "geist",
-				"files": ["apps/hey-janet/src/app.css"],
-				"createdAt": "2026-10-07T19:40:28.283Z",
-				"reason": "Lab design convention explicitly requires self-hosted Geist; see eli-design-mode/SKILL.md and apps/hey-janet/DESIGN.md."
-			}
 		]
 	}
 }

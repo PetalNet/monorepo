@@ -1,13 +1,9 @@
-import { mkdir } from "node:fs/promises";
-
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type Page, type TestInfo } from "@playwright/test";
 import { SignJWT } from "jose";
-const evidence = "test/evidence";
 async function shot(page: Page, info: TestInfo, name: string) {
-	await mkdir(`${evidence}/${info.project.name}`, { recursive: true });
 	await page.screenshot({
-		path: `${evidence}/${info.project.name}/${name}.png`,
+		path: info.outputPath(`${name}.png`),
 		fullPage: name !== "12-curation",
 		scale: "css",
 	});

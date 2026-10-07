@@ -9,10 +9,10 @@ export default defineConfig({
 			families: [
 				{
 					name: "Geist",
-					src: "/fonts/geist-variable.woff2",
-					weight: "100 900",
-					style: "normal",
-					fallbacks: ["Arial"],
+					provider: "fontsource",
+					weights: [400, 500, 600],
+					styles: ["normal"],
+					preload: true,
 				},
 			],
 		}),

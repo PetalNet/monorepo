@@ -1,4 +1,3 @@
-// ZIP STORE entries stream one clip at a time. No subprocess or full-dataset buffer.
 export interface ZipEntry {
 	name: string;
 	data: Uint8Array;

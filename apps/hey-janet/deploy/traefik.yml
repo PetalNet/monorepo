@@ -1,19 +1,10 @@
-# Mirrors /home/docker/traefik/dynamic/*.yml: host-network loopback backend,
-# TLS/entrypoints inherited from the existing static Traefik configuration.
-# Public booth; curation and audio are protected inside the app.
 http:
   routers:
     hey-janet:
       rule: "Host(`heyjanet.petalcat.dev`)"
       service: hey-janet
-      middlewares: [hey-janet-limit]
   services:
     hey-janet:
       loadBalancer:
         servers:
           - url: "http://127.0.0.1:8806"
-  middlewares:
-    hey-janet-limit:
-      rateLimit:
-        average: 10
-        burst: 30

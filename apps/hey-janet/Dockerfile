@@ -1,11 +1,9 @@
-# Build from repository root on CI or a machine with disk headroom, NOT on .14.
 FROM node:26.5.0-bookworm-slim AS build
 WORKDIR /repo
 RUN npm install --global pnpm@12.9.1
 COPY . .
 RUN pnpm install --frozen-lockfile --filter @petalnet/hey-janet... --ignore-scripts
 RUN pnpm --filter @petalnet/hey-janet build
-# adapter-node bundles dependencies; its generated package records externals.
 RUN pnpm --filter @petalnet/hey-janet deploy --legacy --prod /out
 
 FROM node:26.5.0-bookworm-slim

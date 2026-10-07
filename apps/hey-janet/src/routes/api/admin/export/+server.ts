@@ -1,19 +1,18 @@
 import { requireAdmin } from "#lib/server/security.ts";
-import { allClips, audio, type Clip } from "#lib/server/store.ts";
+import { allClips, audio } from "#lib/server/store.ts";
 import { zip } from "#lib/server/zip.ts";
 
 import type { RequestHandler } from "./$types";
-async function entry(clip: Clip) {
-	return {
-		name: `${clip.kind === "pos" ? "positives" : "negatives"}/${clip.file}`,
-		data: await audio(clip),
-	};
-}
 export const GET: RequestHandler = async (event) => {
 	await requireAdmin(event);
 	const clips = (await allClips()).filter((c) => c.decision === "keep");
 	async function* entries() {
-		for (const clip of clips) yield entry(clip);
+		for (const clip of clips) {
+			yield audio(clip).then((data) => ({
+				name: `${clip.kind === "pos" ? "positives" : "negatives"}/${clip.file}`,
+				data,
+			}));
+		}
 		yield {
 			name: "clips.jsonl",
 			data: Buffer.from(clips.map((c) => JSON.stringify(c)).join("\n") + "\n"),
