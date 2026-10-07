@@ -1,4 +1,6 @@
 <script lang="ts">
+	import BoxBottom from "$lib/BoxBottom.svelte";
+	import BoxTop from "$lib/BoxTop.svelte";
 	import {
 		collectSignals,
 		linkabilityHash,
@@ -23,8 +25,6 @@
 		type LinkResult,
 	} from "$lib/linkability";
 	import { fetchTrace } from "$lib/trace";
-	import BoxBottom from "$lib/BoxBottom.svelte";
-	import BoxTop from "$lib/BoxTop.svelte";
 	import { SvelteSet } from "svelte/reactivity";
 
 	import type { PageData } from "./$types";
@@ -360,7 +360,10 @@
 								<span class="g" aria-hidden="true">{expanded.has(s.id) ? "[-]" : "[+]"}</span>
 								<span class="lab">{s.label}</span>
 								<span class="val">{s.value}</span>
-								<span class="bars" aria-hidden="true" title="{String(s.entropy)} bits (relative)">{"█".repeat(barN(s.entropy))}<span class="bar-empty">{"░".repeat(4 - barN(s.entropy))}</span></span
+								<span class="bars" aria-hidden="true" title="{String(s.entropy)} bits (relative)"
+									>{"█".repeat(barN(s.entropy))}<span class="bar-empty"
+										>{"░".repeat(4 - barN(s.entropy))}</span
+									></span
 								>
 								<span class="rt r-{s.reproducibility}" title={tagTitle(s)}>{tag(s)}</span>
 							</div>
@@ -460,9 +463,9 @@
 					{#if expanded.has("why:ext")}
 						<p class="muted sm">
 							Detection is by CSS style-injection with a baseline control &mdash; a clean result is
-							ambiguous (no extension, OR a defense reroutes getComputedStyle). And a userstyle manager
-							(Stylus, Zen) only injects on sites it targets, so one that doesn't target this domain
-							genuinely won't show here.
+							ambiguous (no extension, OR a defense reroutes getComputedStyle). And a userstyle
+							manager (Stylus, Zen) only injects on sites it targets, so one that doesn't target
+							this domain genuinely won't show here.
 						</p>
 					{/if}
 				</div>
@@ -470,7 +473,6 @@
 			</section>
 		{/if}
 	</div>
-
 </main>
 
 <style>
