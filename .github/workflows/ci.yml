@@ -211,11 +211,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  codeql-js:
+  codeql-other:
     if: vars.CODEQL_ADVANCED == 'true'
     uses: ./.github/workflows/codeql.yml # zizmor: ignore[self-repository] actionlint compatibility
     with:
-      languages: '["javascript-typescript", "actions"]'
+      languages: '["javascript-typescript", "actions", "python"]'
     permissions:
       contents: read
       security-events: write
@@ -271,7 +271,7 @@ jobs:
       - box-agent-rust
       - point
       - zizmor
-      - codeql-js
+      - codeql-other
       - codeql-rust
       - typos
       - link-check
@@ -281,8 +281,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        with:
+          install: false
       - name: Require exactly the selected job conclusions
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           CODEQL_ADVANCED: ${{ vars.CODEQL_ADVANCED == 'true' && 'true' || 'false' }}
-        run: node tools/ci-manager.mjs gate
+        run: pnpm --config.verifyDepsBeforeRun=false exec node tools/ci-manager.mjs gate

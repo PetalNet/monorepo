@@ -17,14 +17,18 @@ with Turborepo owning the JavaScript dependency graph.
   additional dependency edges for affected selection. Root inputs can select
   all JS packages. Root `pnpm check` always runs
   because it includes repository-wide checks, not just package tasks.
-- Each native app selects its existing Cargo checks; Point selects both server
-  and Flutter checks, including PostgreSQL and the desktop bridge. Workflow,
-  CI-manager, root Cargo/toolchain, `.cargo`, and Mise changes select all native
-  apps. Rust CodeQL selects Rust sources, Cargo manifests/locks/toolchains,
-  `.cargo` configuration, and the shared CI inputs. Ordinary JS app, package,
-  pnpm-lockfile, and JS tool changes do not select Rust CodeQL.
+- Rust sources, Cargo manifests/locks/toolchains, `.cargo` configuration, and
+  shared CI inputs select all native apps and Rust CodeQL. This conservative
+  fan-out covers cross-app dependencies such as Box Agent and Control Plane
+  depending on Dispatcher without requiring Rust tooling in the selector.
+  Other native app inputs select that app's existing checks; Point includes
+  both server and Flutter, PostgreSQL and the desktop bridge. Workflow,
+  CI-manager, and Mise changes are shared CI inputs. Ordinary JS app, package,
+  pnpm-lockfile, and JS tool changes do not select native checks or Rust CodeQL.
 - Main pushes and manual runs execute the whole validation suite. Weekly CodeQL
-  scans also analyze all three languages, independent of change selection.
+  scans also analyze all four languages, independent of change selection.
+  JavaScript/TypeScript, Actions, and Python scan on every PR; only Rust is
+  conditional. This preserves the existing default setup's language coverage.
 
 Native Turbo Rust execution is not required for this design. Experimental Cargo
 workspace support stays disabled. If enabled later, JS plans and commands must
@@ -74,7 +78,7 @@ its two jobs are intentionally skipped and default setup remains the security ga
 4. Run `ci` manually on `main` and wait for all languages to upload and `finish`
    to pass. Confirm the repository's code-scanning rule is satisfied. Do not
    resume auto-merging during this initialization window.
-5. Verify a JS-only PR: native lanes and Rust CodeQL skip, JS/Actions scans finish,
+5. Verify a JS-only PR: native lanes and Rust CodeQL skip, non-Rust scans finish,
    `finish` passes, and the code-scanning rule permits merging. Verify a Rust PR:
    Rust CodeQL runs. Verify a deliberately failing selected check makes `finish`
    fail. Old default-setup analysis configurations may need retirement in the

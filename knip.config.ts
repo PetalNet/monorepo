@@ -3,7 +3,7 @@ import type { KnipConfig } from "knip";
 export default {
 	ignore: [".agents/skills/impeccable/**"],
 	// Strict Knip only resolves production dependencies, including script binaries.
-	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
+	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!", "turbo!"],
 	ignoreDependencies: [
 		// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 		"@effect/language-service",

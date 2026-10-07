@@ -31,10 +31,6 @@ if (command === "select") {
 				path,
 			),
 		);
-		for (const job of nativeJobs) {
-			const app = job.replace(/-rust$/u, "");
-			selected[job] = shared || paths.some((path) => path.startsWith(`apps/${app}/`));
-		}
 		rust =
 			shared ||
 			paths.some((path) =>
@@ -42,6 +38,12 @@ if (command === "select") {
 					path,
 				),
 			);
+		// Rust apps have cross-app path dependencies (e.g. Dispatcher consumers).
+		// Until native graph selection lands, Rust inputs select every native lane.
+		for (const job of nativeJobs) {
+			const app = job.replace(/-rust$/u, "");
+			selected[job] = rust || paths.some((path) => path.startsWith(`apps/${app}/`));
+		}
 		// Turbo, not a second package/path graph, owns JS dependency propagation.
 		const plan = JSON.parse(
 			execFileSync(
@@ -75,18 +77,19 @@ if (command === "select") {
 	const jobs = JSON.parse(process.env.NEEDS_JSON);
 	const selection = jobs.select?.outputs ?? {};
 	const errors = [];
+	const requiredJobs = ["select", "check", "typos", "link-check", "zizmor"];
 	if (!["true", "false"].includes(selection.rust)) errors.push("Invalid Rust selection");
 	const expect = (name, expected) => {
 		const actual = jobs[name]?.result;
 		console.log(`${name}: ${actual} (expected ${expected})`);
 		if (actual !== expected) errors.push(`${name}: expected ${expected}, got ${actual}`);
 	};
-	for (const job of ["select", "check", "typos", "link-check", "zizmor"]) expect(job, "success");
+	for (const job of requiredJobs) expect(job, "success");
 	const conditional = {
 		...Object.fromEntries(nativeJobs.map((job) => [job, selection[job]])),
 		build: selection.js,
 		test: selection.js,
-		"codeql-js": process.env.CODEQL_ADVANCED,
+		"codeql-other": process.env.CODEQL_ADVANCED,
 		"codeql-rust": process.env.CODEQL_ADVANCED === "true" ? selection.rust : "false",
 	};
 	for (const [job, enabled] of Object.entries(conditional)) {
@@ -94,11 +97,7 @@ if (command === "select") {
 		else expect(job, enabled === "true" ? "success" : "skipped");
 	}
 	for (const job of Object.keys(jobs)) {
-		if (
-			!["select", "check", "typos", "link-check", "zizmor", ...Object.keys(conditional)].includes(
-				job,
-			)
-		)
+		if (![...requiredJobs, ...Object.keys(conditional)].includes(job))
 			errors.push(`Unclassified job: ${job}`);
 	}
 	if (errors.length) throw new Error(errors.join("\n"));
