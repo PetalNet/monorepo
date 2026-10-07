@@ -1,0 +1,10 @@
+http:
+  routers:
+    hey-janet:
+      rule: "Host(`heyjanet.petalcat.dev`)"
+      service: hey-janet
+  services:
+    hey-janet:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8806"

@@ -166,3 +166,22 @@ jobs:
         with:
           args: --cache --max-cache-age 1d .
           token: ${{ github.token }}
+
+  hey-janet-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        with:
+          cache: true
+          require-lockfile: true
+      - run: pnpm --filter @petalnet/hey-janet exec playwright install --with-deps chromium webkit firefox
+      - name: Provide headless audio output for Firefox
+        run: |
+          sudo apt-get install -y -q pulseaudio
+          pulseaudio --start --exit-idle-time=-1 --load="module-null-sink sink_name=hey_janet_test"
+      - run: pnpm --filter @petalnet/hey-janet build
+      - run: pnpm --filter @petalnet/hey-janet test:e2e

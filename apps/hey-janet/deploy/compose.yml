@@ -1,0 +1,22 @@
+services:
+  hey-janet:
+    image: hey-janet
+    build:
+      context: ../../..
+      dockerfile: apps/hey-janet/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8806:3000"
+    environment:
+      ORIGIN: https://heyjanet.petalcat.dev
+      PROTOCOL_HEADER: X-Forwarded-Proto
+      ADDRESS_HEADER: X-Forwarded-For
+      XFF_DEPTH: "1"
+      BOOTH_DATA: /data
+    volumes:
+      - type: bind
+        source: /services/hey-janet/recordings
+        target: /data
+        bind:
+          create_host_path: false
