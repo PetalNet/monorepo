@@ -500,6 +500,7 @@ export const actions: Actions = {
 		const categories = JSON.parse(data.get("categories") as string) as {
 			name: string;
 			description?: string;
+			order: number;
 		}[];
 
 		// Delete all existing categories for this event

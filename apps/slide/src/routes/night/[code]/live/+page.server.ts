@@ -117,7 +117,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				select: {
 					id: true,
 					name: true,
-					// Removed email to reduce payload
+					email: isHost,
 				},
 			},
 		},
@@ -615,13 +615,13 @@ export const actions: Actions = {
 		let userId = null;
 
 		if (sessionCode) {
-			const session = await prisma.$queryRaw`
-        SELECT * FROM VotingSession WHERE sessionCode = ${sessionCode} LIMIT 1
-      `;
-			if (session[0]?.eventId !== event.id) {
+			const session = await prisma.votingSession.findUnique({
+				where: { sessionCode },
+			});
+			if (session?.eventId !== event.id) {
 				return { error: "Invalid session" };
 			}
-			votingSessionId = session[0].id;
+			votingSessionId = session.id;
 		} else if (locals.user) {
 			userId = locals.user.id;
 		} else {

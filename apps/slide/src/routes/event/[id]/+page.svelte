@@ -14,6 +14,11 @@
 	let editingCategories = $state(false);
 	let showEditModal = $state(false);
 
+	function openDialog(dialog: HTMLDialogElement) {
+		dialog.showModal();
+		return { destroy: () => dialog.close() };
+	}
+
 	const event = $derived(data.event);
 	const submissionsOpen = $derived(!event.submissionsClosed);
 	const joinUrl = $derived(
@@ -500,8 +505,11 @@
 
 <!-- Edit Settings Modal -->
 {#if showEditModal}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+	<dialog
+		use:openDialog
+		aria-labelledby="edit-event-title"
+		class="fixed inset-0 z-50 m-0 flex h-full max-h-none w-full max-w-none items-center justify-center bg-black/80 p-4 text-white"
+		onclose={() => (showEditModal = false)}
 		onclick={(e) => {
 			if (e.target === e.currentTarget) showEditModal = false;
 		}}
@@ -509,7 +517,7 @@
 		<div
 			class="glass max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-gray-800 p-6"
 		>
-			<h2 class="mb-6 text-2xl font-semibold">Edit Event Settings</h2>
+			<h2 id="edit-event-title" class="mb-6 text-2xl font-semibold">Edit Event Settings</h2>
 
 			<form
 				method="POST"
@@ -630,5 +638,5 @@
 				</div>
 			</form>
 		</div>
-	</div>
+	</dialog>
 {/if}
