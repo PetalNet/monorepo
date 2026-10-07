@@ -25,9 +25,10 @@ class GateFailed extends Schema.TaggedError<GateFailed>()("GateFailed", {
 	message: Schema.String,
 }) {}
 
+const selected = (enabled: typeof Enabled.Type) => (enabled === "true" ? "success" : "skipped");
+
 // This explicit inventory is deliberately reviewable alongside finish.needs in ci.yml.
 function expectedConclusions(selection: typeof Selection.Type, codeql: typeof Enabled.Type) {
-	const selected = (enabled: typeof Enabled.Type) => (enabled === "true" ? "success" : "skipped");
 	return {
 		select: "success",
 		check: "success",
