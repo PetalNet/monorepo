@@ -111,7 +111,7 @@ describe("training store", () => {
 		expect(first).toMatchObject({ file: "free_00.wav", kind: "free", duration: 25 });
 		expect(retry.clipId).toBe(first.clipId);
 		expect(second).toMatchObject({ file: "free_01.wav", kind: "free", duration: 30 });
-		expect(await audio(first)).toEqual(wav(25));
+		expect((await audio(first)).equals(wav(25))).toBe(true);
 		expect(await allClips()).toHaveLength(3);
 		await expect(saveClip(p, randomUUID(), set, 0, wav(9), "iPhone")).rejects.toThrow();
 		await expect(
