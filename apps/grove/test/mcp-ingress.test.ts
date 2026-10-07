@@ -1,13 +1,16 @@
+import { createServer } from "node:http";
+
 import * as PgClient from "@effect/sql-pg/PgClient";
 import type { ApiServer } from "@petalnet/effect-api";
 import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted } from "effect";
-import { createLocalJWKSet, errors, exportJWK, generateKeyPair, SignJWT } from "jose";
+import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTPayload } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
 	ActorAuthority,
 	ActorAuthorityLayer,
 	ActorDatabaseError,
+	ActorNotCurrent,
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
@@ -58,6 +61,18 @@ describe("MCP protected-resource ingress", () => {
 	let ingress: McpIngress;
 	let privateKey: CryptoKey;
 	let owner: PersonPrincipal;
+	let keys: JWK[] = [];
+	const jwksServer = createServer((request, response) => {
+		if (request.url === "/disconnect") {
+			request.socket.destroy();
+		} else if (request.url === "/unavailable") {
+			response.writeHead(503).end("private infrastructure details");
+		} else if (request.url === "/malformed") {
+			response.writeHead(200, { "content-type": "application/json" }).end('{"keys":false}');
+		} else {
+			response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ keys }));
+		}
+	});
 
 	beforeAll(async () => {
 		const postgres = await startGrovePostgres();
@@ -82,23 +97,45 @@ describe("MCP protected-resource ingress", () => {
 		const pair = await generateKeyPair("RS256");
 		privateKey = pair.privateKey;
 		const jwk = { ...(await exportJWK(pair.publicKey)), kid: "mcp-test", alg: "RS256", use: "sig" };
-		ingress = makeMcpIngress(config, createLocalJWKSet({ keys: [jwk] }));
+		keys = [jwk];
+		await new Promise<void>((resolve) => jwksServer.listen(0, "127.0.0.1", resolve));
+		const address = jwksServer.address();
+		if (!address || typeof address === "string") throw new Error("Expected TCP listener");
+		config.jwksUrl = `http://127.0.0.1:${String(address.port)}/jwks`;
+		ingress = makeMcpIngress(config);
 	}, 60_000);
 
 	afterAll(async () => {
+		await new Promise<void>((resolve, reject) =>
+			jwksServer.close((error) => {
+				if (error) {
+					reject(error);
+					return;
+				}
+				resolve();
+			}),
+		);
 		await runtime.dispose();
 		await stopGrovePostgres();
 	});
 
-	const token = (subject: string, scopes: readonly string[], kid = "mcp-test") => {
+	const token = (
+		subject: string,
+		scopes: readonly string[],
+		kid = "mcp-test",
+		claims: JWTPayload = {},
+	) => {
 		const now = Math.floor(Date.now() / 1000);
-		return new SignJWT({ scope: scopes.join(" ") })
+		return new SignJWT({
+			scope: scopes.join(" "),
+			iss: config.issuer,
+			aud: `${config.resourceOrigin}/mcp`,
+			sub: subject,
+			iat: now,
+			exp: now + 300,
+			...claims,
+		})
 			.setProtectedHeader({ alg: "RS256", kid })
-			.setIssuer(config.issuer)
-			.setAudience(`${config.resourceOrigin}/mcp`)
-			.setSubject(subject)
-			.setIssuedAt(now)
-			.setExpirationTime(now + 300)
 			.sign(privateKey);
 	};
 	const request = async (
@@ -163,6 +200,145 @@ describe("MCP protected-resource ingress", () => {
 
 		expect(response.status).toBe(401);
 		expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
+		expect(await responseJson(response)).toMatchObject({
+			jsonrpc: "2.0",
+			id: null,
+			error: { code: -32000 },
+		});
+	});
+
+	it.each([
+		{ claims: { iss: "https://wrong.example" }, status: 401 },
+		{ claims: { aud: config.resourceOrigin }, status: 401 },
+		{ claims: { exp: 1 }, status: 401 },
+		{ claims: { exp: undefined }, status: 401 },
+		{ claims: { iat: undefined }, status: 401 },
+		{ claims: { sub: undefined }, status: 401 },
+		{ claims: { sub: "" }, status: 401 },
+		{ claims: { scope: ["grove:mcp"] }, status: 401 },
+		{ claims: { scope: "grove:mcp\tgrove:agent:enroll" }, status: 401 },
+		{ claims: { scope: "" }, status: 401 },
+		{ claims: { scope: undefined }, status: 403 },
+		{ claims: { scope: "grove:mcp:other" }, status: 403 },
+	])("rejects invalid admission claims $claims", async ({ claims, status }) => {
+		const response = await request(
+			await token("invalid-claims", ["grove:mcp"], "mcp-test", claims),
+			rpc(30, "tools/list"),
+		);
+		expect(response.status).toBe(status);
+		expect(response.headers.get("www-authenticate")).toContain(
+			'resource_metadata="https://grove.example/.well-known/oauth-protected-resource/mcp"',
+		);
+		if (status === 403)
+			expect(response.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
+	});
+
+	it("refreshes cached JWKS when the issuer rotates to a new key", async () => {
+		await request(await token("before-rotation", ["grove:mcp"]), rpc(31, "tools/list"));
+		const pair = await generateKeyPair("ES256");
+		keys.push({ ...(await exportJWK(pair.publicKey)), kid: "rotated", alg: "ES256", use: "sig" });
+		const accessToken = await new SignJWT({ scope: "grove:mcp" })
+			.setProtectedHeader({ alg: "ES256", kid: "rotated" })
+			.setIssuer(config.issuer)
+			.setAudience(`${config.resourceOrigin}/mcp`)
+			.setSubject("after-rotation")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(pair.privateKey);
+		const response = await request(accessToken, rpc(32, "tools/list"));
+		expect(response.status).toBe(200);
+		expect((await json(response)).result.tools).toEqual([]);
+	});
+
+	it.each(["failure", "defect"] as const)(
+		"preserves a domain %s across the Promise adapter",
+		async (kind) => {
+			const failure = new ActorNotCurrent("agent-test");
+			const authority = await runtime.runPromise(ActorAuthority);
+			const incoming = new Request(`${config.resourceOrigin}/mcp`, {
+				headers: { authorization: `Bearer ${await token("runtime-error", ["grove:mcp"])}` },
+			});
+			const exit = await runtime.runPromiseExit(
+				ingress.handle(incoming).pipe(
+					Effect.provideService(ActorAuthority, {
+						...authority,
+						resolveMachineIdentity: () =>
+							kind === "failure" ? Effect.fail(failure) : Effect.die(failure),
+					}),
+				),
+			);
+			expect(Exit.isFailure(exit)).toBe(true);
+			if (Exit.isFailure(exit))
+				expect(exit.cause.reasons).toContainEqual(
+					expect.objectContaining(kind === "failure" ? { error: failure } : { defect: failure }),
+				);
+		},
+	);
+
+	it("never dispatches an aborted authenticated request", async () => {
+		const controller = new AbortController();
+		const incoming = new Request(`${config.resourceOrigin}/mcp`, {
+			headers: { authorization: `Bearer ${await token("aborted", ["grove:mcp"])}` },
+			signal: controller.signal,
+		});
+		controller.abort();
+		const authority = await runtime.runPromise(ActorAuthority);
+		const resolveMachineIdentity = vi.fn(authority.resolveMachineIdentity);
+		const exit = await runtime.runPromiseExit(
+			ingress
+				.handle(incoming)
+				.pipe(Effect.provideService(ActorAuthority, { ...authority, resolveMachineIdentity })),
+		);
+		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+		expect(resolveMachineIdentity).not.toHaveBeenCalled();
+	});
+
+	it("waits for domain finalizers before an interrupted ingress exits", async () => {
+		const started = Promise.withResolvers<undefined>();
+		const cleaning = Promise.withResolvers<undefined>();
+		const release = Promise.withResolvers<undefined>();
+		const authority = await runtime.runPromise(ActorAuthority);
+		const controller = new AbortController();
+		const incoming = new Request(`${config.resourceOrigin}/mcp`, {
+			headers: { authorization: `Bearer ${await token("finalizer", ["grove:mcp"])}` },
+		});
+		let completed = false;
+		const pending = runtime
+			.runPromiseExit(
+				ingress.handle(incoming).pipe(
+					Effect.provideService(ActorAuthority, {
+						...authority,
+						resolveMachineIdentity: () =>
+							Effect.gen(function* () {
+								started.resolve(undefined);
+								return yield* Effect.never;
+							}).pipe(
+								Effect.ensuring(
+									Effect.promise(() => {
+										cleaning.resolve(undefined);
+										return release.promise;
+									}),
+								),
+							),
+					}),
+				),
+				{ signal: controller.signal },
+			)
+			.then((exit) => {
+				completed = true;
+				return exit;
+			});
+		await started.promise;
+		controller.abort();
+		await cleaning.promise;
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			expect(completed).toBe(false);
+		} finally {
+			release.resolve(undefined);
+		}
+		const exit = await pending;
+		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
 	});
 
 	it("serves modern discovery and lets Effect enforce the modern request envelope", async () => {
@@ -493,8 +669,9 @@ describe("MCP protected-resource ingress", () => {
 		);
 		expect(unknownKid.status).toBe(401);
 
-		const unavailable = makeMcpIngress(config, () => {
-			throw new TypeError("simulated JWKS network failure");
+		const unavailable = makeMcpIngress({
+			...config,
+			jwksUrl: new URL("/unavailable", config.jwksUrl).href,
 		});
 		const dependencyFailure = await request(
 			await token("network-failure", ["grove:mcp"]),
@@ -510,13 +687,10 @@ describe("MCP protected-resource ingress", () => {
 
 		const dependencyToken = await token("dependency-failure", ["grove:mcp"]);
 		const failures = await Promise.all(
-			[
-				new errors.JWKSTimeout("simulated timeout"),
-				new errors.JOSEError("simulated non-200 response"),
-				new errors.JWKSInvalid("simulated malformed JWKS"),
-			].map(async (error) => {
-				const failedDependency = makeMcpIngress(config, () => {
-					throw error;
+			["/unavailable", "/malformed", "/disconnect"].map(async (path) => {
+				const failedDependency = makeMcpIngress({
+					...config,
+					jwksUrl: new URL(path, config.jwksUrl).href,
 				});
 				const response = await request(
 					dependencyToken,
