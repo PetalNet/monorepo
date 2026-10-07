@@ -2,6 +2,7 @@
 	import { enhance } from "$app/forms";
 	import { invalidateAll, goto } from "$app/navigation";
 	import ParticleBackground from "$lib/components/ParticleBackground.svelte";
+	import type Sortable from "sortablejs";
 	import { onMount, onDestroy, untrack } from "svelte";
 
 	const { data } = $props();

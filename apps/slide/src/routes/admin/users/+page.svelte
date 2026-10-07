@@ -11,7 +11,7 @@
 		return new Date(date).toLocaleString();
 	}
 
-	let deletingUserId: string | null = null;
+	let deletingUserId = $state<string | null>(null);
 
 	function confirmDelete(userId: string) {
 		deletingUserId = userId;
@@ -104,7 +104,7 @@
 									</button>
 									<button
 										type="button"
-										on:click={() => (deletingUserId = null)}
+										onclick={() => (deletingUserId = null)}
 										class="text-gray-600 hover:text-gray-900"
 									>
 										Cancel
@@ -112,7 +112,7 @@
 								</form>
 							{:else if !isAdmin(user.email)}
 								<button
-									on:click={() => {
+									onclick={() => {
 										confirmDelete(user.id);
 									}}
 									class="text-red-600 hover:text-red-900"

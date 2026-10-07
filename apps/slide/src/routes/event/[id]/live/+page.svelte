@@ -1,28 +1,20 @@
 <script lang="ts">
-	import { enhance } from "$app/forms";
 	import { goto } from "$app/navigation";
 	import { invalidateAll } from "$app/navigation";
 	import ParticleBackground from "$lib/components/ParticleBackground.svelte";
-	import QRCode from "qrcode";
 	import { onMount, onDestroy } from "svelte";
 
-	const { data } = $props();
-	const event = $derived(data.event);
-	const orderedGroups = $derived(data.orderedGroups);
-	const isHost = $derived(data.isHost);
-	const votingSession = $derived(data.votingSession);
-	const currentUser = $derived(data.currentUser);
+	import type { PageData } from "./$types";
 
-	let qrCodeUrl = $state("");
-	let showJoinModal = $state(false);
-	let displayName = $state("");
-	let currentPresentationIndex = $state(0);
+	const { data }: { data: PageData } = $props();
+	const event = $derived(data.event);
+	const groups = $derived(data.orderedGroups);
+	let currentGroupIndex = $state(0);
+	const currentGroup = $derived(groups[currentGroupIndex]);
+	let timerMinutes = $state(0);
 	let timerSeconds = $state(0);
 	let timerRunning = $state(false);
 	let timerInterval: ReturnType<typeof setInterval> | null = null;
-	let ratings = $state<Record<string, number>>({});
-	let hoveredStars = $state<Record<string, number>>({});
-	let hasVotedForCurrent = $state(false);
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 	// Simple background shapes for CSS animations
@@ -75,50 +67,8 @@
 		backgroundShapes = shapes;
 	}
 
-	// Get voting URL
-	const votingUrl = $derived(() => {
-		if (typeof window === "undefined") return "";
-		return `${window.location.origin}/event/${event.id}/live`;
-	});
-
-	// Current presentation
-	const currentPresentation = $derived(() => {
-		if (!event.currentPresentationId) return null;
-		return orderedGroups.find((g: any) => g.id === event.currentPresentationId);
-	});
-
-	// Check if user can vote
-	const canVote = $derived(!!votingSession || !!currentUser);
-
-	// Format timer display
-	const timerDisplay = $derived(() => {
-		const mins = Math.floor(timerSeconds / 60);
-		const secs = timerSeconds % 60;
-		return `${mins}:${secs.toString().padStart(2, "0")}`;
-	});
-
-	// Initialize ratings for current presentation
-	$effect(() => {
-		if (currentPresentation) {
-			const newRatings: Record<string, number> = {};
-			event.categories.forEach((cat: any) => {
-				newRatings[cat.id] = ratings[cat.id] || 0;
-			});
-			ratings = newRatings;
-			hasVotedForCurrent = false;
-		}
-	});
-
-	onMount(async () => {
-		// Generate QR code
-		if (isHost) {
-			try {
-				qrCodeUrl = await QRCode.toDataURL(votingUrl());
-			} catch (err) {
-				console.error("Failed to generate QR code:", err);
-			}
-		}
-
+	onMount(() => {
+		stopTimer();
 		// Initialize background shapes
 		initBackgroundShapes();
 
@@ -132,30 +82,6 @@
 		if (timerInterval) clearInterval(timerInterval);
 		if (pollInterval) clearInterval(pollInterval);
 	});
-
-	function startPresentation(groupId: string, index: number) {
-		currentPresentationIndex = index;
-
-		// Set current presentation via form action
-		const form = document.createElement("form");
-		form.method = "POST";
-		form.action = "?/setCurrentPresentation";
-
-		const input = document.createElement("input");
-		input.type = "hidden";
-		input.name = "groupId";
-		input.value = groupId;
-		form.appendChild(input);
-
-		document.body.appendChild(form);
-		form.submit();
-		document.body.removeChild(form);
-
-		// Start timer if there's a time limit
-		if (event.maxPresentationTime) {
-			startTimer(event.maxPresentationTime);
-		}
-	}
 
 	function startTimer() {
 		if (timerRunning) return;
