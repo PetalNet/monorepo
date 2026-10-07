@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as path from "node:path";
 
 import { createClient } from "@libsql/client";
 import { and, eq, like, not } from "drizzle-orm";
@@ -55,7 +55,7 @@ let db: ReturnType<typeof drizzle<typeof schema>>;
 let databasePath: string;
 
 beforeEach(async () => {
-	databasePath = join(tmpdir(), `collegemap-breaks-${crypto.randomUUID()}.db`);
+	databasePath = path.join(tmpdir(), `collegemap-breaks-${crypto.randomUUID()}.db`);
 	client = createClient({ url: `file:${databasePath}` });
 	await client.executeMultiple(`
 		CREATE TABLE colleges (id text PRIMARY KEY NOT NULL, name text NOT NULL, kind text NOT NULL DEFAULT 'college', latitude real NOT NULL, longitude real NOT NULL, is_custom integer NOT NULL DEFAULT false);

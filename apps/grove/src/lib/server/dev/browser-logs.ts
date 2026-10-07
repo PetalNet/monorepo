@@ -1,5 +1,5 @@
 import { mkdir, open } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import * as path from "node:path";
 import process from "node:process";
 
 import { sanitizeDevBrowserLogText } from "#lib/dev/browser-log-sanitizer.ts";
@@ -81,10 +81,10 @@ const linesFor = (entries: readonly BrowserLogEntry[]) =>
 		)
 		.join("");
 
-const appendBounded = async (path: string, lines: string) => {
-	await mkdir(dirname(path), { recursive: true });
+const appendBounded = async (filePath: string, lines: string) => {
+	await mkdir(path.dirname(filePath), { recursive: true });
 	const incomingBytes = Buffer.byteLength(lines);
-	const file = await open(path, "a+", 0o600);
+	const file = await open(filePath, "a+", 0o600);
 	try {
 		await file.chmod(0o600);
 		const currentBytes = (await file.stat()).size;
@@ -95,16 +95,16 @@ const appendBounded = async (path: string, lines: string) => {
 	}
 };
 
-const writeBounded = (path: string, lines: string) => {
-	const write = pendingWrite.then(() => appendBounded(path, lines));
+const writeBounded = (filePath: string, lines: string) => {
+	const write = pendingWrite.then(() => appendBounded(filePath, lines));
 	pendingWrite = write.catch(() => undefined);
 	return write;
 };
 
 export const ingestDevBrowserLogs = async (
 	request: Request,
-	path = process.env.GROVE_BROWSER_LOG_PATH ??
-		resolve(process.cwd(), "../../.amp/in/grove-browser.log"),
+	filePath = process.env.GROVE_BROWSER_LOG_PATH ??
+		path.resolve(process.cwd(), "../../.amp/in/grove-browser.log"),
 ) => {
 	if (
 		request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
@@ -129,6 +129,6 @@ export const ingestDevBrowserLogs = async (
 		!entries.every(validEntry)
 	)
 		return errorResponse(400, "invalid_entries", "Browser log entries are invalid");
-	await writeBounded(path, linesFor(entries));
+	await writeBounded(filePath, linesFor(entries));
 	return new Response(null, { status: 202 });
 };

@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createLocalJWKSet, jwtVerify } from "jose";
@@ -69,8 +69,8 @@ describe("Grove development MCP authorization server", () => {
 	let temporaryDirectory: string;
 
 	beforeAll(async () => {
-		temporaryDirectory = await mkdtemp(join(tmpdir(), "grove-dev-oidc-"));
-		signingKeyPath = join(temporaryDirectory, "signing-key.json");
+		temporaryDirectory = await mkdtemp(path.join(tmpdir(), "grove-dev-oidc-"));
+		signingKeyPath = path.join(temporaryDirectory, "signing-key.json");
 		const port = await availablePort();
 		origin = `http://127.0.0.1:${String(port)}`;
 		issuer = `${origin}/realms/grove-mcp`;
@@ -109,9 +109,9 @@ describe("Grove development MCP authorization server", () => {
 			"/.well-known/openid-configuration/realms/grove-mcp",
 			"/realms/grove-mcp/.well-known/openid-configuration",
 		];
-		for (const path of paths) {
+		for (const endpoint of paths) {
 			// oxlint-disable-next-line no-await-in-loop
-			const response = await fetch(`${origin}${path}`);
+			const response = await fetch(`${origin}${endpoint}`);
 			expect(response.status).toBe(200);
 			// oxlint-disable-next-line no-await-in-loop
 			await expect(response.json()).resolves.toMatchObject({
@@ -197,7 +197,7 @@ describe("Grove development MCP authorization server", () => {
 	});
 
 	it("fails clearly instead of rotating corrupted signing material", async () => {
-		const corruptedPath = join(temporaryDirectory, "corrupted-signing-key.json");
+		const corruptedPath = path.join(temporaryDirectory, "corrupted-signing-key.json");
 		await writeFile(corruptedPath, '{"version":1,"privateKeyPkcs8":"not-a-key"}', {
 			mode: 0o600,
 		});

@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve as resolvePath } from "node:path";
+import * as path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-const source = resolvePath(import.meta.dirname, "../../../.agents/ensure-grove");
-const serviceSource = resolvePath(import.meta.dirname, "../../../tools/start-grove-orb");
+const source = path.resolve(import.meta.dirname, "../../../.agents/ensure-grove");
+const serviceSource = path.resolve(import.meta.dirname, "../../../tools/start-grove-orb");
 const temporaryDirectories: string[] = [];
 
 const run = (
@@ -30,40 +30,40 @@ const run = (
 	});
 
 const fixture = async (preflightStatus = "ready") => {
-	const root = await mkdtemp(join(tmpdir(), "ensure-grove-"));
+	const root = await mkdtemp(path.join(tmpdir(), "ensure-grove-"));
 	temporaryDirectories.push(root);
-	await mkdir(join(root, ".agents"), { recursive: true });
-	await mkdir(join(root, ".amp/portals"), { recursive: true });
-	await mkdir(join(root, "apps/grove"), { recursive: true });
-	await mkdir(join(root, "bin"), { recursive: true });
-	await mkdir(join(root, "tools"), { recursive: true });
-	await writeFile(join(root, ".agents/ensure-grove"), await readFile(source));
-	await writeFile(join(root, "tools/start-grove-orb"), await readFile(serviceSource));
-	await chmod(join(root, ".agents/ensure-grove"), 0o755);
-	await chmod(join(root, "tools/start-grove-orb"), 0o755);
+	await mkdir(path.join(root, ".agents"), { recursive: true });
+	await mkdir(path.join(root, ".amp/portals"), { recursive: true });
+	await mkdir(path.join(root, "apps/grove"), { recursive: true });
+	await mkdir(path.join(root, "bin"), { recursive: true });
+	await mkdir(path.join(root, "tools"), { recursive: true });
+	await writeFile(path.join(root, ".agents/ensure-grove"), await readFile(source));
+	await writeFile(path.join(root, "tools/start-grove-orb"), await readFile(serviceSource));
+	await chmod(path.join(root, ".agents/ensure-grove"), 0o755);
+	await chmod(path.join(root, "tools/start-grove-orb"), 0o755);
 	await writeFile(
-		join(root, ".amp/portals/grove.json"),
+		path.join(root, ".amp/portals/grove.json"),
 		JSON.stringify({ links: [{ url: "https://grove.portal.test" }] }),
 	);
 	await writeFile(
-		join(root, ".amp/portals/grove-oidc.json"),
+		path.join(root, ".amp/portals/grove-oidc.json"),
 		JSON.stringify({ links: [{ url: "https://oidc.portal.test" }] }),
 	);
 	await writeFile(
-		join(root, "bin/amp"),
+		path.join(root, "bin/amp"),
 		`#!/usr/bin/env bash\nprintf '%s\\n' "$*" > "$AMP_CALLS"\nprintf '%s\\n' '{"status":"healthy"}'\n`,
 	);
 	await writeFile(
-		join(root, "bin/curl"),
+		path.join(root, "bin/curl"),
 		`#!/usr/bin/env bash\nprintf '%s\\n' "$*" > "$CURL_CALLS"\nprintf '%s\\n' '${JSON.stringify({ status: preflightStatus, checks: [] })}'\n`,
 	);
-	await chmod(join(root, "bin/amp"), 0o755);
-	await chmod(join(root, "bin/curl"), 0o755);
+	await chmod(path.join(root, "bin/amp"), 0o755);
+	await chmod(path.join(root, "bin/curl"), 0o755);
 	const env = {
 		...process.env,
-		PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`,
-		AMP_CALLS: join(root, "amp.calls"),
-		CURL_CALLS: join(root, "curl.calls"),
+		PATH: `${path.join(root, "bin")}:${process.env.PATH ?? ""}`,
+		AMP_CALLS: path.join(root, "amp.calls"),
+		CURL_CALLS: path.join(root, "curl.calls"),
 	};
 	return { root, env };
 };
@@ -94,9 +94,9 @@ const serviceFixture = async (
 ) => {
 	const result = await fixture();
 	if (options.validOidcManifest === false)
-		await writeFile(join(result.root, ".amp/portals/grove-oidc.json"), "{}");
+		await writeFile(path.join(result.root, ".amp/portals/grove-oidc.json"), "{}");
 	await writeFile(
-		join(result.root, "bin/docker"),
+		path.join(result.root, "bin/docker"),
 		`#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$DOCKER_CALLS"
 case "$1" in
@@ -119,10 +119,13 @@ case "$1" in
 esac
 `,
 	);
-	await writeFile(join(result.root, "bin/curl"), '#!/usr/bin/env bash\n[[ "$OIDC_READY" == 1 ]]\n');
-	await writeFile(join(result.root, "bin/node"), "#!/usr/bin/env bash\nexit 99\n");
 	await writeFile(
-		join(result.root, "bin/pnpm"),
+		path.join(result.root, "bin/curl"),
+		'#!/usr/bin/env bash\n[[ "$OIDC_READY" == 1 ]]\n',
+	);
+	await writeFile(path.join(result.root, "bin/node"), "#!/usr/bin/env bash\nexit 99\n");
+	await writeFile(
+		path.join(result.root, "bin/pnpm"),
 		`#!/usr/bin/env bash
 if [[ "$1" == exec && "$2" == node ]]; then
   shift 2
@@ -132,15 +135,15 @@ printf '%s\\n' "$*" >> "$PNPM_CALLS"
 exit 0
 `,
 	);
-	await chmod(join(result.root, "bin/docker"), 0o755);
-	await chmod(join(result.root, "bin/curl"), 0o755);
-	await chmod(join(result.root, "bin/node"), 0o755);
-	await chmod(join(result.root, "bin/pnpm"), 0o755);
+	await chmod(path.join(result.root, "bin/docker"), 0o755);
+	await chmod(path.join(result.root, "bin/curl"), 0o755);
+	await chmod(path.join(result.root, "bin/node"), 0o755);
+	await chmod(path.join(result.root, "bin/pnpm"), 0o755);
 	return {
 		...result,
 		env: {
 			...result.env,
-			DOCKER_CALLS: join(result.root, "docker.calls"),
+			DOCKER_CALLS: path.join(result.root, "docker.calls"),
 			DOCKER_INSPECTION: postgresInspection(options.image),
 			DOCKER_INSPECTION_ERROR: options.inspectFailure?.message ?? "",
 			DOCKER_INSPECTION_STATUS: String(options.inspectFailure?.status ?? 1),
@@ -149,25 +152,27 @@ exit 0
 			PORT: "3000",
 			POSTGRES_READY: options.postgresReady === false ? "0" : "1",
 			PUBLIC_URL: "https://grove.portal.test",
-			PNPM_CALLS: join(result.root, "pnpm.calls"),
+			PNPM_CALLS: path.join(result.root, "pnpm.calls"),
 		},
 	};
 };
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
+	await Promise.all(
+		temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
+	);
 });
 
 describe("ensure Grove orb services", () => {
 	it("is valid shell and emits portal manifests plus machine preflight", async () => {
 		const { root, env } = await fixture();
-		const syntax = await run("bash", ["-n", join(root, ".agents/ensure-grove")], {
+		const syntax = await run("bash", ["-n", path.join(root, ".agents/ensure-grove")], {
 			cwd: root,
 			env,
 		});
 		expect(syntax).toMatchObject({ code: 0, stderr: "" });
 
-		const ensured = await run(join(root, ".agents/ensure-grove"), [], { cwd: "/", env });
+		const ensured = await run(path.join(root, ".agents/ensure-grove"), [], { cwd: "/", env });
 
 		expect(ensured.code).toBe(0);
 		expect(JSON.parse(ensured.stdout)).toEqual({
@@ -181,8 +186,10 @@ describe("ensure Grove orb services", () => {
 			services: { status: "healthy" },
 			preflight: { status: "ready", checks: [] },
 		});
-		expect(await readFile(join(root, "amp.calls"), "utf8")).toBe("orb services ensure --json\n");
-		expect(await readFile(join(root, "curl.calls"), "utf8")).toContain(
+		expect(await readFile(path.join(root, "amp.calls"), "utf8")).toBe(
+			"orb services ensure --json\n",
+		);
+		expect(await readFile(path.join(root, "curl.calls"), "utf8")).toContain(
 			"https://grove.portal.test/__dev/preflight",
 		);
 	});
@@ -190,7 +197,7 @@ describe("ensure Grove orb services", () => {
 	it("prints diagnostic JSON and fails when required preflight checks are not ready", async () => {
 		const { root, env } = await fixture("not-ready");
 
-		const ensured = await run(join(root, ".agents/ensure-grove"), [], { cwd: root, env });
+		const ensured = await run(path.join(root, ".agents/ensure-grove"), [], { cwd: root, env });
 
 		expect(ensured.code).toBe(1);
 		expect(JSON.parse(ensured.stdout)).toMatchObject({
@@ -201,11 +208,11 @@ describe("ensure Grove orb services", () => {
 
 	it("bounds a stuck supervisor ensure and prints machine-readable repair", async () => {
 		const { root, env } = await fixture();
-		await writeFile(join(root, "bin/amp"), "#!/usr/bin/env bash\nsleep 10\n");
-		await chmod(join(root, "bin/amp"), 0o755);
+		await writeFile(path.join(root, "bin/amp"), "#!/usr/bin/env bash\nsleep 10\n");
+		await chmod(path.join(root, "bin/amp"), 0o755);
 		const started = Date.now();
 
-		const ensured = await run(join(root, ".agents/ensure-grove"), [], {
+		const ensured = await run(path.join(root, ".agents/ensure-grove"), [], {
 			cwd: root,
 			env: { ...env, GROVE_ENSURE_TIMEOUT_SECONDS: "1" },
 		});
@@ -224,13 +231,13 @@ describe("ensure Grove orb services", () => {
 	it("classifies a TERM-ignoring supervisor killed after timeout as a timeout", async () => {
 		const { root, env } = await fixture();
 		await writeFile(
-			join(root, "bin/amp"),
+			path.join(root, "bin/amp"),
 			"#!/usr/bin/env bash\ntrap '' TERM\nwhile true; do sleep 10; done\n",
 		);
-		await chmod(join(root, "bin/amp"), 0o755);
+		await chmod(path.join(root, "bin/amp"), 0o755);
 		const started = Date.now();
 
-		const ensured = await run(join(root, ".agents/ensure-grove"), [], {
+		const ensured = await run(path.join(root, ".agents/ensure-grove"), [], {
 			cwd: root,
 			env: { ...env, GROVE_ENSURE_TIMEOUT_SECONDS: "1" },
 		});
@@ -251,16 +258,16 @@ describe("Grove supervised service startup", () => {
 	it("validates compatible PostgreSQL state and bounds dependency probes", async () => {
 		const { root, env } = await serviceFixture();
 
-		const started = await run(join(root, "tools/start-grove-orb"), [], { cwd: "/", env });
+		const started = await run(path.join(root, "tools/start-grove-orb"), [], { cwd: "/", env });
 
 		expect(started).toMatchObject({ code: 0, stderr: "" });
-		const dockerCalls = await readFile(join(root, "docker.calls"), "utf8");
+		const dockerCalls = await readFile(path.join(root, "docker.calls"), "utf8");
 		expect(dockerCalls).toContain("inspect grove-postgres");
 		expect(dockerCalls).toContain("pg_isready --username grove --dbname grove");
 		expect(dockerCalls).toContain(
 			`psql --username grove --dbname grove --tuples-only --no-align --command select current_user || ':' || current_database()`,
 		);
-		expect(await readFile(join(root, "pnpm.calls"), "utf8")).toBe(
+		expect(await readFile(path.join(root, "pnpm.calls"), "utf8")).toBe(
 			"exec effectdb migrate up\nexec vite dev --host 0.0.0.0 --port 3000\n",
 		);
 	});
@@ -268,13 +275,15 @@ describe("Grove supervised service startup", () => {
 	it("refuses to delete an incompatible PostgreSQL container and gives an owner repair", async () => {
 		const { root, env } = await serviceFixture({ image: "postgres:16-alpine" });
 
-		const started = await run(join(root, "tools/start-grove-orb"), [], { cwd: root, env });
+		const started = await run(path.join(root, "tools/start-grove-orb"), [], { cwd: root, env });
 
 		expect(started.code).toBe(78);
 		expect(started.stderr).toContain("image must be postgres:17-alpine");
 		expect(started.stderr).toContain("it was not deleted because it may contain demo data");
 		expect(started.stderr).toContain("docker stop grove-postgres && docker rm grove-postgres");
-		expect(await readFile(join(root, "docker.calls"), "utf8")).toBe("inspect grove-postgres\n");
+		expect(await readFile(path.join(root, "docker.calls"), "utf8")).toBe(
+			"inspect grove-postgres\n",
+		);
 	});
 
 	it("does not create PostgreSQL when Docker inspect fails for any reason except absence", async () => {
@@ -285,14 +294,16 @@ describe("Grove supervised service startup", () => {
 			},
 		});
 
-		const started = await run(join(root, "tools/start-grove-orb"), [], { cwd: root, env });
+		const started = await run(path.join(root, "tools/start-grove-orb"), [], { cwd: root, env });
 
 		expect(started.code).toBe(126);
 		expect(started.stderr).toContain(
 			"permission denied while trying to connect to the Docker daemon socket",
 		);
 		expect(started.stderr).toContain("No container was created or changed");
-		expect(await readFile(join(root, "docker.calls"), "utf8")).toBe("inspect grove-postgres\n");
+		expect(await readFile(path.join(root, "docker.calls"), "utf8")).toBe(
+			"inspect grove-postgres\n",
+		);
 	});
 
 	it("creates PostgreSQL only when Docker confirms that the named container is absent", async () => {
@@ -300,10 +311,10 @@ describe("Grove supervised service startup", () => {
 			inspectFailure: { message: "[]\nError: No such object: grove-postgres", status: 1 },
 		});
 
-		const started = await run(join(root, "tools/start-grove-orb"), [], { cwd: root, env });
+		const started = await run(path.join(root, "tools/start-grove-orb"), [], { cwd: root, env });
 
 		expect(started).toMatchObject({ code: 0, stderr: "" });
-		const dockerCalls = await readFile(join(root, "docker.calls"), "utf8");
+		const dockerCalls = await readFile(path.join(root, "docker.calls"), "utf8");
 		expect(dockerCalls).toContain("inspect grove-postgres\n");
 		expect(dockerCalls).toContain(
 			"run --detach --name grove-postgres --restart unless-stopped --env POSTGRES_USER=grove",
@@ -314,7 +325,7 @@ describe("Grove supervised service startup", () => {
 		const { root, env } = await serviceFixture({ postgresReady: false });
 		const before = Date.now();
 
-		const started = await run(join(root, "tools/start-grove-orb"), [], { cwd: root, env });
+		const started = await run(path.join(root, "tools/start-grove-orb"), [], { cwd: root, env });
 
 		expect(Date.now() - before).toBeLessThan(3_000);
 		expect(started.code).toBe(1);
@@ -341,7 +352,7 @@ describe("Grove supervised service startup", () => {
 			const { root, env } = await serviceFixture(options);
 			const before = Date.now();
 
-			const started = await run(join(root, "tools/start-grove-orb"), [], { cwd: root, env });
+			const started = await run(path.join(root, "tools/start-grove-orb"), [], { cwd: root, env });
 
 			expect(Date.now() - before).toBeLessThan(3_000);
 			expect(started.code).toBe(1);

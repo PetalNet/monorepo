@@ -13,7 +13,7 @@ import {
 	type ServerResponse,
 	type OutgoingHttpHeaders,
 } from "node:http";
-import { dirname, resolve } from "node:path";
+import * as path from "node:path";
 
 import { SignJWT } from "jose";
 
@@ -37,7 +37,7 @@ const authorizationCodes = new Map<
 	}
 >();
 const accessTokens = new Set<string>();
-const signingKeyPath = resolve(
+const signingKeyPath = path.resolve(
 	process.env.GROVE_OIDC_SIGNING_KEY_PATH ?? ".amp/state/grove-oidc-signing-key.json",
 );
 
@@ -72,8 +72,8 @@ const readSigningKey = async () => {
 };
 
 const createSigningKey = async () => {
-	await mkdir(dirname(signingKeyPath), { recursive: true, mode: 0o700 });
-	await chmod(dirname(signingKeyPath), 0o700);
+	await mkdir(path.dirname(signingKeyPath), { recursive: true, mode: 0o700 });
+	await chmod(path.dirname(signingKeyPath), 0o700);
 	const generated = generateKeyPairSync("rsa", { modulusLength: 2048 });
 	const privateKeyPkcs8 = generated.privateKey.export({ type: "pkcs8", format: "pem" });
 	try {
