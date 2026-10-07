@@ -136,10 +136,10 @@ Additional jobs validate the Rust applications, Point's Rust and Flutter project
 spelling, and links. Release
 workflows build the Point container image when its relevant paths change.
 
-`.github/workflows/pullfrog.yml` runs [Pullfrog](https://docs.pullfrog.com) without its
-GitHub App: it reviews same-repo pull requests and answers `@pullfrog` comments from
-members and collaborators, on the Codex CLI agent with GPT Sol at medium effort. It
-authenticates with the `CODEX_AUTH_JSON` secret, a ChatGPT/Codex subscription login.
+`.github/workflows/pullfrog.yml` is the dispatch-only workflow from
+[Pullfrog](https://docs.pullfrog.com). The Pullfrog App starts every run (PR reviews,
+`@pullfrog` mentions, console prompts) on the Codex CLI agent with GPT Sol at medium
+effort, read-only. The Codex login lives in the Pullfrog org credential store.
 
 ## Adding an app
 
