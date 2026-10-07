@@ -1,11 +1,9 @@
 import type { KnipConfig } from "knip";
 
-export default {
+export default (({ production, strict }) => ({
 	ignore: [".agents/skills/impeccable/**"],
-	// Actions discovers this CI-only entrypoint in normal mode; it is not shipped.
-	ignoreFiles: ["tools/ci-manager.mjs!"],
 	// Strict Knip only resolves production dependencies, including script binaries.
-	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
+	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!", "turbo!"],
 	ignoreDependencies: [
 		// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 		"@effect/language-service",
@@ -16,7 +14,12 @@ export default {
 		".": {
 			// Repository-only operations are invoked by agents and build scripts, not imported.
 			// The enrollment client is development-only; the boundary verifier runs in production builds.
-			entry: ["tools/enroll-grove-dev-agent.mjs", "tools/verify-grove-production-boundary.mjs!"],
+			entry: [
+				"tools/enroll-grove-dev-agent.mjs",
+				"tools/verify-grove-production-boundary.mjs!",
+				// Actions already discovers this entry in normal mode, but not production.
+				...(production || strict ? ["tools/ci-manager.mjs!"] : []),
+			],
 		},
 		"apps/collegemap": {
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
@@ -52,4 +55,4 @@ export default {
 			entry: ["test/**/*.ts"],
 		},
 	},
-} satisfies KnipConfig;
+})) satisfies KnipConfig;
