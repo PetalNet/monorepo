@@ -40,7 +40,7 @@ export function participant(
 		: anonymousId;
 	return { id, name, authSub };
 }
-export function folder(p: Participant) {
+function folder(p: Participant) {
 	return `${p.id}_${
 		p.name
 			.toLowerCase()

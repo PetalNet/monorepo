@@ -18,7 +18,7 @@ pnpm --filter @petalnet/hey-janet test:e2e
 
 Use HTTPS outside localhost. Test sessions use an isolated `.cache/browser-recordings` directory, test-only signing key, and loopback port 18806. Firefox on headless Linux needs a running test audio server (for example PulseAudio with a null sink); CI provisions one. No test authentication bypass exists in application code. Browser tests sign their own short-lived test cookies with that isolated key. Do not use this key for deployment.
 
-The app inherits SvelteKit 3, Svelte 5 runes, TypeScript, Tailwind 4, DaisyUI, Lucide, Vitest, Oxfmt, ESLint, Oxlint and Knip conventions. Geist is self-hosted through Fontless, with a checked-in OFL font. No font network request is required at build or runtime. The Fontless HTML-transform warning is harmless for SvelteKit: CSS generates the font faces and metrics; app.html supplies the preload.
+The app inherits SvelteKit 3, Svelte 5 runes, TypeScript, Tailwind 4, DaisyUI, Lucide, Vitest, Oxfmt, ESLint, Oxlint and Knip conventions. Geist is self-hosted through Fontless, with a checked-in OFL font. No font network request is required at build or runtime. The Fontless HTML-transform warning is harmless for SvelteKit: CSS generates the font faces and metrics; the root layout supplies the preload.
 
 ## Recording and recovery
 

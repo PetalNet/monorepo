@@ -12,8 +12,9 @@ Verified locally against the production adapter-node build on 2026-10-07. Tests 
 | Keyboard, labels, overflow, light/dark axe scans | Pass                      | Pass                       | Pass                   | Pass                      |
 | Admin boundary, bulk keep/drop, export           | Pass                      | Pass                       | Pass                   | Pass                      |
 | Silent input auto-stop and quiet warning         | Pass                      | Pass                       | Pass                   | Pass                      |
+| Clipped input warning and redo option            | Pass                      | Pass                       | Pass                   | Pass                      |
 
-The suite groups these into six scenarios per browser. A separate clipped-input warning scenario is included in CI. Chromium uses `--use-fake-device-for-media-stream` and `--use-fake-ui-for-media-stream`. WebKit uses a real Web Audio oscillator MediaStream, installed on the MediaDevices prototype: instance overrides do not reliably persist in this WebKit. Firefox uses its fake-media preferences and a private PulseAudio null sink on headless Linux. CI installs an equivalent test audio server.
+The suite groups these into seven scenarios per browser (28 tests). Chromium uses `--use-fake-device-for-media-stream` and `--use-fake-ui-for-media-stream`. WebKit uses a real Web Audio oscillator MediaStream, installed on the MediaDevices prototype: instance overrides do not reliably persist in this WebKit. Firefox uses its fake-media preferences and a private PulseAudio null sink on headless Linux. CI installs an equivalent test audio server.
 
 The browser run caught and fixed:
 
@@ -22,7 +23,7 @@ The browser run caught and fixed:
 - WebKit rejecting queued Blobs: the queue now stores raw ArrayBuffers.
 - Retry-button tests racing successful automatic connection recovery.
 
-The app check reports zero errors/warnings. Eight Vitest tests exercise WAV rejection and format validation, prompt counts, identity isolation, concurrent retry deduplication, metadata-only review, ZIP structure, session integrity/expiry, rate limits and OIDC signature/claim/discovery validation.
+The app check reports zero errors/warnings. Docker Compose configuration validates with example values only; no container is started. Eight Vitest tests exercise WAV rejection and format validation, prompt counts, identity isolation, concurrent retry deduplication, metadata-only review, ZIP structure, session integrity/expiry, rate limits and OIDC signature/claim/discovery validation.
 
 Measured light/dark text contrast is 8.49:1 or better for all active text/surface pairs, including secondary copy and accent buttons. [Measured ratios](evidence/contrast.json) record the browser-computed theme values. Disabled controls are exempt from WCAG contrast requirements. Axe's WCAG 2 A/AA and 2.1 AA checks reported no violations on recording review and curation; keyboard Space behavior and responsive overflow were checked separately.
 
@@ -43,6 +44,7 @@ All screenshot subjects are generated test participants. No real voice data or p
 - [iPhone dark mode](evidence/iphone-webkit/11-dark.png)
 - [iPhone curation](evidence/iphone-webkit/12-curation.png)
 - [iPhone quiet auto-stop](evidence/iphone-webkit/13-quiet-auto-stop.png)
+- [iPhone clipped warning](evidence/iphone-webkit/14-clipped.png)
 
 Equivalent steps exist in each browser's `test/evidence` subdirectory. CI uploads screenshots and failure traces as `hey-janet-browser-evidence` for seven days.
 

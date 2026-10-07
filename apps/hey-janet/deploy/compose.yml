@@ -25,7 +25,7 @@ services:
         target: /data
         bind:
           create_host_path: false
-    tmpfs: [/tmp:size=16m, mode=1777]
+    tmpfs: ["/tmp:size=16m,mode=1777"]
     mem_limit: 256m
     pids_limit: 100
     healthcheck:

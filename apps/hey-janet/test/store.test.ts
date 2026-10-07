@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { prompts } from "../src/lib/prompts";
-import { allClips, audio, folder, participant, review, saveClip } from "../src/lib/server/store";
+import { allClips, audio, participant, review, saveClip } from "../src/lib/server/store";
 import { wavInfo } from "../src/lib/server/wav";
 import { zip } from "../src/lib/server/zip";
 const dirs: string[] = [];
@@ -82,7 +82,7 @@ describe("training store", () => {
 		await review([id], "drop");
 		expect((await allClips())[0].decision).toBe("drop");
 		expect(await audio(clips[0])).toEqual(bytes);
-		const lines = (await readFile(path.join(dir, folder(p), "clips.jsonl"), "utf8"))
+		const lines = (await readFile(path.join(dir, `${p.id}_alex`, "clips.jsonl"), "utf8"))
 			.trim()
 			.split("\n");
 		expect(lines).toHaveLength(1);

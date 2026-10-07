@@ -220,13 +220,19 @@ test("clipped input offers a redo warning", async ({ page }, info) => {
 				const gain = c.createGain();
 				gain.gain.value = 3;
 				o.connect(gain).connect(d);
+				const silent = c.createGain();
+				silent.gain.value = 0;
+				gain.connect(silent).connect(c.destination);
 				o.start();
 				void c.resume();
 				return Promise.resolve(d.stream);
 			},
 		});
 	});
-	await take(page);
+	await page.getByRole("button", { name: "Record", exact: true }).click();
+	await expect(page.getByRole("button", { name: "Stop recording" })).toBeVisible();
+	await page.waitForTimeout(2000);
+	await page.getByRole("button", { name: "Stop recording" }).click();
 	await expect(page.getByText(/This take may be distorted/)).toBeVisible();
 	await shot(page, info, "14-clipped");
 });
