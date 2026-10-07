@@ -123,7 +123,7 @@ Everything else (spec, GO-bar, M0→M4, review discipline, BLOCKERS escalation) 
 MCP server wired day one (render→see→fix loop via `flutter run -d chrome`; no blind Dart),
 Material 3 + `ColorScheme.fromSeed` + `dynamic_color`, Riverpod pinned, widget classes (never
 `_buildX()` helpers), zero-analyzer-warnings gate, alchemist goldens for stable primitives
-(presence dot, ghost toggle, QR frame), feature-first layout, a CLAUDE.md rules file in
+(presence dot, ghost toggle, QR frame), feature-first layout, an AGENTS.md rules file in
 `apps/point/app`. Flutter SDK is not on this host: at M1 start I attempt a user-local SDK
 install; if the render loop can't be stood up, that's a BLOCKERS.md entry per the directive —
 not a license to write the client blind.

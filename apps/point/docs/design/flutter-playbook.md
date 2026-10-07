@@ -2,7 +2,7 @@
 
 > **Status:** generic research captured before the Point client was built. Most
 > sections below are optional recommendations, not repository requirements. For
-> Point, [`../../app/CLAUDE.md`](../../app/CLAUDE.md), `pubspec.yaml`, source, and
+> Point, [`../../app/AGENTS.md`](../../app/AGENTS.md), `pubspec.yaml`, source, and
 > tests are authoritative. The Point-specific corrections in §7 supersede any
 > conflicting generic advice (notably `dynamic_color`, Google Maps, Widgetbook,
 > and required MCP tooling).
@@ -186,7 +186,7 @@ Point = Android-first Material 3 location-sharing client: map UI, live presence 
 - **Device-linking QR:** constrain the QR to a fixed sensible box, `SafeArea`, high-contrast, and a text fallback code beneath it. Test at large text-scale — QR screens are a classic overflow spot.
 
 **Loop discipline for Point**
-- Follow the existing **`app/CLAUDE.md`** and run its exact validation commands.
+- Follow the existing **`app/AGENTS.md`** and run its exact validation commands.
 - Spec-first per feature (interview → spec → bounded tasks), one screen at a time, each closed via Recipe A, gated by analyzer + `meetsGuideline` + a driven run before you look at the next.
 - Golden-test the *stable primitives* (presence dot, ghost toggle, QR frame) with `alchemist`; don't golden the whole live map.
 
