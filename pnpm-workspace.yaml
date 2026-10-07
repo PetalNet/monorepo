@@ -112,7 +112,7 @@ catalogs:
   prod:
     "@libsql/client": ^0.17.0
     "@lucide/svelte": ^1.23.0
-    "@modelcontextprotocol/sdk": ^1.29.0
+    "@modelcontextprotocol/sdk": ^1.31.0
     "@prisma/client": ^5.22.0
     "@sveltejs/kit": ^2.50.1
     bcryptjs: ^3.0.0
