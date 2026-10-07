@@ -1,9 +1,10 @@
 import { isUtf8 } from "node:buffer";
 
+import { createMcpProtectedRequestHandler } from "@better-auth/mcp";
 import type { ApiServer } from "@petalnet/effect-api";
-import { Data, Effect, Stream } from "effect";
+import { Cause, Data, Effect, Exit, Fiber, Stream } from "effect";
 import { HttpClientRequest, HttpServerRequest, type HttpMethod } from "effect/http";
-import { createRemoteJWKSet, errors, jwtVerify, type JWTVerifyGetKey, type JWTPayload } from "jose";
+import type { JWTPayload } from "jose";
 
 import {
 	ActorAuthority,
@@ -38,6 +39,11 @@ export interface McpIngress {
 }
 
 class McpRejected extends Data.TaggedError("McpRejected")<{ readonly response: Response }> {}
+
+/** Carries the original Effect cause through Better Auth's Promise callback unchanged. */
+class McpInvocationFailed extends Data.TaggedError("McpInvocationFailed")<{
+	readonly cause: Cause.Cause<AuthorityError>;
+}> {}
 
 class InvalidMcpConfiguration extends Error {
 	readonly _tag = "InvalidMcpConfiguration";
@@ -78,30 +84,6 @@ const mcpProtectedResourceMetadata = (config: McpIngressConfig) => {
 		scopes_supported: [MCP_SCOPE, "grove:agent:enroll"],
 	};
 };
-
-const challenge = (config: McpIngressConfig, error?: "invalid_token" | "insufficient_scope") => {
-	const values = [`resource_metadata="${metadataUrl(config)}"`];
-	if (error) values.push(`error="${error}"`);
-	if (error === "insufficient_scope") values.push(`scope="${MCP_SCOPE}"`);
-	return new Response(null, {
-		status: error === "insufficient_scope" ? 403 : 401,
-		headers: { "WWW-Authenticate": `Bearer ${values.join(", ")}` },
-	});
-};
-
-const tokenFrom = (request: Request) =>
-	request.headers.get("authorization")?.match(/^Bearer ([^\s,]+)$/i)?.[1];
-const scopesFrom = (payload: JWTPayload) =>
-	new Set(typeof payload.scope === "string" ? payload.scope.split(/\s+/).filter(Boolean) : []);
-const invalidTokenFailure = (error: unknown) =>
-	error instanceof errors.JOSEAlgNotAllowed ||
-	error instanceof errors.JWSInvalid ||
-	error instanceof errors.JWSSignatureVerificationFailed ||
-	error instanceof errors.JWTClaimValidationFailed ||
-	error instanceof errors.JWTExpired ||
-	error instanceof errors.JWTInvalid ||
-	error instanceof errors.JWKSNoMatchingKey ||
-	error instanceof errors.JWKSMultipleMatchingKeys;
 
 const dependencyUnavailable = (error: unknown) => {
 	console.error("Grove MCP JWKS dependency unavailable", error);
@@ -178,77 +160,94 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 	);
 });
 
-export const makeMcpIngress = (input: McpIngressConfig, key?: JWTVerifyGetKey): McpIngress => {
+export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 	const config = validatedConfig(input);
-	const verificationKey =
-		key ??
-		createRemoteJWKSet(new URL(config.jwksUrl), {
-			timeoutDuration: 5_000,
-			cooldownDuration: 30_000,
-		});
 
-	const authenticate = Effect.fnUntraced(function* (
-		request: Request,
-	): Effect.fn.Return<MachineIdentity, McpRejected> {
-		const token = tokenFrom(request);
-		if (!token) return yield* new McpRejected({ response: challenge(config) });
-		const { payload } = yield* Effect.tryPromise({
-			try: () =>
-				jwtVerify(token, verificationKey, {
-					issuer: config.issuer,
-					audience: resource(config),
-					algorithms: ["RS256", "ES256"],
-					requiredClaims: ["sub", "exp", "iat"],
+	const dispatch = Effect.fnUntraced(
+		function* (request: Request, identity: MachineIdentity) {
+			const authority = yield* ActorAuthority;
+			const principal = yield* authority.resolveMachineIdentity(identity);
+			const incoming = yield* readRequest(request);
+			const listed = new Set(yield* authority.authorizedOperations(principal));
+			const callable = new Set(listed);
+			const canRetryEnrollment =
+				principal.kind === "agent" && identity.scopes.has("grove:agent:enroll");
+			if (canRetryEnrollment) callable.add("agents.enrollSelf");
+			return yield* groveApi.fetch(incoming, { listed, callable }).pipe(
+				Effect.provideService(InvocationContext, {
+					principal,
 				}),
-			catch: (error) =>
-				new McpRejected({
-					response: invalidTokenFailure(error)
-						? challenge(config, "invalid_token")
-						: dependencyUnavailable(error),
-				}),
-		});
-		const scopes = scopesFrom(payload);
-		if (!scopes.has(MCP_SCOPE))
-			return yield* new McpRejected({ response: challenge(config, "insufficient_scope") });
-		if (typeof payload.sub !== "string" || payload.sub.length === 0)
-			return yield* new McpRejected({ response: challenge(config, "invalid_token") });
-		return { issuer: config.issuer, subject: payload.sub, scopes };
-	});
+			);
+		},
+		Effect.catchTag("McpRejected", ({ response }) => Effect.succeed(response)),
+		Effect.catchIf(
+			(error): error is ActorDatabaseError => error instanceof ActorDatabaseError,
+			(error) => Effect.succeed(authorityUnavailable(error)),
+		),
+		Effect.catchIf(
+			(error): error is ActorDenied => error instanceof ActorDenied,
+			() =>
+				Effect.succeed(
+					Response.json(
+						{ error: "access_denied", message: "MCP identity is not eligible" },
+						{ status: 403 },
+					),
+				),
+		),
+	);
 
 	return {
 		metadata: () => mcpProtectedResourceMetadata(config),
-		handle: Effect.fnUntraced(
-			function* (request: Request) {
-				const identity = yield* authenticate(request);
-				const authority = yield* ActorAuthority;
-				const principal = yield* authority.resolveMachineIdentity(identity);
-				const incoming = yield* readRequest(request);
-				const listed = new Set(yield* authority.authorizedOperations(principal));
-				const callable = new Set(listed);
-				const canRetryEnrollment =
-					principal.kind === "agent" && identity.scopes.has("grove:agent:enroll");
-				if (canRetryEnrollment) callable.add("agents.enrollSelf");
-				return yield* groveApi.fetch(incoming, { listed, callable }).pipe(
-					Effect.provideService(InvocationContext, {
-						principal,
-					}),
-				);
-			},
-			Effect.catchTag("McpRejected", ({ response }) => Effect.succeed(response)),
-			Effect.catchIf(
-				(error): error is ActorDatabaseError => error instanceof ActorDatabaseError,
-				(error) => Effect.succeed(authorityUnavailable(error)),
-			),
-			Effect.catchIf(
-				(error): error is ActorDenied => error instanceof ActorDenied,
-				() =>
-					Effect.succeed(
-						Response.json(
-							{ error: "access_denied", message: "MCP identity is not eligible" },
-							{ status: 403 },
-						),
-					),
-			),
-		),
+		handle: Effect.fnUntraced(function* (request: Request) {
+			const services = yield* Effect.context<ActorAuthority | SproutCommands | ApiServer>();
+			const scope = yield* Effect.scope;
+			return yield* Effect.tryPromise({
+				try: (signal) =>
+					createMcpProtectedRequestHandler(
+						{
+							issuer: config.issuer,
+							audience: resource(config),
+							jwksUrl: config.jwksUrl,
+							jwtVerifyOptions: {
+								algorithms: ["RS256", "ES256"],
+								requiredClaims: ["sub", "exp", "iat"],
+							},
+							requiredScopes: [MCP_SCOPE],
+						},
+						async (incoming: Request, claims: JWTPayload) => {
+							// Better Auth cannot cancel JWKS fetching; do not start work after it was abandoned.
+							if (signal.aborted || incoming.signal.aborted)
+								throw new McpInvocationFailed({ cause: Cause.interrupt() });
+							if (typeof claims.sub !== "string" || claims.sub.length === 0) {
+								return new Response(null, {
+									status: 401,
+									headers: {
+										"WWW-Authenticate": `Bearer resource_metadata="${metadataUrl(config)}"`,
+									},
+								});
+							}
+							// Reuse this request's services and interruption; do not create another ManagedRuntime.
+							const exit = await Effect.runPromiseExitWith(services)(
+								dispatch(incoming, {
+									issuer: config.issuer,
+									subject: claims.sub,
+									// Better Auth has already validated the scope grammar and admission scope.
+									scopes: new Set((claims.scope as string).split(" ")),
+								}).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join)),
+								{ signal: AbortSignal.any([signal, incoming.signal]) },
+							);
+							if (Exit.isFailure(exit)) throw new McpInvocationFailed({ cause: exit.cause });
+							return exit.value;
+						},
+					)(request),
+				catch: (error) => error,
+			}).pipe(
+				Effect.catch((error) =>
+					error instanceof McpInvocationFailed
+						? Effect.failCause(error.cause)
+						: Effect.succeed(dependencyUnavailable(error)),
+				),
+			);
+		}, Effect.scoped),
 	};
 };
