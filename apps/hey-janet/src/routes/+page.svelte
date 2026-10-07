@@ -214,11 +214,11 @@
 					next,
 				);
 			} else await queue.saveProgress(next);
+			await refresh();
 			progress = next;
 			revoke();
 			stage = next.index >= prompts.length ? "done" : "ready";
 			if (stage === "done") recorder?.close();
-			await refresh();
 			void flush();
 		} catch {
 			message =
