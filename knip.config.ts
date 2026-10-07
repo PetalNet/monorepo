@@ -1,6 +1,6 @@
 import type { KnipConfig } from "knip";
 
-export default (({ production, strict }) => ({
+export default {
 	ignore: [".agents/skills/impeccable/**"],
 	// Strict Knip only resolves production dependencies, including script binaries.
 	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!", "turbo!"],
@@ -16,9 +16,7 @@ export default (({ production, strict }) => ({
 			// The enrollment client is development-only; the boundary verifier runs in production builds.
 			entry: [
 				"tools/enroll-grove-dev-agent.mjs",
-				"tools/verify-grove-production-boundary.mjs!",
-				// Actions already discovers this entry in normal mode, but not production.
-				...(production || strict ? ["tools/ci-manager.mjs!"] : []),
+				"tools/{ci-manager,verify-grove-production-boundary}.mjs!",
 			],
 		},
 		"apps/collegemap": {
@@ -55,4 +53,4 @@ export default (({ production, strict }) => ({
 			entry: ["test/**/*.ts"],
 		},
 	},
-})) satisfies KnipConfig;
+} satisfies KnipConfig;
