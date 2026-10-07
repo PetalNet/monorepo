@@ -4,7 +4,7 @@ Primary-source review and executed adoption checks, 2026-10-07. Native support
 uses pinned Turbo 2.11.7 without crate `package.json` wrappers. The Cargo
 foundation ([PR #430](https://github.com/PetalNet/monorepo/pull/430)) is merged;
 this layer builds on the published selective-CI
-[PR #439 head](https://github.com/PetalNet/monorepo/commit/812e688e1eacad22717d6bc2b4b9d2fa545abd71).
+[PR #439 head](https://github.com/PetalNet/monorepo/commit/6f39a3c018a15a1bba63350e3dd82f5667c797af).
 The reviewed parent is merged into the native layer without rewriting its
 published history; its workflows, gate, formatting policy and security settings
 are unchanged by this layer.
@@ -173,7 +173,10 @@ including Whoami. The TS/Effect selector in `tools/ci-manager/select.ts` invokes
 that same runner for affected build/test plans. `pnpm check:code` also selects
 `//` so repository-wide checks, including uncached `test:ci-manager`, always run;
 CI does not make check affected-only. `pnpm check` retains the parent's separate
-`pnpm check:code && pnpm fmt:check` policy. The parent's global
+`pnpm check:code && pnpm fmt:check` policy and runs unconditionally, without
+queue-history reuse or a formatting-selection output. Actions CodeQL selection
+remains independent of JS/native selection; Python coverage remains intact.
+The parent's global
 `PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN` passthrough remains intact.
 
 ```sh
@@ -234,6 +237,9 @@ Checks used the installed 2.11.7 binary in this orb, not upstream test results:
   its Grove dependent but not unrelated Whoami; root Cargo edits select all
   native lanes and JS. Runner edits likewise select all native lanes and JS.
   These cases also passed through the reviewed parent's actual TS/Effect CLI.
+  The revised Actions selector/gate's 307 manager tests also passed with
+  cargo/rustc absent, including workflow/local-action edits, non-Actions GitHub
+  documentation, workflow deletion by rename, dependency propagation and full runs.
   Actual `pnpm build --affected` and `pnpm test --affected`
   for a Whoami-only edit selected one task each and passed (seven tests), with
   both Rust executables absent. The full JS test command passed 507 tests across
