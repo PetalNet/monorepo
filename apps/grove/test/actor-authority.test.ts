@@ -73,7 +73,9 @@ describe("actor authority", () => {
 		);
 		if ((waiting.at(0)?.waiting ?? 0) > 0) return undefined;
 		if (attempt >= 99) throw new Error(`${queryFragment} did not reach the expected database lock`);
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		await new Promise((resolve) => {
+			setTimeout(resolve, 10);
+		});
 		return waitForDatabaseLock(queryFragment, attempt + 1);
 	};
 
@@ -455,7 +457,9 @@ describe("actor authority", () => {
 			return undefined;
 		});
 		try {
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await new Promise((resolve) => {
+				setTimeout(resolve, 50);
+			});
 			expect(completionOrder).toEqual([]);
 		} finally {
 			release.resolve(undefined);

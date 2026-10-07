@@ -2,6 +2,7 @@ import type { KnipConfig } from "knip";
 
 export default {
 	ignore: [".agents/skills/impeccable/**"],
+	rules: { cycles: "error" },
 	// Strict Knip only resolves production dependencies, including script binaries.
 	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
 	ignoreDependencies: [
@@ -14,7 +15,7 @@ export default {
 		".": {
 			// Repository-only operations are invoked by agents and build scripts, not imported.
 			// The enrollment client is development-only; the boundary verifier runs in production builds.
-			entry: ["tools/enroll-grove-dev-agent.mjs", "tools/verify-grove-production-boundary.mjs!"],
+			entry: ["tools/enroll-grove-dev-agent.ts", "tools/verify-grove-production-boundary.ts!"],
 		},
 		"apps/collegemap": {
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
@@ -31,7 +32,7 @@ export default {
 			// Their exports are intentionally absent from production's entry graph.
 			ignoreIssues: { "src/lib/dev/**": ["exports"] },
 			entry: [
-				"dev-oidc.mjs",
+				"dev-oidc.ts",
 				"src/lib/dev/browser-logs.ts",
 				"effectdb.config.ts!",
 				// effect-db discovers these exported tables from its source glob.

@@ -33,7 +33,7 @@ describe("invokeOperation", () => {
 		);
 		const input = Schema.String.pipe(
 			Schema.decodeTo(
-				Schema.Number,
+				Schema.Finite,
 				SchemaTransformation.transformEffect({
 					decode,
 					encode: (value) => Effect.succeed(String(value)),
@@ -109,7 +109,7 @@ describe("invokeOperation", () => {
 	it("validates decoded output without replaying transformations and preserves the original value", async () => {
 		const value = { count: 21, extra: true };
 		const logCause = vi.fn();
-		const output = Schema.Struct({ count: Schema.NumberFromString });
+		const output = Schema.Struct({ count: Schema.FiniteFromString });
 		await expect(
 			Effect.runPromise(
 				invokeOperation({ ...base, output, handle: () => Effect.succeed(value) }, null, logCause),

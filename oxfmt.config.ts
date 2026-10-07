@@ -3,11 +3,12 @@ export default {
 	singleQuote: false,
 	semi: true,
 	sortImports: true,
+	sortPackageJson: true,
 	sortTailwindcss: true,
 	jsdoc: true,
 	svelte: true,
-	// Package sorting remains owned by ESLint; vendored designs stay byte-faithful.
-	ignorePatterns: ["**/package.json", "pnpm-lock.yaml", "apps/point/docs/design/**"],
+	// Vendored designs stay byte-faithful.
+	ignorePatterns: ["pnpm-lock.yaml", "apps/point/docs/design/**"],
 	overrides: [
 		{
 			// Match drizzle-kit's JSON.stringify output for generated migration metadata.

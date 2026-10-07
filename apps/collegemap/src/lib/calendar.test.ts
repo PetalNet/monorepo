@@ -268,7 +268,7 @@ describe("pickInitialMonth", () => {
 	});
 
 	it("falls back to the most recent break when everything is in the past", () => {
-		expect(pickInitialMonth(winter, "2027-06-01")).toBe("2026-12-19".slice(0, 7) + "-01");
+		expect(pickInitialMonth(winter, "2027-06-01")).toBe(`${"2026-12-19".slice(0, 7)}-01`);
 	});
 
 	it("uses today when nobody has entered anything", () => {

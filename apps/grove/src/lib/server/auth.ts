@@ -1,5 +1,5 @@
 import { getRequestEvent } from "$app/server";
-import * as PgClient from "@effect/sql-pg/PgClient";
+import type * as PgClient from "@effect/sql-pg/PgClient";
 import type { RequestEvent } from "@sveltejs/kit";
 import type { ResolveOptions } from "@sveltejs/kit/hooks";
 import type { BetterAuthOptions, Session, User } from "better-auth";
@@ -11,7 +11,8 @@ import { Query } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { ActorAuthority, type PersonPrincipal } from "./actors/authority";
+import type { ActorAuthority } from "./actors/authority";
+import { type PersonPrincipal } from "./actors/authority";
 import { accounts as accountsTable } from "./db/tables";
 import { GROVE_OIDC_PROVIDER_ID, groveOidc } from "./oidc";
 

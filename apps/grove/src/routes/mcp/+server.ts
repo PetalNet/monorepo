@@ -3,6 +3,5 @@ import { runGrove } from "#lib/server/runtime.ts";
 
 import type { RequestHandler } from "./$types";
 
-export const POST: RequestHandler = async (event) => {
-	return runGrove(groveMcpIngress().handle(event.request), event);
-};
+export const POST: RequestHandler = async (event) =>
+	runGrove(groveMcpIngress().handle(event.request), event);

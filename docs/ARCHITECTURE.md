@@ -109,13 +109,29 @@ flowchart LR
     oxlint["oxlint (fast path)"] --> eslint["eslint (the rest, with overlap disabled by eslint-plugin-oxlint)"]
 ```
 
-Oxlint runs first because it's ~10-100x faster on the same rules. Both Oxlint and
-`eslint-plugin-oxlint` consume `oxlint.config.ts`, so Oxlint's enabled rules are the
-single source of truth for disabling overlap in ESLint. Type-aware ESLint runs in
-sequential, cached shards to bound memory. Graph dependencies wait for app checks
-to finish generating framework types before ESLint reads them; Knip follows ESLint
-to avoid competing for memory. These prerequisites also apply to focused Turbo
-lint invocations.
+Oxlint enables correctness, suspicious, performance, pedantic, and style categories, with
+targeted exceptions for noisy policies and existing strict rule options. It runs
+typed checks through `oxlint-tsgolint`, plus Effect's recommended diagnostics.
+Root `prepare` patches the compiler and Oxlint backend with `effect-tsgo patch --oxlint`; compiler Effect
+diagnostics are disabled to avoid duplicate reports. Framework generation and
+shared declaration/typecheck tasks precede typed Oxlint, including focused Turbo
+lint invocations. Package tests use discoverable `test/tsconfig.json` projects.
+Effect's unstable-API check remains enabled: the tsconfig plugin settings allow
+the HTTP, AI/MCP, and SQL families used by the workspace, not all unstable APIs.
+
+Both Oxlint and `eslint-plugin-oxlint` consume `oxlint.config.ts`, so enabled rules
+are the source of truth for disabling overlap in ESLint. Generated disable blocks
+exclude `.svelte` files: ESLint retains their full typed and framework-aware rules,
+as well as Markdown, JSON/JSONC, and package manifest checks. Slide's existing
+ESLint exceptions remain during its rewrite, and Oxlint skips Slide. ESLint runs
+in sequential, cached shards to bound memory; Knip follows ESLint. Root tests
+check effective Svelte configurations and exercise the patched backend against
+both valid code and deliberately floating Promises, Effects, and unapproved
+unstable APIs. Remaining ESLint rules stay enabled when Oxlint does not own them.
+Knip owns circular-import detection (`cycles` is an error); Oxlint's import plugin
+is not enabled. Oxfmt owns package-manifest sorting, while ESLint retains manifest
+validation and naming rules. First-party tooling and Grove's development OIDC
+provider are TypeScript and participate in typed checks rather than opting out.
 
 ## CI
 

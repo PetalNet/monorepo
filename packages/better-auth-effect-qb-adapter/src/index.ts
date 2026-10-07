@@ -8,7 +8,8 @@ import type {
 	JoinConfig,
 } from "better-auth/adapters";
 import { createAdapterFactory } from "better-auth/adapters";
-import { Context, Effect, ManagedRuntime, Redacted, Schema } from "effect";
+import type { Context } from "effect";
+import { Effect, ManagedRuntime, Redacted, Schema } from "effect";
 import { Column, Function, Query, Table } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -207,11 +208,10 @@ export const createEffectQbAdapter = (
 				}
 				return value;
 			};
-			const mutationValues = (name: string, values: DatabaseRow) => {
-				return Object.fromEntries(
+			const mutationValues = (name: string, values: DatabaseRow) =>
+				Object.fromEntries(
 					Object.entries(values).map(([key, value]) => [fieldName(name, key), value]),
 				);
-			};
 			const conditionExpression = (name: string, condition: CleanedWhere): unknown => {
 				const column = fieldColumn(name, condition.field);
 				const insensitive = condition.mode === "insensitive";

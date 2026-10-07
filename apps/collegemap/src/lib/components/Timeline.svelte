@@ -99,7 +99,8 @@
 		class="tl-btn"
 		aria-label={isPlaying ? "Pause" : "Play"}
 		onclick={() => {
-			isPlaying ? pause() : play();
+			if (isPlaying) pause();
+			else play();
 		}}
 	>
 		{#if isPlaying}

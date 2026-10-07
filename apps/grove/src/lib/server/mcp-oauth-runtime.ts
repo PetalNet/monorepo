@@ -8,13 +8,11 @@ const requireRuntimeString = (value: unknown, name: string) => {
 	return value;
 };
 
-const runtimeConfig = (): McpIngressConfig => {
-	return {
-		issuer: requireRuntimeString(GROVE_MCP_ISSUER, "GROVE_MCP_ISSUER"),
-		jwksUrl: requireRuntimeString(GROVE_MCP_JWKS_URL, "GROVE_MCP_JWKS_URL"),
-		resourceOrigin: requireRuntimeString(GROVE_MCP_RESOURCE, "GROVE_MCP_RESOURCE"),
-	};
-};
+const runtimeConfig = (): McpIngressConfig => ({
+	issuer: requireRuntimeString(GROVE_MCP_ISSUER, "GROVE_MCP_ISSUER"),
+	jwksUrl: requireRuntimeString(GROVE_MCP_JWKS_URL, "GROVE_MCP_JWKS_URL"),
+	resourceOrigin: requireRuntimeString(GROVE_MCP_RESOURCE, "GROVE_MCP_RESOURCE"),
+});
 
 export const groveMcpIngress = (<T>(initialize: () => T) => {
 	let ingress: T | undefined;

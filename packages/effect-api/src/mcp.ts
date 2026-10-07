@@ -76,7 +76,7 @@ export const createMcpLayer = <R>(config: McpConfig<R>) =>
 					tool: new McpSchema.Tool({
 						name: operation.name,
 						description: operation.description,
-						inputSchema: yield* Schema.decodeUnknownEffect(McpSchema.ToolJson)({
+						inputSchema: yield* Schema.decodeEffect(McpSchema.ToolJson)({
 							type: "object",
 							...Tool.getJsonSchemaFromSchema(operation.input),
 						}),

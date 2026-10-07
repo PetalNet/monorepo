@@ -1,5 +1,4 @@
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import js from "@eslint/js";
 import json from "@eslint/json";
@@ -12,7 +11,7 @@ import tseslint from "typescript-eslint";
 
 import { lintConfig } from "./oxlint.config.ts";
 
-const root = fileURLToPath(new URL(".", import.meta.url));
+const root = import.meta.dirname;
 
 export default defineConfig([
 	includeIgnoreFile(path.join(root, ".gitignore"), {
@@ -46,15 +45,6 @@ export default defineConfig([
 		},
 	},
 	{
-		files: ["apps/grove/dev-oidc.mjs", "tools/**/*.mjs"],
-		extends: [tseslint.configs.disableTypeChecked],
-		languageOptions: {
-			parserOptions: {
-				projectService: false,
-			},
-		},
-	},
-	{
 		files: ["apps/{collegemap,grove,slide,storybook,whoami}/**/*.svelte"],
 		extends: svelte.configs.recommended,
 		languageOptions: {
@@ -83,15 +73,15 @@ export default defineConfig([
 		// The effect-api/effect-sveltekit build tsconfigs intentionally scope emit to
 		// src (emitDeclarationOnly + rootDir), so their test/ files are not part of the
 		// build project. Point typed linting for those tests at a dedicated
-		// tsconfig.eslint.json that includes src + test (see each package).
+		// test/tsconfig.json that both ESLint and native typed Oxlint can discover.
 		files: ["packages/effect-api/test/**/*.ts", "packages/effect-sveltekit/test/**/*.ts"],
 		languageOptions: {
 			parserOptions: {
 				projectService: false,
 				tsconfigRootDir: root,
 				project: [
-					"packages/effect-api/tsconfig.eslint.json",
-					"packages/effect-sveltekit/tsconfig.eslint.json",
+					"packages/effect-api/test/tsconfig.json",
+					"packages/effect-sveltekit/test/tsconfig.json",
 				],
 			},
 		},
@@ -120,7 +110,12 @@ export default defineConfig([
 	{
 		files: ["**/package.json"],
 		extends: [packageJson.configs.recommended, packageJson.configs.stylistic],
-		rules: { "package-json/require-description": "off" },
+		rules: {
+			"package-json/require-description": "off",
+			// Oxfmt owns property and collection ordering; keep validation and naming rules.
+			"package-json/order-properties": "off",
+			"package-json/sort-collections": "off",
+		},
 	},
 	{
 		files: ["**/tsconfig*.json"],
@@ -167,5 +162,17 @@ export default defineConfig([
 			"svelte/require-each-key": "off",
 		},
 	},
-	...oxlint.buildFromOxlintConfig(lintConfig),
+	// Never apply Oxlint's global ignores to ESLint: it still owns Svelte and Slide.
+	// Scope every generated rule-disable block, including future bridge additions.
+	...oxlint
+		// Effect has no ESLint counterparts; omit its preset from the bridge's narrower types.
+		.buildFromOxlintConfig(
+			{ ...structuredClone(lintConfig), extends: [] },
+			{ typeAware: true, withNursery: true },
+		)
+		.filter((config) => config.rules)
+		.map((config) => ({
+			...config,
+			ignores: [...(config.ignores ?? []), "**/*.svelte", "apps/slide/**"],
+		})),
 ]);

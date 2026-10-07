@@ -32,7 +32,7 @@ export const createRestLayer = <R>(config: RestConfig<R>) =>
 									Effect.flatMap((text) =>
 										text.length === 0
 											? Effect.succeed({})
-											: Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text),
+											: Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text),
 									),
 									Effect.mapError(() => new InvalidJson()),
 								)

@@ -14,12 +14,12 @@
 		"lint:eslint:apps": "NODE_OPTIONS=--max-old-space-size=3072 eslint apps --max-warnings=0",
 		"lint:eslint:root": "NODE_OPTIONS=--max-old-space-size=3072 eslint . --ignore-pattern 'apps/**' --max-warnings=0",
 		"lint:impeccable": "impeccable detect --no-advisory apps packages",
-		"lint:knip": "knip",
-		"lint:knip:prod": "knip --strict",
+		"lint:knip": "knip --dependencies --exports --files --cycles --exclude nsExports,nsTypes",
+		"lint:knip:prod": "knip --strict --dependencies --exports --files --cycles --exclude nsExports,nsTypes",
 		"lint:oxlint": "oxlint --max-warnings=0",
 		"manypkg": "manypkg check",
-		"prepare": "effect-tsgo patch",
-		"test": "turbo run test",
+		"prepare": "effect-tsgo patch --oxlint",
+		"test": "node --test tools/lint-config.test.ts && turbo run test",
 		"ts-references:check": "update-ts-references --check",
 		"ts-references:update": "update-ts-references",
 		"typecheck": "tsc -b",
@@ -43,13 +43,13 @@
 		"knip": "catalog:dev",
 		"oxfmt": "catalog:dev",
 		"oxlint": "catalog:dev",
+		"oxlint-tsgolint": "catalog:dev",
 		"turbo": "catalog:dev",
 		"typescript": "catalog:dev",
 		"typescript-eslint": "catalog:dev",
 		"typesync": "catalog:dev",
 		"update-ts-references": "catalog:dev"
 	},
-	"packageManager": "pnpm@12.9.1",
 	"devEngines": {
 		"runtime": {
 			"name": "node",
@@ -57,6 +57,7 @@
 			"version": "26.5.0"
 		}
 	},
+	"packageManager": "pnpm@12.9.1",
 	"typesync": {
 		"ignoreProjects": [
 			"apps/box-agent",

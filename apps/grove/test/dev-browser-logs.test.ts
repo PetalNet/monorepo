@@ -119,8 +119,8 @@ describe("Grove development browser logs", () => {
 								"fetch failed\n\tAuthorization: Basic should-not-reach-disk x-api-key=api-secret " +
 								"credential=credential-secret https://api.example/path?session=session-secret&request=kept " +
 								"https://server-user:server-password@api.example/userinfo?request=also-kept " +
-								"\u001b[31mred\u0000nul\bbackspace\u0085c1\u202Espoof\u2066isolate",
-							source: "window.unhandledrejection\u001b[2J",
+								"\u001B[31mred\u0000nul\bbackspace\u0085c1\u202Espoof\u2066isolate",
+							source: "window.unhandledrejection\u001B[2J",
 							timestamp: "1999-12-31T23:59:59.000Z",
 						},
 					],

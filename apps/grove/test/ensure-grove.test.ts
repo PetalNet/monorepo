@@ -14,7 +14,7 @@ const run = (
 	arguments_: readonly string[],
 	options: { cwd: string; env?: NodeJS.ProcessEnv },
 ) =>
-	new Promise<{ code: number | null; stdout: string; stderr: string }>((done) => {
+	new Promise<{ code: number | null; stdout: string; stderr: string }>((_resolve) => {
 		const child = spawn(command, arguments_, options);
 		let stdout = "";
 		let stderr = "";
@@ -25,7 +25,7 @@ const run = (
 			stderr += chunk.toString();
 		});
 		child.on("close", (code) => {
-			done({ code, stdout, stderr });
+			_resolve({ code, stdout, stderr });
 		});
 	});
 

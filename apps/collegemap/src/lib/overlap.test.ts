@@ -309,8 +309,10 @@ describe("buildReport", () => {
 			id,
 			ranges: [r("2026-12-19", "2027-01-04")],
 		}));
-		five.push({ id: "d", ranges: [r("2026-12-27", "2027-01-04")] });
-		five.push({ id: "e", ranges: [r("2026-12-27", "2027-01-04")] });
+		five.push(
+			{ id: "d", ranges: [r("2026-12-27", "2027-01-04")] },
+			{ id: "e", ranges: [r("2026-12-27", "2027-01-04")] },
+		);
 		const report = buildReport(five, { todayIso: "2026-11-01" });
 		expect(report.everyone.map(shape)).toEqual([["2026-12-27", "2027-01-04", 9, "a b c d e"]]);
 		expect(report.almost.map(shape)).toEqual([["2026-12-19", "2026-12-26", 8, "a b c"]]);

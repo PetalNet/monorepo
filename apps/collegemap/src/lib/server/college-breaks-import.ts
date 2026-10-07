@@ -6,7 +6,7 @@ import classifyMap from "../../../data/classify-map.json";
 import { addDays, isIsoDate } from "../dates";
 import { MISSING_ACADEMIC_DATE } from "./college-breaks-constants";
 import { collegeBreaks, colleges } from "./db/schema";
-import * as schema from "./db/schema";
+import type * as schema from "./db/schema";
 
 type Database = LibSQLDatabase<typeof schema>;
 type BreakKind = (typeof collegeBreaks.kind.enumValues)[number];

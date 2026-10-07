@@ -146,7 +146,7 @@ async function validateFetchUrl(value: string | URL): Promise<URL> {
 		throw new Error(`unsupported URL protocol: ${parsed.protocol}`);
 	}
 	const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
-	const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+	const addresses = await dns.lookup(hostname, { all: true, order: "verbatim" });
 	for (const { address } of addresses) {
 		if (isBlockedAddress(address)) {
 			throw new Error(`refusing to fetch private/internal address (${hostname} -> ${address})`);

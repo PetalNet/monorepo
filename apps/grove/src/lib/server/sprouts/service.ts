@@ -49,6 +49,11 @@ export interface SproutCommandsShape {
 	) => Effect.Effect<{ readonly removed: true }, SproutError, InvocationContext>;
 }
 
+/**
+ * InvocationContext is per request, not a dependency to capture when building the shared layer.
+ *
+ * @effect-expect-leaking InvocationContext
+ */
 export class SproutCommands extends Context.Service<SproutCommands, SproutCommandsShape>()(
 	"grove/SproutCommands",
 ) {}
@@ -95,7 +100,7 @@ const fromRow = (row: SproutRow): Sprout => ({
 });
 
 const databaseId = (id: SproutIdValue): Effect.Effect<Scalar.BigIntString, SproutNotFound> =>
-	Schema.decodeUnknownEffect(ParsedSproutId)(id).pipe(
+	Schema.decodeEffect(ParsedSproutId)(id).pipe(
 		Effect.map(([, value]) => value),
 		Effect.mapError(() => new SproutNotFound(id)),
 	);
@@ -182,7 +187,7 @@ export const SproutCommandsLayer = Layer.effect(
 									);
 									const row = current.at(0);
 									if (!row) return [];
-									const waterings = yield* Schema.decodeUnknownEffect(Counter)(row.waterings + 1);
+									const waterings = yield* Schema.decodeEffect(Counter)(row.waterings + 1);
 
 									const updated = yield* executor.execute(
 										Query.update(sprouts, { waterings, last_actor_id: actor.actorId }).pipe(
@@ -198,9 +203,7 @@ export const SproutCommandsLayer = Layer.effect(
 							),
 						).pipe(
 							Effect.tapError((error) =>
-								error instanceof SproutOutOfDate
-									? Effect.sleep("10 millis")
-									: Effect.succeed(undefined),
+								error instanceof SproutOutOfDate ? Effect.sleep("10 millis") : Effect.void,
 							),
 							Effect.retry({
 								times: 10,

@@ -34,7 +34,7 @@ export const GroveAuthLayer = Layer.effect(
 					clientSecret: required(GROVE_OIDC_CLIENT_SECRET, "GROVE_OIDC_CLIENT_SECRET"),
 				},
 				createEffectQbAdapter({
-					runPromise: (effect) => Effect.runPromise(Effect.provide(effect, context)),
+					runPromise: Effect.runPromiseWith(context),
 				}),
 				sql,
 				authority,

@@ -6,7 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
 export const excludeGroveDevModules = (): Plugin => {
-	const root = fileURLToPath(new URL("./src/lib/", import.meta.url)).replaceAll("\\", "/");
+	const root = fileURLToPath(new URL("src/lib/", import.meta.url)).replaceAll("\\", "/");
 	const forbidden = new Set<string>();
 	return {
 		name: "grove-production-boundary",

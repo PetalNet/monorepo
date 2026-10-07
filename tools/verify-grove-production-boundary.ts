@@ -13,11 +13,11 @@ const forbidden = [
 	"window.unhandledrejection",
 ];
 
-const files = async (directory) => {
+const files = async (directory: string): Promise<string[]> => {
 	const entries = await readdir(directory, { withFileTypes: true });
 	return (
 		await Promise.all(
-			entries.map((entry) => {
+			entries.map(async (entry) => {
 				const path = resolve(directory, entry.name);
 				return entry.isDirectory() ? files(path) : [path];
 			}),

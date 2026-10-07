@@ -13,13 +13,13 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 
 const usage = () => {
 	console.error(
-		"Usage: pnpm exec node --use-system-ca tools/enroll-grove-dev-agent.mjs --subject <unique-id> --name <display-name>",
+		"Usage: pnpm exec node --use-system-ca tools/enroll-grove-dev-agent.ts --subject <unique-id> --name <display-name>",
 	);
 };
 
-const option = (name) => {
+const option = (name: string) => {
 	const index = process.argv.indexOf(name);
-	return index < 0 ? undefined : process.argv[index + 1];
+	return index === -1 ? undefined : process.argv[index + 1];
 };
 
 const subject = option("--subject")?.trim();
@@ -29,9 +29,21 @@ if (!subject || subject.length > 200 || !name || name.length > 80) {
 	process.exit(2);
 }
 
-const portal = async (service) => {
-	const manifest = JSON.parse(await readFile(`${root}.amp/portals/${service}.json`, "utf8"));
-	const value = manifest?.links?.[0]?.url;
+const portal = async (service: string) => {
+	const manifest: unknown = JSON.parse(
+		await readFile(`${root}.amp/portals/${service}.json`, "utf8"),
+	);
+	if (
+		typeof manifest !== "object" ||
+		manifest === null ||
+		!("links" in manifest) ||
+		!Array.isArray(manifest.links)
+	)
+		throw new Error(`${service} portal manifest has no links`);
+	const links: readonly unknown[] = manifest.links;
+	const first = links[0];
+	const value =
+		typeof first === "object" && first !== null && "url" in first ? first.url : undefined;
 	if (typeof value !== "string") throw new Error(`${service} portal manifest has no URL`);
 	const url = new URL(value);
 	if (url.protocol !== "https:" || url.username || url.password)
@@ -45,7 +57,7 @@ const endpoint = new URL("/mcp", grovePortal);
 const issuer = new URL("/realms/grove-mcp", oidcPortal).href.replace(/\/$/, "");
 const authProvider = new ClientCredentialsProvider({
 	clientId: subject,
-	clientSecret: process.env.GROVE_MCP_CLIENT_SECRET ?? developmentSecret,
+	clientSecret: process.env["GROVE_MCP_CLIENT_SECRET"] ?? developmentSecret,
 	scope: "grove:mcp grove:agent:enroll",
 	expectedIssuer: issuer,
 });

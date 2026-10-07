@@ -316,7 +316,7 @@ describe("createEffectApi", () => {
 					input: Schema.Struct({
 						value: Schema.String.pipe(
 							Schema.decodeTo(
-								Schema.Number,
+								Schema.Finite,
 								SchemaTransformation.transformEffect({
 									decode,
 									encode: (value) => Effect.succeed(String(value)),
@@ -324,7 +324,7 @@ describe("createEffectApi", () => {
 							),
 						),
 					}),
-					output: Schema.Number,
+					output: Schema.Finite,
 					handler: ({ value }) => Effect.succeed(value * 2),
 				}),
 				operation({
@@ -441,7 +441,7 @@ describe("createEffectApi", () => {
 					method: "POST",
 					path: "/retry",
 					input: Id,
-					output: Schema.Struct({ error: Schema.Struct({ code: Schema.Number }) }),
+					output: Schema.Struct({ error: Schema.Struct({ code: Schema.Finite }) }),
 					handler,
 				}),
 			],
@@ -755,8 +755,8 @@ describe("createEffectApi", () => {
 					description: "Double an encoded number.",
 					method: "POST",
 					path: "/double",
-					input: Schema.Struct({ count: Schema.NumberFromString }),
-					output: Schema.Struct({ doubled: Schema.Number }),
+					input: Schema.Struct({ count: Schema.FiniteFromString }),
+					output: Schema.Struct({ doubled: Schema.Finite }),
 					handler: ({ count }) => Effect.succeed({ doubled: count * 2 }),
 				}),
 			],
@@ -811,7 +811,7 @@ describe("createEffectApi", () => {
 					description: "Optionally update an item.",
 					method: "POST",
 					path: "/items/optional",
-					input: Schema.Struct({ count: Schema.optional(Schema.Number) }),
+					input: Schema.Struct({ count: Schema.optional(Schema.Finite) }),
 					output: Schema.Unknown,
 					handler: Effect.succeed,
 				}),
@@ -876,6 +876,8 @@ describe("createEffectApi", () => {
 					path: "/failure",
 					input: Schema.Struct({}),
 					output: Item,
+					// Deliberately exercise sanitization of an untagged third-party error.
+					// oxlint-disable-next-line effecttsgo/global-error-in-effect-failure
 					handler: () => Effect.fail(new Error("database connection details")),
 					statusForError: () => 503,
 					messageForError: () => "Service temporarily unavailable",

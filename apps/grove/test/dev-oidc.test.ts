@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const mcpResource = "https://grove.example/mcp";
 const mcpSecret = "grove-mcp-test-development-secret";
-const providerPath = fileURLToPath(new URL("../dev-oidc.mjs", import.meta.url));
+const providerPath = fileURLToPath(new URL("../dev-oidc.ts", import.meta.url));
 
 interface DevelopmentJwks {
 	readonly keys: (JsonWebKey & { readonly kid?: string })[];
@@ -44,7 +44,9 @@ const waitForProvider = async (origin: string, child: ChildProcess) => {
 			// The child may not have bound its port yet.
 		}
 		// oxlint-disable-next-line no-await-in-loop
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		await new Promise((resolve) => {
+			setTimeout(resolve, 20);
+		});
 	}
 	throw new Error("Development OIDC provider did not become ready");
 };
