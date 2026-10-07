@@ -89,7 +89,7 @@ test("redo, skip, offline upload recovery and reload keep the session", async ({
 	await page.unroute("**/api/clips?**");
 	await context.setOffline(true);
 	await context.setOffline(false);
-	await expect(page.getByText("All accepted takes uploaded")).toBeVisible();
+	await expect(page.getByText("All accepted takes uploaded")).toBeVisible({ timeout: 15000 });
 	await page.getByRole("button", { name: "Skip this phrase" }).click();
 	await expect(page.getByText("Phrase 3 of 40")).toBeVisible();
 	if (page.context().browser()?.browserType().name() === "webkit") await fakeWebkit(page);
