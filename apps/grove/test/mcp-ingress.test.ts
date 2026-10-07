@@ -3,10 +3,16 @@ import { createServer } from "node:http";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { it } from "@effect/vitest";
 import type { ApiServer } from "@petalnet/effect-api";
-import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted } from "effect";
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTPayload } from "jose";
 import { afterAll, beforeAll, describe, expect, vi } from "vitest";
 
+import {
+	ClaimReceipt,
+	ProjectCreateReceipt,
+	ProjectPlanReceipt,
+	PublishReceipt,
+} from "../src/lib/projects/schema";
 import {
 	ActorAuthority,
 	ActorAuthorityLayer,
@@ -536,6 +542,12 @@ describe("MCP protected-resource ingress", () => {
 			"sprouts.water",
 			"sprouts.remove",
 			"project.create",
+			"project.plan",
+			"task.claim",
+			"claim.renew",
+			"claim.release",
+			"attempt.publish",
+			"work.ready",
 		]);
 	});
 
@@ -612,6 +624,105 @@ describe("MCP protected-resource ingress", () => {
 			expect(denied).toMatchObject({ error: { code: -32602 } });
 		}),
 	);
+
+	it("executes planning, readiness, fenced claim mutations and publication through authenticated MCP", async () => {
+		const accessToken = await token("execution-machine", ["grove:mcp", "grove:agent:enroll"]);
+		let id = 100;
+		const invoke = async (name: string, arguments_: object) => {
+			const response = await json(
+				await request(accessToken, rpc(id++, "tools/call", { name, arguments: arguments_ })),
+			);
+
+			expect(response.result.isError).toBe(false);
+
+			return response.result.structuredContent;
+		};
+
+		await invoke("agents.enrollSelf", { name: "Execution Agent" });
+
+		const project = Schema.decodeUnknownSync(ProjectCreateReceipt)(
+			await invoke("project.create", {
+				commandId: crypto.randomUUID(),
+				scope: "execution",
+				title: "Execution",
+				ask: "Produce an artifact",
+			}),
+		);
+		const planning = {
+			commandId: crypto.randomUUID(),
+			projectId: project.objectId,
+			expectedVersionId: project.versionId,
+			tasks: [
+				{
+					key: "first",
+					title: "First",
+					objective: "Produce",
+					completionContract: { requiredOutputs: ["artifact"], reviewRequired: true },
+				},
+			],
+			dependencies: [],
+		};
+		const plan = Schema.decodeUnknownSync(ProjectPlanReceipt)(
+			await invoke("project.plan", planning),
+		);
+
+		expect(await invoke("project.plan", planning)).toEqual({ ...plan, replayed: true });
+		await invoke("work.ready", { projectId: project.objectId });
+		const taskId = plan.taskIds.first;
+		const claim = Schema.decodeUnknownSync(ClaimReceipt)(
+			await invoke("task.claim", { commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+
+		await invoke("claim.renew", {
+			commandId: crypto.randomUUID(),
+			claimId: claim.claimId,
+			fence: claim.fence,
+			leaseSeconds: 60,
+		});
+
+		await invoke("claim.release", {
+			commandId: crypto.randomUUID(),
+			claimId: claim.claimId,
+			fence: claim.fence,
+		});
+
+		const next = Schema.decodeUnknownSync(ClaimReceipt)(
+			await invoke("task.claim", { commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+
+		expect(next.fence).not.toBe(claim.fence);
+
+		const publication = {
+			commandId: crypto.randomUUID(),
+			claimId: next.claimId,
+			fence: next.fence,
+			attemptId: next.attemptId,
+			title: "Artifact",
+			content: "Immutable output",
+		};
+		const published = Schema.decodeUnknownSync(PublishReceipt)(
+			await invoke("attempt.publish", publication),
+		);
+
+		expect(await invoke("attempt.publish", publication)).toEqual({ ...published, replayed: true });
+
+		const denied = await json(
+			await request(
+				accessToken,
+				rpc(id++, "tools/call", {
+					name: "claim.renew",
+					arguments: {
+						commandId: crypto.randomUUID(),
+						claimId: next.claimId,
+						fence: "wrong",
+						leaseSeconds: 60,
+					},
+				}),
+			),
+		);
+
+		expect(denied.result.isError).toBe(true);
+	});
 
 	it("executes bearer-only tools/call and never confuses an attached browser cookie for the actor", async () => {
 		const accessToken = await token("janet-machine", ["grove:mcp", "grove:agent:enroll"]);

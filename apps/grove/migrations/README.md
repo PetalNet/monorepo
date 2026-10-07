@@ -29,7 +29,7 @@ tweaks, not a custom generator or dependency patch.
 
 The migration test exercises the upstream CLI's fresh install, repeat install,
 rollback, and reinstall, and requires an empty effect-db schema diff across all
-seventeen tables, including constraints, indexes, defaults, and foreign keys.
+twenty-one tables, including constraints, indexes, defaults, and foreign keys.
 
 `0002_objects.sql` is the working `project.create` slice: Objects, append-only
 Versions, the Project facet, principal-bound command receipts, and one atomic
@@ -39,3 +39,12 @@ payloads use `task` for the ask and `role: 'project'`; receipts intentionally ha
 no JSON response column. The immutable baseline remains unchanged. Trigger
 behavior (append-only Versions and durable Actor provenance) is reviewed SQL,
 not representable in the canonical metadata.
+
+`0003_task_execution.sql` adds bounded one-shot planning, dependency readiness,
+exclusive expiring Claims, separate Attempts, and immutable output publication.
+It backfills only these execution capabilities for existing Actors and preserves
+existing project receipts exactly. Publication does not complete Tasks; review,
+completion, and library operations are not implemented in these two slices.
+The reviewed rename preserves Project facets, and receipt response backfill
+supports exact authorized replay. Downgrade refuses non-representable execution
+history atomically rather than discarding it. Capability edits survive rollback.

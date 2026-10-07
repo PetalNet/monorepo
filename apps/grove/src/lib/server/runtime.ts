@@ -83,6 +83,7 @@ function makeRuntime() {
 					}),
 					SproutNotFound: ({ message }) => ({ status: 404, message }),
 					CommandConflict: ({ message }) => ({ status: 409, message }),
+					FenceConflict: ({ message }) => ({ status: 409, message }),
 					ProjectDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
 					SproutDatabaseError: () => ({
 						status: 503,
