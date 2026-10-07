@@ -16,6 +16,10 @@ export default {
 			// The enrollment client is development-only; the boundary verifier runs in production builds.
 			entry: ["tools/enroll-grove-dev-agent.mjs", "tools/verify-grove-production-boundary.mjs!"],
 		},
+		"apps/hey-janet": {
+			// The browser loads this AudioWorklet by URL.
+			entry: ["static/capture.js!"],
+		},
 		"apps/collegemap": {
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
 			// against the deployed database to load institutional breaks. Neither is imported by

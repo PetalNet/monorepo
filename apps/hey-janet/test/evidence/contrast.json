@@ -1,0 +1,20 @@
+{
+	"light": {
+		"--color-base-content on --color-base-100": 16.19,
+		"--muted on --color-base-100": 9.23,
+		"--color-primary on --color-base-100": 11.72,
+		"--color-base-content on --color-base-200": 14.89,
+		"--muted on --color-base-200": 8.49,
+		"--color-primary on --color-base-200": 10.78,
+		"primary button": 11.72
+	},
+	"dark": {
+		"--color-base-content on --color-base-100": 14.31,
+		"--muted on --color-base-100": 9.2,
+		"--color-primary on --color-base-100": 10.3,
+		"--color-base-content on --color-base-200": 16.17,
+		"--muted on --color-base-200": 10.4,
+		"--color-primary on --color-base-200": 11.64,
+		"primary button": 11.64
+	}
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@petalnet/hey-janet",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#lib/*": "./src/lib/*"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "dev": "vite dev",
+    "prepare": "svelte-kit sync",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@lucide/svelte": "catalog:prod",
+    "@sveltejs/kit": "catalog:",
+    "daisyui": "catalog:prod",
+    "jose": "catalog:",
+    "svelte": "catalog:prod",
+    "tailwindcss": "catalog:prod",
+    "zod": "catalog:prod"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "catalog:",
+    "@playwright/test": "catalog:",
+    "@sveltejs/adapter-node": "catalog:",
+    "@sveltejs/vite-plugin-svelte": "catalog:dev",
+    "@tailwindcss/vite": "catalog:dev",
+    "@types/node": "catalog:types",
+    "fontless": "catalog:",
+    "svelte-check": "catalog:dev",
+    "typescript": "catalog:dev",
+    "vite": "catalog:dev",
+    "vitest": "catalog:dev"
+  }
+}

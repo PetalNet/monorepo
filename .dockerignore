@@ -17,3 +17,6 @@
 **/test-results
 **/playwright-report
 **/*.db
+
+**/.cache
+**/test/evidence
