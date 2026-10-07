@@ -45,15 +45,16 @@ with legitimate underscores → injective `:`→`+`; cascade fleet mode only log
 edge-triggered `fleet.mode` events on engage AND release.
 
 Adversarial review, all fixed:
-| Finding | Fix |
-|---|---|
-| MAJOR: non-canonical `envelope.agent` in usage.report poisoned governance and crashed the loop via SpoolTransport's handle rejection (DoS) | canonical-handle gate at the top of handle_envelope; governance_pass logs-and-continues per agent instead of `?`-aborting. Verified: a hostile line is refused to `.failed` and the daemon survives |
-| MAJOR: governance was one-way — a downgraded/paused agent was never told to recover, and yellow↔green oscillation ratcheted the tier down forever | recovery is an edge: non-None→None emits a `restore` action; the emitted-downgrade self-mutation of `tiers` was removed (tier comes only from the agent's self-report) |
-| MAJOR: envelope identity self-asserted; TokenAuthority dead code | documented as the doorman-deferred trust boundary (CP11/N1.4) at the construction site and the ingest gate; blast radius bounded by the canonical-handle gate |
-| MINOR: unbounded grant map | `prune_expired` each governance tick |
-| MINOR: ingest `.done`/`.working` files accumulated | `.working` deleted after processing; only rare `.failed` kept for triage |
-| MINOR: future rate-limit epoch counted as "recent" forever | `age >= 0` clamp in fleet_mode |
-| MINOR: vault tmp file briefly umask-readable before chmod | temp file opened `mode(0o600)` up front |
+
+| Finding                                                                                                                                           | Fix                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MAJOR: non-canonical `envelope.agent` in usage.report poisoned governance and crashed the loop via SpoolTransport's handle rejection (DoS)        | canonical-handle gate at the top of handle_envelope; governance_pass logs-and-continues per agent instead of `?`-aborting. Verified: a hostile line is refused to `.failed` and the daemon survives |
+| MAJOR: governance was one-way — a downgraded/paused agent was never told to recover, and yellow↔green oscillation ratcheted the tier down forever | recovery is an edge: non-None→None emits a `restore` action; the emitted-downgrade self-mutation of `tiers` was removed (tier comes only from the agent's self-report)                              |
+| MAJOR: envelope identity self-asserted; TokenAuthority dead code                                                                                  | documented as the doorman-deferred trust boundary (CP11/N1.4) at the construction site and the ingest gate; blast radius bounded by the canonical-handle gate                                       |
+| MINOR: unbounded grant map                                                                                                                        | `prune_expired` each governance tick                                                                                                                                                                |
+| MINOR: ingest `.done`/`.working` files accumulated                                                                                                | `.working` deleted after processing; only rare `.failed` kept for triage                                                                                                                            |
+| MINOR: future rate-limit epoch counted as "recent" forever                                                                                        | `age >= 0` clamp in fleet_mode                                                                                                                                                                      |
+| MINOR: vault tmp file briefly umask-readable before chmod                                                                                         | temp file opened `mode(0o600)` up front                                                                                                                                                             |
 
 Residual (accepted): per-agent in-memory maps (usages/tiers/nagged/status_since) and the
 SQLite capacity table key on agent handle and aren't swept for long-dead agents; with the

@@ -34,7 +34,7 @@ The current monorepo uses:
 - `packages/*` for shared libraries used by multiple apps;
 - `tools/*` for repository-only scripts and operations;
 - apps depending on packages, never directly on other apps;
-- `vp run` for the workspace task graph and cache;
+- pnpm scripts and Turborepo for the workspace task graph and cache;
 - CI gates for typecheck, lint, test, build, workspace consistency, type synchronization, and dead-code checks.
 
 Do not bypass these rules to make the Grove change appear smaller.

@@ -13,6 +13,7 @@
 .env.*
 !.env.example
 **/.cache/
+**/.turbo/
 /.vscode/settings.json
 .pnpm-store/
 /.amp/in/

@@ -1,0 +1,108 @@
+{
+	"$schema": "https://turborepo.dev/schema.json",
+	"agentGuidance": false,
+	"globalDependencies": [
+		"*",
+		"!.git",
+		".env*",
+		"apps/*/.env*",
+		"tools/**",
+		"packages/**",
+		"!packages/**/node_modules/**",
+		"!packages/**/dist/**",
+		"!packages/**/.turbo/**",
+		"!packages/**/coverage/**",
+		"!packages/**/.cache/**"
+	],
+	"globalEnv": [
+		"NODE_ENV",
+		"NODE_OPTIONS",
+		"TZ",
+		"CI",
+		"DATABASE_URL",
+		"*_DATABASE_URL",
+		"BETTER_AUTH_*",
+		"GROVE_*",
+		"PUBLIC_*",
+		"VITE_*",
+		"OIDC_*",
+		"OTEL_*",
+		"SENTRY_*",
+		"ORIGIN",
+		"ADMIN_EMAIL",
+		"PORT"
+	],
+	"tasks": {
+		"build": {
+			"dependsOn": ["^build"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": [
+				"build/**",
+				"dist/**",
+				".svelte-kit/**",
+				"!.svelte-kit/build/temp/**",
+				"node_modules/.cache/tsbuild/**",
+				"storybook-static/**"
+			]
+		},
+		"typecheck": {
+			"dependsOn": ["^typecheck"],
+			"outputs": ["dist/**", "node_modules/.cache/tsbuild/**"]
+		},
+		"@petalnet/storybook#typecheck": { "outputs": [] },
+		"check": {
+			"dependsOn": ["^typecheck", "prepare"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": []
+		},
+		"@petalnet/better-auth-effect-qb-adapter#check": {
+			"outputs": ["node_modules/.cache/tsbuild/**"]
+		},
+		"prepare": { "cache": false },
+		"generate": { "cache": false },
+		"test": {
+			"cache": false,
+			"passThroughEnv": ["DOCKER_*", "TESTCONTAINERS_*", "XDG_RUNTIME_DIR"]
+		},
+		"@petalnet/collegemap#test": { "cache": true, "outputs": [] },
+		"@petalnet/effect-api#test": { "cache": true, "outputs": [] },
+		"@petalnet/effect-sveltekit#test": { "cache": true, "outputs": [] },
+		"//#typecheck": {
+			"dependsOn": [
+				"@petalnet/ui#typecheck",
+				"@petalnet/utils#typecheck",
+				"@petalnet/types#typecheck"
+			],
+			"outputs": ["node_modules/.cache/tsbuild/**"]
+		},
+		"//#fmt:check": { "outputs": [] },
+		"//#lint:oxlint": { "outputs": [] },
+		"//#lint:impeccable": { "outputs": [] },
+		"//#manypkg": { "outputs": [] },
+		"//#dedupe:check": { "cache": false },
+		"//#typesync:check": { "cache": false },
+		"//#lint:knip": {
+			"dependsOn": ["//#lint:eslint:apps"],
+			"outputs": []
+		},
+		"//#lint:knip:prod": {
+			"dependsOn": ["//#lint:eslint:apps"],
+			"outputs": []
+		},
+		"//#lint:eslint:apps": {
+			"dependsOn": [
+				"@petalnet/collegemap#check",
+				"@petalnet/grove#check",
+				"@petalnet/slide#check",
+				"//#lint:eslint:root"
+			],
+			"inputs": ["$TURBO_DEFAULT$"],
+			"outputs": []
+		},
+		"//#lint:eslint:root": {
+			"dependsOn": ["//#typecheck", "//#lint:oxlint"],
+			"inputs": ["$TURBO_DEFAULT$", "!apps/**"],
+			"outputs": []
+		}
+	}
+}

@@ -2,8 +2,12 @@ import type { KnipConfig } from "knip";
 
 export default {
 	ignore: [".agents/skills/impeccable/**"],
-	// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
-	ignoreDependencies: ["@effect/language-service"],
+	// Strict Knip only resolves production dependencies, including script binaries.
+	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
+	ignoreDependencies: [
+		// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
+		"@effect/language-service",
+	],
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
@@ -35,6 +39,9 @@ export default {
 				"src/env.ts!",
 				"test/**/*.ts",
 			],
+		},
+		"apps/slide": {
+			ignoreBinaries: ["prisma!"],
 		},
 		"apps/storybook": {
 			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],

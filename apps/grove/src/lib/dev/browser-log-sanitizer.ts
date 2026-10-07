@@ -20,7 +20,7 @@ const unsafeTerminalCodePoint = (codePoint: number) =>
 
 const terminalSafe = (value: string) => {
 	let safe = "";
-	for (let index = 0; index < value.length; ) {
+	for (let index = 0; index < value.length;) {
 		const codePoint = value.codePointAt(index) ?? 0;
 		const character = String.fromCodePoint(codePoint);
 		if (codePoint === 0x1b && value[index + 1] === "[") {

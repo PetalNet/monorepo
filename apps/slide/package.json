@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "prisma generate && vite build",
+    "build": "vite build",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "dev": "vite dev",
-    "prepare": "prisma generate && svelte-kit sync || echo ''",
+    "generate": "prisma generate",
+    "prepare": "prisma generate && svelte-kit sync",
     "preview": "vite preview"
   },
   "dependencies": {

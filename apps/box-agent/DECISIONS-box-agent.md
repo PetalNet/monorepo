@@ -39,19 +39,20 @@ recorded; a crash re-reads it, and fresh envelopes appended meanwhile are folded
 than clobbered (adversarial #2). Verified end-to-end and by a durability integration test.
 
 Other fixes, all tested:
-| Finding | Fix |
-|---|---|
-| adversarial #3: interrupt cap bypass = fork-bomb | interrupts bypass the soft `max_workers` cap but not the worker pool's internal absolute ceiling, currently `max_workers * 4 + 4` (minimum 8 because config requires `max_workers >= 1`) |
-| #6: hung worker starves a slot forever | per-worker deadline (pool budget ∧ card `expires_at`); breach → kill + timeout response |
-| #4: one delivery failure killed the daemon | per-item deliver-with-retry; failures logged, loop never exits on IO |
-| #5: failed cards → caller hangs | malformed task.dispatch gets an `Error` envelope (in*reply_to set); transient spawn failure just retries from pending |
-| #9: `{body}` substitution corrupted the verbatim body | single-pass fill; tokens inside the body are not re-substituted |
-| #10: card could choose the program / inject options | `argv[0]` is never substituted; FLEET_BODY env preferred |
-| #12: try_wait error orphaned the child (zombie) | keep the worker running on a transient try_wait error |
-| #13: promised output tail didn't exist | stdout+stderr captured to a temp file, bounded tail on the response |
-| #11: seen table grew unbounded | hourly prune past a 24h retention (pending rows never pruned) |
-| #14: no shutdown / inbox==outbox self-consumption | SIGTERM/SIGINT → Stop event + kill workers; config rejects inbox_dir == outbox_dir; max_workers >= 1 |
-| #8: misleading env/placeholder test | replaced with tests that assert the filled placeholders and FLEET*\* env |
+
+| Finding                                               | Fix                                                                                                                                                                                      |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| adversarial #3: interrupt cap bypass = fork-bomb      | interrupts bypass the soft `max_workers` cap but not the worker pool's internal absolute ceiling, currently `max_workers * 4 + 4` (minimum 8 because config requires `max_workers >= 1`) |
+| #6: hung worker starves a slot forever                | per-worker deadline (pool budget ∧ card `expires_at`); breach → kill + timeout response                                                                                                  |
+| #4: one delivery failure killed the daemon            | per-item deliver-with-retry; failures logged, loop never exits on IO                                                                                                                     |
+| #5: failed cards → caller hangs                       | malformed task.dispatch gets an `Error` envelope (in*reply_to set); transient spawn failure just retries from pending                                                                    |
+| #9: `{body}` substitution corrupted the verbatim body | single-pass fill; tokens inside the body are not re-substituted                                                                                                                          |
+| #10: card could choose the program / inject options   | `argv[0]` is never substituted; FLEET_BODY env preferred                                                                                                                                 |
+| #12: try_wait error orphaned the child (zombie)       | keep the worker running on a transient try_wait error                                                                                                                                    |
+| #13: promised output tail didn't exist                | stdout+stderr captured to a temp file, bounded tail on the response                                                                                                                      |
+| #11: seen table grew unbounded                        | hourly prune past a 24h retention (pending rows never pruned)                                                                                                                            |
+| #14: no shutdown / inbox==outbox self-consumption     | SIGTERM/SIGINT → Stop event + kill workers; config rejects inbox_dir == outbox_dir; max_workers >= 1                                                                                     |
+| #8: misleading env/placeholder test                   | replaced with tests that assert the filled placeholders and FLEET*\* env                                                                                                                 |
 
 Residual (accepted): the O_APPEND-to-renamed-inode spool race (adversarial #7) is a narrow
 window inherent to the file-spool v1 transport; the fold-in reclaim reduces it and the

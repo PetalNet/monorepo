@@ -1,6 +1,7 @@
 * @petalcat
 
 /eslint.config.ts @lishaduck
-/.oxlintrc.json @lishaduck
-/vite.config.ts @lishaduck
+/oxlint.config.ts @lishaduck
+/oxfmt.config.ts @lishaduck
+/turbo.json @lishaduck
 /renovate.json @lishaduck

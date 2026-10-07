@@ -1,0 +1,30 @@
+import type { OxlintConfig } from "oxlint";
+
+export const lintConfig = {
+	plugins: ["typescript", "unicorn", "import", "node", "promise"],
+	categories: {
+		correctness: "error",
+		suspicious: "warn",
+		perf: "warn",
+		style: "off",
+		pedantic: "off",
+	},
+	rules: {
+		"import/no-unassigned-import": ["error", { allow: ["**/*.css"] }],
+		"no-useless-rename": "error",
+		"operator-assignment": "error",
+		"prefer-object-spread": "error",
+		"prefer-regex-literals": "error",
+	},
+	ignorePatterns: [
+		".agents/skills/impeccable/**",
+		"**/dist/**",
+		"**/build/**",
+		"**/.svelte-kit/**",
+		"**/node_modules/**",
+		"**/coverage/**",
+		"**/.turbo/**",
+	],
+} satisfies OxlintConfig;
+
+export default lintConfig;

@@ -13,7 +13,7 @@
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
 		"dev": "vite dev",
-		"prepare": "svelte-kit sync || echo ''",
+		"prepare": "svelte-kit sync",
 		"preview": "vite preview",
 		"test": "vitest run"
 	},
