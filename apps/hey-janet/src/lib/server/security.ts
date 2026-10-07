@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { error, type RequestEvent } from "@sveltejs/kit";
 import { SignJWT, jwtVerify } from "jose";
 
+import { consentSchema } from "../consent";
 import type { Participant } from "./store";
 const ephemeral = randomBytes(32).toString("hex");
 function signingKey() {
@@ -38,7 +39,7 @@ export async function session(event: RequestEvent): Promise<Participant> {
 			!(p.authSub === null || typeof p.authSub === "string")
 		)
 			throw new Error("Invalid session");
-		return { id: p.id, name: p.name, authSub: p.authSub };
+		return { id: p.id, name: p.name, authSub: p.authSub, consent: consentSchema.parse(p.consent) };
 	} catch {
 		error(
 			401,

@@ -13,6 +13,7 @@
 	onMount(() => {
 		loaded = true;
 	});
+	let deleteDialog = $state<HTMLDialogElement>();
 	let kind = $state("all"),
 		device = $state("all"),
 		status = $state("undecided"),
@@ -55,10 +56,30 @@
 			busy = false;
 		}
 	}
+	async function removeParticipant() {
+		if (person === "all" || busy) return;
+		busy = true;
+		try {
+			const response = await fetch(resolve("/api/admin/participants/[id]", { id: person }), {
+				method: "DELETE",
+			});
+			if (!response.ok) throw new Error("Could not delete this participant. Try again.");
+			person = "all";
+			reset();
+			await refreshAll();
+			deleteDialog?.close();
+			message = "Participant recordings deleted.";
+		} catch (e) {
+			deleteDialog?.close();
+			message = e instanceof Error ? e.message : "Deletion failed.";
+		} finally {
+			busy = false;
+		}
+	}
 </script>
 
 <svelte:head><title>Review voices · Hey Janet</title></svelte:head>
-<main class="mx-auto max-w-3xl max-w-5xl p-4 sm:p-6">
+<main class="mx-auto max-w-5xl p-4 sm:p-6">
 	<header class="border-base-300 flex items-center justify-between gap-4 border-b pt-2 pb-6">
 		<a
 			class="text-base-content flex items-center gap-2 font-semibold no-underline"
@@ -79,11 +100,15 @@
 			Keep the voices you want in the training set. Dropped takes stay in the archive.
 		</p>
 	</section>
-	<a class="btn btn-primary min-h-12 border-0 shadow-none" href={resolve("/api/admin/export")} download
-		><Download size={20} />Export wake-word set</a
+	<a
+		class="btn btn-primary min-h-12 border-0 shadow-none"
+		href={resolve("/api/admin/export")}
+		download><Download size={20} />Export wake-word set</a
 	>
-	<a class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none" href={`${resolve("/api/admin/export")}?set=speaker`} download
-		><Download size={20} />Export speaker-ID set</a
+	<a
+		class="btn bg-base-100 text-base-content min-h-12 border-0 shadow-none"
+		href={`${resolve("/api/admin/export")}?set=speaker`}
+		download><Download size={20} />Export speaker-ID set</a
 	>
 	<fieldset disabled={!loaded}>
 		<div class="my-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -99,12 +124,15 @@
 				>
 			</div>
 			<div>
-			<label for="kind">Kind</label><select class="select w-full min-h-12 bg-base-100 border-0" id="kind" bind:value={kind} onchange={reset}
-				><option value="all">All recordings</option><option value="pos">Wake phrase</option><option
-						value="neg">Near miss</option
-				><option value="enroll">Voice profile sentence</option><option value="free"
-					>Free speech</option
-					></select
+				<label for="kind">Kind</label><select
+					class="select bg-base-100 min-h-12 w-full border-0"
+					id="kind"
+					bind:value={kind}
+					onchange={reset}
+					><option value="all">All recordings</option><option value="pos">Wake phrase</option
+					><option value="neg">Near miss</option><option value="enroll"
+						>Voice profile sentence</option
+					><option value="free">Free speech</option></select
 				>
 			</div>
 			<div>
@@ -156,6 +184,34 @@
 				}}>Reset selected</button
 			>
 		</div>
+		<button
+			class="btn btn-ghost text-primary min-h-12 border-0 shadow-none"
+			disabled={busy || person === "all"}
+			onclick={() => {
+				deleteDialog?.showModal();
+			}}>Delete participant</button
+		>
+		<dialog class="modal" bind:this={deleteDialog} aria-labelledby="delete-title">
+			<div class="modal-box">
+				<h2 id="delete-title">
+					Delete {participants.find((p) => p.id === person)?.name}'s recordings?
+				</h2>
+				<p>
+					This permanently removes their audio and clip metadata. Queued uploads from this
+					participant will be rejected.
+				</p>
+				<div class="modal-action">
+					<form method="dialog"><button class="btn" disabled={busy}>Cancel</button></form>
+					<button
+						class="btn btn-primary"
+						disabled={busy}
+						onclick={() => {
+							void removeParticipant();
+						}}>Delete recordings</button
+					>
+				</div>
+			</div>
+		</dialog>
 		<p role="status">{message || `${String(selected.length)} selected`}</p>
 		<ul class="divide-base-300 list-none divide-y p-0">
 			{#each shown as clip (clip.clipId)}<li class="py-6">

@@ -14,7 +14,7 @@
 </script>
 
 <section class="station" aria-label="Current phrase">
-	<span class="font-semibold text-primary"
+	<span class="text-primary font-semibold"
 		>{prompt.kind === "pos"
 			? "Wake phrase"
 			: prompt.kind === "neg"

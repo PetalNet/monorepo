@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile, statfs } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile, statfs, access, rm } from "node:fs/promises";
 import path from "node:path";
 
+import type { Consent } from "../consent";
 import { allPrompts, prompts, maxDuration, type PromptKind } from "../prompts";
 import { wavInfo } from "./wav";
 
@@ -9,9 +10,10 @@ export interface Participant {
 	id: string;
 	name: string;
 	authSub: string | null;
+	consent: Consent;
 }
 export type Decision = "undecided" | "keep" | "drop";
-export interface Clip extends Pick<Participant, "id" | "name"> {
+export interface Clip extends Pick<Participant, "id" | "name" | "consent"> {
 	file: string;
 	clipId: string;
 	setId: string;
@@ -32,21 +34,14 @@ export function participant(
 	name: string,
 	authSub: string | null,
 	anonymousId: string,
+	consent: Consent,
 ): Participant {
 	const id = authSub
 		? createHash("sha256").update(authSub).digest("hex").slice(0, 32)
 		: anonymousId;
-	return { id, name, authSub };
+	return { id, name, authSub, consent };
 }
-export function participantFolder(p: Pick<Participant, "id">) {
-	return `${p.id}_${
-		p.name
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, "-")
-			.replace(/^-|-$/g, "")
-			.slice(0, 40) || "voice"
-	}`;
-}
+
 let pending: Promise<unknown> = Promise.resolve();
 function serialized<T>(job: () => Promise<T>): Promise<T> {
 	const next = pending.then(job);
@@ -89,9 +84,24 @@ export async function saveClip(
 		: undefined;
 	if (!prompt || !uuid.test(clipId) || !uuid.test(setId))
 		throw new Error("Invalid prompt or recording identifier.");
+	const allowed =
+		prompt.kind === "enroll" || prompt.kind === "free"
+			? p.consent.speakerRecognition
+			: p.consent.wakeWord;
+	if (!allowed) throw new Error("Consent is required for this recording set.");
 	const info = wavInfo(bytes, maxDuration(prompt.kind));
 	return serialized(async () => {
-		const dir = path.join(root(), participantFolder(p));
+		if (
+			await access(path.join(root(), ".deleted", p.id)).then(
+				() => true,
+				(e: unknown) => {
+					if (e instanceof Error && "code" in e && e.code === "ENOENT") return false;
+					throw e;
+				},
+			)
+		)
+			throw new Error("This participant was deleted. Contact Parker before recording again.");
+		const dir = path.join(root(), p.id);
 		await mkdir(dir, { recursive: true, mode: 0o700 });
 		const meta = path.join(dir, `${clipId}.clip.json`);
 		try {
@@ -122,6 +132,7 @@ export async function saveClip(
 		const clip: Clip = {
 			id: p.id,
 			name: p.name,
+			consent: p.consent,
 			...prompt,
 			...info,
 			file,
@@ -148,17 +159,32 @@ export async function review(ids: string[], decision: Decision) {
 		await Promise.all(
 			clips.map(async (clip) => {
 				clip.decision = decision;
-				await atomic(
-					path.join(root(), participantFolder(clip), `${clip.clipId}.clip.json`),
-					JSON.stringify(clip),
-				);
+				await atomic(path.join(root(), clip.id, `${clip.clipId}.clip.json`), JSON.stringify(clip));
 			}),
 		);
-		await Promise.all(
-			[...new Set(clips.map((c) => path.join(root(), participantFolder(c))))].map(journal),
-		);
+		await Promise.all([...new Set(clips.map((c) => path.join(root(), c.id)))].map(journal));
 	});
 }
 export async function audio(clip: Clip) {
-	return readFile(path.join(root(), participantFolder(clip), clip.file));
+	return readFile(path.join(root(), clip.id, clip.file));
+}
+
+export async function deleteParticipant(id: string) {
+	return serialized(async () => {
+		const dir = path.join(root(), id);
+		if (
+			!(await access(dir).then(
+				() => true,
+				(e: unknown) => {
+					if (e instanceof Error && "code" in e && e.code === "ENOENT") return false;
+					throw e;
+				},
+			))
+		)
+			return false;
+		await mkdir(path.join(root(), ".deleted"), { recursive: true });
+		await atomic(path.join(root(), ".deleted", id), "");
+		await rm(dir, { recursive: true });
+		return true;
+	});
 }

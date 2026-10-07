@@ -1,7 +1,7 @@
 import { error } from "@sveltejs/kit";
 
 import { requireAdmin } from "#lib/server/security.ts";
-import { allClips, audio, participantFolder } from "#lib/server/store.ts";
+import { allClips, audio } from "#lib/server/store.ts";
 import { zip } from "#lib/server/zip.ts";
 
 import type { RequestHandler } from "./$types";
@@ -15,7 +15,7 @@ export const GET: RequestHandler = async (event) => {
 			c.decision === "keep" &&
 			(speaker ? c.kind === "enroll" || c.kind === "free" : c.kind === "pos" || c.kind === "neg"),
 	);
-	const groups = speaker ? Map.groupBy(clips, participantFolder) : new Map([["", clips]]);
+	const groups = speaker ? Map.groupBy(clips, (clip) => clip.id) : new Map([["", clips]]);
 	async function* entries() {
 		for (const [directory, participants] of groups) {
 			for (const clip of participants) {

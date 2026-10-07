@@ -11,7 +11,7 @@ export const POST: RequestHandler = async (event) => {
 		error(409, "This take belongs to another participant session. Reconnect the original session.");
 	limit(`session:${p.id}`, 240);
 	const index = Number(event.url.searchParams.get("prompt"));
-	const prompt = allPrompts.find((_, i) => i === index);
+	const prompt = Number.isInteger(index) ? allPrompts[index] : undefined;
 	if (!prompt || !event.url.searchParams.has("prompt")) error(400, "Invalid prompt");
 	const data = await body(event, 44 + maxDuration(prompt.kind) * 32000);
 	try {

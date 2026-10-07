@@ -3,12 +3,18 @@ import { readFile } from "node:fs/promises";
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { SignJWT } from "jose";
+import { z } from "zod";
+
+import { consentSchema } from "../../src/lib/consent";
 async function begin(page: Page, mode = "wake", name = "Test Voice") {
 	await page.goto("/");
 	if (page.context().browser()?.browserType().name() === "webkit") await fakeWebkit(page);
 	await page.getByLabel("Recording set").selectOption(mode);
 	await page.getByLabel("Your first name").fill(name);
-	await page.getByRole("checkbox").check();
+	await expect(page.getByRole("checkbox", { name: /voice profile/ })).not.toBeChecked();
+	await page
+		.getByRole("checkbox", { name: mode === "speaker" ? /voice profile/ : /wake-word/ })
+		.check();
 	await page.getByRole("button", { name: "Start recording" }).click();
 	await expect(page.getByRole("button", { name: "Record", exact: true })).toBeVisible();
 }
@@ -92,6 +98,8 @@ test("full 40 phrase session, playback and more sets", async ({ page }) => {
 		await skipSet(left - 1);
 	}
 	await skipSet(40);
+	await expect(page.getByRole("button", { name: "Add a voice profile" })).toBeDisabled();
+	await page.getByRole("checkbox", { name: /voice profile/ }).check();
 	await page.getByRole("button", { name: "Add a voice profile" }).click();
 	await expect(page.getByText("Sentence 1 of 10")).toBeVisible();
 	await page.getByRole("button", { name: "Finish voice profile" }).click();
@@ -113,8 +121,8 @@ test("redo, skip, offline upload recovery and reload keep the session", async ({
 	await expect(page.getByRole("status").filter({ hasText: "saved on this device" })).toBeVisible();
 
 	await page.reload();
-	await expect(page.getByRole("checkbox")).not.toBeChecked();
-	await page.getByRole("checkbox").check();
+	await expect(page.getByRole("checkbox", { name: /wake-word/ })).not.toBeChecked();
+	await page.getByRole("checkbox", { name: /wake-word/ }).check();
 	await page.getByRole("button", { name: "Resume recording" }).click();
 	await expect(page.getByText("Phrase 2 of 40")).toBeVisible();
 	await expect(page.getByRole("status").filter({ hasText: "saved on this device" })).toBeVisible();
@@ -132,7 +140,7 @@ test("redo, skip, offline upload recovery and reload keep the session", async ({
 	await expect(page.getByRole("status").filter({ hasText: "saved on this device" })).toBeVisible();
 	await page.getByRole("button", { name: "Not Test Voice? Start over" }).click();
 	await expect(page.getByLabel("Your first name")).toHaveValue("");
-	await expect(page.getByRole("checkbox")).not.toBeChecked();
+	await expect(page.getByRole("checkbox", { name: /wake-word/ })).not.toBeChecked();
 	await expect(page.getByRole("button", { name: "Start recording" })).toBeDisabled();
 	await expect(page.getByText(/saved on this device, waiting to upload/)).toHaveCount(0);
 	expect((await context.cookies()).some((cookie) => cookie.name === "booth-participant")).toBe(
@@ -309,16 +317,20 @@ test("standalone voice profile, timed answers, recovery and speaker export", asy
 	test.setTimeout(150000);
 	const session = page.waitForResponse("**/api/session");
 	await begin(page, "speaker", `Speaker ${info.project.name}`);
-	const participant: unknown = await (await session).json();
-	if (
-		!participant ||
-		typeof participant !== "object" ||
-		!("id" in participant) ||
-		typeof participant.id !== "string"
-	)
-		throw new Error("Session did not return a participant ID.");
-	const { id } = participant;
+	const { id } = z.object({ id: z.string() }).parse(await (await session).json());
 	await expect(page.getByText("Sentence 1 of 10")).toBeVisible();
+	expect((await session).request().postDataJSON()).toMatchObject({
+		consent: false,
+		speakerConsent: true,
+	});
+	expect(
+		(
+			await context.request.post("/api/session", {
+				headers: { Origin: "http://127.0.0.1:18806" },
+				data: { name: "No consent", consent: false, speakerConsent: false },
+			})
+		).status(),
+	).toBe(400);
 
 	async function sentence(left: number): Promise<void> {
 		if (!left) return;
@@ -339,9 +351,20 @@ test("standalone voice profile, timed answers, recovery and speaker export", asy
 	await page.getByRole("button", { name: "Use this take" }).click();
 	await expect(page.getByRole("status").filter({ hasText: "saved on this device" })).toBeVisible();
 	await page.reload();
+	await expect(page.getByRole("checkbox", { name: /wake-word/ })).not.toBeChecked();
+	await expect(page.getByRole("checkbox", { name: /voice profile/ })).not.toBeChecked();
+	await page.getByRole("checkbox", { name: /voice profile/ }).check();
+	const resumed = page.waitForRequest("**/api/session");
+	await page.getByRole("button", { name: "Resume recording" }).click();
+	expect((await resumed).postDataJSON()).toMatchObject({ consent: false, speakerConsent: true });
 	await expect(page.getByText("Free speech 2 of 2")).toBeVisible();
+	const reconnected = page.waitForRequest("**/api/session");
+	await page.getByRole("button", { name: "Retry uploads" }).click();
+	expect((await reconnected).postDataJSON()).toMatchObject({
+		consent: false,
+		speakerConsent: true,
+	});
 	await page.unroute("**/api/clips?**");
-	await page.evaluate(() => window.dispatchEvent(new Event("online")));
 	if (info.project.name === "iphone-webkit") await fakeWebkit(page);
 	await page.getByRole("button", { name: "Record", exact: true }).click();
 	await expect(page.getByRole("button", { name: "Use this take" })).toBeVisible({ timeout: 38000 });
@@ -352,6 +375,13 @@ test("standalone voice profile, timed answers, recovery and speaker export", asy
 		timeout: 15000,
 	});
 
+	expect(
+		(
+			await context.request.delete(`/api/admin/participants/${id}`, {
+				headers: { Origin: "http://127.0.0.1:18806" },
+			})
+		).status(),
+	).toBe(403);
 	await curator(context);
 	await page.goto("/admin");
 	await page.getByLabel("Participant").selectOption(id);
@@ -360,6 +390,8 @@ test("standalone voice profile, timed answers, recovery and speaker export", asy
 	await page.getByLabel("Kind", { exact: true }).selectOption("free");
 	await expect(page.locator("audio")).toHaveCount(2);
 	await page.getByLabel("Kind", { exact: true }).selectOption("all");
+	const audioURL = await page.locator("audio").first().getAttribute("src");
+	if (!audioURL) throw new Error("Missing audio URL.");
 	await page.getByRole("button", { name: /Select visible/ }).click();
 	await page.getByRole("button", { name: "Keep selected", exact: true }).click();
 	await expect(page.getByText("Review saved. Audio is preserved.")).toBeVisible();
@@ -368,7 +400,7 @@ test("standalone voice profile, timed answers, recovery and speaker export", asy
 	const destination = info.outputPath("speaker.zip");
 	await (await downloading).saveAs(destination);
 	const files = archiveFiles(await readFile(destination));
-	const directory = `${id}_speaker-${info.project.name}/`;
+	const directory = `${id}/`;
 	const own = [...files.keys()].filter((name) => name.startsWith(directory));
 	expect(own.filter((name) => name.includes("/enroll_"))).toHaveLength(10);
 	for (const [name, bytes] of files) {
@@ -387,6 +419,12 @@ test("standalone voice profile, timed answers, recovery and speaker export", asy
 	expect(((second?.length ?? 0) - 44) / 32000).toBeLessThanOrEqual(30);
 	const journal = files.get(`${directory}clips.jsonl`);
 	expect(journal?.toString().trim().split("\n")).toHaveLength(12);
+	for (const line of journal?.toString().trim().split("\n") ?? []) {
+		const clip = z.object({ name: z.string(), consent: consentSchema }).parse(JSON.parse(line));
+		expect(clip.name).toBe(`Speaker ${info.project.name}`);
+		expect(clip.consent).toMatchObject({ wakeWord: false, speakerRecognition: true });
+		expect(Date.parse(clip.consent.at)).toBeGreaterThan(Date.now() - 180000);
+	}
 	const wake = archiveFiles(await (await context.request.get("/api/admin/export")).body());
 	expect(
 		[...wake.keys()]
@@ -394,4 +432,15 @@ test("standalone voice profile, timed answers, recovery and speaker export", asy
 			.every((name) => /^(positives|negatives)\//.test(name)),
 	).toBe(true);
 	expect([...wake.keys()].some((name) => /\/(enroll|free)_/.test(name))).toBe(false);
+	await page.getByRole("button", { name: "Delete participant", exact: true }).click();
+	await page
+		.getByRole("dialog")
+		.getByRole("button", { name: "Delete recordings", exact: true })
+		.click();
+	await expect(page.getByText("Participant recordings deleted.")).toBeVisible();
+	expect((await context.request.get(audioURL)).status()).toBe(404);
+	const afterDelete = archiveFiles(
+		await (await context.request.get("/api/admin/export?set=speaker")).body(),
+	);
+	expect([...afterDelete.keys()].some((name) => name.startsWith(directory))).toBe(false);
 });

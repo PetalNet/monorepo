@@ -11,7 +11,7 @@ pnpm install --frozen-lockfile
 pnpm --filter @petalnet/hey-janet dev --host 127.0.0.1 --port 18806
 ```
 
-Use HTTPS outside localhost. Local recordings go into `apps/hey-janet/.cache/recordings`. Each participant has a stable ID/name folder containing 16 kHz mono 16-bit WAVs, clip metadata and `clips.jsonl`. Wake-word clips keep their `pos_`/`neg_` names. Voice profiles use `enroll_NN_*.wav` and `free_NN.wav`; free-speech numbers increase across sets to avoid overwriting takes. Keep/drop changes metadata, never audio. Speaker-ID export contains kept enrollment and free-speech clips in per-participant folders, each with `clips.jsonl`. Run one server process.
+Use HTTPS outside localhost. Local recordings go into `apps/hey-janet/.cache/recordings`. Each participant has a stable ID folder containing 16 kHz mono 16-bit WAVs, clip metadata and `clips.jsonl`. Wake-word clips keep their `pos_`/`neg_` names. Voice profiles use `enroll_NN_*.wav` and `free_NN.wav`; free-speech numbers increase across sets to avoid overwriting takes. Keep/drop changes metadata, never audio. Admin deletion removes a participant's audio and clip metadata and blocks queued reuploads. Each clip records consent version, timestamp and the separate wake-word/speaker choices. Speaker-ID export contains kept enrollment and free-speech clips in folders named only by participant ID, each with `clips.jsonl`. Run one server process.
 
 ```sh
 pnpm --filter @petalnet/hey-janet check
@@ -21,14 +21,14 @@ pnpm --filter @petalnet/hey-janet exec playwright install chromium webkit firefo
 pnpm --filter @petalnet/hey-janet test:e2e
 ```
 
-Browser tests use fake microphones, port 18806 and isolated storage. Headless Firefox needs PulseAudio, which CI starts.
+Browser tests use fake microphones and port 18806. Each browser project starts a fresh server to isolate storage and rate-limit counters. Headless Firefox needs PulseAudio, which CI starts.
 
 ## Deploy
 
 Janet applies from reviewed main. Do not build images on .14.
 
 1. On another machine, build from the monorepo root with `docker build -f apps/hey-janet/Dockerfile -t hey-janet .`. Transfer the image with `docker save` and `docker load` to .14.
-2. Verify `findmnt -M /services` shows `10.10.10.12:/mnt/JeremyBearimy/Backups/Services`. Create `/services/hey-janet/recordings`, writable by uid 1000.
+2. Verify `findmnt -M /services` shows `10.10.10.12:/mnt/JeremyBearimy/Backups/Services`. Create `/services/hey-janet/recordings`, writable by uid 1000. If upgrading an existing booth, first move the contents of each `<id>_<name>` directory into its `<id>` directory, combining directories for the same ID.
 3. Copy `deploy/.env.example` to `deploy/.env`. Set a stable random `BOOTH_SECRET` of at least 32 characters. For optional sign-in, create a confidential Authentik OIDC provider with `openid profile`, the issuer shown in the example, and strict redirect `https://heyjanet.petalcat.dev/auth/callback`. Set its client credentials and Parker's exact `BOOTH_ADMIN_SUB`, or a Parker-only `BOOTH_ADMIN_GROUP` included in the signed ID token.
 4. Verify port 8806 is free. Run `docker compose -f apps/hey-janet/deploy/compose.yml config --quiet`, then `docker compose -f apps/hey-janet/deploy/compose.yml up -d --no-build`. Check `curl --fail http://127.0.0.1:8806/health`.
 5. Copy `deploy/traefik.yml` to `/home/docker/traefik/dynamic/hey-janet.yml`. Verify DNS and HTTPS for `heyjanet.petalcat.dev`, guest recording on physical iPhone Safari, upload recovery, Parker's review/export access, and denial for other accounts before sharing the link.
