@@ -548,6 +548,10 @@ describe("MCP protected-resource ingress", () => {
 			"claim.release",
 			"attempt.publish",
 			"work.ready",
+			"review.submit",
+			"task.complete",
+			"library.search",
+			"library.getVersion",
 		]);
 	});
 

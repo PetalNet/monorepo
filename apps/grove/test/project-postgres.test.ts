@@ -621,6 +621,308 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 		).toEqual([{ claim_status: "expired", attempt_status: "fenced" }]);
 	});
 
+	it("requires exact independent review and completion before dependency readiness and pins historical provenance", async () => {
+		const { project, plan } = await planProject();
+		const taskId = plan.taskIds.first;
+		const [head] = await query<{ current_version_id: string }>(
+			"select current_version_id from grove_objects where id=$1",
+			[taskId],
+		);
+		const claim = await call(agent, (s) =>
+			s.claim({ commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+		const output = await call(agent, (s) =>
+			s.publish({
+				commandId: crypto.randomUUID(),
+				claimId: claim.claimId,
+				fence: claim.fence,
+				attemptId: claim.attemptId,
+				title: "Pinned",
+				content: "searchable exact historical artifact",
+			}),
+		);
+		const reviewInput = {
+			commandId: crypto.randomUUID(),
+			taskId,
+			attemptId: claim.attemptId,
+			objectId: output.objectId,
+			versionId: output.versionId,
+			outcome: "accepted" as const,
+			comments: "Verified exact output",
+		};
+
+		await expect(call(agent, (s) => s.review(reviewInput))).rejects.toBeInstanceOf(CommandConflict);
+
+		await Promise.all(
+			["taskId", "attemptId", "objectId", "versionId"].map((field) =>
+				expect(
+					call(reviewer, (s) => s.review({ ...reviewInput, [field]: crypto.randomUUID() })),
+				).rejects.toBeInstanceOf(CommandConflict),
+			),
+		);
+
+		expect(
+			await call(owner, (s) => s.search({ projectId: project.objectId, query: "historical" })),
+		).toEqual([]);
+
+		const review = await call(reviewer, (s) => s.review(reviewInput));
+
+		expect(await call(reviewer, (s) => s.review(reviewInput))).toEqual({
+			...review,
+			replayed: true,
+		});
+
+		expect(
+			(await call(owner, (s) => s.ready({ projectId: project.objectId }))).some(
+				(r) => r.taskId === plan.taskIds.second,
+			),
+		).toBe(false);
+
+		const completionInput = {
+			commandId: crypto.randomUUID(),
+			taskId,
+			expectedVersionId: head.current_version_id,
+		};
+
+		await expect(
+			call(owner, (s) =>
+				s.claim({ commandId: crypto.randomUUID(), taskId: plan.taskIds.second, leaseSeconds: 60 }),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+
+		const completed = await call(owner, (s) => s.complete(completionInput));
+
+		expect(await call(owner, (s) => s.complete(completionInput))).toEqual({
+			...completed,
+			replayed: true,
+		});
+
+		await expect(
+			call(owner, (s) => s.complete({ ...completionInput, commandId: crypto.randomUUID() })),
+		).rejects.toBeInstanceOf(CommandConflict);
+
+		expect(
+			(await call(owner, (s) => s.ready({ projectId: project.objectId }))).some(
+				(r) => r.taskId === plan.taskIds.second,
+			),
+		).toBe(true);
+
+		const search = await call(owner, (s) =>
+			s.search({ projectId: project.objectId, query: "historical" }),
+		);
+
+		expect(search).toHaveLength(1);
+
+		expect(search[0]).toMatchObject({
+			objectId: output.objectId,
+			versionId: output.versionId,
+			reviewerId: reviewer.actorId,
+			reviewerKind: "person",
+		});
+
+		const pinnedInput = {
+			projectId: project.objectId,
+			objectId: output.objectId,
+			versionId: output.versionId,
+		};
+		const pinned = await call(owner, (s) => s.getVersion(pinnedInput));
+
+		expect(pinned).toMatchObject({
+			authorId: agent.actorId,
+			authorKind: "agent",
+			reviewId: review.reviewId,
+			reviewVersionId: review.reviewVersionId,
+		});
+
+		const laterVersion = crypto.randomUUID();
+		const payload = { type: "artifact", title: "Later", content: "new head" };
+
+		await query(
+			"insert into grove_object_versions(id,object_id,parent_version_id,payload,digest,actor_id,actor_kind) values($1,$2,$3,$4,$5,$6,'person');",
+			[
+				laterVersion,
+				output.objectId,
+				output.versionId,
+				JSON.stringify(payload),
+				await Effect.runPromise(canonicalDigest(payload)),
+				owner.actorId,
+			],
+		);
+
+		await query("update grove_objects set current_version_id=$2 where id=$1", [
+			output.objectId,
+			laterVersion,
+		]);
+
+		expect(
+			await call(owner, (s) => s.search({ projectId: project.objectId, query: "historical" })),
+		).toEqual(search);
+
+		expect(await call(owner, (s) => s.getVersion(pinnedInput))).toEqual(pinned);
+		const other = await call(owner, (s) => s.create(input()));
+
+		await expect(
+			call(owner, (s) => s.getVersion({ ...pinnedInput, projectId: other.objectId })),
+		).rejects.toBeInstanceOf(CommandConflict);
+	});
+
+	it("rechecks artifact heads after lock contention in review and completion", async () => {
+		const { plan } = await planProject();
+		const taskId = plan.taskIds.first;
+		const claim = await call(agent, (s) =>
+			s.claim({ commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+		const output = await call(agent, (s) =>
+			s.publish({
+				commandId: crypto.randomUUID(),
+				claimId: claim.claimId,
+				fence: claim.fence,
+				attemptId: claim.attemptId,
+				title: "Race",
+				content: "Exact head",
+			}),
+		);
+		const later = crypto.randomUUID();
+		const payload = { type: "artifact", title: "Changed", content: "unreviewed" };
+
+		await query(
+			"insert into grove_object_versions(id,object_id,parent_version_id,payload,digest,actor_id,actor_kind) values($1,$2,$3,$4,$5,$6,'person')",
+			[
+				later,
+				output.objectId,
+				output.versionId,
+				JSON.stringify(payload),
+				await Effect.runPromise(canonicalDigest(payload)),
+				owner.actorId,
+			],
+		);
+
+		const reviewInput = {
+			commandId: crypto.randomUUID(),
+			taskId,
+			attemptId: claim.attemptId,
+			objectId: output.objectId,
+			versionId: output.versionId,
+			outcome: "accepted" as const,
+		};
+		const contend = async (operation: () => Promise<unknown>) => {
+			const acquired = Promise.withResolvers<undefined>();
+			const release = Promise.withResolvers<undefined>();
+			const transaction = database.runPromise(
+				Effect.flatMap(PgClient.PgClient, (sql) =>
+					sql.withTransaction(
+						Effect.gen(function* () {
+							yield* sql.unsafe("select id from grove_objects where id=$1 for update", [
+								output.objectId,
+							]);
+
+							acquired.resolve(undefined);
+							yield* Effect.promise(() => release.promise);
+
+							yield* sql.unsafe("update grove_objects set current_version_id=$2 where id=$1", [
+								output.objectId,
+								later,
+							]);
+						}),
+					),
+				),
+			);
+
+			await acquired.promise;
+			const pending = Promise.allSettled([operation()]);
+
+			try {
+				await waitForLock();
+			} finally {
+				release.resolve(undefined);
+				await transaction;
+			}
+
+			const [result] = await pending;
+
+			expect(result.status).toBe("rejected");
+
+			if (result.status === "rejected") {
+				expect(result.reason).toBeInstanceOf(CommandConflict);
+			}
+
+			await query("update grove_objects set current_version_id=$2 where id=$1", [
+				output.objectId,
+				output.versionId,
+			]);
+		};
+
+		await contend(() => call(reviewer, (s) => s.review(reviewInput)));
+		await call(reviewer, (s) => s.review(reviewInput));
+
+		const [head] = await query<{ current_version_id: string }>(
+			"select current_version_id from grove_objects where id=$1",
+			[taskId],
+		);
+
+		await contend(() =>
+			call(owner, (s) =>
+				s.complete({
+					commandId: crypto.randomUUID(),
+					taskId,
+					expectedVersionId: head.current_version_id,
+				}),
+			),
+		);
+	});
+
+	it("allows rejection retry while excluding rejected provenance from the library", async () => {
+		const { project, plan } = await planProject();
+		const taskId = plan.taskIds.first;
+		const claim = await call(agent, (s) =>
+			s.claim({ commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+		const output = await call(agent, (s) =>
+			s.publish({
+				commandId: crypto.randomUUID(),
+				claimId: claim.claimId,
+				fence: claim.fence,
+				attemptId: claim.attemptId,
+				title: "Rejected",
+				content: "Rejected evidence",
+			}),
+		);
+
+		await call(reviewer, (s) =>
+			s.review({
+				commandId: crypto.randomUUID(),
+				taskId,
+				attemptId: claim.attemptId,
+				objectId: output.objectId,
+				versionId: output.versionId,
+				outcome: "rejected",
+			}),
+		);
+
+		const retry = await call(agent, (s) =>
+			s.claim({ commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+
+		expect(retry.attemptId).not.toBe(claim.attemptId);
+
+		await expect(
+			call(reviewer, (s) =>
+				s.review({
+					commandId: crypto.randomUUID(),
+					taskId,
+					attemptId: claim.attemptId,
+					objectId: output.objectId,
+					versionId: output.versionId,
+					outcome: "accepted",
+				}),
+			),
+		).rejects.toBeInstanceOf(CommandConflict);
+
+		expect(
+			await call(owner, (s) => s.search({ projectId: project.objectId, query: "Rejected" })),
+		).toEqual([]);
+	});
+
 	it("denies cached command replay after revocation and rejects unenrolled machines without writes", async () => {
 		const command = input();
 
