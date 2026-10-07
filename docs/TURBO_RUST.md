@@ -1,15 +1,18 @@
 # Native Cargo support in Turborepo
 
-Primary-source review, 2026-10-07. Scope: native Cargo integration, not
-`package.json` wrappers. The Cargo migration builds on
-[PR #425's tooling head](https://github.com/PetalNet/monorepo/commit/e5eb33101cbb22f50ac0e9e6a2c2bf5332041bf6).
+Primary-source review and executed adoption checks, 2026-10-07. Native support
+uses pinned Turbo 2.11.7 without crate `package.json` wrappers. The Cargo
+foundation ([PR #430](https://github.com/PetalNet/monorepo/pull/430)) is merged;
+this layer builds on the published selective-CI
+[PR #439 head](https://github.com/PetalNet/monorepo/commit/dbe9ac5ce100e558794e81e548c464207b3a4ea3).
 
-**Recommendation: verify the unified Cargo workspace before enabling Turbo's
-experimental Rust tasks.** Root Cargo configuration now supplies the required
-workspace identity and shared lockfile for eleven service crates. The Flutter
-bridge stays standalone. See [the current workspace contract](./ARCHITECTURE.md#rust-workspace).
-Turbo 2.11.7 supports native discovery, but task selection, CI parity and cache
-behavior remain separate adoption gates.
+**Native discovery is enabled for direct Turbo commands.** The root virtual
+workspace supplies the identity, one lockfile, and eleven service crates. The
+Flutter bridge stays standalone. See [the workspace contract](./ARCHITECTURE.md#rust-workspace).
+Root `pnpm build`, `pnpm test`, `pnpm check`, and `pnpm lint` remain JS-only.
+Their shared runner derives a temporary JS configuration from `turbo.json`, changing only
+`experimentalCargoWorkspaces` to false: Turbo's affected discovery otherwise
+requires Cargo even with a positive JS filter. Native support remains experimental.
 
 ## Why Cargo preparation was necessary
 
@@ -44,12 +47,13 @@ honored. The guide does not advertise discovery of every independent nested
 workspace; adding a root manifest must not be mistaken for aggregating existing
 virtual workspaces unchanged.
 
-The migration's global `build` outputs are JS-oriented, its `check` depends on
-`^typecheck` and `prepare`, and its `test` is uncached by default. Root scripts
-already request `build`, `test`, and `check`. Enabling native discovery would
-therefore broaden existing root workflow selection. Review the resulting task
-graph and Cargo-specific configuration rather than copying the guide's empty
-`tasks` example or assuming its zero-configuration defaults match this graph.
+The shared `build` outputs are JS-oriented and `check` depends on `^typecheck`
+and `prepare`. Package-qualified Cargo definitions clear those dependencies and
+build outputs; Cargo itself builds dependency closures and Turbo infers exact
+native deliverables. Native Clippy overrides retain locked, all-targets,
+warning-denying verification and explicit Courier pedantic checks. Native tests
+inherit `cache: false`; Manager's filtered tests pass through `N12_TMUX_IT`.
+The existing CI Cargo commands and environment setup are unchanged.
 
 ## Version finding
 
@@ -124,11 +128,16 @@ The RFC's July comments are questions/reports, **not current guarantees**:
 1. A commenter reports locked all-features discovery requiring Rust/private
    dependencies even for JS-only tasks. In 2.11.7, `locked_metadata` still uses
    `cargo metadata --locked --all-features`, so full resolution can need dependency
-   access. However, `discover_package_scopes` explicitly performs in-process
-   manifest discovery without Cargo/rustc, and full discovery has conservative
-   lockfile-resolution fallbacks. Do not repeat the stronger claim that _every_
-   JS-only command always requires Rust credentials: the precise CLI path and
-   fallback error category need validation. (Tagged Cargo source above.)
+   access. `discover_package_scopes` performs in-process manifest discovery
+   without Cargo/rustc, so ordinary positive-filtered JS dry runs succeeded with
+   both absent. However, `--affected` forces authoritative discovery of every
+   owner before selection, reproducing `failed to run cargo metadata` even with
+   `--filter=@petalnet/*`. The tagged
+   [run builder](https://github.com/vercel/turborepo/blob/v2.11.7/crates/turborepo-run/src/builder.rs#L672-L706)
+   requires the complete graph for affected ranges. Future flags have
+   [no environment override](https://github.com/vercel/turborepo/blob/v2.11.7/crates/turborepo-config/src/env.rs#L332-L340),
+   and root configurations cannot inherit another root config. The shared JS
+   runner is therefore necessary to preserve the orb's lazy-Rust policy.
 2. A commenter reports command overrides discarding Cargo contracts. That is
    not an accurate blanket description of 2.11.7: tagged tests
    `test_cargo_command_override_preserves_native_task_contract` and
@@ -151,33 +160,87 @@ The RFC's July comments are questions/reports, **not current guarantees**:
    `acme-rust#lint` against the pinned binary's task configuration before using
    an override. (Live and tagged guide above.)
 
-## Smallest useful next experiment
+## Running the two lanes
 
-Use a disposable fixture with Turbo 2.11.7, a root virtual workspace with
-`[workspace.metadata].name`, a root lockfile, one binary, one library, and a
-minimal JS package. Enable native discovery before broadening production root
-workflows; no `package.json` wrappers are needed for crates.
+JS commands and CI planning share `tools/turbo-js.mjs`. It preserves task
+settings, environment (including `TURBO_SCM_BASE`/`HEAD`), and Turbo's exit status.
+Each invocation owns and removes a unique temporary config, including on failure;
+dry-plan stdout contains only Turbo's JSON. The runner selects `@petalnet/*`,
+including Whoami. `pnpm check` also selects `//` so repository-wide checks always
+run; CI does not make check affected-only.
 
-Before proposing adoption, establish:
+```sh
+pnpm build --affected --dry=json
+pnpm test --affected --dry=json
+pnpm check --dry=json
 
-1. The dry-run graph selects the expected JS and Rust tasks under the migration's
-   root configuration, including filtered versus unfiltered verification.
-2. Warning-denying/all-targets Clippy and formatting checks preserve current CI
-   behavior; the build/check versus test/lint argument-routing distinction is
-   exercised, not assumed.
-3. A deleted final binary is restored byte-for-byte from cache; changing a local
-   dependency, compiler identity, profile/target, or declared build-script input
-   invalidates the right task. Cargo's incremental cache remains separately useful.
-4. JS-only commands behave acceptably with Rust unavailable and with offline
-   dependency resolution. Broader discovery must not silently defeat the orb's
-   lazy-Rust policy.
-5. The workspace/toolchain/lockfile ownership decision preserves Point's separate
-   Flutter bridge and container build. Keep service-backed and tmux integration
-   tests uncached unless their complete execution context can be represented.
+# Install Rust lazily before direct native commands in an orb.
+mise install --locked rust
+pnpm exec turbo run build --filter=agent-manager
+pnpm exec turbo run lint test --filter=agent-manager
+pnpm exec turbo run format --filter=agent-manager -- --check
+N12_TMUX_IT=1 pnpm exec turbo run test --filter=agent-manager -- --ignored
+```
 
-**Evidence limits:** this investigation inspected the fetched migration manifests,
-configuration and workflows, official docs, release metadata, and tagged source/tests.
-It did not execute Cargo through Turbo, run upstream tests, benchmark cache wins,
-or verify hosted cache restoration. The first stable release containing support,
-precise offline/private-registry behavior, and arbitrary command-override caching
-remain unverified. Experimental support is not a stability commitment.
+Direct unfiltered Turbo commands can select both ecosystems. Unfiltered native
+verification runs once through `petalnet-rust`; crate filters run per-crate
+verification. Filtering `petalnet-rust` selects workspace verification, not a
+workspace build. Point native tests still need PostgreSQL. The aggregate CI's
+conservative native fan-out, exact selected-success/unselected-skipped gate,
+Postgres setup, Flutter bridge release directory, and opt-in tmux lane remain
+unchanged. Security settings activation is separate administrator work, not a
+prerequisite for these commands.
+
+## Executed adoption evidence
+
+Checks used the installed 2.11.7 binary in this orb, not upstream test results:
+
+- **Actual graph:** unfiltered build selects seven entrypoints (Manager, Box
+  Agent, Control Plane, Courier, Dispatcher, Point core and server); verification
+  selects only the synthetic workspace. Dispatcher plus Courier core filters
+  select ten per-crate build/test/check/lint/format tasks. Native build outputs
+  contain only inferred deliverables, library builds remain uncached, and no
+  Flutter `point_mls` package is discovered. Every native test is uncached and
+  every Clippy plan retains the all-targets/warning-denying contract. Standalone
+  bridge metadata still reports `apps/point/app/rust` as its workspace and
+  `apps/point/app/rust/target` as its independent target directory.
+- **Actual native execution:** Manager format check and Clippy passed through
+  Turbo. Its normal tests passed 46 tests (12 tmux tests ignored); explicit
+  opt-in execution passed all 12 tmux tests with cache bypass.
+- **Real artifact restoration:** built Manager with `--cache=local:rw`, recorded
+  the binary SHA-256, deleted the binary, and reran. Turbo reported `1 cached`
+  and `sha256sum -c` reported `OK`.
+- **Isolated cache experiment:** a dependency-free fixture had a virtual Cargo
+  workspace, one binary, one path library, one JS package and a build script
+  reading declared `stamp.txt`. Deleting the entire target directory restored
+  byte-identical executable output (`17:alpha`). Changing the library produced
+  a hash change, cache miss and `29:alpha`; changing the declared file produced
+  another miss and `29:beta`. Custom `ci` profile, explicit host target, and a
+  compiler wrapper changing the reported `rustc -vV` commit identity each
+  invalidated the hash and executed successfully. These are local-cache and
+  simulated compiler-identity checks, not a different installed compiler or
+  cross-compilation claim.
+- **Lazy Rust and affectedness:** with cargo/rustc absent from PATH and
+  `CARGO_NET_OFFLINE=true`, actual `ci-manager select` and the shared runner's
+  affected plans passed. Dispatcher edits select every native lane and no JS;
+  Flutter-only edits select Point and no JS; Effect API edits select JS including
+  its Grove dependent but not unrelated Whoami; root Cargo edits select all
+  native lanes and JS. Actual `pnpm build --affected` and `pnpm test --affected`
+  for a Whoami-only edit selected one task each and passed (seven tests), with
+  both Rust executables absent. The full JS test command passed 507 tests across
+  six tasks. The JS graph contains no Cargo commands.
+- **Runner isolation:** repeated and four concurrent dry plans produced identical
+  task hashes and parseable JSON. All eleven requested root checks and Whoami
+  were present. An unknown Turbo task propagated status 1; generated directories
+  were removed and the source configuration remained byte-identical.
+- **Repository checks:** clean-worktree `pnpm check` passed all 27 tasks, including
+  both Knip modes, ESLint, formatting, TypeSync and typechecking. The original
+  orb checkout had a pre-existing generated `apps/console` directory without a
+  manifest; its TypeSync failure was avoided by verifying a clean worktree, not
+  by suppressing the check or removing someone else's generated files.
+
+**Evidence limits:** hosted native artifact caching, private-registry resolution,
+upstream test execution, cross-compilation, cache-performance benchmarking, Nix,
+and arbitrary custom-command caching are unverified. The existing successful
+Cargo/Flutter CI verification is not evidence that this new layer has run hosted.
+Experimental support is not a stability commitment.

@@ -39,7 +39,7 @@ if (command === "select") {
 				),
 			);
 		// Rust apps have cross-app path dependencies (e.g. Dispatcher consumers).
-		// Until native graph selection lands, Rust inputs select every native lane.
+		// Native Turbo discovery does not replace conservative CI lane selection.
 		for (const job of nativeJobs) {
 			const app = job.replace(/-rust$/u, "");
 			selected[job] = rust || paths.some((path) => path.startsWith(`apps/${app}/`));
@@ -47,17 +47,8 @@ if (command === "select") {
 		// Turbo, not a second package/path graph, owns JS dependency propagation.
 		const plan = JSON.parse(
 			execFileSync(
-				"pnpm",
-				[
-					"--config.verifyDepsBeforeRun=false",
-					"exec",
-					"turbo",
-					"run",
-					"build",
-					"test",
-					"--affected",
-					"--dry=json",
-				],
+				process.execPath,
+				["tools/turbo-js.mjs", "build", "test", "--affected", "--dry=json"],
 				{
 					encoding: "utf8",
 					env: { ...process.env, TURBO_SCM_BASE: base, TURBO_SCM_HEAD: "HEAD" },
