@@ -1,0 +1,22 @@
+{
+	"extends": ["//"],
+	"tasks": {
+		"build": { "dependsOn": [], "outputs": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"check": { "dependsOn": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"lint": {
+			"command": [
+				"cargo",
+				"clippy",
+				"-p",
+				"courier-relay",
+				"--all-targets",
+				"--locked",
+				"--",
+				"-W",
+				"clippy::pedantic",
+				"-D",
+				"warnings"
+			]
+		}
+	}
+}

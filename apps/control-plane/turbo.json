@@ -1,0 +1,20 @@
+{
+	"extends": ["//"],
+	"tasks": {
+		"build": { "dependsOn": [], "outputs": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"check": { "dependsOn": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"lint": {
+			"command": [
+				"cargo",
+				"clippy",
+				"-p",
+				"control-plane",
+				"--all-targets",
+				"--locked",
+				"--",
+				"-D",
+				"warnings"
+			]
+		}
+	}
+}

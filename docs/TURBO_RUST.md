@@ -51,12 +51,23 @@ workspace; adding a root manifest must not be mistaken for aggregating existing
 virtual workspaces unchanged.
 
 The shared `build` outputs are JS-oriented and `check` depends on `^typecheck`
-and `prepare`. Package-qualified Cargo definitions clear those dependencies and
-build outputs; Cargo itself builds dependency closures and Turbo infers exact
+and `prepare`. Each crate's `turbo.json` extends `//`, clears those dependencies
+and build outputs, and uses `$TURBO_DEFAULT$` inputs to avoid inheriting JS
+`.env*` inputs. Cargo itself builds dependency closures and Turbo infers exact
 native deliverables. Native Clippy overrides retain locked, all-targets,
 warning-denying verification and explicit Courier pedantic checks. Native tests
 inherit `cache: false`; Manager's filtered tests pass through `N12_TMUX_IT`.
 The existing CI Cargo commands and environment setup are unchanged.
+
+Only `petalnet-rust#check` and `petalnet-rust#lint` remain root-qualified:
+the synthetic workspace is rooted at the repository itself and therefore loads
+the root configuration, not a separate package file. Intermediate directories
+such as `apps/courier` are not implicit inheritance layers. This follows the
+tagged [package-config loader](https://github.com/vercel/turborepo/blob/v2.11.7/crates/turborepo-turbo-json/src/loader.rs#L516-L554).
+Executed before/after plans confirm identical task contracts for all 67
+unfiltered tasks and all 55 tasks selected by the eleven native crate filters,
+including commands, resolved definitions, inferred outputs, graph edges and
+environment. Configuration relocation changes hashes, not task semantics.
 
 ## Version finding
 

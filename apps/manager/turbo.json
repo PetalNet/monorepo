@@ -1,0 +1,21 @@
+{
+	"extends": ["//"],
+	"tasks": {
+		"build": { "dependsOn": [], "outputs": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"check": { "dependsOn": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"lint": {
+			"command": [
+				"cargo",
+				"clippy",
+				"-p",
+				"agent-manager",
+				"--all-targets",
+				"--locked",
+				"--",
+				"-D",
+				"warnings"
+			]
+		},
+		"test": { "cache": false, "passThroughEnv": ["N12_TMUX_IT"] }
+	}
+}
