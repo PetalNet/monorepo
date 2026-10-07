@@ -58,7 +58,7 @@ const NA = "(unavailable)";
 
 function str(v: unknown): string {
 	if (v === null || v === undefined) return NA;
-	if (Array.isArray(v)) return v.length ? v.join(", ") : "(empty)";
+	if (Array.isArray(v)) return v.length > 0 ? v.join(", ") : "(empty)";
 	if (typeof v === "object") {
 		try {
 			return JSON.stringify(v);
@@ -85,6 +85,7 @@ function safe(fn: () => unknown): string {
 function digest(input: string): string {
 	let h = 0x811c9dc5;
 	for (let i = 0; i < input.length; i++) {
+		// oxlint-disable-next-line unicorn/prefer-code-point -- This hash deliberately processes UTF-16 code units.
 		h ^= input.charCodeAt(i);
 		h = Math.imul(h, 0x01000193);
 	}
@@ -124,7 +125,7 @@ function webglInfo(): { renderer: string; vendor: string; digest: string } {
 		gl.getParameter(gl.MAX_VARYING_VECTORS),
 		gl.getSupportedExtensions()?.length ?? 0,
 	].join("|");
-	return { renderer, vendor, digest: digest(renderer + "|" + vendor + "|" + params) };
+	return { renderer, vendor, digest: digest(`${renderer}|${vendor}|${params}`) };
 }
 
 async function audioDigest(): Promise<string> {
@@ -457,7 +458,7 @@ export async function collectSignals(): Promise<Signal[]> {
 			id: "features.storage",
 			label: "Local storage",
 			category: "features",
-			value: safe(() => (typeof localStorage !== "undefined" ? "available" : "blocked")),
+			value: safe(() => (typeof localStorage === "undefined" ? "blocked" : "available")),
 			typical: "available",
 			note: "Storage availability — disabling it entirely is rare and therefore distinctive.",
 			entropy: 1,

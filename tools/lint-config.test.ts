@@ -22,6 +22,7 @@ await test("Oxlint deduplication leaves every Svelte rule and existing Slide pol
 		"apps/collegemap/src/routes/+page.svelte",
 		"apps/storybook/src/stories/Button.svelte",
 		"apps/slide/src/routes/+page.svelte",
+		"apps/whoami/src/routes/+page.svelte",
 	];
 	const configurations = await Promise.all(
 		files.map(async (file) => ({

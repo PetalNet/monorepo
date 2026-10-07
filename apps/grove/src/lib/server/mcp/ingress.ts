@@ -201,6 +201,8 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 		handle: Effect.fnUntraced(function* (request: Request) {
 			const services = yield* Effect.context<ActorAuthority | SproutCommands | ApiServer>();
 			const scope = yield* Effect.scope;
+			// Preserve arbitrary Better Auth failures for the immediate catch, and original Effect causes unchanged.
+			// oxlint-disable-next-line effecttsgo/unknown-in-effect-catch
 			return yield* Effect.tryPromise({
 				try: (signal) =>
 					createMcpProtectedRequestHandler(

@@ -74,7 +74,7 @@ export async function detectExtensions(): Promise<{ findings: ExtFinding[]; ran:
 	// effects we're trying to read.
 	host.style.cssText =
 		"position:absolute;left:-99999px;top:0;width:400px;height:400px;pointer-events:none;";
-	document.body.appendChild(host);
+	document.body.append(host);
 
 	const findings: ExtFinding[] = [];
 
@@ -83,8 +83,8 @@ export async function detectExtensions(): Promise<{ findings: ExtFinding[]; ran:
 	// high-confidence attribute fingerprint, not a style-effect inference.
 	const root = document.documentElement;
 	if (
-		root.getAttribute("data-darkreader-mode") ||
-		root.getAttribute("data-darkreader-scheme") ||
+		root.dataset.darkreaderMode ||
+		root.dataset.darkreaderScheme ||
 		document.querySelector('meta[name="darkreader"]') ||
 		document.querySelector("style.darkreader")
 	) {
@@ -118,15 +118,19 @@ export async function detectExtensions(): Promise<{ findings: ExtFinding[]; ran:
 	for (const bait of BAITS) {
 		const trigger = document.createElement(bait.trigger.tag ?? "div");
 		const baseline = document.createElement(bait.trigger.tag ?? "div");
-		trigger.textContent = baseline.textContent = "​";
-		trigger.style.cssText = baseline.style.cssText = "width:80px;height:40px;display:block;";
+		trigger.textContent = "​";
+		baseline.textContent = "​";
+		trigger.style.cssText = "width:80px;height:40px;display:block;";
+		baseline.style.cssText = "width:80px;height:40px;display:block;";
 		applyTrigger(trigger, bait.trigger);
-		host.appendChild(baseline);
-		host.appendChild(trigger);
+		host.append(baseline);
+		host.append(trigger);
 	}
 
 	// Let injected stylesheets apply.
-	await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+	await new Promise((resolve) => {
+		requestAnimationFrame(() => requestAnimationFrame(resolve));
+	});
 
 	// Re-read: children are [baseline, trigger] pairs in order.
 	const kids = Array.from(host.children) as (HTMLElement | undefined)[];
@@ -147,7 +151,7 @@ export async function detectExtensions(): Promise<{ findings: ExtFinding[]; ran:
 		if (trigger.offsetHeight === 0 && baseline.offsetHeight > 0) {
 			diffs.push("collapsed to zero height while baseline kept its size");
 		}
-		if (diffs.length) {
+		if (diffs.length > 0) {
 			findings.push({
 				id: bait.id,
 				name: bait.name,

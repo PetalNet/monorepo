@@ -137,7 +137,7 @@ export function checkConsistency(
 
 	// 2. Sec-CH-UA presence vs UA family (Chromium-only header).
 	const fam = uaFamily(cUa || sUa);
-	const hasCh = !!server.secChUa?.trim();
+	const hasCh = Boolean(server.secChUa?.trim());
 	if (fam === "chromium" && !hasCh) {
 		out.push({
 			id: "ch.missing-on-chromium",
@@ -296,12 +296,11 @@ export function checkConsistency(
 				id: "tz.vs-ip-country",
 				severity: "medium",
 				title: "Your timezone doesn't match the country of your IP",
-				detail:
-					"The edge sees your connection coming from " +
-					country +
-					", but your browser timezone is " +
-					client.timezone +
-					". That's the classic VPN/proxy signature — or you're travelling.",
+				detail: `The edge sees your connection coming from ${
+					country
+				}, but your browser timezone is ${
+					client.timezone
+				}. That's the classic VPN/proxy signature — or you're travelling.`,
 				evidence: [
 					{ label: "IP country (edge)", value: country },
 					{ label: "browser timezone", value: client.timezone },

@@ -98,7 +98,9 @@ describe("MCP protected-resource ingress", () => {
 		privateKey = pair.privateKey;
 		const jwk = { ...(await exportJWK(pair.publicKey)), kid: "mcp-test", alg: "RS256", use: "sig" };
 		keys = [jwk];
-		await new Promise<void>((resolve) => jwksServer.listen(0, "127.0.0.1", resolve));
+		await new Promise<void>((resolve) => {
+			jwksServer.listen(0, "127.0.0.1", resolve);
+		});
 		const address = jwksServer.address();
 		if (!address || typeof address === "string") throw new Error("Expected TCP listener");
 		config.jwksUrl = `http://127.0.0.1:${String(address.port)}/jwks`;
@@ -106,15 +108,15 @@ describe("MCP protected-resource ingress", () => {
 	}, 60_000);
 
 	afterAll(async () => {
-		await new Promise<void>((resolve, reject) =>
+		await new Promise<void>((resolve, reject) => {
 			jwksServer.close((error) => {
 				if (error) {
 					reject(error);
 					return;
 				}
 				resolve();
-			}),
-		);
+			});
+		});
 		await runtime.dispose();
 		await stopGrovePostgres();
 	});
@@ -332,7 +334,9 @@ describe("MCP protected-resource ingress", () => {
 		controller.abort();
 		await cleaning.promise;
 		try {
-			await new Promise((resolve) => setTimeout(resolve, 10));
+			await new Promise((resolve) => {
+				setTimeout(resolve, 10);
+			});
 			expect(completed).toBe(false);
 		} finally {
 			release.resolve(undefined);

@@ -33,7 +33,7 @@ export function readCarriedRef(): CarriedRef | null {
 	return {
 		hash,
 		fromHost,
-		crossContext: !!fromHost && fromHost !== window.location.host,
+		crossContext: Boolean(fromHost) && fromHost !== window.location.host,
 	};
 }
 

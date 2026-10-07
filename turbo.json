@@ -85,7 +85,8 @@
 				"@petalnet/better-auth-effect-qb-adapter#check",
 				"@petalnet/collegemap#check",
 				"@petalnet/grove#check",
-				"@petalnet/storybook#typecheck"
+				"@petalnet/storybook#typecheck",
+				"@petalnet/whoami#check"
 			],
 			"outputs": []
 		},
