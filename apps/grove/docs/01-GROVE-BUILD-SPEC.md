@@ -4,7 +4,7 @@
 **Version:** 1.0  
 **Prepared:** 2026-07-23  
 **Implementation base:** `console/console-monorepo-current-daca287a`  
-**Decision horizon:** Wayfinder and Eli corrections through 2026-07-22
+**Decision horizon:** Design-session and Eli corrections through 2026-07-22
 
 This is the rectified Grove specification. It replaces the historical SIP Mega unified spec as the implementation-facing product and architecture authority.
 
@@ -39,7 +39,7 @@ Open or create a Project
 → write an Ask/Task
 → Librarian files it in the Library
 → Planner expands it into a Task DAG
-→ ambiguity opens a grilling session
+→ ambiguity opens a clarification session
 → ready Tasks fan out to authorized agents or automations
 → research is requested through the Librarian
 → documents, code, PRs, approvals, and other outputs link to their Tasks
@@ -607,7 +607,7 @@ Abandoned
 
 Exact UI labels may vary, but implementation must preserve the distinction between planned, runnable, executing, awaiting verification, and accepted.
 
-`Planning` includes clarification/grilling. `Planned` means the graph and completion contract are accepted but one or more readiness conditions may still be false. `Ready` is derived from the current dependency, input, permission, policy, capacity, and Claim state.
+`Planning` includes clarification. `Planned` means the graph and completion contract are accepted but one or more readiness conditions may still be false. `Ready` is derived from the current dependency, input, permission, policy, capacity, and Claim state.
 
 A standing Task may remain Active while children enter and leave. It completes only by an explicit governance decision under its completion contract.
 
@@ -654,7 +654,7 @@ A Task is ready only when:
 - it has no unresolved blocking edge;
 - a compatible Agent/model/host/capability route exists or the Task explicitly waits for one.
 
-### 6.7 Planning and grilling
+### 6.7 Planning and clarification
 
 A new Project Ask enters Planning.
 
@@ -667,7 +667,7 @@ The Planner:
 5. attaches completion contracts and verification policies;
 6. validates the DAG.
 
-If material ambiguity remains, Grove opens a bounded grilling session in a private or shared Room appropriate to the Ask. Planning does not fake readiness.
+If material ambiguity remains, Grove opens a bounded clarification session in a private or shared Room appropriate to the Ask. Planning does not fake readiness.
 
 The user, responsible human, or applicable Librarian/governance policy accepts the plan. Acceptance creates signed Task Versions and advances ready nodes.
 
@@ -991,7 +991,7 @@ Not yet true:
 - full Task/Attempt/Claim/plan schema;
 - signed canonical object Versions;
 - Room authority and first-party participant UX;
-- integrated planning/grilling workflow;
+- integrated planning/clarification workflow;
 - Project knowledge contribution loop;
 - unified Agent identity/Runtime lease model;
 - complete Site installer/release orchestration;
@@ -1193,7 +1193,7 @@ The first build is complete only when all statements below are true.
 
 - A user can create a Project Task from private Ask/Capture.
 - Grove can plan it into a validated acyclic Task DAG.
-- Ambiguous work can enter a grilling session rather than pretending to be Ready.
+- Ambiguous work can enter a clarification session rather than pretending to be Ready.
 - Multiple ready Tasks may fan out concurrently.
 - A Task can produce a document or artifact linked to its exact Attempt.
 - An independent review can accept/reject an exact output Version.

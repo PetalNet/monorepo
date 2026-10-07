@@ -595,7 +595,7 @@ Ship:
 
 - Home Ask/Capture;
 - Project creation;
-- planning/grilling;
+- planning/clarification;
 - a small DAG;
 - one Agent Attempt;
 - one human or review step;
