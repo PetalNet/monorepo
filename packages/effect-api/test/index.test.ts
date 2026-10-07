@@ -19,6 +19,7 @@ import {
 	type HttpMethod,
 	operation,
 } from "../src/index.js";
+import { createOpenApi } from "../src/openapi.js";
 
 const disposals: (() => Promise<void>)[] = [];
 afterAll(async () => {
@@ -1100,6 +1101,65 @@ describe("createEffectApi", () => {
 			error: { code: "operation_failed", message: "The operation failed" },
 		});
 		expect(error).toHaveBeenCalledWith(expect.stringContaining("boom failed"));
+	});
+
+	it.each(["__proto__", "constructor", "toString"])(
+		"treats OpenAPI path %s as an own data key",
+		(path) => {
+			const target = Reflect.get({}, path) as object;
+			const previous = Object.getOwnPropertyDescriptor(target, "get");
+			let current: PropertyDescriptor | undefined;
+			let docs: ReturnType<typeof createOpenApi>;
+			try {
+				docs = createOpenApi({
+					title: "Untrusted path",
+					version: "1",
+					basePath: "/api",
+					operations: [
+						operation({
+							name: "read",
+							description: "",
+							method: "GET",
+							path,
+							input: Id,
+							output: Item,
+							handler: () => Effect.never,
+						}),
+					],
+				});
+				current = Object.getOwnPropertyDescriptor(target, "get");
+			} finally {
+				if (previous) Object.defineProperty(target, "get", previous);
+				else Reflect.deleteProperty(target, "get");
+			}
+			expect(current).toEqual(previous);
+			expect(Object.hasOwn(docs.paths, path)).toBe(true);
+			expect(docs.paths[path]?.get).toMatchObject({ operationId: "read" });
+		},
+	);
+
+	it("preserves prototype-named method keys from untyped callers as data", () => {
+		const docs = createOpenApi({
+			title: "Untyped caller",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "untyped",
+					description: "",
+					method: "__proto__" as HttpMethod,
+					path: "/items",
+					input: Id,
+					output: Item,
+					handler: () => Effect.never,
+				}),
+			],
+		});
+		const methods = docs.paths["/items"];
+		if (!methods) throw new Error("Missing /items path");
+		expect(Object.getPrototypeOf(methods)).toBe(Object.prototype);
+		expect(Object.hasOwn(methods, "__proto__")).toBe(true);
+		expect(JSON.stringify(docs)).toContain('"__proto__":{"operationId":"untyped"');
 	});
 
 	it("documents every OpenAPI path/body/parameter branch and shared path methods", () => {

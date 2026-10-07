@@ -30,7 +30,7 @@ const withoutProperties = (schema: object, names: ReadonlySet<string>): object =
 };
 
 export function createOpenApi<R>(config: OpenApiConfig<R>) {
-	const paths: Record<string, Record<string, object>> = {};
+	const paths = new Map<string, Map<string, object>>();
 	for (const operation of config.operations) {
 		const rest = operation.rest;
 		if (!rest) continue;
@@ -48,8 +48,9 @@ export function createOpenApi<R>(config: OpenApiConfig<R>) {
 			required: true,
 			schema: inputProperties?.[name] ?? { type: "string" },
 		}));
-		paths[path] ??= {};
-		paths[path][rest.method.toLowerCase()] = {
+		const methods = paths.get(path) ?? new Map<string, object>();
+		paths.set(path, methods);
+		methods.set(rest.method.toLowerCase(), {
 			operationId: operation.name,
 			description: operation.description,
 			...(pathParameters.length > 0 ? { parameters: pathParameters } : {}),
@@ -70,12 +71,14 @@ export function createOpenApi<R>(config: OpenApiConfig<R>) {
 				},
 				"400": { description: "Invalid input" },
 			},
-		};
+		});
 	}
 	return {
 		openapi: "3.1.0",
 		info: { title: config.title, version: config.version },
 		servers: [{ url: config.basePath }],
-		paths,
+		paths: Object.fromEntries(
+			[...paths].map(([path, methods]) => [path, Object.fromEntries(methods)]),
+		),
 	};
 }
