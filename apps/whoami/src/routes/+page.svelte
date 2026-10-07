@@ -23,6 +23,8 @@
 		type LinkResult,
 	} from "$lib/linkability";
 	import { fetchTrace } from "$lib/trace";
+	import BoxBottom from "$lib/BoxBottom.svelte";
+	import BoxTop from "$lib/BoxTop.svelte";
 	import { SvelteSet } from "svelte/reactivity";
 
 	import type { PageData } from "./$types";
@@ -227,24 +229,13 @@
 	};
 </script>
 
-{#snippet btop(t: string)}
-	<div class="btop">
-		<span class="c" aria-hidden="true">┌──</span><span class="btt" role="heading" aria-level="2"
-			>{t}</span
-		><span class="bfill" aria-hidden="true"></span><span class="c" aria-hidden="true">┐</span>
-	</div>
-{/snippet}
-{#snippet bbot()}
-	<div class="bbot" aria-hidden="true"><span class="c">└</span><span class="bfill"></span><span class="c">┘</span></div>
-{/snippet}
-
 <svelte:window onkeydown={ready ? onKey : undefined} />
 
 <main bind:this={screen} tabindex="-1" aria-label="whoami fingerprint inventory">
 	<div class="body">
 		{#if carried && linkResult}
 			<section class="box {linkResult}">
-				{@render btop("cross-context test")}
+				<BoxTop title="cross-context test" />
 				<div class="bin">
 					{#if linkResult === "match"}
 						<span class="hot">LINKABLE</span> &mdash; {hash} derived on both sides, identical &rarr; whatever
@@ -254,7 +245,7 @@
 						/ a different device broke the cross-context link.
 					{/if}
 				</div>
-				{@render bbot()}
+				<BoxBottom />
 			</section>
 		{/if}
 
@@ -263,7 +254,7 @@
 		{:else}
 			<!-- VERDICT -->
 			<section class="box verdict {verdict}">
-				{@render btop("verdict")}
+				<BoxTop title="verdict" />
 				<div class="bin">
 					<div class="vline">
 						<span class="dot" aria-hidden="true">{dotChar[verdict]}</span>
@@ -307,12 +298,12 @@
 						</ul>
 					{/if}
 				</div>
-				{@render bbot()}
+				<BoxBottom />
 			</section>
 
 			<!-- LINKABILITY -->
 			<section class="box">
-				{@render btop("can they follow you")}
+				<BoxTop title="can they follow you" />
 				<div class="bin">
 					<div class="lk">
 						<code class="hash">{hash}</code>
@@ -342,13 +333,13 @@
 						</p>
 					{/if}
 				</div>
-				{@render bbot()}
+				<BoxBottom />
 			</section>
 
 			<!-- INVENTORY -->
 			{#each grouped as [cat, items] (cat)}
 				<section class="box">
-					{@render btop(CATEGORY_LABELS[cat])}
+					<BoxTop title={CATEGORY_LABELS[cat]} />
 					<div class="bin">
 						{#each items as s (s.id)}
 							{@const q = quadrant(s)}
@@ -381,13 +372,13 @@
 							{/if}
 						{/each}
 					</div>
-					{@render bbot()}
+					<BoxBottom />
 				</section>
 			{/each}
 
 			<!-- SERVER -->
 			<section class="box">
-				{@render btop("what the server saw")}
+				<BoxTop title="what the server saw" />
 				<div class="bin">
 					<div class="srow">
 						<span class="sk">IP</span><span class="sv">{data.server.ip ?? "—"}</span><span
@@ -424,12 +415,12 @@
 						>
 					</div>
 				</div>
-				{@render bbot()}
+				<BoxBottom />
 			</section>
 
 			<!-- EXTENSIONS -->
 			<section class="box">
-				{@render btop("installed extensions")}
+				<BoxTop title="installed extensions" />
 				<div class="bin">
 					{#if extFindings.length}
 						{#each extFindings as f (f.id)}
@@ -475,7 +466,7 @@
 						</p>
 					{/if}
 				</div>
-				{@render bbot()}
+				<BoxBottom />
 			</section>
 		{/if}
 	</div>
@@ -574,27 +565,27 @@
 	.box::after {
 		right: 0;
 	}
-	.btop,
-	.bbot {
+	.box :global(.btop),
+	.box :global(.bbot) {
 		display: flex;
 		align-items: center;
 		color: var(--dim);
 		white-space: nowrap;
 	}
-	.c {
+	.box :global(.c) {
 		color: var(--dim);
 	}
-	.btt {
+	.box :global(.btt) {
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 		padding: 0 1ch;
 		color: var(--dim);
 	}
-	.bfill {
+	.box :global(.bfill) {
 		flex: 1;
 		overflow: hidden;
 	}
-	.bfill::after {
+	.box :global(.bfill)::after {
 		content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
 	}
 	.bin {
@@ -602,8 +593,8 @@
 		padding: 0.25rem 2ch 0.35rem;
 	}
 
-	.verdict.contradictions .c,
-	.verdict.contradictions .btt {
+	.verdict.contradictions :global(.c),
+	.verdict.contradictions :global(.btt) {
 		color: var(--red);
 	}
 
@@ -715,8 +706,8 @@
 		background: var(--fg);
 		outline: none;
 	}
-	.box.match .c,
-	.box.match .btt {
+	.box.match :global(.c),
+	.box.match :global(.btt) {
 		color: var(--red);
 	}
 	.hot {
