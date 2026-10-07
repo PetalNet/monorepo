@@ -450,11 +450,11 @@ describe("MCP protected-resource ingress", () => {
 
 		const listedAfter = await json(await request(accessToken, rpc(4, "tools/list")));
 		expect(listedAfter.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-			"sprouts.create",
-			"sprouts.get",
 			"sprouts.list",
-			"sprouts.remove",
+			"sprouts.get",
+			"sprouts.create",
 			"sprouts.water",
+			"sprouts.remove",
 		]);
 	});
 

@@ -16,8 +16,10 @@ import {
 	ApiServer,
 	createEffectApi as createApplication,
 	type EffectApiConfig,
+	type HttpMethod,
 	operation,
 } from "../src/index.js";
+import { createOpenApi } from "../src/openapi.js";
 
 const disposals: (() => Promise<void>)[] = [];
 afterAll(async () => {
@@ -113,7 +115,7 @@ const runJson = async <E>(effect: Effect.Effect<Response, E>) => {
 	return { response, body: (await response.json()) as unknown };
 };
 
-const operationForMethod = (method: "GET" | "POST", body?: boolean) =>
+const operationForMethod = (method: HttpMethod, body?: boolean) =>
 	operation({
 		name: method,
 		description: method,
@@ -488,9 +490,68 @@ describe("createEffectApi", () => {
 	});
 
 	it("applies body defaults and explicit overrides", () => {
-		expect(operationForMethod("GET").body).toBe(false);
-		expect(operationForMethod("POST").body).toBe(true);
-		expect(operationForMethod("POST", false).body).toBe(false);
+		expect(operationForMethod("GET").rest?.body).toBe(false);
+		expect(operationForMethod("OPTIONS").rest?.body).toBe(false);
+		expect(operationForMethod("POST").rest?.body).toBe(true);
+		expect(operationForMethod("DELETE").rest?.body).toBe(true);
+		expect(operationForMethod("QUERY").rest?.body).toBe(true);
+		expect(operationForMethod("DELETE", false).rest?.body).toBe(false);
+		expect(operationForMethod("POST", false).rest?.body).toBe(false);
+	});
+
+	it("derives REST and MCP exposure from one mixed operation catalog", async () => {
+		const machineOnly = vi.fn(({ id }: { readonly id: string }) =>
+			Effect.succeed({ id, ok: true }),
+		);
+		const mixed = createEffectApi({
+			title: "Mixed catalog",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "machine",
+					description: "MCP only",
+					input: Id,
+					output: Item,
+					handler: machineOnly,
+				}),
+				operation({
+					name: "shared",
+					description: "Both transports",
+					method: "GET",
+					path: "/shared/:id",
+					input: Id,
+					output: Item,
+					handler: ({ id }) => Effect.succeed({ id, ok: false }),
+				}),
+			],
+		});
+		expect(Object.keys(mixed.openapi.paths)).toEqual(["/shared/{id}"]);
+		const rejected = await runJson(
+			mixed.fetch(
+				new Request("https://x/api/machine", {
+					method: "POST",
+					body: JSON.stringify({ id: "rest" }),
+				}),
+			),
+		);
+		expect(rejected.response.status).toBe(404);
+		expect(machineOnly).not.toHaveBeenCalled();
+		expect((await runJson(mixed.fetch(new Request("https://x/api/shared/rest")))).body).toEqual({
+			id: "rest",
+			ok: false,
+		});
+		const listed = await runJson(mixed.mcp(modernMcpRequest(40, "tools/list")));
+		expect(listed.body).toMatchObject({
+			result: { tools: [{ name: "machine" }, { name: "shared" }] },
+		});
+		const called = await runJson(
+			mixed.mcp(modernMcpRequest(41, "tools/call", { name: "machine", arguments: { id: "mcp" } })),
+		);
+		expect(called.body).toMatchObject({
+			result: { isError: false, structuredContent: { id: "mcp", ok: true } },
+		});
+		expect(machineOnly).toHaveBeenCalledExactlyOnceWith({ id: "mcp" });
 	});
 
 	it("merges query, JSON object, and decoded path fields with path taking precedence", async () => {
@@ -1040,6 +1101,65 @@ describe("createEffectApi", () => {
 			error: { code: "operation_failed", message: "The operation failed" },
 		});
 		expect(error).toHaveBeenCalledWith(expect.stringContaining("boom failed"));
+	});
+
+	it.each(["__proto__", "constructor", "toString"])(
+		"treats OpenAPI path %s as an own data key",
+		(path) => {
+			const target = Reflect.get({}, path) as object;
+			const previous = Object.getOwnPropertyDescriptor(target, "get");
+			let current: PropertyDescriptor | undefined;
+			let docs: ReturnType<typeof createOpenApi>;
+			try {
+				docs = createOpenApi({
+					title: "Untrusted path",
+					version: "1",
+					basePath: "/api",
+					operations: [
+						operation({
+							name: "read",
+							description: "",
+							method: "GET",
+							path,
+							input: Id,
+							output: Item,
+							handler: () => Effect.never,
+						}),
+					],
+				});
+				current = Object.getOwnPropertyDescriptor(target, "get");
+			} finally {
+				if (previous) Object.defineProperty(target, "get", previous);
+				else Reflect.deleteProperty(target, "get");
+			}
+			expect(current).toEqual(previous);
+			expect(Object.hasOwn(docs.paths, path)).toBe(true);
+			expect(docs.paths[path]?.get).toMatchObject({ operationId: "read" });
+		},
+	);
+
+	it("preserves prototype-named method keys from untyped callers as data", () => {
+		const docs = createOpenApi({
+			title: "Untyped caller",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "untyped",
+					description: "",
+					method: "__proto__" as HttpMethod,
+					path: "/items",
+					input: Id,
+					output: Item,
+					handler: () => Effect.never,
+				}),
+			],
+		});
+		const methods = docs.paths["/items"];
+		if (!methods) throw new Error("Missing /items path");
+		expect(Object.getPrototypeOf(methods)).toBe(Object.prototype);
+		expect(Object.hasOwn(methods, "__proto__")).toBe(true);
+		expect(JSON.stringify(docs)).toContain('"__proto__":{"operationId":"untyped"');
 	});
 
 	it("documents every OpenAPI path/body/parameter branch and shared path methods", () => {

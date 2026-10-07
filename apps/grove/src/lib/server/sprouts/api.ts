@@ -77,6 +77,7 @@ export const sproutOperations = [
 		description: "Remove one dummy Grove sprout.",
 		method: "DELETE",
 		path: "/sprouts/:id",
+		body: false,
 		input: SproutId,
 		output: RemovedSprout,
 		handler: ({ id }) => Effect.flatMap(SproutCommands, (commands) => commands.remove(id)),

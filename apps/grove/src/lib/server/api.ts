@@ -11,8 +11,5 @@ export const groveApi = createEffectApi<ActorAuthority | InvocationContext | Spr
 	title: "Grove sprouts API",
 	version: "1.0.0",
 	basePath: "/api/v1",
-	operations: sproutOperations,
-	mcpOperations: [enrollAgentSelfOperation, ...sproutOperations].toSorted((left, right) =>
-		left.name.localeCompare(right.name),
-	),
+	operations: [enrollAgentSelfOperation, ...sproutOperations],
 });
