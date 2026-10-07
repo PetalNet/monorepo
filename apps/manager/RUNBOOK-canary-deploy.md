@@ -63,7 +63,9 @@ rollback_target=$(readlink -f ~/agent-manager/last-good)
 test -x "$current_target"
 test -x "$rollback_target"
 
-# build: either `cargo build --release`, or `nix build .#default` (dream2nix, cache-backed)
+# From the repo root: cargo build --release --locked -p agent-manager
+# Binary: target/release/agent-manager (or $CARGO_TARGET_DIR/release/agent-manager)
+# Nix alternative from the repo root: nix build ./apps/manager#default
 install -D -m755 <built-binary> ~/agent-manager/releases/$V/agent-manager
 ~/agent-manager/releases/$V/agent-manager version       # sanity: runs at all
 ln -sfn releases/$V/agent-manager ~/agent-manager/current

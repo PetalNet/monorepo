@@ -33,7 +33,7 @@ use courier_core::{
 
 /// Budget for one `run()` invocation: the tool loop can legitimately spend
 /// several bounded 30s HTTP calls plus MCP tool executions.
-const AI_COMMAND_BUDGET: Duration = Duration::from_secs(300);
+const AI_COMMAND_BUDGET: Duration = Duration::from_mins(5);
 
 const DEFAULT_SYSTEM_PROMPT: &str = r"
 You're an AI in a group chat. Reply naturally when tagged.

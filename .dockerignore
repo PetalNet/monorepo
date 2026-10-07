@@ -12,6 +12,7 @@
 **/dist
 **/.svelte-kit
 **/build
+**/target
 **/coverage
 **/test-results
 **/playwright-report

@@ -71,13 +71,6 @@ url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/608496448"
 provenance = "github-attestations"
 
 [[tools.rust]]
-version = "1.90.0"
-backend = "core:rust"
-
-[tools.rust.options]
-profile = "default"
-
-[[tools.rust]]
 version = "1.96.1"
 backend = "core:rust"
 

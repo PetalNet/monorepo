@@ -74,9 +74,6 @@ jobs:
 
   manager-rust:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/manager
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,17 +82,14 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q tmux && tmux -V
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
+      - run: cargo fmt -p agent-manager --check
+      - run: cargo clippy -p agent-manager --all-targets --locked -- -D warnings
+      - run: cargo test -p agent-manager --locked
       - name: tmux integration tests (scratch sockets only)
-        run: N12_TMUX_IT=1 cargo test --locked --test tmux_it -- --ignored
+        run: N12_TMUX_IT=1 cargo test -p agent-manager --locked --test tmux_it -- --ignored
 
   courier-rust:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/courier
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,55 +98,47 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q libsqlite3-dev pkg-config libssl-dev
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -W clippy::pedantic -D warnings
-      - run: cargo build --workspace --all-targets --locked
-      - run: cargo test --workspace --locked
+      # cargo fmt requires exact package names rather than Cargo's package globs.
+      - run: cargo fmt -p courier -p courier-ai -p courier-core -p courier-plugins -p courier-relay --check
+      - run: cargo clippy -p 'courier*' --all-targets --locked -- -W clippy::pedantic -D warnings
+      - run: cargo build -p 'courier*' --all-targets --locked
+      - run: cargo test -p 'courier*' --locked
 
   dispatcher-rust:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/dispatcher
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
+      - run: cargo fmt -p dispatcher --check
+      - run: cargo clippy -p dispatcher --all-targets --locked -- -D warnings
+      - run: cargo test -p dispatcher --locked
 
   control-plane-rust:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/control-plane
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
+      - run: cargo fmt -p control-plane --check
+      - run: cargo clippy -p control-plane --all-targets --locked -- -D warnings
+      - run: cargo test -p control-plane --locked
 
   box-agent-rust:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/box-agent
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
+      - run: cargo fmt -p box-agent --check
+      - run: cargo clippy -p box-agent --all-targets --locked -- -D warnings
+      - run: cargo test -p box-agent --locked
 
   typos:
     runs-on: ubuntu-latest

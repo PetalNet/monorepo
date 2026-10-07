@@ -17,7 +17,7 @@ flowchart TD
 
 JavaScript and TypeScript apps depend on packages, and packages depend on other
 packages sparingly. They should not depend directly on another app; extract shared
-code to a package. Native Cargo workspaces may use path dependencies between app
+code to a package. The root Cargo workspace uses path dependencies between app
 crates where they form one Rust subsystem—for example, Box Agent and Control Plane
 reuse Dispatcher contracts.
 
@@ -25,6 +25,37 @@ reuse Dispatcher contracts.
 `package.json` (including the Rust applications and Point's Flutter client)
 retain their native Cargo or Flutter workflow rather than becoming pnpm packages.
 Dependency versions for pnpm projects are centralized in strict catalogs there.
+
+## Rust workspace
+
+The root `Cargo.toml` owns eleven server/service crates, resolver 3, Courier's
+inherited dependencies and opt-in lints, and the release profile. Root
+`rust-toolchain.toml` pins Rust 1.96; Mise installs it lazily with
+`mise install --locked rust`. Member editions remain unchanged. Root
+`Cargo.lock` and `target/` are shared; app-local Cargo locks and toolchain pins
+are unnecessary. Release builds enable LTO and stripping for every member,
+extending the fleet apps' existing policy to Courier and Point.
+
+Fleet apps use the workspace's bundled rusqlite 0.37 to match Matrix SDK 0.14's
+SQLite binding. Cargo permits only one `sqlite3` native links version per
+lockfile; SQLx 0.9 accepts the shared libsqlite3-sys 0.35 binding. Changing this
+dependency requires checking compatibility across all three consumers.
+
+Point's Flutter bridge is explicitly excluded. It keeps a standalone Cargo
+workspace, lockfile and per-ABI output layout while depending on `point-core`
+by path. It inherits the repository Rust toolchain, not the root release profile.
+
+From the repository root, `cargo ... --workspace` selects all service crates.
+Use `-p <crate>` for focused operations; `-p 'courier*'` selects Courier's five
+crates for build, test and Clippy. `cargo fmt` requires exact package names.
+App jobs remain separate and package-scoped so Point's PostgreSQL and Manager's
+tmux tests retain their environment requirements. Point's image and Manager's
+Nix/container builds consume root workspace inputs but build only their service.
+Point releases also watch root Cargo and toolchain changes.
+
+Cargo unification is independent of experimental Turbo Rust integration.
+`turbo.json` continues to orchestrate only pnpm projects until native Cargo task
+selection and caching are validated separately.
 
 ## Root tasks and Turborepo
 

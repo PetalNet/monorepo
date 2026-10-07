@@ -43,7 +43,7 @@ use crate::args::Args;
 
 /// Everything before the sync loop must finish within this deadline or the
 /// startup guard exits the process for a clean restart.
-const STARTUP_DEADLINE: Duration = Duration::from_secs(30 * 60);
+const STARTUP_DEADLINE: Duration = Duration::from_mins(30);
 
 #[tokio::main]
 #[allow(
@@ -174,7 +174,7 @@ async fn main() -> Result<()> {
 
     let mut watchdog_threshold = Duration::from_secs(args.watchdog_secs);
     if !watchdog_threshold.is_zero() {
-        let min_watchdog = sync_timeout + Duration::from_secs(120);
+        let min_watchdog = sync_timeout + Duration::from_mins(2);
         if watchdog_threshold < min_watchdog {
             warn!(
                 requested_secs = watchdog_threshold.as_secs(),

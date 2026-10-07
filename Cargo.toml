@@ -1,10 +1,21 @@
 # NOTE ON RENAMING: "courier" is a placeholder service name. To rename the
-# project, see README.md § Renaming — the name appears only in crate names
-# (courier, courier-*) and the `service_name` module in crates/courier/src/.
+# project, see apps/courier/README.md § Renaming.
 [workspace]
 resolver = "3"
-members = ["crates/*"]
-default-members = ["crates/courier"]
+members = [
+	"apps/box-agent",
+	"apps/control-plane",
+	"apps/dispatcher",
+	"apps/manager",
+	"apps/courier/crates/*",
+	"apps/point/core",
+	"apps/point/server",
+]
+# The Flutter bridge keeps its own lockfile and per-ABI output layout.
+exclude = ["apps/point/app/rust"]
+
+[workspace.metadata]
+name = "petalnet-rust"
 
 [workspace.package]
 version = "0.1.0"
@@ -26,6 +37,8 @@ mime = "0.3"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rpassword = "7"
+# Matrix SDK 0.14 fixes rusqlite to 0.37; Cargo permits one sqlite3 links version.
+rusqlite = { version = "0.37", features = ["bundled"] }
 serde = "1"
 serde_json = "1"
 serde_yaml = "0.9"
@@ -35,10 +48,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4"] }
 
-courier-core = { path = "crates/courier-core" }
-courier-relay = { path = "crates/courier-relay" }
-courier-plugins = { path = "crates/courier-plugins" }
-courier-ai = { path = "crates/courier-ai" }
+courier-core = { path = "apps/courier/crates/courier-core" }
+courier-relay = { path = "apps/courier/crates/courier-relay" }
+courier-plugins = { path = "apps/courier/crates/courier-plugins" }
+courier-ai = { path = "apps/courier/crates/courier-ai" }
 
 [workspace.lints.rust]
 future-incompatible = "warn"
@@ -56,3 +69,7 @@ wildcard_enum_match_arm = "warn"
 
 too_many_lines = "allow"
 cognitive-complexity = "allow"
+
+[profile.release]
+lto = true
+strip = true

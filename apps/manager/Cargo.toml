@@ -22,7 +22,3 @@ sentry = { version = "0.48", default-features = false, features = [
 	"reqwest",
 	"rustls",
 ] }
-
-[profile.release]
-lto = true
-strip = true

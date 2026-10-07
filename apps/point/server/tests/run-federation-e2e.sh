@@ -6,6 +6,9 @@
 # Run from apps/point/server:  ./tests/run-federation-e2e.sh
 set -euo pipefail
 
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
+cd "$REPO_ROOT"
+
 PG_CONTAINER=point-dev-pg
 PG="docker exec $PG_CONTAINER psql -U point"
 JWT="fedtestsecretfedtestsecretfedtest123"
@@ -15,8 +18,12 @@ PORT_A=$(free_port); PORT_B=$(free_port)
 DOM_A="127.0.0.1:$PORT_A"; DOM_B="127.0.0.1:$PORT_B"
 
 echo "== building server =="
-( cd .. && cargo build -q -p point-server )
-BIN=../target/debug/point-server
+cargo build -q -p point-server
+# Cargo metadata resolves CARGO_TARGET_DIR (including relative paths) and any
+# configured target directory rather than assuming an app-local target/.
+TARGET_DIR=$(cargo metadata --no-deps --format-version 1 | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["target_directory"])')
+BIN="$TARGET_DIR/debug/point-server"
 
 for db in fed_a fed_b; do
   $PG -d postgres -c "DROP DATABASE IF EXISTS $db" >/dev/null 2>&1 || true
@@ -43,8 +50,8 @@ echo "A=http://$DOM_A  B=http://$DOM_B"
 echo "== running the two-instance E2E =="
 export FED_A_URL="http://$DOM_A" FED_B_URL="http://$DOM_B" FED_A_DOM="$DOM_A" FED_B_DOM="$DOM_B"
 set +e
-( cd .. && DATABASE_URL="postgres://point:point@localhost:5433/point_dev" \
-  cargo test -p point-server --test federation_e2e -- --ignored --nocapture )
+DATABASE_URL="postgres://point:point@localhost:5433/point_dev" \
+  cargo test -p point-server --test federation_e2e -- --ignored --nocapture
 RC=$?
 set -e
 

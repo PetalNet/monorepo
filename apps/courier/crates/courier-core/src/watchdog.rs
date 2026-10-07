@@ -171,12 +171,12 @@ mod tests {
 
     #[test]
     fn stall_detection_thresholds() {
-        let t = Duration::from_secs(300);
+        let t = Duration::from_mins(5);
         assert!(!is_stalled(Duration::from_secs(0), t));
         assert!(!is_stalled(Duration::from_secs(299), t));
-        assert!(!is_stalled(Duration::from_secs(300), t));
+        assert!(!is_stalled(Duration::from_mins(5), t));
         assert!(is_stalled(Duration::from_secs(301), t));
-        assert!(is_stalled(Duration::from_secs(60 * 60 * 49), t));
+        assert!(is_stalled(Duration::from_hours(49), t));
     }
 
     #[test]

@@ -31,10 +31,10 @@ use courier_core::{
 /// Default budget for a command/mention plugin invocation. Plugins whose
 /// legitimate worst case exceeds this override it via
 /// [`courier_core::plugin::Plugin::command_budget`].
-const COMMAND_BUDGET: Duration = Duration::from_secs(60);
+const COMMAND_BUDGET: Duration = Duration::from_mins(1);
 /// Default budget for passive handlers; overridable via
 /// [`courier_core::plugin::Plugin::passive_budget`] (the relay does).
-const PASSIVE_BUDGET: Duration = Duration::from_secs(300);
+const PASSIVE_BUDGET: Duration = Duration::from_mins(5);
 
 /// Immutable routing state shared by every handler invocation.
 #[derive(Debug)]

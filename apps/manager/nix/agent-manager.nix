@@ -18,6 +18,9 @@
   };
 
   mkDerivation = {
-    src = lib.cleanSource ../.;
+    src = lib.cleanSource ../../..;
   };
+
+  # Pinned rust-crane's build/check/test commands select --package ${config.name}
+  # automatically, so only agent-manager is built from the full workspace.
 }

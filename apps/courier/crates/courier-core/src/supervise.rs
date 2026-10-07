@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn backoff_reset_starts_over() {
-        let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(60));
+        let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_mins(1));
         let _ = backoff.next_delay();
         let _ = backoff.next_delay();
         backoff.reset();
