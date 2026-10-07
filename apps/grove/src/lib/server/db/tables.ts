@@ -1,5 +1,6 @@
+/* oxlint-disable effecttsgo/unnecessary-pipe-chain -- Single-option pipes retain effect-qb 0.24.1 field inference. */
 import { Schema } from "effect";
-import { Cast, Check, Column, Query, Table, Type } from "effect-qb";
+import { Cast, Check, Column, ForeignKey, Query, Table, Type } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 
 import { Counter } from "../../sprouts/schema.ts";
@@ -305,4 +306,207 @@ export const sprouts = publicSchema.table(
 		),
 	},
 	check("grove_demo_sprouts_waterings_nonnegative", "waterings >= 0"),
+);
+
+// Single-option pipes preserve typed fields across cyclic foreign keys.
+export let grove_objects = Table.make("grove_objects", {
+	id: Column.text(),
+	kind: Column.text(),
+	scope: Column.text(),
+	current_version_id: Column.text().pipe(Column.nullable),
+	created_at: timestamp(),
+}).pipe(Table.option({ kind: "primaryKey", name: "grove_objects_pkey", columns: ["id"] }));
+export let grove_object_versions = Table.make("grove_object_versions", {
+	id: Column.text(),
+	object_id: Column.text().pipe(
+		Pg.Column.foreignKey({
+			target: () => grove_objects.id,
+			name: "grove_object_versions_object_id_fkey",
+			onDelete: "noAction",
+			onUpdate: "noAction",
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	parent_version_id: Column.text().pipe(Column.nullable),
+	payload: Pg.Column.jsonb(Schema.Unknown),
+	digest: Column.text(),
+	actor_id: Column.text().pipe(
+		Pg.Column.foreignKey({
+			target: () => actors.id,
+			name: "grove_object_versions_actor_id_fkey",
+			onDelete: "noAction",
+			onUpdate: "noAction",
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	actor_kind: Column.text(),
+	created_at: timestamp(),
+})
+	.pipe(Table.option({ kind: "primaryKey", name: "grove_object_versions_pkey", columns: ["id"] }))
+	.pipe(
+		Table.option({
+			kind: "unique",
+			name: "grove_object_versions_id_object_id_key",
+			columns: ["id", "object_id"],
+		}),
+	)
+	.pipe(
+		check(
+			"grove_object_versions_actor_kind_check",
+			"actor_kind = ANY (ARRAY['person'::text, 'agent'::text])",
+		),
+	)
+	.pipe(check("grove_object_versions_digest_check", "digest ~ '^[0-9a-f]{64}$'::text"))
+	.pipe(
+		Table.option({
+			kind: "index",
+			name: "grove_object_versions_object_created_idx",
+			method: "btree",
+			keys: [
+				{ kind: "column", column: "object_id", order: "asc", nulls: "last" },
+				{ kind: "column", column: "created_at", order: "asc", nulls: "last" },
+				{ kind: "column", column: "id", order: "asc", nulls: "last" },
+			],
+		}),
+	)
+	.pipe(
+		Table.option({
+			kind: "index",
+			name: "grove_object_versions_parent_idx",
+			method: "btree",
+			keys: [{ kind: "column", column: "parent_version_id", order: "asc", nulls: "last" }],
+			predicate: Pg.SchemaExpression.fromSql("parent_version_id IS NOT NULL"),
+		}),
+	);
+
+grove_object_versions = grove_object_versions.pipe(
+	ForeignKey.make(
+		(table: typeof grove_object_versions) => [table.parent_version_id, table.object_id] as const,
+		() => [grove_object_versions.id, grove_object_versions.object_id],
+	).pipe(
+		ForeignKey.named("grove_object_versions_parent_version_id_object_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+);
+
+grove_objects = grove_objects.pipe(
+	ForeignKey.make(
+		(table: typeof grove_objects) => [table.current_version_id, table.id] as const,
+		() => [grove_object_versions.id, grove_object_versions.object_id],
+	).pipe(
+		ForeignKey.named("grove_objects_current_version_fk"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+);
+
+export const grove_project_tasks = Table.make("grove_project_tasks", {
+	object_id: Column.text().pipe(
+		Pg.Column.foreignKey({
+			target: () => grove_objects.id,
+			name: "grove_project_tasks_object_id_fkey",
+			onDelete: "noAction",
+			onUpdate: "noAction",
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	role: Column.text().pipe(Column.default(Query.literal("project").pipe(Cast.to(Type.text())))),
+	status: Column.text().pipe(Column.default(Query.literal("open").pipe(Cast.to(Type.text())))),
+})
+	.pipe(
+		Table.option({ kind: "primaryKey", name: "grove_project_tasks_pkey", columns: ["object_id"] }),
+	)
+	.pipe(check("grove_project_tasks_role_check", "role = 'project'::text"))
+	.pipe(check("grove_project_tasks_status_check", "status = 'open'::text"));
+export let grove_command_receipts = Table.make("grove_command_receipts", {
+	command_id: Column.uuid(),
+	operation: Column.text(),
+	principal_id: Column.text().pipe(
+		Pg.Column.foreignKey({
+			target: () => actors.id,
+			name: "grove_command_receipts_principal_id_fkey",
+			onDelete: "noAction",
+			onUpdate: "noAction",
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	principal_kind: Column.text(),
+	input_hash: Column.text(),
+	object_id: Column.text().pipe(
+		Pg.Column.foreignKey({
+			target: () => grove_objects.id,
+			name: "grove_command_receipts_object_id_fkey",
+			onDelete: "noAction",
+			onUpdate: "noAction",
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	version_id: Column.text(),
+	version_digest: Column.text(),
+	created_at: timestamp(),
+})
+	.pipe(
+		Table.option({
+			kind: "primaryKey",
+			name: "grove_command_receipts_pkey",
+			columns: ["command_id"],
+		}),
+	)
+	.pipe(
+		Table.option({
+			kind: "unique",
+			name: "grove_command_receipts_command_id_version_id_object_id_key",
+			columns: ["command_id", "version_id", "object_id"],
+		}),
+	)
+	.pipe(
+		check(
+			"grove_command_receipts_principal_kind_check",
+			"principal_kind = ANY (ARRAY['person'::text, 'agent'::text])",
+		),
+	);
+
+grove_command_receipts = grove_command_receipts.pipe(
+	ForeignKey.make(
+		(table: typeof grove_command_receipts) => [table.version_id, table.object_id] as const,
+		() => [grove_object_versions.id, grove_object_versions.object_id],
+	).pipe(
+		ForeignKey.named("grove_command_receipts_version_id_object_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+);
+
+export let grove_outbox = Table.make("grove_outbox", {
+	id: Column.text(),
+	command_id: Column.uuid().pipe(Pg.Column.unique.options({ name: "grove_outbox_command_id_key" })),
+	version_id: Column.text(),
+	event_type: Column.text(),
+	aggregate_id: Column.text(),
+	payload: Pg.Column.jsonb(Schema.Unknown),
+	created_at: timestamp(),
+	published_at: Pg.Column.timestamptz().pipe(Column.nullable),
+}).pipe(Table.option({ kind: "primaryKey", name: "grove_outbox_pkey", columns: ["id"] }));
+
+grove_outbox = grove_outbox.pipe(
+	ForeignKey.make(
+		(table: typeof grove_outbox) =>
+			[table.command_id, table.version_id, table.aggregate_id] as const,
+		() => [
+			grove_command_receipts.command_id,
+			grove_command_receipts.version_id,
+			grove_command_receipts.object_id,
+		],
+	).pipe(
+		ForeignKey.named("grove_outbox_command_id_version_id_aggregate_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+		Pg.ForeignKey.initiallyDeferred,
+	),
 );

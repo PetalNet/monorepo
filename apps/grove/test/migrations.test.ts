@@ -32,6 +32,7 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 		await migrate(container.getConnectionUri());
 		await migrate(container.getConnectionUri());
 		await migrate(container.getConnectionUri(), "down");
+		await migrate(container.getConnectionUri(), "down");
 
 		expect(
 			await runtime.runPromise(
@@ -59,10 +60,15 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 			"grove_actors",
 			"grove_agent_access",
 			"grove_agents",
+			"grove_command_receipts",
 			"grove_demo_sprouts",
 			"grove_external_identities",
 			"grove_hosts",
+			"grove_object_versions",
+			"grove_objects",
+			"grove_outbox",
 			"grove_persons",
+			"grove_project_tasks",
 			"session",
 			"user",
 			"verification",

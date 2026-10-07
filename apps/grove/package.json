@@ -36,6 +36,7 @@
 	},
 	"devDependencies": {
 		"@effect/platform-node": "catalog:",
+		"@effect/vitest": "catalog:",
 		"@sveltejs/adapter-node": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",

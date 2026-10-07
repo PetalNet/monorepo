@@ -29,4 +29,13 @@ tweaks, not a custom generator or dependency patch.
 
 The migration test exercises the upstream CLI's fresh install, repeat install,
 rollback, and reinstall, and requires an empty effect-db schema diff across all
-twelve tables, including constraints, indexes, defaults, and foreign keys.
+seventeen tables, including constraints, indexes, defaults, and foreign keys.
+
+`0002_objects.sql` is the working `project.create` slice: Objects, append-only
+Versions, the Project facet, principal-bound command receipts, and one atomic
+outbox event per command. Only `project.create` is granted. Replay reauthorizes
+against current Actor authority before returning the original receipt. Version
+payloads use `task` for the ask and `role: 'project'`; receipts intentionally have
+no JSON response column. The immutable baseline remains unchanged. Trigger
+behavior (append-only Versions and durable Actor provenance) is reviewed SQL,
+not representable in the canonical metadata.

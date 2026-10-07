@@ -1,6 +1,6 @@
 import { isHttpError, type RequestEvent } from "@sveltejs/kit";
 import { Cause, Context, Effect, Layer } from "effect";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { makeEffectSvelteKitRuntime, SvelteKitRequestEvent } from "../src/index.js";
 
@@ -331,10 +331,20 @@ describe("makeEffectSvelteKitRuntime", () => {
 	it("exposes mapped failures without logging ordinary client errors", async () => {
 		const logged = vi.fn();
 		const runtime = makeEffectSvelteKitRuntime(Layer.empty, {
-			mapFailure: (failure) =>
+			mapFailure: (failure: string) =>
 				failure === "missing" ? { status: 404, message: "Sprout not found" } : undefined,
 			logCause: logged,
 		});
+
+		expectTypeOf<Parameters<typeof runtime.run>[0]>().toEqualTypeOf<
+			Effect.Effect<unknown, string, SvelteKitRequestEvent>
+		>();
+
+		expectTypeOf(Effect.fail(404)).not.toExtend<Parameters<typeof runtime.run>[0]>();
+
+		expectTypeOf<Parameters<typeof runtime.handle>[0]>().returns.toEqualTypeOf<
+			Effect.Effect<Response, string, SvelteKitRequestEvent>
+		>();
 
 		await expectHttpError(runtime.run(Effect.fail("missing"), eventFor()), 404, "Sprout not found");
 		expect(logged).not.toHaveBeenCalled();
