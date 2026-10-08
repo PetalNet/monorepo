@@ -35,6 +35,7 @@ export const actions: Actions = {
 
 		// Find user
 		const user = await findUserByName(firstName, lastName);
+
 		if (!user) {
 			return fail(400, {
 				error: "Invalid name or password",
@@ -45,6 +46,7 @@ export const actions: Actions = {
 
 		// Verify password
 		const valid = await verifyPassword(password, user.passwordHash);
+
 		if (!valid) {
 			return fail(400, {
 				error: "Invalid name or password",

@@ -66,6 +66,7 @@ describe("checkConsistency", () => {
 			"lang.header-vs-js",
 			"tz.vs-ip-country",
 		]);
+
 		expect(results.find((result) => result.id === "ch.present-on-nonchromium")?.severity).toBe(
 			"high",
 		);
@@ -85,9 +86,11 @@ describe("checkConsistency", () => {
 describe("verdictOf", () => {
 	it("prioritizes high-severity contradictions over lower-severity findings", () => {
 		expect(verdictOf([])).toBe("coherent");
+
 		expect(verdictOf([{ severity: "medium" } as ReturnType<typeof checkConsistency>[number]])).toBe(
 			"minor",
 		);
+
 		expect(
 			verdictOf([
 				{ severity: "medium" } as ReturnType<typeof checkConsistency>[number],

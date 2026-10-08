@@ -41,10 +41,12 @@ describe("toDay / fromDay", () => {
 		let day = toDay("2025-01-01");
 		const last = toDay("2029-01-01");
 		let count = 0;
+
 		for (; day <= last; day++) {
 			expect(toDay(fromDay(day))).toBe(day);
 			count++;
 		}
+
 		// 2025 + 2026 + 2027 (365 each) + 2028 (366) + 1 = 1462
 		expect(count).toBe(1462);
 	});
@@ -66,6 +68,7 @@ describe("toDay / fromDay", () => {
 		const original = process.env.TZ;
 		const ours: string[] = [];
 		const naive: number[] = [];
+
 		try {
 			for (const tz of zones) {
 				process.env.TZ = tz;
@@ -78,6 +81,7 @@ describe("toDay / fromDay", () => {
 		} finally {
 			process.env.TZ = original;
 		}
+
 		expect(new Set(naive).size).toBeGreaterThan(1);
 		expect(new Set(ours)).toEqual(new Set(["20806|2026-12-19"]));
 	});

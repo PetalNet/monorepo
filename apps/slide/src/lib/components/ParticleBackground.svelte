@@ -16,6 +16,7 @@
 	onMount(() => {
 		// Reduce particle count for better performance on older devices
 		const particleCount = 15; // Reduced from 25 to 15
+
 		particles = Array.from({ length: particleCount }, (_, i) => ({
 			id: i,
 			x: Math.random() * 100,
@@ -32,6 +33,7 @@
 
 		const animateParticles = () => {
 			frameCount++;
+
 			// Update every 5th frame instead of every 3rd
 			if (frameCount % 5 === 0) {
 				particles = particles.map((p) => {
@@ -42,12 +44,15 @@
 					if (newX < 0) {
 						newX = 100;
 					}
+
 					if (newX > 100) {
 						newX = 0;
 					}
+
 					if (newY < 0) {
 						newY = 100;
 					}
+
 					if (newY > 100) {
 						newY = 0;
 					}
@@ -55,6 +60,7 @@
 					return { ...p, x: newX, y: newY };
 				});
 			}
+
 			animationFrameId = requestAnimationFrame(animateParticles);
 		};
 

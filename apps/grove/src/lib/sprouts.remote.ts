@@ -25,7 +25,9 @@ export const createSprout = form(CreateSproutValidator, async (input) => {
 		withBrowserInvocation(Effect.flatMap(SproutCommands, (commands) => commands.create(input))),
 		getRequestEvent(),
 	);
+
 	await requested(listSprouts, 1).refreshAll();
+
 	return sprout;
 });
 
@@ -34,7 +36,9 @@ export const waterSprout = form(WaterSproutValidator, async ({ id }) => {
 		withBrowserInvocation(Effect.flatMap(SproutCommands, (commands) => commands.water(id))),
 		getRequestEvent(),
 	);
+
 	await Promise.all([requested(listSprouts, 1).refreshAll(), requested(getSprout, 1).refreshAll()]);
+
 	return sprout;
 });
 
@@ -43,6 +47,8 @@ export const removeSprout = form(SproutIdValidator, async ({ id }) => {
 		withBrowserInvocation(Effect.flatMap(SproutCommands, (commands) => commands.remove(id))),
 		getRequestEvent(),
 	);
+
 	await requested(listSprouts, 1).refreshAll();
+
 	return removed;
 });

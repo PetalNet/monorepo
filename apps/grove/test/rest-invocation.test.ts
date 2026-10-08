@@ -11,6 +11,7 @@ import {
 
 const eventFor = (actor: App.Locals["actor"]) => {
 	const request = new Request("https://grove.example/api/v1/sprouts");
+
 	return {
 		request,
 		url: new URL(request.url),
@@ -27,16 +28,19 @@ describe("REST invocation", () => {
 			name: "Query Person",
 		};
 		const event = eventFor(actor);
+
 		Object.defineProperty(event, "url", {
 			get: () => {
 				throw new Error("Kit remote query hides event.url");
 			},
 		});
+
 		const invocation = await Effect.runPromise(
 			withBrowserInvocation(Effect.map(InvocationContext, (context) => context)).pipe(
 				Effect.provideService(SvelteKitRequestEvent, event),
 			),
 		);
+
 		expect(invocation).toEqual({ principal: actor });
 	});
 
@@ -48,6 +52,7 @@ describe("REST invocation", () => {
 		);
 
 		expect(response.status).toBe(401);
+
 		expect(await response.json()).toEqual({
 			error: { code: "operation_failed", message: "Authentication required" },
 		});

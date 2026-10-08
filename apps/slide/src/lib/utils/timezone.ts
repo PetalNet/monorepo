@@ -103,17 +103,23 @@ export function formatRelativeWithTimezone(date: Date | string, timezone: string
 	// For past dates
 	if (diffMs < 0) {
 		const absDays = Math.abs(diffDays);
+
 		if (absDays === 0) {
 			const absHours = Math.abs(diffHours);
+
 			if (absHours === 0) {
 				const absMins = Math.abs(diffMins);
+
 				return `${absMins} minute${absMins === 1 ? "" : "s"} ago`;
 			}
+
 			return `${absHours} hour${absHours === 1 ? "" : "s"} ago`;
 		}
+
 		if (absDays < 7) {
 			return `${absDays} day${absDays === 1 ? "" : "s"} ago`;
 		}
+
 		return formatInTimezone(dateObj, timezone, {
 			month: "short",
 			day: "numeric",
@@ -127,8 +133,10 @@ export function formatRelativeWithTimezone(date: Date | string, timezone: string
 		if (diffHours === 0) {
 			return `in ${diffMins} minute${diffMins === 1 ? "" : "s"}`;
 		}
+
 		return `in ${diffHours} hour${diffHours === 1 ? "" : "s"}`;
 	}
+
 	if (diffDays < 7) {
 		return `in ${diffDays} day${diffDays === 1 ? "" : "s"}`;
 	}

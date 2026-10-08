@@ -15,10 +15,12 @@ const forbidden = [
 
 const files = async (directory: string): Promise<string[]> => {
 	const entries = await readdir(directory, { withFileTypes: true });
+
 	return (
 		await Promise.all(
 			entries.map(async (entry) => {
 				const filePath = path.resolve(directory, entry.name);
+
 				return entry.isDirectory() ? files(filePath) : [filePath];
 			}),
 		)
@@ -35,6 +37,7 @@ const artifacts = await Promise.all(
 		path: filePath,
 	})),
 );
+
 for (const { content, path: filePath } of artifacts) {
 	for (const marker of forbidden) {
 		if (content.includes(marker)) {

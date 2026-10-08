@@ -6,6 +6,7 @@ const requireRuntimeString = (value: unknown, name: string) => {
 	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
 	}
+
 	return value;
 };
 
@@ -17,6 +18,7 @@ const runtimeConfig = (): McpIngressConfig => ({
 
 export const groveMcpIngress = (<T>(initialize: () => T) => {
 	let ingress: T | undefined;
+
 	return () => (ingress ??= initialize());
 })(() => makeMcpIngress(runtimeConfig()));
 

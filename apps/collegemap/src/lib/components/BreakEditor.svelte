@@ -104,6 +104,7 @@
 			action="?/add"
 			use:enhance={() => {
 				submitting = true;
+
 				return async ({ update }) => {
 					await update();
 					submitting = false;

@@ -4,6 +4,7 @@ let container: StartedPostgreSqlContainer | undefined;
 
 export const startPostgres = async () => {
 	container = await new PostgreSqlContainer("postgres:17-alpine").start();
+
 	return container.getConnectionUri();
 };
 

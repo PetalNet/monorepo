@@ -11,12 +11,15 @@ const safeUrl = Schema.NonEmptyString.check(
 		}
 
 		const url = new URL(value);
+
 		if (url.username || url.password || url.search || url.hash) {
 			return false;
 		}
+
 		if (url.protocol === "https:") {
 			return true;
 		}
+
 		return (
 			dev &&
 			url.protocol === "http:" &&

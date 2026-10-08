@@ -77,18 +77,25 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 		if (state !== "open") {
 			return Promise.reject(disposedError());
 		}
+
 		return (initialization ??= (async () => {
 			const fiber = runtime.runFork(Effect.void);
+
 			initializationFiber = fiber;
 			const exit = await Effect.runPromise(Fiber.await(fiber));
+
 			initializationFiber = undefined;
+
 			if (Exit.isSuccess(exit)) {
 				return;
 			}
+
 			if (Cause.hasInterruptsOnly(exit.cause) && (state as RuntimeState) !== "open") {
 				throw disposedError();
 			}
+
 			logCause(exit.cause, undefined);
+
 			throw new Error("The Effect runtime failed to initialize");
 		})());
 	};
@@ -98,6 +105,7 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 		event: RequestEvent,
 	): Promise<A> => {
 		await initialize();
+
 		if (state !== "open") {
 			throw disposedError();
 		}
@@ -105,10 +113,13 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 		const fiber = runtime.runFork(Effect.provideService(effect, SvelteKitRequestEvent, event), {
 			signal: event.request.signal,
 		});
+
 		activeFibers.add(fiber);
+
 		const exit = await Effect.runPromise(Fiber.await(fiber)).finally(() => {
 			activeFibers.delete(fiber);
 		});
+
 		if (Exit.isSuccess(exit)) {
 			return exit.value;
 		}
@@ -123,9 +134,11 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 				event.request.signal.reason ?? new DOMException("The request was aborted", "AbortError")
 			);
 		}
+
 		if (Cause.hasInterruptsOnly(exit.cause) && (state as RuntimeState) !== "open") {
 			throw disposedError();
 		}
+
 		if (Cause.hasInterrupts(exit.cause)) {
 			logCause(exit.cause, event);
 			error(500, "Internal server error");
@@ -133,24 +146,30 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 
 		const failures = exit.cause.reasons.filter(Cause.isFailReason);
 		const failure = failures[0];
+
 		if (failure === undefined || failures.length !== 1) {
 			logCause(exit.cause, event);
 			error(500, "Internal server error");
 		}
+
 		let exposed: PublicFailure | undefined;
+
 		try {
 			exposed = options.mapFailure?.(failure.error);
 		} catch (defect) {
 			logCause(Cause.combine(exit.cause, Cause.die(defect)), event);
 			error(500, "Internal server error");
 		}
+
 		if (!validPublicFailure(exposed)) {
 			logCause(exit.cause, event);
 			error(500, "Internal server error");
 		}
+
 		if (exposed.log) {
 			logCause(exit.cause, event);
 		}
+
 		error(exposed.status, exposed.message);
 	};
 
@@ -170,19 +189,24 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 		if (disposal) {
 			return disposal;
 		}
+
 		state = "disposing";
+
 		const teardown = async (): Promise<void> => {
 			try {
 				if (initializationFiber) {
 					await Effect.runPromise(Fiber.interrupt(initializationFiber));
 				}
+
 				await Effect.runPromise(Fiber.interruptAll(activeFibers));
 				await runtime.dispose();
 			} finally {
 				state = "disposed";
 			}
 		};
+
 		disposal = Promise.resolve().then(teardown);
+
 		return disposal;
 	};
 

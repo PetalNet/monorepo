@@ -17,6 +17,7 @@ function findDomain(collegeName: string): string | null {
 
 	// Direct lookup
 	const direct = collegeDomains.get(norm);
+
 	if (direct) {
 		return direct;
 	}
@@ -24,6 +25,7 @@ function findDomain(collegeName: string): string | null {
 	// Try original lowercase
 	const lower = collegeName.toLowerCase().trim();
 	const lower2 = collegeDomains.get(lower);
+
 	if (lower2) {
 		return lower2;
 	}
@@ -34,6 +36,7 @@ function findDomain(collegeName: string): string | null {
 		", ",
 	);
 	const c = collegeDomains.get(withCommas);
+
 	if (c) {
 		return c;
 	}
@@ -55,8 +58,10 @@ function findDomain(collegeName: string): string | null {
 		.replace(/ phoenix campus$/, "")
 		.replace(/ at kent$/, "")
 		.replace(/ at .*$/, "");
+
 	if (stripped !== norm) {
 		const s = collegeDomains.get(stripped);
+
 		if (s) {
 			return s;
 		}
@@ -67,8 +72,10 @@ function findDomain(collegeName: string): string | null {
 
 export function getLogoUrl(collegeName: string, size = 64): string | null {
 	const domain = findDomain(collegeName);
+
 	if (!domain) {
 		return null;
 	}
+
 	return `https://www.google.com/s2/favicons?domain=${domain}&sz=${size.toString()}`;
 }

@@ -39,13 +39,16 @@ const protocol: McpProtocol.ProtocolAdapter = {
 						const request = yield* HttpServerRequest.HttpServerRequest;
 						const allowed =
 							request.headers["mcp-method"] === "tools/call" ? access.callable : access.listed;
+
 						return (yield* core.tools.list(profile)).filter((tool) => allowed.has(tool.name));
 					}),
 					call: Effect.fnUntraced(function* (call: { readonly name: string }, invocation: unknown) {
 						const access = yield* ApiRequest;
+
 						if (!access.callable.has(call.name)) {
 							return yield* new McpSchema.InvalidParams({ message: "Unknown tool" });
 						}
+
 						return yield* core.tools.call(call, invocation);
 					}),
 				},
@@ -59,6 +62,7 @@ const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Json));
 
 const contentFor = Effect.fnUntraced(function* (value: Schema.Json, isError: boolean) {
 	const text = yield* encodeJson(value);
+
 	return new McpSchema.CallToolResult({
 		content: [{ type: "text", text }],
 		structuredContent: value,
@@ -71,6 +75,7 @@ export const createMcpLayer = <R>(config: McpConfig<R>) =>
 	Layer.effectDiscard(
 		Effect.gen(function* () {
 			const server = yield* McpServer.McpServer;
+
 			for (const operation of config.operations) {
 				yield* server.addTool({
 					tool: new McpSchema.Tool({
@@ -88,10 +93,13 @@ export const createMcpLayer = <R>(config: McpConfig<R>) =>
 					handle: Effect.fnUntraced(function* (input: unknown) {
 						// MCP erases custom handler requirements; fail closed if invoked outside our HTTP boundary.
 						const current = yield* Effect.serviceOption(ApiRequest);
+
 						if (Option.isNone(current)) {
 							return yield* Effect.die("Missing API request context");
 						}
+
 						const request = current.value;
+
 						return yield* invokeOperation(operation, input, config.logCause).pipe(
 							Effect.provide(request.services),
 							Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
@@ -106,6 +114,7 @@ export const createMcpLayer = <R>(config: McpConfig<R>) =>
 									).pipe(Effect.orDie),
 								SchemaError: (error) => {
 									config.logCause(operation.name, Cause.fail(error));
+
 									return contentFor(
 										{ error: { code: "operation_failed", message: "The operation failed" } },
 										true,

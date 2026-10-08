@@ -16,6 +16,7 @@ const required = (value: unknown, name: string) => {
 	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
 	}
+
 	return value;
 };
 
@@ -25,6 +26,7 @@ export const GroveAuthLayer = Layer.effect(
 		const context = yield* Effect.context<PgClient.PgClient>();
 		const sql = yield* PgClient.PgClient;
 		const authority = yield* ActorAuthority;
+
 		return yield* Effect.promise(() =>
 			makeGroveBrowserAuth(
 				{

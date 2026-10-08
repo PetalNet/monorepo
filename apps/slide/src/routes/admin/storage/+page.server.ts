@@ -8,9 +8,11 @@ export const load: PageServerLoad = async () => {
 	// Get database file size
 	let dbSize = 0;
 	let dbPath = "";
+
 	try {
 		dbPath = process.env.DATABASE_URL?.replace("file:", "") || "./prisma/dev.db";
 		const stats = await fs.stat(dbPath);
+
 		dbSize = stats.size;
 	} catch (error) {
 		console.error("Error reading database size:", error);

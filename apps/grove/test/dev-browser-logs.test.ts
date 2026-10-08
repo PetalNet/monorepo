@@ -11,7 +11,9 @@ const temporaryDirectories: string[] = [];
 const browserLogMaxBytes = 1024 * 1024;
 const logPath = async () => {
 	const directory = await mkdtemp(path.join(tmpdir(), "grove-browser-log-"));
+
 	temporaryDirectories.push(directory);
+
 	return path.join(directory, "grove-browser.log");
 };
 
@@ -53,6 +55,7 @@ describe("Grove development browser logs", () => {
 		expect(serialized).toContain("/plain?page=4");
 		expect(serialized).toContain("/embedded?page=5");
 		expect(serialized).toContain("[REDACTED]");
+
 		const response = await ingestDevBrowserLogs(
 			new Request("https://grove.test/__dev/logs/browser", {
 				method: "POST",
@@ -63,9 +66,12 @@ describe("Grove development browser logs", () => {
 			}),
 			filePath,
 		);
+
 		expect(response.status).toBe(202);
 		const persisted = await readFile(filePath, "utf8");
+
 		expect(persisted).toContain("request-123");
+
 		for (const secret of [
 			"basic-secret",
 			"api-key-secret",
@@ -96,6 +102,7 @@ describe("Grove development browser logs", () => {
 		);
 
 		expect(serialized).toContain("visible-request");
+
 		for (const secret of [
 			"bearer-value",
 			"YmFzaWM6dmFsdWU=",
@@ -134,17 +141,22 @@ describe("Grove development browser logs", () => {
 
 		expect(response.status).toBe(202);
 		const contents = await readFile(filePath, "utf8");
+
 		expect(contents.split("\n").filter(Boolean)).toHaveLength(1);
 		const timestamp = contents.slice(0, contents.indexOf(" "));
+
 		expect(Date.parse(timestamp)).toBeGreaterThanOrEqual(before);
 		expect(Date.parse(timestamp)).toBeLessThanOrEqual(Date.now());
 		expect(contents).not.toContain("1999-12-31");
+
 		expect(contents).toContain(
 			"[browser:unhandled-rejection] window.unhandledrejection fetch failed\\n\\t",
 		);
+
 		expect(contents).toContain("request=kept");
 		expect(contents).toContain("request=also-kept");
 		expect(contents).toContain("[REDACTED]");
+
 		for (const secret of [
 			"should-not-reach-disk",
 			"api-secret",
@@ -155,8 +167,10 @@ describe("Grove development browser logs", () => {
 		]) {
 			expect(contents).not.toContain(secret);
 		}
+
 		for (const character of contents) {
 			const codePoint = character.codePointAt(0) ?? 0;
+
 			expect(
 				codePoint <= 0x08 ||
 					(codePoint >= 0x0b && codePoint <= 0x0c) ||
@@ -194,6 +208,7 @@ describe("Grove development browser logs", () => {
 
 	it("rotates the stable file before it can exceed its bound", async () => {
 		const filePath = await logPath();
+
 		await writeFile(filePath, `old-marker${"x".repeat(browserLogMaxBytes)}`);
 
 		const response = await ingestDevBrowserLogs(
@@ -209,6 +224,7 @@ describe("Grove development browser logs", () => {
 
 		expect(response.status).toBe(202);
 		const contents = await readFile(filePath, "utf8");
+
 		expect(Buffer.byteLength(contents)).toBeLessThanOrEqual(browserLogMaxBytes);
 		expect(contents).toContain("new bounded event");
 		expect(contents).not.toContain("old-marker");

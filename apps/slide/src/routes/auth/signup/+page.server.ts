@@ -32,11 +32,13 @@ export const actions: Actions = {
 
 			// Redirect to the 'redirectTo' parameter if present, otherwise dashboard
 			const redirectTo = url.searchParams.get("redirectTo") || "/dashboard";
+
 			throw redirect(303, redirectTo);
 		} catch (error) {
 			if (error instanceof Error && (error as { code?: string }).code === "P2002") {
 				return fail(400, { error: "Email already exists" });
 			}
+
 			throw error;
 		}
 	},

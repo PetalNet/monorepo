@@ -17,17 +17,22 @@
 		if (!import.meta.env.DEV || !data.devBrowserLogs) {
 			return;
 		}
+
 		let disposed = false;
 		let remove: (() => void) | undefined;
+
 		void import("#lib/dev/browser-logs.ts").then(({ installDevBrowserLogs }) => {
 			const installed = installDevBrowserLogs();
+
 			if (disposed) {
 				installed();
 			} else {
 				remove = installed;
 			}
+
 			return undefined;
 		});
+
 		return () => {
 			disposed = true;
 			remove?.();

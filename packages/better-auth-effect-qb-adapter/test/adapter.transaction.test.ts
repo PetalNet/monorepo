@@ -46,9 +46,11 @@ describe("effect-qb Postgres transaction", async () => {
 					},
 					forceAllowId: true,
 				});
+
 				throw new Error("rollback");
 			}),
 		).rejects.toThrow("rollback");
+
 		expect(await adapter.count({ model: "user" })).toBe(0);
 	});
 

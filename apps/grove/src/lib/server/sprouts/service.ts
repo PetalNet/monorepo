@@ -139,6 +139,7 @@ export const SproutCommandsLayer = Layer.effect(
 					),
 				);
 				const row = rows.at(0);
+
 				return row ? fromRow(row) : yield* new SproutNotFound(id);
 			});
 		const command = <A, E>(
@@ -149,6 +150,7 @@ export const SproutCommandsLayer = Layer.effect(
 				if (principal.kind !== "person" && principal.kind !== "agent") {
 					return Effect.fail(new ActorDenied("An enrolled actor is required"));
 				}
+
 				return sql
 					.withTransaction(
 						authority.authorizeActor(principal, operation).pipe(Effect.andThen(run(principal))),
@@ -157,6 +159,7 @@ export const SproutCommandsLayer = Layer.effect(
 						Effect.catchTag("SqlError", (cause) => Effect.fail(new SproutDatabaseError(cause))),
 					);
 			});
+
 		return {
 			list: command("sprouts.list", () => list),
 			get: (id) => command("sprouts.get", () => get(id)),
@@ -188,9 +191,11 @@ export const SproutCommandsLayer = Layer.effect(
 										),
 									);
 									const row = current.at(0);
+
 									if (!row) {
 										return [];
 									}
+
 									const waterings = yield* Schema.decodeEffect(Counter)(row.waterings + 1);
 
 									const updated = yield* executor.execute(
@@ -201,9 +206,11 @@ export const SproutCommandsLayer = Layer.effect(
 											Query.returning(sproutSelection),
 										),
 									);
+
 									if (updated.length > 0) {
 										return updated;
 									}
+
 									return yield* new SproutOutOfDate();
 								}),
 							),
@@ -216,6 +223,7 @@ export const SproutCommandsLayer = Layer.effect(
 							Effect.mapError((cause) => new SproutDatabaseError(cause)),
 						);
 						const row = rows.at(0);
+
 						return row ? fromRow(row) : yield* new SproutNotFound(id);
 					}),
 				),
@@ -233,9 +241,11 @@ export const SproutCommandsLayer = Layer.effect(
 								),
 							),
 						);
+
 						if (rows.length === 0) {
 							return yield* new SproutNotFound(id);
 						}
+
 						return { removed: true as const };
 					}),
 				),

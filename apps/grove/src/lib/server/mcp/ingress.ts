@@ -54,20 +54,25 @@ class InvalidMcpConfiguration extends Data.TaggedError("InvalidMcpConfiguration"
 
 const canonicalUrl = (value: string, name: string, originOnly = false) => {
 	let url: URL;
+
 	try {
 		url = new URL(value);
 	} catch {
 		throw new InvalidMcpConfiguration(`${name} must be an absolute URL`);
 	}
+
 	if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
 		throw new InvalidMcpConfiguration(`${name} must use HTTPS`);
 	}
+
 	if (url.username || url.password || url.search || url.hash) {
 		throw new InvalidMcpConfiguration(`${name} must not contain credentials, query, or fragment`);
 	}
+
 	if (originOnly && url.pathname !== "/") {
 		throw new InvalidMcpConfiguration(`${name} must be a canonical origin`);
 	}
+
 	return url.href.replace(/\/$/, "");
 };
 
@@ -83,6 +88,7 @@ const metadataUrl = (config: McpIngressConfig) =>
 
 const mcpProtectedResourceMetadata = (config: McpIngressConfig) => {
 	const checked = validatedConfig(config);
+
 	return {
 		resource: resource(checked),
 		authorization_servers: [checked.issuer],
@@ -93,6 +99,7 @@ const mcpProtectedResourceMetadata = (config: McpIngressConfig) => {
 
 const dependencyUnavailable = (error: unknown) => {
 	console.error("Grove MCP JWKS dependency unavailable", error);
+
 	return Response.json(
 		{ error: "identity_provider_unavailable", message: "MCP identity validation is unavailable" },
 		{ status: 503 },
@@ -101,6 +108,7 @@ const dependencyUnavailable = (error: unknown) => {
 
 const authorityUnavailable = (error: ActorDatabaseError) => {
 	console.error("Grove MCP actor authority unavailable", error.cause);
+
 	return Response.json(
 		{ error: "authority_unavailable", message: "MCP actor resolution is unavailable" },
 		{ status: 503 },
@@ -127,10 +135,13 @@ const requestTooLarge = () =>
 
 const readRequest = Effect.fnUntraced(function* (request: Request) {
 	const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+
 	if (mediaType !== "application/json") {
 		return yield* new McpRejected({ response: unsupportedMediaType() });
 	}
+
 	const contentLength = request.headers.get("content-length");
+
 	if (
 		contentLength &&
 		/^\d+$/.test(contentLength) &&
@@ -138,10 +149,13 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 	) {
 		return yield* new McpRejected({ response: requestTooLarge() });
 	}
+
 	const body = request.body;
+
 	if (!body) {
 		return yield* new McpRejected({ response: parseError() });
 	}
+
 	const { chunks, byteLength } = yield* Stream.fromReadableStream({
 		evaluate: () => body,
 		onError: () => new McpRejected({ response: parseError() }),
@@ -150,10 +164,13 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 			() => ({ chunks: [] as Uint8Array[], byteLength: 0 }),
 			(state, chunk) => {
 				state.byteLength += chunk.byteLength;
+
 				if (state.byteLength > MCP_MAX_REQUEST_BYTES) {
 					return Effect.fail(new McpRejected({ response: requestTooLarge() }));
 				}
+
 				state.chunks.push(chunk);
+
 				return Effect.succeed(state);
 			},
 		),
@@ -161,14 +178,17 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 
 	const bytes = new Uint8Array(byteLength);
 	let offset = 0;
+
 	for (const chunk of chunks) {
 		bytes.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
+
 	// Validate UTF-8 without parsing JSON; MCP owns protocol decoding and routing.
 	if (!isUtf8(bytes)) {
 		return yield* new McpRejected({ response: parseError() });
 	}
+
 	return HttpServerRequest.fromClientRequest(
 		HttpClientRequest.make(request.method as HttpMethod.HttpMethod)(request.url).pipe(
 			HttpClientRequest.bodyUint8Array(bytes),
@@ -189,9 +209,11 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 			const callable = new Set(listed);
 			const canRetryEnrollment =
 				principal.kind === "agent" && identity.scopes.has("grove:agent:enroll");
+
 			if (canRetryEnrollment) {
 				callable.add("agents.enrollSelf");
 			}
+
 			return yield* groveApi.fetch(incoming, { listed, callable }).pipe(
 				Effect.provideService(InvocationContext, {
 					principal,
@@ -216,6 +238,7 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 		handle: Effect.fnUntraced(function* (request: Request) {
 			const services = yield* Effect.context<ActorAuthority | SproutCommands | ApiServer>();
 			const scope = yield* Effect.scope;
+
 			return yield* Effect.tryPromise({
 				try: (signal) =>
 					createMcpProtectedRequestHandler(
@@ -234,6 +257,7 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 							if (signal.aborted || incoming.signal.aborted) {
 								throw new McpInvocationFailed({ cause: Cause.interrupt() });
 							}
+
 							if (typeof claims.sub !== "string" || claims.sub.length === 0) {
 								return new Response(null, {
 									status: 401,
@@ -242,6 +266,7 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 									},
 								});
 							}
+
 							// Reuse this request's services and interruption; do not create another ManagedRuntime.
 							const exit = await Effect.runPromiseExitWith(services)(
 								dispatch(incoming, {
@@ -252,9 +277,11 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 								}).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join)),
 								{ signal: AbortSignal.any([signal, incoming.signal]) },
 							);
+
 							if (Exit.isFailure(exit)) {
 								throw new McpInvocationFailed({ cause: exit.cause });
 							}
+
 							return exit.value;
 						},
 					)(request),

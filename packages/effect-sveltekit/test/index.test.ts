@@ -12,6 +12,7 @@ const deferred = () => {
 	const promise = new Promise<void>((resolve) => {
 		complete = resolve;
 	});
+
 	return { promise, resolve: complete };
 };
 
@@ -45,6 +46,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 		expect(acquisitions).toBe(1);
 
 		const firstDisposal = runtime.dispose();
+
 		expect(runtime.dispose()).toBe(firstDisposal);
 		await firstDisposal;
 		expect(releases).toBe(1);
@@ -63,6 +65,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 				runtime.run(currentUrl, eventFor(undefined, "/two")),
 			]),
 		).resolves.toEqual(["https://grove.test/one", "https://grove.test/two"]);
+
 		await runtime.dispose();
 	});
 
@@ -73,6 +76,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 			Effect.gen(function* () {
 				const value = yield* Value;
 				const request = yield* SvelteKitRequestEvent;
+
 				return new Response(`${value}:${request.request.url}:${event.request.url}`);
 			}),
 		);
@@ -82,6 +86,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 		expect(await response.text()).toBe(
 			"from-runtime:https://grove.test/handle:https://grove.test/handle",
 		);
+
 		await runtime.dispose();
 	});
 
@@ -104,15 +109,18 @@ describe("makeEffectSvelteKitRuntime", () => {
 	it("creates a standard AbortError when an aborted signal has no reason", async () => {
 		const runtime = makeEffectSvelteKitRuntime(Layer.empty);
 		const controller = new AbortController();
+
 		Object.defineProperty(controller.signal, "reason", { value: undefined });
 		const event = { request: { signal: controller.signal } } as unknown as RequestEvent;
 		const result = runtime.run(Effect.never, event);
 
 		controller.abort();
+
 		await expect(result).rejects.toMatchObject({
 			name: "AbortError",
 			message: "The request was aborted",
 		});
+
 		await runtime.dispose();
 	});
 
@@ -134,6 +142,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 			),
 			eventFor(),
 		);
+
 		await started.promise;
 
 		await runtime.dispose();
@@ -166,12 +175,15 @@ describe("makeEffectSvelteKitRuntime", () => {
 			),
 			eventFor(),
 		);
+
 		await requestStarted.promise;
 
 		const disposal = runtime.dispose();
+
 		await requestFinalized.promise;
 		expect(reentrantDisposal).toBe(disposal);
 		let settled = false;
+
 		void disposal.then(() => void (settled = true));
 		await Promise.resolve();
 		expect(settled).toBe(false);
@@ -189,6 +201,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 			runtime.run(
 				Effect.gen(function* () {
 					const childStarted = deferred();
+
 					yield* Effect.forkChild(
 						Effect.sync(childStarted.resolve).pipe(
 							Effect.andThen(Effect.never),
@@ -199,8 +212,10 @@ describe("makeEffectSvelteKitRuntime", () => {
 							),
 						),
 					);
+
 					yield* Effect.promise(() => childStarted.promise);
 					ready.resolve();
+
 					return yield* Effect.never;
 				}).pipe(
 					Effect.ensuring(
@@ -212,10 +227,12 @@ describe("makeEffectSvelteKitRuntime", () => {
 				eventFor(),
 			),
 		);
+
 		await Promise.all(started.map(({ promise }) => promise));
 
 		await runtime.dispose();
 		await Promise.all(requests.map((request) => expect(request).rejects.toThrow("disposed")));
+
 		expect(finalizers.mock.calls.map(([name]) => name).toSorted()).toEqual([
 			"child-0",
 			"child-1",
@@ -237,6 +254,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 			),
 			eventFor(),
 		);
+
 		await started.promise;
 		const disposal = runtime.dispose();
 		let lateEffectRan = false;
@@ -265,6 +283,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 				eventFor(),
 			),
 		).rejects.toThrow("disposing or has been disposed");
+
 		expect(effectRan).toBe(false);
 		await disposal;
 	});
@@ -283,6 +302,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 		const logged = vi.fn();
 		const runtime = makeEffectSvelteKitRuntime(layer, { logCause: logged });
 		const initialization = runtime.initialize();
+
 		await started.promise;
 
 		await runtime.dispose();
@@ -334,11 +354,14 @@ describe("makeEffectSvelteKitRuntime", () => {
 			503,
 			"Service temporarily unavailable",
 		);
+
 		expect(logged).toHaveBeenCalledOnce();
+
 		expect(logged.mock.calls[0]).toMatchObject([
 			{ reasons: [{ error: "database details" }] },
 			event,
 		]);
+
 		await runtime.dispose();
 	});
 
@@ -357,6 +380,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 				500,
 				"Internal server error",
 			);
+
 			expect(logged).toHaveBeenCalledOnce();
 			await runtime.dispose();
 		},
@@ -376,7 +400,9 @@ describe("makeEffectSvelteKitRuntime", () => {
 			500,
 			"Internal server error",
 		);
+
 		expect(logged).toHaveBeenCalledOnce();
+
 		expect(logged.mock.calls[0]?.[0]).toMatchObject({
 			reasons: [
 				{ _tag: "Fail", error: "private original failure" },
@@ -386,6 +412,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 				},
 			],
 		});
+
 		await runtime.dispose();
 	});
 
@@ -423,6 +450,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 			500,
 			"Internal server error",
 		);
+
 		expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("private defect details"));
 		await runtime.dispose();
 	});

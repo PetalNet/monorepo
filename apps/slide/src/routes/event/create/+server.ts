@@ -56,6 +56,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		return json({ eventId: event.id, joinCode: event.joinCode });
 	} catch (error) {
 		console.error("Error creating event:", error);
+
 		return json({ error: "Failed to create event" }, { status: 500 });
 	}
 };

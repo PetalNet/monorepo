@@ -21,6 +21,7 @@ describe("SproutCommandsBuildLayer", () => {
 		const exit = await Effect.runPromise(useService);
 
 		expect(Exit.isFailure(exit)).toBe(true);
+
 		if (Exit.isFailure(exit)) {
 			expect(Cause.hasDies(exit.cause)).toBe(true);
 		}

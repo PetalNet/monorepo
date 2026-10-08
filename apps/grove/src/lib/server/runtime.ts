@@ -33,11 +33,13 @@ const required = (value: unknown, name: string) => {
 	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
 	}
+
 	return value;
 };
 
 function makeRuntime() {
 	let GroveServicesLayer;
+
 	if (building) {
 		GroveServicesLayer = Layer.mergeAll(
 			GroveAuthBuildLayer,
@@ -48,6 +50,7 @@ function makeRuntime() {
 		if (!DATABASE_URL) {
 			throw new Error("DATABASE_URL is required at runtime");
 		}
+
 		const actorAuthority = ActorAuthorityLayer({
 			homeOwner: {
 				issuer: required(GROVE_HOME_OWNER_ISSUER, "GROVE_HOME_OWNER_ISSUER").replace(/\/+$/, ""),
@@ -57,6 +60,7 @@ function makeRuntime() {
 		const consumers = Layer.merge(GroveAuthLayer, SproutCommandsLayer).pipe(
 			Layer.provide(actorAuthority),
 		);
+
 		GroveServicesLayer = Layer.merge(actorAuthority, consumers).pipe(
 			Layer.provide(
 				PgClient.layer({
@@ -72,15 +76,19 @@ function makeRuntime() {
 			if (failure instanceof AuthenticationRequired) {
 				return { status: 401, message: failure.message };
 			}
+
 			if (failure instanceof ActorDenied || failure instanceof ActorNotCurrent) {
 				return { status: 403, message: failure.message };
 			}
+
 			if (failure instanceof ActorDatabaseError) {
 				return { status: 503, message: "Actor authority is unavailable", log: true };
 			}
+
 			if (failure instanceof SproutNotFound) {
 				return { status: 404, message: failure.message };
 			}
+
 			if (failure instanceof SproutDatabaseError) {
 				return { status: 503, message: "The sprout database is unavailable", log: true };
 			}

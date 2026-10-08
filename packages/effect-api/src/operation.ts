@@ -56,6 +56,7 @@ export function operation<I, A, E, R>(config: OperationConfig<I, A, E, R>): ApiO
 		output: config.output,
 		handle: (input: unknown) => config.handler(input as I),
 	} satisfies ApiOperation<R>;
+
 	return {
 		...declared,
 		...(config.statusForError

@@ -11,10 +11,13 @@ export const requestAgentCapability = form(AgentCapabilityValidator, (input) =>
 		withBrowserInvocation(
 			Effect.gen(function* () {
 				const { principal } = yield* InvocationContext;
+
 				if (principal.kind !== "person") {
 					return { ok: false as const, message: "Person required" };
 				}
+
 				const authority = yield* ActorAuthority;
+
 				return yield* authority
 					.requestAgentCapability(principal, input.agentId, input.capability)
 					.pipe(
@@ -41,11 +44,15 @@ export const resolveContainmentConflict = form(ContainmentFixValidator, (input) 
 		withBrowserInvocation(
 			Effect.gen(function* () {
 				const { principal } = yield* InvocationContext;
+
 				if (principal.kind !== "person") {
 					return { ok: false as const };
 				}
+
 				const authority = yield* ActorAuthority;
+
 				yield* authority.applyContainmentFixAs(principal, input);
+
 				return { ok: true as const };
 			}),
 		),

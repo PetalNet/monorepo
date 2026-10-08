@@ -10,6 +10,7 @@ export const GET: RequestHandler = (event) =>
 		Effect.gen(function* () {
 			const auth = yield* GroveAuth;
 			const readiness = yield* auth.readiness;
+
 			return Response.json(readiness, {
 				status: readiness.status === "ready" ? 200 : 503,
 			});

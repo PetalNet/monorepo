@@ -192,12 +192,14 @@ const gateCases = scenarios.map((scenario) => {
 			Object.entries(scenario.results).map(([job, result]) => [job, { result }]),
 		),
 	};
+
 	return { ...scenario, jobs };
 });
 
 it.effect.each(gateCases)("$name: exact expected conclusions pass", ({ jobs }) =>
 	Effect.gen(function* () {
 		const conclusions = yield* evaluateGate(JSON.stringify(jobs));
+
 		assert.equal(conclusions.length, 17);
 	}),
 );
@@ -215,6 +217,7 @@ it.effect.each(
 				[job]: { result: "skipped" },
 			}),
 		);
+
 		assert.equal(conclusions.length, 17);
 	}),
 );
@@ -234,6 +237,7 @@ it.effect.each(
 		const error = yield* Effect.flip(
 			evaluateGate(JSON.stringify({ ...jobs, [job]: { ...expected, result } })),
 		);
+
 		expect(error).toMatchObject({ _tag: "GateFailed" });
 		expect(error.message).toMatch(/expected .*got/u);
 	}),
@@ -243,6 +247,7 @@ it.effect.each(jobCases)("$name: rejects missing $job", ({ jobs, job }) =>
 	Effect.gen(function* () {
 		const missing = Object.fromEntries(Object.entries(jobs).filter(([name]) => name !== job));
 		const error = yield* Effect.flip(evaluateGate(JSON.stringify(missing)));
+
 		expect(error).toBeInstanceOf(Error);
 	}),
 );
@@ -261,6 +266,7 @@ it.effect.each(
 				}),
 			),
 		);
+
 		expect(error).toBeInstanceOf(Error);
 	}),
 );
@@ -272,6 +278,7 @@ it.effect.each(
 		const error = yield* Effect.flip(
 			evaluateGate(JSON.stringify({ ...jobs, [job]: { result: "success" } })),
 		);
+
 		expect(error).toMatchObject({ _tag: "GateFailed" });
 		expect(error.message).toMatch(/Unclassified job/u);
 	}),
@@ -282,6 +289,7 @@ it.effect.each(["{", "null", JSON.stringify({ select: { result: "unknown" } })])
 	(json) =>
 		Effect.gen(function* () {
 			const error = yield* Effect.flip(evaluateGate(json));
+
 			expect(error).toBeInstanceOf(Error);
 		}),
 );
@@ -362,10 +370,13 @@ it.live("command output cannot hide a nonzero exit behind valid JSON", () =>
 	Effect.gen(function* () {
 		const printJson = "process.stdout.write(JSON.stringify({ tasks: [] }))";
 		const output = yield* commandOutput(process.execPath, ["-e", printJson]);
+
 		assert.equal(output, '{"tasks":[]}');
+
 		const error = yield* Effect.flip(
 			commandOutput(process.execPath, ["-e", `${printJson}; process.exit(7)`]),
 		);
+
 		expect(error).toMatchObject({ _tag: "CommandFailed", command: process.execPath, exitCode: 7 });
 	}).pipe(Effect.provide(NodeServices.layer)),
 );

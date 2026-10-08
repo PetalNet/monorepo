@@ -12,6 +12,7 @@ const preflightConfig = {
 
 const healthyFetch: typeof fetch = (input) => {
 	const url = input instanceof Request ? input.url : input.toString();
+
 	if (url === `${preflightConfig.browserIssuer}/.well-known/openid-configuration`) {
 		return Promise.resolve(
 			Response.json({
@@ -22,6 +23,7 @@ const healthyFetch: typeof fetch = (input) => {
 			}),
 		);
 	}
+
 	if (url === "https://grove.test/.well-known/oauth-protected-resource/mcp") {
 		return Promise.resolve(
 			Response.json({
@@ -32,6 +34,7 @@ const healthyFetch: typeof fetch = (input) => {
 			}),
 		);
 	}
+
 	if (url === "https://oidc.test/.well-known/oauth-authorization-server/realms/grove-mcp") {
 		return Promise.resolve(
 			Response.json({
@@ -43,6 +46,7 @@ const healthyFetch: typeof fetch = (input) => {
 			}),
 		);
 	}
+
 	throw new Error(`Unexpected preflight request: ${url}`);
 };
 
@@ -72,6 +76,7 @@ describe("Grove development control plane", () => {
 				},
 			},
 		});
+
 		expect(JSON.stringify(inventory)).not.toContain("localhost");
 		expect(inventory.mcpDevelopmentTrust.warning).toContain("do not copy it to production");
 	});
@@ -96,6 +101,7 @@ describe("Grove development control plane", () => {
 			readyForLogin: true,
 			readyForAgentEnrollment: false,
 		});
+
 		expect(report.checks).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ id: "database-runtime", status: "pass", required: true }),
@@ -117,6 +123,7 @@ describe("Grove development control plane", () => {
 				expect.objectContaining({ id: "dev-mcp-credentials", status: "pass" }),
 			]),
 		);
+
 		expect(report.checks).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -149,6 +156,7 @@ describe("Grove development control plane", () => {
 		});
 
 		expect(report.readyForAgentEnrollment).toBe(true);
+
 		expect(report.checks).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -161,6 +169,7 @@ describe("Grove development control plane", () => {
 				}),
 			]),
 		);
+
 		expect(JSON.stringify(report)).not.toContain("private-auth-user-id");
 	});
 
@@ -180,6 +189,7 @@ describe("Grove development control plane", () => {
 		});
 
 		expect(report.status).toBe("ready");
+
 		expect(report.checks).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -202,6 +212,7 @@ describe("Grove development control plane", () => {
 		});
 
 		expect(report.readyForAgentEnrollment).toBe(true);
+
 		expect(report.checks).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -223,6 +234,7 @@ describe("Grove development control plane", () => {
 		});
 
 		expect(report.status).toBe("ready");
+
 		expect(report.checks).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ id: "grove-public-origin", status: "pass" }),
@@ -244,12 +256,16 @@ describe("Grove development control plane", () => {
 			readyForLogin: false,
 			readyForAgentEnrollment: false,
 		});
+
 		expect(report.checks.filter((check) => check.status === "fail")).not.toHaveLength(0);
+
 		for (const check of report.checks.filter((candidate) => candidate.status === "fail")) {
 			expect(check.repair).toEqual(expect.any(String));
 			expect(check.repair?.length).toBeGreaterThan(0);
 		}
+
 		const serialized = JSON.stringify(report);
+
 		expect(serialized).not.toContain("leaked-secret-value");
 		expect(serialized).not.toContain("clientSecret");
 		expect(serialized).not.toContain("cookie");

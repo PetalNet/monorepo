@@ -105,9 +105,11 @@ export const makeGroveBrowserAuth = async (
 	const validatedSession = (headers: Headers) =>
 		Effect.gen(function* () {
 			const current = yield* Effect.promise(() => auth.api.getSession({ headers }));
+
 			if (!current?.user.emailVerified) {
 				return null;
 			}
+
 			// This provider is bound to the discovery-verified configured issuer at startup.
 			const accounts = yield* executor
 				.execute(
@@ -123,9 +125,11 @@ export const makeGroveBrowserAuth = async (
 				)
 				.pipe(Effect.provideService(SqlClient.SqlClient, sql));
 			const account = accounts.at(0);
+
 			if (!account || accounts.length !== 1) {
 				return null;
 			}
+
 			return {
 				current,
 				identity: {
@@ -141,32 +145,40 @@ export const makeGroveBrowserAuth = async (
 		inspectSession: (headers) =>
 			Effect.gen(function* () {
 				const validated = yield* validatedSession(headers);
+
 				if (!validated) {
 					return null;
 				}
+
 				const actor = yield* authority.lookupBrowserIdentity(validated.identity);
+
 				return { ...validated.current, actor };
 			}),
 		hydrateSession: (headers) =>
 			Effect.gen(function* () {
 				const validated = yield* validatedSession(headers);
+
 				if (!validated) {
 					return null;
 				}
+
 				const actor = yield* authority.bindBrowserIdentity({
 					...validated.identity,
 					name: validated.current.user.name,
 					emailVerified: validated.current.user.emailVerified,
 				});
+
 				return { ...validated.current, actor };
 			}),
 		dispatch: ({ event, resolve }) => {
 			if (event.request.method === "POST" && event.url.pathname === "/api/auth/sign-in/social") {
 				return Effect.succeed(new Response("Not found", { status: 404 }));
 			}
+
 			if (isBrowserAuthPath(event.url.toString())) {
 				return Effect.promise(() => auth.handler(event.request));
 			}
+
 			return Effect.promise(() => Promise.resolve(resolve(event)));
 		},
 		beginLogin: (headers, callbackURL = "/") =>
@@ -177,19 +189,25 @@ export const makeGroveBrowserAuth = async (
 					asResponse: true,
 				});
 				const location = initiated.headers.get("location");
+
 				if (!location) {
 					throw new Error("Grove OIDC login initiation omitted its redirect");
 				}
+
 				const redirectHeaders = new Headers(initiated.headers);
+
 				redirectHeaders.delete("content-type");
+
 				return new Response(null, { status: 302, headers: redirectHeaders });
 			}),
 		endSession: (headers, returnTo) =>
 			Effect.promise(async () => {
 				const signedOut = await auth.api.signOut({ headers, asResponse: true });
 				const redirectHeaders = new Headers(signedOut.headers);
+
 				redirectHeaders.delete("content-type");
 				redirectHeaders.set("location", returnTo);
+
 				return new Response(null, { status: 302, headers: redirectHeaders });
 			}),
 		readiness: authority.homeReadiness,

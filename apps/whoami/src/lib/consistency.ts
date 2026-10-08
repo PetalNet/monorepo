@@ -64,38 +64,49 @@ export interface Contradiction {
 
 function uaFamily(ua: string): "chromium" | "firefox" | "safari" | "unknown" {
 	const u = ua.toLowerCase();
+
 	if (/edg\/|edga\/|edgios\//.test(u)) {
 		return "chromium";
 	}
+
 	if (/firefox\/|fxios\//.test(u)) {
 		return "firefox";
 	}
+
 	if (/chrome\/|chromium\/|crios\//.test(u)) {
 		return "chromium";
 	}
+
 	if (u.includes("safari/") && !u.includes("chrome/")) {
 		return "safari";
 	}
+
 	return "unknown";
 }
 
 function uaOs(ua: string): "windows" | "macos" | "linux" | "android" | "ios" | "unknown" {
 	const u = ua.toLowerCase();
+
 	if (u.includes("windows")) {
 		return "windows";
 	}
+
 	if (u.includes("android")) {
 		return "android";
 	}
+
 	if (/iphone|ipad|ipod/.test(u)) {
 		return "ios";
 	}
+
 	if (/mac os x|macintosh/.test(u)) {
 		return "macos";
 	}
+
 	if (u.includes("linux")) {
 		return "linux";
 	}
+
 	return "unknown";
 }
 
@@ -156,6 +167,7 @@ export function checkConsistency(
 	// 2. Sec-CH-UA presence vs UA family (Chromium-only header).
 	const fam = uaFamily(cUa || sUa);
 	const hasCh = Boolean(server.secChUa?.trim());
+
 	if (fam === "chromium" && !hasCh) {
 		out.push({
 			id: "ch.missing-on-chromium",
@@ -169,6 +181,7 @@ export function checkConsistency(
 			],
 		});
 	}
+
 	if ((fam === "firefox" || fam === "safari") && hasCh) {
 		out.push({
 			id: "ch.present-on-nonchromium",
@@ -212,6 +225,7 @@ export function checkConsistency(
 			],
 		});
 	}
+
 	if (fam === "firefox" && /google/i.test(client.vendor)) {
 		out.push({
 			id: "vendor.google-on-firefox",
@@ -239,6 +253,7 @@ export function checkConsistency(
 		os === "unknown" ||
 		plat === "" ||
 		plat === "(unavailable)";
+
 	if (!platOk) {
 		out.push({
 			id: "platform.vs-ua-os",
@@ -287,6 +302,7 @@ export function checkConsistency(
 	if (server.acceptLanguage && client.language) {
 		const headerPrimary = server.acceptLanguage.split(",")[0].trim().toLowerCase();
 		const jsPrimary = client.language.toLowerCase();
+
 		if (headerPrimary && jsPrimary && headerPrimary.split("-")[0] !== jsPrimary.split("-")[0]) {
 			out.push({
 				id: "lang.header-vs-js",
@@ -307,8 +323,10 @@ export function checkConsistency(
 	const onWarp = trace?.warp === "on" || trace?.warp === "plus";
 	const country = (trace?.loc ?? server.cfCountry ?? "").toUpperCase();
 	const tzPrefixes: string[] | undefined = COUNTRY_TZ[country];
+
 	if (!onWarp && country && tzPrefixes && client.timezone && client.timezone !== "UTC") {
 		const ok = tzPrefixes.some((prefix) => client.timezone.startsWith(prefix));
+
 		if (!ok) {
 			out.push({
 				id: "tz.vs-ip-country",
@@ -336,8 +354,10 @@ export function verdictOf(list: Contradiction[]): Verdict {
 	if (list.some((c) => c.severity === "high")) {
 		return "contradictions";
 	}
+
 	if (list.some((c) => c.severity === "medium")) {
 		return "minor";
 	}
+
 	return "coherent";
 }
