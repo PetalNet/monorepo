@@ -1,10 +1,11 @@
 //! In-memory connection registry: user id -> live WS senders (multi-device).
 
+use core::sync::atomic::{AtomicU64, Ordering};
+use core::time::Duration;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 
@@ -36,7 +37,7 @@ impl Hub {
     pub fn add_connection(&self, user_id: &str, tx: Sender<Outbound>, close: Arc<Notify>) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         self.conns
-            .entry(user_id.to_string())
+            .entry(user_id.to_owned())
             .or_default()
             .push(Conn { id, tx, close });
         id
@@ -60,7 +61,7 @@ impl Hub {
     pub fn send_to_user(&self, user_id: &str, msg: &str) {
         if let Some(entry) = self.conns.get(user_id) {
             for conn in entry.iter() {
-                if let Err(e) = conn.tx.try_send(msg.to_string()) {
+                if let Err(e) = conn.tx.try_send(msg.to_owned()) {
                     tracing::debug!(user_id, error = %e, "dropped outbound frame (channel full/closed)");
                 }
             }
@@ -91,11 +92,11 @@ impl Hub {
     /// Layer-4 watcher-wake dedup gate. Returns `true` (and records "now") at
     /// most once per `window` per watched `target`, across all watchers — so a
     /// crowd opening one person's live view yields a single demand-wake push,
-    /// not one per viewer. The check-and-set is atomic (the DashMap entry holds
+    /// not one per viewer. The check-and-set is atomic (the `DashMap` entry holds
     /// its shard lock across it), so two simultaneous watchers can't both pass.
     pub fn note_watch_wake(&self, target: &str, window: Duration) -> bool {
         let now = Instant::now();
-        match self.watch_wakes.entry(target.to_string()) {
+        match self.watch_wakes.entry(target.to_owned()) {
             Entry::Occupied(mut e) => {
                 if now.saturating_duration_since(*e.get()) >= window {
                     *e.get_mut() = now;
@@ -119,10 +120,7 @@ impl Hub {
     }
 
     pub fn is_online(&self, user_id: &str) -> bool {
-        self.conns
-            .get(user_id)
-            .map(|v| !v.is_empty())
-            .unwrap_or(false)
+        self.conns.get(user_id).is_some_and(|v| !v.is_empty())
     }
 }
 

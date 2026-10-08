@@ -5,15 +5,15 @@
 //! client side and real REST + WS + signed S2S between the instances.
 //!
 //! Driven by tests/run-federation-e2e.sh (starts both instances). Standalone:
-//!   FED_A_URL=... FED_B_URL=... FED_A_DOM=... FED_B_DOM=... \
-//!     cargo test -p point-server --test federation_e2e -- --ignored --nocapture
+//!   `FED_A_URL`=... `FED_B_URL`=... `FED_A_DOM`=... `FED_B_DOM`=... \
+//!     cargo test -p point-server --test `federation_e2e` -- --ignored --nocapture
 
 use base64::engine::general_purpose::STANDARD as B64;
-use base64::Engine;
-use futures::{SinkExt, StreamExt};
+use base64::Engine as _;
+use core::time::Duration;
+use futures::{SinkExt as _, StreamExt as _};
 use point_core::PointCrypto;
 use serde_json::{json, Value};
-use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
 
 struct Client {
@@ -24,7 +24,7 @@ struct Client {
 }
 
 impl Client {
-    async fn register(base: &str, username: &str) -> Client {
+    async fn register(base: &str, username: &str) -> Self {
         let http = reqwest::Client::new();
         let res = http
             .post(format!("{base}/api/register"))
@@ -38,11 +38,11 @@ impl Client {
             res.text().await.unwrap_or_default()
         );
         let v: Value = res.json().await.unwrap();
-        Client {
+        Self {
             http,
-            base: base.to_string(),
-            token: v["token"].as_str().unwrap().to_string(),
-            user_id: v["user_id"].as_str().unwrap().to_string(),
+            base: base.to_owned(),
+            token: v["token"].as_str().unwrap().to_owned(),
+            user_id: v["user_id"].as_str().unwrap().to_owned(),
         }
     }
 
@@ -73,7 +73,7 @@ impl Client {
         serde_json::from_str(&text).unwrap_or(Value::Null)
     }
 
-    async fn upload_kps(&self, mls: &mut PointCrypto) {
+    async fn upload_kps(&self, mls: &PointCrypto) {
         let kps: Vec<String> = (0..3)
             .map(|_| B64.encode(mls.generate_key_package().unwrap()))
             .collect();
@@ -117,8 +117,8 @@ async fn cross_instance_e2e_share() {
 
     let mut alice_mls = PointCrypto::new(&alice.user_id).unwrap();
     let mut bob_mls = PointCrypto::new(&bob.user_id).unwrap();
-    alice.upload_kps(&mut alice_mls).await;
-    bob.upload_kps(&mut bob_mls).await;
+    alice.upload_kps(&alice_mls).await;
+    bob.upload_kps(&bob_mls).await;
 
     // Stable per-identity keys for TOFU pinning (opaque to the server).
     let alice_key = B64.encode([1u8; 32]);
@@ -239,8 +239,8 @@ async fn cross_instance_e2e_share() {
     .await
     .expect("bob received the cross-server broadcast");
 
-    let blob = B64.decode(received["blob"].as_str().unwrap()).unwrap();
-    let pt = bob_mls.decrypt(&bob_gid, &blob).unwrap();
+    let ciphertext = B64.decode(received["blob"].as_str().unwrap()).unwrap();
+    let pt = bob_mls.decrypt(&bob_gid, &ciphertext).unwrap();
     assert_eq!(
         String::from_utf8(pt).unwrap(),
         location,

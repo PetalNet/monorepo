@@ -11,7 +11,7 @@
 use axum::extract::State;
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
+use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};

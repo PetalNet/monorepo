@@ -1,10 +1,10 @@
 //! Durable session state + heartbeat file.
 
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::io::Write as _;
 use std::path::Path;
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
 
@@ -12,7 +12,7 @@ fn default_true() -> bool {
 /// (docs/contracts/schemas/session-state.schema.json).
 pub const SESSION_STATE_SCHEMA_VERSION: u32 = 1;
 
-fn default_session_state_version() -> u32 {
+const fn default_session_state_version() -> u32 {
     SESSION_STATE_SCHEMA_VERSION
 }
 
@@ -41,8 +41,8 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub fn fresh() -> SessionState {
-        SessionState {
+    pub fn fresh() -> Self {
+        Self {
             schema_version: SESSION_STATE_SCHEMA_VERSION,
             session_id: uuid::Uuid::new_v4().to_string(),
             bootstrapped: false,
@@ -51,13 +51,13 @@ impl SessionState {
 
     /// JS parity (loadOrCreateSessionId): use the file if parseable, else
     /// mint a new id and persist it with mode 0600.
-    pub fn load_or_create(path: &Path) -> SessionState {
+    pub fn load_or_create(path: &Path) -> Self {
         if let Ok(text) = std::fs::read_to_string(path) {
-            if let Ok(s) = serde_json::from_str::<SessionState>(&text) {
+            if let Ok(s) = serde_json::from_str::<Self>(&text) {
                 return s;
             }
         }
-        let s = SessionState::fresh();
+        let s = Self::fresh();
         if let Err(e) = s.save(path) {
             // Non-fatal, same as JS (it would have thrown; we prefer to keep
             // supervising with an in-memory id and complain loudly).
@@ -142,8 +142,8 @@ impl ChannelLock {
     /// STUB until N1.3/N2.2 wires the real matrix-channel lock through:
     /// today's single-manager deploy always holds its channel, and 0 means
     /// "acquired-at unknown" (DECISIONS-N1.1.md N3).
-    pub fn stub_held() -> ChannelLock {
-        ChannelLock {
+    pub const fn stub_held() -> Self {
+        Self {
             state: ChannelLockState::Held,
             owner: None,
             acquired_at_epoch: 0,
@@ -159,7 +159,7 @@ pub fn write_file_atomic(path: &Path, contents: &[u8], mode: Option<u32>) -> std
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         if let Some(m) = mode {
-            use std::os::unix::fs::OpenOptionsExt;
+            use std::os::unix::fs::OpenOptionsExt as _;
             opts.mode(m);
         }
         let mut f = opts.open(&tmp)?;
@@ -172,8 +172,7 @@ pub fn write_file_atomic(path: &Path, contents: &[u8], mode: Option<u32>) -> std
 pub fn epoch_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }
 
 #[cfg(test)]

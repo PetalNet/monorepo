@@ -4,10 +4,11 @@
 //! fleet-event snapshots. The pending table is the source of truth — a
 //! restart re-runs unfinished work and no card is lost.
 
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::time::Duration;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use box_agent::config::Config;
 use box_agent::events::{self, EventKind, FleetEvent, Status, FLEET_EVENT_SCHEMA_VERSION};
@@ -23,15 +24,16 @@ use dispatcher::glitchtip;
 fn now_epoch() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs().cast_signed())
 }
 
 fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| {
+        d.as_secs()
+            .cast_signed()
+            .wrapping_mul(1000)
+            .wrapping_add(i64::from(d.subsec_millis()))
+    })
 }
 
 fn now_rfc3339() -> String {
@@ -40,7 +42,7 @@ fn now_rfc3339() -> String {
 
 fn main() {
     let config_path =
-        std::env::var("BOX_AGENT_CONFIG").unwrap_or_else(|_| "box-agent-config.json".to_string());
+        std::env::var("BOX_AGENT_CONFIG").unwrap_or_else(|_| "box-agent-config.json".to_owned());
     let cfg = match Config::load(Path::new(&config_path)) {
         Ok(c) => c,
         Err(e) => {
@@ -53,14 +55,16 @@ fn main() {
             eprintln!("box-agent: glitchtip disabled: {e}");
         }
     }
-    if let Err(e) = run(cfg) {
+    if let Err(e) = run(&cfg) {
         glitchtip::capture_message(&format!("box-agent exiting on error: {e}"), "error");
         eprintln!("box-agent: {e}");
         std::process::exit(1);
     }
 }
 
-fn run(cfg: Config) -> Result<(), String> {
+fn run(cfg: &Config) -> Result<(), String> {
+    // Keep dedup rows well past any plausible redelivery horizon.
+    const SEEN_RETENTION_MS: i64 = 24 * 3600 * 1000;
     let inbox = Inbox::open(&cfg.db_path)?;
     let mut pool = WorkerPool::new(cfg.worker_cmd.clone(), cfg.max_workers);
     let transport = SpoolTransport::new(cfg.outbox_dir.clone());
@@ -69,7 +73,7 @@ fn run(cfg: Config) -> Result<(), String> {
     // Graceful shutdown: emit Stop, kill workers.
     let shutdown = Arc::new(AtomicBool::new(false));
     for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
-        let flag = shutdown.clone();
+        let flag = Arc::clone(&shutdown);
         signal_hook::flag::register(sig, flag).map_err(|e| e.to_string())?;
     }
 
@@ -80,14 +84,12 @@ fn run(cfg: Config) -> Result<(), String> {
         cfg.max_workers,
         inbox.pending_count().unwrap_or(0)
     );
-    emit_fleet_event(&cfg, &pool, EventKind::SessionStart, &started_at)?;
-    report_capacity(&cfg, &pool, &transport)?;
+    emit_fleet_event(cfg, &pool, EventKind::SessionStart, &started_at)?;
+    report_capacity(cfg, &pool, &transport)?;
 
     let mut last_capacity = Instant::now();
     let mut last_free_slots = pool.free_slots();
     let mut last_prune = Instant::now();
-    // Keep dedup rows well past any plausible redelivery horizon.
-    const SEEN_RETENTION_MS: i64 = 24 * 3600 * 1000;
 
     while !shutdown.load(Ordering::Relaxed) {
         let mut activity = false;
@@ -104,7 +106,7 @@ fn run(cfg: Config) -> Result<(), String> {
                     continue;
                 }
                 match serde_json::from_str::<Envelope>(line) {
-                    Ok(envelope) => accept_envelope(&cfg, &inbox, &transport, envelope),
+                    Ok(envelope) => accept_envelope(cfg, &inbox, &transport, &envelope),
                     Err(e) => eprintln!("box-agent: unparsable inbox line: {e}"),
                 }
             }
@@ -189,7 +191,7 @@ fn run(cfg: Config) -> Result<(), String> {
                     eprintln!("box-agent: response delivery failed, card stays pending: {e}");
                 }
             }
-            emit_fleet_event(&cfg, &pool, EventKind::PostTool, &started_at).ok();
+            emit_fleet_event(cfg, &pool, EventKind::PostTool, &started_at).ok();
         }
 
         // 4. Capacity: on interval AND on slot change (BA7).
@@ -199,9 +201,9 @@ fn run(cfg: Config) -> Result<(), String> {
         {
             last_free_slots = free;
             last_capacity = Instant::now();
-            report_capacity(&cfg, &pool, &transport).ok();
+            report_capacity(cfg, &pool, &transport).ok();
             emit_fleet_event(
-                &cfg,
+                cfg,
                 &pool,
                 if pool.running_count() > 0 {
                     EventKind::PreTool
@@ -213,7 +215,7 @@ fn run(cfg: Config) -> Result<(), String> {
             .ok();
         }
 
-        if last_prune.elapsed() >= Duration::from_secs(3600) {
+        if last_prune.elapsed() >= Duration::from_hours(1) {
             last_prune = Instant::now();
             if let Ok(n) = inbox.prune_seen(now_ms() - SEEN_RETENTION_MS) {
                 if n > 0 {
@@ -232,14 +234,19 @@ fn run(cfg: Config) -> Result<(), String> {
         pool.running_count()
     );
     pool.shutdown();
-    emit_fleet_event(&cfg, &pool, EventKind::Stop, &started_at).ok();
+    emit_fleet_event(cfg, &pool, EventKind::Stop, &started_at).ok();
     Ok(())
 }
 
 /// Accept one inbound envelope. Work is durably enqueued (or the envelope is
 /// marked seen); a permanently-bad task.dispatch gets an Error response so the
 /// caller isn't left hanging (adversarial-review #5).
-fn accept_envelope(cfg: &Config, inbox: &Inbox, transport: &dyn CardTransport, envelope: Envelope) {
+fn accept_envelope(
+    cfg: &Config,
+    inbox: &Inbox,
+    transport: &dyn CardTransport,
+    envelope: &Envelope,
+) {
     if let Err(e) = envelope.validate() {
         eprintln!("box-agent: invalid envelope: {e}");
         return;
@@ -266,7 +273,7 @@ fn accept_envelope(cfg: &Config, inbox: &Inbox, transport: &dyn CardTransport, e
                     // Permanent failure: tell the caller, mark seen so a
                     // redelivery of the same bad envelope isn't reprocessed.
                     let _ = inbox.mark_envelope(&envelope.id, now_ms());
-                    send_error(transport, cfg, &envelope, "bad_request", reason, false);
+                    send_error(transport, cfg, envelope, "bad_request", reason, false);
                     return;
                 }
             };
@@ -334,13 +341,13 @@ fn send_error(
 fn deliver_with_retry(transport: &dyn CardTransport, envelope: &Envelope) -> Result<(), String> {
     envelope.validate()?;
     let mut last = String::new();
-    for attempt in 0..3 {
+    for attempt in 0u64..3 {
         match transport.deliver(envelope) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 last = e;
                 if attempt < 2 {
-                    std::thread::sleep(Duration::from_millis(100 * (attempt as u64 + 1)));
+                    std::thread::sleep(Duration::from_millis(100 * (attempt + 1)));
                 }
             }
         }
@@ -387,7 +394,7 @@ fn emit_fleet_event(
     let status = match event {
         EventKind::Stop => Status::Idle,
         _ if focus.is_some() => Status::Working,
-        _ => Status::Idle,
+        EventKind::SessionStart | EventKind::PreTool | EventKind::PostTool => Status::Idle,
     };
     events::write_snapshot(
         dir,
@@ -400,7 +407,7 @@ fn emit_fleet_event(
             current_tool: None,
             task_id: focus.map(|c| c.task_id),
             session_id: None,
-            started_at: started_at.to_string(),
+            started_at: started_at.to_owned(),
             updated_at: now_rfc3339(),
         },
     )

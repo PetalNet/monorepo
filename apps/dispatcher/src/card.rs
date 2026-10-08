@@ -28,19 +28,19 @@ pub enum InterruptPolicy {
     /// Queue for the inbox digest; never interrupts. The default for everything.
     #[default]
     Defer,
-    /// Direct Parker/Eli command — honored only when sender_class=principal.
+    /// Direct Parker/Eli command — honored only when `sender_class=principal`.
     PrincipalCommand,
     /// A safety condition — always honored.
     Safety,
     /// Clarification on the recipient's ACTIVE task — honored only when
-    /// task_id matches its current lease.
+    /// `task_id` matches its current lease.
     TaskClarification,
 }
 
 /// Viewer-safe lease projection (`queue-lease.schema.json#/$defs/leasePublic`).
 /// Never carries `claim_token` — that travels only in the direct claim
 /// response to the worker.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LeasePublic {
     pub schema_version: u32,
@@ -56,7 +56,7 @@ pub struct LeasePublic {
 }
 
 /// The card the dispatcher delivers to an agent (task-card.schema.json v1).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskCard {
     pub schema_version: u32,
@@ -92,6 +92,7 @@ pub struct TaskCard {
 }
 
 /// Canonical handle check (contract rule 0.4): `^[a-z0-9][a-z0-9._-]*$`.
+#[must_use]
 pub fn is_canonical_handle(s: &str) -> bool {
     let mut chars = s.chars();
     match chars.next() {

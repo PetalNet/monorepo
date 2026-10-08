@@ -24,14 +24,24 @@ pub struct TokenAuthority<'a> {
     pub store: &'a dyn CredStore,
 }
 
+impl core::fmt::Debug for TokenAuthority<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // The store may contain secrets; do not expose it in debug output.
+        f.debug_struct("TokenAuthority").finish_non_exhaustive()
+    }
+}
+
 fn cred_name(handle: &str, scope: &str) -> String {
     format!("agent:{handle}:{scope}")
 }
 
-impl<'a> TokenAuthority<'a> {
+impl TokenAuthority<'_> {
     /// Mint a fresh token for (agent, scope). Returns the plaintext token —
     /// hand it to the agent over the backchannel; it is also durable in the
     /// vault (0600) because the authority must be able to re-issue it.
+    ///
+    /// # Errors
+    /// Returns an error if a token already exists or a store operation fails.
     pub fn mint(&self, handle: &str, scope: &str, now_rfc3339: &str) -> Result<String, String> {
         let name = cred_name(handle, scope);
         if self.store.get(&name)?.is_some() {
@@ -43,7 +53,7 @@ impl<'a> TokenAuthority<'a> {
             secret: secret.clone(),
             previous: None,
             version: 1,
-            created_at: now_rfc3339.to_string(),
+            created_at: now_rfc3339.to_owned(),
             rotated_at: None,
         })?;
         Ok(secret)
@@ -51,12 +61,15 @@ impl<'a> TokenAuthority<'a> {
 
     /// Rotate: new secret becomes current, old secret survives as `previous`
     /// for the grace window.
+    ///
+    /// # Errors
+    /// Returns an error if no token exists or a store operation fails.
     pub fn rotate(&self, handle: &str, scope: &str, now_rfc3339: &str) -> Result<String, String> {
         let name = cred_name(handle, scope);
         let old = self
             .store
             .get(&name)?
-            .ok_or(format!("no token {name} to rotate"))?;
+            .ok_or_else(|| format!("no token {name} to rotate"))?;
         let secret = uuid::Uuid::new_v4().to_string();
         self.store.put(&Credential {
             name,
@@ -64,19 +77,25 @@ impl<'a> TokenAuthority<'a> {
             previous: Some(old.secret),
             version: old.version + 1,
             created_at: old.created_at,
-            rotated_at: Some(now_rfc3339.to_string()),
+            rotated_at: Some(now_rfc3339.to_owned()),
         })?;
         Ok(secret)
     }
 
     /// Re-issue the current token (the "Parker never touches creds" path:
     /// the authority can always hand an agent its own token again).
+    ///
+    /// # Errors
+    /// Returns an error if the store lookup fails.
     pub fn reissue(&self, handle: &str, scope: &str) -> Result<Option<String>, String> {
         Ok(self.store.get(&cred_name(handle, scope))?.map(|c| c.secret))
     }
 
     /// Verify a presented token. `now_epoch`/`rotated_at_epoch` drive the
-    /// grace-window check; a missing rotated_at means no grace path exists.
+    /// grace-window check; a missing `rotated_at` means no grace path exists.
+    ///
+    /// # Errors
+    /// Returns an error if the store lookup fails.
     pub fn verify(
         &self,
         handle: &str,
@@ -91,9 +110,8 @@ impl<'a> TokenAuthority<'a> {
             return Ok(Verify::Current);
         }
         if let (Some(previous), Some(rotated_at)) = (&cred.previous, &cred.rotated_at) {
-            let rotated_epoch = chrono::DateTime::parse_from_rfc3339(rotated_at)
-                .map(|t| t.timestamp())
-                .unwrap_or(0);
+            let rotated_epoch =
+                chrono::DateTime::parse_from_rfc3339(rotated_at).map_or(0, |t| t.timestamp());
             if now_epoch - rotated_epoch <= ROTATION_GRACE_SECS
                 && constant_time_eq(previous.as_bytes(), presented.as_bytes())
             {

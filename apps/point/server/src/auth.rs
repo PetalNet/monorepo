@@ -5,7 +5,7 @@
 //! (D-011) — there is exactly one way a token becomes a user.
 
 use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::password_hash::{PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString};
 use argon2::{Algorithm, Argon2, Params, Version};
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
@@ -23,7 +23,7 @@ fn argon2() -> Argon2<'static> {
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
 }
 
-/// Reject absurd password lengths before hashing (Argon2 DoS guard).
+/// Reject absurd password lengths before hashing (Argon2 `DoS` guard).
 pub const MAX_PASSWORD_BYTES: usize = 128;
 pub const MIN_PASSWORD_BYTES: usize = 8;
 
@@ -66,7 +66,7 @@ pub struct Claims {
 pub fn create_token(secret: &str, user_id: &str, is_admin: bool) -> Result<String, AppError> {
     let now = Utc::now();
     let claims = Claims {
-        sub: user_id.to_string(),
+        sub: user_id.to_owned(),
         is_admin,
         exp: (now + Duration::days(TOKEN_LIFETIME_DAYS)).timestamp(),
         iat: now.timestamp(),

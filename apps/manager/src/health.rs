@@ -31,7 +31,7 @@ pub struct HealthOpts {
 
 impl Default for HealthOpts {
     fn default() -> Self {
-        HealthOpts {
+        Self {
             max_heartbeat_age: 30,
             max_sync_age: 120,
             allow_states: vec!["running".into()],
@@ -42,7 +42,8 @@ impl Default for HealthOpts {
 
 fn pid_alive(pid: u32) -> bool {
     // kill(pid, 0): 0 => exists; EPERM => exists but not ours.
-    let r = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    // Preserve the existing bit-level pid_t conversion, including out-of-range input.
+    let r = unsafe { libc::kill(pid.cast_signed(), 0) };
     if r == 0 {
         return true;
     }
@@ -117,7 +118,7 @@ pub fn run(cfg: &Config, opts: &HealthOpts) -> i32 {
                         }
                     }
                     (Some(_), None) => {
-                        failures.push("state=running but heartbeat has no pane_id".into())
+                        failures.push("state=running but heartbeat has no pane_id".into());
                     }
                 }
             }
@@ -156,9 +157,5 @@ pub fn run(cfg: &Config, opts: &HealthOpts) -> i32 {
         }
         println!("{}", if healthy { "HEALTHY" } else { "UNHEALTHY" });
     }
-    if healthy {
-        0
-    } else {
-        1
-    }
+    i32::from(!healthy)
 }

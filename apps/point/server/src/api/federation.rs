@@ -19,19 +19,19 @@
 //!
 //! Every delivery decision still routes through the fail-closed `authz` gate.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::time::Duration;
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::{Extension, Json};
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
+use base64::Engine as _;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use sha2::{Digest as _, Sha256};
 
 use crate::auth::AuthUser;
 use crate::authz;
@@ -95,7 +95,7 @@ struct RemoteEndpoints {
 
 /// GET /.well-known/point — discovery. Publishes our domain, version, the
 /// federation flag, this instance's Ed25519 public key (hex), and the inbox
-/// endpoint. `endpoints.keys` intentionally points at the inbox too (KeyPackage
+/// endpoint. `endpoints.keys` intentionally points at the inbox too (`KeyPackage`
 /// fetch is an `mls.key_request` message to the inbox) — the legacy skeleton
 /// advertised a `keys` route it never registered (a 404); this keeps discovery
 /// honest.
@@ -156,7 +156,7 @@ pub async fn inbox(
     let recipient = msg.recipient.trim().to_lowercase();
     let sender_domain = domain_of(&sender)
         .ok_or_else(|| AppError::BadRequest("sender has no domain".into()))?
-        .to_string();
+        .to_owned();
 
     // The advertised origin must match the signer's domain, or the signature is
     // being replayed under a different banner.
@@ -338,7 +338,7 @@ async fn handle_share_remove(state: &AppState, sender: &str, recipient: &str) ->
     );
     tokio::spawn(crate::push::wake_user(
         state.pool.clone(),
-        recipient.to_string(),
+        recipient.to_owned(),
         crate::push::Wake::new("share_removed"),
         state.config.federation_allow_private,
     ));
@@ -399,7 +399,7 @@ async fn handle_share_request(
     } else {
         tokio::spawn(crate::push::wake_user(
             state.pool.clone(),
-            recipient.to_string(),
+            recipient.to_owned(),
             crate::push::Wake::new("share_request"),
             state.config.federation_allow_private,
         ));
@@ -471,7 +471,7 @@ async fn handle_share_accept(
         // accept path and the federated request path.
         tokio::spawn(crate::push::wake_user(
             state.pool.clone(),
-            recipient.to_string(),
+            recipient.to_owned(),
             crate::push::Wake::new("share_accepted"),
             state.config.federation_allow_private,
         ));
@@ -480,7 +480,7 @@ async fn handle_share_accept(
 }
 
 /// `mls.key_request`: a remote server asks for one of a LOCAL user's one-time
-/// KeyPackages (to add them to a cross-server MLS group). A consented
+/// `KeyPackages` (to add them to a cross-server MLS group). A consented
 /// relationship is required (pending/accepted request or an existing share);
 /// consumption is the same one-time logic as `api/mls.rs::claim_key` (D-007).
 async fn handle_key_request(
@@ -523,19 +523,18 @@ async fn handle_key_request(
     .fetch_optional(&state.pool)
     .await?;
 
-    let (kp, last_resort) = match consumed {
-        Some((kp,)) => (kp, false),
-        None => {
-            let lr: Option<(Vec<u8>,)> = sqlx::query_as(
-                "SELECT key_package FROM key_packages WHERE user_id = $1 AND is_last_resort",
-            )
-            .bind(recipient)
-            .fetch_optional(&state.pool)
-            .await?;
-            match lr {
-                Some((kp,)) => (kp, true),
-                None => return Err(AppError::NotFound),
-            }
+    let (kp, last_resort) = if let Some((kp,)) = consumed {
+        (kp, false)
+    } else {
+        let lr: Option<(Vec<u8>,)> = sqlx::query_as(
+            "SELECT key_package FROM key_packages WHERE user_id = $1 AND is_last_resort",
+        )
+        .bind(recipient)
+        .fetch_optional(&state.pool)
+        .await?;
+        match lr {
+            Some((kp,)) => (kp, true),
+            None => return Err(AppError::NotFound),
         }
     };
     Ok(json!({ "key_package": BASE64.encode(kp), "last_resort": last_resort }))
@@ -611,7 +610,7 @@ async fn handle_location_update(
     }
     let ts = payload
         .get("timestamp")
-        .and_then(|v| v.as_i64())
+        .and_then(serde_json::Value::as_i64)
         .unwrap_or_else(|| Utc::now().timestamp_millis());
 
     // Fail-closed authz (errors deny). No relationship / ghosting = silent drop.
@@ -647,7 +646,7 @@ pub struct SendBody {
 }
 
 /// POST /api/federation/send — the authenticated local user sends a signed
-/// FederatedMessage to a remote domain. We build the envelope (sender = caller),
+/// `FederatedMessage` to a remote domain. We build the envelope (sender = caller),
 /// sign the EXACT bytes we will transmit, SSRF-check + discover the remote
 /// inbox, POST it, and return the remote's response.
 pub async fn send(
@@ -666,7 +665,7 @@ pub async fn send(
     Ok(Json(value))
 }
 
-pub(crate) async fn send_federated(
+pub async fn send_federated(
     state: &AppState,
     sender: &str,
     recipient: &str,
@@ -676,7 +675,7 @@ pub(crate) async fn send_federated(
     let recipient = recipient.trim().to_lowercase();
     let remote_domain = domain_of(&recipient)
         .ok_or_else(|| AppError::BadRequest("recipient has no domain".into()))?
-        .to_string();
+        .to_owned();
     if remote_domain.eq_ignore_ascii_case(&state.config.domain) {
         return Err(AppError::BadRequest(
             "recipient is local; use the local API".into(),
@@ -705,9 +704,9 @@ pub(crate) async fn send_federated(
     }
 
     let msg = FederatedMessage {
-        sender: sender.to_string(),
+        sender: sender.to_owned(),
         recipient,
-        message_type: message_type.to_string(),
+        message_type: message_type.to_owned(),
         payload,
         timestamp: Utc::now().timestamp(),
     };
@@ -726,7 +725,7 @@ pub struct VerifyBody {
 }
 
 /// POST /api/federation/verify — the out-of-band (SAS/QR) confirm: mark the pin
-/// for (caller, remote_user_id) verified. A pin must already exist (a remote we
+/// for (caller, `remote_user_id`) verified. A pin must already exist (a remote we
 /// have actually been in contact with), else 404.
 pub async fn verify_pin(
     State(state): State<AppState>,
@@ -762,7 +761,7 @@ pub async fn verify_pin(
 /// address between our SSRF check and the connect (TOCTOU / DNS-rebinding).
 /// When `addrs` is empty (allow-private dev/test) no pin is set and normal
 /// resolution is used.
-fn build_client(pin_host: &str, addrs: &[std::net::SocketAddr]) -> ApiResult<reqwest::Client> {
+fn build_client(pin_host: &str, addrs: &[core::net::SocketAddr]) -> ApiResult<reqwest::Client> {
     let mut b = reqwest::Client::builder()
         .timeout(S2S_TIMEOUT)
         // Never follow redirects: a 3xx to an internal host would bypass the
@@ -849,7 +848,7 @@ async fn deliver(
 fn inbox_host(url: &str) -> Option<String> {
     reqwest::Url::parse(url)
         .ok()
-        .and_then(|u| u.host_str().map(str::to_string))
+        .and_then(|u| u.host_str().map(str::to_owned))
 }
 
 /// Reject an outbound target that resolves to (or is) a non-public address.
@@ -859,7 +858,10 @@ fn inbox_host(url: &str) -> Option<String> {
 /// non-public, returning the validated `SocketAddr`s so the caller can PIN the
 /// connection to exactly these (no re-resolution → no DNS-rebinding TOCTOU).
 /// Returns an empty vec in allow-private (dev/test) mode (no pin, no check).
-pub async fn ssrf_check(domain: &str, allow_private: bool) -> ApiResult<Vec<std::net::SocketAddr>> {
+pub async fn ssrf_check(
+    domain: &str,
+    allow_private: bool,
+) -> ApiResult<Vec<core::net::SocketAddr>> {
     if allow_private {
         return Ok(Vec::new());
     }
@@ -872,7 +874,7 @@ pub async fn ssrf_check(domain: &str, allow_private: bool) -> ApiResult<Vec<std:
     }
     // Resolve and inspect EVERY IP. Resolution failure or an empty answer denies
     // (fail closed).
-    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(format!("{host}:443"))
+    let addrs: Vec<core::net::SocketAddr> = tokio::net::lookup_host(format!("{host}:443"))
         .await
         .map_err(|e| {
             tracing::warn!(host = %host, error = %e, "SSRF: DNS resolution failed — rejecting");
@@ -900,7 +902,8 @@ pub fn hostname_denied(host: &str) -> bool {
     }
     if h == "localhost"
         || h == "metadata.google.internal"
-        || h.ends_with(".local")
+        || h.rsplit_once('.')
+            .is_some_and(|(_, suffix)| suffix == "local")
         || h.ends_with(".internal")
         || h.ends_with(".localhost")
     {
@@ -941,23 +944,23 @@ pub fn ip_disallowed(ip: IpAddr) -> bool {
 }
 
 /// 100.64.0.0/10 — carrier-grade NAT shared address space.
-fn is_shared_cgnat_v4(v4: Ipv4Addr) -> bool {
+const fn is_shared_cgnat_v4(v4: Ipv4Addr) -> bool {
     let o = v4.octets();
     o[0] == 100 && (o[1] & 0xc0) == 0x40
 }
 
-/// fc00::/7 — unique local addresses.
-fn is_ula_v6(v6: Ipv6Addr) -> bool {
+/// `fc00::/7` — unique local addresses.
+const fn is_ula_v6(v6: Ipv6Addr) -> bool {
     (v6.segments()[0] & 0xfe00) == 0xfc00
 }
 
-/// fe80::/10 — link-local unicast.
-fn is_link_local_v6(v6: Ipv6Addr) -> bool {
+/// `fe80::/10` — link-local unicast.
+const fn is_link_local_v6(v6: Ipv6Addr) -> bool {
     (v6.segments()[0] & 0xffc0) == 0xfe80
 }
 
 /// Is `ts` within ±[`REPLAY_WINDOW_SECS`] of `now` (both epoch seconds)?
-pub fn replay_ok(ts: i64, now: i64) -> bool {
+pub const fn replay_ok(ts: i64, now: i64) -> bool {
     (now - ts).abs() <= REPLAY_WINDOW_SECS
 }
 
@@ -970,7 +973,7 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 /// Domain component of a `name@domain` id.
-pub(crate) fn domain_of(user_id: &str) -> Option<&str> {
+pub fn domain_of(user_id: &str) -> Option<&str> {
     user_id
         .rsplit_once('@')
         .map(|(_, d)| d)
@@ -1006,7 +1009,7 @@ fn identity_key_hash(payload: &Value) -> Option<String> {
     Some(hex::encode(Sha256::digest(&bytes)))
 }
 
-/// Create a federated shadow user (is_federated, no password) + their person
+/// Create a federated shadow user (`is_federated`, no password) + their person
 /// entity, once. Never clobbers an existing (possibly local) row.
 pub async fn ensure_federated_user(pool: &sqlx::PgPool, user_id: &str) -> ApiResult<()> {
     let display = local_part(user_id);

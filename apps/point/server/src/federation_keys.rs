@@ -9,7 +9,7 @@
 //!
 //! The private key (a 32-byte seed) never leaves the DB row and is never logged.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
 use sqlx::PgPool;
 
 /// Load the persisted signing key, generating + persisting one on first boot.
@@ -23,29 +23,27 @@ pub async fn load_or_generate(pool: &PgPool) -> Result<SigningKey, sqlx::Error> 
             .fetch_optional(pool)
             .await?;
 
-    let seed_bytes = match existing {
-        Some((b,)) => b,
-        None => {
-            let seed: [u8; 32] = rand::random();
-            let signing = SigningKey::from_bytes(&seed);
-            let public = signing.verifying_key().to_bytes();
-            sqlx::query(
-                "INSERT INTO server_keys (id, private_key, public_key)
-                 VALUES (1, $1, $2)
-                 ON CONFLICT (id) DO NOTHING",
-            )
-            .bind(seed.as_slice())
-            .bind(public.as_slice())
-            .execute(pool)
+    let seed_bytes = if let Some((b,)) = existing {
+        b
+    } else {
+        let seed: [u8; 32] = rand::random();
+        let signing = SigningKey::from_bytes(&seed);
+        let public = signing.verifying_key().to_bytes();
+        sqlx::query(
+            "INSERT INTO server_keys (id, private_key, public_key)
+             VALUES (1, $1, $2)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(seed.as_slice())
+        .bind(public.as_slice())
+        .execute(pool)
+        .await?;
+        // Re-read the canonical row: if a concurrent boot won the insert, we
+        // adopt its key rather than our discarded local one.
+        let (b,): (Vec<u8>,) = sqlx::query_as("SELECT private_key FROM server_keys WHERE id = 1")
+            .fetch_one(pool)
             .await?;
-            // Re-read the canonical row: if a concurrent boot won the insert, we
-            // adopt its key rather than our discarded local one.
-            let (b,): (Vec<u8>,) =
-                sqlx::query_as("SELECT private_key FROM server_keys WHERE id = 1")
-                    .fetch_one(pool)
-                    .await?;
-            b
-        }
+        b
     };
 
     let seed: [u8; 32] = seed_bytes

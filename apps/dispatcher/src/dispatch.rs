@@ -3,7 +3,7 @@
 //!
 //! Flow per inbound message:
 //! 1. Stamp `sender_class` from the roster (never trusted from the sender).
-//! 2. Resolve the tracker task: carry the given task_id, or FILE a task first
+//! 2. Resolve the tracker task: carry the given `task_id`, or FILE a task first
 //!    (spawn-from-task — a card about new work exists only after its task).
 //! 3. Enforce the interrupt policy (demote-not-drop).
 //! 4. Post to the board. Honored interrupts are delivered immediately
@@ -58,9 +58,9 @@ pub struct InboundMessage {
     pub dedupe_key: Option<String>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Routed {
-    /// Honored interrupt, delivered now. (card_id, envelope_id)
+    /// Honored interrupt, delivered now. (`card_id`, `envelope_id`)
     Interrupted {
         card_id: String,
         envelope_id: String,
@@ -70,7 +70,7 @@ pub enum Routed {
     InterruptPending { card_id: String },
     /// Queued for the digest / the wanted board.
     Queued { card_id: String, demoted: bool },
-    /// The message's dedupe_key was already processed; nothing was written.
+    /// The message's `dedupe_key` was already processed; nothing was written.
     Duplicate { card_id: String },
 }
 
@@ -83,9 +83,16 @@ pub struct Dispatcher<'a> {
     pub lease_ms: i64,
 }
 
-impl<'a> Dispatcher<'a> {
+impl Dispatcher<'_> {
     /// Route one inbound message. `now_ms`/`now_rfc3339` are injected for
     /// testability (and because the board is epoch-ms native).
+    ///
+    /// # Errors
+    /// Returns an error for an invalid recipient or unroutable message, or
+    /// if a tracker or board operation fails.
+    ///
+    /// # Panics
+    /// Panics if a just-posted interrupt disappears or has no recipient.
     pub fn dispatch(
         &mut self,
         msg: &InboundMessage,
@@ -209,9 +216,9 @@ impl<'a> Dispatcher<'a> {
             let envelope_id = match deliver_card(
                 self.transport,
                 &wire,
-                || now_rfc3339.to_string(),
+                || now_rfc3339.to_owned(),
                 5,
-                |attempt| std::time::Duration::from_millis(200 * (1 << attempt.min(4))),
+                |attempt| core::time::Duration::from_millis(200 * (1 << attempt.min(4))),
             ) {
                 Ok(id) => id,
                 Err(e) => {
@@ -225,7 +232,7 @@ impl<'a> Dispatcher<'a> {
                 }
             };
             self.board
-                .mark_delivered(std::slice::from_ref(&card_id), now_ms)?;
+                .mark_delivered(core::slice::from_ref(&card_id), now_ms)?;
             Ok(Routed::Interrupted {
                 card_id,
                 envelope_id,
@@ -245,6 +252,9 @@ impl Dispatcher<'_> {
     /// many were delivered this pass. Recipients that have dropped out of
     /// the roster are skipped (their cards stay visible on the board for
     /// triage rather than silently vanishing).
+    ///
+    /// # Errors
+    /// Returns an error if reading the board or marking delivery fails.
     pub fn redeliver_pending(&mut self, now_ms: i64, now_rfc3339: &str) -> Result<usize, String> {
         let pending = self.board.undelivered_interrupts()?;
         let mut delivered = 0;
@@ -264,13 +274,13 @@ impl Dispatcher<'_> {
             match deliver_card(
                 self.transport,
                 &wire,
-                || now_rfc3339.to_string(),
+                || now_rfc3339.to_owned(),
                 3,
-                |attempt| std::time::Duration::from_millis(200 * (1 << attempt.min(4))),
+                |attempt| core::time::Duration::from_millis(200 * (1 << attempt.min(4))),
             ) {
                 Ok(_) => {
                     self.board
-                        .mark_delivered(std::slice::from_ref(&card.card_id), now_ms)?;
+                        .mark_delivered(core::slice::from_ref(&card.card_id), now_ms)?;
                     delivered += 1;
                 }
                 Err(e) => {
@@ -285,14 +295,14 @@ impl Dispatcher<'_> {
     }
 }
 
-impl std::fmt::Debug for Dispatcher<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for Dispatcher<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Dispatcher").finish_non_exhaustive()
     }
 }
 
 impl From<crate::board::BoardError> for String {
-    fn from(e: crate::board::BoardError) -> String {
+    fn from(e: crate::board::BoardError) -> Self {
         e.to_string()
     }
 }
@@ -323,8 +333,8 @@ mod tests {
 
     impl Tracker for FakeTracker {
         fn file_task(&self, title: &str, _: &str, _: u8, _: &str) -> Result<i64, String> {
-            self.filed.lock().unwrap().push(title.to_string());
-            Ok(900 + self.filed.lock().unwrap().len() as i64)
+            self.filed.lock().unwrap().push(title.to_owned());
+            Ok(900 + i64::try_from(self.filed.lock().unwrap().len()).unwrap())
         }
         fn active_lease(&self, _: &str) -> Result<Option<i64>, String> {
             Ok(self.active)
@@ -333,8 +343,8 @@ mod tests {
 
     fn roster() -> Roster {
         let mut r = Roster::new(
-            vec!["@parker:petalnet.example".to_string()],
-            vec!["system:watchdog".to_string()],
+            vec!["@parker:petalnet.example".to_owned()],
+            vec!["system:watchdog".to_owned()],
         );
         r.upsert_agent(crate::roster::AgentEntry {
             handle: "janet".into(),
@@ -407,9 +417,10 @@ mod tests {
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].id, envelope_id);
         let card = &sent[0].payload.as_ref().unwrap()["card"];
-        assert_eq!(card["card_id"], serde_json::Value::String(card_id.clone()));
+        assert_eq!(card["card_id"], serde_json::Value::String(card_id));
         assert_eq!(card["sender_class"], "principal");
         assert_eq!(card["interrupt_policy"], "principal_command");
+        drop(sent);
         // Delivered interrupts don't reappear in the digest.
         assert!(board.deferred_for("janet", 0).unwrap().is_empty());
     }
@@ -606,7 +617,7 @@ mod tests {
         delivered: Mutex<Vec<Envelope>>,
     }
 
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use core::sync::atomic::{AtomicU32, Ordering};
 
     impl CardTransport for FailNTransport {
         fn deliver(&self, envelope: &Envelope) -> Result<(), String> {
@@ -666,6 +677,7 @@ mod tests {
             sent[0].payload.as_ref().unwrap()["card"]["card_id"],
             serde_json::Value::String(card_id)
         );
+        drop(sent);
         assert!(board.undelivered_interrupts().unwrap().is_empty());
     }
 

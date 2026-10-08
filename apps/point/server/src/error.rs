@@ -25,26 +25,24 @@ impl From<sqlx::Error> for AppError {
         if let sqlx::Error::Database(db) = &e {
             // Postgres unique violation -> 409, matching legacy behavior.
             if db.code().as_deref() == Some("23505") {
-                return AppError::Conflict("already exists".into());
+                return Self::Conflict("already exists".into());
             }
         }
         tracing::error!(error = %e, "database error");
-        AppError::Internal("database error".into())
+        Self::Internal("database error".into())
     }
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, msg) = match self {
-            AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
-            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".into()),
-            AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden".into()),
-            AppError::NotFound => (StatusCode::NOT_FOUND, "not found".into()),
-            AppError::Conflict(m) => (StatusCode::CONFLICT, m),
-            AppError::TooManyRequests => {
-                (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded".into())
-            }
-            AppError::Internal(m) => {
+            Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
+            Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".into()),
+            Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden".into()),
+            Self::NotFound => (StatusCode::NOT_FOUND, "not found".into()),
+            Self::Conflict(m) => (StatusCode::CONFLICT, m),
+            Self::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded".into()),
+            Self::Internal(m) => {
                 tracing::error!("internal error: {m}");
                 sentry::capture_message(&m, sentry::Level::Error);
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())

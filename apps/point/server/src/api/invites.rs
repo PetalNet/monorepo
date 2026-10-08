@@ -4,7 +4,7 @@ use axum::extract::{Path, State};
 use axum::response::Html;
 use axum::Json;
 use chrono::{DateTime, Duration, Utc};
-use rand::RngExt;
+use rand::RngExt as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -96,7 +96,7 @@ fn percent_encode_path(value: &str) -> String {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'@') {
             encoded.push(char::from(byte));
         } else {
-            use std::fmt::Write as _;
+            use core::fmt::Write as _;
             write!(encoded, "%{byte:02X}").expect("writing to a String cannot fail");
         }
     }
@@ -112,7 +112,7 @@ fn escape_html(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-fn require_admin(user: &AuthUser) -> ApiResult<()> {
+const fn require_admin(user: &AuthUser) -> ApiResult<()> {
     if user.is_admin {
         Ok(())
     } else {
@@ -222,8 +222,8 @@ pub async fn admin_info(State(state): State<AppState>, user: AuthUser) -> ApiRes
 }
 
 /// 8 chars of RFC-4648 base32 — unambiguous, easy to read aloud, 2^40 space.
-/// Shared with group invites (api::groups).
-pub(crate) fn generate_invite_code() -> String {
+/// Shared with group invites (`api::groups`).
+pub fn generate_invite_code() -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     let mut rng = rand::rng();
     (0..8)

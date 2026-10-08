@@ -3,8 +3,9 @@
 //! agents can exercise the whole path without any live service; the doorman
 //! transport plugs into the same `CardTransport` seam in N1.4 integration.
 
+use core::time::Duration;
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use dispatcher::board::Board;
 use dispatcher::config::Config;
@@ -18,10 +19,12 @@ use dispatcher::tracker::{SqliteTracker, Tracker};
 use dispatcher::wake::TokenBucket;
 
 fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| {
+        d.as_secs()
+            .cast_signed()
+            .wrapping_mul(1000)
+            .wrapping_add(i64::from(d.subsec_millis()))
+    })
 }
 
 fn now_rfc3339() -> String {
@@ -30,7 +33,7 @@ fn now_rfc3339() -> String {
 
 fn main() {
     let config_path =
-        std::env::var("DISPATCHER_CONFIG").unwrap_or_else(|_| "dispatcher-config.json".to_string());
+        std::env::var("DISPATCHER_CONFIG").unwrap_or_else(|_| "dispatcher-config.json".to_owned());
     let cfg = match Config::load(Path::new(&config_path)) {
         Ok(c) => c,
         Err(e) => {
@@ -43,14 +46,14 @@ fn main() {
             eprintln!("dispatcher: glitchtip disabled: {e}");
         }
     }
-    if let Err(e) = run(cfg) {
+    if let Err(e) = run(&cfg) {
         glitchtip::capture_message(&format!("dispatcher exiting on error: {e}"), "error");
         eprintln!("dispatcher: {e}");
         std::process::exit(1);
     }
 }
 
-fn run(cfg: Config) -> Result<(), String> {
+fn run(cfg: &Config) -> Result<(), String> {
     let board = Board::open(&cfg.db_path).map_err(|e| e.to_string())?;
 
     let mut roster = Roster::new(cfg.principals.clone(), cfg.system_senders.clone());

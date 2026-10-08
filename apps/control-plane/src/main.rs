@@ -3,15 +3,15 @@
 //! ticks, and emit actions as envelopes on the outbound spool (the doorman
 //! client replaces the spool at N1.4 integration — CP11).
 
+use core::time::Duration;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use control_plane::config::Config;
 use control_plane::discipline::{nag_body, AgentActivity, Discipline};
 use control_plane::governance::{Action, Governor, Tier, Usage};
 use control_plane::registry::{CapacityReport, Registry};
-use control_plane::tokens::TokenAuthority;
 use control_plane::vault::FileVault;
 use dispatcher::deliver::{CardTransport, SpoolTransport};
 use dispatcher::envelope::{Envelope, EnvelopeType, RPC_SCHEMA_VERSION};
@@ -20,8 +20,7 @@ use dispatcher::glitchtip;
 fn now_epoch() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs().cast_signed())
 }
 
 fn now_rfc3339() -> String {
@@ -30,7 +29,7 @@ fn now_rfc3339() -> String {
 
 fn main() {
     let config_path = std::env::var("CONTROL_PLANE_CONFIG")
-        .unwrap_or_else(|_| "control-plane-config.json".to_string());
+        .unwrap_or_else(|_| "control-plane-config.json".to_owned());
     let cfg = match Config::load(Path::new(&config_path)) {
         Ok(c) => c,
         Err(e) => {
@@ -43,23 +42,22 @@ fn main() {
             eprintln!("control-plane: glitchtip disabled: {e}");
         }
     }
-    if let Err(e) = run(cfg) {
+    if let Err(e) = run(&cfg) {
         glitchtip::capture_message(&format!("control-plane exiting on error: {e}"), "error");
         eprintln!("control-plane: {e}");
         std::process::exit(1);
     }
 }
 
-fn run(cfg: Config) -> Result<(), String> {
+fn run(cfg: &Config) -> Result<(), String> {
     let registry = Registry::open(&cfg.db_path)?;
-    let vault = FileVault::open(&cfg.vault_dir)?;
-    // The token authority is constructed but not yet consulted per-envelope:
+    FileVault::open(&cfg.vault_dir)?;
+    // The token authority is not yet consulted per-envelope:
     // the ingest spool has no place to carry a token, so envelope `agent` is
     // self-asserted until the doorman backchannel (N1.4) authenticates the
     // connection and delivers a token to verify here. Until then the spool
     // dir is the trust boundary (must be OS-protected local), and #1's
     // canonical-handle gate bounds the blast radius. (adversarial-review #3)
-    let _authority = TokenAuthority { store: &vault };
     let mut governor = Governor::new(cfg.pool_tokens);
     let discipline = Discipline {
         grace_secs: cfg.discipline_grace_secs,
@@ -96,14 +94,13 @@ fn run(cfg: Config) -> Result<(), String> {
 
     // Discipline needs a REAL lease lookup (codex P1: an event's task_id is
     // not lease state); without a tracker path the pass is disabled.
-    let discipline_tracker: Option<dispatcher::tracker::SqliteTracker> = match &cfg.tracker_db_path
-    {
-        Some(p) => Some(dispatcher::tracker::SqliteTracker::open(p)?),
-        None => {
+    let discipline_tracker: Option<dispatcher::tracker::SqliteTracker> =
+        if let Some(p) = &cfg.tracker_db_path {
+            Some(dispatcher::tracker::SqliteTracker::open(p)?)
+        } else {
             eprintln!("control-plane: no tracker_db_path — discipline pass disabled");
             None
-        }
-    };
+        };
 
     let mut usages: BTreeMap<String, Usage> = BTreeMap::new();
     let mut tiers: BTreeMap<String, Tier> = BTreeMap::new();
@@ -122,7 +119,7 @@ fn run(cfg: Config) -> Result<(), String> {
             &mut usages,
             &mut tiers,
             &mut governor,
-            &cfg,
+            cfg,
         )?;
 
         if last_governance.elapsed() >= Duration::from_secs(cfg.governance_interval_secs) {
@@ -139,7 +136,7 @@ fn run(cfg: Config) -> Result<(), String> {
             )?;
             if let Some(tracker) = &discipline_tracker {
                 discipline_pass(
-                    &cfg,
+                    cfg,
                     &discipline,
                     &registry,
                     tracker,
@@ -369,7 +366,7 @@ fn deliver_event(
         id: uuid::Uuid::new_v4().to_string(),
         kind: EnvelopeType::Event,
         method: Some(method.into()),
-        agent: agent.to_string(),
+        agent: agent.to_owned(),
         task_id: None,
         in_reply_to: None,
         payload: Some(payload),
@@ -383,9 +380,9 @@ fn deliver_event(
 
 /// Read fleet-event snapshots (data/fleet/<handle>.json layout), check
 /// discipline against the TRACKER's lease state (never the event's own
-/// task_id — codex P1), and nag. Each agent is nagged at most once per hour.
+/// `task_id` — codex P1), and nag. Each agent is nagged at most once per hour.
 /// The working-grace timer keys on the alive/idle→working TRANSITION we
-/// observe, not the session's started_at (codex P2).
+/// observe, not the session's `started_at` (codex P2).
 #[allow(clippy::too_many_arguments)]
 fn discipline_pass(
     cfg: &Config,
@@ -415,11 +412,11 @@ fn discipline_pass(
         let Ok(event) = serde_json::from_str::<serde_json::Value>(&raw) else {
             continue;
         };
-        let handle = event["handle"].as_str().unwrap_or_default().to_string();
+        let handle = event["handle"].as_str().unwrap_or_default().to_owned();
         if handle.is_empty() {
             continue;
         }
-        let status = event["status"].as_str().unwrap_or("alive").to_string();
+        let status = event["status"].as_str().unwrap_or("alive").to_owned();
         // Grace timer: when did we first SEE this agent in its current status?
         let since = match status_since.get(&handle) {
             Some((prev, since)) if *prev == status => *since,

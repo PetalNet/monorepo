@@ -5,7 +5,7 @@
 
 use axum::http::StatusCode;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
+use base64::Engine as _;
 use serde_json::json;
 use sqlx::PgPool;
 
