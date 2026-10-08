@@ -1,4 +1,4 @@
-//! Control-plane config — deny_unknown_fields (CP12).
+//! Control-plane config — `deny_unknown_fields` (CP12).
 
 use std::path::PathBuf;
 
@@ -9,12 +9,12 @@ use serde::Deserialize;
 pub struct Config {
     #[serde(default)]
     pub schema_version: Option<u32>,
-    /// Registry DB (control-plane-owned SQLite).
+    /// Registry DB (control-plane-owned `SQLite`).
     pub db_path: PathBuf,
     /// Credential vault directory (0700; files 0600).
     pub vault_dir: PathBuf,
     /// Tracker DB for the discipline pass's REAL lease lookups (a fleet
-    /// event's task_id is not lease state). Absent = discipline disabled.
+    /// event's `task_id` is not lease state). Absent = discipline disabled.
     /// Points at temp/disposable DBs during dev — never the live tracker.
     #[serde(default)]
     pub tracker_db_path: Option<PathBuf>,
@@ -47,24 +47,26 @@ pub struct Config {
     pub glitchtip_dsn: Option<String>,
 }
 
-fn default_pool_tokens() -> u64 {
+const fn default_pool_tokens() -> u64 {
     5_000_000
 }
-fn default_grant_tokens() -> u64 {
+const fn default_grant_tokens() -> u64 {
     500_000
 }
-fn default_grant_lease_secs() -> i64 {
+const fn default_grant_lease_secs() -> i64 {
     3600
 }
-fn default_governance_interval_secs() -> u64 {
+const fn default_governance_interval_secs() -> u64 {
     30
 }
-fn default_discipline_grace_secs() -> i64 {
+const fn default_discipline_grace_secs() -> i64 {
     600
 }
 
 impl Config {
-    pub fn load(path: &std::path::Path) -> Result<Config, String> {
+    /// # Errors
+    /// Returns an error if reading or parsing the configuration fails.
+    pub fn load(path: &std::path::Path) -> Result<Self, String> {
         let raw =
             std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
         serde_json::from_str(&raw).map_err(|e| format!("parse {}: {e}", path.display()))

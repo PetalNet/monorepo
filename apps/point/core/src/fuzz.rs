@@ -1,5 +1,5 @@
-use hmac::{Hmac, KeyInit, Mac};
-use sha2::{Digest, Sha256};
+use hmac::{Hmac, KeyInit as _, Mac as _};
+use sha2::{Digest as _, Sha256};
 use std::borrow::Cow;
 
 pub const FUZZ_RADIUS_NEAR_M: f64 = 300.0;
@@ -72,6 +72,27 @@ fn effective_secret(secret: &[u8]) -> Cow<'_, [u8]> {
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "The deterministic grid intentionally rounds the hash to a floating-point fraction"
+)]
+fn hash_fraction(bytes: &[u8]) -> f64 {
+    let hash = u64::from_be_bytes(bytes.try_into().expect("8 bytes"));
+    hash as f64 / 2f64.powi(64)
+}
+
+// Coordinates are bounded by 180 * 111_320 metres and cells are at least one
+// metre wide. Thus integral indices fit i32 and are exactly representable in
+// f64. The caller has already rounded down to the integral cell index.
+// NaN (possible with enormous finite radii) maps to zero, as the old cast did.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Sanitized coordinates bound the integral cell index to i32; NaN intentionally maps to zero"
+)]
+const fn cell_index(value: f64) -> i32 {
+    value as i32
+}
+
 /// Grid origin for a (sharer, radius) pair. Audience is deliberately NOT an
 /// input: one grid per (sharer, radius) means every audience at a given radius
 /// snaps the same true point to the SAME cell, so colluding audiences can only
@@ -84,10 +105,8 @@ fn grid_origin_offsets(cell: f64, sharer_id: &str, secret: &[u8]) -> (f64, f64) 
     mac.update(sharer_id.as_bytes());
     mac.update(&cell.to_bits().to_be_bytes());
     let h = mac.finalize().into_bytes();
-    let hx = u64::from_be_bytes(h[0..8].try_into().expect("8 bytes"));
-    let hy = u64::from_be_bytes(h[8..16].try_into().expect("8 bytes"));
-    let ox = (hx as f64 / 2f64.powi(64)) * cell;
-    let oy = (hy as f64 / 2f64.powi(64)) * cell;
+    let ox = hash_fraction(&h[0..8]) * cell;
+    let oy = hash_fraction(&h[8..16]) * cell;
     (ox, oy)
 }
 
@@ -114,24 +133,29 @@ fn snap(
     let true_lon = sanitize_lon(true_lon);
     let (ox, oy) = grid_origin_offsets(cell, sharer_id, secret);
     let y_m = true_lat * M_PER_DEG_LAT;
-    let cell_y = ((y_m - oy) / cell).floor() as i64;
-    let cy = cell_y as f64 * cell + oy + cell / 2.0;
+    let cell_y = cell_index(((y_m - oy) / cell).floor());
+    // Keep multiplication and addition separately rounded: changing to a
+    // fused operation would change the existing deterministic grid centres.
+    let row_start = f64::from(cell_y) * cell;
+    let cy = row_start + oy + cell / 2.0;
     let lat = cy / M_PER_DEG_LAT;
     let m_per_deg_lon = M_PER_DEG_LAT * lat.to_radians().cos();
     let x_m = true_lon * m_per_deg_lon;
-    let cell_x = ((x_m - ox) / cell).floor() as i64;
-    let cx = cell_x as f64 * cell + ox + cell / 2.0;
+    let cell_x = cell_index(((x_m - ox) / cell).floor());
+    let column_start = f64::from(cell_x) * cell;
+    let cx = column_start + ox + cell / 2.0;
     // Wrap the snapped centre back into [-180, 180) so a cell straddling the
     // antimeridian never emits a longitude outside the valid range.
     let lon = wrap_lon(cx / m_per_deg_lon);
     Snapped {
-        cell_x,
-        cell_y,
+        cell_x: i64::from(cell_x),
+        cell_y: i64::from(cell_y),
         lat,
         lon,
     }
 }
 
+#[must_use]
 pub fn stable_fuzz(
     true_lat: f64,
     true_lon: f64,
@@ -144,6 +168,7 @@ pub fn stable_fuzz(
     (s.lat, s.lon)
 }
 
+#[must_use]
 pub fn fuzz_cell_id(
     true_lat: f64,
     true_lon: f64,
@@ -160,11 +185,33 @@ pub fn fuzz_cell_id(
 mod tests {
     use super::*;
     use rand::rngs::StdRng;
-    use rand::{RngExt, SeedableRng};
+    use rand::{RngExt as _, SeedableRng as _};
 
     const SECRET: &[u8] = b"unit-test-sharer-secret-32bytes!";
     const SHARER: &str = "alice@point.dev";
     const AUDIENCE: &str = "grp:family";
+
+    #[test]
+    fn numeric_conversions_preserve_grid_values() {
+        for index in [-20_037_601, -10_007_669, -1, 0, 1, 10_007_669, 20_037_601] {
+            assert_eq!(cell_index(f64::from(index)), index);
+        }
+        assert_eq!(cell_index(f64::NAN), 0);
+        // Exact values and rounding boundaries of the original u64 conversion.
+        for (integer, expected) in [
+            (0u64, 0.0),
+            (1, 2f64.powi(-64)),
+            (1u64 << 63, 0.5),
+            (u64::MAX, 1.0),
+            ((1u64 << 53) + 1, 2f64.powi(-11)),
+            ((1u64 << 53) + 3, ((2f64.powi(53)) + 4.0) / 2f64.powi(64)),
+        ] {
+            assert_eq!(
+                hash_fraction(&integer.to_be_bytes()).to_bits(),
+                expected.to_bits()
+            );
+        }
+    }
 
     fn haversine_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
         let r = 6_371_000.0_f64;
@@ -172,7 +219,10 @@ mod tests {
         let p2 = lat2.to_radians();
         let dp = (lat2 - lat1).to_radians();
         let dl = (lon2 - lon1).to_radians();
-        let a = (dp / 2.0).sin().powi(2) + p1.cos() * p2.cos() * (dl / 2.0).sin().powi(2);
+        let a = (dp / 2.0).sin().mul_add(
+            (dp / 2.0).sin(),
+            p1.cos() * p2.cos() * (dl / 2.0).sin().powi(2),
+        );
         2.0 * r * a.sqrt().asin()
     }
 
@@ -395,14 +445,14 @@ mod tests {
     #[test]
     fn grid_is_domain_separated_by_sharer_and_radius() {
         // Different sharers => different grids (sharer_id is length-prefixed).
-        let (ox_a, oy_a) = grid_origin_offsets(1000.0, "alice", SECRET);
-        let (ox_b, oy_b) = grid_origin_offsets(1000.0, "bob", SECRET);
-        assert!((ox_a - ox_b).abs() > f64::EPSILON || (oy_a - oy_b).abs() > f64::EPSILON);
+        let alice = grid_origin_offsets(1000.0, "alice", SECRET);
+        let bob = grid_origin_offsets(1000.0, "bob", SECRET);
+        assert!((alice.0 - bob.0).abs() > f64::EPSILON || (alice.1 - bob.1).abs() > f64::EPSILON);
         // Radius is a grid input: the SAME sharer at a different radius draws a
         // different grid fraction, not merely a rescaled offset.
-        let (ox_c, _oy_c) = grid_origin_offsets(300.0, "alice", SECRET);
-        let frac_a = ox_a / 1000.0;
-        let frac_c = ox_c / 300.0;
+        let near = grid_origin_offsets(300.0, "alice", SECRET);
+        let frac_a = alice.0 / 1000.0;
+        let frac_c = near.0 / 300.0;
         assert!(
             (frac_a - frac_c).abs() > f64::EPSILON,
             "radius must be domain-separated in the grid derivation"

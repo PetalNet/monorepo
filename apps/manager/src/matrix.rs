@@ -9,11 +9,13 @@
 //! supervision or hot-loop the sync. Here supervision keeps running with
 //! Matrix fully down.)
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::fmt::Write as _;
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::time::Duration;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::{json, Value};
 
@@ -47,8 +49,8 @@ fn matrix_errcode(body: &Value) -> Option<&str> {
 
 /// Is this response an authentication failure (a bad/rotated token) that a
 /// creds reload could heal? Matrix signals a bad access token with **401
-/// M_UNKNOWN_TOKEN** (incl. soft-logout). A bare 403 is *authorization*
-/// (M_FORBIDDEN — wrong room/permission), which a token swap can't fix, so we
+/// `M_UNKNOWN_TOKEN`** (incl. soft-logout). A bare 403 is *authorization*
+/// (`M_FORBIDDEN` — wrong room/permission), which a token swap can't fix, so we
 /// deliberately do NOT treat 403 as auth: reloading there would be a pointless
 /// creds re-read on every forbidden call.
 fn is_auth_failure(status: u16, body: &Value) -> bool {
@@ -61,9 +63,11 @@ pub fn urlenc(s: &str) -> String {
     for b in s.bytes() {
         match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
+                out.push(b as char);
             }
-            _ => out.push_str(&format!("%{b:02X}")),
+            _ => {
+                let _ = write!(out, "%{b:02X}");
+            }
         }
     }
     out
@@ -80,12 +84,12 @@ pub struct MatrixClient {
 }
 
 impl MatrixClient {
-    pub fn new(creds: &MatrixCreds, room: &str) -> MatrixClient {
-        MatrixClient {
-            homeserver: creds.homeserver.trim_end_matches('/').to_string(),
+    pub fn new(creds: &MatrixCreds, room: &str) -> Self {
+        Self {
+            homeserver: creds.homeserver.trim_end_matches('/').to_owned(),
             token: creds.access_token.clone(),
             user_id: creds.user_id.clone(),
-            room: room.to_string(),
+            room: room.to_owned(),
             agent: ureq::Agent::config_builder()
                 .timeout_connect(Some(Duration::from_secs(10)))
                 .http_status_as_error(false)
@@ -193,37 +197,40 @@ impl MatrixClient {
                 "[manager/matrix] WARNING: reloaded creds homeserver changed; not hot-applied — restart to adopt"
             );
         }
-        if creds.access_token != self.token {
-            self.token = creds.access_token.clone();
-            true
-        } else {
+        if creds.access_token == self.token {
             false
+        } else {
+            self.token.clone_from(&creds.access_token);
+            true
         }
     }
 
     /// One /sync round. Ok(commands) on success; `Err(SyncError::Auth)` when
-    /// the token is bad (401/403/M_UNKNOWN_TOKEN — the caller may self-heal by
+    /// the token is bad (`401/403/M_UNKNOWN_TOKEN` — the caller may self-heal by
     /// reloading creds); `Err(SyncError::Transport)` on a network/homeserver
-    /// failure or a response with no next_batch (caller backs off).
+    /// failure or a response with no `next_batch` (caller backs off).
     ///
     /// Command extraction is JS parity: m.room.message events in the control
     /// room timeline, not sent by us, whose body starts with `!` — returned
     /// stripped of `!`, lowercased, trimmed.
     pub fn sync(&mut self, timeout_ms: u64) -> Result<Vec<String>, SyncError> {
-        let qs = match &self.sync_token {
-            Some(tok) => format!(
-                "?since={}&timeout={}&filter={}",
-                urlenc(tok),
-                timeout_ms,
-                urlenc(&json!({"room": {"timeline": {"limit": 10}}}).to_string())
-            ),
-            // First sync: drain without history so stale commands are never
-            // re-executed (JS parity: timeout=0, timeline limit 0).
-            None => format!(
-                "?timeout=0&filter={}",
-                urlenc(&json!({"room": {"timeline": {"limit": 0}}}).to_string())
-            ),
-        };
+        let qs = self.sync_token.as_ref().map_or_else(
+            // First sync drains history so stale commands are never re-executed.
+            || {
+                format!(
+                    "?timeout=0&filter={}",
+                    urlenc(&json!({"room": {"timeline": {"limit": 0}}}).to_string())
+                )
+            },
+            |tok| {
+                format!(
+                    "?since={}&timeout={}&filter={}",
+                    urlenc(tok),
+                    timeout_ms,
+                    urlenc(&json!({"room": {"timeline": {"limit": 10}}}).to_string())
+                )
+            },
+        );
         let http_timeout = Duration::from_millis(timeout_ms + 15_000);
         let (status, body) = self.request(
             "GET",
@@ -241,7 +248,7 @@ impl MatrixClient {
         if status == 0 || next.is_none() {
             return Err(SyncError::Transport);
         }
-        self.sync_token = Some(next.unwrap().to_string());
+        self.sync_token = Some(next.unwrap().to_owned());
 
         // JSON-pointer path segments need '/' and '~' escaped per RFC 6901;
         // room ids contain neither, but navigate by key to be safe.
@@ -267,7 +274,7 @@ impl MatrixClient {
             })
             .map(str::trim)
             .filter(|s| s.starts_with('!'))
-            .map(|s| s[1..].to_lowercase().trim().to_string())
+            .map(|s| s[1..].to_lowercase().trim().to_owned())
             .collect();
         Ok(cmds)
     }
@@ -302,8 +309,7 @@ where
                     SendOutcome::Sent => {}
                     SendOutcome::AuthFailed => {
                         let due = last_reload
-                            .map(|t| t.elapsed() >= RELOAD_MIN_INTERVAL)
-                            .unwrap_or(true);
+                            .is_none_or(|t| t.elapsed() >= RELOAD_MIN_INTERVAL);
                         let mut retried = false;
                         if let Some(reload) = reload_creds.as_ref().filter(|_| due) {
                             last_reload = Some(Instant::now());
@@ -314,7 +320,7 @@ where
                                             retried = true;
                                             eprintln!("[manager/matrix] send auth failed; reloaded token and re-sent");
                                         }
-                                        _ => eprintln!("[manager/matrix] reloaded token but re-send still failed (dropped): {msg:?}"),
+                                        SendOutcome::AuthFailed | SendOutcome::Failed => eprintln!("[manager/matrix] reloaded token but re-send still failed (dropped): {msg:?}"),
                                     }
                                 }
                                 Ok(_) => {} // token unchanged — file not updated yet

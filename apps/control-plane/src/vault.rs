@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Credential {
     pub name: String,
     pub secret: String,
@@ -19,17 +19,25 @@ pub struct Credential {
 }
 
 pub trait CredStore: Send {
+    /// # Errors
+    /// Returns an error for an invalid name or a storage/read/decoding failure.
     fn get(&self, name: &str) -> Result<Option<Credential>, String>;
+    /// # Errors
+    /// Returns an error for an invalid name or a storage/write/encoding failure.
     fn put(&self, cred: &Credential) -> Result<(), String>;
+    /// # Errors
+    /// Returns an error if the credential store cannot be enumerated.
     fn list(&self) -> Result<Vec<String>, String>;
 }
 
+#[derive(Debug)]
 pub struct FileVault {
     dir: PathBuf,
 }
 
 /// Credential names become filenames: same canonical rule as agent handles,
 /// plus ':' for scoping (e.g. `agent:janet:matrix`).
+#[must_use]
 pub fn is_valid_cred_name(name: &str) -> bool {
     !name.is_empty()
         && name.chars().all(|c| {
@@ -39,15 +47,17 @@ pub fn is_valid_cred_name(name: &str) -> bool {
 }
 
 impl FileVault {
-    pub fn open(dir: &Path) -> Result<FileVault, String> {
+    /// # Errors
+    /// Returns an error if creating or setting permissions on the vault fails.
+    pub fn open(dir: &Path) -> Result<Self, String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
+            use std::os::unix::fs::PermissionsExt as _;
             std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
                 .map_err(|e| e.to_string())?;
         }
-        Ok(FileVault {
+        Ok(Self {
             dir: dir.to_path_buf(),
         })
     }
@@ -83,8 +93,8 @@ impl CredStore for FileVault {
         // briefly umask-readable (adversarial-review #7).
         #[cfg(unix)]
         {
-            use std::io::Write;
-            use std::os::unix::fs::OpenOptionsExt;
+            use std::io::Write as _;
+            use std::os::unix::fs::OpenOptionsExt as _;
             let mut f = std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
@@ -164,7 +174,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn files_are_0600_and_dir_0700() {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::PermissionsExt as _;
         let dir = tempfile::tempdir().unwrap();
         let v = FileVault::open(dir.path()).unwrap();
         v.put(&cred("agent:janet:matrix")).unwrap();
@@ -189,7 +199,7 @@ mod tests {
         assert_eq!(v.get("agent:a__b:c").unwrap().unwrap().secret, "secret-a");
         assert_eq!(v.get("agent:a:b__c").unwrap().unwrap().secret, "secret-b");
         let names = v.list().unwrap();
-        assert!(names.contains(&"agent:a__b:c".to_string()));
-        assert!(names.contains(&"agent:a:b__c".to_string()));
+        assert!(names.contains(&"agent:a__b:c".to_owned()));
+        assert!(names.contains(&"agent:a:b__c".to_owned()));
     }
 }

@@ -1,12 +1,14 @@
-//! Agent capacity registry (CP10): the control plane's view of who exists,
-//! what they provide, and how alive they look. Fed by `agent.capacity`
+//! Agent capacity registry (CP10).
+//!
+//! The control plane's view of who exists, what they provide, and how alive
+//! they look. Fed by `agent.capacity`
 //! envelopes; liveness is DERIVED from report staleness (mirroring the
 //! cockpit's offline derivation — producers never write it).
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension as _};
 use serde::{Deserialize, Serialize};
 
 pub const SUSPECT_AFTER_SECS: i64 = 90;
@@ -45,14 +47,17 @@ pub struct RegistryEntry {
     pub liveness: Liveness,
 }
 
+#[derive(Debug)]
 pub struct Registry {
     conn: Connection,
 }
 
 impl Registry {
-    pub fn open(path: &Path) -> Result<Registry, String> {
+    /// # Errors
+    /// Returns an error if opening or initializing the registry database fails.
+    pub fn open(path: &Path) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        conn.busy_timeout(std::time::Duration::from_millis(5000))
+        conn.busy_timeout(core::time::Duration::from_secs(5))
             .map_err(|e| e.to_string())?;
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.execute_batch(
@@ -65,9 +70,11 @@ impl Registry {
             );",
         )
         .map_err(|e| e.to_string())?;
-        Ok(Registry { conn })
+        Ok(Self { conn })
     }
 
+    /// # Errors
+    /// Returns an error for a non-canonical handle or a database/serialization failure.
     pub fn report(&self, r: &CapacityReport, now_epoch: i64) -> Result<(), String> {
         if !dispatcher::card::is_canonical_handle(&r.handle) {
             return Err(format!(
@@ -88,6 +95,8 @@ impl Registry {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error if querying or decoding the registry row fails.
     pub fn get(&self, handle: &str, now_epoch: i64) -> Result<Option<RegistryEntry>, String> {
         self.conn
             .query_row(
@@ -100,6 +109,8 @@ impl Registry {
             .map_err(|e| e.to_string())
     }
 
+    /// # Errors
+    /// Returns an error if querying or decoding registry rows fails.
     pub fn all(&self, now_epoch: i64) -> Result<Vec<RegistryEntry>, String> {
         let mut stmt = self
             .conn
@@ -118,6 +129,9 @@ impl Registry {
     /// The push-routing pick: the single best ALIVE agent with a free slot
     /// providing every needed tag (most free slots wins — crude load
     /// balancing until real rank scores arrive).
+    ///
+    /// # Errors
+    /// Returns an error if reading the registry fails.
     pub fn best_eligible(
         &self,
         needs: &BTreeSet<String>,
@@ -133,8 +147,7 @@ impl Registry {
             }
             if best
                 .as_ref()
-                .map(|b| entry.free_slots > b.free_slots)
-                .unwrap_or(true)
+                .is_none_or(|b| entry.free_slots > b.free_slots)
             {
                 best = Some(entry);
             }
@@ -150,7 +163,8 @@ fn row_to_entry(row: &rusqlite::Row<'_>, now_epoch: i64) -> rusqlite::Result<Reg
     Ok(RegistryEntry {
         handle: row.get(0)?,
         provides: serde_json::from_str(&provides_json).unwrap_or_default(),
-        free_slots: row.get::<_, i64>(2)? as u32,
+        // Reports persist a u32 slot count without narrowing it.
+        free_slots: row.get(2)?,
         host: row.get(3)?,
         last_seen_epoch,
         liveness: if age > DOWN_AFTER_SECS {
@@ -170,7 +184,10 @@ mod tests {
     fn report(handle: &str, provides: &[&str], slots: u32) -> CapacityReport {
         CapacityReport {
             handle: handle.into(),
-            provides: provides.iter().map(|s| s.to_string()).collect(),
+            provides: provides
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             free_slots: slots,
             host: Some(".14".into()),
         }
@@ -214,14 +231,14 @@ mod tests {
         r.report(&report("stale", &["code", "gpu"], 9), 100)
             .unwrap();
 
-        let needs: BTreeSet<String> = ["gpu".to_string()].into_iter().collect();
+        let needs = BTreeSet::from(["gpu".to_owned()]);
         let best = r.best_eligible(&needs, 1010).unwrap().unwrap();
         assert_eq!(
             best.handle, "big",
             "most free slots among alive+capable+free"
         );
         // Nobody provides 'quantum'.
-        let none: BTreeSet<String> = ["quantum".to_string()].into_iter().collect();
+        let none = BTreeSet::from(["quantum".to_owned()]);
         assert!(r.best_eligible(&none, 1010).unwrap().is_none());
     }
 

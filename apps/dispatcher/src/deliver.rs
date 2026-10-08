@@ -7,7 +7,7 @@
 //! re-sends the SAME envelope id so receivers can de-duplicate (contract
 //! D20).
 
-use std::io::Write;
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use crate::card::TaskCard;
@@ -16,19 +16,26 @@ use crate::envelope::Envelope;
 pub trait CardTransport: Send {
     /// Deliver one envelope to its agent. Err = retryable transport failure
     /// (the caller re-sends the SAME envelope after backoff).
+    ///
+    /// # Errors
+    /// Returns an error if the transport cannot deliver the envelope.
     fn deliver(&self, envelope: &Envelope) -> Result<(), String>;
 }
 
 /// Per-recipient JSONL outbox: `<dir>/<handle>.outbox.jsonl`, one envelope per
-/// line, appended atomically (O_APPEND single write ≤ PIPE_BUF-ish sizes; the
-/// consumer tolerates a torn last line by ignoring unparsable tails).
+/// line, appended atomically.
+///
+/// `O_APPEND` single write ≤ PIPE_BUF-ish sizes; the
+/// consumer tolerates a torn last line by ignoring unparsable tails.
+#[derive(Debug)]
 pub struct SpoolTransport {
     dir: PathBuf,
 }
 
 impl SpoolTransport {
-    pub fn new(dir: PathBuf) -> SpoolTransport {
-        SpoolTransport { dir }
+    #[must_use]
+    pub const fn new(dir: PathBuf) -> Self {
+        Self { dir }
     }
 }
 
@@ -59,12 +66,16 @@ impl CardTransport for SpoolTransport {
 /// Deliver a card: build the task.dispatch envelope ONCE, then attempt with
 /// bounded retries; every attempt reuses the same envelope (idempotency on
 /// id). Returns the envelope id on success.
+///
+/// # Errors
+/// Returns an error if serialization or envelope validation fails, or all
+/// delivery attempts fail.
 pub fn deliver_card(
     transport: &dyn CardTransport,
     card: &TaskCard,
     now_rfc3339: impl Fn() -> String,
     max_attempts: u32,
-    backoff: impl Fn(u32) -> std::time::Duration,
+    backoff: impl Fn(u32) -> core::time::Duration,
 ) -> Result<String, String> {
     let card_json = serde_json::to_value(card).map_err(|e| e.to_string())?;
     let envelope = Envelope::task_dispatch(&card.recipient, card.task_id, card_json, now_rfc3339());
@@ -90,7 +101,7 @@ pub fn deliver_card(
 mod tests {
     use super::*;
     use crate::card::{InterruptPolicy, SenderClass};
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use core::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Mutex;
 
     fn card() -> TaskCard {
@@ -143,7 +154,7 @@ mod tests {
             &card(),
             || "2026-07-12T11:00:00Z".into(),
             5,
-            |_| std::time::Duration::ZERO,
+            |_| core::time::Duration::ZERO,
         )
         .unwrap();
         let seen = t.seen_ids.lock().unwrap();
@@ -152,6 +163,7 @@ mod tests {
             seen.iter().all(|s| *s == id),
             "idempotency key must not change"
         );
+        drop(seen);
     }
 
     #[test]
@@ -166,7 +178,7 @@ mod tests {
             &card(),
             || "2026-07-12T11:00:00Z".into(),
             3,
-            |_| std::time::Duration::ZERO,
+            |_| core::time::Duration::ZERO,
         )
         .unwrap_err();
         assert!(err.contains("after 3 attempts"), "{err}");
@@ -202,7 +214,7 @@ mod tests {
                 &card(),
                 || "2026-07-12T11:00:00Z".into(),
                 1,
-                |_| std::time::Duration::ZERO,
+                |_| core::time::Duration::ZERO,
             )
             .unwrap();
         }

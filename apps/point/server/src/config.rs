@@ -1,5 +1,5 @@
 //! Server configuration, loaded from the environment. Honest boot: the server
-//! refuses to start on a missing/weak JWT_SECRET rather than limping insecurely.
+//! refuses to start on a missing/weak `JWT_SECRET` rather than limping insecurely.
 
 use std::env;
 
@@ -39,7 +39,7 @@ pub struct Config {
     pub trusted_proxy: bool,
     /// Optional Glitchtip/Sentry DSN. Absent = error reporting disabled.
     pub glitchtip_dsn: Option<String>,
-    /// Optional OIDC provider (decision 17). Off unless OIDC_ENABLED=true.
+    /// Optional OIDC provider (decision 17). Off unless `OIDC_ENABLED=true`.
     pub oidc: Option<OidcConfig>,
 }
 
@@ -97,7 +97,7 @@ impl Config {
 
         Self {
             database_url,
-            listen: env::var("LISTEN").unwrap_or_else(|_| "0.0.0.0:8330".to_string()),
+            listen: env::var("LISTEN").unwrap_or_else(|_| "0.0.0.0:8330".to_owned()),
             jwt_secret,
             domain,
             public_url,
@@ -115,8 +115,7 @@ impl Config {
 }
 
 fn env_bool(key: &str, default: bool) -> bool {
-    match env::var(key) {
-        Ok(v) => matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"),
-        Err(_) => default,
-    }
+    env::var(key).map_or(default, |v| {
+        matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+    })
 }

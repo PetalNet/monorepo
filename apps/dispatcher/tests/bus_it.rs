@@ -2,8 +2,8 @@
 //! concurrency property the board's CAS claim guarantees. No live service,
 //! no live DB, no network — disposable-agent style (§0).
 
+use core::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
 use dispatcher::board::{Board, BoardError, NewCard};
@@ -17,11 +17,11 @@ use dispatcher::tracker::{SqliteTracker, Tracker};
 use dispatcher::wake::TokenBucket;
 
 fn test_roster() -> Roster {
-    let mut r = Roster::new(vec!["@parker:petalnet.example".to_string()], vec![]);
+    let mut r = Roster::new(vec!["@parker:petalnet.example".to_owned()], vec![]);
     for handle in ["janet", "box-a", "box-b"] {
         r.upsert_agent(AgentEntry {
             handle: handle.into(),
-            capabilities: ["code".to_string()].into_iter().collect(),
+            capabilities: BTreeSet::from(["code".to_owned()]),
             active: true,
         });
     }
@@ -85,9 +85,13 @@ fn end_to_end_interrupt_reaches_the_spool() {
     assert_eq!(card.body, msg.body, "body is forwarded verbatim");
     match routed {
         dispatcher::dispatch::Routed::Interrupted { envelope_id, .. } => {
-            assert_eq!(envelope_id, env.id)
+            assert_eq!(envelope_id, env.id);
         }
-        other => panic!("expected interrupt, got {other:?}"),
+        other @ (dispatcher::dispatch::Routed::InterruptPending { .. }
+        | dispatcher::dispatch::Routed::Queued { .. }
+        | dispatcher::dispatch::Routed::Duplicate { .. }) => {
+            panic!("expected interrupt, got {other:?}")
+        }
     }
 }
 
@@ -95,22 +99,22 @@ fn end_to_end_interrupt_reaches_the_spool() {
 /// ever sees a double-win, and losers back off onto other cards.
 #[test]
 fn concurrent_claims_are_exactly_once() {
+    const CARDS: usize = 40;
+    const WORKERS: usize = 8;
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("board.db");
     let board = Board::open(&db_path).unwrap();
 
-    const CARDS: usize = 40;
-    const WORKERS: usize = 8;
     let mut ids = Vec::new();
     for i in 0..CARDS {
         let id = board
             .post(
                 &NewCard {
-                    task_id: i as i64 + 1,
+                    task_id: i64::try_from(i).unwrap() + 1,
                     sender: "dispatcher".into(),
                     sender_class: SenderClass::System,
                     recipient: None,
-                    priority: (i % 4) as u8,
+                    priority: u8::try_from(i % 4).unwrap(),
                     thread: None,
                     requires_reply: false,
                     interrupt_policy: InterruptPolicy::Defer,
@@ -131,9 +135,9 @@ fn concurrent_claims_are_exactly_once() {
     let barrier = Arc::new(Barrier::new(WORKERS));
     let mut handles = Vec::new();
     for w in 0..WORKERS {
-        let claimed = claimed.clone();
-        let conflicts = conflicts.clone();
-        let barrier = barrier.clone();
+        let claimed = Arc::clone(&claimed);
+        let conflicts = Arc::clone(&conflicts);
+        let barrier = Arc::clone(&barrier);
         let db_path = db_path.clone();
         let ids = ids.clone();
         handles.push(std::thread::spawn(move || {
@@ -164,6 +168,7 @@ fn concurrent_claims_are_exactly_once() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), CARDS, "no card claimed twice");
+    drop(claimed);
     assert_eq!(
         conflicts.load(Ordering::Relaxed),
         CARDS * (WORKERS - 1),
@@ -222,7 +227,7 @@ fn pull_workers_and_digest_cover_the_board() {
         .unwrap();
 
     // A code worker drains everything it's eligible for (prefetch=1 each cycle).
-    let provides: BTreeSet<String> = ["code".to_string()].into_iter().collect();
+    let provides = BTreeSet::from(["code".to_owned()]);
     let mut done = 0;
     while let Some(card) = board.surface("box-a", &provides, 10_000).unwrap() {
         let claimed = board.claim(&card.card_id, "box-a", 60_000, 10_000).unwrap();
@@ -250,7 +255,7 @@ fn pull_workers_and_digest_cover_the_board() {
     // The gpu card has no eligible agent right now: PARK it (blocked-evals
     // style), verify it stops surfacing even to a capable worker, then wake
     // it on a capacity-change event and claim it through the real pull path.
-    let gpu_provides: BTreeSet<String> = ["gpu".to_string()].into_iter().collect();
+    let gpu_provides = BTreeSet::from(["gpu".to_owned()]);
     let gpu_card = board
         .surface("box-a", &gpu_provides, 20_000)
         .unwrap()

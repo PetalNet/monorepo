@@ -10,7 +10,7 @@
 //!   agent-manager healthcheck [opts]  gate for canary/rollback (exit 0/1)
 //!   agent-manager version
 //!
-//! Config comes from the JSON file at $AGENT_MANAGER_CONFIG; nothing
+//! Config comes from the JSON file at $`AGENT_MANAGER_CONFIG`; nothing
 //! host-specific is compiled in. See config.example.json / the runbook.
 
 mod assistant;
@@ -21,7 +21,7 @@ mod state;
 mod supervisor;
 mod tmux;
 
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use core::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 
 use config::Config;
@@ -29,7 +29,7 @@ use state::SessionState;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let sub = args.first().map(String::as_str).unwrap_or("run");
+    let sub = args.first().map_or("run", String::as_str);
     match sub {
         "run" => run_manager(args.get(1).map(String::as_str)),
         "healthcheck" => healthcheck(&args[1..]),

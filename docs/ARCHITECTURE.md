@@ -29,7 +29,9 @@ Dependency versions for pnpm projects are centralized in strict catalogs there.
 ## Rust workspace
 
 The root `Cargo.toml` owns eleven server/service crates, resolver 3, Courier's
-inherited dependencies and opt-in lints, and the release profile. Root
+inherited dependencies and the release profile. All eleven crates inherit the
+workspace lint policy: warnings are denied, including pedantic/nursery Clippy
+findings, without requiring command-line lint flags. Root
 `rust-toolchain.toml` pins Rust 1.96; Mise installs it lazily with
 `mise install --locked rust`. Member editions remain unchanged. Root
 `Cargo.lock` and `target/` are shared; app-local Cargo locks and toolchain pins
@@ -150,6 +152,11 @@ Vite's framework generation and build output writes cannot race with the checks.
 Additional jobs validate the Rust applications, Point's Rust and Flutter projects,
 spelling, and links. Release
 workflows build the Point container image when its relevant paths change.
+
+`.github/workflows/pullfrog.yml` is the dispatch-only workflow from
+[Pullfrog](https://docs.pullfrog.com). The Pullfrog App starts every run (PR reviews,
+`@pullfrog` mentions, console prompts) on the Codex CLI agent with GPT Sol at medium
+effort, read-only. The Codex login lives in the Pullfrog org credential store.
 
 ## Adding an app
 

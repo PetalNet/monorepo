@@ -6,10 +6,10 @@ use openmls_rust_crypto::{MemoryStorage, RustCrypto};
 use openmls_traits::OpenMlsProvider;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize};
+use tls_codec::{Deserialize as _, Serialize as _};
 
 use crate::errors::{PointCryptoError, Result};
-use crate::types::*;
+use crate::types::AddMemberResult;
 
 // X25519 + ChaCha20Poly1305 + Ed25519 — strong classical security
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
@@ -22,6 +22,12 @@ const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY13
 pub struct PointProvider {
     crypto: RustCrypto,
     storage: MemoryStorage,
+}
+
+impl core::fmt::Debug for PointProvider {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PointProvider").finish_non_exhaustive()
+    }
 }
 
 impl OpenMlsProvider for PointProvider {
@@ -42,8 +48,11 @@ impl OpenMlsProvider for PointProvider {
 
 impl PointProvider {
     /// Serialize the full MLS storage to bytes so the caller can persist them.
+    ///
+    /// # Errors
+    /// Returns an error if temporary-file I/O or storage serialization fails.
     pub fn export_storage(&self) -> Result<Vec<u8>> {
-        use std::io::{Read, Seek, SeekFrom};
+        use std::io::{Read as _, Seek as _, SeekFrom};
         let tmp = tempfile::tempfile()
             .map_err(|e| PointCryptoError::Mls(format!("tempfile create: {e}")))?;
         self.storage
@@ -59,8 +68,11 @@ impl PointProvider {
     }
 
     /// Restore storage from previously exported bytes.
+    ///
+    /// # Errors
+    /// Returns an error if temporary-file I/O fails or the storage is invalid.
     pub fn import_storage(&mut self, bytes: &[u8]) -> Result<()> {
-        use std::io::{Seek, SeekFrom, Write};
+        use std::io::{Seek as _, SeekFrom, Write as _};
         let mut tmp = tempfile::tempfile()
             .map_err(|e| PointCryptoError::Mls(format!("tempfile create: {e}")))?;
         tmp.write_all(bytes)
@@ -77,17 +89,24 @@ impl PointProvider {
 // Serializable state envelope
 // ---------------------------------------------------------------------------
 
-/// Everything needed to fully restore a PointCrypto instance.
+/// Everything needed to fully restore a `PointCrypto` instance.
 /// Stored by the caller (Dart layer) in platform secure storage.
 #[derive(Serialize, Deserialize)]
 pub struct PointCryptoState {
     pub identity: String,
-    /// Serialized MemoryStorage (JSON produced by MemoryStorage::save_to_file).
+    /// Serialized `MemoryStorage` (JSON produced by `MemoryStorage::save_to_file`).
     pub storage_json: Vec<u8>,
     /// Hex-encoded group IDs so we know which groups to reload from storage.
     pub group_ids: Vec<String>,
     /// Hex-encoded signer public key — needed to look up the signer in storage.
     pub signer_public_key: String,
+}
+
+impl core::fmt::Debug for PointCryptoState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Storage contains private keys; never expose it through diagnostics.
+        f.debug_struct("PointCryptoState").finish_non_exhaustive()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,8 +121,17 @@ pub struct PointCrypto {
     identity: String,
 }
 
+impl core::fmt::Debug for PointCrypto {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PointCrypto").finish_non_exhaustive()
+    }
+}
+
 impl PointCrypto {
     /// Create a fresh instance — generates a new signing key and empty state.
+    ///
+    /// # Errors
+    /// Returns an error if signing-key generation or storage fails.
     pub fn new(identity: &str) -> Result<Self> {
         let provider = PointProvider::default();
 
@@ -124,13 +152,17 @@ impl PointCrypto {
             credential: credential_with_key,
             signer,
             groups: HashMap::new(),
-            identity: identity.to_string(),
+            identity: identity.to_owned(),
         })
     }
 
     /// Restore from a previously exported state blob. Returns Err if the blob
     /// is invalid; callers should fall back to `new()` on error and re-establish
     /// group memberships via the normal Welcome/Commit flow.
+    ///
+    /// # Errors
+    /// Returns an error for invalid JSON, storage or hex identifiers, missing
+    /// signing keys, or temporary-file I/O failures. Unloadable groups are skipped.
     pub fn restore(state_bytes: &[u8]) -> Result<Self> {
         let state: PointCryptoState = serde_json::from_slice(state_bytes)
             .map_err(|e| PointCryptoError::Mls(format!("deserialize state: {e}")))?;
@@ -165,12 +197,12 @@ impl PointCrypto {
                     groups.insert(gid_bytes, g);
                 }
                 Ok(None) => {
-                    tracing_warn(format!(
+                    tracing_warn(&format!(
                         "group {hex_id} not found in restored storage — skipping"
                     ));
                 }
                 Err(e) => {
-                    tracing_warn(format!("group {hex_id} load error: {e:?} — skipping"));
+                    tracing_warn(&format!("group {hex_id} load error: {e:?} — skipping"));
                 }
             }
         }
@@ -185,8 +217,11 @@ impl PointCrypto {
     }
 
     /// Export current state for durable storage by the caller.
-    /// Should be called after every mutation (create_group, add_member,
-    /// process_welcome, process_commit).
+    /// Should be called after every mutation (`create_group`, `add_member`,
+    /// `process_welcome`, `process_commit`).
+    ///
+    /// # Errors
+    /// Returns an error if storage export or state serialization fails.
     pub fn export_state(&self) -> Result<Vec<u8>> {
         let storage_json = self.provider.export_storage()?;
         let group_ids: Vec<String> = self.groups.keys().map(hex::encode).collect();
@@ -200,6 +235,10 @@ impl PointCrypto {
             .map_err(|e| PointCryptoError::Mls(format!("serialize state: {e}")))
     }
 
+    /// Generate a serialized MLS key package.
+    ///
+    /// # Errors
+    /// Returns an error if package generation, storage, or serialization fails.
     pub fn generate_key_package(&self) -> Result<Vec<u8>> {
         let kp_bundle = KeyPackage::builder()
             .build(
@@ -217,6 +256,10 @@ impl PointCrypto {
         Ok(serialized)
     }
 
+    /// Create an MLS group with the supplied identifier.
+    ///
+    /// # Errors
+    /// Returns an error if MLS group creation or storage fails.
     pub fn create_group(&mut self, group_id: &[u8]) -> Result<Vec<u8>> {
         let config = MlsGroupCreateConfig::builder()
             .ciphersuite(CIPHERSUITE)
@@ -237,6 +280,11 @@ impl PointCrypto {
         Ok(gid)
     }
 
+    /// Add a member and merge the resulting local commit.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown group, invalid key package, or MLS
+    /// addition, commit merging, storage, or serialization failures.
     pub fn add_member(
         &mut self,
         group_id: &[u8],
@@ -274,13 +322,17 @@ impl PointCrypto {
         })
     }
 
+    /// Join a group from a serialized Welcome.
+    ///
+    /// # Errors
+    /// Returns an error for malformed or non-Welcome messages, or if MLS
+    /// staging, joining, or storage fails.
     pub fn process_welcome(&mut self, welcome_bytes: &[u8]) -> Result<Vec<u8>> {
         let welcome_msg = MlsMessageIn::tls_deserialize_exact(welcome_bytes)
             .map_err(|e| PointCryptoError::Serialization(format!("{e:?}")))?;
 
-        let welcome = match welcome_msg.extract() {
-            MlsMessageBodyIn::Welcome(w) => w,
-            _ => return Err(PointCryptoError::Mls("Not a Welcome message".into())),
+        let MlsMessageBodyIn::Welcome(welcome) = welcome_msg.extract() else {
+            return Err(PointCryptoError::Mls("Not a Welcome message".into()));
         };
 
         let join_config = MlsGroupJoinConfig::builder()
@@ -297,6 +349,11 @@ impl PointCrypto {
         Ok(gid)
     }
 
+    /// Encrypt an application message for a group.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown group or MLS encryption, storage, or
+    /// serialization failures.
     pub fn encrypt(&mut self, group_id: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
         let group = self
             .groups
@@ -311,6 +368,12 @@ impl PointCrypto {
             .map_err(|e| PointCryptoError::Serialization(format!("{e:?}")))
     }
 
+    /// Decrypt an application message, merging commits when encountered.
+    ///
+    /// # Errors
+    /// Returns an error for unknown groups, malformed or unauthenticated
+    /// messages, non-application content, or MLS processing/storage failures.
+    /// A commit is merged before returning the non-application-content error.
     pub fn decrypt(&mut self, group_id: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
         let group = self
             .groups
@@ -338,10 +401,18 @@ impl PointCrypto {
                     "Commit, not app message".into(),
                 ))
             }
-            _ => Err(PointCryptoError::DecryptionFailed),
+            ProcessedMessageContent::ProposalMessage(_)
+            | ProcessedMessageContent::ExternalJoinProposalMessage(_) => {
+                Err(PointCryptoError::DecryptionFailed)
+            }
         }
     }
 
+    /// Process and merge a serialized MLS commit.
+    ///
+    /// # Errors
+    /// Returns an error for unknown groups, malformed or non-commit messages,
+    /// or MLS processing, merging, or storage failures.
     pub fn process_commit(&mut self, group_id: &[u8], commit_bytes: &[u8]) -> Result<()> {
         let group = self
             .groups
@@ -366,9 +437,11 @@ impl PointCrypto {
                     .map_err(|e| PointCryptoError::Mls(format!("Merge commit: {e:?}")))?;
                 Ok(())
             }
-            _ => Err(PointCryptoError::InvalidState(
-                "Expected commit message".into(),
-            )),
+            ProcessedMessageContent::ApplicationMessage(_)
+            | ProcessedMessageContent::ProposalMessage(_)
+            | ProcessedMessageContent::ExternalJoinProposalMessage(_) => Err(
+                PointCryptoError::InvalidState("Expected commit message".into()),
+            ),
         }
     }
 
@@ -376,6 +449,10 @@ impl PointCrypto {
         self.groups.contains_key(group_id)
     }
 
+    /// Count the members of a known group.
+    ///
+    /// # Errors
+    /// Returns an error if the group is unknown.
     pub fn group_member_count(&self, group_id: &[u8]) -> Result<usize> {
         let group = self
             .groups
@@ -390,8 +467,11 @@ impl PointCrypto {
     /// from identity keys (not the epoch secret), so it's stable and detects a
     /// substituted key — the point of verification. Both sides comparing the
     /// same number confirms no man-in-the-middle.
+    ///
+    /// # Errors
+    /// Returns an error if the group is unknown or has fewer than two members.
     pub fn safety_number(&self, group_id: &[u8]) -> Result<String> {
-        use sha2::{Digest, Sha256};
+        use sha2::{Digest as _, Sha256};
         let group = self
             .groups
             .get(group_id)
@@ -430,7 +510,7 @@ impl PointCrypto {
     }
 }
 
-fn tracing_warn(msg: String) {
+fn tracing_warn(msg: &str) {
     // flutter_rust_bridge doesn't give us tracing, use eprintln for now
     eprintln!("[point-crypto] WARN: {msg}");
 }

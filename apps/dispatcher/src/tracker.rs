@@ -4,16 +4,19 @@
 //! writer — the tasks app. The dispatcher needs exactly two things from it:
 //! file a task for brand-new work (a card is created AFTER the task exists,
 //! LOCKED spawn-from-task), and read the recipient's active lease (the
-//! task_clarification honor condition). Both sit behind `Tracker` so tests
+//! `task_clarification` honor condition). Both sit behind `Tracker` so tests
 //! run on temp DBs and the live wiring (tasks HTTP/MCP API) is a cutover
 //! decision, not a code change here.
 
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension as _};
 
 pub trait Tracker: Send {
     /// File a new task for inbound work; returns the tracker task id.
+    ///
+    /// # Errors
+    /// Returns an error if the tracker cannot create the task.
     fn file_task(
         &self,
         title: &str,
@@ -23,26 +26,35 @@ pub trait Tracker: Send {
     ) -> Result<i64, String>;
 
     /// The task currently leased by `worker` (status='doing', unexpired), if any.
+    ///
+    /// # Errors
+    /// Returns an error if the tracker lease lookup fails.
     fn active_lease(&self, worker: &str) -> Result<Option<i64>, String>;
 }
 
-/// SQLite implementation against the tasks schema. Used with temp DBs in
+/// `SQLite` implementation against the tasks schema. Used with temp DBs in
 /// tests and disposable-agent runs (TASKS_DB_PATH-style); NEVER pointed at
 /// the live tracker from this process (DP2).
+#[derive(Debug)]
 pub struct SqliteTracker {
     conn: Connection,
 }
 
 impl SqliteTracker {
-    pub fn open(path: &Path) -> Result<SqliteTracker, String> {
+    /// # Errors
+    /// Returns an error if opening or configuring the database fails.
+    pub fn open(path: &Path) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        conn.busy_timeout(std::time::Duration::from_millis(5000))
+        conn.busy_timeout(core::time::Duration::from_secs(5))
             .map_err(|e| e.to_string())?;
-        Ok(SqliteTracker { conn })
+        Ok(Self { conn })
     }
 
     /// Minimal tasks-shaped schema for temp/test DBs (subset of the live
     /// columns the dispatcher touches).
+    ///
+    /// # Errors
+    /// Returns an error if creating the schema fails.
     pub fn init_test_schema(&self) -> Result<(), String> {
         self.conn
             .execute_batch(
@@ -67,6 +79,9 @@ impl SqliteTracker {
 impl SqliteTracker {
     /// Load the tracker's `agents` registry into the roster (the registry is
     /// read-only to us; the tracker owns it).
+    ///
+    /// # Errors
+    /// Returns an error if querying or decoding agent rows fails.
     pub fn load_roster_into(&self, roster: &mut crate::roster::Roster) -> Result<usize, String> {
         roster
             .load_agents_from_db(&self.conn)

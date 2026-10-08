@@ -1,0 +1,42 @@
+# PULLFROG ACTION — DO NOT EDIT EXCEPT WHERE INDICATED
+# Pullfrog's canonical workflow (https://docs.pullfrog.com/getting-started#manual-workflow-setup).
+# The Pullfrog App dispatches every run (PR reviews, @pullfrog mentions,
+# console prompts); the Codex login lives in Pullfrog's org store, not here.
+name: Pullfrog
+run-name: ${{ inputs.name || github.workflow }}
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        type: string
+        description: Agent prompt
+      name:
+        type: string
+        description: Run name
+
+permissions:
+  contents: read
+
+jobs:
+  pullfrog:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Run agent
+        uses: pullfrog/pullfrog@ed800018463e1b84e8e3377f662173aed1da98b0 # v0.1.95
+        with:
+          prompt: ${{ inputs.prompt }}
+          # local: Codex CLI agent on GPT Sol (openai/gpt-6.1-sol), read-only
+          model: openai/gpt-sol
+          effort: medium
+          push: disabled
+          shell: restricted
+        env:
+          PULLFROG_AGENT: codex
