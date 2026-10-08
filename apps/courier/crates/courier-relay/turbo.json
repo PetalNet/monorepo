@@ -7,8 +7,6 @@
 			"command": [
 				"cargo",
 				"clippy",
-				"-p",
-				"courier-relay",
 				"--all-targets",
 				"--locked",
 				"--",

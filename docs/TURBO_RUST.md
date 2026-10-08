@@ -55,7 +55,9 @@ and `prepare`. Each crate's `turbo.json` extends `//`, clears those dependencies
 and build outputs, and uses `$TURBO_DEFAULT$` inputs to avoid inheriting JS
 `.env*` inputs. Cargo itself builds dependency closures and Turbo infers exact
 native deliverables. Native Clippy overrides retain locked, all-targets,
-warning-denying verification and explicit Courier pedantic checks. Native tests
+warning-denying verification and explicit Courier pedantic checks. Turbo runs
+each override in its crate directory, so Cargo selects the local package without
+an explicit `-p`; the root aggregate retains `--workspace`. Native tests
 inherit `cache: false`; Manager's filtered tests pass through `N12_TMUX_IT`.
 The existing CI Cargo commands and environment setup are unchanged.
 
