@@ -248,9 +248,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			const completeVotes = votes.filter((vote) => vote.ratings.length === event.categories.length);
 
 			// Calculate total score (sum of all ratings)
-			const totalScore = completeVotes.reduce((sum, vote) => {
-				return sum + vote.ratings.reduce((ratingSum, rating) => ratingSum + rating.stars, 0);
-			}, 0);
+			const totalScore = completeVotes.reduce(
+				(sum, vote) =>
+					sum + vote.ratings.reduce((ratingSum, rating) => ratingSum + rating.stars, 0),
+				0,
+			);
 
 			// Calculate average score
 			const averageScore = completeVotes.length > 0 ? totalScore / completeVotes.length : 0;
@@ -332,7 +334,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	return {
 		event,
 		orderedGroups,
-		isHost: !!isHost,
+		isHost,
 		votingSession,
 		votingSessions,
 		participants,

@@ -165,7 +165,7 @@ export default defineConfig([
 	},
 	{
 		name: "oxlint",
-		ignores: ["**/*.svelte", "apps/slide/**"],
+		ignores: ["**/*.svelte"],
 		extends: oxlint
 			// Effect has no ESLint counterparts; omit its preset from the bridge's narrower types.
 			.buildFromOxlintConfig(

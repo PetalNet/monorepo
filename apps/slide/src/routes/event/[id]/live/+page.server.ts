@@ -104,7 +104,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	return {
 		event,
 		orderedGroups,
-		isHost: !!isHost,
+		isHost,
 		votingSession,
 		currentUser: locals.user,
 	};

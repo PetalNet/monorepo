@@ -127,11 +127,29 @@ export const lintConfig = {
 		"effecttsgo/service-not-as-class": "off",
 		"effecttsgo/strict-boolean-expressions": "off",
 	},
+	overrides: [
+		{
+			files: ["apps/slide/**"],
+			// Slide's rewrite owns type-safety debt and deprecated framework configuration.
+			rules: {
+				"typescript/no-base-to-string": "off",
+				"typescript/no-deprecated": "off",
+				"typescript/no-unnecessary-condition": "off",
+				"typescript/no-unsafe-argument": "off",
+				"typescript/no-unsafe-assignment": "off",
+				"typescript/no-unsafe-call": "off",
+				"typescript/no-unsafe-member-access": "off",
+				"typescript/only-throw-error": "off",
+				"typescript/prefer-nullish-coalescing": "off",
+				"typescript/require-await": "off",
+				"typescript/restrict-template-expressions": "off",
+			},
+		},
+	],
 	ignorePatterns: [
 		".agents/skills/impeccable/**",
-		// ESLint owns framework/template-aware checking. Slide is being rewritten.
+		// ESLint owns framework/template-aware checking.
 		"**/*.svelte",
-		"apps/slide/**",
 		"**/dist/**",
 		"**/build/**",
 		"**/.svelte-kit/**",
