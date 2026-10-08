@@ -163,7 +163,7 @@ catalog:
   "@storybook/addon-a11y": 10.5.10
   "@storybook/addon-docs": 10.5.10
   jose: ^6.2.5
-  "@modelcontextprotocol/client": 2.0.0
+  "@modelcontextprotocol/client": 2.2.0
   "@better-auth/mcp": 1.7.7
   "@effect/vitest": 4.0.1
 # Keep JWKS network TypeErrors distinct from opaque-token failures (503, not 401).
