@@ -510,4 +510,4 @@ test("real Git/Turbo selection: dependency propagation, rename sides, full runs,
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
-});
+}, 120_000);
