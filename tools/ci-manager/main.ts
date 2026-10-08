@@ -8,8 +8,7 @@ import { select } from "./select.ts";
 const gate = Effect.gen(function* () {
 	const json = yield* Config.String("NEEDS_JSON");
 	const jobs = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(json);
-	const codeql = yield* Config.String("CODEQL_ADVANCED");
-	const conclusions = yield* evaluateGate(jobs, codeql);
+	const conclusions = yield* evaluateGate(jobs);
 	yield* Console.log(conclusions.join("\n"));
 });
 

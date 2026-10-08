@@ -15,8 +15,6 @@ permissions:
 
 jobs:
   analyze:
-    # Default CodeQL rejects advanced uploads; enable only during the documented admin cutover.
-    if: vars.CODEQL_ADVANCED == 'true'
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
     permissions:
@@ -43,6 +41,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
+          queries: security-extended
       - uses: github/codeql-action/analyze@7999b86c43a865dc79d8923397f35af22de63401 # v4
         with:
           category: /language:${{ matrix.language }}
