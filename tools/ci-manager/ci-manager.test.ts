@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
+import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { assert, expect, test } from "vitest";
 
@@ -165,68 +166,70 @@ for (const scenario of scenarios) {
 			Object.entries(scenario.results).map(([job, result]) => [job, { result }]),
 		),
 	};
-	test(`${scenario.name}: exact expected conclusions pass`, async () => {
-		const conclusions = await Effect.runPromise(evaluateGate(JSON.stringify(jobs)));
-		assert.equal(conclusions.length, 17);
-	});
+	it.effect(`${scenario.name}: exact expected conclusions pass`, () =>
+		Effect.gen(function* () {
+			const conclusions = yield* evaluateGate(JSON.stringify(jobs));
+			assert.equal(conclusions.length, 17);
+		}),
+	);
 	for (const [job, expected] of Object.entries(jobs)) {
 		for (const result of ["success", "failure", "cancelled", "skipped"]) {
 			if (result === expected.result) {
 				continue;
 			}
-			test(`${scenario.name}: rejects ${job}=${result}`, async () => {
-				await expect(
-					Effect.runPromise(
-						evaluateGate(
-							JSON.stringify({
-								...jobs,
-								[job]: { ...expected, result },
-							}),
-						),
-					),
-				).rejects.toThrow(/expected .*got/u);
-			});
+			it.effect(`${scenario.name}: rejects ${job}=${result}`, () =>
+				Effect.gen(function* () {
+					const error = yield* Effect.flip(
+						evaluateGate(JSON.stringify({ ...jobs, [job]: { ...expected, result } })),
+					);
+					expect(error).toMatchObject({ _tag: "GateFailed" });
+					expect(error.message).toMatch(/expected .*got/u);
+				}),
+			);
 		}
-		test(`${scenario.name}: rejects missing ${job}`, async () => {
-			const missing = Object.fromEntries(Object.entries(jobs).filter(([name]) => name !== job));
-			await expect(Effect.runPromise(evaluateGate(JSON.stringify(missing)))).rejects.toThrow();
-		});
+		it.effect(`${scenario.name}: rejects missing ${job}`, () =>
+			Effect.gen(function* () {
+				const missing = Object.fromEntries(Object.entries(jobs).filter(([name]) => name !== job));
+				const error = yield* Effect.flip(evaluateGate(JSON.stringify(missing)));
+				expect(error).toBeInstanceOf(Error);
+			}),
+		);
 	}
 	for (const key of Object.keys(scenario.selection)) {
-		test(`${scenario.name}: rejects malformed ${key} selection`, async () => {
-			await expect(
-				Effect.runPromise(
+		it.effect(`${scenario.name}: rejects malformed ${key} selection`, () =>
+			Effect.gen(function* () {
+				const error = yield* Effect.flip(
 					evaluateGate(
 						JSON.stringify({
 							...jobs,
 							select: { result: "success", outputs: { ...scenario.selection, [key]: "yes" } },
 						}),
 					),
-				),
-			).rejects.toThrow();
-		});
+				);
+				expect(error).toBeInstanceOf(Error);
+			}),
+		);
 	}
 	for (const name of ["new-job", "constructor"]) {
-		test(`${scenario.name}: rejects unclassified ${name}`, async () => {
-			await expect(
-				Effect.runPromise(
-					evaluateGate(
-						JSON.stringify({
-							...jobs,
-							[name]: { result: "success" },
-						}),
-					),
-				),
-			).rejects.toThrow(/Unclassified job/u);
-		});
+		it.effect(`${scenario.name}: rejects unclassified ${name}`, () =>
+			Effect.gen(function* () {
+				const error = yield* Effect.flip(
+					evaluateGate(JSON.stringify({ ...jobs, [name]: { result: "success" } })),
+				);
+				expect(error).toMatchObject({ _tag: "GateFailed" });
+				expect(error.message).toMatch(/Unclassified job/u);
+			}),
+		);
 	}
 }
 
-test.each(["{", "null", JSON.stringify({ select: { result: "unknown" } })])(
+it.effect.each(["{", "null", JSON.stringify({ select: { result: "unknown" } })])(
 	"malformed gate input %s fails decoding",
-	async (json) => {
-		await expect(Effect.runPromise(evaluateGate(json))).rejects.toThrow();
-	},
+	(json) =>
+		Effect.gen(function* () {
+			const error = yield* Effect.flip(evaluateGate(json));
+			expect(error).toBeInstanceOf(Error);
+		}),
 );
 
 const appJobs = [
@@ -301,23 +304,17 @@ test.each<readonly [string, readonly string[], readonly string[], readonly strin
 	);
 });
 
-test("command output cannot hide a nonzero exit behind valid JSON", async () => {
-	const printJson = "process.stdout.write(JSON.stringify({ tasks: [] }))";
-	assert.equal(
-		await Effect.runPromise(
-			commandOutput(process.execPath, ["-e", printJson]).pipe(Effect.provide(NodeServices.layer)),
-		),
-		'{"tasks":[]}',
-	);
-	await expect(
-		Effect.runPromise(
-			commandOutput(process.execPath, ["-e", `${printJson}; process.exit(7)`]).pipe(
-				Effect.flip,
-				Effect.provide(NodeServices.layer),
-			),
-		),
-	).resolves.toMatchObject({ _tag: "CommandFailed", command: process.execPath, exitCode: 7 });
-});
+it.live("command output cannot hide a nonzero exit behind valid JSON", () =>
+	Effect.gen(function* () {
+		const printJson = "process.stdout.write(JSON.stringify({ tasks: [] }))";
+		const output = yield* commandOutput(process.execPath, ["-e", printJson]);
+		assert.equal(output, '{"tasks":[]}');
+		const error = yield* Effect.flip(
+			commandOutput(process.execPath, ["-e", `${printJson}; process.exit(7)`]),
+		);
+		expect(error).toMatchObject({ _tag: "CommandFailed", command: process.execPath, exitCode: 7 });
+	}).pipe(Effect.provide(NodeServices.layer)),
+);
 
 test("real Git/Turbo selection: dependency propagation, rename sides, full runs, invalid base", () => {
 	const root = mkdtempSync(join(tmpdir(), "ci-manager-test-"));

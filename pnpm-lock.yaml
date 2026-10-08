@@ -24,6 +24,9 @@ catalogs:
     '@effect/tsgo':
       specifier: 0.50.0
       version: 0.50.0
+    '@effect/vitest':
+      specifier: 4.0.1
+      version: 4.0.1
     '@modelcontextprotocol/client':
       specifier: 2.0.0
       version: 2.0.0
@@ -747,6 +750,9 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.1(effect@4.0.1)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.1(effect@4.0.1)(vitest@5.0.3)
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
         version: 2.0.0
@@ -928,6 +934,12 @@ packages:
   '@effect/tsgo@0.50.0':
     resolution: {integrity: sha512-BCRwWFBVfQGhFPXmLlNCbYhohTPoIzCL+0iSrDkSpSN2TRtGbbxCB1Mi4oBPr1jRk5VgMB0jOFEvXmPt3SqCDg==}
     hasBin: true
+
+  '@effect/vitest@4.0.1':
+    resolution: {integrity: sha512-DbY9kf/018zBxRIX7rJwBnPVPzSarnUpcshm0vfYPFiDkSa7AFrXTh2BlDNUbrdrmqcIOBhVZ7GkEtxf8WiQrg==}
+    peerDependencies:
+      effect: ^4.0.1
+      vitest: 5.0.3
 
   '@electric-sql/pglite@0.4.1':
     resolution: {integrity: sha512-mZ9NzzUSYPOCnxHH1oAHPRzoMFJHY472raDKwXl/+6oPbpdJ7g8LsCN4FSaIIfkiCKHhb3iF/Zqo3NYxaIhU7Q==}
@@ -7028,6 +7040,11 @@ snapshots:
       '@effect/tsgo-linux-x64': 0.50.0
       '@effect/tsgo-win32-arm64': 0.50.0
       '@effect/tsgo-win32-x64': 0.50.0
+
+  '@effect/vitest@4.0.1(effect@4.0.1)(vitest@5.0.3)':
+    dependencies:
+      effect: 4.0.1
+      vitest: 5.0.3(@opentelemetry/api@1.9.1)(@types/node@25.9.4)(@vitest/coverage-v8@5.0.3)(vite@8.3.3(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
   '@electric-sql/pglite@0.4.1':
     optional: true
