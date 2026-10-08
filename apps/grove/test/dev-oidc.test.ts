@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Data, Effect } from "effect";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -38,28 +39,46 @@ const availablePort = async () => {
 	return address.port;
 };
 
-const waitForProvider = async (origin: string, child: ChildProcess) => {
-	const deadline = performance.now() + 5_000;
-	while (performance.now() < deadline) {
-		if (child.exitCode !== null || child.signalCode !== null) {
-			throw new Error(`Development OIDC provider exited ${String(child.exitCode)}`);
-		}
-		try {
-			// oxlint-disable-next-line no-await-in-loop
-			const response = await fetch(origin, { signal: AbortSignal.timeout(500) });
-			if (response.ok) {
-				return;
+class ProviderStartupError extends Data.TaggedError("ProviderStartupError")<{
+	readonly message: string;
+}> {}
+
+const waitForProvider = (child: ChildProcess) =>
+	Effect.callback<void, ProviderStartupError>((resume) => {
+		const cleanup = () => {
+			child.off("message", onMessage);
+			child.off("exit", onExit);
+			child.off("error", onError);
+		};
+		const complete = (result: Effect.Effect<void, ProviderStartupError>) => {
+			cleanup();
+			resume(result);
+		};
+		const onMessage = (message: unknown) => {
+			if (message === "ready") {
+				complete(Effect.void);
 			}
-		} catch {
-			// The child may not have bound its port yet.
+		};
+		const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+			complete(
+				Effect.fail(
+					new ProviderStartupError({
+						message: `Development OIDC provider exited before readiness: ${String(code ?? signal)}`,
+					}),
+				),
+			);
+		};
+		const onError = (error: Error) => {
+			complete(Effect.fail(new ProviderStartupError({ message: error.message })));
+		};
+		child.on("message", onMessage);
+		child.on("exit", onExit);
+		child.on("error", onError);
+		if (child.exitCode !== null || child.signalCode !== null) {
+			onExit(child.exitCode, child.signalCode);
 		}
-		// oxlint-disable-next-line no-await-in-loop
-		await new Promise((resolve) => {
-			setTimeout(resolve, 20);
-		});
-	}
-	throw new Error("Development OIDC provider did not become ready");
-};
+		return Effect.sync(cleanup);
+	}).pipe(Effect.timeout("5 seconds"));
 
 const keyIdAt = async (origin: string) => {
 	const response = await fetch(`${origin}/realms/grove-mcp/jwks`);
@@ -83,16 +102,20 @@ it("waits for a provider whose startup takes longer than one second", async () =
 			"--input-type=module",
 			"--eval",
 			`import { createServer } from "node:http";
+			process.send("starting");
 			setTimeout(() => {
 				createServer((_request, response) => response.end("ready"))
-					.listen(Number(process.env.PORT), "127.0.0.1");
+					.listen(Number(process.env.PORT), "127.0.0.1", () => process.send("ready"));
 			}, 1_500);`,
 		],
-		{ stdio: "ignore", env: { ...process.env, PORT: String(port) } },
+		{ stdio: ["ignore", "ignore", "ignore", "ipc"], env: { ...process.env, PORT: String(port) } },
 	);
 	try {
-		await waitForProvider(origin, child);
+		await Effect.runPromise(waitForProvider(child));
 		await expect((await fetch(origin)).text()).resolves.toBe("ready");
+		expect(child.listenerCount("message")).toBe(0);
+		expect(child.listenerCount("exit")).toBe(0);
+		expect(child.listenerCount("error")).toBe(0);
 	} finally {
 		if (child.exitCode === null) {
 			child.kill("SIGTERM");
@@ -100,6 +123,37 @@ it("waits for a provider whose startup takes longer than one second", async () =
 		}
 	}
 }, 10_000);
+
+it.each(["exit", "timeout"] as const)("cleans up readiness listeners on %s", async (scenario) => {
+	const child = spawn(
+		process.execPath,
+		["--eval", scenario === "exit" ? "process.exit(7)" : "setInterval(() => {}, 1_000)"],
+		{ stdio: ["ignore", "ignore", "ignore", "ipc"] },
+	);
+	try {
+		const readiness = waitForProvider(child);
+		await expect(
+			Effect.runPromise(
+				scenario === "timeout" ? readiness.pipe(Effect.timeout("100 millis")) : readiness,
+			),
+		).rejects.toMatchObject(
+			scenario === "exit"
+				? {
+						_tag: "ProviderStartupError",
+						message: "Development OIDC provider exited before readiness: 7",
+					}
+				: { _tag: "TimeoutError" },
+		);
+		expect(child.listenerCount("message")).toBe(0);
+		expect(child.listenerCount("exit")).toBe(0);
+		expect(child.listenerCount("error")).toBe(0);
+	} finally {
+		if (child.exitCode === null) {
+			child.kill("SIGTERM");
+			await once(child, "exit");
+		}
+	}
+});
 
 describe("Grove development MCP authorization server", () => {
 	let child: ChildProcess;
@@ -116,7 +170,7 @@ describe("Grove development MCP authorization server", () => {
 		origin = `http://127.0.0.1:${String(port)}`;
 		issuer = `${origin}/realms/grove-mcp`;
 		child = spawn(process.execPath, [providerPath], {
-			stdio: ["ignore", "ignore", "pipe"],
+			stdio: ["ignore", "ignore", "pipe", "ipc"],
 			env: {
 				...process.env,
 				PORT: String(port),
@@ -130,7 +184,7 @@ describe("Grove development MCP authorization server", () => {
 			stderr += chunk.toString();
 		});
 		try {
-			await waitForProvider(origin, child);
+			await Effect.runPromise(waitForProvider(child));
 		} catch (error) {
 			throw new Error(`${String(error)}\n${stderr}`, { cause: error });
 		}
@@ -269,7 +323,7 @@ describe("Grove development MCP authorization server", () => {
 		const secondPort = await availablePort();
 		const secondOrigin = `http://127.0.0.1:${String(secondPort)}`;
 		const second = spawn(process.execPath, [providerPath], {
-			stdio: ["ignore", "ignore", "pipe"],
+			stdio: ["ignore", "ignore", "pipe", "ipc"],
 			env: {
 				...process.env,
 				PORT: String(secondPort),
@@ -280,7 +334,7 @@ describe("Grove development MCP authorization server", () => {
 			},
 		});
 		try {
-			await waitForProvider(secondOrigin, second);
+			await Effect.runPromise(waitForProvider(second));
 			expect(await keyIdAt(secondOrigin)).toBe(firstKeyId);
 			const clientId = "restart-verification-agent";
 			const tokenResponse = await fetch(`${secondOrigin}/realms/grove-mcp/token`, {

@@ -428,6 +428,7 @@ const program = Effect.gen(function* () {
 	const server = yield* NodeHttpServer.make(createServer, { port, host: "0.0.0.0" });
 	yield* server.serve(handleRequest);
 	yield* Effect.logInfo(`[grove-oidc] listening at ${origin}`);
+	yield* Effect.sync(() => process.send?.("ready"));
 	return yield* Effect.never;
 });
 
