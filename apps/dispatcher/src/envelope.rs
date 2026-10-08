@@ -31,17 +31,17 @@ pub enum EnvelopeType {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RpcError {
-    /// Stable machine-readable snake_case code.
+    /// Stable machine-readable `snake_case` code.
     pub code: String,
     pub message: String,
     /// true = the caller may retry the SAME id after backoff.
     pub retryable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Envelope {
     pub schema_version: u32,
@@ -69,7 +69,10 @@ pub struct Envelope {
 
 impl Envelope {
     /// Structural conformance checks the schema's `allOf` expresses:
-    /// request/event ⇒ method; response/error ⇒ in_reply_to (+ error object).
+    /// request/event ⇒ method; response/error ⇒ `in_reply_to` (+ error object).
+    ///
+    /// # Errors
+    /// Returns an error for an unsupported schema or missing required fields.
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != RPC_SCHEMA_VERSION {
             return Err(format!(
@@ -104,21 +107,24 @@ impl Envelope {
     /// Build the `task.dispatch` request that carries a task card to `agent`.
     /// The envelope id is minted once per card delivery attempt-set: retries
     /// re-send the SAME envelope (idempotency on id).
+    #[must_use]
     pub fn task_dispatch(
         agent: &str,
         task_id: i64,
         card_json: serde_json::Value,
         now_rfc3339: String,
-    ) -> Envelope {
-        Envelope {
+    ) -> Self {
+        Self {
             schema_version: RPC_SCHEMA_VERSION,
             id: uuid::Uuid::new_v4().to_string(),
             kind: EnvelopeType::Request,
             method: Some(METHOD_TASK_DISPATCH.into()),
-            agent: agent.to_string(),
+            agent: agent.to_owned(),
             task_id: Some(task_id),
             in_reply_to: None,
-            payload: Some(serde_json::json!({ "card": card_json })),
+            payload: Some(serde_json::Value::Object(
+                core::iter::once(("card".to_owned(), card_json)).collect(),
+            )),
             error: None,
             ts: now_rfc3339,
             deadline_ms: None,

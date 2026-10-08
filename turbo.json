@@ -1,6 +1,10 @@
 {
 	"$schema": "https://turborepo.dev/schema.json",
 	"agentGuidance": false,
+	"futureFlags": {
+		"experimentalCargoWorkspaces": true,
+		"experimentalTaskCommand": true
+	},
 	"globalPassThroughEnv": ["PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN"],
 	"globalDependencies": [
 		"*",
@@ -72,6 +76,10 @@
 		"@petalnet/collegemap#test": { "cache": true, "outputs": [] },
 		"@petalnet/effect-api#test": { "cache": true, "outputs": [] },
 		"@petalnet/effect-sveltekit#test": { "cache": true, "outputs": [] },
+		"petalnet-rust#check": { "dependsOn": [] },
+		"petalnet-rust#lint": {
+			"command": ["cargo", "clippy", "--workspace", "--all-targets", "--locked"]
+		},
 		"//#typecheck": {
 			"dependsOn": [
 				"@petalnet/ui#typecheck",

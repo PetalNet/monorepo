@@ -12,7 +12,7 @@
 //! interrupt cards (adversarial-review #3). Each worker has a deadline; a hung
 //! child is killed and reaped, never starving a slot forever (#6).
 
-use std::io::Read;
+use std::io::Read as _;
 use std::process::{Child, Command, Stdio};
 
 use dispatcher::card::{InterruptPolicy, TaskCard};
@@ -20,6 +20,7 @@ use dispatcher::card::{InterruptPolicy, TaskCard};
 /// How much of a worker's combined stdout+stderr we keep for the response tail.
 const OUTPUT_TAIL_BYTES: usize = 4096;
 
+#[derive(Debug)]
 pub struct RunningWorker {
     pub card: TaskCard,
     /// The task.dispatch envelope id this worker answers (response correlation).
@@ -31,6 +32,7 @@ pub struct RunningWorker {
     killed_for_timeout: bool,
 }
 
+#[derive(Debug)]
 pub struct FinishedWorker {
     pub card: TaskCard,
     pub request_id: String,
@@ -41,11 +43,12 @@ pub struct FinishedWorker {
     pub output_tail: String,
 }
 
+#[derive(Debug)]
 pub struct WorkerPool {
     cmd_template: Vec<String>,
     pub max_workers: usize,
     /// Absolute ceiling on concurrent workers (interrupts included) — the
-    /// fork-bomb guard. Defaults to a generous multiple of max_workers.
+    /// fork-bomb guard. Defaults to a generous multiple of `max_workers`.
     pub hard_ceiling: usize,
     /// Per-worker wall-clock budget (seconds); a card's own `expires_at` can
     /// only shorten it.
@@ -82,9 +85,10 @@ fn fill(template: &str, card: &TaskCard) -> String {
 
 impl WorkerPool {
     /// `max_workers` must be >= 1 (config enforces it).
-    pub fn new(cmd_template: Vec<String>, max_workers: usize) -> WorkerPool {
+    #[must_use]
+    pub fn new(cmd_template: Vec<String>, max_workers: usize) -> Self {
         let max_workers = max_workers.max(1);
-        WorkerPool {
+        Self {
             cmd_template,
             max_workers,
             hard_ceiling: max_workers * 4 + 4,
@@ -93,16 +97,25 @@ impl WorkerPool {
         }
     }
 
-    pub fn running_count(&self) -> usize {
+    #[must_use]
+    pub const fn running_count(&self) -> usize {
         self.running.len()
     }
 
-    pub fn free_slots(&self) -> u32 {
-        self.max_workers.saturating_sub(self.running.len()) as u32
+    #[must_use]
+    pub const fn free_slots(&self) -> u32 {
+        // The wire count historically keeps the low 32 bits, even when a
+        // configured usize capacity exceeds the wire representation.
+        let bytes = self
+            .max_workers
+            .saturating_sub(self.running.len())
+            .to_le_bytes();
+        u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
     }
 
     /// Is there room to start a card right now? A deferred card needs a free
     /// soft slot; an interrupt bypasses that but NOT the hard ceiling.
+    #[must_use]
     pub fn has_room_for(&self, card: &TaskCard) -> bool {
         if self.running.len() >= self.hard_ceiling {
             return false;
@@ -112,6 +125,9 @@ impl WorkerPool {
 
     /// Start a worker for `card`. Only call when [`has_room_for`](Self::has_room_for)
     /// is true. On spawn failure the card stays in the pending table for retry.
+    ///
+    /// # Errors
+    /// Returns an error for an empty command, output-file failure, or failed spawn.
     pub fn spawn(
         &mut self,
         card: TaskCard,
@@ -124,7 +140,7 @@ impl WorkerPool {
         for a in argv.iter_mut().skip(1) {
             *a = fill(a, &card);
         }
-        let (program, args) = argv.split_first().ok_or("empty worker_cmd")?;
+        let (program, arguments) = argv.split_first().ok_or("empty worker_cmd")?;
 
         // Capture combined stdout+stderr into a temp file (bounded tail read on
         // completion) — no pipe-buffer deadlock, and BA6's output tail is real.
@@ -132,7 +148,7 @@ impl WorkerPool {
         let out_clone = output.try_clone().map_err(|e| e.to_string())?;
         let err_clone = output.try_clone().map_err(|e| e.to_string())?;
         let child = Command::new(program)
-            .args(args)
+            .args(arguments)
             .env("FLEET_CARD_ID", &card.card_id)
             .env("FLEET_TASK_ID", card.task_id.to_string())
             .env("FLEET_SENDER", &card.sender)
@@ -163,6 +179,7 @@ impl WorkerPool {
         Ok(())
     }
 
+    #[must_use]
     pub fn is_running(&self, card_id: &str) -> bool {
         self.running.iter().any(|w| w.card.card_id == card_id)
     }
@@ -217,6 +234,7 @@ impl WorkerPool {
     }
 
     /// The card the pool is "focused" on for fleet-event purposes.
+    #[must_use]
     pub fn focus(&self) -> Option<&TaskCard> {
         self.running
             .iter()
@@ -226,7 +244,7 @@ impl WorkerPool {
 }
 
 fn read_output_tail(file: &mut std::fs::File) -> String {
-    use std::io::{Seek, SeekFrom};
+    use std::io::{Seek as _, SeekFrom};
     let len = file.seek(SeekFrom::End(0)).unwrap_or(0);
     let start = len.saturating_sub(OUTPUT_TAIL_BYTES as u64);
     if file.seek(SeekFrom::Start(start)).is_err() {
@@ -264,6 +282,14 @@ mod tests {
 
     fn sleeper() -> Vec<String> {
         vec!["sleep".into(), "30".into()]
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn free_slots_preserves_the_wire_counts_low_32_bits() {
+        let mut pool = WorkerPool::new(sleeper(), 1);
+        pool.max_workers = usize::try_from(u64::from(u32::MAX) + 3).unwrap();
+        assert_eq!(pool.free_slots(), 2);
     }
 
     #[test]
@@ -331,7 +357,7 @@ mod tests {
             if !finished.is_empty() {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::thread::sleep(core::time::Duration::from_millis(20));
         }
         assert_eq!(finished.len(), 1);
         assert!(finished[0].timed_out, "reported as timed out");
@@ -351,7 +377,7 @@ mod tests {
             if !finished.is_empty() {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::thread::sleep(core::time::Duration::from_millis(20));
         }
         assert_eq!(finished.len(), 1);
         assert_eq!(finished[0].exit_code, Some(0));
@@ -383,7 +409,7 @@ mod tests {
             if !pool.reap(0).is_empty() {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::thread::sleep(core::time::Duration::from_millis(20));
         }
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "c-env|7");
     }

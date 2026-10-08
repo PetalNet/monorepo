@@ -127,13 +127,13 @@ async fn has_location_relationship(
     shares_group_with_target_broadcasting(pool, viewer, target).await
 }
 
-/// May `requester` fetch `target`'s MLS KeyPackages (to add them to a group)?
+/// May `requester` fetch `target`'s MLS `KeyPackages` (to add them to a group)?
 ///
-/// KeyPackages are public-key material, not location data, so ghost does not
+/// `KeyPackages` are public-key material, not location data, so ghost does not
 /// gate them — but a *consented* relationship is required. We deliberately do
 /// NOT grant on a bare pending share request: a pending request is unilateral
 /// (anyone can send one to any user), so honoring it would let an unconsented
-/// stranger drain the target's one-time KeyPackage pool — forcing every real
+/// stranger drain the target's one-time `KeyPackage` pool — forcing every real
 /// group-add onto the single last-resort package and downgrading forward
 /// secrecy (the D-007 failure mode, reintroduced via authz). The MLS group for
 /// a direct share is formed at accept time, by which point an accepted
@@ -169,7 +169,7 @@ pub async fn is_globally_ghosted(pool: &PgPool, user: &str) -> Result<bool, sqlx
         .fetch_optional(pool)
         .await?;
     // Unknown sender = fail closed (treat as ghosted/undeliverable).
-    Ok(row.map(|(g,)| g).unwrap_or(true))
+    Ok(row.is_none_or(|(g,)| g))
 }
 
 /// Ghost check for a (sender, recipient) pair: global kill-switch or per-target.

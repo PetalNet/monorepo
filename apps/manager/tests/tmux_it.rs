@@ -5,7 +5,7 @@
 //! `--ignored` FAILS unless `N12_TMUX_IT=1` is set (a silent skip would
 //! report 10 green tests that exercised nothing). Run:
 //!
-//!   N12_TMUX_IT=1 cargo test --test tmux_it -- --ignored
+//!   `N12_TMUX_IT=1` cargo test --test `tmux_it` -- --ignored
 //!
 //! Isolation contract (§0 of the brief): each test runs its own scratch tmux
 //! server on a PRIVATE socket (`tmux -L n12test-<pid>-<label>`, i.e.
@@ -20,8 +20,9 @@
 #[allow(dead_code)] // the tests exercise a subset of the module's API
 mod tmux;
 
+use core::time::Duration;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tmux::{Tmux, TAG_OPTION};
 
@@ -54,8 +55,8 @@ struct Scratch {
 }
 
 impl Scratch {
-    fn new(label: &str) -> Scratch {
-        Scratch {
+    fn new(label: &str) -> Self {
+        Self {
             socket: format!("n12test-{}-{}", std::process::id(), label),
         }
     }
@@ -75,7 +76,7 @@ impl Scratch {
             .expect("tmux binary must be runnable for integration tests");
         (
             out.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            String::from_utf8_lossy(&out.stdout).trim().to_owned(),
         )
     }
 }
@@ -115,7 +116,7 @@ fn spawn_tagged(t: &Tmux) -> String {
 // ── ownership: find / liveness / kill ────────────────────────────────────
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn find_tagged_pane_finds_exactly_ours_among_decoys() {
     require_it!();
     let s = Scratch::new("decoys");
@@ -149,7 +150,7 @@ fn find_tagged_pane_finds_exactly_ours_among_decoys() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn pane_alive_goes_false_after_kill_and_last_pane_takes_session() {
     require_it!();
     let s = Scratch::new("kill");
@@ -172,7 +173,7 @@ fn pane_alive_goes_false_after_kill_and_last_pane_takes_session() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn send_keys_capture_round_trip() {
     require_it!();
     let s = Scratch::new("roundtrip");
@@ -195,7 +196,7 @@ fn send_keys_capture_round_trip() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn untagged_pane_never_matches() {
     require_it!();
     let s = Scratch::new("untagged");
@@ -210,7 +211,7 @@ fn untagged_pane_never_matches() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn second_manager_tag_value_does_not_collide() {
     require_it!();
     let s = Scratch::new("twomgrs");
@@ -239,7 +240,7 @@ fn spawn_tagged_for(t: &Tmux) -> String {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn clobbered_tag_means_pane_is_no_longer_ours() {
     require_it!();
     let s = Scratch::new("clobber");
@@ -277,7 +278,7 @@ fn clobbered_tag_means_pane_is_no_longer_ours() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn kill_guard_refuses_unknown_ids_but_allows_untagged_cleanup() {
     require_it!();
     let s = Scratch::new("killguard");
@@ -309,7 +310,7 @@ fn kill_guard_refuses_unknown_ids_but_allows_untagged_cleanup() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn tagging_a_pane_that_died_at_startup_reports_the_cause() {
     require_it!();
     let s = Scratch::new("fastdeath");
@@ -334,7 +335,7 @@ fn tagging_a_pane_that_died_at_startup_reports_the_cause() {
 // ── session targeting ────────────────────────────────────────────────────
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn exact_name_targeting_never_prefix_matches() {
     require_it!();
     let s = Scratch::new("exact");
@@ -366,7 +367,7 @@ fn exact_name_targeting_never_prefix_matches() {
 // ── failure modes ────────────────────────────────────────────────────────
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn server_down_every_query_degrades_calmly_and_spawn_starts_the_server() {
     require_it!();
     let s = Scratch::new("serverdown");
@@ -397,7 +398,7 @@ fn server_down_every_query_degrades_calmly_and_spawn_starts_the_server() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn session_up_pane_gone_is_distinguishable_from_session_gone() {
     require_it!();
     let s = Scratch::new("panegone");
@@ -433,7 +434,7 @@ fn session_up_pane_gone_is_distinguishable_from_session_gone() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires tmux and N12_TMUX_IT=1; uses private scratch servers"]
 fn scratch_server_cleanup_kills_only_our_socket() {
     require_it!();
     // Two scratch servers side by side; dropping one leaves the other.

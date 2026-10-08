@@ -4,6 +4,7 @@
 use axum::extract::State;
 use axum::Extension;
 use axum::Json;
+use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -105,7 +106,7 @@ pub async fn change_password(
 pub struct RegisterPushBody {
     /// "unifiedpush" | "fcm".
     pub transport: String,
-    /// The UnifiedPush endpoint URL, or the FCM registration token.
+    /// The `UnifiedPush` endpoint URL, or the FCM registration token.
     pub endpoint: String,
 }
 
@@ -285,7 +286,6 @@ async fn notify_profile_updated(
             continue;
         }
 
-        use base64::Engine as _;
         let payload = json!({
             "profile_version": version.timestamp_micros(),
             "display_name": display_name,
@@ -296,7 +296,7 @@ async fn notify_profile_updated(
             "avatar_mime": avatar_mime,
         });
         let state = state.clone();
-        let sender = user_id.to_string();
+        let sender = user_id.to_owned();
         tokio::spawn(async move {
             if let Err(error) = super::federation::send_federated(
                 &state,
@@ -402,7 +402,6 @@ pub async fn upload_avatar(
         &format!("avatar:{}", user.user_id),
         AVATAR_UPLOADS_PER_MINUTE,
     )?;
-    use base64::Engine as _;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&body.data)
         .map_err(|_| AppError::BadRequest("avatar: invalid base64".into()))?;
@@ -445,8 +444,8 @@ pub async fn delete_avatar(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// GET /api/users/{user_id}/avatar — a person's photo-dot, only for accounts
-/// with a live relationship to them (authz::can_view_profile): self, an
+/// GET /`api/users/{user_id}/avatar` — a person's photo-dot, only for accounts
+/// with a live relationship to them (`authz::can_view_profile`): self, an
 /// accepted or temp share, a shared group, or a pending request in either
 /// direction (you see who is asking before you answer). 404 otherwise — the
 /// same as "no avatar", so the gate leaks nothing.
@@ -456,8 +455,8 @@ pub async fn get_user_avatar(
     axum::extract::Path(target): axum::extract::Path<String>,
     headers: axum::http::HeaderMap,
 ) -> ApiResult<axum::response::Response> {
-    use axum::response::IntoResponse;
-    use sha2::{Digest, Sha256};
+    use axum::response::IntoResponse as _;
+    use sha2::{Digest as _, Sha256};
     let target = target.trim().to_lowercase();
     if !crate::authz::can_view_profile(&state.pool, &user.user_id, &target).await? {
         return Err(AppError::NotFound);
@@ -485,7 +484,7 @@ pub async fn get_user_avatar(
             axum::http::StatusCode::NOT_MODIFIED,
             [
                 (axum::http::header::ETAG, etag),
-                (axum::http::header::CACHE_CONTROL, cache_control.to_string()),
+                (axum::http::header::CACHE_CONTROL, cache_control.to_owned()),
             ],
         )
             .into_response());
@@ -493,7 +492,7 @@ pub async fn get_user_avatar(
     Ok((
         [
             (axum::http::header::CONTENT_TYPE, mime),
-            (axum::http::header::CACHE_CONTROL, cache_control.to_string()),
+            (axum::http::header::CACHE_CONTROL, cache_control.to_owned()),
             (axum::http::header::ETAG, etag),
         ],
         bytes,

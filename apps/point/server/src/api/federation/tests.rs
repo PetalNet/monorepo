@@ -3,7 +3,7 @@
 //! federated shadow users, share.accept anti-forgery) run under `#[sqlx::test]`
 //! against a fresh migrated Postgres, matching the `api::tests` harness.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use serde_json::{json, Value};

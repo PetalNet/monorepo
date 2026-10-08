@@ -31,3 +31,6 @@ zeroize = "1"
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
+
+[lints]
+workspace = true

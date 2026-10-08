@@ -149,7 +149,7 @@ Rules:
 | State             | Meaning                                                             |
 | ----------------- | ------------------------------------------------------------------- |
 | `draft`           | intent exists but is not ready for planning or execution            |
-| `planning`        | decomposition is underway; clarification/grilling may be active     |
+| `planning`        | decomposition is underway; clarification may be active              |
 | `planned`         | completion contract and graph placement exist                       |
 | `ready`           | all hard readiness conditions pass                                  |
 | `active`          | at least one valid Attempt is executing                             |
@@ -209,7 +209,7 @@ An Attempt reaching `succeeded` advances the Task toward review; it does not com
 
 An offer is scheduler state, not a Claim state. Renewal extends a `leased` Claim and records a renewal event. Every mutating executor command carries the current fencing token. A stale claimant cannot publish authoritative output.
 
-## 5. Planning and grilling
+## 5. Planning and clarification
 
 The Planner converts a Project Task into:
 
@@ -222,9 +222,9 @@ The Planner converts a Project Task into:
 - expected Library inputs and outputs;
 - risk, budget, and escalation policy.
 
-If information is missing, the Project remains `planning` and opens clarification/grilling.
+If information is missing, the Project remains `planning` and opens clarification.
 
-The grilling experience:
+The clarification experience:
 
 1. asks only questions that materially change the plan;
 2. groups related questions;
@@ -330,7 +330,7 @@ They are not mutable checkboxes on a Task row.
 2. The private agent helps shape it and proposes a Project Task.
 3. The Librarian files the resulting objects and relationships.
 4. The Planner decomposes the Project into a nested Task DAG.
-5. Missing decisions trigger a focused grilling session.
+5. Missing decisions trigger a focused clarification session.
 6. Ready branches fan out concurrently within budget and policy.
 7. Agents request research through the Librarian rather than silently inventing shared context.
 8. Research is stored as Library objects linked to the requesting and producing Tasks.

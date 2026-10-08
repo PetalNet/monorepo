@@ -12,7 +12,7 @@ export default {
 	treatConfigHintsAsErrors: true,
 	workspaces: {
 		tools: {
-			entry: ["enroll-grove-dev-agent.mjs", "ci-manager/main.ts"],
+			entry: ["enroll-grove-dev-agent.mjs", "turbo-js.mjs", "ci-manager/main.ts"],
 			project: ["**/*.{ts,mjs}"],
 		},
 		"apps/collegemap": {

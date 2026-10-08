@@ -5,14 +5,14 @@
 //! max-private tier (the instance's own tileserver) never touches an upstream
 //! at all and is advertised separately in `/.well-known/point`.
 
+use core::time::Duration;
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 
 use tokio::sync::Semaphore;
 
 use axum::extract::{Path, State};
 use axum::http::header;
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse as _, Response};
 use axum::Extension;
 
 use crate::auth::AuthUser;
@@ -37,6 +37,11 @@ const MAX_TILE_BYTES: usize = 2 * 1024 * 1024;
 /// a slot rather than each pinning a connection for the full timeout. Well
 /// above a few users panning; far below "one account ties up everything".
 const MAX_CONCURRENT_UPSTREAM: usize = 32;
+
+// Provider-template tokens, not Rust format placeholders.
+const Z_TOKEN: &str = "{z}";
+const X_TOKEN: &str = "{x}";
+const Y_TOKEN: &str = "{y}";
 
 fn upstream_slots() -> &'static Semaphore {
     static SLOTS: OnceLock<Semaphore> = OnceLock::new();
@@ -74,9 +79,9 @@ pub async fn get_tile(
     }
 
     let url = upstream
-        .replace("{z}", &z.to_string())
-        .replace("{x}", &x.to_string())
-        .replace("{y}", &y.to_string());
+        .replace(Z_TOKEN, &z.to_string())
+        .replace(X_TOKEN, &x.to_string())
+        .replace(Y_TOKEN, &y.to_string());
 
     // Hold a global slot for the whole upstream round-trip; if all are taken
     // (a slow upstream backing up), give up fast rather than queue unbounded.
@@ -99,7 +104,7 @@ pub async fn get_tile(
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
     {
-        Some(ct) if ct.starts_with("image/") => ct.to_string(),
+        Some(ct) if ct.starts_with("image/") => ct.to_owned(),
         _ => return Err(AppError::NotFound),
     };
     // A declared oversize is rejected before the body is read.
@@ -131,7 +136,7 @@ pub async fn get_tile(
         [
             (header::CONTENT_TYPE, content_type),
             // Tiles are static enough to cache client-side for a day.
-            (header::CACHE_CONTROL, "public, max-age=86400".to_string()),
+            (header::CACHE_CONTROL, "public, max-age=86400".to_owned()),
         ],
         bytes,
     )

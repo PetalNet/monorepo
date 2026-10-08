@@ -1,13 +1,13 @@
 //! Inbound envelope dedup + the DURABLE pending-work queue (BA3, codex review).
 //!
-//! Two durable facts live here in the box-agent's own SQLite:
+//! Two durable facts live here in the box-agent's own `SQLite`:
 //!
 //! - `seen` — envelope ids already handled (contract D20: redials re-send the
 //!   same id; receivers MUST de-duplicate). Non-work envelopes dedup here.
 //!   Recorded only AFTER the envelope is fully handled, so a crash mid-handle
 //!   leaves the spool line for reprocessing.
 //! - `pending` — the SOURCE OF TRUTH for accepted-but-unfinished task cards.
-//!   A card is written here (idempotent on card_id) the moment it's accepted;
+//!   A card is written here (idempotent on `card_id`) the moment it's accepted;
 //!   the worker pool is driven FROM this table, and a row is deleted only when
 //!   its worker finishes and the response is emitted. A restart reloads
 //!   pending → no queued or in-flight card is ever lost, and a failed spawn
@@ -15,10 +15,11 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension as _};
 
 use dispatcher::card::TaskCard;
 
+#[derive(Debug)]
 pub struct Inbox {
     conn: Connection,
 }
@@ -32,15 +33,18 @@ pub enum Accept {
 }
 
 /// A durable pending-work row: an accepted card awaiting or holding a worker.
+#[derive(Debug)]
 pub struct PendingCard {
     pub card: TaskCard,
     pub request_id: String,
 }
 
 impl Inbox {
-    pub fn open(path: &Path) -> Result<Inbox, String> {
+    /// # Errors
+    /// Returns an error if opening, configuring, or initializing the database fails.
+    pub fn open(path: &Path) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        conn.busy_timeout(std::time::Duration::from_millis(5000))
+        conn.busy_timeout(core::time::Duration::from_secs(5))
             .map_err(|e| e.to_string())?;
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.execute_batch(
@@ -56,11 +60,14 @@ impl Inbox {
             );",
         )
         .map_err(|e| e.to_string())?;
-        Ok(Inbox { conn })
+        Ok(Self { conn })
     }
 
     /// Mark a non-work envelope id handled. INSERT OR IGNORE makes the
     /// check-and-mark atomic.
+    ///
+    /// # Errors
+    /// Returns an error if the database insertion fails.
     pub fn mark_envelope(&self, id: &str, now_ms: i64) -> Result<Accept, String> {
         let n = self
             .conn
@@ -76,6 +83,8 @@ impl Inbox {
         })
     }
 
+    /// # Errors
+    /// Returns an error if the database lookup fails.
     pub fn is_envelope_seen(&self, id: &str) -> Result<bool, String> {
         self.conn
             .query_row("SELECT 1 FROM seen WHERE id=?1", params![id], |_| Ok(()))
@@ -85,10 +94,13 @@ impl Inbox {
     }
 
     /// Durably accept a task card into the pending queue. Idempotent on
-    /// card_id: a replayed card (new envelope id, same card) is a no-op and
+    /// `card_id`: a replayed card (new envelope id, same card) is a no-op and
     /// returns Duplicate — this IS the card-level dedup, and because the row
     /// is the durable work record, it can never be "deduped away" before the
     /// work runs.
+    ///
+    /// # Errors
+    /// Returns an error if card serialization or database insertion fails.
     pub fn enqueue_card(
         &self,
         card: &TaskCard,
@@ -112,6 +124,10 @@ impl Inbox {
     }
 
     /// All pending cards, oldest first (FIFO) — the work the pool draws from.
+    ///
+    /// # Errors
+    /// Returns an error if querying or decoding database columns fails.
+    /// Unparsable card JSON is logged and skipped.
     pub fn load_pending(&self) -> Result<Vec<PendingCard>, String> {
         let mut stmt = self
             .conn
@@ -139,6 +155,9 @@ impl Inbox {
 
     /// Remove a pending card — called only after its worker finished and the
     /// response was emitted.
+    ///
+    /// # Errors
+    /// Returns an error if the database deletion fails.
     pub fn complete_card(&self, card_id: &str) -> Result<(), String> {
         self.conn
             .execute("DELETE FROM pending WHERE card_id=?1", params![card_id])
@@ -146,10 +165,17 @@ impl Inbox {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error if the database count query fails.
     pub fn pending_count(&self) -> Result<usize, String> {
         self.conn
             .query_row("SELECT COUNT(*) FROM pending", [], |r| r.get::<_, i64>(0))
-            .map(|n| n as usize)
+            .map(|count| {
+                // COUNT is nonnegative. Keep the original pointer-width
+                // truncation on 32-bit targets rather than rejecting a count.
+                let bytes = count.to_le_bytes();
+                usize::from_le_bytes(core::array::from_fn(|index| bytes[index]))
+            })
             .map_err(|e| e.to_string())
     }
 
@@ -157,6 +183,9 @@ impl Inbox {
     /// forever on a years-running agent (adversarial-review #11). The
     /// retention must exceed the dispatcher's max redelivery horizon; pending
     /// rows are never pruned (they're the work itself).
+    ///
+    /// # Errors
+    /// Returns an error if the database deletion fails.
     pub fn prune_seen(&self, older_than_ms: i64) -> Result<usize, String> {
         self.conn
             .execute(
@@ -168,11 +197,16 @@ impl Inbox {
 }
 
 /// Rename the box-agent's spool (`<inbox_dir>/<handle>.outbox.jsonl`) to a
-/// `.working` file and return its lines. The `.working` file is LEFT in place;
+/// `.working` file and return its lines.
+///
+/// The `.working` file is LEFT in place;
 /// the caller deletes it via [`commit_spool`] only after every line is durably
 /// handled (recorded in `seen` or `pending`). A crash before commit leaves the
 /// `.working` file, which the next `take_spool` reclaims — at-least-once with
 /// no loss (codex review). Also reclaims a `.working` left by a prior crash.
+///
+/// # Errors
+/// Returns an error if recovering, renaming, or reading the spool fails.
 pub fn take_spool(inbox_dir: &Path, handle: &str) -> Result<Vec<String>, String> {
     let working = inbox_dir.join(format!("{handle}.outbox.working"));
     let jsonl = inbox_dir.join(format!("{handle}.outbox.jsonl"));
@@ -182,7 +216,7 @@ pub fn take_spool(inbox_dir: &Path, handle: &str) -> Result<Vec<String>, String>
         // treat working as the batch. Simplicity over perfect ordering — dedup
         // makes re-processing safe.
         if let Ok(fresh) = std::fs::read_to_string(&jsonl) {
-            use std::io::Write;
+            use std::io::Write as _;
             if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&working) {
                 let _ = f.write_all(fresh.as_bytes());
             }
@@ -195,7 +229,7 @@ pub fn take_spool(inbox_dir: &Path, handle: &str) -> Result<Vec<String>, String>
         return Ok(Vec::new());
     }
     let content = std::fs::read_to_string(&working).map_err(|e| e.to_string())?;
-    Ok(content.lines().map(str::to_string).collect())
+    Ok(content.lines().map(str::to_owned).collect())
 }
 
 /// Delete the `.working` batch after every line was durably handled.
@@ -302,7 +336,7 @@ mod tests {
         std::fs::write(dir.path().join("box-a.outbox.working"), "old\n").unwrap();
         std::fs::write(dir.path().join("box-a.outbox.jsonl"), "new\n").unwrap();
         let lines = take_spool(dir.path(), "box-a").unwrap();
-        assert!(lines.contains(&"old".to_string()) && lines.contains(&"new".to_string()));
+        assert!(lines.contains(&"old".to_owned()) && lines.contains(&"new".to_owned()));
         assert!(!dir.path().join("box-a.outbox.jsonl").exists());
     }
 }

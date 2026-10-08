@@ -13,16 +13,16 @@
 //! phone. Everything after is driven over the real server.
 //!
 //! Run (started by scripts/run-tracking-e2e.sh):
-//!   RUNID=... EXPECT_PREGHOST=5 GHOST_SEQS=6,7 SERVER_URL=http://localhost:8330 \
-//!     cargo test -p point-server --test tracking_e2e -- --ignored --nocapture
+//!   RUNID=... `EXPECT_PREGHOST=5` `GHOST_SEQS=6,7` `SERVER_URL=http://localhost:8330` \
+//!     cargo test -p point-server --test `tracking_e2e` -- --ignored --nocapture
 
 use base64::engine::general_purpose::STANDARD as B64;
-use base64::Engine;
-use futures::{SinkExt, StreamExt};
+use base64::Engine as _;
+use core::time::Duration;
+use futures::{SinkExt as _, StreamExt as _};
 use point_core::PointCrypto;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
-use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
 
 struct Client {
@@ -33,7 +33,7 @@ struct Client {
 }
 
 impl Client {
-    async fn register(base: &str, username: &str) -> Client {
+    async fn register(base: &str, username: &str) -> Self {
         let http = reqwest::Client::new();
         let res = http
             .post(format!("{base}/api/register"))
@@ -43,11 +43,11 @@ impl Client {
             .expect("register");
         assert!(res.status().is_success(), "register {username} failed");
         let v: Value = res.json().await.unwrap();
-        Client {
+        Self {
             http,
-            base: base.to_string(),
-            token: v["token"].as_str().unwrap().to_string(),
-            user_id: v["user_id"].as_str().unwrap().to_string(),
+            base: base.to_owned(),
+            token: v["token"].as_str().unwrap().to_owned(),
+            user_id: v["user_id"].as_str().unwrap().to_owned(),
         }
     }
 
@@ -77,7 +77,7 @@ impl Client {
         serde_json::from_str(&text).unwrap_or(Value::Null)
     }
 
-    async fn upload_kps(&self, mls: &mut PointCrypto) {
+    async fn upload_kps(&self, mls: &PointCrypto) {
         let kps: Vec<String> = (0..5)
             .map(|_| B64.encode(mls.generate_key_package().unwrap()))
             .collect();
@@ -87,7 +87,7 @@ impl Client {
 }
 
 fn env(k: &str, default: &str) -> String {
-    std::env::var(k).unwrap_or_else(|_| default.to_string())
+    std::env::var(k).unwrap_or_else(|_| default.to_owned())
 }
 
 #[tokio::test]
@@ -106,7 +106,7 @@ async fn synthetic_b_tracks_a_live() {
     //    harness can launch A (which will claim one of these KeyPackages).
     let bob = Client::register(&base, &format!("trackb_{runid}")).await;
     let mut bob_mls = PointCrypto::new(&bob.user_id).unwrap();
-    bob.upload_kps(&mut bob_mls).await;
+    bob.upload_kps(&bob_mls).await;
     let a_user_id = format!("{a_username}@localhost");
     println!("B READY: user_id={} tracking={}", bob.user_id, a_user_id);
 
@@ -187,8 +187,8 @@ async fn synthetic_b_tracks_a_live() {
             Ok(Some(Ok(Message::Text(t)))) => {
                 let v: Value = serde_json::from_str(&t).unwrap();
                 if v["type"] == json!("location.broadcast") {
-                    let blob = B64.decode(v["blob"].as_str().unwrap()).unwrap();
-                    let pt = bob_mls.decrypt(&bob_gid, &blob).unwrap();
+                    let ciphertext = B64.decode(v["blob"].as_str().unwrap()).unwrap();
+                    let pt = bob_mls.decrypt(&bob_gid, &ciphertext).unwrap();
                     let fix: Value = serde_json::from_slice(&pt).unwrap();
                     let seq = fix["seq"].as_i64().unwrap();
                     let lat = fix["lat"].as_f64().unwrap();
@@ -199,14 +199,14 @@ async fn synthetic_b_tracks_a_live() {
                     last_rx = tokio::time::Instant::now();
                 }
             }
-            Ok(Some(Ok(_))) => {}
-            Ok(Some(Err(_))) | Ok(None) => break,
-            Err(_) => {} // 2s idle tick — loop and re-check deadlines
+            Ok(Some(Ok(_))) | Err(_) => {} // 2s idle tick — re-check deadlines
+            Ok(Some(Err(_)) | None) => break,
         }
     }
 
     // 6. Verdict.
-    let preghost_expected: BTreeSet<i64> = (1..=expect_preghost as i64).collect();
+    let preghost_expected: BTreeSet<i64> =
+        (1..=i64::try_from(expect_preghost).expect("EXPECT_PREGHOST fits i64")).collect();
     let got_preghost: BTreeSet<i64> = seqs.intersection(&preghost_expected).copied().collect();
     let leaked_ghost: BTreeSet<i64> = seqs.intersection(&ghost_seqs).copied().collect();
 

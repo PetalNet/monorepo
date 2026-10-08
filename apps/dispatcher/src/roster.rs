@@ -23,14 +23,14 @@ pub struct AgentEntry {
     pub active: bool,
 }
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Roster {
     principals: BTreeSet<String>,
-    /// Identities allowed to carry sender_class=system. Config-provided,
+    /// Identities allowed to carry `sender_class=system`. Config-provided,
     /// exactly like principals — NEVER derived from the sender string
     /// (adversarial-review #4: "system:" prefixes are attacker-choosable).
     system_senders: BTreeSet<String>,
@@ -42,7 +42,7 @@ impl Roster {
         principals: impl IntoIterator<Item = String>,
         system_senders: impl IntoIterator<Item = String>,
     ) -> Self {
-        Roster {
+        Self {
             principals: principals.into_iter().collect(),
             system_senders: system_senders.into_iter().collect(),
             agents: BTreeMap::new(),
@@ -56,6 +56,9 @@ impl Roster {
     /// Load agents from the registry table shape (`agents`: handle,
     /// capabilities CSV, active). Used against temp/test DBs; live wiring is
     /// cutover work (DP2).
+    ///
+    /// # Errors
+    /// Returns an error if querying or decoding registry rows fails.
     pub fn load_agents_from_db(&mut self, conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
         let mut stmt = conn.prepare("SELECT handle, capabilities, active FROM agents")?;
         let rows = stmt.query_map([], |row| {
@@ -68,7 +71,7 @@ impl Roster {
                     .split(',')
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
-                    .map(str::to_string)
+                    .map(str::to_owned)
                     .collect(),
                 active: active != 0,
             })
@@ -85,6 +88,7 @@ impl Roster {
     /// config allowlists; everything else — including unknown identities and
     /// senders CLAIMING a system-ish name — is classed `agent` (no interrupt
     /// privilege, no system authority).
+    #[must_use]
     pub fn classify(&self, sender: &str) -> SenderClass {
         if self.principals.contains(sender) {
             SenderClass::Principal
@@ -95,14 +99,15 @@ impl Roster {
         }
     }
 
+    #[must_use]
     pub fn is_active_agent(&self, handle: &str) -> bool {
         self.agents
             .get(&handle.to_ascii_lowercase())
-            .map(|a| a.active)
-            .unwrap_or(false)
+            .is_some_and(|a| a.active)
     }
 
     /// Hard capability gate: does `handle` provide every needed tag?
+    #[must_use]
     pub fn provides_all(&self, handle: &str, needs: &BTreeSet<String>) -> bool {
         match self.agents.get(&handle.to_ascii_lowercase()) {
             Some(a) if a.active => needs.is_subset(&a.capabilities),
@@ -111,6 +116,7 @@ impl Roster {
     }
 
     /// Active agents eligible for `needs` (the push-routing candidate pool).
+    #[must_use]
     pub fn eligible(&self, needs: &BTreeSet<String>) -> Vec<&AgentEntry> {
         self.agents
             .values()
@@ -126,22 +132,22 @@ mod tests {
     fn roster() -> Roster {
         let mut r = Roster::new(
             vec![
-                "@parker:petalnet.example".to_string(),
-                "@eli:petalnet.example".to_string(),
+                "@parker:petalnet.example".to_owned(),
+                "@eli:petalnet.example".to_owned(),
             ],
-            vec!["dispatcher".to_string(), "system:watchdog".to_string()],
+            vec!["dispatcher".to_owned(), "system:watchdog".to_owned()],
         );
         r.upsert_agent(AgentEntry {
             handle: "janet".into(),
             capabilities: ["matrix-write", "code"]
                 .iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect(),
             active: true,
         });
         r.upsert_agent(AgentEntry {
             handle: "retired-bot".into(),
-            capabilities: ["code"].iter().map(|s| s.to_string()).collect(),
+            capabilities: BTreeSet::from(["code".to_owned()]),
             active: false,
         });
         r
@@ -168,14 +174,14 @@ mod tests {
     #[test]
     fn capability_gate_is_subset_and_active_only() {
         let r = roster();
-        let needs: BTreeSet<String> = ["code".to_string()].into();
+        let needs: BTreeSet<String> = ["code".to_owned()].into();
         assert!(r.provides_all("janet", &needs));
         assert!(
             !r.provides_all("retired-bot", &needs),
             "inactive never matches"
         );
         assert!(!r.provides_all("nobody", &needs));
-        let gpu: BTreeSet<String> = ["gpu".to_string()].into();
+        let gpu: BTreeSet<String> = ["gpu".to_owned()].into();
         assert!(!r.provides_all("janet", &gpu));
         assert_eq!(r.eligible(&needs).len(), 1);
     }
@@ -197,7 +203,7 @@ mod tests {
         .unwrap();
         let mut r = Roster::new(vec![], vec![]);
         assert_eq!(r.load_agents_from_db(&conn).unwrap(), 2);
-        let needs: BTreeSet<String> = ["matrix-write".to_string()].into();
+        let needs: BTreeSet<String> = ["matrix-write".to_owned()].into();
         assert!(r.provides_all("janet", &needs));
         assert!(!r.is_active_agent("ghost"));
     }
