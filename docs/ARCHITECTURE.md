@@ -136,6 +136,11 @@ Additional jobs validate the Rust applications, Point's Rust and Flutter project
 spelling, and links. Release
 workflows build the Point container image when its relevant paths change.
 
+`.github/workflows/pullfrog.yml` is the dispatch-only workflow from
+[Pullfrog](https://docs.pullfrog.com). The Pullfrog App starts every run (PR reviews,
+`@pullfrog` mentions, console prompts) on the Codex CLI agent with GPT Sol at medium
+effort, read-only. The Codex login lives in the Pullfrog org credential store.
+
 ## Adding an app
 
 1. Open an issue using the **New app** template (sanity check on naming + owner).
