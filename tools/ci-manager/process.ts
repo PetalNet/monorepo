@@ -1,6 +1,8 @@
+// oxlint-disable effecttsgo/unstable-api-usage -- Effect 4 exposes process services through unstable APIs.
 import { Console, Effect, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+// oxlint-disable-next-line unicorn/throw-new-error -- TaggedError is a class factory, not a constructor.
 export class CommandFailed extends Schema.TaggedError<CommandFailed>()("CommandFailed", {
 	command: Schema.String,
 	exitCode: Schema.Int,

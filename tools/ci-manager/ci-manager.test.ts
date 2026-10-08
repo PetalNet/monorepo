@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import nodePath from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { Effect, Schema } from "effect";
@@ -11,6 +11,7 @@ import { evaluateGate } from "./gate.ts";
 import { selectJobs } from "./policy.ts";
 import { commandOutput } from "./process.ts";
 
+const { join } = nodePath;
 const disabled = {
 	"manager-rust": "false",
 	"courier-rust": "false",
@@ -170,7 +171,9 @@ for (const scenario of scenarios) {
 	});
 	for (const [job, expected] of Object.entries(jobs)) {
 		for (const result of ["success", "failure", "cancelled", "skipped"]) {
-			if (result === expected.result) continue;
+			if (result === expected.result) {
+				continue;
+			}
 			test(`${scenario.name}: rejects ${job}=${result}`, async () => {
 				await expect(
 					Effect.runPromise(
@@ -318,7 +321,7 @@ test("command output cannot hide a nonzero exit behind valid JSON", async () => 
 
 test("real Git/Turbo selection: dependency propagation, rename sides, full runs, invalid base", () => {
 	const root = mkdtempSync(join(tmpdir(), "ci-manager-test-"));
-	const cli = new URL("./main.ts", import.meta.url).pathname;
+	const cli = new URL("main.ts", import.meta.url).pathname;
 	const run = (command: string, args: string[], env?: Record<string, string>) => {
 		const result = spawnSync(command, args, {
 			cwd: root,
@@ -340,8 +343,9 @@ test("real Git/Turbo selection: dependency propagation, rename sides, full runs,
 		write(".github/workflows/fixture.yml", "name: fixture\n");
 		write(".github/actions/fixture/action.yaml", "name: fixture\n");
 		write(".github/README.md", "Documentation\n");
-		for (const app of ["consumer", "unrelated", "shared", "point", "source-only"])
+		for (const app of ["consumer", "unrelated", "shared", "point", "source-only"]) {
 			mkdirSync(join(root, "apps", app));
+		}
 		write("apps/source-only/package.json", JSON.stringify({ name: "@petalnet/source-only" }));
 		write("apps/source-only/source.ts", "export const value = 1;\n");
 		write("apps/source-only/validate.py", "print(1)\n");
@@ -415,7 +419,7 @@ test("real Git/Turbo selection: dependency propagation, rename sides, full runs,
 				.split("\n")
 				.find((line) => line.startsWith("js-packages="))
 				?.slice("js-packages=".length) ?? "";
-		const packages = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(Schema.String)))(
+		const packages = Schema.decodeSync(Schema.fromJsonString(Schema.Array(Schema.String)))(
 			packageJson,
 		);
 		assert.deepEqual(packages.toSorted(), ["@petalnet/consumer", "@petalnet/shared"]);

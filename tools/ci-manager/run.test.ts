@@ -1,12 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
 import { Schema } from "effect";
 import { assert, test } from "vitest";
 
-const cli = new URL("./main.ts", import.meta.url).pathname;
+const { join } = path;
+const cli = new URL("main.ts", import.meta.url).pathname;
 
 function execute(task: string, packages: string, exit = 0) {
 	const root = mkdtempSync(join(tmpdir(), "ci-run-"));
@@ -27,7 +28,7 @@ function execute(task: string, packages: string, exit = 0) {
 			},
 		});
 		const args = existsSync(join(root, "argv"))
-			? Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(Schema.String)))(
+			? Schema.decodeSync(Schema.fromJsonString(Schema.Array(Schema.String)))(
 					readFileSync(join(root, "argv"), "utf8"),
 				)
 			: [];

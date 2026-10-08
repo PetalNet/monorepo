@@ -14,8 +14,8 @@ export default {
 	workspaces: {
 		tools: {
 			// Repository-only operations are invoked by agents and build scripts, not imported.
-			// The enrollment client is development-only; the boundary verifier runs in production builds.
-			entry: ["enroll-grove-dev-agent.ts", "verify-grove-production-boundary.ts!"],
+			// The enrollment client is development-only; build scripts own the production verifier.
+			entry: ["enroll-grove-dev-agent.ts"],
 			project: ["**/*.ts"],
 		},
 		"apps/collegemap": {

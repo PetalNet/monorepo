@@ -1,3 +1,4 @@
+// oxlint-disable effecttsgo/unstable-api-usage -- Effect 4 exposes the CLI through unstable APIs.
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Effect } from "effect";
 import { Command } from "effect/cli";

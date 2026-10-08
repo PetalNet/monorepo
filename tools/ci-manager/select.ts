@@ -1,3 +1,4 @@
+// oxlint-disable effecttsgo/unstable-api-usage -- The selector requires Effect 4's unstable process service.
 import { Config, Console, Effect, FileSystem, Record, Schema } from "effect";
 import type { PlatformError } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
@@ -25,13 +26,14 @@ const AffectedPlan = Schema.Struct({
 	errors: Schema.optionalKey(Schema.Array(Schema.Struct({ message: Schema.String }))),
 });
 
+// oxlint-disable-next-line unicorn/throw-new-error -- TaggedError is a class factory, not a constructor.
 class TurboQueryFailed extends Schema.TaggedError<TurboQueryFailed>()("TurboQueryFailed", {
 	message: Schema.String,
 }) {}
 
 const affectedPackages = Effect.fn("affectedPackages")(function* (base: string) {
 	yield* commandOutput("rustup", ["toolchain", "install"]);
-	const graph = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(AffectedPlan))(
+	const graph = yield* Schema.decodeEffect(Schema.fromJsonString(AffectedPlan))(
 		yield* commandOutput("pnpm", [
 			"exec",
 			"turbo",
@@ -55,27 +57,47 @@ const affectedPackages = Effect.fn("affectedPackages")(function* (base: string) 
 const workspaceTasks = Effect.fn("workspaceTasks")(function* (
 	items: typeof AffectedPlan.Type.data.affectedPackages.items,
 ) {
-	const packages = yield* Schema.decodeUnknownEffect(Schema.Array(WorkspacePackage))(
+	const packages = yield* Schema.decodeEffect(Schema.Array(WorkspacePackage))(
 		items.map((item) => item.name).filter((name) => name.startsWith("@petalnet/")),
 	);
-	const plan = packages.length
-		? yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TurboPlan))(
-				yield* commandOutput("pnpm", [
-					"exec",
-					"turbo",
-					"run",
-					"build",
-					"test",
-					...packages.map((name) => `--filter=${name}`),
-					"--dry=json",
-				]),
-			)
-		: { tasks: [] };
+	const plan =
+		packages.length > 0
+			? yield* Schema.decodeEffect(Schema.fromJsonString(TurboPlan))(
+					yield* commandOutput("pnpm", [
+						"exec",
+						"turbo",
+						"run",
+						"build",
+						"test",
+						...packages.map((name) => `--filter=${name}`),
+						"--dry=json",
+					]),
+				)
+			: { tasks: [] };
 	return {
 		js: plan.tasks.some(
 			(task) => task.command !== "<NONEXISTENT>" && (task.task === "build" || task.task === "test"),
 		),
 		"js-packages": JSON.stringify(packages),
+	};
+});
+
+const comparisonPlan = Effect.fn("comparisonPlan")(function* (base: string) {
+	// Both rename sides participate; package querying is independent of this diff.
+	const [diff, items] = yield* Effect.all(
+		[
+			commandOutput("git", ["diff", "--name-only", "--no-renames", "-z", base, "HEAD"]),
+			affectedPackages(base),
+		],
+		{ concurrency: 2 },
+	);
+	return {
+		...selectJobs(
+			diff.split("\0").filter(Boolean),
+			items.map((item) => item.path),
+		),
+		...(yield* workspaceTasks(items)),
+		affected: true,
 	};
 });
 
@@ -91,29 +113,12 @@ export const select: Effect.Effect<
 	const fs = yield* FileSystem.FileSystem;
 	const eventPath = yield* Config.String("GITHUB_EVENT_PATH");
 	const outputPath = yield* Config.String("GITHUB_OUTPUT");
-	const event = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Event))(
+	const event = yield* Schema.decodeEffect(Schema.fromJsonString(Event))(
 		yield* fs.readFileString(eventPath),
 	);
 	const base = event.pull_request?.base.sha ?? event.merge_group?.base_sha;
 	const outputs = base
-		? yield* Effect.gen(function* () {
-				// Both rename sides participate; package querying is independent of this diff.
-				const [diff, items] = yield* Effect.all(
-					[
-						commandOutput("git", ["diff", "--name-only", "--no-renames", "-z", base, "HEAD"]),
-						affectedPackages(base),
-					],
-					{ concurrency: 2 },
-				);
-				return {
-					...selectJobs(
-						diff.split("\0").filter(Boolean),
-						items.map((item) => item.path),
-					),
-					...(yield* workspaceTasks(items)),
-					affected: true,
-				};
-			})
+		? yield* comparisonPlan(base)
 		: { ...Record.map(Selection.fields, () => true), "js-packages": "[]", affected: false };
 	const lines = Object.entries(outputs)
 		.map(([key, value]) => `${key}=${String(value)}`)

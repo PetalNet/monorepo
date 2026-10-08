@@ -7,7 +7,7 @@ export const WorkspacePackage = Schema.String.check(
 );
 
 export const runTasks = Effect.fn("runTasks")(function* (task: "build" | "test") {
-	const packages = yield* Schema.decodeUnknownEffect(
+	const packages = yield* Schema.decodeEffect(
 		Schema.fromJsonString(Schema.NonEmptyArray(WorkspacePackage)),
 	)(yield* Config.String("JS_PACKAGES_JSON"));
 	const output = yield* commandOutput("pnpm", [
