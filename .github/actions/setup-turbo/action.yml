@@ -1,0 +1,24 @@
+name: Setup Turbo
+description: Install the standalone Turbo binary pinned in the pnpm catalog and connect its cache.
+
+runs:
+  using: composite
+  steps:
+    - name: Install standalone Turbo
+      shell: bash
+      run: |
+        version=$(sed -nE 's/^    turbo: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' pnpm-workspace.yaml)
+        test -n "$version"
+        asset="turbo-$version-x86_64-unknown-linux-musl.tar.gz"
+        directory=$(mktemp -d)
+        trap 'rm -rf "$directory"' EXIT
+        url="https://github.com/vercel/turborepo/releases/download/v$version"
+        curl --fail --silent --show-error --location "$url/$asset" -o "$directory/$asset"
+        curl --fail --silent --show-error --location "$url/SHA256SUMS" -o "$directory/SHA256SUMS"
+        (cd "$directory" && grep "  $asset$" SHA256SUMS | sha256sum --check --strict)
+        tar -xzf "$directory/$asset" -C "$directory" turbo
+        sudo install -m 755 "$directory/turbo" /usr/local/bin/turbo
+    - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+      with:
+        cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
+        use-relative-cache-path: true

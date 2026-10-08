@@ -19,7 +19,7 @@ const appCheck = (owner: RegExp): JobRule => ({
 	packages: [owner],
 });
 
-const rules: Record<Exclude<keyof SelectionDecisions, "js">, JobRule> = {
+const rules: Record<Exclude<keyof SelectionDecisions, "js" | "build" | "test">, JobRule> = {
 	"manager-rust": appCheck(/^apps\/manager(?:\/|$)/u),
 	"courier-rust": appCheck(/^apps\/courier(?:\/|$)/u),
 	"dispatcher-rust": appCheck(/^apps\/dispatcher(?:\/|$)/u),
