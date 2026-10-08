@@ -165,6 +165,7 @@ catalog:
   jose: ^6.2.5
   "@modelcontextprotocol/client": 2.0.0
   "@better-auth/mcp": 1.7.7
+  "@effect/vitest": 4.0.1
 # Keep JWKS network TypeErrors distinct from opaque-token failures (503, not 401).
 # Covered by Grove's real HTTP JWKS disconnect regression; remove after an upstream fix.
 patchedDependencies:
