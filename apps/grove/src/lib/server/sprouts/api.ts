@@ -1,5 +1,5 @@
 import { operation } from "@petalnet/effect-api";
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 
 import {
 	CreateSprout,
@@ -10,20 +10,19 @@ import {
 	SproutList,
 	WaterSprout,
 } from "../../sprouts/schema";
-import { ActorDenied, ActorNotCurrent } from "../actors/authority";
-import { SproutCommands, SproutNotFound, type SproutError } from "./service";
+import { SproutCommands, type SproutError } from "./service";
 
 const statusForError = (error: SproutError): number => {
-	if (error instanceof ActorDenied || error instanceof ActorNotCurrent) {
+	if (Predicate.isTagged(error, "ActorDenied") || Predicate.isTagged(error, "ActorNotCurrent")) {
 		return 403;
 	}
-	return error instanceof SproutNotFound ? 404 : 503;
+	return Predicate.isTagged(error, "SproutNotFound") ? 404 : 503;
 };
 const messageForError = (error: SproutError): string => {
 	if (
-		error instanceof SproutNotFound ||
-		error instanceof ActorDenied ||
-		error instanceof ActorNotCurrent
+		Predicate.isTagged(error, "SproutNotFound") ||
+		Predicate.isTagged(error, "ActorDenied") ||
+		Predicate.isTagged(error, "ActorNotCurrent")
 	) {
 		return error.message;
 	}

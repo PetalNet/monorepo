@@ -47,6 +47,9 @@ export const lintConfig = {
 		"eslint/eqeqeq": ["error", "smart"],
 		"unicorn/import-style": "error",
 		"eslint/curly": ["error", "all"],
+		// Domain failures use Effect error classes and schema-aware checks.
+		"effecttsgo/extends-native-error": "error",
+		"effecttsgo/instance-of-schema": "error",
 		// A conditional radix of 16 or 10 is valid, but the rule cannot prove it.
 		"eslint/radix": "off",
 		// Size limits and presentation preferences are too noisy for this workspace.
@@ -65,7 +68,6 @@ export const lintConfig = {
 		"typescript/strict-void-return": "off",
 		"typescript/consistent-return": "off",
 		"typescript/no-unsafe-type-assertion": "off",
-		"typescript/require-array-sort-compare": "off",
 		"unicorn/no-array-callback-reference": "off",
 		"unicorn/no-object-as-default-parameter": "off",
 		"unicorn/no-typeof-undefined": "off",
@@ -128,6 +130,30 @@ export const lintConfig = {
 		"effecttsgo/strict-boolean-expressions": "off",
 	},
 	overrides: [
+		{
+			// Effect owns asynchronous control flow; framework Promise adapters stay at the boundary.
+			files: [
+				"apps/grove/dev-oidc.ts",
+				"apps/grove/src/lib/server/{actors,sprouts}/**",
+				"packages/effect-api/src/**",
+			],
+			rules: {
+				"effecttsgo/async-function": "error",
+				"effecttsgo/new-promise": "error",
+			},
+		},
+		{
+			files: ["apps/grove/dev-oidc.ts"],
+			rules: {
+				"effecttsgo/any-unknown-in-error-context": "error",
+				"effecttsgo/global-console": "error",
+				"effecttsgo/global-date": "error",
+				"effecttsgo/global-fetch": "error",
+				"effecttsgo/global-timers": "error",
+				"effecttsgo/prefer-schema-over-json": "error",
+				"effecttsgo/process-env": "error",
+			},
+		},
 		{
 			files: ["apps/slide/**"],
 			// Slide's rewrite owns type-safety debt and deprecated framework configuration.

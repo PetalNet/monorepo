@@ -8,11 +8,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-// The two loops below are inherently sequential: redirect following (each hop depends on
-// validating the previous Location) and streaming-body reads (chunks must be consumed in
-// order). Promise.all would be incorrect, not faster — so the await-in-loop rule is disabled.
-// oxlint-disable no-await-in-loop
-
 // Prefer the internal SearXNG origin here when available; the public Cloudflare edge may 403 this
 // service's non-browser User-Agent.
 const BASE_URL = (process.env["CLARITY_BASE_URL"] ?? "https://clarity.petalcat.dev").replace(
@@ -179,6 +174,8 @@ async function readResponseText(res: Response, controller?: AbortController): Pr
 	const decoder = new TextDecoder();
 	let bytesRead = 0;
 	let text = "";
+	// Stream chunks must be consumed in order and cancellation must finish before reporting overflow.
+	// oxlint-disable no-await-in-loop
 	while (true) {
 		const { done, value } = await reader.read();
 		if (done) {
@@ -192,6 +189,7 @@ async function readResponseText(res: Response, controller?: AbortController): Pr
 		}
 		text += decoder.decode(value, { stream: true });
 	}
+	// oxlint-enable no-await-in-loop
 	return text + decoder.decode();
 }
 
@@ -279,6 +277,8 @@ async function fetchUrlText(url: string): Promise<{ contentType: string; raw: st
 	}, TIMEOUT_MS);
 
 	try {
+		// Each redirect must be validated before fetching the next hop; response bodies are sequential.
+		// oxlint-disable no-await-in-loop
 		for (let redirects = 0; ; redirects += 1) {
 			const res = await fetch(currentUrl, {
 				signal: controller.signal,
@@ -319,6 +319,7 @@ async function fetchUrlText(url: string): Promise<{ contentType: string; raw: st
 			}
 			return { contentType, raw: await readResponseText(res, controller) };
 		}
+		// oxlint-enable no-await-in-loop
 	} catch (err) {
 		if (err instanceof Error && err.name === "AbortError") {
 			throw new Error(

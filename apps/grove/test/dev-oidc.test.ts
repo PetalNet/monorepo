@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -113,6 +114,80 @@ describe("Grove development MCP authorization server", () => {
 			await once(child, "exit");
 		}
 		await rm(temporaryDirectory, { recursive: true });
+	});
+
+	it.each(["valid", "wrong verifier", "wrong redirect"] as const)(
+		"preserves browser authorization with %s credentials and single-use codes",
+		async (scenario) => {
+			const browserIssuer = `${origin}/realms/grove`;
+			const redirectUri = "https://grove-test.onamp.dev/api/auth/callback/grove-oidc";
+			const verifier = "test-browser-pkce-verifier-with-distinct-characters";
+			const authorize = new URL(`${browserIssuer}/authorize`);
+			authorize.search = new URLSearchParams({
+				client_id: "grove-browser-development",
+				response_type: "code",
+				code_challenge_method: "S256",
+				code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+				redirect_uri: redirectUri,
+				state: "browser-state",
+				nonce: "browser-nonce",
+			}).toString();
+			const authorization = await fetch(authorize, { redirect: "manual" });
+			expect(authorization.status).toBe(302);
+			const callback = new URL(authorization.headers.get("location") ?? "");
+			expect(callback.origin + callback.pathname).toBe(redirectUri);
+			expect(callback.searchParams.get("state")).toBe("browser-state");
+			const body = new URLSearchParams({
+				grant_type: "authorization_code",
+				client_id: "grove-browser-development",
+				client_secret: "grove-browser-development-secret",
+				code: callback.searchParams.get("code") ?? "",
+				code_verifier: scenario === "wrong verifier" ? "wrong-verifier" : verifier,
+				redirect_uri: scenario === "wrong redirect" ? `${redirectUri}?wrong=true` : redirectUri,
+			});
+			const response = await fetch(`${browserIssuer}/token`, { method: "POST", body });
+			if (scenario === "valid") {
+				expect(response.status).toBe(200);
+				const tokens = (await response.json()) as { access_token: string; id_token: string };
+				const jwks = (await (await fetch(`${browserIssuer}/jwks`)).json()) as DevelopmentJwks;
+				const { payload } = await jwtVerify(tokens.id_token, createLocalJWKSet(jwks), {
+					issuer: browserIssuer,
+					audience: "grove-browser-development",
+					algorithms: ["RS256"],
+				});
+				expect(payload).toMatchObject({ sub: "operator-development", nonce: "browser-nonce" });
+				expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(300);
+				const userinfo = await fetch(`${browserIssuer}/userinfo`, {
+					headers: { authorization: `Bearer ${tokens.access_token}` },
+				});
+				expect(userinfo.status).toBe(200);
+				await expect(userinfo.json()).resolves.toMatchObject({ sub: "operator-development" });
+			} else {
+				expect(response.status).toBe(400);
+				await expect(response.json()).resolves.toEqual({ error: "invalid_grant" });
+			}
+			body.set("code_verifier", verifier);
+			body.set("redirect_uri", redirectUri);
+			const reused = await fetch(`${browserIssuer}/token`, { method: "POST", body });
+			expect(reused.status).toBe(400);
+			await expect(reused.json()).resolves.toEqual({ error: "invalid_grant" });
+		},
+	);
+
+	it.each([16_384, 16_385])("bounds token request bodies at %i characters", async (length) => {
+		const prefix = "grant_type=unsupported&padding=";
+		const response = await fetch(`${issuer}/token`, {
+			method: "POST",
+			headers: {
+				authorization: `Basic ${Buffer.from(`agent-development:${mcpSecret}`).toString("base64")}`,
+				"content-type": "application/x-www-form-urlencoded",
+			},
+			body: prefix + "x".repeat(length - prefix.length),
+		});
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error: length === 16_384 ? "unsupported_grant_type" : "invalid_request",
+		});
 	});
 
 	it("publishes RFC 8414, OIDC fallback, and public signing metadata", async () => {
