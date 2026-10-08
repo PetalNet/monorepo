@@ -44,19 +44,19 @@ class ProviderStartupError extends Data.TaggedError("ProviderStartupError")<{
 }> {}
 
 const waitForProvider = (child: ChildProcess) =>
-	Effect.callback<void, ProviderStartupError>((resume) => {
+	Effect.callback<undefined, ProviderStartupError>((resume) => {
 		const cleanup = () => {
 			child.off("message", onMessage);
 			child.off("exit", onExit);
 			child.off("error", onError);
 		};
-		const complete = (result: Effect.Effect<void, ProviderStartupError>) => {
+		const complete = (result: Effect.Effect<undefined, ProviderStartupError>) => {
 			cleanup();
 			resume(result);
 		};
 		const onMessage = (message: unknown) => {
 			if (message === "ready") {
-				complete(Effect.void);
+				complete(Effect.undefined);
 			}
 		};
 		const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
