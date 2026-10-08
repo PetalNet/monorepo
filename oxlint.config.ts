@@ -47,6 +47,8 @@ export const lintConfig = {
 		"eslint/eqeqeq": ["error", "smart"],
 		"unicorn/import-style": "error",
 		"eslint/curly": ["error", "all"],
+		// Effect's error discriminator is part of the public tagged-error contract.
+		"eslint/no-underscore-dangle": ["warn", { allow: ["_tag"] }],
 		// A conditional radix of 16 or 10 is valid, but the rule cannot prove it.
 		"eslint/radix": "off",
 		// Size limits and presentation preferences are too noisy for this workspace.
@@ -65,7 +67,6 @@ export const lintConfig = {
 		"typescript/strict-void-return": "off",
 		"typescript/consistent-return": "off",
 		"typescript/no-unsafe-type-assertion": "off",
-		"typescript/require-array-sort-compare": "off",
 		"unicorn/no-array-callback-reference": "off",
 		"unicorn/no-object-as-default-parameter": "off",
 		"unicorn/no-typeof-undefined": "off",

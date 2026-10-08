@@ -1,9 +1,8 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Data, Effect, Layer, Schema } from "effect";
 import { Query, type Scalar } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 import * as SqlClient from "effect/sql/SqlClient";
-import { SqlError } from "effect/sql/SqlError";
 
 import {
 	Counter,
@@ -77,9 +76,7 @@ interface SproutRow {
 	readonly last_actor_id: string | null;
 }
 
-class SproutOutOfDate extends Error {
-	readonly _tag = "SproutOutOfDate";
-}
+class SproutOutOfDate extends Data.TaggedError("SproutOutOfDate") {}
 
 const sproutSelection = {
 	id: sprouts.id,
@@ -107,7 +104,7 @@ const databaseId = (id: SproutIdValue): Effect.Effect<Scalar.BigIntString, Sprou
 
 const hasId = (id: Scalar.BigIntString) => Query.eq(sprouts.id, Query.cast(id, Pg.Type.int8()));
 
-const database = <A>(effect: Effect.Effect<A, unknown>) =>
+const database = <A, E>(effect: Effect.Effect<A, E>) =>
 	effect.pipe(Effect.mapError((cause) => new SproutDatabaseError(cause)));
 
 export const SproutCommandsLayer = Layer.effect(
@@ -116,7 +113,7 @@ export const SproutCommandsLayer = Layer.effect(
 		const sql = yield* PgClient.PgClient;
 		const authority = yield* ActorAuthority;
 		const executor = Pg.Executor.make();
-		const execute = <Rows>(effect: Effect.Effect<Rows, unknown, SqlClient.SqlClient>) =>
+		const execute = <Rows, E>(effect: Effect.Effect<Rows, E, SqlClient.SqlClient>) =>
 			effect.pipe(Effect.provideService(SqlClient.SqlClient, sql));
 		const list = database(
 			execute(
@@ -151,9 +148,7 @@ export const SproutCommandsLayer = Layer.effect(
 						authority.authorizeActor(principal, operation).pipe(Effect.andThen(run(principal))),
 					)
 					.pipe(
-						Effect.mapError((error) =>
-							error instanceof SqlError ? new SproutDatabaseError(error) : error,
-						),
+						Effect.catchTag("SqlError", (cause) => Effect.fail(new SproutDatabaseError(cause))),
 					);
 			});
 		return {
@@ -203,16 +198,14 @@ export const SproutCommandsLayer = Layer.effect(
 									if (updated.length > 0) {
 										return updated;
 									}
-									return yield* Effect.fail(new SproutOutOfDate());
+									return yield* new SproutOutOfDate();
 								}),
 							),
 						).pipe(
-							Effect.tapError((error) =>
-								error instanceof SproutOutOfDate ? Effect.sleep("10 millis") : Effect.void,
-							),
+							Effect.tapErrorTag("SproutOutOfDate", () => Effect.sleep("10 millis")),
 							Effect.retry({
 								times: 10,
-								while: (error) => error instanceof SproutOutOfDate,
+								while: (error) => error._tag === "SproutOutOfDate",
 							}),
 							Effect.mapError((cause) => new SproutDatabaseError(cause)),
 						);

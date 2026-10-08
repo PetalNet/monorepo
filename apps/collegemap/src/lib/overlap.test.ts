@@ -225,7 +225,9 @@ describe("the free windows a report surfaces", () => {
 			}
 
 			expect(engineByDay.size).toBeGreaterThan(0); // positive control
-			expect([...engineByDay.entries()].toSorted()).toEqual([...bruteByDay.entries()].toSorted());
+			expect([...engineByDay.entries()].toSorted(([a], [b]) => a - b)).toEqual(
+				[...bruteByDay.entries()].toSorted(([a], [b]) => a - b),
+			);
 		}
 	});
 });

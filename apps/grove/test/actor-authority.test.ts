@@ -58,7 +58,11 @@ describe("actor authority", () => {
 	const run = <A, E>(
 		effect: Effect.Effect<A, E, ActorAuthority | PgClient.PgClient | SproutCommands>,
 	) => runtime.runPromise(effect);
-	const waitForDatabaseLock = async (queryFragment: string, attempt = 0): Promise<undefined> => {
+	const waitForDatabaseLock = async (
+		queryFragment: string,
+		attempt = 0,
+		minimum = 1,
+	): Promise<undefined> => {
 		const waiting = await databaseRuntime.runPromise(
 			Effect.flatMap(PgClient.PgClient, (sql) =>
 				sql.unsafe<{ waiting: number }>(
@@ -71,7 +75,7 @@ describe("actor authority", () => {
 				),
 			),
 		);
-		if ((waiting.at(0)?.waiting ?? 0) > 0) {
+		if ((waiting.at(0)?.waiting ?? 0) >= minimum) {
 			return undefined;
 		}
 		if (attempt >= 99) {
@@ -80,7 +84,7 @@ describe("actor authority", () => {
 		await new Promise((resolve) => {
 			setTimeout(resolve, 10);
 		});
-		return waitForDatabaseLock(queryFragment, attempt + 1);
+		return waitForDatabaseLock(queryFragment, attempt + 1, minimum);
 	};
 
 	it("does not expose unauthenticated lifecycle mutators", async () => {
@@ -477,6 +481,70 @@ describe("actor authority", () => {
 
 		expect(created.name).toBe("Write before suspension");
 		expect(completionOrder).toEqual(["write", "suspension"]);
+	});
+
+	it("retries a stale watering without losing either increment", async () => {
+		const agent = await run(
+			authority((service) =>
+				service.enrollSelf(machine("https://machine.example", "concurrent-watering"), {
+					name: "Watering Agent",
+				}),
+			),
+		);
+		const planted = await run(
+			actorInvocation(
+				agent,
+				Effect.flatMap(SproutCommands, (commands) => commands.create({ name: "Thirsty fern" })),
+			),
+		);
+		expect(planted.waterings).toBe(0);
+		const acquired = Promise.withResolvers<undefined>();
+		const release = Promise.withResolvers<undefined>();
+		const blocker = databaseRuntime.runPromise(
+			Effect.flatMap(PgClient.PgClient, (sql) =>
+				sql.withTransaction(
+					sql
+						.unsafe("select id from grove_demo_sprouts where id = $1 for update", [
+							planted.id.slice("sprout-".length),
+						])
+						.pipe(
+							Effect.tap(() =>
+								Effect.sync(() => {
+									acquired.resolve(undefined);
+								}),
+							),
+							Effect.andThen(Effect.promise(() => release.promise)),
+						),
+				),
+			),
+		);
+		await acquired.promise;
+		const water = () =>
+			run(
+				actorInvocation(
+					agent,
+					Effect.flatMap(SproutCommands, (commands) => commands.water(planted.id)),
+				),
+			);
+		const waterings = Promise.all([water(), water()]);
+		try {
+			// Both operations read the same counter and block on its conditional update.
+			await waitForDatabaseLock("grove_demo_sprouts", 0, 2);
+		} finally {
+			release.resolve(undefined);
+			await blocker;
+		}
+		expect((await waterings).map((sprout) => sprout.waterings).toSorted((a, b) => a - b)).toEqual([
+			1, 2,
+		]);
+		const stored = await run(
+			actorInvocation(
+				agent,
+				Effect.flatMap(SproutCommands, (commands) => commands.get(planted.id)),
+			),
+		);
+		expect(stored.waterings).toBe(2);
+		expect(stored.lastActorId).toBe(agent.actorId);
 	});
 
 	it("serializes capability removal after an authorized operation", async () => {
