@@ -219,11 +219,12 @@ for (const scenario of scenarios) {
 	}
 }
 
-test("malformed JSON and job result shapes fail decoding", async () => {
-	for (const json of ["{", "null", JSON.stringify({ select: { result: "unknown" } })]) {
+test.each(["{", "null", JSON.stringify({ select: { result: "unknown" } })])(
+	"malformed gate input %s fails decoding",
+	async (json) => {
 		await expect(Effect.runPromise(evaluateGate(json))).rejects.toThrow();
-	}
-});
+	},
+);
 
 test("native selection does not confuse JS paths, Rust consumers, or Flutter", () => {
 	assert.deepEqual(nativeSelection(["apps/grove/src/routes/+page.svelte", "pnpm-lock.yaml"]), {
