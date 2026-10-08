@@ -15,25 +15,25 @@ pub struct Config {
     pub schema_version: Option<u32>,
     /// The board DB (dispatcher-owned; NEVER the live tracker DB).
     pub db_path: PathBuf,
-    /// Tracker DB for file_task/active_lease. Optional: absent = tracker
-    /// integration disabled (cards must carry an existing task_id).
+    /// Tracker DB for `file_task/active_lease`. Optional: absent = tracker
+    /// integration disabled (cards must carry an existing `task_id`).
     #[serde(default)]
     pub tracker_db_path: Option<PathBuf>,
     /// Matrix user ids treated as principals (Parker/Eli).
     #[serde(default)]
     pub principals: Vec<String>,
-    /// Identities allowed to carry sender_class=system (allowlist, exactly
+    /// Identities allowed to carry `sender_class=system` (allowlist, exactly
     /// like principals — never derived from the sender string).
     #[serde(default)]
     pub system_senders: Vec<String>,
     /// Agent registry JSON (array of {handle, capabilities[], active}).
-    /// Optional when tracker_db_path is set (the agents table is used).
+    /// Optional when `tracker_db_path` is set (the agents table is used).
     #[serde(default)]
     pub roster_path: Option<PathBuf>,
-    /// Ingest spool dir: *.jsonl files of InboundMessage lines.
+    /// Ingest spool dir: *.jsonl files of `InboundMessage` lines.
     #[serde(default)]
     pub ingest_dir: Option<PathBuf>,
-    /// Delivery outbox dir (SpoolTransport).
+    /// Delivery outbox dir (`SpoolTransport`).
     #[serde(default)]
     pub outbox_dir: Option<PathBuf>,
     #[serde(default = "default_reap_interval_secs")]
@@ -53,27 +53,29 @@ pub struct Config {
     pub glitchtip_dsn: Option<String>,
 }
 
-fn default_reap_interval_secs() -> u64 {
+const fn default_reap_interval_secs() -> u64 {
     30
 }
-fn default_digest_interval_secs() -> u64 {
+const fn default_digest_interval_secs() -> u64 {
     300
 }
-fn default_digest_max_items() -> usize {
+const fn default_digest_max_items() -> usize {
     crate::digest::DEFAULT_MAX_ITEMS
 }
-fn default_lease_ms() -> i64 {
+const fn default_lease_ms() -> i64 {
     crate::board::DEFAULT_LEASE_MS
 }
-fn default_wake_rate_per_sec() -> f64 {
+const fn default_wake_rate_per_sec() -> f64 {
     2.0
 }
-fn default_wake_burst() -> f64 {
+const fn default_wake_burst() -> f64 {
     5.0
 }
 
 impl Config {
-    pub fn load(path: &std::path::Path) -> Result<Config, String> {
+    /// # Errors
+    /// Returns an error if reading or parsing the configuration fails.
+    pub fn load(path: &std::path::Path) -> Result<Self, String> {
         let raw =
             std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
         serde_json::from_str(&raw).map_err(|e| format!("parse {}: {e}", path.display()))
@@ -104,7 +106,7 @@ mod tests {
 
     #[test]
     fn missing_db_path_fails_by_name() {
-        let err = serde_json::from_str::<Config>(r#"{}"#).unwrap_err();
+        let err = serde_json::from_str::<Config>(r"{}").unwrap_err();
         assert!(err.to_string().contains("db_path"), "{err}");
     }
 

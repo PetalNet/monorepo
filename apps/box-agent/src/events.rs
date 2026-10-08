@@ -1,5 +1,7 @@
-//! Fleet-event snapshot writer (BA5) — the box-agent as a fleet-event
-//! PRODUCER per the v1 contract: canonical lowercase handle, canonical host,
+//! Fleet-event snapshot writer (BA5).
+//!
+//! The box-agent is a fleet-event PRODUCER per the v1 contract:
+//! canonical lowercase handle, canonical host,
 //! snapshot file = latest event, `offline` never written (consumer-derived).
 
 use std::path::Path;
@@ -41,6 +43,10 @@ pub struct FleetEvent {
 
 /// Write the snapshot (`<dir>/<handle>.json`, atomic tmp+rename — a reader
 /// never sees a torn file).
+///
+/// # Errors
+/// Returns an error for a non-canonical handle or if serialization or file
+/// operations fail.
 pub fn write_snapshot(dir: &Path, event: &FleetEvent) -> Result<(), String> {
     if !dispatcher::card::is_canonical_handle(&event.handle) {
         return Err(format!("non-canonical handle {:?}", event.handle));

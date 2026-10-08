@@ -5,8 +5,8 @@
 //! only ever sees ciphertext.
 //!
 //! Run (ignored by default; needs a live server):
-//!   E2E_BASE_URL=http://127.0.0.1:18330 E2E_DOMAIN=e2e.local \
-//!     cargo test -p point-server --test container_e2e -- --ignored --nocapture
+//!   `E2E_BASE_URL=http://127.0.0.1:18330` `E2E_DOMAIN=e2e.local` \
+//!     cargo test -p point-server --test `container_e2e` -- --ignored --nocapture
 //!
 //! The DB-side "ciphertext only" assertion lives in the harness that starts
 //! the container (it queries Postgres directly); this test asserts the wire
@@ -14,11 +14,11 @@
 //! only for the intended member.
 
 use base64::engine::general_purpose::STANDARD as B64;
-use base64::Engine;
-use futures::{SinkExt, StreamExt};
+use base64::Engine as _;
+use core::time::Duration;
+use futures::{SinkExt as _, StreamExt as _};
 use point_core::PointCrypto;
 use serde_json::{json, Value};
-use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
 
 fn base_url() -> String {
@@ -36,7 +36,7 @@ struct Client {
 }
 
 impl Client {
-    async fn register(username: &str, password: &str, invite: Option<&str>) -> Client {
+    async fn register(username: &str, password: &str, invite: Option<&str>) -> Self {
         let http = reqwest::Client::new();
         let mut body = json!({ "username": username, "password": password });
         if let Some(code) = invite {
@@ -54,10 +54,10 @@ impl Client {
             res.text().await.unwrap_or_default()
         );
         let v: Value = res.json().await.expect("register json");
-        Client {
+        Self {
             http,
-            token: v["token"].as_str().expect("token").to_string(),
-            user_id: v["user_id"].as_str().expect("user_id").to_string(),
+            token: v["token"].as_str().expect("token").to_owned(),
+            user_id: v["user_id"].as_str().expect("user_id").to_owned(),
         }
     }
 
@@ -167,9 +167,10 @@ async fn expect_silence(
             match socket.next().await {
                 Some(Ok(Message::Text(text))) => {
                     let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-                    if v["type"] == json!(unwanted) {
-                        panic!("unexpected {unwanted} frame during ghost: {v}");
-                    }
+                    assert!(
+                        v["type"] != json!(unwanted),
+                        "unexpected {unwanted} frame during ghost: {v}"
+                    );
                 }
                 Some(Ok(_)) => {}
                 // A closed/errored socket is NOT a pass: a crash or disconnect
@@ -351,9 +352,9 @@ async fn register_share_encrypt_deliver_decrypt_ghost() {
     // the post-ghost message — but bob_ws2 hasn't consumed it; the MLS ratchet
     // tolerates the skip on ws2's copy because both sockets share one PointCrypto
     // here. Decrypt once, on ws1's copy only.
-    let blob = B64.decode(frame["blob"].as_str().unwrap()).unwrap();
+    let ciphertext = B64.decode(frame["blob"].as_str().unwrap()).unwrap();
     let plaintext = bob_mls
-        .decrypt(&bob_gid, &blob)
+        .decrypt(&bob_gid, &ciphertext)
         .expect("post-ghost decrypt");
     assert_eq!(String::from_utf8(plaintext).unwrap(), location);
 

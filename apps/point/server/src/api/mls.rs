@@ -1,4 +1,4 @@
-//! MLS delivery service: the one-time KeyPackage pool with a last-resort
+//! MLS delivery service: the one-time `KeyPackage` pool with a last-resort
 //! fallback (D-007 — legacy served every package to every fetcher forever,
 //! the silent-member-drop root cause) and the welcome/commit ciphertext
 //! mailbox. Every payload here is opaque bytes; the server never parses MLS.
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::{Extension, Json};
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
+use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -75,7 +75,7 @@ pub struct UploadKeysBody {
     pub replace: bool,
 }
 
-/// POST /api/mls/keys — top up my one-time KeyPackage pool and/or replace my
+/// POST /api/mls/keys — top up my one-time `KeyPackage` pool and/or replace my
 /// last-resort package.
 pub async fn upload_keys(
     State(state): State<AppState>,
@@ -135,7 +135,9 @@ pub async fn upload_keys(
     .bind(&user.user_id)
     .fetch_one(&mut *tx)
     .await?;
-    if stored + regular.len() as i64 > MAX_STORED_UNCONSUMED {
+    // The upload-size check bounds this count to MAX_UPLOAD_BATCH (five).
+    let regular_count = i64::try_from(regular.len()).expect("validated upload batch fits i64");
+    if stored + regular_count > MAX_STORED_UNCONSUMED {
         return Err(AppError::BadRequest(
             "key package pool full (max 20 unconsumed)".into(),
         ));
@@ -198,12 +200,12 @@ pub async fn upload_keys(
 
     Ok(Json(json!({
         "stored": regular.len(),
-        "unconsumed": stored + regular.len() as i64,
+        "unconsumed": stored + regular_count,
         "has_last_resort": has_last_resort,
     })))
 }
 
-/// GET /api/mls/keys/{user_id} — NON-consuming probe of the target's pool.
+/// GET /`api/mls/keys/{user_id`} — NON-consuming probe of the target's pool.
 /// Same authz gate as claim (unknown/no-relationship targets are the same
 /// 404), but nothing is consumed: a client can safely poll this. Returns the
 /// count of available one-time packages and whether a last-resort exists so
@@ -234,7 +236,7 @@ pub async fn probe_key(
     })))
 }
 
-/// POST /api/mls/keys/{user_id}/claim — claim ONE of the target's KeyPackages,
+/// POST /`api/mls/keys/{user_id}/claim` — claim ONE of the target's `KeyPackages`,
 /// atomically consuming it (D-007). When the pool is dry, the last-resort
 /// package is returned WITHOUT being consumed. `remaining` tells the owner's
 /// peers nothing they can't already infer, and tells clients when to nudge a
@@ -332,7 +334,7 @@ pub(super) fn validate_group_id(group_id: &str) -> Result<(), AppError> {
 }
 
 /// Insert one mailbox row inside `tx`, enforcing the per-recipient backlog cap
-/// first. Returns the new id + created_at so the caller can live-push AFTER the
+/// first. Returns the new id + `created_at` so the caller can live-push AFTER the
 /// transaction commits (a push before commit could race a rollback).
 pub(super) async fn insert_mailbox(
     tx: &mut Transaction<'_, Postgres>,
@@ -410,8 +412,8 @@ pub struct WelcomeBody {
 }
 
 /// POST /api/mls/welcome — relay an MLS Welcome to one recipient. Same trust
-/// basis as fetching their KeyPackage (you can only Welcome someone whose
-/// KeyPackage you could obtain). Unknown recipient and no-relationship
+/// basis as fetching their `KeyPackage` (you can only Welcome someone whose
+/// `KeyPackage` you could obtain). Unknown recipient and no-relationship
 /// recipient are the same 404.
 pub async fn send_welcome(
     State(state): State<AppState>,
@@ -488,61 +490,58 @@ pub async fn send_commit(
     validate_group_id(&body.group_id)?;
     let payload = decode_b64(&body.payload, MAX_MLS_PAYLOAD_BYTES, "payload")?;
 
-    let recipients: Vec<String> = match body.recipient_ids {
-        Some(ids) => {
-            if ids.is_empty() || ids.len() > MAX_COMMIT_RECIPIENTS {
-                return Err(AppError::BadRequest("invalid recipient_ids".into()));
-            }
-            let mut seen = HashSet::new();
-            let mut out = Vec::new();
-            for raw in ids {
-                let r = raw.trim().to_lowercase();
-                if r == user.user_id || !seen.insert(r.clone()) {
-                    continue; // own devices resync via the group state, not the mailbox
-                }
-                let exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM users WHERE id = $1")
-                    .bind(&r)
-                    .fetch_optional(&state.pool)
-                    .await?;
-                if exists.is_none()
-                    || !authz::can_fetch_key_packages(&state.pool, &user.user_id, &r).await?
-                {
-                    return Err(AppError::NotFound);
-                }
-                out.push(r);
-            }
-            out
+    let recipients: Vec<String> = if let Some(ids) = body.recipient_ids {
+        if ids.is_empty() || ids.len() > MAX_COMMIT_RECIPIENTS {
+            return Err(AppError::BadRequest("invalid recipient_ids".into()));
         }
-        None => {
-            // group_id must be a real server group and the sender a member.
-            let Ok(gid) = Uuid::parse_str(&body.group_id) else {
-                return Err(AppError::BadRequest("unknown group".into()));
-            };
-            let group: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM groups WHERE id = $1")
-                .bind(gid)
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for raw in ids {
+            let r = raw.trim().to_lowercase();
+            if r == user.user_id || !seen.insert(r.clone()) {
+                continue; // own devices resync via the group state, not the mailbox
+            }
+            let exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM users WHERE id = $1")
+                .bind(&r)
                 .fetch_optional(&state.pool)
                 .await?;
-            if group.is_none() {
-                return Err(AppError::BadRequest("unknown group".into()));
+            if exists.is_none()
+                || !authz::can_fetch_key_packages(&state.pool, &user.user_id, &r).await?
+            {
+                return Err(AppError::NotFound);
             }
-            let member: Option<(i32,)> =
-                sqlx::query_as("SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2")
-                    .bind(gid)
-                    .bind(&user.user_id)
-                    .fetch_optional(&state.pool)
-                    .await?;
-            if member.is_none() {
-                return Err(AppError::NotFound); // non-members can't probe groups
-            }
-            let rows: Vec<(String,)> = sqlx::query_as(
-                "SELECT user_id FROM group_members WHERE group_id = $1 AND user_id <> $2",
-            )
-            .bind(gid)
-            .bind(&user.user_id)
-            .fetch_all(&state.pool)
-            .await?;
-            rows.into_iter().map(|(u,)| u).collect()
+            out.push(r);
         }
+        out
+    } else {
+        // group_id must be a real server group and the sender a member.
+        let Ok(gid) = Uuid::parse_str(&body.group_id) else {
+            return Err(AppError::BadRequest("unknown group".into()));
+        };
+        let group: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM groups WHERE id = $1")
+            .bind(gid)
+            .fetch_optional(&state.pool)
+            .await?;
+        if group.is_none() {
+            return Err(AppError::BadRequest("unknown group".into()));
+        }
+        let member: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2")
+                .bind(gid)
+                .bind(&user.user_id)
+                .fetch_optional(&state.pool)
+                .await?;
+        if member.is_none() {
+            return Err(AppError::NotFound); // non-members can't probe groups
+        }
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT user_id FROM group_members WHERE group_id = $1 AND user_id <> $2",
+        )
+        .bind(gid)
+        .bind(&user.user_id)
+        .fetch_all(&state.pool)
+        .await?;
+        rows.into_iter().map(|(u,)| u).collect()
     };
 
     // Fan-out is atomic (M1): every recipient's mailbox row is inserted in ONE
@@ -579,7 +578,7 @@ pub async fn send_commit(
     Ok(Json(json!({ "ok": true, "delivered": recipients.len() })))
 }
 
-/// (id, message_type, group_id, sender_id, payload, created_at)
+/// (id, `message_type`, `group_id`, `sender_id`, payload, `created_at`)
 type MailboxRow = (Uuid, String, String, String, Vec<u8>, DateTime<Utc>);
 
 /// GET /api/mls/messages — my pending (unprocessed) mailbox, oldest first so

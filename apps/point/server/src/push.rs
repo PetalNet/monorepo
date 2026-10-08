@@ -5,7 +5,7 @@
 //! is an OS notification, an in-app update, or intentionally silent.
 //!
 //! Two transports, one interface:
-//!   - UnifiedPush: POST the wake bytes to the endpoint URL the user's own
+//!   - `UnifiedPush`: POST the wake bytes to the endpoint URL the user's own
 //!     distributor gave us. The distributor sees "wake Point", not the content.
 //!   - FCM: POST a data-only message to FCM's HTTP v1 endpoint (best-effort;
 //!     only active when a service-account credential is configured).
@@ -14,7 +14,7 @@
 //! never fail the user action that triggered it. The client still gets
 //! everything on its next connect.
 
-use std::time::Duration;
+use core::time::Duration;
 
 use serde::Serialize;
 use sqlx::PgPool;
@@ -89,7 +89,7 @@ impl Event {
 /// relays is empty, so it learns nothing — not who, not where, not even the
 /// coarse category of the event. The [kind] is kept only for FCM's data field
 /// (Google is already trusted with delivery in that tier) and for logging; it
-/// is never put in the UnifiedPush body. The client refreshes its request and
+/// is never put in the `UnifiedPush` body. The client refreshes its request and
 /// people surfaces on any wake, so it never needs the category to act.
 #[derive(Debug, Clone, Serialize)]
 pub struct Wake {
@@ -97,7 +97,7 @@ pub struct Wake {
 }
 
 impl Wake {
-    pub fn new(kind: &'static str) -> Self {
+    pub const fn new(kind: &'static str) -> Self {
         Self { kind }
     }
 }
@@ -123,7 +123,7 @@ fn url_host(endpoint: &str) -> Option<String> {
         authority
             .rsplit_once(':')
             .map_or(authority, |(h, _)| h)
-            .to_string()
+            .to_owned()
     };
     if host.is_empty() {
         None
@@ -134,7 +134,7 @@ fn url_host(endpoint: &str) -> Option<String> {
 
 /// Wake every endpoint registered to `user_id`. Best-effort: errors are logged
 /// and swallowed. Spawned by callers so it never blocks the request path.
-/// `allow_private` (dev/test) skips the SSRF guard on the UnifiedPush endpoint.
+/// `allow_private` (dev/test) skips the SSRF guard on the `UnifiedPush` endpoint.
 pub async fn wake_user(pool: PgPool, user_id: String, wake: Wake, allow_private: bool) {
     let rows: Result<Vec<(String, String)>, _> =
         sqlx::query_as("SELECT transport, endpoint FROM push_endpoints WHERE user_id = $1")
@@ -176,7 +176,7 @@ pub async fn wake_user_for_event(pool: PgPool, user_id: String, event: Event, al
     wake_user(pool, user_id, Wake::new(kind), allow_private).await;
 }
 
-/// POST the opaque wake bytes to a UnifiedPush endpoint. The distributor
+/// POST the opaque wake bytes to a `UnifiedPush` endpoint. The distributor
 /// relays them to the device; it sees only "some bytes for Point".
 ///
 /// The endpoint is a URL the user registered, so it gets the SAME SSRF
@@ -189,19 +189,13 @@ async fn send_unifiedpush(endpoint: &str, allow_private: bool) {
         tracing::warn!("push: refusing non-https UnifiedPush endpoint");
         return;
     }
-    let host = match url_host(endpoint) {
-        Some(h) => h,
-        None => {
-            tracing::warn!("push: unparsable UnifiedPush endpoint");
-            return;
-        }
+    let Some(host) = url_host(endpoint) else {
+        tracing::warn!("push: unparsable UnifiedPush endpoint");
+        return;
     };
-    let addrs = match crate::api::federation::ssrf_check(&host, allow_private).await {
-        Ok(a) => a,
-        Err(_) => {
-            tracing::warn!(host = %host, "push: UnifiedPush endpoint failed SSRF check");
-            return;
-        }
+    let Ok(addrs) = crate::api::federation::ssrf_check(&host, allow_private).await else {
+        tracing::warn!(host = %host, "push: UnifiedPush endpoint failed SSRF check");
+        return;
     };
     let mut b = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -209,9 +203,8 @@ async fn send_unifiedpush(endpoint: &str, allow_private: bool) {
     if !addrs.is_empty() {
         b = b.resolve_to_addrs(&host, &addrs);
     }
-    let http = match b.build() {
-        Ok(c) => c,
-        Err(_) => return,
+    let Ok(http) = b.build() else {
+        return;
     };
     match http
         .post(endpoint)
@@ -276,7 +269,7 @@ fn fcm_url() -> Option<String> {
 /// v1 is a deliberate MVP: the operator supplies a current access token rather
 /// than the server carrying a service-account private key + minting JWTs. A
 /// self-hosted instance that wants FCM runs the standard gcloud/token refresher
-/// alongside; the private path (UnifiedPush) needs none of this.
+/// alongside; the private path (`UnifiedPush`) needs none of this.
 fn fcm_bearer() -> Option<String> {
     std::env::var("FCM_ACCESS_TOKEN")
         .ok()

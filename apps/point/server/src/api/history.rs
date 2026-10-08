@@ -6,7 +6,7 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
+use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -20,14 +20,14 @@ const MAX_LIMIT: i64 = 1000;
 
 #[derive(Deserialize)]
 pub struct HistoryQuery {
-    /// Epoch millis; only rows with a strictly later client_timestamp are
+    /// Epoch millis; only rows with a strictly later `client_timestamp` are
     /// returned. A client walks a large window forward by repeatedly advancing
-    /// `since` to the max client_timestamp it has seen.
+    /// `since` to the max `client_timestamp` it has seen.
     pub since: Option<i64>,
     pub limit: Option<i64>,
 }
 
-/// GET /api/history/{user_id}?since=&limit= — the target's person-entity
+/// GET /`api/history/{user_id}?since=&limit`= — the target's person-entity
 /// history, restricted to rows encrypted FOR an audience the viewer belongs
 /// to: their own user-addressed rows, or group-addressed rows in groups the
 /// viewer shares with a broadcasting target. Your own history is unrestricted.
@@ -97,7 +97,7 @@ pub async fn get_history(
     Ok(Json(out))
 }
 
-/// GET /api/current/{user_id} — the target's last-known encrypted fixes,
+/// GET /`api/current/{user_id`} — the target's last-known encrypted fixes,
 /// scoped to audiences the viewer is authorized to consume. Rows are retained
 /// until replaced or access is revoked; clients derive live/dark freshness
 /// from the signed sample timestamp instead of a server-side expiry window.

@@ -1,7 +1,7 @@
 //! Integration test for the Matrix creds hot-reload sync loop (self-heal).
 //!
 //! Drives the real `spawn_command_loop` against a local HTTP stub that returns
-//! 401 M_UNKNOWN_TOKEN until the bearer token is the rotated value. Proves:
+//! 401 `M_UNKNOWN_TOKEN` until the bearer token is the rotated value. Proves:
 //!  - the loop recovers PROMPTLY after the creds file catches up (no 30s
 //!    cooldown outage — adversarial-review #2), even when the file lags the
 //!    revocation by one reload, and
@@ -20,11 +20,12 @@ mod matrix;
 #[allow(dead_code)]
 mod state;
 
-use std::io::{Read, Write};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::time::Duration;
+use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use config::MatrixCreds;
 
@@ -36,8 +37,8 @@ fn creds(hs: &str, token: &str) -> MatrixCreds {
     }
 }
 
-/// Minimal HTTP stub: 200 with a next_batch when the bearer token is "good",
-/// else 401 M_UNKNOWN_TOKEN. Counts requests.
+/// Minimal HTTP stub: 200 with a `next_batch` when the bearer token is "good",
+/// else 401 `M_UNKNOWN_TOKEN`. Counts requests.
 fn spawn_stub(hits: Arc<AtomicU64>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -49,14 +50,13 @@ fn spawn_stub(hits: Arc<AtomicU64>) -> String {
             let mut req = Vec::new();
             loop {
                 match s.read(&mut buf) {
-                    Ok(0) => break,
+                    Ok(0) | Err(_) => break,
                     Ok(n) => {
                         req.extend_from_slice(&buf[..n]);
                         if req.windows(4).any(|w| w == b"\r\n\r\n") {
                             break;
                         }
                     }
-                    Err(_) => break,
                 }
             }
             let text = String::from_utf8_lossy(&req);
@@ -102,7 +102,7 @@ fn sync_loop_recovers_promptly_after_a_lagging_token_rotation() {
     // logic turned into a 30s outage.
     let reload_calls = Arc::new(AtomicU64::new(0));
     let rc = Arc::clone(&reload_calls);
-    let hs2 = hs.clone();
+    let hs2 = hs;
     let reload = move || {
         let n = rc.fetch_add(1, Ordering::SeqCst);
         Ok(creds(&hs2, if n == 0 { "revoked" } else { "good" }))

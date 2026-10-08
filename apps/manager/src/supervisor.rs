@@ -19,10 +19,11 @@
 //!  * spawn failures (tmux itself erroring) enter the same crash-backoff
 //!    path instead of being assumed to succeed.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::time::Duration;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use chrono::{DateTime, Local, Utc};
 
@@ -34,9 +35,9 @@ use crate::tmux::Tmux;
 
 const TICK: Duration = Duration::from_secs(1);
 const LIVENESS_EVERY: Duration = Duration::from_secs(5); // JS: 5s poll
-const QUICK_CRASH: Duration = Duration::from_secs(60); // JS QUICK_CRASH_MS
+const QUICK_CRASH: Duration = Duration::from_mins(1); // JS QUICK_CRASH_MS
 const BACKOFF_START: Duration = Duration::from_secs(5);
-const BACKOFF_CAP: Duration = Duration::from_secs(30 * 60);
+const BACKOFF_CAP: Duration = Duration::from_mins(30);
 const MAX_CRASHES: u32 = 10;
 const RATE_LIMIT_GRACE: Duration = Duration::from_secs(15);
 
@@ -58,14 +59,14 @@ pub enum AgentState {
 }
 
 impl AgentState {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
-            AgentState::Starting => "starting",
-            AgentState::Running => "running",
-            AgentState::RateLimited => "rate_limited",
-            AgentState::Waiting => "waiting",
-            AgentState::Crashed => "crashed",
-            AgentState::Stopped => "stopped",
+            Self::Starting => "starting",
+            Self::Running => "running",
+            Self::RateLimited => "rate_limited",
+            Self::Waiting => "waiting",
+            Self::Crashed => "crashed",
+            Self::Stopped => "stopped",
         }
     }
 }
@@ -86,7 +87,7 @@ pub struct Supervisor {
     tmux: Tmux,
     session: SessionState,
     state: AgentState,
-    /// Some(pane_id) == "we own a live agent pane" (JS `claudeProc`).
+    /// `Some(pane_id)` == "we own a live agent pane" (JS `claudeProc`).
     pane_id: Option<String>,
     crash_count: u32,
     crash_backoff: Duration,
@@ -111,7 +112,7 @@ fn shq(s: &str) -> String {
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || "/._-:@%+=,".contains(c));
     if plain {
-        s.to_string()
+        s.to_owned()
     } else {
         format!("'{}'", s.replace('\'', "'\\''"))
     }
@@ -127,9 +128,9 @@ impl Supervisor {
         matrix_tx: Sender<String>,
         cmd_rx: Receiver<String>,
         last_sync_ok: Arc<AtomicU64>,
-    ) -> Supervisor {
+    ) -> Self {
         let tmux = Tmux::new(&cfg.tmux_session, &cfg.pane_tag);
-        Supervisor {
+        Self {
             cfg,
             tmux,
             session,
@@ -150,13 +151,13 @@ impl Supervisor {
         }
     }
 
-    fn log(&self, msg: &str) {
+    fn log(msg: &str) {
         println!("[manager] {msg}");
     }
 
     fn set_state(&mut self, s: AgentState) {
         self.state = s;
-        self.log(&format!("→ {}", s.as_str()));
+        Self::log(&format!("→ {}", s.as_str()));
     }
 
     fn send(&self, text: String) {
@@ -190,19 +191,19 @@ impl Supervisor {
 
     fn graceful_shutdown(&mut self, reason: &str) {
         self.pending_resume = None;
-        self.log(&format!("shutting down ({reason})"));
+        Self::log(&format!("shutting down ({reason})"));
         self.set_state(AgentState::Stopped);
         if let Some(p) = self.pane_id.take() {
             if self.cfg.kill_agent_on_shutdown {
                 // Unlike stop/restart, nothing self-heals after shutdown —
                 // an unconfirmed kill means the agent may still be running.
                 if !self.tmux.kill_pane(&p) {
-                    self.log(&format!(
+                    Self::log(&format!(
                         "WARN: could not confirm kill of pane {p} (already gone, not provably ours, or tmux unreachable)"
                     ));
                 }
             } else {
-                self.log(&format!(
+                Self::log(&format!(
                     "leaving agent pane {p} running (kill_agent_on_shutdown=false); next manager boot will adopt it"
                 ));
             }
@@ -224,7 +225,7 @@ impl Supervisor {
         // don't respawn.
         if let Some(p) = self.tmux.find_tagged_pane() {
             if self.pane_id.is_none() {
-                self.log(&format!("adopting existing tagged pane {p}"));
+                Self::log(&format!("adopting existing tagged pane {p}"));
                 self.pane_id = Some(p);
                 self.started_at = Some(Instant::now());
                 self.last_output_at = Instant::now();
@@ -245,9 +246,9 @@ impl Supervisor {
             if let Ok(m) = std::fs::read_to_string(mp) {
                 let m = m.trim();
                 if !m.is_empty() {
-                    self.log(&format!("model override -> {m}"));
+                    Self::log(&format!("model override -> {m}"));
                     args.push("--model".into());
-                    args.push(m.to_string());
+                    args.push(m.to_owned());
                 }
             }
         }
@@ -270,7 +271,7 @@ impl Supervisor {
             arg_str,
             shq(&self.cfg.exit_code_path.to_string_lossy()),
         );
-        self.log(&format!("tmux spawn: {cmd}"));
+        Self::log(&format!("tmux spawn: {cmd}"));
 
         let spawned = if self.tmux.session_alive() {
             // Humans (or leftovers) hold the session: never kill it — add our
@@ -279,7 +280,7 @@ impl Supervisor {
             // none to clean up.
             let existing = self.tmux.panes().len();
             if existing > 0 {
-                self.log(&format!(
+                Self::log(&format!(
                     "session '{}' already exists with {existing} pane(s) — spawning agent in a new window",
                     self.cfg.tmux_session
                 ));
@@ -300,7 +301,7 @@ impl Supervisor {
                 // otherwise a long previous uptime would keep resetting the
                 // crash counter and a permanently-broken tmux would retry
                 // (and message Matrix) every 5s forever.
-                self.log(&format!("SPAWN FAILED: {e}"));
+                Self::log(&format!("SPAWN FAILED: {e}"));
                 self.send(format!("agent spawn failed: {e}"));
                 self.started_at = None;
                 self.handle_exit(1);
@@ -314,7 +315,7 @@ impl Supervisor {
             // The classified cause matters: an agent that dies at startup
             // (bad claude_bin/work_dir) loses the race with the tag and
             // used to be misreported as "tmux >= 3.0 required".
-            self.log(&format!(
+            Self::log(&format!(
                 "FAILED to tag pane {pane}: {e}; killing it and backing off"
             ));
             self.tmux.kill_pane(&pane);
@@ -329,7 +330,7 @@ impl Supervisor {
         if !self.session.bootstrapped {
             self.session.bootstrapped = true;
             if let Err(e) = self.session.save(&self.cfg.state_path) {
-                self.log(&format!("WARN: cannot persist session state: {e}"));
+                Self::log(&format!("WARN: cannot persist session state: {e}"));
             }
         }
 
@@ -349,7 +350,7 @@ impl Supervisor {
         let shutdown = Arc::clone(&self.shutdown);
         std::thread::Builder::new()
             .name("auto-accept".into())
-            .spawn(move || auto_accept_prompts(tmux, pane, shutdown))
+            .spawn(move || auto_accept_prompts(&tmux, &pane, &shutdown))
             .ok();
     }
 
@@ -388,7 +389,7 @@ impl Supervisor {
             .ok()
             .and_then(|s| s.trim().parse::<i32>().ok())
             .unwrap_or(1);
-        self.log(&format!("agent pane {pane} ended, exit code={code}"));
+        Self::log(&format!("agent pane {pane} ended, exit code={code}"));
         self.check_rate_limit_hook_file();
         self.handle_exit(code);
     }
@@ -411,12 +412,12 @@ impl Supervisor {
         match parse_reset_at(raw) {
             Some(reset) => {
                 self.rate_limit_reset = Some(reset);
-                self.log(&format!(
+                Self::log(&format!(
                     "rate limit from hook — reset at {}",
                     reset.to_rfc3339()
                 ));
             }
-            None => self.log(&format!(
+            None => Self::log(&format!(
                 "WARN: unparsable resetAt in {}: {text:?}",
                 path.display()
             )),
@@ -437,10 +438,12 @@ impl Supervisor {
         if let Some(reset) = self.rate_limit_reset.take() {
             self.set_state(AgentState::RateLimited);
             let until_ms = reset.timestamp_millis() - Utc::now().timestamp_millis();
-            let wait = Duration::from_millis(until_ms.max(60_000) as u64);
+            // The one-minute floor guarantees a positive, representable u64.
+            let wait =
+                Duration::from_millis(u64::try_from(until_ms.max(60_000)).expect("positive wait"));
             let wait_min = (wait.as_secs() + 30) / 60;
             let local = reset.with_timezone(&Local).format("%H:%M:%S");
-            self.log(&format!("rate limit — waiting {wait_min}m"));
+            Self::log(&format!("rate limit — waiting {wait_min}m"));
             self.send(format!(
                 "rate limited — resuming at {local} ({wait_min} min)"
             ));
@@ -472,7 +475,7 @@ impl Supervisor {
 
         let delay = self.crash_backoff.min(BACKOFF_CAP);
         self.crash_backoff = (self.crash_backoff * 2).min(BACKOFF_CAP);
-        self.log(&format!(
+        Self::log(&format!(
             "crash #{} — retry in {}s",
             self.crash_count,
             delay.as_secs()
@@ -507,13 +510,13 @@ impl Supervisor {
         loop {
             match self.cmd_rx.try_recv() {
                 Ok(cmd) => self.handle_command(&cmd),
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => return,
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => return,
             }
         }
     }
 
     fn handle_command(&mut self, cmd: &str) {
-        self.log(&format!("command: {cmd:?}"));
+        Self::log(&format!("command: {cmd:?}"));
         match cmd {
             "start" | "go" => {
                 if self.pane_id.is_none() {
@@ -572,7 +575,7 @@ impl Supervisor {
                 // fresh (and, restored in this port, boots with --session-id).
                 self.session = SessionState::fresh();
                 if let Err(e) = self.session.save(&self.cfg.state_path) {
-                    self.log(&format!("WARN: cannot persist session state: {e}"));
+                    Self::log(&format!("WARN: cannot persist session state: {e}"));
                 }
                 if let Some(p) = self.pane_id.clone() {
                     self.tmux.kill_pane(&p);
@@ -584,7 +587,7 @@ impl Supervisor {
         }
     }
 
-    fn handle_slash(&mut self, cmd: &str) {
+    fn handle_slash(&self, cmd: &str) {
         let slash = cmd.split_whitespace().next().unwrap_or(cmd);
         if !SLASH_ALLOW.contains(&slash) {
             self.send(format!(
@@ -609,12 +612,12 @@ impl Supervisor {
     fn write_heartbeat(&self) {
         let hb = Heartbeat {
             schema_version: HEARTBEAT_SCHEMA_VERSION,
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
             // Contract handle pattern is lowercase; normalization is the
             // producer's job (contract rule 0.4), config keeps any casing.
             handle: Some(self.cfg.agent_name.to_lowercase()),
             pid: std::process::id(),
-            state: self.state.as_str().to_string(),
+            state: self.state.as_str().to_owned(),
             session_id: self.session.session_id.clone(),
             tmux_session: Some(self.cfg.tmux_session.clone()),
             pane_id: self.pane_id.clone(),
@@ -622,8 +625,7 @@ impl Supervisor {
             crash_count: self.crash_count,
             started_at_epoch: self
                 .started_at
-                .map(|t| epoch_secs().saturating_sub(t.elapsed().as_secs()))
-                .unwrap_or(0),
+                .map_or(0, |t| epoch_secs().saturating_sub(t.elapsed().as_secs())),
             last_sync_ok_epoch: self.last_sync_ok.load(Ordering::SeqCst),
             updated_at_epoch: epoch_secs(),
             // Stub until N1.3/N2.2 wires the real matrix-channel lock.
@@ -637,7 +639,7 @@ impl Supervisor {
     }
 }
 
-fn epoch_to_utc(n: i64) -> Option<DateTime<Utc>> {
+const fn epoch_to_utc(n: i64) -> Option<DateTime<Utc>> {
     // Heuristic: values >= 10^12 are milliseconds, else seconds.
     if n >= 1_000_000_000_000 {
         DateTime::<Utc>::from_timestamp_millis(n)
@@ -658,25 +660,28 @@ fn parse_reset_at(raw: &serde_json::Value) -> Option<DateTime<Utc>> {
                 .or_else(|| s.parse::<i64>().ok().and_then(epoch_to_utc))
         }
         serde_json::Value::Number(n) => n.as_i64().and_then(epoch_to_utc),
-        _ => None,
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Array(_)
+        | serde_json::Value::Object(_) => None,
     }
 }
 
 /// JS parity: the async auto-accepter for Claude Code's startup prompts.
 /// 30 attempts, 1s apart; every send targets OUR pane id explicitly.
-fn auto_accept_prompts(tmux: Tmux, pane: String, shutdown: Arc<AtomicBool>) {
+fn auto_accept_prompts(tmux: &Tmux, pane: &str, shutdown: &AtomicBool) {
     let (mut trust, mut bypass, mut channel, mut summary) = (false, false, false, false);
     for _ in 0..30 {
         if trust && bypass && channel && summary {
             break;
         }
         std::thread::sleep(Duration::from_secs(1));
-        if shutdown.load(Ordering::SeqCst) || !tmux.pane_alive(&pane) {
+        if shutdown.load(Ordering::SeqCst) || !tmux.pane_alive(pane) {
             break;
         }
-        let out = tmux.capture(&pane);
+        let out = tmux.capture(pane);
         if !trust && out.contains("project you created") {
-            tmux.send_keys(&pane, &["", "Enter"]);
+            tmux.send_keys(pane, &["", "Enter"]);
             trust = true;
         }
         // Resume-from-summary prompt: Enter accepts the default (summary).
@@ -686,23 +691,23 @@ fn auto_accept_prompts(tmux: Tmux, pane: String, shutdown: Arc<AtomicBool>) {
                 || out.contains("Resume from summary")
                 || out.contains("summary or full"))
         {
-            tmux.send_keys(&pane, &["", "Enter"]);
+            tmux.send_keys(pane, &["", "Enter"]);
             summary = true;
         }
         if !bypass && out.contains("Bypass Permissions mode") {
-            tmux.send_keys(&pane, &["Down", ""]);
+            tmux.send_keys(pane, &["Down", ""]);
             std::thread::sleep(Duration::from_millis(200));
-            tmux.send_keys(&pane, &["", "Enter"]);
+            tmux.send_keys(pane, &["", "Enter"]);
             bypass = true;
         }
         if !channel && out.contains("Loading development channels") {
-            tmux.send_keys(&pane, &["", "Enter"]);
+            tmux.send_keys(pane, &["", "Enter"]);
             channel = true;
         }
     }
 }
 
-/// State-machine tests. handle_exit / check_rate_limit_hook_file never touch
+/// State-machine tests. `handle_exit` / `check_rate_limit_hook_file` never touch
 /// tmux or the network (Matrix sends land in an mpsc we hold the receiver
 /// for), so a Supervisor built on a throwaway Config exercises the real
 /// transitions. Scratch files live under the OS temp dir — never the live
@@ -710,7 +715,7 @@ fn auto_accept_prompts(tmux: Tmux, pane: String, shutdown: Arc<AtomicBool>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
+    use chrono::TimeZone as _;
     use serde_json::json;
     use std::sync::mpsc::channel;
 
@@ -793,7 +798,7 @@ mod tests {
         // wait ≈ 5min + 15s grace
         let d = pending_delay(&sup);
         assert!(
-            d > Duration::from_secs(300) && d <= Duration::from_secs(316),
+            d > Duration::from_mins(5) && d <= Duration::from_secs(316),
             "unexpected wait {d:?}"
         );
         assert!(rx.try_recv().unwrap().contains("rate limited"));
@@ -829,12 +834,12 @@ mod tests {
         for (i, want) in expected_delays.iter().enumerate() {
             sup.started_at = Some(Instant::now()); // uptime ~0 => quick crash
             sup.handle_exit(1);
-            assert_eq!(sup.crash_count, i as u32 + 1);
+            assert_eq!(sup.crash_count, u32::try_from(i).unwrap() + 1);
             assert_eq!(sup.state, AgentState::Crashed);
             let d = pending_delay(&sup);
             let want = Duration::from_secs(*want);
             assert!(
-                d <= want && d > want - Duration::from_secs(1),
+                d <= want && d > want.checked_sub(Duration::from_secs(1)).unwrap(),
                 "crash #{}: delay {d:?}, want ~{want:?}",
                 i + 1
             );
@@ -859,7 +864,7 @@ mod tests {
         sup.crash_count = 5;
         sup.crash_backoff = Duration::from_secs(80);
         // Uptime > QUICK_CRASH (60s): the session was healthy, start over.
-        sup.started_at = Instant::now().checked_sub(Duration::from_secs(120));
+        sup.started_at = Instant::now().checked_sub(Duration::from_mins(2));
         assert!(sup.started_at.is_some());
 
         sup.handle_exit(1);

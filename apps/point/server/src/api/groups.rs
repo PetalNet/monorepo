@@ -308,7 +308,7 @@ pub struct GroupInviteBody {
     pub expires_in_hours: Option<i64>,
 }
 
-/// POST /api/groups/{id}/invite — admin, or member when members_can_invite.
+/// POST /api/groups/{id}/invite — admin, or member when `members_can_invite`.
 pub async fn create_group_invite(
     State(state): State<AppState>,
     user: AuthUser,
@@ -409,9 +409,9 @@ pub struct AddMemberBody {
 }
 
 /// POST /api/groups/{id}/members — add a member directly: admin, or member
-/// when members_can_invite.
+/// when `members_can_invite`.
 ///
-/// Privacy rule: the target must already have an accepted user_share with the
+/// Privacy rule: the target must already have an accepted `user_share` with the
 /// ADDER. Direct-add bypasses the target's own consent step (no invite code
 /// they chose to redeem), so it is limited to people who have already
 /// established mutual sharing with the adder — you can never pull a stranger
@@ -460,7 +460,7 @@ pub async fn add_member(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// DELETE /api/groups/{id}/members/{user_id} — self (leave) or admin (kick).
+/// DELETE /`api/groups/{id}/members/{user_id`} — self (leave) or admin (kick).
 /// The owner cannot be kicked, and cannot leave while other members remain
 /// (delete the group or transfer ownership first — v1 has no transfer, so:
 /// delete). An owner leaving an otherwise-empty group deletes it.
@@ -539,7 +539,7 @@ pub struct SetRoleBody {
     pub role: String,
 }
 
-/// PUT /api/groups/{id}/members/{user_id}/role — admin only. The owner's admin
+/// PUT /`api/groups/{id}/members/{user_id}/role` — admin only. The owner's admin
 /// role is fixed (demoting the owner would orphan group administration).
 pub async fn set_member_role(
     State(state): State<AppState>,

@@ -54,8 +54,11 @@ The shared `build` outputs are JS-oriented and `check` depends on `^typecheck`
 and `prepare`. Each crate's `turbo.json` extends `//`, clears those dependencies
 and build outputs, and uses `$TURBO_DEFAULT$` inputs to avoid inheriting JS
 `.env*` inputs. Cargo itself builds dependency closures and Turbo infers exact
-native deliverables. Native Clippy overrides retain locked, all-targets,
-warning-denying verification and explicit Courier pedantic checks. Turbo runs
+native deliverables. Native Clippy overrides retain locked, all-targets
+verification; warning denial and the existing pedantic/nursery policy live in
+`[workspace.lints]` in `Cargo.toml`. All eleven crates inherit that policy with
+`[lints] workspace = true`, so ordinary Cargo commands enforce it too, without
+duplicating `-D warnings` or Courier's `-W clippy::pedantic` in Turbo. Turbo runs
 each override in its crate directory, so Cargo selects the local package without
 an explicit `-p`; the root aggregate retains `--workspace`. Native tests
 inherit `cache: false`; Manager's filtered tests pass through `N12_TMUX_IT`.

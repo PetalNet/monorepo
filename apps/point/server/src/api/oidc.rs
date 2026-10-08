@@ -2,22 +2,22 @@
 //! `config.oidc` is set; without it these handlers don't exist (404).
 //!
 //! Flow: `/api/oidc/login` stashes state+nonce+PKCE verifier in a short-lived
-//! HttpOnly cookie and 302s to the IdP; `/api/oidc/callback` verifies state,
-//! exchanges the code, verifies the id_token (issuer/audience/nonce via the
+//! `HttpOnly` cookie and 302s to the `IdP`; `/api/oidc/callback` verifies state,
+//! exchanges the code, verifies the `id_token` (issuer/audience/nonce via the
 //! openidconnect crate), maps `preferred_username` (fallback `sub`) onto our
-//! username rules, provisions the account on first login (password_hash NULL,
+//! username rules, provisions the account on first login (`password_hash` NULL,
 //! so password login stays impossible for it), and returns our local JWT as
 //! JSON — the mobile app drives this in a custom tab.
 
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse as _, Response};
 use axum::Json;
 use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
 use openidconnect::{
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointNotSet,
     EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
-    TokenResponse,
+    TokenResponse as _,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -31,7 +31,7 @@ use crate::state::AppState;
 use super::auth::{map_oidc_username, USER_CREATE_LOCK_KEY};
 
 const COOKIE_NAME: &str = "point_oidc";
-/// The state/nonce/PKCE cookie only needs to survive one IdP round-trip.
+/// The state/nonce/PKCE cookie only needs to survive one `IdP` round-trip.
 const COOKIE_MAX_AGE_SECS: u32 = 600;
 
 type HttpClient = openidconnect::reqwest::Client;
@@ -57,7 +57,7 @@ pub async fn login(State(state): State<AppState>) -> ApiResult<Response> {
             Nonce::new_random,
         )
         // `openid` is added by the crate; we want the profile claims too.
-        .add_scope(Scope::new("profile".to_string()))
+        .add_scope(Scope::new("profile".to_owned()))
         .set_pkce_challenge(pkce_challenge)
         .url();
 
@@ -121,7 +121,7 @@ pub async fn callback(
     // preferred_username can't take over an existing local or admin account
     // (D-016). issuer comes from our verified config, not the token.
     let issuer = &cfg.issuer;
-    let subject = claims.subject().as_str().to_string();
+    let subject = claims.subject().as_str().to_owned();
 
     let existing: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT id, display_name, is_admin, is_federated
@@ -144,8 +144,7 @@ pub async fn callback(
             // else's row.
             let raw_username = claims
                 .preferred_username()
-                .map(|u| u.as_str().to_string())
-                .unwrap_or_else(|| subject.clone());
+                .map_or_else(|| subject.clone(), |u| u.as_str().to_owned());
             let base = map_oidc_username(&raw_username)?;
 
             let mut tx = state.pool.begin().await?;
@@ -164,9 +163,7 @@ pub async fn callback(
             .bind(&subject)
             .fetch_one(&mut *tx)
             .await
-            .ok()
-            .map(Some)
-            .unwrap_or(None);
+            .ok();
             if let Some((id, display_name, is_admin)) = raced {
                 tx.commit().await?;
                 (id, display_name, is_admin)
@@ -268,15 +265,15 @@ fn read_flow_cookie(headers: &HeaderMap) -> Option<(String, String, String)> {
         .find_map(|c| c.strip_prefix("point_oidc="))?;
     let mut parts = value.splitn(3, '.');
     Some((
-        parts.next()?.to_string(),
-        parts.next()?.to_string(),
-        parts.next()?.to_string(),
+        parts.next()?.to_owned(),
+        parts.next()?.to_owned(),
+        parts.next()?.to_owned(),
     ))
 }
 
 /// Uniform client-facing failure; the stage + cause go to logs only (never
 /// codes or tokens — `e` here is always an error, not a credential).
-fn oidc_err(stage: &str, e: impl std::fmt::Display) -> AppError {
+fn oidc_err(stage: &str, e: impl core::fmt::Display) -> AppError {
     tracing::warn!(stage, error = %e, "oidc flow failed");
     AppError::BadRequest("oidc login failed".into())
 }

@@ -8,9 +8,9 @@
 //! | requested            | honored when                                   |
 //! |----------------------|------------------------------------------------|
 //! | defer (default)      | always (never interrupts)                      |
-//! | principal_command    | sender_class == principal                      |
+//! | `principal_command`    | `sender_class` == principal                      |
 //! | safety               | always                                         |
-//! | task_clarification   | card.task_id == recipient's active lease       |
+//! | `task_clarification`   | `card.task_id` == recipient's active lease       |
 //!
 //! A card claiming a privilege it doesn't qualify for is DEMOTED to `defer`
 //! and still delivered (D27): enforcement removes the interrupt privilege,
@@ -21,7 +21,7 @@
 use crate::card::{InterruptPolicy, SenderClass};
 
 /// Outcome of enforcement, kept explicit so the caller can log/alert on
-/// demotions (a repeated principal_command spoof is a security signal even
+/// demotions (a repeated `principal_command` spoof is a security signal even
 /// though the card still flows).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Enforcement {
@@ -31,6 +31,7 @@ pub struct Enforcement {
 
 /// `active_lease_task` = the tracker task currently leased by the RECIPIENT
 /// (None when it holds no lease).
+#[must_use]
 pub fn enforce(
     requested: InterruptPolicy,
     sender_class: SenderClass,
@@ -38,8 +39,7 @@ pub fn enforce(
     active_lease_task: Option<i64>,
 ) -> Enforcement {
     let honored = match requested {
-        InterruptPolicy::Defer => true,
-        InterruptPolicy::Safety => true,
+        InterruptPolicy::Defer | InterruptPolicy::Safety => true,
         InterruptPolicy::PrincipalCommand => sender_class == SenderClass::Principal,
         InterruptPolicy::TaskClarification => active_lease_task == Some(card_task_id),
     };
@@ -58,7 +58,8 @@ pub fn enforce(
 
 /// Does the effective policy interrupt the recipient right now (vs queue for
 /// the digest)?
-pub fn interrupts(effective: InterruptPolicy) -> bool {
+#[must_use]
+pub const fn interrupts(effective: InterruptPolicy) -> bool {
     !matches!(effective, InterruptPolicy::Defer)
 }
 

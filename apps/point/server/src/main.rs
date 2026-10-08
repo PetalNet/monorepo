@@ -13,7 +13,7 @@ mod push;
 mod state;
 mod ws;
 
-use std::net::SocketAddr;
+use core::net::SocketAddr;
 use std::sync::Arc;
 
 use sqlx::postgres::PgPoolOptions;
@@ -34,7 +34,7 @@ fn main() {
     let config = Config::from_env();
 
     // Glitchtip (Sentry-compatible). Must init before the tokio runtime starts.
-    let _sentry_guard = config.glitchtip_dsn.as_deref().map(|dsn| {
+    let sentry_guard = config.glitchtip_dsn.as_deref().map(|dsn| {
         sentry::init((
             dsn,
             sentry::ClientOptions {
@@ -43,7 +43,7 @@ fn main() {
             },
         ))
     });
-    if _sentry_guard.is_some() {
+    if sentry_guard.is_some() {
         tracing::info!("error reporting enabled (Glitchtip)");
     } else {
         tracing::warn!("GLITCHTIP_DSN not set — error reporting disabled");
@@ -111,7 +111,7 @@ async fn run(config: Config) {
 const HISTORY_RETENTION_DAYS: i32 = 30;
 
 async fn cleanup_task(state: AppState) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut interval = tokio::time::interval(core::time::Duration::from_mins(1));
     loop {
         interval.tick().await;
         let res: Result<(), sqlx::Error> = async {

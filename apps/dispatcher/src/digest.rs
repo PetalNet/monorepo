@@ -1,16 +1,18 @@
 //! The compact inbox digest — how deferred cards reach an agent without
 //! interrupting it (CONTRACTS §4).
 //!
-//! Truncation is not paraphrase: each line carries the card_id so the agent
+//! Truncation is not paraphrase: each line carries the `card_id` so the agent
 //! can pull the full VERBATIM body; the digest never rewrites content (DP11,
 //! fleet-dispatcher-review "forward verbatim").
+
+use core::fmt::Write as _;
 
 use crate::board::BoardCard;
 
 pub const DEFAULT_MAX_ITEMS: usize = 12;
 pub const BODY_SNIPPET_CHARS: usize = 200;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct DigestItem {
     pub card_id: String,
     pub task_id: i64,
@@ -18,22 +20,23 @@ pub struct DigestItem {
     pub priority: u8,
     pub thread: Option<String>,
     pub requires_reply: bool,
-    /// First BODY_SNIPPET_CHARS chars of the verbatim body; `truncated`
+    /// First `BODY_SNIPPET_CHARS` chars of the verbatim body; `truncated`
     /// says whether more exists on the card.
     pub snippet: String,
     pub truncated: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Digest {
     pub recipient: String,
     pub total_deferred: usize,
-    /// Items included (≤ max_items), ordered by priority then age.
+    /// Items included (≤ `max_items`), ordered by priority then age.
     pub items: Vec<DigestItem>,
     /// Card ids listed in `items` — the caller marks exactly these delivered.
     pub included_card_ids: Vec<String>,
 }
 
+#[must_use]
 pub fn build(recipient: &str, deferred: &[BoardCard], max_items: usize) -> Digest {
     let mut items = Vec::new();
     for card in deferred.iter().take(max_items) {
@@ -54,7 +57,7 @@ pub fn build(recipient: &str, deferred: &[BoardCard], max_items: usize) -> Diges
         });
     }
     Digest {
-        recipient: recipient.to_string(),
+        recipient: recipient.to_owned(),
         total_deferred: deferred.len(),
         included_card_ids: items.iter().map(|i| i.card_id.clone()).collect(),
         items,
@@ -62,6 +65,7 @@ pub fn build(recipient: &str, deferred: &[BoardCard], max_items: usize) -> Diges
 }
 
 /// One human/agent-readable block. Kept boring and stable: agents parse it.
+#[must_use]
 pub fn render_text(d: &Digest) -> String {
     let mut out = format!(
         "INBOX DIGEST for {} — {} deferred item(s){}\n",
@@ -74,8 +78,9 @@ pub fn render_text(d: &Digest) -> String {
         }
     );
     for item in &d.items {
-        out.push_str(&format!(
-            "- [P{}] task {} from {}{}{} (card {}): {}\n",
+        let _ = writeln!(
+            out,
+            "- [P{}] task {} from {}{}{} (card {}): {}",
             item.priority,
             item.task_id,
             item.sender,
@@ -90,7 +95,7 @@ pub fn render_text(d: &Digest) -> String {
                 .unwrap_or_default(),
             item.card_id,
             item.snippet
-        ));
+        );
     }
     out
 }
@@ -112,7 +117,7 @@ mod tests {
             requires_reply: false,
             interrupt_policy: InterruptPolicy::Defer,
             body: body.into(),
-            needs: Default::default(),
+            needs: std::collections::BTreeSet::default(),
             state: "posted".into(),
             claimed_by: None,
             lease_expires_at_ms: None,

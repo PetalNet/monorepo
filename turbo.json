@@ -74,16 +74,7 @@
 		"@petalnet/effect-sveltekit#test": { "cache": true, "outputs": [] },
 		"petalnet-rust#check": { "dependsOn": [] },
 		"petalnet-rust#lint": {
-			"command": [
-				"cargo",
-				"clippy",
-				"--workspace",
-				"--all-targets",
-				"--locked",
-				"--",
-				"-D",
-				"warnings"
-			]
+			"command": ["cargo", "clippy", "--workspace", "--all-targets", "--locked"]
 		},
 		"//#typecheck": {
 			"dependsOn": [

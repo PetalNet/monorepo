@@ -68,7 +68,7 @@ struct Exec {
 }
 
 impl Exec {
-    fn ok(&self) -> bool {
+    const fn ok(&self) -> bool {
         self.code == 0
     }
 
@@ -93,10 +93,10 @@ impl Exec {
 }
 
 impl Tmux {
-    pub fn new(session: &str, tag_value: &str) -> Tmux {
-        Tmux {
-            session: session.to_string(),
-            tag_value: tag_value.to_string(),
+    pub fn new(session: &str, tag_value: &str) -> Self {
+        Self {
+            session: session.to_owned(),
+            tag_value: tag_value.to_owned(),
             socket: None,
         }
     }
@@ -106,11 +106,11 @@ impl Tmux {
     /// integration tests construct this (hence the allow): production code
     /// must stay on the default server, tests must never be.
     #[allow(dead_code)]
-    pub fn with_socket(session: &str, tag_value: &str, socket: &str) -> Tmux {
-        Tmux {
-            session: session.to_string(),
-            tag_value: tag_value.to_string(),
-            socket: Some(socket.to_string()),
+    pub fn with_socket(session: &str, tag_value: &str, socket: &str) -> Self {
+        Self {
+            session: session.to_owned(),
+            tag_value: tag_value.to_owned(),
+            socket: Some(socket.to_owned()),
         }
     }
 
@@ -122,8 +122,8 @@ impl Tmux {
         match cmd.args(args).output() {
             Ok(out) => Exec {
                 code: out.status.code().unwrap_or(-1),
-                out: String::from_utf8_lossy(&out.stdout).trim().to_string(),
-                err: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+                out: String::from_utf8_lossy(&out.stdout).trim().to_owned(),
+                err: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
             },
             Err(e) => {
                 eprintln!("[manager] tmux exec failed ({args:?}): {e}");
@@ -167,7 +167,7 @@ impl Tmux {
     /// never contain spaces, so splitting on the first space is exact; the
     /// tag keeps any spaces it might contain.
     pub fn panes(&self) -> Vec<PaneInfo> {
-        let fmt = format!("#{{pane_id}} #{{{}}}", TAG_OPTION);
+        let fmt = format!("#{{pane_id}} #{{{TAG_OPTION}}}");
         let e = self.run(&["list-panes", "-s", "-t", &self.starget(), "-F", &fmt]);
         if !e.ok() {
             return Vec::new();
@@ -181,8 +181,8 @@ impl Tmux {
                     return None;
                 }
                 Some(PaneInfo {
-                    id: id.to_string(),
-                    tag: it.next().unwrap_or("").trim().to_string(),
+                    id: id.to_owned(),
+                    tag: it.next().unwrap_or("").trim().to_owned(),
                 })
             })
             .collect()

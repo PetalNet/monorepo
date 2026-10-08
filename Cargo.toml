@@ -54,6 +54,7 @@ courier-plugins = { path = "apps/courier/crates/courier-plugins" }
 courier-ai = { path = "apps/courier/crates/courier-ai" }
 
 [workspace.lints.rust]
+warnings = { level = "deny", priority = -1 }
 future-incompatible = "warn"
 missing_debug_implementations = "warn"
 

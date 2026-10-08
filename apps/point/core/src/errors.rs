@@ -19,4 +19,4 @@ pub enum PointCryptoError {
     InvalidState(String),
 }
 
-pub type Result<T> = std::result::Result<T, PointCryptoError>;
+pub type Result<T> = core::result::Result<T, PointCryptoError>;

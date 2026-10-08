@@ -16,3 +16,6 @@ tempfile = "3"
 signal-hook = "0.4"
 
 [dev-dependencies]
+
+[lints]
+workspace = true
