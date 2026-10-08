@@ -2,7 +2,7 @@ import { Config, Console, Effect, FileSystem, Record, Schema } from "effect";
 import type { PlatformError } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 
-import { nativeApps, nativeSelection } from "./policy.ts";
+import { codeqlSelection, nativeApps, nativeSelection } from "./policy.ts";
 import { commandOutput, type CommandFailed } from "./process.ts";
 
 const Event = Schema.Struct({
@@ -28,7 +28,7 @@ export const select: Effect.Effect<
 	const base = event.pull_request?.base.sha ?? event.merge_group?.base_sha;
 	let native: ReturnType<typeof nativeSelection>;
 	let js = true;
-	let actions = true;
+	let scans = { "codeql-js": true, "codeql-python": true, actions: true };
 	if (base) {
 		// Disable rename detection so both deletion and addition participate in selection.
 		const diff = yield* commandOutput("git", [
@@ -41,9 +41,7 @@ export const select: Effect.Effect<
 		]);
 		const paths = diff.split("\0").filter(Boolean);
 		native = nativeSelection(paths);
-		actions = paths.some(
-			(path) => path.startsWith(".github/workflows/") || path.startsWith(".github/actions/"),
-		);
+		scans = codeqlSelection(paths);
 		const plan = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TurboPlan))(
 			yield* commandOutput(
 				"pnpm",
@@ -66,8 +64,8 @@ export const select: Effect.Effect<
 	}
 	const outputs = {
 		...native,
+		...scans,
 		js,
-		actions,
 		base: base ?? "",
 		affected: Boolean(base),
 	};

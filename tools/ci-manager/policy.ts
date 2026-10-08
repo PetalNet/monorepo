@@ -33,3 +33,39 @@ export function nativeSelection(paths: readonly string[]) {
 	);
 	return { ...apps, rust };
 }
+
+// CodeQL covers source outside Turbo packages and does not depend on build/test tasks.
+export function codeqlSelection(paths: readonly string[]) {
+	const shared = paths.some(
+		(path) =>
+			path === ".github/workflows/ci.yml" ||
+			path === ".github/workflows/codeql.yml" ||
+			path.startsWith(".github/codeql/") ||
+			path.startsWith(".github/actions/") ||
+			path.startsWith("tools/ci-manager/") ||
+			/^mise\.(?:toml|lock)$/u.test(path),
+	);
+	return {
+		"codeql-js":
+			shared ||
+			paths.some(
+				(path) =>
+					/\.(?:[cm]?[jt]sx?|svelte|vue|astro|html)$/u.test(path) ||
+					path.startsWith("packages/tsconfig/") ||
+					/(?:^|\/)(?:package\.json|pnpm-(?:lock|workspace)\.yaml|tsconfig(?:\.[^/]*)?\.json|turbo\.json|\.npmrc)$/u.test(
+						path,
+					),
+			),
+		"codeql-python":
+			shared ||
+			paths.some(
+				(path) =>
+					/\.pyi?$/u.test(path) ||
+					/(?:^|\/)(?:pyproject\.toml|(?:requirements|constraints)(?:[-.][^/]*)?\.txt|Pipfile(?:\.lock)?|poetry\.lock|uv\.lock|setup\.cfg|tox\.ini|\.python-version)$/u.test(
+						path,
+					) ||
+					path.startsWith("apps/manager/docs/contracts/schemas/"),
+			),
+		actions: shared || paths.some((path) => path.startsWith(".github/workflows/")),
+	};
+}

@@ -32,6 +32,8 @@ jobs:
       rust: ${{ steps.select.outputs.rust }}
       js: ${{ steps.select.outputs.js }}
       actions: ${{ steps.select.outputs.actions }}
+      codeql-js: ${{ steps.select.outputs.codeql-js }}
+      codeql-python: ${{ steps.select.outputs.codeql-python }}
       base: ${{ steps.select.outputs.base }}
       affected: ${{ steps.select.outputs.affected }}
     steps:
@@ -193,10 +195,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  codeql-js-python:
+  codeql-js:
+    needs: select
+    if: needs.select.outputs.codeql-js == 'true'
     uses: $/.github/workflows/codeql.yml
     with:
-      languages: '["javascript-typescript", "python"]'
+      languages: '["javascript-typescript"]'
+    permissions:
+      contents: read
+      security-events: write
+
+  codeql-python:
+    needs: select
+    if: needs.select.outputs.codeql-python == 'true'
+    uses: $/.github/workflows/codeql.yml
+    with:
+      languages: '["python"]'
     permissions:
       contents: read
       security-events: write
@@ -262,7 +276,8 @@ jobs:
       - box-agent-rust
       - point
       - zizmor
-      - codeql-js-python
+      - codeql-js
+      - codeql-python
       - codeql-actions
       - codeql-rust
       - typos

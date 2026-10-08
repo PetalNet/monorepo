@@ -11,6 +11,8 @@ const Selection = Schema.Struct({
 	rust: Enabled,
 	js: Enabled,
 	actions: Enabled,
+	"codeql-js": Enabled,
+	"codeql-python": Enabled,
 });
 
 const Needs = Schema.Record(
@@ -43,7 +45,8 @@ function expectedConclusions(selection: typeof Selection.Type) {
 		"control-plane-rust": selected(selection["control-plane-rust"]),
 		"box-agent-rust": selected(selection["box-agent-rust"]),
 		point: selected(selection.point),
-		"codeql-js-python": "success",
+		"codeql-js": selected(selection["codeql-js"]),
+		"codeql-python": selected(selection["codeql-python"]),
 		"codeql-actions": selected(selection.actions),
 		"codeql-rust": selected(selection.rust),
 	};
