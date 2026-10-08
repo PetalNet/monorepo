@@ -1,3 +1,5 @@
+import { error } from "@sveltejs/kit";
+
 import { requireAdmin } from "#lib/server/security.ts";
 import { allClips, audio } from "#lib/server/store.ts";
 import { zip } from "#lib/server/zip.ts";
@@ -5,18 +7,30 @@ import { zip } from "#lib/server/zip.ts";
 import type { RequestHandler } from "./$types";
 export const GET: RequestHandler = async (event) => {
 	await requireAdmin(event);
-	const clips = (await allClips()).filter((c) => c.decision === "keep");
+	const set = event.url.searchParams.get("set") ?? "wake";
+	if (set !== "wake" && set !== "speaker") error(400, "Choose a wake-word or speaker-ID set.");
+	const speaker = set === "speaker";
+	const clips = (await allClips()).filter(
+		(c) =>
+			c.decision === "keep" &&
+			(speaker ? c.kind === "enroll" || c.kind === "free" : c.kind === "pos" || c.kind === "neg"),
+	);
+	const groups = speaker ? Map.groupBy(clips, (clip) => clip.id) : new Map([["", clips]]);
 	async function* entries() {
-		for (const clip of clips) {
-			yield audio(clip).then((data) => ({
-				name: `${clip.kind === "pos" ? "positives" : "negatives"}/${clip.file}`,
-				data,
-			}));
+		for (const [directory, participants] of groups) {
+			for (const clip of participants) {
+				yield audio(clip).then((data) => ({
+					name: speaker
+						? `${directory}/${clip.file}`
+						: `${clip.kind === "pos" ? "positives" : "negatives"}/${clip.file}`,
+					data,
+				}));
+			}
+			yield {
+				name: `${directory ? directory + "/" : ""}clips.jsonl`,
+				data: Buffer.from(participants.map((c) => JSON.stringify(c)).join("\n") + "\n"),
+			};
 		}
-		yield {
-			name: "clips.jsonl",
-			data: Buffer.from(clips.map((c) => JSON.stringify(c)).join("\n") + "\n"),
-		};
 	}
 	const iterator = zip(entries());
 	const stream = new ReadableStream<Uint8Array>({
@@ -36,7 +50,7 @@ export const GET: RequestHandler = async (event) => {
 	return new Response(stream, {
 		headers: {
 			"Content-Type": "application/zip",
-			"Content-Disposition": 'attachment; filename="hey-janet-kept.zip"',
+			"Content-Disposition": `attachment; filename="hey-janet-${set}.zip"`,
 		},
 	});
 };

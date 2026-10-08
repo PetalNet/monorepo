@@ -1,3 +1,5 @@
+import { maxDuration, type PromptKind } from "./prompts";
+
 export interface Recording {
 	wav: Blob;
 	peak: number;
@@ -10,6 +12,7 @@ export class Recorder {
 	stream: MediaStream | null = null;
 	node: AudioWorkletNode | null = null;
 	chunks: Float32Array[] = [];
+	kind: PromptKind = "pos";
 	active = false;
 	started = 0;
 	lastVoice = 0;
@@ -18,6 +21,7 @@ export class Recorder {
 		private level: (v: number) => void,
 		private ended: (r: Recording) => void,
 		private interrupted: () => void,
+		private tick: (seconds: number) => void,
 	) {}
 	async open() {
 		this.context = new AudioContext();
@@ -64,7 +68,9 @@ export class Recorder {
 			throw e;
 		}
 	}
-	async start() {
+	async start(kind: PromptKind) {
+		this.kind = kind;
+		this.tick(0);
 		await this.context?.resume();
 		this.chunks = [];
 		this.active = true;
@@ -72,9 +78,11 @@ export class Recorder {
 		this.lastVoice = 0;
 		this.timer = window.setInterval(() => {
 			const now = performance.now();
+			const seconds = (now - this.started) / 1000;
+			this.tick(Math.min(seconds, maxDuration(this.kind)));
 			if (
-				now - this.started >= 6500 ||
-				(this.lastVoice > 0 && now - this.started > 1300 && now - this.lastVoice > 1100)
+				seconds >= (this.kind === "pos" || this.kind === "neg" ? 6.5 : maxDuration(this.kind)) ||
+				(this.kind !== "free" && this.lastVoice > 0 && seconds > 1.3 && now - this.lastVoice > 1100)
 			)
 				this.stop();
 		}, 100);
@@ -92,15 +100,18 @@ export class Recorder {
 			at += chunk.length;
 		}
 		let start = 0,
-			end = raw.length;
-		while (start < end && Math.abs(raw[start]) < 0.008) start++;
-		while (end > start && Math.abs(raw[end - 1]) < 0.008) end--;
-		if (start === end) {
-			start = 0;
-			end = raw.length;
+			end = Math.min(raw.length, Math.floor(rate * maxDuration(this.kind)));
+		if (this.kind !== "free") {
+			while (start < end && Math.abs(raw[start]) < 0.008) start++;
+			while (end > start && Math.abs(raw[end - 1]) < 0.008) end--;
+			if (start === end) {
+				start = 0;
+				end = raw.length;
+			}
+			start = Math.max(0, start - Math.round(rate * 0.15));
+			end = Math.min(raw.length, end + Math.round(rate * 0.25));
 		}
-		start = Math.max(0, start - Math.round(rate * 0.15));
-		end = Math.min(raw.length, end + Math.round(rate * 0.25));
+		end = Math.min(end, Math.floor(rate * maxDuration(this.kind)));
 		const count = Math.max(3200, Math.ceil(((end - start) * 16000) / rate));
 		const bytes = new ArrayBuffer(44 + count * 2),
 			view = new DataView(bytes);

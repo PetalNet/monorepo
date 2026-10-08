@@ -200,3 +200,75 @@ export const prompts = [
 		how: "naturally. This one should NOT wake her",
 	},
 ] as const;
+
+const speakerPrompts = [
+	{
+		kind: "enroll",
+		say: "The blue boat drifted past the quiet shore.",
+		how: "Read in your usual speaking voice.",
+	},
+	{
+		kind: "enroll",
+		say: "Maya packed fresh peaches and a small jar of jam.",
+		how: "Read in your usual speaking voice.",
+	},
+	{
+		kind: "enroll",
+		say: "At seven forty-five, the number twelve bus turned left.",
+		how: "Read the numbers naturally.",
+	},
+	{
+		kind: "enroll",
+		say: "Would you rather walk through the woods or visit the museum?",
+		how: "Ask it as a real question.",
+	},
+	{
+		kind: "enroll",
+		say: "Six bright stars shone above the frozen lake.",
+		how: "Read in your usual speaking voice.",
+	},
+	{
+		kind: "enroll",
+		say: "Please bring three yellow cups to the kitchen.",
+		how: "Say it as if asking a friend.",
+	},
+	{
+		kind: "enroll",
+		say: "Oliver's new jacket has a silver zipper.",
+		how: "Read in your usual speaking voice.",
+	},
+	{
+		kind: "enroll",
+		say: "A gentle breeze moved the thick green leaves.",
+		how: "Read in your usual speaking voice.",
+	},
+	{
+		kind: "enroll",
+		say: "We paid twenty-six dollars and fifty cents for lunch.",
+		how: "Read the numbers naturally.",
+	},
+	{
+		kind: "enroll",
+		say: "Close the gate, then follow the gravel path beyond the bridge.",
+		how: "Pause at the comma if you like.",
+	},
+	{
+		kind: "free",
+		say: "Describe your morning.",
+		how: "Speak naturally for 20–30 seconds. Pauses are fine. You can stop whenever you like.",
+	},
+	{
+		kind: "free",
+		say: "Tell me about something you're into.",
+		how: "Speak naturally for 20–30 seconds. Choose anything you feel comfortable sharing.",
+	},
+] as const;
+
+export const recordingSets = { wake: prompts, speaker: speakerPrompts };
+export type RecordingMode = keyof typeof recordingSets;
+export const allPrompts = [...prompts, ...speakerPrompts];
+export type Prompt = (typeof allPrompts)[number];
+export type PromptKind = Prompt["kind"];
+export function maxDuration(kind: PromptKind) {
+	return kind === "free" ? 30 : kind === "enroll" ? 15 : 8;
+}

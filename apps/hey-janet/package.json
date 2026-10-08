@@ -16,7 +16,7 @@
     "prepare": "svelte-kit sync",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test --project=android-chromium && playwright test --project=desktop-chromium && playwright test --project=iphone-webkit && playwright test --project=desktop-firefox"
   },
   "dependencies": {
     "@lucide/svelte": "catalog:prod",

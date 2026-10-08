@@ -68,6 +68,7 @@ export default defineConfig({
 			ORIGIN: "http://127.0.0.1:18806",
 			BOOTH_SECRET: "browser-test-secret-isolated-not-for-production-1234567890",
 			BOOTH_DATA: ".cache/browser-recordings",
+			BODY_SIZE_LIMIT: "1048576",
 		},
 	},
 });

@@ -1,5 +1,6 @@
 import { error } from "@sveltejs/kit";
 
+import { allPrompts, maxDuration } from "#lib/prompts.ts";
 import { body, limit, session } from "#lib/server/security.ts";
 import { saveClip } from "#lib/server/store.ts";
 
@@ -10,8 +11,9 @@ export const POST: RequestHandler = async (event) => {
 		error(409, "This take belongs to another participant session. Reconnect the original session.");
 	limit(`session:${p.id}`, 240);
 	const index = Number(event.url.searchParams.get("prompt"));
-	if (!Number.isInteger(index)) error(400, "Invalid prompt");
-	const data = await body(event, 256044);
+	const prompt = Number.isInteger(index) ? allPrompts[index] : undefined;
+	if (!prompt || !event.url.searchParams.has("prompt")) error(400, "Invalid prompt");
+	const data = await body(event, 44 + maxDuration(prompt.kind) * 32000);
 	try {
 		return Response.json(
 			await saveClip(
