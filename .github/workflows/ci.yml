@@ -31,10 +31,10 @@ jobs:
       point: ${{ steps.select.outputs.point }}
       rust: ${{ steps.select.outputs.rust }}
       js: ${{ steps.select.outputs.js }}
+      js-packages: ${{ steps.select.outputs.js-packages }}
       actions: ${{ steps.select.outputs.actions }}
       codeql-js: ${{ steps.select.outputs.codeql-js }}
       codeql-python: ${{ steps.select.outputs.codeql-python }}
-      base: ${{ steps.select.outputs.base }}
       affected: ${{ steps.select.outputs.affected }}
     steps:
       - uses: $/.github/actions/setup
@@ -45,8 +45,12 @@ jobs:
 
   check:
     runs-on: ubuntu-latest
+    env:
+      CI_MANAGER_NATIVE_TESTS: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: $/.github/actions/setup
+      - if: env.CI_MANAGER_NATIVE_TESTS == 'true'
+        run: rustup toolchain install
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
@@ -58,18 +62,15 @@ jobs:
     if: needs.select.outputs.js == 'true'
     runs-on: ubuntu-latest
     env:
-      TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
-      TURBO_SCM_HEAD: HEAD
+      JS_PACKAGES_JSON: ${{ needs.select.outputs.js-packages }}
     steps:
       - uses: $/.github/actions/setup
-        with:
-          fetch-depth: 0
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
       - if: needs.select.outputs.affected == 'true'
-        run: pnpm test --affected
+        run: pnpm ci-manager test
       - if: needs.select.outputs.affected != 'true'
         run: pnpm test
 
@@ -79,12 +80,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: "file:/tmp/build.db"
-      TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
-      TURBO_SCM_HEAD: HEAD
+      JS_PACKAGES_JSON: ${{ needs.select.outputs.js-packages }}
     steps:
       - uses: $/.github/actions/setup
-        with:
-          fetch-depth: 0
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
@@ -94,7 +92,7 @@ jobs:
           echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
           echo "DATABASE_URL=$DATABASE_URL" > apps/grove/.env
       - if: needs.select.outputs.affected == 'true'
-        run: pnpm build --affected
+        run: pnpm ci-manager build
       - if: needs.select.outputs.affected != 'true'
         run: pnpm build
 

@@ -1,16 +1,25 @@
 # CI
 
-| Work                              | PR / merge group                                              | Main / manual      |
-| --------------------------------- | ------------------------------------------------------------- | ------------------ |
-| JS build and test                 | Turbo affected graph                                          | Full graph         |
-| Native checks                     | Rust inputs → all native lanes; other app inputs → that lane  | All lanes          |
-| CodeQL                            | Independently selected JS/TS, Python, Actions and Rust inputs | All four languages |
-| Root checks, typos, links, zizmor | Full                                                          | Full               |
+| Work                              | PR / merge group                                                 | Main / manual      |
+| --------------------------------- | ---------------------------------------------------------------- | ------------------ |
+| JS build and test                 | Turbo affected graph                                             | Full graph         |
+| Native checks                     | Turbo owners/dependents; explicit Flutter and shared-input rules | All lanes          |
+| CodeQL                            | Independently selected JS/TS, Python, Actions and Rust inputs    | All four languages |
+| Root checks, typos, links, zizmor | Full                                                             | Full               |
 
 Selection compares the event's base SHA with `HEAD`; renames include both paths.
 Failed Git/Turbo planning fails CI. Source-only packages and standalone scripts
 still select CodeQL even without build/test tasks. Shared CI inputs select all
 native lanes and scans. Weekly `codeql-full` scans all four languages.
+
+The selector provisions Rust and queries affected packages once, then emits exact
+JS package filters. Build/test execution never uses `--affected` or unions subsets
+with a namespace-wide filter. Empty or malformed subset filters fail closed.
+
+Native comparisons use that Cargo graph; the synthetic workspace is not a
+service lane. Flutter/bridge changes select Point directly. Root Cargo, toolchain
+and shared native configuration select all lanes. Rust CodeQL selection is
+independent of native job selection.
 
 ## Merge protection
 
@@ -27,9 +36,13 @@ does not mean no alerts. GitHub's alert gate does not cover merge groups.
 
 ```sh
 pnpm test:ci-manager
+CI_MANAGER_NATIVE_TESTS=true pnpm test:ci-manager # real Cargo graph fixtures; Rust required
 pnpm ci-manager select # GITHUB_EVENT_PATH and GITHUB_OUTPUT required
 pnpm ci-manager gate   # NEEDS_JSON required
 ```
+
+Main/manual root checks include real Cargo graph fixtures; PR root checks keep
+Rust-free gate, language, JS, filter-execution and malformed-query regression cases.
 
 ## Activation / rollback
 

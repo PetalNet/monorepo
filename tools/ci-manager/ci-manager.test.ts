@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { assert, expect, test } from "vitest";
 
 import { evaluateGate } from "./gate.ts";
@@ -234,7 +234,6 @@ test("native selection does not confuse JS paths, Rust consumers, or Flutter", (
 		"control-plane-rust": false,
 		"box-agent-rust": false,
 		point: false,
-		rust: false,
 	} as const);
 	assert.deepEqual(nativeSelection(["apps/point/app/lib/main.dart"]), {
 		"manager-rust": false,
@@ -243,10 +242,8 @@ test("native selection does not confuse JS paths, Rust consumers, or Flutter", (
 		"control-plane-rust": false,
 		"box-agent-rust": false,
 		point: true,
-		rust: false,
 	} as const);
 	for (const path of [
-		"apps/dispatcher/src/lib.rs",
 		"Cargo.lock",
 		".cargo/config.toml",
 		"tools/ci-manager/main.ts",
@@ -259,15 +256,35 @@ test("native selection does not confuse JS paths, Rust consumers, or Flutter", (
 			"control-plane-rust": true,
 			"box-agent-rust": true,
 			point: true,
-			rust: true,
 		} as const);
 	}
+	assert.deepEqual(
+		nativeSelection(
+			["apps/dispatcher/src/lib.rs"],
+			["", "apps/dispatcher", "apps/box-agent", "apps/control-plane"],
+		),
+		{
+			"manager-rust": false,
+			"courier-rust": false,
+			"dispatcher-rust": true,
+			"control-plane-rust": true,
+			"box-agent-rust": true,
+			point: false,
+		},
+	);
 });
 
 test("CodeQL selects language inputs independently of Turbo and native jobs", () => {
-	const none = { "codeql-js": false, "codeql-python": false, actions: false } as const;
-	for (const path of ["README.md", "apps/point/app/lib/main.dart", "apps/manager/src/main.rs"])
+	const none = { "codeql-js": false, "codeql-python": false, actions: false, rust: false } as const;
+	for (const path of ["README.md", "apps/point/app/lib/main.dart"])
 		assert.deepEqual(codeqlSelection([path]), none);
+	for (const path of [
+		"apps/manager/src/main.rs",
+		"apps/point/app/rust/src/lib.rs",
+		"Cargo.lock",
+		"apps/dispatcher/Cargo.toml",
+	])
+		assert.deepEqual(codeqlSelection([path]), { ...none, rust: true });
 	for (const path of [
 		"tools/standalone.mjs",
 		"packages/types/index.d.ts",
@@ -315,6 +332,7 @@ test("CodeQL selects language inputs independently of Turbo and native jobs", ()
 				"codeql-js": true,
 				"codeql-python": true,
 				actions: true,
+				rust: true,
 			} as const,
 			path,
 		);
@@ -361,6 +379,8 @@ test("real Git/Turbo selection: dependency propagation, rename sides, full runs,
 	};
 	try {
 		mkdirSync(join(root, "apps"));
+		mkdirSync(join(root, "bin"));
+		writeFileSync(join(root, "bin/rustup"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 		mkdirSync(join(root, ".github/workflows"), { recursive: true });
 		mkdirSync(join(root, ".github/actions/fixture"), { recursive: true });
 		write(".github/workflows/fixture.yml", "name: fixture\n");
@@ -402,7 +422,7 @@ test("real Git/Turbo selection: dependency propagation, rename sides, full runs,
 			new URL("../../../node_modules", import.meta.url).pathname,
 			join(root, "node_modules"),
 		);
-		write(".gitignore", "node_modules\n.turbo\nevent.json\noutput\n");
+		write(".gitignore", "node_modules\n.turbo\nbin\nevent.json\noutput\n");
 		run("git", ["init", "-q"]);
 		run("git", ["config", "user.email", "fixture@example.com"]);
 		run("git", ["config", "user.name", "Fixture"]);
@@ -417,6 +437,7 @@ test("real Git/Turbo selection: dependency propagation, rename sides, full runs,
 				encoding: "utf8",
 				env: {
 					...process.env,
+					PATH: `${root}/bin:${process.env["PATH"] ?? ""}`,
 					PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false",
 					GITHUB_EVENT_PATH: join(root, "event.json"),
 					GITHUB_OUTPUT: join(root, "output"),
@@ -435,11 +456,30 @@ test("real Git/Turbo selection: dependency propagation, rename sides, full runs,
 		assert.match(affected.outputs, /js=true/u);
 		assert.match(affected.outputs, /rust=false/u);
 		assert.match(affected.outputs, /actions=false/u);
-		const plan = run(
-			"pnpm",
-			["exec", "turbo", "run", "build", "test", "--affected", "--dry=json"],
-			{ TURBO_SCM_BASE: base, TURBO_SCM_HEAD: "HEAD" },
+		const packageJson =
+			affected.outputs
+				.split("\n")
+				.find((line) => line.startsWith("js-packages="))
+				?.slice("js-packages=".length) ?? "";
+		const packages = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(Schema.String)))(
+			packageJson,
 		);
+		assert.deepEqual(packages.toSorted(), ["@petalnet/consumer", "@petalnet/shared"]);
+		for (const task of ["build", "test"]) {
+			const output = run(process.execPath, [cli, task], { JS_PACKAGES_JSON: packageJson });
+			assert.match(output, /@petalnet\/consumer/u);
+			assert.notMatch(output, /@petalnet\/unrelated/u);
+		}
+		const plan = run("pnpm", [
+			"exec",
+			"turbo",
+			"run",
+			"build",
+			"test",
+			"--filter=@petalnet/consumer",
+			"--filter=@petalnet/shared",
+			"--dry=json",
+		]);
 		assert.match(plan, /@petalnet\/consumer/u);
 		assert.notMatch(
 			plan,

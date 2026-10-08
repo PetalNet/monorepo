@@ -9,38 +9,43 @@ export const nativeApps = {
 	point: "point",
 } as const;
 
-export type NativeSelection = { readonly [Job in keyof typeof nativeApps]: boolean } & {
-	readonly rust: boolean;
-};
+export type NativeSelection = { readonly [Job in keyof typeof nativeApps]: boolean };
 
 export interface CodeQLSelection {
 	readonly "codeql-js": boolean;
 	readonly "codeql-python": boolean;
 	readonly actions: boolean;
+	readonly rust: boolean;
 }
 
-export function nativeSelection(paths: readonly string[]): NativeSelection {
+export function nativeSelection(
+	paths: readonly string[],
+	affectedPackages: readonly string[] = [],
+): NativeSelection {
 	const shared = paths.some(
 		(path) =>
 			path.startsWith(".github/workflows/") ||
 			path.startsWith(".github/actions/") ||
 			path.startsWith(".github/codeql/") ||
 			path.startsWith("tools/ci-manager/") ||
+			path === "turbo.json" ||
 			/^mise\.(?:toml|lock)$/u.test(path),
 	);
-	// Rust apps have cross-app dependencies: a Rust input selects every native lane.
-	const rust =
+	const full =
 		shared ||
-		paths.some((path) =>
-			/(?:\.rs$|(?:^|\/)Cargo\.(?:toml|lock)$|(?:^|\/)rust-toolchain(?:\.toml)?$|(?:^|\/)\.cargo\/)/u.test(
-				path,
-			),
+		paths.some(
+			(path) =>
+				/^(?:Cargo\.(?:toml|lock)|rust-toolchain(?:\.toml)?)$/u.test(path) ||
+				path.startsWith(".cargo/"),
 		);
-	const apps = Record.map(
+	return Record.map(
 		nativeApps,
-		(app) => rust || paths.some((path) => path.startsWith(`apps/${app}/`)),
+		(app) =>
+			full ||
+			[...paths, ...affectedPackages].some(
+				(path) => path === `apps/${app}` || path.startsWith(`apps/${app}/`),
+			),
 	);
-	return { ...apps, rust };
 }
 
 export function codeqlSelection(paths: readonly string[]): CodeQLSelection {
@@ -75,5 +80,12 @@ export function codeqlSelection(paths: readonly string[]): CodeQLSelection {
 					path.startsWith("apps/manager/docs/contracts/schemas/"),
 			),
 		actions: shared || paths.some((path) => path.startsWith(".github/workflows/")),
+		rust:
+			shared ||
+			paths.some((path) =>
+				/(?:\.rs$|(?:^|\/)Cargo\.(?:toml|lock)$|(?:^|\/)rust-toolchain(?:\.toml)?$|(?:^|\/)\.cargo\/)/u.test(
+					path,
+				),
+			),
 	};
 }
