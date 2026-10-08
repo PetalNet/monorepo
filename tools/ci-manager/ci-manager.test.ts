@@ -253,7 +253,7 @@ const appJobs = [
 ];
 const selectionKeys = [...appJobs, "codeql-js", "codeql-python", "actions", "rust"];
 
-test.for<readonly [string, readonly string[], readonly string[], readonly string[]]>([
+test.for([
 	["documentation and synthetic workspace", ["README.md"], [""], []],
 	["workspace inputs", ["apps/grove/src/routes/+page.svelte", "pnpm-lock.yaml"], [], ["codeql-js"]],
 	["Point Flutter inputs", ["apps/point/app/lib/main.dart"], [], ["point"]],
@@ -308,10 +308,10 @@ test.for<readonly [string, readonly string[], readonly string[], readonly string
 	...["packages/tsconfig/base.json", "tsconfig.eslint.json", ".npmrc", "pnpm-workspace.yaml"].map(
 		(path) => [path, [path], [], ["codeql-js"]] as const,
 	),
-])("workflow rules: %s", ([_name, paths, packages, enabled]) => {
+] as const)("workflow rules: %s", ([, paths, packages, enabled]) => {
 	assert.deepEqual(
 		selectJobs(paths, packages),
-		Object.fromEntries(selectionKeys.map((key) => [key, enabled.includes(key)])),
+		Object.fromEntries(selectionKeys.map((key) => [key, enabled.some((job) => job === key)])),
 	);
 });
 
