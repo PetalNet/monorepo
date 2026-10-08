@@ -19,7 +19,9 @@ export const createRestLayer = <R>(config: RestConfig<R>) =>
 			const router = yield* HttpRouter.HttpRouter;
 			for (const operation of config.operations) {
 				const rest = operation.rest;
-				if (!rest) continue;
+				if (!rest) {
+					continue;
+				}
 				yield* router.add(
 					rest.method,
 					`${config.basePath.replace(/\/$/, "")}${rest.path}` as `/${string}`,
@@ -32,7 +34,7 @@ export const createRestLayer = <R>(config: RestConfig<R>) =>
 									Effect.flatMap((text) =>
 										text.length === 0
 											? Effect.succeed({})
-											: Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text),
+											: Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text),
 									),
 									Effect.mapError(() => new InvalidJson()),
 								)

@@ -6,11 +6,17 @@ const authSecret = Schema.String.check(Schema.isMinLength(32));
 
 const safeUrl = Schema.NonEmptyString.check(
 	Schema.makeFilter((value) => {
-		if (!URL.canParse(value)) return false;
+		if (!URL.canParse(value)) {
+			return false;
+		}
 
 		const url = new URL(value);
-		if (url.username || url.password || url.search || url.hash) return false;
-		if (url.protocol === "https:") return true;
+		if (url.username || url.password || url.search || url.hash) {
+			return false;
+		}
+		if (url.protocol === "https:") {
+			return true;
+		}
 		return (
 			dev &&
 			url.protocol === "http:" &&

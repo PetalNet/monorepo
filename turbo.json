@@ -89,7 +89,20 @@
 			"outputs": ["node_modules/.cache/tsbuild/**"]
 		},
 		"//#fmt:check": { "outputs": [] },
-		"//#lint:oxlint": { "outputs": [] },
+		"//#lint:oxlint": {
+			"dependsOn": [
+				"//#typecheck",
+				"@petalnet/clarity-mcp#typecheck",
+				"@petalnet/effect-api#typecheck",
+				"@petalnet/effect-sveltekit#typecheck",
+				"@petalnet/better-auth-effect-qb-adapter#check",
+				"@petalnet/collegemap#check",
+				"@petalnet/grove#check",
+				"@petalnet/storybook#typecheck",
+				"@petalnet/whoami#check"
+			],
+			"outputs": []
+		},
 		"//#lint:impeccable": { "outputs": [] },
 		"//#manypkg": { "outputs": [] },
 		"//#dedupe:check": { "cache": false },

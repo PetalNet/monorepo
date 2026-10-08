@@ -17,12 +17,16 @@ function findDomain(collegeName: string): string | null {
 
 	// Direct lookup
 	const direct = collegeDomains.get(norm);
-	if (direct) return direct;
+	if (direct) {
+		return direct;
+	}
 
 	// Try original lowercase
 	const lower = collegeName.toLowerCase().trim();
 	const lower2 = collegeDomains.get(lower);
-	if (lower2) return lower2;
+	if (lower2) {
+		return lower2;
+	}
 
 	// Try with commas instead of dashes: "University of California-Berkeley" → "university of california, berkeley"
 	const withCommas = norm.replace(
@@ -30,7 +34,9 @@ function findDomain(collegeName: string): string | null {
 		", ",
 	);
 	const c = collegeDomains.get(withCommas);
-	if (c) return c;
+	if (c) {
+		return c;
+	}
 
 	// Try stripping campus suffixes like "-Main Campus", "-Tempe", "-Oxford"
 	const stripped = norm
@@ -51,7 +57,9 @@ function findDomain(collegeName: string): string | null {
 		.replace(/ at .*$/, "");
 	if (stripped !== norm) {
 		const s = collegeDomains.get(stripped);
-		if (s) return s;
+		if (s) {
+			return s;
+		}
 	}
 
 	return null;
@@ -59,6 +67,8 @@ function findDomain(collegeName: string): string | null {
 
 export function getLogoUrl(collegeName: string, size = 64): string | null {
 	const domain = findDomain(collegeName);
-	if (!domain) return null;
+	if (!domain) {
+		return null;
+	}
 	return `https://www.google.com/s2/favicons?domain=${domain}&sz=${size.toString()}`;
 }

@@ -34,11 +34,15 @@ function utcMidnight(year: number, month1: number, day: number): Date {
  * holds a `string` nothing it did not know.
  */
 export function isIsoDate(value: unknown): boolean {
-	if (typeof value !== "string" || !ISO_SHAPE.test(value)) return false;
+	if (typeof value !== "string" || !ISO_SHAPE.test(value)) {
+		return false;
+	}
 	const year = Number(value.slice(0, 4));
 	const month = Number(value.slice(5, 7));
 	const day = Number(value.slice(8, 10));
-	if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+	if (month < 1 || month > 12 || day < 1 || day > 31) {
+		return false;
+	}
 	const probe = utcMidnight(year, month, day);
 	return (
 		probe.getUTCFullYear() === year &&

@@ -9,7 +9,9 @@ import { groveMcpIngress } from "#lib/server/mcp-oauth-runtime.ts";
 import { disposeGroveRuntime, handleGrove, initializeGroveRuntime } from "#lib/server/runtime.ts";
 
 export const init: ServerInit = async () => {
-	if (!building) groveMcpIngress();
+	if (!building) {
+		groveMcpIngress();
+	}
 	await initializeGroveRuntime().initialize();
 	process.once("sveltekit:shutdown", () => {
 		void disposeGroveRuntime();
@@ -18,13 +20,16 @@ export const init: ServerInit = async () => {
 
 export const handle = handleGrove(({ event, resolve }) =>
 	Effect.gen(function* () {
-		if (building) return yield* Effect.promise(() => Promise.resolve(resolve(event)));
+		if (building) {
+			return yield* Effect.promise(() => Promise.resolve(resolve(event)));
+		}
 
 		event.locals.actor = null;
 		event.locals.session = null;
 		event.locals.user = null;
-		if (event.url.pathname === "/mcp")
+		if (event.url.pathname === "/mcp") {
 			return yield* Effect.promise(() => Promise.resolve(resolve(event)));
+		}
 
 		const auth = yield* GroveAuth;
 		if (

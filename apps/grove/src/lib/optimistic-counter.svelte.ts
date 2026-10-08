@@ -51,7 +51,9 @@ export class OptimisticCounter<Collection> {
 		const barrier = task.then(() => undefined);
 		this.#barriers.set(key, barrier);
 		void barrier.then(() => {
-			if (this.#barriers.get(key) === barrier) this.#release(key);
+			if (this.#barriers.get(key) === barrier) {
+				this.#release(key);
+			}
 			return undefined;
 		});
 		await task;
@@ -59,12 +61,16 @@ export class OptimisticCounter<Collection> {
 
 	after<T>(key: string, action: () => Promise<T>): Promise<T> {
 		const pending = this.#followups.get(key);
-		if (pending) return pending as Promise<T>;
+		if (pending) {
+			return pending as Promise<T>;
+		}
 
 		const task = this.#wait(key).then(action);
 		this.#followups.set(key, task);
 		const cleanup = () => {
-			if (this.#followups.get(key) === task) this.#followups.delete(key);
+			if (this.#followups.get(key) === task) {
+				this.#followups.delete(key);
+			}
 			return undefined;
 		};
 		void task.then(cleanup, cleanup);
@@ -73,7 +79,9 @@ export class OptimisticCounter<Collection> {
 
 	#rollback(key: string) {
 		const value = this.#values[key] as number | undefined;
-		if (value !== undefined) this.#values[key] = value - 1;
+		if (value !== undefined) {
+			this.#values[key] = value - 1;
+		}
 	}
 
 	#release(key: string) {
@@ -85,7 +93,9 @@ export class OptimisticCounter<Collection> {
 
 	async #wait(key: string): Promise<void> {
 		const barrier = this.#barriers.get(key);
-		if (!barrier) return;
+		if (!barrier) {
+			return;
+		}
 		await barrier;
 		return this.#wait(key);
 	}

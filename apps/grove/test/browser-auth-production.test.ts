@@ -48,7 +48,7 @@ describe("production Grove browser auth composition", () => {
 		let audience: string | string[] = "grove-browser";
 		globalThis.fetch = async (input, init) => {
 			const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
-			if (url === `${issuer}/.well-known/openid-configuration`)
+			if (url === `${issuer}/.well-known/openid-configuration`) {
 				return Response.json({
 					issuer,
 					authorization_endpoint: `${issuer}/authorize`,
@@ -57,11 +57,16 @@ describe("production Grove browser auth composition", () => {
 					jwks_uri: `${issuer}/jwks`,
 					id_token_signing_alg_values_supported: ["RS256"],
 				});
-			if (url === `${issuer}/jwks`) return Response.json({ keys: [publicJwk] });
+			}
+			if (url === `${issuer}/jwks`) {
+				return Response.json({ keys: [publicJwk] });
+			}
 			if (url === `${issuer}/token`) {
 				const body = init?.body;
 				expect(body).toBeInstanceOf(URLSearchParams);
-				if (!(body instanceof URLSearchParams)) throw new TypeError("Expected OAuth form body");
+				if (!(body instanceof URLSearchParams)) {
+					throw new TypeError("Expected OAuth form body");
+				}
 				expect(body.has("code_verifier")).toBe(true);
 				const now = Math.floor(Date.now() / 1000);
 				const token = new SignJWT({
@@ -75,7 +80,9 @@ describe("production Grove browser auth composition", () => {
 					.setAudience(audience)
 					.setSubject(owner.subject)
 					.setExpirationTime(now + 300);
-				if (includeIssuedAt) token.setIssuedAt(now);
+				if (includeIssuedAt) {
+					token.setIssuedAt(now);
+				}
 				const idToken = await token.sign(pair.privateKey);
 				return Response.json({
 					access_token: "provider-access-token",
@@ -285,8 +292,9 @@ describe("production Grove browser auth composition", () => {
 	it("fails construction when OIDC discovery does not match the pinned issuer", async () => {
 		globalThis.fetch = (input) => {
 			const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
-			if (url !== `${issuer}/.well-known/openid-configuration`)
+			if (url !== `${issuer}/.well-known/openid-configuration`) {
 				throw new Error(`Unexpected OIDC request: ${url}`);
+			}
 			return Promise.resolve(
 				Response.json({
 					issuer: "https://unexpected-identity.example/realm/grove",

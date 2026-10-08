@@ -74,15 +74,20 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 	let disposal: Promise<void> | undefined;
 
 	const initialize = (): Promise<void> => {
-		if (state !== "open") return Promise.reject(disposedError());
+		if (state !== "open") {
+			return Promise.reject(disposedError());
+		}
 		return (initialization ??= (async () => {
 			const fiber = runtime.runFork(Effect.void);
 			initializationFiber = fiber;
 			const exit = await Effect.runPromise(Fiber.await(fiber));
 			initializationFiber = undefined;
-			if (Exit.isSuccess(exit)) return;
-			if (Cause.hasInterruptsOnly(exit.cause) && (state as RuntimeState) !== "open")
+			if (Exit.isSuccess(exit)) {
+				return;
+			}
+			if (Cause.hasInterruptsOnly(exit.cause) && (state as RuntimeState) !== "open") {
 				throw disposedError();
+			}
 			logCause(exit.cause, undefined);
 			throw new Error("The Effect runtime failed to initialize");
 		})());
@@ -93,7 +98,9 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 		event: RequestEvent,
 	): Promise<A> => {
 		await initialize();
-		if (state !== "open") throw disposedError();
+		if (state !== "open") {
+			throw disposedError();
+		}
 
 		const fiber = runtime.runFork(Effect.provideService(effect, SvelteKitRequestEvent, event), {
 			signal: event.request.signal,
@@ -102,7 +109,9 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 		const exit = await Effect.runPromise(Fiber.await(fiber)).finally(() => {
 			activeFibers.delete(fiber);
 		});
-		if (Exit.isSuccess(exit)) return exit.value;
+		if (Exit.isSuccess(exit)) {
+			return exit.value;
+		}
 
 		if (Cause.hasDies(exit.cause)) {
 			logCause(exit.cause, event);
@@ -114,8 +123,9 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 				event.request.signal.reason ?? new DOMException("The request was aborted", "AbortError")
 			);
 		}
-		if (Cause.hasInterruptsOnly(exit.cause) && (state as RuntimeState) !== "open")
+		if (Cause.hasInterruptsOnly(exit.cause) && (state as RuntimeState) !== "open") {
 			throw disposedError();
+		}
 		if (Cause.hasInterrupts(exit.cause)) {
 			logCause(exit.cause, event);
 			error(500, "Internal server error");
@@ -138,7 +148,9 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 			logCause(exit.cause, event);
 			error(500, "Internal server error");
 		}
-		if (exposed.log) logCause(exit.cause, event);
+		if (exposed.log) {
+			logCause(exit.cause, event);
+		}
 		error(exposed.status, exposed.message);
 	};
 
@@ -155,11 +167,15 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 			);
 
 	const dispose = (): Promise<void> => {
-		if (disposal) return disposal;
+		if (disposal) {
+			return disposal;
+		}
 		state = "disposing";
 		const teardown = async (): Promise<void> => {
 			try {
-				if (initializationFiber) await Effect.runPromise(Fiber.interrupt(initializationFiber));
+				if (initializationFiber) {
+					await Effect.runPromise(Fiber.interrupt(initializationFiber));
+				}
 				await Effect.runPromise(Fiber.interruptAll(activeFibers));
 				await runtime.dispose();
 			} finally {

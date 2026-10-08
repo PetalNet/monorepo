@@ -40,8 +40,11 @@ const eventFor = <Route extends RequestEvent["route"]["id"]>(path: string, route
 };
 
 afterEach(() => {
-	if (originalFlag === undefined) delete process.env.GROVE_ORB_DEV_AUTH;
-	else process.env.GROVE_ORB_DEV_AUTH = originalFlag;
+	if (originalFlag === undefined) {
+		delete process.env.GROVE_ORB_DEV_AUTH;
+	} else {
+		process.env.GROVE_ORB_DEV_AUTH = originalFlag;
+	}
 });
 
 describe("Grove development routes", () => {

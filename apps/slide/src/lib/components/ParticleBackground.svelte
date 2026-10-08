@@ -39,10 +39,18 @@
 					let newY = p.y + p.speedY;
 
 					// Wrap around screen edges
-					if (newX < 0) newX = 100;
-					if (newX > 100) newX = 0;
-					if (newY < 0) newY = 100;
-					if (newY > 100) newY = 0;
+					if (newX < 0) {
+						newX = 100;
+					}
+					if (newX > 100) {
+						newX = 0;
+					}
+					if (newY < 0) {
+						newY = 100;
+					}
+					if (newY > 100) {
+						newY = 0;
+					}
 
 					return { ...p, x: newX, y: newY };
 				});

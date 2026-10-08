@@ -40,14 +40,18 @@ export interface FreeWindow {
  * school.
  */
 export function mergeRanges(ranges: DayRange[]): DayRange[] {
-	if (ranges.length === 0) return [];
+	if (ranges.length === 0) {
+		return [];
+	}
 	const sorted = ranges.toSorted((a, b) => a.start - b.start || a.end - b.end);
 	const merged: DayRange[] = [{ ...sorted[0] }];
 	for (let i = 1; i < sorted.length; i++) {
 		const next = sorted[i];
 		const last = merged[merged.length - 1];
 		if (next.start <= last.end + 1) {
-			if (next.end > last.end) last.end = next.end;
+			if (next.end > last.end) {
+				last.end = next.end;
+			}
 		} else {
 			merged.push({ ...next });
 		}
@@ -57,8 +61,12 @@ export function mergeRanges(ranges: DayRange[]): DayRange[] {
 
 function covers(ranges: DayRange[], day: number): boolean {
 	for (const r of ranges) {
-		if (day < r.start) return false;
-		if (day <= r.end) return true;
+		if (day < r.start) {
+			return false;
+		}
+		if (day <= r.end) {
+			return true;
+		}
 	}
 	return false;
 }
@@ -102,7 +110,9 @@ function computeWindows(participants: Participant[]): FreeWindow[] {
 	for (let i = 0; i < boundaries.length - 1; i++) {
 		const start = boundaries[i];
 		const end = boundaries[i + 1] - 1;
-		if (end < start) continue;
+		if (end < start) {
+			continue;
+		}
 		const freeIds = active.filter((p) => covers(p.ranges, start)).map((p) => p.id);
 		segments.push({ start, end, freeIds, key: freeIds.join("\u0000") });
 	}

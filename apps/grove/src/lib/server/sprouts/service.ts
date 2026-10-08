@@ -49,6 +49,11 @@ export interface SproutCommandsShape {
 	) => Effect.Effect<{ readonly removed: true }, SproutError, InvocationContext>;
 }
 
+/**
+ * InvocationContext is per request, not a dependency to capture when building the shared layer.
+ *
+ * @effect-expect-leaking InvocationContext
+ */
 export class SproutCommands extends Context.Service<SproutCommands, SproutCommandsShape>()(
 	"grove/SproutCommands",
 ) {}
@@ -95,7 +100,7 @@ const fromRow = (row: SproutRow): Sprout => ({
 });
 
 const databaseId = (id: SproutIdValue): Effect.Effect<Scalar.BigIntString, SproutNotFound> =>
-	Schema.decodeUnknownEffect(ParsedSproutId)(id).pipe(
+	Schema.decodeEffect(ParsedSproutId)(id).pipe(
 		Effect.map(([, value]) => value),
 		Effect.mapError(() => new SproutNotFound(id)),
 	);
@@ -138,8 +143,9 @@ export const SproutCommandsLayer = Layer.effect(
 			run: (actor: ActorPrincipal) => Effect.Effect<A, E>,
 		): Effect.Effect<A, E | AuthorityError | SproutDatabaseError, InvocationContext> =>
 			Effect.flatMap(InvocationContext, ({ principal }) => {
-				if (principal.kind !== "person" && principal.kind !== "agent")
+				if (principal.kind !== "person" && principal.kind !== "agent") {
 					return Effect.fail(new ActorDenied("An enrolled actor is required"));
+				}
 				return sql
 					.withTransaction(
 						authority.authorizeActor(principal, operation).pipe(Effect.andThen(run(principal))),
@@ -181,8 +187,10 @@ export const SproutCommandsLayer = Layer.effect(
 										),
 									);
 									const row = current.at(0);
-									if (!row) return [];
-									const waterings = yield* Schema.decodeUnknownEffect(Counter)(row.waterings + 1);
+									if (!row) {
+										return [];
+									}
+									const waterings = yield* Schema.decodeEffect(Counter)(row.waterings + 1);
 
 									const updated = yield* executor.execute(
 										Query.update(sprouts, { waterings, last_actor_id: actor.actorId }).pipe(
@@ -192,15 +200,15 @@ export const SproutCommandsLayer = Layer.effect(
 											Query.returning(sproutSelection),
 										),
 									);
-									if (updated.length > 0) return updated;
+									if (updated.length > 0) {
+										return updated;
+									}
 									return yield* Effect.fail(new SproutOutOfDate());
 								}),
 							),
 						).pipe(
 							Effect.tapError((error) =>
-								error instanceof SproutOutOfDate
-									? Effect.sleep("10 millis")
-									: Effect.succeed(undefined),
+								error instanceof SproutOutOfDate ? Effect.sleep("10 millis") : Effect.void,
 							),
 							Effect.retry({
 								times: 10,
@@ -226,7 +234,9 @@ export const SproutCommandsLayer = Layer.effect(
 								),
 							),
 						);
-						if (rows.length === 0) return yield* Effect.fail(new SproutNotFound(id));
+						if (rows.length === 0) {
+							return yield* Effect.fail(new SproutNotFound(id));
+						}
 						return { removed: true as const };
 					}),
 				),

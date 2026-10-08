@@ -83,58 +83,71 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	add: async ({ request, locals }) => {
-		if (!locals.user) return fail(401, { error: "Log in to add your breaks." });
+		if (!locals.user) {
+			return fail(401, { error: "Log in to add your breaks." });
+		}
 
 		const form = await request.formData();
 		const label = (formText(form, "label") ?? "").trim();
 		const startDate = formText(form, "startDate") ?? "";
 		const endDate = formText(form, "endDate") ?? "";
 
-		if (!label) return fail(400, { error: "Give the break a name.", label, startDate, endDate });
-		if (label.length > MAX_LABEL)
+		if (!label) {
+			return fail(400, { error: "Give the break a name.", label, startDate, endDate });
+		}
+		if (label.length > MAX_LABEL) {
 			return fail(400, {
 				error: `Keep the name under ${String(MAX_LABEL)} characters.`,
 				label,
 				startDate,
 				endDate,
 			});
-		if (!isIsoDate(startDate) || !isIsoDate(endDate))
+		}
+		if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
 			return fail(400, { error: "Pick a real start and end date.", label, startDate, endDate });
+		}
 
 		const start = toDay(startDate);
 		const end = toDay(endDate);
-		if (end < start)
+		if (end < start) {
 			return fail(400, {
 				error: "The end date comes before the start date.",
 				label,
 				startDate,
 				endDate,
 			});
-		if (end - start + 1 > MAX_SPAN_DAYS)
+		}
+		if (end - start + 1 > MAX_SPAN_DAYS) {
 			return fail(400, {
 				error: "That break is over a year long. Check the dates.",
 				label,
 				startDate,
 				endDate,
 			});
+		}
 
 		const mine = await db
 			.select({ id: breaks.id })
 			.from(breaks)
 			.where(eq(breaks.userId, locals.user.id));
-		if (mine.length >= MAX_BREAKS_PER_PERSON)
+		if (mine.length >= MAX_BREAKS_PER_PERSON) {
 			return fail(400, { error: "You have reached the maximum number of breaks." });
+		}
 
 		await db.insert(breaks).values({ userId: locals.user.id, label, startDate, endDate });
 		return { success: true };
 	},
 
 	remove: async ({ request, locals }) => {
-		if (!locals.user) return fail(401, { error: "Log in to change your breaks." });
+		if (!locals.user) {
+			return fail(401, { error: "Log in to change your breaks." });
+		}
 
 		const form = await request.formData();
 		const id = formText(form, "id") ?? "";
-		if (!id) return fail(400, { error: "Missing break." });
+		if (!id) {
+			return fail(400, { error: "Missing break." });
+		}
 
 		// Ownership lives in the WHERE clause, so someone else's id simply matches
 		// no rows. There is no separate check to forget or bypass.

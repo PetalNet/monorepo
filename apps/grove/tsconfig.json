@@ -14,8 +14,8 @@
 		"plugins": [
 			{
 				"name": "@effect/language-service",
-				"diagnosticSeverity": {},
-				"ignoreEffectSuggestionsInTscExitCode": false
+				"diagnostics": false,
+				"allowedUnstableApis": ["effect/http", "effect/sql"]
 			}
 		]
 	},
@@ -27,6 +27,7 @@
 		"vite.config.js",
 		"vite.config.ts",
 		"effectdb.config.ts",
+		"dev-oidc.ts",
 		"src/routes/.well-known/**/*.ts",
 		"src/**/*.js",
 		"src/**/*.ts",

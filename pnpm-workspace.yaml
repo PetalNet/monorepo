@@ -50,6 +50,14 @@ minimumReleaseAgeExclude:
   - effect-db@0.24.1
   - effect-qb@0.24.1
   - vite@8.3.3
+  - "@effect/tsgo-darwin-arm64@0.50.0"
+  - "@effect/tsgo-darwin-x64@0.50.0"
+  - "@effect/tsgo-linux-arm64@0.50.0"
+  - "@effect/tsgo-linux-arm@0.50.0"
+  - "@effect/tsgo-linux-x64@0.50.0"
+  - "@effect/tsgo-win32-arm64@0.50.0"
+  - "@effect/tsgo-win32-x64@0.50.0"
+  - "@effect/tsgo@0.50.0"
 
 # Why: pnpm sandboxes post-install scripts by default; these have legitimate
 # native-binding or codegen needs.
@@ -81,12 +89,13 @@ catalogs:
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
     # Keep the ESLint compatibility rules aligned with standalone Oxlint.
-    eslint-plugin-oxlint: 1.76.0
+    eslint-plugin-oxlint: 1.87.0
     eslint-plugin-package-json: ^1.2.0
     impeccable: ^3.4.0
     knip: ^6.31.0
     oxfmt: 0.61.0
-    oxlint: 1.76.0
+    oxlint: 1.87.0
+    oxlint-tsgolint: 7.0.2003
     postcss: ^8.4.49
     prisma: ^5.22.0
     svelte-check: ^4.3.5
@@ -148,7 +157,7 @@ catalog:
   effect-db: 0.24.1
   effect-qb: 0.24.1
   mode-watcher: ^1.1.0
-  "@effect/tsgo": ^0.24.3
+  "@effect/tsgo": 0.50.0
   storybook: 10.5.10
   "@storybook/svelte-vite": 10.5.10
   "@storybook/addon-a11y": 10.5.10

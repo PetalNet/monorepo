@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
 import { createClient } from "@libsql/client";
 import { and, eq, like, not } from "drizzle-orm";
@@ -16,7 +16,9 @@ import * as schema from "./db/schema";
 /** A lookup that fails the test loudly instead of asserting non-null and reading undefined. */
 function resolvedId(resolved: Map<string, string>, school: string): string {
 	const id = resolved.get(school);
-	if (id === undefined) throw new Error(`test setup: ${school} did not resolve`);
+	if (id === undefined) {
+		throw new Error(`test setup: ${school} did not resolve`);
+	}
 	return id;
 }
 
@@ -55,7 +57,7 @@ let db: ReturnType<typeof drizzle<typeof schema>>;
 let databasePath: string;
 
 beforeEach(async () => {
-	databasePath = join(tmpdir(), `collegemap-breaks-${crypto.randomUUID()}.db`);
+	databasePath = path.join(tmpdir(), `collegemap-breaks-${crypto.randomUUID()}.db`);
 	client = createClient({ url: `file:${databasePath}` });
 	await client.executeMultiple(`
 		CREATE TABLE colleges (id text PRIMARY KEY NOT NULL, name text NOT NULL, kind text NOT NULL DEFAULT 'college', latitude real NOT NULL, longitude real NOT NULL, is_custom integer NOT NULL DEFAULT false);
@@ -439,7 +441,9 @@ describe("rendered breaks against academic obligations", () => {
 		const schools = await importAndGroup();
 		const undetected = schools.filter(({ obligations, winter }) => {
 			const span = winter.at(0);
-			if (!span) return true;
+			if (!span) {
+				return true;
+			}
 			const ends = obligations
 				.filter((row) => row.endDate < span.startDate)
 				.map((row) => row.endDate);
@@ -448,7 +452,9 @@ describe("rendered breaks against academic obligations", () => {
 				.map((row) => row.startDate);
 			const lastFall = ends.toSorted().at(-1);
 			const firstSpring = starts.toSorted().at(0);
-			if (lastFall === undefined || firstSpring === undefined) return true;
+			if (lastFall === undefined || firstSpring === undefined) {
+				return true;
+			}
 			const stretched = { label: span.label, startDate: lastFall, endDate: firstSpring };
 			return !obligations.some((row) => collides(stretched, row));
 		});

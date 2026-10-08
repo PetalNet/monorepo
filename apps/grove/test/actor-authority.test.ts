@@ -71,9 +71,15 @@ describe("actor authority", () => {
 				),
 			),
 		);
-		if ((waiting.at(0)?.waiting ?? 0) > 0) return undefined;
-		if (attempt >= 99) throw new Error(`${queryFragment} did not reach the expected database lock`);
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		if ((waiting.at(0)?.waiting ?? 0) > 0) {
+			return undefined;
+		}
+		if (attempt >= 99) {
+			throw new Error(`${queryFragment} did not reach the expected database lock`);
+		}
+		await new Promise((resolve) => {
+			setTimeout(resolve, 10);
+		});
 		return waitForDatabaseLock(queryFragment, attempt + 1);
 	};
 
@@ -271,7 +277,9 @@ describe("actor authority", () => {
 					.pipe(Effect.flip),
 			),
 		);
-		if (!(reducing instanceof CapabilityContainmentConflict)) throw reducing;
+		if (!(reducing instanceof CapabilityContainmentConflict)) {
+			throw reducing;
+		}
 		expect(reducing.conflicts).toMatchObject([
 			{ agentId: agent.actorId, personId: actors.guest.actorId },
 		]);
@@ -287,7 +295,9 @@ describe("actor authority", () => {
 					.pipe(Effect.flip),
 			),
 		);
-		if (!(expanding instanceof CapabilityContainmentConflict)) throw expanding;
+		if (!(expanding instanceof CapabilityContainmentConflict)) {
+			throw expanding;
+		}
 		const conflictPersonIds = expanding.conflicts.map((conflict) => conflict.personId);
 		expect(conflictPersonIds).toContain(actors.owner.actorId);
 		expect(conflictPersonIds).toContain(actors.guest.actorId);
@@ -455,7 +465,9 @@ describe("actor authority", () => {
 			return undefined;
 		});
 		try {
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await new Promise((resolve) => {
+				setTimeout(resolve, 50);
+			});
 			expect(completionOrder).toEqual([]);
 		} finally {
 			release.resolve(undefined);
@@ -549,7 +561,9 @@ describe("actor authority", () => {
 			release.resolve(undefined);
 		}
 		await Promise.all([operation, removal]);
-		if (lockError) throw lockError;
+		if (lockError) {
+			throw lockError;
+		}
 		expect(completionOrder).toEqual(["operation", "removal"]);
 		await expect(
 			run(
@@ -620,7 +634,9 @@ describe("actor authority", () => {
 			await blocker;
 		}
 		const [visibleBefore] = await Promise.all([listing, suspension]);
-		if (lockError) throw lockError;
+		if (lockError) {
+			throw lockError;
+		}
 		expect(visibleBefore).toContain("sprouts.list");
 		expect(completionOrder).toEqual(["listing", "suspension"]);
 		expect(await run(authority((service) => service.authorizedOperations(agent)))).toEqual([]);

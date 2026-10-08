@@ -5,13 +5,17 @@ import { federalHolidays } from "./federal-holidays";
 /** The observed date of one named holiday, by the name the statute gives it. */
 function dateOf(year: number, name: string): string {
 	const match = federalHolidays(year).find((holiday) => holiday.label.startsWith(name));
-	if (!match) throw new Error(`No holiday named ${name} in ${String(year)}`);
+	if (!match) {
+		throw new Error(`No holiday named ${name} in ${String(year)}`);
+	}
 	return match.date;
 }
 
 function labelOf(year: number, name: string): string {
 	const match = federalHolidays(year).find((holiday) => holiday.label.startsWith(name));
-	if (!match) throw new Error(`No holiday named ${name} in ${String(year)}`);
+	if (!match) {
+		throw new Error(`No holiday named ${name} in ${String(year)}`);
+	}
 	return match.label;
 }
 
@@ -147,8 +151,11 @@ describe("the weekend rule is arithmetic no timezone can move", () => {
 	const originalTz = process.env.TZ;
 
 	afterEach(() => {
-		if (originalTz === undefined) delete process.env.TZ;
-		else process.env.TZ = originalTz;
+		if (originalTz === undefined) {
+			delete process.env.TZ;
+		} else {
+			process.env.TZ = originalTz;
+		}
 	});
 
 	it("still sees Saturday from a timezone behind UTC", () => {

@@ -48,7 +48,9 @@
 
 	function handleDragOver(e: DragEvent, index: number) {
 		e.preventDefault();
-		if (draggedIndex === null || draggedIndex === index) return;
+		if (draggedIndex === null || draggedIndex === index) {
+			return;
+		}
 
 		const newCategories = [...categories];
 		const draggedItem = newCategories[draggedIndex];
@@ -511,7 +513,9 @@
 		class="fixed inset-0 z-50 m-0 flex h-full max-h-none w-full max-w-none items-center justify-center bg-black/80 p-4 text-white"
 		onclose={() => (showEditModal = false)}
 		onclick={(e) => {
-			if (e.target === e.currentTarget) showEditModal = false;
+			if (e.target === e.currentTarget) {
+				showEditModal = false;
+			}
 		}}
 	>
 		<div

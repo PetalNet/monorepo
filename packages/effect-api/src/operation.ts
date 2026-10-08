@@ -1,4 +1,5 @@
-import { Cause, Effect, Schema } from "effect";
+import type { Effect, Schema } from "effect";
+import { Cause } from "effect";
 import { HttpMethod as HttpMethods, type HttpRouter } from "effect/http";
 
 export type HttpMethod = Exclude<Parameters<HttpRouter.HttpRouter["add"]>[0], "*">;

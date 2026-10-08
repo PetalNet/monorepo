@@ -48,7 +48,9 @@
 
 	// Keep the end date from silently sitting before the start date.
 	$effect(() => {
-		if (startDate && (!endDate || endDate < startDate)) endDate = startDate;
+		if (startDate && (!endDate || endDate < startDate)) {
+			endDate = startDate;
+		}
 	});
 
 	const canSubmit = $derived(label.trim().length > 0 && startDate !== "" && endDate !== "");
