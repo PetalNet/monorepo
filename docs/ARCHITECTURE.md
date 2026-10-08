@@ -77,7 +77,8 @@ standalone Vite and Vitest. Root tasks are explicitly registered with `//#` keys
 Tailwind class sorting); `oxlint.config.ts` owns the shared lint policy.
 
 Turbo hashes tracked and new package files, root configuration, all shared
-`packages/**` source (including adapter templates), repository `tools/**`, and ignored `.env*` files.
+`packages/**` source (including adapter templates), and repository `tools/**`.
+Ignored local files (`.env*`, logs) are not hashed, so a laptop and CI compute the same task hashes.
 Generated outputs and dependency caches are excluded. Conservative shared-package
 invalidation covers source imports without build scripts and relative tsconfig
 references. App-local contracts are included by the default package inputs.
@@ -92,8 +93,12 @@ builds and framework generation share output directories. Parallel CI jobs use
 separate checkouts; separate Turbo processes do not coordinate these mutations.
 
 Environment variables listed in `globalEnv` are hashed and passed through strict
-environment mode. Add new build-sensitive variables or prefixes there; do not use
-unhashed passthrough for cached tasks. Add external cross-app/root-directory reads
+environment mode. Only variables whose values can reach task outputs belong there.
+Runtime configuration that apps read at request time (`$env/dynamic`, `process.env`
+in server code) and CI-only switches such as `CI` go in `globalPassThroughEnv`.
+When a value starts reaching a build artifact (`$env/static`, `import.meta.env`, a
+`static: true` env var), hash that variable in `globalEnv` and add `.env*` to that
+package's build inputs. Add external cross-app/root-directory reads
 to the input model before caching them. Cache archives can contain compiled env
 values: use disposable build settings in CI, never production credentials.
 
