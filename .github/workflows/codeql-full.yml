@@ -10,9 +10,13 @@ permissions:
 
 jobs:
   analyze:
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions, python, rust]
     uses: $/.github/workflows/codeql.yml
     permissions:
       contents: read
       security-events: write
     with:
-      languages: '["javascript-typescript", "actions", "python", "rust"]'
+      language: ${{ matrix.language }}

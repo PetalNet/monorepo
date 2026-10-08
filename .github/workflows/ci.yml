@@ -198,7 +198,7 @@ jobs:
     if: needs.select.outputs.codeql-js == 'true'
     uses: $/.github/workflows/codeql.yml
     with:
-      languages: '["javascript-typescript"]'
+      language: javascript-typescript
     permissions:
       contents: read
       security-events: write
@@ -208,7 +208,7 @@ jobs:
     if: needs.select.outputs.codeql-python == 'true'
     uses: $/.github/workflows/codeql.yml
     with:
-      languages: '["python"]'
+      language: python
     permissions:
       contents: read
       security-events: write
@@ -218,7 +218,7 @@ jobs:
     if: needs.select.outputs.actions == 'true'
     uses: $/.github/workflows/codeql.yml
     with:
-      languages: '["actions"]'
+      language: actions
     permissions:
       contents: read
       security-events: write
@@ -228,7 +228,7 @@ jobs:
     if: needs.select.outputs.rust == 'true'
     uses: $/.github/workflows/codeql.yml
     with:
-      languages: '["rust"]'
+      language: rust
     permissions:
       contents: read
       security-events: write
