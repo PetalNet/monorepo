@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - tools
 
 # Mise bootstraps pnpm locally; pnpm/setup bootstraps it in CI. pnpm provisions Node.
 # pnpm must not provision a second package manager.

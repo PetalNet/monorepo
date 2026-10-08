@@ -5,7 +5,9 @@
 	"type": "module",
 	"scripts": {
 		"build": "turbo run build --filter=@petalnet/*",
-		"check": "turbo run typecheck check fmt:check lint:oxlint lint:eslint:root lint:eslint:apps lint:impeccable manypkg dedupe:check typesync:check lint:knip lint:knip:prod --filter=@petalnet/* --filter=// --continue=always --concurrency=2",
+		"check": "pnpm check:code && pnpm fmt:check",
+		"check:code": "turbo run typecheck check lint:oxlint lint:eslint:root lint:eslint:apps lint:impeccable manypkg dedupe:check typesync:check lint:knip lint:knip:prod --filter=@petalnet/* --filter=// --continue=always --concurrency=2",
+		"ci-manager": "node tools/ci-manager/main.ts",
 		"dedupe:check": "pnpm dedupe --check --prefer-offline",
 		"dev": "pnpm -r --parallel run dev",
 		"fmt": "oxfmt -c oxfmt.config.ts",
@@ -20,6 +22,7 @@
 		"manypkg": "manypkg check",
 		"prepare": "effect-tsgo patch --oxlint",
 		"test": "turbo run test --filter=@petalnet/*",
+		"test:ci-manager": "pnpm --filter @petalnet/tools test",
 		"ts-references:check": "update-ts-references --check",
 		"ts-references:update": "update-ts-references",
 		"typecheck": "tsc -b",
@@ -31,7 +34,6 @@
 		"@eslint/json": "catalog:dev",
 		"@eslint/markdown": "catalog:dev",
 		"@manypkg/cli": "catalog:dev",
-		"@modelcontextprotocol/client": "catalog:",
 		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
 		"@typescript/native": "catalog:dev",
@@ -65,7 +67,8 @@
 			"apps/courier",
 			"apps/dispatcher",
 			"apps/manager",
-			"apps/point"
+			"apps/point",
+			"tools/*"
 		]
 	}
 }

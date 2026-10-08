@@ -1,29 +1,11 @@
 name: point
 
 on:
-  push:
-    branches: [main]
-    paths:
-      [
-        "apps/point/**",
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        ".github/workflows/point.yml",
-      ]
-  pull_request:
-    paths:
-      [
-        "apps/point/**",
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        ".github/workflows/point.yml",
-      ]
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-point
   cancel-in-progress: true
 
 permissions:
