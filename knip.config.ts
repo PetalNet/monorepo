@@ -3,7 +3,7 @@ import type { KnipConfig } from "knip";
 export default {
 	ignore: [".agents/skills/impeccable/**"],
 	// Strict Knip only resolves production dependencies, including script binaries.
-	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!", "turbo!"],
+	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
 	ignoreDependencies: [
 		// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 		"@effect/language-service",
@@ -12,7 +12,7 @@ export default {
 	treatConfigHintsAsErrors: true,
 	workspaces: {
 		tools: {
-			entry: ["enroll-grove-dev-agent.mjs", "turbo-js.mjs", "ci-manager/main.ts"],
+			entry: ["enroll-grove-dev-agent.mjs", "ci-manager/main.ts"],
 			project: ["**/*.{ts,mjs}"],
 		},
 		"apps/collegemap": {

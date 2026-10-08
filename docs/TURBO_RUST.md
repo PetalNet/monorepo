@@ -29,15 +29,15 @@ run per-crate verification. Unfiltered builds select native entrypoints.
 Cargo builds dependency closures; Turbo infers final binary/library deliverables,
 not the incremental target tree. Library builds and formatting default uncached.
 
-Root `pnpm build`, `test`, `check`, and `lint` remain JS-only. Their shared
-`tools/turbo-js.mjs` runner derives a unique temporary configuration from
-`turbo.json`, changing only Cargo discovery to false, and selects `@petalnet/*`.
-Check/lint also select `//` to retain repository tasks. The runner preserves
-SCM environment, JSON-only dry-plan stdout and Turbo's failure status, and removes
-the configuration after execution. Turbo's `--affected` needs authoritative
-Cargo discovery before applying JS filters; the derived configuration preserves
-lazy Rust installation. CI workflows, selection and service/security contracts
-are outside this foundation.
+Root `pnpm build`, `test`, `check`, and `lint` use direct Turbo commands with
+`--filter=@petalnet/*`. Check/lint also select `//` to retain repository tasks.
+These commands do not use `--affected`, so JS execution preserves lazy Rust
+installation. Affected graph discovery requires Rust even with a JS filter and
+belongs in the CI selector, which can emit explicit package filters for execution.
+Turbo combines positive filters as a union: selected-package execution must call
+Turbo directly with those filters, not append them to the namespace-wide root
+scripts. CI workflows, selection and service/security contracts are outside this
+foundation.
 
 ## Affected graph interface
 
@@ -59,12 +59,12 @@ PostgreSQL, tmux, shared toolchain and security inputs remain explicit contracts
 
 ## Evidence and boundaries
 
-The original integration verified native filtered/unfiltered plans, Manager
-artifact restoration by SHA-256, and isolated cache invalidation on path-library
-source, declared build-script inputs, profile, target and simulated compiler
-identity changes. It also verified no-Rust affected JS execution, dependent
-selection, repeated/concurrent runner generation and error cleanup. Those
-experiments do not establish hosted native cache behavior or cross-compilation.
+Native cache validation covers filtered/unfiltered plans, Manager artifact
+restoration by SHA-256, and isolated invalidation on path-library source, declared
+build-script inputs, profile, target and simulated compiler identity changes.
+JS validation covers namespace-filtered plans and explicit package execution with
+Cargo/rustc absent, including all eleven root checks. These experiments do not
+establish hosted native cache behavior or cross-compilation.
 Nix execution and real Android testing remain unverified. Native support is
 experimental.
 
