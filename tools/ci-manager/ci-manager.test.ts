@@ -158,7 +158,7 @@ const scenarios = [
 	},
 ];
 
-for (const scenario of scenarios) {
+const gateCases = scenarios.map((scenario) => {
 	const jobs: Record<string, { result: string; outputs?: Record<string, string> }> = {
 		...required,
 		select: { result: "success", outputs: scenario.selection },
@@ -166,62 +166,73 @@ for (const scenario of scenarios) {
 			Object.entries(scenario.results).map(([job, result]) => [job, { result }]),
 		),
 	};
-	it.effect(`${scenario.name}: exact expected conclusions pass`, () =>
-		Effect.gen(function* () {
-			const conclusions = yield* evaluateGate(JSON.stringify(jobs));
-			assert.equal(conclusions.length, 17);
-		}),
-	);
-	for (const [job, expected] of Object.entries(jobs)) {
-		for (const result of ["success", "failure", "cancelled", "skipped"]) {
-			if (result === expected.result) {
-				continue;
-			}
-			it.effect(`${scenario.name}: rejects ${job}=${result}`, () =>
-				Effect.gen(function* () {
-					const error = yield* Effect.flip(
-						evaluateGate(JSON.stringify({ ...jobs, [job]: { ...expected, result } })),
-					);
-					expect(error).toMatchObject({ _tag: "GateFailed" });
-					expect(error.message).toMatch(/expected .*got/u);
+	return { ...scenario, jobs };
+});
+
+it.effect.each(gateCases)("$name: exact expected conclusions pass", ({ jobs }) =>
+	Effect.gen(function* () {
+		const conclusions = yield* evaluateGate(JSON.stringify(jobs));
+		assert.equal(conclusions.length, 17);
+	}),
+);
+
+const jobCases = gateCases.flatMap((scenario) =>
+	Object.entries(scenario.jobs).map(([job, expected]) => ({ ...scenario, job, expected })),
+);
+
+it.effect.each(
+	jobCases.flatMap((entry) =>
+		["success", "failure", "cancelled", "skipped"]
+			.filter((result) => result !== entry.expected.result)
+			.map((result) => ({ ...entry, result })),
+	),
+)("$name: rejects $job=$result", ({ jobs, job, expected, result }) =>
+	Effect.gen(function* () {
+		const error = yield* Effect.flip(
+			evaluateGate(JSON.stringify({ ...jobs, [job]: { ...expected, result } })),
+		);
+		expect(error).toMatchObject({ _tag: "GateFailed" });
+		expect(error.message).toMatch(/expected .*got/u);
+	}),
+);
+
+it.effect.each(jobCases)("$name: rejects missing $job", ({ jobs, job }) =>
+	Effect.gen(function* () {
+		const missing = Object.fromEntries(Object.entries(jobs).filter(([name]) => name !== job));
+		const error = yield* Effect.flip(evaluateGate(JSON.stringify(missing)));
+		expect(error).toBeInstanceOf(Error);
+	}),
+);
+
+it.effect.each(
+	gateCases.flatMap((scenario) =>
+		Object.keys(scenario.selection).map((key) => ({ ...scenario, key })),
+	),
+)("$name: rejects malformed $key selection", ({ jobs, selection, key }) =>
+	Effect.gen(function* () {
+		const error = yield* Effect.flip(
+			evaluateGate(
+				JSON.stringify({
+					...jobs,
+					select: { result: "success", outputs: { ...selection, [key]: "yes" } },
 				}),
-			);
-		}
-		it.effect(`${scenario.name}: rejects missing ${job}`, () =>
-			Effect.gen(function* () {
-				const missing = Object.fromEntries(Object.entries(jobs).filter(([name]) => name !== job));
-				const error = yield* Effect.flip(evaluateGate(JSON.stringify(missing)));
-				expect(error).toBeInstanceOf(Error);
-			}),
+			),
 		);
-	}
-	for (const key of Object.keys(scenario.selection)) {
-		it.effect(`${scenario.name}: rejects malformed ${key} selection`, () =>
-			Effect.gen(function* () {
-				const error = yield* Effect.flip(
-					evaluateGate(
-						JSON.stringify({
-							...jobs,
-							select: { result: "success", outputs: { ...scenario.selection, [key]: "yes" } },
-						}),
-					),
-				);
-				expect(error).toBeInstanceOf(Error);
-			}),
+		expect(error).toBeInstanceOf(Error);
+	}),
+);
+
+it.effect.each(
+	gateCases.flatMap((scenario) => ["new-job", "constructor"].map((job) => ({ ...scenario, job }))),
+)("$name: rejects unclassified $job", ({ jobs, job }) =>
+	Effect.gen(function* () {
+		const error = yield* Effect.flip(
+			evaluateGate(JSON.stringify({ ...jobs, [job]: { result: "success" } })),
 		);
-	}
-	for (const name of ["new-job", "constructor"]) {
-		it.effect(`${scenario.name}: rejects unclassified ${name}`, () =>
-			Effect.gen(function* () {
-				const error = yield* Effect.flip(
-					evaluateGate(JSON.stringify({ ...jobs, [name]: { result: "success" } })),
-				);
-				expect(error).toMatchObject({ _tag: "GateFailed" });
-				expect(error.message).toMatch(/Unclassified job/u);
-			}),
-		);
-	}
-}
+		expect(error).toMatchObject({ _tag: "GateFailed" });
+		expect(error.message).toMatch(/Unclassified job/u);
+	}),
+);
 
 it.effect.each(["{", "null", JSON.stringify({ select: { result: "unknown" } })])(
 	"malformed gate input %s fails decoding",
@@ -242,7 +253,7 @@ const appJobs = [
 ];
 const selectionKeys = [...appJobs, "codeql-js", "codeql-python", "actions", "rust"];
 
-test.each<readonly [string, readonly string[], readonly string[], readonly string[]]>([
+test.for<readonly [string, readonly string[], readonly string[], readonly string[]]>([
 	["documentation and synthetic workspace", ["README.md"], [""], []],
 	["workspace inputs", ["apps/grove/src/routes/+page.svelte", "pnpm-lock.yaml"], [], ["codeql-js"]],
 	["Point Flutter inputs", ["apps/point/app/lib/main.dart"], [], ["point"]],
@@ -297,7 +308,7 @@ test.each<readonly [string, readonly string[], readonly string[], readonly strin
 	...["packages/tsconfig/base.json", "tsconfig.eslint.json", ".npmrc", "pnpm-workspace.yaml"].map(
 		(path) => [path, [path], [], ["codeql-js"]] as const,
 	),
-])("workflow rules: %s", (_name, paths, packages, enabled: readonly string[]) => {
+])("workflow rules: %s", ([_name, paths, packages, enabled]) => {
 	assert.deepEqual(
 		selectJobs(paths, packages),
 		Object.fromEntries(selectionKeys.map((key) => [key, enabled.includes(key)])),
