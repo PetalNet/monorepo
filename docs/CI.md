@@ -6,7 +6,7 @@ conclusion. This follows [Roc's CI manager](https://github.com/roc-lang/roc/blob
 with Turborepo owning the JavaScript dependency graph.
 
 The manager is an Effect CLI at `tools/ci-manager/main.ts`. `policy.ts` defines
-native selection; `select.ts` performs Git/Turbo planning;
+native and CodeQL language selection; `select.ts` performs Git/Turbo planning;
 `gate.ts` contains the explicit expected-job inventory and validates GitHub's
 inputs with Effect Schema. Run `pnpm test:ci-manager` for the gate matrix and
 real Git/Turbo regression fixtures; it also runs as part of the root checks.
@@ -42,11 +42,14 @@ attempt implicit dependency installation inside dry plans or checks.
   pnpm-lockfile, and JS tool changes do not select native checks or Rust CodeQL.
 - Main pushes and manual runs execute the whole validation suite. Weekly CodeQL
   scans also analyze all four languages, independent of change selection.
-  JavaScript/TypeScript and Python scan on every PR. Actions scans only when
-  `.github/workflows/` or `.github/actions/` changes, including deleted or renamed
-  paths. Rust scans when native Rust inputs are selected. Python coverage remains
-  for `apps/manager/docs/contracts/validate.py`; replacing that validator with
-  TypeScript is outside this PR.
+  PR/merge-group CodeQL jobs are independently selected by language inputs:
+  JS/TS sources (including standalone scripts, Svelte and HTML), JS dependencies
+  and compiler configuration; Python sources, dependencies and the contract
+  validator's schema inputs; Actions workflow/action paths; and native Rust
+  inputs. CI/CodeQL workflow, local action, selector and Mise changes select all
+  scans. Both sides of renames participate. CodeQL selection is separate from
+  Turbo's JS build/test selection: sources with no runnable package tasks still
+  need analysis. Python conversion to TypeScript remains outside this PR.
 - Work that is only partially selected on PRs runs in full on main: JS builds
   and tests, native checks, and all CodeQL languages. Repository-wide checks,
   including formatting, already run in full on PRs and remain full on main;
@@ -99,10 +102,10 @@ restore unconditional Rust/Actions scans on PRs.
 4. Run `ci` manually on `main` and wait for all languages to upload and `finish`
    to pass. Confirm the repository's code-scanning rule is satisfied. Do not
    resume auto-merging during this initialization window.
-5. Verify a JS-only PR: native lanes, Rust CodeQL, and Actions CodeQL skip;
-   JS/TS and Python scans finish. Verify a workflow/action PR selects Actions.
-   `finish` passes, and the code-scanning rule permits merging. Verify a Rust PR:
-   Rust CodeQL runs. Verify a deliberately failing selected check makes `finish`
+5. Verify JS-only, Python-only, Rust-only and workflow/action PRs select their
+   scans and skip unrelated languages; shared scan configuration selects all.
+   Verify `finish` passes and the code-scanning rule permits merging. Verify a
+   deliberately failing selected check makes `finish`
    fail. Old default-setup analysis configurations may need retirement in the
    tool status page if GitHub reports missing configurations after the cutover;
    do not resolve that by weakening the alert rule or uploading empty SARIF.

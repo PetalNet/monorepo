@@ -9,7 +9,7 @@ import { NodeServices } from "@effect/platform-node";
 import { Effect } from "effect";
 
 import { evaluateGate } from "./gate.ts";
-import { nativeSelection } from "./policy.ts";
+import { codeqlSelection, nativeSelection } from "./policy.ts";
 import { commandOutput } from "./process.ts";
 
 const disabled = {
@@ -22,6 +22,8 @@ const disabled = {
 	rust: "false",
 	js: "false",
 	actions: "false",
+	"codeql-js": "false",
+	"codeql-python": "false",
 };
 
 const required = {
@@ -35,7 +37,7 @@ const required = {
 const scenarios = [
 	{
 		name: "JS-only with advanced scans",
-		selection: { ...disabled, js: "true" },
+		selection: { ...disabled, js: "true", "codeql-js": "true" },
 		results: {
 			build: "success",
 			test: "success",
@@ -45,13 +47,14 @@ const scenarios = [
 			"control-plane-rust": "skipped",
 			"box-agent-rust": "skipped",
 			point: "skipped",
-			"codeql-js-python": "success",
+			"codeql-js": "success",
+			"codeql-python": "skipped",
 			"codeql-actions": "skipped",
 			"codeql-rust": "skipped",
 		},
 	},
 	{
-		name: "Flutter-only with unconditional JS/Python scans",
+		name: "Flutter-only skips unrelated scans",
 		selection: { ...disabled, point: "true" },
 		results: {
 			build: "skipped",
@@ -62,7 +65,8 @@ const scenarios = [
 			"control-plane-rust": "skipped",
 			"box-agent-rust": "skipped",
 			point: "success",
-			"codeql-js-python": "success",
+			"codeql-js": "skipped",
+			"codeql-python": "skipped",
 			"codeql-actions": "skipped",
 			"codeql-rust": "skipped",
 		},
@@ -79,6 +83,8 @@ const scenarios = [
 			rust: "true",
 			js: "true",
 			actions: "true",
+			"codeql-js": "true",
+			"codeql-python": "true",
 		},
 		results: {
 			build: "success",
@@ -89,7 +95,8 @@ const scenarios = [
 			"control-plane-rust": "success",
 			"box-agent-rust": "success",
 			point: "success",
-			"codeql-js-python": "success",
+			"codeql-js": "success",
+			"codeql-python": "success",
 			"codeql-actions": "success",
 			"codeql-rust": "success",
 		},
@@ -106,8 +113,45 @@ const scenarios = [
 			"control-plane-rust": "skipped",
 			"box-agent-rust": "skipped",
 			point: "skipped",
-			"codeql-js-python": "success",
+			"codeql-js": "skipped",
+			"codeql-python": "skipped",
 			"codeql-actions": "success",
+			"codeql-rust": "skipped",
+		},
+	},
+	{
+		name: "Python-only scan without JS build/test",
+		selection: { ...disabled, "codeql-python": "true" },
+		results: {
+			build: "skipped",
+			test: "skipped",
+			"manager-rust": "skipped",
+			"courier-rust": "skipped",
+			"dispatcher-rust": "skipped",
+			"control-plane-rust": "skipped",
+			"box-agent-rust": "skipped",
+			point: "skipped",
+			"codeql-js": "skipped",
+			"codeql-python": "success",
+			"codeql-actions": "skipped",
+			"codeql-rust": "skipped",
+		},
+	},
+	{
+		name: "Standalone JS scan without JS build/test",
+		selection: { ...disabled, "codeql-js": "true" },
+		results: {
+			build: "skipped",
+			test: "skipped",
+			"manager-rust": "skipped",
+			"courier-rust": "skipped",
+			"dispatcher-rust": "skipped",
+			"control-plane-rust": "skipped",
+			"box-agent-rust": "skipped",
+			point: "skipped",
+			"codeql-js": "success",
+			"codeql-python": "skipped",
+			"codeql-actions": "skipped",
 			"codeql-rust": "skipped",
 		},
 	},
@@ -123,7 +167,7 @@ for (const scenario of scenarios) {
 	};
 	void test(`${scenario.name}: exact expected conclusions pass`, async () => {
 		const conclusions = await Effect.runPromise(evaluateGate(jobs));
-		assert.equal(conclusions.length, 16);
+		assert.equal(conclusions.length, 17);
 	});
 	for (const [job, expected] of Object.entries(jobs)) {
 		for (const result of ["success", "failure", "cancelled", "skipped"]) {
@@ -211,6 +255,67 @@ await test("native selection does not confuse JS paths, Rust consumers, or Flutt
 	}
 });
 
+await test("CodeQL selects language inputs independently of Turbo and native jobs", () => {
+	const none = { "codeql-js": false, "codeql-python": false, actions: false } as const;
+	for (const path of ["README.md", "apps/point/app/lib/main.dart", "apps/manager/src/main.rs"])
+		assert.deepEqual(codeqlSelection([path]), none);
+	for (const path of [
+		"tools/standalone.mjs",
+		"packages/types/index.d.ts",
+		"apps/grove/src/routes/+page.svelte",
+		"apps/point/app/web/index.html",
+		"apps/grove/package.json",
+		"pnpm-lock.yaml",
+		"pnpm-workspace.yaml",
+		"packages/tsconfig/base.json",
+		"tsconfig.eslint.json",
+		"turbo.json",
+		".npmrc",
+	]) {
+		assert.deepEqual(codeqlSelection([path]), { ...none, "codeql-js": true } as const, path);
+	}
+	for (const path of [
+		"apps/manager/docs/contracts/validate.py",
+		"types.pyi",
+		"pyproject.toml",
+		"requirements-dev.txt",
+		"requirements.txt",
+		"constraints.txt",
+		"Pipfile.lock",
+		"poetry.lock",
+		"uv.lock",
+		"setup.cfg",
+		"tox.ini",
+		".python-version",
+		"apps/manager/docs/contracts/schemas/task-card.schema.json",
+	]) {
+		assert.deepEqual(codeqlSelection([path]), { ...none, "codeql-python": true } as const, path);
+	}
+	for (const path of [
+		".github/workflows/ci.yml",
+		".github/workflows/codeql.yml",
+		".github/codeql/config.yml",
+		".github/actions/setup/action.yml",
+		"tools/ci-manager/policy.ts",
+		"mise.lock",
+	]) {
+		assert.deepEqual(
+			codeqlSelection([path]),
+			{
+				"codeql-js": true,
+				"codeql-python": true,
+				actions: true,
+			} as const,
+			path,
+		);
+	}
+	assert.deepEqual(codeqlSelection([".github/workflows/point-release.yml"]), {
+		...none,
+		actions: true,
+	} as const);
+	assert.deepEqual(codeqlSelection([".github/README.md"]), none);
+});
+
 await test("command output cannot hide a nonzero exit behind valid JSON", async () => {
 	const printJson = "process.stdout.write(JSON.stringify({ tasks: [] }))";
 	assert.equal(
@@ -253,8 +358,11 @@ await test("real Git/Turbo selection: dependency propagation, rename sides, full
 		write(".github/workflows/fixture.yml", "name: fixture\n");
 		write(".github/actions/fixture/action.yaml", "name: fixture\n");
 		write(".github/README.md", "Documentation\n");
-		for (const app of ["consumer", "unrelated", "shared", "point"])
+		for (const app of ["consumer", "unrelated", "shared", "point", "source-only"])
 			mkdirSync(join(root, "apps", app));
+		write("apps/source-only/package.json", JSON.stringify({ name: "@petalnet/source-only" }));
+		write("apps/source-only/source.ts", "export const value = 1;\n");
+		write("apps/source-only/validate.py", "print(1)\n");
 		write(
 			"package.json",
 			JSON.stringify({ name: "fixture", private: true, packageManager: "pnpm@12.9.1" }),
@@ -357,6 +465,28 @@ await test("real Git/Turbo selection: dependency propagation, rename sides, full
 		const deletedWorkflow = select({ merge_group: { base_sha: base } }, "merge_group");
 		assert.equal(deletedWorkflow.result.status, 0, deletedWorkflow.result.stderr);
 		assert.match(deletedWorkflow.outputs, /actions=true/u);
+		for (const [path, jsScan, pythonScan] of [
+			["apps/source-only/source.ts", "true", "false"],
+			["apps/source-only/validate.py", "false", "true"],
+		] as const) {
+			run("git", ["reset", "--hard", base]);
+			write(path, "changed\n");
+			run("git", ["add", "."]);
+			run("git", ["commit", "-qm", path]);
+			const changed = select({ pull_request: { base: { sha: base } } });
+			assert.equal(changed.result.status, 0, changed.result.stderr);
+			assert.match(changed.outputs, /^js=false$/mu);
+			assert.match(changed.outputs, new RegExp(`^codeql-js=${jsScan}$`, "mu"));
+			assert.match(changed.outputs, new RegExp(`^codeql-python=${pythonScan}$`, "mu"));
+		}
+		run("git", ["reset", "--hard", base]);
+		run("git", ["mv", "apps/source-only/source.ts", "apps/source-only/source.txt"]);
+		run("git", ["mv", "apps/source-only/validate.py", "apps/source-only/validate.txt"]);
+		run("git", ["commit", "-qm", "source renamed outside scanned extensions"]);
+		const deletedSources = select({ merge_group: { base_sha: base } }, "merge_group");
+		assert.equal(deletedSources.result.status, 0, deletedSources.result.stderr);
+		assert.match(deletedSources.outputs, /^codeql-js=true$/mu);
+		assert.match(deletedSources.outputs, /^codeql-python=true$/mu);
 		for (const eventName of ["workflow_dispatch", "push"]) {
 			const full = select({}, eventName);
 			assert.equal(full.result.status, 0, full.result.stderr);
@@ -365,6 +495,8 @@ await test("real Git/Turbo selection: dependency propagation, rename sides, full
 			assert.match(full.outputs, /js=true/u);
 			assert.match(full.outputs, /actions=true/u);
 			assert.match(full.outputs, /rust=true/u);
+			assert.match(full.outputs, /^codeql-js=true$/mu);
+			assert.match(full.outputs, /^codeql-python=true$/mu);
 		}
 		const bad = select({ merge_group: { base_sha: "nonexistent-ref" } }, "merge_group");
 		assert.notEqual(bad.result.status, 0);
