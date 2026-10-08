@@ -2,7 +2,13 @@ import { Config, Console, Effect, FileSystem, Record, Schema } from "effect";
 import type { PlatformError } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 
-import { codeqlSelection, nativeApps, nativeSelection } from "./policy.ts";
+import {
+	codeqlSelection,
+	nativeApps,
+	nativeSelection,
+	type CodeQLSelection,
+	type NativeSelection,
+} from "./policy.ts";
 import { commandOutput, type CommandFailed } from "./process.ts";
 
 const Event = Schema.Struct({
@@ -26,9 +32,9 @@ export const select: Effect.Effect<
 		yield* fs.readFileString(eventPath),
 	);
 	const base = event.pull_request?.base.sha ?? event.merge_group?.base_sha;
-	let native: ReturnType<typeof nativeSelection>;
+	let native: NativeSelection;
 	let js = true;
-	let scans = { "codeql-js": true, "codeql-python": true, actions: true };
+	let scans: CodeQLSelection = { "codeql-js": true, "codeql-python": true, actions: true };
 	if (base) {
 		// Disable rename detection so both deletion and addition participate in selection.
 		const diff = yield* commandOutput("git", [

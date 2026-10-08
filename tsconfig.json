@@ -1,7 +1,6 @@
 {
 	"extends": "@petalnet/tsconfig/base.json",
 	"files": ["eslint.config.ts", "oxfmt.config.ts", "knip.config.ts", "oxlint.config.ts"],
-	"include": ["tools/ci-manager/**/*.ts"],
 	"compilerOptions": {
 		"types": ["node"],
 		"noEmit": true

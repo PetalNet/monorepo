@@ -1,0 +1,21 @@
+{
+	"name": "@petalnet/tools",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"check": "vitest run",
+		"ci-manager": "pnpm --workspace-root exec node tools/ci-manager/main.ts",
+		"test": "vitest run",
+		"typecheck": "tsc -b"
+	},
+	"devDependencies": {
+		"@effect/platform-node": "catalog:",
+		"@modelcontextprotocol/client": "catalog:",
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"effect": "catalog:",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}

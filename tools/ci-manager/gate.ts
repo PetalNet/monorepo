@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Config, Console, Effect, Schema } from "effect";
 
 const Enabled = Schema.Literals(["true", "false"]);
 const Selection = Schema.Struct({
@@ -29,7 +29,6 @@ class GateFailed extends Schema.TaggedError<GateFailed>()("GateFailed", {
 
 const selected = (enabled: typeof Enabled.Type) => (enabled === "true" ? "success" : "skipped");
 
-// This explicit inventory is deliberately reviewable alongside finish.needs in ci.yml.
 function expectedConclusions(selection: typeof Selection.Type) {
 	return {
 		select: "success",
@@ -52,8 +51,8 @@ function expectedConclusions(selection: typeof Selection.Type) {
 	};
 }
 
-export const evaluateGate = Effect.fn("evaluateGate")(function* (input: unknown) {
-	const jobs = yield* Schema.decodeUnknownEffect(Needs)(input);
+export const evaluateGate = Effect.fn("evaluateGate")(function* (json: string) {
+	const jobs = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Needs))(json);
 	const selection = yield* Schema.decodeUnknownEffect(Selection)(jobs["select"]?.outputs);
 	const expected = expectedConclusions(selection);
 	const errors: string[] = [];
@@ -69,4 +68,9 @@ export const evaluateGate = Effect.fn("evaluateGate")(function* (input: unknown)
 	}
 	if (errors.length > 0) return yield* new GateFailed({ message: errors.join("\n") });
 	return conclusions;
+});
+
+export const gate = Effect.gen(function* () {
+	const conclusions = yield* evaluateGate(yield* Config.String("NEEDS_JSON"));
+	yield* Console.log(conclusions.join("\n"));
 });

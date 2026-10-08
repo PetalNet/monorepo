@@ -6,9 +6,6 @@ on:
       languages:
         type: string
         required: true
-  schedule:
-    - cron: "17 7 * * 1"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ${{ fromJSON(inputs.languages || '["javascript-typescript", "actions", "python", "rust"]') }}
+        language: ${{ fromJSON(inputs.languages) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -1,6 +1,5 @@
 import { Record } from "effect";
 
-// Keep these keys identical to the native job IDs in ci.yml.
 export const nativeApps = {
 	"manager-rust": "manager",
 	"courier-rust": "courier",
@@ -10,7 +9,17 @@ export const nativeApps = {
 	point: "point",
 } as const;
 
-export function nativeSelection(paths: readonly string[]) {
+export type NativeSelection = { readonly [Job in keyof typeof nativeApps]: boolean } & {
+	readonly rust: boolean;
+};
+
+export interface CodeQLSelection {
+	readonly "codeql-js": boolean;
+	readonly "codeql-python": boolean;
+	readonly actions: boolean;
+}
+
+export function nativeSelection(paths: readonly string[]): NativeSelection {
 	const shared = paths.some(
 		(path) =>
 			path.startsWith(".github/workflows/") ||
@@ -34,12 +43,11 @@ export function nativeSelection(paths: readonly string[]) {
 	return { ...apps, rust };
 }
 
-// CodeQL covers source outside Turbo packages and does not depend on build/test tasks.
-export function codeqlSelection(paths: readonly string[]) {
+export function codeqlSelection(paths: readonly string[]): CodeQLSelection {
 	const shared = paths.some(
 		(path) =>
 			path === ".github/workflows/ci.yml" ||
-			path === ".github/workflows/codeql.yml" ||
+			/^\.github\/workflows\/codeql(?:-full)?\.yml$/u.test(path) ||
 			path.startsWith(".github/codeql/") ||
 			path.startsWith(".github/actions/") ||
 			path.startsWith("tools/ci-manager/") ||

@@ -1,0 +1,8 @@
+{
+	"extends": "@petalnet/tsconfig/base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"types": ["node"]
+	},
+	"include": ["ci-manager/**/*.ts", "vitest.config.ts"]
+}

@@ -8,6 +8,9 @@
 		".env*",
 		"apps/*/.env*",
 		"tools/**",
+		"!tools/node_modules/**",
+		"!tools/.turbo/**",
+		"!tools/coverage/**",
 		"packages/**",
 		"!packages/**/node_modules/**",
 		"!packages/**/dist/**",
@@ -59,6 +62,7 @@
 		"@petalnet/better-auth-effect-qb-adapter#check": {
 			"outputs": ["node_modules/.cache/tsbuild/**"]
 		},
+		"@petalnet/tools#check": { "cache": false },
 		"prepare": { "cache": false },
 		"generate": { "cache": false },
 		"test": {
@@ -77,7 +81,6 @@
 			"outputs": ["node_modules/.cache/tsbuild/**"]
 		},
 		"//#fmt:check": { "outputs": [] },
-		"//#test:ci-manager": { "cache": false },
 		"//#lint:oxlint": { "outputs": [] },
 		"//#lint:impeccable": { "outputs": [] },
 		"//#manypkg": { "outputs": [] },

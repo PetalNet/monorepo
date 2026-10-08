@@ -1,12 +1,11 @@
-import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
 
 import { NodeServices } from "@effect/platform-node";
 import { Effect } from "effect";
+import { assert, expect, test } from "vitest";
 
 import { evaluateGate } from "./gate.ts";
 import { codeqlSelection, nativeSelection } from "./policy.ts";
@@ -165,58 +164,68 @@ for (const scenario of scenarios) {
 			Object.entries(scenario.results).map(([job, result]) => [job, { result }]),
 		),
 	};
-	void test(`${scenario.name}: exact expected conclusions pass`, async () => {
-		const conclusions = await Effect.runPromise(evaluateGate(jobs));
+	test(`${scenario.name}: exact expected conclusions pass`, async () => {
+		const conclusions = await Effect.runPromise(evaluateGate(JSON.stringify(jobs)));
 		assert.equal(conclusions.length, 17);
 	});
 	for (const [job, expected] of Object.entries(jobs)) {
 		for (const result of ["success", "failure", "cancelled", "skipped"]) {
 			if (result === expected.result) continue;
-			void test(`${scenario.name}: rejects ${job}=${result}`, async () => {
-				await assert.rejects(
+			test(`${scenario.name}: rejects ${job}=${result}`, async () => {
+				await expect(
 					Effect.runPromise(
-						evaluateGate({
-							...jobs,
-							[job]: { ...expected, result },
-						}),
+						evaluateGate(
+							JSON.stringify({
+								...jobs,
+								[job]: { ...expected, result },
+							}),
+						),
 					),
-					/expected .*got/u,
-				);
+				).rejects.toThrow(/expected .*got/u);
 			});
 		}
-		void test(`${scenario.name}: rejects missing ${job}`, async () => {
+		test(`${scenario.name}: rejects missing ${job}`, async () => {
 			const missing = Object.fromEntries(Object.entries(jobs).filter(([name]) => name !== job));
-			await assert.rejects(Effect.runPromise(evaluateGate(missing)));
+			await expect(Effect.runPromise(evaluateGate(JSON.stringify(missing)))).rejects.toThrow();
 		});
 	}
 	for (const key of Object.keys(scenario.selection)) {
-		void test(`${scenario.name}: rejects malformed ${key} selection`, async () => {
-			await assert.rejects(
+		test(`${scenario.name}: rejects malformed ${key} selection`, async () => {
+			await expect(
 				Effect.runPromise(
-					evaluateGate({
-						...jobs,
-						select: { result: "success", outputs: { ...scenario.selection, [key]: "yes" } },
-					}),
+					evaluateGate(
+						JSON.stringify({
+							...jobs,
+							select: { result: "success", outputs: { ...scenario.selection, [key]: "yes" } },
+						}),
+					),
 				),
-			);
+			).rejects.toThrow();
 		});
 	}
 	for (const name of ["new-job", "constructor"]) {
-		void test(`${scenario.name}: rejects unclassified ${name}`, async () => {
-			await assert.rejects(
+		test(`${scenario.name}: rejects unclassified ${name}`, async () => {
+			await expect(
 				Effect.runPromise(
-					evaluateGate({
-						...jobs,
-						[name]: { result: "success" },
-					}),
+					evaluateGate(
+						JSON.stringify({
+							...jobs,
+							[name]: { result: "success" },
+						}),
+					),
 				),
-				/Unclassified job/u,
-			);
+			).rejects.toThrow(/Unclassified job/u);
 		});
 	}
 }
 
-await test("native selection does not confuse JS paths, Rust consumers, or Flutter", () => {
+test("malformed JSON and job result shapes fail decoding", async () => {
+	for (const json of ["{", "null", JSON.stringify({ select: { result: "unknown" } })]) {
+		await expect(Effect.runPromise(evaluateGate(json))).rejects.toThrow();
+	}
+});
+
+test("native selection does not confuse JS paths, Rust consumers, or Flutter", () => {
 	assert.deepEqual(nativeSelection(["apps/grove/src/routes/+page.svelte", "pnpm-lock.yaml"]), {
 		"manager-rust": false,
 		"courier-rust": false,
@@ -254,7 +263,7 @@ await test("native selection does not confuse JS paths, Rust consumers, or Flutt
 	}
 });
 
-await test("CodeQL selects language inputs independently of Turbo and native jobs", () => {
+test("CodeQL selects language inputs independently of Turbo and native jobs", () => {
 	const none = { "codeql-js": false, "codeql-python": false, actions: false } as const;
 	for (const path of ["README.md", "apps/point/app/lib/main.dart", "apps/manager/src/main.rs"])
 		assert.deepEqual(codeqlSelection([path]), none);
@@ -293,6 +302,7 @@ await test("CodeQL selects language inputs independently of Turbo and native job
 	for (const path of [
 		".github/workflows/ci.yml",
 		".github/workflows/codeql.yml",
+		".github/workflows/codeql-full.yml",
 		".github/codeql/config.yml",
 		".github/actions/setup/action.yml",
 		"tools/ci-manager/policy.ts",
@@ -315,7 +325,7 @@ await test("CodeQL selects language inputs independently of Turbo and native job
 	assert.deepEqual(codeqlSelection([".github/README.md"]), none);
 });
 
-await test("command output cannot hide a nonzero exit behind valid JSON", async () => {
+test("command output cannot hide a nonzero exit behind valid JSON", async () => {
 	const printJson = "process.stdout.write(JSON.stringify({ tasks: [] }))";
 	assert.equal(
 		await Effect.runPromise(
@@ -323,17 +333,17 @@ await test("command output cannot hide a nonzero exit behind valid JSON", async 
 		),
 		'{"tasks":[]}',
 	);
-	await assert.rejects(
+	await expect(
 		Effect.runPromise(
 			commandOutput(process.execPath, ["-e", `${printJson}; process.exit(7)`]).pipe(
+				Effect.flip,
 				Effect.provide(NodeServices.layer),
 			),
 		),
-		/CommandFailed/u,
-	);
+	).resolves.toMatchObject({ _tag: "CommandFailed", command: process.execPath, exitCode: 7 });
 });
 
-await test("real Git/Turbo selection: dependency propagation, rename sides, full runs, invalid base", () => {
+test("real Git/Turbo selection: dependency propagation, rename sides, full runs, invalid base", () => {
 	const root = mkdtempSync(join(tmpdir(), "ci-manager-test-"));
 	const cli = new URL("./main.ts", import.meta.url).pathname;
 	const run = (command: string, args: string[], env?: Record<string, string>) => {
@@ -388,7 +398,7 @@ await test("real Git/Turbo selection: dependency propagation, rename sides, full
 			"lockfileVersion: '9.0'\nimporters:\n  .: {}\n  apps/shared: {}\n  apps/unrelated: {}\n  apps/consumer:\n    dependencies:\n      '@petalnet/shared':\n        specifier: workspace:*\n        version: link:../shared\n",
 		);
 		symlinkSync(
-			new URL("../../node_modules", import.meta.url).pathname,
+			new URL("../../../node_modules", import.meta.url).pathname,
 			join(root, "node_modules"),
 		);
 		write(".gitignore", "node_modules\n.turbo\nevent.json\noutput\n");
@@ -430,7 +440,7 @@ await test("real Git/Turbo selection: dependency propagation, rename sides, full
 			{ TURBO_SCM_BASE: base, TURBO_SCM_HEAD: "HEAD" },
 		);
 		assert.match(plan, /@petalnet\/consumer/u);
-		assert.doesNotMatch(
+		assert.notMatch(
 			plan,
 			/@petalnet\/unrelated/u,
 			`${run("git", ["diff"])}\n${affected.result.stderr}`,

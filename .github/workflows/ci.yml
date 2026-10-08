@@ -41,7 +41,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: select
-        run: pnpm exec node tools/ci-manager/main.ts select
+        run: pnpm ci-manager select
 
   check:
     runs-on: ubuntu-latest
@@ -289,4 +289,4 @@ jobs:
       - name: Require exactly the selected job conclusions
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: pnpm exec node tools/ci-manager/main.ts gate
+        run: pnpm ci-manager gate
