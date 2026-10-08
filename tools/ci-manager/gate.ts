@@ -28,7 +28,7 @@ class GateFailed extends Schema.TaggedError<GateFailed>()("GateFailed", {
 const selected = (enabled: typeof Enabled.Type) => (enabled === "true" ? "success" : "skipped");
 
 // This explicit inventory is deliberately reviewable alongside finish.needs in ci.yml.
-function expectedConclusions(selection: typeof Selection.Type, codeql: typeof Enabled.Type) {
+function expectedConclusions(selection: typeof Selection.Type) {
 	return {
 		select: "success",
 		check: "success",
@@ -43,17 +43,16 @@ function expectedConclusions(selection: typeof Selection.Type, codeql: typeof En
 		"control-plane-rust": selected(selection["control-plane-rust"]),
 		"box-agent-rust": selected(selection["box-agent-rust"]),
 		point: selected(selection.point),
-		"codeql-js-python": selected(codeql),
-		"codeql-actions": codeql === "true" ? selected(selection.actions) : "skipped",
-		"codeql-rust": codeql === "true" ? selected(selection.rust) : "skipped",
+		"codeql-js-python": "success",
+		"codeql-actions": selected(selection.actions),
+		"codeql-rust": selected(selection.rust),
 	};
 }
 
-export const evaluateGate = Effect.fn("evaluateGate")(function* (input: unknown, codeql: unknown) {
+export const evaluateGate = Effect.fn("evaluateGate")(function* (input: unknown) {
 	const jobs = yield* Schema.decodeUnknownEffect(Needs)(input);
-	const enabled = yield* Schema.decodeUnknownEffect(Enabled)(codeql);
 	const selection = yield* Schema.decodeUnknownEffect(Selection)(jobs["select"]?.outputs);
-	const expected = expectedConclusions(selection, enabled);
+	const expected = expectedConclusions(selection);
 	const errors: string[] = [];
 	const conclusions: string[] = [];
 	for (const [job, conclusion] of Object.entries(expected)) {

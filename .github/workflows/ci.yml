@@ -194,7 +194,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   codeql-js-python:
-    if: vars.CODEQL_ADVANCED == 'true'
     uses: $/.github/workflows/codeql.yml
     with:
       languages: '["javascript-typescript", "python"]'
@@ -204,7 +203,7 @@ jobs:
 
   codeql-actions:
     needs: select
-    if: vars.CODEQL_ADVANCED == 'true' && needs.select.outputs.actions == 'true'
+    if: needs.select.outputs.actions == 'true'
     uses: $/.github/workflows/codeql.yml
     with:
       languages: '["actions"]'
@@ -214,7 +213,7 @@ jobs:
 
   codeql-rust:
     needs: select
-    if: vars.CODEQL_ADVANCED == 'true' && needs.select.outputs.rust == 'true'
+    if: needs.select.outputs.rust == 'true'
     uses: $/.github/workflows/codeql.yml
     with:
       languages: '["rust"]'
@@ -275,5 +274,4 @@ jobs:
       - name: Require exactly the selected job conclusions
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          CODEQL_ADVANCED: ${{ vars.CODEQL_ADVANCED == 'true' && 'true' || 'false' }}
         run: pnpm exec node tools/ci-manager/main.ts gate

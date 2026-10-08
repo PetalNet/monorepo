@@ -35,7 +35,6 @@ const required = {
 const scenarios = [
 	{
 		name: "JS-only with advanced scans",
-		codeql: "true",
 		selection: { ...disabled, js: "true" },
 		results: {
 			build: "success",
@@ -52,8 +51,7 @@ const scenarios = [
 		},
 	},
 	{
-		name: "Flutter-only before advanced activation",
-		codeql: "false",
+		name: "Flutter-only with unconditional JS/Python scans",
 		selection: { ...disabled, point: "true" },
 		results: {
 			build: "skipped",
@@ -64,14 +62,13 @@ const scenarios = [
 			"control-plane-rust": "skipped",
 			"box-agent-rust": "skipped",
 			point: "success",
-			"codeql-js-python": "skipped",
+			"codeql-js-python": "success",
 			"codeql-actions": "skipped",
 			"codeql-rust": "skipped",
 		},
 	},
 	{
 		name: "full main run",
-		codeql: "true",
 		selection: {
 			"manager-rust": "true",
 			"courier-rust": "true",
@@ -99,7 +96,6 @@ const scenarios = [
 	},
 	{
 		name: "Actions scan selected independently of JS and Rust",
-		codeql: "true",
 		selection: { ...disabled, actions: "true" },
 		results: {
 			build: "skipped",
@@ -126,7 +122,7 @@ for (const scenario of scenarios) {
 		),
 	};
 	void test(`${scenario.name}: exact expected conclusions pass`, async () => {
-		const conclusions = await Effect.runPromise(evaluateGate(jobs, scenario.codeql));
+		const conclusions = await Effect.runPromise(evaluateGate(jobs));
 		assert.equal(conclusions.length, 16);
 	});
 	for (const [job, expected] of Object.entries(jobs)) {
@@ -135,13 +131,10 @@ for (const scenario of scenarios) {
 			void test(`${scenario.name}: rejects ${job}=${result}`, async () => {
 				await assert.rejects(
 					Effect.runPromise(
-						evaluateGate(
-							{
-								...jobs,
-								[job]: { ...expected, result },
-							},
-							scenario.codeql,
-						),
+						evaluateGate({
+							...jobs,
+							[job]: { ...expected, result },
+						}),
 					),
 					/expected .*got/u,
 				);
@@ -149,20 +142,17 @@ for (const scenario of scenarios) {
 		}
 		void test(`${scenario.name}: rejects missing ${job}`, async () => {
 			const missing = Object.fromEntries(Object.entries(jobs).filter(([name]) => name !== job));
-			await assert.rejects(Effect.runPromise(evaluateGate(missing, scenario.codeql)));
+			await assert.rejects(Effect.runPromise(evaluateGate(missing)));
 		});
 	}
 	for (const key of Object.keys(scenario.selection)) {
 		void test(`${scenario.name}: rejects malformed ${key} selection`, async () => {
 			await assert.rejects(
 				Effect.runPromise(
-					evaluateGate(
-						{
-							...jobs,
-							select: { result: "success", outputs: { ...scenario.selection, [key]: "yes" } },
-						},
-						scenario.codeql,
-					),
+					evaluateGate({
+						...jobs,
+						select: { result: "success", outputs: { ...scenario.selection, [key]: "yes" } },
+					}),
 				),
 			);
 		});
@@ -171,13 +161,10 @@ for (const scenario of scenarios) {
 		void test(`${scenario.name}: rejects unclassified ${name}`, async () => {
 			await assert.rejects(
 				Effect.runPromise(
-					evaluateGate(
-						{
-							...jobs,
-							[name]: { result: "success" },
-						},
-						scenario.codeql,
-					),
+					evaluateGate({
+						...jobs,
+						[name]: { result: "success" },
+					}),
 				),
 				/Unclassified job/u,
 			);

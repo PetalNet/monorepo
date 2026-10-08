@@ -63,7 +63,7 @@ Require the GitHub Actions check named **`finish`** (integration ID `15368`) in
 the default-branch ruleset. It requires:
 
 - `select`, root checks, typos, links, and zizmor to succeed;
-- selected JS, native, and enabled CodeQL jobs to succeed;
+- selected JS, native, and CodeQL jobs to succeed;
 - unselected jobs to be exactly `skipped`.
 
 Failure, cancellation, a missing job, an invalid selector output, an unexpected
@@ -80,11 +80,12 @@ but is not an alert-severity gate for a merge group.
 
 ## Activate safely
 
-The existing GitHub-generated **default setup** continues scanning until an admin
-switches it off. Advanced uploads cannot coexist with default setup, so the new
-workflow is staged behind repository variable `CODEQL_ADVANCED=true`. Until then,
-its jobs are intentionally skipped and default setup remains the security gate.
-**Rust CodeQL will still run on JS-only PRs until this cutover is done.**
+The owner has disabled GitHub-generated **default setup**. Advanced scans are now
+enabled directly: no repository variable is required. They use `security-extended`
+to preserve the previous security query coverage. Default setup must remain off
+because GitHub rejects advanced uploads while it is enabled. Do not install the
+generated template alongside these workflows: it would duplicate analysis and
+restore unconditional Rust/Actions scans on PRs.
 
 1. Land the workflow changes after checking the new `finish` result. Existing
    required check names remain available during this transition.
@@ -93,11 +94,8 @@ its jobs are intentionally skipped and default setup remains the security gate.
    add `finish` as a required GitHub Actions status check. Once a main run has
    passed, replace the individual build/check/link/zizmor/typos requirements with
    `finish`. Keep code scanning and code quality required; do not add bypasses.
-3. In repository Settings → Code Security → CodeQL analysis,
-   switch CodeQL off from default setup. Immediately set repository Actions
-   variable `CODEQL_ADVANCED` to `true`. Use an admin session or a token with
-   repository administration, Actions variables, and code-scanning configuration
-   access; the orb's GitHub integration token may not have those scopes.
+3. Confirm default setup remains disabled in repository Settings → Code Security
+   → CodeQL analysis. No Actions variable needs to be set.
 4. Run `ci` manually on `main` and wait for all languages to upload and `finish`
    to pass. Confirm the repository's code-scanning rule is satisfied. Do not
    resume auto-merging during this initialization window.
@@ -113,6 +111,7 @@ GitHub auto-merge and Renovate then wait for `finish` plus the existing security
 rules. No privileged merge bot, polling loop, or `pull_request_target` execution
 of untrusted PR code is needed.
 
-For rollback, restore default setup first and unset `CODEQL_ADVANCED`, then verify
-its scans pass. Keep `finish` required; disabling the advanced scans is not a
+For rollback, revert the activation changes to the workflow and gate together,
+disable advanced uploads, and restore default setup. Verify its scans pass before
+resuming merges. Keep `finish` required; disabling advanced scans is not a
 substitute for restoring default setup.
