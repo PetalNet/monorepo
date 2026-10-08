@@ -56,12 +56,15 @@ const canonicalUrl = (value: string, name: string, originOnly = false) => {
 	} catch {
 		throw new InvalidMcpConfiguration(`${name} must be an absolute URL`);
 	}
-	if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1")
+	if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
 		throw new InvalidMcpConfiguration(`${name} must use HTTPS`);
-	if (url.username || url.password || url.search || url.hash)
+	}
+	if (url.username || url.password || url.search || url.hash) {
 		throw new InvalidMcpConfiguration(`${name} must not contain credentials, query, or fragment`);
-	if (originOnly && url.pathname !== "/")
+	}
+	if (originOnly && url.pathname !== "/") {
 		throw new InvalidMcpConfiguration(`${name} must be a canonical origin`);
+	}
 	return url.href.replace(/\/$/, "");
 };
 
@@ -121,13 +124,21 @@ const requestTooLarge = () =>
 
 const readRequest = Effect.fnUntraced(function* (request: Request) {
 	const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-	if (mediaType !== "application/json")
+	if (mediaType !== "application/json") {
 		return yield* new McpRejected({ response: unsupportedMediaType() });
+	}
 	const contentLength = request.headers.get("content-length");
-	if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MCP_MAX_REQUEST_BYTES)
+	if (
+		contentLength &&
+		/^\d+$/.test(contentLength) &&
+		Number(contentLength) > MCP_MAX_REQUEST_BYTES
+	) {
 		return yield* new McpRejected({ response: requestTooLarge() });
+	}
 	const body = request.body;
-	if (!body) return yield* new McpRejected({ response: parseError() });
+	if (!body) {
+		return yield* new McpRejected({ response: parseError() });
+	}
 	const { chunks, byteLength } = yield* Stream.fromReadableStream({
 		evaluate: () => body,
 		onError: () => new McpRejected({ response: parseError() }),
@@ -136,8 +147,9 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 			() => ({ chunks: [] as Uint8Array[], byteLength: 0 }),
 			(state, chunk) => {
 				state.byteLength += chunk.byteLength;
-				if (state.byteLength > MCP_MAX_REQUEST_BYTES)
+				if (state.byteLength > MCP_MAX_REQUEST_BYTES) {
 					return Effect.fail(new McpRejected({ response: requestTooLarge() }));
+				}
 				state.chunks.push(chunk);
 				return Effect.succeed(state);
 			},
@@ -151,7 +163,9 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 		offset += chunk.byteLength;
 	}
 	// Validate UTF-8 without parsing JSON; MCP owns protocol decoding and routing.
-	if (!isUtf8(bytes)) return yield* new McpRejected({ response: parseError() });
+	if (!isUtf8(bytes)) {
+		return yield* new McpRejected({ response: parseError() });
+	}
 	return HttpServerRequest.fromClientRequest(
 		HttpClientRequest.make(request.method as HttpMethod.HttpMethod)(request.url).pipe(
 			HttpClientRequest.bodyUint8Array(bytes),
@@ -172,7 +186,9 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 			const callable = new Set(listed);
 			const canRetryEnrollment =
 				principal.kind === "agent" && identity.scopes.has("grove:agent:enroll");
-			if (canRetryEnrollment) callable.add("agents.enrollSelf");
+			if (canRetryEnrollment) {
+				callable.add("agents.enrollSelf");
+			}
 			return yield* groveApi.fetch(incoming, { listed, callable }).pipe(
 				Effect.provideService(InvocationContext, {
 					principal,
@@ -201,6 +217,8 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 		handle: Effect.fnUntraced(function* (request: Request) {
 			const services = yield* Effect.context<ActorAuthority | SproutCommands | ApiServer>();
 			const scope = yield* Effect.scope;
+			// Preserve arbitrary Better Auth failures for the immediate catch, and original Effect causes unchanged.
+			// oxlint-disable-next-line effecttsgo/unknown-in-effect-catch
 			return yield* Effect.tryPromise({
 				try: (signal) =>
 					createMcpProtectedRequestHandler(
@@ -216,8 +234,9 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 						},
 						async (incoming: Request, claims: JWTPayload) => {
 							// Better Auth cannot cancel JWKS fetching; do not start work after it was abandoned.
-							if (signal.aborted || incoming.signal.aborted)
+							if (signal.aborted || incoming.signal.aborted) {
 								throw new McpInvocationFailed({ cause: Cause.interrupt() });
+							}
 							if (typeof claims.sub !== "string" || claims.sub.length === 0) {
 								return new Response(null, {
 									status: 401,
@@ -236,7 +255,9 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 								}).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join)),
 								{ signal: AbortSignal.any([signal, incoming.signal]) },
 							);
-							if (Exit.isFailure(exit)) throw new McpInvocationFailed({ cause: exit.cause });
+							if (Exit.isFailure(exit)) {
+								throw new McpInvocationFailed({ cause: exit.cause });
+							}
 							return exit.value;
 						},
 					)(request),

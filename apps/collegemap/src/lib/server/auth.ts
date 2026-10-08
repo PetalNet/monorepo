@@ -27,7 +27,9 @@ async function hashPassword(password: string): Promise<string> {
 
 export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
 	const [salt, hash] = storedHash.split(":");
-	if (!salt || !hash) return false;
+	if (!salt || !hash) {
+		return false;
+	}
 	const computedHash = await sha256(salt + password);
 	return computedHash === hash;
 }
@@ -43,10 +45,14 @@ async function verifySessionToken(token: string): Promise<string | null> {
 	try {
 		const payload = atob(token);
 		const [userId, signature] = payload.split(":");
-		if (!userId || !signature) return null;
+		if (!userId || !signature) {
+			return null;
+		}
 
 		const expectedSignature = await sha256(userId + SESSION_SECRET);
-		if (signature !== expectedSignature) return null;
+		if (signature !== expectedSignature) {
+			return null;
+		}
 
 		return userId;
 	} catch {
@@ -67,10 +73,14 @@ export async function createSession(cookies: Cookies, userId: string): Promise<v
 
 export async function getSession(cookies: Cookies): Promise<User | null> {
 	const token = cookies.get(SESSION_COOKIE);
-	if (!token) return null;
+	if (!token) {
+		return null;
+	}
 
 	const userId = await verifySessionToken(token);
-	if (!userId) return null;
+	if (!userId) {
+		return null;
+	}
 
 	const user = await db.select().from(users).where(eq(users.id, userId)).get();
 	return user ?? null;

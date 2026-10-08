@@ -21,7 +21,9 @@ interface ObjectSchema {
 
 const withoutProperties = (schema: object, names: ReadonlySet<string>): object => {
 	const { properties, required } = schema as ObjectSchema;
-	if (!properties) return schema;
+	if (!properties) {
+		return schema;
+	}
 	return {
 		...schema,
 		properties: Object.fromEntries(Object.entries(properties).filter(([name]) => !names.has(name))),
@@ -33,7 +35,9 @@ export function createOpenApi<R>(config: OpenApiConfig<R>) {
 	const paths = new Map<string, Map<string, object>>();
 	for (const operation of config.operations) {
 		const rest = operation.rest;
-		if (!rest) continue;
+		if (!rest) {
+			continue;
+		}
 		const path = openApiPath(rest.path);
 		const inputSchema = schemaJson(operation.input);
 		const inputProperties = (inputSchema as ObjectSchema).properties;

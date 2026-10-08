@@ -4,16 +4,22 @@ import {
 	createPublicKey,
 	generateKeyPairSync,
 	randomBytes,
+	type KeyObject,
 } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { dirname, resolve } from "node:path";
+import {
+	createServer,
+	type IncomingMessage,
+	type ServerResponse,
+	type OutgoingHttpHeaders,
+} from "node:http";
+import path from "node:path";
 
 import { SignJWT } from "jose";
 
 // This auto-approving provider is only started by the orb development service.
 const port = Number(process.env.PORT ?? 8080);
-const origin = (process.env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/$/, "");
+const origin = (process.env.PUBLIC_URL ?? `http://localhost:${String(port)}`).replace(/\/$/, "");
 const issuer = `${origin}/realms/grove`;
 const mcpIssuer = `${origin}/realms/grove-mcp`;
 const clientId = "grove-browser-development";
@@ -21,13 +27,21 @@ const clientSecret = "grove-browser-development-secret";
 const mcpClientSecret = process.env.GROVE_MCP_CLIENT_SECRET ?? "grove-mcp-development-only-secret";
 const mcpScopes = ["grove:mcp", "grove:agent:enroll"];
 const ownerSubject = "operator-development";
-const authorizationCodes = new Map();
-const accessTokens = new Set();
-const signingKeyPath = resolve(
+const authorizationCodes = new Map<
+	string,
+	{
+		codeChallenge: string;
+		expiresAt: number;
+		nonce: string;
+		redirectUri: string;
+	}
+>();
+const accessTokens = new Set<string>();
+const signingKeyPath = path.resolve(
 	process.env.GROVE_OIDC_SIGNING_KEY_PATH ?? ".amp/state/grove-oidc-signing-key.json",
 );
 
-const keyIdFor = (publicKey) =>
+const keyIdFor = (publicKey: KeyObject) =>
 	`grove-development-${createHash("sha256")
 		.update(publicKey.export({ type: "spki", format: "der" }))
 		.digest("base64url")
@@ -36,16 +50,23 @@ const keyIdFor = (publicKey) =>
 const readSigningKey = async () => {
 	try {
 		await chmod(signingKeyPath, 0o600);
-		const stored = JSON.parse(await readFile(signingKeyPath, "utf8"));
+		const stored: unknown = JSON.parse(await readFile(signingKeyPath, "utf8"));
 		if (
-			stored?.version !== 1 ||
+			typeof stored !== "object" ||
+			stored === null ||
+			!("version" in stored) ||
+			stored.version !== 1 ||
+			!("privateKeyPkcs8" in stored) ||
 			typeof stored.privateKeyPkcs8 !== "string" ||
 			!stored.privateKeyPkcs8.includes("BEGIN PRIVATE KEY")
-		)
+		) {
 			throw new Error("invalid signing key document");
+		}
 		return createPrivateKey(stored.privateKeyPkcs8);
 	} catch (error) {
-		if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+			return undefined;
+		}
 		throw new Error(
 			`Grove development OIDC signing key is invalid at ${signingKeyPath}; stop grove-oidc and remove the corrupted file, then rerun .agents/ensure-grove`,
 			{ cause: error },
@@ -54,10 +75,10 @@ const readSigningKey = async () => {
 };
 
 const createSigningKey = async () => {
-	await mkdir(dirname(signingKeyPath), { recursive: true, mode: 0o700 });
-	await chmod(dirname(signingKeyPath), 0o700);
+	await mkdir(path.dirname(signingKeyPath), { recursive: true, mode: 0o700 });
+	await chmod(path.dirname(signingKeyPath), 0o700);
 	const generated = generateKeyPairSync("rsa", { modulusLength: 2048 });
-	const privateKeyPkcs8 = generated.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+	const privateKeyPkcs8 = generated.privateKey.export({ type: "pkcs8", format: "pem" });
 	try {
 		await writeFile(signingKeyPath, `${JSON.stringify({ version: 1, privateKeyPkcs8 })}\n`, {
 			encoding: "utf8",
@@ -68,7 +89,9 @@ const createSigningKey = async () => {
 	} catch (error) {
 		if (error instanceof Error && "code" in error && error.code === "EEXIST") {
 			const existing = await readSigningKey();
-			if (existing) return existing;
+			if (existing) {
+				return existing;
+			}
 		}
 		throw error;
 	}
@@ -84,7 +107,12 @@ const publicJwk = {
 	use: "sig",
 };
 
-const sendJson = (response, status, body, headers = {}) => {
+const sendJson = (
+	response: ServerResponse,
+	status: number,
+	body: unknown,
+	headers: OutgoingHttpHeaders = {},
+) => {
 	response.writeHead(status, {
 		"cache-control": "no-store",
 		"content-type": "application/json",
@@ -93,7 +121,7 @@ const sendJson = (response, status, body, headers = {}) => {
 	response.end(JSON.stringify(body));
 };
 
-const canonicalMcpResource = (value) => {
+const canonicalMcpResource = (value: string) => {
 	const url = new URL(value);
 	if (
 		(url.protocol !== "https:" &&
@@ -103,18 +131,34 @@ const canonicalMcpResource = (value) => {
 		url.search ||
 		url.hash ||
 		url.pathname !== "/mcp"
-	)
+	) {
 		throw new Error("Invalid Grove MCP resource URL");
+	}
 	return url.href;
 };
 
 const groveMcpResource = async () => {
-	if (process.env.GROVE_MCP_RESOURCE) return canonicalMcpResource(process.env.GROVE_MCP_RESOURCE);
-	const manifest = JSON.parse(
+	if (process.env.GROVE_MCP_RESOURCE) {
+		return canonicalMcpResource(process.env.GROVE_MCP_RESOURCE);
+	}
+	const manifest: unknown = JSON.parse(
 		await readFile(process.env.GROVE_MCP_PORTAL_MANIFEST ?? ".amp/portals/grove.json", "utf8"),
 	);
-	const portal = manifest?.links?.[0]?.url;
-	if (typeof portal !== "string") throw new Error("Grove portal URL is unavailable");
+	if (
+		typeof manifest !== "object" ||
+		manifest === null ||
+		!("links" in manifest) ||
+		!Array.isArray(manifest.links)
+	) {
+		throw new Error("Grove portal links are unavailable");
+	}
+	const links: readonly unknown[] = manifest.links;
+	const first = links[0];
+	const portal =
+		typeof first === "object" && first !== null && "url" in first ? first.url : undefined;
+	if (typeof portal !== "string") {
+		throw new TypeError("Grove portal URL is unavailable");
+	}
 	return canonicalMcpResource(new URL("mcp", portal).href);
 };
 
@@ -130,30 +174,39 @@ const mcpMetadata = {
 	resource_indicators_supported: true,
 };
 
-const basicCredentials = (authorization) => {
+const basicCredentials = (authorization: string | undefined) => {
 	const encoded = authorization?.match(/^Basic ([A-Za-z\d+/]+={0,2})$/i)?.[1];
-	if (!encoded) return undefined;
+	if (!encoded) {
+		return undefined;
+	}
 	const decoded = Buffer.from(encoded, "base64").toString("utf8");
 	// The official MCP client sends the client ID verbatim, so split from the fixed shared secret
 	// at the final colon to permit URL-shaped Agent subjects.
 	const separator = decoded.lastIndexOf(":");
-	if (separator < 1) return undefined;
+	if (separator < 1) {
+		return undefined;
+	}
 	return {
 		clientId: decoded.slice(0, separator),
 		clientSecret: decoded.slice(separator + 1),
 	};
 };
 
-const readForm = async (request) => {
+const readForm = async (request: IncomingMessage) => {
 	let body = "";
 	for await (const chunk of request) {
-		body += chunk;
-		if (body.length > 16_384) throw new Error("Request body too large");
+		if (!Buffer.isBuffer(chunk)) {
+			throw new TypeError("Unexpected request body chunk");
+		}
+		body += chunk.toString("utf8");
+		if (body.length > 16_384) {
+			throw new Error("Request body too large");
+		}
 	}
 	return new URLSearchParams(body);
 };
 
-const redirectUriAllowed = (value) => {
+const redirectUriAllowed = (value: string) => {
 	try {
 		const url = new URL(value);
 		return (
@@ -166,7 +219,7 @@ const redirectUriAllowed = (value) => {
 	}
 };
 
-createServer(async (request, response) => {
+const handleRequest = async (request: IncomingMessage, response: ServerResponse) => {
 	const url = new URL(request.url ?? "/", issuer);
 	if (url.pathname === "/") {
 		response.writeHead(200, { "content-type": "text/plain" });
@@ -214,7 +267,7 @@ createServer(async (request, response) => {
 	if (request.method === "POST" && url.pathname === "/realms/grove-mcp/token") {
 		try {
 			const credentials = basicCredentials(request.headers.authorization);
-			if (!credentials || credentials.clientSecret !== mcpClientSecret) {
+			if (credentials?.clientSecret !== mcpClientSecret) {
 				sendJson(response, 401, { error: "invalid_client" }, { "www-authenticate": "Basic" });
 				return;
 			}
@@ -359,6 +412,10 @@ createServer(async (request, response) => {
 	}
 
 	sendJson(response, 404, { error: "not_found" });
+};
+
+createServer((request, response) => {
+	void handleRequest(request, response);
 }).listen(port, "0.0.0.0", () => {
 	console.log(`[grove-oidc] listening at ${origin}`);
 });

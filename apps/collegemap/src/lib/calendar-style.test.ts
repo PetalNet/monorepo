@@ -11,16 +11,14 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PAGE = path.join(HERE, "../routes/calendar/+page.svelte");
+const PAGE = path.join(import.meta.dirname, "../routes/calendar/+page.svelte");
 const SURFACE = [
 	PAGE,
-	path.join(HERE, "components/BreakDayDetail.svelte"),
-	path.join(HERE, "components/BreakEditor.svelte"),
+	path.join(import.meta.dirname, "components/BreakDayDetail.svelte"),
+	path.join(import.meta.dirname, "components/BreakEditor.svelte"),
 ];
 
 const THEMES = ["light", "dark"] as const;
@@ -162,8 +160,9 @@ function declarations(property: RegExp): { file: string; decl: string }[] {
 		const source = readFileSync(file, "utf8");
 		// Comments talk about borders and radii in prose; only declarations count.
 		const style = source.slice(source.indexOf("<style>")).replace(/\/\*[\s\S]*?\*\//gu, "");
-		for (const match of style.matchAll(property))
+		for (const match of style.matchAll(property)) {
 			found.push({ file: path.basename(file), decl: match[0].trim() });
+		}
 	}
 	return found;
 }

@@ -1,17 +1,18 @@
 import { building } from "$app/env";
 import { DATABASE_URL, GROVE_HOME_OWNER_ISSUER, GROVE_HOME_OWNER_SUBJECT } from "$app/env/private";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { ApiServer } from "@petalnet/effect-api";
+import type { ApiServer } from "@petalnet/effect-api";
+import type { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import {
 	makeEffectSvelteKitRuntime,
-	SvelteKitRequestEvent,
 	type EffectSvelteKitRuntime,
 } from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
-import { Effect, Layer, Redacted } from "effect";
+import type { Effect } from "effect";
+import { Layer, Redacted } from "effect";
 
+import type { ActorAuthority } from "#lib/server/actors/authority.ts";
 import {
-	ActorAuthority,
 	ActorAuthorityBuildLayer,
 	ActorDatabaseError,
 	ActorDenied,
@@ -19,20 +20,19 @@ import {
 	ActorAuthorityLayer,
 } from "#lib/server/actors/authority.ts";
 import { GroveAuthLayer } from "#lib/server/auth-runtime.ts";
-import { GroveAuth, GroveAuthBuildLayer } from "#lib/server/auth.ts";
-import {
-	SproutCommands,
-	SproutCommandsBuildLayer,
-	SproutCommandsLayer,
-} from "#lib/server/sprouts/service.ts";
+import type { GroveAuth } from "#lib/server/auth.ts";
+import { GroveAuthBuildLayer } from "#lib/server/auth.ts";
+import type { SproutCommands } from "#lib/server/sprouts/service.ts";
+import { SproutCommandsBuildLayer, SproutCommandsLayer } from "#lib/server/sprouts/service.ts";
 
 import { groveApi } from "./api";
 import { AuthenticationRequired } from "./authorization";
 import { SproutDatabaseError, SproutNotFound } from "./sprouts/service";
 
 const required = (value: unknown, name: string) => {
-	if (typeof value !== "string" || value.length === 0)
+	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
+	}
 	return value;
 };
 
@@ -45,7 +45,9 @@ function makeRuntime() {
 			SproutCommandsBuildLayer,
 		);
 	} else {
-		if (!DATABASE_URL) throw new Error("DATABASE_URL is required at runtime");
+		if (!DATABASE_URL) {
+			throw new Error("DATABASE_URL is required at runtime");
+		}
 		const actorAuthority = ActorAuthorityLayer({
 			homeOwner: {
 				issuer: required(GROVE_HOME_OWNER_ISSUER, "GROVE_HOME_OWNER_ISSUER").replace(/\/+$/, ""),
@@ -67,15 +69,21 @@ function makeRuntime() {
 
 	return makeEffectSvelteKitRuntime(Layer.orDie(Layer.merge(GroveServicesLayer, groveApi.layer)), {
 		mapFailure: (failure) => {
-			if (failure instanceof AuthenticationRequired)
+			if (failure instanceof AuthenticationRequired) {
 				return { status: 401, message: failure.message };
-			if (failure instanceof ActorDenied || failure instanceof ActorNotCurrent)
+			}
+			if (failure instanceof ActorDenied || failure instanceof ActorNotCurrent) {
 				return { status: 403, message: failure.message };
-			if (failure instanceof ActorDatabaseError)
+			}
+			if (failure instanceof ActorDatabaseError) {
 				return { status: 503, message: "Actor authority is unavailable", log: true };
-			if (failure instanceof SproutNotFound) return { status: 404, message: failure.message };
-			if (failure instanceof SproutDatabaseError)
+			}
+			if (failure instanceof SproutNotFound) {
+				return { status: 404, message: failure.message };
+			}
+			if (failure instanceof SproutDatabaseError) {
 				return { status: 503, message: "The sprout database is unavailable", log: true };
+			}
 		},
 	});
 }
@@ -99,4 +107,6 @@ export const handleGrove = initializeGroveRuntime().handle;
 
 export const disposeGroveRuntime = () => runtime?.dispose() ?? Promise.resolve();
 
-if (import.meta.hot) import.meta.hot.dispose(() => void disposeGroveRuntime());
+if (import.meta.hot) {
+	import.meta.hot.dispose(() => void disposeGroveRuntime());
+}

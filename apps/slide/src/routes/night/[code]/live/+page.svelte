@@ -81,9 +81,15 @@
 	// Determine which podium places exist
 	const existingPlaces = $derived(() => {
 		const places = [];
-		if (topPresentations.third.length > 0) places.push({ step: 1, label: "🥉 Reveal 3rd Place" });
-		if (topPresentations.second.length > 0) places.push({ step: 2, label: "🥈 Reveal 2nd Place" });
-		if (topPresentations.first.length > 0) places.push({ step: 3, label: "🥇 Reveal 1st Place" });
+		if (topPresentations.third.length > 0) {
+			places.push({ step: 1, label: "🥉 Reveal 3rd Place" });
+		}
+		if (topPresentations.second.length > 0) {
+			places.push({ step: 2, label: "🥈 Reveal 2nd Place" });
+		}
+		if (topPresentations.first.length > 0) {
+			places.push({ step: 3, label: "🥇 Reveal 1st Place" });
+		}
 		places.push({ step: 4, label: "🎉 Show Confetti!" });
 		return places;
 	});
@@ -107,11 +113,17 @@
 	// Check if any revealed position has a tie
 	const hasRevealedTie = $derived(() => {
 		// Third place revealed and has tie
-		if (winnersRevealStep >= 1 && topPresentations.third.length > 1) return true;
+		if (winnersRevealStep >= 1 && topPresentations.third.length > 1) {
+			return true;
+		}
 		// Second place revealed and has tie
-		if (winnersRevealStep >= 2 && topPresentations.second.length > 1) return true;
+		if (winnersRevealStep >= 2 && topPresentations.second.length > 1) {
+			return true;
+		}
 		// First place revealed and has tie
-		if (winnersRevealStep >= 3 && topPresentations.first.length > 1) return true;
+		if (winnersRevealStep >= 3 && topPresentations.first.length > 1) {
+			return true;
+		}
 		return false;
 	});
 
@@ -186,13 +198,17 @@
 
 	// Get voting URL
 	const votingUrl = $derived(() => {
-		if (typeof window === "undefined") return "";
+		if (typeof window === "undefined") {
+			return "";
+		}
 		return `${window.location.origin}/night/${event.joinCode}/live`;
 	});
 
 	// Current presentation
 	const currentPresentation = $derived(() => {
-		if (!event.currentPresentationId) return null;
+		if (!event.currentPresentationId) {
+			return null;
+		}
 		return localOrderedGroups.find((g: any) => g.id === event.currentPresentationId) || null;
 	});
 
@@ -202,7 +218,9 @@
 	// Check if the current presentation is the user's own presentation
 	const isOwnPresentation = $derived(() => {
 		const pres = currentPresentation();
-		if (!pres || !userGroupIds) return false;
+		if (!pres || !userGroupIds) {
+			return false;
+		}
 		return userGroupIds.includes(pres.id);
 	});
 
@@ -214,7 +232,9 @@
 	// Current presentation index
 	const currentPresentationIndex = $derived(() => {
 		const pres = currentPresentation();
-		if (!pres) return -1;
+		if (!pres) {
+			return -1;
+		}
 		return localOrderedGroups.findIndex((g: any) => g.id === pres.id);
 	});
 
@@ -285,13 +305,19 @@
 	});
 
 	onDestroy(() => {
-		if (pollInterval) clearInterval(pollInterval);
-		if (sortableInstance) sortableInstance.destroy();
+		if (pollInterval) {
+			clearInterval(pollInterval);
+		}
+		if (sortableInstance) {
+			sortableInstance.destroy();
+		}
 	});
 
 	// Poll for confetti triggers - reactive to event.confettiCount changes
 	$effect(() => {
-		if (!isInitialized) return;
+		if (!isInitialized) {
+			return;
+		}
 
 		// Check for confetti triggers by watching the counter
 		const currentCount = event.confettiCount || 0;
@@ -318,7 +344,9 @@
 
 	// Auto-show join modal if user is not authenticated during active presentation
 	$effect(() => {
-		if (!isInitialized) return;
+		if (!isInitialized) {
+			return;
+		}
 
 		// If there's an active presentation and user is not logged in and doesn't have a session, show join modal
 		if (event.currentPresentationId && !currentUser && !votingSession && !showJoinModal) {
@@ -329,7 +357,9 @@
 	// Timer synchronization effect - all clients calculate from same server timestamp
 	// This ensures everyone sees the exact same countdown no matter when they join
 	$effect(() => {
-		if (!event) return;
+		if (!event) {
+			return;
+		}
 
 		const evt = event as any;
 		const timerStartedAt = evt.timerStartedAt;
@@ -367,7 +397,9 @@
 		timerPaused = false;
 
 		function updateTimer() {
-			if (!timerStartedAt || !timerDuration) return;
+			if (!timerStartedAt || !timerDuration) {
+				return;
+			}
 
 			// Calculate elapsed time from server's start time to now
 			// This is synchronized across all clients since they all use the same timerStartedAt
@@ -415,7 +447,9 @@
 	});
 
 	function handleReorder() {
-		if (!presentationListElement) return;
+		if (!presentationListElement) {
+			return;
+		}
 
 		try {
 			const items = Array.from(presentationListElement.children);
@@ -423,7 +457,9 @@
 				.map((item) => item.getAttribute("data-group-id"))
 				.filter(Boolean) as string[];
 
-			if (newOrder.length === 0) return;
+			if (newOrder.length === 0) {
+				return;
+			}
 
 			// Update local state immediately (optimistic update)
 			const reorderedGroups = newOrder
@@ -538,7 +574,9 @@
 	}
 
 	function removeParticipant(userId: string) {
-		if (!confirm("Remove this participant from the event?")) return;
+		if (!confirm("Remove this participant from the event?")) {
+			return;
+		}
 
 		const formData = new FormData();
 		formData.append("userId", userId);
@@ -549,7 +587,9 @@
 	}
 
 	function removeVotingSession(sessionId: string) {
-		if (!confirm("Remove this voter from the event?")) return;
+		if (!confirm("Remove this voter from the event?")) {
+			return;
+		}
 
 		const formData = new FormData();
 		formData.append("sessionId", sessionId);
@@ -570,7 +610,9 @@
 
 		// Auto-save the rating
 		const currentPres = currentPresentation();
-		if (!currentPres) return;
+		if (!currentPres) {
+			return;
+		}
 
 		savingRating = true;
 		const formData = new FormData();
@@ -616,8 +658,11 @@
 	}
 
 	async function resetAllVotes() {
-		if (!confirm("Are you sure you want to reset ALL votes for this event? This cannot be undone!"))
+		if (
+			!confirm("Are you sure you want to reset ALL votes for this event? This cannot be undone!")
+		) {
 			return;
+		}
 
 		const formData = new FormData();
 		await fetch("?/resetVotes", {
@@ -695,7 +740,9 @@
 	}
 
 	async function showWinners() {
-		if (!confirm("Show the winners screen? This will end the event.")) return;
+		if (!confirm("Show the winners screen? This will end the event.")) {
+			return;
+		}
 
 		const formData = new FormData();
 		await fetch("?/showWinners", {
@@ -709,7 +756,9 @@
 
 	async function revealNextWinner() {
 		const next = nextRevealStep();
-		if (!next) return;
+		if (!next) {
+			return;
+		}
 
 		const formData = new FormData();
 		formData.append("step", String(next.step));
@@ -2030,10 +2079,14 @@
 		aria-modal="true"
 		tabindex="-1"
 		onclick={(e) => {
-			if (e.target === e.currentTarget) showTimerModal = false;
+			if (e.target === e.currentTarget) {
+				showTimerModal = false;
+			}
 		}}
 		onkeydown={(e) => {
-			if (e.key === "Escape") showTimerModal = false;
+			if (e.key === "Escape") {
+				showTimerModal = false;
+			}
 		}}
 	>
 		<div

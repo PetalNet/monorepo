@@ -43,7 +43,9 @@
 	});
 
 	function play() {
-		if (progress >= 1) progress = 0;
+		if (progress >= 1) {
+			progress = 0;
+		}
 		isPlaying = true;
 		const startTime = performance.now();
 		const startProgress = progress;
@@ -99,7 +101,11 @@
 		class="tl-btn"
 		aria-label={isPlaying ? "Pause" : "Play"}
 		onclick={() => {
-			isPlaying ? pause() : play();
+			if (isPlaying) {
+				pause();
+			} else {
+				play();
+			}
 		}}
 	>
 		{#if isPlaying}
@@ -123,7 +129,9 @@
 		class="tl-slider"
 		style="--progress: {progress * 100}%"
 		oninput={() => {
-			if (isPlaying) pause();
+			if (isPlaying) {
+				pause();
+			}
 		}}
 	/>
 

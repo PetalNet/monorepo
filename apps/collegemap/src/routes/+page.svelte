@@ -56,7 +56,9 @@
 
 	let searchResults = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
-		if (!q) return [];
+		if (!q) {
+			return [];
+		}
 		return liveRankings.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 8);
 	});
 
@@ -84,7 +86,9 @@
 	}
 
 	function handleSearchKeydown(e: KeyboardEvent) {
-		if (!showDropdown) return;
+		if (!showDropdown) {
+			return;
+		}
 
 		if (e.key === "ArrowDown") {
 			e.preventDefault();

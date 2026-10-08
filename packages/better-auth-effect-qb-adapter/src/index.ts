@@ -8,7 +8,8 @@ import type {
 	JoinConfig,
 } from "better-auth/adapters";
 import { createAdapterFactory } from "better-auth/adapters";
-import { Context, Effect, ManagedRuntime, Redacted, Schema } from "effect";
+import type { Context } from "effect";
+import { Effect, ManagedRuntime, Redacted, Schema } from "effect";
 import { Column, Function, Query, Table } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -54,30 +55,40 @@ interface UpdateArguments<T> {
 }
 
 const validIdentifier = (value: string) => {
-	if (!identifierPattern.test(value)) throw new Error(`Invalid database identifier: ${value}`);
+	if (!identifierPattern.test(value)) {
+		throw new Error(`Invalid database identifier: ${value}`);
+	}
 	return value;
 };
 const boundedInteger = (value: number, maximum: number, name: string) => {
-	if (!Number.isSafeInteger(value) || value < 0 || value > maximum)
+	if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
 		throw new RangeError(`${name} must be between 0 and ${String(maximum)}`);
+	}
 	return value;
 };
 const escapeLike = (value: unknown) => String(value).replace(/[\\%_]/g, "\\$&");
 const databaseRow = (value: unknown): DatabaseRow => {
-	if (typeof value !== "object" || value === null || Array.isArray(value))
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		throw new TypeError("Expected a database row object");
+	}
 	return value as DatabaseRow;
 };
 const scalarString = (value: unknown) => {
-	if (typeof value === "string") return value;
-	if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean")
+	if (typeof value === "string") {
+		return value;
+	}
+	if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
 		return String(value);
-	if (value instanceof Date) return value.toISOString();
+	}
+	if (value instanceof Date) {
+		return value.toISOString();
+	}
 	throw new TypeError("Expected a scalar database value");
 };
 const rejectJoin = (join: JoinConfig | undefined) => {
-	if (join && Object.keys(join).length > 0)
+	if (join && Object.keys(join).length > 0) {
 		throw new Error("The effect-qb adapter does not support joined reads");
+	}
 };
 const transaction = <A>(effect: Effect.Effect<A, unknown, PgClient.PgClient>) =>
 	Effect.flatMap(PgClient.PgClient, (sql) =>
@@ -85,15 +96,22 @@ const transaction = <A>(effect: Effect.Effect<A, unknown, PgClient.PgClient>) =>
 	);
 const columnFor = (type: unknown) => {
 	const column = (() => {
-		if (type === "boolean") return Column.boolean();
-		if (type === "number") return Pg.Column.float8();
-		if (type === "date") return Pg.Column.timestamptz();
-		if (type === "json" || (typeof type === "string" && type.endsWith("[]")))
+		if (type === "boolean") {
+			return Column.boolean();
+		}
+		if (type === "number") {
+			return Pg.Column.float8();
+		}
+		if (type === "date") {
+			return Pg.Column.timestamptz();
+		}
+		if (type === "json" || (typeof type === "string" && type.endsWith("[]"))) {
 			return Pg.Column.jsonb(Schema.Unknown).pipe(
 				Column.driverValueMapping({
 					toDriver: (value) => JSON.stringify(value),
 				}),
 			);
+		}
 		return Column.text();
 	})();
 	return column.pipe(Column.nullable);
@@ -103,8 +121,9 @@ export const createEffectQbAdapter = (
 	database: string | EffectQbAdapterRuntime,
 ): AdapterFactory => {
 	const owner = (() => {
-		if (typeof database !== "string")
+		if (typeof database !== "string") {
 			return { runPromise: database.runPromise, close: () => Promise.resolve() };
+		}
 		const runtime = ManagedRuntime.make(
 			PgClient.layer({ url: Redacted.make(database), maxConnections: 10 }),
 		);
@@ -140,7 +159,9 @@ export const createEffectQbAdapter = (
 			disableIdGeneration: false,
 			async transaction(callback) {
 				const adapter = transactionAdapter;
-				if (!adapter) throw new Error("Adapter transaction used before initialization");
+				if (!adapter) {
+					throw new Error("Adapter transaction used before initialization");
+				}
 				return run(
 					Effect.flatMap(PgClient.PgClient, (sql) =>
 						sql.withTransaction(
@@ -156,28 +177,38 @@ export const createEffectQbAdapter = (
 			const fieldsFor = (name: string) => {
 				const modelName = getDefaultModelName(name);
 				const model = Object.entries(schema).find(([key]) => key === modelName)?.[1];
-				if (!model) throw new Error(`Unknown model ${name}`);
+				if (!model) {
+					throw new Error(`Unknown model ${name}`);
+				}
 				return model.fields;
 			};
 			const fieldName = (name: string, field: string) => {
 				const fields = fieldsFor(name);
-				if (field === "id") return "id";
-				if (field in fields) return validIdentifier(getFieldName({ model: name, field }));
-				if (Object.values(fields).some((attributes) => attributes.fieldName === field))
+				if (field === "id") {
+					return "id";
+				}
+				if (field in fields) {
+					return validIdentifier(getFieldName({ model: name, field }));
+				}
+				if (Object.values(fields).some((attributes) => attributes.fieldName === field)) {
 					return validIdentifier(field);
+				}
 				throw new Error(`Unknown field ${name}.${field}`);
 			};
 			const tables = new Map<string, DynamicTable>();
 			const tableFor = (name: string): DynamicTable => {
 				const cached = tables.get(name);
-				if (cached) return cached;
+				if (cached) {
+					return cached;
+				}
 				const columns: Record<string, Column.Any> & { id: Column.Any } = {
 					id: Column.text().pipe(Column.nullable),
 				};
-				for (const [field, attributes] of Object.entries(fieldsFor(name)))
+				for (const [field, attributes] of Object.entries(fieldsFor(name))) {
 					columns[validIdentifier(getFieldName({ model: name, field }))] = columnFor(
 						attributes.type,
 					);
+				}
 				const table = Table.make(validIdentifier(getModelName(name)), columns);
 				tables.set(name, table);
 				return table;
@@ -194,24 +225,29 @@ export const createEffectQbAdapter = (
 					),
 				) as Record<string, DynamicColumn>;
 			const normalize = <T>(name: string, value: T): T => {
-				if (value === null || typeof value !== "object") return value;
+				if (value === null || typeof value !== "object") {
+					return value;
+				}
 				const record = value as DatabaseRow;
 				for (const [field, attributes] of Object.entries(fieldsFor(name))) {
 					const key = getFieldName({ model: name, field });
 					const current = record[key];
-					if (current === null || current === undefined) continue;
-					if (attributes.type === "date" && !(current instanceof Date))
+					if (current === null || current === undefined) {
+						continue;
+					}
+					if (attributes.type === "date" && !(current instanceof Date)) {
 						record[key] = new Date(scalarString(current));
-					if (attributes.type === "number" && typeof current !== "number")
+					}
+					if (attributes.type === "number" && typeof current !== "number") {
 						record[key] = Number(current);
+					}
 				}
 				return value;
 			};
-			const mutationValues = (name: string, values: DatabaseRow) => {
-				return Object.fromEntries(
+			const mutationValues = (name: string, values: DatabaseRow) =>
+				Object.fromEntries(
 					Object.entries(values).map(([key, value]) => [fieldName(name, key), value]),
 				);
-			};
 			const conditionExpression = (name: string, condition: CleanedWhere): unknown => {
 				const column = fieldColumn(name, condition.field);
 				const insensitive = condition.mode === "insensitive";
@@ -219,8 +255,12 @@ export const createEffectQbAdapter = (
 				const value = insensitive
 					? String(condition.value).toLocaleLowerCase("en-US")
 					: condition.value;
-				if (condition.value === null && condition.operator === "eq") return Query.isNull(column);
-				if (condition.value === null && condition.operator === "ne") return Query.isNotNull(column);
+				if (condition.value === null && condition.operator === "eq") {
+					return Query.isNull(column);
+				}
+				if (condition.value === null && condition.operator === "ne") {
+					return Query.isNotNull(column);
+				}
 				switch (condition.operator) {
 					case "eq":
 						return Query.eq(operand as never, value as never);
@@ -237,7 +277,9 @@ export const createEffectQbAdapter = (
 					case "in":
 					case "not_in": {
 						const source = Array.isArray(condition.value) ? condition.value : [];
-						if (source.length === 0) return Query.literal(condition.operator === "not_in");
+						if (source.length === 0) {
+							return Query.literal(condition.operator === "not_in");
+						}
 						const values = insensitive
 							? source.map((item) => String(item).toLocaleLowerCase("en-US"))
 							: source;
@@ -268,10 +310,14 @@ export const createEffectQbAdapter = (
 				}
 			};
 			const predicateFor = (name: string, conditions: CleanedWhere[] | undefined) => {
-				if (!conditions?.length) return undefined;
+				if (!conditions?.length) {
+					return undefined;
+				}
 				const groups: unknown[][] = [[]];
 				for (const condition of conditions) {
-					if (condition.connector === "OR" && groups.at(-1)?.length) groups.push([]);
+					if (condition.connector === "OR" && groups.at(-1)?.length) {
+						groups.push([]);
+					}
 					groups.at(-1)?.push(conditionExpression(name, condition));
 				}
 				const expressions = groups.map((group) =>
@@ -293,11 +339,15 @@ export const createEffectQbAdapter = (
 						Query.returning(selectedFields(name, select)),
 					);
 					const row = (await runPlan(plan)).at(0);
-					if (!row) throw new Error(`Insert into ${name} returned no row`);
+					if (!row) {
+						throw new Error(`Insert into ${name} returned no row`);
+					}
 					return normalize(name, row) as typeof data;
 				},
 				async update<T>({ model: name, where, update }: UpdateArguments<T>) {
-					if (where.length === 0) return null;
+					if (where.length === 0) {
+						return null;
+					}
 					const plan = withPredicate(
 						Query.update(tableFor(name), mutationValues(name, databaseRow(update)) as never),
 						name,
@@ -337,14 +387,17 @@ export const createEffectQbAdapter = (
 						name,
 						where,
 					);
-					if (sortBy)
+					if (sortBy) {
 						plan = Query.orderBy(fieldColumn(name, sortBy.field), sortBy.direction)(plan as never);
+					}
 					plan = Query.limit(boundedInteger(limit, MAX_LIMIT, "limit"))(plan as never);
 					plan = Query.offset(boundedInteger(offset, MAX_OFFSET, "offset"))(plan as never);
 					return (await runPlan(plan)).map((row) => normalize(name, row) as T);
 				},
 				async delete({ model: name, where }) {
-					if (where.length === 0) return;
+					if (where.length === 0) {
+						return;
+					}
 					await runPlan(withPredicate(Query.delete(tableFor(name)), name, where));
 				},
 				async deleteMany({ model: name, where }) {
@@ -362,7 +415,9 @@ export const createEffectQbAdapter = (
 							where,
 						).pipe(Query.limit(1), Query.lock("update", { skipLocked: true }));
 						const row = (yield* execute(selected as never)).at(0);
-						if (!row) return undefined;
+						if (!row) {
+							return undefined;
+						}
 						const deleted = Query.delete(tableFor(name)).pipe(
 							Query.where(Query.eq(fieldColumn(name, "id") as never, row.id as never)),
 							Query.returning(selectedFields(name)),
@@ -372,7 +427,9 @@ export const createEffectQbAdapter = (
 					return normalize(name, (await run(transaction(effect))) as T | undefined) ?? null;
 				},
 				async incrementOne<T>({ model: name, where, increment, set = {} }: IncrementArguments) {
-					for (const field of Object.keys(increment)) fieldColumn(name, field);
+					for (const field of Object.keys(increment)) {
+						fieldColumn(name, field);
+					}
 					const effect = Effect.gen(function* () {
 						const selected = withPredicate(
 							Query.select(selectedFields(name)).pipe(Query.from(tableFor(name))),
@@ -380,14 +437,17 @@ export const createEffectQbAdapter = (
 							where,
 						).pipe(Query.limit(1), Query.lock("update"));
 						const row = (yield* execute(selected as never)).at(0);
-						if (!row) return undefined;
+						if (!row) {
+							return undefined;
+						}
 						const values = mutationValues(name, {
 							...set,
 							...Object.fromEntries(
 								Object.entries(increment).map(([field, amount]) => {
 									const value = row[fieldName(name, field)];
-									if (typeof value !== "number")
+									if (typeof value !== "number") {
 										throw new TypeError(`Cannot increment non-numeric field ${name}.${field}`);
+									}
 									return [field, value + amount];
 								}),
 							),
@@ -409,7 +469,9 @@ export const createEffectQbAdapter = (
 						where,
 					);
 					const row = (await runPlan(plan)).at(0);
-					if (!row) throw new Error(`Count for ${name} returned no row`);
+					if (!row) {
+						throw new Error(`Count for ${name} returned no row`);
+					}
 					return Number(row.count);
 				},
 			};

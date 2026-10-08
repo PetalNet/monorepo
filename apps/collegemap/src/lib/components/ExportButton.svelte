@@ -12,7 +12,9 @@
 	let exporting = $state(false);
 
 	async function exportMap() {
-		if (!mapInstance || exporting) return;
+		if (!mapInstance || exporting) {
+			return;
+		}
 		exporting = true;
 
 		try {

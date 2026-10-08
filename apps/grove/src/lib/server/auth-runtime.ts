@@ -13,8 +13,9 @@ import { ActorAuthority } from "./actors/authority";
 import { GroveAuth, makeGroveBrowserAuth } from "./auth";
 
 const required = (value: unknown, name: string) => {
-	if (typeof value !== "string" || value.length === 0)
+	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
+	}
 	return value;
 };
 
@@ -34,7 +35,7 @@ export const GroveAuthLayer = Layer.effect(
 					clientSecret: required(GROVE_OIDC_CLIENT_SECRET, "GROVE_OIDC_CLIENT_SECRET"),
 				},
 				createEffectQbAdapter({
-					runPromise: (effect) => Effect.runPromise(Effect.provide(effect, context)),
+					runPromise: Effect.runPromiseWith(context),
 				}),
 				sql,
 				authority,

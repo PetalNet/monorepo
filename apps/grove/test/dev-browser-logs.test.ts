@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -10,18 +10,20 @@ import { ingestDevBrowserLogs } from "../src/lib/server/dev/browser-logs";
 const temporaryDirectories: string[] = [];
 const browserLogMaxBytes = 1024 * 1024;
 const logPath = async () => {
-	const directory = await mkdtemp(join(tmpdir(), "grove-browser-log-"));
+	const directory = await mkdtemp(path.join(tmpdir(), "grove-browser-log-"));
 	temporaryDirectories.push(directory);
-	return join(directory, "grove-browser.log");
+	return path.join(directory, "grove-browser.log");
 };
 
 afterEach(async () => {
-	await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
+	await Promise.all(
+		temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
+	);
 });
 
 describe("Grove development browser logs", () => {
 	it("structurally sanitizes browser values before serialization and persistence", async () => {
-		const path = await logPath();
+		const filePath = await logPath();
 		const headers = new Headers({
 			authorization: `Basic ${Buffer.from("operator:basic-secret").toString("base64")}`,
 			"x-api-key": "api-key-secret",
@@ -59,10 +61,10 @@ describe("Grove development browser logs", () => {
 					entries: [{ level: "error", message: serialized, source: "console.error" }],
 				}),
 			}),
-			path,
+			filePath,
 		);
 		expect(response.status).toBe(202);
-		const persisted = await readFile(path, "utf8");
+		const persisted = await readFile(filePath, "utf8");
 		expect(persisted).toContain("request-123");
 		for (const secret of [
 			"basic-secret",
@@ -100,12 +102,13 @@ describe("Grove development browser logs", () => {
 			"api-value",
 			"credential-value",
 			"query-value",
-		])
+		]) {
 			expect(serialized).not.toContain(secret);
+		}
 	});
 
 	it("uses server chronology and writes terminal-safe redacted lines", async () => {
-		const path = await logPath();
+		const filePath = await logPath();
 		const before = Date.now();
 		const response = await ingestDevBrowserLogs(
 			new Request("https://grove.test/__dev/logs/browser", {
@@ -119,18 +122,18 @@ describe("Grove development browser logs", () => {
 								"fetch failed\n\tAuthorization: Basic should-not-reach-disk x-api-key=api-secret " +
 								"credential=credential-secret https://api.example/path?session=session-secret&request=kept " +
 								"https://server-user:server-password@api.example/userinfo?request=also-kept " +
-								"\u001b[31mred\u0000nul\bbackspace\u0085c1\u202Espoof\u2066isolate",
-							source: "window.unhandledrejection\u001b[2J",
+								"\u001B[31mred\u0000nul\bbackspace\u0085c1\u202Espoof\u2066isolate",
+							source: "window.unhandledrejection\u001B[2J",
 							timestamp: "1999-12-31T23:59:59.000Z",
 						},
 					],
 				}),
 			}),
-			path,
+			filePath,
 		);
 
 		expect(response.status).toBe(202);
-		const contents = await readFile(path, "utf8");
+		const contents = await readFile(filePath, "utf8");
 		expect(contents.split("\n").filter(Boolean)).toHaveLength(1);
 		const timestamp = contents.slice(0, contents.indexOf(" "));
 		expect(Date.parse(timestamp)).toBeGreaterThanOrEqual(before);
@@ -149,8 +152,9 @@ describe("Grove development browser logs", () => {
 			"session-secret",
 			"server-user",
 			"server-password",
-		])
+		]) {
 			expect(contents).not.toContain(secret);
+		}
 		for (const character of contents) {
 			const codePoint = character.codePointAt(0) ?? 0;
 			expect(
@@ -165,14 +169,14 @@ describe("Grove development browser logs", () => {
 	});
 
 	it("rejects oversized and malformed requests before writing", async () => {
-		const path = await logPath();
+		const filePath = await logPath();
 		const oversized = await ingestDevBrowserLogs(
 			new Request("https://grove.test/__dev/logs/browser", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: "x".repeat(16_385),
 			}),
-			path,
+			filePath,
 		);
 		const malformed = await ingestDevBrowserLogs(
 			new Request("https://grove.test/__dev/logs/browser", {
@@ -180,17 +184,17 @@ describe("Grove development browser logs", () => {
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ entries: [{ level: "info", message: "not accepted" }] }),
 			}),
-			path,
+			filePath,
 		);
 
 		expect(oversized.status).toBe(413);
 		expect(malformed.status).toBe(400);
-		await expect(stat(path)).rejects.toThrow();
+		await expect(stat(filePath)).rejects.toThrow();
 	});
 
 	it("rotates the stable file before it can exceed its bound", async () => {
-		const path = await logPath();
-		await writeFile(path, `old-marker${"x".repeat(browserLogMaxBytes)}`);
+		const filePath = await logPath();
+		await writeFile(filePath, `old-marker${"x".repeat(browserLogMaxBytes)}`);
 
 		const response = await ingestDevBrowserLogs(
 			new Request("https://grove.test/__dev/logs/browser", {
@@ -200,11 +204,11 @@ describe("Grove development browser logs", () => {
 					entries: [{ level: "warn", message: "new bounded event", source: "console.warn" }],
 				}),
 			}),
-			path,
+			filePath,
 		);
 
 		expect(response.status).toBe(202);
-		const contents = await readFile(path, "utf8");
+		const contents = await readFile(filePath, "utf8");
 		expect(Buffer.byteLength(contents)).toBeLessThanOrEqual(browserLogMaxBytes);
 		expect(contents).toContain("new bounded event");
 		expect(contents).not.toContain("old-marker");

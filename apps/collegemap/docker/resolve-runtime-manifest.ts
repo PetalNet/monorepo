@@ -43,7 +43,9 @@ const unresolved: string[] = [];
 const dependencies = pkg.dependencies ?? {};
 
 for (const [name, spec] of Object.entries(dependencies)) {
-	if (!spec.startsWith("catalog:")) continue;
+	if (!spec.startsWith("catalog:")) {
+		continue;
+	}
 	try {
 		const installed = JSON.parse(readFileSync(`${modulesDir}/${name}/package.json`, "utf8")) as {
 			version?: string;
@@ -63,7 +65,9 @@ for (const [name, spec] of Object.entries(dependencies)) {
 // prevent, and it would otherwise only surface at runtime inside the deployed container.
 if (unresolved.length > 0) {
 	console.error(`could not resolve ${unresolved.length.toString()} catalog spec(s):`);
-	for (const entry of unresolved) console.error(`  ${entry}`);
+	for (const entry of unresolved) {
+		console.error(`  ${entry}`);
+	}
 	process.exit(1);
 }
 

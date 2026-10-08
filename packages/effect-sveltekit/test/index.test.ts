@@ -8,11 +8,11 @@ const eventFor = (signal = new AbortController().signal, path = "/example") =>
 	({ request: new Request(`https://grove.test${path}`, { signal }) }) as RequestEvent;
 
 const deferred = () => {
-	let resolve!: () => void;
-	const promise = new Promise<void>((done) => {
-		resolve = done;
+	let complete!: () => void;
+	const promise = new Promise<void>((resolve) => {
+		complete = resolve;
 	});
-	return { promise, resolve };
+	return { promise, resolve: complete };
 };
 
 const expectHttpError = async (result: Promise<unknown>, status: number, message: string) => {
@@ -201,7 +201,7 @@ describe("makeEffectSvelteKitRuntime", () => {
 					);
 					yield* Effect.promise(() => childStarted.promise);
 					ready.resolve();
-					yield* Effect.never;
+					return yield* Effect.never;
 				}).pipe(
 					Effect.ensuring(
 						Effect.sync(() => {

@@ -28,17 +28,25 @@ const terminalSafe = (value: string) => {
 			while (index < value.length) {
 				const ansiCodePoint = value.codePointAt(index) ?? 0;
 				index += String.fromCodePoint(ansiCodePoint).length;
-				if (ansiCodePoint >= 0x40 && ansiCodePoint <= 0x7e) break;
+				if (ansiCodePoint >= 0x40 && ansiCodePoint <= 0x7e) {
+					break;
+				}
 			}
 			continue;
 		}
 		index += character.length;
 		if (codePoint === 0x0d) {
-			if (value[index] === "\n") index += 1;
+			if (value[index] === "\n") {
+				index += 1;
+			}
 			safe += "\\n";
-		} else if (codePoint === 0x0a) safe += "\\n";
-		else if (codePoint === 0x09) safe += "\\t";
-		else if (!unsafeTerminalCodePoint(codePoint)) safe += character;
+		} else if (codePoint === 0x0a) {
+			safe += "\\n";
+		} else if (codePoint === 0x09) {
+			safe += "\\t";
+		} else if (!unsafeTerminalCodePoint(codePoint)) {
+			safe += character;
+		}
 	}
 	return safe;
 };
@@ -50,7 +58,9 @@ const sanitizedUrl = (candidate: string) => {
 		url.username = "";
 		url.password = "";
 		for (const key of url.searchParams.keys()) {
-			if (sensitiveQueryParameter(key)) url.searchParams.set(key, REDACTED);
+			if (sensitiveQueryParameter(key)) {
+				url.searchParams.set(key, REDACTED);
+			}
 		}
 		return relative ? `${url.pathname}${url.search}${url.hash}` : url.href;
 	} catch {
@@ -83,35 +93,50 @@ export const sanitizeDevBrowserLogText = (value: string) => {
 };
 
 const sanitizeValue = (value: unknown, seen: WeakSet<object>, depth: number): unknown => {
-	if (typeof value === "string")
+	if (typeof value === "string") {
 		return sanitizeDevBrowserLogText(
 			/^https?:\/\//iu.test(value) || value.startsWith("/") ? sanitizedUrl(value) : value,
 		);
+	}
 	if (
 		value === null ||
 		typeof value === "boolean" ||
 		typeof value === "number" ||
 		typeof value === "undefined"
-	)
+	) {
 		return value;
-	if (typeof value === "bigint" || typeof value === "symbol" || typeof value === "function")
+	}
+	if (typeof value === "bigint" || typeof value === "symbol" || typeof value === "function") {
 		return sanitizeDevBrowserLogText(String(value));
-	if (value instanceof Error)
+	}
+	if (value instanceof Error) {
 		return sanitizeDevBrowserLogText(`${value.name}: ${value.message}\n${value.stack ?? ""}`);
-	if (value instanceof URL) return sanitizedUrl(value.href);
-	if (value instanceof Date) return value.toISOString();
-	if (depth >= MAX_DEPTH) return "[Truncated]";
-	if (seen.has(value)) return "[Circular]";
+	}
+	if (value instanceof URL) {
+		return sanitizedUrl(value.href);
+	}
+	if (value instanceof Date) {
+		return value.toISOString();
+	}
+	if (depth >= MAX_DEPTH) {
+		return "[Truncated]";
+	}
+	if (seen.has(value)) {
+		return "[Circular]";
+	}
 	seen.add(value);
-	if (value instanceof Headers)
+	if (value instanceof Headers) {
 		return Object.fromEntries(
 			[...value.entries()].map(([key, entry]) => [
 				key,
 				sensitiveKey(key) ? REDACTED : sanitizeDevBrowserLogText(entry),
 			]),
 		);
-	if (Array.isArray(value)) return value.map((entry) => sanitizeValue(entry, seen, depth + 1));
-	if (value instanceof Map)
+	}
+	if (Array.isArray(value)) {
+		return value.map((entry) => sanitizeValue(entry, seen, depth + 1));
+	}
+	if (value instanceof Map) {
 		return Object.fromEntries(
 			[...value.entries()].map(([key, entry]) => {
 				const stringKey = String(key);
@@ -121,7 +146,10 @@ const sanitizeValue = (value: unknown, seen: WeakSet<object>, depth: number): un
 				];
 			}),
 		);
-	if (value instanceof Set) return [...value].map((entry) => sanitizeValue(entry, seen, depth + 1));
+	}
+	if (value instanceof Set) {
+		return [...value].map((entry) => sanitizeValue(entry, seen, depth + 1));
+	}
 	return Object.fromEntries(
 		Object.entries(value).map(([key, entry]) => [
 			sanitizeDevBrowserLogText(key),

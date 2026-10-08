@@ -66,8 +66,12 @@ function lastWeekday(year: number, month1: number, weekday: number): string {
 function observe(date: string): { date: string; moved: boolean } {
 	const day = toDay(date);
 	const weekday = weekdayOf(day);
-	if (weekday === SATURDAY) return { date: fromDay(day - 1), moved: true };
-	if (weekday === SUNDAY) return { date: fromDay(day + 1), moved: true };
+	if (weekday === SATURDAY) {
+		return { date: fromDay(day - 1), moved: true };
+	}
+	if (weekday === SUNDAY) {
+		return { date: fromDay(day + 1), moved: true };
+	}
 	return { date, moved: false };
 }
 

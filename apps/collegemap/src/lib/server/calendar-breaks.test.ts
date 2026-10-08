@@ -439,8 +439,11 @@ describe("extending a break is arithmetic no timezone can move", () => {
 	const originalTz = process.env.TZ;
 
 	afterEach(() => {
-		if (originalTz === undefined) delete process.env.TZ;
-		else process.env.TZ = originalTz;
+		if (originalTz === undefined) {
+			delete process.env.TZ;
+		} else {
+			process.env.TZ = originalTz;
+		}
 	});
 
 	// West of Greenwich, `new Date('2026-11-27')` is Thursday evening, so an implementation that

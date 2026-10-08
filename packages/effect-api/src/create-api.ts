@@ -84,8 +84,11 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 						const abort = () => {
 							resume(Effect.interrupt);
 						};
-						if (request.signal.aborted) abort();
-						else request.signal.addEventListener("abort", abort, { once: true });
+						if (request.signal.aborted) {
+							abort();
+						} else {
+							request.signal.addEventListener("abort", abort, { once: true });
+						}
 						return Effect.sync(() => {
 							request.signal.removeEventListener("abort", abort);
 						});

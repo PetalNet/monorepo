@@ -15,13 +15,16 @@ import { runGrove } from "#lib/server/runtime.ts";
 import type { RequestHandler } from "./$types";
 
 const required = (value: unknown, name: string) => {
-	if (typeof value !== "string" || value.length === 0)
+	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
+	}
 	return value.replace(/\/$/, "");
 };
 
 export const GET: RequestHandler = async (event) => {
-	if (!import.meta.env.DEV || !groveOrbDevAuthFlagEnabled()) return devRouteNotFound();
+	if (!import.meta.env.DEV || !groveOrbDevAuthFlagEnabled()) {
+		return devRouteNotFound();
+	}
 	const { runDevPreflight } = await import("#lib/server/dev/control-plane.ts");
 	return runGrove(
 		Effect.gen(function* () {

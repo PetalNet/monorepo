@@ -23,17 +23,23 @@ export interface CarriedRef {
 
 /** Read a reference hash a sibling context carried in the fragment. */
 export function readCarriedRef(): CarriedRef | null {
-	if (typeof window === "undefined") return null;
+	if (typeof window === "undefined") {
+		return null;
+	}
 	const frag = window.location.hash.replace(/^#/, "");
-	if (!frag) return null;
+	if (!frag) {
+		return null;
+	}
 	const params = new URLSearchParams(frag);
 	const hash = params.get("ref");
-	if (!hash) return null;
+	if (!hash) {
+		return null;
+	}
 	const fromHost = params.get("from");
 	return {
 		hash,
 		fromHost,
-		crossContext: !!fromHost && fromHost !== window.location.host,
+		crossContext: Boolean(fromHost) && fromHost !== window.location.host,
 	};
 }
 
@@ -43,7 +49,9 @@ export function readCarriedRef(): CarriedRef | null {
  * / VPN cases); pass a sibling host for the cross-context demo.
  */
 export function buildJumpUrl(myHash: string, siblingHost?: string): string {
-	if (typeof window === "undefined") return "#";
+	if (typeof window === "undefined") {
+		return "#";
+	}
 	const origin = siblingHost
 		? `${window.location.protocol}//${siblingHost}`
 		: window.location.origin;

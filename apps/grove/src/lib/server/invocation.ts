@@ -16,7 +16,9 @@ export const withBrowserInvocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =
 	Effect.gen(function* () {
 		const event = yield* SvelteKitRequestEvent;
 		const principal = event.locals.actor;
-		if (!principal) return yield* Effect.fail(new AuthenticationRequired());
+		if (!principal) {
+			return yield* Effect.fail(new AuthenticationRequired());
+		}
 		return yield* effect.pipe(
 			Effect.provideService(InvocationContext, {
 				principal,

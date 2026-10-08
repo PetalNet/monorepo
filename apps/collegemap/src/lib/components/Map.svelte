@@ -47,16 +47,24 @@
 	const collegeInfoCache = new SvelteMap<string, CollegeInfo>();
 
 	function getMarkerSize(count: number): number {
-		if (count >= 10) return 46;
-		if (count >= 3) return 38;
+		if (count >= 10) {
+			return 46;
+		}
+		if (count >= 3) {
+			return 38;
+		}
 		return 30;
 	}
 
 	function setTiles() {
 		const leaflet = L;
 		const leafletMap = map;
-		if (!leafletMap || !leaflet) return;
-		if (tileLayer) tileLayer.remove();
+		if (!leafletMap || !leaflet) {
+			return;
+		}
+		if (tileLayer) {
+			tileLayer.remove();
+		}
 
 		tileLayer = leaflet
 			.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -78,10 +86,14 @@
 			await import("leaflet.markercluster");
 			await import("leaflet.heat");
 
-			if (teardown.signal.aborted) return;
+			if (teardown.signal.aborted) {
+				return;
+			}
 			L = LModule.default;
 
-			if (!mapContainer) return;
+			if (!mapContainer) {
+				return;
+			}
 
 			map = L.map(mapContainer, {
 				zoomControl: true,
@@ -115,7 +127,9 @@
 		// view of the async-loaded Leaflet module and map.
 		const leaflet = L;
 		const leafletMap = map;
-		if (!leaflet || !leafletMap) return;
+		if (!leaflet || !leafletMap) {
+			return;
+		}
 
 		// Clean up old cluster group
 		if (clusterGroup) {
@@ -201,7 +215,9 @@
 
 			const loadPopupMeta = async () => {
 				const metaEl = document.getElementById(`popup-meta-${group.college.id}`);
-				if (!metaEl || metaEl.dataset.loaded) return;
+				if (!metaEl || metaEl.dataset.loaded) {
+					return;
+				}
 
 				// Check client-side cache first
 				const cached = collegeInfoCache.get(group.college.name);
@@ -266,14 +282,24 @@
 
 	function applyViewMode() {
 		const leafletMap = map;
-		if (!leafletMap || !clusterGroup || !heatLayer) return;
+		if (!leafletMap || !clusterGroup || !heatLayer) {
+			return;
+		}
 
 		if (viewMode === "heat") {
-			if (leafletMap.hasLayer(clusterGroup)) leafletMap.removeLayer(clusterGroup);
-			if (!leafletMap.hasLayer(heatLayer)) heatLayer.addTo(leafletMap);
+			if (leafletMap.hasLayer(clusterGroup)) {
+				leafletMap.removeLayer(clusterGroup);
+			}
+			if (!leafletMap.hasLayer(heatLayer)) {
+				heatLayer.addTo(leafletMap);
+			}
 		} else {
-			if (leafletMap.hasLayer(heatLayer)) leafletMap.removeLayer(heatLayer);
-			if (!leafletMap.hasLayer(clusterGroup)) clusterGroup.addTo(leafletMap);
+			if (leafletMap.hasLayer(heatLayer)) {
+				leafletMap.removeLayer(heatLayer);
+			}
+			if (!leafletMap.hasLayer(clusterGroup)) {
+				clusterGroup.addTo(leafletMap);
+			}
 		}
 	}
 
@@ -295,7 +321,9 @@
 	// React to selectedCollege - fly to it
 	$effect(() => {
 		const leafletMap = map;
-		if (!selectedCollege || !leafletMap || !clusterGroup) return;
+		if (!selectedCollege || !leafletMap || !clusterGroup) {
+			return;
+		}
 
 		const marker = markersByCollege.get(selectedCollege.name);
 		if (marker) {

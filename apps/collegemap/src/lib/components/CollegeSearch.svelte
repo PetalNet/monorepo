@@ -51,11 +51,15 @@
 
 	function searchLocal(q: string): string[] {
 		const trimmed = q.trim();
-		if (!trimmed || q.length < 2) return [];
+		if (!trimmed || q.length < 2) {
+			return [];
+		}
 		// There is no directory of every base and every employer in the country, and inventing a
 		// short one would just be a list to not be on. So for those kinds the only offer is what the
 		// person typed, geocoded the same way an off-list college already is.
-		if (!isCollege) return [trimmed];
+		if (!isCollege) {
+			return [trimmed];
+		}
 		const lower = q.toLowerCase();
 		return collegeNames.filter((name) => name.toLowerCase().includes(lower)).slice(0, 10);
 	}

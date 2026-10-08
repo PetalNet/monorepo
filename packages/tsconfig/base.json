@@ -24,8 +24,8 @@
 		"plugins": [
 			{
 				"name": "@effect/language-service",
-				"diagnosticSeverity": {},
-				"ignoreEffectSuggestionsInTscExitCode": false
+				"diagnostics": false,
+				"allowedUnstableApis": ["effect/http", "effect/ai", "effect/sql"]
 			}
 		]
 	}

@@ -16,7 +16,9 @@ const r = (start: string, end: string) => ({ start: toDay(start), end: toDay(end
 const cells = (view: ReturnType<typeof buildMonthView>) => view.weeks.flat();
 const cell = (view: ReturnType<typeof buildMonthView>, iso: string) => {
 	const found = cells(view).find((c) => c.iso === iso);
-	if (!found) throw new Error(`no cell for ${iso}`);
+	if (!found) {
+		throw new Error(`no cell for ${iso}`);
+	}
 	return found;
 };
 
@@ -41,7 +43,9 @@ function utcWeekday(iso: string): number {
 function gridColumn(iso: string): number {
 	for (const week of buildMonthView([], iso).weeks) {
 		const column = week.findIndex((c) => c.iso === iso);
-		if (column !== -1) return column;
+		if (column !== -1) {
+			return column;
+		}
 	}
 	throw new Error(`${iso} is missing from its own month grid`);
 }
@@ -268,7 +272,7 @@ describe("pickInitialMonth", () => {
 	});
 
 	it("falls back to the most recent break when everything is in the past", () => {
-		expect(pickInitialMonth(winter, "2027-06-01")).toBe("2026-12-19".slice(0, 7) + "-01");
+		expect(pickInitialMonth(winter, "2027-06-01")).toBe(`${"2026-12-19".slice(0, 7)}-01`);
 	});
 
 	it("uses today when nobody has entered anything", () => {

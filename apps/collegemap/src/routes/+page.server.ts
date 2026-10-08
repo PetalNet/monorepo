@@ -61,7 +61,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 					id: locals.user.id,
 					firstName: locals.user.firstName,
 					lastName: locals.user.lastName,
-					hasCollege: !!locals.user.collegeId,
+					hasCollege: Boolean(locals.user.collegeId),
 				}
 			: null,
 	};

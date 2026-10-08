@@ -12,7 +12,7 @@ const preflightConfig = {
 
 const healthyFetch: typeof fetch = (input) => {
 	const url = input instanceof Request ? input.url : input.toString();
-	if (url === `${preflightConfig.browserIssuer}/.well-known/openid-configuration`)
+	if (url === `${preflightConfig.browserIssuer}/.well-known/openid-configuration`) {
 		return Promise.resolve(
 			Response.json({
 				issuer: preflightConfig.browserIssuer,
@@ -21,7 +21,8 @@ const healthyFetch: typeof fetch = (input) => {
 				jwks_uri: `${preflightConfig.browserIssuer}/jwks`,
 			}),
 		);
-	if (url === "https://grove.test/.well-known/oauth-protected-resource/mcp")
+	}
+	if (url === "https://grove.test/.well-known/oauth-protected-resource/mcp") {
 		return Promise.resolve(
 			Response.json({
 				resource: "https://grove.test/mcp",
@@ -30,7 +31,8 @@ const healthyFetch: typeof fetch = (input) => {
 				scopes_supported: ["grove:mcp", "grove:agent:enroll"],
 			}),
 		);
-	if (url === "https://oidc.test/.well-known/oauth-authorization-server/realms/grove-mcp")
+	}
+	if (url === "https://oidc.test/.well-known/oauth-authorization-server/realms/grove-mcp") {
 		return Promise.resolve(
 			Response.json({
 				issuer: preflightConfig.mcpIssuer,
@@ -40,6 +42,7 @@ const healthyFetch: typeof fetch = (input) => {
 				token_endpoint_auth_methods_supported: ["client_secret_basic"],
 			}),
 		);
+	}
 	throw new Error(`Unexpected preflight request: ${url}`);
 };
 

@@ -64,20 +64,38 @@ export interface Contradiction {
 
 function uaFamily(ua: string): "chromium" | "firefox" | "safari" | "unknown" {
 	const u = ua.toLowerCase();
-	if (/edg\/|edga\/|edgios\//.test(u)) return "chromium";
-	if (/firefox\/|fxios\//.test(u)) return "firefox";
-	if (/chrome\/|chromium\/|crios\//.test(u)) return "chromium";
-	if (u.includes("safari/") && !u.includes("chrome/")) return "safari";
+	if (/edg\/|edga\/|edgios\//.test(u)) {
+		return "chromium";
+	}
+	if (/firefox\/|fxios\//.test(u)) {
+		return "firefox";
+	}
+	if (/chrome\/|chromium\/|crios\//.test(u)) {
+		return "chromium";
+	}
+	if (u.includes("safari/") && !u.includes("chrome/")) {
+		return "safari";
+	}
 	return "unknown";
 }
 
 function uaOs(ua: string): "windows" | "macos" | "linux" | "android" | "ios" | "unknown" {
 	const u = ua.toLowerCase();
-	if (u.includes("windows")) return "windows";
-	if (u.includes("android")) return "android";
-	if (/iphone|ipad|ipod/.test(u)) return "ios";
-	if (/mac os x|macintosh/.test(u)) return "macos";
-	if (u.includes("linux")) return "linux";
+	if (u.includes("windows")) {
+		return "windows";
+	}
+	if (u.includes("android")) {
+		return "android";
+	}
+	if (/iphone|ipad|ipod/.test(u)) {
+		return "ios";
+	}
+	if (/mac os x|macintosh/.test(u)) {
+		return "macos";
+	}
+	if (u.includes("linux")) {
+		return "linux";
+	}
 	return "unknown";
 }
 
@@ -137,7 +155,7 @@ export function checkConsistency(
 
 	// 2. Sec-CH-UA presence vs UA family (Chromium-only header).
 	const fam = uaFamily(cUa || sUa);
-	const hasCh = !!server.secChUa?.trim();
+	const hasCh = Boolean(server.secChUa?.trim());
 	if (fam === "chromium" && !hasCh) {
 		out.push({
 			id: "ch.missing-on-chromium",
@@ -296,12 +314,11 @@ export function checkConsistency(
 				id: "tz.vs-ip-country",
 				severity: "medium",
 				title: "Your timezone doesn't match the country of your IP",
-				detail:
-					"The edge sees your connection coming from " +
-					country +
-					", but your browser timezone is " +
-					client.timezone +
-					". That's the classic VPN/proxy signature — or you're travelling.",
+				detail: `The edge sees your connection coming from ${
+					country
+				}, but your browser timezone is ${
+					client.timezone
+				}. That's the classic VPN/proxy signature — or you're travelling.`,
 				evidence: [
 					{ label: "IP country (edge)", value: country },
 					{ label: "browser timezone", value: client.timezone },
@@ -316,7 +333,11 @@ export function checkConsistency(
 export type Verdict = "coherent" | "minor" | "contradictions";
 
 export function verdictOf(list: Contradiction[]): Verdict {
-	if (list.some((c) => c.severity === "high")) return "contradictions";
-	if (list.some((c) => c.severity === "medium")) return "minor";
+	if (list.some((c) => c.severity === "high")) {
+		return "contradictions";
+	}
+	if (list.some((c) => c.severity === "medium")) {
+		return "minor";
+	}
 	return "coherent";
 }

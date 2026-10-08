@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createLocalJWKSet, jwtVerify } from "jose";
@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const mcpResource = "https://grove.example/mcp";
 const mcpSecret = "grove-mcp-test-development-secret";
-const providerPath = fileURLToPath(new URL("../dev-oidc.mjs", import.meta.url));
+const providerPath = fileURLToPath(import.meta.resolve("../dev-oidc.ts"));
 
 interface DevelopmentJwks {
 	readonly keys: (JsonWebKey & { readonly kid?: string })[];
@@ -22,11 +22,16 @@ const availablePort = async () => {
 	server.listen(0, "127.0.0.1");
 	await once(server, "listening");
 	const address = server.address();
-	if (!address || typeof address === "string") throw new Error("Failed to reserve a test port");
+	if (!address || typeof address === "string") {
+		throw new Error("Failed to reserve a test port");
+	}
 	await new Promise<void>((resolve, reject) => {
 		server.close((error) => {
-			if (error) reject(error);
-			else resolve();
+			if (error) {
+				reject(error);
+			} else {
+				resolve();
+			}
 		});
 	});
 	return address.port;
@@ -34,27 +39,36 @@ const availablePort = async () => {
 
 const waitForProvider = async (origin: string, child: ChildProcess) => {
 	for (let attempt = 0; attempt < 50; attempt += 1) {
-		if (child.exitCode !== null)
+		if (child.exitCode !== null) {
 			throw new Error(`Development OIDC provider exited ${String(child.exitCode)}`);
+		}
 		try {
 			// oxlint-disable-next-line no-await-in-loop
 			const response = await fetch(origin);
-			if (response.ok) return;
+			if (response.ok) {
+				return;
+			}
 		} catch {
 			// The child may not have bound its port yet.
 		}
 		// oxlint-disable-next-line no-await-in-loop
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		await new Promise((resolve) => {
+			setTimeout(resolve, 20);
+		});
 	}
 	throw new Error("Development OIDC provider did not become ready");
 };
 
 const keyIdAt = async (origin: string) => {
 	const response = await fetch(`${origin}/realms/grove-mcp/jwks`);
-	if (!response.ok) throw new Error(`Development JWKS returned HTTP ${String(response.status)}`);
+	if (!response.ok) {
+		throw new Error(`Development JWKS returned HTTP ${String(response.status)}`);
+	}
 	const jwks = (await response.json()) as DevelopmentJwks;
 	const keyId = jwks.keys[0]?.kid;
-	if (!keyId) throw new Error("Development JWKS did not publish a key ID");
+	if (!keyId) {
+		throw new Error("Development JWKS did not publish a key ID");
+	}
 	return keyId;
 };
 
@@ -67,8 +81,8 @@ describe("Grove development MCP authorization server", () => {
 	let temporaryDirectory: string;
 
 	beforeAll(async () => {
-		temporaryDirectory = await mkdtemp(join(tmpdir(), "grove-dev-oidc-"));
-		signingKeyPath = join(temporaryDirectory, "signing-key.json");
+		temporaryDirectory = await mkdtemp(path.join(tmpdir(), "grove-dev-oidc-"));
+		signingKeyPath = path.join(temporaryDirectory, "signing-key.json");
 		const port = await availablePort();
 		origin = `http://127.0.0.1:${String(port)}`;
 		issuer = `${origin}/realms/grove-mcp`;
@@ -107,9 +121,9 @@ describe("Grove development MCP authorization server", () => {
 			"/.well-known/openid-configuration/realms/grove-mcp",
 			"/realms/grove-mcp/.well-known/openid-configuration",
 		];
-		for (const path of paths) {
+		for (const endpoint of paths) {
 			// oxlint-disable-next-line no-await-in-loop
-			const response = await fetch(`${origin}${path}`);
+			const response = await fetch(`${origin}${endpoint}`);
 			expect(response.status).toBe(200);
 			// oxlint-disable-next-line no-await-in-loop
 			await expect(response.json()).resolves.toMatchObject({
@@ -195,7 +209,7 @@ describe("Grove development MCP authorization server", () => {
 	});
 
 	it("fails clearly instead of rotating corrupted signing material", async () => {
-		const corruptedPath = join(temporaryDirectory, "corrupted-signing-key.json");
+		const corruptedPath = path.join(temporaryDirectory, "corrupted-signing-key.json");
 		await writeFile(corruptedPath, '{"version":1,"privateKeyPkcs8":"not-a-key"}', {
 			mode: 0o600,
 		});
@@ -280,7 +294,9 @@ describe("Grove development MCP authorization server", () => {
 		["bad client secret", mcpResource, "grove:mcp", "wrong-secret", 401, "invalid_client"],
 	] as const)("rejects %s", async (_name, resource, scope, secret, status, expectedError) => {
 		const body = new URLSearchParams({ grant_type: "client_credentials", scope });
-		if (resource) body.set("resource", resource);
+		if (resource) {
+			body.set("resource", resource);
+		}
 		const response = await fetch(`${issuer}/token`, {
 			method: "POST",
 			headers: {

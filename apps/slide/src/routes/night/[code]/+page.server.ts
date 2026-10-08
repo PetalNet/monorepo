@@ -132,7 +132,7 @@ export const actions: Actions = {
 				name,
 				emoji: emoji || "📊",
 				presentationType: "other", // Default value
-				inviteCode: inviteCode,
+				inviteCode,
 				eventId: event.id,
 				members: {
 					create: {
@@ -233,7 +233,7 @@ export const actions: Actions = {
 		const membership = await prisma.groupMember.findFirst({
 			where: {
 				userId: locals.user.id,
-				groupId: groupId,
+				groupId,
 			},
 		});
 
@@ -273,7 +273,7 @@ export const actions: Actions = {
 		const leaderMembership = await prisma.groupMember.findFirst({
 			where: {
 				userId: locals.user.id,
-				groupId: groupId,
+				groupId,
 				isLeader: true,
 			},
 		});
@@ -290,8 +290,8 @@ export const actions: Actions = {
 		// Remove the member
 		await prisma.groupMember.deleteMany({
 			where: {
-				userId: userId,
-				groupId: groupId,
+				userId,
+				groupId,
 			},
 		});
 
@@ -320,7 +320,7 @@ export const actions: Actions = {
 		const membership = await prisma.groupMember.findFirst({
 			where: {
 				userId: locals.user.id,
-				groupId: groupId,
+				groupId,
 				isLeader: true,
 			},
 		});
@@ -359,7 +359,7 @@ export const actions: Actions = {
 		const membership = await prisma.groupMember.findFirst({
 			where: {
 				userId: locals.user.id,
-				groupId: groupId,
+				groupId,
 				isLeader: true,
 			},
 		});

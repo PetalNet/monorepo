@@ -60,8 +60,9 @@ const modernMcpRequest = (id: number, method: string, params: Record<string, unk
 		"mcp-protocol-version": MCP_PROTOCOL_VERSION,
 		"mcp-method": method,
 	});
-	if (method === "tools/call" && typeof params.name === "string")
+	if (method === "tools/call" && typeof params.name === "string") {
 		headers.set("mcp-name", params.name);
+	}
 	return new Request("https://effect-api.test/mcp", {
 		method: "POST",
 		headers,
@@ -316,7 +317,7 @@ describe("createEffectApi", () => {
 					input: Schema.Struct({
 						value: Schema.String.pipe(
 							Schema.decodeTo(
-								Schema.Number,
+								Schema.Finite,
 								SchemaTransformation.transformEffect({
 									decode,
 									encode: (value) => Effect.succeed(String(value)),
@@ -324,7 +325,7 @@ describe("createEffectApi", () => {
 							),
 						),
 					}),
-					output: Schema.Number,
+					output: Schema.Finite,
 					handler: ({ value }) => Effect.succeed(value * 2),
 				}),
 				operation({
@@ -441,7 +442,7 @@ describe("createEffectApi", () => {
 					method: "POST",
 					path: "/retry",
 					input: Id,
-					output: Schema.Struct({ error: Schema.Struct({ code: Schema.Number }) }),
+					output: Schema.Struct({ error: Schema.Struct({ code: Schema.Finite }) }),
 					handler,
 				}),
 			],
@@ -755,8 +756,8 @@ describe("createEffectApi", () => {
 					description: "Double an encoded number.",
 					method: "POST",
 					path: "/double",
-					input: Schema.Struct({ count: Schema.NumberFromString }),
-					output: Schema.Struct({ doubled: Schema.Number }),
+					input: Schema.Struct({ count: Schema.FiniteFromString }),
+					output: Schema.Struct({ doubled: Schema.Finite }),
 					handler: ({ count }) => Effect.succeed({ doubled: count * 2 }),
 				}),
 			],
@@ -811,7 +812,7 @@ describe("createEffectApi", () => {
 					description: "Optionally update an item.",
 					method: "POST",
 					path: "/items/optional",
-					input: Schema.Struct({ count: Schema.optional(Schema.Number) }),
+					input: Schema.Struct({ count: Schema.optional(Schema.Finite) }),
 					output: Schema.Unknown,
 					handler: Effect.succeed,
 				}),
@@ -876,6 +877,8 @@ describe("createEffectApi", () => {
 					path: "/failure",
 					input: Schema.Struct({}),
 					output: Item,
+					// Deliberately exercise sanitization of an untagged third-party error.
+					// oxlint-disable-next-line effecttsgo/global-error-in-effect-failure
 					handler: () => Effect.fail(new Error("database connection details")),
 					statusForError: () => 503,
 					messageForError: () => "Service temporarily unavailable",
@@ -1129,8 +1132,11 @@ describe("createEffectApi", () => {
 				});
 				current = Object.getOwnPropertyDescriptor(target, "get");
 			} finally {
-				if (previous) Object.defineProperty(target, "get", previous);
-				else Reflect.deleteProperty(target, "get");
+				if (previous) {
+					Object.defineProperty(target, "get", previous);
+				} else {
+					Reflect.deleteProperty(target, "get");
+				}
 			}
 			expect(current).toEqual(previous);
 			expect(Object.hasOwn(docs.paths, path)).toBe(true);
@@ -1156,7 +1162,9 @@ describe("createEffectApi", () => {
 			],
 		});
 		const methods = docs.paths["/items"];
-		if (!methods) throw new Error("Missing /items path");
+		if (!methods) {
+			throw new Error("Missing /items path");
+		}
 		expect(Object.getPrototypeOf(methods)).toBe(Object.prototype);
 		expect(Object.hasOwn(methods, "__proto__")).toBe(true);
 		expect(JSON.stringify(docs)).toContain('"__proto__":{"operationId":"untyped"');

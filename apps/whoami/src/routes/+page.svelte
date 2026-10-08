@@ -78,7 +78,9 @@
 				fetchTrace(),
 				detectExtensions(),
 			]);
-			if (!ctx.alive) return;
+			if (!ctx.alive) {
+				return;
+			}
 			signals = sigs;
 			hash = linkabilityHash(sigs);
 			trace = tr;
@@ -100,7 +102,9 @@
 				utcOffsetMin: new Date().getTimezoneOffset(),
 			});
 			verdict = verdictOf(contradictions);
-			if (carried) linkResult = compareHashes(hash, carried.hash);
+			if (carried) {
+				linkResult = compareHashes(hash, carried.hash);
+			}
 			ready = true;
 			queueMicrotask(() => screen?.focus());
 		})();
@@ -113,7 +117,9 @@
 	const grouped = $derived.by(() => {
 		const order: SignalCategory[] = [];
 		for (const s of signals) {
-			if (!order.includes(s.category)) order.push(s.category);
+			if (!order.includes(s.category)) {
+				order.push(s.category);
+			}
 		}
 		return order.map((cat): [SignalCategory, Signal[]] => [
 			cat,
@@ -130,11 +136,21 @@
 
 	type Quad = "dangerous" | "linking" | "randomized" | "standardized" | "volatile" | "common";
 	function quadrant(s: Signal): Quad {
-		if (s.reproducibility === "randomized") return "randomized";
-		if (s.reproducibility === "standardized") return "standardized";
-		if (s.reproducibility === "volatile") return "volatile";
-		if (s.entropy >= 3) return "dangerous";
-		if (s.entropy >= 1) return "linking";
+		if (s.reproducibility === "randomized") {
+			return "randomized";
+		}
+		if (s.reproducibility === "standardized") {
+			return "standardized";
+		}
+		if (s.reproducibility === "volatile") {
+			return "volatile";
+		}
+		if (s.entropy >= 3) {
+			return "dangerous";
+		}
+		if (s.entropy >= 1) {
+			return "linking";
+		}
 		return "common";
 	}
 
@@ -143,9 +159,15 @@
 	}
 	function tag(s: Signal): string {
 		const r = s.reproducibility;
-		if (r === "stable") return UNVERIFIED.has(s.id) ? "STABLE?" : "STABLE";
-		if (r === "randomized") return "RAND";
-		if (r === "standardized") return "STD";
+		if (r === "stable") {
+			return UNVERIFIED.has(s.id) ? "STABLE?" : "STABLE";
+		}
+		if (r === "randomized") {
+			return "RAND";
+		}
+		if (r === "standardized") {
+			return "STD";
+		}
 		return "VOL";
 	}
 	const REPRO_TITLE: Record<Repro, string> = {
@@ -169,8 +191,11 @@
 	};
 
 	function toggle(id: string) {
-		if (expanded.has(id)) expanded.delete(id);
-		else expanded.add(id);
+		if (expanded.has(id)) {
+			expanded.delete(id);
+		} else {
+			expanded.add(id);
+		}
 	}
 	function selectRow(id: string) {
 		selectedId = id;
@@ -178,7 +203,9 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
-		if (!flatIds.length) return;
+		if (!flatIds.length) {
+			return;
+		}
 		const i = flatIds.indexOf(selectedId);
 		if (e.key === "ArrowDown" || e.key === "j") {
 			e.preventDefault();
@@ -219,7 +246,9 @@
 		}
 	}
 	function jumpSibling() {
-		if (siblingHost) window.location.href = buildJumpUrl(hash, siblingHost);
+		if (siblingHost) {
+			window.location.href = buildJumpUrl(hash, siblingHost);
+		}
 	}
 
 	const dotChar: Record<Verdict, string> = {
@@ -354,7 +383,9 @@
 									selectRow(s.id);
 								}}
 								onkeydown={(e) => {
-									if (e.key === "Enter") selectRow(s.id);
+									if (e.key === "Enter") {
+										selectRow(s.id);
+									}
 								}}
 							>
 								<span class="g" aria-hidden="true">{expanded.has(s.id) ? "[-]" : "[+]"}</span>
@@ -438,7 +469,9 @@
 									selectRow(f.id);
 								}}
 								onkeydown={(e) => {
-									if (e.key === "Enter") selectRow(f.id);
+									if (e.key === "Enter") {
+										selectRow(f.id);
+									}
 								}}
 							>
 								<span class="g" aria-hidden="true">{expanded.has(f.id) ? "[-]" : "[+]"}</span>

@@ -13,7 +13,7 @@ describe("Grove environment", () => {
 
 		expect(accepts(authUrlSchema, undefined)).toBe(building);
 		expect(accepts(authUrlSchema, "http://grove.example.com")).toBe(false);
-		expect(Schema.decodeUnknownSync(authUrlSchema)(value)).toBe(value);
+		expect(Schema.decodeSync(authUrlSchema)(value)).toBe(value);
 		expect(accepts(authUrlSchema, "https://grove.example.com/path")).toBe(false);
 		expect(accepts(authUrlSchema, "https://user@grove.example.com")).toBe(false);
 		expect(accepts(authUrlSchema, "https://grove.example.com?callback=evil")).toBe(false);

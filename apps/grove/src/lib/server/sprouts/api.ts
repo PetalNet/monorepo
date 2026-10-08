@@ -14,7 +14,9 @@ import { ActorDenied, ActorNotCurrent } from "../actors/authority";
 import { SproutCommands, SproutNotFound, type SproutError } from "./service";
 
 const statusForError = (error: SproutError): number => {
-	if (error instanceof ActorDenied || error instanceof ActorNotCurrent) return 403;
+	if (error instanceof ActorDenied || error instanceof ActorNotCurrent) {
+		return 403;
+	}
 	return error instanceof SproutNotFound ? 404 : 503;
 };
 const messageForError = (error: SproutError): string => {
@@ -22,8 +24,9 @@ const messageForError = (error: SproutError): string => {
 		error instanceof SproutNotFound ||
 		error instanceof ActorDenied ||
 		error instanceof ActorNotCurrent
-	)
+	) {
 		return error.message;
+	}
 	return "The sprout database is unavailable";
 };
 

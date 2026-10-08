@@ -7,7 +7,9 @@
 	export let data: PageData;
 
 	function formatBytes(bytes: number): string {
-		if (bytes === 0) return "0 B";
+		if (bytes === 0) {
+			return "0 B";
+		}
 		const k = 1024;
 		const sizes = ["B", "KB", "MB", "GB"];
 		const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -20,9 +22,15 @@
 		const minutes = Math.floor((seconds % 3600) / 60);
 		const secs = Math.floor(seconds % 60);
 
-		if (days > 0) return `${days}d ${hours}h ${minutes}m ${secs}s`;
-		if (hours > 0) return `${hours}h ${minutes}m ${secs}s`;
-		if (minutes > 0) return `${minutes}m ${secs}s`;
+		if (days > 0) {
+			return `${days}d ${hours}h ${minutes}m ${secs}s`;
+		}
+		if (hours > 0) {
+			return `${hours}h ${minutes}m ${secs}s`;
+		}
+		if (minutes > 0) {
+			return `${minutes}m ${secs}s`;
+		}
 		return `${secs}s`;
 	}
 

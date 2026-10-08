@@ -13,14 +13,15 @@
 	});
 
 	function getEventStatus(event: any) {
-		if (event.status === "completed")
+		if (event.status === "completed") {
 			return {
 				text: "✅ Completed",
 				color: "bg-green-900/50 text-green-200 border border-green-700/50",
 				urgency: "completed",
 				showJoin: true,
 			};
-		if (event.currentPresentationId)
+		}
+		if (event.currentPresentationId) {
 			return {
 				text: "🎬 Live Now",
 				color:
@@ -28,6 +29,7 @@
 				urgency: "live",
 				showJoin: true,
 			};
+		}
 		return {
 			text: "📝 Setup",
 			color: "bg-theater-elevated text-purple-200 border border-purple-700/30",
@@ -37,18 +39,20 @@
 	}
 
 	function getGroupStatus(group: any) {
-		if (group.status === "submitted")
+		if (group.status === "submitted") {
 			return {
 				text: "✅ Submitted",
 				color: "bg-green-900/50 text-green-200 border border-green-700/50",
 				urgency: "done",
 			};
-		if (group.status === "late")
+		}
+		if (group.status === "late") {
 			return {
 				text: "⏰ Late",
 				color: "bg-red-900/50 text-red-200 border border-red-700/50",
 				urgency: "urgent",
 			};
+		}
 		return {
 			text: "⏳ Pending",
 			color: "bg-amber-900/50 text-amber-200 border border-amber-700/50",
@@ -60,7 +64,9 @@
 		const deadlines =
 			event.groups?.map((g: any) => (g.deadline ? new Date(g.deadline) : null)).filter(Boolean) ??
 			[];
-		if (!deadlines.length) return null;
+		if (!deadlines.length) {
+			return null;
+		}
 		const future = deadlines.filter((d: any) => d && d > new Date());
 		const soonest = (future.length ? future : deadlines).toSorted(
 			(a: any, b: any) => a.getTime() - b.getTime(),
