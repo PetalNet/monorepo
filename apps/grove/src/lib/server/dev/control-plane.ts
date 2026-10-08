@@ -89,7 +89,9 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
 		: undefined;
 
 const stringArray = (value: unknown): string[] | undefined => {
-	if (!Array.isArray(value)) return undefined;
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
 	return value.every((entry: unknown): entry is string => typeof entry === "string")
 		? value
 		: undefined;
@@ -103,7 +105,9 @@ const authorizationServerMetadataUrl = (issuer: string) => {
 const fetchMetadata = async (fetcher: typeof fetch, url: string) => {
 	try {
 		const response = await fetcher(url, { signal: AbortSignal.timeout(5_000) });
-		if (!response.ok) return undefined;
+		if (!response.ok) {
+			return undefined;
+		}
 		return record(await response.json());
 	} catch {
 		return undefined;
@@ -111,7 +115,9 @@ const fetchMetadata = async (fetcher: typeof fetch, url: string) => {
 };
 
 const endpointHasOrigin = (value: unknown, origin: string) => {
-	if (typeof value !== "string") return false;
+	if (typeof value !== "string") {
+		return false;
+	}
 	try {
 		return new URL(value).origin === origin;
 	} catch {
@@ -136,7 +142,7 @@ const databaseCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck 
 			};
 
 const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck => {
-	if (!readiness)
+	if (!readiness) {
 		return {
 			id: "home-host-owner",
 			required: true,
@@ -144,7 +150,8 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 			summary: "Home Host owner binding could not be inspected.",
 			repair: "Repair database/runtime readiness before inspecting the Home Host owner.",
 		};
-	if (readiness.status === "owner-unbound")
+	}
+	if (readiness.status === "owner-unbound") {
 		return {
 			id: "home-host-owner",
 			required: false,
@@ -153,7 +160,8 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 			repair: "Open /__dev/log-me-in/operator?returnTo=/ once before enrolling an Agent.",
 			details: { configuredIdentity: readiness.configuredIdentity },
 		};
-	if (readiness.status === "owner-config-mismatch")
+	}
+	if (readiness.status === "owner-config-mismatch") {
 		return {
 			id: "home-host-owner",
 			required: true,
@@ -166,7 +174,8 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 				ownerPersonId: readiness.ownerPersonId,
 			},
 		};
-	if (readiness.status === "owner-not-current")
+	}
+	if (readiness.status === "owner-not-current") {
 		return {
 			id: "home-host-owner",
 			required: true,
@@ -178,6 +187,7 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 				lifecycle: readiness.lifecycle,
 			},
 		};
+	}
 	return {
 		id: "home-host-owner",
 		required: true,
@@ -190,7 +200,7 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 const browserSessionCheck = (
 	browserSession: DevPreflightInput["browserSession"],
 ): DevPreflightCheck => {
-	if (!browserSession)
+	if (!browserSession) {
 		return {
 			id: "browser-session",
 			required: false,
@@ -200,7 +210,8 @@ const browserSessionCheck = (
 				"Use /__dev/log-me-in/operator?returnTo=/ in the browser when authentication is needed.",
 			details: { authenticated: false, actor: null },
 		};
-	if (!browserSession.actor)
+	}
+	if (!browserSession.actor) {
 		return {
 			id: "browser-session",
 			required: false,
@@ -210,6 +221,7 @@ const browserSessionCheck = (
 			repair: "Visit / once to complete normal browser Actor provisioning, then retry preflight.",
 			details: { authenticated: true, actor: null },
 		};
+	}
 	return {
 		id: "browser-session",
 		required: false,

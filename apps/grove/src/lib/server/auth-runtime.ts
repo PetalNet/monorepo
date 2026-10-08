@@ -13,8 +13,9 @@ import { ActorAuthority } from "./actors/authority";
 import { GroveAuth, makeGroveBrowserAuth } from "./auth";
 
 const required = (value: unknown, name: string) => {
-	if (typeof value !== "string" || value.length === 0)
+	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
+	}
 	return value;
 };
 

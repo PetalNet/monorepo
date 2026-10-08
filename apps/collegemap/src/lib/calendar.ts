@@ -104,8 +104,12 @@ function daysInMonth(year: number, month1: number): number {
 
 function covers(ranges: DayRange[], day: number): boolean {
 	for (const r of ranges) {
-		if (day < r.start) return false;
-		if (day <= r.end) return true;
+		if (day < r.start) {
+			return false;
+		}
+		if (day <= r.end) {
+			return true;
+		}
 	}
 	return false;
 }
@@ -142,8 +146,11 @@ function namedRangesByPerson(rows: readonly LabeledBreak[]): Map<string, NamedRa
 			season: deriveSeason(row.label, row.startDate),
 		};
 		const list = byUser.get(row.userId);
-		if (list) list.push(range);
-		else byUser.set(row.userId, [range]);
+		if (list) {
+			list.push(range);
+		} else {
+			byUser.set(row.userId, [range]);
+		}
 	}
 	for (const [id, list] of byUser) {
 		byUser.set(
@@ -193,7 +200,9 @@ export function buildMonthView(
 		const inMonth = day >= firstDay && day <= lastDay;
 		const freeIds = active.filter((p) => covers(p.ranges, day)).map((p) => p.id);
 		const allFree = countedIds.length >= 2 && freeIds.length === countedIds.length;
-		if (allFree && inMonth) allFreeDays++;
+		if (allFree && inMonth) {
+			allFreeDays++;
+		}
 		const weekday = weekdayOf(day);
 
 		// "Back at school" is exactly this: not off now, off the day before.
@@ -208,16 +217,22 @@ export function buildMonthView(
 			const seen = new Set<string>();
 			const mine: DayReason[] = [];
 			for (const range of named.get(id) ?? []) {
-				if (day < range.start || day > range.end || seen.has(range.label)) continue;
+				if (day < range.start || day > range.end || seen.has(range.label)) {
+					continue;
+				}
 				seen.add(range.label);
 				mine.push({ name: range.name, label: range.label, season: range.season });
 				const count = (tally.get(range.season) ?? 0) + 1;
 				tally.set(range.season, count);
 				// First past the post, ties going to whoever got there first, so the mark on a
 				// mixed day is the season most of the group is actually in.
-				if (season === null || count > (tally.get(season) ?? 0)) season = range.season;
+				if (season === null || count > (tally.get(season) ?? 0)) {
+					season = range.season;
+				}
 			}
-			if (mine.length > 0) reasons.set(id, mine);
+			if (mine.length > 0) {
+				reasons.set(id, mine);
+			}
 		}
 
 		week.push({
@@ -265,7 +280,9 @@ export function distinctReasons(cell: DayCell): DayReason[] {
 	for (const id of cell.freeIds) {
 		for (const reason of cell.reasons.get(id) ?? []) {
 			const key = reason.name.toLowerCase();
-			if (seen.has(key)) continue;
+			if (seen.has(key)) {
+				continue;
+			}
 			seen.add(key);
 			out.push(reason);
 		}
@@ -297,7 +314,9 @@ export function pickInitialMonth(participants: Participant[], todayIso: string):
 		.map((p) => ({ id: p.id, ranges: mergeRanges(p.ranges) }))
 		.filter((p) => p.ranges.length > 0);
 
-	if (active.length === 0) return monthOf(today);
+	if (active.length === 0) {
+		return monthOf(today);
+	}
 
 	// 1. The next day on which everybody is free.
 	if (active.length >= 2) {
@@ -306,7 +325,9 @@ export function pickInitialMonth(participants: Participant[], todayIso: string):
 		const from = Math.max(today, Math.min(...starts));
 		const to = Math.max(...ends);
 		for (let day = from; day <= to; day++) {
-			if (active.every((p) => covers(p.ranges, day))) return monthOf(day);
+			if (active.every((p) => covers(p.ranges, day))) {
+				return monthOf(day);
+			}
 		}
 	}
 
@@ -315,7 +336,9 @@ export function pickInitialMonth(participants: Participant[], todayIso: string):
 		.flatMap((p) => p.ranges)
 		.filter((r) => r.end >= today)
 		.toSorted((a, b) => a.start - b.start);
-	if (upcoming.length > 0) return monthOf(Math.max(upcoming[0].start, today));
+	if (upcoming.length > 0) {
+		return monthOf(Math.max(upcoming[0].start, today));
+	}
 
 	// 3. Everything is in the past: show where the breaks actually are.
 	const latest = active.flatMap((p) => p.ranges).toSorted((a, b) => b.start - a.start)[0];
@@ -342,7 +365,9 @@ interface SourcedBreak {
  * stated reason is what they are shown by, so there is nothing left to hedge.
  */
 export function assumedFreeIds(rows: SourcedBreak[], iso: string | null): string[] {
-	if (iso === null) return [];
+	if (iso === null) {
+		return [];
+	}
 	const day = toDay(iso);
 	const covering = rows.filter((row) => toDay(row.startDate) <= day && day <= toDay(row.endDate));
 	const stated = new Set(
@@ -363,10 +388,14 @@ export function toParticipants(
 	breaks: { userId: string; startDate: string; endDate: string }[],
 ): Participant[] {
 	const byUser = new Map<string, DayRange[]>();
-	for (const person of people) byUser.set(person.id, []);
+	for (const person of people) {
+		byUser.set(person.id, []);
+	}
 	for (const b of breaks) {
 		const list = byUser.get(b.userId);
-		if (!list) continue;
+		if (!list) {
+			continue;
+		}
 		list.push({ start: toDay(b.startDate), end: toDay(b.endDate) });
 	}
 	return people.map((p) => ({ id: p.id, ranges: byUser.get(p.id) ?? [] }));

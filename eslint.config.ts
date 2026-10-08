@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import path from "node:path";
 
 import js from "@eslint/js";
 import json from "@eslint/json";
@@ -33,6 +33,7 @@ export default defineConfig([
 			},
 		},
 		rules: {
+			curly: ["error", "all"],
 			"no-undef": "off",
 			"no-constant-condition": "off",
 			"@typescript-eslint/no-unnecessary-condition": [

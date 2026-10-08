@@ -57,8 +57,12 @@ export interface Signal {
 const NA = "(unavailable)";
 
 function str(v: unknown): string {
-	if (v === null || v === undefined) return NA;
-	if (Array.isArray(v)) return v.length > 0 ? v.join(", ") : "(empty)";
+	if (v === null || v === undefined) {
+		return NA;
+	}
+	if (Array.isArray(v)) {
+		return v.length > 0 ? v.join(", ") : "(empty)";
+	}
 	if (typeof v === "object") {
 		try {
 			return JSON.stringify(v);
@@ -66,10 +70,18 @@ function str(v: unknown): string {
 			return Object.prototype.toString.call(v);
 		}
 	}
-	if (typeof v === "string") return v;
-	if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") return String(v);
-	if (typeof v === "symbol") return v.toString();
-	if (typeof v === "function") return String(v);
+	if (typeof v === "string") {
+		return v;
+	}
+	if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") {
+		return String(v);
+	}
+	if (typeof v === "symbol") {
+		return v.toString();
+	}
+	if (typeof v === "function") {
+		return String(v);
+	}
 	return NA;
 }
 
@@ -97,7 +109,9 @@ function canvasDigest(): string {
 	c.width = 240;
 	c.height = 60;
 	const ctx = c.getContext("2d");
-	if (!ctx) return NA;
+	if (!ctx) {
+		return NA;
+	}
 	ctx.textBaseline = "top";
 	ctx.font = "14px 'Arial'";
 	ctx.fillStyle = "#f60";
@@ -114,7 +128,9 @@ function webglInfo(): { renderer: string; vendor: string; digest: string } {
 	const c = document.createElement("canvas");
 	const gl = (c.getContext("webgl") ??
 		c.getContext("experimental-webgl")) as WebGLRenderingContext | null;
-	if (!gl) return { renderer: NA, vendor: NA, digest: NA };
+	if (!gl) {
+		return { renderer: NA, vendor: NA, digest: NA };
+	}
 	const dbg = gl.getExtension("WEBGL_debug_renderer_info");
 	const renderer = dbg ? str(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : "(masked)";
 	const vendor = dbg ? str(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)) : "(masked)";
@@ -135,7 +151,9 @@ async function audioDigest(): Promise<string> {
 				.OfflineAudioContext ??
 			(window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext })
 				.webkitOfflineAudioContext;
-		if (!Ctx) return NA;
+		if (!Ctx) {
+			return NA;
+		}
 		const ctx = new Ctx(1, 44100, 44100);
 		const osc = ctx.createOscillator();
 		osc.type = "triangle";
@@ -147,7 +165,9 @@ async function audioDigest(): Promise<string> {
 		const buf = await ctx.startRendering();
 		const data = buf.getChannelData(0).slice(4500, 4600);
 		let acc = 0;
-		for (const v of data) acc += Math.abs(v);
+		for (const v of data) {
+			acc += Math.abs(v);
+		}
 		return digest(acc.toString());
 	} catch {
 		return NA;
@@ -167,7 +187,9 @@ function timezone(): string {
  * module is import-safe.
  */
 export async function collectSignals(): Promise<Signal[]> {
-	if (typeof window === "undefined" || typeof navigator === "undefined") return [];
+	if (typeof window === "undefined" || typeof navigator === "undefined") {
+		return [];
+	}
 
 	const n = navigator;
 	const s = screen;
@@ -493,7 +515,9 @@ export async function collectSignals(): Promise<Signal[]> {
 	// audio is async — fill it in after the synchronous signals so the UI can render immediately
 	const audio = await audioDigest();
 	const audioSig = out.find((x) => x.id === "audio.digest");
-	if (audioSig) audioSig.value = audio;
+	if (audioSig) {
+		audioSig.value = audio;
+	}
 
 	return out;
 }

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import * as path from "node:path";
+import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -93,8 +93,9 @@ const serviceFixture = async (
 	} = {},
 ) => {
 	const result = await fixture();
-	if (options.validOidcManifest === false)
+	if (options.validOidcManifest === false) {
 		await writeFile(path.join(result.root, ".amp/portals/grove-oidc.json"), "{}");
+	}
 	await writeFile(
 		path.join(result.root, "bin/docker"),
 		`#!/usr/bin/env bash

@@ -3,8 +3,9 @@ import { GROVE_MCP_ISSUER, GROVE_MCP_JWKS_URL, GROVE_MCP_RESOURCE } from "$app/e
 import { makeMcpIngress, type McpIngressConfig } from "./mcp/ingress";
 
 const requireRuntimeString = (value: unknown, name: string) => {
-	if (typeof value !== "string" || value.length === 0)
+	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
+	}
 	return value;
 };
 

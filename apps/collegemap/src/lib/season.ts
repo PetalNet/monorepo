@@ -40,9 +40,15 @@ const NAME_RULES: readonly (readonly [RegExp, Season])[] = [
 
 /** Meteorological seasons: Mar-May spring, Jun-Aug summer, Sep-Nov autumn, Dec-Feb winter. */
 function seasonOfMonth(month1: number): Season {
-	if (month1 >= 3 && month1 <= 5) return "spring";
-	if (month1 >= 6 && month1 <= 8) return "summer";
-	if (month1 >= 9 && month1 <= 11) return "autumn";
+	if (month1 >= 3 && month1 <= 5) {
+		return "spring";
+	}
+	if (month1 >= 6 && month1 <= 8) {
+		return "summer";
+	}
+	if (month1 >= 9 && month1 <= 11) {
+		return "autumn";
+	}
 	return "winter";
 }
 
@@ -50,7 +56,9 @@ function seasonOfMonth(month1: number): Season {
 export function deriveSeason(label: string, startIso: string): Season {
 	const name = breakName(label);
 	for (const [pattern, season] of NAME_RULES) {
-		if (pattern.test(name)) return season;
+		if (pattern.test(name)) {
+			return season;
+		}
 	}
 	return seasonOfMonth(Number(startIso.slice(5, 7)));
 }

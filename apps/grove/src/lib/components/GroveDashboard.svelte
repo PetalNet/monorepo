@@ -70,7 +70,9 @@
 		const seen = new SvelteSet<string>();
 		return result.fixes.filter((fix) => {
 			const key = `${fix.action}:${fix.agentId}:${fix.personId}:${fix.capability}`;
-			if (!fix.available || seen.has(key)) return false;
+			if (!fix.available || seen.has(key)) {
+				return false;
+			}
 			seen.add(key);
 			return true;
 		});
@@ -247,7 +249,9 @@
 				try {
 					if (await form.submit()) {
 						const result = form.result;
-						if (result) containment = result;
+						if (result) {
+							containment = result;
+						}
 					}
 				} catch (cause) {
 					containment = { ok: false, message: failureMessage(cause) };
@@ -309,7 +313,9 @@
 								class="contents"
 								{...fixForm.enhance(async (form) => {
 									try {
-										if (await form.submit()) containment = { ok: true };
+										if (await form.submit()) {
+											containment = { ok: true };
+										}
 									} catch (cause) {
 										containment = { ok: false, message: failureMessage(cause) };
 									}

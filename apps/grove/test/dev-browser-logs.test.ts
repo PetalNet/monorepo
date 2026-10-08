@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import * as path from "node:path";
+import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -102,8 +102,9 @@ describe("Grove development browser logs", () => {
 			"api-value",
 			"credential-value",
 			"query-value",
-		])
+		]) {
 			expect(serialized).not.toContain(secret);
+		}
 	});
 
 	it("uses server chronology and writes terminal-safe redacted lines", async () => {
@@ -151,8 +152,9 @@ describe("Grove development browser logs", () => {
 			"session-secret",
 			"server-user",
 			"server-password",
-		])
+		]) {
 			expect(contents).not.toContain(secret);
+		}
 		for (const character of contents) {
 			const codePoint = character.codePointAt(0) ?? 0;
 			expect(

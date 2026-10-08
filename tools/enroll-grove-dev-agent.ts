@@ -38,16 +38,20 @@ const portal = async (service: string) => {
 		manifest === null ||
 		!("links" in manifest) ||
 		!Array.isArray(manifest.links)
-	)
+	) {
 		throw new Error(`${service} portal manifest has no links`);
+	}
 	const links: readonly unknown[] = manifest.links;
 	const first = links[0];
 	const value =
 		typeof first === "object" && first !== null && "url" in first ? first.url : undefined;
-	if (typeof value !== "string") throw new Error(`${service} portal manifest has no URL`);
+	if (typeof value !== "string") {
+		throw new TypeError(`${service} portal manifest has no URL`);
+	}
 	const url = new URL(value);
-	if (url.protocol !== "https:" || url.username || url.password)
+	if (url.protocol !== "https:" || url.username || url.password) {
 		throw new Error(`${service} portal manifest does not contain a safe HTTPS URL`);
+	}
 	return url;
 };
 
@@ -72,7 +76,10 @@ try {
 		name: "agents.enrollSelf",
 		arguments: { name },
 	});
-	if (enrolled.isError) throw new Error("Grove rejected Agent enrollment");
+	if (enrolled.isError) {
+		// oxlint-disable-next-line unicorn/prefer-type-error -- MCP's isError is an operation failure flag, not a type predicate.
+		throw new Error("Grove rejected Agent enrollment");
+	}
 	process.stdout.write(
 		`${JSON.stringify(
 			{

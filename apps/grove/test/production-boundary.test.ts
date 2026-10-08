@@ -20,10 +20,13 @@ const bundle = (code: string, specifier = devModule) =>
 			{
 				name: "boundary-test-entry",
 				async resolveId(source, importer) {
-					if (source === entry) return entry;
+					if (source === entry) {
+						return entry;
+					}
 					// Keep fixture JavaScript static; vary paths through Vite's resolver.
-					if (source === "boundary-test-target")
+					if (source === "boundary-test-target") {
 						return this.resolve(specifier, importer, { skipSelf: true });
+					}
 					return undefined;
 				},
 				load: (id) => (id === entry ? code : undefined),

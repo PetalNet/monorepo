@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readdir, readFile } from "node:fs/promises";
-import * as path from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -37,15 +37,18 @@ const artifacts = await Promise.all(
 );
 for (const { content, path: filePath } of artifacts) {
 	for (const marker of forbidden) {
-		if (content.includes(marker)) leaks.push({ marker, path: filePath.slice(root.length) });
+		if (content.includes(marker)) {
+			leaks.push({ marker, path: filePath.slice(root.length) });
+		}
 	}
 }
 
-if (leaks.length > 0)
+if (leaks.length > 0) {
 	throw new Error(
 		`Grove production build contains development control-plane implementation:\n${leaks
 			.map(({ marker, path: filePath }) => `- ${filePath}: ${marker}`)
 			.join("\n")}`,
 	);
+}
 
 console.log("Grove production build excludes development control-plane implementation");

@@ -88,7 +88,9 @@ export const createMcpLayer = <R>(config: McpConfig<R>) =>
 					handle: Effect.fnUntraced(function* (input: unknown) {
 						// MCP erases custom handler requirements; fail closed if invoked outside our HTTP boundary.
 						const current = yield* Effect.serviceOption(ApiRequest);
-						if (Option.isNone(current)) return yield* Effect.die("Missing API request context");
+						if (Option.isNone(current)) {
+							return yield* Effect.die("Missing API request context");
+						}
 						const request = current.value;
 						return yield* invokeOperation(operation, input, config.logCause).pipe(
 							Effect.provide(request.services),

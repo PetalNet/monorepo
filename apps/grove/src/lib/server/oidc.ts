@@ -51,13 +51,16 @@ export const groveOidc = (config: GroveOidcConfig) => {
 				!provider?.idToken ||
 				provider.issuer !== issuer ||
 				provider.requiresIdTokenNonce !== true
-			)
+			) {
 				throw new Error("Grove OIDC discovery did not match the pinned issuer and nonce policy");
+			}
 
 			const getUserInfo = provider.getUserInfo.bind(provider);
 			provider.getUserInfo = async (tokens) => {
 				const result = await getUserInfo(tokens);
-				if (!result?.user.emailVerified || !tokens.idToken) return null;
+				if (!result?.user.emailVerified || !tokens.idToken) {
+					return null;
+				}
 				const claims = decodeJwt(tokens.idToken);
 				const audience = Array.isArray(claims.aud) ? claims.aud : claims.aud ? [claims.aud] : [];
 				if (
@@ -67,18 +70,21 @@ export const groveOidc = (config: GroveOidcConfig) => {
 					typeof claims.iat !== "number" ||
 					(claims.azp !== undefined && claims.azp !== config.clientId) ||
 					(audience.length > 1 && claims.azp !== config.clientId)
-				)
+				) {
 					return null;
+				}
 				return result;
 			};
 
 			const validateAuthorizationCode = provider.validateAuthorizationCode.bind(provider);
 			provider.validateAuthorizationCode = async (data) => {
 				const tokens = await validateAuthorizationCode(data);
-				if (tokens === null)
+				if (tokens === null) {
 					throw new Error("Grove OIDC token response omitted the required ID token");
-				if (!tokens.idToken)
+				}
+				if (!tokens.idToken) {
 					throw new Error("Grove OIDC token response omitted the required ID token");
+				}
 				return tokens;
 			};
 			return initialized;

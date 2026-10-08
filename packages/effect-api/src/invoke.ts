@@ -45,7 +45,9 @@ const handleCause = Effect.fnUntraced(function* <R>(
 					return Effect.fail(operationFailed());
 				}),
 			);
-			if (mapped.status >= 500) logCause(operation.name, cause);
+			if (mapped.status >= 500) {
+				logCause(operation.name, cause);
+			}
 			return yield* mapped;
 		}
 	}

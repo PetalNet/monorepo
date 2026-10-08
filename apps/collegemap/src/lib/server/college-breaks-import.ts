@@ -159,7 +159,9 @@ const ACADEMIC_YEAR_OPENS = "-07-01";
  */
 function academicYearOpensOn(generatedFor: string): string {
 	const year = /^\d{4}/.exec(generatedFor)?.[0];
-	if (year === undefined) throw new Error(`No start year in generated_for: ${generatedFor}`);
+	if (year === undefined) {
+		throw new Error(`No start year in generated_for: ${generatedFor}`);
+	}
 	return `${year}${ACADEMIC_YEAR_OPENS}`;
 }
 
@@ -187,7 +189,9 @@ function fallStartRow(
 		.filter(isDatedTermBoundary)
 		.toSorted((left, right) => left.start_date.localeCompare(right.start_date))
 		.at(0);
-	if (!anchor) throw new Error(`No dated term boundary to anchor a summer break: ${school}`);
+	if (!anchor) {
+		throw new Error(`No dated term boundary to anchor a summer break: ${school}`);
+	}
 	return anchor;
 }
 
@@ -235,16 +239,22 @@ export async function resolveCollegeIds(database: Database): Promise<Map<string,
 		.from(colleges)
 		.where(and(inArray(colleges.name, dbNames), eq(colleges.kind, "college")));
 	const byName = new Map<string, string[]>();
-	for (const row of rows) byName.set(row.name, [...(byName.get(row.name) ?? []), row.id]);
+	for (const row of rows) {
+		byName.set(row.name, [...(byName.get(row.name) ?? []), row.id]);
+	}
 
 	const resolved = new Map<string, string>();
 	for (const school of schools) {
 		const dbName = COLLEGE_NAME_MAP[school.name];
 		const ids = dbName ? byName.get(dbName) : undefined;
-		if (ids?.length !== 1) throw new Error(`Unmatched college: ${school.name}`);
+		if (ids?.length !== 1) {
+			throw new Error(`Unmatched college: ${school.name}`);
+		}
 		resolved.set(school.name, ids[0]);
 	}
-	if (resolved.size !== schools.length) throw new Error("Could not resolve every source school");
+	if (resolved.size !== schools.length) {
+		throw new Error("Could not resolve every source school");
+	}
 	return resolved;
 }
 
@@ -258,7 +268,9 @@ export async function importCollegeBreaks(database: Database): Promise<number> {
 		// resolveCollegeIds already threw for anything unmatched, so this is belt-and-braces — but a
 		// silent undefined here would write rows against no college at all.
 		const collegeId = collegeIds.get(school.name);
-		if (collegeId === undefined) throw new Error(`Unresolved college: ${school.name}`);
+		if (collegeId === undefined) {
+			throw new Error(`Unresolved college: ${school.name}`);
+		}
 
 		const quoted = entry.rows.map((source) => {
 			// A school's derived span applies to exactly the one row whose label matches; its other

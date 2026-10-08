@@ -102,7 +102,9 @@ describe("MCP protected-resource ingress", () => {
 			jwksServer.listen(0, "127.0.0.1", resolve);
 		});
 		const address = jwksServer.address();
-		if (!address || typeof address === "string") throw new Error("Expected TCP listener");
+		if (!address || typeof address === "string") {
+			throw new Error("Expected TCP listener");
+		}
 		config.jwksUrl = `http://127.0.0.1:${String(address.port)}/jwks`;
 		ingress = makeMcpIngress(config);
 	}, 60_000);
@@ -148,25 +150,34 @@ describe("MCP protected-resource ingress", () => {
 		standardHeaders = true,
 	) => {
 		const headers = new Headers(extraHeaders);
-		if (!headers.has("content-type")) headers.set("content-type", "application/json");
-		if (!headers.has("accept")) headers.set("accept", "application/json, text/event-stream");
+		if (!headers.has("content-type")) {
+			headers.set("content-type", "application/json");
+		}
+		if (!headers.has("accept")) {
+			headers.set("accept", "application/json, text/event-stream");
+		}
 		if (standardHeaders) {
 			try {
 				const parsed = JSON.parse(body) as {
 					readonly method?: unknown;
 					readonly params?: { readonly name?: unknown };
 				};
-				if (typeof parsed.method === "string" && !headers.has("mcp-method"))
+				if (typeof parsed.method === "string" && !headers.has("mcp-method")) {
 					headers.set("mcp-method", parsed.method);
-				if (typeof parsed.params?.name === "string" && !headers.has("mcp-name"))
+				}
+				if (typeof parsed.params?.name === "string" && !headers.has("mcp-name")) {
 					headers.set("mcp-name", parsed.params.name);
+				}
 			} catch {
 				// Ingress parse-error tests deliberately send malformed JSON.
 			}
-			if (!headers.has("mcp-protocol-version"))
+			if (!headers.has("mcp-protocol-version")) {
 				headers.set("mcp-protocol-version", MCP_PROTOCOL_VERSION);
+			}
 		}
-		if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
+		if (accessToken) {
+			headers.set("authorization", `Bearer ${accessToken}`);
+		}
 		return runtime.runPromise(
 			target.handle(
 				new Request(`${config.resourceOrigin}/mcp`, {
@@ -231,8 +242,9 @@ describe("MCP protected-resource ingress", () => {
 		expect(response.headers.get("www-authenticate")).toContain(
 			'resource_metadata="https://grove.example/.well-known/oauth-protected-resource/mcp"',
 		);
-		if (status === 403)
+		if (status === 403) {
 			expect(response.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
+		}
 	});
 
 	it("refreshes cached JWKS when the issuer rotates to a new key", async () => {
@@ -270,10 +282,11 @@ describe("MCP protected-resource ingress", () => {
 				),
 			);
 			expect(Exit.isFailure(exit)).toBe(true);
-			if (Exit.isFailure(exit))
+			if (Exit.isFailure(exit)) {
 				expect(exit.cause.reasons).toContainEqual(
 					expect.objectContaining(kind === "failure" ? { error: failure } : { defect: failure }),
 				);
+			}
 		},
 	);
 
@@ -484,8 +497,9 @@ describe("MCP protected-resource ingress", () => {
 		const lastActor = created.result.structuredContent.lastActorId;
 		expect(createdBy).toEqual(expect.any(String));
 		expect(lastActor).toEqual(expect.any(String));
-		if (typeof createdBy !== "string" || typeof lastActor !== "string")
+		if (typeof createdBy !== "string" || typeof lastActor !== "string") {
 			throw new TypeError("Expected Agent actor IDs");
+		}
 		expect(createdBy).toMatch(/^agent-/);
 		expect(lastActor).toBe(createdBy);
 
@@ -627,8 +641,11 @@ describe("MCP protected-resource ingress", () => {
 					{
 						pull(controller) {
 							const chunk = chunks.at(index++);
-							if (chunk) controller.enqueue(chunk);
-							else controller.close();
+							if (chunk) {
+								controller.enqueue(chunk);
+							} else {
+								controller.close();
+							}
 						},
 						cancel,
 					},
@@ -641,7 +658,9 @@ describe("MCP protected-resource ingress", () => {
 					"mcp-protocol-version": MCP_PROTOCOL_VERSION,
 					"mcp-method": "tools/list",
 				});
-				if (length) headers.set("content-length", length);
+				if (length) {
+					headers.set("content-length", length);
+				}
 				const incoming = new Request(`${config.resourceOrigin}/mcp`, {
 					method: "POST",
 					headers,
@@ -650,12 +669,18 @@ describe("MCP protected-resource ingress", () => {
 				} as RequestInit);
 				const response = await runtime.runPromise(ingress.handle(incoming));
 				expect(response.status).toBe(status);
-				if (status === 200) expect(await json(response)).toMatchObject({ result: { tools: [] } });
-				if (status === 400) expect(await json(response)).toMatchObject({ error: { code: -32700 } });
+				if (status === 200) {
+					expect(await json(response)).toMatchObject({ result: { tools: [] } });
+				}
+				if (status === 400) {
+					expect(await json(response)).toMatchObject({ error: { code: -32700 } });
+				}
 				if (status === 413) {
 					expect(await responseJson(response)).toMatchObject({ error: "request_too_large" });
 					expect(cancel).toHaveBeenCalledOnce();
-				} else expect(cancel).not.toHaveBeenCalled();
+				} else {
+					expect(cancel).not.toHaveBeenCalled();
+				}
 			}),
 		);
 	});

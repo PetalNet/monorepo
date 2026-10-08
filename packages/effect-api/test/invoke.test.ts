@@ -16,9 +16,13 @@ const base = operation({
 
 const failureOf = (exit: Exit.Exit<unknown, InvocationFailure>) => {
 	expect(Exit.isFailure(exit)).toBe(true);
-	if (Exit.isSuccess(exit)) throw new Error("Expected failure");
+	if (Exit.isSuccess(exit)) {
+		throw new Error("Expected failure");
+	}
 	const reason = exit.cause.reasons[0];
-	if (!reason || !Cause.isFailReason(reason)) throw new Error("Expected typed failure");
+	if (!reason || !Cause.isFailReason(reason)) {
+		throw new Error("Expected typed failure");
+	}
 	expect(reason.error).toBeInstanceOf(InvocationFailure);
 	return reason.error;
 };
@@ -80,7 +84,9 @@ describe("invokeOperation", () => {
 					Schema.String,
 					SchemaTransformation.transformEffect<string, string>({
 						decode: () => {
-							if (mode === "throw") throw new Error("private-decoder-marker");
+							if (mode === "throw") {
+								throw new Error("private-decoder-marker");
+							}
 							return Effect.die("private-decoder-marker");
 						},
 						encode: Effect.succeed,
@@ -123,7 +129,9 @@ describe("invokeOperation", () => {
 		async (mode) => {
 			const output = Schema.String.check(
 				Schema.makeFilter(() => {
-					if (mode === "defect") throw new Error("private-output-marker");
+					if (mode === "defect") {
+						throw new Error("private-output-marker");
+					}
 					return false;
 				}),
 			);
@@ -145,8 +153,11 @@ describe("invokeOperation", () => {
 			expect(statusForError).not.toHaveBeenCalled();
 			expect(logCause).toHaveBeenCalledOnce();
 			const logged = logCause.mock.calls[0]?.[1] as Cause.Cause<unknown>;
-			if (mode === "defect") expect(Cause.pretty(logged)).toContain("private-output-marker");
-			else expect(Cause.hasFails(logged)).toBe(true);
+			if (mode === "defect") {
+				expect(Cause.pretty(logged)).toContain("private-output-marker");
+			} else {
+				expect(Cause.hasFails(logged)).toBe(true);
+			}
 			expect(JSON.stringify(failureOf(exit))).not.toContain("private-output-marker");
 		},
 	);

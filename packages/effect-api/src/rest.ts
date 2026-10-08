@@ -19,7 +19,9 @@ export const createRestLayer = <R>(config: RestConfig<R>) =>
 			const router = yield* HttpRouter.HttpRouter;
 			for (const operation of config.operations) {
 				const rest = operation.rest;
-				if (!rest) continue;
+				if (!rest) {
+					continue;
+				}
 				yield* router.add(
 					rest.method,
 					`${config.basePath.replace(/\/$/, "")}${rest.path}` as `/${string}`,

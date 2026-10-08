@@ -79,12 +79,18 @@
 	});
 
 	onDestroy(() => {
-		if (timerInterval) clearInterval(timerInterval);
-		if (pollInterval) clearInterval(pollInterval);
+		if (timerInterval) {
+			clearInterval(timerInterval);
+		}
+		if (pollInterval) {
+			clearInterval(pollInterval);
+		}
 	});
 
 	function startTimer() {
-		if (timerRunning) return;
+		if (timerRunning) {
+			return;
+		}
 		timerRunning = true;
 		timerInterval = setInterval(() => {
 			if (timerSeconds === 0) {

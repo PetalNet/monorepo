@@ -60,8 +60,9 @@ const modernMcpRequest = (id: number, method: string, params: Record<string, unk
 		"mcp-protocol-version": MCP_PROTOCOL_VERSION,
 		"mcp-method": method,
 	});
-	if (method === "tools/call" && typeof params.name === "string")
+	if (method === "tools/call" && typeof params.name === "string") {
 		headers.set("mcp-name", params.name);
+	}
 	return new Request("https://effect-api.test/mcp", {
 		method: "POST",
 		headers,
@@ -1131,8 +1132,11 @@ describe("createEffectApi", () => {
 				});
 				current = Object.getOwnPropertyDescriptor(target, "get");
 			} finally {
-				if (previous) Object.defineProperty(target, "get", previous);
-				else Reflect.deleteProperty(target, "get");
+				if (previous) {
+					Object.defineProperty(target, "get", previous);
+				} else {
+					Reflect.deleteProperty(target, "get");
+				}
 			}
 			expect(current).toEqual(previous);
 			expect(Object.hasOwn(docs.paths, path)).toBe(true);
@@ -1158,7 +1162,9 @@ describe("createEffectApi", () => {
 			],
 		});
 		const methods = docs.paths["/items"];
-		if (!methods) throw new Error("Missing /items path");
+		if (!methods) {
+			throw new Error("Missing /items path");
+		}
 		expect(Object.getPrototypeOf(methods)).toBe(Object.prototype);
 		expect(Object.hasOwn(methods, "__proto__")).toBe(true);
 		expect(JSON.stringify(docs)).toContain('"__proto__":{"operationId":"untyped"');

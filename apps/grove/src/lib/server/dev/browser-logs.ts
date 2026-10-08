@@ -1,5 +1,5 @@
 import { mkdir, open } from "node:fs/promises";
-import * as path from "node:path";
+import path from "node:path";
 import process from "node:process";
 
 import { sanitizeDevBrowserLogText } from "#lib/dev/browser-log-sanitizer.ts";
@@ -24,10 +24,13 @@ const errorResponse = (status: number, error: string, message: string) =>
 
 const readBoundedBody = async (request: Request): Promise<string | Response> => {
 	const contentLength = request.headers.get("content-length");
-	if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MAX_REQUEST_BYTES)
+	if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MAX_REQUEST_BYTES) {
 		return errorResponse(413, "request_too_large", "Browser log requests must not exceed 16 KiB");
+	}
 	const reader = request.body?.getReader();
-	if (!reader) return "";
+	if (!reader) {
+		return "";
+	}
 	const decoder = new TextDecoder("utf-8", { fatal: true });
 	let byteLength = 0;
 	let body = "";
@@ -36,7 +39,9 @@ const readBoundedBody = async (request: Request): Promise<string | Response> => 
 			// A request stream is sequential; every chunk must count toward the hard byte bound.
 			// oxlint-disable-next-line no-await-in-loop
 			const { done, value } = await reader.read();
-			if (done) break;
+			if (done) {
+				break;
+			}
 			byteLength += value.byteLength;
 			if (byteLength > MAX_REQUEST_BYTES) {
 				// oxlint-disable-next-line no-await-in-loop
@@ -59,7 +64,9 @@ const readBoundedBody = async (request: Request): Promise<string | Response> => 
 };
 
 const validEntry = (value: unknown): value is BrowserLogEntry => {
-	if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		return false;
+	}
 	const entry = value as Record<string, unknown>;
 	return (
 		typeof entry.level === "string" &&
@@ -88,7 +95,9 @@ const appendBounded = async (filePath: string, lines: string) => {
 	try {
 		await file.chmod(0o600);
 		const currentBytes = (await file.stat()).size;
-		if (currentBytes + incomingBytes > DEV_BROWSER_LOG_MAX_BYTES) await file.truncate(0);
+		if (currentBytes + incomingBytes > DEV_BROWSER_LOG_MAX_BYTES) {
+			await file.truncate(0);
+		}
 		await file.appendFile(lines, "utf8");
 	} finally {
 		await file.close();
@@ -109,26 +118,31 @@ export const ingestDevBrowserLogs = async (
 	if (
 		request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
 		"application/json"
-	)
+	) {
 		return errorResponse(415, "unsupported_media_type", "Browser logs must use application/json");
+	}
 	const body = await readBoundedBody(request);
-	if (body instanceof Response) return body;
+	if (body instanceof Response) {
+		return body;
+	}
 	let decoded: unknown;
 	try {
 		decoded = JSON.parse(body) as unknown;
 	} catch {
 		return errorResponse(400, "invalid_body", "Browser log body must be valid JSON");
 	}
-	if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded))
+	if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
 		return errorResponse(400, "invalid_entries", "Browser log entries are invalid");
+	}
 	const entries = (decoded as Record<string, unknown>).entries;
 	if (
 		!Array.isArray(entries) ||
 		entries.length === 0 ||
 		entries.length > MAX_ENTRIES ||
 		!entries.every(validEntry)
-	)
+	) {
 		return errorResponse(400, "invalid_entries", "Browser log entries are invalid");
+	}
 	await writeBounded(filePath, linesFor(entries));
 	return new Response(null, { status: 202 });
 };

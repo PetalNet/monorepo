@@ -102,21 +102,28 @@
 	}
 
 	function getGroupStatus(group: any) {
-		if (group.status === "submitted")
+		if (group.status === "submitted") {
 			return { text: "✅ Submitted", color: "bg-green-900/30 border-green-500/30 text-green-300" };
-		if ((data.event as any).submissionsClosed || data.deadlinePassed)
+		}
+		if ((data.event as any).submissionsClosed || data.deadlinePassed) {
 			return { text: "🔒 Closed", color: "bg-yellow-900/30 border-yellow-500/30 text-yellow-300" };
+		}
 		return { text: "⏳ Pending", color: "bg-gray-800 border-gray-700 text-gray-400" };
 	}
 
 	function getMemberBadge(isLeader: boolean, isYou: boolean) {
-		if (isLeader && isYou)
+		if (isLeader && isYou) {
 			return {
 				text: "👑 You (Leader)",
 				color: "bg-gradient-to-r from-yellow-500 to-purple-600 text-white font-bold",
 			};
-		if (isLeader) return { text: "⭐ Leader", color: "bg-theater-purple text-white" };
-		if (isYou) return { text: "🎤 You", color: "bg-blue-600 text-white font-semibold" };
+		}
+		if (isLeader) {
+			return { text: "⭐ Leader", color: "bg-theater-purple text-white" };
+		}
+		if (isYou) {
+			return { text: "🎤 You", color: "bg-blue-600 text-white font-semibold" };
+		}
 		return { text: "👤 Member", color: "bg-gray-700 text-gray-300" };
 	}
 
@@ -753,8 +760,9 @@
 															!confirm(
 																`Remove ${participant.name} from all presentations in this event?`,
 															)
-														)
+														) {
 															e.preventDefault();
+														}
 													}}
 												>
 													🗑️ Remove
@@ -840,8 +848,12 @@
 			{@const sortedGroups = [...data.event.groups].sort((a, b) => {
 				const aIsUser = userGroupIds.has(a.id);
 				const bIsUser = userGroupIds.has(b.id);
-				if (aIsUser && !bIsUser) return -1;
-				if (!aIsUser && bIsUser) return 1;
+				if (aIsUser && !bIsUser) {
+					return -1;
+				}
+				if (!aIsUser && bIsUser) {
+					return 1;
+				}
 				return 0;
 			})}
 
@@ -1501,8 +1513,9 @@
 												!confirm(
 													"Delete this presentation? This removes all members and cannot be undone.",
 												)
-											)
+											) {
 												e.preventDefault();
+											}
 										}}>🗑️ Delete Presentation</button
 									>
 								</form>

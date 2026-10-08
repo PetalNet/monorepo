@@ -211,7 +211,9 @@ describe("the free windows a report surfaces", () => {
 				const free = people
 					.filter((p) => p.ranges.some((rr) => d >= rr.start && d <= rr.end))
 					.map((p) => p.id);
-				if (free.length >= floor) bruteByDay.set(d, free.join(" "));
+				if (free.length >= floor) {
+					bruteByDay.set(d, free.join(" "));
+				}
 			}
 
 			const engineByDay = new Map<number, string>();

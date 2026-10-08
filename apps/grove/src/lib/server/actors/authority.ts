@@ -74,8 +74,9 @@ const executorWithLockTargets = (...targets: readonly string[]) => {
 			...renderer,
 			render(plan) {
 				const rendered = renderer.render(plan);
-				if (!/ for (share|update)$/i.test(rendered.sql))
+				if (!/ for (share|update)$/i.test(rendered.sql)) {
 					throw new Error("Lock targets require a terminal FOR SHARE or FOR UPDATE clause");
+				}
 				return {
 					...rendered,
 					sql: `${rendered.sql} OF ${targets.map((name) => `"${name.replaceAll('"', '""')}"`).join(", ")}`,
@@ -493,20 +494,23 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				).pipe(
 					Effect.map((rows): HomeReadiness => {
 						const row = rows.at(0);
-						if (!row?.owner_person_id)
+						if (!row?.owner_person_id) {
 							return { status: "owner-unbound", configuredIdentity: config.homeOwner };
-						if (!row.configured_owner)
+						}
+						if (!row.configured_owner) {
 							return {
 								status: "owner-config-mismatch",
 								configuredIdentity: config.homeOwner,
 								ownerPersonId: row.owner_person_id,
 							};
-						if (row.owner_lifecycle !== "active")
+						}
+						if (row.owner_lifecycle !== "active") {
 							return {
 								status: "owner-not-current",
 								ownerPersonId: row.owner_person_id,
 								lifecycle: row.owner_lifecycle ?? "retired",
 							};
+						}
 						return { status: "ready", ownerPersonId: row.owner_person_id };
 					}),
 				),
@@ -521,8 +525,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								actor.identity_use !== "browser" ||
 								actor.auth_user_id !== input.authUserId ||
 								actor.lifecycle !== "active"
-							)
+							) {
 								return null;
+							}
 							return {
 								kind: "person",
 								actorId: actor.actor_id,
@@ -533,11 +538,13 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					),
 				);
 			const bindBrowserIdentity = (input: BrowserIdentityInput) => {
-				if (!input.emailVerified)
+				if (!input.emailVerified) {
 					return Effect.fail(new ActorDenied("A verified browser email is required"));
+				}
 				const name = normalizedName(input.name);
-				if (!name)
+				if (!name) {
 					return Effect.fail(new ActorDenied("Person name must be between 1 and 80 characters"));
+				}
 				return asDatabaseError(
 					withTransaction(
 						Effect.gen(function* () {
@@ -549,10 +556,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									existing.kind !== "person" ||
 									existing.identity_use !== "browser" ||
 									existing.auth_user_id !== input.authUserId
-								)
+								) {
 									return yield* Effect.fail(
 										new ActorDenied("The browser identity is already bound to another actor"),
 									);
+								}
 								actorIdValue = existing.actor_id;
 								yield* execute(
 									executor.execute(
@@ -570,10 +578,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 										),
 									),
 								);
-								if (byAuthUser.length > 0)
+								if (byAuthUser.length > 0) {
 									return yield* Effect.fail(
 										new ActorDenied("The browser account is already bound to another identity"),
 									);
+								}
 								actorIdValue = personId();
 								yield* execute(
 									executor.execute(
@@ -617,10 +626,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 										),
 									),
 								);
-								if (host.at(0)?.owner_person_id !== actorIdValue)
+								if (host.at(0)?.owner_person_id !== actorIdValue) {
 									return yield* Effect.fail(
 										new ActorDenied("The local Home Host is already owned by another Person"),
 									);
+								}
 							}
 
 							return {
@@ -638,21 +648,23 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					actorForIdentity(identity).pipe(
 						Effect.flatMap((rows): Effect.Effect<MachinePrincipal, ActorDenied> => {
 							const actor = rows.at(0);
-							if (!actor)
+							if (!actor) {
 								return Effect.succeed(
 									identity.scopes.has("grove:agent:enroll")
 										? { ...identity, kind: "bootstrap" }
 										: { ...identity, kind: "unbound" },
 								);
+							}
 							if (
 								actor.kind !== "agent" ||
 								actor.identity_use !== "machine" ||
 								!actor.home_host_id ||
 								!actor.owner_person_id
-							)
+							) {
 								return Effect.fail(
 									new ActorDenied("The machine identity is bound to a non-Agent actor"),
 								);
+							}
 							return Effect.succeed({
 								...identity,
 								kind: "agent",
@@ -665,11 +677,13 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					),
 				);
 			const enrollSelf = (identity: MachineIdentity, input: EnrollSelfInput) => {
-				if (!identity.scopes.has("grove:agent:enroll"))
+				if (!identity.scopes.has("grove:agent:enroll")) {
 					return Effect.fail(new ActorDenied("Agent enrollment scope is required"));
+				}
 				const name = normalizedName(input.name);
-				if (!name)
+				if (!name) {
 					return Effect.fail(new ActorDenied("Agent name must be between 1 and 80 characters"));
+				}
 				return asDatabaseError(
 					withTransaction(
 						Effect.gen(function* () {
@@ -682,10 +696,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									existing.identity_use !== "machine" ||
 									!existing.home_host_id ||
 									!existing.owner_person_id
-								)
+								) {
 									return yield* Effect.fail(
 										new ActorDenied("The external identity is already bound to another actor"),
 									);
+								}
 								const principal = {
 									...identity,
 									kind: "agent" as const,
@@ -704,8 +719,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									row?.agent_lifecycle !== "active" ||
 									row.owner_lifecycle !== "active" ||
 									row.host_owner_id !== existing.owner_person_id
-								)
+								) {
 									return yield* Effect.fail(new ActorNotCurrent(existing.actor_id));
+								}
 								return principal;
 							}
 							const host = yield* execute(
@@ -722,10 +738,12 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								),
 							);
 							const owner = host.at(0);
-							if (!owner?.owner_person_id)
+							if (!owner?.owner_person_id) {
 								return yield* Effect.fail(new HomeOwnerUnbound(config.homeOwner));
-							if (owner.owner_lifecycle !== "active")
+							}
+							if (owner.owner_lifecycle !== "active") {
 								return yield* Effect.fail(new ActorDenied("The Home Host owner is not active"));
+							}
 
 							const actorIdValue = agentId();
 							yield* execute(
@@ -785,8 +803,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								),
 							);
 							const row = rows.at(0);
-							if (row?.lifecycle !== "active")
+							if (row?.lifecycle !== "active") {
 								return yield* Effect.fail(new ActorNotCurrent(principal.actorId));
+							}
 							const granted = yield* execute(
 								executor.execute(
 									Q.select({ capability: capabilities.capability }).pipe(
@@ -801,8 +820,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									),
 								),
 							);
-							if (granted.length === 0)
+							if (granted.length === 0) {
 								return yield* Effect.fail(new ActorDenied(`Actor lacks ${operation}`));
+							}
 							return;
 						}
 
@@ -827,8 +847,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							row?.agent_lifecycle !== "active" ||
 							row.owner_lifecycle !== "active" ||
 							row.host_owner_id !== principal.ownerPersonId
-						)
+						) {
 							return yield* Effect.fail(new ActorNotCurrent(principal.actorId));
+						}
 						const granted = yield* execute(
 							executor.execute(
 								Q.select({ capability: capabilities.capability }).pipe(
@@ -843,13 +864,18 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								),
 							),
 						);
-						if (granted.length === 0)
+						if (granted.length === 0) {
 							return yield* Effect.fail(new ActorDenied(`Actor lacks ${operation}`));
+						}
 					}),
 				);
 			const authorizedOperations = (principal: MachinePrincipal) => {
-				if (principal.kind === "bootstrap") return Effect.succeed(["agents.enrollSelf"]);
-				if (principal.kind === "unbound") return Effect.succeed([]);
+				if (principal.kind === "bootstrap") {
+					return Effect.succeed(["agents.enrollSelf"]);
+				}
+				if (principal.kind === "unbound") {
+					return Effect.succeed([]);
+				}
 				return asDatabaseError(
 					withTransaction(
 						authorizeActor(principal, "sprouts.list").pipe(
@@ -933,8 +959,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						currentAgent?.agent_lifecycle !== "active" ||
 						currentAgent.owner_lifecycle !== "active" ||
 						currentAgent.owner_person_id !== currentAgent.host_owner_id
-					)
+					) {
 						return yield* Effect.fail(new ActorNotCurrent(agentIdValue));
+					}
 					const person = yield* execute(
 						executor.execute(
 							Q.select({ lifecycle: actors.lifecycle }).pipe(
@@ -944,8 +971,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							),
 						),
 					);
-					if (person.at(0)?.lifecycle !== "active")
+					if (person.at(0)?.lifecycle !== "active") {
 						return yield* Effect.fail(new ActorNotCurrent(personIdValue));
+					}
 					const agentCapabilities = (yield* capabilitiesFor(agentIdValue)).map(
 						(row) => row.capability,
 					);
@@ -967,8 +995,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					const missing = agentCapabilities.filter(
 						(capability) => !personCapabilities.has(capability),
 					);
-					if (missing.length > 0)
+					if (missing.length > 0) {
 						return yield* Effect.fail(conflictFor(agentIdValue, personIdValue, missing, false));
+					}
 					yield* execute(
 						executor.execute(
 							Q.insert(accessWrites, { agent_id: agentIdValue, person_id: personIdValue }).pipe(
@@ -988,10 +1017,14 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							capabilities: new Set<string>(),
 							isOwner: row.is_owner,
 						};
-						if (row.capability) person.capabilities.add(row.capability);
+						if (row.capability) {
+							person.capabilities.add(row.capability);
+						}
 						grouped.set(row.person_id, person);
 					}
-					if (grouped.size === 0) return yield* Effect.fail(new ActorNotCurrent(agentIdValue));
+					if (grouped.size === 0) {
+						return yield* Effect.fail(new ActorNotCurrent(agentIdValue));
+					}
 					const conflicts = [...grouped].filter(
 						([, person]) => !person.capabilities.has(capability),
 					);
@@ -1009,10 +1042,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					yield* insertCapability(agentIdValue, capability);
 				});
 			const removePersonCapability = (personIdValue: string, capability: string) => {
-				if (isSproutCapability(capability))
+				if (isSproutCapability(capability)) {
 					return Effect.fail(
 						new ActorDenied("Sprout compatibility capabilities apply to every active actor"),
 					);
+				}
 				return serializeContainment(
 					Effect.gen(function* () {
 						const rows = yield* execute(
@@ -1099,10 +1133,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									),
 								),
 							);
-							if (relationship.length === 0)
+							if (relationship.length === 0) {
 								return yield* Effect.fail(
 									new ActorDenied("The Person does not have access to this Agent"),
 								);
+							}
 							yield* insertCapability(fix.personId, fix.capability);
 						});
 					case "remove-agent-access":
@@ -1115,10 +1150,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									),
 								),
 							);
-							if (owner.at(0)?.owner_person_id === fix.personId)
+							if (owner.at(0)?.owner_person_id === fix.personId) {
 								return yield* Effect.fail(
 									new ActorDenied("A Home Host owner cannot lose access to a hosted Agent"),
 								);
+							}
 							yield* execute(
 								executor.execute(
 									Q.update(accessWrites, {
@@ -1137,10 +1173,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							);
 						});
 					case "remove-agent-capability":
-						if (isSproutCapability(fix.capability))
+						if (isSproutCapability(fix.capability)) {
 							return Effect.fail(
 								new ActorDenied("Sprout compatibility capabilities apply to every active actor"),
 							);
+						}
 						return deleteCapability(fix.agentId, fix.capability).pipe(Effect.asVoid);
 				}
 			};
@@ -1215,9 +1252,12 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						),
 					);
 					const current = rows.at(0)?.lifecycle;
-					if (!current) return yield* Effect.fail(new ActorNotCurrent(actorIdValue));
-					if (current === "retired" && lifecycle !== "retired")
+					if (!current) {
+						return yield* Effect.fail(new ActorNotCurrent(actorIdValue));
+					}
+					if (current === "retired" && lifecycle !== "retired") {
 						return yield* Effect.fail(new ActorDenied("A retired Actor cannot change lifecycle"));
+					}
 					yield* execute(
 						executor.execute(
 							Q.update(actorWrites, { lifecycle, updated_at: Pg.Function.now() }).pipe(

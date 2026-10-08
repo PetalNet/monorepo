@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import * as path from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createLocalJWKSet, jwtVerify } from "jose";
@@ -22,11 +22,16 @@ const availablePort = async () => {
 	server.listen(0, "127.0.0.1");
 	await once(server, "listening");
 	const address = server.address();
-	if (!address || typeof address === "string") throw new Error("Failed to reserve a test port");
+	if (!address || typeof address === "string") {
+		throw new Error("Failed to reserve a test port");
+	}
 	await new Promise<void>((resolve, reject) => {
 		server.close((error) => {
-			if (error) reject(error);
-			else resolve();
+			if (error) {
+				reject(error);
+			} else {
+				resolve();
+			}
 		});
 	});
 	return address.port;
@@ -34,12 +39,15 @@ const availablePort = async () => {
 
 const waitForProvider = async (origin: string, child: ChildProcess) => {
 	for (let attempt = 0; attempt < 50; attempt += 1) {
-		if (child.exitCode !== null)
+		if (child.exitCode !== null) {
 			throw new Error(`Development OIDC provider exited ${String(child.exitCode)}`);
+		}
 		try {
 			// oxlint-disable-next-line no-await-in-loop
 			const response = await fetch(origin);
-			if (response.ok) return;
+			if (response.ok) {
+				return;
+			}
 		} catch {
 			// The child may not have bound its port yet.
 		}
@@ -53,10 +61,14 @@ const waitForProvider = async (origin: string, child: ChildProcess) => {
 
 const keyIdAt = async (origin: string) => {
 	const response = await fetch(`${origin}/realms/grove-mcp/jwks`);
-	if (!response.ok) throw new Error(`Development JWKS returned HTTP ${String(response.status)}`);
+	if (!response.ok) {
+		throw new Error(`Development JWKS returned HTTP ${String(response.status)}`);
+	}
 	const jwks = (await response.json()) as DevelopmentJwks;
 	const keyId = jwks.keys[0]?.kid;
-	if (!keyId) throw new Error("Development JWKS did not publish a key ID");
+	if (!keyId) {
+		throw new Error("Development JWKS did not publish a key ID");
+	}
 	return keyId;
 };
 
@@ -282,7 +294,9 @@ describe("Grove development MCP authorization server", () => {
 		["bad client secret", mcpResource, "grove:mcp", "wrong-secret", 401, "invalid_client"],
 	] as const)("rejects %s", async (_name, resource, scope, secret, status, expectedError) => {
 		const body = new URLSearchParams({ grant_type: "client_credentials", scope });
-		if (resource) body.set("resource", resource);
+		if (resource) {
+			body.set("resource", resource);
+		}
 		const response = await fetch(`${issuer}/token`, {
 			method: "POST",
 			headers: {

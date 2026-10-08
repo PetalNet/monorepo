@@ -13,7 +13,7 @@ import {
 	type ServerResponse,
 	type OutgoingHttpHeaders,
 } from "node:http";
-import * as path from "node:path";
+import path from "node:path";
 
 import { SignJWT } from "jose";
 
@@ -59,11 +59,14 @@ const readSigningKey = async () => {
 			!("privateKeyPkcs8" in stored) ||
 			typeof stored.privateKeyPkcs8 !== "string" ||
 			!stored.privateKeyPkcs8.includes("BEGIN PRIVATE KEY")
-		)
+		) {
 			throw new Error("invalid signing key document");
+		}
 		return createPrivateKey(stored.privateKeyPkcs8);
 	} catch (error) {
-		if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+			return undefined;
+		}
 		throw new Error(
 			`Grove development OIDC signing key is invalid at ${signingKeyPath}; stop grove-oidc and remove the corrupted file, then rerun .agents/ensure-grove`,
 			{ cause: error },
@@ -86,7 +89,9 @@ const createSigningKey = async () => {
 	} catch (error) {
 		if (error instanceof Error && "code" in error && error.code === "EEXIST") {
 			const existing = await readSigningKey();
-			if (existing) return existing;
+			if (existing) {
+				return existing;
+			}
 		}
 		throw error;
 	}
@@ -126,13 +131,16 @@ const canonicalMcpResource = (value: string) => {
 		url.search ||
 		url.hash ||
 		url.pathname !== "/mcp"
-	)
+	) {
 		throw new Error("Invalid Grove MCP resource URL");
+	}
 	return url.href;
 };
 
 const groveMcpResource = async () => {
-	if (process.env.GROVE_MCP_RESOURCE) return canonicalMcpResource(process.env.GROVE_MCP_RESOURCE);
+	if (process.env.GROVE_MCP_RESOURCE) {
+		return canonicalMcpResource(process.env.GROVE_MCP_RESOURCE);
+	}
 	const manifest: unknown = JSON.parse(
 		await readFile(process.env.GROVE_MCP_PORTAL_MANIFEST ?? ".amp/portals/grove.json", "utf8"),
 	);
@@ -141,13 +149,16 @@ const groveMcpResource = async () => {
 		manifest === null ||
 		!("links" in manifest) ||
 		!Array.isArray(manifest.links)
-	)
+	) {
 		throw new Error("Grove portal links are unavailable");
+	}
 	const links: readonly unknown[] = manifest.links;
 	const first = links[0];
 	const portal =
 		typeof first === "object" && first !== null && "url" in first ? first.url : undefined;
-	if (typeof portal !== "string") throw new Error("Grove portal URL is unavailable");
+	if (typeof portal !== "string") {
+		throw new TypeError("Grove portal URL is unavailable");
+	}
 	return canonicalMcpResource(new URL("mcp", portal).href);
 };
 
@@ -165,12 +176,16 @@ const mcpMetadata = {
 
 const basicCredentials = (authorization: string | undefined) => {
 	const encoded = authorization?.match(/^Basic ([A-Za-z\d+/]+={0,2})$/i)?.[1];
-	if (!encoded) return undefined;
+	if (!encoded) {
+		return undefined;
+	}
 	const decoded = Buffer.from(encoded, "base64").toString("utf8");
 	// The official MCP client sends the client ID verbatim, so split from the fixed shared secret
 	// at the final colon to permit URL-shaped Agent subjects.
 	const separator = decoded.lastIndexOf(":");
-	if (separator < 1) return undefined;
+	if (separator < 1) {
+		return undefined;
+	}
 	return {
 		clientId: decoded.slice(0, separator),
 		clientSecret: decoded.slice(separator + 1),
@@ -180,9 +195,13 @@ const basicCredentials = (authorization: string | undefined) => {
 const readForm = async (request: IncomingMessage) => {
 	let body = "";
 	for await (const chunk of request) {
-		if (!Buffer.isBuffer(chunk)) throw new Error("Unexpected request body chunk");
+		if (!Buffer.isBuffer(chunk)) {
+			throw new TypeError("Unexpected request body chunk");
+		}
 		body += chunk.toString("utf8");
-		if (body.length > 16_384) throw new Error("Request body too large");
+		if (body.length > 16_384) {
+			throw new Error("Request body too large");
+		}
 	}
 	return new URLSearchParams(body);
 };

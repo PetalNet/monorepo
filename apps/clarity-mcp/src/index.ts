@@ -43,7 +43,9 @@ const searxResultSchema = z.object({
 // One `unresponsive_engines` entry -- array, {name/engine, error/reason} object, or scalar --
 // flattened to a single "name: error" display string.
 const unresponsiveEngineSchema = z.unknown().transform((entry) => {
-	if (Array.isArray(entry)) return entry.map(String).join(": ");
+	if (Array.isArray(entry)) {
+		return entry.map(String).join(": ");
+	}
 	if (typeof entry === "object" && entry !== null) {
 		const record = entry as Record<string, unknown>;
 		const name = record["name"] ?? record["engine"];
@@ -103,7 +105,9 @@ function isBlockedIpv4(ip: string): boolean {
 	}
 	const first = parts[0];
 	const second = parts[1];
-	if (first === undefined || second === undefined) return false;
+	if (first === undefined || second === undefined) {
+		return false;
+	}
 	return (
 		first === 127 ||
 		first === 10 ||
@@ -117,10 +121,14 @@ function isBlockedIpv4(ip: string): boolean {
 
 function isBlockedAddress(ip: string): boolean {
 	const normalized = ip.toLowerCase().split("%", 1)[0] ?? "";
-	if (isBlockedIpv4(normalized)) return true;
+	if (isBlockedIpv4(normalized)) {
+		return true;
+	}
 
 	const mappedIpv4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(normalized)?.[1];
-	if (mappedIpv4 !== undefined) return isBlockedIpv4(mappedIpv4);
+	if (mappedIpv4 !== undefined) {
+		return isBlockedIpv4(mappedIpv4);
+	}
 	const mappedHextets = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(normalized);
 	if (mappedHextets !== null) {
 		const high = Number.parseInt(mappedHextets[1] ?? "", 16);
@@ -132,11 +140,17 @@ function isBlockedAddress(ip: string): boolean {
 		}
 	}
 
-	if (normalized === "::" || normalized === "::1") return true;
+	if (normalized === "::" || normalized === "::1") {
+		return true;
+	}
 	const firstHextetText = normalized.split(":", 1)[0];
-	if (firstHextetText === undefined || firstHextetText === "") return false;
+	if (firstHextetText === undefined || firstHextetText === "") {
+		return false;
+	}
 	const firstHextet = Number.parseInt(firstHextetText, 16);
-	if (!Number.isFinite(firstHextet)) return false;
+	if (!Number.isFinite(firstHextet)) {
+		return false;
+	}
 	return (firstHextet & 0xfe00) === 0xfc00 || (firstHextet & 0xffc0) === 0xfe80;
 }
 
@@ -157,7 +171,9 @@ async function validateFetchUrl(value: string | URL): Promise<URL> {
 
 async function readResponseText(res: Response, controller?: AbortController): Promise<string> {
 	assertResponseSize(res, controller);
-	if (res.body === null) return "";
+	if (res.body === null) {
+		return "";
+	}
 
 	const reader = res.body.getReader();
 	const decoder = new TextDecoder();
@@ -165,7 +181,9 @@ async function readResponseText(res: Response, controller?: AbortController): Pr
 	let text = "";
 	while (true) {
 		const { done, value } = await reader.read();
-		if (done) break;
+		if (done) {
+			break;
+		}
 		bytesRead += value.byteLength;
 		if (bytesRead > MAX_RESPONSE_BYTES) {
 			controller?.abort();
@@ -330,7 +348,9 @@ const HTML_ENTITIES: Record<string, string> = {
 function decodeEntities(input: string): string {
 	return input.replace(/&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#x[0-9a-fA-F]+);/gi, (match) => {
 		const named = HTML_ENTITIES[match.toLowerCase()];
-		if (named !== undefined) return named;
+		if (named !== undefined) {
+			return named;
+		}
 		const isHex = match.startsWith("&#x") || match.startsWith("&#X");
 		const code = Number.parseInt(match.slice(isHex ? 3 : 2, -1), isHex ? 16 : 10);
 		return Number.isFinite(code) &&
@@ -370,7 +390,9 @@ function htmlToText(html: string): string {
 		}
 
 		const dropped = DROP_ELEMENTS.find((tag) => {
-			if (!lower.startsWith(`<${tag}`, lt)) return false;
+			if (!lower.startsWith(`<${tag}`, lt)) {
+				return false;
+			}
 			const after = lower[lt + tag.length + 1];
 			return after === undefined || TAG_BOUNDARY.has(after);
 		});
@@ -456,10 +478,18 @@ server.registerTool(
 	},
 	async ({ query, category, time_range, language, page, max_results }) => {
 		const params = new URLSearchParams({ q: query, format: "json" });
-		if (category) params.set("categories", category);
-		if (time_range) params.set("time_range", time_range);
-		if (language) params.set("language", language);
-		if (page) params.set("pageno", String(page));
+		if (category) {
+			params.set("categories", category);
+		}
+		if (time_range) {
+			params.set("time_range", time_range);
+		}
+		if (language) {
+			params.set("language", language);
+		}
+		if (page) {
+			params.set("pageno", String(page));
+		}
 
 		const res = await httpGet(`${BASE_URL}/search?${params.toString()}`);
 		const body = await res.text();

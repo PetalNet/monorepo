@@ -143,8 +143,9 @@ export const SproutCommandsLayer = Layer.effect(
 			run: (actor: ActorPrincipal) => Effect.Effect<A, E>,
 		): Effect.Effect<A, E | AuthorityError | SproutDatabaseError, InvocationContext> =>
 			Effect.flatMap(InvocationContext, ({ principal }) => {
-				if (principal.kind !== "person" && principal.kind !== "agent")
+				if (principal.kind !== "person" && principal.kind !== "agent") {
 					return Effect.fail(new ActorDenied("An enrolled actor is required"));
+				}
 				return sql
 					.withTransaction(
 						authority.authorizeActor(principal, operation).pipe(Effect.andThen(run(principal))),
@@ -186,7 +187,9 @@ export const SproutCommandsLayer = Layer.effect(
 										),
 									);
 									const row = current.at(0);
-									if (!row) return [];
+									if (!row) {
+										return [];
+									}
 									const waterings = yield* Schema.decodeEffect(Counter)(row.waterings + 1);
 
 									const updated = yield* executor.execute(
@@ -197,7 +200,9 @@ export const SproutCommandsLayer = Layer.effect(
 											Query.returning(sproutSelection),
 										),
 									);
-									if (updated.length > 0) return updated;
+									if (updated.length > 0) {
+										return updated;
+									}
 									return yield* Effect.fail(new SproutOutOfDate());
 								}),
 							),
@@ -229,7 +234,9 @@ export const SproutCommandsLayer = Layer.effect(
 								),
 							),
 						);
-						if (rows.length === 0) return yield* Effect.fail(new SproutNotFound(id));
+						if (rows.length === 0) {
+							return yield* Effect.fail(new SproutNotFound(id));
+						}
 						return { removed: true as const };
 					}),
 				),

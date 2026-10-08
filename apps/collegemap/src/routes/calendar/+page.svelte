@@ -81,7 +81,9 @@
 	let pendingFocus = $state(false);
 
 	$effect(() => {
-		if (!pendingFocus || !focusIso || !gridEl) return;
+		if (!pendingFocus || !focusIso || !gridEl) {
+			return;
+		}
 		const target = gridEl.querySelector<HTMLElement>(`[data-iso="${focusIso}"]`);
 		target?.focus();
 		pendingFocus = false;
@@ -101,7 +103,9 @@
 
 	function moveFocus(delta: number) {
 		const from = rovingIso;
-		if (!from) return;
+		if (!from) {
+			return;
+		}
 		const next = addDays(from, delta);
 		if (startOfMonth(next) !== month) {
 			month = startOfMonth(next);
@@ -138,29 +142,42 @@
 		const shown = names.slice(0, limit);
 		const rest = names.length - shown.length;
 		const parts = rest > 0 ? [...shown, `${String(rest)} more`] : shown;
-		if (parts.length === 1) return parts[0];
+		if (parts.length === 1) {
+			return parts[0];
+		}
 		return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 	}
 
 	function describe(cell: (typeof flatCells)[number]): string {
 		const date = formatRange(cell.iso, cell.iso, referenceYear);
-		if (countedCount === 0) return date;
-		if (cell.freeCount === 0) return `${date}, nobody is off`;
+		if (countedCount === 0) {
+			return date;
+		}
+		if (cell.freeCount === 0) {
+			return `${date}, nobody is off`;
+		}
 		// The reason is the part a screen reader had no way to reach: the grid draws a green
 		// square and the label said only how many people it stood for.
 		const names = distinctReasons(cell).map((r) => r.name);
 		const why = names.length > 0 ? `, for ${listSentence(names, 2)}` : "";
-		if (cell.allFree) return `${date}, everyone is free${why}`;
+		if (cell.allFree) {
+			return `${date}, everyone is free${why}`;
+		}
 		return `${date}, ${String(cell.freeCount)} of ${String(countedCount)} free${why}`;
 	}
 
 	// The one line under the month title. It is the calendar's own subtitle,
 	// which is why it talks about this month and not the whole year.
 	const monthSummary = $derived.by(() => {
-		if (countedCount === 0) return "Nobody has added a break yet.";
-		if (countedCount === 1) return "Only one person has added breaks so far.";
-		if (view.allFreeDays === 0)
+		if (countedCount === 0) {
+			return "Nobody has added a break yet.";
+		}
+		if (countedCount === 1) {
+			return "Only one person has added breaks so far.";
+		}
+		if (view.allFreeDays === 0) {
 			return `No day this month works for all ${String(countedCount)} of you.`;
+		}
 		const d = view.allFreeDays;
 		return `${String(d)} ${d === 1 ? "day" : "days"} this month when all ${String(countedCount)} of you are free.`;
 	});
@@ -285,7 +302,9 @@
 										onclick={() => {
 											selectedIso = cell.iso;
 											focusIso = cell.iso;
-											if (!cell.inMonth) month = startOfMonth(cell.iso);
+											if (!cell.inMonth) {
+												month = startOfMonth(cell.iso);
+											}
 										}}
 									>
 										<span class="cal-dayhead">

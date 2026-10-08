@@ -10,7 +10,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import * as path from "node:path";
+import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -160,8 +160,9 @@ function declarations(property: RegExp): { file: string; decl: string }[] {
 		const source = readFileSync(file, "utf8");
 		// Comments talk about borders and radii in prose; only declarations count.
 		const style = source.slice(source.indexOf("<style>")).replace(/\/\*[\s\S]*?\*\//gu, "");
-		for (const match of style.matchAll(property))
+		for (const match of style.matchAll(property)) {
 			found.push({ file: path.basename(file), decl: match[0].trim() });
+		}
 	}
 	return found;
 }

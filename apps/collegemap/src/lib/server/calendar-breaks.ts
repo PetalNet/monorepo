@@ -64,7 +64,9 @@ function acrossTheWeekend(span: { startDate: string; endDate: string }): {
 	startDate: string;
 	endDate: string;
 } {
-	if (span.startDate === span.endDate) return { startDate: span.startDate, endDate: span.endDate };
+	if (span.startDate === span.endDate) {
+		return { startDate: span.startDate, endDate: span.endDate };
+	}
 
 	const start = toDay(span.startDate);
 	const end = toDay(span.endDate);
@@ -138,8 +140,11 @@ export function mergeBreakRows(
 	const byCollege = new Map<string, CollegeBreak[]>();
 	for (const collegeBreak of collegeBreaks) {
 		const list = byCollege.get(collegeBreak.collegeId);
-		if (list) list.push(collegeBreak);
-		else byCollege.set(collegeBreak.collegeId, [collegeBreak]);
+		if (list) {
+			list.push(collegeBreak);
+		} else {
+			byCollege.set(collegeBreak.collegeId, [collegeBreak]);
+		}
 	}
 
 	// One institutional row becomes one row per person at that college, so the id has to carry the
@@ -196,12 +201,16 @@ function assumedRows(
 	own: CalendarBreakRow[],
 	holidayYears: readonly number[],
 ): CalendarBreakRow[] {
-	if (holidayYears.length === 0) return [];
+	if (holidayYears.length === 0) {
+		return [];
+	}
 
 	const eligible = people.filter(
 		(person) => person.institutionKind != null && FEDERAL_HOLIDAY_KINDS.has(person.institutionKind),
 	);
-	if (eligible.length === 0) return [];
+	if (eligible.length === 0) {
+		return [];
+	}
 
 	const holidays = holidayYears.flatMap((year) => federalHolidays(year));
 
@@ -209,8 +218,11 @@ function assumedRows(
 	for (const row of own) {
 		const span = { start: toDay(row.startDate), end: toDay(row.endDate) };
 		const list = spokenFor.get(row.userId);
-		if (list) list.push(span);
-		else spokenFor.set(row.userId, [span]);
+		if (list) {
+			list.push(span);
+		} else {
+			spokenFor.set(row.userId, [span]);
+		}
 	}
 
 	return eligible.flatMap((person) => {

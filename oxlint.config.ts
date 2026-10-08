@@ -45,16 +45,8 @@ export const lintConfig = {
 		"prefer-object-spread": "error",
 		"prefer-regex-literals": "error",
 		"eslint/eqeqeq": ["error", "smart"],
-		"unicorn/import-style": [
-			"error",
-			{
-				extendDefaultStyles: false,
-				styles: {
-					path: { namespace: true },
-					"node:path": { namespace: true },
-				},
-			},
-		],
+		"unicorn/import-style": "error",
+		"eslint/curly": ["error", "all"],
 		// A conditional radix of 16 or 10 is valid, but the rule cannot prove it.
 		"eslint/radix": "off",
 		// Size limits and presentation preferences are too noisy for this workspace.
@@ -89,7 +81,6 @@ export const lintConfig = {
 		"effecttsgo/strict-effect-provide": "off",
 		// Formatter-owned ordering and broad style bans conflict with established code.
 		"eslint/capitalized-comments": "off",
-		"eslint/curly": "off",
 		"eslint/func-names": "off",
 		"eslint/func-style": "off",
 		"eslint/id-length": "off",

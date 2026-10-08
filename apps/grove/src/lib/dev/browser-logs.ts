@@ -4,7 +4,9 @@ const MAX_SERIALIZED_VALUE = 2_000;
 
 export const serializeDevBrowserLogValue = (value: unknown) => {
 	const sanitized = sanitizeDevBrowserLogValue(value);
-	if (typeof sanitized === "string") return sanitized.slice(0, MAX_SERIALIZED_VALUE);
+	if (typeof sanitized === "string") {
+		return sanitized.slice(0, MAX_SERIALIZED_VALUE);
+	}
 	try {
 		const serialized: unknown = JSON.stringify(sanitized);
 		return (typeof serialized === "string" ? serialized : String(sanitized)).slice(

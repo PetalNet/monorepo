@@ -13,10 +13,13 @@ export const excludeGroveDevModules = (): Plugin => {
 		enforce: "pre",
 		async resolveId(source, importer) {
 			const resolved = await this.resolve(source, importer, { skipSelf: true });
-			if (!resolved) return undefined;
-			const path = resolved.id.replaceAll("\\", "/").split(/[?#]/)[0];
-			if (!path.startsWith(`${root}server/dev/`) && !path.startsWith(`${root}dev/`))
+			if (!resolved) {
 				return undefined;
+			}
+			const path = resolved.id.replaceAll("\\", "/").split(/[?#]/)[0];
+			if (!path.startsWith(`${root}server/dev/`) && !path.startsWith(`${root}dev/`)) {
+				return undefined;
+			}
 			forbidden.add(resolved.id);
 			// Never load dev implementations. Dead imports can tree-shake; live ones
 			// remain external and are rejected below, rather than replaced with stubs.
@@ -24,9 +27,13 @@ export const excludeGroveDevModules = (): Plugin => {
 		},
 		generateBundle(_options, bundle) {
 			for (const output of Object.values(bundle)) {
-				if (output.type !== "chunk") continue;
+				if (output.type !== "chunk") {
+					continue;
+				}
 				for (const id of [...output.imports, ...output.dynamicImports]) {
-					if (forbidden.has(id)) this.error(`Production build retains a development import: ${id}`);
+					if (forbidden.has(id)) {
+						this.error(`Production build retains a development import: ${id}`);
+					}
 				}
 			}
 		},
