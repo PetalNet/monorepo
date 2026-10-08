@@ -2,8 +2,10 @@ import type { KnipConfig } from "knip";
 
 export default {
 	ignore: [".agents/skills/impeccable/**"],
+	// The JS task runner is development tooling invoked by root package scripts.
+	ignoreIssues: { "tools/turbo-js.mjs": ["files"] },
 	// Strict Knip only resolves production dependencies, including script binaries.
-	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
+	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!", "turbo!"],
 	ignoreDependencies: [
 		// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 		"@effect/language-service",
