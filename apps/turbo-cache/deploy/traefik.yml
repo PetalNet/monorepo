@@ -1,0 +1,22 @@
+# Install into the existing Traefik file provider directory after merge.
+# These loopback targets assume Traefik uses the host network on .14.
+http:
+  routers:
+    turbo-cache-exchanger:
+      rule: Host(`turbo-cache.petalcat.dev`) && (Path(`/exchange`) || Path(`/.well-known/jwks.json`))
+      priority: 20
+      entryPoints: [web]
+      service: turbo-cache-exchanger
+    turbo-cache:
+      rule: Host(`turbo-cache.petalcat.dev`)
+      entryPoints: [web]
+      service: turbo-cache
+  services:
+    turbo-cache-exchanger:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:43181
+    turbo-cache:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:43180

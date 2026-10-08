@@ -1,0 +1,81 @@
+services:
+  exchanger:
+    build:
+      context: ../..
+      dockerfile: apps/turbo-cache/Dockerfile
+    restart: unless-stopped
+    environment:
+      SIGNING_KEY_FILE: /run/secrets/signing-key
+      GITHUB_READ_TOKEN_FILE: /run/secrets/github-read-token
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:?Set the exact Authentik issuer}
+      AUTHENTIK_JWKS_URL: ${AUTHENTIK_JWKS_URL:?Set the Authentik provider JWKS URL}
+      AMP_WORKSPACE_IDS: ${AMP_WORKSPACE_IDS:-}
+      AMP_PROJECT_IDS: ${AMP_PROJECT_IDS:-}
+      OIDC_AUDIENCE: turbo-cache.petalcat.dev
+      TURBO_TEAM: petalnet
+    secrets:
+      - signing-key
+      - github-read-token
+    ports:
+      - "127.0.0.1:43181:3001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  cache:
+    image: ducktors/turborepo-remote-cache:2.14.3
+    restart: unless-stopped
+    command:
+      - node
+      - --input-type=module
+      - --eval
+      - >-
+        import { statfsSync } from 'node:fs';
+        if (statfsSync('/data').type !== 0x6969) throw new Error('Cache storage must be NFS');
+        await import('./dist/index.js');
+    environment:
+      AUTH_MODE: jwt
+      JWKS_URL: http://exchanger:3001/.well-known/jwks.json
+      JWT_ISSUER: https://turbo-cache.petalcat.dev
+      JWT_AUDIENCE: turbo-cache.petalcat.dev
+      JWT_SCOPE_CLAIM: scope
+      JWT_READ_SCOPES: read
+      JWT_WRITE_SCOPES: write
+      JWT_TEAM_CLAIM: teams
+      STORAGE_PROVIDER: local
+      STORAGE_PATH: /data
+      STORAGE_PATH_USE_TMP_FOLDER: "false"
+      BODY_LIMIT: "104857600"
+    volumes:
+      - type: bind
+        source: ${TURBO_CACHE_NFS_PATH:?Set the existing NFS mount path}
+        target: /data
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:43180:3000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  eviction:
+    image: alpine:3.23.3
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - mkdir -p /tmp/crontabs && cp /config/crontab /tmp/crontabs/root && exec crond -f -l 2 -c /tmp/crontabs
+    volumes:
+      - type: bind
+        source: ${TURBO_CACHE_NFS_PATH:?Set the existing NFS mount path}
+        target: /data
+        bind:
+          create_host_path: false
+      - ./deploy/crontab:/config/crontab:ro
+    security_opt: [no-new-privileges:true]
+
+secrets:
+  signing-key:
+    file: ${TURBO_CACHE_SIGNING_KEY_FILE:?Set the external RSA key file}
+  github-read-token:
+    file: ${TURBO_CACHE_GITHUB_TOKEN_FILE:?Set the external read-only GitHub token file}

@@ -1,0 +1,2 @@
+# 03:00 UTC. BusyBox atime counts whole days; +13 means at least 14 days.
+0 3 * * * find /data -type f -atime +13 -exec rm -- {} +

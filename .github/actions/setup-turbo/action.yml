@@ -22,3 +22,41 @@ runs:
       with:
         cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
         use-relative-cache-path: true
+    - name: Exchange workload identity for PetalNet cache
+      continue-on-error: true
+      shell: bash
+      env:
+        CACHE_API: https://turbo-cache.petalcat.dev
+        CACHE_AUDIENCE: turbo-cache.petalcat.dev
+        CACHE_ACTOR: ${{ github.actor }}
+        CACHE_EVENT: ${{ github.event_name }}
+        CACHE_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        CACHE_REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        # Leave the GitHub-cache environment intact unless the exchange succeeds.
+        test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || exit 0
+        test "$CACHE_ACTOR" != 'dependabot[bot]' || exit 0
+        case "$CACHE_EVENT" in
+          push|merge_group) ;;
+          pull_request) test "$CACHE_HEAD_REPOSITORY" = "$CACHE_REPOSITORY" || exit 0 ;;
+          *) exit 0 ;;
+        esac
+        identity=$(curl --fail --silent --show-error --max-time 10 \
+          -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${CACHE_AUDIENCE}" | jq -er '.value')
+        echo "::add-mask::$identity"
+        response=$(curl --fail --silent --show-error --max-time 10 -X POST \
+          -H "Authorization: Bearer $identity" "$CACHE_API/exchange")
+        token=$(jq -er '.access_token | select(type == "string" and test("^[A-Za-z0-9_.-]+$"))' <<< "$response")
+        echo "::add-mask::$token"
+        team=$(jq -er '.team | select(. == "petalnet")' <<< "$response")
+        scope=$(jq -er '.scope | select(. == "read" or . == "read write")' <<< "$response")
+        cache_mode='local:rw,remote:r'
+        if [ "$scope" = 'read write' ]; then cache_mode='local:rw,remote:rw'; fi
+        {
+          echo "TURBO_API=$CACHE_API"
+          echo "TURBO_TOKEN=$token"
+          echo "TURBO_TEAM=$team"
+          echo "TURBO_CACHE=$cache_mode"
+        } >> "$GITHUB_ENV"
