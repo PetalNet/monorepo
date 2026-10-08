@@ -60,9 +60,11 @@ function str(v: unknown): string {
 	if (v === null || v === undefined) {
 		return NA;
 	}
+
 	if (Array.isArray(v)) {
 		return v.length > 0 ? v.join(", ") : "(empty)";
 	}
+
 	if (typeof v === "object") {
 		try {
 			return JSON.stringify(v);
@@ -70,18 +72,23 @@ function str(v: unknown): string {
 			return Object.prototype.toString.call(v);
 		}
 	}
+
 	if (typeof v === "string") {
 		return v;
 	}
+
 	if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") {
 		return String(v);
 	}
+
 	if (typeof v === "symbol") {
 		return v.toString();
 	}
+
 	if (typeof v === "function") {
 		return String(v);
 	}
+
 	return NA;
 }
 
@@ -96,22 +103,27 @@ function safe(fn: () => unknown): string {
 /** A short, stable FNV-1a hash of a string — for canvas/webgl/audio digests and the linkability id. */
 function digest(input: string): string {
 	let h = 0x811c9dc5;
+
 	for (let i = 0; i < input.length; i++) {
 		// oxlint-disable-next-line unicorn/prefer-code-point -- This hash deliberately processes UTF-16 code units.
 		h ^= input.charCodeAt(i);
 		h = Math.imul(h, 0x01000193);
 	}
+
 	return (h >>> 0).toString(16).padStart(8, "0");
 }
 
 function canvasDigest(): string {
 	const c = document.createElement("canvas");
+
 	c.width = 240;
 	c.height = 60;
 	const ctx = c.getContext("2d");
+
 	if (!ctx) {
 		return NA;
 	}
+
 	ctx.textBaseline = "top";
 	ctx.font = "14px 'Arial'";
 	ctx.fillStyle = "#f60";
@@ -121,6 +133,7 @@ function canvasDigest(): string {
 	ctx.strokeStyle = "rgba(0,120,255,0.7)";
 	ctx.arc(50, 30, 20, 0, Math.PI * 2);
 	ctx.stroke();
+
 	return digest(c.toDataURL());
 }
 
@@ -128,9 +141,11 @@ function webglInfo(): { renderer: string; vendor: string; digest: string } {
 	const c = document.createElement("canvas");
 	const gl = (c.getContext("webgl") ??
 		c.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+
 	if (!gl) {
 		return { renderer: NA, vendor: NA, digest: NA };
 	}
+
 	const dbg = gl.getExtension("WEBGL_debug_renderer_info");
 	const renderer = dbg ? str(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : "(masked)";
 	const vendor = dbg ? str(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)) : "(masked)";
@@ -141,6 +156,7 @@ function webglInfo(): { renderer: string; vendor: string; digest: string } {
 		gl.getParameter(gl.MAX_VARYING_VECTORS),
 		gl.getSupportedExtensions()?.length ?? 0,
 	].join("|");
+
 	return { renderer, vendor, digest: digest(`${renderer}|${vendor}|${params}`) };
 }
 
@@ -151,23 +167,29 @@ async function audioDigest(): Promise<string> {
 				.OfflineAudioContext ??
 			(window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext })
 				.webkitOfflineAudioContext;
+
 		if (!Ctx) {
 			return NA;
 		}
+
 		const ctx = new Ctx(1, 44100, 44100);
 		const osc = ctx.createOscillator();
+
 		osc.type = "triangle";
 		osc.frequency.value = 10000;
 		const comp = ctx.createDynamicsCompressor();
+
 		osc.connect(comp);
 		comp.connect(ctx.destination);
 		osc.start(0);
 		const buf = await ctx.startRendering();
 		const data = buf.getChannelData(0).slice(4500, 4600);
 		let acc = 0;
+
 		for (const v of data) {
 			acc += Math.abs(v);
 		}
+
 		return digest(acc.toString());
 	} catch {
 		return NA;
@@ -358,6 +380,7 @@ export async function collectSignals(): Promise<Signal[]> {
 			category: "screen",
 			value: safe(() => {
 				const mm = (window as { matchMedia?: typeof window.matchMedia }).matchMedia;
+
 				return mm?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 			}),
 			typical: "dark or light",
@@ -371,6 +394,7 @@ export async function collectSignals(): Promise<Signal[]> {
 			category: "screen",
 			value: safe(() => {
 				const mm = (window as { matchMedia?: typeof window.matchMedia }).matchMedia;
+
 				return mm?.("(prefers-reduced-motion: reduce)").matches ? "reduce" : "no-preference";
 			}),
 			typical: "no-preference",
@@ -515,6 +539,7 @@ export async function collectSignals(): Promise<Signal[]> {
 	// audio is async — fill it in after the synchronous signals so the UI can render immediately
 	const audio = await audioDigest();
 	const audioSig = out.find((x) => x.id === "audio.digest");
+
 	if (audioSig) {
 		audioSig.value = audio;
 	}
@@ -536,6 +561,7 @@ export function linkabilityHash(signals: Signal[]): string {
 	const parts = signals
 		.filter((sig) => sig.linking && sig.value && sig.value !== NA)
 		.map((sig) => `${sig.id}=${sig.value}`);
+
 	return digest(parts.join(""));
 }
 

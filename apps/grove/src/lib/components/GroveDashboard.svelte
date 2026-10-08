@@ -68,12 +68,16 @@
 
 	function availableFixes(result: Extract<ContainmentResult, { conflicts: unknown }>) {
 		const seen = new SvelteSet<string>();
+
 		return result.fixes.filter((fix) => {
 			const key = `${fix.action}:${fix.agentId}:${fix.personId}:${fix.capability}`;
+
 			if (!fix.available || seen.has(key)) {
 				return false;
 			}
+
 			seen.add(key);
+
 			return true;
 		});
 	}
@@ -102,6 +106,7 @@
 			};
 
 			error = "";
+
 			try {
 				if (
 					await form
@@ -198,6 +203,7 @@
 						class="contents"
 						{...removeForm.enhance(async (form) => {
 							error = "";
+
 							try {
 								if (
 									await watering.after(sprout.id, () =>
@@ -246,9 +252,11 @@
 			class="mt-4 grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]"
 			{...authorityForm.enhance(async (form) => {
 				containment = null;
+
 				try {
 					if (await form.submit()) {
 						const result = form.result;
+
 						if (result) {
 							containment = result;
 						}

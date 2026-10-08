@@ -21,12 +21,15 @@ interface DevelopmentJwks {
 
 const availablePort = async () => {
 	const server = createServer();
+
 	server.listen(0, "127.0.0.1");
 	await once(server, "listening");
 	const address = server.address();
+
 	if (!address || typeof address === "string") {
 		throw new Error("Failed to reserve a test port");
 	}
+
 	await new Promise<void>((resolve, reject) => {
 		server.close((error) => {
 			if (error) {
@@ -36,6 +39,7 @@ const availablePort = async () => {
 			}
 		});
 	});
+
 	return address.port;
 };
 
@@ -50,15 +54,18 @@ const waitForProvider = (child: ChildProcess) =>
 			child.off("exit", onExit);
 			child.off("error", onError);
 		};
+
 		const complete = (result: Effect.Effect<undefined, ProviderStartupError>) => {
 			cleanup();
 			resume(result);
 		};
+
 		const onMessage = (message: unknown) => {
 			if (message === "ready") {
 				complete(Effect.undefined);
 			}
 		};
+
 		const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
 			complete(
 				Effect.fail(
@@ -68,28 +75,36 @@ const waitForProvider = (child: ChildProcess) =>
 				),
 			);
 		};
+
 		const onError = (error: Error) => {
 			complete(Effect.fail(new ProviderStartupError({ message: error.message })));
 		};
+
 		child.on("message", onMessage);
 		child.on("exit", onExit);
 		child.on("error", onError);
+
 		if (child.exitCode !== null || child.signalCode !== null) {
 			onExit(child.exitCode, child.signalCode);
 		}
+
 		return Effect.sync(cleanup);
 	}).pipe(Effect.timeout("5 seconds"));
 
 const keyIdAt = async (origin: string) => {
 	const response = await fetch(`${origin}/realms/grove-mcp/jwks`);
+
 	if (!response.ok) {
 		throw new Error(`Development JWKS returned HTTP ${String(response.status)}`);
 	}
+
 	const jwks = (await response.json()) as DevelopmentJwks;
 	const keyId = jwks.keys[0]?.kid;
+
 	if (!keyId) {
 		throw new Error("Development JWKS did not publish a key ID");
 	}
+
 	return keyId;
 };
 
@@ -110,6 +125,7 @@ it("waits for a provider whose startup takes longer than one second", async () =
 		],
 		{ stdio: ["ignore", "ignore", "ignore", "ipc"], env: { ...process.env, PORT: String(port) } },
 	);
+
 	try {
 		await Effect.runPromise(waitForProvider(child));
 		await expect((await fetch(origin)).text()).resolves.toBe("ready");
@@ -130,8 +146,10 @@ it.each(["exit", "timeout"] as const)("cleans up readiness listeners on %s", asy
 		["--eval", scenario === "exit" ? "process.exit(7)" : "setInterval(() => {}, 1_000)"],
 		{ stdio: ["ignore", "ignore", "ignore", "ipc"] },
 	);
+
 	try {
 		const readiness = waitForProvider(child);
+
 		await expect(
 			Effect.runPromise(
 				scenario === "timeout" ? readiness.pipe(Effect.timeout("100 millis")) : readiness,
@@ -144,6 +162,7 @@ it.each(["exit", "timeout"] as const)("cleans up readiness listeners on %s", asy
 					}
 				: { _tag: "TimeoutError" },
 		);
+
 		expect(child.listenerCount("message")).toBe(0);
 		expect(child.listenerCount("exit")).toBe(0);
 		expect(child.listenerCount("error")).toBe(0);
@@ -167,8 +186,10 @@ describe("Grove development MCP authorization server", () => {
 		temporaryDirectory = await mkdtemp(path.join(tmpdir(), "grove-dev-oidc-"));
 		signingKeyPath = path.join(temporaryDirectory, "signing-key.json");
 		const port = await availablePort();
+
 		origin = `http://127.0.0.1:${String(port)}`;
 		issuer = `${origin}/realms/grove-mcp`;
+
 		child = spawn(process.execPath, [providerPath], {
 			stdio: ["ignore", "ignore", "pipe", "ipc"],
 			env: {
@@ -180,9 +201,11 @@ describe("Grove development MCP authorization server", () => {
 				GROVE_OIDC_SIGNING_KEY_PATH: signingKeyPath,
 			},
 		});
+
 		child.stderr?.on("data", (chunk: Buffer) => {
 			stderr += chunk.toString();
 		});
+
 		try {
 			await Effect.runPromise(waitForProvider(child));
 		} catch (error) {
@@ -195,6 +218,7 @@ describe("Grove development MCP authorization server", () => {
 			child.kill("SIGTERM");
 			await once(child, "exit");
 		}
+
 		await rm(temporaryDirectory, { recursive: true });
 	});
 
@@ -205,6 +229,7 @@ describe("Grove development MCP authorization server", () => {
 			const redirectUri = "https://grove-test.onamp.dev/api/auth/callback/grove-oidc";
 			const verifier = "test-browser-pkce-verifier-with-distinct-characters";
 			const authorize = new URL(`${browserIssuer}/authorize`);
+
 			authorize.search = new URLSearchParams({
 				client_id: "grove-browser-development",
 				response_type: "code",
@@ -214,11 +239,15 @@ describe("Grove development MCP authorization server", () => {
 				state: "browser-state",
 				nonce: "browser-nonce",
 			}).toString();
+
 			const authorization = await fetch(authorize, { redirect: "manual" });
+
 			expect(authorization.status).toBe(302);
 			const callback = new URL(authorization.headers.get("location") ?? "");
+
 			expect(callback.origin + callback.pathname).toBe(redirectUri);
 			expect(callback.searchParams.get("state")).toBe("browser-state");
+
 			const body = new URLSearchParams({
 				grant_type: "authorization_code",
 				client_id: "grove-browser-development",
@@ -228,6 +257,7 @@ describe("Grove development MCP authorization server", () => {
 				redirect_uri: scenario === "wrong redirect" ? `${redirectUri}?wrong=true` : redirectUri,
 			});
 			const response = await fetch(`${browserIssuer}/token`, { method: "POST", body });
+
 			if (scenario === "valid") {
 				expect(response.status).toBe(200);
 				const tokens = (await response.json()) as { access_token: string; id_token: string };
@@ -237,20 +267,25 @@ describe("Grove development MCP authorization server", () => {
 					audience: "grove-browser-development",
 					algorithms: ["RS256"],
 				});
+
 				expect(payload).toMatchObject({ sub: "operator-development", nonce: "browser-nonce" });
 				expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(300);
+
 				const userinfo = await fetch(`${browserIssuer}/userinfo`, {
 					headers: { authorization: `Bearer ${tokens.access_token}` },
 				});
+
 				expect(userinfo.status).toBe(200);
 				await expect(userinfo.json()).resolves.toMatchObject({ sub: "operator-development" });
 			} else {
 				expect(response.status).toBe(400);
 				await expect(response.json()).resolves.toEqual({ error: "invalid_grant" });
 			}
+
 			body.set("code_verifier", verifier);
 			body.set("redirect_uri", redirectUri);
 			const reused = await fetch(`${browserIssuer}/token`, { method: "POST", body });
+
 			expect(reused.status).toBe(400);
 			await expect(reused.json()).resolves.toEqual({ error: "invalid_grant" });
 		},
@@ -266,7 +301,9 @@ describe("Grove development MCP authorization server", () => {
 			},
 			body: prefix + "x".repeat(length - prefix.length),
 		});
+
 		expect(response.status).toBe(400);
+
 		await expect(response.json()).resolves.toEqual({
 			error: length === 16_384 ? "unsupported_grant_type" : "invalid_request",
 		});
@@ -278,10 +315,13 @@ describe("Grove development MCP authorization server", () => {
 			"/.well-known/openid-configuration/realms/grove-mcp",
 			"/realms/grove-mcp/.well-known/openid-configuration",
 		];
+
 		for (const endpoint of paths) {
 			// oxlint-disable-next-line no-await-in-loop
 			const response = await fetch(`${origin}${endpoint}`);
+
 			expect(response.status).toBe(200);
+
 			// oxlint-disable-next-line no-await-in-loop
 			await expect(response.json()).resolves.toMatchObject({
 				issuer,
@@ -295,7 +335,9 @@ describe("Grove development MCP authorization server", () => {
 		}
 
 		const jwks = await fetch(`${issuer}/jwks`);
+
 		expect(jwks.status).toBe(200);
+
 		expect(await jwks.json()).toMatchObject({
 			keys: [
 				{
@@ -314,12 +356,14 @@ describe("Grove development MCP authorization server", () => {
 			await fetch(`${origin}/realms/grove-mcp/jwks`)
 		).json()) as DevelopmentJwks;
 		const signingKey = await open(signingKeyPath, "r");
+
 		try {
 			expect((await signingKey.stat()).mode & 0o777).toBe(0o600);
 			expect(await signingKey.readFile("utf8")).not.toContain(firstKeyId);
 		} finally {
 			await signingKey.close();
 		}
+
 		const secondPort = await availablePort();
 		const secondOrigin = `http://127.0.0.1:${String(secondPort)}`;
 		const second = spawn(process.execPath, [providerPath], {
@@ -333,6 +377,7 @@ describe("Grove development MCP authorization server", () => {
 				GROVE_OIDC_SIGNING_KEY_PATH: signingKeyPath,
 			},
 		});
+
 		try {
 			await Effect.runPromise(waitForProvider(second));
 			expect(await keyIdAt(secondOrigin)).toBe(firstKeyId);
@@ -349,8 +394,10 @@ describe("Grove development MCP authorization server", () => {
 					scope: "grove:mcp grove:agent:enroll",
 				}),
 			});
+
 			expect(tokenResponse.status).toBe(200);
 			const issued = (await tokenResponse.json()) as { access_token: string };
+
 			await expect(
 				jwtVerify(issued.access_token, createLocalJWKSet(firstJwks), {
 					issuer: `${secondOrigin}/realms/grove-mcp`,
@@ -367,9 +414,11 @@ describe("Grove development MCP authorization server", () => {
 
 	it("fails clearly instead of rotating corrupted signing material", async () => {
 		const corruptedPath = path.join(temporaryDirectory, "corrupted-signing-key.json");
+
 		await writeFile(corruptedPath, '{"version":1,"privateKeyPkcs8":"not-a-key"}', {
 			mode: 0o600,
 		});
+
 		const failedPort = await availablePort();
 		const failedOrigin = `http://127.0.0.1:${String(failedPort)}`;
 		let failedStderr = "";
@@ -384,6 +433,7 @@ describe("Grove development MCP authorization server", () => {
 				GROVE_OIDC_SIGNING_KEY_PATH: corruptedPath,
 			},
 		});
+
 		failed.stderr.on("data", (chunk: Buffer) => {
 			failedStderr += chunk.toString();
 		});
@@ -410,13 +460,16 @@ describe("Grove development MCP authorization server", () => {
 				scope: "grove:mcp grove:agent:enroll",
 			}),
 		});
+
 		expect(response.status).toBe(200);
+
 		const tokens = (await response.json()) as {
 			access_token: string;
 			expires_in: number;
 			scope: string;
 			token_type: string;
 		};
+
 		expect(tokens).toMatchObject({
 			expires_in: 300,
 			scope: "grove:mcp grove:agent:enroll",
@@ -434,12 +487,15 @@ describe("Grove development MCP authorization server", () => {
 				requiredClaims: ["sub", "iat", "exp"],
 			},
 		);
+
 		expect(protectedHeader).toMatchObject({ alg: "RS256", kid: jwks.keys[0]?.kid });
+
 		expect(payload).toMatchObject({
 			sub: clientId,
 			client_id: clientId,
 			scope: "grove:mcp grove:agent:enroll",
 		});
+
 		expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(300);
 	});
 
@@ -451,9 +507,11 @@ describe("Grove development MCP authorization server", () => {
 		["bad client secret", mcpResource, "grove:mcp", "wrong-secret", 401, "invalid_client"],
 	] as const)("rejects %s", async (_name, resource, scope, secret, status, expectedError) => {
 		const body = new URLSearchParams({ grant_type: "client_credentials", scope });
+
 		if (resource) {
 			body.set("resource", resource);
 		}
+
 		const response = await fetch(`${issuer}/token`, {
 			method: "POST",
 			headers: {
@@ -466,6 +524,7 @@ describe("Grove development MCP authorization server", () => {
 			},
 			body,
 		});
+
 		expect(response.status).toBe(status);
 		await expect(response.json()).resolves.toEqual({ error: expectedError });
 	});

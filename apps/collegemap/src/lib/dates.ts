@@ -19,10 +19,12 @@ const ISO_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
 /** A UTC-midnight `Date` for a calendar day, safe for every 4-digit year. */
 function utcMidnight(year: number, month1: number, day: number): Date {
 	const d = new Date(0);
+
 	// setUTCFullYear avoids the Date.UTC two-digit-year trap (Date.UTC(99,...)
 	// means 1999). Irrelevant for 2026, but this is the cheap correct version.
 	d.setUTCFullYear(year, month1 - 1, day);
 	d.setUTCHours(0, 0, 0, 0);
+
 	return d;
 }
 
@@ -37,13 +39,17 @@ export function isIsoDate(value: unknown): boolean {
 	if (typeof value !== "string" || !ISO_SHAPE.test(value)) {
 		return false;
 	}
+
 	const year = Number(value.slice(0, 4));
 	const month = Number(value.slice(5, 7));
 	const day = Number(value.slice(8, 10));
+
 	if (month < 1 || month > 12 || day < 1 || day > 31) {
 		return false;
 	}
+
 	const probe = utcMidnight(year, month, day);
+
 	return (
 		probe.getUTCFullYear() === year &&
 		probe.getUTCMonth() === month - 1 &&
@@ -56,6 +62,7 @@ export function toDay(iso: string): number {
 	const year = Number(iso.slice(0, 4));
 	const month = Number(iso.slice(5, 7));
 	const day = Number(iso.slice(8, 10));
+
 	return Math.round(utcMidnight(year, month, day).getTime() / MS_PER_DAY);
 }
 
@@ -65,6 +72,7 @@ export function fromDay(dayNumber: number): string {
 	const year = String(d.getUTCFullYear()).padStart(4, "0");
 	const month = String(d.getUTCMonth() + 1).padStart(2, "0");
 	const day = String(d.getUTCDate()).padStart(2, "0");
+
 	return `${year}-${month}-${day}`;
 }
 
@@ -102,12 +110,14 @@ const FORMAT_CACHE = new Map<string, Intl.DateTimeFormat>();
 function formatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
 	const key = JSON.stringify(options);
 	let f = FORMAT_CACHE.get(key);
+
 	if (!f) {
 		// timeZone: 'UTC' is the whole point: our day numbers are UTC midnights,
 		// so formatting in UTC renders the calendar day we actually mean.
 		f = new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" });
 		FORMAT_CACHE.set(key, f);
 	}
+
 	return f;
 }
 
@@ -146,15 +156,19 @@ function yearOf(iso: string): number {
 export function formatRange(startIso: string, endIso: string, referenceYear: number): string {
 	const startYear = yearOf(startIso);
 	const endYear = yearOf(endIso);
+
 	if (startIso === endIso) {
 		return startYear === referenceYear ? formatShort(startIso) : formatWithYear(startIso);
 	}
+
 	if (startYear !== endYear) {
 		return `${formatWithYear(startIso)} to ${formatWithYear(endIso)}`;
 	}
+
 	if (startYear === referenceYear) {
 		return `${formatShort(startIso)} to ${formatShort(endIso)}`;
 	}
+
 	return `${formatBare(startIso)} to ${formatWithYear(endIso)}`;
 }
 
@@ -167,6 +181,7 @@ export function startOfMonth(iso: string): string {
 export function startOfNextMonth(iso: string): string {
 	const year = yearOf(iso);
 	const month = Number(iso.slice(5, 7));
+
 	return month === 12
 		? `${String(year + 1)}-01-01`
 		: `${String(year)}-${String(month + 1).padStart(2, "0")}-01`;

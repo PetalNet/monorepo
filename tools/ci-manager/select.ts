@@ -72,11 +72,13 @@ const affectedPackages = Effect.fn("affectedPackages")(function* (base: string) 
 			"HEAD",
 		]),
 	);
+
 	if (graph.errors?.length) {
 		return yield* new TurboQueryFailed({
 			message: graph.errors.map((error) => error.message).join("\n"),
 		});
 	}
+
 	return graph.data.affectedPackages.items;
 });
 
@@ -87,9 +89,11 @@ const workspaceTasks = Effect.fn("workspaceTasks")(function* (
 	const packages = yield* Schema.decodeEffect(Schema.Array(WorkspacePackage))(
 		items?.map((item) => item.name).filter((name) => name.startsWith("@petalnet/")) ?? [],
 	);
+
 	if (items && packages.length === 0) {
 		return { js: false, build: false, test: false, "js-packages": "[]" };
 	}
+
 	const filters = items ? packages.map((name) => `--filter=${name}`) : ["--filter=@petalnet/*"];
 	const plan = (task: "build" | "test", env?: Record<string, string>) =>
 		commandOutput("pnpm", ["exec", "turbo", "run", task, ...filters, "--dry=json"], env).pipe(
@@ -103,7 +107,9 @@ const workspaceTasks = Effect.fn("workspaceTasks")(function* (
 			if (!(yield* fs.exists(directory))) {
 				return [];
 			}
+
 			const path = `${directory}/.env`;
+
 			return [{ path, contents: (yield* fs.exists(path)) ? yield* fs.readFileString(path) : null }];
 		}),
 	).pipe(Effect.map((entries) => entries.flat()));
@@ -111,6 +117,7 @@ const workspaceTasks = Effect.fn("workspaceTasks")(function* (
 		yield* Effect.forEach(backups, ({ path }) =>
 			fs.writeFileString(path, `DATABASE_URL=${databaseUrl}\n`),
 		);
+
 		return yield* plan("build", { DATABASE_URL: databaseUrl });
 	}).pipe(
 		Effect.ensuring(
@@ -119,6 +126,7 @@ const workspaceTasks = Effect.fn("workspaceTasks")(function* (
 			).pipe(Effect.orDie),
 		),
 	);
+
 	return {
 		js: [...build.tasks, ...test.tasks].some(
 			(task) => task.command !== "<NONEXISTENT>" && (task.task === "build" || task.task === "test"),
@@ -138,6 +146,7 @@ const comparisonPlan = Effect.fn("comparisonPlan")(function* (base: string) {
 		],
 		{ concurrency: 2 },
 	);
+
 	return {
 		...selectJobs(
 			diff.split("\0").filter(Boolean),
@@ -163,6 +172,7 @@ export const select: Effect.Effect<
 	const event = yield* Schema.decodeEffect(Schema.fromJsonString(Event))(
 		yield* fs.readFileString(eventPath),
 	);
+
 	yield* commandOutput("rustup", ["toolchain", "install"]);
 	const base = event.pull_request?.base.sha ?? event.merge_group?.base_sha;
 	const decisions = base
@@ -176,9 +186,11 @@ export const select: Effect.Effect<
 	const rust = yield* Effect.forEach(Record.toEntries(rustPackages), ([owner, { filter, tasks }]) =>
 		Effect.gen(function* () {
 			const job = owner === "point" ? "point-rust" : owner;
+
 			if (!decisions[owner]) {
 				return [job, false] as const;
 			}
+
 			const plan = yield* Schema.decodeEffect(Schema.fromJsonString(TurboPlan))(
 				yield* commandOutput(
 					"pnpm",
@@ -190,6 +202,7 @@ export const select: Effect.Effect<
 						: undefined,
 				),
 			);
+
 			return [job, needsExecution(plan)] as const;
 		}),
 	);
@@ -197,6 +210,7 @@ export const select: Effect.Effect<
 	const lines = Object.entries(outputs)
 		.map(([key, value]) => `${key}=${String(value)}`)
 		.join("\n");
+
 	yield* Console.log(lines);
 	yield* fs.writeFileString(outputPath, `${lines}\n`, { flag: "a" });
 });

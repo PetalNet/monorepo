@@ -67,6 +67,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	// Get ordered groups
 	let orderedGroups = event.presentationOrder.map((po) => po.group);
+
 	if (orderedGroups.length === 0) {
 		orderedGroups = event.groups;
 	}
@@ -98,6 +99,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				status: "live",
 			},
 		});
+
 		event.status = "live";
 	}
 
@@ -155,9 +157,11 @@ export const actions: Actions = {
 			const session = await prisma.votingSession.findUnique({
 				where: { sessionCode },
 			});
+
 			if (session?.eventId !== params.id) {
 				return { error: "Invalid session" };
 			}
+
 			votingSessionId = session.id;
 		} else if (locals.user) {
 			userId = locals.user.id;

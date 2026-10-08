@@ -72,6 +72,7 @@ function acrossTheWeekend(span: { startDate: string; endDate: string }): {
 	const end = toDay(span.endDate);
 	const startWeekday = weekdayOf(start);
 	const endWeekday = weekdayOf(end);
+
 	return {
 		startDate:
 			startWeekday === MONDAY
@@ -138,8 +139,10 @@ export function mergeBreakRows(
 	holidayYears: readonly number[] = [],
 ): CalendarBreakRow[] {
 	const byCollege = new Map<string, CollegeBreak[]>();
+
 	for (const collegeBreak of collegeBreaks) {
 		const list = byCollege.get(collegeBreak.collegeId);
+
 		if (list) {
 			list.push(collegeBreak);
 		} else {
@@ -208,6 +211,7 @@ function assumedRows(
 	const eligible = people.filter(
 		(person) => person.institutionKind != null && FEDERAL_HOLIDAY_KINDS.has(person.institutionKind),
 	);
+
 	if (eligible.length === 0) {
 		return [];
 	}
@@ -215,9 +219,11 @@ function assumedRows(
 	const holidays = holidayYears.flatMap((year) => federalHolidays(year));
 
 	const spokenFor = new Map<string, { start: number; end: number }[]>();
+
 	for (const row of own) {
 		const span = { start: toDay(row.startDate), end: toDay(row.endDate) };
 		const list = spokenFor.get(row.userId);
+
 		if (list) {
 			list.push(span);
 		} else {
@@ -227,9 +233,11 @@ function assumedRows(
 
 	return eligible.flatMap((person) => {
 		const stated = spokenFor.get(person.id) ?? [];
+
 		return holidays
 			.filter((holiday) => {
 				const day = toDay(holiday.date);
+
 				return !stated.some((span) => span.start <= day && day <= span.end);
 			})
 			.map((holiday) => ({

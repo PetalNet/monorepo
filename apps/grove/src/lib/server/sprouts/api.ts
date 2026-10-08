@@ -16,8 +16,10 @@ const statusForError = (error: SproutError): number => {
 	if (Predicate.isTagged(error, "ActorDenied") || Predicate.isTagged(error, "ActorNotCurrent")) {
 		return 403;
 	}
+
 	return Predicate.isTagged(error, "SproutNotFound") ? 404 : 503;
 };
+
 const messageForError = (error: SproutError): string => {
 	if (
 		Predicate.isTagged(error, "SproutNotFound") ||
@@ -26,6 +28,7 @@ const messageForError = (error: SproutError): string => {
 	) {
 		return error.message;
 	}
+
 	return "The sprout database is unavailable";
 };
 

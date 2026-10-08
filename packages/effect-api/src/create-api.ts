@@ -84,17 +84,20 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 						const abort = () => {
 							resume(Effect.interrupt);
 						};
+
 						if (request.signal.aborted) {
 							abort();
 						} else {
 							request.signal.addEventListener("abort", abort, { once: true });
 						}
+
 						return Effect.sync(() => {
 							request.signal.removeEventListener("abort", abort);
 						});
 					}),
 				)
 			: handled;
+
 		// Normalize the preview's parse-error status at the response boundary.
 		if (
 			new URL(incoming.originalUrl).pathname === (config.mcpPath ?? "/mcp") &&
@@ -113,7 +116,9 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 		) {
 			return HttpServerResponse.toWeb(HttpServerResponse.setStatus(response, 400));
 		}
+
 		return HttpServerResponse.toWeb(response);
 	}, Effect.scoped);
+
 	return { layer, fetch, mcp: fetch, openapi: createOpenApi(config) } as const;
 }

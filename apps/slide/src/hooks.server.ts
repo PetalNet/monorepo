@@ -13,6 +13,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	if (sessionId) {
 		const session = await validateSession(sessionId);
+
 		if (session) {
 			event.locals.user = {
 				id: session.user.id,

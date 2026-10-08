@@ -16,6 +16,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	// Get the place they are affiliated with, if they have picked one
 	let currentCollege = null;
+
 	if (locals.user.collegeId) {
 		currentCollege = await db
 			.select()

@@ -31,6 +31,7 @@ export const actions: Actions = {
 
 		// Redirect to the 'redirectTo' parameter if present, otherwise dashboard
 		const redirectTo = url.searchParams.get("redirectTo") || "/dashboard";
+
 		throw redirect(303, redirectTo);
 	},
 };

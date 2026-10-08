@@ -39,6 +39,7 @@ function iso(year: number, month1: number, day: number): string {
 function nthWeekday(year: number, month1: number, weekday: number, n: number): string {
 	const first = toDay(iso(year, month1, 1));
 	const offset = (weekday - weekdayOf(first) + 7) % 7;
+
 	return fromDay(first + offset + (n - 1) * 7);
 }
 
@@ -49,6 +50,7 @@ function nthWeekday(year: number, month1: number, weekday: number, n: number): s
  */
 function lastWeekday(year: number, month1: number, weekday: number): string {
 	const last = toDay(startOfNextMonth(iso(year, month1, 1))) - 1;
+
 	return fromDay(last - ((weekdayOf(last) - weekday + 7) % 7));
 }
 
@@ -66,12 +68,15 @@ function lastWeekday(year: number, month1: number, weekday: number): string {
 function observe(date: string): { date: string; moved: boolean } {
 	const day = toDay(date);
 	const weekday = weekdayOf(day);
+
 	if (weekday === SATURDAY) {
 		return { date: fromDay(day - 1), moved: true };
 	}
+
 	if (weekday === SUNDAY) {
 		return { date: fromDay(day + 1), moved: true };
 	}
+
 	return { date, moved: false };
 }
 
@@ -96,6 +101,7 @@ function statutory(year: number): { name: string; date: string }[] {
 export function federalHolidays(year: number): FederalHoliday[] {
 	return statutory(year).map((holiday) => {
 		const { date, moved } = observe(holiday.date);
+
 		return { label: moved ? `${holiday.name} (observed)` : holiday.name, date };
 	});
 }

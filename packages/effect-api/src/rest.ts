@@ -17,11 +17,14 @@ export const createRestLayer = <R>(config: RestConfig<R>) =>
 	Layer.effectDiscard(
 		Effect.gen(function* () {
 			const router = yield* HttpRouter.HttpRouter;
+
 			for (const operation of config.operations) {
 				const rest = operation.rest;
+
 				if (!rest) {
 					continue;
 				}
+
 				yield* router.add(
 					rest.method,
 					`${config.basePath.replace(/\/$/, "")}${rest.path}` as `/${string}`,
@@ -46,6 +49,7 @@ export const createRestLayer = <R>(config: RestConfig<R>) =>
 						const value = yield* invokeOperation(operation, merged, config.logCause).pipe(
 							Effect.provide(current.services),
 						);
+
 						return HttpServerResponse.jsonUnsafe(value);
 					}).pipe(
 						Effect.catchTags({

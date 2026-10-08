@@ -5,17 +5,21 @@ import { federalHolidays } from "./federal-holidays";
 /** The observed date of one named holiday, by the name the statute gives it. */
 function dateOf(year: number, name: string): string {
 	const match = federalHolidays(year).find((holiday) => holiday.label.startsWith(name));
+
 	if (!match) {
 		throw new Error(`No holiday named ${name} in ${String(year)}`);
 	}
+
 	return match.date;
 }
 
 function labelOf(year: number, name: string): string {
 	const match = federalHolidays(year).find((holiday) => holiday.label.startsWith(name));
+
 	if (!match) {
 		throw new Error(`No holiday named ${name} in ${String(year)}`);
 	}
+
 	return match.label;
 }
 
@@ -23,6 +27,7 @@ describe("the eleven federal holidays", () => {
 	it("is eleven of them, every year, named once each", () => {
 		for (const year of [2021, 2022, 2023, 2026, 2027, 2028, 2029]) {
 			const holidays = federalHolidays(year);
+
 			expect(holidays, `count for ${String(year)}`).toHaveLength(11);
 			expect(new Set(holidays.map((h) => h.label)).size, `names for ${String(year)}`).toBe(11);
 			expect(new Set(holidays.map((h) => h.date)).size, `dates for ${String(year)}`).toBe(11);

@@ -17,5 +17,6 @@ export const runTasks = Effect.fn("runTasks")(function* (task: "build" | "test")
 		task,
 		...packages.map((name) => `--filter=${name}`),
 	]);
+
 	yield* Console.log(output);
 });

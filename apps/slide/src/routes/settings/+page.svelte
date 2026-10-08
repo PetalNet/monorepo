@@ -251,8 +251,10 @@
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						await update();
+
 						if (result.type === "success") {
 							await invalidateAll();
+
 							setTimeout(() => {
 								closeModals();
 							}, 1500);
@@ -325,8 +327,10 @@
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						await update();
+
 						if (result.type === "success") {
 							await invalidateAll();
+
 							setTimeout(() => {
 								closeModals();
 							}, 1500);
@@ -417,6 +421,7 @@
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						await update();
+
 						if (result.type === "success") {
 							currentPassword = "";
 							newPassword = "";

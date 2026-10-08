@@ -29,5 +29,6 @@ const ContainmentFixInput = Schema.Struct({
 	personId: AuthorityIdentifier,
 	capability: AuthorityIdentifier,
 });
+
 export const AgentCapabilityValidator = Schema.toStandardSchemaV1(AgentCapability);
 export const ContainmentFixValidator = Schema.toStandardSchemaV1(ContainmentFixInput);

@@ -36,7 +36,9 @@ describe("cross-context references", () => {
 		expect(buildJumpUrl("a hash/with punctuation")).toBe(
 			"https://whoami.example.test/report#ref=a+hash%2Fwith+punctuation&from=whoami.example.test",
 		);
+
 		window.location.hash = "#ref=abc123&from=other.example.test";
+
 		expect(readCarriedRef()).toEqual({
 			hash: "abc123",
 			fromHost: "other.example.test",

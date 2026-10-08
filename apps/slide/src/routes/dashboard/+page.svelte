@@ -21,6 +21,7 @@
 				showJoin: true,
 			};
 		}
+
 		if (event.currentPresentationId) {
 			return {
 				text: "🎬 Live Now",
@@ -30,6 +31,7 @@
 				showJoin: true,
 			};
 		}
+
 		return {
 			text: "📝 Setup",
 			color: "bg-theater-elevated text-purple-200 border border-purple-700/30",
@@ -46,6 +48,7 @@
 				urgency: "done",
 			};
 		}
+
 		if (group.status === "late") {
 			return {
 				text: "⏰ Late",
@@ -53,6 +56,7 @@
 				urgency: "urgent",
 			};
 		}
+
 		return {
 			text: "⏳ Pending",
 			color: "bg-amber-900/50 text-amber-200 border border-amber-700/50",
@@ -64,13 +68,16 @@
 		const deadlines =
 			event.groups?.map((g: any) => (g.deadline ? new Date(g.deadline) : null)).filter(Boolean) ??
 			[];
+
 		if (!deadlines.length) {
 			return null;
 		}
+
 		const future = deadlines.filter((d: any) => d && d > new Date());
 		const soonest = (future.length ? future : deadlines).toSorted(
 			(a: any, b: any) => a.getTime() - b.getTime(),
 		)[0];
+
 		return soonest;
 	}
 </script>
@@ -110,21 +117,26 @@
 		<!-- Upcoming Deadlines Section -->
 		{#if (() => {
 			let deadlines: any[] = [];
+
 			data.groupMemberships.forEach((m) => {
 				if (m.group.event.submissionDeadline) {
 					const deadline = new Date(m.group.event.submissionDeadline);
+
 					if (deadline > new Date()) {
 						deadlines.push( { type: "presentation", name: m.group.name, emoji: m.group.emoji, eventName: m.group.event.name, deadline, status: m.group.status, link: `/night/${m.group.event.joinCode}` } );
 					}
 				}
 			});
+
 			return deadlines.sort((a: any, b: any) => a.deadline.getTime() - b.deadline.getTime()).length > 0;
 		})()}
 			{@const upcomingDeadlines = (() => {
 				let deadlines: any[] = [];
+
 				data.groupMemberships.forEach((m) => {
 					if (m.group.event.submissionDeadline) {
 						const deadline = new Date(m.group.event.submissionDeadline);
+
 						if (deadline > new Date()) {
 							deadlines.push({
 								type: "presentation",
@@ -138,6 +150,7 @@
 						}
 					}
 				});
+
 				return deadlines.sort((a: any, b: any) => a.deadline.getTime() - b.deadline.getTime());
 			})()}
 			<section class="mb-8 sm:mb-12">

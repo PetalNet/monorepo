@@ -47,6 +47,7 @@ export const groveOidc = (config: GroveOidcConfig) => {
 			const provider = initialized.context.socialProviders.find(
 				(candidate) => candidate.id === GROVE_OIDC_PROVIDER_ID,
 			);
+
 			if (
 				!provider?.idToken ||
 				provider.issuer !== issuer ||
@@ -56,13 +57,17 @@ export const groveOidc = (config: GroveOidcConfig) => {
 			}
 
 			const getUserInfo = provider.getUserInfo.bind(provider);
+
 			provider.getUserInfo = async (tokens) => {
 				const result = await getUserInfo(tokens);
+
 				if (!result?.user.emailVerified || !tokens.idToken) {
 					return null;
 				}
+
 				const claims = decodeJwt(tokens.idToken);
 				const audience = Array.isArray(claims.aud) ? claims.aud : claims.aud ? [claims.aud] : [];
+
 				if (
 					typeof claims.sub !== "string" ||
 					claims.sub.length === 0 ||
@@ -73,20 +78,26 @@ export const groveOidc = (config: GroveOidcConfig) => {
 				) {
 					return null;
 				}
+
 				return result;
 			};
 
 			const validateAuthorizationCode = provider.validateAuthorizationCode.bind(provider);
+
 			provider.validateAuthorizationCode = async (data) => {
 				const tokens = await validateAuthorizationCode(data);
+
 				if (tokens === null) {
 					throw new Error("Grove OIDC token response omitted the required ID token");
 				}
+
 				if (!tokens.idToken) {
 					throw new Error("Grove OIDC token response omitted the required ID token");
 				}
+
 				return tokens;
 			};
+
 			return initialized;
 		},
 	};

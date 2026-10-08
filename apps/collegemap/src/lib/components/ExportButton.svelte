@@ -15,18 +15,22 @@
 		if (!mapInstance || exporting) {
 			return;
 		}
+
 		exporting = true;
 
 		try {
 			const leafletImage = (await import("leaflet-image")).default;
+
 			leafletImage(mapInstance, (err: Error | null, canvas: HTMLCanvasElement | null) => {
 				if (err || !canvas) {
 					exporting = false;
+
 					return;
 				}
 
 				// Add watermark
 				const ctx = canvas.getContext("2d");
+
 				if (ctx) {
 					ctx.font = "14px Inter, system-ui, sans-serif";
 					ctx.fillStyle = "rgba(0,0,0,0.4)";
@@ -37,10 +41,13 @@
 				canvas.toBlob((blob) => {
 					if (!blob) {
 						exporting = false;
+
 						return;
 					}
+
 					const url = URL.createObjectURL(blob);
 					const a = document.createElement("a");
+
 					a.href = url;
 					a.download = `${mapName.replace(/\s+/g, "-").toLowerCase()}-map.png`;
 					a.click();

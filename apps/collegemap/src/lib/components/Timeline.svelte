@@ -46,6 +46,7 @@
 		if (progress >= 1) {
 			progress = 0;
 		}
+
 		isPlaying = true;
 		const startTime = performance.now();
 		const startProgress = progress;
@@ -54,14 +55,18 @@
 		function step(now: number) {
 			const elapsed = now - startTime;
 			const newProgress = startProgress + (elapsed / duration) * (1 - startProgress);
+
 			if (newProgress >= 1) {
 				progress = 1;
 				isPlaying = false;
+
 				return;
 			}
+
 			progress = newProgress;
 			animFrame = requestAnimationFrame(step);
 		}
+
 		animFrame = requestAnimationFrame(step);
 	}
 

@@ -17,15 +17,19 @@ const sqlType = (type: unknown) => {
 	if (type === "boolean") {
 		return "boolean";
 	}
+
 	if (type === "number") {
 		return "double precision";
 	}
+
 	if (type === "date") {
 		return "timestamptz";
 	}
+
 	if (type === "json" || (typeof type === "string" && type.endsWith("[]"))) {
 		return "jsonb";
 	}
+
 	return "text";
 };
 
@@ -39,32 +43,41 @@ describe("effect-qb Postgres adapter conformance", async () => {
 			.toSorted((left, right) => (left.order ?? 0) - (right.order ?? 0))
 			.map((table) => {
 				const columns = [`"id" text primary key`];
+
 				for (const [field, attributes] of Object.entries(table.fields)) {
 					const clauses = [quote(attributes.fieldName ?? field), sqlType(attributes.type)];
+
 					if (attributes.required) {
 						clauses.push("not null");
 					}
+
 					if (attributes.unique) {
 						clauses.push("unique");
 					}
+
 					columns.push(clauses.join(" "));
 				}
+
 				// Account identity uses the compound providerId + accountId index.
 				for (const index of table.indexes ?? []) {
 					if (!index.unique) {
 						continue;
 					}
+
 					columns.push(
 						`unique (${index.fields.map((field) => quote(table.fields[field].fieldName ?? field)).join(", ")})`,
 					);
 				}
+
 				return `create table ${quote(table.modelName)} (${columns.join(", ")})`;
 			});
+
 		await runtime.runPromise(
 			Effect.flatMap(PgClient.PgClient, (sql) =>
 				Effect.gen(function* () {
 					yield* sql.unsafe("drop schema public cascade");
 					yield* sql.unsafe("create schema public");
+
 					for (const statement of statements) {
 						yield* sql.unsafe(statement);
 					}
@@ -72,6 +85,7 @@ describe("effect-qb Postgres adapter conformance", async () => {
 			),
 		);
 	};
+
 	const suite = await testAdapter({
 		adapter: () => factory,
 		runMigrations,
@@ -82,5 +96,6 @@ describe("effect-qb Postgres adapter conformance", async () => {
 			await stopPostgres();
 		},
 	});
+
 	suite.execute();
 });

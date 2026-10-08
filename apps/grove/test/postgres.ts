@@ -14,6 +14,7 @@ const containers: StartedPostgreSqlContainer[] = [];
 
 export const startGrovePostgres = async () => {
 	const container = await new PostgreSqlContainer("postgres:17-alpine").start();
+
 	containers.push(container);
 	const databaseUrl = container.getConnectionUri();
 	const runtime = ManagedRuntime.make(PgClient.layer({ url: Redacted.make(databaseUrl) }));
@@ -24,6 +25,7 @@ export const startGrovePostgres = async () => {
 				fileURLToPath(new URL("../migrations", import.meta.url)),
 			);
 			const sql = yield* PgClient.PgClient;
+
 			yield* sql.withTransaction(
 				ensureMigrationTable("effect_qb_migrations").pipe(
 					Effect.andThen(applyMigrationFiles("effect_qb_migrations", migrations)),

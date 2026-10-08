@@ -11,21 +11,27 @@ import type { EdgeTrace } from "./consistency";
 export async function fetchTrace(): Promise<EdgeTrace | null> {
 	try {
 		const res = await fetch("/cdn-cgi/trace", { cache: "no-store" });
+
 		if (!res.ok) {
 			return null;
 		}
+
 		const text = await res.text();
 		const map: Record<string, string | undefined> = {};
+
 		for (const line of text.split("\n")) {
 			const eq = line.indexOf("=");
+
 			if (eq > 0) {
 				map[line.slice(0, eq)] = line.slice(eq + 1);
 			}
 		}
+
 		// Only treat this as a real CF trace if the signature fields are present.
 		if (!("warp" in map) && !("colo" in map)) {
 			return null;
 		}
+
 		return {
 			warp: map.warp ?? null,
 			gateway: map.gateway ?? null,

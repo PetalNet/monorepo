@@ -29,6 +29,7 @@ describe("production Grove browser auth composition", () => {
 		const postgres = await startGrovePostgres();
 		const database = PgClient.layer({ url: Redacted.make(postgres.databaseUrl) });
 		const actors = ActorAuthorityLayer({ homeOwner: owner }).pipe(Layer.provideMerge(database));
+
 		runtime = ManagedRuntime.make(actors);
 		originalFetch = globalThis.fetch;
 	}, 60_000);
@@ -46,8 +47,10 @@ describe("production Grove browser auth composition", () => {
 		let includeIssuedAt = true;
 		let emailVerified = true;
 		let audience: string | string[] = "grove-browser";
+
 		globalThis.fetch = async (input, init) => {
 			const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+
 			if (url === `${issuer}/.well-known/openid-configuration`) {
 				return Response.json({
 					issuer,
@@ -58,15 +61,20 @@ describe("production Grove browser auth composition", () => {
 					id_token_signing_alg_values_supported: ["RS256"],
 				});
 			}
+
 			if (url === `${issuer}/jwks`) {
 				return Response.json({ keys: [publicJwk] });
 			}
+
 			if (url === `${issuer}/token`) {
 				const body = init?.body;
+
 				expect(body).toBeInstanceOf(URLSearchParams);
+
 				if (!(body instanceof URLSearchParams)) {
 					throw new TypeError("Expected OAuth form body");
 				}
+
 				expect(body.has("code_verifier")).toBe(true);
 				const now = Math.floor(Date.now() / 1000);
 				const token = new SignJWT({
@@ -80,16 +88,20 @@ describe("production Grove browser auth composition", () => {
 					.setAudience(audience)
 					.setSubject(owner.subject)
 					.setExpirationTime(now + 300);
+
 				if (includeIssuedAt) {
 					token.setIssuedAt(now);
 				}
+
 				const idToken = await token.sign(pair.privateKey);
+
 				return Response.json({
 					access_token: "provider-access-token",
 					token_type: "Bearer",
 					id_token: idToken,
 				});
 			}
+
 			throw new Error(`Unexpected OIDC request: ${url}`);
 		};
 
@@ -109,20 +121,26 @@ describe("production Grove browser auth composition", () => {
 			authority,
 			() => activeEvent,
 		);
+
 		expect(
 			await Effect.runPromise(
 				browserAuth.isBrowserAuthRoute("http://grove.example/api/auth/get-session"),
 			),
 		).toBe(true);
+
 		const beginAuthorization = async (callbackURL = "/") => {
 			activeEvent = eventFor(new Request(`${origin}/login`));
+
 			const loginResponse = await Effect.runPromise(
 				browserAuth.beginLogin(new Headers(), callbackURL),
 			);
 			const url = new URL(loginResponse.headers.get("location") ?? "");
+
 			expectedNonce = url.searchParams.get("nonce") ?? "";
+
 			return { loginResponse, url };
 		};
+
 		const completeAuthorization = async (loginResponse: Response, url: URL) => {
 			const stateCookies = loginResponse.headers
 				.getSetCookie()
@@ -132,7 +150,9 @@ describe("production Grove browser auth composition", () => {
 				`${origin}/api/auth/callback/${GROVE_OIDC_PROVIDER_ID}?code=authorization-code&state=${encodeURIComponent(url.searchParams.get("state") ?? "")}`,
 				{ headers: { cookie: stateCookies } },
 			);
+
 			activeEvent = eventFor(callbackRequest);
+
 			return Effect.runPromise(
 				browserAuth.dispatch({ event: activeEvent, resolve: () => new Response() }),
 			);
@@ -141,8 +161,10 @@ describe("production Grove browser auth composition", () => {
 		expect(await runtime.runPromise(browserAuth.readiness)).toMatchObject({
 			status: "owner-unbound",
 		});
+
 		const { loginResponse: login, url: authorizationUrl } =
 			await beginAuthorization("/sprouts?view=agent");
+
 		expect(login.status).toBe(302);
 		expect(authorizationUrl.searchParams.get("response_type")).toBe("code");
 		expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe("S256");
@@ -153,14 +175,19 @@ describe("production Grove browser auth composition", () => {
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ provider: GROVE_OIDC_PROVIDER_ID, idToken: { token: "fabricated" } }),
 		});
+
 		activeEvent = eventFor(directRequest);
+
 		const direct = await Effect.runPromise(
 			browserAuth.dispatch({ event: activeEvent, resolve: () => new Response() }),
 		);
+
 		expect(direct.status).toBe(404);
 
 		const callback = await completeAuthorization(login, authorizationUrl);
+
 		expect(callback.headers.get("location")).toBe("/sprouts?view=agent");
+
 		const sessionCookies = callback.headers
 			.getSetCookie()
 			.map((cookie) => cookie.split(";", 1)[0])
@@ -186,10 +213,12 @@ describe("production Grove browser auth composition", () => {
 		const inspectedUnbound = await runtime.runPromise(
 			browserAuth.inspectSession(new Headers({ cookie: sessionCookies })),
 		);
+
 		expect(inspectedUnbound).toMatchObject({
 			user: { email: "operator@example.com", emailVerified: true },
 			actor: null,
 		});
+
 		expect(await authorityState()).toEqual(beforePreflightInspection);
 
 		const hydrated = await runtime.runPromise(
@@ -200,10 +229,12 @@ describe("production Grove browser auth composition", () => {
 			user: { email: "operator@example.com", emailVerified: true },
 			actor: { kind: "person", name: "Grove Operator" },
 		});
+
 		expect(await runtime.runPromise(browserAuth.readiness)).toMatchObject({
 			status: "ready",
 			ownerPersonId: hydrated?.actor.actorId,
 		});
+
 		expect((await authorityState()).identities).toEqual([
 			expect.objectContaining({
 				issuer,
@@ -211,34 +242,44 @@ describe("production Grove browser auth composition", () => {
 				actor_id: hydrated?.actor.actorId,
 			}),
 		]);
+
 		await runtime.runPromise(sql`update account set "providerId" = 'untrusted-provider'`);
+
 		await expect(
 			runtime.runPromise(browserAuth.hydrateSession(new Headers({ cookie: sessionCookies }))),
 		).resolves.toBeNull();
+
 		await runtime.runPromise(sql`update account set "providerId" = ${GROVE_OIDC_PROVIDER_ID}`);
+
 		const accounts = await runtime.runPromise(
 			sql.unsafe<{ accessToken: string | null; idToken: string | null }>(
 				`select "accessToken", "idToken" from "account"`,
 			),
 		);
+
 		expect(accounts[0]?.accessToken).toEqual(expect.any(String));
 		expect(accounts[0]?.accessToken).not.toBe("provider-access-token");
 		expect(accounts[0]?.idToken).toBeNull();
 		const beforeBoundPreflightInspection = await authorityState();
+
 		await runtime.runPromise(
 			sql.unsafe('update "user" set "name" = $2 where "id" = $1', [
 				hydrated?.user.id,
 				"Renamed Better Auth Operator",
 			]),
 		);
+
 		const inspectedBound = await runtime.runPromise(
 			browserAuth.inspectSession(new Headers({ cookie: sessionCookies })),
 		);
+
 		expect(inspectedBound).toMatchObject({
 			user: { name: "Renamed Better Auth Operator" },
 			actor: { actorId: hydrated?.actor.actorId, name: "Grove Operator" },
 		});
+
 		expect(await authorityState()).toEqual(beforeBoundPreflightInspection);
+
 		await expect(
 			runtime.runPromise(browserAuth.hydrateSession(new Headers({ cookie: sessionCookies }))),
 		).resolves.toMatchObject({
@@ -248,14 +289,18 @@ describe("production Grove browser auth composition", () => {
 		activeEvent = eventFor(
 			new Request(`${origin}/__dev/log-me-out`, { headers: { cookie: sessionCookies } }),
 		);
+
 		const signedOut = await Effect.runPromise(
 			browserAuth.endSession(new Headers({ cookie: sessionCookies }), "/signed-out"),
 		);
+
 		expect(signedOut.status).toBe(302);
 		expect(signedOut.headers.get("location")).toBe("/signed-out");
+
 		expect(signedOut.headers.getSetCookie().join("\n")).toMatch(
 			/(?:__Secure-)?better-auth\.session_token=;.*Max-Age=0/i,
 		);
+
 		await expect(
 			runtime.runPromise(browserAuth.hydrateSession(new Headers({ cookie: sessionCookies }))),
 		).resolves.toBeNull();
@@ -266,6 +311,7 @@ describe("production Grove browser auth composition", () => {
 			missingIssuedAt.loginResponse,
 			missingIssuedAt.url,
 		);
+
 		expect(rejectedMissingIssuedAt.headers.get("location")).toContain("unable_to_get_user_info");
 
 		includeIssuedAt = true;
@@ -275,6 +321,7 @@ describe("production Grove browser auth composition", () => {
 			missingAuthorizedParty.loginResponse,
 			missingAuthorizedParty.url,
 		);
+
 		expect(rejectedMissingAuthorizedParty.headers.get("location")).toContain(
 			"unable_to_get_user_info",
 		);
@@ -286,15 +333,18 @@ describe("production Grove browser auth composition", () => {
 			unverifiedEmail.loginResponse,
 			unverifiedEmail.url,
 		);
+
 		expect(rejectedUnverifiedEmail.headers.get("location")).toContain("unable_to_get_user_info");
 	}, 60_000);
 
 	it("fails construction when OIDC discovery does not match the pinned issuer", async () => {
 		globalThis.fetch = (input) => {
 			const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+
 			if (url !== `${issuer}/.well-known/openid-configuration`) {
 				throw new Error(`Unexpected OIDC request: ${url}`);
 			}
+
 			return Promise.resolve(
 				Response.json({
 					issuer: "https://unexpected-identity.example/realm/grove",
@@ -305,6 +355,7 @@ describe("production Grove browser auth composition", () => {
 				}),
 			);
 		};
+
 		const sql = await runtime.runPromise(PgClient.PgClient);
 		const authority = await runtime.runPromise(ActorAuthority);
 

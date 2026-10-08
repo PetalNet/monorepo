@@ -16,14 +16,19 @@ const base = operation({
 
 const failureOf = (exit: Exit.Exit<unknown, InvocationFailure>) => {
 	expect(Exit.isFailure(exit)).toBe(true);
+
 	if (Exit.isSuccess(exit)) {
 		throw new Error("Expected failure");
 	}
+
 	const reason = exit.cause.reasons[0];
+
 	if (!reason || !Cause.isFailReason(reason)) {
 		throw new Error("Expected typed failure");
 	}
+
 	expect(reason.error).toBeInstanceOf(InvocationFailure);
+
 	return reason.error;
 };
 
@@ -32,6 +37,7 @@ describe("invokeOperation", () => {
 		const decode = vi.fn((value: string) =>
 			Effect.promise(async () => {
 				await Promise.resolve();
+
 				return Number(value);
 			}),
 		);
@@ -47,6 +53,7 @@ describe("invokeOperation", () => {
 		const handle = vi.fn((value: unknown) => Effect.succeed(value));
 		const logCause = vi.fn();
 		const invocation = invokeOperation({ ...base, input, handle }, "21", logCause);
+
 		expect(decode).not.toHaveBeenCalled();
 		expect(handle).not.toHaveBeenCalled();
 		await expect(Effect.runPromise(invocation)).resolves.toBe(21);
@@ -67,11 +74,13 @@ describe("invokeOperation", () => {
 				logCause,
 			),
 		);
+
 		expect(failureOf(exit)).toMatchObject({
 			status: 400,
 			code: "invalid_input",
 			message: expect.stringContaining("id") as unknown,
 		});
+
 		expect(handle).not.toHaveBeenCalled();
 		expect(logCause).not.toHaveBeenCalled();
 	});
@@ -87,6 +96,7 @@ describe("invokeOperation", () => {
 							if (mode === "throw") {
 								throw new Error("private-decoder-marker");
 							}
+
 							return Effect.die("private-decoder-marker");
 						},
 						encode: Effect.succeed,
@@ -98,16 +108,20 @@ describe("invokeOperation", () => {
 			const exit = await Effect.runPromiseExit(
 				invokeOperation({ ...base, input, handle }, "input", logCause),
 			);
+
 			expect(failureOf(exit)).toMatchObject({
 				status: 500,
 				code: "operation_failed",
 				message: "The operation failed",
 			});
+
 			expect(JSON.stringify(failureOf(exit))).not.toContain("private-decoder-marker");
 			expect(logCause).toHaveBeenCalledOnce();
+
 			expect(Cause.pretty(logCause.mock.calls[0]?.[1] as Cause.Cause<unknown>)).toContain(
 				"private-decoder-marker",
 			);
+
 			expect(handle).not.toHaveBeenCalled();
 		},
 	);
@@ -116,11 +130,13 @@ describe("invokeOperation", () => {
 		const value = { count: 21, extra: true };
 		const logCause = vi.fn();
 		const output = Schema.Struct({ count: Schema.FiniteFromString });
+
 		await expect(
 			Effect.runPromise(
 				invokeOperation({ ...base, output, handle: () => Effect.succeed(value) }, null, logCause),
 			),
 		).resolves.toBe(value);
+
 		expect(logCause).not.toHaveBeenCalled();
 	});
 
@@ -132,6 +148,7 @@ describe("invokeOperation", () => {
 					if (mode === "defect") {
 						throw new Error("private-output-marker");
 					}
+
 					return false;
 				}),
 			);
@@ -149,15 +166,18 @@ describe("invokeOperation", () => {
 					logCause,
 				),
 			);
+
 			expect(failureOf(exit)).toMatchObject({ status: 500, message: "The operation failed" });
 			expect(statusForError).not.toHaveBeenCalled();
 			expect(logCause).toHaveBeenCalledOnce();
 			const logged = logCause.mock.calls[0]?.[1] as Cause.Cause<unknown>;
+
 			if (mode === "defect") {
 				expect(Cause.pretty(logged)).toContain("private-output-marker");
 			} else {
 				expect(Cause.hasFails(logged)).toBe(true);
 			}
+
 			expect(JSON.stringify(failureOf(exit))).not.toContain("private-output-marker");
 		},
 	);
@@ -178,11 +198,13 @@ describe("invokeOperation", () => {
 					logCause,
 				),
 			);
+
 			expect(failureOf(exit)).toMatchObject({
 				status,
 				code: "operation_failed",
 				message: "Public message",
 			});
+
 			expect(logCause).toHaveBeenCalledTimes(status >= 500 ? 1 : 0);
 		},
 	);
@@ -201,6 +223,7 @@ describe("invokeOperation", () => {
 				logCause,
 			),
 		);
+
 		expect(failureOf(exit)).toMatchObject({ status: 500, message: "The operation failed" });
 		expect(statusForError).not.toHaveBeenCalled();
 		expect(logCause).toHaveBeenCalledOnce();
@@ -231,6 +254,7 @@ describe("invokeOperation", () => {
 				logCause,
 			),
 		);
+
 		expect(failureOf(exit)).toMatchObject({ status: 500, message: "The operation failed" });
 		expect(logCause).toHaveBeenCalledOnce();
 	});
@@ -241,6 +265,7 @@ describe("invokeOperation", () => {
 		});
 		const logCause = vi.fn();
 		const invocation = invokeOperation({ ...base, handle }, null, logCause);
+
 		expect(handle).not.toHaveBeenCalled();
 		expect(failureOf(await Effect.runPromiseExit(invocation))).toMatchObject({ status: 500 });
 		expect(logCause).toHaveBeenCalledOnce();
@@ -251,11 +276,14 @@ describe("invokeOperation", () => {
 		const exit = await Effect.runPromiseExit(
 			invokeOperation({ ...base, handle: () => Effect.interrupt }, null, logCause),
 		);
+
 		expect(Exit.isFailure(exit)).toBe(true);
+
 		if (Exit.isFailure(exit)) {
 			expect(Cause.hasInterrupts(exit.cause)).toBe(true);
 			expect(Cause.hasFails(exit.cause)).toBe(false);
 		}
+
 		expect(logCause).not.toHaveBeenCalled();
 	});
 
@@ -275,14 +303,18 @@ describe("invokeOperation", () => {
 			logCause,
 		);
 		const running = Effect.runPromiseExit(invocation, { signal: controller.signal });
+
 		await started.promise;
 		controller.abort();
 		const exit = await running;
+
 		expect(Exit.isFailure(exit)).toBe(true);
+
 		if (Exit.isFailure(exit)) {
 			expect(Cause.hasInterrupts(exit.cause)).toBe(true);
 			expect(Cause.hasFails(exit.cause)).toBe(false);
 		}
+
 		expect(logCause).not.toHaveBeenCalled();
 	});
 });

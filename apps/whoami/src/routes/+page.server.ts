@@ -13,6 +13,7 @@ import type { PageServerLoad } from "./$types";
 export const load: PageServerLoad = ({ request, getClientAddress }) => {
 	const h = request.headers;
 	let ip: string | null = h.get("cf-connecting-ip");
+
 	if (!ip) {
 		try {
 			ip = getClientAddress();

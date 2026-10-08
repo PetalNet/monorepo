@@ -27,10 +27,12 @@ interface Manifest {
 // `string | undefined` to `string` and then flags an === undefined guard as an
 // impossible condition -- even though it is perfectly possible at run time.
 const args = process.argv.slice(2);
+
 if (args.length < 2) {
 	console.error("usage: resolve-runtime-manifest.ts <deploy-dir> <installed-modules-dir>");
 	process.exit(2);
 }
+
 const [outDir, modulesDir] = args;
 
 const manifestPath = `${outDir}/package.json`;
@@ -46,14 +48,18 @@ for (const [name, spec] of Object.entries(dependencies)) {
 	if (!spec.startsWith("catalog:")) {
 		continue;
 	}
+
 	try {
 		const installed = JSON.parse(readFileSync(`${modulesDir}/${name}/package.json`, "utf8")) as {
 			version?: string;
 		};
+
 		if (installed.version === undefined) {
 			unresolved.push(`${name} (${spec}) - installed manifest has no version`);
+
 			continue;
 		}
+
 		dependencies[name] = installed.version;
 		resolved.push(`${name}@${installed.version}`);
 	} catch {
@@ -65,9 +71,11 @@ for (const [name, spec] of Object.entries(dependencies)) {
 // prevent, and it would otherwise only surface at runtime inside the deployed container.
 if (unresolved.length > 0) {
 	console.error(`could not resolve ${unresolved.length.toString()} catalog spec(s):`);
+
 	for (const entry of unresolved) {
 		console.error(`  ${entry}`);
 	}
+
 	process.exit(1);
 }
 

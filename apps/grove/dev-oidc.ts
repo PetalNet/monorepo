@@ -64,11 +64,14 @@ const keyIdFor = (publicKey: KeyObject) =>
 
 const readSigningKey = Effect.fnUntraced(function* (signingKeyPath: string) {
 	const fs = yield* FileSystem.FileSystem;
+
 	return yield* Effect.gen(function* () {
 		yield* fs.chmod(signingKeyPath, 0o600);
+
 		const stored = yield* Schema.decodeEffect(SigningKeyDocument)(
 			yield* fs.readFileString(signingKeyPath),
 		);
+
 		return yield* Effect.try({
 			try: () => createPrivateKey(stored.privateKeyPkcs8),
 			catch: () => new InvalidSigningKey({ path: signingKeyPath }),
@@ -82,10 +85,12 @@ const readSigningKey = Effect.fnUntraced(function* (signingKeyPath: string) {
 const createSigningKey = Effect.fnUntraced(function* (signingKeyPath: string) {
 	const fs = yield* FileSystem.FileSystem;
 	const path = yield* Path.Path;
+
 	yield* fs.makeDirectory(path.dirname(signingKeyPath), { recursive: true, mode: 0o700 });
 	yield* fs.chmod(path.dirname(signingKeyPath), 0o700);
 	const generated = yield* Effect.sync(() => generateKeyPairSync("rsa", { modulusLength: 2048 }));
 	const privateKeyPkcs8 = generated.privateKey.export({ type: "pkcs8", format: "pem" });
+
 	return yield* fs
 		.writeFileString(
 			signingKeyPath,
@@ -116,6 +121,7 @@ const canonicalMcpResource = Effect.fnUntraced(function* (value: string) {
 		try: () => new URL(value),
 		catch: () => new InvalidRequest(),
 	});
+
 	if (
 		(url.protocol !== "https:" &&
 			!(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) ||
@@ -127,21 +133,26 @@ const canonicalMcpResource = Effect.fnUntraced(function* (value: string) {
 	) {
 		return yield* new InvalidRequest();
 	}
+
 	return url.href;
 });
 
 const basicCredentials = (authorization: string | undefined) => {
 	const encoded = authorization?.match(/^Basic ([A-Za-z\d+/]+={0,2})$/i)?.[1];
+
 	if (!encoded) {
 		return undefined;
 	}
+
 	const decoded = Buffer.from(encoded, "base64").toString("utf8");
 	// The official MCP client sends the client ID verbatim, so split from the fixed shared secret
 	// at the final colon to permit URL-shaped Agent subjects.
 	const separator = decoded.lastIndexOf(":");
+
 	if (separator < 1) {
 		return undefined;
 	}
+
 	return { clientId: decoded.slice(0, separator), clientSecret: decoded.slice(separator + 1) };
 };
 
@@ -157,15 +168,18 @@ const readForm = Effect.fnUntraced(function* (request: HttpServerRequest.HttpSer
 			() => "",
 			(accumulated, chunk) => {
 				const text = accumulated + chunk;
+
 				return text.length > 16_384 ? Effect.fail(new InvalidRequest()) : Effect.succeed(text);
 			},
 		),
 	);
+
 	return new URLSearchParams(body);
 });
 
 const redirectUriAllowed = (value: string) => {
 	const url = URL.parse(value);
+
 	return (
 		url !== null &&
 		url.protocol === "https:" &&
@@ -216,6 +230,7 @@ const program = Effect.gen(function* () {
 		if (configuredResource) {
 			return yield* canonicalMcpResource(configuredResource);
 		}
+
 		const manifest = yield* Schema.decodeEffect(PortalManifest)(
 			yield* fs.readFileString(portalManifestPath),
 		);
@@ -224,6 +239,7 @@ const program = Effect.gen(function* () {
 			try: () => new URL("mcp", portal.url),
 			catch: () => new InvalidRequest(),
 		});
+
 		return yield* canonicalMcpResource(url.href);
 	});
 	const mcpMetadata = {
@@ -242,21 +258,29 @@ const program = Effect.gen(function* () {
 			const credentials = basicCredentials(
 				Option.getOrUndefined(Headers.get(request.headers, "authorization")),
 			);
+
 			if (credentials?.clientSecret !== mcpClientSecret) {
 				return json(401, { error: "invalid_client" }, { "www-authenticate": "Basic" });
 			}
+
 			const form = yield* readForm(request);
+
 			if (form.get("grant_type") !== "client_credentials") {
 				return json(400, { error: "unsupported_grant_type" });
 			}
+
 			const resource = yield* groveMcpResource;
+
 			if (form.get("resource") !== resource) {
 				return json(400, { error: "invalid_target" });
 			}
+
 			const scopes = [...new Set((form.get("scope") ?? "").split(/\s+/).filter(Boolean))];
+
 			if (scopes.some((scope) => !mcpScopes.includes(scope))) {
 				return json(400, { error: "invalid_scope" });
 			}
+
 			const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 			const accessToken = yield* Effect.tryPromise({
 				try: () =>
@@ -270,6 +294,7 @@ const program = Effect.gen(function* () {
 						.sign(privateKey),
 				catch: () => new InvalidRequest(),
 			});
+
 			return json(200, {
 				access_token: accessToken,
 				expires_in: 300,
@@ -284,7 +309,9 @@ const program = Effect.gen(function* () {
 			const form = yield* readForm(request);
 			const code = form.get("code") ?? "";
 			const authorization = authorizationCodes.get(code);
+
 			authorizationCodes.delete(code);
+
 			const clientAuthorization = Option.getOrUndefined(
 				Headers.get(request.headers, "authorization"),
 			);
@@ -293,6 +320,7 @@ const program = Effect.gen(function* () {
 				: [];
 			const verifier = form.get("code_verifier") ?? "";
 			const challenge = createHash("sha256").update(verifier).digest("base64url");
+
 			if (
 				form.get("grant_type") !== "authorization_code" ||
 				(form.get("client_id") ?? basic[0]) !== clientId ||
@@ -304,7 +332,9 @@ const program = Effect.gen(function* () {
 			) {
 				return json(400, { error: "invalid_grant" });
 			}
+
 			const accessToken = yield* Effect.sync(() => randomBytes(24).toString("base64url"));
+
 			accessTokens.add(accessToken);
 			const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
 			const idToken = yield* Effect.tryPromise({
@@ -324,6 +354,7 @@ const program = Effect.gen(function* () {
 						.sign(privateKey),
 				catch: () => new InvalidRequest(),
 			});
+
 			return json(200, {
 				access_token: accessToken,
 				expires_in: 300,
@@ -339,9 +370,11 @@ const program = Effect.gen(function* () {
 			try: () => new URL(request.url, issuer),
 			catch: () => new InvalidRequest(),
 		});
+
 		if (url.pathname === "/") {
 			return HttpServerResponse.text("Grove development OIDC provider\n");
 		}
+
 		if (url.pathname === "/realms/grove/.well-known/openid-configuration") {
 			return json(200, {
 				issuer,
@@ -356,6 +389,7 @@ const program = Effect.gen(function* () {
 				scopes_supported: ["openid", "profile", "email"],
 			});
 		}
+
 		if (
 			[
 				"/.well-known/oauth-authorization-server/realms/grove-mcp",
@@ -365,20 +399,25 @@ const program = Effect.gen(function* () {
 		) {
 			return json(200, mcpMetadata);
 		}
+
 		if (["/realms/grove/jwks", "/realms/grove-mcp/jwks"].includes(url.pathname)) {
 			return json(200, { keys: [publicJwk] });
 		}
+
 		if (url.pathname === "/realms/grove-mcp/authorize") {
 			return json(400, { error: "unsupported_response_type" });
 		}
+
 		if (request.method === "POST" && url.pathname === "/realms/grove-mcp/token") {
 			return yield* mcpToken(request);
 		}
+
 		if (request.method === "GET" && url.pathname === "/realms/grove/authorize") {
 			const redirectUri = url.searchParams.get("redirect_uri") ?? "";
 			const state = url.searchParams.get("state") ?? "";
 			const nonce = url.searchParams.get("nonce") ?? "";
 			const codeChallenge = url.searchParams.get("code_challenge") ?? "";
+
 			if (
 				url.searchParams.get("client_id") !== clientId ||
 				url.searchParams.get("response_type") !== "code" ||
@@ -390,28 +429,37 @@ const program = Effect.gen(function* () {
 			) {
 				return json(400, { error: "invalid_request" });
 			}
+
 			const code = yield* Effect.sync(() => randomBytes(24).toString("base64url"));
+
 			authorizationCodes.set(code, {
 				codeChallenge,
 				expiresAt: (yield* Clock.currentTimeMillis) + 60_000,
 				nonce,
 				redirectUri,
 			});
+
 			const callback = new URL(redirectUri);
+
 			callback.searchParams.set("code", code);
 			callback.searchParams.set("state", state);
+
 			return HttpServerResponse.redirect(callback, { status: 302 });
 		}
+
 		if (request.method === "POST" && url.pathname === "/realms/grove/token") {
 			return yield* browserToken(request);
 		}
+
 		if (url.pathname === "/realms/grove/userinfo") {
 			const bearer = /^Bearer (.+)$/.exec(
 				Option.getOrElse(Headers.get(request.headers, "authorization"), () => ""),
 			)?.[1];
+
 			if (!bearer || !accessTokens.has(bearer)) {
 				return json(401, { error: "invalid_token" });
 			}
+
 			return json(200, {
 				email: "operator@grove.invalid",
 				email_verified: true,
@@ -419,6 +467,7 @@ const program = Effect.gen(function* () {
 				sub: ownerSubject,
 			});
 		}
+
 		return json(404, { error: "not_found" });
 	}).pipe(
 		Effect.catchTag("InvalidRequest", () =>
@@ -426,9 +475,11 @@ const program = Effect.gen(function* () {
 		),
 	);
 	const server = yield* NodeHttpServer.make(createServer, { port, host: "0.0.0.0" });
+
 	yield* server.serve(handleRequest);
 	yield* Effect.logInfo(`[grove-oidc] listening at ${origin}`);
 	yield* Effect.sync(() => process.send?.("ready"));
+
 	return yield* Effect.never;
 });
 
