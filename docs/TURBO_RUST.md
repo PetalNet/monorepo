@@ -4,7 +4,7 @@ Primary-source review and executed adoption checks, 2026-10-07. Native support
 uses pinned Turbo 2.11.7 without crate `package.json` wrappers. The Cargo
 foundation ([PR #430](https://github.com/PetalNet/monorepo/pull/430)) is merged;
 this layer builds on the published selective-CI
-[PR #439 head](https://github.com/PetalNet/monorepo/commit/df62703822655a166b0afbf6db46b215467854fa).
+[PR #439 head](https://github.com/PetalNet/monorepo/commit/f4c3af3c70930d9a2a76986a1e9c57df3ebc03b2).
 The reviewed parent is merged into the native layer without rewriting its
 published history; its workflows, gate, formatting policy and security settings
 are unchanged by this layer.
