@@ -5,12 +5,15 @@
 		"experimentalCargoWorkspaces": true,
 		"experimentalTaskCommand": true
 	},
-	"globalPassThroughEnv": ["PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN"],
+	"globalPassThroughEnv": ["PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN", "CARGO_INCREMENTAL"],
 	"globalDependencies": [
 		"*",
 		"!.git",
 		".env*",
 		"apps/*/.env*",
+		".github/workflows/ci.yml",
+		".github/workflows/point.yml",
+		".github/actions/**",
 		"tools/**",
 		"!tools/node_modules/**",
 		"!tools/.turbo/**",
@@ -43,6 +46,7 @@
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
+			"env": ["!CARGO_INCREMENTAL"],
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
 			"outputs": [
 				"build/**",
@@ -60,6 +64,7 @@
 		"@petalnet/storybook#typecheck": { "outputs": [] },
 		"check": {
 			"dependsOn": ["^typecheck", "prepare"],
+			"env": ["!CARGO_INCREMENTAL"],
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
 			"outputs": []
 		},
@@ -69,15 +74,20 @@
 		"@petalnet/tools#check": { "cache": false },
 		"prepare": { "cache": false },
 		"generate": { "cache": false },
+		"format": { "env": ["!CARGO_INCREMENTAL"] },
+		"fmt:check": { "env": ["RUSTFMT"], "outputs": [] },
+		"lint": { "env": ["!CARGO_INCREMENTAL"] },
 		"test": {
 			"cache": false,
+			"env": ["!CARGO_INCREMENTAL"],
 			"passThroughEnv": ["DOCKER_*", "TESTCONTAINERS_*", "XDG_RUNTIME_DIR"]
 		},
 		"@petalnet/collegemap#test": { "cache": true, "outputs": [] },
 		"@petalnet/effect-api#test": { "cache": true, "outputs": [] },
 		"@petalnet/effect-sveltekit#test": { "cache": true, "outputs": [] },
-		"petalnet-rust#check": { "dependsOn": [] },
+		"petalnet-rust#check": { "dependsOn": [], "env": ["!CARGO_INCREMENTAL"] },
 		"petalnet-rust#lint": {
+			"env": ["!CARGO_INCREMENTAL"],
 			"command": ["cargo", "clippy", "--workspace", "--all-targets", "--locked"]
 		},
 		"//#typecheck": {

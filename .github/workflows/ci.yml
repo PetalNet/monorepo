@@ -29,8 +29,11 @@ jobs:
       control-plane-rust: ${{ steps.select.outputs.control-plane-rust }}
       box-agent-rust: ${{ steps.select.outputs.box-agent-rust }}
       point: ${{ steps.select.outputs.point }}
+      point-rust: ${{ steps.select.outputs.point-rust }}
       rust: ${{ steps.select.outputs.rust }}
       js: ${{ steps.select.outputs.js }}
+      build: ${{ steps.select.outputs.build }}
+      test: ${{ steps.select.outputs.test }}
       js-packages: ${{ steps.select.outputs.js-packages }}
       actions: ${{ steps.select.outputs.actions }}
       codeql-js: ${{ steps.select.outputs.codeql-js }}
@@ -40,6 +43,7 @@ jobs:
       - uses: $/.github/actions/setup
         with:
           fetch-depth: 0
+      - uses: $/.github/actions/setup-turbo
       - id: select
         run: pnpm ci-manager select
 
@@ -55,7 +59,7 @@ jobs:
 
   test:
     needs: select
-    if: needs.select.outputs.js == 'true'
+    if: needs.select.outputs.test == 'true'
     runs-on: ubuntu-latest
     env:
       JS_PACKAGES_JSON: ${{ needs.select.outputs.js-packages }}
@@ -72,7 +76,7 @@ jobs:
 
   build:
     needs: select
-    if: needs.select.outputs.js == 'true'
+    if: needs.select.outputs.build == 'true'
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: "file:/tmp/build.db"
@@ -104,11 +108,13 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q tmux && tmux -V
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt -p agent-manager --check
-      - run: cargo clippy -p agent-manager --all-targets --locked -- -D warnings
-      - run: cargo test -p agent-manager --locked
-      - name: tmux integration tests (scratch sockets only)
-        run: N12_TMUX_IT=1 cargo test -p agent-manager --locked --test tmux_it -- --ignored
+      - uses: $/.github/actions/setup-turbo
+      - parallel:
+          - run: turbo --skip-infer run fmt:check check lint test --filter=agent-manager
+          - name: tmux integration tests (scratch sockets only)
+            env:
+              N12_TMUX_IT: "1"
+            run: turbo --skip-infer run test:tmux --filter=agent-manager
 
   courier-rust:
     needs: select
@@ -122,11 +128,8 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q libsqlite3-dev pkg-config libssl-dev
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      # cargo fmt requires exact package names rather than Cargo's package globs.
-      - run: cargo fmt -p courier -p courier-ai -p courier-core -p courier-plugins -p courier-relay --check
-      - run: cargo clippy -p 'courier*' --all-targets --locked -- -W clippy::pedantic -D warnings
-      - run: cargo build -p 'courier*' --all-targets --locked
-      - run: cargo test -p 'courier*' --locked
+      - uses: $/.github/actions/setup-turbo
+      - run: turbo --skip-infer run fmt:check check lint build test --filter='courier*'
 
   dispatcher-rust:
     needs: select
@@ -138,9 +141,8 @@ jobs:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt -p dispatcher --check
-      - run: cargo clippy -p dispatcher --all-targets --locked -- -D warnings
-      - run: cargo test -p dispatcher --locked
+      - uses: $/.github/actions/setup-turbo
+      - run: turbo --skip-infer run fmt:check check lint test --filter=dispatcher
 
   control-plane-rust:
     needs: select
@@ -152,9 +154,8 @@ jobs:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt -p control-plane --check
-      - run: cargo clippy -p control-plane --all-targets --locked -- -D warnings
-      - run: cargo test -p control-plane --locked
+      - uses: $/.github/actions/setup-turbo
+      - run: turbo --skip-infer run fmt:check check lint test --filter=control-plane
 
   box-agent-rust:
     needs: select
@@ -166,14 +167,15 @@ jobs:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
-      - run: cargo fmt -p box-agent --check
-      - run: cargo clippy -p box-agent --all-targets --locked -- -D warnings
-      - run: cargo test -p box-agent --locked
+      - uses: $/.github/actions/setup-turbo
+      - run: turbo --skip-infer run fmt:check check lint test --filter=box-agent
 
   point:
     needs: select
     if: needs.select.outputs.point == 'true'
     uses: $/.github/workflows/point.yml
+    with:
+      skip-rust: ${{ needs.select.outputs.point-rust == 'false' }}
 
   zizmor:
     timeout-minutes: 2

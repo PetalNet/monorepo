@@ -3,9 +3,24 @@
 	"tasks": {
 		"build": { "dependsOn": [], "outputs": [], "inputs": ["$TURBO_DEFAULT$"] },
 		"check": { "dependsOn": [], "inputs": ["$TURBO_DEFAULT$"] },
-		"lint": {
-			"command": ["cargo", "clippy", "--all-targets", "--locked"]
-		},
-		"test": { "cache": false, "passThroughEnv": ["N12_TMUX_IT"] }
+		"fmt:check": { "command": ["cargo", "fmt", "--check"] },
+		"lint": { "command": ["cargo", "clippy", "--all-targets", "--locked", "--", "-D", "warnings"] },
+		"test": { "cache": true, "outputs": [] },
+		"test:tmux": {
+			"cache": false,
+			"outputs": [],
+			"passThroughEnv": ["N12_TMUX_IT"],
+			"command": [
+				"cargo",
+				"test",
+				"-p",
+				"agent-manager",
+				"--locked",
+				"--test",
+				"tmux_it",
+				"--",
+				"--ignored"
+			]
+		}
 	}
 }

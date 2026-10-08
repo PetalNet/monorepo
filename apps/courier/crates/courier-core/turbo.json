@@ -1,10 +1,18 @@
 {
 	"extends": ["//"],
 	"tasks": {
-		"build": { "dependsOn": [], "outputs": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"build": {
+			"cache": true,
+			"dependsOn": [],
+			"outputs": [],
+			"inputs": ["$TURBO_DEFAULT$"],
+			"command": ["cargo", "build", "--all-targets", "--locked"]
+		},
 		"check": { "dependsOn": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"fmt:check": { "command": ["cargo", "fmt", "--check"] },
 		"lint": {
 			"command": ["cargo", "clippy", "--all-targets", "--locked"]
-		}
+		},
+		"test": { "cache": true, "outputs": [] }
 	}
 }

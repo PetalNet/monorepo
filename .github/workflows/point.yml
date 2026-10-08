@@ -2,7 +2,17 @@ name: point
 
 on:
   workflow_call:
+    inputs:
+      skip-rust:
+        description: Skip the Rust checks when every Turbo task is cached.
+        type: boolean
+        default: false
   workflow_dispatch:
+
+env:
+  CI: true
+  TURBO_TELEMETRY_DISABLED: "1"
+  PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-point
@@ -14,6 +24,7 @@ permissions:
 jobs:
   rust:
     name: rust (fmt, clippy, build, test)
+    if: ${{ !inputs.skip-rust }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -40,10 +51,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: . -> target
-      - run: cargo fmt -p point-core -p point-server --check
-      - run: cargo clippy -p point-core -p point-server --all-targets --locked -- -D warnings
-      - run: cargo build -p point-core -p point-server --locked
-      - run: cargo test -p point-core -p point-server --locked
+      - uses: $/.github/actions/setup-turbo
+      - run: turbo --skip-infer run fmt:check check lint build test --filter='point-*'
 
   flutter:
     name: flutter (analyze, test)
