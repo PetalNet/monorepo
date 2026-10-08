@@ -14,7 +14,7 @@ function execute(task: string, packages: string, exit = 0) {
 		mkdirSync(join(root, "bin"));
 		writeFileSync(
 			join(root, "bin/pnpm"),
-			`#!${process.execPath}\nrequire("node:fs").writeFileSync("argv", JSON.stringify(process.argv.slice(2)));\nprocess.exit(${String(exit)});\n`,
+			`#!${process.execPath}\nrequire("node:fs").writeFileSync("argv", JSON.stringify(process.argv.slice(2)));\nconsole.log("execution diagnostic");\nprocess.exit(${String(exit)});\n`,
 			{ mode: 0o755 },
 		);
 		const result = spawnSync(process.execPath, [cli, task], {
@@ -73,5 +73,6 @@ test.each([
 test("failed execution is not converted to success", () => {
 	const { result, args } = execute("test", '["@petalnet/whoami"]', 7);
 	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /execution diagnostic/u);
 	assert.deepEqual(args, ["exec", "turbo", "run", "test", "--filter=@petalnet/whoami"]);
 });

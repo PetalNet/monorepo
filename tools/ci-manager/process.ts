@@ -1,4 +1,4 @@
-import { Effect, Schema, Stream } from "effect";
+import { Console, Effect, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 export class CommandFailed extends Schema.TaggedError<CommandFailed>()("CommandFailed", {
@@ -18,6 +18,9 @@ export const commandOutput = Effect.fn("commandOutput")(function* (
 	);
 	const output = yield* Stream.mkString(Stream.decodeText(handle.stdout));
 	const exitCode = yield* handle.exitCode;
-	if (exitCode !== 0) return yield* new CommandFailed({ command, exitCode });
+	if (exitCode !== 0) {
+		yield* Console.error(output);
+		return yield* new CommandFailed({ command, exitCode });
+	}
 	return output;
 }, Effect.scoped);
