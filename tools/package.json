@@ -5,7 +5,6 @@
 	"type": "module",
 	"scripts": {
 		"check": "vitest run",
-		"ci-manager": "pnpm --workspace-root exec node tools/ci-manager/main.ts",
 		"test": "vitest run",
 		"typecheck": "tsc -b"
 	},

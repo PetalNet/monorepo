@@ -28,6 +28,4 @@ const program = Command.make("ci-manager").pipe(
 	]),
 );
 
-NodeRuntime.runMain(
-	program.pipe(Command.run({ version: "1.0.0" }), Effect.provide(NodeServices.layer)),
-);
+NodeRuntime.runMain(Effect.provide(Command.run({ version: "1.0.0" })(program), NodeServices.layer));
