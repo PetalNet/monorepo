@@ -6,13 +6,8 @@ import { Cause, Data, Effect, Exit, Fiber, Stream } from "effect";
 import { HttpClientRequest, HttpServerRequest, type HttpMethod } from "effect/http";
 import type { JWTPayload } from "jose";
 
-import {
-	ActorAuthority,
-	ActorDatabaseError,
-	ActorDenied,
-	type AuthorityError,
-	type MachineIdentity,
-} from "../actors/authority";
+import type { ActorDatabaseError } from "../actors/authority";
+import { ActorAuthority, type AuthorityError, type MachineIdentity } from "../actors/authority";
 import { groveApi } from "../api";
 import { InvocationContext } from "../invocation";
 import type { SproutCommands } from "../sprouts/service";
@@ -45,8 +40,16 @@ class McpInvocationFailed extends Data.TaggedError("McpInvocationFailed")<{
 	readonly cause: Cause.Cause<AuthorityError>;
 }> {}
 
-class InvalidMcpConfiguration extends Error {
-	readonly _tag = "InvalidMcpConfiguration";
+class McpDependencyFailed extends Data.TaggedError("McpDependencyFailed")<{
+	readonly cause: unknown;
+}> {}
+
+class InvalidMcpConfiguration extends Data.TaggedError("InvalidMcpConfiguration")<{
+	readonly message: string;
+}> {
+	constructor(message: string) {
+		super({ message });
+	}
 }
 
 const canonicalUrl = (value: string, name: string, originOnly = false) => {
@@ -195,21 +198,17 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 				}),
 			);
 		},
-		Effect.catchTag("McpRejected", ({ response }) => Effect.succeed(response)),
-		Effect.catchIf(
-			(error): error is ActorDatabaseError => error instanceof ActorDatabaseError,
-			(error) => Effect.succeed(authorityUnavailable(error)),
-		),
-		Effect.catchIf(
-			(error): error is ActorDenied => error instanceof ActorDenied,
-			() =>
+		Effect.catchTags({
+			McpRejected: ({ response }) => Effect.succeed(response),
+			ActorDatabaseError: (error) => Effect.succeed(authorityUnavailable(error)),
+			ActorDenied: () =>
 				Effect.succeed(
 					Response.json(
 						{ error: "access_denied", message: "MCP identity is not eligible" },
 						{ status: 403 },
 					),
 				),
-		),
+		}),
 	);
 
 	return {
@@ -217,8 +216,6 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 		handle: Effect.fnUntraced(function* (request: Request) {
 			const services = yield* Effect.context<ActorAuthority | SproutCommands | ApiServer>();
 			const scope = yield* Effect.scope;
-			// Preserve arbitrary Better Auth failures for the immediate catch, and original Effect causes unchanged.
-			// oxlint-disable-next-line effecttsgo/unknown-in-effect-catch
 			return yield* Effect.tryPromise({
 				try: (signal) =>
 					createMcpProtectedRequestHandler(
@@ -261,13 +258,13 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 							return exit.value;
 						},
 					)(request),
-				catch: (error) => error,
+				catch: (error) =>
+					error instanceof McpInvocationFailed ? error : new McpDependencyFailed({ cause: error }),
 			}).pipe(
-				Effect.catch((error) =>
-					error instanceof McpInvocationFailed
-						? Effect.failCause(error.cause)
-						: Effect.succeed(dependencyUnavailable(error)),
-				),
+				Effect.catchTags({
+					McpInvocationFailed: (error) => Effect.failCause(error.cause),
+					McpDependencyFailed: (error) => Effect.succeed(dependencyUnavailable(error.cause)),
+				}),
 			);
 		}, Effect.scoped),
 	};

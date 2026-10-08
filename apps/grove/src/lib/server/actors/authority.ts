@@ -1,5 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Cause, Context, Effect, Layer, Schema } from "effect";
+import { Cause, Context, Data, Effect, Layer, Schema } from "effect";
 import { Fragment, Query, Table, Type } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -131,37 +131,49 @@ export interface UnboundMachinePrincipal extends MachineIdentity {
 export type MachinePrincipal = AgentPrincipal | BootstrapPrincipal | UnboundMachinePrincipal;
 export type ActorPrincipal = PersonPrincipal | AgentPrincipal;
 
-export class ActorDatabaseError extends Error {
-	readonly _tag = "ActorDatabaseError";
+export class ActorDatabaseError extends Data.TaggedError("ActorDatabaseError")<{
+	readonly cause: unknown;
+}> {
+	constructor(cause: unknown) {
+		super({ cause });
+	}
 
-	constructor(readonly cause: unknown) {
-		super("Actor authority is unavailable", { cause });
+	override get message() {
+		return "Actor authority is unavailable";
 	}
 }
 
-export class ActorNotCurrent extends Error {
-	readonly _tag = "ActorNotCurrent";
+export class ActorNotCurrent extends Data.TaggedError("ActorNotCurrent")<{
+	readonly actorId: string;
+}> {
+	constructor(actorId: string) {
+		super({ actorId });
+	}
 
-	constructor(readonly actorId: string) {
-		super(`Actor ${actorId} is not current`);
+	override get message() {
+		return `Actor ${this.actorId} is not current`;
 	}
 }
 
-export class ActorDenied extends Error {
-	readonly _tag = "ActorDenied";
-	readonly reason: string;
-
+export class ActorDenied extends Data.TaggedError("ActorDenied")<{ readonly reason: string }> {
 	constructor(reason: string) {
-		super(reason);
-		this.reason = reason;
+		super({ reason });
+	}
+
+	override get message() {
+		return this.reason;
 	}
 }
 
-export class HomeOwnerUnbound extends Error {
-	readonly _tag = "HomeOwnerUnbound";
+export class HomeOwnerUnbound extends Data.TaggedError("HomeOwnerUnbound")<{
+	readonly configuredIdentity: ExternalIdentity;
+}> {
+	constructor(configuredIdentity: ExternalIdentity) {
+		super({ configuredIdentity });
+	}
 
-	constructor(readonly configuredIdentity: ExternalIdentity) {
-		super("The configured Home Host owner has not completed a verified browser login");
+	override get message() {
+		return "The configured Home Host owner has not completed a verified browser login";
 	}
 }
 
@@ -180,14 +192,18 @@ export interface ContainmentFix {
 	readonly reason?: string;
 }
 
-export class CapabilityContainmentConflict extends Error {
-	readonly _tag = "CapabilityContainmentConflict";
+export class CapabilityContainmentConflict extends Data.TaggedError(
+	"CapabilityContainmentConflict",
+)<{
+	readonly conflicts: readonly ContainmentConflict[];
+	readonly fixes: readonly ContainmentFix[];
+}> {
+	constructor(conflicts: readonly ContainmentConflict[], fixes: readonly ContainmentFix[]) {
+		super({ conflicts, fixes });
+	}
 
-	constructor(
-		readonly conflicts: readonly ContainmentConflict[],
-		readonly fixes: readonly ContainmentFix[],
-	) {
-		super("Agent capability containment would be violated");
+	override get message() {
+		return "Agent capability containment would be violated";
 	}
 }
 
@@ -557,8 +573,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									existing.identity_use !== "browser" ||
 									existing.auth_user_id !== input.authUserId
 								) {
-									return yield* Effect.fail(
-										new ActorDenied("The browser identity is already bound to another actor"),
+									return yield* new ActorDenied(
+										"The browser identity is already bound to another actor",
 									);
 								}
 								actorIdValue = existing.actor_id;
@@ -579,8 +595,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									),
 								);
 								if (byAuthUser.length > 0) {
-									return yield* Effect.fail(
-										new ActorDenied("The browser account is already bound to another identity"),
+									return yield* new ActorDenied(
+										"The browser account is already bound to another identity",
 									);
 								}
 								actorIdValue = personId();
@@ -627,8 +643,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									),
 								);
 								if (host.at(0)?.owner_person_id !== actorIdValue) {
-									return yield* Effect.fail(
-										new ActorDenied("The local Home Host is already owned by another Person"),
+									return yield* new ActorDenied(
+										"The local Home Host is already owned by another Person",
 									);
 								}
 							}
@@ -697,8 +713,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									!existing.home_host_id ||
 									!existing.owner_person_id
 								) {
-									return yield* Effect.fail(
-										new ActorDenied("The external identity is already bound to another actor"),
+									return yield* new ActorDenied(
+										"The external identity is already bound to another actor",
 									);
 								}
 								const principal = {
@@ -720,7 +736,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									row.owner_lifecycle !== "active" ||
 									row.host_owner_id !== existing.owner_person_id
 								) {
-									return yield* Effect.fail(new ActorNotCurrent(existing.actor_id));
+									return yield* new ActorNotCurrent(existing.actor_id);
 								}
 								return principal;
 							}
@@ -739,10 +755,10 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							);
 							const owner = host.at(0);
 							if (!owner?.owner_person_id) {
-								return yield* Effect.fail(new HomeOwnerUnbound(config.homeOwner));
+								return yield* new HomeOwnerUnbound(config.homeOwner);
 							}
 							if (owner.owner_lifecycle !== "active") {
-								return yield* Effect.fail(new ActorDenied("The Home Host owner is not active"));
+								return yield* new ActorDenied("The Home Host owner is not active");
 							}
 
 							const actorIdValue = agentId();
@@ -804,7 +820,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							);
 							const row = rows.at(0);
 							if (row?.lifecycle !== "active") {
-								return yield* Effect.fail(new ActorNotCurrent(principal.actorId));
+								return yield* new ActorNotCurrent(principal.actorId);
 							}
 							const granted = yield* execute(
 								executor.execute(
@@ -821,7 +837,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								),
 							);
 							if (granted.length === 0) {
-								return yield* Effect.fail(new ActorDenied(`Actor lacks ${operation}`));
+								return yield* new ActorDenied(`Actor lacks ${operation}`);
 							}
 							return;
 						}
@@ -848,7 +864,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							row.owner_lifecycle !== "active" ||
 							row.host_owner_id !== principal.ownerPersonId
 						) {
-							return yield* Effect.fail(new ActorNotCurrent(principal.actorId));
+							return yield* new ActorNotCurrent(principal.actorId);
 						}
 						const granted = yield* execute(
 							executor.execute(
@@ -865,7 +881,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							),
 						);
 						if (granted.length === 0) {
-							return yield* Effect.fail(new ActorDenied(`Actor lacks ${operation}`));
+							return yield* new ActorDenied(`Actor lacks ${operation}`);
 						}
 					}),
 				);
@@ -883,13 +899,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							Effect.map((rows) => rows.map((row) => row.capability)),
 						),
 					),
-				).pipe(
-					Effect.catchIf(
-						(error): error is ActorNotCurrent | ActorDenied =>
-							error instanceof ActorNotCurrent || error instanceof ActorDenied,
-						() => Effect.succeed([]),
-					),
-				);
+				).pipe(Effect.catchTag(["ActorNotCurrent", "ActorDenied"], () => Effect.succeed([])));
 			};
 			const allowedPersons = (agentIdValue: string) =>
 				execute(
@@ -960,7 +970,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						currentAgent.owner_lifecycle !== "active" ||
 						currentAgent.owner_person_id !== currentAgent.host_owner_id
 					) {
-						return yield* Effect.fail(new ActorNotCurrent(agentIdValue));
+						return yield* new ActorNotCurrent(agentIdValue);
 					}
 					const person = yield* execute(
 						executor.execute(
@@ -972,7 +982,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						),
 					);
 					if (person.at(0)?.lifecycle !== "active") {
-						return yield* Effect.fail(new ActorNotCurrent(personIdValue));
+						return yield* new ActorNotCurrent(personIdValue);
 					}
 					const agentCapabilities = (yield* capabilitiesFor(agentIdValue)).map(
 						(row) => row.capability,
@@ -996,7 +1006,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						(capability) => !personCapabilities.has(capability),
 					);
 					if (missing.length > 0) {
-						return yield* Effect.fail(conflictFor(agentIdValue, personIdValue, missing, false));
+						return yield* conflictFor(agentIdValue, personIdValue, missing, false);
 					}
 					yield* execute(
 						executor.execute(
@@ -1023,7 +1033,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						grouped.set(row.person_id, person);
 					}
 					if (grouped.size === 0) {
-						return yield* Effect.fail(new ActorNotCurrent(agentIdValue));
+						return yield* new ActorNotCurrent(agentIdValue);
 					}
 					const conflicts = [...grouped].filter(
 						([, person]) => !person.capabilities.has(capability),
@@ -1032,11 +1042,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						const errors = conflicts.map(([personIdValue, person]) =>
 							conflictFor(agentIdValue, personIdValue, [capability], person.isOwner),
 						);
-						return yield* Effect.fail(
-							new CapabilityContainmentConflict(
-								errors.flatMap((error) => error.conflicts),
-								errors.flatMap((error) => error.fixes),
-							),
+						return yield* new CapabilityContainmentConflict(
+							errors.flatMap((error) => error.conflicts),
+							errors.flatMap((error) => error.fixes),
 						);
 					}
 					yield* insertCapability(agentIdValue, capability);
@@ -1093,11 +1101,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							const errors = rows.map((row) =>
 								conflictFor(row.agent_id, personIdValue, [capability], row.is_owner),
 							);
-							return yield* Effect.fail(
-								new CapabilityContainmentConflict(
-									errors.flatMap((error) => error.conflicts),
-									errors.flatMap((error) => error.fixes),
-								),
+							return yield* new CapabilityContainmentConflict(
+								errors.flatMap((error) => error.conflicts),
+								errors.flatMap((error) => error.fixes),
 							);
 						}
 						yield* deleteCapability(personIdValue, capability);
@@ -1134,9 +1140,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								),
 							);
 							if (relationship.length === 0) {
-								return yield* Effect.fail(
-									new ActorDenied("The Person does not have access to this Agent"),
-								);
+								return yield* new ActorDenied("The Person does not have access to this Agent");
 							}
 							yield* insertCapability(fix.personId, fix.capability);
 						});
@@ -1151,8 +1155,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								),
 							);
 							if (owner.at(0)?.owner_person_id === fix.personId) {
-								return yield* Effect.fail(
-									new ActorDenied("A Home Host owner cannot lose access to a hosted Agent"),
+								return yield* new ActorDenied(
+									"A Home Host owner cannot lose access to a hosted Agent",
 								);
 							}
 							yield* execute(
@@ -1253,10 +1257,10 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					);
 					const current = rows.at(0)?.lifecycle;
 					if (!current) {
-						return yield* Effect.fail(new ActorNotCurrent(actorIdValue));
+						return yield* new ActorNotCurrent(actorIdValue);
 					}
 					if (current === "retired" && lifecycle !== "retired") {
-						return yield* Effect.fail(new ActorDenied("A retired Actor cannot change lifecycle"));
+						return yield* new ActorDenied("A retired Actor cannot change lifecycle");
 					}
 					yield* execute(
 						executor.execute(

@@ -1,7 +1,7 @@
-export class AuthenticationRequired extends Error {
-	readonly _tag = "AuthenticationRequired";
+import { Data } from "effect";
 
-	constructor() {
-		super("Authentication required");
+export class AuthenticationRequired extends Data.TaggedError("AuthenticationRequired") {
+	override get message() {
+		return "Authentication required";
 	}
 }

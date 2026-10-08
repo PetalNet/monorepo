@@ -1,5 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Context, Data, Effect, Layer, Schema } from "effect";
+import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
 import { Query, type Scalar } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -20,19 +20,25 @@ import {
 import { sprouts } from "../db/tables";
 import { InvocationContext } from "../invocation";
 
-export class SproutNotFound extends Error {
-	readonly _tag = "SproutNotFound";
+export class SproutNotFound extends Data.TaggedError("SproutNotFound")<{ readonly id: string }> {
+	constructor(id: string) {
+		super({ id });
+	}
 
-	constructor(readonly id: string) {
-		super(`Sprout ${id} was not found`);
+	override get message() {
+		return `Sprout ${this.id} was not found`;
 	}
 }
 
-export class SproutDatabaseError extends Error {
-	readonly _tag = "SproutDatabaseError";
+export class SproutDatabaseError extends Data.TaggedError("SproutDatabaseError")<{
+	readonly cause: unknown;
+}> {
+	constructor(cause: unknown) {
+		super({ cause });
+	}
 
-	constructor(readonly cause: unknown) {
-		super("The sprout database is unavailable", { cause });
+	override get message() {
+		return "The sprout database is unavailable";
 	}
 }
 
@@ -133,7 +139,7 @@ export const SproutCommandsLayer = Layer.effect(
 					),
 				);
 				const row = rows.at(0);
-				return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
+				return row ? fromRow(row) : yield* new SproutNotFound(id);
 			});
 		const command = <A, E>(
 			operation: string,
@@ -205,12 +211,12 @@ export const SproutCommandsLayer = Layer.effect(
 							Effect.tapErrorTag("SproutOutOfDate", () => Effect.sleep("10 millis")),
 							Effect.retry({
 								times: 10,
-								while: (error) => error._tag === "SproutOutOfDate",
+								while: Predicate.isTagged("SproutOutOfDate"),
 							}),
 							Effect.mapError((cause) => new SproutDatabaseError(cause)),
 						);
 						const row = rows.at(0);
-						return row ? fromRow(row) : yield* Effect.fail(new SproutNotFound(id));
+						return row ? fromRow(row) : yield* new SproutNotFound(id);
 					}),
 				),
 			remove: (id) =>
@@ -228,7 +234,7 @@ export const SproutCommandsLayer = Layer.effect(
 							),
 						);
 						if (rows.length === 0) {
-							return yield* Effect.fail(new SproutNotFound(id));
+							return yield* new SproutNotFound(id);
 						}
 						return { removed: true as const };
 					}),
