@@ -15,6 +15,9 @@ pub struct Dsn {
 }
 
 /// Parse `scheme://PUBLIC_KEY@host[:port]/PROJECT_ID`.
+///
+/// # Errors
+/// Returns an error if a required DSN component is missing or empty.
 pub fn parse_dsn(dsn: &str) -> Result<Dsn, String> {
     let (scheme, rest) = dsn.split_once("://").ok_or("dsn: missing scheme")?;
     let (key, hostpath) = rest.split_once('@').ok_or("dsn: missing public key")?;
@@ -23,16 +26,19 @@ pub fn parse_dsn(dsn: &str) -> Result<Dsn, String> {
         return Err("dsn: empty component".into());
     }
     Ok(Dsn {
-        public_key: key.to_string(),
-        host: host.to_string(),
-        scheme: scheme.to_string(),
-        project_id: project_id.to_string(),
+        public_key: key.to_owned(),
+        host: host.to_owned(),
+        scheme: scheme.to_owned(),
+        project_id: project_id.to_owned(),
     })
 }
 
 static REPORTER: OnceLock<Dsn> = OnceLock::new();
 
 /// Install the global reporter + a panic hook that captures panics as events.
+///
+/// # Errors
+/// Returns an error if the DSN is malformed.
 pub fn init(dsn: &str) -> Result<(), String> {
     let parsed = parse_dsn(dsn)?;
     let _ = REPORTER.set(parsed);
@@ -64,13 +70,13 @@ pub fn capture_message(message: &str, level: &str) {
         "message": message,
         "server_name": std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".into()),
     });
-    let message = message.to_string();
+    let message = message.to_owned();
     std::thread::spawn(move || {
         let resp = ureq::post(&url)
             .header("X-Sentry-Auth", &auth)
             .header("Content-Type", "application/json")
             .config()
-            .timeout_global(Some(std::time::Duration::from_secs(5)))
+            .timeout_global(Some(core::time::Duration::from_secs(5)))
             .build()
             .send(&body.to_string());
         if let Err(e) = resp {

@@ -1,17 +1,17 @@
-//! Wave-C integration tests: the MLS delivery service (KeyPackage consumption
+//! Wave-C integration tests: the MLS delivery service (`KeyPackage` consumption
 //! per D-007, welcome/commit mailbox) over the oneshot harness, and the live
 //! WebSocket path against a real axum server on an ephemeral port.
 
-use std::time::Duration;
+use core::time::Duration;
 
 use axum::http::StatusCode;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
-use futures::{SinkExt, StreamExt};
+use base64::Engine as _;
+use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio::net::TcpStream;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
@@ -54,7 +54,7 @@ async fn seed_group(pool: &PgPool, owner: &str, members: &[&str]) -> Uuid {
             .fetch_one(pool)
             .await
             .unwrap();
-    for m in std::iter::once(&owner).chain(members) {
+    for m in core::iter::once(&owner).chain(members) {
         sqlx::query("INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)")
             .bind(gid)
             .bind(m)
@@ -300,7 +300,7 @@ async fn peer_reregistration_triggers_fresh_key_claim_and_welcome(pool: PgPool) 
     let mut alice_ws = ws_connect_auth(&url, &alice, &uid("alice")).await;
 
     let (_, before_shares) = send(&router, "GET", "/api/shares", Some(&alice), None).await;
-    let before_generation = before_shares[0]["rekeyed_at"].as_str().unwrap().to_string();
+    let before_generation = before_shares[0]["rekeyed_at"].as_str().unwrap().to_owned();
 
     // Establish the original epoch and mailbox row.
     upload_keys(&router, &bob, &["old-bob-kp"], None).await;
@@ -350,7 +350,7 @@ async fn peer_reregistration_triggers_fresh_key_claim_and_welcome(pool: PgPool) 
     assert_eq!(status, StatusCode::OK, "{claimed}");
     assert!(
         [b64(b"fresh-bob-kp-0"), b64(b"fresh-bob-kp-1")]
-            .contains(&claimed["key_package"].as_str().unwrap().to_string()),
+            .contains(&claimed["key_package"].as_str().unwrap().to_owned()),
         "the claim must come from Bob's replacement pool: {claimed}",
     );
     send(
@@ -421,7 +421,7 @@ async fn welcome_and_ack_flow(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{v}");
-    let id = v["id"].as_str().unwrap().to_string();
+    let id = v["id"].as_str().unwrap().to_owned();
 
     // Bob's mailbox has it, payload intact.
     let (status, msgs) = send(&app, "GET", "/api/mls/messages", Some(&bob), None).await;
@@ -496,7 +496,7 @@ async fn poison_mailbox_row_can_be_quarantined_without_ack(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row, (false, true, "crypto_rejected".to_string()));
+    assert_eq!(row, (false, true, "crypto_rejected".to_owned()));
 }
 
 #[sqlx::test]
@@ -609,11 +609,11 @@ async fn spawn_ws_server(pool: &PgPool) -> String {
     spawn_ws_server_with_router(pool).await.0
 }
 
-/// Like [spawn_ws_server] but also hands back the shared [Hub], so a test can
+/// Like [`spawn_ws_server`] but also hands back the shared [Hub], so a test can
 /// observe server-side Layer-4 wake decisions (the dedup gate) directly.
 async fn spawn_ws_server_with_hub(pool: &PgPool) -> (String, std::sync::Arc<crate::ws::hub::Hub>) {
     let state = test_state(pool.clone(), true);
-    let hub = state.hub.clone();
+    let hub = std::sync::Arc::clone(&state.hub);
     let router = super::router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -630,9 +630,10 @@ async fn await_watch_wake(hub: &crate::ws::hub::Hub, target: &str, ms: u64) -> s
         if let Some(t) = hub.last_watch_wake(target) {
             return t;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!("no watcher-wake recorded for {target} within {ms}ms");
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no watcher-wake recorded for {target} within {ms}ms"
+        );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
@@ -645,9 +646,8 @@ async fn recv_frame(ws: &mut Ws, ms: u64) -> Option<Value> {
         let msg = tokio::time::timeout_at(deadline, ws.next()).await.ok()??;
         match msg {
             Ok(Message::Text(t)) => return serde_json::from_str(&t).ok(),
-            Ok(Message::Close(_)) => return None,
-            Ok(_) => continue,
-            Err(_) => return None,
+            Ok(Message::Close(_)) | Err(_) => return None,
+            Ok(_) => {}
         }
     }
 }
@@ -659,9 +659,14 @@ async fn expect_frame(ws: &mut Ws, typ: &str, ms: u64) -> Value {
         let remaining = deadline
             .checked_duration_since(tokio::time::Instant::now())
             .unwrap_or_else(|| panic!("no {typ:?} frame within {ms}ms"));
-        match recv_frame(ws, remaining.as_millis() as u64).await {
+        match recv_frame(
+            ws,
+            u64::try_from(remaining.as_millis()).expect("remaining timeout is bounded by ms"),
+        )
+        .await
+        {
             Some(f) if f["type"] == typ => return f,
-            Some(_) => continue,
+            Some(_) => {}
             None => panic!("no {typ:?} frame within {ms}ms"),
         }
     }
@@ -767,7 +772,7 @@ async fn ws_auth_timeout_closes(pool: PgPool) {
     let closed = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             match ws.next().await {
-                None | Some(Ok(Message::Close(_))) | Some(Err(_)) => break,
+                None | Some(Ok(Message::Close(_)) | Err(_)) => break,
                 Some(Ok(_)) => {}
             }
         }
@@ -790,7 +795,7 @@ async fn ws_origin_guard(pool: PgPool) {
         .insert("Origin", HeaderValue::from_static("https://evil.example"));
     match connect_async(req).await {
         Err(tokio_tungstenite::tungstenite::Error::Http(resp)) => {
-            assert_eq!(resp.status(), StatusCode::FORBIDDEN)
+            assert_eq!(resp.status(), StatusCode::FORBIDDEN);
         }
         other => panic!("expected 403 handshake rejection, got {other:?}"),
     }

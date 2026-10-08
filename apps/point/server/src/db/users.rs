@@ -5,7 +5,7 @@ use sqlx::{Postgres, Transaction};
 /// Create a local user, their `person` entity, and their primary device inside
 /// the caller's transaction — all three exist or none do (D-008: exactly one
 /// person entity per user). `password_hash: None` means an OIDC-only account,
-/// which password login must reject. `oidc` is the IdP `(issuer, subject)` this
+/// which password login must reject. `oidc` is the `IdP` `(issuer, subject)` this
 /// account is bound to (None for password accounts) — the durable identity key
 /// OIDC login matches on, never the mutable username.
 pub async fn create_local_user(

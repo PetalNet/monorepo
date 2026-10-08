@@ -6,17 +6,18 @@
 
 pub mod hub;
 
+use core::time::Duration;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse as _, Response};
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
-use futures::{SinkExt, StreamExt};
+use base64::Engine as _;
+use futures::{SinkExt as _, StreamExt as _};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -66,14 +67,11 @@ pub async fn ws_handler(
     ws: WebSocketUpgrade,
 ) -> Response {
     if let Some(origin) = headers.get(header::ORIGIN) {
-        let allowed = origin
-            .to_str()
-            .map(|o| {
-                o == format!("https://{}", state.config.domain)
-                    || o == "http://localhost:3000"
-                    || o == "http://localhost:8080"
-            })
-            .unwrap_or(false);
+        let allowed = origin.to_str().is_ok_and(|o| {
+            o == format!("https://{}", state.config.domain)
+                || o == "http://localhost:3000"
+                || o == "http://localhost:8080"
+        });
         if !allowed {
             return StatusCode::FORBIDDEN.into_response();
         }
@@ -137,7 +135,7 @@ async fn handle_socket(state: AppState, mut socket: WebSocket) {
     let (tx, mut rx) = mpsc::channel::<hub::Outbound>(OUTBOUND_CHANNEL_CAP);
     let reply = tx.clone();
     let close = Arc::new(Notify::new());
-    let conn_id = state.hub.add_connection(&user_id, tx, close.clone());
+    let conn_id = state.hub.add_connection(&user_id, tx, Arc::clone(&close));
 
     let (mut sink, mut stream) = socket.split();
     let ok = json!({ "type": "auth.ok", "user_id": user_id }).to_string();
@@ -190,7 +188,7 @@ async fn handle_socket(state: AppState, mut socket: WebSocket) {
                             }
                             Message::Close(_) => break,
                             // Pong (activity already recorded) / binary ignored.
-                            _ => {}
+                            Message::Binary(_) | Message::Pong(_) => {}
                         }
                     }
                     _ => break, // stream closed or errored
@@ -206,7 +204,7 @@ async fn handle_socket(state: AppState, mut socket: WebSocket) {
                 }
             }
             // Forced close (revocation): the hub asked this socket to shut.
-            _ = close.notified() => break,
+            () = close.notified() => break,
         }
     }
 
@@ -416,7 +414,7 @@ fn decode_blob(b64: &str) -> Option<Vec<u8>> {
 /// which callers treat as a silent drop.
 fn canonical_recipient_id(rtype: &str, rid: &str) -> Option<String> {
     match rtype {
-        "user" => Some(rid.to_string()),
+        "user" => Some(rid.to_owned()),
         "group" => Uuid::parse_str(rid).ok().map(|u| u.to_string()),
         _ => None,
     }
@@ -434,7 +432,7 @@ async fn allowed_recipients(
     let decision = match recipient_type {
         "user" => authz::can_deliver_to_user(pool, sender, recipient_id)
             .await
-            .map(|ok| ok.then(|| vec![recipient_id.to_string()])),
+            .map(|ok| ok.then(|| vec![recipient_id.to_owned()])),
         "group" => {
             // Pre-validate the uuid so bad input never reaches a ::uuid cast.
             if Uuid::parse_str(recipient_id).is_err() {
@@ -479,7 +477,7 @@ async fn sender_entity(pool: &PgPool, user_id: &str) -> Option<Uuid> {
 /// Upsert the live fix for (sender entity, audience): exactly one current row
 /// each. A single INSERT ... ON CONFLICT keeps it atomic (no DELETE+INSERT
 /// window two racing devices could both fall into) and the `WHERE` guard means
-/// a stale fix (older client_timestamp) can never clobber a newer one — M10.
+/// a stale fix (older `client_timestamp`) can never clobber a newer one — M10.
 async fn store_live_fix(
     pool: &PgPool,
     entity: Uuid,

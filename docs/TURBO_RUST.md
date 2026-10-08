@@ -10,9 +10,10 @@ Each crate's `turbo.json` extends `//`, clears JS build outputs and check
 dependencies, and uses `$TURBO_DEFAULT$` inputs. Cargo selects the package from
 the task's working directory; no `-p` is necessary. The synthetic workspace
 loads the root configuration, so only its check/lint overrides are root-qualified.
-Native Clippy commands retain `--locked --all-targets` and deny warnings;
-Courier also retains pedantic checking. Workspace lint adoption is a separate
-stack member. Native tests are uncached; Point needs PostgreSQL, and Manager's
+Native Clippy commands retain `--locked --all-targets`. All eleven crates inherit
+`[workspace.lints]`, which denies warnings and includes pedantic/nursery checking,
+without duplicated command-line lint flags. Native tests are uncached;
+Point needs PostgreSQL, and Manager's
 opt-in tmux tests require `N12_TMUX_IT=1` and `--ignored`.
 
 ```sh

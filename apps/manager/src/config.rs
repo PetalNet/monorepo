@@ -7,8 +7,8 @@
 //! [work-dir]`). See `config.example.json` and the runbook appendix for the
 //! schema.
 
+use core::net::SocketAddr;
 use serde::Deserialize;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_ENV: &str = "AGENT_MANAGER_CONFIG";
@@ -25,7 +25,7 @@ struct RawConfig {
     schema_version: Option<u32>,
 
     // ── required ──────────────────────────────────────────────────────────
-    /// Matrix credentials JSON: { homeserver, access_token, user_id, ... }.
+    /// Matrix credentials JSON: { homeserver, `access_token`, `user_id`, ... }.
     /// (Same file the JS manager read: e.g. ~/.claude/shared/janet-account.json)
     creds_path: String,
     /// Matrix room ID the manager reports to and takes !commands from.
@@ -50,7 +50,7 @@ struct RawConfig {
     sessions_dir: Option<String>,
     /// tmux session name the agent pane lives in.
     tmux_session: Option<String>,
-    /// Value of the @agent_manager_owner pane option that marks OUR pane.
+    /// Value of the @`agent_manager_owner` pane option that marks OUR pane.
     pane_tag: Option<String>,
     /// Claude Code binary (name or absolute path).
     claude_bin: Option<String>,
@@ -111,7 +111,7 @@ pub struct MatrixCreds {
 fn home_dir() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
-        .ok_or_else(|| "HOME is not set".to_string())
+        .ok_or_else(|| "HOME is not set".to_owned())
 }
 
 fn expand(home: &Path, s: &str) -> PathBuf {
@@ -125,10 +125,10 @@ fn expand(home: &Path, s: &str) -> PathBuf {
 }
 
 impl Config {
-    /// Load config from $AGENT_MANAGER_CONFIG. `work_dir_arg` (CLI) wins over
-    /// the config file's work_dir, which wins over $HOME (JS parity:
+    /// Load config from $`AGENT_MANAGER_CONFIG`. `work_dir_arg` (CLI) wins over
+    /// the config file's `work_dir`, which wins over $HOME (JS parity:
     /// `process.argv[2] || os.homedir()`).
-    pub fn load(work_dir_arg: Option<&str>) -> Result<Config, String> {
+    pub fn load(work_dir_arg: Option<&str>) -> Result<Self, String> {
         let cfg_path = std::env::var(CONFIG_ENV).map_err(|_| {
             format!("{CONFIG_ENV} is not set (must point at the manager config JSON)")
         })?;
@@ -145,57 +145,52 @@ impl Config {
             None => raw
                 .work_dir
                 .as_deref()
-                .map(|w| expand(&home, w))
-                .unwrap_or_else(|| home.clone()),
+                .map_or_else(|| home.clone(), |w| expand(&home, w)),
         };
 
         validate_assistant_config(&raw)?;
 
-        Ok(Config {
+        Ok(Self {
             creds_path: expand(&home, &raw.creds_path),
             control_room: raw.control_room,
             agent_name: raw.agent_name.unwrap_or_else(|| "agent".into()),
             work_dir,
             state_path: raw
                 .state_path
-                .map(|p| expand(&home, &p))
-                .unwrap_or_else(|| shared("agent-session-state.json")),
+                .map_or_else(|| shared("agent-session-state.json"), |p| expand(&home, &p)),
             rate_limit_hook_path: raw
                 .rate_limit_hook_path
-                .map(|p| expand(&home, &p))
-                .unwrap_or_else(|| shared("agent-rate-limit.json")),
+                .map_or_else(|| shared("agent-rate-limit.json"), |p| expand(&home, &p)),
             model_override_path: raw.model_override_path.map(|p| expand(&home, &p)),
             exit_code_path: raw
                 .exit_code_path
-                .map(|p| expand(&home, &p))
-                .unwrap_or_else(|| shared("agent-exit-code")),
-            heartbeat_path: raw
-                .heartbeat_path
-                .map(|p| expand(&home, &p))
-                .unwrap_or_else(|| shared("agent-manager-heartbeat.json")),
+                .map_or_else(|| shared("agent-exit-code"), |p| expand(&home, &p)),
+            heartbeat_path: raw.heartbeat_path.map_or_else(
+                || shared("agent-manager-heartbeat.json"),
+                |p| expand(&home, &p),
+            ),
             sessions_dir: raw
                 .sessions_dir
-                .map(|p| expand(&home, &p))
-                .unwrap_or_else(|| home.join(".claude/sessions")),
+                .map_or_else(|| home.join(".claude/sessions"), |p| expand(&home, &p)),
             tmux_session: raw.tmux_session.unwrap_or_else(|| "agent-claude".into()),
             pane_tag: raw.pane_tag.unwrap_or_else(|| "agent-manager".into()),
             claude_bin: raw.claude_bin.unwrap_or_else(|| "claude".into()),
             claude_args: raw
                 .claude_args
                 .unwrap_or_else(|| vec!["--dangerously-skip-permissions".into()]),
-            path_prepend: raw
-                .path_prepend
-                .map(|p| expand(&home, &p).to_string_lossy().into_owned())
-                .unwrap_or_else(|| home.join(".local/bin").to_string_lossy().into_owned()),
+            path_prepend: raw.path_prepend.map_or_else(
+                || home.join(".local/bin").to_string_lossy().into_owned(),
+                |p| expand(&home, &p).to_string_lossy().into_owned(),
+            ),
             kill_agent_on_shutdown: raw.kill_agent_on_shutdown.unwrap_or(true),
             tmux_width: raw.tmux_width.unwrap_or(220),
             tmux_height: raw.tmux_height.unwrap_or(50),
             assistant_api_bind: raw.assistant_api_bind,
             assistant_api_token: raw.assistant_api_token,
-            assistant_receipts_path: raw
-                .assistant_receipts_path
-                .map(|p| expand(&home, &p))
-                .unwrap_or_else(|| shared("assistant-manager-receipts.json")),
+            assistant_receipts_path: raw.assistant_receipts_path.map_or_else(
+                || shared("assistant-manager-receipts.json"),
+                |p| expand(&home, &p),
+            ),
             assistant_model: raw.assistant_model,
             glitchtip_dsn: raw.glitchtip_dsn,
         })
@@ -222,7 +217,7 @@ fn validate_assistant_config(raw: &RawConfig) -> Result<(), String> {
     if let Some(bind) = &raw.assistant_api_bind {
         let address: SocketAddr = bind
             .parse()
-            .map_err(|_| "assistant_api_bind must be an IP socket address".to_string())?;
+            .map_err(|_| "assistant_api_bind must be an IP socket address".to_owned())?;
         if !address.ip().is_loopback() {
             return Err(
                 "assistant_api_bind must be loopback; terminate TLS at the local proxy".into(),
@@ -235,7 +230,7 @@ fn validate_assistant_config(raw: &RawConfig) -> Result<(), String> {
 impl MatrixCreds {
     /// Read + parse a creds file. Separate from `Config` so the sync loop can
     /// re-read creds on a token rotation without holding the whole config.
-    pub fn from_path(path: &std::path::Path) -> Result<MatrixCreds, String> {
+    pub fn from_path(path: &std::path::Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read creds {}: {e}", path.display()))?;
         serde_json::from_str(&text).map_err(|e| format!("bad creds {}: {e}", path.display()))
@@ -245,7 +240,7 @@ impl MatrixCreds {
 /// Conformance tests against docs/contracts/schemas/manager-config.schema.json:
 /// serde IS the enforcement mechanism for this contract, so the tests pin
 /// serde's behavior to the schema's semantics (required set, deny-unknown,
-/// optional schema_version).
+/// optional `schema_version`).
 #[cfg(test)]
 mod tests {
     use super::*;

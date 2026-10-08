@@ -27,7 +27,7 @@ const LOGIN_GLOBAL_PER_MINUTE: u32 = 100;
 
 /// Advisory-lock key serializing user creation, so two concurrent first
 /// registrations can't both observe count==0 and both become admin.
-pub(crate) const USER_CREATE_LOCK_KEY: i64 = 0x504F494E54; // "POINT"
+pub const USER_CREATE_LOCK_KEY: i64 = 0x0050_4F49_4E54; // "POINT"
 
 #[derive(Deserialize)]
 pub struct RegisterBody {
@@ -73,7 +73,7 @@ pub async fn register(
         .as_deref()
         .map(sanitize_display_name)
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "primary".to_string());
+        .unwrap_or_else(|| "primary".to_owned());
     let user_id = format!("{username}@{}", state.config.domain);
 
     // Hash before opening the transaction — Argon2 is deliberately slow.
@@ -128,7 +128,12 @@ pub async fn register(
             // Username taken -> same generic 400 as validation failures, so
             // registration can't be used to enumerate accounts.
             AppError::Conflict(_) => AppError::BadRequest("registration failed".into()),
-            other => other,
+            other @ (AppError::BadRequest(_)
+            | AppError::Unauthorized
+            | AppError::Forbidden
+            | AppError::NotFound
+            | AppError::TooManyRequests
+            | AppError::Internal(_)) => other,
         });
     }
     tx.commit().await?;
@@ -179,12 +184,9 @@ pub async fn login(
 
     // Only a local account with a stored hash may proceed; everything else
     // (unknown, federated shadow, OIDC-only NULL hash) fails identically.
-    let (hash, display_name, is_admin) = match row {
-        Some((Some(hash), display_name, is_admin, false)) => (hash, display_name, is_admin),
-        _ => {
-            let _ = auth::verify_password(&body.password, DUMMY_HASH.as_str());
-            return Err(AppError::Unauthorized);
-        }
+    let Some((Some(hash), display_name, is_admin, false)) = row else {
+        let _ = auth::verify_password(&body.password, DUMMY_HASH.as_str());
+        return Err(AppError::Unauthorized);
     };
     if !auth::verify_password(&body.password, &hash) {
         return Err(AppError::Unauthorized);
@@ -209,7 +211,7 @@ fn normalize_login_id(raw: &str, domain: &str) -> String {
 }
 
 /// Username policy: 3-32 chars of `[a-z0-9_-]` after case-folding.
-pub(crate) fn validate_username(raw: &str) -> Result<String, AppError> {
+pub fn validate_username(raw: &str) -> Result<String, AppError> {
     let username = raw.trim().to_lowercase();
     let valid = (3..=32).contains(&username.len())
         && username
@@ -223,10 +225,10 @@ pub(crate) fn validate_username(raw: &str) -> Result<String, AppError> {
     Ok(username)
 }
 
-/// Map an IdP-supplied name (preferred_username or sub) onto our username
+/// Map an IdP-supplied name (`preferred_username` or sub) onto our username
 /// policy: fold case, drop every disallowed char, cap at 32. Too little left
 /// over is an error, never a guess.
-pub(crate) fn map_oidc_username(raw: &str) -> Result<String, AppError> {
+pub fn map_oidc_username(raw: &str) -> Result<String, AppError> {
     let username: String = raw
         .to_lowercase()
         .chars()
@@ -244,7 +246,7 @@ pub(crate) fn map_oidc_username(raw: &str) -> Result<String, AppError> {
 /// Strip HTML-significant chars, control chars, zero-width chars, and bidi
 /// overrides (display names end up in client UI next to location data —
 /// spoofing surface). Cap at 64 chars.
-pub(crate) fn sanitize_display_name(raw: &str) -> String {
+pub fn sanitize_display_name(raw: &str) -> String {
     raw.chars()
         .filter(|&c| {
             !matches!(c, '<' | '>' | '&')
@@ -256,6 +258,5 @@ pub(crate) fn sanitize_display_name(raw: &str) -> String {
         })
         .take(64)
         .collect::<String>()
-        .trim()
-        .to_string()
+        .trim().to_owned()
 }

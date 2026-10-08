@@ -1,9 +1,9 @@
 //! Fixed-window in-memory rate limiting, lifted from legacy but with GC:
-//! legacy's DashMap grew forever; here expired windows are swept
+//! legacy's `DashMap` grew forever; here expired windows are swept
 //! opportunistically on insert once the map is large — no background task.
 
-use std::convert::Infallible;
-use std::net::SocketAddr;
+use core::convert::Infallible;
+use core::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{ConnectInfo, FromRequestParts};
@@ -39,7 +39,7 @@ impl RateLimiter {
             self.windows.retain(|_, (w, _)| *w == window);
         }
 
-        let mut entry = self.windows.entry(key.to_string()).or_insert((window, 0));
+        let mut entry = self.windows.entry(key.to_owned()).or_insert((window, 0));
         if entry.0 != window {
             *entry = (window, 0);
         }
@@ -47,6 +47,7 @@ impl RateLimiter {
         if entry.1 > limit {
             return Err(AppError::TooManyRequests);
         }
+        drop(entry);
         Ok(())
     }
 }
@@ -68,17 +69,13 @@ impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
     type Rejection = Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Infallible> {
-        let trust_proxy = parts
-            .extensions
-            .get::<TrustProxy>()
-            .map(|t| t.0)
-            .unwrap_or(false);
+        let trust_proxy = parts.extensions.get::<TrustProxy>().is_some_and(|t| t.0);
         let header_ip = if trust_proxy {
             parts
                 .headers
                 .get("x-real-ip")
                 .and_then(|v| v.to_str().ok())
-                .map(|s| s.trim().to_string())
+                .map(|s| s.trim().to_owned())
                 .filter(|s| !s.is_empty())
         } else {
             None
@@ -90,7 +87,7 @@ impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
                     .get::<ConnectInfo<SocketAddr>>()
                     .map(|ci| ci.0.ip().to_string())
             })
-            .unwrap_or_else(|| "unknown".to_string());
-        Ok(ClientIp(ip))
+            .unwrap_or_else(|| "unknown".to_owned());
+        Ok(Self(ip))
     }
 }

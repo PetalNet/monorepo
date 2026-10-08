@@ -18,11 +18,12 @@ pub enum Tier {
 }
 
 impl Tier {
-    pub fn downgraded(self) -> Option<Tier> {
+    #[must_use]
+    pub const fn downgraded(self) -> Option<Self> {
         match self {
-            Tier::Opus => Some(Tier::Sonnet),
-            Tier::Sonnet => Some(Tier::Haiku),
-            Tier::Haiku => None,
+            Self::Opus => Some(Self::Sonnet),
+            Self::Sonnet => Some(Self::Haiku),
+            Self::Haiku => None,
         }
     }
 }
@@ -35,7 +36,7 @@ pub enum Light {
     Red,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "action")]
 pub enum Action {
     None,
@@ -81,6 +82,7 @@ pub struct BudgetGrant {
     pub expires_epoch: i64,
 }
 
+#[derive(Debug)]
 pub struct Governor {
     /// Fleet-wide token pool per window.
     pub pool_tokens: u64,
@@ -94,8 +96,9 @@ pub struct Governor {
 }
 
 impl Governor {
-    pub fn new(pool_tokens: u64) -> Governor {
-        Governor {
+    #[must_use]
+    pub const fn new(pool_tokens: u64) -> Self {
+        Self {
             pool_tokens,
             yellow_at: 0.70,
             red_at: 0.90,
@@ -117,15 +120,16 @@ impl Governor {
 
     /// Does this agent hold an unexpired budget grant? (Restart recovery:
     /// the caller re-grants when this is false — codex P1.)
+    #[must_use]
     pub fn has_live_grant(&self, agent: &str, now_epoch: i64) -> bool {
         self.grants
             .get(agent)
-            .map(|g| g.expires_epoch > now_epoch)
-            .unwrap_or(false)
+            .is_some_and(|g| g.expires_epoch > now_epoch)
     }
 
     /// Tokens not currently granted out (expired grants return to the pool —
     /// the lease-based reclaim).
+    #[must_use]
     pub fn pool_available(&self, now_epoch: i64) -> u64 {
         let granted: u64 = self
             .grants
@@ -139,6 +143,9 @@ impl Governor {
     /// Grant (or renew) an agent's budget lease from the pool. A renewal
     /// replaces the old grant (its remainder frees first); a refused grant
     /// leaves any existing grant untouched.
+    ///
+    /// # Errors
+    /// Returns an error if the requested budget exceeds the available pool.
     pub fn grant(
         &mut self,
         agent: &str,
@@ -150,8 +157,7 @@ impl Governor {
             .grants
             .get(agent)
             .filter(|g| g.expires_epoch > now_epoch)
-            .map(|g| g.granted_tokens)
-            .unwrap_or(0);
+            .map_or(0, |g| g.granted_tokens);
         let available = self.pool_available(now_epoch) + own_live_grant;
         if tokens > available {
             return Err(format!(
@@ -159,14 +165,15 @@ impl Governor {
             ));
         }
         let g = BudgetGrant {
-            agent: agent.to_string(),
+            agent: agent.to_owned(),
             granted_tokens: tokens,
             expires_epoch: now_epoch + lease_secs,
         };
-        self.grants.insert(agent.to_string(), g.clone());
+        self.grants.insert(agent.to_owned(), g.clone());
         Ok(g)
     }
 
+    #[must_use]
     pub fn light(&self, agent: &str, usage: &Usage, now_epoch: i64) -> Light {
         let Some(grant) = self
             .grants
@@ -176,7 +183,8 @@ impl Governor {
             // No live grant = nothing budgeted: red until a grant exists.
             return Light::Red;
         };
-        let frac = usage.tokens_spent as f64 / grant.granted_tokens.max(1) as f64;
+        let frac =
+            token_count_f64(usage.tokens_spent) / token_count_f64(grant.granted_tokens.max(1));
         if usage.rate_limit_hits > 0 || frac >= self.red_at {
             Light::Red
         } else if frac >= self.yellow_at {
@@ -188,19 +196,22 @@ impl Governor {
 
     /// The per-agent decision. Downgrade fires at YELLOW — before the 429 —
     /// and only if a lower tier exists; red pauses dispatch.
+    #[must_use]
     pub fn decide(&self, agent: &str, usage: &Usage, tier: Tier, now_epoch: i64) -> Action {
         match self.light(agent, usage, now_epoch) {
             Light::Green => Action::None,
-            Light::Yellow => match tier.downgraded() {
-                Some(to) => Action::Downgrade { to },
-                // Already on the floor tier: slow down instead.
-                None => Action::Throttle { delay_ms: 2000 },
-            },
+            // Already on the floor tier: slow down instead.
+            Light::Yellow => tier
+                .downgraded()
+                .map_or(Action::Throttle { delay_ms: 2000 }, |to| {
+                    Action::Downgrade { to }
+                }),
             Light::Red => Action::Pause,
         }
     }
 
     /// Cascade detection over the whole fleet's usage map.
+    #[must_use]
     pub fn fleet_mode(&self, usages: &BTreeMap<String, Usage>, now_epoch: i64) -> FleetMode {
         let recent = usages
             .values()
@@ -220,9 +231,30 @@ impl Governor {
     }
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Budget ratios intentionally round token counts to f64, including above 2^53"
+)]
+const fn token_count_f64(count: u64) -> f64 {
+    count as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_conversion_keeps_round_to_nearest_even_for_large_counts() {
+        for (count, expected) in [
+            (0, 0.0_f64),
+            (4_294_967_297, 4_294_967_297.0),
+            (9_007_199_254_740_993, 9_007_199_254_740_992.0),
+            (9_007_199_254_740_995, 9_007_199_254_740_996.0),
+            (u64::MAX, 18_446_744_073_709_551_616.0),
+        ] {
+            assert_eq!(token_count_f64(count).to_bits(), expected.to_bits());
+        }
+    }
 
     fn usage(tokens: u64) -> Usage {
         Usage {
@@ -332,7 +364,7 @@ mod tests {
         let mut usages = BTreeMap::new();
         for agent in ["a", "b", "c"] {
             usages.insert(
-                agent.to_string(),
+                agent.to_owned(),
                 Usage {
                     tokens_spent: 0,
                     rate_limit_hits: 1,
@@ -350,7 +382,7 @@ mod tests {
         let mut usages = BTreeMap::new();
         for (agent, hit_at) in [("a", 100i64), ("b", 200), ("c", 250)] {
             usages.insert(
-                agent.to_string(),
+                agent.to_owned(),
                 Usage {
                     tokens_spent: 0,
                     rate_limit_hits: 1,

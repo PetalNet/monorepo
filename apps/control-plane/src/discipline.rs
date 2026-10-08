@@ -14,7 +14,7 @@ pub struct AgentActivity {
     pub handle: String,
     /// Producer-reported status: alive | working | idle.
     pub status: String,
-    /// task_id from the event (the explicit spawn-from-task tie), if any.
+    /// `task_id` from the event (the explicit spawn-from-task tie), if any.
     pub event_task_id: Option<i64>,
     /// When the agent entered `working` (epoch secs, best known).
     pub working_since_epoch: i64,
@@ -25,18 +25,19 @@ pub struct AgentActivity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ViolationKind {
-    /// Working with no claimed task anywhere (no lease, no event task_id).
+    /// Working with no claimed task anywhere (no lease, no event `task_id`).
     WorkingWithoutTask,
     /// Event claims a task that is NOT the leased one (stale or wrong tie).
     TaskMismatch { event_task: i64, leased_task: i64 },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Violation {
     pub handle: String,
     pub kind: ViolationKind,
 }
 
+#[derive(Debug)]
 pub struct Discipline {
     /// Grace before `working` without a task becomes a violation.
     pub grace_secs: i64,
@@ -44,11 +45,12 @@ pub struct Discipline {
 
 impl Default for Discipline {
     fn default() -> Self {
-        Discipline { grace_secs: 600 }
+        Self { grace_secs: 600 }
     }
 }
 
 impl Discipline {
+    #[must_use]
     pub fn check(&self, activity: &AgentActivity, now_epoch: i64) -> Option<Violation> {
         if activity.status != "working" {
             return None;
@@ -65,18 +67,18 @@ impl Discipline {
                     leased_task: lease,
                 },
             }),
-            (Some(_), None) => None,
             // No lease at all: violation once past grace, whatever the event says.
             (None, _) if working_for > self.grace_secs => Some(Violation {
                 handle: activity.handle.clone(),
                 kind: ViolationKind::WorkingWithoutTask,
             }),
-            (None, _) => None,
+            (Some(_), None) | (None, _) => None,
         }
     }
 }
 
 /// Render a violation as the nag-card body (verbatim-forwardable).
+#[must_use]
 pub fn nag_body(v: &Violation) -> String {
     match &v.kind {
         ViolationKind::WorkingWithoutTask => format!(
