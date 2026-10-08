@@ -4,7 +4,7 @@ Primary-source review and executed adoption checks, 2026-10-07. Native support
 uses pinned Turbo 2.11.7 without crate `package.json` wrappers. The Cargo
 foundation ([PR #430](https://github.com/PetalNet/monorepo/pull/430)) is merged;
 this layer builds on the published selective-CI
-[PR #439 head](https://github.com/PetalNet/monorepo/commit/6f39a3c018a15a1bba63350e3dd82f5667c797af).
+[PR #439 head](https://github.com/PetalNet/monorepo/commit/a824b229958b2b18d949e41665861d089fbbb6be).
 The reviewed parent is merged into the native layer without rewriting its
 published history; its workflows, gate, formatting policy and security settings
 are unchanged by this layer.
@@ -211,8 +211,10 @@ verification. Filtering `petalnet-rust` selects workspace verification, not a
 workspace build. Point native tests still need PostgreSQL. The aggregate CI's
 conservative native fan-out, exact selected-success/unselected-skipped gate,
 Postgres setup, Flutter bridge release directory, and opt-in tmux lane remain
-unchanged. Security settings activation is separate administrator work, not a
-prerequisite for these commands.
+unchanged. The activation parent requires JS/Python CodeQL success on every run;
+Actions/Rust success or skipped follows selection, with no activation guard.
+It retains security-extended queries. Security settings are owned separately
+from this native layer and are not a prerequisite for these commands.
 
 ## Executed adoption evidence
 
