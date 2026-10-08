@@ -51,3 +51,6 @@ point-core = { path = "../core" }
 tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+
+[lints]
+workspace = true

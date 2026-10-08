@@ -129,12 +129,12 @@ mod tests {
             location.len(),
             ciphertext.len()
         );
-        println!("Decrypted: {}", decrypted);
+        println!("Decrypted: {decrypted}");
     }
 
     /// Task 726 regression: replacing a device identity mid-share requires a
     /// fresh group at the SAME deterministic DM id. Both directions must work
-    /// after the new device consumes its KeyPackage and processes the Welcome.
+    /// after the new device consumes its `KeyPackage` and processes the Welcome.
     #[test]
     fn pairwise_group_rekeys_after_peer_reregistration() {
         let gid = b"dm:alice@point.dev:bob@point.dev";
@@ -256,8 +256,8 @@ mod tests {
         );
 
         // Bob decrypts
-        let bob_pt = bob.decrypt(&bob_gid, &ct).unwrap();
-        assert_eq!(String::from_utf8(bob_pt).unwrap(), alice_loc);
+        let bob_plaintext = bob.decrypt(&bob_gid, &ct).unwrap();
+        assert_eq!(String::from_utf8(bob_plaintext).unwrap(), alice_loc);
         println!("[Bob] Decrypted Alice's location ✓");
 
         // Charlie decrypts
@@ -315,7 +315,7 @@ mod tests {
         for i in 0..10 {
             let loc = format!(
                 r#"{{"lat":38.627,"lon":-90.199,"timestamp":{}}}"#,
-                1712345700 + i
+                1_712_345_700 + i
             );
             let ct = alice.encrypt(&gid, loc.as_bytes()).unwrap();
             let pt = bob.decrypt(&bob_gid, &ct).unwrap();

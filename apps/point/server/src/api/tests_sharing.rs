@@ -5,7 +5,7 @@
 use axum::http::StatusCode;
 use axum::Router;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
+use base64::Engine as _;
 use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -122,7 +122,7 @@ async fn share_request_accept_lifecycle(pool: PgPool) {
     assert_eq!(incoming.len(), 1);
     assert_eq!(incoming[0]["from_user_id"], uid("alice"));
     assert_eq!(incoming[0]["from_display_name"], "alice");
-    let request_id = incoming[0]["id"].as_str().unwrap().to_string();
+    let request_id = incoming[0]["id"].as_str().unwrap().to_owned();
 
     let (status, outgoing) = send(
         &app,
@@ -187,7 +187,7 @@ async fn share_reject_and_delete(pool: PgPool) {
     )
     .await;
     let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&bob), None).await;
-    let request_id = incoming[0]["id"].as_str().unwrap().to_string();
+    let request_id = incoming[0]["id"].as_str().unwrap().to_owned();
 
     // The requester can't reject their own outgoing request.
     let reject_path = format!("/api/shares/requests/{request_id}/reject");
@@ -357,9 +357,9 @@ async fn share_request_rate_limit(pool: PgPool) {
 }
 
 /// End-to-end proof of the `COLLATE "C"` path (D-016): usernames whose byte
-/// order differs from en_US collation (which treats '-' as ignorable) must
+/// order differs from `en_US` collation (which treats '-' as ignorable) must
 /// still request → accept → appear in GET /api/shares. "ab-c@..." sorts BEFORE
-/// "abb@..." bytewise ('-' 0x2D < 'b' 0x62) but AFTER under en_US — if the
+/// "abb@..." bytewise ('-' 0x2D < 'b' 0x62) but AFTER under `en_US` — if the
 /// server's Rust ordering and the DB CHECK disagreed, the accept INSERT would
 /// violate the CHECK and 500.
 #[sqlx::test]
@@ -379,7 +379,7 @@ async fn share_collation_hyphen_underscore_end_to_end(pool: PgPool) {
     assert_eq!(status, StatusCode::OK);
 
     let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&abb), None).await;
-    let request_id = incoming[0]["id"].as_str().unwrap().to_string();
+    let request_id = incoming[0]["id"].as_str().unwrap().to_owned();
     let (status, v) = send(
         &app,
         "POST",
@@ -422,7 +422,7 @@ async fn reshare_after_delete_creates_fresh_pending(pool: PgPool) {
     )
     .await;
     let (_, incoming) = send(&app, "GET", "/api/shares/requests", Some(&bob), None).await;
-    let req_id = incoming[0]["id"].as_str().unwrap().to_string();
+    let req_id = incoming[0]["id"].as_str().unwrap().to_owned();
     send(
         &app,
         "POST",
@@ -501,7 +501,7 @@ async fn temp_share_lifecycle(pool: PgPool) {
     .await;
     assert_eq!(status, StatusCode::OK, "{created}");
     assert_eq!(created["precision"], "exact");
-    let temp_id = created["id"].as_str().unwrap().to_string();
+    let temp_id = created["id"].as_str().unwrap().to_owned();
 
     // Nonexistent target: identical shape, nothing stored.
     let (status, ghost) = send(
@@ -565,7 +565,7 @@ async fn create_group(app: &Router, token: &str, name: &str) -> String {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{v}");
-    v["id"].as_str().unwrap().to_string()
+    v["id"].as_str().unwrap().to_owned()
 }
 
 #[sqlx::test]
@@ -586,7 +586,7 @@ async fn group_create_invite_join(pool: PgPool) {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["name"], "bFamily/b");
-    let group_id = v["id"].as_str().unwrap().to_string();
+    let group_id = v["id"].as_str().unwrap().to_owned();
     let (status, _) = send(
         &app,
         "POST",
@@ -616,7 +616,7 @@ async fn group_create_invite_join(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{invite}");
-    let code = invite["code"].as_str().unwrap().to_string();
+    let code = invite["code"].as_str().unwrap().to_owned();
     assert_eq!(code.len(), 8);
 
     let (status, joined) = send(
@@ -661,7 +661,7 @@ async fn group_create_invite_join(pool: PgPool) {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (_, invite2) = send(&app, "POST", &invite_path, Some(&alice), Some(json!({}))).await;
-    let code2 = invite2["code"].as_str().unwrap().to_string();
+    let code2 = invite2["code"].as_str().unwrap().to_owned();
     let (status, _) = send(
         &app,
         "POST",
@@ -1354,7 +1354,7 @@ async fn authz_group_fanout_rules(pool: PgPool) {
         .await
         .unwrap();
     recipients.sort();
-    assert_eq!(recipients, vec!["b".to_string(), "c".to_string()]);
+    assert_eq!(recipients, vec!["b".to_owned(), "c".to_owned()]);
 
     // Non-member sender: empty.
     assert!(authz::group_fanout_recipients(&pool, "d", &gid)
@@ -1387,7 +1387,7 @@ async fn authz_group_fanout_rules(pool: PgPool) {
         authz::group_fanout_recipients(&pool, "a", &gid)
             .await
             .unwrap(),
-        vec!["b".to_string()]
+        vec!["b".to_owned()]
     );
 
     // Global ghost empties it.

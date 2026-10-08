@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::{Extension, Json};
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
+use base64::Engine as _;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -29,18 +29,18 @@ const TEMP_SHARE_MAX_MINUTES: i64 = 10_080;
 /// A relationship lifecycle event always reaches both users. Keeping the
 /// audience shape pure makes multi-device fan-out regression-testable without
 /// coupling tests to the WebSocket or push transports.
-fn both_party_audience<'a>(actor: &'a str, other: &'a str) -> [&'a str; 2] {
+const fn both_party_audience<'a>(actor: &'a str, other: &'a str) -> [&'a str; 2] {
     [other, actor]
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum TempTeardown {
+pub enum TempTeardown {
     Removed,
     Expired,
 }
 
 impl TempTeardown {
-    fn ws_type(self) -> &'static str {
+    const fn ws_type(self) -> &'static str {
         match self {
             Self::Removed => "share.temp_removed",
             Self::Expired => "share.temp_expired",
@@ -51,7 +51,7 @@ impl TempTeardown {
 /// Fan out one temporary-share teardown without exposing relationship detail
 /// to either user's push distributor. Frames are personalized so `user_id` is
 /// always the peer whose relationship changed on that device.
-pub(crate) fn notify_temp_teardown(
+pub fn notify_temp_teardown(
     state: &AppState,
     teardown: TempTeardown,
     id: Uuid,
@@ -89,8 +89,8 @@ pub(crate) fn notify_temp_teardown(
 /// Precision is an opaque client-side hint (payloads are E2E-encrypted); the
 /// server only keeps it from becoming a junk-storage channel: short lowercase
 /// token, default `exact`.
-pub(crate) fn validate_precision(raw: Option<&str>) -> Result<String, AppError> {
-    let p = raw.unwrap_or("exact").trim().to_string();
+pub fn validate_precision(raw: Option<&str>) -> Result<String, AppError> {
+    let p = raw.unwrap_or("exact").trim().to_owned();
     let valid = (1..=32).contains(&p.len())
         && p.chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
@@ -132,7 +132,7 @@ pub struct ShareRequestBody {
 /// recordable, while keeping pending/existing relationship states identical.
 ///
 /// Idempotency ladder (H2): an existing accepted share, or a *pending* request
-/// in either direction, is a no-op 200. Otherwise the request is UPSERTed to
+/// in either direction, is a no-op 200. Otherwise the request is `UPSERTed` to
 /// pending — re-opening a prior 'rejected'/'accepted' row — so that a share
 /// that was unshared/rejected can always be requested again (the old bug was
 /// treating ANY historical row as "already requested", making unshare/reject
@@ -534,7 +534,7 @@ pub async fn list_shares(
     Ok(Json(rows))
 }
 
-/// DELETE /api/shares/{user_id} — either party may sever the share. The caller
+/// DELETE /`api/shares/{user_id`} — either party may sever the share. The caller
 /// is one side by construction, so the row lookup is the whole authz check.
 pub async fn delete_share(
     State(state): State<AppState>,
@@ -715,8 +715,8 @@ pub struct TempShareRow {
 }
 
 /// GET /api/shares/temp — my active (unexpired) temp shares, both directions.
-/// Link-token shares (no to_user) are v1.5; user-addressed rows always have a
-/// to_user, hence the NOT NULL filter.
+/// Link-token shares (no `to_user`) are v1.5; user-addressed rows always have a
+/// `to_user`, hence the NOT NULL filter.
 pub async fn list_temp(
     State(state): State<AppState>,
     user: AuthUser,
@@ -769,7 +769,7 @@ pub async fn delete_temp(
 
 /// Remove the sender's user-addressed snapshot when a directional sharing
 /// grant ends, preventing a later grant from resurrecting pre-revocation data.
-pub(crate) async fn purge_directional_last_known(
+pub async fn purge_directional_last_known(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sender: &str,
     recipient: &str,

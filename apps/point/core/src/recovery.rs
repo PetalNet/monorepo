@@ -14,10 +14,10 @@
 //! firm parameters against an offline guess of a stolen (but useless-alone) blob.
 
 use argon2::{Algorithm, Argon2, Params, Version};
-use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::aead::{Aead as _, KeyInit as _};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use rand::RngExt;
-use zeroize::Zeroize;
+use rand::RngExt as _;
+use zeroize::Zeroize as _;
 
 const MAGIC: &[u8; 4] = b"PTR1";
 const SALT_LEN: usize = 16;
@@ -58,6 +58,10 @@ fn derive_key(code: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
 
 /// Encrypt an exported MLS state blob under `recovery_code`. Output is the
 /// server-opaque backup blob.
+///
+/// # Errors
+/// Returns an error if the normalized code is shorter than eight symbols,
+/// key derivation fails, or authenticated encryption fails.
 pub fn encrypt(state: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
     // Generate the random array directly (no zero-init buffer) so both the code
     // and static analysis see fresh CSPRNG bytes as the salt/nonce source.
@@ -71,7 +75,7 @@ pub fn encrypt(state: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
 
     let ct = cipher
         .encrypt(&nonce, state)
-        .map_err(|_| "recovery encrypt failed".to_string())?;
+        .map_err(|_| "recovery encrypt failed".to_owned())?;
 
     let mut out = Vec::with_capacity(HEADER_LEN + ct.len());
     out.extend_from_slice(MAGIC);
@@ -83,6 +87,10 @@ pub fn encrypt(state: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
 
 /// Decrypt a backup blob produced by [`encrypt`]. A wrong code or a corrupt blob
 /// is an authentication failure (fail-closed), not a silent partial.
+///
+/// # Errors
+/// Returns an error for a malformed blob, a short code, key derivation failure,
+/// or failed authentication (wrong code or corrupted ciphertext).
 pub fn decrypt(blob: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
     if blob.len() < HEADER_LEN || &blob[..4] != MAGIC {
         return Err("malformed recovery blob".into());
@@ -98,12 +106,15 @@ pub fn decrypt(blob: &[u8], recovery_code: &str) -> Result<Vec<u8>, String> {
 
     cipher
         .decrypt(&nonce, ct)
-        .map_err(|_| "recovery decrypt failed (wrong code or corrupt backup)".to_string())
+        .map_err(|_| "recovery decrypt failed (wrong code or corrupt backup)".to_owned())
 }
 
 /// A fresh high-entropy recovery code: 120 bits as 24 Crockford-base32 symbols,
-/// grouped `XXXXXX-XXXXXX-XXXXXX-XXXXXX` for legibility. The alphabet omits
+/// grouped `XXXXXX-XXXXXX-XXXXXX-XXXXXX` for legibility.
+///
+/// The alphabet omits
 /// I/L/O/U so it survives [`normalize_code`] unchanged.
+#[must_use]
 pub fn generate_code() -> String {
     const ALPHA: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     let mut raw = [0u8; 15]; // 120 bits -> exactly 24 base32 symbols

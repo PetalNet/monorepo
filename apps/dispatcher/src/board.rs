@@ -1,4 +1,4 @@
-//! The wanted board — the bus's durable card store (dispatcher-owned SQLite,
+//! The wanted board — the bus's durable card store (dispatcher-owned `SQLite`,
 //! never the live tracker DB; DP2).
 //!
 //! Lifecycle (collab-wanted-board):
@@ -13,7 +13,7 @@
 //!   └──(reaps ≥ max)──▶ dead   (dead-letter, human triage)
 //! ```
 //!
-//! Correctness rules, all enforced as single guarded UPDATE statements (SQLite
+//! Correctness rules, all enforced as single guarded UPDATE statements (`SQLite`
 //! single-statement atomicity = the CAS):
 //! - A claim can only win from `posted`; exactly one winner.
 //! - Every write under a lease carries (worker, fence); a stale fence is
@@ -26,7 +26,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension as _};
 
 use crate::card::{InterruptPolicy, SenderClass, TaskCard, TASK_CARD_SCHEMA_VERSION};
 
@@ -85,9 +85,10 @@ pub struct NewCard {
     pub parent_id: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct Board {
     conn: Connection,
-    /// Aging factor: score = (3 - priority) + k * age_minutes.
+    /// Aging factor: score = (3 - priority) + k * `age_minutes`.
     pub aging_k: f64,
     pub max_reaps: i64,
 }
@@ -99,37 +100,41 @@ pub enum BoardError {
     Conflict(&'static str),
 }
 
-impl std::fmt::Display for BoardError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for BoardError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BoardError::Db(e) => write!(f, "board db error: {e}"),
-            BoardError::Conflict(what) => write!(f, "board conflict: {what}"),
+            Self::Db(e) => write!(f, "board db error: {e}"),
+            Self::Conflict(what) => write!(f, "board conflict: {what}"),
         }
     }
 }
 
-impl std::error::Error for BoardError {}
+impl core::error::Error for BoardError {}
 
 impl From<rusqlite::Error> for BoardError {
     fn from(e: rusqlite::Error) -> Self {
-        BoardError::Db(e)
+        Self::Db(e)
     }
 }
 
-type Result<T> = std::result::Result<T, BoardError>;
+type Result<T> = core::result::Result<T, BoardError>;
 
 impl Board {
-    pub fn open(path: &Path) -> Result<Board> {
+    /// # Errors
+    /// Returns an error if the database cannot be opened or initialized.
+    pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
         Self::init(conn)
     }
 
-    pub fn open_in_memory() -> Result<Board> {
+    /// # Errors
+    /// Returns an error if the in-memory database cannot be initialized.
+    pub fn open_in_memory() -> Result<Self> {
         Self::init(Connection::open_in_memory()?)
     }
 
-    fn init(conn: Connection) -> Result<Board> {
-        conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+    fn init(conn: Connection) -> Result<Self> {
+        conn.busy_timeout(core::time::Duration::from_secs(5))?;
         conn.pragma_update(None, "journal_mode", "WAL").ok(); // in-memory DBs reject WAL; fine
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS cards (
@@ -168,13 +173,15 @@ impl Board {
             CREATE INDEX IF NOT EXISTS idx_cards_lease ON cards (state, lease_expires_at_ms);
             CREATE INDEX IF NOT EXISTS idx_cards_recipient ON cards (recipient, state);",
         )?;
-        Ok(Board {
+        Ok(Self {
             conn,
             aging_k: 0.05,
             max_reaps: DEFAULT_MAX_REAPS,
         })
     }
 
+    /// # Errors
+    /// Returns an error if the card cannot be inserted into the database.
     pub fn post(&self, new: &NewCard, now_ms: i64) -> Result<String> {
         match self.post_deduped(new, now_ms, None)? {
             PostOutcome::Posted(id) => Ok(id),
@@ -185,6 +192,9 @@ impl Board {
     /// Was a message with this producer dedupe key already dispatched? Used
     /// as the pre-side-effect check so a crash-recovery replay doesn't file a
     /// second tracker task either.
+    ///
+    /// # Errors
+    /// Returns an error if the database lookup fails.
     pub fn dedupe_lookup(&self, key: &str) -> Result<Option<String>> {
         self.conn
             .query_row(
@@ -199,6 +209,9 @@ impl Board {
     /// Post a card, atomically recording the producer's dedupe key with it —
     /// a crash-recovery replay of the same message becomes a no-op instead of
     /// a duplicate card (adversarial-review #2).
+    ///
+    /// # Errors
+    /// Returns an error if the lookup, insertion, or transaction fails.
     pub fn post_deduped(
         &self,
         new: &NewCard,
@@ -251,13 +264,13 @@ impl Board {
                 new.recipient,
                 new.priority,
                 new.thread,
-                new.requires_reply as i64,
+                i64::from(new.requires_reply),
                 interrupt_policy_str(new.interrupt_policy),
                 new.body,
                 needs_json,
                 new.reply_to,
                 new.parent_id,
-                new.recipient.is_some() as i64,
+                i64::from(new.recipient.is_some()),
                 now_ms
             ],
         )?;
@@ -275,6 +288,9 @@ impl Board {
     /// cheap part (addressed-to-me or unaddressed) and in the caller's roster
     /// check for `needs ⊆ provides` (CSV-in-SQL subset tests lie; DP5).
     /// prefetch=1: exactly one candidate is returned.
+    ///
+    /// # Errors
+    /// Returns an error if querying or decoding board rows fails.
     pub fn surface(
         &self,
         worker: &str,
@@ -303,6 +319,12 @@ impl Board {
     /// Atomic claim (CAS): wins only from `posted`; increments the fence and
     /// addresses the card to the winner. Losers get Conflict and should
     /// jitter-backoff onto another card.
+    ///
+    /// # Errors
+    /// Returns a conflict if the card is not posted, or a database error.
+    ///
+    /// # Panics
+    /// Panics if the card disappears between the successful update and read.
     pub fn claim(
         &self,
         card_id: &str,
@@ -324,6 +346,9 @@ impl Board {
 
     /// Lease heartbeat (ChangeMessageVisibility-style): only the current
     /// holder at the current fence may renew — slow-but-alive ≠ dead.
+    ///
+    /// # Errors
+    /// Returns a conflict for a stale fence or non-holder, or a database error.
     pub fn renew(
         &self,
         card_id: &str,
@@ -345,8 +370,11 @@ impl Board {
         Ok(())
     }
 
-    /// acks_late: done only on success, gated on (worker, fence). `result` is
+    /// `acks_late`: done only on success, gated on (worker, fence). `result` is
     /// keyed by the correlation id (the card id) for the reply flow.
+    ///
+    /// # Errors
+    /// Returns a conflict for a stale fence or non-holder, or a database error.
     pub fn complete(
         &self,
         card_id: &str,
@@ -370,7 +398,10 @@ impl Board {
 
     /// Reap expired leases: crash → requeue (fence already advanced past the
     /// old holder's writes at next claim), N reaps → dead-letter. Returns
-    /// (requeued, dead_lettered) card ids.
+    /// (requeued, `dead_lettered`) card ids.
+    ///
+    /// # Errors
+    /// Returns an error if querying or updating expired leases fails.
     pub fn reap(&self, now_ms: i64) -> Result<(Vec<String>, Vec<String>)> {
         let expired: Vec<String> = {
             let mut stmt = self.conn.prepare(
@@ -415,6 +446,9 @@ impl Board {
 
     /// Park a posted card no eligible free agent exists for; re-woken by
     /// `wake_parked` on a capacity-change event (never hot-polled; DP13).
+    ///
+    /// # Errors
+    /// Returns a conflict if the card is not posted, or a database error.
     pub fn park(&self, card_id: &str, now_ms: i64) -> Result<()> {
         let n = self.conn.execute(
             "UPDATE cards SET state='parked', updated_at_ms=?2 WHERE card_id=?1 AND state='posted'",
@@ -427,6 +461,9 @@ impl Board {
     }
 
     /// Capacity changed (an agent came free / registered): parked → posted.
+    ///
+    /// # Errors
+    /// Returns an error if the database update fails.
     pub fn wake_parked(&self, now_ms: i64) -> Result<usize> {
         Ok(self.conn.execute(
             "UPDATE cards SET state='posted', updated_at_ms=?1 WHERE state='parked'",
@@ -437,6 +474,9 @@ impl Board {
     /// Deferred, not-yet-delivered cards for one recipient — digest input.
     /// Ordered by the SAME aging score as `surface` so a capped digest can't
     /// starve old low-priority cards (adversarial-review #5 / DP11).
+    ///
+    /// # Errors
+    /// Returns an error if querying or decoding board rows fails.
     pub fn deferred_for(&self, recipient: &str, now_ms: i64) -> Result<Vec<BoardCard>> {
         let mut stmt = self.conn.prepare(
             "SELECT card_id, task_id, sender, sender_class, recipient, priority, thread,
@@ -455,6 +495,9 @@ impl Board {
     /// Honored-interrupt cards whose delivery hasn't succeeded yet (the
     /// dispatch attempt failed) — the daemon retries these each pass so a
     /// transport outage never loses an interrupt (codex P1).
+    ///
+    /// # Errors
+    /// Returns an error if querying or decoding board rows fails.
     pub fn undelivered_interrupts(&self) -> Result<Vec<BoardCard>> {
         let mut stmt = self.conn.prepare(
             "SELECT card_id, task_id, sender, sender_class, recipient, priority, thread,
@@ -470,6 +513,9 @@ impl Board {
     }
 
     /// Recipients that currently have undelivered deferred cards (digest fan-out).
+    ///
+    /// # Errors
+    /// Returns an error if querying or decoding recipient rows fails.
     pub fn distinct_deferred_recipients(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT recipient FROM cards
@@ -481,6 +527,9 @@ impl Board {
     }
 
     /// Mark cards as surfaced-to-agent (the digest/interrupt actually went out).
+    ///
+    /// # Errors
+    /// Returns an error if a database update fails.
     pub fn mark_delivered(&self, card_ids: &[String], now_ms: i64) -> Result<()> {
         for id in card_ids {
             self.conn.execute(
@@ -491,6 +540,8 @@ impl Board {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error if querying or decoding the card fails.
     pub fn get(&self, card_id: &str) -> Result<Option<BoardCard>> {
         self.conn
             .query_row(
@@ -507,6 +558,7 @@ impl Board {
 
     /// Render a board card into the wire task-card (contract shape). Requires
     /// a resolved recipient (DP6).
+    #[must_use]
     pub fn to_task_card(card: &BoardCard, now_rfc3339: &str) -> Option<TaskCard> {
         let recipient = card.recipient.clone().or_else(|| card.claimed_by.clone())?;
         Some(TaskCard {
@@ -523,13 +575,13 @@ impl Board {
             body: card.body.clone(),
             capability: card.needs.iter().next().cloned(),
             lease: None,
-            created_at: now_rfc3339.to_string(),
+            created_at: now_rfc3339.to_owned(),
             expires_at: None,
         })
     }
 }
 
-fn sender_class_str(c: SenderClass) -> &'static str {
+const fn sender_class_str(c: SenderClass) -> &'static str {
     match c {
         SenderClass::Principal => "principal",
         SenderClass::Agent => "agent",
@@ -537,7 +589,7 @@ fn sender_class_str(c: SenderClass) -> &'static str {
     }
 }
 
-fn interrupt_policy_str(p: InterruptPolicy) -> &'static str {
+const fn interrupt_policy_str(p: InterruptPolicy) -> &'static str {
     match p {
         InterruptPolicy::Defer => "defer",
         InterruptPolicy::PrincipalCommand => "principal_command",
@@ -573,7 +625,8 @@ fn row_to_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<BoardCard> {
         sender: row.get(2)?,
         sender_class: parse_sender_class(&sender_class),
         recipient: row.get(4)?,
-        priority: row.get::<_, i64>(5)? as u8,
+        // The schema constrains priority to 0..=3.
+        priority: row.get(5)?,
         thread: row.get(6)?,
         requires_reply: row.get::<_, i64>(7)? != 0,
         interrupt_policy: parse_interrupt_policy(&interrupt_policy),
@@ -606,14 +659,14 @@ mod tests {
             requires_reply: false,
             interrupt_policy: InterruptPolicy::Defer,
             body: "do the thing".into(),
-            needs: needs.iter().map(|s| s.to_string()).collect(),
+            needs: needs.iter().map(std::string::ToString::to_string).collect(),
             reply_to: None,
             parent_id: None,
         }
     }
 
     fn provides(tags: &[&str]) -> BTreeSet<String> {
-        tags.iter().map(|s| s.to_string()).collect()
+        tags.iter().map(std::string::ToString::to_string).collect()
     }
 
     #[test]

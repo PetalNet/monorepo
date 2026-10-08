@@ -8,10 +8,11 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use http_body_util::BodyExt;
+use base64::Engine as _;
+use http_body_util::BodyExt as _;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use tower::ServiceExt;
+use tower::ServiceExt as _;
 
 use crate::config::Config;
 use crate::state::AppState;
@@ -104,7 +105,7 @@ pub(super) async fn login(app: &Router, username: &str, password: &str) -> (Stat
 }
 
 pub(super) fn token_of(v: &Value) -> String {
-    v["token"].as_str().expect("token in response").to_string()
+    v["token"].as_str().expect("token in response").to_owned()
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +185,7 @@ async fn second_user_requires_invite_when_registration_closed(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{invite}");
-    let code = invite["code"].as_str().unwrap().to_string();
+    let code = invite["code"].as_str().unwrap().to_owned();
     assert_eq!(code.len(), 8);
 
     let (status, v) = register(&app, "bob", "password1", Some(&code)).await;
@@ -206,7 +207,7 @@ async fn invite_exhaustion_and_expiry(pool: PgPool) {
         Some(json!({ "max_uses": 1 })),
     )
     .await;
-    let code = invite["code"].as_str().unwrap().to_string();
+    let code = invite["code"].as_str().unwrap().to_owned();
 
     // First use consumes the single-use invite; second is rejected.
     let (status, _) = register(&app, "bob", "password1", Some(&code)).await;
@@ -353,7 +354,7 @@ async fn password_change_revokes_old_tokens(pool: PgPool) {
 
     // The revocation floor has one-second granularity (JWT iat); make sure the
     // change lands in a later second than the register.
-    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    tokio::time::sleep(core::time::Duration::from_millis(1100)).await;
 
     // Wrong current password -> rejected, old token still fine.
     let (status, _) = send(
@@ -537,7 +538,7 @@ async fn admin_endpoints_forbidden_for_non_admin(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{invite}");
-    let invite_id = invite["id"].as_str().unwrap().to_string();
+    let invite_id = invite["id"].as_str().unwrap().to_owned();
 
     let (status, list) = send(&app, "GET", "/api/invites", Some(&admin_token), None).await;
     assert_eq!(status, StatusCode::OK);
@@ -609,7 +610,7 @@ fn display_name_sanitizer_rules() {
 // KeyPackage pool: replace-on-rekey semantics
 // ---------------------------------------------------------------------------
 
-/// Upload a batch of opaque KeyPackages for `token`, optionally replacing the
+/// Upload a batch of opaque `KeyPackages` for `token`, optionally replacing the
 /// existing pool (the client's identity changed) and/or the last-resort slot.
 async fn upload_kps(
     app: &Router,
@@ -619,7 +620,6 @@ async fn upload_kps(
     replace: bool,
     last_resort: Option<&str>,
 ) -> (StatusCode, Value) {
-    use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD;
     let mut body = json!({
         "key_packages": (0..count)
@@ -667,7 +667,7 @@ async fn keypackage_replace_drops_stale_pool(pool: PgPool) {
     .await;
     // Accept so bob is allowed to claim (consent gate).
     let (_, reqs) = send(&app, "GET", "/api/shares/requests", Some(&alice), None).await;
-    let req_id = reqs[0]["id"].as_str().unwrap().to_string();
+    let req_id = reqs[0]["id"].as_str().unwrap().to_owned();
     let (status, _) = send(
         &app,
         "POST",
@@ -678,7 +678,6 @@ async fn keypackage_replace_drops_stale_pool(pool: PgPool) {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD;
     let (status, claimed) = send(
         &app,
@@ -793,7 +792,6 @@ async fn profile_updates_notify_only_authorized_peers_without_profile_content(po
     assert_eq!(self_event["type"], "profile.updated");
     assert_eq!(self_event["user_id"], alice_id);
 
-    use base64::Engine as _;
     let png = [&[0x89u8, b'P', b'N', b'G'][..], &[0u8; 8][..]].concat();
     let (status, _) = send(
         &app,
@@ -976,7 +974,7 @@ async fn avatar_roundtrip_is_relationship_gated(pool: PgPool) {
         .unwrap()
         .to_str()
         .unwrap()
-        .to_string();
+        .to_owned();
     let request = Request::builder()
         .uri(format!("/api/users/alice@{DOMAIN}/avatar"))
         .header("authorization", format!("Bearer {bob}"))
@@ -1015,7 +1013,7 @@ async fn avatar_roundtrip_is_relationship_gated(pool: PgPool) {
 fn app_with_tile_upstream(pool: &PgPool, upstream_template: &str) -> Router {
     let mut state = test_state(pool.clone(), true);
     let mut config = (*state.config).clone();
-    config.tile_upstream = Some(upstream_template.to_string());
+    config.tile_upstream = Some(upstream_template.to_owned());
     state.config = Arc::new(config);
     super::router(state)
 }
@@ -1039,7 +1037,7 @@ async fn spawn_fake_upstream() -> String {
             get(|| async {
                 (
                     [(axum::http::header::CONTENT_TYPE, "text/html")],
-                    "<html>not a tile</html>".to_string(),
+                    "<html>not a tile</html>".to_owned(),
                 )
             }),
         )

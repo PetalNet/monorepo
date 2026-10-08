@@ -6,10 +6,11 @@
 
 use crate::config::Config;
 use crate::state::{epoch_secs, write_file_atomic, Heartbeat};
+use core::fmt::Write as _;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -150,8 +151,10 @@ fn read_json<T: for<'de> Deserialize<'de>>(request: &mut Request) -> Result<T, &
 
 fn json(request: Request, status: u16, value: serde_json::Value) {
     let header = Header::from_bytes("content-type", "application/json").expect("static header");
+    let body = value.to_string();
+    drop(value);
     let _ = request.respond(
-        Response::from_string(value.to_string())
+        Response::from_string(body)
             .with_status_code(StatusCode(status))
             .with_header(header),
     );
@@ -200,7 +203,9 @@ fn handle(mut request: Request, cfg: &Config, token: &str, state: &Arc<Mutex<Sta
         session.mcp_url = body.mcp.url;
         session.mcp_token = body.mcp.bearer_token;
         let id = session.id.clone();
-        if let Err(error) = persist(&guard) {
+        let result = persist(&guard);
+        drop(guard);
+        if let Err(error) = result {
             return json(
                 request,
                 503,
@@ -222,10 +227,13 @@ fn handle(mut request: Request, cfg: &Config, token: &str, state: &Arc<Mutex<Sta
         }
         let guard = state.lock().expect("assistant ledger poisoned");
         let key = format!("{session_id}\0{}", body.message_id);
-        return match guard.ledger.receipts.get(&key) {
-            Some(receipt) => json(request, 200, receipt_json(receipt)),
-            None => json(request, 404, serde_json::json!({"error":"not_found"})),
-        };
+        let receipt = guard.ledger.receipts.get(&key).map(receipt_json);
+        drop(guard);
+        let (status, response) = receipt.map_or_else(
+            || (404, serde_json::json!({"error":"not_found"})),
+            |value| (200, value),
+        );
+        return json(request, status, response);
     }
     let body: MessageRequest = match read_json(&mut request) {
         Ok(v) => v,
@@ -240,39 +248,47 @@ fn handle(mut request: Request, cfg: &Config, token: &str, state: &Arc<Mutex<Sta
     }
     let request_hash = Sha256::digest(format!("{}\0{}", body.kind, body.content).as_bytes())
         .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+        .fold(String::new(), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        });
     let key = format!("{session_id}\0{}", body.message_id);
     let session = {
         let mut guard = state.lock().expect("assistant ledger poisoned");
         if let Some(receipt) = guard.ledger.receipts.get(&key) {
             if receipt.request_hash != request_hash {
+                drop(guard);
                 return json(request, 409, serde_json::json!({"error":"id_reused"}));
             }
-            return json(request, 200, receipt_json(receipt));
+            let response = receipt_json(receipt);
+            drop(guard);
+            return json(request, 200, response);
         }
         if !guard.in_flight.insert(key.clone()) {
+            drop(guard);
             return json(
                 request,
                 409,
                 serde_json::json!({"error":"message_in_flight"}),
             );
         }
-        match guard
+        if let Some(session) = guard
             .ledger
             .sessions
             .values()
             .find(|s| s.id == session_id && !s.mcp_token.is_empty())
         {
-            Some(session) => session.clone(),
-            None => {
-                guard.in_flight.remove(&key);
-                return json(
-                    request,
-                    404,
-                    serde_json::json!({"error":"session_not_found"}),
-                );
-            }
+            let session = session.clone();
+            drop(guard);
+            session
+        } else {
+            guard.in_flight.remove(&key);
+            drop(guard);
+            return json(
+                request,
+                404,
+                serde_json::json!({"error":"session_not_found"}),
+            );
         }
     };
     match run_claude(cfg, &session, &body.content) {
@@ -295,7 +311,9 @@ fn handle(mut request: Request, cfg: &Config, token: &str, state: &Arc<Mutex<Sta
                 stored.initialized = true;
             }
             guard.in_flight.remove(&key);
-            if let Err(error) = persist(&guard) {
+            let result = persist(&guard);
+            drop(guard);
+            if let Err(error) = result {
                 return json(
                     request,
                     503,
@@ -315,7 +333,7 @@ fn handle(mut request: Request, cfg: &Config, token: &str, state: &Arc<Mutex<Sta
                 request,
                 503,
                 serde_json::json!({"error":"executor_unavailable"}),
-            )
+            );
         }
     }
 }
@@ -378,14 +396,13 @@ fn run_claude(
     let mut child = command
         .spawn()
         .map_err(|e| format!("cannot start Claude: {e}"))?;
-    use std::io::Write;
     child
         .stdin
         .take()
         .ok_or("Claude stdin unavailable")?
         .write_all(prompt.as_bytes())
         .map_err(|e| e.to_string())?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(55);
+    let deadline = std::time::Instant::now() + core::time::Duration::from_secs(55);
     loop {
         if child.try_wait().map_err(|e| e.to_string())?.is_some() {
             break;
@@ -396,14 +413,14 @@ fn run_claude(
             let _ = std::fs::remove_file(&mcp_path);
             return Err("Claude execution timed out".into());
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(core::time::Duration::from_millis(50));
     }
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&mcp_path);
     if !output.status.success() {
         return Err("Claude execution failed".into());
     }
-    if output.stdout.len() > MAX_BODY as usize {
+    if output.stdout.len() > usize::try_from(MAX_BODY).expect("256 KiB fits usize") {
         return Err("Claude response exceeded the manager limit".into());
     }
     let value: serde_json::Value =
@@ -438,7 +455,7 @@ fn health(request: Request, cfg: &Config) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::PermissionsExt as _;
 
     #[test]
     fn paths_are_exact_and_auth_compare_handles_lengths() {

@@ -22,3 +22,6 @@ sentry = { version = "0.48", default-features = false, features = [
 	"reqwest",
 	"rustls",
 ] }
+
+[lints]
+workspace = true

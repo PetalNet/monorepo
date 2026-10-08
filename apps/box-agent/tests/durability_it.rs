@@ -1,5 +1,5 @@
 //! Durability integration tests — the properties the codex + adversarial
-//! reviews demanded, exercised against the real Inbox + WorkerPool on temp
+//! reviews demanded, exercised against the real Inbox + `WorkerPool` on temp
 //! dirs/DBs (no live services).
 
 use box_agent::inbox::{commit_spool, take_spool, Accept, Inbox};
@@ -73,7 +73,7 @@ fn queued_card_survives_restart_and_runs() {
         if done.len() == 2 {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::thread::sleep(core::time::Duration::from_millis(20));
     }
     done.sort();
     assert_eq!(done, vec!["c1", "c2"]);
@@ -102,7 +102,7 @@ fn redelivered_card_does_not_run_twice() {
     assert_eq!(inbox.pending_count().unwrap(), 1, "exactly one work item");
 }
 
-/// A crash between take_spool and commit_spool re-reads the same envelopes
+/// A crash between `take_spool` and `commit_spool` re-reads the same envelopes
 /// (no loss), and fresh envelopes appended meanwhile are folded in, not
 /// clobbered (adversarial #2).
 #[test]
@@ -118,10 +118,10 @@ fn spool_crash_recovery_loses_nothing() {
 
     // Restart: the recovered .working (a, b) AND the fresh c are all returned.
     let batch2 = take_spool(dir.path(), "box-a").unwrap();
-    assert!(batch2.contains(&"a".to_string()));
-    assert!(batch2.contains(&"b".to_string()));
+    assert!(batch2.contains(&"a".to_owned()));
+    assert!(batch2.contains(&"b".to_owned()));
     assert!(
-        batch2.contains(&"c".to_string()),
+        batch2.contains(&"c".to_owned()),
         "fresh envelope not clobbered"
     );
     commit_spool(dir.path(), "box-a");
