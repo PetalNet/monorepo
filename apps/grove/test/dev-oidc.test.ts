@@ -39,13 +39,14 @@ const availablePort = async () => {
 };
 
 const waitForProvider = async (origin: string, child: ChildProcess) => {
-	for (let attempt = 0; attempt < 50; attempt += 1) {
-		if (child.exitCode !== null) {
+	const deadline = performance.now() + 5_000;
+	while (performance.now() < deadline) {
+		if (child.exitCode !== null || child.signalCode !== null) {
 			throw new Error(`Development OIDC provider exited ${String(child.exitCode)}`);
 		}
 		try {
 			// oxlint-disable-next-line no-await-in-loop
-			const response = await fetch(origin);
+			const response = await fetch(origin, { signal: AbortSignal.timeout(500) });
 			if (response.ok) {
 				return;
 			}
@@ -72,6 +73,33 @@ const keyIdAt = async (origin: string) => {
 	}
 	return keyId;
 };
+
+it("waits for a provider whose startup takes longer than one second", async () => {
+	const port = await availablePort();
+	const origin = `http://127.0.0.1:${String(port)}`;
+	const child = spawn(
+		process.execPath,
+		[
+			"--input-type=module",
+			"--eval",
+			`import { createServer } from "node:http";
+			setTimeout(() => {
+				createServer((_request, response) => response.end("ready"))
+					.listen(Number(process.env.PORT), "127.0.0.1");
+			}, 1_500);`,
+		],
+		{ stdio: "ignore", env: { ...process.env, PORT: String(port) } },
+	);
+	try {
+		await waitForProvider(origin, child);
+		await expect((await fetch(origin)).text()).resolves.toBe("ready");
+	} finally {
+		if (child.exitCode === null) {
+			child.kill("SIGTERM");
+			await once(child, "exit");
+		}
+	}
+}, 10_000);
 
 describe("Grove development MCP authorization server", () => {
 	let child: ChildProcess;
@@ -281,7 +309,7 @@ describe("Grove development MCP authorization server", () => {
 				await once(second, "exit");
 			}
 		}
-	});
+	}, 10_000);
 
 	it("fails clearly instead of rotating corrupted signing material", async () => {
 		const corruptedPath = path.join(temporaryDirectory, "corrupted-signing-key.json");
