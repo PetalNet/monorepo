@@ -45,6 +45,7 @@
 		"build": {
 			"dependsOn": ["^build"],
 			"env": ["!CARGO_INCREMENTAL"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
 			"outputs": [
 				"build/**",
 				"dist/**",
@@ -78,9 +79,21 @@
 			"env": ["!CARGO_INCREMENTAL"],
 			"passThroughEnv": ["DOCKER_*", "TESTCONTAINERS_*", "XDG_RUNTIME_DIR"]
 		},
-		"@petalnet/collegemap#test": { "cache": true, "outputs": [] },
-		"@petalnet/effect-api#test": { "cache": true, "outputs": [] },
-		"@petalnet/effect-sveltekit#test": { "cache": true, "outputs": [] },
+		"@petalnet/collegemap#test": {
+			"cache": true,
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": []
+		},
+		"@petalnet/effect-api#test": {
+			"cache": true,
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": []
+		},
+		"@petalnet/effect-sveltekit#test": {
+			"cache": true,
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": []
+		},
 		"petalnet-rust#check": { "dependsOn": [], "env": ["!CARGO_INCREMENTAL"] },
 		"petalnet-rust#lint": {
 			"env": ["!CARGO_INCREMENTAL"],
