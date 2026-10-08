@@ -8,7 +8,7 @@ import { Effect, Schema } from "effect";
 import { assert, expect, test } from "vitest";
 
 import { evaluateGate } from "./gate.ts";
-import { codeqlSelection, nativeSelection } from "./policy.ts";
+import { selectJobs } from "./policy.ts";
 import { commandOutput } from "./process.ts";
 
 const disabled = {
@@ -226,86 +226,60 @@ test.each(["{", "null", JSON.stringify({ select: { result: "unknown" } })])(
 	},
 );
 
-test("native selection does not confuse JS paths, Rust consumers, or Flutter", () => {
-	assert.deepEqual(nativeSelection(["apps/grove/src/routes/+page.svelte", "pnpm-lock.yaml"]), {
-		"manager-rust": false,
-		"courier-rust": false,
-		"dispatcher-rust": false,
-		"control-plane-rust": false,
-		"box-agent-rust": false,
-		point: false,
-	} as const);
-	assert.deepEqual(nativeSelection(["apps/point/app/lib/main.dart"]), {
-		"manager-rust": false,
-		"courier-rust": false,
-		"dispatcher-rust": false,
-		"control-plane-rust": false,
-		"box-agent-rust": false,
-		point: true,
-	} as const);
-	for (const path of [
-		"Cargo.lock",
-		".cargo/config.toml",
-		"tools/ci-manager/main.ts",
-		".github/actions/setup/action.yml",
-	]) {
-		assert.deepEqual(nativeSelection([path]), {
-			"manager-rust": true,
-			"courier-rust": true,
-			"dispatcher-rust": true,
-			"control-plane-rust": true,
-			"box-agent-rust": true,
-			point: true,
-		} as const);
-	}
-	assert.deepEqual(
-		nativeSelection(
-			["apps/dispatcher/src/lib.rs"],
-			["", "apps/dispatcher", "apps/box-agent", "apps/control-plane"],
-		),
-		{
-			"manager-rust": false,
-			"courier-rust": false,
-			"dispatcher-rust": true,
-			"control-plane-rust": true,
-			"box-agent-rust": true,
-			point: false,
-		},
-	);
-});
+const appJobs = [
+	"manager-rust",
+	"courier-rust",
+	"dispatcher-rust",
+	"control-plane-rust",
+	"box-agent-rust",
+	"point",
+];
+const selectionKeys = [...appJobs, "codeql-js", "codeql-python", "actions", "rust"];
 
-test("CodeQL selects language inputs independently of Turbo and native jobs", () => {
-	const none = { "codeql-js": false, "codeql-python": false, actions: false, rust: false } as const;
-	for (const path of ["README.md", "apps/point/app/lib/main.dart"])
-		assert.deepEqual(codeqlSelection([path]), none);
-	for (const path of [
-		"apps/manager/src/main.rs",
-		"apps/point/app/rust/src/lib.rs",
-		"Cargo.lock",
-		"apps/dispatcher/Cargo.toml",
-	])
-		assert.deepEqual(codeqlSelection([path]), { ...none, rust: true });
-	for (const path of [
-		"tools/standalone.mjs",
-		"packages/types/index.d.ts",
-		"apps/grove/src/routes/+page.svelte",
-		"apps/point/app/web/index.html",
-		"apps/grove/package.json",
-		"pnpm-lock.yaml",
-		"pnpm-workspace.yaml",
-		"packages/tsconfig/base.json",
-		"tsconfig.eslint.json",
-		"turbo.json",
-		".npmrc",
-	]) {
-		assert.deepEqual(codeqlSelection([path]), { ...none, "codeql-js": true } as const, path);
-	}
-	for (const path of [
-		"apps/manager/docs/contracts/validate.py",
+test.each<readonly [string, readonly string[], readonly string[], readonly string[]]>([
+	["documentation and synthetic workspace", ["README.md"], [""], []],
+	["workspace inputs", ["apps/grove/src/routes/+page.svelte", "pnpm-lock.yaml"], [], ["codeql-js"]],
+	["Point Flutter inputs", ["apps/point/app/lib/main.dart"], [], ["point"]],
+	["Point web inputs", ["apps/point/app/web/index.html"], [], ["point", "codeql-js"]],
+	["Point bridge inputs", ["apps/point/app/rust/src/lib.rs"], [], ["point", "rust"]],
+	[
+		"Dispatcher consumers",
+		["apps/dispatcher/src/lib.rs"],
+		["", "apps/dispatcher", "apps/box-agent", "apps/control-plane"],
+		["dispatcher-rust", "box-agent-rust", "control-plane-rust", "rust"],
+	],
+	["root Cargo", ["Cargo.lock"], [], [...appJobs, "rust"]],
+	["Cargo configuration", [".cargo/config.toml"], [], [...appJobs, "rust"]],
+	["Turbo configuration", ["turbo.json"], [], [...appJobs, "codeql-js"]],
+	["Actions workflow", [".github/workflows/point-release.yml"], [], [...appJobs, "actions"]],
+	["shared selector", ["tools/ci-manager/policy.ts"], [], selectionKeys],
+	["shared setup", [".github/actions/setup/action.yml"], [], selectionKeys],
+	["unrelated Github documentation", [".github/README.md"], [], []],
+	[
+		"Python source",
+		["apps/manager/docs/contracts/validate.py"],
+		[],
+		["manager-rust", "codeql-python"],
+	],
+	[
+		"Python schemas",
+		["apps/manager/docs/contracts/schemas/task-card.schema.json"],
+		[],
+		["manager-rust", "codeql-python"],
+	],
+	...[
+		"tools/view.html.erb",
+		"tools/view.html.dot",
+		"tools/query.xsjslib",
+		"tools/code.es6",
+		"tools/view.xhtm",
+	].map((path) => [path, [path], [], ["codeql-js"]] as const),
+	["non-extracted template extension", ["tools/view.erb"], [], []],
+	...[
+		"tools/source.pyw",
 		"types.pyi",
 		"pyproject.toml",
 		"requirements-dev.txt",
-		"requirements.txt",
 		"constraints.txt",
 		"Pipfile.lock",
 		"poetry.lock",
@@ -313,35 +287,15 @@ test("CodeQL selects language inputs independently of Turbo and native jobs", ()
 		"setup.cfg",
 		"tox.ini",
 		".python-version",
-		"apps/manager/docs/contracts/schemas/task-card.schema.json",
-	]) {
-		assert.deepEqual(codeqlSelection([path]), { ...none, "codeql-python": true } as const, path);
-	}
-	for (const path of [
-		".github/workflows/ci.yml",
-		".github/workflows/codeql.yml",
-		".github/workflows/codeql-full.yml",
-		".github/codeql/config.yml",
-		".github/actions/setup/action.yml",
-		"tools/ci-manager/policy.ts",
-		"mise.lock",
-	]) {
-		assert.deepEqual(
-			codeqlSelection([path]),
-			{
-				"codeql-js": true,
-				"codeql-python": true,
-				actions: true,
-				rust: true,
-			} as const,
-			path,
-		);
-	}
-	assert.deepEqual(codeqlSelection([".github/workflows/point-release.yml"]), {
-		...none,
-		actions: true,
-	} as const);
-	assert.deepEqual(codeqlSelection([".github/README.md"]), none);
+	].map((path) => [path, [path], [], ["codeql-python"]] as const),
+	...["packages/tsconfig/base.json", "tsconfig.eslint.json", ".npmrc", "pnpm-workspace.yaml"].map(
+		(path) => [path, [path], [], ["codeql-js"]] as const,
+	),
+])("workflow rules: %s", (_name, paths, packages, enabled: readonly string[]) => {
+	assert.deepEqual(
+		selectJobs(paths, packages),
+		Object.fromEntries(selectionKeys.map((key) => [key, enabled.includes(key)])),
+	);
 });
 
 test("command output cannot hide a nonzero exit behind valid JSON", async () => {

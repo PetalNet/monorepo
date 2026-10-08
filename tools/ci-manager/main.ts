@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { Command } from "effect/cli";
 
 import { gate } from "./gate.ts";
-import { runJS } from "./run.ts";
+import { runTasks } from "./run.ts";
 import { select } from "./select.ts";
 
 const program = Command.make("ci-manager").pipe(
@@ -19,11 +19,11 @@ const program = Command.make("ci-manager").pipe(
 				"Fail unless every job matches its selected success/skipped conclusion.",
 			),
 		),
-		Command.make("build", {}, () => runJS("build")).pipe(
-			Command.withDescription("Build exactly the selected JS packages."),
+		Command.make("build", {}, () => runTasks("build")).pipe(
+			Command.withDescription("Build exactly the selected workspace packages."),
 		),
-		Command.make("test", {}, () => runJS("test")).pipe(
-			Command.withDescription("Test exactly the selected JS packages."),
+		Command.make("test", {}, () => runTasks("test")).pipe(
+			Command.withDescription("Test exactly the selected workspace packages."),
 		),
 	]),
 );

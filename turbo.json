@@ -5,7 +5,7 @@
 		"experimentalCargoWorkspaces": true,
 		"experimentalTaskCommand": true
 	},
-	"globalPassThroughEnv": ["PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN", "CI_MANAGER_NATIVE_TESTS"],
+	"globalPassThroughEnv": ["PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN"],
 	"globalDependencies": [
 		"*",
 		"!.git",

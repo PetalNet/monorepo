@@ -15,6 +15,8 @@ export const Selection = Schema.Struct({
 	"codeql-python": Enabled,
 });
 
+export type SelectionDecisions = { readonly [Key in keyof typeof Selection.Type]: boolean };
+
 export const Needs = Schema.Record(
 	Schema.String,
 	Schema.Struct({

@@ -2,15 +2,10 @@ import { Config, Console, Effect, FileSystem, Record, Schema } from "effect";
 import type { PlatformError } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 
-import {
-	codeqlSelection,
-	nativeApps,
-	nativeSelection,
-	type CodeQLSelection,
-	type NativeSelection,
-} from "./policy.ts";
+import { selectJobs } from "./policy.ts";
 import { commandOutput, type CommandFailed } from "./process.ts";
-import { JSPackage } from "./run.ts";
+import { WorkspacePackage } from "./run.ts";
+import { Selection } from "./workflow.ts";
 
 const Event = Schema.Struct({
 	pull_request: Schema.optionalKey(Schema.Struct({ base: Schema.Struct({ sha: Schema.String }) })),
@@ -34,6 +29,56 @@ class TurboQueryFailed extends Schema.TaggedError<TurboQueryFailed>()("TurboQuer
 	message: Schema.String,
 }) {}
 
+const affectedPackages = Effect.fn("affectedPackages")(function* (base: string) {
+	yield* commandOutput("rustup", ["toolchain", "install"]);
+	const graph = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(AffectedPlan))(
+		yield* commandOutput("pnpm", [
+			"exec",
+			"turbo",
+			"query",
+			"affected",
+			"--packages",
+			"--base",
+			base,
+			"--head",
+			"HEAD",
+		]),
+	);
+	if (graph.errors?.length) {
+		return yield* new TurboQueryFailed({
+			message: graph.errors.map((error) => error.message).join("\n"),
+		});
+	}
+	return graph.data.affectedPackages.items;
+});
+
+const workspaceTasks = Effect.fn("workspaceTasks")(function* (
+	items: typeof AffectedPlan.Type.data.affectedPackages.items,
+) {
+	const packages = yield* Schema.decodeUnknownEffect(Schema.Array(WorkspacePackage))(
+		items.map((item) => item.name).filter((name) => name.startsWith("@petalnet/")),
+	);
+	const plan = packages.length
+		? yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TurboPlan))(
+				yield* commandOutput("pnpm", [
+					"exec",
+					"turbo",
+					"run",
+					"build",
+					"test",
+					...packages.map((name) => `--filter=${name}`),
+					"--dry=json",
+				]),
+			)
+		: { tasks: [] };
+	return {
+		js: plan.tasks.some(
+			(task) => task.command !== "<NONEXISTENT>" && (task.task === "build" || task.task === "test"),
+		),
+		"js-packages": JSON.stringify(packages),
+	};
+});
+
 export const select: Effect.Effect<
 	void,
 	| Config.ConfigError
@@ -50,84 +95,26 @@ export const select: Effect.Effect<
 		yield* fs.readFileString(eventPath),
 	);
 	const base = event.pull_request?.base.sha ?? event.merge_group?.base_sha;
-	let native: NativeSelection;
-	let js = true;
-	let packages: readonly string[] = [];
-	let scans: CodeQLSelection = {
-		"codeql-js": true,
-		"codeql-python": true,
-		actions: true,
-		rust: true,
-	};
-	if (base) {
-		// Disable rename detection so both deletion and addition participate in selection.
-		const diff = yield* commandOutput("git", [
-			"diff",
-			"--name-only",
-			"--no-renames",
-			"-z",
-			base,
-			"HEAD",
-		]);
-		const paths = diff.split("\0").filter(Boolean);
-		scans = codeqlSelection(paths);
-		yield* commandOutput("rustup", ["toolchain", "install"]);
-		const graph = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(AffectedPlan))(
-			yield* commandOutput("pnpm", [
-				"exec",
-				"turbo",
-				"query",
-				"affected",
-				"--packages",
-				"--base",
-				base,
-				"--head",
-				"HEAD",
-			]),
-		);
-		if (graph.errors?.length) {
-			return yield* new TurboQueryFailed({
-				message: graph.errors.map((error) => error.message).join("\n"),
-			});
-		}
-		native = nativeSelection(
-			paths,
-			graph.data.affectedPackages.items.map((item) => item.path),
-		);
-		packages = yield* Schema.decodeUnknownEffect(Schema.Array(JSPackage))(
-			graph.data.affectedPackages.items
-				.map((item) => item.name)
-				.filter((name) => name.startsWith("@petalnet/")),
-		);
-		js = false;
-		if (packages.length) {
-			const plan = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TurboPlan))(
-				yield* commandOutput("pnpm", [
-					"exec",
-					"turbo",
-					"run",
-					"build",
-					"test",
-					...packages.map((name) => `--filter=${name}`),
-					"--dry=json",
-				]),
-			);
-			js = plan.tasks.some(
-				(task) =>
-					task.command !== "<NONEXISTENT>" && (task.task === "build" || task.task === "test"),
-			);
-		}
-	} else {
-		// Main and manual runs always execute the complete validation suite.
-		native = Record.map(nativeApps, () => true);
-	}
-	const outputs = {
-		...native,
-		...scans,
-		js,
-		"js-packages": JSON.stringify(packages),
-		affected: Boolean(base),
-	};
+	const outputs = base
+		? yield* Effect.gen(function* () {
+				// Both rename sides participate; package querying is independent of this diff.
+				const [diff, items] = yield* Effect.all(
+					[
+						commandOutput("git", ["diff", "--name-only", "--no-renames", "-z", base, "HEAD"]),
+						affectedPackages(base),
+					],
+					{ concurrency: 2 },
+				);
+				return {
+					...selectJobs(
+						diff.split("\0").filter(Boolean),
+						items.map((item) => item.path),
+					),
+					...(yield* workspaceTasks(items)),
+					affected: true,
+				};
+			})
+		: { ...Record.map(Selection.fields, () => true), "js-packages": "[]", affected: false };
 	const lines = Object.entries(outputs)
 		.map(([key, value]) => `${key}=${String(value)}`)
 		.join("\n");

@@ -45,12 +45,8 @@ jobs:
 
   check:
     runs-on: ubuntu-latest
-    env:
-      CI_MANAGER_NATIVE_TESTS: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: $/.github/actions/setup
-      - if: env.CI_MANAGER_NATIVE_TESTS == 'true'
-        run: rustup toolchain install
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-

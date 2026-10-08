@@ -1,91 +1,67 @@
 import { Record } from "effect";
 
-export const nativeApps = {
-	"manager-rust": "manager",
-	"courier-rust": "courier",
-	"dispatcher-rust": "dispatcher",
-	"control-plane-rust": "control-plane",
-	"box-agent-rust": "box-agent",
-	point: "point",
-} as const;
+import type { SelectionDecisions } from "./workflow.ts";
 
-export type NativeSelection = { readonly [Job in keyof typeof nativeApps]: boolean };
-
-export interface CodeQLSelection {
-	readonly "codeql-js": boolean;
-	readonly "codeql-python": boolean;
-	readonly actions: boolean;
-	readonly rust: boolean;
+interface JobRule {
+	readonly inputs: readonly RegExp[];
+	readonly packages?: readonly RegExp[];
 }
 
-export function nativeSelection(
-	paths: readonly string[],
-	affectedPackages: readonly string[] = [],
-): NativeSelection {
-	const shared = paths.some(
-		(path) =>
-			path.startsWith(".github/workflows/") ||
-			path.startsWith(".github/actions/") ||
-			path.startsWith(".github/codeql/") ||
-			path.startsWith("tools/ci-manager/") ||
-			path === "turbo.json" ||
-			/^mise\.(?:toml|lock)$/u.test(path),
-	);
-	const full =
-		shared ||
-		paths.some(
-			(path) =>
-				/^(?:Cargo\.(?:toml|lock)|rust-toolchain(?:\.toml)?)$/u.test(path) ||
-				path.startsWith(".cargo/"),
-		);
+const checkInfrastructure =
+	/^(?:\.github\/(?:workflows|actions|codeql)\/|tools\/ci-manager\/|turbo\.json$|mise\.(?:toml|lock)$)/u;
+const cargoInputs = /^(?:Cargo\.(?:toml|lock)$|rust-toolchain(?:\.toml)?$|\.cargo\/)/u;
+const scanInfrastructure =
+	/^(?:\.github\/workflows\/(?:ci|codeql(?:-full)?)\.yml$|\.github\/(?:actions|codeql)\/|tools\/ci-manager\/|mise\.(?:toml|lock)$)/u;
+
+// These app workflows consume Cargo configuration and their affected package graph.
+const appCheck = (owner: RegExp): JobRule => ({
+	inputs: [checkInfrastructure, cargoInputs, owner],
+	packages: [owner],
+});
+
+const rules: Record<Exclude<keyof SelectionDecisions, "js">, JobRule> = {
+	"manager-rust": appCheck(/^apps\/manager(?:\/|$)/u),
+	"courier-rust": appCheck(/^apps\/courier(?:\/|$)/u),
+	"dispatcher-rust": appCheck(/^apps\/dispatcher(?:\/|$)/u),
+	"control-plane-rust": appCheck(/^apps\/control-plane(?:\/|$)/u),
+	"box-agent-rust": appCheck(/^apps\/box-agent(?:\/|$)/u),
+	point: appCheck(/^apps\/point(?:\/|$)/u),
+	"codeql-js": {
+		inputs: [
+			scanInfrastructure,
+			// CodeQL source discovery: FileType.JS, TYPESCRIPT and HTML.
+			// https://github.com/github/codeql/blob/codeql-cli/v2.27.1/javascript/extractor/src/com/semmle/js/extractor/FileExtractor.java#L104-L226
+			/\.(?:js|jsx|mjs|cjs|es6|es|xsjs|xsjslib|ts|tsx|mts|cts|htm|html|xhtm|xhtml|vue|hbs|ejs|njk|jsp|html\.erb|html\.dot)$/u,
+			// Framework inputs and build/configuration inputs are conservative scan triggers.
+			/\.(?:svelte|astro)$/u,
+			/^packages\/tsconfig\//u,
+			/(?:^|\/)(?:package\.json|pnpm-(?:lock|workspace)\.yaml|tsconfig(?:\.[^/]*)?\.json|turbo\.json|\.npmrc)$/u,
+		],
+	},
+	"codeql-python": {
+		inputs: [
+			scanInfrastructure,
+			// Python default discovery: PY_EXTENSIONS; .pyi is a conservative stub trigger.
+			// https://github.com/github/codeql/blob/codeql-cli/v2.27.1/python/extractor/semmle/util.py#L11-L17
+			/\.(?:py|pyw|pyi)$/u,
+			/(?:^|\/)(?:pyproject\.toml|(?:requirements|constraints)(?:[-.][^/]*)?\.txt|Pipfile(?:\.lock)?|poetry\.lock|uv\.lock|setup\.cfg|tox\.ini|\.python-version)$/u,
+			/^apps\/manager\/docs\/contracts\/schemas\//u,
+		],
+	},
+	actions: { inputs: [scanInfrastructure, /^\.github\/workflows\//u] },
+	rust: {
+		inputs: [
+			scanInfrastructure,
+			/(?:\.rs$|(?:^|\/)Cargo\.(?:toml|lock)$|(?:^|\/)rust-toolchain(?:\.toml)?$|(?:^|\/)\.cargo\/)/u,
+		],
+	},
+};
+
+export function selectJobs(paths: readonly string[], affectedPackages: readonly string[] = []) {
 	return Record.map(
-		nativeApps,
-		(app) =>
-			full ||
-			[...paths, ...affectedPackages].some(
-				(path) => path === `apps/${app}` || path.startsWith(`apps/${app}/`),
-			),
+		rules,
+		(rule) =>
+			paths.some((path) => rule.inputs.some((input) => input.test(path))) ||
+			affectedPackages.some((path) => rule.packages?.some((owner) => owner.test(path))),
 	);
-}
-
-export function codeqlSelection(paths: readonly string[]): CodeQLSelection {
-	const shared = paths.some(
-		(path) =>
-			path === ".github/workflows/ci.yml" ||
-			/^\.github\/workflows\/codeql(?:-full)?\.yml$/u.test(path) ||
-			path.startsWith(".github/codeql/") ||
-			path.startsWith(".github/actions/") ||
-			path.startsWith("tools/ci-manager/") ||
-			/^mise\.(?:toml|lock)$/u.test(path),
-	);
-	return {
-		"codeql-js":
-			shared ||
-			paths.some(
-				(path) =>
-					/\.(?:[cm]?[jt]sx?|svelte|vue|astro|html)$/u.test(path) ||
-					path.startsWith("packages/tsconfig/") ||
-					/(?:^|\/)(?:package\.json|pnpm-(?:lock|workspace)\.yaml|tsconfig(?:\.[^/]*)?\.json|turbo\.json|\.npmrc)$/u.test(
-						path,
-					),
-			),
-		"codeql-python":
-			shared ||
-			paths.some(
-				(path) =>
-					/\.pyi?$/u.test(path) ||
-					/(?:^|\/)(?:pyproject\.toml|(?:requirements|constraints)(?:[-.][^/]*)?\.txt|Pipfile(?:\.lock)?|poetry\.lock|uv\.lock|setup\.cfg|tox\.ini|\.python-version)$/u.test(
-						path,
-					) ||
-					path.startsWith("apps/manager/docs/contracts/schemas/"),
-			),
-		actions: shared || paths.some((path) => path.startsWith(".github/workflows/")),
-		rust:
-			shared ||
-			paths.some((path) =>
-				/(?:\.rs$|(?:^|\/)Cargo\.(?:toml|lock)$|(?:^|\/)rust-toolchain(?:\.toml)?$|(?:^|\/)\.cargo\/)/u.test(
-					path,
-				),
-			),
-	};
 }
