@@ -111,7 +111,7 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 		await stopGrovePostgres();
 	});
 
-	const rest = async (principal: ActorPrincipal, path: string, body?: object) => {
+	const rest = async (principal: ActorPrincipal, path: string, body?: object, status = 200) => {
 		const response = await runtime.runPromise(
 			groveApi
 				.fetch(
@@ -124,12 +124,12 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 				.pipe(Effect.provideService(InvocationContext, { principal })),
 		);
 
-		expect(response.status).toBe(200);
+		expect(response.status).toBe(status);
 
 		return response;
 	};
 
-	const mcp = async (principal: ActorPrincipal, name: string, args: object) => {
+	const mcp = async <A = Receipt>(principal: ActorPrincipal, name: string, args: object) => {
 		const response = await runtime.runPromise(
 			groveApi
 				.mcp(
@@ -167,7 +167,7 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 		expect(response.status).toBe(200);
 
 		const json = (await response.json()) as {
-			result: { isError: boolean; structuredContent: Receipt };
+			result: { isError: boolean; structuredContent: A };
 		};
 
 		expect(json.result.isError).toBe(false);
@@ -214,7 +214,7 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 		const taskId = plan.taskIds.proof;
 		const ready = (await (
 			await rest(owner, `/projects/${project.objectId}/work/ready`)
-		).json()) as readonly { taskId: string }[];
+		).json()) as readonly { taskId: string; taskVersionId: string }[];
 
 		expect(ready.map((r) => r.taskId)).toEqual([taskId]);
 
@@ -261,26 +261,37 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 				outcome: "accepted",
 			})
 		).json()) as Receipt;
-		const [head] = await database.runPromise(
-			Effect.flatMap(PgClient.PgClient, (sql) =>
-				sql.unsafe<{ current_version_id: string }>(
-					"select current_version_id from grove_objects where id=$1",
-					[taskId],
-				),
-			),
+
+		await rest(
+			owner,
+			`/tasks/${taskId}/complete`,
+			{
+				commandId: crypto.randomUUID(),
+				taskId,
+				expectedVersionId: project.versionId,
+			},
+			409,
 		);
 
 		await rest(owner, `/tasks/${taskId}/complete`, {
 			commandId: crypto.randomUUID(),
 			taskId,
-			expectedVersionId: head.current_version_id,
+			expectedVersionId: ready[0].taskVersionId,
 		});
 
 		const results = (await (
-			await rest(owner, `/library/search?projectId=${project.objectId}&query=proof`)
+			await rest(owner, `/library/search?projectId=${project.objectId}&query=proof&limit=1`)
 		).json()) as readonly { versionId: string }[];
 
 		expect(results.map((r) => r.versionId)).toEqual([artifact.versionId]);
+
+		const mcpResults = await mcp<readonly { versionId: string }[]>(agent, "library.search", {
+			projectId: project.objectId,
+			query: "proof",
+			limit: 1,
+		});
+
+		expect(mcpResults.map((r) => r.versionId)).toEqual([artifact.versionId]);
 
 		const pinned = await mcp(agent, "library.getVersion", {
 			projectId: project.objectId,
@@ -294,5 +305,19 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 			authorId: agent.actorId,
 			reviewerId: reviewer.actorId,
 		});
+	});
+
+	it("accepts bounded REST search limits and rejects invalid query text", async () => {
+		await Promise.all(
+			["1", "50"].map((limit) =>
+				rest(owner, `/library/search?projectId=unknown&query=proof&limit=${limit}`),
+			),
+		);
+
+		await Promise.all(
+			["0", "51", "1.5", "oops", "NaN", ""].map((limit) =>
+				rest(owner, `/library/search?projectId=unknown&query=proof&limit=${limit}`, undefined, 400),
+			),
+		);
 	});
 });

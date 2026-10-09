@@ -168,7 +168,10 @@ export const LibrarySearch = Schema.Struct({
 	projectId: Schema.String,
 	query: boundedTrimmed(256),
 	limit: Schema.optional(
-		Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 50 })),
+		Schema.Union([Schema.Finite, Schema.FiniteFromString]).check(
+			Schema.isInt(),
+			Schema.isBetween({ minimum: 1, maximum: 50 }),
+		),
 	),
 });
 
