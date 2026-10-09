@@ -28,8 +28,8 @@ catalogs:
       specifier: 4.0.1
       version: 4.0.1
     '@modelcontextprotocol/client':
-      specifier: 2.0.0
-      version: 2.0.0
+      specifier: 2.2.0
+      version: 2.2.0
     '@storybook/addon-a11y':
       specifier: 10.5.10
       version: 10.5.10
@@ -689,7 +689,7 @@ importers:
     devDependencies:
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
-        version: 2.0.0
+        version: 2.2.0
       '@petalnet/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
@@ -764,7 +764,7 @@ importers:
         version: 4.0.1(effect@4.0.1)(vitest@5.0.3)
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
-        version: 2.0.0
+        version: 2.2.0
       '@petalnet/tsconfig':
         specifier: workspace:*
         version: link:../packages/tsconfig
@@ -1635,12 +1635,12 @@ packages:
       '@types/react': '>=16'
       react: '>=16'
 
-  '@modelcontextprotocol/client@2.0.0':
-    resolution: {integrity: sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw==}
+  '@modelcontextprotocol/client@2.2.0':
+    resolution: {integrity: sha512-LxCou/CSYQ6dwEnjhLZY0KnEuc8V4UJ3IEQCl/uR2yHobSQIEdJKUlKLRYRF5i5FqRGHy1eK7une3aAWDHLtig==}
     engines: {node: '>=20'}
 
-  '@modelcontextprotocol/core@2.0.0':
-    resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
+  '@modelcontextprotocol/core@2.2.0':
+    resolution: {integrity: sha512-iLhmprRmWI8EcosOA3wVvww22z02NkgqhV4fBH6f/odQBsi7xnJc0HGmi21yWO+/iKw2yzqVE127Zhna5/+JXw==}
     engines: {node: '>=20'}
 
   '@modelcontextprotocol/sdk@1.29.0':
@@ -7574,9 +7574,9 @@ snapshots:
       '@types/react': 19.2.17
       react: 19.2.7
 
-  '@modelcontextprotocol/client@2.0.0':
+  '@modelcontextprotocol/client@2.2.0':
     dependencies:
-      '@modelcontextprotocol/core': 2.0.0
+      '@modelcontextprotocol/core': 2.2.0
       cross-spawn: 7.0.6
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
@@ -7584,7 +7584,7 @@ snapshots:
       pkce-challenge: 5.0.1
       zod: 4.6.5
 
-  '@modelcontextprotocol/core@2.0.0':
+  '@modelcontextprotocol/core@2.2.0':
     dependencies:
       zod: 4.6.5
 
