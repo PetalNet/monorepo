@@ -4,7 +4,6 @@ http:
   routers:
     turbo-cache-exchanger:
       rule: Host(`turbo-cache.petalcat.dev`) && (Path(`/exchange`) || Path(`/.well-known/jwks.json`))
-      priority: 20
       entryPoints: [web]
       service: turbo-cache-exchanger
     turbo-cache:

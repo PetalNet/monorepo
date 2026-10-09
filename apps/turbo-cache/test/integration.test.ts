@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
-import { Effect, Schema } from "effect";
+import { Effect, Layer, Redacted, Schema } from "effect";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { decodeJwt, exportJWK, SignJWT } from "jose";
 import { expect, it } from "vitest";
 
@@ -31,8 +34,13 @@ it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.
 		use: "sig",
 	};
 	let jwksRequests = 0;
+	let apiRequests = 0;
 	const issuer = createServer((request, response) => {
 		response.setHeader("content-type", "application/json");
+
+		if (request.url !== "/jwks") {
+			apiRequests += 1;
+		}
 
 		if (request.url === "/jwks") {
 			jwksRequests += 1;
@@ -70,20 +78,17 @@ it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
-					const exchanger = yield* createExchanger(
-						{
-							issuer: "https://turbo-cache.petalcat.dev",
-							audience: "turbo-cache.petalcat.dev",
-							team: "petalnet",
-							privateKey: signingKey.privateKey,
-							authentikIssuer: "https://id.petalcat.dev/",
-							ampWorkspaceIds: [],
-							ampProjectIds: [],
-							githubToken: "local-test-credential",
-							providers: new Map([[githubIssuer, `${issuerUrl}/jwks`]]),
-						},
-						issuerUrl,
-					);
+					const exchanger = yield* createExchanger({
+						issuer: "https://turbo-cache.petalcat.dev",
+						audience: "turbo-cache.petalcat.dev",
+						team: "petalnet",
+						privateKey: signingKey.privateKey,
+						authentikIssuer: "https://id.petalcat.dev/",
+						ampWorkspaceIds: [],
+						ampProjectIds: [],
+						githubToken: Redacted.make("local-test-credential"),
+						providers: new Map([[githubIssuer, `${issuerUrl}/jwks`]]),
+					});
 					const server = yield* NodeHttpServer.make(createServer, { port: 0, host: "127.0.0.1" });
 
 					yield* server.serve(application(exchanger));
@@ -105,6 +110,8 @@ it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.
 								iat: Math.floor(Date.now() / 1000),
 								exp: Math.floor(Date.now() / 1000) + 300,
 								repository: "PetalNet/monorepo",
+								repository_id: "1254675438",
+								repository_owner_id: "217980753",
 								event_name: "push",
 								ref: "refs/heads/main",
 								actor: "eli",
@@ -188,6 +195,15 @@ it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.
 
 							await Promise.all(
 								[
+									{ repository_id: "999" },
+									{ repository_owner_id: "999" },
+									{ event_name: "merge_group" },
+									{ event_name: "pull_request", ref: "refs/pull/1/merge", repository_id: "999" },
+									{
+										event_name: "pull_request",
+										ref: "refs/pull/1/merge",
+										repository_owner_id: "999",
+									},
 									{ aud: "wrong" },
 									{ exp: 1 },
 									{ exp: undefined },
@@ -211,16 +227,35 @@ it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.
 							expect(publicKeys).not.toContain('"d":');
 
 							expect(jwksRequests).toBe(1);
+							expect(apiRequests).toBe(3);
 
 							process.stdout.write(
-								"main PUT=200; PR PUT=403, GET=200 (matching bytes); wrong team=403; fork exchange=403; forged/foreign exchange=403 and cache denied; JWKS fetched once; token TTL=7200s\n",
+								"main PUT=200; PR PUT=403, GET=200 (matching bytes); wrong team=403; fork exchange=403; wrong IDs/merge groups=403; forged/foreign exchange=403 and cache denied; JWKS fetched once; token TTL=7200s\n",
 							);
 						} finally {
 							await cache.close();
 						}
 					});
 				}),
-			).pipe(Effect.provide(NodeHttpServer.layerHttpServices)),
+			).pipe(
+				Effect.provide(
+					Layer.mergeAll(
+						NodeHttpServer.layerHttpServices,
+						Layer.effect(
+							HttpClient.HttpClient,
+							Effect.map(
+								HttpClient.HttpClient,
+								HttpClient.mapRequest((request) =>
+									HttpClientRequest.setUrl(
+										request,
+										request.url.replace("https://api.github.com", issuerUrl),
+									),
+								),
+							),
+						).pipe(Layer.provide(FetchHttpClient.layer)),
+					),
+				),
+			),
 		);
 	} finally {
 		await new Promise<void>((resolve, reject) => {

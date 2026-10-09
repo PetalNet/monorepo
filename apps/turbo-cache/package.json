@@ -10,8 +10,7 @@
 		"build": "tsc -b",
 		"start": "node dist/src/main.js",
 		"typecheck": "tsc -b",
-		"test": "vitest run",
-		"test:mutation": "node test/mutate.ts"
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"@effect/platform-node": "catalog:",

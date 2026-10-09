@@ -1,6 +1,7 @@
 FROM node:26.5.0-bookworm-slim@sha256:2d49d876e96237d76de412761cf05dbfe5aee325cc4406a4d41d5824c5bb8beb AS build
 WORKDIR /app
-RUN npm install --global pnpm@12.9.1
+COPY package.json ./
+RUN npm install --global "$(node -p 'require("./package.json").packageManager')"
 COPY . .
 RUN pnpm install --frozen-lockfile --ignore-scripts --filter @petalnet/turbo-cache...
 RUN pnpm --filter @petalnet/turbo-cache build

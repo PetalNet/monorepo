@@ -2,9 +2,9 @@ import { Effect } from "effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 
-import type { createExchanger } from "./exchanger.ts";
+import type { Exchanger } from "./exchanger.ts";
 
-export const application = (exchanger: Effect.Success<ReturnType<typeof createExchanger>>) =>
+export const application = (exchanger: Exchanger) =>
 	Effect.gen(function* () {
 		const request = yield* HttpServerRequest.HttpServerRequest;
 		const path = request.url.split("?")[0];

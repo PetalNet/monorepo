@@ -58,6 +58,8 @@ jobs:
     steps:
       - uses: $/.github/actions/setup
       - uses: $/.github/actions/setup-turbo
+        with:
+          install-turbo: "false"
       - run: pnpm check
 
   test:
@@ -72,6 +74,8 @@ jobs:
     steps:
       - uses: $/.github/actions/setup
       - uses: $/.github/actions/setup-turbo
+        with:
+          install-turbo: "false"
       - if: needs.select.outputs.affected == 'true'
         run: pnpm ci-manager test
       - if: needs.select.outputs.affected != 'true'
@@ -90,6 +94,8 @@ jobs:
     steps:
       - uses: $/.github/actions/setup
       - uses: $/.github/actions/setup-turbo
+        with:
+          install-turbo: "false"
       - name: Write app env
         run: |
           echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env

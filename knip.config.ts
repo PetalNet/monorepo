@@ -13,7 +13,7 @@ export default {
 	treatConfigHintsAsErrors: true,
 	workspaces: {
 		"apps/turbo-cache": {
-			entry: ["src/main.ts!", "test/**/*.ts"],
+			entry: ["src/main.ts!", "test/cache-process.ts"],
 		},
 		tools: {
 			// Repository-only operations are invoked by agents and build scripts, not imported.

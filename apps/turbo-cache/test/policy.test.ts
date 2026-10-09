@@ -11,6 +11,8 @@ const github = {
 	iss: githubIssuer,
 	sub: "job",
 	repository: "PetalNet/monorepo",
+	repository_id: "1254675438",
+	repository_owner_id: "217980753",
 	actor: "eli",
 	event_name: "push",
 	ref: "refs/heads/main",
@@ -28,17 +30,11 @@ describe("GitHub policy", () => {
 		expect(grant(github, policy, false)).toBe("read write");
 	});
 
-	it("grants merge groups read and write", () => {
-		expect(
-			grant(
-				{ ...github, event_name: "merge_group", ref: "refs/heads/gh-readonly-queue/main/pr-1" },
-				policy,
-				false,
-			),
-		).toBe("read write");
-	});
-
 	it.each([
+		["foreign repository ID", { repository_id: "999" }],
+		["missing repository ID", { repository_id: undefined }],
+		["foreign owner ID", { repository_owner_id: "999" }],
+		["missing owner ID", { repository_owner_id: undefined }],
 		["foreign repository", { repository: "Elsewhere/monorepo" }],
 		["feature push", { ref: "refs/heads/feature" }],
 		["tag push", { ref: "refs/tags/main" }],
@@ -48,23 +44,11 @@ describe("GitHub policy", () => {
 		["Dependabot update job", { event_name: "dynamic" }],
 		["Dependabot push", { actor: "dependabot[bot]" }],
 		["missing actor", { actor: undefined }],
+		["merge-group event", { event_name: "merge_group" }],
 		["unknown event", { event_name: "unknown" }],
 		["missing event", { event_name: undefined }],
 	] satisfies [string, Partial<typeof Claims.Type>][])("denies %s", (_label, changes) => {
 		expect(grant({ ...github, ...changes }, policy, true)).toBeNull();
-	});
-
-	it.each(["Elsewhere/monorepo", "PetalNet/other", ""])(
-		"denies merge groups in %s",
-		(repository) => {
-			expect(grant({ ...github, repository, event_name: "merge_group" }, policy, true)).toBeNull();
-		},
-	);
-
-	it("denies Dependabot merge groups", () => {
-		expect(
-			grant({ ...github, actor: "dependabot[bot]", event_name: "merge_group" }, policy, true),
-		).toBeNull();
 	});
 
 	it("grants proven same-repo PRs only read, even on a main ref", () => {

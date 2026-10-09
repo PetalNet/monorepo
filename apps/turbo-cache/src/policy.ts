@@ -2,12 +2,14 @@ import { Schema } from "effect";
 
 export const githubIssuer = "https://token.actions.githubusercontent.com";
 export const ampIssuer = "https://ampcode.com/api/workload-identity";
-const repository = "PetalNet/monorepo";
+export const repository = "PetalNet/monorepo";
 
 export const Claims = Schema.Struct({
 	iss: Schema.String,
 	sub: Schema.String,
 	repository: Schema.optional(Schema.String),
+	repository_id: Schema.optional(Schema.String),
+	repository_owner_id: Schema.optional(Schema.String),
 	event_name: Schema.optional(Schema.String),
 	ref: Schema.optional(Schema.String),
 	actor: Schema.optional(Schema.String),
@@ -25,14 +27,17 @@ export interface Policy {
 
 export function grant(claims: typeof Claims.Type, policy: Policy, sameRepoPull: boolean) {
 	if (claims.iss === githubIssuer) {
-		if (claims.repository !== repository || !claims.actor || claims.actor === "dependabot[bot]") {
+		if (
+			claims.repository !== repository ||
+			claims.repository_id !== "1254675438" ||
+			claims.repository_owner_id !== "217980753" ||
+			!claims.actor ||
+			claims.actor === "dependabot[bot]"
+		) {
 			return null;
 		}
 
-		if (
-			(claims.event_name === "push" && claims.ref === "refs/heads/main") ||
-			claims.event_name === "merge_group"
-		) {
+		if (claims.event_name === "push" && claims.ref === "refs/heads/main") {
 			return "read write";
 		}
 

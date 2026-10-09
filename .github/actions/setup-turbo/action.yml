@@ -1,10 +1,16 @@
 name: Setup Turbo
 description: Install the standalone Turbo binary pinned in the pnpm catalog and connect its cache.
 
+inputs:
+  install-turbo:
+    description: Install standalone Turbo when workspace dependencies are unavailable.
+    default: "true"
+
 runs:
   using: composite
   steps:
     - name: Install standalone Turbo
+      if: inputs.install-turbo == 'true'
       shell: bash
       run: |
         version=$(sed -nE 's/^    turbo: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' pnpm-workspace.yaml)
@@ -38,7 +44,7 @@ runs:
         test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || exit 0
         test "$CACHE_ACTOR" != 'dependabot[bot]' || exit 0
         case "$CACHE_EVENT" in
-          push|merge_group) ;;
+          push) ;;
           pull_request) test "$CACHE_HEAD_REPOSITORY" = "$CACHE_REPOSITORY" || exit 0 ;;
           *) exit 0 ;;
         esac

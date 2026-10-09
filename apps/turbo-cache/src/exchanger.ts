@@ -1,6 +1,9 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
 
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Redacted, Schema } from "effect";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import {
 	calculateJwkThumbprint,
 	createRemoteJWKSet,
@@ -8,6 +11,7 @@ import {
 	exportJWK,
 	jwtVerify,
 	SignJWT,
+	type JSONWebKeySet,
 } from "jose";
 
 import {
@@ -15,6 +19,7 @@ import {
 	githubIssuer,
 	grant,
 	PullRequest,
+	repository,
 	sameRepositoryPull,
 	type Policy,
 } from "./policy.ts";
@@ -27,20 +32,29 @@ export interface Settings extends Policy {
 	readonly team: string;
 	readonly privateKey: KeyObject;
 	readonly providers: ReadonlyMap<string, string>;
-	readonly githubToken: string;
+	readonly githubToken: Redacted.Redacted;
 }
 
-export const createExchanger = Effect.fn("createExchanger")(function* (
-	settings: Settings,
-	githubApi: string,
-) {
+export interface Exchanger {
+	readonly jwks: JSONWebKeySet;
+	readonly exchange: (token: string) => Effect.Effect<
+		{
+			readonly access_token: string;
+			readonly token_type: string;
+			readonly expires_in: number;
+			readonly scope: string;
+			readonly team: string;
+		},
+		Denied
+	>;
+}
+
+export const createExchanger = Effect.fn("createExchanger")(function* (settings: Settings) {
+	const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient);
 	const jwk = yield* Effect.promise(() => exportJWK(createPublicKey(settings.privateKey)));
 	const kid = yield* Effect.promise(() => calculateJwkThumbprint(jwk));
 	const keys = new Map(
-		[...settings.providers].map(([issuer, url]) => [
-			issuer,
-			createRemoteJWKSet(new URL(url), { timeoutDuration: 5000, cacheMaxAge: 600_000 }),
-		]),
+		[...settings.providers].map(([issuer, url]) => [issuer, createRemoteJWKSet(new URL(url))]),
 	);
 	const exchange = Effect.fn("exchange")(function* (token: string) {
 		const unverified = yield* Effect.try({
@@ -71,43 +85,32 @@ export const createExchanger = Effect.fn("createExchanger")(function* (
 
 		if (
 			claims.iss === githubIssuer &&
-			claims.repository === "PetalNet/monorepo" &&
+			grant(claims, settings, true) === "read" &&
 			claims.event_name === "pull_request"
 		) {
 			const number = claims.ref?.match(/^refs\/pull\/(\d+)\/merge$/)?.[1];
 
-			if (!number || !settings.githubToken) {
+			if (!number || !Redacted.value(settings.githubToken)) {
 				return yield* new Denied();
 			}
 
-			const pull = yield* Effect.tryPromise({
-				try: async () => {
-					const response = await fetch(`${githubApi}/repos/PetalNet/monorepo/pulls/${number}`, {
-						headers: {
-							authorization: `Bearer ${settings.githubToken}`,
+			const pull = yield* client
+				.execute(
+					HttpClientRequest.get(`https://api.github.com/repos/${repository}/pulls/${number}`).pipe(
+						HttpClientRequest.bearerToken(settings.githubToken),
+						HttpClientRequest.setHeaders({
 							accept: "application/vnd.github+json",
 							"X-GitHub-Api-Version": "2022-11-28",
-						},
-						signal: AbortSignal.timeout(5000),
-						redirect: "error",
-					});
-
-					if (!response.ok) {
-						throw new Denied();
-					}
-
-					const body: unknown = await response.json();
-
-					return body;
-				},
-				catch: () => new Denied(),
-			});
-
-			sameRepoPull = sameRepositoryPull(
-				yield* Schema.decodeUnknownEffect(PullRequest)(pull).pipe(
+						}),
+					),
+				)
+				.pipe(
+					Effect.flatMap(HttpClientResponse.schemaBodyJson(PullRequest)),
+					Effect.timeout("5 seconds"),
 					Effect.mapError(() => new Denied()),
-				),
-			);
+				);
+
+			sameRepoPull = sameRepositoryPull(pull);
 		}
 
 		const scope = grant(claims, settings, sameRepoPull);
@@ -138,5 +141,8 @@ export const createExchanger = Effect.fn("createExchanger")(function* (
 		};
 	});
 
-	return { jwks: { keys: [{ ...jwk, kid, alg: "RS256", use: "sig" }] }, exchange };
+	return {
+		jwks: { keys: [{ ...jwk, kid, alg: "RS256", use: "sig" }] },
+		exchange,
+	} satisfies Exchanger;
 });

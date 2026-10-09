@@ -1,8 +1,6 @@
 services:
   exchanger:
-    build:
-      context: ../..
-      dockerfile: apps/turbo-cache/Dockerfile
+    image: ghcr.io/petalnet/turbo-cache:${TURBO_CACHE_IMAGE_SHA:?Set the published commit SHA}
     restart: unless-stopped
     environment:
       SIGNING_KEY_FILE: /run/secrets/signing-key
@@ -23,7 +21,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   cache:
-    image: ducktors/turborepo-remote-cache:2.14.3
+    image: ducktors/turborepo-remote-cache:2.14.3@sha256:781b0549dca80cf5aca27bf416fc766d44cad57333a7368098a755c5f12b8822
     restart: unless-stopped
     command:
       - node
@@ -59,19 +57,19 @@ services:
     security_opt: [no-new-privileges:true]
 
   eviction:
-    image: alpine:3.23.3
+    image: alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
     restart: unless-stopped
-    command:
-      - sh
-      - -c
-      - mkdir -p /tmp/crontabs && cp /config/crontab /tmp/crontabs/root && exec crond -f -l 2 -c /tmp/crontabs
+    user: "1001:1001"
+    read_only: true
+    cap_drop: [ALL]
+    command: [sh, /config/evict.sh]
     volumes:
       - type: bind
         source: ${TURBO_CACHE_NFS_PATH:?Set the existing NFS mount path}
         target: /data
         bind:
           create_host_path: false
-      - ./deploy/crontab:/config/crontab:ro
+      - ./deploy/evict.sh:/config/evict.sh:ro
     security_opt: [no-new-privileges:true]
 
 secrets:
