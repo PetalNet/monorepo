@@ -11,7 +11,7 @@ import { Query } from "effect-qb";
 import * as Pg from "effect-qb/postgres";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import type { ActorAuthority } from "./actors/authority";
+import type { ActorAuthority, AuthorityError } from "./actors/authority";
 import { type PersonPrincipal } from "./actors/authority";
 import { accounts as accountsTable } from "./db/tables";
 import { GROVE_OIDC_PROVIDER_ID, groveOidc } from "./oidc";
@@ -36,12 +36,19 @@ export interface BrowserSessionInspection {
 	readonly actor: PersonPrincipal | null;
 }
 
+export type BrowserSessionError =
+	| AuthorityError
+	| Pg.Executor.PostgresExecutorError
+	| Pg.Errors.PostgresQueryRequirementsError;
+
 interface GroveAuthShape {
 	readonly isBrowserAuthRoute: (url: string) => Effect.Effect<boolean>;
 	readonly inspectSession: (
 		headers: Headers,
-	) => Effect.Effect<BrowserSessionInspection | null, unknown>;
-	readonly hydrateSession: (headers: Headers) => Effect.Effect<BrowserSession | null, unknown>;
+	) => Effect.Effect<BrowserSessionInspection | null, BrowserSessionError>;
+	readonly hydrateSession: (
+		headers: Headers,
+	) => Effect.Effect<BrowserSession | null, BrowserSessionError>;
 	readonly dispatch: (input: {
 		readonly event: RequestEvent;
 		readonly resolve: (

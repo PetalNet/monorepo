@@ -21,10 +21,6 @@ import { sprouts } from "../db/tables";
 import { InvocationContext } from "../invocation";
 
 export class SproutNotFound extends Data.TaggedError("SproutNotFound")<{ readonly id: string }> {
-	constructor(id: string) {
-		super({ id });
-	}
-
 	override get message() {
 		return `Sprout ${this.id} was not found`;
 	}
@@ -33,10 +29,6 @@ export class SproutNotFound extends Data.TaggedError("SproutNotFound")<{ readonl
 export class SproutDatabaseError extends Data.TaggedError("SproutDatabaseError")<{
 	readonly cause: unknown;
 }> {
-	constructor(cause: unknown) {
-		super({ cause });
-	}
-
 	override get message() {
 		return "The sprout database is unavailable";
 	}
@@ -105,13 +97,13 @@ const fromRow = (row: SproutRow): Sprout => ({
 const databaseId = (id: SproutIdValue): Effect.Effect<Scalar.BigIntString, SproutNotFound> =>
 	Schema.decodeEffect(ParsedSproutId)(id).pipe(
 		Effect.map(([, value]) => value),
-		Effect.mapError(() => new SproutNotFound(id)),
+		Effect.mapError(() => new SproutNotFound({ id })),
 	);
 
 const hasId = (id: Scalar.BigIntString) => Query.eq(sprouts.id, Query.cast(id, Pg.Type.int8()));
 
 const database = <A, E>(effect: Effect.Effect<A, E>) =>
-	effect.pipe(Effect.mapError((cause) => new SproutDatabaseError(cause)));
+	effect.pipe(Effect.mapError((cause) => new SproutDatabaseError({ cause })));
 
 export const SproutCommandsLayer = Layer.effect(
 	SproutCommands,
@@ -140,7 +132,7 @@ export const SproutCommandsLayer = Layer.effect(
 				);
 				const row = rows.at(0);
 
-				return row ? fromRow(row) : yield* new SproutNotFound(id);
+				return row ? fromRow(row) : yield* new SproutNotFound({ id });
 			});
 		const command = <A, E>(
 			operation: string,
@@ -148,7 +140,7 @@ export const SproutCommandsLayer = Layer.effect(
 		): Effect.Effect<A, E | AuthorityError | SproutDatabaseError, InvocationContext> =>
 			Effect.flatMap(InvocationContext, ({ principal }) => {
 				if (principal.kind !== "person" && principal.kind !== "agent") {
-					return Effect.fail(new ActorDenied("An enrolled actor is required"));
+					return Effect.fail(new ActorDenied({ reason: "An enrolled actor is required" }));
 				}
 
 				return sql
@@ -156,7 +148,7 @@ export const SproutCommandsLayer = Layer.effect(
 						authority.authorizeActor(principal, operation).pipe(Effect.andThen(run(principal))),
 					)
 					.pipe(
-						Effect.catchTag("SqlError", (cause) => Effect.fail(new SproutDatabaseError(cause))),
+						Effect.catchTag("SqlError", (cause) => Effect.fail(new SproutDatabaseError({ cause }))),
 					);
 			});
 
@@ -220,11 +212,11 @@ export const SproutCommandsLayer = Layer.effect(
 								times: 10,
 								while: Predicate.isTagged("SproutOutOfDate"),
 							}),
-							Effect.mapError((cause) => new SproutDatabaseError(cause)),
+							Effect.mapError((cause) => new SproutDatabaseError({ cause })),
 						);
 						const row = rows.at(0);
 
-						return row ? fromRow(row) : yield* new SproutNotFound(id);
+						return row ? fromRow(row) : yield* new SproutNotFound({ id });
 					}),
 				),
 			remove: (id) =>
@@ -243,7 +235,7 @@ export const SproutCommandsLayer = Layer.effect(
 						);
 
 						if (rows.length === 0) {
-							return yield* new SproutNotFound(id);
+							return yield* new SproutNotFound({ id });
 						}
 
 						return { removed: true as const };

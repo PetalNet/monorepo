@@ -15,7 +15,7 @@ export const enrollAgentSelfOperation = operation({
 			const { principal } = yield* InvocationContext;
 
 			if (principal.kind !== "bootstrap" && principal.kind !== "agent") {
-				return yield* new ActorDenied("A machine enrollment identity is required");
+				return yield* new ActorDenied({ reason: "A machine enrollment identity is required" });
 			}
 
 			const authority = yield* ActorAuthority;

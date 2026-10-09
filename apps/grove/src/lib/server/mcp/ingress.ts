@@ -10,6 +10,7 @@ import type { ActorDatabaseError } from "../actors/authority";
 import { ActorAuthority, type AuthorityError, type MachineIdentity } from "../actors/authority";
 import { groveApi } from "../api";
 import { InvocationContext } from "../invocation";
+import type { ProjectService } from "../projects/service";
 import type { SproutCommands } from "../sprouts/service";
 
 const MCP_SCOPE = "grove:mcp";
@@ -30,7 +31,11 @@ export interface McpIngress {
 	};
 	readonly handle: (
 		request: Request,
-	) => Effect.Effect<Response, AuthorityError, ActorAuthority | SproutCommands | ApiServer>;
+	) => Effect.Effect<
+		Response,
+		AuthorityError,
+		ActorAuthority | SproutCommands | ProjectService | ApiServer
+	>;
 }
 
 class McpRejected extends Data.TaggedError("McpRejected")<{ readonly response: Response }> {}
@@ -46,11 +51,7 @@ class McpDependencyFailed extends Data.TaggedError("McpDependencyFailed")<{
 
 class InvalidMcpConfiguration extends Data.TaggedError("InvalidMcpConfiguration")<{
 	readonly message: string;
-}> {
-	constructor(message: string) {
-		super({ message });
-	}
-}
+}> {}
 
 const canonicalUrl = (value: string, name: string, originOnly = false) => {
 	let url: URL;
@@ -58,19 +59,21 @@ const canonicalUrl = (value: string, name: string, originOnly = false) => {
 	try {
 		url = new URL(value);
 	} catch {
-		throw new InvalidMcpConfiguration(`${name} must be an absolute URL`);
+		throw new InvalidMcpConfiguration({ message: `${name} must be an absolute URL` });
 	}
 
 	if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
-		throw new InvalidMcpConfiguration(`${name} must use HTTPS`);
+		throw new InvalidMcpConfiguration({ message: `${name} must use HTTPS` });
 	}
 
 	if (url.username || url.password || url.search || url.hash) {
-		throw new InvalidMcpConfiguration(`${name} must not contain credentials, query, or fragment`);
+		throw new InvalidMcpConfiguration({
+			message: `${name} must not contain credentials, query, or fragment`,
+		});
 	}
 
 	if (originOnly && url.pathname !== "/") {
-		throw new InvalidMcpConfiguration(`${name} must be a canonical origin`);
+		throw new InvalidMcpConfiguration({ message: `${name} must be a canonical origin` });
 	}
 
 	return url.href.replace(/\/$/, "");
@@ -236,7 +239,9 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 	return {
 		metadata: () => mcpProtectedResourceMetadata(config),
 		handle: Effect.fnUntraced(function* (request: Request) {
-			const services = yield* Effect.context<ActorAuthority | SproutCommands | ApiServer>();
+			const services = yield* Effect.context<
+				ActorAuthority | SproutCommands | ProjectService | ApiServer
+			>();
 			const scope = yield* Effect.scope;
 
 			return yield* Effect.tryPromise({

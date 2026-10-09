@@ -15,18 +15,18 @@ export interface PublicFailure {
 	readonly log?: boolean;
 }
 
-export interface EffectSvelteKitOptions {
-	readonly mapFailure?: (failure: unknown) => PublicFailure | undefined;
+export interface EffectSvelteKitOptions<E = unknown> {
+	readonly mapFailure?: (failure: E) => PublicFailure | undefined;
 	readonly logCause?: (cause: Cause.Cause<unknown>, event: RequestEvent | undefined) => void;
 }
 
-export interface EffectSvelteKitRuntime<R> {
+export interface EffectSvelteKitRuntime<R, E = unknown> {
 	readonly initialize: () => Promise<void>;
-	readonly run: <A, E>(
+	readonly run: <A>(
 		effect: Effect.Effect<A, E, R | SvelteKitRequestEvent>,
 		event: RequestEvent,
 	) => Promise<A>;
-	readonly handle: <E>(
+	readonly handle: (
 		handler: (
 			input: Parameters<Handle>[0],
 		) => Effect.Effect<Response, E, R | SvelteKitRequestEvent>,
@@ -61,10 +61,10 @@ const validPublicFailure = (failure: PublicFailure | undefined): failure is Publ
  * adapter's shutdown integration. AbortSignal interruption is cooperative: synchronous work and
  * APIs that ignore Effect interruption can still run to completion.
  */
-export function makeEffectSvelteKitRuntime<R, ER>(
+export function makeEffectSvelteKitRuntime<R, ER, E = unknown>(
 	layer: Layer.Layer<R, ER>,
-	options: EffectSvelteKitOptions = {},
-): EffectSvelteKitRuntime<R> {
+	options: EffectSvelteKitOptions<E | ER> = {},
+): EffectSvelteKitRuntime<R, E> {
 	const runtime = ManagedRuntime.make(layer);
 	const logCause = options.logCause ?? defaultLogCause;
 	const activeFibers = new Set<Fiber.Fiber<unknown, unknown>>();
@@ -100,7 +100,7 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 		})());
 	};
 
-	const run = async <A, E>(
+	const run = async <A>(
 		effect: Effect.Effect<A, E, R | SvelteKitRequestEvent>,
 		event: RequestEvent,
 	): Promise<A> => {
@@ -174,7 +174,7 @@ export function makeEffectSvelteKitRuntime<R, ER>(
 	};
 
 	const handle =
-		<E>(
+		(
 			handler: (
 				input: Parameters<Handle>[0],
 			) => Effect.Effect<Response, E, R | SvelteKitRequestEvent>,
