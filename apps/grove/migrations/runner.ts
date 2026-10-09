@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
@@ -27,12 +26,13 @@ export const readMigrationFilesEffect = (directory: string) =>
 					.replace(/^-- effect-db:up\s*\n/, "")
 					.split(/^-- effect-db:down\s*$/m);
 				const down = sections.at(1)?.trim();
+				const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(contents));
 
 				return {
 					name,
 					sql: sections[0].trim(),
 					...(down ? { downSql: down } : {}),
-					checksum: `sha256:${createHash("sha256").update(contents).digest("hex")}`,
+					checksum: `sha256:${new Uint8Array(digest).toHex()}`,
 				};
 			}),
 		);
