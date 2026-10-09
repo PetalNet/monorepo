@@ -13,7 +13,7 @@ import { Layer, Match, Redacted } from "effect";
 
 import type { ActorAuthority } from "#lib/server/actors/authority.ts";
 import { ActorAuthorityBuildLayer, ActorAuthorityLayer } from "#lib/server/actors/authority.ts";
-import { GroveAuthLayer } from "#lib/server/auth-runtime.ts";
+import { GroveAuthLive } from "#lib/server/auth-runtime.ts";
 import type { BrowserSessionError, GroveAuth } from "#lib/server/auth.ts";
 import { GroveAuthBuildLayer } from "#lib/server/auth.ts";
 import type { SproutCommands, SproutError } from "#lib/server/sprouts/service.ts";
@@ -55,7 +55,7 @@ function makeRuntime() {
 				subject: required(GROVE_HOME_OWNER_SUBJECT, "GROVE_HOME_OWNER_SUBJECT"),
 			},
 		});
-		const consumers = Layer.mergeAll(GroveAuthLayer, SproutCommandsLayer, ProjectServiceLayer).pipe(
+		const consumers = Layer.mergeAll(GroveAuthLive, SproutCommandsLayer, ProjectServiceLayer).pipe(
 			Layer.provide(actorAuthority),
 		);
 
@@ -74,6 +74,12 @@ function makeRuntime() {
 			Match.value(failure).pipe(
 				Match.tags({
 					AuthenticationRequired: ({ message }) => ({ status: 401, message }),
+					BetterAuthApiError: ({ statusCode, message }) => ({
+						status: statusCode,
+						message: statusCode >= 500 ? "Browser authentication is unavailable" : message,
+						log: statusCode >= 500,
+					}),
+					BrowserAuthDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
 					ActorDenied: ({ message }) => ({ status: 403, message }),
 					ActorNotCurrent: ({ message }) => ({ status: 403, message }),
 					ActorDatabaseError: () => ({
