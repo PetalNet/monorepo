@@ -935,10 +935,11 @@ export const ProjectServiceLayer = Layer.effect(
 						// is project-scoped after current Actor capability checks.
 						return yield* sql.unsafe<{
 							taskId: string;
+							taskVersionId: string;
 							title: string;
 							dependencyTaskIds: string[];
 						}>(
-							"select t.object_id \"taskId\",v.payload->>'title' title,coalesce(array_agg(d.depends_on_task_id order by d.depends_on_task_id) filter(where d.depends_on_task_id is not null),'{}') \"dependencyTaskIds\" from grove_tasks t join grove_objects o on o.id=t.object_id join grove_object_versions v on v.id=o.current_version_id left join grove_task_dependencies d on d.task_id=t.object_id where t.parent_task_id=$1 and t.role='work' and t.status='planned' and not exists(select 1 from grove_task_dependencies x join grove_tasks dep on dep.object_id=x.depends_on_task_id where x.task_id=t.object_id and dep.status<>'completed') and not exists(select 1 from grove_claims c where c.task_id=t.object_id and c.status='leased') group by t.object_id,v.payload order by coalesce(array_length(array_agg(d.depends_on_task_id) filter(where d.depends_on_task_id is not null),1),0),t.object_id",
+							"select t.object_id \"taskId\",v.id \"taskVersionId\",v.payload->>'title' title,coalesce(array_agg(d.depends_on_task_id order by d.depends_on_task_id) filter(where d.depends_on_task_id is not null),'{}') \"dependencyTaskIds\" from grove_tasks t join grove_objects o on o.id=t.object_id join grove_object_versions v on v.id=o.current_version_id left join grove_task_dependencies d on d.task_id=t.object_id where t.parent_task_id=$1 and t.role='work' and t.status='planned' and not exists(select 1 from grove_task_dependencies x join grove_tasks dep on dep.object_id=x.depends_on_task_id where x.task_id=t.object_id and dep.status<>'completed') and not exists(select 1 from grove_claims c where c.task_id=t.object_id and c.status='leased') group by t.object_id,v.id,v.payload order by coalesce(array_length(array_agg(d.depends_on_task_id) filter(where d.depends_on_task_id is not null),1),0),t.object_id",
 							[input.projectId],
 						);
 					}),

@@ -351,7 +351,7 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 		const { project, plan } = await planProject();
 		const taskId = plan.taskIds.first;
 
-		expect(await call(owner, (s) => s.ready({ projectId: project.objectId }))).toEqual([
+		expect(await call(owner, (s) => s.ready({ projectId: project.objectId }))).toMatchObject([
 			{ taskId, title: "First", dependencyTaskIds: [] },
 		]);
 

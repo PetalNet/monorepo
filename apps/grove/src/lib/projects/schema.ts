@@ -118,6 +118,7 @@ export const WorkReady = Schema.Struct({ projectId: Schema.String });
 
 const ReadyTask = Schema.Struct({
 	taskId: Schema.String,
+	taskVersionId: Schema.String,
 	title: Schema.String,
 	dependencyTaskIds: Schema.Array(Schema.String),
 });
