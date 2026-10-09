@@ -34,17 +34,17 @@ peerDependencyRules:
 # deps into a catalog automatically and refuses to introduce a divergent range.
 catalogMode: strict
 
-# Retain the existing release-age exceptions and pnpm's default age gate.
+# Release-age exceptions name exact versions and use pnpm's default age gate.
 # allowBuilds below limits dependency lifecycle scripts. Renovate separately
 # waits seven days.
 minimumReleaseAgeExclude:
-  - eslint
-  - eslint-plugin-oxlint
-  - "@eslint/plugin-kit"
-  - "@eslint/json"
-  - "@eslint/markdown"
-  - svelte
-  - knip
+  - eslint@10.5.0
+  - eslint-plugin-oxlint@1.87.0
+  - "@eslint/plugin-kit@0.7.2"
+  - "@eslint/json@2.0.0"
+  - "@eslint/markdown@8.0.2"
+  - svelte@5.57.2
+  - knip@6.31.0
   - "@sveltejs/kit@3.0.1"
   - effect-db@0.24.1
   - effect-qb@0.24.1

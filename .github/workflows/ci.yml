@@ -55,6 +55,10 @@ jobs:
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
+      - name: Test release-age cleanup action
+        run: |
+          npm ci --prefix .github/actions/prune-release-age-excludes --ignore-scripts --no-audit --no-fund
+          npm test --prefix .github/actions/prune-release-age-excludes
       - run: pnpm check
 
   test:

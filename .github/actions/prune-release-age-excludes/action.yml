@@ -1,0 +1,32 @@
+name: Prune release-age exceptions
+description: Remove exact-version pnpm exceptions once their registry publish times satisfy minimumReleaseAge.
+
+inputs:
+  workspace-file:
+    description: Path to pnpm-workspace.yaml, relative to the caller's working directory.
+    default: pnpm-workspace.yaml
+  registry:
+    description: Registry supplying publish timestamps (no .npmrc discovery or authentication).
+    default: https://registry.npmjs.org/
+
+outputs:
+  changed:
+    description: Whether the workspace file was changed.
+    value: ${{ steps.prune.outputs.changed }}
+  removed:
+    description: JSON array of the removed exceptions.
+    value: ${{ steps.prune.outputs.removed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install action dependencies
+      shell: bash
+      run: npm ci --prefix "$GITHUB_ACTION_PATH" --ignore-scripts --no-audit --no-fund
+    - name: Prune aged exceptions
+      id: prune
+      shell: bash
+      env:
+        WORKSPACE_FILE: ${{ inputs.workspace-file }}
+        REGISTRY: ${{ inputs.registry }}
+      run: node "$GITHUB_ACTION_PATH/prune.mjs"
