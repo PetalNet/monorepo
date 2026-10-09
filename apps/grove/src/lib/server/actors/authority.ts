@@ -110,6 +110,10 @@ const DEFAULT_CAPABILITIES = [
 	"claim.release",
 	"attempt.publish",
 	"work.ready",
+	"review.submit",
+	"task.complete",
+	"library.search",
+	"library.getVersion",
 ] as const;
 
 export interface ExternalIdentity {

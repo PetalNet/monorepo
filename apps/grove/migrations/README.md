@@ -29,7 +29,7 @@ tweaks, not a custom generator or dependency patch.
 
 The migration test exercises the upstream CLI's fresh install, repeat install,
 rollback, and reinstall, and requires an empty effect-db schema diff across all
-twenty-one tables, including constraints, indexes, defaults, and foreign keys.
+twenty-three tables, including constraints, indexes, defaults, and foreign keys.
 
 `0002_objects.sql` is the working `project.create` slice: Objects, append-only
 Versions, the Project facet, principal-bound command receipts, and one atomic
@@ -48,3 +48,12 @@ completion, and library operations are not implemented in these two slices.
 The reviewed rename preserves Project facets, and receipt response backfill
 supports exact authorized replay. Downgrade refuses non-representable execution
 history atomically rather than discarding it. Capability edits survive rollback.
+
+`0004_review_library.sql` closes the working loop: independent review of an exact
+artifact Version, expected-head Task completion, and project-scoped library
+search and pinned retrieval. Only this slice grants review, completion, and
+library capabilities. Acceptance alone does not complete a Task or unblock its
+dependents; explicit completion appends a Version citing the accepted Attempt,
+output, and Review. Historical library citations survive later heads. Review,
+output, and completion provenance is immutable, and downgrade refuses to erase
+review history. These domain triggers are exercised separately from schema diff.

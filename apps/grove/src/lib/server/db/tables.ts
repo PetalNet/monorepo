@@ -571,6 +571,13 @@ let grove_attempts = Table.make("grove_attempts", {
 	result_submitted_at: Pg.Column.timestamptz().pipe(Column.nullable),
 })
 	.pipe(
+		Table.option({
+			kind: "unique",
+			name: "grove_attempts_completion_target_key",
+			columns: ["id", "task_id", "task_version_id"],
+		}),
+	)
+	.pipe(
 		check(
 			"grove_attempts_executor_kind_check",
 			"executor_kind = ANY (ARRAY['person'::text, 'agent'::text])",
@@ -587,8 +594,18 @@ let grove_attempts = Table.make("grove_attempts", {
 	.pipe(
 		check(
 			"grove_attempts_status_check",
-			"status = ANY (ARRAY['running'::text, 'result_submitted'::text, 'fenced'::text])",
+			"status = ANY (ARRAY['running'::text, 'result_submitted'::text, 'review_rejected'::text, 'accepted'::text, 'fenced'::text])",
 		),
+	)
+	.pipe(
+		Table.option({
+			kind: "index",
+			name: "grove_attempts_one_accepted_per_task",
+			method: "btree",
+			unique: true,
+			keys: [{ kind: "column", column: "task_id", order: "asc", nulls: "last" }],
+			predicate: Pg.SchemaExpression.fromSql("status = 'accepted'::text"),
+		}),
 	);
 
 grove_attempts = grove_attempts.pipe(
@@ -668,13 +685,21 @@ let grove_attempt_outputs = Table.make("grove_attempt_outputs", {
 		}),
 	),
 	version_id: Column.text(),
-}).pipe(
-	Table.option({
-		kind: "primaryKey",
-		name: "grove_attempt_outputs_pkey",
-		columns: ["attempt_id"],
-	}),
-);
+})
+	.pipe(
+		Table.option({
+			kind: "primaryKey",
+			name: "grove_attempt_outputs_pkey",
+			columns: ["attempt_id"],
+		}),
+	)
+	.pipe(
+		Table.option({
+			kind: "unique",
+			name: "grove_attempt_outputs_review_target_key",
+			columns: ["attempt_id", "task_id", "object_id", "version_id"],
+		}),
+	);
 
 grove_attempt_outputs = grove_attempt_outputs.pipe(
 	ForeignKey.make(
@@ -775,6 +800,205 @@ grove_claims = grove_claims.pipe(
 	),
 );
 
+let grove_reviews = Table.make("grove_reviews", {
+	object_id: Column.text().pipe(
+		Pg.Column.foreignKey({
+			target: () => grove_objects.id,
+			name: "grove_reviews_object_id_fkey",
+			onUpdate: "noAction",
+			onDelete: "noAction",
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	version_id: Column.text(),
+	reviewer_id: Column.text().pipe(
+		Pg.Column.foreignKey({
+			target: () => actors.id,
+			name: "grove_reviews_reviewer_id_fkey",
+			onUpdate: "noAction",
+			onDelete: "noAction",
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	reviewer_kind: Column.text(),
+	subject_object_id: Column.text(),
+	subject_version_id: Column.text(),
+	attempt_id: Column.text().pipe(
+		Pg.Column.unique.options({
+			name: "grove_reviews_attempt_id_key",
+			nullsNotDistinct: false,
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	task_id: Column.text(),
+	outcome: Column.text(),
+	comments: Column.text().pipe(Column.nullable),
+})
+	.pipe(
+		check(
+			"grove_reviews_comments_check",
+			"comments IS NULL OR (length(comments) >= 1 AND length(comments) <= 4000)",
+		),
+	)
+	.pipe(
+		Table.option({
+			kind: "unique",
+			name: "grove_reviews_completion_target_key",
+			columns: [
+				"object_id",
+				"version_id",
+				"attempt_id",
+				"task_id",
+				"subject_object_id",
+				"subject_version_id",
+				"outcome",
+			],
+		}),
+	)
+	.pipe(
+		check(
+			"grove_reviews_outcome_check",
+			"outcome = ANY (ARRAY['accepted'::text, 'rejected'::text])",
+		),
+	)
+	.pipe(Table.option({ kind: "primaryKey", name: "grove_reviews_pkey", columns: ["object_id"] }))
+	.pipe(
+		check(
+			"grove_reviews_reviewer_kind_check",
+			"reviewer_kind = ANY (ARRAY['person'::text, 'agent'::text])",
+		),
+	);
+
+let grove_task_completions = Table.make("grove_task_completions", {
+	completion_version_id: Column.text(),
+	task_id: Column.text().pipe(
+		Pg.Column.unique.options({
+			name: "grove_task_completions_task_id_key",
+			nullsNotDistinct: false,
+			deferrable: false,
+			initiallyDeferred: false,
+		}),
+	),
+	task_version_id: Column.text(),
+	attempt_id: Column.text(),
+	output_object_id: Column.text(),
+	output_version_id: Column.text(),
+	review_object_id: Column.text(),
+	review_version_id: Column.text(),
+	outcome: Column.text().pipe(Column.default(Query.literal("accepted").pipe(Cast.to(Type.text())))),
+})
+	.pipe(check("grove_task_completions_outcome_check", "outcome = 'accepted'::text"))
+	.pipe(
+		Table.option({
+			kind: "primaryKey",
+			name: "grove_task_completions_pkey",
+			columns: ["completion_version_id"],
+		}),
+	);
+
+grove_reviews = grove_reviews.pipe(
+	ForeignKey.make(
+		(table: typeof grove_reviews) => [table.attempt_id, table.task_id] as const,
+		() => [grove_attempts.id, grove_attempts.task_id],
+	).pipe(
+		ForeignKey.named("grove_reviews_attempt_id_task_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+	ForeignKey.make(
+		(table: typeof grove_reviews) =>
+			[table.attempt_id, table.task_id, table.subject_object_id, table.subject_version_id] as const,
+		() => [
+			grove_attempt_outputs.attempt_id,
+			grove_attempt_outputs.task_id,
+			grove_attempt_outputs.object_id,
+			grove_attempt_outputs.version_id,
+		],
+	).pipe(
+		ForeignKey.named("grove_reviews_attempt_id_task_id_subject_object_id_subject_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+	ForeignKey.make(
+		(table: typeof grove_reviews) => [table.subject_version_id, table.subject_object_id] as const,
+		() => [grove_object_versions.id, grove_object_versions.object_id],
+	).pipe(
+		ForeignKey.named("grove_reviews_subject_version_id_subject_object_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+	ForeignKey.make(
+		(table: typeof grove_reviews) => [table.version_id, table.object_id] as const,
+		() => [grove_object_versions.id, grove_object_versions.object_id],
+	).pipe(
+		ForeignKey.named("grove_reviews_version_id_object_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+);
+
+grove_task_completions = grove_task_completions.pipe(
+	ForeignKey.make(
+		(table: typeof grove_task_completions) =>
+			[table.attempt_id, table.task_id, table.output_object_id, table.output_version_id] as const,
+		() => [
+			grove_attempt_outputs.attempt_id,
+			grove_attempt_outputs.task_id,
+			grove_attempt_outputs.object_id,
+			grove_attempt_outputs.version_id,
+		],
+	).pipe(
+		ForeignKey.named("grove_task_completions_attempt_id_task_id_output_object_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+	ForeignKey.make(
+		(table: typeof grove_task_completions) =>
+			[table.attempt_id, table.task_id, table.task_version_id] as const,
+		() => [grove_attempts.id, grove_attempts.task_id, grove_attempts.task_version_id],
+	).pipe(
+		ForeignKey.named("grove_task_completions_attempt_id_task_id_task_version_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+	ForeignKey.make(
+		(table: typeof grove_task_completions) => [table.completion_version_id, table.task_id] as const,
+		() => [grove_object_versions.id, grove_object_versions.object_id],
+	).pipe(
+		ForeignKey.named("grove_task_completions_completion_version_id_task_id_fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+	ForeignKey.make(
+		(table: typeof grove_task_completions) =>
+			[
+				table.review_object_id,
+				table.review_version_id,
+				table.attempt_id,
+				table.task_id,
+				table.output_object_id,
+				table.output_version_id,
+				table.outcome,
+			] as const,
+		() => [
+			grove_reviews.object_id,
+			grove_reviews.version_id,
+			grove_reviews.attempt_id,
+			grove_reviews.task_id,
+			grove_reviews.subject_object_id,
+			grove_reviews.subject_version_id,
+			grove_reviews.outcome,
+		],
+	).pipe(
+		ForeignKey.named("grove_task_completions_review_object_id_review_version_id__fkey"),
+		ForeignKey.onUpdate("noAction"),
+		ForeignKey.onDelete("noAction"),
+	),
+);
+
 export {
 	grove_command_receipts,
 	grove_object_versions,
@@ -785,4 +1009,6 @@ export {
 	grove_task_dependencies,
 	grove_attempt_outputs,
 	grove_claims,
+	grove_reviews,
+	grove_task_completions,
 };
