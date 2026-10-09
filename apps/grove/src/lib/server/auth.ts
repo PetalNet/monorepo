@@ -31,7 +31,7 @@ export const GroveBetterAuthLayer = (
 			const sql = yield* PgClient.PgClient;
 			const runtime = yield* Effect.acquireRelease(
 				Effect.sync(() => ManagedRuntime.make(Layer.succeed(PgClient.PgClient, sql))),
-				(managed) => Effect.promise(() => managed.dispose()),
+				(managed) => managed.disposeEffect,
 			);
 
 			return BetterAuthLayer({
@@ -150,7 +150,6 @@ export const GroveAuthLayer = (configuredIssuer: string) =>
 								eq(accountsTable.providerId, GROVE_OIDC_PROVIDER_ID),
 							),
 						)
-						.execute()
 						.pipe(Effect.mapError((cause) => new BrowserAuthDatabaseError({ cause })));
 					const account = accounts.at(0);
 

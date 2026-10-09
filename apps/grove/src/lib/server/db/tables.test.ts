@@ -31,28 +31,24 @@ it("round-trips lossless domain identities and nullable auth Dates through the l
 				yield* pg`insert into grove_demo_sprouts (id, name, planted_at) overriding system value
 					values (${id}, 'Codec fern', ${date.toISOString()})`;
 
-				const rows = yield* db.select().from(sprouts).where(eq(sprouts.id, id)).execute();
+				const rows = yield* db.select().from(sprouts).where(eq(sprouts.id, id));
 
 				expect(rows).toMatchObject([{ id, name: "Codec fern", waterings: 0 }]);
 				expect(typeof rows[0]?.planted_at).toBe("string");
 				expect(new Date(rows[0]?.planted_at ?? "")).toEqual(date);
 				expect(JSON.stringify(rows)).toContain('"id":"9223372036854775807"');
 
-				yield* db
-					.insert(users)
-					.values({ ...user("native-codec"), createdAt: date })
-					.execute();
+				yield* db.insert(users).values({ ...user("native-codec"), createdAt: date });
 
 				expect(
 					yield* db
 						.select({ date: users.createdAt })
 						.from(users)
-						.where(eq(users.id, "native-codec"))
-						.execute(),
+						.where(eq(users.id, "native-codec")),
 				).toEqual([{ date }]);
 
-				yield* db.delete(users).where(eq(users.id, "native-codec")).execute();
-				yield* db.delete(sprouts).where(eq(sprouts.id, id)).execute();
+				yield* db.delete(users).where(eq(users.id, "native-codec"));
+				yield* db.delete(sprouts).where(eq(sprouts.id, id));
 			}),
 		),
 	);

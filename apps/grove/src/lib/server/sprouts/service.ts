@@ -1,6 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { and, eq } from "drizzle-orm";
-import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
 
 import {
@@ -111,18 +110,14 @@ export const SproutCommandsLayer = Layer.effect(
 		const sql = yield* PgClient.PgClient;
 		const authority = yield* ActorAuthority;
 		const db = yield* makeDatabase(sql);
-		const execute = <A>(query: {
-			readonly execute: () => Effect.Effect<A, EffectDrizzleQueryError>;
-		}) => query.execute();
-		const list = database(
-			execute(db.select(sproutSelection).from(sprouts).orderBy(sprouts.id)),
-		).pipe(Effect.map((rows) => rows.map(fromRow)));
+
+		const list = database(db.select(sproutSelection).from(sprouts).orderBy(sprouts.id)).pipe(
+			Effect.map((rows) => rows.map(fromRow)),
+		);
 		const get = (id: SproutIdValue) =>
 			Effect.gen(function* () {
 				const dbId = yield* databaseId(id);
-				const rows = yield* database(
-					execute(db.select(sproutSelection).from(sprouts).where(hasId(dbId))),
-				);
+				const rows = yield* database(db.select(sproutSelection).from(sprouts).where(hasId(dbId)));
 				const row = rows.at(0);
 
 				return row ? fromRow(row) : yield* new SproutNotFound({ id });
@@ -151,16 +146,14 @@ export const SproutCommandsLayer = Layer.effect(
 			create: (input) =>
 				command("sprouts.create", (actor) =>
 					database(
-						execute(
-							db
-								.insert(sprouts)
-								.values({
-									name: input.name,
-									created_by_actor_id: actor.actorId,
-									last_actor_id: actor.actorId,
-								})
-								.returning(sproutSelection),
-						),
+						db
+							.insert(sprouts)
+							.values({
+								name: input.name,
+								created_by_actor_id: actor.actorId,
+								last_actor_id: actor.actorId,
+							})
+							.returning(sproutSelection),
 					).pipe(Effect.map((rows) => fromRow(rows[0]))),
 				),
 			water: (id) =>
@@ -170,9 +163,10 @@ export const SproutCommandsLayer = Layer.effect(
 						const rows = yield* sql
 							.withTransaction(
 								Effect.gen(function* () {
-									const current = yield* execute(
-										db.select(sproutSelection).from(sprouts).where(hasId(dbId)),
-									);
+									const current = yield* db
+										.select(sproutSelection)
+										.from(sprouts)
+										.where(hasId(dbId));
 									const row = current.at(0);
 
 									if (!row) {
@@ -181,13 +175,11 @@ export const SproutCommandsLayer = Layer.effect(
 
 									const waterings = yield* Schema.decodeEffect(Counter)(row.waterings + 1);
 
-									const updated = yield* execute(
-										db
-											.update(sprouts)
-											.set({ waterings, last_actor_id: actor.actorId })
-											.where(and(hasId(dbId), eq(sprouts.waterings, row.waterings)))
-											.returning(sproutSelection),
-									);
+									const updated = yield* db
+										.update(sprouts)
+										.set({ waterings, last_actor_id: actor.actorId })
+										.where(and(hasId(dbId), eq(sprouts.waterings, row.waterings)))
+										.returning(sproutSelection);
 
 									if (updated.length > 0) {
 										return updated;
@@ -214,7 +206,7 @@ export const SproutCommandsLayer = Layer.effect(
 					Effect.gen(function* () {
 						const dbId = yield* databaseId(id);
 						const rows = yield* database(
-							execute(db.delete(sprouts).where(hasId(dbId)).returning({ id: sprouts.id })),
+							db.delete(sprouts).where(hasId(dbId)).returning({ id: sprouts.id }),
 						);
 
 						if (rows.length === 0) {

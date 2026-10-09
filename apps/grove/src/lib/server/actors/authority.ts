@@ -355,7 +355,6 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 		Effect.gen(function* () {
 			const pg = yield* PgClient.PgClient;
 			const db = yield* makeDatabase(pg);
-			const withTransaction = <A, E>(effect: Effect.Effect<A, E>) => pg.withTransaction(effect);
 			const lockContainment = () =>
 				pg`select pg_advisory_xact_lock(hashtext('grove-capability-containment'))`.pipe(
 					Effect.asVoid,
@@ -426,11 +425,11 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				actorIdValue: string,
 				grants: readonly string[] = DEFAULT_CAPABILITIES,
 			) =>
-				Effect.forEach(grants, (capability) => insertCapability(actorIdValue, capability)).pipe(
-					Effect.asVoid,
-				);
+				Effect.forEach(grants, (capability) => insertCapability(actorIdValue, capability), {
+					discard: true,
+				});
 			const serializeContainment = <A, E>(effect: Effect.Effect<A, E>) =>
-				asDatabaseError(withTransaction(lockContainment().pipe(Effect.andThen(effect))));
+				asDatabaseError(pg.withTransaction(lockContainment().pipe(Effect.andThen(effect))));
 			const homeReadiness = asDatabaseError(
 				decodeRows(
 					HomeReadinessRow,
@@ -523,7 +522,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				}
 
 				return asDatabaseError(
-					withTransaction(
+					pg.withTransaction(
 						Effect.gen(function* () {
 							yield* lockExternalIdentity(input);
 							const existing = (yield* actorForIdentity(input)).at(0);
@@ -542,12 +541,10 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 								actorIdValue = existing.actor_id;
 
-								yield* Effect.asVoid(
-									db
-										.update(actors)
-										.set({ name, updated_at: sql`now()` })
-										.where(eq(actors.id, actorIdValue)),
-								);
+								yield* db
+									.update(actors)
+									.set({ name, updated_at: sql`now()` })
+									.where(eq(actors.id, actorIdValue));
 							} else {
 								const byAuthUser = yield* decodeRows(
 									ActorIdRow,
@@ -565,36 +562,30 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 								actorIdValue = personId();
 
-								yield* Effect.asVoid(
-									db.insert(actors).values({ id: actorIdValue, kind: "person" as const, name }),
-								);
+								yield* db
+									.insert(actors)
+									.values({ id: actorIdValue, kind: "person" as const, name });
 
-								yield* Effect.asVoid(
-									db.insert(persons).values({
-										actor_id: actorIdValue,
-										better_auth_user_id: input.authUserId,
-									}),
-								);
+								yield* db.insert(persons).values({
+									actor_id: actorIdValue,
+									better_auth_user_id: input.authUserId,
+								});
 
-								yield* Effect.asVoid(
-									db.insert(identities).values({
-										actor_id: actorIdValue,
-										issuer: input.issuer,
-										subject: input.subject,
-										use: "browser" as const,
-									}),
-								);
+								yield* db.insert(identities).values({
+									actor_id: actorIdValue,
+									issuer: input.issuer,
+									subject: input.subject,
+									use: "browser" as const,
+								});
 
 								yield* insertDefaultCapabilities(actorIdValue);
 							}
 
 							if (isOwnerIdentity(config.homeOwner, input)) {
-								yield* Effect.asVoid(
-									db
-										.update(hosts)
-										.set({ owner_person_id: actorIdValue })
-										.where(and(eq(hosts.id, "host-local"), isNull(hosts.owner_person_id))),
-								);
+								yield* db
+									.update(hosts)
+									.set({ owner_person_id: actorIdValue })
+									.where(and(eq(hosts.id, "host-local"), isNull(hosts.owner_person_id)));
 
 								const host = yield* decodeRows(
 									HostOwnerRow,
@@ -672,7 +663,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				}
 
 				return asDatabaseError(
-					withTransaction(
+					pg.withTransaction(
 						Effect.gen(function* () {
 							yield* lockExternalIdentity(identity);
 							yield* lockContainment();
@@ -739,26 +730,20 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 							const actorIdValue = agentId();
 
-							yield* Effect.asVoid(
-								db.insert(actors).values({ id: actorIdValue, kind: "agent" as const, name }),
-							);
+							yield* db.insert(actors).values({ id: actorIdValue, kind: "agent" as const, name });
 
-							yield* Effect.asVoid(
-								db.insert(agents).values({
-									actor_id: actorIdValue,
-									home_host_id: "host-local",
-									owner_person_id: owner.owner_person_id,
-								}),
-							);
+							yield* db.insert(agents).values({
+								actor_id: actorIdValue,
+								home_host_id: "host-local",
+								owner_person_id: owner.owner_person_id,
+							});
 
-							yield* Effect.asVoid(
-								db.insert(identities).values({
-									actor_id: actorIdValue,
-									issuer: identity.issuer,
-									subject: identity.subject,
-									use: "machine" as const,
-								}),
-							);
+							yield* db.insert(identities).values({
+								actor_id: actorIdValue,
+								issuer: identity.issuer,
+								subject: identity.subject,
+								use: "machine" as const,
+							});
 
 							const ownerCapabilities = new Set(
 								(yield* capabilitiesFor(owner.owner_person_id)).map(({ capability }) => capability),
@@ -880,7 +865,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				}
 
 				return asDatabaseError(
-					withTransaction(
+					pg.withTransaction(
 						authorizeActor(principal, "sprouts.list").pipe(
 							Effect.andThen(capabilitiesFor(principal.actorId)),
 							Effect.map((rows) => rows.map((row) => row.capability)),
@@ -990,15 +975,13 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						return yield* conflictFor(agentIdValue, personIdValue, missing, false);
 					}
 
-					yield* Effect.asVoid(
-						db
-							.insert(access)
-							.values({ agent_id: agentIdValue, person_id: personIdValue })
-							.onConflictDoUpdate({
-								target: [access.agent_id, access.person_id],
-								set: { valid: true, invalid_reason: null, updated_at: sql`now()` },
-							}),
-					);
+					yield* db
+						.insert(access)
+						.values({ agent_id: agentIdValue, person_id: personIdValue })
+						.onConflictDoUpdate({
+							target: [access.agent_id, access.person_id],
+							set: { valid: true, invalid_reason: null, updated_at: sql`now()` },
+						});
 				});
 			const addAgentCapability = (agentIdValue: string, capability: string) =>
 				Effect.gen(function* () {
@@ -1155,16 +1138,14 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								});
 							}
 
-							yield* Effect.asVoid(
-								db
-									.update(access)
-									.set({
-										valid: false,
-										invalid_reason: "removed-by-explicit-fix",
-										updated_at: sql`now()`,
-									})
-									.where(and(eq(access.agent_id, fix.agentId), eq(access.person_id, fix.personId))),
-							);
+							yield* db
+								.update(access)
+								.set({
+									valid: false,
+									invalid_reason: "removed-by-explicit-fix",
+									updated_at: sql`now()`,
+								})
+								.where(and(eq(access.agent_id, fix.agentId), eq(access.person_id, fix.personId)));
 						});
 					case "remove-agent-capability":
 						if (isSproutCapability(fix.capability)) {
@@ -1175,7 +1156,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							);
 						}
 
-						return deleteCapability(fix.agentId, fix.capability).pipe(Effect.asVoid);
+						return deleteCapability(fix.agentId, fix.capability);
 				}
 			};
 
@@ -1251,38 +1232,34 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						return yield* new ActorDenied({ reason: "A retired Actor cannot change lifecycle" });
 					}
 
-					yield* Effect.asVoid(
-						db
-							.update(actors)
-							.set({ lifecycle, updated_at: sql`now()` })
-							.where(eq(actors.id, actorIdValue)),
-					);
+					yield* db
+						.update(actors)
+						.set({ lifecycle, updated_at: sql`now()` })
+						.where(eq(actors.id, actorIdValue));
 
-					yield* Effect.asVoid(
-						db
-							.update(access)
-							.set({
-								valid: false,
-								invalid_reason: `actor-${lifecycle}`,
-								updated_at: sql`now()`,
-							})
-							.where(
-								and(
-									access.valid,
-									or(
-										eq(access.agent_id, actorIdValue),
-										eq(access.person_id, actorIdValue),
-										inArray(
-											access.agent_id,
-											db
-												.select({ actor_id: agents.actor_id })
-												.from(agents)
-												.where(eq(agents.owner_person_id, actorIdValue)),
-										),
+					yield* db
+						.update(access)
+						.set({
+							valid: false,
+							invalid_reason: `actor-${lifecycle}`,
+							updated_at: sql`now()`,
+						})
+						.where(
+							and(
+								access.valid,
+								or(
+									eq(access.agent_id, actorIdValue),
+									eq(access.person_id, actorIdValue),
+									inArray(
+										access.agent_id,
+										db
+											.select({ actor_id: agents.actor_id })
+											.from(agents)
+											.where(eq(agents.owner_person_id, actorIdValue)),
 									),
 								),
 							),
-					);
+						);
 				});
 			const setAgentLifecycleAs = (
 				principal: PersonPrincipal,
