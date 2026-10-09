@@ -85,7 +85,6 @@ const affectedPackages = Effect.fn("affectedPackages")(function* (base: string) 
 const workspaceTasks = Effect.fn("workspaceTasks")(function* (
 	items?: typeof AffectedPlan.Type.data.affectedPackages.items,
 ) {
-	const fs = yield* FileSystem.FileSystem;
 	const packages = yield* Schema.decodeEffect(Schema.Array(WorkspacePackage))(
 		items?.map((item) => item.name).filter((name) => name.startsWith("@petalnet/")) ?? [],
 	);
@@ -95,37 +94,12 @@ const workspaceTasks = Effect.fn("workspaceTasks")(function* (
 	}
 
 	const filters = items ? packages.map((name) => `--filter=${name}`) : ["--filter=@petalnet/*"];
-	const plan = (task: "build" | "test", env?: Record<string, string>) =>
-		commandOutput("pnpm", ["exec", "turbo", "run", task, ...filters, "--dry=json"], env).pipe(
+	const plan = (task: "build" | "test") =>
+		commandOutput("pnpm", ["exec", "turbo", "run", task, ...filters, "--dry=json"]).pipe(
 			Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(TurboPlan))),
 		);
 	const test = yield* plan("test");
-	// Match the build job's database environment and dotenv inputs, then restore the checkout.
-	const databaseUrl = "file:/tmp/build.db";
-	const backups = yield* Effect.forEach(["apps/collegemap", "apps/grove"], (directory) =>
-		Effect.gen(function* () {
-			if (!(yield* fs.exists(directory))) {
-				return [];
-			}
-
-			const path = `${directory}/.env`;
-
-			return [{ path, contents: (yield* fs.exists(path)) ? yield* fs.readFileString(path) : null }];
-		}),
-	).pipe(Effect.map((entries) => entries.flat()));
-	const build = yield* Effect.gen(function* () {
-		yield* Effect.forEach(backups, ({ path }) =>
-			fs.writeFileString(path, `DATABASE_URL=${databaseUrl}\n`),
-		);
-
-		return yield* plan("build", { DATABASE_URL: databaseUrl });
-	}).pipe(
-		Effect.ensuring(
-			Effect.forEach(backups, ({ path, contents }) =>
-				contents === null ? fs.remove(path, { force: true }) : fs.writeFileString(path, contents),
-			).pipe(Effect.orDie),
-		),
-	);
+	const build = yield* plan("build");
 
 	return {
 		js: [...build.tasks, ...test.tasks].some(
