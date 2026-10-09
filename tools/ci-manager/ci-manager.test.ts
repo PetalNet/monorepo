@@ -6,34 +6,6 @@ import { assert, expect, test } from "vitest";
 import { evaluateGate } from "./gate.ts";
 import { selectJobs } from "./policy.ts";
 import { commandOutput } from "./process.ts";
-import { needsExecution } from "./select.ts";
-
-test.each([
-	["empty graph", [], false],
-	["all hits", [["echo check", true, "HIT"]], false],
-	[
-		"one miss among hits",
-		[
-			["echo check", true, "HIT"],
-			["echo dependency", true, "MISS"],
-		],
-		true,
-	],
-	["disabled cache despite a stale hit", [["echo integration", false, "HIT"]], true],
-	["nonexistent task", [["<NONEXISTENT>", false, "MISS"]], false],
-] as const)("Turbo execution decision: %s", (_name, tasks, expected) => {
-	assert.equal(
-		needsExecution({
-			tasks: tasks.map(([command, cache, status]) => ({
-				command,
-				task: "check",
-				cache: { status },
-				resolvedTaskDefinition: { cache },
-			})),
-		}),
-		expected,
-	);
-});
 
 const disabled = {
 	"manager-rust": "false",
@@ -44,8 +16,6 @@ const disabled = {
 	point: "false",
 	rust: "false",
 	js: "false",
-	build: "false",
-	test: "false",
 	actions: "false",
 	"codeql-js": "false",
 	"codeql-python": "false",
@@ -53,7 +23,7 @@ const disabled = {
 
 const required = {
 	select: { result: "success", outputs: disabled },
-	check: { result: "success" },
+	"root-check": { result: "success" },
 	typos: { result: "success" },
 	"link-check": { result: "success" },
 	zizmor: { result: "success" },
@@ -62,7 +32,7 @@ const required = {
 const scenarios = [
 	{
 		name: "JS-only with advanced scans",
-		selection: { ...disabled, js: "true", build: "true", test: "true", "codeql-js": "true" },
+		selection: { ...disabled, js: "true", "codeql-js": "true" },
 		results: {
 			build: "success",
 			test: "success",
@@ -107,8 +77,6 @@ const scenarios = [
 			point: "true",
 			rust: "true",
 			js: "true",
-			build: "true",
-			test: "true",
 			actions: "true",
 			"codeql-js": "true",
 			"codeql-python": "true",
@@ -188,6 +156,7 @@ const gateCases = scenarios.map((scenario) => {
 	const jobs: Record<string, { result: string; outputs?: Record<string, string> }> = {
 		...required,
 		select: { result: "success", outputs: scenario.selection },
+		check: { result: scenario.selection.js === "true" ? "success" : "skipped" },
 		...Object.fromEntries(
 			Object.entries(scenario.results).map(([job, result]) => [job, { result }]),
 		),
@@ -198,24 +167,7 @@ const gateCases = scenarios.map((scenario) => {
 it.effect.each(gateCases)("$name: exact expected conclusions pass", ({ jobs }) =>
 	Effect.gen(function* () {
 		const conclusions = yield* evaluateGate(JSON.stringify(jobs));
-		assert.equal(conclusions.length, 17);
-	}),
-);
-
-it.effect.each(
-	gateCases
-		.filter(({ name }) => name === "JS-only with advanced scans")
-		.flatMap((scenario) => ["build", "test"].map((job) => ({ ...scenario, job }))),
-)("cached $job can skip independently of the other JS job", ({ jobs, selection, job }) =>
-	Effect.gen(function* () {
-		const conclusions = yield* evaluateGate(
-			JSON.stringify({
-				...jobs,
-				select: { result: "success", outputs: { ...selection, [job]: "false" } },
-				[job]: { result: "skipped" },
-			}),
-		);
-		assert.equal(conclusions.length, 17);
+		assert.equal(conclusions.length, 18);
 	}),
 );
 
