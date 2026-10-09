@@ -98,9 +98,19 @@ const SPROUT_CAPABILITIES = [
 	"sprouts.water",
 	"sprouts.remove",
 ] as const;
-const INITIAL_CAPABILITIES = [...SPROUT_CAPABILITIES, "project.create"] as const;
 const isSproutCapability = (capability: string) =>
 	(SPROUT_CAPABILITIES as readonly string[]).includes(capability);
+
+const DEFAULT_CAPABILITIES = [
+	...SPROUT_CAPABILITIES,
+	"project.create",
+	"project.plan",
+	"task.claim",
+	"claim.renew",
+	"claim.release",
+	"attempt.publish",
+	"work.ready",
+] as const;
 
 export interface ExternalIdentity {
 	readonly issuer: string;
@@ -467,7 +477,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				);
 			const insertDefaultCapabilities = (
 				actorIdValue: string,
-				grants: readonly string[] = INITIAL_CAPABILITIES,
+				grants: readonly string[] = DEFAULT_CAPABILITIES,
 			) =>
 				Effect.forEach(grants, (capability) => insertCapability(actorIdValue, capability)).pipe(
 					Effect.asVoid,
@@ -826,7 +836,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 							yield* insertDefaultCapabilities(
 								actorIdValue,
-								INITIAL_CAPABILITIES.filter((capability) => ownerCapabilities.has(capability)),
+								DEFAULT_CAPABILITIES.filter((capability) => ownerCapabilities.has(capability)),
 							);
 
 							return {

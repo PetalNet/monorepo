@@ -5,12 +5,16 @@ import { promisify } from "node:util";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { Effect, ManagedRuntime, Redacted } from "effect";
+import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { applyMigrationFiles, readMigrationFilesEffect } from "effect-db/postgres/migrate";
 import { loadPostgresSchemaPlanEffect } from "effect-db/postgres/push";
 import { expect, it } from "vitest";
 
 import config from "../effectdb.config";
+import { ActorAuthority, ActorAuthorityLayer } from "../src/lib/server/actors/authority";
+import { InvocationContext } from "../src/lib/server/invocation";
+import { canonicalDigest } from "../src/lib/server/projects/canonical";
+import { ProjectService, ProjectServiceLayer } from "../src/lib/server/projects/service";
 
 const migrate = (databaseUrl: string, direction: "up" | "down" = "up") =>
 	promisify(execFile)(
@@ -31,6 +35,7 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 	try {
 		await migrate(container.getConnectionUri());
 		await migrate(container.getConnectionUri());
+		await migrate(container.getConnectionUri(), "down");
 		await migrate(container.getConnectionUri(), "down");
 		await migrate(container.getConnectionUri(), "down");
 
@@ -60,6 +65,9 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 			"grove_actors",
 			"grove_agent_access",
 			"grove_agents",
+			"grove_attempt_outputs",
+			"grove_attempts",
+			"grove_claims",
 			"grove_command_receipts",
 			"grove_demo_sprouts",
 			"grove_external_identities",
@@ -68,7 +76,8 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 			"grove_objects",
 			"grove_outbox",
 			"grove_persons",
-			"grove_project_tasks",
+			"grove_task_dependencies",
+			"grove_tasks",
 			"session",
 			"user",
 			"verification",
@@ -146,6 +155,169 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 					yield* sql`select name from effect_qb_migrations where name = 'test_failure.sql'`,
 				).toEqual([]);
 			}).pipe(Effect.provide(NodeServices.layer)),
+		);
+	} finally {
+		await runtime.dispose();
+		await container.stop();
+	}
+}, 60_000);
+
+it("upgrades a durable 0002 project receipt with exact service replay and current authority", async () => {
+	const container = await new PostgreSqlContainer("postgres:17-alpine").start();
+	const url = container.getConnectionUri();
+	const identity = { issuer: "https://identity.example/upgrade", subject: "owner" };
+	const runtime = ManagedRuntime.make(
+		ProjectServiceLayer.pipe(
+			Layer.provideMerge(ActorAuthorityLayer({ homeOwner: identity })),
+			Layer.provideMerge(PgClient.layer({ url: Redacted.make(url) })),
+		),
+	);
+
+	try {
+		await migrate(url);
+		await migrate(url, "down");
+
+		const owner = await runtime.runPromise(
+			Effect.flatMap(ActorAuthority, (authority) =>
+				authority.bindBrowserIdentity({
+					authUserId: "upgrade-owner",
+					...identity,
+					name: "Owner",
+					emailVerified: true,
+				}),
+			),
+		);
+		const command = {
+			commandId: "00000000-0000-0000-0000-000000000001",
+			scope: "private",
+			title: "Existing project",
+			ask: "Existing ask",
+		};
+		const payload = {
+			type: "project",
+			role: "project",
+			scope: command.scope,
+			title: command.title,
+			task: command.ask,
+		};
+		const receipt = {
+			commandId: command.commandId,
+			objectId: "project",
+			versionId: "version",
+			versionDigest: await Effect.runPromise(canonicalDigest(payload)),
+			replayed: false,
+		};
+
+		await runtime.runPromise(
+			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient;
+
+				// Simulate the defaults in the immutable first slice, not the new runtime defaults.
+				yield* sql`delete from grove_actor_capabilities where capability in ('project.plan','work.ready','task.claim','claim.renew','claim.release','attempt.publish')`;
+				yield* sql`insert into grove_objects(id,kind,scope) values ('project','task',${command.scope})`;
+				yield* sql`insert into grove_object_versions(id,object_id,payload,digest,actor_id,actor_kind) values ('version','project',${JSON.stringify(payload)}::jsonb,${receipt.versionDigest},${owner.actorId},'person')`;
+				yield* sql`update grove_objects set current_version_id='version' where id='project'`;
+				yield* sql`insert into grove_project_tasks(object_id) values ('project')`;
+				yield* sql`insert into grove_command_receipts(command_id,operation,principal_id,principal_kind,input_hash,object_id,version_id,version_digest) values (${command.commandId}::uuid,'project.create',${owner.actorId},'person',${yield* canonicalDigest({ scope: command.scope, title: command.title, task: command.ask })},'project','version',${receipt.versionDigest})`;
+				yield* sql`insert into grove_outbox(id,command_id,version_id,event_type,aggregate_id,payload) values ('event',${command.commandId}::uuid,'version','project.created','project',${JSON.stringify(receipt)}::jsonb)`;
+			}),
+		);
+
+		await migrate(url);
+
+		const replay = () =>
+			runtime.runPromise(
+				Effect.flatMap(ProjectService, (service) => service.create(command)).pipe(
+					Effect.provideService(InvocationContext, { principal: owner }),
+				),
+			);
+
+		expect(await replay()).toEqual({ ...receipt, replayed: true });
+
+		await runtime.runPromise(
+			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient;
+
+				expect(yield* sql`select response from grove_command_receipts`).toEqual([
+					{ response: receipt },
+				]);
+
+				expect(yield* sql`select role,status from grove_tasks`).toEqual([
+					{ role: "project", status: "planning" },
+				]);
+
+				expect(
+					yield* sql`select count(*)::int count from grove_actor_capabilities where actor_id=${owner.actorId} and capability in ('project.plan','work.ready','task.claim','claim.renew','claim.release','attempt.publish')`,
+				).toEqual([{ count: 6 }]);
+
+				expect(
+					yield* sql`select capability from grove_actor_capabilities where capability in ('review.submit','task.complete','library.search','library.getVersion')`,
+				).toEqual([]);
+			}),
+		);
+
+		await runtime.runPromise(
+			Effect.flatMap(ActorAuthority, (authority) =>
+				authority.removePersonCapabilityAs(owner, owner.actorId, "project.create"),
+			),
+		);
+
+		await expect(replay()).rejects.toMatchObject({ _tag: "ActorDenied" });
+
+		await runtime.runPromise(
+			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient;
+
+				expect(yield* sql`select response from grove_command_receipts`).toEqual([
+					{ response: receipt },
+				]);
+
+				expect(yield* sql`select count(*)::int count from grove_outbox`).toEqual([{ count: 1 }]);
+			}),
+		);
+
+		const { plan } = await Effect.runPromise(
+			loadPostgresSchemaPlanEffect(fileURLToPath(new URL("..", import.meta.url)), config, url).pipe(
+				Effect.provide(NodeServices.layer),
+			),
+		);
+
+		expect(plan.changes).toEqual([]);
+		// Representable project history survives a round-trip; execution history
+		// refuses downgrade atomically rather than silently discarding provenance.
+		await migrate(url, "down");
+
+		await runtime.runPromise(
+			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient;
+
+				expect(yield* sql`select status from grove_project_tasks`).toEqual([{ status: "open" }]);
+
+				expect(yield* sql`select version_id from grove_command_receipts`).toEqual([
+					{ version_id: "version" },
+				]);
+			}),
+		);
+
+		await migrate(url);
+
+		await runtime.runPromise(
+			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient;
+
+				yield* sql`insert into grove_attempts(id,task_id,task_version_id,status,executor_id,executor_kind) values ('attempt','project','version','running',${owner.actorId},'person')`;
+			}),
+		);
+
+		await expect(migrate(url, "down")).rejects.toThrow();
+
+		await runtime.runPromise(
+			Effect.gen(function* () {
+				const sql = yield* PgClient.PgClient;
+
+				expect(yield* sql`select id from grove_attempts`).toEqual([{ id: "attempt" }]);
+				expect(yield* sql`select name from effect_qb_migrations order by name`).toHaveLength(3);
+			}),
 		);
 	} finally {
 		await runtime.dispose();

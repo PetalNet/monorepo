@@ -1,8 +1,49 @@
 import { operation } from "@petalnet/effect-api";
 import { Effect, Match } from "effect";
 
-import { ProjectCreate, ProjectCreateReceipt } from "../../projects/schema";
-import { ProjectService } from "./service";
+import {
+	AttemptPublish,
+	ClaimMutationReceipt,
+	ClaimReceipt,
+	ClaimRelease,
+	ClaimRenew,
+	ProjectCreate,
+	ProjectCreateReceipt,
+	ProjectPlan,
+	ProjectPlanReceipt,
+	PublishReceipt,
+	ReadyTasks,
+	TaskClaim,
+	WorkReady,
+} from "../../projects/schema";
+import { ProjectService, type ProjectError } from "./service";
+
+const statusForError = (error: ProjectError): number =>
+	Match.value(error).pipe(
+		Match.tagsExhaustive({
+			ActorDenied: () => 403,
+			ActorNotCurrent: () => 403,
+			CommandConflict: () => 409,
+			FenceConflict: () => 409,
+			ActorDatabaseError: () => 503,
+			HomeOwnerUnbound: () => 503,
+			CapabilityContainmentConflict: () => 503,
+			ProjectDatabaseError: () => 503,
+		}),
+	);
+const messageForError = (error: ProjectError): string =>
+	Match.value(error).pipe(
+		Match.tagsExhaustive({
+			ActorDenied: (failure) => failure.message,
+			ActorNotCurrent: (failure) => failure.message,
+			CommandConflict: (failure) => failure.message,
+			FenceConflict: (failure) => failure.message,
+			ActorDatabaseError: () => "The project database is unavailable",
+			HomeOwnerUnbound: () => "The project database is unavailable",
+			CapabilityContainmentConflict: () => "The project database is unavailable",
+			ProjectDatabaseError: () => "The project database is unavailable",
+		}),
+	);
 
 export const projectOperations = [
 	operation({
@@ -13,29 +54,73 @@ export const projectOperations = [
 		input: ProjectCreate,
 		output: ProjectCreateReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.create(input)),
-		statusForError: (error) =>
-			Match.value(error).pipe(
-				Match.tagsExhaustive({
-					ActorDenied: () => 403,
-					ActorNotCurrent: () => 403,
-					CommandConflict: () => 409,
-					ActorDatabaseError: () => 503,
-					HomeOwnerUnbound: () => 503,
-					CapabilityContainmentConflict: () => 503,
-					ProjectDatabaseError: () => 503,
-				}),
-			),
-		messageForError: (error) =>
-			Match.value(error).pipe(
-				Match.tagsExhaustive({
-					ActorDenied: (failure) => failure.message,
-					ActorNotCurrent: (failure) => failure.message,
-					CommandConflict: (failure) => failure.message,
-					ActorDatabaseError: () => "The project database is unavailable",
-					HomeOwnerUnbound: () => "The project database is unavailable",
-					CapabilityContainmentConflict: () => "The project database is unavailable",
-					ProjectDatabaseError: () => "The project database is unavailable",
-				}),
-			),
+		statusForError,
+		messageForError,
 	}),
-];
+	operation({
+		name: "project.plan",
+		description: "Accept a bounded child Task DAG.",
+		method: "POST",
+		path: "/projects/:projectId/plan",
+		input: ProjectPlan,
+		output: ProjectPlanReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (service) => service.plan(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "task.claim",
+		description: "Claim a ready Task and create an Attempt.",
+		method: "POST",
+		path: "/tasks/:taskId/claims",
+		input: TaskClaim,
+		output: ClaimReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (service) => service.claim(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "claim.renew",
+		description: "Renew an exact fenced Claim.",
+		method: "POST",
+		path: "/claims/:claimId/renew",
+		input: ClaimRenew,
+		output: ClaimMutationReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (service) => service.renew(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "claim.release",
+		description: "Release an exact fenced Claim.",
+		method: "POST",
+		path: "/claims/:claimId/release",
+		input: ClaimRelease,
+		output: ClaimMutationReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (service) => service.release(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "attempt.publish",
+		description: "Publish one immutable Attempt output without completing its Task.",
+		method: "POST",
+		path: "/attempts/:attemptId/outputs",
+		input: AttemptPublish,
+		output: PublishReceipt,
+		handler: (input) => Effect.flatMap(ProjectService, (service) => service.publish(input)),
+		statusForError,
+		messageForError,
+	}),
+	operation({
+		name: "work.ready",
+		description: "List ready Project Tasks in deterministic dependency order.",
+		method: "GET",
+		path: "/projects/:projectId/work/ready",
+		input: WorkReady,
+		output: ReadyTasks,
+		handler: (input) => Effect.flatMap(ProjectService, (service) => service.ready(input)),
+		statusForError,
+		messageForError,
+	}),
+] as const;
