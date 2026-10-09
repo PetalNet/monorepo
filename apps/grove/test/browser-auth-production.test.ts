@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { type ActorAuthority, ActorAuthorityLayer } from "../src/lib/server/actors/authority";
 import { GroveAuth, GroveAuthLayer, GroveBetterAuthLayer } from "../src/lib/server/auth";
-import { BetterAuth } from "../src/lib/server/better-auth";
+import { BetterAuth, BetterAuthInitializationError } from "../src/lib/server/better-auth";
 import { GROVE_OIDC_PROVIDER_ID } from "../src/lib/server/oidc";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
@@ -364,7 +364,7 @@ describe("production Grove browser auth composition", () => {
 			Effect.flip(BetterAuth.pipe(Effect.provide(GroveBetterAuthLayer(authConfig)))),
 		);
 
-		expect(failure).toMatchObject({ _tag: "BetterAuthInitializationError" });
+		expect(failure).toBeInstanceOf(BetterAuthInitializationError);
 		expect(failure.cause).toBeInstanceOf(Error);
 
 		if (!(failure.cause instanceof Error)) {

@@ -11,7 +11,10 @@ export class BetterAuthApiError extends Data.TaggedError("BetterAuthApiError")<{
 	readonly cause: unknown;
 }> {}
 
-class BetterAuthInitializationError extends Data.TaggedError("BetterAuthInitializationError")<{
+/** @internal */
+export class BetterAuthInitializationError extends Data.TaggedError(
+	"BetterAuthInitializationError",
+)<{
 	readonly cause: unknown;
 }> {
 	override get message() {
