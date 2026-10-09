@@ -184,6 +184,33 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 		);
 
 		expect(denied).toMatchObject({ _tag: "Failure" });
+
+		const agent = await runtime.runPromise(
+			Effect.flatMap(ActorAuthority, (authority) =>
+				authority.enrollSelf(
+					{
+						issuer: "https://machine.example",
+						subject: "after-owner-revocation",
+						scopes: new Set(["grove:mcp", "grove:agent:enroll"]),
+					},
+					{ name: "Contained Agent" },
+				),
+			),
+		);
+
+		expect(
+			await runtime.runPromise(
+				Effect.flatMap(ActorAuthority, (authority) => authority.authorizedOperations(agent)),
+			),
+		).not.toContain("project.create");
+
+		await expect(
+			runtime.runPromise(
+				Effect.flatMap(ProjectService, (service) =>
+					service.create({ ...input, commandId: crypto.randomUUID() }),
+				).pipe(Effect.provideService(InvocationContext, { principal: agent })),
+			),
+		).rejects.toMatchObject({ _tag: "ActorDenied" });
 	} finally {
 		await runtime.dispose();
 		await postgres.runtime.dispose();

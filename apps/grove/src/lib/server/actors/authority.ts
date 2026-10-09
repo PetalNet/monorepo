@@ -465,10 +465,13 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						),
 					),
 				);
-			const insertDefaultCapabilities = (actorIdValue: string) =>
-				Effect.forEach(INITIAL_CAPABILITIES, (capability) =>
-					insertCapability(actorIdValue, capability),
-				).pipe(Effect.asVoid);
+			const insertDefaultCapabilities = (
+				actorIdValue: string,
+				grants: readonly string[] = INITIAL_CAPABILITIES,
+			) =>
+				Effect.forEach(grants, (capability) => insertCapability(actorIdValue, capability)).pipe(
+					Effect.asVoid,
+				);
 			const serializeContainment = <A, E>(effect: Effect.Effect<A, E>) =>
 				asDatabaseError(withTransaction(lockContainment().pipe(Effect.andThen(effect))));
 			const homeReadiness = asDatabaseError(
@@ -817,7 +820,14 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								),
 							);
 
-							yield* insertDefaultCapabilities(actorIdValue);
+							const ownerCapabilities = new Set(
+								(yield* capabilitiesFor(owner.owner_person_id)).map(({ capability }) => capability),
+							);
+
+							yield* insertDefaultCapabilities(
+								actorIdValue,
+								INITIAL_CAPABILITIES.filter((capability) => ownerCapabilities.has(capability)),
+							);
 
 							return {
 								...identity,
