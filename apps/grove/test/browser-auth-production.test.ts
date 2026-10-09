@@ -364,7 +364,7 @@ describe("production Grove browser auth composition", () => {
 			Effect.flip(BetterAuth.pipe(Effect.provide(GroveBetterAuthLayer(authConfig)))),
 		);
 
-		expect(failure._tag).toBe("BetterAuthInitializationError");
+		expect(failure).toMatchObject({ _tag: "BetterAuthInitializationError" });
 		expect(failure.cause).toBeInstanceOf(Error);
 
 		if (!(failure.cause instanceof Error)) {
