@@ -1,35 +1,59 @@
 # Grove schema changes
 
-`src/lib/server/db/tables.ts` is the canonical effect-qb schema for runtime queries
-and effect-db migration generation. Actor queries derive timestamp-free projections
-from those same field definitions because effect-qb 0.24.1's public set operators
-accept only portable sources. They do not maintain separate column definitions.
+`src/lib/server/db/tables.ts` is the canonical Drizzle pg-core schema. Both
+`drizzle-orm` and `drizzle-kit` use the matching npm preview
+`1.0.0-rc.5-5935859` from upstream PR #5966. Domain timestamps remain strings and
+int8 identities use native `bigint({ mode: "string" })` for lossless, JSON-safe
+strings. The application driver normalizes Effect PgClient's int8 bigint values
+to strings through Drizzle's codec configuration; Better Auth timestamps use
+Date-mode driver codecs. Effect PgClient owns
+connections and transactions, including migration execution. The preview's
+Effect driver declarations need the upstream stable Effect SQL import compatibility
+patch; that type-only patch does not change runtime behavior, schema metadata or
+completed SQL. Kit resolves the same ORM preview through a pnpm package extension.
 
-From `apps/grove`, with `DATABASE_URL` pointing to a disposable PostgreSQL database:
+From `apps/grove`, with `DATABASE_URL` set:
 
-1. Run `pnpm migrate` to establish the completed migration history.
+1. Run `pnpm exec node migrations/runner.ts up` (also `pnpm migrate`) to establish
+   or adopt the completed migration history. Existing databases are NOT recreated.
 2. Change the canonical table definitions.
-3. Run `pnpm exec effectdb push --dry-run` to inspect the schema diff, then
-   `pnpm exec effectdb migrate generate --name <change>`. Add `--allow-destructive`
-   only after reviewing the proposed destructive changes.
-4. Review the generated SQL before applying it. Tweaks such as replacing a generated
-   drop/add pair with a data-preserving rename belong at this stage. Review rollback
-   behavior too; do not invent values for discarded data.
+3. Run `pnpm exec drizzle-kit generate --name <change>`. The checked-in
+   `generated/20261009055447_adoption/snapshot.json` adopts the current 23-table
+   schema in the RC's version-8 snapshot format; its no-op `migration.sql` is
+   metadata staging only, not an executable baseline. This RC uses timestamped
+   directories containing `snapshot.json` and `migration.sql`, not a meta journal.
+   Generation with unchanged definitions must report no schema changes.
+4. Review the staged SQL in `generated/`, then copy the forward SQL into the next
+   root migration (`0005_<change>.sql` initially), with `-- effect-db:up` and a
+   reviewed `-- effect-db:down` section. Retain generated snapshot directories for
+   the next diff, but only root numbered SQL files are executable history.
+   Preserve data with renames/backfills rather than generated drop/add pairs.
+   Add seed changes, triggers and deferrability explicitly: Drizzle metadata does
+   not represent these. Never use `drizzle-kit push` or its migrator on Grove.
 5. Run `pnpm migrate`, then `pnpm test` and `pnpm check`.
 
-The initial migration is a fresh baseline generated with effect-db, replacing the
-unused prerelease history before any deployment. Existing disposable databases need
-to be recreated; there is no compatibility migration. Once this baseline is adopted,
-completed migrations are immutable: generate a forward migration rather than editing history.
+Completed migrations 0001..0004 remain byte-for-byte immutable. The runner retains
+`effect_qb_migrations` (ids, names, SHA-256 checksums and applied timestamps), checks
+existing checksums and fills legacy null checksums without rerunning SQL. There is
+no separate Drizzle execution ledger. Every command holds a transaction-scoped advisory
+lock and applies/rolls back SQL and ledger changes atomically. For a reviewed
+downgrade use `pnpm exec node migrations/runner.ts down <steps>`; provenance guards
+can refuse a downgrade without discarding data.
 
 The generated baseline was reviewed to create and drop tables in foreign-key
 dependency order, retain the public schema and CLI migration ledger on rollback,
 and add the required Home Host and example-fern seed data. These are reviewed SQL
 tweaks, not a custom generator or dependency patch.
 
-The migration test exercises the upstream CLI's fresh install, repeat install,
-rollback, and reinstall, and requires an empty effect-db schema diff across all
-twenty-three tables, including constraints, indexes, defaults, and foreign keys.
+The migration test exercises the runner's fresh install, repeat install, rollback,
+reinstall and failed procedural SQL. It compares PostgreSQL-normalized catalogs
+against a disposable reference schema generated from Drizzle across all 23 tables:
+columns, identities, defaults, constraints, indexes and foreign keys. The outbox
+deferred FK is supplied as reviewed SQL in the reference, and domain trigger
+behavior is checked separately. No reference schema is applied to a real database.
+The installed RC's `foreignKey` declarations still expose only update/delete
+actions, not deferrability, so this reference adjustment remains necessary.
+Catalog generation uses `drizzle-kit/api-postgres` and awaits `generateDrizzleJson`.
 
 `0002_objects.sql` is the working `project.create` slice: Objects, append-only
 Versions, the Project facet, principal-bound command receipts, and one atomic

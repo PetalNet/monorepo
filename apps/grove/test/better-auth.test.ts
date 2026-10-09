@@ -1,18 +1,21 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import type { EffectQbAdapterRuntime } from "@petalnet/better-auth-effect-qb-adapter";
 import { APIError } from "better-auth/api";
+import type { PgRemoteDatabase } from "drizzle-orm/pg-proxy";
 import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
 import { expect, it, vi } from "vitest";
 
 import { GroveBetterAuthLayer } from "../src/lib/server/auth";
 import { BetterAuth, BetterAuthApiError, BetterAuthLayer } from "../src/lib/server/better-auth";
+import { users } from "../src/lib/server/db/tables";
 
 const endpoint = vi.hoisted(() => vi.fn());
-const adapter = vi.hoisted(() => ({ runner: undefined as EffectQbAdapterRuntime | undefined }));
+const adapter = vi.hoisted(() => ({
+	database: undefined as Pick<PgRemoteDatabase, "select"> | undefined,
+}));
 
-vi.mock("@petalnet/better-auth-effect-qb-adapter", () => ({
-	createEffectQbAdapter: (runner: EffectQbAdapterRuntime) => {
-		adapter.runner = runner;
+vi.mock("better-auth/adapters/drizzle", () => ({
+	drizzleAdapter: (database: Pick<PgRemoteDatabase, "select">) => {
+		adapter.database = database;
 
 		return undefined;
 	},
@@ -87,10 +90,24 @@ it("keeps unexpected endpoint rejections as defects", async () => {
 });
 
 it("interrupts adapter callbacks on auth disposal without releasing the borrowed database", async () => {
-	const database = {} as PgClient.PgClient;
 	let databaseClosed = false;
 	let callbackStopped = false;
 	const started = Promise.withResolvers<undefined>();
+	const database = {
+		unsafe: () => ({
+			values: Effect.gen(function* () {
+				started.resolve(undefined);
+
+				return yield* Effect.never;
+			}).pipe(
+				Effect.ensuring(
+					Effect.sync(() => {
+						callbackStopped = true;
+					}),
+				),
+			),
+		}),
+	} as unknown as PgClient.PgClient;
 	const parent = ManagedRuntime.make(
 		Layer.effect(
 			PgClient.PgClient,
@@ -113,30 +130,13 @@ it("interrupts adapter callbacks on auth disposal without releasing the borrowed
 
 	try {
 		const service = await runtime.runPromise(BetterAuth);
-		const runner = adapter.runner;
+		const db = adapter.database;
 
-		if (!runner) {
-			throw new TypeError("Expected an adapter runner");
+		if (!db) {
+			throw new TypeError("Expected an adapter database");
 		}
 
-		endpoint.mockImplementationOnce(() =>
-			runner.runPromise(
-				Effect.gen(function* () {
-					const borrowed = yield* PgClient.PgClient;
-
-					expect(borrowed).toBe(database);
-					started.resolve(undefined);
-
-					return yield* Effect.never;
-				}).pipe(
-					Effect.ensuring(
-						Effect.sync(() => {
-							callbackStopped = true;
-						}),
-					),
-				),
-			),
-		);
+		endpoint.mockImplementationOnce(() => db.select().from(users).execute());
 
 		const pending = Effect.runPromiseExit(service.getSession(new Headers()));
 

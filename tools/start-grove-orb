@@ -143,5 +143,5 @@ export GROVE_BROWSER_LOG_PATH="$root/.amp/in/grove-browser.log"
 export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=${grove_origin#*://}
 
 cd apps/grove
-timeout --kill-after=5s 60s pnpm exec effectdb migrate up
+timeout --kill-after=5s 60s pnpm migrate
 exec pnpm exec vite dev --host 0.0.0.0 --port "$PORT"

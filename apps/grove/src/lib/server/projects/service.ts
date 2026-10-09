@@ -1,8 +1,8 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { and, eq, ne, isNull, isNotNull, sql as querySql } from "drizzle-orm";
+import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { alias } from "drizzle-orm/pg-core";
 import { Context, Data, Effect, Layer, Match, Schema } from "effect";
-import { Cast, Fragment, Query, Table, Type } from "effect-qb";
-import * as Pg from "effect-qb/postgres";
-import * as SqlClient from "effect/sql/SqlClient";
 import type { SqlError } from "effect/sql/SqlError";
 
 import type {
@@ -29,6 +29,7 @@ import type {
 	LibraryVersion,
 } from "../../projects/schema";
 import { ActorAuthority, ActorDenied, type AuthorityError } from "../actors/authority";
+import { makeDatabase } from "../db/client";
 import {
 	grove_objects as objects,
 	grove_object_versions as versions,
@@ -45,16 +46,8 @@ import {
 import { InvocationContext } from "../invocation";
 import { canonicalDigest } from "./canonical";
 
-const Q = { ...Query, ...Pg.Query };
 const responseSchema = Schema.Record(Schema.String, Schema.Unknown);
 const nullableMetadata = Schema.decodeUnknownSync(Schema.NullOr(Schema.String));
-// 0.24.1 propagates anti-join IS NULL refinements to unrelated projections.
-// Keep that unsupported refinement opaque while retaining typed column interpolation.
-const antiJoinAbsent = Fragment.expression({
-	dbType: Type.boolean(),
-	schema: Schema.Boolean,
-	nullability: "never",
-});
 
 export class CommandConflict extends Data.TaggedError("CommandConflict")<{
 	readonly message: string;
@@ -70,12 +63,7 @@ export class ProjectDatabaseError extends Data.TaggedError("ProjectDatabaseError
 	}
 }
 export type ProjectError = AuthorityError | CommandConflict | FenceConflict | ProjectDatabaseError;
-type PersistenceError =
-	| ProjectError
-	| SqlError
-	| Schema.SchemaError
-	| Pg.Executor.PostgresExecutorError
-	| Pg.Errors.PostgresQueryRequirementsError;
+type PersistenceError = ProjectError | SqlError | EffectDrizzleQueryError | Schema.SchemaError;
 type RequestEffect<A> = Effect.Effect<A, ProjectError, InvocationContext>;
 export interface ProjectServiceShape {
 	readonly create: (input: ProjectCreate) => RequestEffect<ProjectCreateReceipt>;
@@ -139,12 +127,9 @@ export const ProjectServiceLayer = Layer.effect(
 	ProjectService,
 	Effect.gen(function* () {
 		const sql = yield* PgClient.PgClient;
-		// Raw SQL below is restricted to PostgreSQL advisory locks, live-clock
-		// lease operations, unsupported FOR UPDATE OF targets, and the substantial
-		// JSON/full-text library projections. Ordinary persistence uses canonical Q plans.
-		const executor = Pg.Executor.make();
-		const run = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
-			effect.pipe(Effect.provideService(SqlClient.SqlClient, sql));
+		const db = yield* makeDatabase(sql);
+		const run = <A>(query: { readonly execute: () => Effect.Effect<A, EffectDrizzleQueryError> }) =>
+			query.execute();
 		const authority = yield* ActorAuthority;
 		const authorize = (operation: string) =>
 			Effect.flatMap(InvocationContext, ({ principal }) =>
@@ -175,20 +160,16 @@ export const ProjectServiceLayer = Layer.effect(
 						yield* sql.unsafe("select pg_advisory_xact_lock(hashtextextended($1, 0))", [commandId]);
 
 						const rows = yield* run(
-							executor.execute(
-								Q.select({
+							db
+								.select({
 									operation: receipts.operation,
 									principal_id: receipts.principal_id,
 									principal_kind: receipts.principal_kind,
 									input_hash: receipts.input_hash,
 									response: receipts.response,
-								}).pipe(
-									Q.from(receipts),
-									Q.where(
-										Q.eq(receipts.command_id, Q.literal(commandId).pipe(Cast.to(Type.uuid()))),
-									),
-								),
-							),
+								})
+								.from(receipts)
+								.where(eq(receipts.command_id, commandId)),
 						);
 
 						if (rows[0]) {
@@ -219,21 +200,19 @@ export const ProjectServiceLayer = Layer.effect(
 						const metadata = result as Record<string, unknown>;
 
 						yield* run(
-							executor.execute(
-								Q.insert(receipts, {
-									command_id: commandId,
-									operation,
-									principal_id: principal.id,
-									principal_kind: principal.kind,
-									input_hash: hash,
-									object_id: nullableMetadata(
-										metadata.objectId ?? metadata.projectId ?? metadata.taskId ?? null,
-									),
-									version_id: nullableMetadata(metadata.versionId ?? null),
-									version_digest: nullableMetadata(metadata.versionDigest ?? null),
-									response: result,
-								}),
-							),
+							db.insert(receipts).values({
+								command_id: commandId,
+								operation,
+								principal_id: principal.id,
+								principal_kind: principal.kind,
+								input_hash: hash,
+								object_id: nullableMetadata(
+									metadata.objectId ?? metadata.projectId ?? metadata.taskId ?? null,
+								),
+								version_id: nullableMetadata(metadata.versionId ?? null),
+								version_digest: nullableMetadata(metadata.versionDigest ?? null),
+								response: result,
+							}),
 						);
 
 						return result;
@@ -285,34 +264,25 @@ export const ProjectServiceLayer = Layer.effect(
 			payload: unknown,
 		) =>
 			run(
-				executor.execute(
-					Q.insert(outbox, {
-						id: crypto.randomUUID(),
-						command_id: commandId,
-						version_id: versionId,
-						event_type: type,
-						aggregate_id: aggregateId,
-						payload,
-					}),
-				),
+				db.insert(outbox).values({
+					id: crypto.randomUUID(),
+					command_id: commandId,
+					version_id: versionId,
+					event_type: type,
+					aggregate_id: aggregateId,
+					payload,
+				}),
 			);
 		const pointVersion = (objectId: string, versionId: string) =>
 			run(
-				executor.execute(
-					Q.update(objects, { current_version_id: versionId }).pipe(
-						Q.where(Q.eq(objects.id, objectId)),
-					),
-				),
+				db.update(objects).set({ current_version_id: versionId }).where(eq(objects.id, objectId)),
 			);
 		const fenceAttempt = (attemptId: string) =>
 			run(
-				executor.execute(
-					Q.update(attemptsTable, { status: "fenced" }).pipe(
-						Q.where(
-							Q.and(Q.eq(attemptsTable.id, attemptId), Q.eq(attemptsTable.status, "running")),
-						),
-					),
-				),
+				db
+					.update(attemptsTable)
+					.set({ status: "fenced" })
+					.where(and(eq(attemptsTable.id, attemptId), eq(attemptsTable.status, "running"))),
 			);
 		const insertVersion = (
 			id: string,
@@ -323,32 +293,32 @@ export const ProjectServiceLayer = Layer.effect(
 			parentVersionId: string | null = null,
 		) =>
 			run(
-				executor.execute(
-					Q.insert(versions, {
-						id,
-						object_id: objectId,
-						payload,
-						digest,
-						actor_id: principal.id,
-						actor_kind: principal.kind,
-						parent_version_id: parentVersionId,
-					}),
-				),
+				db.insert(versions).values({
+					id,
+					object_id: objectId,
+					payload,
+					digest,
+					actor_id: principal.id,
+					actor_kind: principal.kind,
+					parent_version_id: parentVersionId,
+				}),
 			);
 		const validateClaim = (claimId: string, fence: string, principal: Principal) =>
 			Effect.gen(function* () {
 				const rows = yield* run(
-					executor.execute(
-						Q.select({
+					db
+						.select({
 							attempt_id: claims.attempt_id,
 							task_id: claims.task_id,
-							expires_at: claims.expires_at.pipe(Cast.to(Type.text())),
+							expires_at: querySql<string>`${claims.expires_at}::text`,
 							status: claims.status,
 							fence: claims.fence,
 							holder_id: claims.holder_id,
 							holder_kind: claims.holder_kind,
-						}).pipe(Q.from(claims), Q.where(Q.eq(claims.id, claimId)), Q.lock("update")),
-					),
+						})
+						.from(claims)
+						.where(eq(claims.id, claimId))
+						.for("update"),
 				);
 				const claim = rows.at(0);
 
@@ -357,18 +327,13 @@ export const ProjectServiceLayer = Layer.effect(
 				}
 
 				const attempts = yield* run(
-					executor.execute(
-						Q.select({ task_version_id: attemptsTable.task_version_id }).pipe(
-							Q.from(attemptsTable),
-							Q.where(
-								Q.and(
-									Q.eq(attemptsTable.id, claim.attempt_id),
-									Q.eq(attemptsTable.task_id, claim.task_id),
-								),
-							),
-							Q.lock("update"),
-						),
-					),
+					db
+						.select({ task_version_id: attemptsTable.task_version_id })
+						.from(attemptsTable)
+						.where(
+							and(eq(attemptsTable.id, claim.attempt_id), eq(attemptsTable.task_id, claim.task_id)),
+						)
+						.for("update"),
 				);
 				const lockedClaim = { ...claim, task_version_id: attempts[0].task_version_id };
 				// Live PostgreSQL time, not the transaction-start timestamp.
@@ -378,11 +343,7 @@ export const ProjectServiceLayer = Layer.effect(
 				);
 
 				if (claim.status === "leased" && liveTime[0].expired) {
-					yield* run(
-						executor.execute(
-							Q.update(claims, { status: "expired" }).pipe(Q.where(Q.eq(claims.id, claimId))),
-						),
-					);
+					yield* run(db.update(claims).set({ status: "expired" }).where(eq(claims.id, claimId)));
 
 					yield* fenceAttempt(claim.attempt_id);
 
@@ -436,18 +397,16 @@ export const ProjectServiceLayer = Layer.effect(
 									const digest = yield* canonicalDigest(payload);
 
 									yield* run(
-										executor.execute(
-											Q.insert(objects, { id: objectId, kind: "task", scope: input.scope }),
-										),
+										db.insert(objects).values({ id: objectId, kind: "task", scope: input.scope }),
 									);
 
 									yield* insertVersion(versionId, objectId, payload, digest, principal);
 									yield* pointVersion(objectId, versionId);
 
 									yield* run(
-										executor.execute(
-											Q.insert(tasks, { object_id: objectId, role: "project", status: "planning" }),
-										),
+										db
+											.insert(tasks)
+											.values({ object_id: objectId, role: "project", status: "planning" }),
 									);
 
 									const result = {
@@ -504,25 +463,23 @@ export const ProjectServiceLayer = Layer.effect(
 								}
 
 								const projects = yield* run(
-									executor.execute(
-										Q.select({
+									db
+										.select({
 											current_version_id: objects.current_version_id,
 											scope: objects.scope,
 											payload: versions.payload,
-										}).pipe(
-											Q.from(objects),
-											Q.innerJoin(tasks, Q.eq(tasks.object_id, objects.id)),
-											Q.innerJoin(versions, Q.eq(versions.id, objects.current_version_id)),
-											Q.where(
-												Q.and(
-													Q.eq(objects.id, input.projectId),
-													Q.eq(tasks.role, "project"),
-													Q.eq(tasks.status, "planning"),
-												),
+										})
+										.from(objects)
+										.innerJoin(tasks, eq(tasks.object_id, objects.id))
+										.innerJoin(versions, eq(versions.id, objects.current_version_id))
+										.where(
+											and(
+												eq(objects.id, input.projectId),
+												eq(tasks.role, "project"),
+												eq(tasks.status, "planning"),
 											),
-											Q.lock("update"),
-										),
-									),
+										)
+										.for("update"),
 								);
 
 								if (projects[0]?.current_version_id !== input.expectedVersionId) {
@@ -546,9 +503,7 @@ export const ProjectServiceLayer = Layer.effect(
 									taskIdMap.set(task.key, id);
 
 									yield* run(
-										executor.execute(
-											Q.insert(objects, { id, kind: "task", scope: projects[0].scope }),
-										),
+										db.insert(objects).values({ id, kind: "task", scope: projects[0].scope }),
 									);
 
 									yield* insertVersion(
@@ -562,14 +517,12 @@ export const ProjectServiceLayer = Layer.effect(
 									yield* pointVersion(id, version);
 
 									yield* run(
-										executor.execute(
-											Q.insert(tasks, {
-												object_id: id,
-												role: "work",
-												status: "planned",
-												parent_task_id: input.projectId,
-											}),
-										),
+										db.insert(tasks).values({
+											object_id: id,
+											role: "work",
+											status: "planned",
+											parent_task_id: input.projectId,
+										}),
 									);
 
 									yield* event(commandId, "task.created", id, version, {
@@ -590,12 +543,10 @@ export const ProjectServiceLayer = Layer.effect(
 
 								for (const edge of input.dependencies) {
 									yield* run(
-										executor.execute(
-											Q.insert(dependencies, {
-												task_id: taskIdsFor(edge.task),
-												depends_on_task_id: taskIdsFor(edge.dependsOn),
-											}),
-										),
+										db.insert(dependencies).values({
+											task_id: taskIdsFor(edge.task),
+											depends_on_task_id: taskIdsFor(edge.dependsOn),
+										}),
 									);
 								}
 
@@ -621,11 +572,10 @@ export const ProjectServiceLayer = Layer.effect(
 								yield* pointVersion(input.projectId, versionId);
 
 								yield* run(
-									executor.execute(
-										Q.update(tasks, { status: "planned" }).pipe(
-											Q.where(Q.eq(tasks.object_id, input.projectId)),
-										),
-									),
+									db
+										.update(tasks)
+										.set({ status: "planned" })
+										.where(eq(tasks.object_id, input.projectId)),
 								);
 
 								const result = {
@@ -660,49 +610,44 @@ export const ProjectServiceLayer = Layer.effect(
 									[input.taskId],
 								);
 
-								const dependencyTask = Table.alias(tasks, "dependency_task");
-								// Anti-joins avoid 0.24.1's portable-only EXISTS contract without
-								// duplicating canonical PostgreSQL table definitions.
-								const blocked = Q.as(
-									Q.select({ task_id: dependencies.task_id }).pipe(
-										Q.from(dependencies),
-										Q.innerJoin(
-											dependencyTask,
-											Q.eq(dependencyTask.object_id, dependencies.depends_on_task_id),
-										),
-										Q.where(Q.neq(dependencyTask.status, "completed")),
-									),
-									"blocked",
-								);
+								const dependencyTask = alias(tasks, "dependency_task");
+								// Anti-joins exclude blocked Tasks, live leases, and accepted Attempts.
+								const blocked = db
+									.select({ task_id: dependencies.task_id })
+									.from(dependencies)
+									.innerJoin(
+										dependencyTask,
+										eq(dependencyTask.object_id, dependencies.depends_on_task_id),
+									)
+									.where(ne(dependencyTask.status, "completed"))
+									.as("blocked");
 								const ready = yield* run(
-									executor.execute(
-										Q.select({ version_id: versions.id }).pipe(
-											Q.from(versions),
-											Q.innerJoin(objects, Q.eq(versions.id, objects.current_version_id)),
-											Q.innerJoin(tasks, Q.eq(objects.id, tasks.object_id)),
-											Q.leftJoin(blocked, Q.eq(blocked.task_id, tasks.object_id)),
-											Q.leftJoin(
-												claims,
-												Q.and(Q.eq(claims.task_id, tasks.object_id), Q.eq(claims.status, "leased")),
+									db
+										.select({ version_id: versions.id })
+										.from(versions)
+										.innerJoin(objects, eq(versions.id, objects.current_version_id))
+										.innerJoin(tasks, eq(objects.id, tasks.object_id))
+										.leftJoin(blocked, eq(blocked.task_id, tasks.object_id))
+										.leftJoin(
+											claims,
+											and(eq(claims.task_id, tasks.object_id), eq(claims.status, "leased")),
+										)
+										.leftJoin(
+											attemptsTable,
+											and(
+												eq(attemptsTable.task_id, tasks.object_id),
+												eq(attemptsTable.status, "accepted"),
 											),
-											Q.leftJoin(
-												attemptsTable,
-												Q.and(
-													Q.eq(attemptsTable.task_id, tasks.object_id),
-													Q.eq(attemptsTable.status, "accepted"),
-												),
-											),
-											Q.where(
-												Q.and(
-													Q.eq(tasks.object_id, input.taskId),
-													Q.eq(tasks.role, "work"),
-													Q.isNotNull(tasks.parent_task_id),
-													Q.eq(tasks.status, "planned"),
-													antiJoinAbsent`${blocked.task_id} is null and ${claims.id} is null and ${attemptsTable.id} is null`,
-												),
+										)
+										.where(
+											and(
+												eq(tasks.object_id, input.taskId),
+												eq(tasks.role, "work"),
+												isNotNull(tasks.parent_task_id),
+												eq(tasks.status, "planned"),
+												and(isNull(blocked.task_id), isNull(claims.id), isNull(attemptsTable.id)),
 											),
 										),
-									),
 								);
 
 								// Expiry reconciliation remains committed even when readiness
@@ -720,16 +665,14 @@ export const ProjectServiceLayer = Layer.effect(
 										.toBase64({ alphabet: "base64url", omitPadding: true });
 
 								yield* run(
-									executor.execute(
-										Q.insert(attemptsTable, {
-											id: attemptId,
-											task_id: input.taskId,
-											task_version_id: ready[0].version_id,
-											status: "running",
-											executor_id: principal.id,
-											executor_kind: principal.kind,
-										}),
-									),
+									db.insert(attemptsTable).values({
+										id: attemptId,
+										task_id: input.taskId,
+										task_version_id: ready[0].version_id,
+										status: "running",
+										executor_id: principal.id,
+										executor_kind: principal.kind,
+									}),
 								);
 
 								// Materialize one live instant for both lease endpoints.
@@ -862,7 +805,7 @@ export const ProjectServiceLayer = Layer.effect(
 									});
 								}
 
-								// effect-qb 0.24.1 cannot express the FOR UPDATE OF lock targets.
+								// Explicit lock targets preserve the publication lifecycle lock order.
 								const attempts = yield* sql.unsafe<{ status: string; has_output: boolean }>(
 									"select a.status,exists(select 1 from grove_attempt_outputs x where x.attempt_id=a.id) has_output from grove_attempts a join grove_tasks t on t.object_id=a.task_id and t.role='work' and t.status='planned' where a.id=$1 and a.task_id=$2 for update of a,t",
 									[input.attemptId, claim.task_id],
@@ -882,12 +825,10 @@ export const ProjectServiceLayer = Layer.effect(
 								}
 
 								const scope = yield* run(
-									executor.execute(
-										Q.select({ scope: objects.scope }).pipe(
-											Q.from(objects),
-											Q.where(Q.eq(objects.id, claim.task_id)),
-										),
-									),
+									db
+										.select({ scope: objects.scope })
+										.from(objects)
+										.where(eq(objects.id, claim.task_id)),
 								);
 								const objectId = crypto.randomUUID(),
 									versionId = crypto.randomUUID();
@@ -901,32 +842,31 @@ export const ProjectServiceLayer = Layer.effect(
 								const digest = yield* canonicalDigest(payload);
 
 								yield* run(
-									executor.execute(
-										Q.insert(objects, { id: objectId, kind: "artifact", scope: scope[0].scope }),
-									),
+									db
+										.insert(objects)
+										.values({ id: objectId, kind: "artifact", scope: scope[0].scope }),
 								);
 
 								yield* insertVersion(versionId, objectId, payload, digest, principal);
 								yield* pointVersion(objectId, versionId);
 
 								yield* run(
-									executor.execute(
-										Q.insert(outputs, {
-											attempt_id: input.attemptId,
-											task_id: claim.task_id,
-											object_id: objectId,
-											version_id: versionId,
-										}),
-									),
+									db.insert(outputs).values({
+										attempt_id: input.attemptId,
+										task_id: claim.task_id,
+										object_id: objectId,
+										version_id: versionId,
+									}),
 								);
 
 								yield* run(
-									executor.execute(
-										Q.update(attemptsTable, {
+									db
+										.update(attemptsTable)
+										.set({
 											status: "result_submitted",
-											result_submitted_at: Pg.Function.now(),
-										}).pipe(Q.where(Q.eq(attemptsTable.id, input.attemptId))),
-									),
+											result_submitted_at: querySql`now()`,
+										})
+										.where(eq(attemptsTable.id, input.attemptId)),
 								);
 
 								const result = {
@@ -959,18 +899,13 @@ export const ProjectServiceLayer = Layer.effect(
 
 								// Claim -> Attempt/output/artifact is the lifecycle row-lock order.
 								yield* run(
-									executor.execute(
-										Q.select({ id: claims.id }).pipe(
-											Q.from(claims),
-											Q.where(
-												Q.and(
-													Q.eq(claims.attempt_id, input.attemptId),
-													Q.eq(claims.task_id, input.taskId),
-												),
-											),
-											Q.lock("update"),
-										),
-									),
+									db
+										.select({ id: claims.id })
+										.from(claims)
+										.where(
+											and(eq(claims.attempt_id, input.attemptId), eq(claims.task_id, input.taskId)),
+										)
+										.for("update"),
 								);
 
 								// Explicit FOR UPDATE OF targets preserve lifecycle lock ordering.
@@ -1006,20 +941,18 @@ export const ProjectServiceLayer = Layer.effect(
 								}
 
 								const executors = yield* run(
-									executor.execute(
-										Q.select({
+									db
+										.select({
 											executor_id: attemptsTable.executor_id,
 											executor_kind: attemptsTable.executor_kind,
-										}).pipe(
-											Q.from(attemptsTable),
-											Q.where(
-												Q.and(
-													Q.eq(attemptsTable.id, input.attemptId),
-													Q.eq(attemptsTable.task_id, input.taskId),
-												),
+										})
+										.from(attemptsTable)
+										.where(
+											and(
+												eq(attemptsTable.id, input.attemptId),
+												eq(attemptsTable.task_id, input.taskId),
 											),
 										),
-									),
 								);
 
 								if (
@@ -1046,37 +979,34 @@ export const ProjectServiceLayer = Layer.effect(
 								const digest = yield* canonicalDigest(payload);
 
 								yield* run(
-									executor.execute(
-										Q.insert(objects, { id: reviewId, kind: "review", scope: target.scope }),
-									),
+									db.insert(objects).values({ id: reviewId, kind: "review", scope: target.scope }),
 								);
 
 								yield* insertVersion(reviewVersionId, reviewId, payload, digest, principal);
 								yield* pointVersion(reviewId, reviewVersionId);
 
 								yield* run(
-									executor.execute(
-										Q.insert(reviews, {
-											object_id: reviewId,
-											version_id: reviewVersionId,
-											reviewer_id: principal.id,
-											reviewer_kind: principal.kind,
-											subject_object_id: input.objectId,
-											subject_version_id: input.versionId,
-											attempt_id: input.attemptId,
-											task_id: input.taskId,
-											outcome: input.outcome,
-											comments: input.comments ?? null,
-										}),
-									),
+									db.insert(reviews).values({
+										object_id: reviewId,
+										version_id: reviewVersionId,
+										reviewer_id: principal.id,
+										reviewer_kind: principal.kind,
+										subject_object_id: input.objectId,
+										subject_version_id: input.versionId,
+										attempt_id: input.attemptId,
+										task_id: input.taskId,
+										outcome: input.outcome,
+										comments: input.comments ?? null,
+									}),
 								);
 
 								yield* run(
-									executor.execute(
-										Q.update(attemptsTable, {
+									db
+										.update(attemptsTable)
+										.set({
 											status: input.outcome === "accepted" ? "accepted" : "review_rejected",
-										}).pipe(Q.where(Q.eq(attemptsTable.id, input.attemptId))),
-									),
+										})
+										.where(eq(attemptsTable.id, input.attemptId)),
 								);
 
 								// One materialized live instant determines expiry versus release.
@@ -1118,7 +1048,7 @@ export const ProjectServiceLayer = Layer.effect(
 									input.taskId,
 								]);
 
-								// Unsupported FOR UPDATE OF: lock the accepted Attempt's Claim
+								// Lock the accepted Attempt's Claim with an explicit FOR UPDATE OF
 								// before any Attempt/output/object row.
 								yield* sql.unsafe(
 									"select c.id from grove_claims c join grove_attempts a on a.id=c.attempt_id and a.task_id=c.task_id where c.task_id=$1 and a.status='accepted' for update of c",
@@ -1191,28 +1121,25 @@ export const ProjectServiceLayer = Layer.effect(
 								);
 
 								yield* run(
-									executor.execute(
-										Q.insert(completions, {
-											completion_version_id: versionId,
-											task_id: input.taskId,
-											task_version_id: input.expectedVersionId,
-											attempt_id: task.attempt_id,
-											output_object_id: task.output_object_id,
-											output_version_id: task.output_version_id,
-											review_object_id: task.review_id,
-											review_version_id: task.review_version_id,
-										}),
-									),
+									db.insert(completions).values({
+										completion_version_id: versionId,
+										task_id: input.taskId,
+										task_version_id: input.expectedVersionId,
+										attempt_id: task.attempt_id,
+										output_object_id: task.output_object_id,
+										output_version_id: task.output_version_id,
+										review_object_id: task.review_id,
+										review_version_id: task.review_version_id,
+									}),
 								);
 
 								yield* pointVersion(input.taskId, versionId);
 
 								yield* run(
-									executor.execute(
-										Q.update(tasks, { status: "completed" }).pipe(
-											Q.where(Q.eq(tasks.object_id, input.taskId)),
-										),
-									),
+									db
+										.update(tasks)
+										.set({ status: "completed" })
+										.where(eq(tasks.object_id, input.taskId)),
 								);
 
 								const result = {

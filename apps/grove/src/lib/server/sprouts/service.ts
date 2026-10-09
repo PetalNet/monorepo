@@ -1,8 +1,7 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { and, eq } from "drizzle-orm";
+import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
-import { Query, type Scalar } from "effect-qb";
-import * as Pg from "effect-qb/postgres";
-import * as SqlClient from "effect/sql/SqlClient";
 
 import {
 	Counter,
@@ -17,6 +16,7 @@ import {
 	type ActorPrincipal,
 	type AuthorityError,
 } from "../actors/authority";
+import { makeDatabase } from "../db/client";
 import { sprouts } from "../db/tables";
 import { InvocationContext } from "../invocation";
 
@@ -66,10 +66,10 @@ export const SproutCommandsBuildLayer = Layer.succeed(SproutCommands, {
 });
 
 interface SproutRow {
-	readonly id: Scalar.BigIntString;
+	readonly id: string;
 	readonly name: string;
-	readonly planted_at: Scalar.InstantString;
-	readonly waterings: Counter;
+	readonly planted_at: string;
+	readonly waterings: number;
 	readonly created_by_actor_id: string | null;
 	readonly last_actor_id: string | null;
 }
@@ -89,18 +89,18 @@ const fromRow = (row: SproutRow): Sprout => ({
 	id: `sprout-${row.id}`,
 	name: row.name,
 	plantedAt: row.planted_at,
-	waterings: row.waterings,
+	waterings: Schema.decodeSync(Counter)(row.waterings),
 	createdByActorId: row.created_by_actor_id,
 	lastActorId: row.last_actor_id,
 });
 
-const databaseId = (id: SproutIdValue): Effect.Effect<Scalar.BigIntString, SproutNotFound> =>
+const databaseId = (id: SproutIdValue): Effect.Effect<string, SproutNotFound> =>
 	Schema.decodeEffect(ParsedSproutId)(id).pipe(
 		Effect.map(([, value]) => value),
 		Effect.mapError(() => new SproutNotFound({ id })),
 	);
 
-const hasId = (id: Scalar.BigIntString) => Query.eq(sprouts.id, Query.cast(id, Pg.Type.int8()));
+const hasId = (id: string) => eq(sprouts.id, id);
 
 const database = <A, E>(effect: Effect.Effect<A, E>) =>
 	effect.pipe(Effect.mapError((cause) => new SproutDatabaseError({ cause })));
@@ -110,25 +110,18 @@ export const SproutCommandsLayer = Layer.effect(
 	Effect.gen(function* () {
 		const sql = yield* PgClient.PgClient;
 		const authority = yield* ActorAuthority;
-		const executor = Pg.Executor.make();
-		const execute = <Rows, E>(effect: Effect.Effect<Rows, E, SqlClient.SqlClient>) =>
-			effect.pipe(Effect.provideService(SqlClient.SqlClient, sql));
+		const db = yield* makeDatabase(sql);
+		const execute = <A>(query: {
+			readonly execute: () => Effect.Effect<A, EffectDrizzleQueryError>;
+		}) => query.execute();
 		const list = database(
-			execute(
-				executor.execute(
-					Query.select(sproutSelection).pipe(Query.from(sprouts), Query.orderBy(sprouts.id)),
-				),
-			),
+			execute(db.select(sproutSelection).from(sprouts).orderBy(sprouts.id)),
 		).pipe(Effect.map((rows) => rows.map(fromRow)));
 		const get = (id: SproutIdValue) =>
 			Effect.gen(function* () {
 				const dbId = yield* databaseId(id);
 				const rows = yield* database(
-					execute(
-						executor.execute(
-							Query.select(sproutSelection).pipe(Query.from(sprouts), Query.where(hasId(dbId))),
-						),
-					),
+					execute(db.select(sproutSelection).from(sprouts).where(hasId(dbId))),
 				);
 				const row = rows.at(0);
 
@@ -159,13 +152,14 @@ export const SproutCommandsLayer = Layer.effect(
 				command("sprouts.create", (actor) =>
 					database(
 						execute(
-							executor.execute(
-								Query.insert(sprouts, {
+							db
+								.insert(sprouts)
+								.values({
 									name: input.name,
 									created_by_actor_id: actor.actorId,
 									last_actor_id: actor.actorId,
-								}).pipe(Query.returning(sproutSelection)),
-							),
+								})
+								.returning(sproutSelection),
 						),
 					).pipe(Effect.map((rows) => fromRow(rows[0]))),
 				),
@@ -173,14 +167,11 @@ export const SproutCommandsLayer = Layer.effect(
 				command("sprouts.water", (actor) =>
 					Effect.gen(function* () {
 						const dbId = yield* databaseId(id);
-						const rows = yield* execute(
-							Pg.Executor.withTransaction(
+						const rows = yield* sql
+							.withTransaction(
 								Effect.gen(function* () {
-									const current = yield* executor.execute(
-										Query.select(sproutSelection).pipe(
-											Query.from(sprouts),
-											Query.where(hasId(dbId)),
-										),
+									const current = yield* execute(
+										db.select(sproutSelection).from(sprouts).where(hasId(dbId)),
 									);
 									const row = current.at(0);
 
@@ -190,13 +181,12 @@ export const SproutCommandsLayer = Layer.effect(
 
 									const waterings = yield* Schema.decodeEffect(Counter)(row.waterings + 1);
 
-									const updated = yield* executor.execute(
-										Query.update(sprouts, { waterings, last_actor_id: actor.actorId }).pipe(
-											Query.where(
-												Query.and(hasId(dbId), Query.eq(sprouts.waterings, row.waterings)),
-											),
-											Query.returning(sproutSelection),
-										),
+									const updated = yield* execute(
+										db
+											.update(sprouts)
+											.set({ waterings, last_actor_id: actor.actorId })
+											.where(and(hasId(dbId), eq(sprouts.waterings, row.waterings)))
+											.returning(sproutSelection),
 									);
 
 									if (updated.length > 0) {
@@ -205,15 +195,15 @@ export const SproutCommandsLayer = Layer.effect(
 
 									return yield* new SproutOutOfDate();
 								}),
-							),
-						).pipe(
-							Effect.tapErrorTag("SproutOutOfDate", () => Effect.sleep("10 millis")),
-							Effect.retry({
-								times: 10,
-								while: Predicate.isTagged("SproutOutOfDate"),
-							}),
-							Effect.mapError((cause) => new SproutDatabaseError({ cause })),
-						);
+							)
+							.pipe(
+								Effect.tapErrorTag("SproutOutOfDate", () => Effect.sleep("10 millis")),
+								Effect.retry({
+									times: 10,
+									while: Predicate.isTagged("SproutOutOfDate"),
+								}),
+								Effect.mapError((cause) => new SproutDatabaseError({ cause })),
+							);
 						const row = rows.at(0);
 
 						return row ? fromRow(row) : yield* new SproutNotFound({ id });
@@ -224,14 +214,7 @@ export const SproutCommandsLayer = Layer.effect(
 					Effect.gen(function* () {
 						const dbId = yield* databaseId(id);
 						const rows = yield* database(
-							execute(
-								executor.execute(
-									Query.delete(sprouts).pipe(
-										Query.where(hasId(dbId)),
-										Query.returning({ id: sprouts.id }),
-									),
-								),
-							),
+							execute(db.delete(sprouts).where(hasId(dbId)).returning({ id: sprouts.id })),
 						);
 
 						if (rows.length === 0) {

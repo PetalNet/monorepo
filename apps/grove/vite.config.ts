@@ -52,7 +52,7 @@ export default defineConfig(({ command }) => ({
 		// Preserve light-dark(); its media-query fallback ignores explicit mode overrides.
 		cssTarget: ["chrome123", "firefox120", "safari17.5"],
 		// Better Auth imports this only without a database. Grove always supplies
-		// effect-qb; leave the removed fallback unresolved rather than bundling it.
+		// Drizzle; leave the removed fallback unresolved rather than bundling it.
 		rolldownOptions: { external: ["@better-auth/memory-adapter"] },
 	},
 	server: {

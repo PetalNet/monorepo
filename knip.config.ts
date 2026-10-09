@@ -35,11 +35,9 @@ export default {
 			entry: [
 				"dev-oidc.ts",
 				"src/lib/dev/browser-logs.ts",
-				"effectdb.config.ts!",
-				// effect-db discovers these exported tables from its source glob.
-				"src/lib/server/db/tables.ts!",
 				"src/env.ts!",
 				"test/**/*.ts",
+				"migrations/*.ts!",
 			],
 		},
 		"apps/slide": {

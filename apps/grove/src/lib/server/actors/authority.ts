@@ -1,95 +1,58 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { and, eq, exists, inArray, isNull, not, or, sql } from "drizzle-orm";
+import { alias, unionAll } from "drizzle-orm/pg-core";
 import { Cause, Context, Data, Effect, Layer, Schema } from "effect";
-import { Fragment, Query, Table, Type } from "effect-qb";
-import * as Pg from "effect-qb/postgres";
-import * as SqlClient from "effect/sql/SqlClient";
 
-import {
-	actors as actorWrites,
-	persons,
-	agents,
-	access as accessWrites,
-	actorFields,
-	identityFields,
-	hostFields,
-	capabilityFields,
-	accessFields,
-} from "../db/tables";
+import { makeDatabase } from "../db/client";
+import { actors, persons, agents, access, identities, hosts, capabilities } from "../db/tables";
 
-const Q = { ...Query, ...Pg.Query };
-// effect-qb's public set operators accept portable sources only. These projections
-// reuse the canonical column definitions, rather than maintaining mirrored schemas.
-const withoutTimestamps = <T extends { created_at: unknown; updated_at?: unknown }>(fields: T) => {
-	const { created_at: _createdAt, updated_at: _updatedAt, ...portable } = fields;
+const agentActor = alias(actors, "agent_actor");
+const ownerActor = alias(actors, "owner_actor");
+const personActor = alias(actors, "person_actor");
+const managerActor = alias(actors, "manager_actor");
+const ownerFlag = sql<boolean>`true`.as("is_owner");
+const guestFlag = sql<boolean>`false`.as("is_owner");
 
-	return portable;
-};
-
-const actors = Table.make("grove_actors", withoutTimestamps(actorFields));
-const identities = Table.make("grove_external_identities", withoutTimestamps(identityFields));
-const hosts = Table.make("grove_hosts", withoutTimestamps(hostFields));
-const capabilitiesTable = Table.make(
-	"grove_actor_capabilities",
-	withoutTimestamps(capabilityFields),
-);
-const capabilities = capabilitiesTable.pipe(
-	Table.primaryKey(() => [capabilitiesTable.actor_id, capabilitiesTable.capability] as const),
-);
-const accessTable = Table.make("grove_agent_access", withoutTimestamps(accessFields));
-const access = accessTable.pipe(
-	Table.primaryKey(() => [accessTable.agent_id, accessTable.person_id] as const),
-);
-const agentActor = Table.alias(actors, "agent_actor");
-const ownerActor = Table.alias(actors, "owner_actor");
-const personActor = Table.alias(actors, "person_actor");
-const managerActor = Table.alias(actors, "manager_actor");
-
-// PostgreSQL void functions return an empty string. Function.call in 0.24.1
-// returns Scalar.Any, so use the typed scalar-expression API for these overloads.
-const advisoryLockExpression = Fragment.expression({
-	dbType: Type.text(),
-	schema: Schema.String,
-	nullability: "never",
+const Lifecycle = Schema.Literals(["active", "dormant", "suspended", "retired"]);
+// Drizzle's $type is static only; decode each executed SELECT's required shape.
+const IdentityRow = Schema.Struct({
+	actor_id: Schema.String,
+	kind: Schema.Literals(["person", "agent"]),
+	name: Schema.String,
+	lifecycle: Lifecycle,
+	auth_user_id: Schema.NullOr(Schema.String),
+	identity_use: Schema.Literals(["browser", "machine"]),
+	home_host_id: Schema.NullOr(Schema.String),
+	owner_person_id: Schema.NullOr(Schema.String),
 });
-// Set operands in 0.24.1 require identical expression shapes, not merely identical
-// result types. Reproject through common derived aliases, with explicit scalar
-// contracts so the left join's nullability and both boolean values survive decoding.
-const nullableCapabilityExpression = Fragment.expression({
-	dbType: Type.text(),
-	schema: Schema.NullOr(Schema.String),
-	nullability: "maybe",
+const AgentCurrentRow = Schema.Struct({
+	agent_lifecycle: Lifecycle,
+	owner_lifecycle: Lifecycle,
+	owner_person_id: Schema.String,
+	host_owner_id: Schema.NullOr(Schema.String),
 });
-const booleanExpression = Fragment.expression({
-	dbType: Type.boolean(),
-	schema: Schema.Boolean,
-	nullability: "never",
+const HostOwnerRow = Schema.Struct({ owner_person_id: Schema.NullOr(Schema.String) });
+const HostCurrentRow = Schema.Struct({
+	...HostOwnerRow.fields,
+	owner_lifecycle: Schema.NullOr(Lifecycle),
 });
-const ownerFlag = booleanExpression`true`;
-const guestFlag = booleanExpression`false`;
-
-// effect-qb 0.24.1 models lock strength but not PostgreSQL's OF targets. Extend only
-// that renderer clause; selections, joins, predicates and parameters remain typed plans.
-const executorWithLockTargets = (...targets: readonly string[]) => {
-	const renderer = Pg.Renderer.make();
-
-	return Pg.Executor.make({
-		renderer: {
-			...renderer,
-			render(plan) {
-				const rendered = renderer.render(plan);
-
-				if (!/ for (share|update)$/i.test(rendered.sql)) {
-					throw new Error("Lock targets require a terminal FOR SHARE or FOR UPDATE clause");
-				}
-
-				return {
-					...rendered,
-					sql: `${rendered.sql} OF ${targets.map((name) => `"${name.replaceAll('"', '""')}"`).join(", ")}`,
-				};
-			},
-		},
-	});
-};
+const HomeReadinessRow = Schema.Struct({
+	...HostCurrentRow.fields,
+	configured_owner: Schema.Boolean,
+});
+const ActorIdRow = Schema.Struct({ actor_id: Schema.String });
+const LifecycleRow = Schema.Struct({ lifecycle: Lifecycle });
+const CapabilityRow = Schema.Struct({ capability: Schema.String });
+const AllowedPersonRow = Schema.Struct({
+	person_id: Schema.String,
+	capability: Schema.NullOr(Schema.String),
+	is_owner: Schema.Boolean,
+});
+const ContainedAgentRow = Schema.Struct({ agent_id: Schema.String, is_owner: Schema.Boolean });
+const RelationshipRow = Schema.Struct({ allowed: Schema.Boolean });
+const AgentOwnerRow = Schema.Struct({ owner_person_id: Schema.String });
+const decodeRows = <S extends Schema.Top, A, E>(schema: S, query: Effect.Effect<A, E>) =>
+	query.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(schema))));
 
 const SPROUT_CAPABILITIES = [
 	"sprouts.list",
@@ -389,56 +352,46 @@ const conflictFor = (
 export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 	Layer.effect(
 		ActorAuthority,
-		Effect.map(PgClient.PgClient, (sql): ActorAuthorityShape => {
-			const executor = Pg.Executor.make();
-			const execute = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
-				effect.pipe(Effect.provideService(SqlClient.SqlClient, sql));
-			const withTransaction = <A, E>(effect: Effect.Effect<A, E>) =>
-				execute(Pg.Executor.withTransaction(effect));
+		Effect.gen(function* () {
+			const pg = yield* PgClient.PgClient;
+			const db = yield* makeDatabase(pg);
+			const withTransaction = <A, E>(effect: Effect.Effect<A, E>) => pg.withTransaction(effect);
 			const lockContainment = () =>
-				execute(
-					executor.execute(
-						Q.select({
-							lock: advisoryLockExpression`pg_advisory_xact_lock(hashtext('grove-capability-containment'))`,
-						}),
-					),
-				).pipe(Effect.asVoid);
+				pg`select pg_advisory_xact_lock(hashtext('grove-capability-containment'))`.pipe(
+					Effect.asVoid,
+				);
 			const insertCapability = (actorIdValue: string, capability: string) =>
-				execute(
-					executor.execute(
-						Q.insert(capabilities, { actor_id: actorIdValue, capability }).pipe(
-							Query.onConflict(["actor_id", "capability"], {}),
-						),
-					),
+				Effect.asVoid(
+					db
+						.insert(capabilities)
+						.values({ actor_id: actorIdValue, capability })
+						.onConflictDoNothing({ target: [capabilities.actor_id, capabilities.capability] }),
 				);
 			const deleteCapability = (actorIdValue: string, capability: string) =>
-				execute(
-					executor.execute(
-						Q.delete(capabilities).pipe(
-							Q.where(
-								Q.and(
-									Q.eq(capabilities.actor_id, actorIdValue),
-									Q.eq(capabilities.capability, capability),
-								),
-							),
+				Effect.asVoid(
+					db
+						.delete(capabilities)
+						.where(
+							and(eq(capabilities.actor_id, actorIdValue), eq(capabilities.capability, capability)),
 						),
-					),
 				);
-			const agentCurrentQuery = Q.select({
-				agent_lifecycle: agentActor.lifecycle,
-				owner_lifecycle: ownerActor.lifecycle,
-				owner_person_id: agents.owner_person_id,
-				host_owner_id: hosts.owner_person_id,
-			}).pipe(
-				Q.from(agents),
-				Q.innerJoin(agentActor, Q.eq(agentActor.id, agents.actor_id)),
-				Q.innerJoin(ownerActor, Q.eq(ownerActor.id, agents.owner_person_id)),
-				Q.innerJoin(hosts, Q.eq(hosts.id, agents.home_host_id)),
-			);
+			const agentCurrentQuery = () =>
+				db
+					.select({
+						agent_lifecycle: agentActor.lifecycle,
+						owner_lifecycle: ownerActor.lifecycle,
+						owner_person_id: agents.owner_person_id,
+						host_owner_id: hosts.owner_person_id,
+					})
+					.from(agents)
+					.innerJoin(agentActor, eq(agentActor.id, agents.actor_id))
+					.innerJoin(ownerActor, eq(ownerActor.id, agents.owner_person_id))
+					.innerJoin(hosts, eq(hosts.id, agents.home_host_id));
 			const actorForIdentity = (identity: ExternalIdentity) =>
-				execute(
-					executor.execute(
-						Q.select({
+				decodeRows(
+					IdentityRow,
+					db
+						.select({
 							actor_id: actors.id,
 							kind: actors.kind,
 							name: actors.name,
@@ -447,37 +400,27 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							identity_use: identities.use,
 							home_host_id: agents.home_host_id,
 							owner_person_id: agents.owner_person_id,
-						}).pipe(
-							Q.from(identities),
-							Q.innerJoin(actors, Q.eq(actors.id, identities.actor_id)),
-							Q.leftJoin(persons, Q.eq(persons.actor_id, actors.id)),
-							Q.leftJoin(agents, Q.eq(agents.actor_id, actors.id)),
-							Q.where(
-								Q.and(
-									Q.eq(identities.issuer, identity.issuer),
-									Q.eq(identities.subject, identity.subject),
-								),
-							),
+						})
+						.from(identities)
+						.innerJoin(actors, eq(actors.id, identities.actor_id))
+						.leftJoin(persons, eq(persons.actor_id, actors.id))
+						.leftJoin(agents, eq(agents.actor_id, actors.id))
+						.where(
+							and(eq(identities.issuer, identity.issuer), eq(identities.subject, identity.subject)),
 						),
-					),
 				);
 			const lockExternalIdentity = (identity: ExternalIdentity) =>
-				execute(
-					executor.execute(
-						Q.select({
-							lock: advisoryLockExpression`pg_advisory_xact_lock(hashtext(${Q.literal(identity.issuer)}), hashtext(${Q.literal(identity.subject)}))`,
-						}),
-					),
-				).pipe(Effect.asVoid);
+				pg`select pg_advisory_xact_lock(hashtext(${identity.issuer}), hashtext(${identity.subject}))`.pipe(
+					Effect.asVoid,
+				);
 			const capabilitiesFor = (actorIdValue: string) =>
-				execute(
-					executor.execute(
-						Q.select({ capability: capabilities.capability }).pipe(
-							Q.from(capabilities),
-							Q.where(Q.eq(capabilities.actor_id, actorIdValue)),
-							Q.orderBy(capabilities.capability),
-						),
-					),
+				decodeRows(
+					CapabilityRow,
+					db
+						.select({ capability: capabilities.capability })
+						.from(capabilities)
+						.where(eq(capabilities.actor_id, actorIdValue))
+						.orderBy(capabilities.capability),
 				);
 			const insertDefaultCapabilities = (
 				actorIdValue: string,
@@ -489,30 +432,29 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 			const serializeContainment = <A, E>(effect: Effect.Effect<A, E>) =>
 				asDatabaseError(withTransaction(lockContainment().pipe(Effect.andThen(effect))));
 			const homeReadiness = asDatabaseError(
-				execute(
-					executor.execute(
-						Q.select({
+				decodeRows(
+					HomeReadinessRow,
+					db
+						.select({
 							owner_person_id: hosts.owner_person_id,
 							owner_lifecycle: actors.lifecycle,
-							configured_owner: Q.exists(
-								Q.select({ one: Q.literal(1) }).pipe(
-									Q.from(identities),
-									Q.where(
-										Q.and(
-											Q.eq(identities.actor_id, hosts.owner_person_id),
-											Q.eq(identities.issuer, config.homeOwner.issuer),
-											Q.eq(identities.subject, config.homeOwner.subject),
-											Q.eq(identities.use, "browser"),
+							configured_owner: exists(
+								db
+									.select({ one: sql`${1}` })
+									.from(identities)
+									.where(
+										and(
+											eq(identities.actor_id, hosts.owner_person_id),
+											eq(identities.issuer, config.homeOwner.issuer),
+											eq(identities.subject, config.homeOwner.subject),
+											eq(identities.use, "browser"),
 										),
 									),
-								),
 							),
-						}).pipe(
-							Q.from(hosts),
-							Q.leftJoin(actors, Q.eq(actors.id, hosts.owner_person_id)),
-							Q.where(Q.eq(hosts.id, "host-local")),
-						),
-					),
+						})
+						.from(hosts)
+						.leftJoin(actors, eq(actors.id, hosts.owner_person_id))
+						.where(eq(hosts.id, "host-local")),
 				).pipe(
 					Effect.map((rows): HomeReadiness => {
 						const row = rows.at(0);
@@ -529,11 +471,13 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							};
 						}
 
-						if (row.owner_lifecycle !== "active") {
+						const ownerLifecycle = row.owner_lifecycle;
+
+						if (ownerLifecycle !== "active") {
 							return {
 								status: "owner-not-current",
 								ownerPersonId: row.owner_person_id,
-								lifecycle: row.owner_lifecycle ?? "retired",
+								lifecycle: ownerLifecycle ?? "retired",
 							};
 						}
 
@@ -598,21 +542,19 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 								actorIdValue = existing.actor_id;
 
-								yield* execute(
-									executor.execute(
-										Q.update(actorWrites, { name, updated_at: Pg.Function.now() }).pipe(
-											Q.where(Q.eq(actors.id, actorIdValue)),
-										),
-									),
+								yield* Effect.asVoid(
+									db
+										.update(actors)
+										.set({ name, updated_at: sql`now()` })
+										.where(eq(actors.id, actorIdValue)),
 								);
 							} else {
-								const byAuthUser = yield* execute(
-									executor.execute(
-										Q.select({ actor_id: persons.actor_id }).pipe(
-											Q.from(persons),
-											Q.where(Q.eq(persons.better_auth_user_id, input.authUserId)),
-										),
-									),
+								const byAuthUser = yield* decodeRows(
+									ActorIdRow,
+									db
+										.select({ actor_id: persons.actor_id })
+										.from(persons)
+										.where(eq(persons.better_auth_user_id, input.authUserId)),
 								);
 
 								if (byAuthUser.length > 0) {
@@ -623,51 +565,43 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 								actorIdValue = personId();
 
-								yield* execute(
-									executor.execute(
-										Q.insert(actors, { id: actorIdValue, kind: "person" as const, name }),
-									),
+								yield* Effect.asVoid(
+									db.insert(actors).values({ id: actorIdValue, kind: "person" as const, name }),
 								);
 
-								yield* execute(
-									executor.execute(
-										Q.insert(persons, {
-											actor_id: actorIdValue,
-											better_auth_user_id: input.authUserId,
-										}),
-									),
+								yield* Effect.asVoid(
+									db.insert(persons).values({
+										actor_id: actorIdValue,
+										better_auth_user_id: input.authUserId,
+									}),
 								);
 
-								yield* execute(
-									executor.execute(
-										Q.insert(identities, {
-											actor_id: actorIdValue,
-											issuer: input.issuer,
-											subject: input.subject,
-											use: "browser" as const,
-										}),
-									),
+								yield* Effect.asVoid(
+									db.insert(identities).values({
+										actor_id: actorIdValue,
+										issuer: input.issuer,
+										subject: input.subject,
+										use: "browser" as const,
+									}),
 								);
 
 								yield* insertDefaultCapabilities(actorIdValue);
 							}
 
 							if (isOwnerIdentity(config.homeOwner, input)) {
-								yield* execute(
-									executor.execute(
-										Q.update(hosts, { owner_person_id: actorIdValue }).pipe(
-											Q.where(Q.and(Q.eq(hosts.id, "host-local"), Q.isNull(hosts.owner_person_id))),
-										),
-									),
+								yield* Effect.asVoid(
+									db
+										.update(hosts)
+										.set({ owner_person_id: actorIdValue })
+										.where(and(eq(hosts.id, "host-local"), isNull(hosts.owner_person_id))),
 								);
 
-								const host = yield* execute(
-									executor.execute(
-										Q.select({ owner_person_id: hosts.owner_person_id }).pipe(
-											Q.from(hosts),
-											Q.where(Q.eq(hosts.id, "host-local")),
-										),
-									),
+								const host = yield* decodeRows(
+									HostOwnerRow,
+									db
+										.select({ owner_person_id: hosts.owner_person_id })
+										.from(hosts)
+										.where(eq(hosts.id, "host-local")),
 								);
 
 								if (host.at(0)?.owner_person_id !== actorIdValue) {
@@ -764,10 +698,9 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 									homeHostId: existing.home_host_id,
 									ownerPersonId: existing.owner_person_id,
 								};
-								const current = yield* execute(
-									executor.execute(
-										agentCurrentQuery.pipe(Q.where(Q.eq(agents.actor_id, existing.actor_id))),
-									),
+								const current = yield* decodeRows(
+									AgentCurrentRow,
+									agentCurrentQuery().where(eq(agents.actor_id, existing.actor_id)),
 								);
 								const row = current.at(0);
 
@@ -782,18 +715,17 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								return principal;
 							}
 
-							const host = yield* execute(
-								executorWithLockTargets("grove_hosts").execute(
-									Q.select({
+							const host = yield* decodeRows(
+								HostCurrentRow,
+								db
+									.select({
 										owner_person_id: hosts.owner_person_id,
 										owner_lifecycle: actors.lifecycle,
-									}).pipe(
-										Q.from(hosts),
-										Q.leftJoin(actors, Q.eq(actors.id, hosts.owner_person_id)),
-										Q.where(Q.eq(hosts.id, "host-local")),
-										Q.lock("update"),
-									),
-								),
+									})
+									.from(hosts)
+									.leftJoin(actors, eq(actors.id, hosts.owner_person_id))
+									.where(eq(hosts.id, "host-local"))
+									.for("update", { of: [hosts] }),
 							);
 							const owner = host.at(0);
 
@@ -807,31 +739,25 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 							const actorIdValue = agentId();
 
-							yield* execute(
-								executor.execute(
-									Q.insert(actors, { id: actorIdValue, kind: "agent" as const, name }),
-								),
+							yield* Effect.asVoid(
+								db.insert(actors).values({ id: actorIdValue, kind: "agent" as const, name }),
 							);
 
-							yield* execute(
-								executor.execute(
-									Q.insert(agents, {
-										actor_id: actorIdValue,
-										home_host_id: "host-local",
-										owner_person_id: owner.owner_person_id,
-									}),
-								),
+							yield* Effect.asVoid(
+								db.insert(agents).values({
+									actor_id: actorIdValue,
+									home_host_id: "host-local",
+									owner_person_id: owner.owner_person_id,
+								}),
 							);
 
-							yield* execute(
-								executor.execute(
-									Q.insert(identities, {
-										actor_id: actorIdValue,
-										issuer: identity.issuer,
-										subject: identity.subject,
-										use: "machine" as const,
-									}),
-								),
+							yield* Effect.asVoid(
+								db.insert(identities).values({
+									actor_id: actorIdValue,
+									issuer: identity.issuer,
+									subject: identity.subject,
+									use: "machine" as const,
+								}),
 							);
 
 							const ownerCapabilities = new Set(
@@ -860,20 +786,19 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				asDatabaseError(
 					Effect.gen(function* () {
 						if (principal.kind === "person") {
-							const rows = yield* execute(
-								executorWithLockTargets("grove_actors").execute(
-									Q.select({ lifecycle: actors.lifecycle }).pipe(
-										Q.from(actors),
-										Q.innerJoin(persons, Q.eq(persons.actor_id, actors.id)),
-										Q.where(
-											Q.and(
-												Q.eq(actors.id, principal.actorId),
-												Q.eq(persons.better_auth_user_id, principal.authUserId),
-											),
+							const rows = yield* decodeRows(
+								LifecycleRow,
+								db
+									.select({ lifecycle: actors.lifecycle })
+									.from(actors)
+									.innerJoin(persons, eq(persons.actor_id, actors.id))
+									.where(
+										and(
+											eq(actors.id, principal.actorId),
+											eq(persons.better_auth_user_id, principal.authUserId),
 										),
-										Q.lock("share"),
-									),
-								),
+									)
+									.for("share", { of: [actors] }),
 							);
 							const row = rows.at(0);
 
@@ -881,19 +806,18 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								return yield* new ActorNotCurrent({ actorId: principal.actorId });
 							}
 
-							const granted = yield* execute(
-								executor.execute(
-									Q.select({ capability: capabilities.capability }).pipe(
-										Q.from(capabilities),
-										Q.where(
-											Q.and(
-												Q.eq(capabilities.actor_id, principal.actorId),
-												Q.eq(capabilities.capability, operation),
-											),
+							const granted = yield* decodeRows(
+								CapabilityRow,
+								db
+									.select({ capability: capabilities.capability })
+									.from(capabilities)
+									.where(
+										and(
+											eq(capabilities.actor_id, principal.actorId),
+											eq(capabilities.capability, operation),
 										),
-										Q.lock("share"),
-									),
-								),
+									)
+									.for("share"),
 							);
 
 							if (granted.length === 0) {
@@ -903,21 +827,19 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							return;
 						}
 
-						const rows = yield* execute(
-							executorWithLockTargets("agent_actor", "owner_actor", "grove_hosts").execute(
-								agentCurrentQuery.pipe(
-									Q.innerJoin(identities, Q.eq(agents.actor_id, identities.actor_id)),
-									Q.where(
-										Q.and(
-											Q.eq(identities.actor_id, principal.actorId),
-											Q.eq(identities.issuer, principal.issuer),
-											Q.eq(identities.subject, principal.subject),
-											Q.eq(identities.use, "machine"),
-										),
+						const rows = yield* decodeRows(
+							AgentCurrentRow,
+							agentCurrentQuery()
+								.innerJoin(identities, eq(agents.actor_id, identities.actor_id))
+								.where(
+									and(
+										eq(identities.actor_id, principal.actorId),
+										eq(identities.issuer, principal.issuer),
+										eq(identities.subject, principal.subject),
+										eq(identities.use, "machine"),
 									),
-									Q.lock("share"),
-								),
-							),
+								)
+								.for("share", { of: [agentActor, ownerActor, hosts] }),
 						);
 						const row = rows.at(0);
 
@@ -929,19 +851,18 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							return yield* new ActorNotCurrent({ actorId: principal.actorId });
 						}
 
-						const granted = yield* execute(
-							executor.execute(
-								Q.select({ capability: capabilities.capability }).pipe(
-									Q.from(capabilities),
-									Q.where(
-										Q.and(
-											Q.eq(capabilities.actor_id, principal.actorId),
-											Q.eq(capabilities.capability, operation),
-										),
+						const granted = yield* decodeRows(
+							CapabilityRow,
+							db
+								.select({ capability: capabilities.capability })
+								.from(capabilities)
+								.where(
+									and(
+										eq(capabilities.actor_id, principal.actorId),
+										eq(capabilities.capability, operation),
 									),
-									Q.lock("share"),
-								),
-							),
+								)
+								.for("share"),
 						);
 
 						if (granted.length === 0) {
@@ -969,67 +890,57 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 			};
 
 			const allowedPersons = (agentIdValue: string) =>
-				execute(
-					executor.execute(
-						Q.unionAll(
-							Q.select({
+				decodeRows(
+					AllowedPersonRow,
+					unionAll(
+						db
+							.select({
 								person_id: agents.owner_person_id,
-								capability: nullableCapabilityExpression`${capabilities.capability}`,
+								capability: sql<string | null>`${capabilities.capability}`.as("capability"),
 								is_owner: ownerFlag,
-							}).pipe(
-								Q.from(agents),
-								Q.innerJoin(
-									agentActor,
-									Q.and(Q.eq(agentActor.id, agents.actor_id), Q.eq(agentActor.lifecycle, "active")),
+							})
+							.from(agents)
+							.innerJoin(
+								agentActor,
+								and(eq(agentActor.id, agents.actor_id), eq(agentActor.lifecycle, "active")),
+							)
+							.innerJoin(
+								ownerActor,
+								and(eq(ownerActor.id, agents.owner_person_id), eq(ownerActor.lifecycle, "active")),
+							)
+							.innerJoin(
+								hosts,
+								and(
+									eq(hosts.id, agents.home_host_id),
+									eq(hosts.owner_person_id, agents.owner_person_id),
 								),
-								Q.innerJoin(
-									ownerActor,
-									Q.and(
-										Q.eq(ownerActor.id, agents.owner_person_id),
-										Q.eq(ownerActor.lifecycle, "active"),
-									),
-								),
-								Q.innerJoin(
-									hosts,
-									Q.and(
-										Q.eq(hosts.id, agents.home_host_id),
-										Q.eq(hosts.owner_person_id, agents.owner_person_id),
-									),
-								),
-								Q.leftJoin(capabilities, Q.eq(capabilities.actor_id, agents.owner_person_id)),
-								Q.where(Q.eq(agents.actor_id, agentIdValue)),
-								(plan) => Q.as(plan, "allowed_person"),
-								(source) => Q.select(source.columns).pipe(Q.from(source)),
-							),
-							Q.select({
+							)
+							.leftJoin(capabilities, eq(capabilities.actor_id, agents.owner_person_id))
+							.where(eq(agents.actor_id, agentIdValue)),
+						db
+							.select({
 								person_id: access.person_id,
-								capability: nullableCapabilityExpression`${capabilities.capability}`,
+								capability: sql<string | null>`${capabilities.capability}`.as("capability"),
 								is_owner: guestFlag,
-							}).pipe(
-								Q.from(access),
-								Q.innerJoin(
-									agentActor,
-									Q.and(Q.eq(agentActor.id, access.agent_id), Q.eq(agentActor.lifecycle, "active")),
-								),
-								Q.innerJoin(
-									personActor,
-									Q.and(
-										Q.eq(personActor.id, access.person_id),
-										Q.eq(personActor.lifecycle, "active"),
-									),
-								),
-								Q.leftJoin(capabilities, Q.eq(capabilities.actor_id, access.person_id)),
-								Q.where(Q.and(Q.eq(access.agent_id, agentIdValue), access.valid)),
-								(plan) => Q.as(plan, "allowed_person"),
-								(source) => Q.select(source.columns).pipe(Q.from(source)),
-							),
-						),
+							})
+							.from(access)
+							.innerJoin(
+								agentActor,
+								and(eq(agentActor.id, access.agent_id), eq(agentActor.lifecycle, "active")),
+							)
+							.innerJoin(
+								personActor,
+								and(eq(personActor.id, access.person_id), eq(personActor.lifecycle, "active")),
+							)
+							.leftJoin(capabilities, eq(capabilities.actor_id, access.person_id))
+							.where(and(eq(access.agent_id, agentIdValue), access.valid)),
 					),
 				);
 			const grantAgentAccess = (agentIdValue: string, personIdValue: string) =>
 				Effect.gen(function* () {
-					const agent = yield* execute(
-						executor.execute(agentCurrentQuery.pipe(Q.where(Q.eq(agents.actor_id, agentIdValue)))),
+					const agent = yield* decodeRows(
+						AgentCurrentRow,
+						agentCurrentQuery().where(eq(agents.actor_id, agentIdValue)),
 					);
 					const currentAgent = agent.at(0);
 
@@ -1041,14 +952,13 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						return yield* new ActorNotCurrent({ actorId: agentIdValue });
 					}
 
-					const person = yield* execute(
-						executor.execute(
-							Q.select({ lifecycle: actors.lifecycle }).pipe(
-								Q.from(actors),
-								Q.innerJoin(persons, Q.eq(persons.actor_id, actors.id)),
-								Q.where(Q.eq(actors.id, personIdValue)),
-							),
-						),
+					const person = yield* decodeRows(
+						LifecycleRow,
+						db
+							.select({ lifecycle: actors.lifecycle })
+							.from(actors)
+							.innerJoin(persons, eq(persons.actor_id, actors.id))
+							.where(eq(actors.id, personIdValue)),
 					);
 
 					if (person.at(0)?.lifecycle !== "active") {
@@ -1059,18 +969,17 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						(row) => row.capability,
 					);
 					const personCapabilities = new Set(
-						(yield* execute(
-							executor.execute(
-								Q.select({ capability: capabilities.capability }).pipe(
-									Q.from(capabilities),
-									Q.innerJoin(
-										actors,
-										Q.and(Q.eq(actors.id, capabilities.actor_id), Q.eq(actors.lifecycle, "active")),
-									),
-									Q.innerJoin(persons, Q.eq(persons.actor_id, actors.id)),
-									Q.where(Q.eq(capabilities.actor_id, personIdValue)),
-								),
-							),
+						(yield* decodeRows(
+							CapabilityRow,
+							db
+								.select({ capability: capabilities.capability })
+								.from(capabilities)
+								.innerJoin(
+									actors,
+									and(eq(actors.id, capabilities.actor_id), eq(actors.lifecycle, "active")),
+								)
+								.innerJoin(persons, eq(persons.actor_id, actors.id))
+								.where(eq(capabilities.actor_id, personIdValue)),
 						)).map((row) => row.capability),
 					);
 					const missing = agentCapabilities.filter(
@@ -1081,14 +990,14 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						return yield* conflictFor(agentIdValue, personIdValue, missing, false);
 					}
 
-					yield* execute(
-						executor.execute(
-							Q.insert(accessWrites, { agent_id: agentIdValue, person_id: personIdValue }).pipe(
-								Q.onConflict(["agent_id", "person_id"], {
-									update: { valid: true, invalid_reason: null, updated_at: Pg.Function.now() },
-								}),
-							),
-						),
+					yield* Effect.asVoid(
+						db
+							.insert(access)
+							.values({ agent_id: agentIdValue, person_id: personIdValue })
+							.onConflictDoUpdate({
+								target: [access.agent_id, access.person_id],
+								set: { valid: true, invalid_reason: null, updated_at: sql`now()` },
+							}),
 					);
 				});
 			const addAgentCapability = (agentIdValue: string, capability: string) =>
@@ -1141,44 +1050,39 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 				return serializeContainment(
 					Effect.gen(function* () {
-						const rows = yield* execute(
-							executor.execute(
-								Q.unionAll(
-									Q.select({ agent_id: agents.actor_id, is_owner: ownerFlag }).pipe(
-										Q.from(agents),
-										Q.innerJoin(
-											actors,
-											Q.and(Q.eq(actors.id, agents.actor_id), Q.eq(actors.lifecycle, "active")),
+						const rows = yield* decodeRows(
+							ContainedAgentRow,
+							unionAll(
+								db
+									.select({ agent_id: agents.actor_id, is_owner: ownerFlag })
+									.from(agents)
+									.innerJoin(
+										actors,
+										and(eq(actors.id, agents.actor_id), eq(actors.lifecycle, "active")),
+									)
+									.innerJoin(
+										capabilities,
+										and(
+											eq(capabilities.actor_id, agents.actor_id),
+											eq(capabilities.capability, capability),
 										),
-										Q.innerJoin(
-											capabilities,
-											Q.and(
-												Q.eq(capabilities.actor_id, agents.actor_id),
-												Q.eq(capabilities.capability, capability),
-											),
+									)
+									.where(eq(agents.owner_person_id, personIdValue)),
+								db
+									.select({ agent_id: access.agent_id, is_owner: guestFlag })
+									.from(access)
+									.innerJoin(
+										actors,
+										and(eq(actors.id, access.agent_id), eq(actors.lifecycle, "active")),
+									)
+									.innerJoin(
+										capabilities,
+										and(
+											eq(capabilities.actor_id, access.agent_id),
+											eq(capabilities.capability, capability),
 										),
-										Q.where(Q.eq(agents.owner_person_id, personIdValue)),
-										(plan) => Q.as(plan, "dependent_agent"),
-										(source) => Q.select(source.columns).pipe(Q.from(source)),
-									),
-									Q.select({ agent_id: access.agent_id, is_owner: guestFlag }).pipe(
-										Q.from(access),
-										Q.innerJoin(
-											actors,
-											Q.and(Q.eq(actors.id, access.agent_id), Q.eq(actors.lifecycle, "active")),
-										),
-										Q.innerJoin(
-											capabilities,
-											Q.and(
-												Q.eq(capabilities.actor_id, access.agent_id),
-												Q.eq(capabilities.capability, capability),
-											),
-										),
-										Q.where(Q.and(Q.eq(access.person_id, personIdValue), access.valid)),
-										(plan) => Q.as(plan, "dependent_agent"),
-										(source) => Q.select(source.columns).pipe(Q.from(source)),
-									),
-								),
+									)
+									.where(and(eq(access.person_id, personIdValue), access.valid)),
 							),
 						);
 
@@ -1202,29 +1106,28 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				switch (fix.action) {
 					case "grant-person-capability":
 						return Effect.gen(function* () {
-							const relationship = yield* execute(
-								executor.execute(
-									Q.unionAll(
-										Q.select({ allowed: Q.literal(true) }).pipe(
-											Q.from(agents),
-											Q.where(
-												Q.and(
-													Q.eq(agents.actor_id, fix.agentId),
-													Q.eq(agents.owner_person_id, fix.personId),
-												),
+							const relationship = yield* decodeRows(
+								RelationshipRow,
+								unionAll(
+									db
+										.select({ allowed: sql<boolean>`true`.as("allowed") })
+										.from(agents)
+										.where(
+											and(
+												eq(agents.actor_id, fix.agentId),
+												eq(agents.owner_person_id, fix.personId),
 											),
 										),
-										Q.select({ allowed: Q.literal(true) }).pipe(
-											Q.from(access),
-											Q.where(
-												Q.and(
-													Q.eq(access.agent_id, fix.agentId),
-													Q.eq(access.person_id, fix.personId),
-													access.valid,
-												),
+									db
+										.select({ allowed: sql<boolean>`true`.as("allowed") })
+										.from(access)
+										.where(
+											and(
+												eq(access.agent_id, fix.agentId),
+												eq(access.person_id, fix.personId),
+												access.valid,
 											),
 										),
-									),
 								),
 							);
 
@@ -1238,13 +1141,12 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						});
 					case "remove-agent-access":
 						return Effect.gen(function* () {
-							const owner = yield* execute(
-								executor.execute(
-									Q.select({ owner_person_id: agents.owner_person_id }).pipe(
-										Q.from(agents),
-										Q.where(Q.eq(agents.actor_id, fix.agentId)),
-									),
-								),
+							const owner = yield* decodeRows(
+								AgentOwnerRow,
+								db
+									.select({ owner_person_id: agents.owner_person_id })
+									.from(agents)
+									.where(eq(agents.actor_id, fix.agentId)),
 							);
 
 							if (owner.at(0)?.owner_person_id === fix.personId) {
@@ -1253,21 +1155,15 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								});
 							}
 
-							yield* execute(
-								executor.execute(
-									Q.update(accessWrites, {
+							yield* Effect.asVoid(
+								db
+									.update(access)
+									.set({
 										valid: false,
 										invalid_reason: "removed-by-explicit-fix",
-										updated_at: Pg.Function.now(),
-									}).pipe(
-										Q.where(
-											Q.and(
-												Q.eq(access.agent_id, fix.agentId),
-												Q.eq(access.person_id, fix.personId),
-											),
-										),
-									),
-								),
+										updated_at: sql`now()`,
+									})
+									.where(and(eq(access.agent_id, fix.agentId), eq(access.person_id, fix.personId))),
 							);
 						});
 					case "remove-agent-capability":
@@ -1288,42 +1184,33 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				agentIdValue: string,
 				requireCurrentAgent: boolean,
 			) =>
-				execute(
-					executorWithLockTargets(
-						"grove_agents",
-						"grove_hosts",
-						"manager_actor",
-						"agent_actor",
-					).execute(
-						Q.select({ owner_person_id: agents.owner_person_id }).pipe(
-							Q.from(agents),
-							Q.innerJoin(
-								hosts,
-								Q.and(
-									Q.eq(hosts.id, agents.home_host_id),
-									Q.eq(hosts.owner_person_id, agents.owner_person_id),
-								),
+				decodeRows(
+					AgentOwnerRow,
+					db
+						.select({ owner_person_id: agents.owner_person_id })
+						.from(agents)
+						.innerJoin(
+							hosts,
+							and(
+								eq(hosts.id, agents.home_host_id),
+								eq(hosts.owner_person_id, agents.owner_person_id),
 							),
-							Q.innerJoin(persons, Q.eq(persons.actor_id, agents.owner_person_id)),
-							Q.innerJoin(
-								managerActor,
-								Q.and(
-									Q.eq(managerActor.id, persons.actor_id),
-									Q.eq(managerActor.lifecycle, "active"),
-								),
+						)
+						.innerJoin(persons, eq(persons.actor_id, agents.owner_person_id))
+						.innerJoin(
+							managerActor,
+							and(eq(managerActor.id, persons.actor_id), eq(managerActor.lifecycle, "active")),
+						)
+						.innerJoin(agentActor, eq(agentActor.id, agents.actor_id))
+						.where(
+							and(
+								eq(agents.actor_id, agentIdValue),
+								eq(agents.owner_person_id, principal.actorId),
+								eq(persons.better_auth_user_id, principal.authUserId),
+								or(not(sql`${requireCurrentAgent}`), eq(agentActor.lifecycle, "active")),
 							),
-							Q.innerJoin(agentActor, Q.eq(agentActor.id, agents.actor_id)),
-							Q.where(
-								Q.and(
-									Q.eq(agents.actor_id, agentIdValue),
-									Q.eq(agents.owner_person_id, principal.actorId),
-									Q.eq(persons.better_auth_user_id, principal.authUserId),
-									Q.or(Q.not(Q.literal(requireCurrentAgent)), Q.eq(agentActor.lifecycle, "active")),
-								),
-							),
-							Q.lock("share"),
-						),
-					),
+						)
+						.for("share", { of: [agents, hosts, managerActor, agentActor] }),
 				).pipe(
 					Effect.flatMap((rows) =>
 						rows.length === 1
@@ -1346,14 +1233,13 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				);
 			const setLifecycle = (actorIdValue: string, lifecycle: "suspended" | "retired") =>
 				Effect.gen(function* () {
-					const rows = yield* execute(
-						executor.execute(
-							Q.select({ lifecycle: actors.lifecycle }).pipe(
-								Q.from(actors),
-								Q.where(Q.eq(actors.id, actorIdValue)),
-								Q.lock("update"),
-							),
-						),
+					const rows = yield* decodeRows(
+						LifecycleRow,
+						db
+							.select({ lifecycle: actors.lifecycle })
+							.from(actors)
+							.where(eq(actors.id, actorIdValue))
+							.for("update"),
 					);
 					const current = rows.at(0)?.lifecycle;
 
@@ -1365,39 +1251,37 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						return yield* new ActorDenied({ reason: "A retired Actor cannot change lifecycle" });
 					}
 
-					yield* execute(
-						executor.execute(
-							Q.update(actorWrites, { lifecycle, updated_at: Pg.Function.now() }).pipe(
-								Q.where(Q.eq(actors.id, actorIdValue)),
-							),
-						),
+					yield* Effect.asVoid(
+						db
+							.update(actors)
+							.set({ lifecycle, updated_at: sql`now()` })
+							.where(eq(actors.id, actorIdValue)),
 					);
 
-					yield* execute(
-						executor.execute(
-							Q.update(accessWrites, {
+					yield* Effect.asVoid(
+						db
+							.update(access)
+							.set({
 								valid: false,
 								invalid_reason: `actor-${lifecycle}`,
-								updated_at: Pg.Function.now(),
-							}).pipe(
-								Q.where(
-									Q.and(
-										access.valid,
-										Q.or(
-											Q.eq(access.agent_id, actorIdValue),
-											Q.eq(access.person_id, actorIdValue),
-											Q.inSubquery(
-												access.agent_id,
-												Q.select({ actor_id: agents.actor_id }).pipe(
-													Q.from(agents),
-													Q.where(Q.eq(agents.owner_person_id, actorIdValue)),
-												),
-											),
+								updated_at: sql`now()`,
+							})
+							.where(
+								and(
+									access.valid,
+									or(
+										eq(access.agent_id, actorIdValue),
+										eq(access.person_id, actorIdValue),
+										inArray(
+											access.agent_id,
+											db
+												.select({ actor_id: agents.actor_id })
+												.from(agents)
+												.where(eq(agents.owner_person_id, actorIdValue)),
 										),
 									),
 								),
 							),
-						),
 					);
 				});
 			const setAgentLifecycleAs = (
@@ -1444,6 +1328,6 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 					setAgentLifecycleAs(principal, agentIdValue, "suspended"),
 				retireAgentAs: (principal, agentIdValue) =>
 					setAgentLifecycleAs(principal, agentIdValue, "retired"),
-			};
+			} satisfies ActorAuthorityShape;
 		}),
 	);

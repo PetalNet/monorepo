@@ -2,8 +2,9 @@
 
 This is the fetch-deeper index for the Grove handoff. Do not bulk-load the source export.
 
-Grove's live implementation is in `apps/grove`, with shared transport and database adapters in
-`packages/effect-api`, `packages/effect-sveltekit`, and `packages/better-auth-effect-qb-adapter`.
+Grove's live implementation is in `apps/grove`, with shared transport adapters in
+`packages/effect-api` and `packages/effect-sveltekit` and a Drizzle database bridge in
+`apps/grove/src/lib/server/db`.
 Console has been removed. The export paths below are relative to the original preparation workspace
 and are historical references only. `CURRENT-IMPLEMENTATION-EVIDENCE.md` records that legacy baseline,
 not the current repository architecture.
