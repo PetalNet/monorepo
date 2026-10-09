@@ -1,0 +1,3 @@
+-- Metadata adoption only. The matching snapshot describes the schema after
+-- immutable reviewed migrations 0001..0004; this is NOT a replacement baseline.
+-- This directory is generation staging, never executed by migrations/runner.ts.

@@ -5,16 +5,17 @@ import { promisify } from "node:util";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { generateDrizzleJson, generateMigration } from "drizzle-kit/api-postgres";
+import { eq } from "drizzle-orm";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import { drizzle } from "drizzle-orm/pg-proxy";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
-import { applyMigrationFiles, readMigrationFilesEffect } from "effect-db/postgres/migrate";
-import { loadPostgresSchemaPlanEffect } from "effect-db/postgres/push";
 import { expect, it } from "vitest";
 
-import config from "../effectdb.config";
-import { ActorAuthority, ActorAuthorityLayer } from "../src/lib/server/actors/authority";
+import { applyMigrationFiles, readMigrationFilesEffect } from "../migrations/runner.ts";
+import * as tables from "../src/lib/server/db/tables.ts";
 import { InvocationContext } from "../src/lib/server/invocation";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
-import { ProjectService, ProjectServiceLayer } from "../src/lib/server/projects/service";
 
 const reviewPayload = (id: string, kind: string) =>
 	JSON.stringify({
@@ -30,10 +31,9 @@ const migrate = (databaseUrl: string, direction: "up" | "down" = "up", steps = 1
 	promisify(execFile)(
 		process.execPath,
 		[
-			fileURLToPath(new URL("cli.js", import.meta.resolve("effect-db"))),
-			"migrate",
+			fileURLToPath(new URL("../migrations/runner.ts", import.meta.url)),
 			direction,
-			...(direction === "down" ? ["--steps", String(steps)] : []),
+			...(direction === "down" ? [String(steps)] : []),
 		],
 		{
 			cwd: fileURLToPath(new URL("..", import.meta.url)),
@@ -41,7 +41,65 @@ const migrate = (databaseUrl: string, direction: "up" | "down" = "up", steps = 1
 		},
 	);
 
-it("migrates a fresh stable auth schema idempotently through the unpatched CLI and rolls back failed multi-statement migrations", async () => {
+// Compare PostgreSQL-normalized metadata, not textual SQL formatting. A reference
+// database generated from Drizzle checks every column, default, identity, index,
+// key and check constraint against the immutable reviewed migration history.
+const schemaMetadata = Effect.gen(function* () {
+	const sql = yield* PgClient.PgClient;
+	const columns = yield* sql`select c.relname as table_name, a.attname as name,
+		format_type(a.atttypid,a.atttypmod) as type, a.attnotnull as not_null,
+		a.attidentity as identity, pg_get_expr(d.adbin,d.adrelid) as default
+		from pg_attribute a join pg_class c on c.oid=a.attrelid
+		join pg_namespace n on n.oid=c.relnamespace
+		left join pg_attrdef d on d.adrelid=a.attrelid and d.adnum=a.attnum
+		where n.nspname='public' and c.relkind='r' and a.attnum>0 and not a.attisdropped
+		and c.relname <> 'effect_qb_migrations' order by c.relname,a.attname`;
+	const constraints = yield* sql`select c.relname as table_name, k.conname as name,
+		pg_get_constraintdef(k.oid) as definition from pg_constraint k
+		join pg_class c on c.oid=k.conrelid join pg_namespace n on n.oid=c.relnamespace
+		where n.nspname='public' and c.relname <> 'effect_qb_migrations'
+		order by c.relname,k.conname`;
+	const indexes = yield* sql`select tablename,indexname,indexdef from pg_indexes
+		where schemaname='public' and tablename <> 'effect_qb_migrations'
+		order by tablename,indexname`;
+
+	return { columns, constraints, indexes };
+});
+
+const assertSchemaParity = async (url: string) => {
+	const reference = await new PostgreSqlContainer("postgres:17-alpine").start();
+
+	try {
+		const sql = await generateMigration(
+			await generateDrizzleJson({}),
+			await generateDrizzleJson(tables),
+		);
+
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const client = yield* PgClient.PgClient;
+
+				for (const statement of sql) {
+					yield* client.unsafe(statement);
+				}
+
+				// This RC's pg-core foreignKey API still does not model deferrability.
+				yield* client`alter table grove_outbox alter constraint grove_outbox_command_id_fkey deferrable initially deferred`;
+			}).pipe(Effect.provide(PgClient.layer({ url: Redacted.make(reference.getConnectionUri()) }))),
+		);
+
+		const read = (databaseUrl: string) =>
+			Effect.runPromise(
+				schemaMetadata.pipe(Effect.provide(PgClient.layer({ url: Redacted.make(databaseUrl) }))),
+			);
+
+		expect(await read(url)).toEqual(await read(reference.getConnectionUri()));
+	} finally {
+		await reference.stop();
+	}
+};
+
+it("migrates a fresh stable auth schema idempotently and rolls back failed multi-statement migrations", async () => {
 	const container = await new PostgreSqlContainer("postgres:17-alpine").start();
 	const runtime = ManagedRuntime.make(
 		PgClient.layer({ url: Redacted.make(container.getConnectionUri()) }),
@@ -64,15 +122,15 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 
 		await migrate(container.getConnectionUri());
 
-		const { plan, discovered } = await Effect.runPromise(
-			loadPostgresSchemaPlanEffect(
-				fileURLToPath(new URL("..", import.meta.url)),
-				config,
-				container.getConnectionUri(),
-			).pipe(Effect.provide(NodeServices.layer)),
-		);
-
-		expect(discovered.model.tables.map((table) => table.name).toSorted()).toEqual([
+		expect(
+			[
+				...new Set(
+					Object.values(tables)
+						.filter((table) => table instanceof PgTable)
+						.map((table) => getTableConfig(table).name),
+				),
+			].toSorted(),
+		).toEqual([
 			"account",
 			"grove_actor_capabilities",
 			"grove_actors",
@@ -98,7 +156,53 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 			"verification",
 		]);
 
-		expect(plan.changes).toEqual([]);
+		await assertSchemaParity(container.getConnectionUri());
+
+		const ledger = await runtime.runPromise(
+			Effect.flatMap(
+				PgClient.PgClient,
+				(sql) => sql`select id, name, applied_at from effect_qb_migrations order by id`,
+			),
+		);
+
+		await runtime.runPromise(
+			Effect.flatMap(
+				PgClient.PgClient,
+				(sql) => sql`update effect_qb_migrations set checksum=null`,
+			),
+		);
+
+		await migrate(container.getConnectionUri());
+
+		expect(
+			await runtime.runPromise(
+				Effect.flatMap(
+					PgClient.PgClient,
+					(sql) => sql`select id, name, applied_at from effect_qb_migrations order by id`,
+				),
+			),
+		).toEqual(ledger);
+
+		await runtime.runPromise(
+			Effect.flatMap(
+				PgClient.PgClient,
+				(sql) =>
+					sql`update effect_qb_migrations set checksum='tampered' where name='0001_initial.sql'`,
+			),
+		);
+
+		await expect(migrate(container.getConnectionUri())).rejects.toThrow(
+			"Migration checksum mismatch",
+		);
+
+		await runtime.runPromise(
+			Effect.flatMap(
+				PgClient.PgClient,
+				(sql) => sql`update effect_qb_migrations set checksum=null where name='0001_initial.sql'`,
+			),
+		);
+
+		await migrate(container.getConnectionUri());
 
 		await runtime.runPromise(
 			Effect.gen(function* () {
@@ -144,7 +248,7 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 					do $$ begin insert into migration_probe values ('quoted;statement'); end $$;`,
 				};
 
-				yield* sql.withTransaction(applyMigrationFiles("effect_qb_migrations", [procedural]));
+				yield* sql.withTransaction(applyMigrationFiles([procedural]));
 
 				expect(yield* sql`select value from migration_probe`).toEqual([
 					{ value: "quoted;statement" },
@@ -157,9 +261,7 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 				};
 
 				expect(
-					yield* Effect.exit(
-						sql.withTransaction(applyMigrationFiles("effect_qb_migrations", [failed])),
-					),
+					yield* Effect.exit(sql.withTransaction(applyMigrationFiles([failed]))),
 				).toMatchObject({ _tag: "Failure" });
 
 				expect(yield* sql`select value from migration_probe`).toEqual([
@@ -177,7 +279,22 @@ it("migrates a fresh stable auth schema idempotently through the unpatched CLI a
 	}
 }, 60_000);
 
+it("omits generated bigint identities from inserts and binds string identities losslessly", () => {
+	const id = "9223372036854775807";
+	const db = drizzle(() => Promise.resolve({ rows: [] }));
+
+	expect(db.insert(tables.sprouts).values({ name: "Fern" }).toSQL().sql).not.toContain(id);
+
+	expect(db.select().from(tables.sprouts).where(eq(tables.sprouts.id, id)).toSQL().params).toEqual([
+		id,
+	]);
+});
+
 it("upgrades a durable 0002 project receipt with exact service replay and current authority", async () => {
+	const { ActorAuthority, ActorAuthorityLayer } =
+		await import("../src/lib/server/actors/authority");
+	const { ProjectService, ProjectServiceLayer } =
+		await import("../src/lib/server/projects/service");
 	const container = await new PostgreSqlContainer("postgres:17-alpine").start();
 	const url = container.getConnectionUri();
 	const identity = { issuer: "https://identity.example/upgrade", subject: "owner" };
@@ -291,13 +408,7 @@ it("upgrades a durable 0002 project receipt with exact service replay and curren
 			}),
 		);
 
-		const { plan } = await Effect.runPromise(
-			loadPostgresSchemaPlanEffect(fileURLToPath(new URL("..", import.meta.url)), config, url).pipe(
-				Effect.provide(NodeServices.layer),
-			),
-		);
-
-		expect(plan.changes).toEqual([]);
+		await assertSchemaParity(url);
 		// Representable project history survives a round-trip; execution history
 		// refuses downgrade atomically rather than silently discarding provenance.
 		await migrate(url, "down", 2);
@@ -377,13 +488,7 @@ it("upgrades populated Objects and enforces independent immutable review/complet
 
 		await migrate(url);
 
-		const { plan } = await Effect.runPromise(
-			loadPostgresSchemaPlanEffect(fileURLToPath(new URL("..", import.meta.url)), config, url).pipe(
-				Effect.provide(NodeServices.layer),
-			),
-		);
-
-		expect(plan.changes).toEqual([]);
+		await assertSchemaParity(url);
 
 		await runtime.runPromise(
 			Effect.gen(function* () {

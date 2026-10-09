@@ -7,10 +7,9 @@ packages:
 # pnpm must not provision a second package manager.
 pmOnFail: ignore
 
-# Grove uses its effect-qb adapter and Better Auth's minimal runtime. The conformance
-# harness is routed to that same runtime, so built-in adapters and Kysely are unused.
+# Grove uses Drizzle and Better Auth's minimal runtime. Kysely and unrelated
+# built-in adapters are unused.
 overrides:
-  "better-auth@1.7.7>@better-auth/drizzle-adapter": "-"
   "better-auth@1.7.7>@better-auth/kysely-adapter": "-"
   "better-auth@1.7.7>@better-auth/memory-adapter": "-"
   "better-auth@1.7.7>@better-auth/mongo-adapter": "-"
@@ -58,6 +57,8 @@ minimumReleaseAgeExclude:
   - "@effect/tsgo-win32-arm64@0.50.0"
   - "@effect/tsgo-win32-x64@0.50.0"
   - "@effect/tsgo@0.50.0"
+  - drizzle-orm@1.0.0-rc.5-5935859
+  - drizzle-kit@1.0.0-rc.5-5935859
 
 # Why: pnpm sandboxes post-install scripts by default; these have legitimate
 # native-binding or codegen needs.
@@ -155,7 +156,6 @@ catalog:
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.7
   effect: 4.0.1
-  effect-db: 0.24.1
   effect-qb: 0.24.1
   mode-watcher: ^1.1.0
   "@effect/tsgo": 0.50.0
@@ -167,7 +167,15 @@ catalog:
   "@modelcontextprotocol/client": 2.0.0
   "@better-auth/mcp": 1.7.7
   "@effect/vitest": 4.0.1
+  drizzle-orm: 1.0.0-rc.5-5935859
+  drizzle-kit: 1.0.0-rc.5-5935859
+# Kit's programmatic API requires a matching ORM installation.
+packageExtensions:
+  "drizzle-kit@1.0.0-rc.5-5935859":
+    dependencies:
+      drizzle-orm: 1.0.0-rc.5-5935859
 # Keep JWKS network TypeErrors distinct from opaque-token failures (503, not 401).
 # Covered by Grove's real HTTP JWKS disconnect regression; remove after an upstream fix.
 patchedDependencies:
   "@better-auth/core@1.7.7": patches/@better-auth__core@1.7.7.patch
+  drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch

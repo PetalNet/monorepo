@@ -1,18 +1,17 @@
 import { getRequestEvent } from "$app/server";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { createEffectQbAdapter } from "@petalnet/better-auth-effect-qb-adapter";
 import type { RequestEvent } from "@sveltejs/kit";
 import type { ResolveOptions } from "@sveltejs/kit/hooks";
 import type { Session, User } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { sveltekitCookies } from "better-auth/svelte-kit";
+import { and, eq } from "drizzle-orm";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
-import { Query } from "effect-qb";
-import * as Pg from "effect-qb/postgres";
-import * as SqlClient from "effect/sql/SqlClient";
 
 import { ActorAuthority, type AuthorityError, type PersonPrincipal } from "./actors/authority";
 import { BetterAuth, type BetterAuthApiError, BetterAuthLayer } from "./better-auth";
-import { accounts as accountsTable } from "./db/tables";
+import { makeAuthDatabase, makeDatabase } from "./db/client";
+import { accounts as accountsTable, authTables } from "./db/tables";
 import { GROVE_OIDC_PROVIDER_ID, groveOidc } from "./oidc";
 
 export interface GroveBrowserAuthConfig {
@@ -32,14 +31,18 @@ export const GroveBetterAuthLayer = (
 			const sql = yield* PgClient.PgClient;
 			const runtime = yield* Effect.acquireRelease(
 				Effect.sync(() => ManagedRuntime.make(Layer.succeed(PgClient.PgClient, sql))),
-				(managed) => Effect.promise(() => managed.dispose()),
+				(managed) => managed.disposeEffect,
 			);
 
 			return BetterAuthLayer({
 				appName: "Grove",
 				baseURL: config.baseUrl,
 				secret: config.secret,
-				database: createEffectQbAdapter(runtime),
+				database: drizzleAdapter(makeAuthDatabase(sql, runtime), {
+					provider: "pg",
+					transaction: true,
+					schema: authTables,
+				}),
 				emailAndPassword: { enabled: false },
 				account: {
 					encryptOAuthTokens: true,
@@ -128,7 +131,7 @@ export const GroveAuthLayer = (configuredIssuer: string) =>
 			const auth = yield* BetterAuth;
 			const sql = yield* PgClient.PgClient;
 			const authority = yield* ActorAuthority;
-			const executor = Pg.Executor.make();
+			const db = yield* makeDatabase(sql);
 			const validatedSession = (headers: Headers) =>
 				Effect.gen(function* () {
 					const current = yield* auth.getSession(headers);
@@ -138,22 +141,16 @@ export const GroveAuthLayer = (configuredIssuer: string) =>
 					}
 
 					// This provider is bound to the discovery-verified configured issuer at startup.
-					const accounts = yield* executor
-						.execute(
-							Query.select({ subject: accountsTable.accountId }).pipe(
-								Query.from(accountsTable),
-								Query.where(
-									Query.and(
-										Query.eq(accountsTable.userId, current.user.id),
-										Query.eq(accountsTable.providerId, GROVE_OIDC_PROVIDER_ID),
-									),
-								),
+					const accounts = yield* db
+						.select({ subject: accountsTable.accountId })
+						.from(accountsTable)
+						.where(
+							and(
+								eq(accountsTable.userId, current.user.id),
+								eq(accountsTable.providerId, GROVE_OIDC_PROVIDER_ID),
 							),
 						)
-						.pipe(
-							Effect.provideService(SqlClient.SqlClient, sql),
-							Effect.mapError((cause) => new BrowserAuthDatabaseError({ cause })),
-						);
+						.pipe(Effect.mapError((cause) => new BrowserAuthDatabaseError({ cause })));
 					const account = accounts.at(0);
 
 					if (!account || accounts.length !== 1) {
